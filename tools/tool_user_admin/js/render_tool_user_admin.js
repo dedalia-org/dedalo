@@ -55,6 +55,7 @@
 
 // imports
 	import {ui} from '../../../core/common/js/ui.js'
+	import {ACTIVE_STYLES, get_active_style, save_active_style} from '../../../core/page/js/active_style.js'
 
 
 
@@ -182,6 +183,9 @@ const get_content_data = async function(self) {
 			columns[index].appendChild(component_node)
 		}))
 
+	// active style switcher (the user's dd1206 UI preferences)
+		fragment.appendChild( render_active_style_switcher() )
+
 	// content_data
 		const content_data = ui.tool.build_content_data(self)
 		content_data.appendChild(fragment)
@@ -189,6 +193,71 @@ const get_content_data = async function(self) {
 
 	return content_data
 }//end get_content_data
+
+
+
+/**
+* RENDER_ACTIVE_STYLE_SWITCHER
+* One radio per ACTIVE_STYLES entry, each with a small preview of the look.
+* A change applies at once and is saved to the user's own record.
+* @returns {HTMLElement} fieldset
+*/
+const render_active_style_switcher = function() {
+
+	const fieldset = ui.create_dom_element({
+		element_type	: 'fieldset',
+		class_name		: 'active_style_switcher'
+	})
+	ui.create_dom_element({
+		element_type	: 'legend',
+		inner_html		: get_label.active_style || 'Active field style',
+		parent			: fieldset
+	})
+
+	const current = get_active_style()
+	for (const style of ACTIVE_STYLES) {
+
+		const option = ui.create_dom_element({
+			element_type	: 'label',
+			class_name		: 'active_style_option',
+			parent			: fieldset
+		})
+		const input = ui.create_dom_element({
+			element_type	: 'input',
+			type			: 'radio',
+			name			: 'active_style',
+			value			: style.id,
+			parent			: option
+		})
+		input.checked = style.id===current
+		ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'active_style_preview preview_' + style.id,
+			parent			: option
+		})
+		ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'active_style_name',
+			inner_html		: get_label[style.label] || style.id,
+			parent			: option
+		})
+
+		input.addEventListener('change', async () => {
+			fieldset.classList.add('loading')
+			try {
+				await save_active_style(style.id)
+			} catch (error) {
+				// applied for this browser all the same; the API error was already shown
+				console.error('active style not saved:', error)
+			} finally {
+				fieldset.classList.remove('loading')
+			}
+		})
+	}
+
+
+	return fieldset
+}//end render_active_style_switcher
 
 
 

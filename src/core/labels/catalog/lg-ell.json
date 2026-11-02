@@ -1,5 +1,9 @@
 {
 	"active": "Ενεργό",
+	"active_style": "Στυλ ενεργού πεδίου",
+	"active_style_default": "Πλαίσιο",
+	"active_style_lift": "Ανύψωση",
+	"active_style_margin": "Περιθώριο",
 	"activity": "Δραστηριότητα",
 	"activity_login": "Σύνδεση",
 	"activity_logout": "Αποσύνδεση",

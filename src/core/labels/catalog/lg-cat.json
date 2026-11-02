@@ -1,5 +1,9 @@
 {
 	"active": "Actiu",
+	"active_style": "Estil del camp actiu",
+	"active_style_default": "Marc",
+	"active_style_lift": "Elevació",
+	"active_style_margin": "Marge",
 	"activity": "Activitat",
 	"activity_login": "Entrada",
 	"activity_logout": "Eixida",

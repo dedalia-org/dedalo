@@ -440,48 +440,70 @@ input::placeholder {
 
 		&.active {
 			z-index: 3; // 3 allow over portal drag handlers
-			// no border/box-shadow on active components (the orange text +
-			// light background already signal the active state). 'none'
-			// also overrides the grey edit/search/player outline above.
+			// "ONE FRAME" active state: the field keeps its own surface inside a
+			// 1px orange frame; the label is set into the frame's top edge and
+			// the tool strip docks on its top-right corner as a tab, so frame,
+			// label and tools read as one object. Inset shadow, not border, so
+			// activation never reflows. 'box-shadow: none' first overrides the
+			// grey edit/search/player outline above.
 			box-shadow: none;
 			color: @color_orange_dedalo;
 			// overflow. allow set flex-basis (properties width). Remember labels are 'text-overflow: ellipsis'
 			overflow: initial; // !important
 
-			// --color_orange_light (#fffaf5) is 1.02:1 on the light card —
-			// the tint was invisible, so only the orange label read as
-			// "active". --color_hilite is the palette's declared orange field
-			// tint (light #fff7ef / dark #4a3424), already paired per theme,
-			// so the whole field lights up in both
-			// modes. The guard keeps the search hilite of a valued field.
+			// The guard keeps the search hilite of a valued field.
 			&:not(.hilite_element) {
-				background-color: @color_hilite;
-				border-radius: 3px;
+				background-color: var(--color_white);
+				box-shadow: inset 0 0 0 1px @color_orange_dedalo;
+				border-radius: 8px;
 
-				// The tint is the surface of everything the field holds, so
-				// the list surfaces painted INSIDE it stop painting: the
-				// list card — at every depth, because a nested portal draws
-				// its own — and each row's grey remove column. Measured on
-				// numisdata3/2 numisdata249 (1 row): the only white inside
-				// the tinted field was `.list_body` #ffffff, and the grey
-				// `.column_remove` slab beside it. Paint only: padding,
-				// radius, min-height and flex/grid are untouched, so nothing
-				// reflows. Empty portals read the same way, with no card.
+				// top-right square only where a tool tab docks (password, inverse… have none)
+				&:has(>.buttons_container>*) {
+					border-top-right-radius: 0;
+				}
+				// bottom square while the autocomplete bar docks there (service_autocomplete.less)
+				&:has(>.wrapper_service_autocomplete.active:not(.search)) {
+					border-bottom-left-radius: 0;
+					border-bottom-right-radius: 0;
+				}
+
+				// Inner list surfaces stop painting their own card / grey remove
+				// column, so the field reads as one surface inside the frame.
 				.list_body,
 				.column_remove {
 					background-color: transparent;
 				}
 			}
 
-			// THE LABEL'S INK ON THE TINT. The tint IS the field's surface,
-			// so the label reads in the palette's DEEP orange —
-			// `--color_orange_dedalo` is a FILL (2.05:1 on the light tint,
-			// 4.76 dark) and no rule may put it behind text as ink.
-			// --color_orange_dark is 5.0:1 here (5.6 dark). Explicit because the shared
-			// label rule above paints every mode's label grey — 4.4:1 on
-			// the tint, under AA.
+			// Label ink: full-contrast --color_black (inverts in dark), heavier
+			// than the idle grey label. Orange is the frame's job, not the text's.
 			>.label {
-				color: var(--color_orange_dark);
+				color: var(--color_black);
+				font-weight: 600;
+			}
+
+			// label as a legend set into the frame's top edge (stays in flow:
+			// only painted up over the line, nothing below moves)
+			&:not(.hilite_element)>.label {
+				justify-self: start;
+				align-self: start;
+				width: fit-content;
+				max-width: calc(100% - 2rem);
+				height: auto;
+				flex: 0 1 auto;
+				// padding-bottom keeps the idle row height where the wrapper is not a
+				// grid (phone `display:block`), or activation pulls the content up.
+				// Padding, not margin: a margin collapses with the content's.
+				padding: 0 0.4rem calc(var(--component_label_height) - 1lh);
+				margin-left: calc(var(--field_inset_x) - 0.4rem);
+				// paint only the text line: the mask over the frame edge
+				background: linear-gradient(var(--color_white), var(--color_white)) top / 100% 1lh no-repeat;
+				transform: translateY(-50%);
+			}
+			// the legend shares the top edge with the tool tab: leave the tab its
+			// room (ellipsis), never below 40% so phones keep a readable label
+			&:not(.hilite_element):has(>.buttons_container>*)>.label {
+				max-width: max(40%, calc(100% - 12rem));
 			}
 
 			.show_on_active {
@@ -496,9 +518,30 @@ input::placeholder {
 				display: block !important;
 				white-space: nowrap;
 				z-index: 2;
+				// docked tab: bottom edge sits on the frame's top edge
+				top: -2rem;
+				height: 2rem;
+				border-radius: 8px 8px 0 0;
+				box-shadow: none;
 
 				.button:last-of-type {
 					margin-right: 0.75rem;
+				}
+			}
+
+			// TAB_LIFTED (ui.component.activate measures it): a narrow field cannot
+			// hold the full label and the tab on its top edge, so the tab floats
+			// clear above the label (a pill again) and the label keeps its text.
+			&.tab_lifted:not(.hilite_element) {
+				border-top-right-radius: 8px;
+
+				&:has(>.buttons_container>*)>.label {
+					max-width: calc(100% - 2rem);
+				}
+
+				>.buttons_container {
+					top: calc(-2rem - 0.75rem - 1px); // above the legend's top (-0.75rem)
+					border-radius: 8px;
 				}
 			}
 		}
@@ -750,7 +793,7 @@ input::placeholder {
 	&:hover:not(.active):not(.disabled_component):not(.component_section_id) {
 		background-color: var(--field_hover_bg);
 
-		// Same law as the `.active` rule above: the tint IS the field's
+		// Same law as the `.active` rule above: the hover tint IS the field's
 		// surface, so the list card and the grey remove slab painted inside
 		// it stop painting. Without this a portal shows a white band under
 		// its label the moment the pointer enters (empty portal: a bare
@@ -772,14 +815,12 @@ input::placeholder {
 		color: var(--field_value_fg); // full-strength value ink (was color_grey_4)
 	}
 
-	// refined active state: the tint (painted by the `.active` rule above)
-	// IS the orange field, so the label ink is the palette's deep orange —
-	// the brand FILL is 2.3:1 on --color_hilite and can never be ink there.
-	// --color_orange_dark is 5.6:1 on the light tint (5.6 dark); values keep readable ink.
+	// active state ("one frame", the `.active` rule above): the orange frame
+	// signals activity, so the label is full-contrast ink, not orange.
 	&.active {
 		>.label {
-			color: var(--color_orange_dark); // explicit: the label rule above outranks the wrapper-level orange
-			// font-weight: 600;
+			color: var(--color_black); // explicit: the label rule above outranks the wrapper-level rule
+			font-weight: 600;
 		}
 
 		>.content_data {

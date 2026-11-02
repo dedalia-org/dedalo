@@ -1,0 +1,212 @@
+/**
+* active style: MARGIN
+*
+* No frame: an orange bracket `[` in a left gutter marks the active field, and
+* its tools stand as a vertical orange rail in a right gutter — the mockup's
+* grid (bracket | field | rail). With this style chosen every top-level edit
+* field outside the inspector keeps both gutters empty (padding), so neither
+* mark ever sits on the field's content. Bracket and rail share the field's
+* content span (top to --field_pad_bottom, measured by ui.component.activate):
+* the rail's icons spread evenly over it, from roomy down to tight; a field too
+* short even for the tight rail grows to hold it (the one case where activation
+* moves what is below, as the mockup's grid row does). In the inspector's
+* narrow column (often label-less) the tools are an orange pill floating just
+* above the field's top-right. A component nested inside another has no gutter
+* of its own: its rail stands just right of it when that space
+* is free, else (`no_side_room`, measured by ui.component.activate) its tools
+* are quiet grey icons on its label row. The bracket is background paint, not a
+* pseudo-element: the wrapper's ::before/::after carry the save and modified
+* lines.
+*
+* Selected by <html data-active_style="margin"> (core/page/js/active_style.js).
+* The base (default) look is layout.less `.active`; this file only overrides it.
+* Mockup: design canvas boards E_Margin, E_Margin_more.
+*/
+
+@margin_bracket_x: 0.3rem;
+@margin_left_gutter: 1rem; // bracket + air before the content
+@margin_rail_width: 2.2rem;
+@margin_gutter: 3rem; // rail + air on both sides
+
+// inspector fields: the bracket's left gutter only (the tools float above)
+:root[data-active_style="margin"] #inspector .wrapper_component.edit:not(.wrapper_component *) {
+	padding-left: @margin_left_gutter;
+}
+// the gutters, active or not (top-level fields only)
+:root[data-active_style="margin"] .wrapper_component.edit:not(.wrapper_component *):not(#inspector *) {
+	padding-left: @margin_left_gutter;
+	padding-right: @margin_gutter;
+}
+
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element) {
+	box-shadow: none;
+	border-radius: 0;
+	background-color: var(--color_white);
+	// bracket: spine + top and bottom ticks
+	background-image:
+		linear-gradient(@color_orange_dedalo, @color_orange_dedalo),
+		linear-gradient(@color_orange_dedalo, @color_orange_dedalo),
+		linear-gradient(@color_orange_dedalo, @color_orange_dedalo);
+	// the content span: the field's own bottom padding is spacing, not field
+	--margin_span: calc(100% - var(--field_pad_bottom, 0px));
+	--rail_roomy: calc(var(--tools_count, 3) * 2rem + 0.9rem);
+	--rail_tight: calc(var(--tools_count, 3) * 1.7rem + 0.6rem);
+	background-size: 3px var(--margin_span), 0.6rem 3px, 0.6rem 3px;
+	background-position: @margin_bracket_x 0, @margin_bracket_x 0, @margin_bracket_x var(--margin_span);
+	background-repeat: no-repeat;
+
+	// label back in its row (the default makes it a legend on the frame edge)
+	>.label {
+		transform: none;
+		background: none;
+		margin-left: 0;
+		padding: 0.4rem 0.5rem 0 var(--field_inset_x);
+		height: var(--component_label_height);
+		max-width: 100%;
+	}
+	// text_area: its editor toolbar takes the label row, so the label rides
+	// just above the field, small (as the default does)
+	&.component_text_area:not(.view_line) {
+		// the bracket encloses the raised label too: spine + bottom tick on the
+		// field, spine + top tick on the label (both start at the field's left)
+		background-size: 3px var(--margin_span), 0 0, 0.6rem 3px;
+
+		>.label {
+			transform: translateY(-100%);
+			background-image:
+				linear-gradient(@color_orange_dedalo, @color_orange_dedalo),
+				linear-gradient(@color_orange_dedalo, @color_orange_dedalo);
+			background-size: 3px 100%, 0.6rem 3px;
+			background-position: @margin_bracket_x 0, @margin_bracket_x 0;
+			background-repeat: no-repeat;
+		}
+	}
+
+	// top-level text_area: its raised label reaches back over the left gutter,
+	// so the label's bracket piece lines up with the field's
+	&.component_text_area:not(.view_line):not(.wrapper_component *):not(#inspector *)>.label {
+		margin-left: -@margin_left_gutter;
+		padding-left: calc(@margin_left_gutter + var(--field_inset_x));
+	}
+
+	// THE RAIL: an orange pill, white icons spread evenly down the field's
+	// content span, between roomy (0.9rem air) and tight (0.6rem air)
+	&:is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *))>.buttons_container {
+		top: 0;
+		left: calc(100% + 0.4rem);
+		right: auto;
+		height: clamp(var(--rail_tight), var(--margin_span), var(--rail_roomy));
+		max-height: none;
+		width: @margin_rail_width;
+		padding: 0.15rem 0;
+		border-radius: var(--radius-pill);
+		box-shadow: var(--shadow-2);
+		white-space: normal;
+		display: flex !important;
+		flex-direction: column;
+		align-items: center;
+		justify-content: space-evenly;
+
+		.buttons_fold {
+			flex: 1 1 auto;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: space-evenly;
+		}
+		span,
+		span:first-child,
+		span:last-child,
+		.button:last-of-type {
+			margin: 0;
+		}
+	}
+	// no tools (inverse, info…): no rail, not even an empty pill
+	// (:is(*, #inspector *) only lifts it to the rail rules' id specificity)
+	&:is(*, #inspector *)>.buttons_container:not(:has(.button)) {
+		display: none !important;
+	}
+	// guttered field: a field too short even for the tight rail grows to hold
+	// it (the mockup's grid row does the same) — the rail never hangs over the
+	// field below, and bracket and rail keep one span
+	&:not(.wrapper_component *):not(#inspector *):has(>.buttons_container>*) {
+		min-height: calc(var(--rail_tight) + var(--field_pad_bottom, 0px));
+	}
+	// guttered field: the rail stands centred in its own gutter
+	&:not(.wrapper_component *):not(#inspector *)>.buttons_container {
+		left: auto;
+		right: calc((@margin_gutter - @margin_rail_width) / 2);
+	}
+
+	// nested, no room on the right: quiet grey icons on the label row
+	&.no_side_room:is(.wrapper_component *):not(#inspector *) {
+		&:has(>.buttons_container>*)>.label {
+			max-width: calc(100% - var(--tools_width, 8rem));
+		}
+		>.buttons_container {
+			top: 0.2rem;
+			right: var(--field_inset_x);
+			height: 1.1rem;
+			max-height: none;
+			padding: 0;
+			background-color: transparent;
+			border-radius: 0;
+			box-shadow: none;
+			display: flex !important;
+			align-items: center;
+
+			.buttons_fold {
+				display: flex;
+				align-items: center;
+			}
+			.button {
+				background-color: var(--color_grey_5);
+
+				&:hover {
+					background-color: var(--color_orange_dark);
+				}
+			}
+			span,
+			span:first-child,
+			span:last-child,
+			.button:last-of-type {
+				margin-top: 0;
+				margin-bottom: 0;
+				margin-right: 0;
+			}
+		}
+		// the row cannot hold both: the icons stand just above the field's top-right
+		&.tab_lifted:has(>.buttons_container>*) {
+			>.label {
+				max-width: 100%;
+			}
+			>.buttons_container {
+				top: calc(-1 * var(--component_label_height));
+			}
+		}
+	}
+
+	// inspector: a narrow column, often without a label row — the tools float
+	// as an orange pill just above the field's top-right
+	&:is(#inspector *)>.buttons_container {
+		top: -1.7rem;
+		left: auto;
+		right: 0;
+		width: auto;
+		height: auto;
+		max-height: none;
+		padding: 0 0.6rem;
+		flex-direction: row;
+		border-radius: var(--radius-pill);
+
+		.buttons_fold {
+			flex-direction: row;
+		}
+		span,
+		span:first-child,
+		span:last-child,
+		.button:last-of-type {
+			margin: 0.35rem 0.25rem;
+		}
+	}
+}

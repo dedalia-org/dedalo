@@ -13,6 +13,7 @@ Concrete scenario: a documentalist at a museum can catalogue objects but is not 
 ## When to use it
 
 - You want to update your own name, password, email or profile picture.
+- You want to choose how the field you are editing is highlighted.
 - You do not have (or do not need) access to the Users management section.
 
 It only ever edits **your own** account. To administer other users — create accounts, set profiles and permissions — use the Users section, which is a separate, permission-gated area.
@@ -27,7 +28,8 @@ Click your **username** in the main menu header. The User admin panel opens. It 
 2. The panel opens showing, as read-only context, your **id**, **username** and **profile**.
 3. Edit the fields you can change: **full name**, **password**, **email**, and your **user image** (the image field has the upload tool, so you can upload a portrait).
 4. Your changes save through the normal field save, the same as editing any record.
-5. Close the panel when you are done.
+5. Under **Active field style**, pick how the field you are editing is highlighted (see below).
+6. Close the panel when you are done.
 
 ## Options
 
@@ -42,6 +44,17 @@ There are no settings to configure — the panel simply renders your own account
 | Password | Editable |
 | Email | Editable |
 | User image | Editable (with upload) |
+| Active field style | Editable (saved in your User interface preferences) |
+
+### Active field style
+
+How Dédalo marks the field you are currently editing. The choice applies at once, is saved on your own user record (the *User interface preferences* field), and follows you to any browser and every login.
+
+| Style | Look |
+| --- | --- |
+| **Frame** (default) | A thin orange frame around the field; its name sits in the frame's top edge and its tools are a tab on the top-right corner. |
+| **Lift** | The field rises as a card, exactly its own size, with a soft shadow; an orange dot marks its name and the tools sit on the name's row. |
+| **Margin** | An orange bracket in the field's left margin; the tools stand as a vertical rail just right of the field when there is free space there, otherwise on the name's row. |
 
 ## Tips and gotchas
 

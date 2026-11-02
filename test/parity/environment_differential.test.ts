@@ -209,6 +209,12 @@ describe.if(hasPhpCredentials())('environment payload differential (Phase 7 gate
 		expect('tool_error_report_granted' in phpGlobals).toBe(false);
 		// biome-ignore lint/performance/noDelete: same as the WC-031 strip above
 		delete tsGlobals.tool_error_report_granted;
+		// engineering/wire_contract/ WC-2026-11-02-ui-preferences: TS-ONLY key (the
+		// user's dd1206 UI preferences). Same explicit-then-strip handling as WC-031.
+		expect('ui_preferences' in tsGlobals).toBe(true);
+		expect('ui_preferences' in phpGlobals).toBe(false);
+		// biome-ignore lint/performance/noDelete: same as the WC-031 strip above
+		delete tsGlobals.ui_preferences;
 		// engineering/wire_contract/ WC-038: `ip_api` REMOVED from page_globals — IP→country
 		// resolution moved server-side/offline (src/core/geoip). The frozen PHP
 		// oracle still carries it; strip it PHP-side (the mirror of the WC-031

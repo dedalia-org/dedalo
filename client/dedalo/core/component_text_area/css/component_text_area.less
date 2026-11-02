@@ -8,21 +8,21 @@
 	&.edit {
 		align-content: unset;
 
-		// active: the ck toolbar takes the label row, so the label rides above the field
-		// as a tab in the field's tint. transform only: the grid label track is fixed, so
-		// the text never moves. Under the pill (z 2) when a growing pill reaches it.
+		// active: the ck toolbar takes the label row, so the label is the frame's
+		// legend (layout.less `.active`), smaller and raised clear of the toolbar.
+		// transform only: the grid label track is fixed, so the text never moves.
+		// Under the tool tab (z 2) when a growing tab reaches it.
 		&.active > .label {
 			position: relative;
 			z-index: 1;
-			justify-self: start;
-			align-self: start;
 			max-width: 40%;
-			height: auto;
-			padding: 0.15rem 0.6rem;
 			font-size: 0.75rem;
-			background-color: var(--color_hilite);
-			border-radius: 4px 4px 0 0;
-			transform: translateY(-100%);
+			transform: translateY(-60%);
+		}
+		// keep the toolbar off the frame's edge
+		&.active:not(.view_line) > .content_data > .content_value > .toolbar_container {
+			margin-left: 4px;
+			margin-right: 4px;
 		}
 
 		// sticky toolbar: toolbar and editor share ONE grid cell per entry, so the

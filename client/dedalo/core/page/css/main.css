@@ -5300,8 +5300,20 @@ input::placeholder {
 .wrapper_component.edit.active:not(.hilite_element),
 .wrapper_component.search.active:not(.hilite_element),
 .wrapper_component.player.active:not(.hilite_element) {
-  background-color: var(--color_hilite);
-  border-radius: 3px;
+  background-color: var(--color_white);
+  box-shadow: inset 0 0 0 1px var(--color_orange_dedalo);
+  border-radius: 8px;
+}
+.wrapper_component.edit.active:not(.hilite_element):has(>.buttons_container>*),
+.wrapper_component.search.active:not(.hilite_element):has(>.buttons_container>*),
+.wrapper_component.player.active:not(.hilite_element):has(>.buttons_container>*) {
+  border-top-right-radius: 0;
+}
+.wrapper_component.edit.active:not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)),
+.wrapper_component.search.active:not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)),
+.wrapper_component.player.active:not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 .wrapper_component.edit.active:not(.hilite_element) .list_body,
 .wrapper_component.search.active:not(.hilite_element) .list_body,
@@ -5314,7 +5326,27 @@ input::placeholder {
 .wrapper_component.edit.active > .label,
 .wrapper_component.search.active > .label,
 .wrapper_component.player.active > .label {
-  color: var(--color_orange_dark);
+  color: var(--color_black);
+  font-weight: 600;
+}
+.wrapper_component.edit.active:not(.hilite_element) > .label,
+.wrapper_component.search.active:not(.hilite_element) > .label,
+.wrapper_component.player.active:not(.hilite_element) > .label {
+  justify-self: start;
+  align-self: start;
+  width: fit-content;
+  max-width: calc(100% - 2rem);
+  height: auto;
+  flex: 0 1 auto;
+  padding: 0 0.4rem calc(var(--component_label_height) - 1lh);
+  margin-left: calc(var(--field_inset_x) - 0.4rem);
+  background: linear-gradient(var(--color_white), var(--color_white)) top / 100% 1lh no-repeat;
+  transform: translateY(-50%);
+}
+.wrapper_component.edit.active:not(.hilite_element):has(>.buttons_container>*) > .label,
+.wrapper_component.search.active:not(.hilite_element):has(>.buttons_container>*) > .label,
+.wrapper_component.player.active:not(.hilite_element):has(>.buttons_container>*) > .label {
+  max-width: max(40%, calc(100% - 12rem));
 }
 .wrapper_component.edit.active .show_on_active,
 .wrapper_component.search.active .show_on_active,
@@ -5327,11 +5359,31 @@ input::placeholder {
   display: block !important;
   white-space: nowrap;
   z-index: 2;
+  top: -2rem;
+  height: 2rem;
+  border-radius: 8px 8px 0 0;
+  box-shadow: none;
 }
 .wrapper_component.edit.active > .buttons_container .button:last-of-type,
 .wrapper_component.search.active > .buttons_container .button:last-of-type,
 .wrapper_component.player.active > .buttons_container .button:last-of-type {
   margin-right: 0.75rem;
+}
+.wrapper_component.edit.active.tab_lifted:not(.hilite_element),
+.wrapper_component.search.active.tab_lifted:not(.hilite_element),
+.wrapper_component.player.active.tab_lifted:not(.hilite_element) {
+  border-top-right-radius: 8px;
+}
+.wrapper_component.edit.active.tab_lifted:not(.hilite_element):has(>.buttons_container>*) > .label,
+.wrapper_component.search.active.tab_lifted:not(.hilite_element):has(>.buttons_container>*) > .label,
+.wrapper_component.player.active.tab_lifted:not(.hilite_element):has(>.buttons_container>*) > .label {
+  max-width: calc(100% - 2rem);
+}
+.wrapper_component.edit.active.tab_lifted:not(.hilite_element) > .buttons_container,
+.wrapper_component.search.active.tab_lifted:not(.hilite_element) > .buttons_container,
+.wrapper_component.player.active.tab_lifted:not(.hilite_element) > .buttons_container {
+  top: calc(-2rem - 0.75rem - 1px);
+  border-radius: 8px;
 }
 .wrapper_component.search {
   flex: 1 1 100%;
@@ -5512,7 +5564,8 @@ dd-modal .wrapper_component > .content_data.vertical,
   color: var(--field_value_fg);
 }
 .section_record.edit .wrapper_component.edit.active > .label {
-  color: var(--color_orange_dark);
+  color: var(--color_black);
+  font-weight: 600;
 }
 .section_record.edit .wrapper_component.edit.active > .content_data {
   color: var(--field_value_fg);
@@ -11147,6 +11200,28 @@ body:has(.component_av.view_viewer) {
 }
 .wrapper_service_autocomplete.active {
   opacity: 1;
+}
+.wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search) {
+  left: 0;
+  width: 100%;
+  min-width: 0;
+  top: calc(100% - 1px);
+  border-radius: 0 0 8px 8px;
+}
+.wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search) > .autocomplete_input {
+  border-radius: 4px;
+}
+.wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search) > .autocomplete_data {
+  min-width: max(100%, min(25rem, calc(100vw - 2rem)));
+  max-width: none;
+}
+.wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search):has(>.autocomplete_data>*) {
+  border-radius: 0;
+}
+.wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search):has(>.autocomplete_data>*) > .autocomplete_data {
+  border-bottom: 1px solid var(--color_orange_dedalo);
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
 }
 .wrapper_service_autocomplete .spinner {
   right: 3rem;
@@ -27301,7 +27376,7 @@ body.inspector_resizing {
   opacity: 0.5;
 }
 .component_security_access.edit.active > .content_data > .tree_root > .tree_filter {
-  background-color: var(--color_hilite);
+  background-color: var(--color_white);
 }
 .component_security_access.edit.view_print > .content_data > .tree_root > .tree_filter {
   display: none;
@@ -27520,15 +27595,13 @@ body.inspector_resizing {
 .component_text_area.edit.active > .label {
   position: relative;
   z-index: 1;
-  justify-self: start;
-  align-self: start;
   max-width: 40%;
-  height: auto;
-  padding: 0.15rem 0.6rem;
   font-size: 0.75rem;
-  background-color: var(--color_hilite);
-  border-radius: 4px 4px 0 0;
-  transform: translateY(-100%);
+  transform: translateY(-60%);
+}
+.component_text_area.edit.active:not(.view_line) > .content_data > .content_value > .toolbar_container {
+  margin-left: 4px;
+  margin-right: 4px;
 }
 .component_text_area.edit:not(.view_line) > .content_data {
   overflow: visible;
@@ -28930,5 +29003,310 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
 .wrapper_widget.sum_dates .content_data .sum_dates_period_notes {
   font-family: "Arial";
   color: var(--color_grey_8);
+}
+/**
+* active style: LIFT
+*
+* The active field rises as a card: an elevated surface, a 1px neutral edge and
+* a soft shadow (paint only, no reflow). Left, right and bottom it is exactly
+* the field's own box. The label (marked by an orange dot — the only orange)
+* and the tools (quiet grey icons, deep-orange ink on hover) share the label
+* row. Only where that row cannot hold them does the card grow UP by a header
+* band (the tools container stretched across the card): a field too narrow for
+* both (`tab_lifted`: tools in the band, label stays in its row) and text_area,
+* whose editor toolbar takes the label row (label and tools in the band; a
+* narrow one gets a two-row band). No band where it would only add a gap.
+* Mockup: design canvas board C_Lift.
+*
+* Selected by <html data-active_style="lift"> (core/page/js/active_style.js).
+* The base (default) look is layout.less `.active`; this file only overrides it.
+*/
+:root[data-active_style="lift"] {
+  --lift_edge: #e2ded7;
+  --lift_shadow: 0 1px 2px rgba(40, 30, 20, 0.06), 0 10px 28px rgba(40, 30, 20, 0.1);
+  --lift_band_height: calc(var(--component_label_height) + 1rem);
+  --lift_headroom: 0.6rem;
+  --lift_label_gap: 0.5rem;
+}
+:root[data-active_style="lift"][data-theme="dark"] {
+  --lift_edge: var(--border_strong);
+  --lift_shadow: var(--shadow-3);
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) {
+  background-color: var(--bg_elevated);
+  box-shadow: inset 0 0 0 1px var(--lift_edge), var(--lift_shadow);
+  border-radius: 10px;
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .label {
+  transform: none;
+  background: none;
+  margin-left: 0;
+  padding: 0.4rem 0.5rem 0 var(--field_inset_x);
+  height: var(--component_label_height);
+  max-width: 100%;
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .label::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 0.4rem;
+  border-radius: 50%;
+  background-color: var(--color_orange_dedalo);
+  vertical-align: 0.1em;
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.tab_lifted):not(.component_text_area) {
+  --lift_rise: calc(var(--lift_headroom) + var(--lift_label_gap));
+  box-shadow: 0 calc(-1 * var(--lift_rise)) 0 0 var(--bg_elevated), 0 0 0 1px var(--lift_edge), 0 calc(-1 * var(--lift_rise)) 0 1px var(--lift_edge), var(--lift_shadow);
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.tab_lifted):not(.component_text_area) > .label {
+  transform: translateY(calc(-1 * var(--lift_label_gap)));
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.tab_lifted):not(.component_text_area) > .buttons_container {
+  top: calc(0.4rem - var(--lift_label_gap));
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container {
+  top: 0.4rem;
+  right: var(--field_inset_x);
+  height: 1.1rem;
+  max-height: none;
+  padding: 0;
+  background-color: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-end;
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container .buttons_fold {
+  display: flex;
+  align-items: center;
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container .button {
+  background-color: var(--color_grey_5);
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container .button:hover {
+  background-color: var(--color_orange_dark);
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container span,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container span:first-child,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container span:last-child,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container .button:last-of-type {
+  margin-top: 0;
+  margin-bottom: 0;
+  margin-right: 0;
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):has(>.buttons_container>*) > .label {
+  max-width: calc(100% - var(--tools_width, 8rem));
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).tab_lifted:has(>.buttons_container>*),
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line):has(>.buttons_container>*) {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  box-shadow: inset 1px 0 0 var(--lift_edge), inset -1px 0 0 var(--lift_edge), inset 0 -1px 0 var(--lift_edge), var(--lift_shadow);
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).tab_lifted:has(>.buttons_container>*) > .label,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line):has(>.buttons_container>*) > .label {
+  max-width: 100%;
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).tab_lifted:has(>.buttons_container>*) > .buttons_container,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line):has(>.buttons_container>*) > .buttons_container {
+  top: calc(-1 * var(--lift_band_height));
+  left: 0;
+  right: 0;
+  height: var(--lift_band_height);
+  padding-right: var(--field_inset_x);
+  background-color: var(--bg_elevated);
+  border-radius: 10px 10px 0 0;
+  box-shadow: inset 1px 0 0 var(--lift_edge), inset -1px 0 0 var(--lift_edge), inset 0 1px 0 var(--lift_edge), 0 -1px 3px rgba(40, 30, 20, 0.05);
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line):has(>.buttons_container>*) > .label {
+  position: relative;
+  z-index: 3;
+  font-size: inherit;
+  max-width: calc(100% - var(--tools_width, 8rem) - 2 * var(--field_inset_x));
+  transform: translateY(calc(-1 * (var(--lift_band_height) / 2 + 0.95rem)));
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) > .label {
+  max-width: 100%;
+  transform: translateY(calc(-1 * var(--component_label_height) - 1rem));
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) > .buttons_container {
+  top: calc(-1 * (var(--lift_band_height) + var(--component_label_height)));
+  height: calc(var(--lift_band_height) + var(--component_label_height));
+  align-items: flex-start;
+  padding-top: 0.5rem;
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search) {
+  top: 100%;
+  background-color: var(--bg_elevated);
+  box-shadow: inset 0 0 0 1px var(--lift_edge), var(--lift_shadow);
+  border-radius: 0 0 10px 10px;
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search) > .button_options {
+  background-color: var(--color_grey_5);
+}
+/**
+* active style: MARGIN
+*
+* No frame: an orange bracket `[` in a left gutter marks the active field, and
+* its tools stand as a vertical orange rail in a right gutter — the mockup's
+* grid (bracket | field | rail). With this style chosen every top-level edit
+* field outside the inspector keeps both gutters empty (padding), so neither
+* mark ever sits on the field's content. Bracket and rail share the field's
+* content span (top to --field_pad_bottom, measured by ui.component.activate):
+* the rail's icons spread evenly over it, from roomy down to tight; a field too
+* short even for the tight rail grows to hold it (the one case where activation
+* moves what is below, as the mockup's grid row does). In the inspector's
+* narrow column (often label-less) the tools are an orange pill floating just
+* above the field's top-right. A component nested inside another has no gutter
+* of its own: its rail stands just right of it when that space
+* is free, else (`no_side_room`, measured by ui.component.activate) its tools
+* are quiet grey icons on its label row. The bracket is background paint, not a
+* pseudo-element: the wrapper's ::before/::after carry the save and modified
+* lines.
+*
+* Selected by <html data-active_style="margin"> (core/page/js/active_style.js).
+* The base (default) look is layout.less `.active`; this file only overrides it.
+* Mockup: design canvas boards E_Margin, E_Margin_more.
+*/
+:root[data-active_style="margin"] #inspector .wrapper_component.edit:not(.wrapper_component *) {
+  padding-left: 1rem;
+}
+:root[data-active_style="margin"] .wrapper_component.edit:not(.wrapper_component *):not(#inspector *) {
+  padding-left: 1rem;
+  padding-right: 3rem;
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element) {
+  box-shadow: none;
+  border-radius: 0;
+  background-color: var(--color_white);
+  background-image: linear-gradient(var(--color_orange_dedalo), var(--color_orange_dedalo)), linear-gradient(var(--color_orange_dedalo), var(--color_orange_dedalo)), linear-gradient(var(--color_orange_dedalo), var(--color_orange_dedalo));
+  --margin_span: calc(100% - var(--field_pad_bottom, 0px));
+  --rail_roomy: calc(var(--tools_count, 3) * 2rem + 0.9rem);
+  --rail_tight: calc(var(--tools_count, 3) * 1.7rem + 0.6rem);
+  background-size: 3px var(--margin_span), 0.6rem 3px, 0.6rem 3px;
+  background-position: 0.3rem 0, 0.3rem 0, 0.3rem var(--margin_span);
+  background-repeat: no-repeat;
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element) > .label {
+  transform: none;
+  background: none;
+  margin-left: 0;
+  padding: 0.4rem 0.5rem 0 var(--field_inset_x);
+  height: var(--component_label_height);
+  max-width: 100%;
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line) {
+  background-size: 3px var(--margin_span), 0 0, 0.6rem 3px;
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line) > .label {
+  transform: translateY(-100%);
+  background-image: linear-gradient(var(--color_orange_dedalo), var(--color_orange_dedalo)), linear-gradient(var(--color_orange_dedalo), var(--color_orange_dedalo));
+  background-size: 3px 100%, 0.6rem 3px;
+  background-position: 0.3rem 0, 0.3rem 0;
+  background-repeat: no-repeat;
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line):not(.wrapper_component *):not(#inspector *) > .label {
+  margin-left: -1rem;
+  padding-left: calc(1rem + var(--field_inset_x));
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container {
+  top: 0;
+  left: calc(100% + 0.4rem);
+  right: auto;
+  height: clamp(var(--rail_tight), var(--margin_span), var(--rail_roomy));
+  max-height: none;
+  width: 2.2rem;
+  padding: 0.15rem 0;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-2);
+  white-space: normal;
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-evenly;
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container .buttons_fold {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-evenly;
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span:first-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span:last-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container .button:last-of-type {
+  margin: 0;
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(*, #inspector *) > .buttons_container:not(:has(.button)) {
+  display: none !important;
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_component *):not(#inspector *):has(>.buttons_container>*) {
+  min-height: calc(var(--rail_tight) + var(--field_pad_bottom, 0px));
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_component *):not(#inspector *) > .buttons_container {
+  left: auto;
+  right: calc((3rem - 2.2rem) / 2);
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *):has(>.buttons_container>*) > .label {
+  max-width: calc(100% - var(--tools_width, 8rem));
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container {
+  top: 0.2rem;
+  right: var(--field_inset_x);
+  height: 1.1rem;
+  max-height: none;
+  padding: 0;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  display: flex !important;
+  align-items: center;
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .buttons_fold {
+  display: flex;
+  align-items: center;
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button {
+  background-color: var(--color_grey_5);
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button:hover {
+  background-color: var(--color_orange_dark);
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span:first-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span:last-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button:last-of-type {
+  margin-top: 0;
+  margin-bottom: 0;
+  margin-right: 0;
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *).tab_lifted:has(>.buttons_container>*) > .label {
+  max-width: 100%;
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *).tab_lifted:has(>.buttons_container>*) > .buttons_container {
+  top: calc(-1 * var(--component_label_height));
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(#inspector *) > .buttons_container {
+  top: -1.7rem;
+  left: auto;
+  right: 0;
+  width: auto;
+  height: auto;
+  max-height: none;
+  padding: 0 0.6rem;
+  flex-direction: row;
+  border-radius: var(--radius-pill);
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(#inspector *) > .buttons_container .buttons_fold {
+  flex-direction: row;
+}
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(#inspector *) > .buttons_container span,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(#inspector *) > .buttons_container span:first-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(#inspector *) > .buttons_container span:last-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(#inspector *) > .buttons_container .button:last-of-type {
+  margin: 0.35rem 0.25rem;
 }
 /*# sourceMappingURL=main.css.map */

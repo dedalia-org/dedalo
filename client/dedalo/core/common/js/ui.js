@@ -900,6 +900,13 @@ export const ui = {
 					return false
 				}
 
+			// not selectable: the edit section_id is a read-only badge (the record's
+			// identity), with nothing to edit or focus, and an active look over it
+			// only hides the number
+				if (component.model==='component_section_id' && component.mode==='edit') {
+					return false
+				}
+
 			// component active status update
 			// Its important to fix the value here because prevents duplicate events like component_text_area focus
 				component.active = true
@@ -925,6 +932,48 @@ export const ui = {
 							) {
 							wrapper.classList.add('inside')
 						}
+					}
+
+					// --field_pad_bottom: the field's empty bottom padding, so a style can
+					// mark the field's content span, not its spacing (Margin's bracket + rail)
+					// (a content_data out of flow — media fields — says nothing: 0)
+					const content_data	= wrapper.querySelector(':scope>.content_data')
+					const cd_rect		= content_data ? content_data.getBoundingClientRect() : null
+					const pad_bottom	= cd_rect && cd_rect.height > 0 && cd_rect.bottom <= el_rect.bottom + 1
+						? el_rect.bottom - cd_rect.bottom + parseFloat(getComputedStyle(content_data).paddingBottom || 0)
+						: 0
+					wrapper.style.setProperty('--field_pad_bottom', Math.min(Math.max(0, pad_bottom), el_rect.height / 2) + 'px')
+
+					// tab_lifted. The label (frame legend) and the tool tab share the
+					// frame's top edge (layout.less `.active`). A narrow field cannot hold
+					// both: lift the tab clear of the label instead of truncating the
+					// label to a few letters. Measured once here: the layout was already
+					// forced by getBoundingClientRect above.
+					const label	= wrapper.querySelector(':scope>.label')
+					const tab	= wrapper.querySelector(':scope>.buttons_container')
+					if (label && tab && tab.childElementCount > 0) {
+						const label_end = label.getBoundingClientRect().left - el_rect.left + label.scrollWidth
+						// the buttons' own span (+ the strip's side padding), not the container:
+						// a style may stretch the container across the field (Lift's header band)
+						const buttons	= tab.querySelectorAll('.button')
+						const tools_width = buttons.length > 0
+							? buttons[buttons.length-1].getBoundingClientRect().right - buttons[0].getBoundingClientRect().left + 24
+							: tab.offsetWidth
+						const fits = label_end + 8 <= el_rect.width - tools_width
+						wrapper.classList.toggle('tab_lifted', !fits)
+						// for the styles that keep the tools on the label row (core/page/css/active_styles)
+						wrapper.style.setProperty('--tools_width', tools_width + 'px')
+						wrapper.style.setProperty('--tools_count', buttons.length || tab.childElementCount)
+						// no_side_room: the space just right of the field (the Margin style's
+						// tool rail) must be the field's own container, empty. Another field,
+						// the inspector or the viewport edge (no hit) says no.
+						// (the field's own rail may already be painted there: look under it)
+						const hit = document.elementsFromPoint(el_rect.right + 24, el_rect.top + 12)
+							.find(el => !wrapper.contains(el))
+						// (the viewport is checked first: a page that overflows sideways, e.g. on
+						// a phone, still answers a hit beyond the visible edge)
+						const off_screen = el_rect.right + 48 > document.documentElement.clientWidth
+						wrapper.classList.toggle('no_side_room', off_screen || !hit || !hit.contains(wrapper))
 					}
 				}
 
@@ -1092,7 +1141,7 @@ export const ui = {
 
 			// styles. Remove wrapper css active if exists
 				if(component.node && component.node.classList.contains('active')) {
-					component.node.classList.remove('active')
+					component.node.classList.remove('active', 'tab_lifted', 'no_side_room')
 				}
 
 			// changed_data check. This action saves changed_data

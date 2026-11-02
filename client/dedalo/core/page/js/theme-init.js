@@ -44,5 +44,9 @@
 		// (!) Only act on explicit 'dark'; any other stored value (or absence)
 		// leaves the attribute unset, defaulting to light theme via CSS.
 		if (t === 'dark') document.documentElement.setAttribute('data-theme','dark');
+		// active-field style cache ('dedalo_active_style' = ACTIVE_STYLE_KEY in
+		// core/page/js/active_style.js); an unknown id matches no stylesheet
+		const s = localStorage.getItem('dedalo_active_style');
+		if (s) document.documentElement.setAttribute('data-active_style', s);
 	} catch(_){}
 })();

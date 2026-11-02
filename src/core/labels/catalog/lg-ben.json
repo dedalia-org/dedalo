@@ -1,5 +1,9 @@
 {
 	"active": "সক্রিয়",
+	"active_style": "সক্রিয় ক্ষেত্রের শৈলী",
+	"active_style_default": "ফ্রেম",
+	"active_style_lift": "উত্তোলন",
+	"active_style_margin": "মার্জিন",
 	"activity": "কার্যকলাপ",
 	"activity_login": "লগইন",
 	"activity_logout": "লগআউট",

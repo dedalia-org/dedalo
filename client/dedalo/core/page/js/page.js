@@ -38,6 +38,7 @@
 
 // import
 	import {event_manager} from '../../common/js/event_manager.js'
+	import {sync_active_style_from_server} from './active_style.js'
 	import {data_manager} from '../../common/js/data_manager.js'
 	import {get_instance,get_all_instances} from '../../common/js/instances.js'
 	import {dd_request_idle_callback} from '../../common/js/events.js'
@@ -725,6 +726,8 @@ page.prototype.build = async function(autoload=false) {
 				}
 				// fix API environment vars to window (page_globals, plain_vars, get_label)
 				set_environment(api_response.environment.result)
+				// the user's active-field style (page_globals.ui_preferences)
+				sync_active_style_from_server()
 
 				// engine-build cache guard. The 'section_cache_*' / 'page_cache_*'
 				// IndexedDB entries are otherwise only cleared on logout or language

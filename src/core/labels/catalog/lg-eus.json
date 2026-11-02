@@ -1,5 +1,9 @@
 {
 	"active": "Aktibo",
+	"active_style": "Eremu aktiboaren estiloa",
+	"active_style_default": "Markoa",
+	"active_style_lift": "Altxatu",
+	"active_style_margin": "Marjina",
 	"activity": "Jarduera",
 	"activity_login": "Sarrera",
 	"activity_logout": "Irteera",

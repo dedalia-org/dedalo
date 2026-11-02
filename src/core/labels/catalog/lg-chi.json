@@ -1,5 +1,9 @@
 {
 	"active": "启用",
+	"active_style": "活动字段样式",
+	"active_style_default": "边框",
+	"active_style_lift": "浮起",
+	"active_style_margin": "页边",
 	"activity": "活动",
 	"activity_login": "登录",
 	"activity_logout": "退出登录",

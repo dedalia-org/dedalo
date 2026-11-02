@@ -155,6 +155,13 @@ async function isErrorReportGranted(principal: Principal | null): Promise<boolea
 	return isToolGranted(principal.userId, 'tool_error_report');
 }
 
+/** The logged user's dd1206 UI preferences; null for anonymous callers. */
+async function uiPreferencesFor(session: Session | null): Promise<Record<string, unknown> | null> {
+	if (session === null) return null;
+	const { resolveUserUiPreferences } = await import('../security/user_identity.ts');
+	return resolveUserUiPreferences(session.userId);
+}
+
 /**
  * The page_globals object (PHP get_page_globals): auth state from the session,
  * entity/lang/media configuration from the install.
@@ -190,6 +197,10 @@ export async function buildPageGlobals(
 		user_id: session?.userId ?? null,
 		username: session?.username ?? null,
 		full_username: isLogged ? '' : null, // root has no full name on this install
+		// WC-2026-11-02-ui-preferences: TS-ONLY key — the user's own dd1206 "User
+		// interface preferences" (e.g. the active-field style), so the choice follows
+		// the user across browsers and logins. NULL for anonymous callers.
+		ui_preferences: await uiPreferencesFor(session),
 		dedalo_entity: config.entity, // DEDALO_ENTITY
 		dedalo_entity_id: config.identity.entityId, // DEDALO_ENTITY_ID
 		// WC-031: TS-ONLY page_globals key (PHP get_page_globals has no twin). Lets the

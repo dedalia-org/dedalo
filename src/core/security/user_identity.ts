@@ -88,6 +88,44 @@ export async function resolveUserDefaultSection(userId: number): Promise<string 
 	return /^[a-z]+[0-9]+$/.test(tipo) ? tipo : null;
 }
 
+/** The users section's "User interface preferences" component (component_json). */
+const USER_UI_PREFERENCES_COMPONENT = 'dd1206';
+
+/** Above this the stored document is not a preference set: never shipped to every page. */
+const UI_PREFERENCES_MAX_BYTES = 4096;
+
+/**
+ * The user's own UI preferences (dd1206, e.g. `{ active_style: 'lift' }`), or null.
+ * The client owns the meaning of every key (an unknown value falls back to its
+ * default), so the server only guarantees a small plain object.
+ */
+export async function resolveUserUiPreferences(
+	userId: number,
+): Promise<Record<string, unknown> | null> {
+	const { readMatrixRecord } = await import('../db/matrix.ts');
+	const record = await readMatrixRecord('matrix_users', USERS_SECTION, userId);
+	if (record === null) return null;
+	const { resolveComponentValue } = await import('../resolve/component_data.ts');
+	const { value } = await resolveComponentValue(
+		record,
+		USER_UI_PREFERENCES_COMPONENT,
+		'component_json',
+		'lg-nolan',
+	);
+	return pickUiPreferences(value);
+}
+
+/** The first item's `value` when it is a plain object within the size cap; else null. */
+export function pickUiPreferences(
+	items: readonly unknown[] | null | undefined,
+): Record<string, unknown> | null {
+	const value = (items?.[0] as { value?: unknown } | undefined)?.value;
+	if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+	return JSON.stringify(value).length <= UI_PREFERENCES_MAX_BYTES
+		? (value as Record<string, unknown>)
+		: null;
+}
+
 /** The first item's text — a bare string or a `{ value }` item — trimmed; '' when none. */
 function firstItemText(items: readonly unknown[] | null | undefined): string {
 	const first = items?.[0] as { value?: unknown } | string | undefined;

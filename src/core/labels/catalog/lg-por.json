@@ -1,5 +1,9 @@
 {
 	"active": "Ativo",
+	"active_style": "Estilo do campo ativo",
+	"active_style_default": "Moldura",
+	"active_style_lift": "Elevação",
+	"active_style_margin": "Margem",
 	"activity": "Atividade",
 	"activity_login": "Entrada",
 	"activity_logout": "Saída",

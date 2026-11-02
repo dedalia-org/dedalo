@@ -23,6 +23,17 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **The field you are editing is now outlined by an orange frame instead of a light orange background.**
+
+    Before, the active field was painted a very pale orange that was hard to tell from the
+    rest of the form, with its tools floating above it in a separate orange pill. Now the
+    field keeps its normal background inside an orange frame: its name sits in the frame's
+    top edge in dark, bold text, and its tools are a tab joined to the frame's top-right
+    corner (on a field too narrow for both, the tools float just above it so the name is
+    never cut short). In relation fields (portals) the search bar is now the frame's bottom edge,
+    exactly as wide as the field, and the list of results continues below it. Nothing
+    moves on the page when a field becomes active. Works the same in the dark theme and on phones.
+
 - **JSON fields are lighter and faster**
 
     The JSON component loads its search and mini/text/collapse views only when used, list cells preview a large value without serializing all of it, typing in the editor no longer re-parses the whole value on every keystroke, closing a record releases its JSON editors, and the JSON download no longer builds a percent-encoded copy of the value.
@@ -88,6 +99,12 @@ Merged since the last release; these ship with the next one.
     Before: an untagged developer build reported its version as `7.0.0.dev`, the name of the release it followed, and its archive was `7.0.0-dev.zip`. Now it reports the next version it is heading to, written with a hyphen (`7.0.1-dev`), and its archive is named the same way. A developer build sorts above every prerelease of its version and below that version's release, so an install running it is offered the stable release `7.0.1` once that exists. Two developer builds of the same line share one name, so the version shown does not change between them; the **Installed archive** value shows which build is running. Moving from a developer build to a release candidate is not offered, and no channel moves an installation to an earlier release: an urgent developer build is followed by the next stable release. A release tag names its own version, so a code-only patch tag such as `7.0.1` over data `7.0.0` reports `7.0.1`, not a developer build.
 
 #### Added
+
+- **Each user can now choose how the field being edited is highlighted: Frame, Lift or Margin.**
+
+    The user panel (click your username in the header) has a new **Active field style** choice. **Frame** is the default thin orange frame. **Lift** raises the field as a card with a soft shadow, an orange dot by its name and quiet grey tools on the name's row; where that row cannot hold them (text areas, narrow fields) the card grows upward to hold the tools. **Margin** marks the field with an orange bracket in its left margin and stands its tools as a vertical orange rail in a margin on its right (fields leave that margin free while this style is chosen). The choice applies at once and is saved in the new *User interface preferences* field of your own user record, so it follows you to any browser and every login. The record number (Id) is no longer highlighted when clicked: it is read-only. Requires the ontology update that adds that field (`dd1206`).
+
+    Wire contract: `WC-2026-11-02-ui-preferences`.
 
 - **Press ⌘K (Ctrl+K) to jump to any section or open a tool.**
 
@@ -623,7 +640,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 29 entries"
+??? note "Wire contract — 30 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -654,6 +671,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-30-update-door-refusals`
     - `WC-2026-10-30-update-run`
     - `WC-2026-10-30-update-sources-server-held`
+    - `WC-2026-11-02-ui-preferences`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

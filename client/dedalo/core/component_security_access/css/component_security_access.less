@@ -110,10 +110,10 @@
 				// visual line without a magic offset.
 				// It STICKS at the same `top` as `.changes_container` (the left column
 				// pins there while the tree scrolls), so that line survives scrolling.
-				// Its surface: the resting panel surface, and the wrapper's TINT when
-				// the component is active — inside a tinted field the tint IS the
-				// surface (layout.less: nested surfaces stop painting), so a white bar
-				// would cut a band across it. Both are invisible when not stuck.
+				// Its surface: the resting panel surface, and the field's own surface
+				// (--color_white inside the orange frame) when the component is
+				// active — layout.less: nested surfaces stop painting, so a panel-grey
+				// bar would cut a band across it. Both are invisible when not stuck.
 				>.tree_filter {
 					display: flex;
 					flex-wrap: wrap;
@@ -397,14 +397,14 @@
 
 		}//end >.content_data
 
-		// ACTIVE FIELD: the tint is the surface (layout.less), so the sticky tree
-		// filter repaints with it instead of cutting a light band across the tint.
-		// 6 classes vs the base rule's 5: it must BEAT it, not merely follow it.
+		// ACTIVE FIELD: the field surface is --color_white inside the orange frame
+		// (layout.less), so the sticky tree filter repaints with it instead of
+		// cutting a band across it. 6 classes vs the base rule's 5: it must BEAT it.
 		&.active {
 			>.content_data {
 				>.tree_root {
 					>.tree_filter {
-						background-color: @color_hilite;
+						background-color: var(--color_white);
 					}
 				}
 			}

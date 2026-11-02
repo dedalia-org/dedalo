@@ -159,12 +159,11 @@
 	--color_hilite_2:                 #ffda86; // used in tool cataloging and tool_numismatic_order_coins drag
 	--color_hilite_yellow:            #ffef3d; // used in ts_object to hilite terms
 
-	// Text selection (::selection). It must NOT be --color_hilite: the active
-	// field wrapper is painted that same #fff7ef (layout.less `.active`) and a
-	// literal's input is transparent over it, so a hilite-coloured range was
-	// 1.00:1 against its own surface and unreadable as a selection (1.11:1 on
-	// the white card anywhere else). A clear amber keeps the slab legible without
-	// shouting: black ink on #ffb347 is 11.8:1 (AA), 1.7:1 against the active tint.
+	// Text selection (::selection). It must NOT be --color_hilite: search
+	// hilites and hovered surfaces use that same #fff7ef and a literal's input
+	// is transparent over them, so a hilite-coloured range was 1.00:1 against
+	// its own surface and unreadable as a selection (1.11:1 on the white card). A clear amber keeps the slab legible without
+	// shouting: black ink on #ffb347 is 11.8:1 (AA), 1.7:1 against the hilite.
 	// _blur is the range left behind when the editable loses focus (CKEditor's
 	// --ck-color-editable-blur-selection), which is the normal state in
 	// tool_indexation: the user selects a fragment, then clicks a term.
@@ -439,9 +438,9 @@
 	--color_warning_hover_border:    #ad4511;
 	// The DEEP-ORANGE INK (the fill/ink split: --color_orange_dedalo is a FILL,
 	// this is what may carry text on an orange field). Retuned #b15c06 →
-	// #98510a because the active field's tint is --color_hilite, one step
+	// #98510a because the (former) active-field tint --color_hilite is one step
 	// deeper than --color_orange_light, and #b15c06 was 4.00:1 on it — under
-	// AA. Measured on its surfaces: 5.6:1 on the active tint (--color_hilite),
+	// AA. Measured on its surfaces: 5.6:1 on --color_hilite,
 	// 5.8:1 on --color_orange_light, 6.0:1 on the card, 5.2:1 on the canvas.
 	// One hue across both themes: used as text ink on the brand tints.
 	// Dark twin: theme_dark.less (#f0a355, 5.6:1 on the dark tint).

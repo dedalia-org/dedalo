@@ -1,5 +1,9 @@
 {
 	"active": "有効",
+	"active_style": "アクティブなフィールドのスタイル",
+	"active_style_default": "枠",
+	"active_style_lift": "浮き上がり",
+	"active_style_margin": "余白",
 	"activity": "アクティビティ",
 	"activity_login": "ログイン",
 	"activity_logout": "ログアウト",
