@@ -25636,6 +25636,7 @@ body.inspector_resizing {
   grid-template-rows: auto auto;
   height: fit-content;
   min-height: var(--content_data_min_height);
+  overflow-x: auto;
 }
 @media screen and (max-width: 1024px) {
   .component_portal.view_default.edit > .list_body.layout_table:where(:not(.column *)),

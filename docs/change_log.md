@@ -151,6 +151,10 @@ Merged since the last release; these ship with the next one.
 
     In edit forms (e.g. a user record), the Projects checklist was capped at a fixed height and left the lower half of its field empty, so long project lists needed scrolling. It now fills the space the form gives it; the old height stays the minimum.
 
+- **Wide portal tables in edit mode scroll sideways instead of sliding under the inspector.**
+
+    In edit forms with a wide related-records table (e.g. Informants in an Oral History record), a narrow window pushed the whole form underneath the inspector panel. The table now scrolls horizontally inside its own field and the form keeps its width.
+
 - **Screen readers now announce the list delete and edit buttons.**
 
     The trash-can button on each row of a section list now has an accessible name that says which record it deletes, such as "Delete 7". The pen buttons that open a record from a portal line view and from a graph list are named as well. Before, a screen reader announced these icon-only buttons only as "button".
