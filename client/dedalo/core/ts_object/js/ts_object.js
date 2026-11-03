@@ -1616,6 +1616,9 @@ ts_object.prototype.swap_parent = async function (options) {
 		return false;
 	}
 
+	// target children already loaded? (read before the move mutates anything)
+	const target_loaded = Boolean(target_instance.children_data?.ar_children_data)
+
 	// children_container. Check the container for children within the target.
 	// If no children container, log an error and stop.
 	const children_container = target_instance.children_container
@@ -1720,15 +1723,27 @@ ts_object.prototype.swap_parent = async function (options) {
 			}
 
 			// Update target_instance (add child)
-			target_instance.add_children_item( moving_instance.data )
-			await target_instance.update_children_state({
-				render: false,  // DOM already updated above
-				refresh_content: true,
-				show_children: true
-			})
+			if (target_loaded) {
+				target_instance.add_children_item( moving_instance.data )
+				await target_instance.update_children_state({
+					render: false,  // DOM already updated above
+					refresh_content: true,
+					show_children: true
+				})
+			}else{
+				// never-loaded target: a list of only the moved node would hide its
+				// siblings (and later opens skip the load: the container is not empty)
+				await target_instance.update_children_state({
+					fetch_data: true,
+					render: true,
+					refresh_content: true,
+					show_children: true
+				})
+			}
 
-			// Hilite moved term
-			const term_node = moving_instance.term_node
+			// Hilite moved term (re-rendered target: the moved node is a fresh instance)
+			const moved_instance = target_instance.ar_instances.find(el => el.ts_id===moving_instance.ts_id && el.status!=='destroyed') || moving_instance
+			const term_node = moved_instance.term_node
 			if (term_node) {
 				self.hilite_element(term_node)
 			}
@@ -3031,6 +3046,10 @@ ts_object.prototype.toggle_nd = async function(button_obj) {
 			console.warn("[toggle_nd] Error, children_data is null");
 			return false
 		}
+
+		// fix children_data: descriptors render too, and a later open skips
+		// the load (container not empty) — save_order needs this list
+		self.children_data = children_data
 
 		await self.render_children({
 			clean_children_container	: true, // bool clean_children_container
