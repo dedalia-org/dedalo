@@ -1462,8 +1462,21 @@ final class dd_utils_api {
 			$pid	= $rqo->options->pid;
 
 		// only logged users can access SSE events
+			// SSE formatted message (is_running false) to stop client reconnections
 			if(login::is_logged()!==true) {
-				die('Authentication error: please login');
+				$msg = 'Authentication error: please login';
+				$output = (object)[
+					'pid'			=> $pid,
+					'pfile'			=> $pfile,
+					'is_running'	=> false,
+					'data'			=> (object)[
+						'msg' => $msg
+					],
+					'time'			=> date("Y-m-d H:i:s"),
+					'errors'		=> [$msg]
+				];
+				echo 'data:' . "\n" . json_handler::encode($output, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n\n";
+				die();
 			}
 
 		// header print as event stream

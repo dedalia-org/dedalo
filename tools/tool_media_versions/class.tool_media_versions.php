@@ -238,8 +238,24 @@ class tool_media_versions extends tool_common {
 			$section_id			= $options->section_id;
 			$regenerate_options	= $options->regenerate_options;
 
+		// model
+			$model = RecordObj_dd::get_modelo_name_by_tipo($tipo, true);
+
+		// component_av in background (CLI). FFmpeg builds of big files can take longer
+		// than the PHP-FPM request time limit. Client sends 'background_running' for av
+		// and dd_tools_api runs this method via process_runner
+		// @see component_av::build_uploaded_file_versions_background
+			if ($model==='component_av' && running_in_cli()===true) {
+				return component_av::build_uploaded_file_versions_background((object)[
+					'tipo'						=> $tipo,
+					'section_tipo'				=> $section_tipo,
+					'section_id'				=> (string)$section_id,
+					'quality'					=> null,
+					'delete_normalized_files'	=> $regenerate_options->delete_normalized_files ?? true
+				]);
+			}
+
 		// component
-			$model		= RecordObj_dd::get_modelo_name_by_tipo($tipo, true);
 			$lang		= DEDALO_DATA_LANG;
 			$component	= component_common::get_instance(
 				$model,

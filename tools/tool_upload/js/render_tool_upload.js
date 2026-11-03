@@ -162,11 +162,35 @@ render_tool_upload.prototype.upload_done = async function (options) {
 			process_file_info.innerHTML = response.msg || 'Error on processing file!'
 			process_file_info.classList.add('failed')
 
-			if (api_response.errors?.length) {
-				alert(api_response.errors.join(' | '));
+			if (response.errors?.length) {
+				alert(response.errors.join(' | '));
 			}
 
 			return false
+		}
+
+	// background case. Server builds the versions in a background process (component_av)
+	// Wait until default quality file is ready before render the preview
+		if (response.background===true) {
+			process_file_info.innerHTML = response.msg || 'Building versions in background..'
+			self.process_file.appendChild(spinner)
+			const bg_response = await self.wait_background_versions(response.pid, response.pfile)
+			// refresh caller to get the updated data (files_info). Caller 'render' event
+			// refreshes tool_media_versions too. Also on failure/stop: original file and upload info are already saved
+			if (self.caller.status!=='destroyed' && typeof self.caller.refresh==='function') {
+				self.caller.refresh()
+			}
+			// tool closed while waiting. Nothing to update
+			if (bg_response.stopped===true) {
+				return false
+			}
+			spinner.remove()
+			if (bg_response.result!==true) {
+				process_file_info.innerHTML = bg_response.msg
+				process_file_info.classList.add('failed')
+				return false
+			}
+			response.msg = null // use default success msg
 		}
 
 	// response OK case

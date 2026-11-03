@@ -58,6 +58,11 @@ final class dd_manager {
 
 					debug_log(__METHOD__." User is not logged [action:$rqo->action]", logger::ERROR);
 
+					// SSE process status stream. Emits a SSE formatted auth error and dies to stop client reconnections
+					if ($rqo->action==='get_process_status' && ($rqo->dd_api ?? null)==='dd_utils_api') {
+						dd_utils_api::get_process_status($rqo);
+					}
+
 					$response = new stdClass();
 						$response->result	= false;
 						$response->msg		= 'Error. user is not logged ! [action:'.$rqo->action.']';

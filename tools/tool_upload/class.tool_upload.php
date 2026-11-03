@@ -76,6 +76,23 @@ class tool_upload extends tool_common {
 					// fix current component target quality (defines the destination directory for the file, like 'original')
 						$component->set_quality($quality);
 
+					// component_av background build running. Do not replace the source file while FFmpeg is reading it
+						if ($model==='component_av' && $component->is_build_locked()) {
+							$response->msg .= 'A version build is already running for this file. Wait until it finishes and try again';
+							// remove uploaded temp file (same path as component_media_common::add_file). Only inside current user DEDALO_UPLOAD_TMP_DIR
+							$tmp_file = $file_data->source_file ?? (
+								(isset($file_data->tmp_dir, $file_data->key_dir, $file_data->tmp_name) && $file_data->tmp_dir==='DEDALO_UPLOAD_TMP_DIR')
+									? DEDALO_UPLOAD_TMP_DIR . '/' . logged_user_id() . '/' . rtrim($file_data->key_dir, '/') . '/' . $file_data->tmp_name
+									: null
+							);
+							$tmp_real	= !empty($tmp_file) ? realpath($tmp_file) : false;
+							$base_real	= realpath(DEDALO_UPLOAD_TMP_DIR . '/' . logged_user_id()); // current user files only
+							if ($tmp_real!==false && $base_real!==false && str_starts_with($tmp_real, $base_real . '/') && is_file($tmp_real)) {
+								unlink($tmp_real);
+							}
+							return $response;
+						}
+
 					// add file
 						$add_file = $component->add_file($file_data);
 						if ($add_file->result===false) {
@@ -93,6 +110,14 @@ class tool_upload extends tool_common {
 					// response OK
 						$response->result	= true;
 						$response->msg		= 'OK. File processed successfully';
+
+					// background process case (component_av). Versions are being built in a CLI process
+						if (isset($process_file->background) && $process_file->background===true) {
+							$response->msg			= $process_file->msg;
+							$response->background	= true;
+							$response->pid			= $process_file->pid;
+							$response->pfile		= $process_file->pfile;
+						}
 
 					break;
 

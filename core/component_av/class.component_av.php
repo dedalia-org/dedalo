@@ -911,12 +911,6 @@ class component_av extends component_media_common implements component_media_int
 			// quality default in upload is 'original' (!)
 				$quality = $this->get_quality();
 
-			// audio files. Audio files always generate an audio file
-				if ( $quality===$this->get_original_quality() ) {
-					$this->build_version( $this->get_audio_quality() );
-					// }//end if (!file_exists($target_file))
-				}
-
 			// properties
 				$properties = $this->get_properties();
 
@@ -981,14 +975,56 @@ class component_av extends component_media_common implements component_media_int
 					$this->set_dato($dato);
 				}
 
-			// Generate default_av_format : If uploaded file is not in Dedalo standard format (mpeg), it will converted,
-			// and original file is conserved (like myfilename.mov and myfilename.avi)
-			// regenerate component will create the default quality av calling build()
-			// build() will check the normalized files of the original
-			// then if the normalized files doesn't exist, will create it
-			// then will create the Thumb and Posterframe format of the default
-			// then save the data.
-				$result = $this->regenerate_component();
+			// background versions build. FFmpeg conversions of big files can take longer than
+			// the PHP-FPM request time limit (the worker is killed and data is never saved).
+			// From HTTP requests, the heavy part (audio, default quality, thumb, files_info)
+			// is delegated to a CLI background process (without time limit)
+			// @see component_av::build_uploaded_file_versions_background
+				if (running_in_cli()===false) {
+
+					// save upload info now. Background process re-creates the component from DB
+					$this->Save();
+
+					$cli_options = new stdClass();
+						$cli_options->class_name	= 'component_av';
+						$cli_options->method_name	= 'build_uploaded_file_versions_background';
+						$cli_options->class_file	= DEDALO_CORE_PATH . '/component_av/class.component_av.php';
+						$cli_options->params		= (object)[
+							'tipo'			=> $this->get_tipo(),
+							'section_tipo'	=> $this->get_section_tipo(),
+							'section_id'	=> (string)$this->get_section_id(),
+							'quality'		=> $quality
+						];
+
+					$cli_response = exec_::request_cli($cli_options);
+					if ($cli_response->result===true && (int)$cli_response->pid > 0) {
+						$response->result		= true;
+						$response->msg			= 'OK. File uploaded. Building av versions in background';
+						$response->background	= true;
+						$response->pid			= $cli_response->pid;
+						$response->pfile		= $cli_response->pfile;
+						return $response;
+					}
+
+					// launch failed. Do not build synchronously here: FPM/proxy wall-clock limits
+					// (request_terminate_timeout, ProxyTimeout, etc.) would kill the request before saving,
+					// and the stale record would be saved over edits made meanwhile.
+					// The original file and upload info are already saved; versions can be built later
+					// from tool_media_versions (Regenerate files)
+					$response->msg .= ' File uploaded, but the background versions build could not be started: '
+						. ($cli_response->msg ?? 'unknown error')
+						. '. Check the server process limits and PHP_BIN_PATH, then use Media versions > Regenerate files';
+					debug_log(__METHOD__
+						. " Unable to launch background process. " . PHP_EOL
+						. ' cli_response: ' . to_string($cli_response)
+						, logger::ERROR
+					);
+					return $response;
+				}
+
+			// synchronous build. CLI only (tool_import_files, tests) where there are no request time limits
+				set_time_limit(0);
+				$result = $this->build_uploaded_file_versions($quality);
 				if ($result === false) {
 					$response->msg .= ' Error processing the uploaded file';
 					return $response;
@@ -1010,6 +1046,281 @@ class component_av extends component_media_common implements component_media_int
 
 		return $response;
 	}//end process_uploaded_file
+
+
+
+	/**
+	* BUILD_UPLOADED_FILE_VERSIONS
+	* Heavy part of process_uploaded_file (FFmpeg conversions).
+	* Builds the audio version (when uploaded quality is original) and
+	* regenerates the component: default quality, alternatives, thumb, files_info and save.
+	* @param string $quality
+	* 	Uploaded file quality like 'original'
+	* @return bool
+	*/
+	public function build_uploaded_file_versions( string $quality ) : bool {
+
+		// audio files. Audio files always generate an audio file
+			if ( $quality===$this->get_original_quality() ) {
+				$this->build_version( $this->get_audio_quality() );
+			}
+
+		// Generate default_av_format : If uploaded file is not in Dedalo standard format (mpeg), it will converted,
+		// and original file is conserved (like myfilename.mov and myfilename.avi)
+		// regenerate component will create the default quality av calling build()
+		// build() will check the normalized files of the original
+		// then if the normalized files doesn't exist, will create it
+		// then will create the Thumb and Posterframe format of the default
+		// then save the data.
+			$result = $this->regenerate_component();
+
+
+		return $result;
+	}//end build_uploaded_file_versions
+
+
+
+	/**
+	* BUILD_UPLOADED_FILE_VERSIONS_BACKGROUND
+	* Called from CLI process_runner (exec_::request_cli) by process_uploaded_file
+	* and from tool_media_versions::sync_files (background) to build the av versions
+	* without the PHP-FPM request time limit
+	* @param object $options
+	* {
+	* 	tipo: string 'rsc35',
+	* 	section_tipo: string 'rsc167',
+	* 	section_id: string '1',
+	* 	quality: string|null 'original' (uploaded quality. Null on regenerate)
+	* 	delete_normalized_files: bool true
+	* }
+	* @return object $response
+	*/
+	public static function build_uploaded_file_versions_background( object $options ) : object {
+		$start_time = start_time();
+
+		set_time_limit(0);
+
+		$response = new stdClass();
+			$response->result	= false;
+			$response->msg		= 'Error. Request failed ['.__METHOD__.'] ';
+
+		// options
+			$tipo			= $options->tipo ?? null;
+			$section_tipo	= $options->section_tipo ?? null;
+			$section_id		= $options->section_id ?? null;
+			$quality					= $options->quality ?? null;
+			$delete_normalized_files	= $options->delete_normalized_files ?? true;
+
+			if (empty($tipo) || empty($section_tipo) || empty($section_id)) {
+				$response->msg .= 'Invalid options';
+				debug_log(__METHOD__
+					. " $response->msg " . PHP_EOL
+					. ' options: ' . to_string($options)
+					, logger::ERROR
+				);
+				return $response;
+			}
+
+		// build lock. Only one background build per component at a time (concurrent builds share sh and target files)
+		// The lock is released automatically when the process ends (also on fatal errors)
+			$lock_component = component_common::get_instance(
+				'component_av',
+				$tipo,
+				$section_id,
+				'list',
+				DEDALO_DATA_NOLAN,
+				$section_tipo,
+				false
+			);
+			// retry briefly: is_build_locked checks (upload) hold the lock for an instant
+			for ($i=0; $i < 5; $i++) {
+				$lock_handle = $lock_component->acquire_build_lock();
+				if ($lock_handle!==null) {
+					break;
+				}
+				usleep(200000); // 200 ms
+			}
+			if ($lock_handle===null) {
+				$response->msg .= 'A version build is already running for this file. Wait until it finishes and try again';
+				debug_log(__METHOD__
+					. " $response->msg " . PHP_EOL
+					. ' options: ' . to_string($options)
+					, logger::ERROR
+				);
+				return $response;
+			}
+
+		try {
+
+			// component
+				$component = component_common::get_instance(
+					'component_av',
+					$tipo,
+					$section_id,
+					'edit',
+					DEDALO_DATA_NOLAN,
+					$section_tipo,
+					false
+				);
+				if (!empty($quality)) {
+					$component->set_quality($quality);
+				}
+
+			// build versions (FFmpeg, slow). Without save: the section data loaded now
+			// would be stale when the conversion ends and overwrite user edits made meanwhile
+				if ($quality===$component->get_original_quality()) {
+					$component->build_version($component->get_audio_quality(), false, false);
+				}
+				if ($delete_normalized_files===true) {
+					$component->delete_normalized_files();
+				}
+				$default_quality = $component->get_default_quality();
+				if (!file_exists($component->get_media_filepath($default_quality)) || $component->get_quality()===$component->get_modified_quality()) {
+					$component->build_version($default_quality, false, false);
+				}
+				// check default quality file. build_version does not report FFmpeg failures
+				// Without this check, regenerate_component would run the whole conversion again
+				if (!file_exists($component->get_media_filepath($default_quality))) {
+					$response->msg .= 'FFmpeg failed to build the default quality ('.$default_quality.') file. Check the PHP error log';
+					debug_log(__METHOD__
+						. " $response->msg " . PHP_EOL
+						. ' options: ' . to_string($options)
+						, logger::ERROR
+					);
+					return $response;
+				}
+
+			// fresh component and section data from DB (clear static caches) to save only this component data
+				section::$ar_section_instances = [];
+				JSON_RecordObj_matrix::$ar_JSON_RecordObj_matrix_instances = [];
+				$component = component_common::get_instance(
+					'component_av',
+					$tipo,
+					$section_id,
+					'edit',
+					DEDALO_DATA_NOLAN,
+					$section_tipo,
+					false
+				);
+				if (!empty($quality)) {
+					$component->set_quality($quality);
+				}
+
+			// regenerate: alternatives, thumb, files_info and save (default quality file already exists)
+				$result = $component->regenerate_component((object)[
+					'delete_normalized_files' => false
+				]);
+				if ($result===false) {
+					$response->msg .= 'Error regenerating the component';
+					debug_log(__METHOD__
+						. " $response->msg " . PHP_EOL
+						. ' options: ' . to_string($options)
+						, logger::ERROR
+					);
+					return $response;
+				}
+
+			$response->result	= true;
+			$response->msg		= 'OK. Av versions built in ' . exec_time_unit($start_time, 'sec') . ' sec';
+
+		} catch (Throwable $e) {
+			$response->msg .= $e->getMessage();
+			debug_log(__METHOD__
+				. " Exception: " . $e->getMessage() . PHP_EOL
+				. ' options: ' . to_string($options)
+				, logger::ERROR
+			);
+		} finally {
+			// release build lock (false when locking is unavailable)
+			if ($lock_handle!==false) {
+				flock($lock_handle, LOCK_UN);
+				fclose($lock_handle);
+			}
+		}
+
+
+		return $response;
+	}//end build_uploaded_file_versions_background
+
+
+
+	/**
+	* GET_BUILD_LOCK_PATH
+	* Lock file used to prevent concurrent background builds of the same component
+	* @return string $lock_path
+	* 	like '/media/av/tmp/test94_test3_2.build.lock'
+	*/
+	public function get_build_lock_path() : string {
+
+		$tmp_folder = DEDALO_MEDIA_PATH . DEDALO_AV_FOLDER . '/tmp';
+		create_directory($tmp_folder);
+
+		return $tmp_folder . '/' . $this->get_id() . '.build.lock';
+	}//end get_build_lock_path
+
+
+
+	/**
+	* ACQUIRE_BUILD_LOCK
+	* Get an exclusive non blocking lock on the component build lock file.
+	* The lock is held while the handle is open and released by the OS when the process ends
+	* @return resource|null|false $handle
+	* 	resource: lock acquired (release with flock LOCK_UN + fclose)
+	* 	null: lock held by another process
+	* 	false: locking unavailable (fopen failed, ENOLCK/NFS, etc.). Callers proceed without lock
+	*/
+	public function acquire_build_lock() {
+
+		$lock_path	= $this->get_build_lock_path();
+		$handle		= @fopen($lock_path, 'c');
+		if ($handle===false) {
+			debug_log(__METHOD__
+				. " Unable to open build lock file. Proceeding without lock " . PHP_EOL
+				. ' lock_path: ' . $lock_path
+				, logger::ERROR
+			);
+			return false;
+		}
+		$would_block = 0;
+		if (!flock($handle, LOCK_EX | LOCK_NB, $would_block)) {
+			fclose($handle);
+			if ($would_block) {
+				return null;
+			}
+			debug_log(__METHOD__
+				. " Unable to lock build lock file. Proceeding without lock " . PHP_EOL
+				. ' lock_path: ' . $lock_path
+				, logger::ERROR
+			);
+			return false;
+		}
+
+		return $handle;
+	}//end acquire_build_lock
+
+
+
+	/**
+	* IS_BUILD_LOCKED
+	* Checks if a background build of this component is running
+	* @see component_av::build_uploaded_file_versions_background
+	* @return bool
+	*/
+	public function is_build_locked() : bool {
+
+		$handle = $this->acquire_build_lock();
+		if ($handle===null) {
+			return true;
+		}
+		// locking unavailable. Do not block
+		if ($handle===false) {
+			return false;
+		}
+		flock($handle, LOCK_UN);
+		fclose($handle);
+
+		return false;
+	}//end is_build_locked
 
 
 
@@ -1194,7 +1505,9 @@ class component_av extends component_media_common implements component_media_int
 				$command_response  = shell_exec( $command );
 
 				// update component dato files info and save
-					$this->Save();
+					if ($save===true) {
+						$this->Save();
+					}
 
 			}else{
 
