@@ -23582,6 +23582,21 @@ body.inspector_resizing {
   top: 2px;
   left: 1px;
 }
+.component_filter.edit,
+.component_filter_master.edit {
+  display: flex;
+  flex-direction: column;
+}
+.component_filter.edit > .label,
+.component_filter_master.edit > .label {
+  flex: none;
+}
+.component_filter.edit > .content_data,
+.component_filter_master.edit > .content_data {
+  flex: 1 1 0;
+  max-height: none;
+  min-height: 20rem;
+}
 .component_filter.search > .content_data,
 .component_filter_master.search > .content_data {
   display: flex;

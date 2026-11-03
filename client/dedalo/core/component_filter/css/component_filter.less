@@ -81,6 +81,20 @@
 
 	}//end .edit
 
+	// edit: content_data fills the (grid-stretched) wrapper instead of stopping at 20rem
+	&.edit {
+		display: flex;
+		flex-direction: column;
+		>.label {
+			flex: none; // generic wrapper rule gives it flex 1 1 100%
+		}
+		>.content_data {
+			flex: 1 1 0;
+			max-height: none;
+			min-height: 20rem; // old size stays the floor when nothing stretches the cell
+		}
+	}
+
 	&.search {
 
 		>.content_data {

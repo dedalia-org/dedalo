@@ -147,6 +147,10 @@ Merged since the last release; these ship with the next one.
 
     After all parts of a large file (several GB) had arrived, the server needed minutes to put them back together. The browser stopped waiting after about half a minute and showed an error, although the file was saved in the end; trying again then failed because the parts were already gone. The browser now keeps waiting (up to 30 minutes, or until you cancel), and asking again for a file that is already joined returns it instead of an error. A part that hits a temporary gateway error (502, 503, 504) is now retried too.
 
+- **The Projects checklist in edit mode fills its whole field instead of stopping halfway.**
+
+    In edit forms (e.g. a user record), the Projects checklist was capped at a fixed height and left the lower half of its field empty, so long project lists needed scrolling. It now fills the space the form gives it; the old height stays the minimum.
+
 - **Screen readers now announce the list delete and edit buttons.**
 
     The trash-can button on each row of a section list now has an accessible name that says which record it deletes, such as "Delete 7". The pen buttons that open a record from a portal line view and from a graph list are named as well. Before, a screen reader announced these icon-only buttons only as "button".
