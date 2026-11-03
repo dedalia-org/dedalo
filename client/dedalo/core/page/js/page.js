@@ -38,7 +38,6 @@
 
 // import
 	import {event_manager} from '../../common/js/event_manager.js'
-	import {sync_active_style_from_server} from './active_style.js'
 	import {data_manager} from '../../common/js/data_manager.js'
 	import {get_instance,get_all_instances} from '../../common/js/instances.js'
 	import {dd_request_idle_callback} from '../../common/js/events.js'
@@ -61,7 +60,6 @@
 	import {init_session_expiry} from '../../common/js/session_expiry.js'
 	import {prune_orphan_rules,get_inserted_rules} from '../../page/js/css.js'
 	import {render_page, render_notification_msg} from './render_page.js'
-	import {init_command_palette, open_command_palette} from '../../common/js/command_palette.js'
 
 
 
@@ -726,8 +724,9 @@ page.prototype.build = async function(autoload=false) {
 				}
 				// fix API environment vars to window (page_globals, plain_vars, get_label)
 				set_environment(api_response.environment.result)
-				// the user's active-field style (page_globals.ui_preferences)
-				sync_active_style_from_server()
+				// the user's active-field style (page_globals.ui_preferences). Lazy: off the
+				// boot graph (page_load_budget); theme-init.js already painted the cached style
+				import('./active_style.js').then(m => m.sync_active_style_from_server())
 
 				// engine-build cache guard. The 'section_cache_*' / 'page_cache_*'
 				// IndexedDB entries are otherwise only cleared on logout or language
@@ -1223,8 +1222,12 @@ page.prototype.add_events = function() {
 
 	const self = this
 
-	// command palette (⌘K): binds this page for menu + section lookup
-		init_command_palette(self)
+	// command palette (⌘K): binds this page for menu + section lookup. Lazy: off the
+	// boot graph (page_load_budget); ⌘K is a no-op until the module has arrived
+		import('../../common/js/command_palette.js').then(m => {
+			m.init_command_palette(self)
+			self.command_palette = m
+		})
 
 	// window onpopstate. Triggered when user clicks on the browser navigation buttons
 		// note that navigation calls generate a history of event state, and when user click's on back button,
@@ -1415,7 +1418,7 @@ page.prototype.add_events = function() {
 				case 'k':
 				case 'K': {
 					if (evt.metaKey || evt.ctrlKey) {
-						if (open_command_palette()) {
+						if (self.command_palette?.open_command_palette()) {
 							evt.preventDefault()
 						}
 					}

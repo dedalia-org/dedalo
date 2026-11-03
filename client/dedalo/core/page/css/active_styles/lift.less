@@ -19,6 +19,7 @@
 :root[data-active_style="lift"] {
 	--lift_edge: #e2ded7;
 	--lift_shadow: 0 1px 2px rgba(40, 30, 20, 0.06), 0 10px 28px rgba(40, 30, 20, 0.10);
+	--lift_band_shadow: 0 -1px 3px rgba(40, 30, 20, 0.05);
 	--lift_band_height: calc(var(--component_label_height) + 1rem);
 	--lift_headroom: 0.6rem;
 	--lift_label_gap: 0.5rem; // label row ↔ field content (mockup proportions)
@@ -26,6 +27,7 @@
 :root[data-active_style="lift"][data-theme="dark"] {
 	--lift_edge: var(--border_strong);
 	--lift_shadow: var(--shadow-3);
+	--lift_band_shadow: 0 -1px 3px var(--shadow_default);
 }
 
 :root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) {
@@ -142,7 +144,7 @@
 				inset 1px 0 0 var(--lift_edge),
 				inset -1px 0 0 var(--lift_edge),
 				inset 0 1px 0 var(--lift_edge),
-				0 -1px 3px rgba(40, 30, 20, 0.05);
+				var(--lift_band_shadow);
 		}
 	}
 

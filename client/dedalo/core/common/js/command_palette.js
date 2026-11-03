@@ -5,11 +5,11 @@
 
 
 // import
-	import {event_manager} from './event_manager.js'
-	import {ui} from './ui.js'
-	import {open_tool} from '../../tools_common/js/tool_common.js'
 	import {navigate_to_menu_item} from '../../menu/js/render_menu_tree.js'
 	import {is_non_tools_section} from '../../section/js/render_common_section.js'
+	import {open_tool} from '../../tools_common/js/tool_common.js'
+	import {event_manager} from './event_manager.js'
+	import {ui} from './ui.js'
 
 
 

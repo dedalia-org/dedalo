@@ -13,7 +13,7 @@
 * - Every other style is `data-active_style="<id>"` on <html>, and ONE stylesheet,
 *   `core/page/css/active_styles/<id>.less`, scoped under that attribute.
 *   Adding a style = one ACTIVE_STYLES entry + that file + its import in main.less
-*   + its label (gate: test/unit/active_style_registry_tripwire.test.ts).
+*   + its label (gate: test/unit/active_style_registry.test.ts).
 *
 * Persistence: the user's dd1206 "User interface preferences" (component_json on
 * their own dd128 record, key `active_style`) is the truth, served as

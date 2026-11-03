@@ -171,7 +171,7 @@ export const render_tree = (options) => {
 					nodes_li[i].classList.remove('menu_li_active');
 
 					// active only the selected li node
-					if(nodes_li[i] == main_li) {
+					if(nodes_li[i] === main_li) {
 						nodes_li[i].classList.add('menu_li_active');
 						nodes_li[i].classList.remove('menu_li_inactive');
 					}

@@ -897,7 +897,9 @@ export const JOURNEYS: Record<string, Journey> = {
 			await idle(page);
 			const panel = await page.evaluate(async () => {
 				const columns = [...document.querySelectorAll('.components_container > .component_column')];
-				const rendered = columns.filter((c) => c.querySelector(':scope > .wrapper_component')).length;
+				const rendered = columns.filter((c) =>
+					c.querySelector(':scope > .wrapper_component'),
+				).length;
 				const errors = document.querySelectorAll('.components_container .api_error_panel').length;
 				const spec = '/dedalo/core/common/js/instances.js'; // the page's own module, not a repo path
 				const { get_all_instances } = (await import(spec)) as {

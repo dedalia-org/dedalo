@@ -183,6 +183,17 @@ function requireLockSectionTipo(value: unknown, action: string): string {
 }
 
 /** dd_utils_api action handlers, keyed by action (registered in dispatch.ts). */
+/** The staged file's preview thumbnail after a chunked join (null when nothing was staged). */
+async function joinedThumbnailUrl(
+	userId: number,
+	keyDir: string,
+	joined: { tmpName?: string; extension?: string },
+): Promise<string | null> {
+	if (!joined.tmpName) return null;
+	const { createStagedThumbnail } = await import('../../media/ingest/staged_thumbnail.ts');
+	return createStagedThumbnail(userId, keyDir, joined.tmpName, joined.extension ?? null);
+}
+
 export const utilsApiActions: Record<string, ActionHandler> = {
 	update_lock_components_state: async (rqo, context) => {
 		// Component soft-lock events (PHP dd_utils_api). Read permission on
@@ -474,15 +485,7 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 			//
 			// Best effort, like the single-shot path: a thumbnail failure must
 			// never fail an upload whose bytes are already staged and verified.
-			const { createStagedThumbnail } = await import('../../media/ingest/staged_thumbnail.ts');
-			const thumbnailUrl = joined.tmpName
-				? await createStagedThumbnail(
-						context.session.userId,
-						keyDir,
-						joined.tmpName,
-						joined.extension ?? null,
-					)
-				: null;
+			const thumbnailUrl = await joinedThumbnailUrl(context.session.userId, keyDir, joined);
 			return {
 				status: 200,
 				body: ok(true, {

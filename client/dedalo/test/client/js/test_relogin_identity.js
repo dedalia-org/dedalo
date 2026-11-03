@@ -791,7 +791,8 @@ describe('RELOGIN_IDENTITY — a queued action never resumes as another user', f
 			abort() {}
 			send() {
 				sent.xhr++
-				this.status = 503
+				// 400, not 503: a 502/503/504 is retried (upload_transport), a 4xx is terminal
+				this.status = 400
 				setTimeout(() => {
 					const evt = new Event('load')
 					Object.defineProperty(evt, 'target', {value: this})

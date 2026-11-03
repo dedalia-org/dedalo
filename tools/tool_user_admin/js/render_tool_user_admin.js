@@ -210,7 +210,7 @@ const render_active_style_switcher = function() {
 	})
 	ui.create_dom_element({
 		element_type	: 'legend',
-		inner_html		: get_label.active_style || 'Active field style',
+		text_content	: get_label.active_style || 'Active field style',
 		parent			: fieldset
 	})
 
@@ -238,7 +238,7 @@ const render_active_style_switcher = function() {
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'active_style_name',
-			inner_html		: get_label[style.label] || style.id,
+			text_content	: get_label[style.label] || style.id,
 			parent			: option
 		})
 

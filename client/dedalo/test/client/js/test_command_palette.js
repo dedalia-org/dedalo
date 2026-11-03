@@ -15,7 +15,6 @@
  * user key and cleared after.
  */
 
-import {event_manager} from '../../../core/common/js/event_manager.js'
 import {
 	add_palette_provider,
 	build_items,
@@ -26,6 +25,7 @@ import {
 	open_command_palette,
 	push_recent
 } from '../../../core/common/js/command_palette.js'
+import {event_manager} from '../../../core/common/js/event_manager.js'
 
 
 
@@ -70,7 +70,7 @@ describe('command palette (⌘K)', function () {
 	})
 	beforeEach(function () {
 		localStorage.removeItem(recent_key())
-		delete window.modal
+		window.modal = undefined
 		init_command_palette(fake_page())
 	})
 
@@ -181,7 +181,7 @@ describe('command palette (⌘K)', function () {
 			assert.isFalse(open_command_palette())
 			assert.isFalse(is_open())
 		} finally {
-			delete window.modal
+			window.modal = undefined
 		}
 	})
 })
