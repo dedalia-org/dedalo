@@ -155,6 +155,15 @@ Merged since the last release; these ship with the next one.
 
     In edit forms with a wide related-records table (e.g. Informants in an Oral History record), a narrow window pushed the whole form underneath the inspector panel. The table now scrolls horizontally inside its own field and the form keeps its width.
 
+- **A term duplicated in the thesaurus/ontology tree can be reordered right away.**
+
+    Changing the order number of a term just created with the tree's Duplicate button did nothing
+    (console: `[ts_object.save_order] Self not found in parent's children data`).
+
+    Cause: Duplicate re-rendered the parent's children from fresh server data but never stored
+    that data on the parent, so the new term was missing from the list the reorder looks itself up
+    in. The parent now keeps the fresh children list.
+
 - **Screen readers now announce the list delete and edit buttons.**
 
     The trash-can button on each row of a section list now has an accessible name that says which record it deletes, such as "Delete 7". The pen buttons that open a record from a portal line view and from a graph list are named as well. Before, a screen reader announced these icon-only buttons only as "button".
