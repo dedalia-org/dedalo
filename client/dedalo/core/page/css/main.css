@@ -27710,10 +27710,12 @@ body.inspector_resizing {
 }
 .component_text_area.edit:not(.view_line) > .content_data > .content_value {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
 }
 .component_text_area.edit:not(.view_line) > .content_data > .content_value > .toolbar_container,
 .component_text_area.edit:not(.view_line) > .content_data > .content_value > .editor_container {
   grid-area: 1 / 1;
+  min-width: 0;
 }
 .component_text_area.edit:not(.view_line) > .content_data > .content_value > .toolbar_container {
   position: sticky;
@@ -27726,6 +27728,9 @@ body.inspector_resizing {
 }
 .component_text_area.edit.active:not(.view_line) > .content_data > .content_value > .toolbar_container.hide:not(:empty) {
   display: flex !important;
+}
+.wrapper_component.component_text_area.edit:not(.view_line) > .content_data {
+  height: 100%;
 }
 .component_text_area.edit.fullscreen .ck-content {
   width: calc(100vw - 3rem);
