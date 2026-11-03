@@ -24,6 +24,18 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Background is now the default active-field style; Frame becomes one of the choices.**
+
+    The switcher in Users → your own record now lists **Background (default), Frame, Lift, Margin**.
+    A user who never chose a style sees the tinted field Dédalo used before the switcher existed
+    (pale orange surface, deep-orange name, tools as the floating orange pill) instead of the
+    orange frame.
+
+    Nothing is lost: the frame — the look introduced on 2026-11-02 — is now the second option, and
+    the styles keep their reduced form inside tools (the surface mark travels; the pane's name row
+    and tools tab stay the tool's own). A stored preference for Lift or Margin is unaffected, and
+    an old stored `default` simply resolves to Background.
+
 - **Sorting a portal by a column header is now a temporary view; **Save** makes it the stored order.**
 
     Before, clicking the sort arrow of a portal column header (on columns configured with `sort_by_column`) reordered the linked records and saved that order at once. Now the click only changes how the list is shown: every page follows the chosen column and direction, and nothing is written. A line under the list shows the active order ("Order: <column> ↓") with two buttons: **Save** stores the shown order as the portal's order (recorded in Time Machine, as before), and **Reset** returns to the saved order. While a temporary order is shown, rows cannot be dragged; they can again after Save or Reset. Linking, unlinking or adding a record keeps the temporary order. Users with read-only access can sort the view and reset it, but not save it.
@@ -127,6 +139,21 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **The active-field style list gains Background, the tinted-surface look Dédalo used before the styles existed (it is the default).**
+
+    Choose it with the same switcher in Users → your own record: **Active field style** is now
+    Background (default), Frame, Lift and Margin.
+
+    Background is the state the previous switcher replaced: the field's own surface is tinted
+    with the palette's orange field tint, its name reads in deep orange, and its tools float
+    above the top-right corner as an orange pill. No frame, no card, no bracket — on a form of
+    many fields it marks the active one without drawing a box, and it is the quietest of the
+    four. Lists inside the field lie flat on the tint, and the search bar under an autocomplete
+    field keeps its orange band.
+
+    Inside a tool the tint (and the deep-orange name) travel with you; the pane's name row and
+    tools tab stay the tool's own, as with Lift and Margin.
+
 - **Each user can now choose how the field being edited is highlighted: Frame, Lift or Margin.**
 
     The user panel (click your username in the header) has a new **Active field style** choice. **Frame** is the default thin orange frame. **Lift** raises the field as a card with a soft shadow, an orange dot by its name and quiet grey tools on the name's row; where that row cannot hold them (text areas, narrow fields) the card grows upward to hold the tools. **Margin** marks the field with an orange bracket in its left margin and stands its tools as a vertical orange rail in a margin on its right (fields leave that margin free while this style is chosen). The choice applies at once and is saved in the new *User interface preferences* field of your own user record, so it follows you to any browser and every login. The record number (Id) is no longer highlighted when clicked: it is read-only. Requires the ontology update that adds that field (`dd1206`).
@@ -154,6 +181,33 @@ Merged since the last release; these ship with the next one.
 - **Wide portal tables in edit mode scroll sideways instead of sliding under the inspector.**
 
     In edit forms with a wide related-records table (e.g. Informants in an Oral History record), a narrow window pushed the whole form underneath the inspector panel. The table now scrolls horizontally inside its own field and the form keeps its width.
+
+- **Tool panes: the editor fills its frame, the toolbar lines up with it, and Lift/Margin keep their mark inside tools.**
+
+    In the three audiovisual process tools the text-area frame was much taller than the area
+    you could type in: clicking below the last line of the transcript did nothing. The editor
+    now fills the frame, so the whole orange box is editable at every window width.
+
+    The formatting toolbar above the transcript was also 4px off: it started inside the
+    frame on the left and stuck out past it on the right, which made the pane scroll
+    sideways by that sliver. It now spans the frame exactly, with the tools tab flush at its
+    right end. When the translation tool's source pane is active (it has no toolbar of its
+    own), its header row now runs the full pane width instead of stopping after the name, and
+    it no longer paints the field's white "legend" strip across that row — that strip spilled
+    past the frame on both sides and, when the name wrapped, pushed a second line under the
+    toolbar.
+    On windows narrower than 1024px the transcription tool's two panes now stack even after
+    the window was resized down, instead of being crushed side by side.
+
+    The **Lift** and **Margin** active-field styles now follow you into a tool, in the reduced
+    form a pane allows. Lift keeps its elevated card, neutral edge, shadow and the orange dot
+    on the field's name; Margin keeps its orange bracket. What the styles drop inside a tool is
+    the part built for a form full of fields: Lift's header band (nothing to make room for —
+    the formatting toolbar already owns the row) and Margin's side gutters and vertical tool
+    rail (no gutter exists; the tool's tab stands in for the rail). Before, they moved the
+    field's name over the tool's own controls, turned the tools tab into a white band above
+    the field and shrank the editable box by the gutter widths. Records keep both styles
+    exactly as before.
 
 - **A term duplicated in the thesaurus/ontology tree can be reordered right away.**
 

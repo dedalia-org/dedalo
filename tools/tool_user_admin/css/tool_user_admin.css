@@ -108,6 +108,14 @@
   background-color: var(--color_white);
 }
 .wrapper_tool.tool_user_admin > .content_data .active_style_switcher .active_style_preview.preview_default {
+  border-radius: 3px;
+  background-color: var(--color_hilite);
+  background-image: linear-gradient(var(--color_orange_dedalo), var(--color_orange_dedalo));
+  background-size: 1.3rem 0.45rem;
+  background-position: calc(100% - 3px) 3px;
+  background-repeat: no-repeat;
+}
+.wrapper_tool.tool_user_admin > .content_data .active_style_switcher .active_style_preview.preview_frame {
   box-shadow: inset 0 0 0 1px var(--color_orange_dedalo);
 }
 .wrapper_tool.tool_user_admin > .content_data .active_style_switcher .active_style_preview.preview_lift {

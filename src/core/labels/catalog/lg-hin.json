@@ -1,7 +1,8 @@
 {
 	"active": "सक्रिय",
 	"active_style": "सक्रिय फ़ील्ड शैली",
-	"active_style_default": "फ़्रेम",
+	"active_style_background": "पृष्ठभूमि",
+	"active_style_frame": "फ़्रेम",
 	"active_style_lift": "उभार",
 	"active_style_margin": "हाशिया",
 	"activity": "गतिविधि",

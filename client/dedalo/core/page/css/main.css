@@ -4960,8 +4960,6 @@ button.button_spinner.success::before {
 * Included from main.less file
 */
 .hilite_element {
-  will-change: background-color;
-  transition: background-color 600ms linear;
   background-color: var(--color_hilite);
 }
 .hilite_element .label {
@@ -5300,14 +5298,8 @@ input::placeholder {
 .wrapper_component.edit.active:not(.hilite_element),
 .wrapper_component.search.active:not(.hilite_element),
 .wrapper_component.player.active:not(.hilite_element) {
-  background-color: var(--color_white);
-  box-shadow: inset 0 0 0 1px var(--color_orange_dedalo);
-  border-radius: 8px;
-}
-.wrapper_component.edit.active:not(.hilite_element):has(>.buttons_container>*),
-.wrapper_component.search.active:not(.hilite_element):has(>.buttons_container>*),
-.wrapper_component.player.active:not(.hilite_element):has(>.buttons_container>*) {
-  border-top-right-radius: 0;
+  background-color: var(--color_hilite);
+  border-radius: 3px;
 }
 .wrapper_component.edit.active:not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)),
 .wrapper_component.search.active:not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)),
@@ -5323,30 +5315,20 @@ input::placeholder {
 .wrapper_component.player.active:not(.hilite_element) .column_remove {
   background-color: transparent;
 }
-.wrapper_component.edit.active > .label,
-.wrapper_component.search.active > .label,
-.wrapper_component.player.active > .label {
-  color: var(--color_black);
-  font-weight: 600;
-}
 .wrapper_component.edit.active:not(.hilite_element) > .label,
 .wrapper_component.search.active:not(.hilite_element) > .label,
 .wrapper_component.player.active:not(.hilite_element) > .label {
-  justify-self: start;
-  align-self: start;
-  width: fit-content;
-  max-width: calc(100% - 2rem);
-  height: auto;
-  flex: 0 1 auto;
-  padding: 0 0.4rem calc(var(--component_label_height) - 1lh);
-  margin-left: calc(var(--field_inset_x) - 0.4rem);
-  background: linear-gradient(var(--color_white), var(--color_white)) top / 100% 1lh no-repeat;
-  transform: translateY(-50%);
-}
-.wrapper_component.edit.active:not(.hilite_element):has(>.buttons_container>*) > .label,
-.wrapper_component.search.active:not(.hilite_element):has(>.buttons_container>*) > .label,
-.wrapper_component.player.active:not(.hilite_element):has(>.buttons_container>*) > .label {
-  max-width: max(40%, calc(100% - 12rem));
+  transform: none;
+  background: none;
+  justify-self: stretch;
+  width: auto;
+  margin-left: 0;
+  padding: 0.4rem 0.5rem 0 var(--field_inset_x);
+  height: var(--component_label_height);
+  max-width: 100%;
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--color_orange_dark);
 }
 .wrapper_component.edit.active .show_on_active,
 .wrapper_component.search.active .show_on_active,
@@ -5359,31 +5341,6 @@ input::placeholder {
   display: block !important;
   white-space: nowrap;
   z-index: 2;
-  top: -2rem;
-  height: 2rem;
-  border-radius: 8px 8px 0 0;
-  box-shadow: none;
-}
-.wrapper_component.edit.active > .buttons_container .button:last-of-type,
-.wrapper_component.search.active > .buttons_container .button:last-of-type,
-.wrapper_component.player.active > .buttons_container .button:last-of-type {
-  margin-right: 0.75rem;
-}
-.wrapper_component.edit.active.tab_lifted:not(.hilite_element),
-.wrapper_component.search.active.tab_lifted:not(.hilite_element),
-.wrapper_component.player.active.tab_lifted:not(.hilite_element) {
-  border-top-right-radius: 8px;
-}
-.wrapper_component.edit.active.tab_lifted:not(.hilite_element):has(>.buttons_container>*) > .label,
-.wrapper_component.search.active.tab_lifted:not(.hilite_element):has(>.buttons_container>*) > .label,
-.wrapper_component.player.active.tab_lifted:not(.hilite_element):has(>.buttons_container>*) > .label {
-  max-width: calc(100% - 2rem);
-}
-.wrapper_component.edit.active.tab_lifted:not(.hilite_element) > .buttons_container,
-.wrapper_component.search.active.tab_lifted:not(.hilite_element) > .buttons_container,
-.wrapper_component.player.active.tab_lifted:not(.hilite_element) > .buttons_container {
-  top: calc(-2rem - 0.75rem - 1px);
-  border-radius: 8px;
 }
 .wrapper_component.search {
   flex: 1 1 100%;
@@ -5545,7 +5502,7 @@ dd-modal .wrapper_component > .content_data.vertical,
 .wrapper_component.edit.component_iri:not(.component_iri) > .content_data > .content_value.read_only {
   padding-left: var(--field_box_bleed);
 }
-.section_record.edit .wrapper_component.edit {
+.section_record.edit .wrapper_component.edit:not(.active) {
   transition: background-color var(--transition-fast);
 }
 .section_record.edit .wrapper_component.edit:hover:not(.active):not(.disabled_component):not(.component_section_id) {
@@ -5555,17 +5512,13 @@ dd-modal .wrapper_component > .content_data.vertical,
 .section_record.edit .wrapper_component.edit:hover:not(.active):not(.disabled_component):not(.component_section_id) .column_remove {
   background-color: transparent;
 }
-.section_record.edit .wrapper_component.edit > .label {
+.section_record.edit .wrapper_component.edit:not(.active) > .label {
   color: var(--field_label_fg);
   font-size: 1rem;
   font-weight: 100;
 }
 .section_record.edit .wrapper_component.edit > .content_data {
   color: var(--field_value_fg);
-}
-.section_record.edit .wrapper_component.edit.active > .label {
-  color: var(--color_black);
-  font-weight: 600;
 }
 .section_record.edit .wrapper_component.edit.active > .content_data {
   color: var(--field_value_fg);
@@ -29154,6 +29107,97 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   color: var(--color_grey_8);
 }
 /**
+* active style: FRAME
+*
+* The field keeps its own surface inside a 1px orange frame; the label is set
+* into the frame's top edge as a legend and the tool strip docks on the
+* top-right corner as a tab, so frame, label and tools read as one object.
+* Inset shadow, not border, so activation never reflows.
+*
+* This was the DEFAULT look until 2026-11-03, when Background (the tinted
+* surface the switcher replaced) became the base and Frame became a choice.
+* Its rules therefore mirror the base and override it: the white surface, the
+* legend label, the docked tab.
+*
+* Selected by <html data-active_style="frame"> (core/page/js/active_style.js).
+* The base (default) look is layout.less `.active`; this file only overrides it.
+*
+* (!) NOT INSIDE A TOOL PANE (`:not(.wrapper_tool *)`): a tool hosts ONE field
+* as the pane's whole surface and draws its own header row / tab
+* (tool_mixins.less `.text_area_pane_header`), so the legend and the docked tab
+* would fight the tool's chrome. The reduced tool variant below keeps only the
+* frame's surface.
+*/
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) {
+  box-shadow: none;
+  overflow: initial;
+}
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.hilite_element) {
+  background-color: var(--color_white);
+  box-shadow: inset 0 0 0 1px var(--color_orange_dedalo);
+  border-radius: 8px;
+}
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.hilite_element):has(>.buttons_container>*) {
+  border-top-right-radius: 0;
+}
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.hilite_element) .list_body,
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.hilite_element) .column_remove {
+  background-color: transparent;
+}
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .label {
+  color: var(--color_black);
+  font-weight: 600;
+}
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.hilite_element) > .label {
+  justify-self: start;
+  align-self: start;
+  width: fit-content;
+  max-width: calc(100% - 2rem);
+  height: auto;
+  flex: 0 1 auto;
+  padding: 0 0.4rem calc(var(--component_label_height) - 1lh);
+  margin-left: calc(var(--field_inset_x) - 0.4rem);
+  background: linear-gradient(var(--color_white), var(--color_white)) top / 100% 1lh no-repeat;
+  transform: translateY(-50%);
+}
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.hilite_element):has(>.buttons_container>*) > .label {
+  max-width: max(40%, calc(100% - 12rem));
+}
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container {
+  display: block !important;
+  white-space: nowrap;
+  z-index: 2;
+  top: -2rem;
+  height: 2rem;
+  border-radius: 8px 8px 0 0;
+  box-shadow: none;
+}
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container .button:last-of-type {
+  margin-right: 0.75rem;
+}
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).tab_lifted:not(.hilite_element) {
+  border-top-right-radius: 8px;
+}
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).tab_lifted:not(.hilite_element):has(>.buttons_container>*) > .label {
+  max-width: calc(100% - 2rem);
+}
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).tab_lifted:not(.hilite_element) > .buttons_container {
+  top: calc(-2rem - 0.75rem - 1px);
+  border-radius: 8px;
+}
+:root[data-active_style="frame"] .wrapper_tool > .content_data .wrapper_component.edit.active:not(.hilite_element) {
+  box-shadow: inset 0 0 0 1px var(--color_orange_dedalo);
+  border-radius: 8px;
+  background-color: var(--color_white);
+}
+:root[data-active_style="frame"] .wrapper_tool > .content_data .wrapper_component.edit.active:not(.hilite_element):has(>.buttons_container>*) {
+  border-top-right-radius: 0;
+}
+/**
 * active style: LIFT
 *
 * The active field rises as a card: an elevated surface, a 1px neutral edge and
@@ -29169,6 +29213,14 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
 *
 * Selected by <html data-active_style="lift"> (core/page/js/active_style.js).
 * The base (default) look is layout.less `.active`; this file only overrides it.
+*
+* (!) NOT INSIDE A TOOL PANE (`:not(.wrapper_tool *)`). A tool hosts ONE field as
+* the pane's whole surface, and that pane's chrome — the label row, the ck
+* toolbar that swaps into it, the tool pill — is tool_mixins.less
+* `.text_area_pane_header`, drawn by the tool. The card/band rules below exist to
+* tell an active field apart among many; applied to a pane they lifted the label
+* 32px up over the tool's own controls and turned the pill into a full-width
+* white band above the field.
 */
 :root[data-active_style="lift"] {
   --lift_edge: #e2ded7;
@@ -29183,20 +29235,21 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   --lift_shadow: var(--shadow-3);
   --lift_band_shadow: 0 -1px 3px var(--shadow_default);
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) {
   background-color: var(--bg_elevated);
   box-shadow: inset 0 0 0 1px var(--lift_edge), var(--lift_shadow);
   border-radius: 10px;
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .label {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .label {
   transform: none;
   background: none;
   margin-left: 0;
   padding: 0.4rem 0.5rem 0 var(--field_inset_x);
   height: var(--component_label_height);
   max-width: 100%;
+  color: var(--color_black);
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .label::before {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .label::before {
   content: '';
   display: inline-block;
   width: 8px;
@@ -29206,17 +29259,17 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   background-color: var(--color_orange_dedalo);
   vertical-align: 0.1em;
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.tab_lifted):not(.component_text_area) {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.tab_lifted):not(.component_text_area) {
   --lift_rise: calc(var(--lift_headroom) + var(--lift_label_gap));
   box-shadow: 0 calc(-1 * var(--lift_rise)) 0 0 var(--bg_elevated), 0 0 0 1px var(--lift_edge), 0 calc(-1 * var(--lift_rise)) 0 1px var(--lift_edge), var(--lift_shadow);
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.tab_lifted):not(.component_text_area) > .label {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.tab_lifted):not(.component_text_area) > .label {
   transform: translateY(calc(-1 * var(--lift_label_gap)));
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.tab_lifted):not(.component_text_area) > .buttons_container {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.tab_lifted):not(.component_text_area) > .buttons_container {
   top: calc(0.4rem - var(--lift_label_gap));
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container {
   top: 0.4rem;
   right: var(--field_inset_x);
   height: 1.1rem;
@@ -29229,39 +29282,39 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   align-items: center;
   justify-content: flex-end;
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container .buttons_fold {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container .buttons_fold {
   display: flex;
   align-items: center;
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container .button {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container .button {
   background-color: var(--color_grey_5);
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container .button:hover {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container .button:hover {
   background-color: var(--color_orange_dark);
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container span,
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container span:first-child,
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container span:last-child,
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .buttons_container .button:last-of-type {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container span,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container span:first-child,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container span:last-child,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container .button:last-of-type {
   margin-top: 0;
   margin-bottom: 0;
   margin-right: 0;
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):has(>.buttons_container>*) > .label {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):has(>.buttons_container>*) > .label {
   max-width: calc(100% - var(--tools_width, 8rem));
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).tab_lifted:has(>.buttons_container>*),
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line):has(>.buttons_container>*) {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).tab_lifted:has(>.buttons_container>*),
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area:not(.view_line):has(>.buttons_container>*) {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
   box-shadow: inset 1px 0 0 var(--lift_edge), inset -1px 0 0 var(--lift_edge), inset 0 -1px 0 var(--lift_edge), var(--lift_shadow);
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).tab_lifted:has(>.buttons_container>*) > .label,
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line):has(>.buttons_container>*) > .label {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).tab_lifted:has(>.buttons_container>*) > .label,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area:not(.view_line):has(>.buttons_container>*) > .label {
   max-width: 100%;
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).tab_lifted:has(>.buttons_container>*) > .buttons_container,
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line):has(>.buttons_container>*) > .buttons_container {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).tab_lifted:has(>.buttons_container>*) > .buttons_container,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area:not(.view_line):has(>.buttons_container>*) > .buttons_container {
   top: calc(-1 * var(--lift_band_height));
   left: 0;
   right: 0;
@@ -29271,31 +29324,45 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   border-radius: 10px 10px 0 0;
   box-shadow: inset 1px 0 0 var(--lift_edge), inset -1px 0 0 var(--lift_edge), inset 0 1px 0 var(--lift_edge), var(--lift_band_shadow);
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line):has(>.buttons_container>*) > .label {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area:not(.view_line):has(>.buttons_container>*) > .label {
   position: relative;
   z-index: 3;
   font-size: inherit;
   max-width: calc(100% - var(--tools_width, 8rem) - 2 * var(--field_inset_x));
   transform: translateY(calc(-1 * (var(--lift_band_height) / 2 + 0.95rem)));
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) > .label {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) > .label {
   max-width: 100%;
   transform: translateY(calc(-1 * var(--component_label_height) - 1rem));
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element).component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) > .buttons_container {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) > .buttons_container {
   top: calc(-1 * (var(--lift_band_height) + var(--component_label_height)));
   height: calc(var(--lift_band_height) + var(--component_label_height));
   align-items: flex-start;
   padding-top: 0.5rem;
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search) {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .wrapper_service_autocomplete:not(.search) {
   top: 100%;
   background-color: var(--bg_elevated);
   box-shadow: inset 0 0 0 1px var(--lift_edge), var(--lift_shadow);
   border-radius: 0 0 10px 10px;
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search) > .button_options {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .wrapper_service_autocomplete:not(.search) > .button_options {
   background-color: var(--color_grey_5);
+}
+:root[data-active_style="lift"] .wrapper_tool > .content_data .wrapper_component.edit.active:not(.hilite_element) {
+  background-color: var(--bg_elevated);
+  box-shadow: inset 0 0 0 1px var(--lift_edge), var(--shadow-2);
+  border-radius: 0 0 10px 10px;
+}
+:root[data-active_style="lift"] .wrapper_tool > .content_data .wrapper_component.edit.active:not(.hilite_element) > .label::before {
+  content: '';
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--color_orange_dedalo);
 }
 /**
 * active style: MARGIN
@@ -29319,16 +29386,23 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
 *
 * Selected by <html data-active_style="margin"> (core/page/js/active_style.js).
 * The base (default) look is layout.less `.active`; this file only overrides it.
+*
+* (!) NOT INSIDE A TOOL PANE (`:not(.wrapper_tool *)`). A tool hosts ONE field as
+* the pane's whole surface and draws its own header row (tool_mixins.less
+* `.text_area_pane_header`); the gutters and rail below are how this style tells
+* an active field apart among many, and applied to a pane they shrank the editor
+* by the gutter widths (13px left, 39px right), painted the bracket down the
+* pane's edge and moved the tool pill out of the header row as a round rail.
 * Mockup: design canvas boards E_Margin, E_Margin_more.
 */
 :root[data-active_style="margin"] #inspector .wrapper_component.edit:not(.wrapper_component *) {
   padding-left: 1rem;
 }
-:root[data-active_style="margin"] .wrapper_component.edit:not(.wrapper_component *):not(#inspector *) {
+:root[data-active_style="margin"] .wrapper_component.edit:not(.wrapper_component *):not(#inspector *):not(.wrapper_tool *) {
   padding-left: 1rem;
   padding-right: 3rem;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element) {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) {
   box-shadow: none;
   border-radius: 0;
   background-color: var(--color_white);
@@ -29340,29 +29414,30 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   background-position: 0.3rem 0, 0.3rem 0, 0.3rem var(--margin_span);
   background-repeat: no-repeat;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element) > .label {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .label {
   transform: none;
   background: none;
   margin-left: 0;
   padding: 0.4rem 0.5rem 0 var(--field_inset_x);
   height: var(--component_label_height);
   max-width: 100%;
+  color: var(--color_black);
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line) {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area:not(.view_line) {
   background-size: 3px var(--margin_span), 0 0, 0.6rem 3px;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line) > .label {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area:not(.view_line) > .label {
   transform: translateY(-100%);
   background-image: linear-gradient(var(--color_orange_dedalo), var(--color_orange_dedalo)), linear-gradient(var(--color_orange_dedalo), var(--color_orange_dedalo));
   background-size: 3px 100%, 0.6rem 3px;
   background-position: 0.3rem 0, 0.3rem 0;
   background-repeat: no-repeat;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line):not(.wrapper_component *):not(#inspector *) > .label {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area:not(.view_line):not(.wrapper_component *):not(#inspector *) > .label {
   margin-left: -1rem;
   padding-left: calc(1rem + var(--field_inset_x));
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container {
   top: 0;
   left: calc(100% + 0.4rem);
   right: auto;
@@ -29378,33 +29453,33 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   align-items: center;
   justify-content: space-evenly;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container .buttons_fold {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container .buttons_fold {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: space-evenly;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span:first-child,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span:last-child,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container .button:last-of-type {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span:first-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span:last-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container .button:last-of-type {
   margin: 0;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(*, #inspector *) > .buttons_container:not(:has(.button)) {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(*, #inspector *) > .buttons_container:not(:has(.button)) {
   display: none !important;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_component *):not(#inspector *):has(>.buttons_container>*) {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.wrapper_component *):not(#inspector *):has(>.buttons_container>*) {
   min-height: calc(var(--rail_tight) + var(--field_pad_bottom, 0px));
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_component *):not(#inspector *) > .buttons_container {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.wrapper_component *):not(#inspector *) > .buttons_container {
   left: auto;
   right: calc((3rem - 2.2rem) / 2);
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *):has(>.buttons_container>*) > .label {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *):has(>.buttons_container>*) > .label {
   max-width: calc(100% - var(--tools_width, 8rem));
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container {
   top: 0.2rem;
   right: var(--field_inset_x);
   height: 1.1rem;
@@ -29416,31 +29491,31 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   display: flex !important;
   align-items: center;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .buttons_fold {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .buttons_fold {
   display: flex;
   align-items: center;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button {
   background-color: var(--color_grey_5);
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button:hover {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button:hover {
   background-color: var(--color_orange_dark);
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span:first-child,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span:last-child,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button:last-of-type {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span:first-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span:last-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button:last-of-type {
   margin-top: 0;
   margin-bottom: 0;
   margin-right: 0;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *).tab_lifted:has(>.buttons_container>*) > .label {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *).tab_lifted:has(>.buttons_container>*) > .label {
   max-width: 100%;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element).no_side_room:is(.wrapper_component *):not(#inspector *).tab_lifted:has(>.buttons_container>*) > .buttons_container {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *).tab_lifted:has(>.buttons_container>*) > .buttons_container {
   top: calc(-1 * var(--component_label_height));
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(#inspector *) > .buttons_container {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(#inspector *) > .buttons_container {
   top: -1.7rem;
   left: auto;
   right: 0;
@@ -29451,13 +29526,23 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   flex-direction: row;
   border-radius: var(--radius-pill);
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(#inspector *) > .buttons_container .buttons_fold {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(#inspector *) > .buttons_container .buttons_fold {
   flex-direction: row;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(#inspector *) > .buttons_container span,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(#inspector *) > .buttons_container span:first-child,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(#inspector *) > .buttons_container span:last-child,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):is(#inspector *) > .buttons_container .button:last-of-type {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(#inspector *) > .buttons_container span,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(#inspector *) > .buttons_container span:first-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(#inspector *) > .buttons_container span:last-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(#inspector *) > .buttons_container .button:last-of-type {
   margin: 0.35rem 0.25rem;
+}
+:root[data-active_style="margin"] .wrapper_tool > .content_data .wrapper_component.edit.active:not(.hilite_element) {
+  box-shadow: none;
+  border-radius: 0;
+  background-color: var(--color_white);
+  --margin_span: calc(100% - var(--field_pad_bottom, 0px));
+  background-image: linear-gradient(var(--color_orange_dedalo), var(--color_orange_dedalo)), linear-gradient(var(--color_orange_dedalo), var(--color_orange_dedalo));
+  background-size: 3px var(--margin_span), 0.6rem 3px;
+  background-position: 0.3rem 0, 0.3rem var(--margin_span);
+  background-repeat: no-repeat;
 }
 /*# sourceMappingURL=main.css.map */

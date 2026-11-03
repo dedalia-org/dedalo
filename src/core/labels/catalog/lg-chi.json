@@ -1,7 +1,8 @@
 {
 	"active": "启用",
 	"active_style": "活动字段样式",
-	"active_style_default": "边框",
+	"active_style_background": "背景",
+	"active_style_frame": "边框",
 	"active_style_lift": "浮起",
 	"active_style_margin": "页边",
 	"activity": "活动",

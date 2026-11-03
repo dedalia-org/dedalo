@@ -1,7 +1,8 @@
 {
 	"active": "Actiu",
 	"active_style": "Estil del camp actiu",
-	"active_style_default": "Marc",
+	"active_style_background": "Fons",
+	"active_style_frame": "Marc",
 	"active_style_lift": "Elevació",
 	"active_style_margin": "Marge",
 	"activity": "Activitat",

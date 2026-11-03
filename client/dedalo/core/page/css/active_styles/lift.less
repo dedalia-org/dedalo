@@ -14,6 +14,14 @@
 *
 * Selected by <html data-active_style="lift"> (core/page/js/active_style.js).
 * The base (default) look is layout.less `.active`; this file only overrides it.
+*
+* (!) NOT INSIDE A TOOL PANE (`:not(.wrapper_tool *)`). A tool hosts ONE field as
+* the pane's whole surface, and that pane's chrome — the label row, the ck
+* toolbar that swaps into it, the tool pill — is tool_mixins.less
+* `.text_area_pane_header`, drawn by the tool. The card/band rules below exist to
+* tell an active field apart among many; applied to a pane they lifted the label
+* 32px up over the tool's own controls and turned the pill into a full-width
+* white band above the field.
 */
 
 :root[data-active_style="lift"] {
@@ -30,12 +38,12 @@
 	--lift_band_shadow: 0 -1px 3px var(--shadow_default);
 }
 
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) {
 	background-color: var(--bg_elevated);
 	box-shadow: inset 0 0 0 1px var(--lift_edge), var(--lift_shadow);
 	border-radius: 10px;
 
-	// label back in its row (the default makes it a legend on the frame edge)
+	// label back in its row
 	>.label {
 		transform: none;
 		background: none;
@@ -43,6 +51,9 @@
 		padding: 0.4rem 0.5rem 0 var(--field_inset_x);
 		height: var(--component_label_height);
 		max-width: 100%;
+		// the base look is the tinted field now, whose name is orange:
+		// this style keeps the near-black name it had over the frame
+		color: var(--color_black);
 
 		&::before {
 			content: '';
@@ -175,7 +186,10 @@
 
 // autocomplete: the bar hangs under the card as its bottom section, neutral,
 // exactly the card's width (the default docks an orange bar on the frame)
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search) {
+// (!) `:not(.wrapper_tool *)` — see the header block: a field inside a tool is
+// the pane itself, and the pane's chrome is the tool's (tool_mixins.less
+// .text_area_pane_header), not this style's card.
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .wrapper_service_autocomplete:not(.search) {
 	top: 100%;
 	background-color: var(--bg_elevated);
 	box-shadow: inset 0 0 0 1px var(--lift_edge), var(--lift_shadow);
@@ -183,5 +197,40 @@
 
 	>.button_options {
 		background-color: @color_grey_5;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// INSIDE A TOOL PANE — the refined variant (see the header note).
+//
+// A tool hosts ONE field as the pane's whole surface, and that pane's chrome —
+// the label row, the ck toolbar that swaps into it, the tools tab — belongs to
+// the tool (tool_mixins.less `.text_area_pane_header`). So the card keeps what
+// identifies it: the elevated surface, the neutral 1px edge, the shadow and the
+// dot on the name. It DROPS the header band: a band exists to grow the card
+// upward when the label row cannot hold both the name and the tools, and in a
+// pane there is no such contention — the toolbar owns the row and the tab is
+// already on it.
+//
+// Scoped to the tool BODY: a tool's controls band hosts components too (status
+// checkboxes, selects), and a card around one of those is noise.
+:root[data-active_style="lift"] .wrapper_tool > .content_data .wrapper_component.edit.active:not(.hilite_element) {
+	background-color: var(--bg_elevated);
+	// The pane keeps 1rem around the field and clips to it, so the record card's
+	// 28px spread is cut anyway — the small shadow is the one that survives.
+	box-shadow: inset 0 0 0 1px var(--lift_edge), var(--shadow-2);
+	// The header row is the card's own head (the toolbar takes it), so the top
+	// corners follow the pane's straight edge and the card rounds only below.
+	border-radius: 0 0 10px 10px;
+
+	// the dot: the style's only orange, on the name
+	>.label::before {
+		content: '';
+		display: inline-block;
+		flex: 0 0 auto;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background-color: @color_orange_dedalo;
 	}
 }

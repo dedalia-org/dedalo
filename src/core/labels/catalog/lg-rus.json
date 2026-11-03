@@ -1,7 +1,8 @@
 {
 	"active": "Активно",
 	"active_style": "Стиль активного поля",
-	"active_style_default": "Рамка",
+	"active_style_background": "Фон",
+	"active_style_frame": "Рамка",
 	"active_style_lift": "Подъём",
 	"active_style_margin": "Поле",
 	"activity": "Действие",

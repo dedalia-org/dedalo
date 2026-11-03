@@ -1,7 +1,8 @@
 {
 	"active": "Aktiv",
 	"active_style": "Stil des aktiven Feldes",
-	"active_style_default": "Rahmen",
+	"active_style_background": "Hintergrund",
+	"active_style_frame": "Rahmen",
 	"active_style_lift": "Anheben",
 	"active_style_margin": "Rand",
 	"activity": "Aktivität",

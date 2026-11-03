@@ -1,7 +1,8 @@
 {
 	"active": "Activo",
 	"active_style": "Estilo del campo activo",
-	"active_style_default": "Marco",
+	"active_style_background": "Fondo",
+	"active_style_frame": "Marco",
 	"active_style_lift": "Elevación",
 	"active_style_margin": "Margen",
 	"activity": "Actividad",

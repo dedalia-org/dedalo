@@ -52,9 +52,12 @@ How Dédalo marks the field you are currently editing. The choice applies at onc
 
 | Style | Look |
 | --- | --- |
-| **Frame** (default) | A thin orange frame around the field; its name sits in the frame's top edge and its tools are a tab on the top-right corner. |
+| **Background** (default) | The field's own surface is tinted with the palette's orange field tint and its name reads in deep orange; the tools float above its top-right corner as an orange pill. No frame, no box — the quietest of the four. |
+| **Frame** | A thin orange frame around the field; its name sits in the frame's top edge and its tools are a tab on the top-right corner. |
 | **Lift** | The field rises as a card, exactly its own size, with a soft shadow; an orange dot marks its name and the tools sit on the name's row. |
 | **Margin** | An orange bracket in the field's left margin; the tools stand as a vertical rail just right of the field when there is free space there, otherwise on the name's row. |
+
+The style describes how a form marks **one active field among many**, so it applies to records and, in a reduced form, inside a tool: there the field is the whole pane, so it keeps the style's own mark — Lift's elevated card and the dot on the name, Margin's orange bracket, Background's tint (and its deep-orange name) — while the name row and the tools stay the tool's own (the formatting toolbar takes the name row, and the tools are the tab at its right end). The record form keeps the full style.
 
 ## Tips and gotchas
 

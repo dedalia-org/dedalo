@@ -432,6 +432,12 @@
 						// own raised placement, not the text_area sticky one
 						position: absolute;
 						margin-top: 0;
+						// (!) no side margins: component_text_area's active state
+						// insets the toolbar 4px, and on a 100%-wide absolute strip
+						// that both shifted it right and pushed its right edge 4px
+						// past the field's frame (the pane grew a horizontal scroll).
+						margin-left: 0;
+						margin-right: 0;
 						left: 0;
 						width: 100%;
 						height: @transcription_chrome_height;

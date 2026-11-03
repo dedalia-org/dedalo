@@ -31,7 +31,8 @@
 
 // The registry. `label` is a get_label key.
 export const ACTIVE_STYLES = Object.freeze([
-	{ id : 'default',	label : 'active_style_default' },
+	{ id : 'default',	label : 'active_style_background' },
+	{ id : 'frame',		label : 'active_style_frame' },
 	{ id : 'lift',		label : 'active_style_lift' },
 	{ id : 'margin',	label : 'active_style_margin' }
 ])

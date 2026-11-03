@@ -1,7 +1,8 @@
 {
 	"active": "有効",
 	"active_style": "アクティブなフィールドのスタイル",
-	"active_style_default": "枠",
+	"active_style_background": "背景",
+	"active_style_frame": "枠",
 	"active_style_lift": "浮き上がり",
 	"active_style_margin": "余白",
 	"activity": "アクティビティ",

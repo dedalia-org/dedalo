@@ -1,7 +1,8 @@
 {
 	"active": "Ativo",
 	"active_style": "Estilo do campo ativo",
-	"active_style_default": "Moldura",
+	"active_style_background": "Fundo",
+	"active_style_frame": "Moldura",
 	"active_style_lift": "Elevação",
 	"active_style_margin": "Margem",
 	"activity": "Atividade",

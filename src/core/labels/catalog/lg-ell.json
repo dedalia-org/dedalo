@@ -1,7 +1,8 @@
 {
 	"active": "Ενεργό",
 	"active_style": "Στυλ ενεργού πεδίου",
-	"active_style_default": "Πλαίσιο",
+	"active_style_background": "Φόντο",
+	"active_style_frame": "Πλαίσιο",
 	"active_style_lift": "Ανύψωση",
 	"active_style_margin": "Περιθώριο",
 	"activity": "Δραστηριότητα",

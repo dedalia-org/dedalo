@@ -1,7 +1,8 @@
 {
 	"active": "Attivo",
 	"active_style": "Stile del campo attivo",
-	"active_style_default": "Cornice",
+	"active_style_background": "Sfondo",
+	"active_style_frame": "Cornice",
 	"active_style_lift": "Rilievo",
 	"active_style_margin": "Margine",
 	"activity": "Attività",

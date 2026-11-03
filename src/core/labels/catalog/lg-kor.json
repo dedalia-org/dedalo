@@ -1,7 +1,8 @@
 {
 	"active": "활성",
 	"active_style": "활성 필드 스타일",
-	"active_style_default": "테두리",
+	"active_style_background": "배경",
+	"active_style_frame": "테두리",
 	"active_style_lift": "띄우기",
 	"active_style_margin": "여백",
 	"activity": "활동",

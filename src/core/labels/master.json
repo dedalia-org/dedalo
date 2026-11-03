@@ -1,7 +1,8 @@
 {
 	"active": "Active",
 	"active_style": "Active field style",
-	"active_style_default": "Frame",
+	"active_style_background": "Background",
+	"active_style_frame": "Frame",
 	"active_style_lift": "Lift",
 	"active_style_margin": "Margin",
 	"activity": "Activity",

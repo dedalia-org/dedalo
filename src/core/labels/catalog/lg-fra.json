@@ -1,7 +1,8 @@
 {
 	"active": "Actif",
 	"active_style": "Style du champ actif",
-	"active_style_default": "Cadre",
+	"active_style_background": "Fond",
+	"active_style_frame": "Cadre",
 	"active_style_lift": "Relief",
 	"active_style_margin": "Marge",
 	"activity": "Activité",

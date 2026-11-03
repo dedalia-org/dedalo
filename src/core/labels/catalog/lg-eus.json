@@ -1,7 +1,8 @@
 {
 	"active": "Aktibo",
 	"active_style": "Eremu aktiboaren estiloa",
-	"active_style_default": "Markoa",
+	"active_style_background": "Atzeko planoa",
+	"active_style_frame": "Markoa",
 	"active_style_lift": "Altxatu",
 	"active_style_margin": "Marjina",
 	"activity": "Jarduera",

@@ -1,0 +1,132 @@
+/**
+* active style: FRAME
+*
+* The field keeps its own surface inside a 1px orange frame; the label is set
+* into the frame's top edge as a legend and the tool strip docks on the
+* top-right corner as a tab, so frame, label and tools read as one object.
+* Inset shadow, not border, so activation never reflows.
+*
+* This was the DEFAULT look until 2026-11-03, when Background (the tinted
+* surface the switcher replaced) became the base and Frame became a choice.
+* Its rules therefore mirror the base and override it: the white surface, the
+* legend label, the docked tab.
+*
+* Selected by <html data-active_style="frame"> (core/page/js/active_style.js).
+* The base (default) look is layout.less `.active`; this file only overrides it.
+*
+* (!) NOT INSIDE A TOOL PANE (`:not(.wrapper_tool *)`): a tool hosts ONE field
+* as the pane's whole surface and draws its own header row / tab
+* (tool_mixins.less `.text_area_pane_header`), so the legend and the docked tab
+* would fight the tool's chrome. The reduced tool variant below keeps only the
+* frame's surface.
+*/
+
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) {
+	// 'box-shadow: none' first overrides the grey edit/search/player outline
+	box-shadow: none;
+	overflow: initial;
+
+	// The guard keeps the search hilite of a valued field.
+	&:not(.hilite_element) {
+		background-color: var(--color_white);
+		box-shadow: inset 0 0 0 1px @color_orange_dedalo;
+		border-radius: 8px;
+
+		// top-right square only where a tool tab docks (password, inverse… have none)
+		&:has(>.buttons_container>*) {
+			border-top-right-radius: 0;
+		}
+		// bottom square while the autocomplete bar docks there (service_autocomplete.less)
+		&:has(>.wrapper_service_autocomplete.active:not(.search)) {
+			border-bottom-left-radius: 0;
+			border-bottom-right-radius: 0;
+		}
+
+		// Inner list surfaces stop painting their own card / grey remove
+		// column, so the field reads as one surface inside the frame.
+		.list_body,
+		.column_remove {
+			background-color: transparent;
+		}
+	}
+
+	// Label ink: full-contrast --color_black (inverts in dark), heavier
+	// than the idle grey label. Orange is the frame's job, not the text's.
+	>.label {
+		color: var(--color_black);
+		font-weight: 600;
+	}
+
+	// label as a legend set into the frame's top edge (stays in flow:
+	// only painted up over the line, nothing below moves)
+	&:not(.hilite_element)>.label {
+		justify-self: start;
+		align-self: start;
+		width: fit-content;
+		max-width: calc(100% - 2rem);
+		height: auto;
+		flex: 0 1 auto;
+		// padding-bottom keeps the idle row height where the wrapper is not a
+		// grid (phone `display:block`), or activation pulls the content up.
+		// Padding, not margin: a margin collapses with the content's.
+		padding: 0 0.4rem calc(var(--component_label_height) - 1lh);
+		margin-left: calc(var(--field_inset_x) - 0.4rem);
+		// paint only the text line: the mask over the frame edge
+		background: linear-gradient(var(--color_white), var(--color_white)) top / 100% 1lh no-repeat;
+		transform: translateY(-50%);
+	}
+	// the legend shares the top edge with the tool tab: leave the tab its
+	// room (ellipsis), never below 40% so phones keep a readable label
+	&:not(.hilite_element):has(>.buttons_container>*)>.label {
+		max-width: max(40%, calc(100% - 12rem));
+	}
+
+	// the tools: the docked tab — bottom edge on the frame's top edge (the base
+	// look floats the same strip as a pill above the field)
+	>.buttons_container {
+		display: block !important;
+		white-space: nowrap;
+		z-index: 2;
+		top: -2rem;
+		height: 2rem;
+		border-radius: 8px 8px 0 0;
+		box-shadow: none;
+
+		.button:last-of-type {
+			margin-right: 0.75rem;
+		}
+	}
+
+	// TAB_LIFTED (ui.component.activate measures it): a narrow field cannot
+	// hold the full label and the tab on its top edge, so the tab floats
+	// clear above the label (a pill again) and the label keeps its text.
+	&.tab_lifted:not(.hilite_element) {
+		border-top-right-radius: 8px;
+
+		&:has(>.buttons_container>*)>.label {
+			max-width: calc(100% - 2rem);
+		}
+
+		>.buttons_container {
+			top: calc(-2rem - 0.75rem - 1px); // above the legend's top (-0.75rem)
+			border-radius: 8px;
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// INSIDE A TOOL PANE — the reduced variant: the frame's SURFACE travels (white
+// inside a 1px orange edge), the legend and the docked tab do not — the pane's
+// header row, its ck toolbar and the tab at the row's right end belong to the
+// tool (tool_mixins.less `.text_area_pane_header`).
+//
+// Scoped to the tool BODY: a tool's controls band hosts components too.
+:root[data-active_style="frame"] .wrapper_tool > .content_data .wrapper_component.edit.active:not(.hilite_element) {
+	box-shadow: inset 0 0 0 1px @color_orange_dedalo;
+	border-radius: 8px;
+	background-color: var(--color_white);
+
+	&:has(>.buttons_container>*) {
+		border-top-right-radius: 0;
+	}
+}

@@ -1,7 +1,8 @@
 {
 	"active": "نشط",
 	"active_style": "نمط الحقل النشط",
-	"active_style_default": "إطار",
+	"active_style_background": "الخلفية",
+	"active_style_frame": "إطار",
 	"active_style_lift": "رفع",
 	"active_style_margin": "هامش",
 	"activity": "نشاط",

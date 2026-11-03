@@ -20,6 +20,13 @@
 *
 * Selected by <html data-active_style="margin"> (core/page/js/active_style.js).
 * The base (default) look is layout.less `.active`; this file only overrides it.
+*
+* (!) NOT INSIDE A TOOL PANE (`:not(.wrapper_tool *)`). A tool hosts ONE field as
+* the pane's whole surface and draws its own header row (tool_mixins.less
+* `.text_area_pane_header`); the gutters and rail below are how this style tells
+* an active field apart among many, and applied to a pane they shrank the editor
+* by the gutter widths (13px left, 39px right), painted the bracket down the
+* pane's edge and moved the tool pill out of the header row as a round rail.
 * Mockup: design canvas boards E_Margin, E_Margin_more.
 */
 
@@ -32,13 +39,15 @@
 :root[data-active_style="margin"] #inspector .wrapper_component.edit:not(.wrapper_component *) {
 	padding-left: @margin_left_gutter;
 }
-// the gutters, active or not (top-level fields only)
-:root[data-active_style="margin"] .wrapper_component.edit:not(.wrapper_component *):not(#inspector *) {
+// the gutters, active or not (top-level fields only, and never inside a tool
+// pane: a tool's field IS the pane, so a bracket/rail gutter would eat its
+// content — see the header block)
+:root[data-active_style="margin"] .wrapper_component.edit:not(.wrapper_component *):not(#inspector *):not(.wrapper_tool *) {
 	padding-left: @margin_left_gutter;
 	padding-right: @margin_gutter;
 }
 
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element) {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) {
 	box-shadow: none;
 	border-radius: 0;
 	background-color: var(--color_white);
@@ -55,7 +64,7 @@
 	background-position: @margin_bracket_x 0, @margin_bracket_x 0, @margin_bracket_x var(--margin_span);
 	background-repeat: no-repeat;
 
-	// label back in its row (the default makes it a legend on the frame edge)
+	// label back in its row
 	>.label {
 		transform: none;
 		background: none;
@@ -63,6 +72,9 @@
 		padding: 0.4rem 0.5rem 0 var(--field_inset_x);
 		height: var(--component_label_height);
 		max-width: 100%;
+		// the base look is the tinted field now, whose name is orange:
+		// this style keeps the near-black name it had over the frame
+		color: var(--color_black);
 	}
 	// text_area: its editor toolbar takes the label row, so the label rides
 	// just above the field, small (as the default does)
@@ -209,4 +221,30 @@
 			margin: 0.35rem 0.25rem;
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// INSIDE A TOOL PANE — the refined variant (see the header note).
+//
+// The field is the pane's whole surface: there is no gutter to keep empty and no
+// room for the vertical rail (the pane's 1rem side padding is narrower than the
+// rail, which is why it floated out of the row). So the style keeps its ONE mark
+// — the orange bracket — drawn inside the field's own left edge, and the tool's
+// tab stands in for the rail on the header row. The gutter/padding rules above
+// are excluded from tools for exactly this reason.
+//
+// Scoped to the tool BODY: a tool's controls band hosts components too, and a
+// bracket beside a status checkbox is noise.
+:root[data-active_style="margin"] .wrapper_tool > .content_data .wrapper_component.edit.active:not(.hilite_element) {
+	box-shadow: none;
+	border-radius: 0;
+	background-color: var(--color_white);
+	--margin_span: calc(100% - var(--field_pad_bottom, 0px));
+	// spine + bottom tick only: the header row the toolbar takes is its top
+	background-image:
+		linear-gradient(@color_orange_dedalo, @color_orange_dedalo),
+		linear-gradient(@color_orange_dedalo, @color_orange_dedalo);
+	background-size: 3px var(--margin_span), 0.6rem 3px;
+	background-position: @margin_bracket_x 0, @margin_bracket_x var(--margin_span);
+	background-repeat: no-repeat;
 }

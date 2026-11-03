@@ -6,7 +6,7 @@
   (`component_json`, dd128 → dd129) first item `value` when it is a plain object
   of at most 4 KiB (`pickUiPreferences`, `src/core/security/user_identity.ts`),
   else `null`; `null` for anonymous callers. PHP `get_page_globals` has NO twin.
-  Known key: `active_style` (`default` | `lift` | `margin`, the client registry
+  Known key: `active_style` (`default` = the tinted Background look | `frame` | `lift` | `margin`, the client registry
   `client/dedalo/core/page/js/active_styles.js`; unknown ids fall back to `default`).
 - **Permission:** dd1206 joins `SELF_EDITABLE_COMPONENTS`
   (`src/core/security/permissions.ts`): a user writes it on their OWN record at

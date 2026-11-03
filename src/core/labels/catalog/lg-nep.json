@@ -1,7 +1,8 @@
 {
 	"active": "सक्रिय",
 	"active_style": "सक्रिय फिल्ड शैली",
-	"active_style_default": "फ्रेम",
+	"active_style_background": "पृष्ठभूमि",
+	"active_style_frame": "फ्रेम",
 	"active_style_lift": "उठान",
 	"active_style_margin": "किनारा",
 	"activity": "गतिविधि",

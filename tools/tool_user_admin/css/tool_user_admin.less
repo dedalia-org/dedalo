@@ -145,7 +145,17 @@
 				border-radius: 6px;
 				background-color: var(--color_white);
 
+				// the default look since 2026-11-03: the field tinted, the tools
+				// as the floating orange pill above its top-right corner
 				&.preview_default {
+					border-radius: 3px;
+					background-color: var(--color_hilite);
+					background-image: linear-gradient(@color_orange_dedalo, @color_orange_dedalo);
+					background-size: 1.3rem 0.45rem;
+					background-position: calc(100% - 3px) 3px;
+					background-repeat: no-repeat;
+				}
+				&.preview_frame {
 					box-shadow: inset 0 0 0 1px @color_orange_dedalo;
 				}
 				&.preview_lift {
