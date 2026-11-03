@@ -838,6 +838,12 @@
 				display: grid;
 				grid-template-columns: subgrid;
 			}
+			// both carry the `section` class: the outer `.section { padding: 1rem }`
+			// was inert on the legacy `display: contents` shape but pads a subgrid
+			>.header_wrapper_list.section,
+			>.content_data.section {
+				padding: 0px;
+			}
 
 			// a min-height on content_data must never stretch its row tracks
 			>.content_data {

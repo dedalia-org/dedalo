@@ -7077,6 +7077,10 @@ dd-modal.dd_presets::part(content) {
     display: grid;
     grid-template-columns: subgrid;
   }
+  .list_body.layout_table > .header_wrapper_list.section,
+  .list_body.layout_table > .content_data.section {
+    padding: 0px;
+  }
   .list_body.layout_table > .content_data {
     align-content: start;
   }
