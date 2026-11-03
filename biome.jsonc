@@ -1,6 +1,6 @@
 // Biome config (JSONC so rule decisions can carry their justification inline).
 {
-	"$schema": "https://biomejs.dev/schemas/2.6.3/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.6.4/schema.json",
 	"assist": { "actions": { "source": { "organizeImports": "on" } } },
 	"formatter": {
 		"enabled": true,
