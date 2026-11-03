@@ -19825,7 +19825,6 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .area_ontology > .buttons_container {
   display: flex;
   flex-wrap: wrap;
-  justify-content: space-between;
 }
 .area_thesaurus > .buttons_container button,
 .area_ontology > .buttons_container button {
@@ -19840,7 +19839,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  width: 100%;
+  flex: 1 1 auto;
   padding: 0px;
 }
 .area_thesaurus > .search_container,

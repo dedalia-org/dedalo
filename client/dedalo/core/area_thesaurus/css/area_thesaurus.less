@@ -12,7 +12,6 @@
 	>.buttons_container {
 		display: flex;
 		flex-wrap: wrap; // nowrap buttons in one line widened the page at phone width
-		justify-content: space-between;
 
 		button {
 			margin-bottom: 0.25rem;
@@ -30,7 +29,7 @@
 			display: flex;
 			flex-wrap: wrap;
 			justify-content: flex-end;
-			width: 100%;
+			flex: 1 1 auto; // fills the Search row; wraps to its own line only when it does not fit (width:100% + wrap stranded Show all at the far right)
 			padding: 0px;
 		}
 	}
