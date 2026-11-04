@@ -231,11 +231,21 @@ export const create_connection_pool = function(max_concurrent) {
 * multi-GB file) and a single slow response must not lose an upload that has
 * already fully transferred.
 *
+* A multi-GB join outlives one request budget: after ~24 s the resend gets
+* idempotency.in_progress (not retryable) while the first join is still running,
+* and the user saw an error for a file that ended up staged. So the call is
+* repeated in rounds until it settles. Each round is a new request (data_manager
+* mints its key); the server's join is idempotent per upload_id: a round while
+* the first join runs gets media.upload_conflict, and a round after it ends gets
+* the recorded result (upload.ts joinChunkedUpload).
+*
 * @param {Object} options
 *   @param {Object} options.file_data - `file_data` of the last chunk response
 *     (carries key_dir / tmp_name / total_chunks).
 *   @param {Array<string>} options.files_chunked - Server-side temp names indexed
 *     by chunk_index.
+*   @param {Function} [options.is_stopped] - Returns true when the caller
+*     cancelled the transfer, to stop waiting.
 * @returns {Promise<Object>} The API response `{ok, data, file_data?}`.
 */
 export const join_chunked_files = async function(options) {
@@ -255,12 +265,35 @@ export const join_chunked_files = async function(options) {
 		}
 
 	// call to the API, fetch data and get response
-		return data_manager.request({
-			body	: rqo,
-			retries	: 5, // try
-			timeout	: 10 * 1000 // 10 secs waiting response
-		})
+		const deadline = Date.now() + JOIN_MAX_WAIT_MS
+		while (true) {
+			const response = await data_manager.request({
+				body	: rqo,
+				retries	: 5, // try
+				timeout	: 10 * 1000 // 10 secs waiting response
+			})
+			// still running on the server (or its answer was lost): ask again
+			const code		= response?.error?.code
+			const pending	= code==='media.upload_conflict'
+				|| code==='idempotency.in_progress'
+				|| code===CLIENT_ERROR.TIMEOUT
+				|| code===CLIENT_ERROR.NETWORK
+			if (!pending || Date.now() >= deadline || options.is_stopped?.()) {
+				return response
+			}
+			await new Promise(resolve_wait => setTimeout(resolve_wait, JOIN_POLL_MS))
+		}
 }//end join_chunked_files
+
+
+
+/**
+* JOIN_MAX_WAIT_MS / JOIN_POLL_MS
+* How long join_chunked_files keeps asking for a running join, and the pause
+* between rounds. 30 min covers a 10 GB join on slow storage (~6 MB/s).
+*/
+const JOIN_MAX_WAIT_MS	= 30 * 60 * 1000
+const JOIN_POLL_MS		= 5 * 1000
 
 
 
@@ -795,7 +828,9 @@ export const create_transfer = function(options) {
 
 						// A non-2xx is a REFUSAL, not a transport glitch: retrying it
 						// just repeats the same rejection. Terminal, with the server's
-						// own diagnosis attached.
+						// own diagnosis attached. Except 502/503/504: a proxy or a
+						// restarting server, where one blip must not kill a long
+						// transfer; a resent part lands in the same staging slot.
 						if (status < 200 || status >= 300) {
 							// api_response is forwarded so settle_failure can pass the
 							// server's errors[] through. handleMediaUpload returns
@@ -804,7 +839,8 @@ export const create_transfer = function(options) {
 							finish({
 								ok			: false,
 								error		: api_error_from(api_response, status, raw_text),
-								api_response: api_response
+								api_response: api_response,
+								retryable	: status===502 || status===503 || status===504
 							})
 							return
 						}
@@ -1016,7 +1052,8 @@ export const create_transfer = function(options) {
 			try {
 				const join_response = await join_chunked_files({
 					file_data		: last_file_data,
-					files_chunked	: files_chunked
+					files_chunked	: files_chunked,
+					is_stopped		: () => aborted || cancelled
 				})
 				if (!join_response || request_failed(join_response) || response_data(join_response) !== true) {
 					settle({

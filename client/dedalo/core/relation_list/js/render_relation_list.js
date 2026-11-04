@@ -453,11 +453,11 @@ const edit_relation = function(current_data) {
 	const section_id	= current_data.section_id
 	const section_tipo	= current_data.section_tipo
 
-	if (typeof section_id=="undefined") {
+	if (typeof section_id==="undefined") {
 		console.error("[relation_list.edit_relation] Error on find section_id", current_data);
 		return false
 	}
-	if (typeof section_tipo=="undefined") {
+	if (typeof section_tipo==="undefined") {
 		console.error("[relation_list.edit_relation] Error on find section_tipo", current_data);
 		return false
 	}

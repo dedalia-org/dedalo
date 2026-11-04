@@ -25,6 +25,7 @@
 	@import './layout/error_report_tab';
 	@import './layout/job_tray';
 	@import './layout/request_activity';
+	@import './layout/command_palette';
 
 // services and commons
 	@import '../../inspector/css/inspector';
@@ -120,3 +121,9 @@
 	@import '../../widgets/dmm/get_archive_states/css/get_archive_states';
 	@import '../../widgets/mdcat/sum_dates/css/sum_dates';
 
+
+// active-field styles (core/page/js/active_style.js ACTIVE_STYLES): last, they
+// override the default `.active` look and the component/service rules above
+	@import './active_styles/frame';
+	@import './active_styles/lift';
+	@import './active_styles/margin';

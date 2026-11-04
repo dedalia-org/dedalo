@@ -273,7 +273,7 @@ the *exported?* column marks ES-module exports usable by other files.
 | `page.prototype.edit(options)` | (via `render_page`) | Build the `.wrapper.page` DOM, `content_data` and `bubbles_notification_container`. `render_level:'content'` returns only `content_data`. |
 | `page.prototype.render()` / `refresh()` | (via `common`) | Generic render/refresh; `refresh` is how `navigate()` rebuilds the main element. |
 | `page.prototype.destroy(delete_self, delete_dependencies, remove_dom)` | (prototype) | Remove `popstate`/`beforeunload`/`keydown`/`mousedown` listeners, then call `common.destroy`. |
-| `page.prototype.add_events()` | (prototype) | Register the window/document listeners (browser history, unsaved-data guard, keyboard shortcuts, click-to-deactivate). |
+| `page.prototype.add_events()` | (prototype) | Register the window/document listeners (browser history, unsaved-data guard, keyboard shortcuts, click-to-deactivate). Also binds the [command palette](command_palette.md) (<kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>K</kbd>). |
 | `instantiate_page_element(self, source)` | ✓ | Build a child instance (section/menu/area/tool) from a context source; assembles instance options, sets `id_variant`, attaches `caller`. |
 
 ### navigation & selection (`page.js`)

@@ -74,6 +74,39 @@
 		opacity: 1;
 	}
 
+	// DOCKED under the active field's orange frame (layout.less `.active`, which
+	// squares the field's bottom corners while this is open): the bar IS the
+	// frame's bottom edge — exactly the frame's width, over its 1px bottom line,
+	// one orange shape. min-width moves to the results list, so a narrow field
+	// keeps a usable datalist without the bar sticking out past the frame.
+	.wrapper_component.edit.active:not(.hilite_element) > &:not(.search) {
+		left: 0;
+		width: 100%;
+		min-width: 0;
+		top: calc(100% - 1px);
+		border-radius: 0 0 8px 8px;
+
+		>.autocomplete_input {
+			border-radius: 4px;
+		}
+
+		>.autocomplete_data {
+			min-width: max(100%, min(25rem, calc(100vw - 2rem)));
+			max-width: none;
+		}
+
+		// results open: the list continues the shape, so its bottom takes the radius
+		&:has(>.autocomplete_data>*) {
+			border-radius: 0;
+
+			>.autocomplete_data {
+				border-bottom: 1px solid @color_orange_dedalo;
+				border-radius: 0 0 8px 8px;
+				overflow: hidden;
+			}
+		}
+	}
+
 	.spinner {
 		right: 3rem;
 		top: 0.6rem;

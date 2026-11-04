@@ -17,6 +17,9 @@
 			grid-template-rows: auto auto;
 			height: fit-content;
 			min-height: var(--content_data_min_height);
+			// wide tables scroll here: their max-content tracks otherwise grow the
+			// display:table .section.edit under the fixed inspector
+			overflow-x: auto;
 
 			// PHONE: the table becomes cards (list.less 'PHONE CARDS'), so the
 			// list_body is a plain block like every phone list_body — this 0,4,0

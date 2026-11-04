@@ -87,7 +87,7 @@
 @media screen and (max-width: 1024px) {
   .wrapper_tool.tool_transcription > .content_data > .left_container,
   .wrapper_tool.tool_transcription > .content_data > .right_container {
-    width: 100%;
+    width: 100% !important;
     height: auto;
     overflow: visible;
   }
@@ -103,18 +103,22 @@
   align-items: center;
   gap: 0.3em;
   height: 2.2rem;
+  width: auto;
   justify-self: stretch;
   box-sizing: border-box;
   max-width: none;
   margin: 0px -1rem;
   padding: 0px 1rem 0px 2rem;
   transform: none;
-  background-color: transparent;
+  background: none;
   border-radius: 0;
   border-bottom: 1px solid var(--border_default);
   font-size: inherit;
   font-weight: normal;
   color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component > .buttons_container {
   top: 0;
@@ -133,10 +137,12 @@
   margin-top: 0;
   margin-bottom: 0;
 }
-.wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component .toolbar_container {
+.wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component > .content_data > .content_value > .toolbar_container {
   top: 0;
   left: 0;
   width: 100%;
+  margin-left: 0px;
+  margin-right: 0px;
   height: 2.2rem;
   box-sizing: border-box;
   align-items: center;
@@ -148,6 +154,14 @@
   overflow: hidden;
   z-index: 5;
 }
+.wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component > .content_data > .content_value {
+  height: 100%;
+}
+.wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component > .content_data > .content_value > .editor_container {
+  height: 100%;
+  margin-top: 0px;
+  margin-bottom: 0px;
+}
 .wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component.modified:after {
   z-index: 7;
 }
@@ -157,7 +171,7 @@
 }
 @media screen and (max-width: 1024px) {
   .wrapper_tool.tool_transcription > .content_data .left_container > .wrapper_component > .content_data {
-    min-height: 50vh;
+    height: 50vh;
   }
 }
 .wrapper_tool.tool_transcription > .content_data .left_container .editor_container {

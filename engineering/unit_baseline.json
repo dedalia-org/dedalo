@@ -64,6 +64,11 @@
 			"skipped": 0,
 			"assertions": 37
 		},
+		"test/unit/active_style_registry.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 20
+		},
 		"test/unit/activity_aggregate_native.test.ts": {
 			"tests": 13,
 			"skipped": 0,

@@ -20,3 +20,15 @@
   -1 stay refused; `principalCanAccessRecord` itself is untouched.
 - **Client:** none.
 - **Gate reconciliation:** TS-only.
+
+## Addendum 2026-11-02 — the client reaches this read for root
+
+No wire change. The header username link opens `tool_user_admin` for root too (it was inert for
+root in `view_default_edit_menu.js`), so this read is now what root's account panel renders from.
+The panel applies its own read-only entries (username, profile) over root's superuser level; for
+root the image (media identifiers need a positive `section_id`) and the password are read-only too.
+The password: a self-change asks no current password and root has no emailed recovery, so a
+hijacked root session could lock the real root out — the panel does not offer it until a
+re-authenticated change exists. The SERVER is unchanged: WC-2026-08-28-root-self-service-write
+still accepts root's own dd133 save. Journey:
+`root_opens_own_account_panel` (`test/helpers/journey_cases.ts`).

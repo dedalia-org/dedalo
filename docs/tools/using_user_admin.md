@@ -13,6 +13,7 @@ Concrete scenario: a documentalist at a museum can catalogue objects but is not 
 ## When to use it
 
 - You want to update your own name, password, email or profile picture.
+- You want to choose how the field you are editing is highlighted.
 - You do not have (or do not need) access to the Users management section.
 
 It only ever edits **your own** account. To administer other users — create accounts, set profiles and permissions — use the Users section, which is a separate, permission-gated area.
@@ -27,7 +28,8 @@ Click your **username** in the main menu header. The User admin panel opens. It 
 2. The panel opens showing, as read-only context, your **id**, **username** and **profile**.
 3. Edit the fields you can change: **full name**, **password**, **email**, and your **user image** (the image field has the upload tool, so you can upload a portrait).
 4. Your changes save through the normal field save, the same as editing any record.
-5. Close the panel when you are done.
+5. Under **Active field style**, pick how the field you are editing is highlighted (see below).
+6. Close the panel when you are done.
 
 ## Options
 
@@ -39,9 +41,23 @@ There are no settings to configure — the panel simply renders your own account
 | Username | Read-only (context) |
 | Profile | Read-only (context) |
 | Full name | Editable |
-| Password | Editable |
+| Password | Editable; read-only for the root user (a change asks no current password and root has no emailed recovery) |
 | Email | Editable |
-| User image | Editable (with upload) |
+| User image | Editable (with upload); read-only for the root user, whose account record cannot hold media files |
+| Active field style | Editable (saved in your User interface preferences) |
+
+### Active field style
+
+How Dédalo marks the field you are currently editing. The choice applies at once, is saved on your own user record (the *User interface preferences* field), and follows you to any browser and every login.
+
+| Style | Look |
+| --- | --- |
+| **Background** (default) | The field's own surface is tinted with the palette's orange field tint and its name reads in deep orange; the tools float above its top-right corner as an orange pill. No frame, no box — the quietest of the four. |
+| **Frame** | A thin orange frame around the field; its name sits in the frame's top edge and its tools are a tab on the top-right corner. |
+| **Lift** | The field rises as a card, exactly its own size, with a soft shadow; an orange dot marks its name and the tools sit on the name's row. |
+| **Margin** | An orange bracket in the field's left margin; the tools stand as a vertical rail just right of the field when there is free space there, otherwise on the name's row. |
+
+The style describes how a form marks **one active field among many**, so it applies to records and, in a reduced form, inside a tool: there the field is the whole pane, so it keeps the style's own mark — Lift's elevated card and the dot on the name, Margin's orange bracket, Background's tint (and its deep-orange name) — while the name row and the tools stay the tool's own (the formatting toolbar takes the name row, and the tools are the tab at its right end). The record form keeps the full style.
 
 ## Tips and gotchas
 

@@ -587,7 +587,7 @@ export function printf(format) {
 	})
 
 	const output = format.replace(/{([\d]+)}/g, function(match, number) {
-		return typeof args[number] != 'undefined'
+		return typeof args[number] !== 'undefined'
 			? args[number]
 			: match
 	})

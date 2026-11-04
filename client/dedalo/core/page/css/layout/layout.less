@@ -22,9 +22,12 @@
 }
 
 // hilite static
+// (!) NO background transition, and no will-change: the 600ms fade painted the
+// tint over EVERY valued field on page load — a big cream rectangle appearing
+// out of nothing a beat after the page settles (reported as "the strange
+// animation of the component on load"). The mark is state, not motion: it is
+// there when the value is, instantly.
 .hilite_element {
-	will-change: background-color; // @see https://developer.mozilla.org/en-US/docs/Web/CSS/will-change
-	transition: background-color 600ms linear;
 	background-color: @color_hilite ;
 
 	.label {
@@ -438,49 +441,66 @@ input::placeholder {
 			display: none;
 		}
 
-		&.active {
+		// (!) `:not(:where(.edit.component_section_id))`: the id badge IS
+		// selectable in edit mode (the inspector shows its info) but it is not
+		// an editable field, and the field active look would paint over its own
+		// solid background and hide the number. Same law as the hover exclusion
+		// below. `:where()` keeps this block's specificity exactly where it was;
+		// the `.edit` compound leaves the same model's SEARCH field (a real
+		// input) its normal active look.
+		&.active:not(:where(.edit.component_section_id)) {
 			z-index: 3; // 3 allow over portal drag handlers
-			// no border/box-shadow on active components (the orange text +
-			// light background already signal the active state). 'none'
-			// also overrides the grey edit/search/player outline above.
+			// BACKGROUND (the default look since 2026-11-03): the field's own
+			// SURFACE is the mark. No frame, no card, no gutter — the palette's
+			// orange field tint paints the field, its name reads in the deep
+			// orange, and the tool strip floats above the top-right corner as a
+			// pill (the base `.buttons_container`). The other styles — frame,
+			// lift, margin — are one file each in core/page/css/active_styles/.
+			// 'box-shadow: none' first overrides the grey edit/search/player
+			// outline above.
 			box-shadow: none;
 			color: @color_orange_dedalo;
 			// overflow. allow set flex-basis (properties width). Remember labels are 'text-overflow: ellipsis'
 			overflow: initial; // !important
 
-			// --color_orange_light (#fffaf5) is 1.02:1 on the light card —
-			// the tint was invisible, so only the orange label read as
-			// "active". --color_hilite is the palette's declared orange field
-			// tint (light #fff7ef / dark #4a3424), already paired per theme,
-			// so the whole field lights up in both
-			// modes. The guard keeps the search hilite of a valued field.
+			// The guard keeps the search hilite of a valued field.
 			&:not(.hilite_element) {
 				background-color: @color_hilite;
 				border-radius: 3px;
 
-				// The tint is the surface of everything the field holds, so
-				// the list surfaces painted INSIDE it stop painting: the
-				// list card — at every depth, because a nested portal draws
-				// its own — and each row's grey remove column. Measured on
-				// numisdata3/2 numisdata249 (1 row): the only white inside
-				// the tinted field was `.list_body` #ffffff, and the grey
-				// `.column_remove` slab beside it. Paint only: padding,
-				// radius, min-height and flex/grid are untouched, so nothing
-				// reflows. Empty portals read the same way, with no card.
+				// bottom square while the autocomplete bar docks there (service_autocomplete.less)
+				&:has(>.wrapper_service_autocomplete.active:not(.search)) {
+					border-bottom-left-radius: 0;
+					border-bottom-right-radius: 0;
+				}
+
+				// The tint IS the field's surface, so the list surfaces painted
+				// INSIDE it stop painting: the list card (at every depth, because a
+				// nested portal draws its own) and each row's grey remove column.
+				// Paint only, nothing reflows.
 				.list_body,
 				.column_remove {
 					background-color: transparent;
 				}
 			}
 
-			// THE LABEL'S INK ON THE TINT. The tint IS the field's surface,
-			// so the label reads in the palette's DEEP orange —
-			// `--color_orange_dedalo` is a FILL (2.05:1 on the light tint,
-			// 4.76 dark) and no rule may put it behind text as ink.
-			// --color_orange_dark is 5.0:1 here (5.6 dark). Explicit because the shared
-			// label rule above paints every mode's label grey — 4.4:1 on
-			// the tint, under AA.
-			>.label {
+			// The label stays in its row (there is no frame edge to sit in) and
+			// reads in the palette's deep orange on the tint. --color_orange_dedalo
+			// is a FILL and may never be ink behind text.
+			// (!) `:not(.hilite_element)` is not decoration: it is the specificity
+			// that beats component_text_area's own `.active > .label` legend
+			// (transform/shrink/max-width), which is written for a framed field.
+			&:not(.hilite_element) > .label {
+				transform: none;
+				background: none;
+				justify-self: stretch;
+				width: auto;
+				margin-left: 0;
+				padding: 0.4rem 0.5rem 0 var(--field_inset_x);
+				height: var(--component_label_height);
+				max-width: 100%;
+				font-size: inherit;
+				font-weight: 600;
 				color: var(--color_orange_dark);
 			}
 
@@ -488,18 +508,12 @@ input::placeholder {
 				display: block;
 			}
 
-			// @media screen and (max-width: @width_break_point_1) {
-			// 	flex: 0 0 calc(100% - 2em) !important;
-			// }
-
+			// the tools: the floating orange pill above the field (the geometry is
+			// the base `.buttons_container`; activation only reveals it)
 			>.buttons_container {
 				display: block !important;
 				white-space: nowrap;
 				z-index: 2;
-
-				.button:last-of-type {
-					margin-right: 0.75rem;
-				}
 			}
 		}
 
@@ -741,8 +755,14 @@ input::placeholder {
 .section_record.edit .wrapper_component.edit {
 
 	// no resting outline/hairline on fields: delineation comes from the
-	// label/value ink contrast and the hover tint alone
-	transition: background-color var(--transition-fast);
+	// label/value ink contrast and the hover tint alone.
+	// (!) `:not(.active)`: ACTIVATION paints the field's own surface (the tint,
+	// the card, the frame), and the transition made that paint fade in instead
+	// of appearing — the second half of the load flash when a field comes back
+	// active from the page session. Hover keeps its fade.
+	&:not(.active) {
+		transition: background-color var(--transition-fast);
+	}
 
 	// component_section_id carries its own solid background (static grey or
 	// the ontology section colour injected at runtime); exclude it so the
@@ -750,7 +770,7 @@ input::placeholder {
 	&:hover:not(.active):not(.disabled_component):not(.component_section_id) {
 		background-color: var(--field_hover_bg);
 
-		// Same law as the `.active` rule above: the tint IS the field's
+		// Same law as the `.active` rule above: the hover tint IS the field's
 		// surface, so the list card and the grey remove slab painted inside
 		// it stop painting. Without this a portal shows a white band under
 		// its label the moment the pointer enters (empty portal: a bare
@@ -761,7 +781,11 @@ input::placeholder {
 		}
 	}
 
-	>.label {
+	// idle label ink only: an ACTIVE field's label ink belongs to the style
+	// (`layout.less .active` for the default tinted look, each
+	// core/page/css/active_styles/ sheet for the others). Pinned here, this
+	// block (0,5,0) outranks the default look's deep orange.
+	&:not(.active) > .label {
 		color: var(--field_label_fg); // edit labels were color_grey_8
 		font-size: 1rem;
 		font-weight: 100;
@@ -772,16 +796,11 @@ input::placeholder {
 		color: var(--field_value_fg); // full-strength value ink (was color_grey_4)
 	}
 
-	// refined active state: the tint (painted by the `.active` rule above)
-	// IS the orange field, so the label ink is the palette's deep orange —
-	// the brand FILL is 2.3:1 on --color_hilite and can never be ink there.
-	// --color_orange_dark is 5.6:1 on the light tint (5.6 dark); values keep readable ink.
+	// active state: the label's ink belongs to the STYLE (`layout.less .active`
+	// for the default tinted look, each core/page/css/active_styles/ sheet for
+	// the others), so nothing is pinned here — a black label here would outrank
+	// the default look's deep orange (this block is (0,6,0)).
 	&.active {
-		>.label {
-			color: var(--color_orange_dark); // explicit: the label rule above outranks the wrapper-level orange
-			// font-weight: 600;
-		}
-
 		>.content_data {
 			color: var(--field_value_fg);
 		}

@@ -285,6 +285,10 @@ export const render_ts_line = function(self) {
 							return false
 						}
 
+						// fix parent children_data: save_order looks the node up there
+						// (stale data = 'Self not found' when reordering the duplicate)
+						parent_instance.children_data = children_data
+
 						// refresh children container
 						parent_instance.render_children({
 							clean_children_container	: true,

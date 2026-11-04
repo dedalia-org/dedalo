@@ -62,6 +62,7 @@ import {
 	writeFileSync,
 	writeSync,
 } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { config } from '../../../config/config.ts';
 import { readString } from '../../../config/readers.ts';
@@ -1033,6 +1034,67 @@ function openAssemblyOutput(assembled: string): number {
 }
 
 /**
+ * Copy the parts, in order, into the assembly output. Stops BEFORE the write that
+ * would pass `cap` (overflowed: true, writtenBytes then counts that read too).
+ */
+async function copyPartsInto(
+	out: number,
+	upDir: string,
+	totalChunks: number,
+	cap: number,
+): Promise<{ writtenBytes: number; overflowed: boolean }> {
+	let writtenBytes = 0;
+	const buffer = new Uint8Array(1 << 20);
+	for (let i = 0; i < totalChunks; i++) {
+		const partPath = resolve(upDir, `${i}.part`);
+		const part = openSync(partPath, 'r');
+		try {
+			let position = 0;
+			for (;;) {
+				const read = readSync(part, buffer, 0, buffer.length, position);
+				if (read <= 0) break;
+				if (writtenBytes + read > cap) {
+					// Checked BEFORE the write: not one byte past the ceiling is ever
+					// put on disk.
+					return { writtenBytes: writtenBytes + read, overflowed: true };
+				}
+				writeSync(out, buffer, 0, read);
+				writtenBytes += read;
+				position += read;
+				// Hand the loop back between windows: a 30 GB join is ~30 000 of these,
+				// and holding the thread for all of them froze every other user.
+				await yieldToLoop();
+			}
+		} finally {
+			closeSync(part);
+		}
+		// NOTE: the part is deliberately NOT unlinked here. It used to be consumed
+		// as it was read, so an interruption mid-assembly had already destroyed
+		// the front of the transfer and no retry could ever succeed. Parts are the
+		// only complete copy of the bytes until the join finishes, so they are
+		// removed at the very end — after assembly AND verification have both
+		// reached a durable outcome.
+	}
+	return { writtenBytes, overflowed: false };
+}
+
+/** Empty a joined transfer's artifact dir; with an upload_id, keep only its outcome record. */
+async function retireArtifactDir(
+	upDir: string,
+	uploadId: string | null | undefined,
+	result: UploadReceiveResult,
+): Promise<void> {
+	if (!uploadId) {
+		rmSync(upDir, { recursive: true, force: true });
+		return;
+	}
+	await writeFile(resolve(upDir, JOINED_RECORD), JSON.stringify(result), { mode: 0o640 });
+	for (const entry of readdirSync(upDir)) {
+		if (entry !== JOINED_RECORD) rmSync(resolve(upDir, entry), { recursive: true, force: true });
+	}
+}
+
+/**
  * Assemble a chunked upload's parts into the final staged file and RE-VERIFY the
  * whole (SEC-066 + verify_content.ts), then return the staged descriptor. Called
  * by the dd_utils_api.join_chunked_files_uploaded action after the client has
@@ -1050,9 +1112,7 @@ function openAssemblyOutput(assembled: string): number {
  * (The verification pass is bounded and stays synchronous — see
  * engine/verify_content.ts, which no longer has any whole-file rule.)
  */
-export async function joinChunkedUpload(
-	input: JoinChunkedUploadInput,
-): Promise<UploadReceiveResult> {
+async function assembleChunkedUpload(input: JoinChunkedUploadInput): Promise<UploadReceiveResult> {
 	const { keyDir, tmpName, totalChunks, userId, uploadId, mediaRoot } = input;
 	const cap = assembledCap(input.maxSizeBytes);
 	const dir = stagingDir(userId, keyDir, mediaRoot);
@@ -1094,39 +1154,12 @@ export async function joinChunkedUpload(
 	let writtenBytes = 0;
 	let overflowed = false;
 	try {
-		const buffer = new Uint8Array(1 << 20);
-		assembly: for (let i = 0; i < totalChunks; i++) {
-			const partPath = resolve(upDir, `${i}.part`);
-			const part = openSync(partPath, 'r');
-			try {
-				let position = 0;
-				for (;;) {
-					const read = readSync(part, buffer, 0, buffer.length, position);
-					if (read <= 0) break;
-					if (writtenBytes + read > cap) {
-						// Checked BEFORE the write: not one byte past the ceiling is ever
-						// put on disk.
-						writtenBytes += read;
-						overflowed = true;
-						break assembly;
-					}
-					writeSync(out, buffer, 0, read);
-					writtenBytes += read;
-					position += read;
-					// Hand the loop back between windows: a 30 GB join is ~30 000 of these,
-					// and holding the thread for all of them froze every other user.
-					await yieldToLoop();
-				}
-			} finally {
-				closeSync(part);
-			}
-			// NOTE: the part is deliberately NOT unlinked here. It used to be consumed
-			// as it was read, so an interruption mid-assembly had already destroyed
-			// the front of the transfer and no retry could ever succeed. Parts are the
-			// only complete copy of the bytes until the join finishes, so they are
-			// removed at the very end — after assembly AND verification have both
-			// reached a durable outcome.
-		}
+		({ writtenBytes, overflowed } = await copyPartsInto(out, upDir, totalChunks, cap));
+	} catch (error) {
+		// A failed copy (ENOSPC, I/O error) leaves a partial duplicate of parts that are
+		// all still on disk: drop it rather than leave GBs behind.
+		rmSync(assembled, { force: true });
+		throw error;
 	} finally {
 		closeSync(out);
 	}
@@ -1185,18 +1218,7 @@ export async function joinChunkedUpload(
 	// name across the chunk requests, and the artifact dir holding it is removed
 	// three lines below. Without this the name would die with it.
 	recordStagedDisplayName(dir, staged, name);
-	// Everything left in the artifact dir is garbage by definition: the client
-	// declared how many parts the file had, and it has been assembled and
-	// verified. Leaving a surplus part behind is the leak this change exists to
-	// end — and this is also where the consumed parts finally go.
-	rmSync(upDir, { recursive: true, force: true });
-	// Opportunistic GC of OTHER abandoned transfers in the same key_dir.
-	try {
-		sweepStagedOrphans(userId, keyDir, mediaRoot);
-	} catch (error) {
-		console.warn('[upload] staging sweep failed:', (error as Error).message);
-	}
-	return {
+	const result: UploadReceiveResult = {
 		complete: true,
 		tmpName: staged,
 		name,
@@ -1205,6 +1227,75 @@ export async function joinChunkedUpload(
 		totalChunks,
 		uploadId: uploadId ?? undefined,
 	};
+	// Everything left in the artifact dir is garbage by definition: the client
+	// declared how many parts the file had, and it has been assembled and
+	// verified. Leaving a surplus part behind is the leak this change exists to
+	// end — and this is also where the consumed parts finally go. With an
+	// upload_id, the outcome is recorded FIRST and kept, so a resent join
+	// replays it (replayJoinedUpload) instead of finding no parts; the 24 h
+	// sweep and the explicit cancel collect the dir as before.
+	await retireArtifactDir(upDir, uploadId, result);
+	// Opportunistic GC of OTHER abandoned transfers in the same key_dir.
+	try {
+		sweepStagedOrphans(userId, keyDir, mediaRoot);
+	} catch (error) {
+		console.warn('[upload] staging sweep failed:', (error as Error).message);
+	}
+	return result;
+}
+
+/** The finished-join record kept in a transfer's artifact dir (see assembleChunkedUpload). */
+const JOINED_RECORD = 'joined.json';
+
+/**
+ * The recorded outcome of an already finished join of this upload_id, or null.
+ * Null as well when the staged file is gone (ingested or deleted since): there is
+ * then nothing left to hand back, and the join reports its usual error.
+ */
+async function replayJoinedUpload(
+	input: JoinChunkedUploadInput,
+): Promise<UploadReceiveResult | null> {
+	const { keyDir, userId, uploadId, mediaRoot } = input;
+	if (typeof uploadId !== 'string' || uploadId === '') return null;
+	const upDir = uploadArtifactDir(userId, keyDir, assertUploadId(uploadId), mediaRoot);
+	let record: UploadReceiveResult;
+	try {
+		record = JSON.parse(
+			await readFile(resolve(upDir, JOINED_RECORD), 'utf8'),
+		) as UploadReceiveResult;
+	} catch {
+		return null;
+	}
+	if (typeof record.tmpName !== 'string') return null;
+	const dir = stagingDir(userId, keyDir, mediaRoot);
+	return (await Bun.file(confine(dir, record.tmpName)).exists()) ? record : null;
+}
+
+/**
+ * Join a chunked upload, idempotently per upload_id. The client keeps re-sending
+ * the join of a multi-GB file until it gets an answer (a single request cannot
+ * outlast the join), so:
+ * - a resend while the first join runs gets media.upload_conflict (retryable)
+ *   from openAssemblyOutput;
+ * - a join that already finished, or one whose parts vanished under it, replays
+ *   its recorded result (the catch).
+ * The assembly is entered FIRST, with no await before it, because its
+ * SYNCHRONOUS prefix is the claim that makes a concurrent resend a conflict: a
+ * replay pre-check here awaits, yields the loop, and every resend then finds no
+ * assembly output yet and joins the same parts a second time.
+ * A record and parts CAN coexist (a chunk re-posted after the join, or a crash
+ * mid-retire): that state re-assembles, and the new outcome replaces the record.
+ */
+export async function joinChunkedUpload(
+	input: JoinChunkedUploadInput,
+): Promise<UploadReceiveResult> {
+	try {
+		return await assembleChunkedUpload(input);
+	} catch (error) {
+		const late = await replayJoinedUpload(input);
+		if (late) return late;
+		throw error;
+	}
 }
 
 /** Confine a name inside the staging dir (defense in depth over sanitizeSegment). */

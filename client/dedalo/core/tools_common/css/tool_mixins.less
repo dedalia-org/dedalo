@@ -43,24 +43,40 @@
 	grid-template-rows: @h minmax(0, 1fr);
 	--text_area_toolbar_lift: calc(-1 * @h); // sticky toolbar sits exactly on the header row
 
+	// (!) the label is the row, so the ROW owns the paint: the default style's
+	// active label still carries a white legend mask (a `linear-gradient` bar
+	// across its top, 1lh tall) and is allowed to wrap. In a pane the label is
+	// the header and may be narrower than its text, so the mask painted a white
+	// band that reached past the field on both sides (the -1rem bleed) and, when
+	// the text wrapped, pushed a second line under the ck toolbar. `background:
+	// none` + clipping keeps the row a header and nothing else.
 	>.label,
 	&.active >.label {
 		display: flex;
 		align-items: center;
 		gap: 0.3em; // flex drops the space before the lang note
 		height: @h;
+		// (!) `width: auto` and not just `justify-self: stretch`: the active
+		// state sets `width: fit-content` on the label, so a field activated
+		// while its ck toolbar is absent (tool_lang's SOURCE pane, which is read,
+		// not typed into) drew a short orange tab whose border-bottom stopped a
+		// third of the way across the header row.
+		width: auto;
 		justify-self: stretch; // the active tab rule shrinks it to its text
 		box-sizing: border-box;
 		max-width: none;
 		margin: 0px -1rem;
 		padding: 0px 1rem 0px 2rem;
 		transform: none;
-		background-color: transparent;
+		background: none;
 		border-radius: 0;
 		border-bottom: 1px solid var(--border_default);
 		font-size: inherit;
 		font-weight: normal;
 		color: inherit;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	// the orange tool pill — right end of the header row, height-matched
@@ -84,11 +100,20 @@
 		}
 	}
 
-	// the ck toolbar, ON the header row: full width and opaque while focused
-	.toolbar_container {
+	// the ck toolbar, ON the header row: full width and opaque while focused.
+	// (!) side margins ZERO and the full child path stated, on purpose:
+	// component_text_area's active state insets the toolbar 4px on each side —
+	// right for a standalone field, wrong here, where the toolbar IS the header
+	// row. On a 100%-wide strip those 4px shifted it right and pushed its right
+	// edge past the field's frame (a horizontal scroll in the pane). Flush, the
+	// strip and the pill at its right end both land on the frame's edges.
+	// The path (not just `.toolbar_container`) is what outranks that rule.
+	>.content_data > .content_value > .toolbar_container {
 		top: 0;
 		left: 0;
 		width: 100%;
+		margin-left: 0px;
+		margin-right: 0px;
 		height: @h;
 		box-sizing: border-box;
 		align-items: center;
@@ -99,6 +124,24 @@
 		border-bottom: 1px solid var(--border_default);
 		overflow: hidden;
 		z-index: 5;
+	}
+
+	// THE FIELD FILLS THE PANE. The editor sits in `.content_value` — a grid of
+	// one cell shared with the toolbar — and that box was `height: auto`, so the
+	// editor's own `calc(100% - 1.5rem)` had no height to resolve against and
+	// collapsed to its text: the frame was 619px tall and only the top ~95px was
+	// editable, the rest of the orange box dead to the pointer. 100% against the
+	// grid-stretched `.content_data` makes the frame and the editor box one thing.
+	// The vertical margins the standalone field keeps for air go with it: a 100%
+	// editor plus the field bleed's top margin stood 6.5px past the frame's
+	// bottom edge.
+	>.content_data > .content_value {
+		height: 100%;
+	}
+	>.content_data > .content_value > .editor_container {
+		height: 100%;
+		margin-top: 0px;
+		margin-bottom: 0px;
 	}
 
 	// the unsaved bar (layout.less `.modified:after`) sits on the header row

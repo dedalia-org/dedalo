@@ -249,11 +249,11 @@ describe('MEDIA-03 — the ceiling is counted at the join', () => {
 		// Byte-identical: the counting doors do not truncate a legitimate transfer.
 		const staged = join(stagingDir(USER, keyDir, ROOT), joined.tmpName as string);
 		expect(readFileSync(staged)).toEqual(Buffer.from(PNG));
-		// Nothing quarantined, nothing left behind.
+		// Nothing quarantined, nothing left behind but the finished-join record.
 		expect(listQuarantinedUploads(USER, keyDir, ROOT)).toEqual([]);
-		expect(readdirSync(stagingDir(USER, keyDir, ROOT)).filter((e) => e.startsWith('.up_'))).toEqual(
-			[],
-		);
+		expect(readdirSync(join(stagingDir(USER, keyDir, ROOT), `.up_${uploadId}`))).toEqual([
+			'joined.json',
+		]);
 	});
 
 	test('the DEFAULT ceiling is the CONFIGURED one, not a test-sized constant', () => {

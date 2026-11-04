@@ -774,9 +774,17 @@ const SELF_ELEVATION_GUARDED: ReadonlySet<string> = new Set([
 /**
  * dd128 own-record components PHP forces to WRITE regardless of the matrix —
  * the self-service profile editor (tool_user_admin) exists to change exactly
- * these (DEDALO_FULL_USER_NAME/USER_EMAIL/USER_PASSWORD/USER_IMAGE_TIPO).
+ * these (DEDALO_FULL_USER_NAME/USER_EMAIL/USER_PASSWORD/USER_IMAGE_TIPO), plus
+ * dd1206 "User interface preferences" (TS-only, 2026-11-02: the active-field
+ * style switcher; a display preference, it grants nothing).
  */
-const SELF_EDITABLE_COMPONENTS: ReadonlySet<string> = new Set(['dd452', 'dd134', 'dd133', 'dd522']);
+const SELF_EDITABLE_COMPONENTS: ReadonlySet<string> = new Set([
+	'dd452',
+	'dd134',
+	'dd133',
+	'dd522',
+	'dd1206',
+]);
 
 /**
  * The dd128 OWN-USER-RECORD rules (PHP component_common::
@@ -828,8 +836,8 @@ export function resolveOwnUserRecordPermission(
  * IS THIS WRITE AN ACCOUNT'S OWN SELF-SERVICE EDIT? (2026-08-28, reviewer must-fix 5.)
  *
  * True only when ALL of: the target is the USERS section, the record IS the actor's own
- * account, and the component is one of the four SELF-EDITABLE ones — full name (dd452),
- * email (dd134), password (dd133), user image (dd522). Nothing else, ever: dd244, dd132,
+ * account, and the component is one of the SELF-EDITABLE ones — full name (dd452),
+ * email (dd134), password (dd133), user image (dd522), UI preferences (dd1206). Nothing else, ever: dd244, dd132,
  * dd1725, dd515 and dd330 are deliberately excluded, so this predicate can never widen
  * into an escalation.
  *

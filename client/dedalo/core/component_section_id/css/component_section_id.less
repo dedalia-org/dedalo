@@ -17,8 +17,10 @@
 		// keeps its solid background, whether the static grey or the ontology
 		// section colour injected at runtime by view_default_edit_section_id.js
 
+		// selected, not editable: the field active looks skip this component
+		// (see layout.less `.active`), so selection is one style-agnostic ring
 		&.active {
-
+			box-shadow: 0 0 0 2px @color_orange_dedalo;
 		}
 
 		>.label {

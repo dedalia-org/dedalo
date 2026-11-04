@@ -1,0 +1,236 @@
+/**
+* active style: LIFT
+*
+* The active field rises as a card: an elevated surface, a 1px neutral edge and
+* a soft shadow (paint only, no reflow). Left, right and bottom it is exactly
+* the field's own box. The label (marked by an orange dot — the only orange)
+* and the tools (quiet grey icons, deep-orange ink on hover) share the label
+* row. Only where that row cannot hold them does the card grow UP by a header
+* band (the tools container stretched across the card): a field too narrow for
+* both (`tab_lifted`: tools in the band, label stays in its row) and text_area,
+* whose editor toolbar takes the label row (label and tools in the band; a
+* narrow one gets a two-row band). No band where it would only add a gap.
+* Mockup: design canvas board C_Lift.
+*
+* Selected by <html data-active_style="lift"> (core/page/js/active_style.js).
+* The base (default) look is layout.less `.active`; this file only overrides it.
+*
+* (!) NOT INSIDE A TOOL PANE (`:not(.wrapper_tool *)`). A tool hosts ONE field as
+* the pane's whole surface, and that pane's chrome — the label row, the ck
+* toolbar that swaps into it, the tool pill — is tool_mixins.less
+* `.text_area_pane_header`, drawn by the tool. The card/band rules below exist to
+* tell an active field apart among many; applied to a pane they lifted the label
+* 32px up over the tool's own controls and turned the pill into a full-width
+* white band above the field.
+*/
+
+:root[data-active_style="lift"] {
+	--lift_edge: #e2ded7;
+	--lift_shadow: 0 1px 2px rgba(40, 30, 20, 0.06), 0 10px 28px rgba(40, 30, 20, 0.10);
+	--lift_band_shadow: 0 -1px 3px rgba(40, 30, 20, 0.05);
+	--lift_band_height: calc(var(--component_label_height) + 1rem);
+	--lift_headroom: 0.6rem;
+	--lift_label_gap: 0.5rem; // label row ↔ field content (mockup proportions)
+}
+:root[data-active_style="lift"][data-theme="dark"] {
+	--lift_edge: var(--border_strong);
+	--lift_shadow: var(--shadow-3);
+	--lift_band_shadow: 0 -1px 3px var(--shadow_default);
+}
+
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) {
+	background-color: var(--bg_elevated);
+	box-shadow: inset 0 0 0 1px var(--lift_edge), var(--lift_shadow);
+	border-radius: 10px;
+
+	// label back in its row
+	>.label {
+		transform: none;
+		background: none;
+		margin-left: 0;
+		padding: 0.4rem 0.5rem 0 var(--field_inset_x);
+		height: var(--component_label_height);
+		max-width: 100%;
+		// the base look is the tinted field now, whose name is orange:
+		// this style keeps the near-black name it had over the frame
+		color: var(--color_black);
+
+		&::before {
+			content: '';
+			display: inline-block;
+			width: 8px;
+			height: 8px;
+			margin-right: 0.4rem;
+			border-radius: 50%;
+			background-color: @color_orange_dedalo;
+			vertical-align: 0.1em;
+		}
+	}
+	// headroom (mockup proportions): label row and tools rise by --lift_label_gap,
+	// opening a gap over the field's content, and the surface is extended UP by
+	// headroom + gap with outer shadows — outside the box only, nothing reflows.
+	// The first layer (surface) hides the box's own rounded top edge line.
+	&:not(.tab_lifted):not(.component_text_area) {
+		--lift_rise: calc(var(--lift_headroom) + var(--lift_label_gap));
+		box-shadow:
+			0 calc(-1 * var(--lift_rise)) 0 0 var(--bg_elevated),
+			0 0 0 1px var(--lift_edge),
+			0 calc(-1 * var(--lift_rise)) 0 1px var(--lift_edge),
+			var(--lift_shadow);
+
+		>.label {
+			transform: translateY(calc(-1 * var(--lift_label_gap)));
+		}
+		>.buttons_container {
+			top: calc(0.4rem - var(--lift_label_gap));
+		}
+	}
+
+	// tools: plain grey icons (no pill) on the label row, centred on the label's
+	// text line, inset from the right as the label is from the left
+	>.buttons_container {
+		top: 0.4rem;
+		right: var(--field_inset_x);
+		height: 1.1rem;
+		max-height: none;
+		padding: 0;
+		background-color: transparent;
+		box-shadow: none;
+		border-radius: 0;
+		display: flex !important;
+		align-items: center;
+		justify-content: flex-end;
+
+		.buttons_fold {
+			display: flex;
+			align-items: center;
+		}
+		.button {
+			background-color: var(--color_grey_5);
+
+			&:hover {
+				background-color: var(--color_orange_dark);
+			}
+		}
+		span,
+		span:first-child,
+		span:last-child,
+		.button:last-of-type {
+			margin-top: 0;
+			margin-bottom: 0;
+			margin-right: 0;
+		}
+	}
+	// the same room ui.component.activate's fit check gives it (no ellipsis
+	// where it decided label + tools fit)
+	&:has(>.buttons_container>*)>.label {
+		max-width: calc(100% - var(--tools_width, 8rem));
+	}
+
+	// THE HEADER BAND (only where the label row cannot hold the tools): the card
+	// grows up; the tools container stretches across it, joined to the card's top
+	&.tab_lifted:has(>.buttons_container>*),
+	&.component_text_area:not(.view_line):has(>.buttons_container>*) {
+		border-top-left-radius: 0;
+		border-top-right-radius: 0;
+		// edge on sides + bottom only: the band carries the top
+		box-shadow:
+			inset 1px 0 0 var(--lift_edge),
+			inset -1px 0 0 var(--lift_edge),
+			inset 0 -1px 0 var(--lift_edge),
+			var(--lift_shadow);
+
+		>.label {
+			max-width: 100%;
+		}
+		>.buttons_container {
+			top: calc(-1 * var(--lift_band_height));
+			left: 0;
+			right: 0;
+			height: var(--lift_band_height);
+			padding-right: var(--field_inset_x);
+			background-color: var(--bg_elevated);
+			border-radius: 10px 10px 0 0;
+			box-shadow:
+				inset 1px 0 0 var(--lift_edge),
+				inset -1px 0 0 var(--lift_edge),
+				inset 0 1px 0 var(--lift_edge),
+				var(--lift_band_shadow);
+		}
+	}
+
+	// text_area: the label rides up into the band, left, on the tools' line,
+	// at the same size as every field (the default shrinks it into a legend)
+	&.component_text_area:not(.view_line):has(>.buttons_container>*)>.label {
+		position: relative;
+		z-index: 3; // over the band (z 2)
+		font-size: inherit;
+		max-width: calc(100% - var(--tools_width, 8rem) - 2 * var(--field_inset_x));
+		// text line centre (~0.95rem into the label box) onto the band's centre
+		transform: translateY(calc(-1 * (var(--lift_band_height) / 2 + 0.95rem)));
+	}
+	// narrow text_area: a two-row band, tools on top, the label under them
+	&.component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) {
+		>.label {
+			max-width: 100%;
+			transform: translateY(calc(-1 * var(--component_label_height) - 1rem));
+		}
+		>.buttons_container {
+			top: calc(-1 * (var(--lift_band_height) + var(--component_label_height)));
+			height: calc(var(--lift_band_height) + var(--component_label_height));
+			align-items: flex-start;
+			padding-top: 0.5rem;
+		}
+	}
+}
+
+// autocomplete: the bar hangs under the card as its bottom section, neutral,
+// exactly the card's width (the default docks an orange bar on the frame)
+// (!) `:not(.wrapper_tool *)` — see the header block: a field inside a tool is
+// the pane itself, and the pane's chrome is the tool's (tool_mixins.less
+// .text_area_pane_header), not this style's card.
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .wrapper_service_autocomplete:not(.search) {
+	top: 100%;
+	background-color: var(--bg_elevated);
+	box-shadow: inset 0 0 0 1px var(--lift_edge), var(--lift_shadow);
+	border-radius: 0 0 10px 10px;
+
+	>.button_options {
+		background-color: @color_grey_5;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// INSIDE A TOOL PANE — the refined variant (see the header note).
+//
+// A tool hosts ONE field as the pane's whole surface, and that pane's chrome —
+// the label row, the ck toolbar that swaps into it, the tools tab — belongs to
+// the tool (tool_mixins.less `.text_area_pane_header`). So the card keeps what
+// identifies it: the elevated surface, the neutral 1px edge, the shadow and the
+// dot on the name. It DROPS the header band: a band exists to grow the card
+// upward when the label row cannot hold both the name and the tools, and in a
+// pane there is no such contention — the toolbar owns the row and the tab is
+// already on it.
+//
+// Scoped to the tool BODY: a tool's controls band hosts components too (status
+// checkboxes, selects), and a card around one of those is noise.
+:root[data-active_style="lift"] .wrapper_tool > .content_data .wrapper_component.edit.active:not(.hilite_element) {
+	background-color: var(--bg_elevated);
+	// The pane keeps 1rem around the field and clips to it, so the record card's
+	// 28px spread is cut anyway — the small shadow is the one that survives.
+	box-shadow: inset 0 0 0 1px var(--lift_edge), var(--shadow-2);
+	// The header row is the card's own head (the toolbar takes it), so the top
+	// corners follow the pane's straight edge and the card rounds only below.
+	border-radius: 0 0 10px 10px;
+
+	// the dot: the style's only orange, on the name
+	>.label::before {
+		content: '';
+		display: inline-block;
+		flex: 0 0 auto;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background-color: @color_orange_dedalo;
+	}
+}

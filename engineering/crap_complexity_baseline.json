@@ -4,8 +4,8 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 832,
-		"functions": 14298,
+		"files": 837,
+		"functions": 14477,
 		"functionsOverCap": 660,
 		"filesOverCap": 258
 	},
@@ -196,7 +196,7 @@
 		"src/core/api/handlers/dd_external_api.ts": 26,
 		"src/core/api/handlers/dd_identify_api.ts": 48,
 		"src/core/api/handlers/dd_mcp_api.ts": 41,
-		"src/core/api/handlers/dd_utils_api.ts": 17,
+		"src/core/api/handlers/dd_utils_api.ts": 16,
 		"src/core/api/handlers/media_action_context.ts": 12,
 		"src/core/api/handlers/menu.ts": 15,
 		"src/core/api/handlers/read_raw.ts": 11,

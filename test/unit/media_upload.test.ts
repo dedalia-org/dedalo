@@ -227,8 +227,9 @@ describe('upload receiver — chunked store + join (client contract)', () => {
 		const dir = stagingDir(USER, 'kde', ROOT);
 		// The staged file holds parts 0+1 only — the surplus part contributed nothing.
 		expect(readFileSync(join(dir, 'extra.jpg'))).toEqual(Buffer.from(bytes.slice(0, 200)));
-		// And nothing of the transfer is left behind (defect 3: orphan parts).
-		expect(readdirSync(dir).filter((e) => e.startsWith('.up_'))).toEqual([]);
+		// And nothing of the transfer is left behind (defect 3: orphan parts): only
+		// the finished-join record a resent join replays.
+		expect(readdirSync(join(dir, `.up_${first.uploadId}`))).toEqual(['joined.json']);
 	});
 });
 
@@ -694,5 +695,47 @@ describe('interrupted join — parts survive, and a stale assembly is recovered'
 		expect(readFileSync(join(stagingDir(USER, KEY, ROOT), joined.tmpName as string))).toEqual(
 			Buffer.from(bytes),
 		);
+	});
+});
+
+describe('resent join — idempotent per upload_id', () => {
+	const KEY = 'kd_resend';
+
+	const stageTwoParts = (fileName: string): string => {
+		const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0x41, 0x42, 0x43, 0xff, 0xd9]);
+		const base = { keyDir: KEY, fileName, chunked: true, totalChunks: 2 };
+		const first = receiveUpload(parsed({ ...base, chunkIndex: 0 }, bytes.slice(0, 4)), USER, ROOT);
+		receiveUpload(parsed({ ...base, chunkIndex: 1 }, bytes.slice(4)), USER, ROOT);
+		return first.uploadId as string;
+	};
+	const join2 = (fileName: string, uploadId: string) =>
+		joinChunkedUpload({
+			keyDir: KEY,
+			tmpName: fileName,
+			totalChunks: 2,
+			userId: USER,
+			uploadId,
+			mediaRoot: ROOT,
+		});
+
+	test('a resend while the join runs is a conflict; after it finishes, it replays the result', async () => {
+		const uploadId = stageTwoParts('resend.jpg');
+		const running = join2('resend.jpg', uploadId);
+		// The first join holds the assembly output until it settles.
+		expect((await refusalOf(join2('resend.jpg', uploadId))).code).toBe('media.upload_conflict');
+		const first = await running;
+		const again = await join2('resend.jpg', uploadId);
+		expect(again).toEqual(first);
+		// One staged file, not a second copy with a -1 suffix.
+		expect(readdirSync(stagingDir(USER, KEY, ROOT)).filter((e) => !e.startsWith('.'))).toEqual([
+			first.tmpName as string,
+		]);
+	});
+
+	test('no replay once the staged file is gone', async () => {
+		const uploadId = stageTwoParts('gone.jpg');
+		const first = await join2('gone.jpg', uploadId);
+		rmSync(join(stagingDir(USER, KEY, ROOT), first.tmpName as string));
+		await expect(join2('gone.jpg', uploadId)).rejects.toThrow(/missing chunk 0 of 2/);
 	});
 });

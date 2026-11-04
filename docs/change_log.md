@@ -24,6 +24,18 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Background is now the default active-field style; Frame becomes one of the choices.**
+
+    The switcher in Users → your own record now lists **Background (default), Frame, Lift, Margin**.
+    A user who never chose a style sees the tinted field Dédalo used before the switcher existed
+    (pale orange surface, deep-orange name, tools as the floating orange pill) instead of the
+    orange frame.
+
+    Nothing is lost: the frame — the look introduced on 2026-11-02 — is now the second option, and
+    the styles keep their reduced form inside tools (the surface mark travels; the pane's name row
+    and tools tab stay the tool's own). A stored preference for Lift or Margin is unaffected, and
+    an old stored `default` simply resolves to Background.
+
 - **Sorting a portal by a column header is now a temporary view; **Save** makes it the stored order.**
 
     Before, clicking the sort arrow of a portal column header (on columns configured with `sort_by_column`) reordered the linked records and saved that order at once. Now the click only changes how the list is shown: every page follows the chosen column and direction, and nothing is written. A line under the list shows the active order ("Order: <column> ↓") with two buttons: **Save** stores the shown order as the portal's order (recorded in Time Machine, as before), and **Reset** returns to the saved order. While a temporary order is shown, rows cannot be dragged; they can again after Save or Reset. Linking, unlinking or adding a record keeps the temporary order. Users with read-only access can sort the view and reset it, but not save it.
@@ -37,6 +49,17 @@ Merged since the last release; these ship with the next one.
     On a phone-sized screen a portal table (the default and content views, and every field that shows records the same way, such as related records) now shows each linked record as a card, the way section lists already did. Each field in the card carries its name. The drag handle that moves a row sits in the card's Id band and is always visible, because a touch screen has no hover. The delete button stays inside the card, so the page is no longer wider than the screen. Field names containing an apostrophe, such as Catalan "Data d'alta", now show on the cards too.
 
     Wire contract: `WC-2026-10-30-section-record-row-box`.
+
+- **The field you are editing is now outlined by an orange frame instead of a light orange background.**
+
+    Before, the active field was painted a very pale orange that was hard to tell from the
+    rest of the form, with its tools floating above it in a separate orange pill. Now the
+    field keeps its normal background inside an orange frame: its name sits in the frame's
+    top edge in dark, bold text, and its tools are a tab joined to the frame's top-right
+    corner (on a field too narrow for both, the tools float just above it so the name is
+    never cut short). In relation fields (portals) the search bar is now the frame's bottom edge,
+    exactly as wide as the field, and the list of results continues below it. Nothing
+    moves on the page when a field becomes active. Works the same in the dark theme and on phones.
 
 - **A portal whose ontology declares an order now stores its records in that order.**
 
@@ -116,6 +139,31 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **The active-field style list gains Background, the tinted-surface look Dédalo used before the styles existed (it is the default).**
+
+    Choose it with the same switcher in Users → your own record: **Active field style** is now
+    Background (default), Frame, Lift and Margin.
+
+    Background is the state the previous switcher replaced: the field's own surface is tinted
+    with the palette's orange field tint, its name reads in deep orange, and its tools float
+    above the top-right corner as an orange pill. No frame, no card, no bracket — on a form of
+    many fields it marks the active one without drawing a box, and it is the quietest of the
+    four. Lists inside the field lie flat on the tint, and the search bar under an autocomplete
+    field keeps its orange band.
+
+    Inside a tool the tint (and the deep-orange name) travel with you; the pane's name row and
+    tools tab stay the tool's own, as with Lift and Margin.
+
+- **Each user can now choose how the field being edited is highlighted: Frame, Lift or Margin.**
+
+    The user panel (click your username in the header) has a new **Active field style** choice. **Frame** is the default thin orange frame. **Lift** raises the field as a card with a soft shadow, an orange dot by its name and quiet grey tools on the name's row; where that row cannot hold them (text areas, narrow fields) the card grows upward to hold the tools. **Margin** marks the field with an orange bracket in its left margin and stands its tools as a vertical orange rail in a margin on its right (fields leave that margin free while this style is chosen). The choice applies at once and is saved in the new *User interface preferences* field of your own user record, so it follows you to any browser and every login. The record number (Id) is no longer highlighted when clicked: it is read-only. Requires the ontology update that adds that field (`dd1206`).
+
+    Wire contract: `WC-2026-11-02-ui-preferences`.
+
+- **Press ⌘K (Ctrl+K) to jump to any section or open a tool.**
+
+    A search box opens anywhere in the application with ⌘K on a Mac or Ctrl+K elsewhere. Type part of a name (accents and case are ignored) and press Enter. It lists the tools of the section you are in, your recently visited sections, and every section in your menu, so moving between sections such as Image and Audiovisual to open the same tool no longer means browsing the menu each time. Arrow keys move through the list; Esc closes it. On the Maintenance page the maintenance tools are listed first.
+
 - **Indexation, transcription and translation tools — time machine button on the text**
 
     The text being edited in the indexation, transcription and translation (target language) tools now shows the time machine button next to full screen and save, so earlier versions of the text can be opened without leaving the tool. In the transcription tool it replaces the header's separate time machine button.
@@ -127,6 +175,116 @@ Merged since the last release; these ship with the next one.
     A portal can declare which columns a portal nested inside it shows — the Tasks portal of a work process, for example, shows the assigned user as *surname, name*. Those declared columns were applied only in some views: in a list a nested portal could appear empty, the second page of a nested portal switched back to the nested portal's own columns, and the same field nested under two different portals showed the columns of whichever was read first. Now every nested element uses one effective configuration — the columns its parent declares, and its own configuration for anything the parent leaves out — in edit and list views, on every page, and per parent; a page size the parent declares for a nested portal is the page size it pages by. Related-record lists expand linked portals with their own columns as well. A chain of linked records that points back to itself stops where it repeats instead of failing the whole page, with a notice naming the record. See [Nesting](./core/request_config.md#nesting-a-ddo_map-is-a-flat-list-made-a-tree-by-parent).
 
     Wire contract: `WC-2026-11-04-nested-paging-add-show`, `WC-2026-11-04-caller-chain-per-occurrence`, `WC-2026-11-04-config-less-element-adopts-caller-children`, `WC-2026-11-04-nested-list-payload-growth`, `WC-2026-11-04-record-cycle-stop`, `WC-2026-11-04-ddinfo-gates-kept`, `WC-2026-11-04-context-traversal-order`, `WC-2026-11-04-governing-limit-sqo-limit-only`.
+
+- **The record's Id badge can be selected to show its information in the inspector.**
+
+    Clicking the Id badge of a record in the edit view did nothing, so the inspector
+    never described it. The badge now selects like any other field: the inspector shows
+    the component's tipo, model, view/mode and its data, and the record's history for it.
+    Because the id is the record's identity and cannot be edited, selection marks it with
+    an orange ring around the badge instead of the field highlight — the badge keeps its
+    own surface and colour and the number stays readable, in every active-field style and
+    in both themes. Selecting it never takes a component lock, so it can never make the
+    record look "in use" to another user.
+
+- **Uploading a very large file no longer reports an error while the server is still joining it.**
+
+    After all parts of a large file (several GB) had arrived, the server needed minutes to put them back together. The browser stopped waiting after about half a minute and showed an error, although the file was saved in the end; trying again then failed because the parts were already gone. The browser now keeps waiting (up to 30 minutes, or until you cancel), and asking again for a file that is already joined returns it instead of an error. A part that hits a temporary gateway error (502, 503, 504) is now retried too.
+
+- **The Projects checklist in edit mode fills its whole field instead of stopping halfway.**
+
+    In edit forms (e.g. a user record), the Projects checklist was capped at a fixed height and left the lower half of its field empty, so long project lists needed scrolling. It now fills the space the form gives it; the old height stays the minimum.
+
+- **Wide portal tables in edit mode scroll sideways instead of sliding under the inspector.**
+
+    In edit forms with a wide related-records table (e.g. Informants in an Oral History record), a narrow window pushed the whole form underneath the inspector panel. The table now scrolls horizontally inside its own field and the form keeps its width.
+
+- **A long text area stays inside its field — idle or active — and no longer widens itself on load.**
+
+    Opening a record whose text area holds a lot of text (the "Información pública" field of a coin
+    record) showed the field growing wider than its column for a moment — the text painting over
+    the neighbouring column — and then snapping back in a couple of steps, which reads as an
+    animation.
+
+    Cause: the toolbar and the editor share one grid cell, and that grid's column was `auto`: its
+    minimum width is the widest item's min-content, and the toolbar item is the editor's balloon
+    toolbar — about 900px of buttons in one row before it folds. On activation the column grew to
+    that minimum (measured 822 → 914px on the field), the editor grew with it, and once the editor
+    folded its buttons the column stepped back to the field's width.
+
+    The column is now `minmax(0, 1fr)`: it can never be wider than the field, and the toolbar
+    clips/scrolls inside it. Measured across the same load: the field and its content box stay at
+    822px from the first frame, the editor at 809px — no balloon, no snap.
+
+    Also removed in the same pass: the 600 ms fade the "this field has a value" tint carried, and
+    the hover tint's transition running on activation, so a field that comes back active with the
+    page paints its surface at once instead of fading in.
+
+    The same containment now holds while the field is **idle**. A text area's editor is a scroll
+    container, so its min-content height is zero and it can never grow the row it lives in: an
+    idle long text simply painted over the component below (the map) exactly as the active one
+    did. Idle fields now take the field's height too and scroll inside it; short texts look
+    unchanged, they just sit on a box that reaches the field's bottom.
+
+- **An activated text area no longer spills its text past the field and over the component below it.**
+
+    On records where the field's row is sized by the neighbouring column (the two-column
+    identification groups), clicking into a long text area made the editable box grow past the
+    field: the text painted over the next component — a map, another field — and, in the right
+    column, over the column beside it, with no scrollbar to reach the end. The activated field's
+    content box now takes the field's own height, so the editor scrolls inside the field and
+    nothing is painted outside it.
+
+    Idle text areas and the tool panes are unchanged: an idle field still grows with its text,
+    and the transcription/translation panes still size their own box.
+
+- **Tool panes: the editor fills its frame, the toolbar lines up with it, and Lift/Margin keep their mark inside tools.**
+
+    In the three audiovisual process tools the text-area frame was much taller than the area
+    you could type in: clicking below the last line of the transcript did nothing. The editor
+    now fills the frame, so the whole orange box is editable at every window width.
+
+    The formatting toolbar above the transcript was also 4px off: it started inside the
+    frame on the left and stuck out past it on the right, which made the pane scroll
+    sideways by that sliver. It now spans the frame exactly, with the tools tab flush at its
+    right end. When the translation tool's source pane is active (it has no toolbar of its
+    own), its header row now runs the full pane width instead of stopping after the name, and
+    it no longer paints the field's white "legend" strip across that row — that strip spilled
+    past the frame on both sides and, when the name wrapped, pushed a second line under the
+    toolbar.
+    On windows narrower than 1024px the transcription tool's two panes now stack even after
+    the window was resized down, instead of being crushed side by side.
+
+    The **Lift** and **Margin** active-field styles now follow you into a tool, in the reduced
+    form a pane allows. Lift keeps its elevated card, neutral edge, shadow and the orange dot
+    on the field's name; Margin keeps its orange bracket. What the styles drop inside a tool is
+    the part built for a form full of fields: Lift's header band (nothing to make room for —
+    the formatting toolbar already owns the row) and Margin's side gutters and vertical tool
+    rail (no gutter exists; the tool's tab stands in for the rail). Before, they moved the
+    field's name over the tool's own controls, turned the tools tab into a white band above
+    the field and shrank the editable box by the gutter widths. Records keep both styles
+    exactly as before.
+
+- **A term duplicated in the thesaurus/ontology tree can be reordered right away.**
+
+    Changing the order number of a term just created with the tree's Duplicate button did nothing
+    (console: `[ts_object.save_order] Self not found in parent's children data`).
+
+    Cause: Duplicate re-rendered the parent's children from fresh server data but never stored
+    that data on the parent, so the new term was missing from the list the reorder looks itself up
+    in. The parent now keeps the fresh children list.
+
+- **Thesaurus/ontology tree — a term dropped onto a closed term no longer hides that term's other children, and reordering works after showing non-descriptors.**
+
+    Two more tree refreshes left a node's children list out of step with what it showed (the same
+    family as the Duplicate fix):
+
+    - **Drag-drop onto a closed, never-opened term**: the term then showed only the dropped child —
+      its existing children never loaded, even when opened, and the dropped child got order 1.
+      The target now loads its real children from the server after the move.
+    - **Showing non-descriptors on a closed term** loaded and drew its children without keeping
+      the list, so reordering any of them failed with
+      `[ts_object.save_order] Self not found in parent's children data`. The list is now kept.
 
 - **Screen readers now announce the list delete and edit buttons.**
 
@@ -607,6 +765,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The root user can now open their own account panel by clicking their name in the header.**
+
+    Clicking the username in the header opens the account panel (full name, password, email, image and the active field style). For the root user the name was not clickable, so root had no way to change their name, email or interface preferences from inside Dédalo. It now opens for root as for every other user. Root still sees and changes only their own account. Root's image and password are shown but cannot be changed there: a password change asks for no current password, and root has no emailed recovery, so a session left open could lock the real root out for good. In this panel the user name and profile are now read-only for everyone, administrators included; administrators edit them in the Users section.
+
 - **The newest update run is always the one shown as newest.**
 
     Update run ids now carry the start time to the millisecond. Before, two runs started in the same second (for example a refused submission followed by the real update) could be ordered by the random part of their id, so `bun run update status` could report the older run as the newest one.
@@ -839,7 +1001,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 57 entries"
+??? note "Wire contract — 58 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -884,6 +1046,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-10-31-update-rung-above-code`
     - `WC-2026-11-01-menu-dead-area`
     - `WC-2026-11-01-update-plan-declared`
+    - `WC-2026-11-02-ui-preferences`
     - `WC-2026-11-04-caller-chain-per-occurrence`
     - `WC-2026-11-04-config-less-element-adopts-caller-children`
     - `WC-2026-11-04-context-traversal-order`

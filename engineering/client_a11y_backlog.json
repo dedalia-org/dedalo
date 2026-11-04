@@ -10,7 +10,7 @@
 			"reason": "Pre-existing pointer-only activation (audit P1-18 census, batch 7). Converted to a11y.make_activable as this surface is next reworked; the cataloguing surfaces the row names (thesaurus tree, component labels, modal, section tool bar) were converted in the same batch."
 		},
 		"client/dedalo/core/area_maintenance/js/render_area_maintenance.js": {
-			"pointer_only_sites": 5,
+			"pointer_only_sites": 3,
 			"reason": "Pre-existing pointer-only activation (audit P1-18 census, batch 7). Converted to a11y.make_activable as this surface is next reworked; the cataloguing surfaces the row names (thesaurus tree, component labels, modal, section tool bar) were converted in the same batch."
 		},
 		"client/dedalo/core/area_maintenance/widgets/config_areas/js/render_config_areas.js": {
@@ -36,6 +36,10 @@
 		"client/dedalo/core/area_thesaurus/js/render_area_thesaurus.js": {
 			"pointer_only_sites": 2,
 			"reason": "Pre-existing pointer-only activation (audit P1-18 census, batch 7). Converted to a11y.make_activable as this surface is next reworked; the cataloguing surfaces the row names (thesaurus tree, component labels, modal, section tool bar) were converted in the same batch."
+		},
+		"client/dedalo/core/common/js/command_palette.js": {
+			"pointer_only_sites": 1,
+			"reason": "The palette backdrop's click-outside dismissal. Not an activation control: its keyboard equivalent is Escape on the palette input (and Ctrl/⌘+K toggles), so a tab stop on the backdrop would be wrong, not missing."
 		},
 		"client/dedalo/core/common/js/error_report_launcher.js": {
 			"pointer_only_sites": 2,

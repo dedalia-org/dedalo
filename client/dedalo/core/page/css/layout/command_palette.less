@@ -1,0 +1,94 @@
+/**
+* command_palette
+*
+* The application-wide ⌘K / Ctrl+K palette (common/js/command_palette.js):
+* jump to a section or open the current section's tools. Built once, appended
+* to body, shown with .open.
+*
+* Included from main.less file
+*/
+
+.command_palette_backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 2100; // above #floating_dock
+	display: none;
+	align-items: flex-start;
+	justify-content: center;
+	padding: 12vh 16px 0;
+	background-color: color-mix(in srgb, #000 45%, transparent);
+
+	&.open { display: flex; }
+
+	.command_palette {
+		width: min(620px, 100%);
+		background-color: var(--bg_elevated);
+		border: 1px solid var(--border_default);
+		border-radius: 14px;
+		box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+		overflow: hidden;
+	}
+
+	.command_palette_input {
+		display: block;
+		width: 100%;
+		height: auto;
+		margin: 0;
+		padding: 0.85rem 1rem;
+		font-size: 1rem;
+		color: var(--fg_default);
+		background: transparent;
+		border: 0;
+		border-bottom: 1px solid var(--border_default);
+		border-radius: 0;
+		outline: 0;
+	}
+
+	.command_palette_list {
+		max-height: 52vh;
+		overflow: auto;
+		padding: 0.4rem;
+
+		.p_group {
+			padding: 0.6rem 0.7rem 0.25rem;
+			font-size: 0.68rem;
+			text-transform: uppercase;
+			letter-spacing: 0.03em;
+			color: var(--fg_muted);
+		}
+
+		.p_item {
+			display: flex;
+			align-items: center;
+			width: 100%;
+			margin: 0;
+			border: 0;
+			background: transparent;
+			font: inherit;
+			text-align: left;
+			gap: 0.6rem;
+			padding: 0.5rem 0.7rem;
+			border-radius: 8px;
+			font-size: 0.9em;
+			color: var(--fg_default);
+			cursor: pointer;
+
+			.p_zone {
+				margin-left: auto;
+				font-size: 0.72rem;
+				color: var(--fg_muted);
+				white-space: nowrap;
+			}
+
+			// untranslated menu label (italic = fallback language)
+			&.mark .p_name { font-style: italic; }
+			&.danger .p_name { color: var(--color_danger); }
+			&.sel, &:hover { background-color: color-mix(in srgb, var(--color_orange_dedalo) 14%, transparent); }
+		}
+
+		.p_empty {
+			padding: 0.8rem 0.7rem;
+			color: var(--fg_muted);
+		}
+	}
+}

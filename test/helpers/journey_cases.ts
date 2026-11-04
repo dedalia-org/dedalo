@@ -877,6 +877,63 @@ export const JOURNEYS: Record<string, Journey> = {
 		},
 	},
 
+	// root's username link was inert until 2026-11-02 — root had no way into its own
+	// account panel (password, UI preferences) although the server allowed both.
+	// Every field must render (an empty-context read draws an error panel, not a
+	// wrapper) at the level the panel promises: name and email editable, the
+	// identity fields read-only, and for root the image (media ids need a positive
+	// section_id) and the password (no re-authenticated change yet) read-only
+	root_opens_own_account_panel: {
+		personas: ['root'],
+		writes: false,
+		async run({ page, url, fixture }) {
+			await page.goto(url(fixture.editSection, 'list'), {
+				waitUntil: 'networkidle0',
+				timeout: 60_000,
+			});
+			await page.waitForSelector('.logged_user_name.top_item', { visible: true, timeout: 15_000 });
+			await page.click('.logged_user_name.top_item');
+			await page.waitForSelector('.active_style_switcher', { timeout: 20_000 });
+			await idle(page);
+			const panel = await page.evaluate(async () => {
+				const columns = [...document.querySelectorAll('.components_container > .component_column')];
+				const rendered = columns.filter((c) =>
+					c.querySelector(':scope > .wrapper_component'),
+				).length;
+				const errors = document.querySelectorAll('.components_container .api_error_panel').length;
+				const spec = '/dedalo/core/common/js/instances.js'; // the page's own module, not a repo path
+				const { get_all_instances } = (await import(spec)) as {
+					get_all_instances: () => unknown[];
+				};
+				const levels: Record<string, number> = {};
+				// biome-ignore lint/suspicious/noExplicitAny: live client instances
+				for (const i of get_all_instances() as any[])
+					if (i.caller?.model === 'tool_user_admin' && i.section_tipo === 'dd128')
+						levels[i.tipo] = i.permissions;
+				const styles = document.querySelectorAll(
+					'.active_style_switcher input[name="active_style"]',
+				).length;
+				return { columns: columns.length, rendered, errors, levels, styles };
+			});
+			if (panel.columns === 0 || panel.rendered !== panel.columns || panel.errors > 0)
+				throw new Error(
+					`${panel.rendered}/${panel.columns} fields rendered, ${panel.errors} error panels`,
+				);
+			const want: Record<string, (n: number) => boolean> = {
+				dd452: (n) => n >= 2, // full name
+				dd133: (n) => n === 1, // password (root)
+				dd134: (n) => n >= 2, // email
+				dd132: (n) => n === 1, // username
+				dd1725: (n) => n === 1, // profile
+				dd522: (n) => n === 1, // image (root)
+			};
+			for (const [tipo, ok] of Object.entries(want))
+				if (!ok(panel.levels[tipo] ?? -1))
+					throw new Error(`${tipo} level ${panel.levels[tipo]} (${JSON.stringify(panel.levels)})`);
+			if (panel.styles < 2) throw new Error(`active style switcher offers ${panel.styles} styles`);
+		},
+	},
+
 	// portal_reorder: the row box's portal drag (WC-2026-10-30-section-record-row-box)
 	// as a user does it, on BUILT records: a host test3 record with three linked
 	// test3 records in the self-portal test80 (default view). Desktop: a native drag

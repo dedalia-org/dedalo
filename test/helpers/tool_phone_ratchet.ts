@@ -40,8 +40,8 @@ export const PHONE_HIT_TARGET_PX = 44;
  *    buttons, the error-report tab). `root` names the node to judge when the
  *    tool is not a `.wrapper_tool` (the assistant is a panel).
  *  - `method`: a live instance's own open handler (menu.open_tool_user_admin_handler)
- *    — for a door the suite's root login cannot click (root's username link is
- *    `noevents`: the profile tool is for non-root users).
+ *    — for a door opened from page chrome (the header username link) rather than
+ *    a per-tool button the probe could click.
  *  - `module`: a launcher's own exported open function (the site-builder
  *    maintenance widget's `open_site_builder`), called as its button does —
  *    minus the gate that enables the button (a reachable daemon).
@@ -299,7 +299,7 @@ export const NOT_YET_PHONE: Record<
 	tool_user_admin: {
 		phase: 1,
 		reason:
-			"NEEDS A NON-ADMIN FIXTURE WITH A PROFILE, not layout: the tool is a non-root user's own (root's username link is noevents; root's dd128/-1 fields answer an empty context); the read-door fixture user is refused (perm.denied) — its profile grants neither tool_user_admin nor its own dd128 fields",
+			"NEEDS A NON-ADMIN FIXTURE WITH A PROFILE, not layout: the read-door fixture user is refused (perm.denied) — its profile grants neither tool_user_admin nor its own dd128 fields (root opens it since 2026-11-02, but root proves nothing about a profiled user's phone view)",
 		probe: {
 			kind: 'method',
 			url: 'tipo=test3&mode=list',

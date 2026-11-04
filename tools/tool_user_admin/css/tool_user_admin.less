@@ -99,5 +99,86 @@
 			}
 		}
 
+
+		// active-field style switcher (core/page/js/active_style.js)
+		.active_style_switcher {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.75rem;
+			margin-top: 2rem;
+			padding: 1rem var(--field_inset_x);
+			border: 1px solid var(--border_default);
+			border-radius: 8px;
+
+			&.loading {
+				opacity: 0.6;
+				pointer-events: none;
+			}
+
+			>legend {
+				padding: 0 0.4rem;
+				font-weight: 600;
+			}
+
+			.active_style_option {
+				display: flex;
+				align-items: center;
+				gap: 0.6rem;
+				padding: 0.5rem 0.9rem 0.5rem 0.6rem;
+				border: 1px solid var(--border_default);
+				border-radius: 8px;
+				cursor: pointer;
+
+				&:has(input:checked) {
+					border-color: @color_orange_dedalo;
+				}
+				&:has(input:focus-visible) {
+					outline: 2px solid var(--focus_ring);
+					outline-offset: 2px;
+				}
+			}
+
+			// a miniature active field per style
+			.active_style_preview {
+				width: 3.5rem;
+				height: 2.2rem;
+				border-radius: 6px;
+				background-color: var(--color_white);
+
+				// the default look since 2026-11-03: the field tinted, the tools
+				// as the floating orange pill above its top-right corner
+				&.preview_default {
+					border-radius: 3px;
+					background-color: var(--color_hilite);
+					background-image: linear-gradient(@color_orange_dedalo, @color_orange_dedalo);
+					background-size: 1.3rem 0.45rem;
+					background-position: calc(100% - 3px) 3px;
+					background-repeat: no-repeat;
+				}
+				&.preview_frame {
+					box-shadow: inset 0 0 0 1px @color_orange_dedalo;
+				}
+				&.preview_lift {
+					background-color: var(--bg_elevated);
+					box-shadow: inset 0 0 0 1px var(--border_strong), var(--shadow-2);
+					background-image: radial-gradient(circle, @color_orange_dedalo 3px, transparent 3.5px);
+					background-size: 14px 14px;
+					background-position: 2px 2px;
+					background-repeat: no-repeat;
+				}
+				&.preview_margin {
+					border-radius: 0;
+					box-shadow: inset 0 0 0 1px var(--border_default);
+					background-image:
+						linear-gradient(@color_orange_dedalo, @color_orange_dedalo),
+						linear-gradient(@color_orange_dedalo, @color_orange_dedalo),
+						linear-gradient(@color_orange_dedalo, @color_orange_dedalo);
+					background-size: 3px 100%, 0.5rem 3px, 0.5rem 3px;
+					background-position: 3px 0, 3px 0, 3px 100%;
+					background-repeat: no-repeat;
+				}
+			}
+		}
+
 	}//end content_data
 }//end wrapper_tool

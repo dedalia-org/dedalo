@@ -9,7 +9,7 @@
  *   dd1725/dd515/dd132/dd330              -> 1  (non-global-admins: anti self-elevation)
  *                                            >= 1 (global admin: matrix, floored at READ —
  *                                                  TODO-071, tool_user_admin's read-only rows)
- *   dd452/dd134/dd133/dd522               -> 2  (editable self-data, used by tool_user_admin)
+ *   dd452/dd134/dd133/dd522/dd1206        -> 2  (editable self-data, used by tool_user_admin)
  *
  * The TS port shipped only the SEARCH-mode branch, so both halves were missing:
  * an ordinary user could not edit their own password/email/name (the tool's whole
@@ -50,7 +50,7 @@ import {
 const USERS = 'dd128';
 const SECURITY_ADMIN = 'dd244';
 const GUARDED = ['dd1725', 'dd515', 'dd132', 'dd330'] as const; // profile/developer/username/section_id
-const SELF_EDITABLE = ['dd452', 'dd134', 'dd133', 'dd522'] as const; // name/email/password/image
+const SELF_EDITABLE = ['dd452', 'dd134', 'dd133', 'dd522', 'dd1206'] as const; // name/email/password/image/UI preferences
 
 function principal(userId: number, isGlobalAdmin: boolean): Principal {
 	return { userId, isGlobalAdmin, isDeveloper: false };

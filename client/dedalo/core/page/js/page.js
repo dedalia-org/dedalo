@@ -294,7 +294,7 @@ page.prototype.init = async function(options) {
 			const activate_component_handler = function(component_instance) {
 
 				// lock_component. launch worker
-				if (typeof DEDALO_LOCK_COMPONENTS!=='undefined' && DEDALO_LOCK_COMPONENTS===true && component_instance.mode==='edit') {
+				if (typeof DEDALO_LOCK_COMPONENTS!=='undefined' && DEDALO_LOCK_COMPONENTS===true && takes_lock(component_instance)) {
 					dd_request_idle_callback(
 						() => {
 							data_manager.request({
@@ -575,6 +575,18 @@ page.prototype.init = async function(options) {
 * @param {ApiError} api_error
 * @return bool always false, so callers can `return set_page_error(…)`
 */
+/**
+* TAKES_LOCK
+* Whether an active component holds a component soft-lock (focus + heartbeat).
+* (!) The id badge is selectable but has nothing to edit: it never locks, or a
+* second user would get an 'in use' modal over the record's identity.
+* @param object component
+* @return bool
+*/
+const takes_lock = (component) => component.mode==='edit' && component.model!=='component_section_id'
+
+
+
 const set_page_error = function(api_error) {
 
 	page_globals.page_error = api_error
@@ -724,6 +736,9 @@ page.prototype.build = async function(autoload=false) {
 				}
 				// fix API environment vars to window (page_globals, plain_vars, get_label)
 				set_environment(api_response.environment.result)
+				// the user's active-field style (page_globals.ui_preferences). Lazy: off the
+				// boot graph (page_load_budget); theme-init.js already painted the cached style
+				import('./active_style.js').then(m => m.sync_active_style_from_server())
 
 				// engine-build cache guard. The 'section_cache_*' / 'page_cache_*'
 				// IndexedDB entries are otherwise only cleared on logout or language
@@ -1206,6 +1221,8 @@ export const send_lock_release_beacon = function(options) {
 *                              Shift+Left  → paginator previous page
 *                              Shift+Right → paginator next page
 *                              Ctrl+I      → toggle inspector panel
+*                              ⌘K / Ctrl+K → command palette (sections + current
+*                                            section tools; common/js/command_palette.js)
 *                              Enter       → execute section search or open search panel
 *                                            (blocked inside modals and paginator inputs)
 *   document 'mousedown'   — Calls `deactivate_components()` to blur the active component
@@ -1216,6 +1233,13 @@ export const send_lock_release_beacon = function(options) {
 page.prototype.add_events = function() {
 
 	const self = this
+
+	// command palette (⌘K): binds this page for menu + section lookup. Lazy: off the
+	// boot graph (page_load_budget); ⌘K is a no-op until the module has arrived
+		import('../../common/js/command_palette.js').then(m => {
+			m.init_command_palette(self)
+			self.command_palette = m
+		})
 
 	// window onpopstate. Triggered when user clicks on the browser navigation buttons
 		// note that navigation calls generate a history of event state, and when user click's on back button,
@@ -1249,7 +1273,7 @@ page.prototype.add_events = function() {
 					return
 				}
 				const ca = page_globals.component_active
-				if (!ca || ca.mode!=='edit') {
+				if (!ca || !takes_lock(ca)) {
 					return
 				}
 				data_manager.request({
@@ -1398,6 +1422,16 @@ page.prototype.add_events = function() {
 						const section_next = self.ar_instances.find(el => el.model==='section')
 						if (section_next && section_next.paginator) {
 							section_next.paginator.navigate_to_next_page()
+						}
+					}
+					break;
+				}
+
+				case 'k':
+				case 'K': {
+					if (evt.metaKey || evt.ctrlKey) {
+						if (self.command_palette?.open_command_palette()) {
+							evt.preventDefault()
 						}
 					}
 					break;

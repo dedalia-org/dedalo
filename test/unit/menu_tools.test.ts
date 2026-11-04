@@ -10,9 +10,8 @@
  *
  * The binding is ONTOLOGY-defined, not hardcoded: the dd1324 registry record
  * for tool_user_admin declares affected_tipos (dd1350) = ['dd85'] (the menu
- * tipo) and always_active (dd1601) = yes, so EVERY logged user gets it — the
- * root user's suppression is a client affordance (menu.js hides the click),
- * not a wire filter. Expectations are therefore DERIVED from the registry
+ * tipo) and always_active (dd1601) = yes, so EVERY logged user gets it, root
+ * included (root's header link opens it too since 2026-11-02). Expectations are therefore DERIVED from the registry
  * filter (getElementTools), never hardcoded to a tool list.
  *
  * Frozen-oracle shape (test/parity/fixtures/oracle_harvest/menu_differential.json,
