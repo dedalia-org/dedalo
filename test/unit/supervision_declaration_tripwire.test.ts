@@ -22,7 +22,8 @@
  *      `Environment=DEDALO_SUPERVISED=true`. A block that writes a DROP-IN (heredoc into
  *      `<name>@<i>.service.d/`) is judged with EVERY drop-in its document writes for that
  *      unit, merged in file-name order over deploy/systemd/<name>@.service, as systemd
- *      runs it — never alone, and never without its template (fail closed).
+ *      runs it — never alone, and never without its template (fail closed). A block with
+ *      no section header is report output quoting a unit, not a unit (see isUnitText).
  *   3. compose — every tracked compose file, parsed (Bun.YAML): each ENGINE service (its
  *      command reaches src/server.ts or a supervised script, or it builds the image and
  *      inherits a Dockerfile CMD that runs src/server.ts) sets DEDALO_SUPERVISED "true".
@@ -288,6 +289,18 @@ function runsServer(lines: readonly string[]): boolean {
 }
 
 /**
+ * A block is a UNIT TEXT when it carries a section header, and only then is it
+ * judged by {@link runsServer}: systemd requires a section header in a unit AND in
+ * a drop-in, so a block without one is not a file anyone can install — it is
+ * REPORT output that quotes a unit. docs/install/bun_runtime.md shows both
+ * (`systemctl cat | grep`, and `grep -n '^ExecStart'` of the drop-in), and judging
+ * those as units accused the manuals of a unit nobody wrote.
+ */
+function isUnitText(text: string): boolean {
+	return /^\[[A-Za-z][\w-]*\]/m.test(text);
+}
+
+/**
  * Every unit that starts the server, judged as systemd runs it. A standalone unit
  * text is judged alone. A DROP-IN (manual_install.md writes the instance unit's
  * ExecStart that way, 2026-10-12) is never a unit on its own: systemd merges EVERY
@@ -324,7 +337,7 @@ function serverUnits(): ServerUnit[] {
 				dropins.set(template, files);
 			}
 			rest = rest.replace(DROPIN_HEREDOC, '');
-			if (runsServer(unitLines(rest)))
+			if (isUnitText(rest) && runsServer(unitLines(rest)))
 				units.push({ label, dropin: false, declared: declaredAlone(rest) });
 		}
 		for (const [name, files] of dropins) {
