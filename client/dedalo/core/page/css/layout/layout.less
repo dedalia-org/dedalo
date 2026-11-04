@@ -441,7 +441,14 @@ input::placeholder {
 			display: none;
 		}
 
-		&.active {
+		// (!) `:not(:where(.edit.component_section_id))`: the id badge IS
+		// selectable in edit mode (the inspector shows its info) but it is not
+		// an editable field, and the field active look would paint over its own
+		// solid background and hide the number. Same law as the hover exclusion
+		// below. `:where()` keeps this block's specificity exactly where it was;
+		// the `.edit` compound leaves the same model's SEARCH field (a real
+		// input) its normal active look.
+		&.active:not(:where(.edit.component_section_id)) {
 			z-index: 3; // 3 allow over portal drag handlers
 			// BACKGROUND (the default look since 2026-11-03): the field's own
 			// SURFACE is the mark. No frame, no card, no gutter — the palette's

@@ -125,10 +125,14 @@ describe("COMPONENTS ACTIVATE", async function() {
 					// activate by click event
 					// wrapper.click()
 					wrapper.dispatchEvent(new Event('mousedown'));
-					// section_id is a read-only badge: activation is refused (ui.component.activate)
+					// section_id is a read-only badge: it SELECTS (the inspector
+					// shows its tipo/model/data/history) but never takes an edit
+					// surface, so the save legs below do not apply to it
 					if (element.model==='component_section_id') {
-						assert( !wrapper.classList.contains('active'), `component_section_id must NOT activate`)
-						assert( instance.active!==true, `component_section_id instance must NOT be active`)
+						assert( wrapper.classList.contains('active'), `component_section_id must activate`)
+						assert( instance.active===true, `component_section_id instance must be active`)
+						await ui.component.deactivate(instance)
+						assert( !wrapper.classList.contains('active'), `component_section_id must deactivate`)
 						return
 					}
 					assert( wrapper.classList.contains('active'), `wrapper activated styles are NOT found`)

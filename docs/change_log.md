@@ -170,6 +170,17 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The record's Id badge can be selected to show its information in the inspector.**
+
+    Clicking the Id badge of a record in the edit view did nothing, so the inspector
+    never described it. The badge now selects like any other field: the inspector shows
+    the component's tipo, model, view/mode and its data, and the record's history for it.
+    Because the id is the record's identity and cannot be edited, selection marks it with
+    an orange ring around the badge instead of the field highlight — the badge keeps its
+    own surface and colour and the number stays readable, in every active-field style and
+    in both themes. Selecting it never takes a component lock, so it can never make the
+    record look "in use" to another user.
+
 - **Uploading a very large file no longer reports an error while the server is still joining it.**
 
     After all parts of a large file (several GB) had arrived, the server needed minutes to put them back together. The browser stopped waiting after about half a minute and showed an error, although the file was saved in the end; trying again then failed because the parts were already gone. The browser now keeps waiting (up to 30 minutes, or until you cancel), and asking again for a file that is already joined returns it instead of an error. A part that hits a temporary gateway error (502, 503, 504) is now retried too.

@@ -5287,37 +5287,37 @@ input::placeholder {
 .wrapper_component.player .show_on_active {
   display: none;
 }
-.wrapper_component.edit.active,
-.wrapper_component.search.active,
-.wrapper_component.player.active {
+.wrapper_component.edit.active:not(:where(.edit.component_section_id)),
+.wrapper_component.search.active:not(:where(.edit.component_section_id)),
+.wrapper_component.player.active:not(:where(.edit.component_section_id)) {
   z-index: 3;
   box-shadow: none;
   color: var(--color_orange_dedalo);
   overflow: initial;
 }
-.wrapper_component.edit.active:not(.hilite_element),
-.wrapper_component.search.active:not(.hilite_element),
-.wrapper_component.player.active:not(.hilite_element) {
+.wrapper_component.edit.active:not(:where(.edit.component_section_id)):not(.hilite_element),
+.wrapper_component.search.active:not(:where(.edit.component_section_id)):not(.hilite_element),
+.wrapper_component.player.active:not(:where(.edit.component_section_id)):not(.hilite_element) {
   background-color: var(--color_hilite);
   border-radius: 3px;
 }
-.wrapper_component.edit.active:not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)),
-.wrapper_component.search.active:not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)),
-.wrapper_component.player.active:not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)) {
+.wrapper_component.edit.active:not(:where(.edit.component_section_id)):not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)),
+.wrapper_component.search.active:not(:where(.edit.component_section_id)):not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)),
+.wrapper_component.player.active:not(:where(.edit.component_section_id)):not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)) {
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
 }
-.wrapper_component.edit.active:not(.hilite_element) .list_body,
-.wrapper_component.search.active:not(.hilite_element) .list_body,
-.wrapper_component.player.active:not(.hilite_element) .list_body,
-.wrapper_component.edit.active:not(.hilite_element) .column_remove,
-.wrapper_component.search.active:not(.hilite_element) .column_remove,
-.wrapper_component.player.active:not(.hilite_element) .column_remove {
+.wrapper_component.edit.active:not(:where(.edit.component_section_id)):not(.hilite_element) .list_body,
+.wrapper_component.search.active:not(:where(.edit.component_section_id)):not(.hilite_element) .list_body,
+.wrapper_component.player.active:not(:where(.edit.component_section_id)):not(.hilite_element) .list_body,
+.wrapper_component.edit.active:not(:where(.edit.component_section_id)):not(.hilite_element) .column_remove,
+.wrapper_component.search.active:not(:where(.edit.component_section_id)):not(.hilite_element) .column_remove,
+.wrapper_component.player.active:not(:where(.edit.component_section_id)):not(.hilite_element) .column_remove {
   background-color: transparent;
 }
-.wrapper_component.edit.active:not(.hilite_element) > .label,
-.wrapper_component.search.active:not(.hilite_element) > .label,
-.wrapper_component.player.active:not(.hilite_element) > .label {
+.wrapper_component.edit.active:not(:where(.edit.component_section_id)):not(.hilite_element) > .label,
+.wrapper_component.search.active:not(:where(.edit.component_section_id)):not(.hilite_element) > .label,
+.wrapper_component.player.active:not(:where(.edit.component_section_id)):not(.hilite_element) > .label {
   transform: none;
   background: none;
   justify-self: stretch;
@@ -5330,14 +5330,14 @@ input::placeholder {
   font-weight: 600;
   color: var(--color_orange_dark);
 }
-.wrapper_component.edit.active .show_on_active,
-.wrapper_component.search.active .show_on_active,
-.wrapper_component.player.active .show_on_active {
+.wrapper_component.edit.active:not(:where(.edit.component_section_id)) .show_on_active,
+.wrapper_component.search.active:not(:where(.edit.component_section_id)) .show_on_active,
+.wrapper_component.player.active:not(:where(.edit.component_section_id)) .show_on_active {
   display: block;
 }
-.wrapper_component.edit.active > .buttons_container,
-.wrapper_component.search.active > .buttons_container,
-.wrapper_component.player.active > .buttons_container {
+.wrapper_component.edit.active:not(:where(.edit.component_section_id)) > .buttons_container,
+.wrapper_component.search.active:not(:where(.edit.component_section_id)) > .buttons_container,
+.wrapper_component.player.active:not(:where(.edit.component_section_id)) > .buttons_container {
   display: block !important;
   white-space: nowrap;
   z-index: 2;
@@ -27139,6 +27139,9 @@ body.inspector_resizing {
   border-bottom-right-radius: 1rem;
   max-height: 5.5rem;
 }
+.component_section_id.edit.active {
+  box-shadow: 0 0 0 2px var(--color_orange_dedalo);
+}
 .component_section_id.edit > .label {
   color: var(--color_white);
 }
@@ -29133,31 +29136,31 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
 * would fight the tool's chrome. The reduced tool variant below keeps only the
 * frame's surface.
 */
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) {
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) {
   box-shadow: none;
   overflow: initial;
 }
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.hilite_element) {
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):not(.hilite_element) {
   background-color: var(--color_white);
   box-shadow: inset 0 0 0 1px var(--color_orange_dedalo);
   border-radius: 8px;
 }
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.hilite_element):has(>.buttons_container>*) {
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):not(.hilite_element):has(>.buttons_container>*) {
   border-top-right-radius: 0;
 }
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)) {
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)) {
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
 }
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.hilite_element) .list_body,
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.hilite_element) .column_remove {
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):not(.hilite_element) .list_body,
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):not(.hilite_element) .column_remove {
   background-color: transparent;
 }
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .label {
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) > .label {
   color: var(--color_black);
   font-weight: 600;
 }
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.hilite_element) > .label {
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):not(.hilite_element) > .label {
   justify-self: start;
   align-self: start;
   width: fit-content;
@@ -29169,10 +29172,10 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   background: linear-gradient(var(--color_white), var(--color_white)) top / 100% 1lh no-repeat;
   transform: translateY(-50%);
 }
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.hilite_element):has(>.buttons_container>*) > .label {
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):not(.hilite_element):has(>.buttons_container>*) > .label {
   max-width: max(40%, calc(100% - 12rem));
 }
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container {
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) > .buttons_container {
   display: block !important;
   white-space: nowrap;
   z-index: 2;
@@ -29181,16 +29184,16 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   border-radius: 8px 8px 0 0;
   box-shadow: none;
 }
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container .button:last-of-type {
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) > .buttons_container .button:last-of-type {
   margin-right: 0.75rem;
 }
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).tab_lifted:not(.hilite_element) {
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).tab_lifted:not(.hilite_element) {
   border-top-right-radius: 8px;
 }
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).tab_lifted:not(.hilite_element):has(>.buttons_container>*) > .label {
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).tab_lifted:not(.hilite_element):has(>.buttons_container>*) > .label {
   max-width: calc(100% - 2rem);
 }
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).tab_lifted:not(.hilite_element) > .buttons_container {
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).tab_lifted:not(.hilite_element) > .buttons_container {
   top: calc(-2rem - 0.75rem - 1px);
   border-radius: 8px;
 }
@@ -29240,12 +29243,12 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   --lift_shadow: var(--shadow-3);
   --lift_band_shadow: 0 -1px 3px var(--shadow_default);
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) {
   background-color: var(--bg_elevated);
   box-shadow: inset 0 0 0 1px var(--lift_edge), var(--lift_shadow);
   border-radius: 10px;
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .label {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) > .label {
   transform: none;
   background: none;
   margin-left: 0;
@@ -29254,7 +29257,7 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   max-width: 100%;
   color: var(--color_black);
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .label::before {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) > .label::before {
   content: '';
   display: inline-block;
   width: 8px;
@@ -29264,17 +29267,17 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   background-color: var(--color_orange_dedalo);
   vertical-align: 0.1em;
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.tab_lifted):not(.component_text_area) {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):not(.tab_lifted):not(.component_text_area) {
   --lift_rise: calc(var(--lift_headroom) + var(--lift_label_gap));
   box-shadow: 0 calc(-1 * var(--lift_rise)) 0 0 var(--bg_elevated), 0 0 0 1px var(--lift_edge), 0 calc(-1 * var(--lift_rise)) 0 1px var(--lift_edge), var(--lift_shadow);
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.tab_lifted):not(.component_text_area) > .label {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):not(.tab_lifted):not(.component_text_area) > .label {
   transform: translateY(calc(-1 * var(--lift_label_gap)));
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.tab_lifted):not(.component_text_area) > .buttons_container {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):not(.tab_lifted):not(.component_text_area) > .buttons_container {
   top: calc(0.4rem - var(--lift_label_gap));
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) > .buttons_container {
   top: 0.4rem;
   right: var(--field_inset_x);
   height: 1.1rem;
@@ -29287,39 +29290,39 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   align-items: center;
   justify-content: flex-end;
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container .buttons_fold {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) > .buttons_container .buttons_fold {
   display: flex;
   align-items: center;
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container .button {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) > .buttons_container .button {
   background-color: var(--color_grey_5);
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container .button:hover {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) > .buttons_container .button:hover {
   background-color: var(--color_orange_dark);
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container span,
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container span:first-child,
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container span:last-child,
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .buttons_container .button:last-of-type {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) > .buttons_container span,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) > .buttons_container span:first-child,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) > .buttons_container span:last-child,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) > .buttons_container .button:last-of-type {
   margin-top: 0;
   margin-bottom: 0;
   margin-right: 0;
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):has(>.buttons_container>*) > .label {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):has(>.buttons_container>*) > .label {
   max-width: calc(100% - var(--tools_width, 8rem));
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).tab_lifted:has(>.buttons_container>*),
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area:not(.view_line):has(>.buttons_container>*) {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).tab_lifted:has(>.buttons_container>*),
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).component_text_area:not(.view_line):has(>.buttons_container>*) {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
   box-shadow: inset 1px 0 0 var(--lift_edge), inset -1px 0 0 var(--lift_edge), inset 0 -1px 0 var(--lift_edge), var(--lift_shadow);
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).tab_lifted:has(>.buttons_container>*) > .label,
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area:not(.view_line):has(>.buttons_container>*) > .label {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).tab_lifted:has(>.buttons_container>*) > .label,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).component_text_area:not(.view_line):has(>.buttons_container>*) > .label {
   max-width: 100%;
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).tab_lifted:has(>.buttons_container>*) > .buttons_container,
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area:not(.view_line):has(>.buttons_container>*) > .buttons_container {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).tab_lifted:has(>.buttons_container>*) > .buttons_container,
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).component_text_area:not(.view_line):has(>.buttons_container>*) > .buttons_container {
   top: calc(-1 * var(--lift_band_height));
   left: 0;
   right: 0;
@@ -29329,18 +29332,18 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   border-radius: 10px 10px 0 0;
   box-shadow: inset 1px 0 0 var(--lift_edge), inset -1px 0 0 var(--lift_edge), inset 0 1px 0 var(--lift_edge), var(--lift_band_shadow);
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area:not(.view_line):has(>.buttons_container>*) > .label {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).component_text_area:not(.view_line):has(>.buttons_container>*) > .label {
   position: relative;
   z-index: 3;
   font-size: inherit;
   max-width: calc(100% - var(--tools_width, 8rem) - 2 * var(--field_inset_x));
   transform: translateY(calc(-1 * (var(--lift_band_height) / 2 + 0.95rem)));
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) > .label {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) > .label {
   max-width: 100%;
   transform: translateY(calc(-1 * var(--component_label_height) - 1rem));
 }
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) > .buttons_container {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) > .buttons_container {
   top: calc(-1 * (var(--lift_band_height) + var(--component_label_height)));
   height: calc(var(--lift_band_height) + var(--component_label_height));
   align-items: flex-start;
@@ -29407,7 +29410,7 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   padding-left: 1rem;
   padding-right: 3rem;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) {
   box-shadow: none;
   border-radius: 0;
   background-color: var(--color_white);
@@ -29419,7 +29422,7 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   background-position: 0.3rem 0, 0.3rem 0, 0.3rem var(--margin_span);
   background-repeat: no-repeat;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .label {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) > .label {
   transform: none;
   background: none;
   margin-left: 0;
@@ -29428,21 +29431,21 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   max-width: 100%;
   color: var(--color_black);
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area:not(.view_line) {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).component_text_area:not(.view_line) {
   background-size: 3px var(--margin_span), 0 0, 0.6rem 3px;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area:not(.view_line) > .label {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).component_text_area:not(.view_line) > .label {
   transform: translateY(-100%);
   background-image: linear-gradient(var(--color_orange_dedalo), var(--color_orange_dedalo)), linear-gradient(var(--color_orange_dedalo), var(--color_orange_dedalo));
   background-size: 3px 100%, 0.6rem 3px;
   background-position: 0.3rem 0, 0.3rem 0;
   background-repeat: no-repeat;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).component_text_area:not(.view_line):not(.wrapper_component *):not(#inspector *) > .label {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).component_text_area:not(.view_line):not(.wrapper_component *):not(#inspector *) > .label {
   margin-left: -1rem;
   padding-left: calc(1rem + var(--field_inset_x));
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container {
   top: 0;
   left: calc(100% + 0.4rem);
   right: auto;
@@ -29458,33 +29461,33 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   align-items: center;
   justify-content: space-evenly;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container .buttons_fold {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container .buttons_fold {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: space-evenly;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span:first-child,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span:last-child,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container .button:last-of-type {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span:first-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container span:last-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):is(:not(.no_side_room), :not(.wrapper_component *):not(#inspector *)) > .buttons_container .button:last-of-type {
   margin: 0;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(*, #inspector *) > .buttons_container:not(:has(.button)) {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):is(*, #inspector *) > .buttons_container:not(:has(.button)) {
   display: none !important;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.wrapper_component *):not(#inspector *):has(>.buttons_container>*) {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):not(.wrapper_component *):not(#inspector *):has(>.buttons_container>*) {
   min-height: calc(var(--rail_tight) + var(--field_pad_bottom, 0px));
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.wrapper_component *):not(#inspector *) > .buttons_container {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):not(.wrapper_component *):not(#inspector *) > .buttons_container {
   left: auto;
   right: calc((3rem - 2.2rem) / 2);
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *):has(>.buttons_container>*) > .label {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).no_side_room:is(.wrapper_component *):not(#inspector *):has(>.buttons_container>*) > .label {
   max-width: calc(100% - var(--tools_width, 8rem));
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container {
   top: 0.2rem;
   right: var(--field_inset_x);
   height: 1.1rem;
@@ -29496,31 +29499,31 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   display: flex !important;
   align-items: center;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .buttons_fold {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .buttons_fold {
   display: flex;
   align-items: center;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button {
   background-color: var(--color_grey_5);
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button:hover {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button:hover {
   background-color: var(--color_orange_dark);
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span:first-child,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span:last-child,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button:last-of-type {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span:first-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container span:last-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).no_side_room:is(.wrapper_component *):not(#inspector *) > .buttons_container .button:last-of-type {
   margin-top: 0;
   margin-bottom: 0;
   margin-right: 0;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *).tab_lifted:has(>.buttons_container>*) > .label {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).no_side_room:is(.wrapper_component *):not(#inspector *).tab_lifted:has(>.buttons_container>*) > .label {
   max-width: 100%;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *).no_side_room:is(.wrapper_component *):not(#inspector *).tab_lifted:has(>.buttons_container>*) > .buttons_container {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).no_side_room:is(.wrapper_component *):not(#inspector *).tab_lifted:has(>.buttons_container>*) > .buttons_container {
   top: calc(-1 * var(--component_label_height));
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(#inspector *) > .buttons_container {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):is(#inspector *) > .buttons_container {
   top: -1.7rem;
   left: auto;
   right: 0;
@@ -29531,13 +29534,13 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   flex-direction: row;
   border-radius: var(--radius-pill);
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(#inspector *) > .buttons_container .buttons_fold {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):is(#inspector *) > .buttons_container .buttons_fold {
   flex-direction: row;
 }
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(#inspector *) > .buttons_container span,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(#inspector *) > .buttons_container span:first-child,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(#inspector *) > .buttons_container span:last-child,
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):is(#inspector *) > .buttons_container .button:last-of-type {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):is(#inspector *) > .buttons_container span,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):is(#inspector *) > .buttons_container span:first-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):is(#inspector *) > .buttons_container span:last-child,
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)):is(#inspector *) > .buttons_container .button:last-of-type {
   margin: 0.35rem 0.25rem;
 }
 :root[data-active_style="margin"] .wrapper_tool > .content_data .wrapper_component.edit.active:not(.hilite_element) {

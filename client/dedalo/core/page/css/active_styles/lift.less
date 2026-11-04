@@ -38,7 +38,7 @@
 	--lift_band_shadow: 0 -1px 3px var(--shadow_default);
 }
 
-:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) {
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) {
 	background-color: var(--bg_elevated);
 	box-shadow: inset 0 0 0 1px var(--lift_edge), var(--lift_shadow);
 	border-radius: 10px;

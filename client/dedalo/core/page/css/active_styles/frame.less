@@ -21,7 +21,7 @@
 * frame's surface.
 */
 
-:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) {
+:root[data-active_style="frame"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) {
 	// 'box-shadow: none' first overrides the grey edit/search/player outline
 	box-shadow: none;
 	overflow: initial;

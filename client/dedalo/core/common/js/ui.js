@@ -902,13 +902,6 @@ export const ui = {
 					return false
 				}
 
-			// not selectable: the edit section_id is a read-only badge (the record's
-			// identity), with nothing to edit or focus, and an active look over it
-			// only hides the number
-				if (component.model==='component_section_id' && component.mode==='edit') {
-					return false
-				}
-
 			// component active status update
 			// Its important to fix the value here because prevents duplicate events like component_text_area focus
 				component.active = true

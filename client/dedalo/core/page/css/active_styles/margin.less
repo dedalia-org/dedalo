@@ -47,7 +47,7 @@
 	padding-right: @margin_gutter;
 }
 
-:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) {
+:root[data-active_style="margin"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)) {
 	box-shadow: none;
 	border-radius: 0;
 	background-color: var(--color_white);

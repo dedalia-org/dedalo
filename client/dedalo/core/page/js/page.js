@@ -294,7 +294,10 @@ page.prototype.init = async function(options) {
 			const activate_component_handler = function(component_instance) {
 
 				// lock_component. launch worker
-				if (typeof DEDALO_LOCK_COMPONENTS!=='undefined' && DEDALO_LOCK_COMPONENTS===true && component_instance.mode==='edit') {
+				// (!) the id badge is selectable but has no value to edit, so it
+				// never takes a lock (a second user would get an 'in use' modal
+				// over the record's identity)
+				if (typeof DEDALO_LOCK_COMPONENTS!=='undefined' && DEDALO_LOCK_COMPONENTS===true && component_instance.mode==='edit' && component_instance.model!=='component_section_id') {
 					dd_request_idle_callback(
 						() => {
 							data_manager.request({
@@ -1261,7 +1264,8 @@ page.prototype.add_events = function() {
 					return
 				}
 				const ca = page_globals.component_active
-				if (!ca || ca.mode!=='edit') {
+				// (!) the id badge holds no lock (see the activate handler)
+				if (!ca || ca.mode!=='edit' || ca.model==='component_section_id') {
 					return
 				}
 				data_manager.request({

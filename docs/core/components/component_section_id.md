@@ -182,7 +182,7 @@ The component declares the modes `edit`, `list`, `tm` and `search`. In the clien
 
 | Mode | Views | Notes |
 | --- | --- | --- |
-| `edit` | `default`, `line`, `print` | Read-only display of the id inside a `content_value section_id` node. `line` drops the label node; `print` forces `permissions = 1` (read-only element render) and reuses the default view. |
+| `edit` | `default`, `line`, `print` | Read-only display of the id inside a `content_value section_id` node. `line` drops the label node; `print` forces `permissions = 1` (read-only element render) and reuses the default view. The badge **is selectable**: clicking it activates the component so the inspector shows its info, data and history, but it never takes an editable field's active look — selection is an orange ring around the badge's own surface (`layout.less` and every `core/page/css/active_styles/` sheet exclude it), and it never takes a component lock. |
 | `list` / `tm` | `default`, `text`, `mini` | `default` renders the standard wrapper; `text` renders a compact `<span>` value (used by autocomplete / datalist contexts); `mini` renders the minimalist wrapper. `tm` reads the historical id via the Time Machine path. |
 | `search` | `default` | The **only** mode where the component is interactive: it renders a numeric text input that builds the search filter (see below). Pasting a multi-line list of ids is normalized to a comma-separated sequence; input is constrained to `0-9 . , > < =`. |
 
