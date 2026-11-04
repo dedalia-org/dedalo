@@ -3484,6 +3484,30 @@ describe('CI workflow tripwire', () => {
 			rmSync(scratch, { recursive: true, force: true });
 		}
 	});
+
+	/**
+	 * ACCIDENTAL-EDIT TRIPWIRE for the suite-building tier caps. This pins the
+	 * numbers; it does NOT prove a cap fits the work (a tier can outgrow a cap
+	 * while this stays green) and it must not stop a measured re-pin DOWN after
+	 * sharding. The values: db 90 (recent green runs 62–71 min), instance 120
+	 * (provisional: the 2026-11-03 full-stage run took 48 min; the 2026-11-04
+	 * run was cancelled at 60 at the end of the root persona's last journey — a
+	 * ~3x excursion whose cause is unestablished). A re-pin changes the number
+	 * HERE with its measurement; the fit itself is the run's `TOOK` lines.
+	 */
+	test('the suite-building tier caps are pinned to their measured values', () => {
+		const workflow = Bun.YAML.parse(read('.github/workflows/db.yml')) as {
+			jobs: Record<string, { 'timeout-minutes'?: number }>;
+		};
+		expect(
+			workflow.jobs.db?.['timeout-minutes'],
+			'db job timeout-minutes — recent green runs 62–71 min; 90 is the current cap',
+		).toBe(90);
+		expect(
+			workflow.jobs.instance?.['timeout-minutes'],
+			'instance job timeout-minutes — 120 is provisional; re-pin from the TOOK lines of a complete run',
+		).toBe(120);
+	});
 });
 
 describe('the official image (image-release.yml) is labelled from deploy/dedalo-image-lib.sh', () => {
