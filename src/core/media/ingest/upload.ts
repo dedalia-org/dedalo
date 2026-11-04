@@ -1275,17 +1275,18 @@ async function replayJoinedUpload(
  * Join a chunked upload, idempotently per upload_id. The client keeps re-sending
  * the join of a multi-GB file until it gets an answer (a single request cannot
  * outlast the join), so:
- * - a join that already finished replays its recorded result;
  * - a resend while the first join runs gets media.upload_conflict (retryable)
  *   from openAssemblyOutput;
- * - a resend that loses the race with the finishing join (its parts vanish
- *   under it) checks the record again before failing.
+ * - a join that already finished, or one whose parts vanished under it, replays
+ *   its recorded result (the catch).
+ * The assembly is entered FIRST, with no await before it, because its
+ * SYNCHRONOUS prefix is the claim that makes a concurrent resend a conflict: a
+ * replay pre-check here awaits, yields the loop, and every resend then finds no
+ * assembly output yet and joins the same parts a second time.
  */
 export async function joinChunkedUpload(
 	input: JoinChunkedUploadInput,
 ): Promise<UploadReceiveResult> {
-	const replay = await replayJoinedUpload(input);
-	if (replay) return replay;
 	try {
 		return await assembleChunkedUpload(input);
 	} catch (error) {
