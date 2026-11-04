@@ -770,7 +770,7 @@ export const attach_show_maps = function(rqo, request_config_object) {
 			ddo_map : clone(search_map)
 		}
 	}else{
-		delete rqo.search
+		Reflect.deleteProperty(rqo, 'search')
 	}
 
 
