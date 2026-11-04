@@ -132,3 +132,4 @@ to start to work.
 - [ ] TODO-072: component_text_area, component_json: When it is active, pressing the 'ESC' key does not deactivate it like the other components. Unify this behaviour.
 - [x] TODO-073: component_security_access: add a button to discard changes (include an alert to prevent accidental click). Sometimes, admins accidentally change a value. (2026-10-29: Cancel button beside Save, confirm(discard_changes) then refresh() reloads the stored value; client gate in test_component_security_access.js.)
 - [ ] TODO-074: tool_update_cache: Check if the tool is working properly. The changes applied to component_image from the tool_update_cache and from inside the tool_image_media_versions should be consistent.
+- [ ] TODO-075: Time machine for media. Implement user able to use time machine media data (images, audiovisual, 3d, etc.)
