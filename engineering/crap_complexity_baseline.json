@@ -4,9 +4,9 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 824,
-		"functions": 13989,
-		"functionsOverCap": 666,
+		"files": 832,
+		"functions": 14298,
+		"functionsOverCap": 660,
 		"filesOverCap": 258
 	},
 	"ledger": [
@@ -165,6 +165,21 @@
 			"generated": "2026-11-01",
 			"functionsOverCap": 666,
 			"filesOverCap": 258
+		},
+		{
+			"generated": "2026-11-03",
+			"functionsOverCap": 665,
+			"filesOverCap": 258
+		},
+		{
+			"generated": "2026-11-03",
+			"functionsOverCap": 661,
+			"filesOverCap": 258
+		},
+		{
+			"generated": "2026-11-03",
+			"functionsOverCap": 660,
+			"filesOverCap": 258
 		}
 	],
 	"files": {
@@ -320,13 +335,13 @@
 		"src/core/relations/dataframe.ts": 9,
 		"src/core/relations/datalist.ts": 19,
 		"src/core/relations/filter_projects.ts": 15,
-		"src/core/relations/models/portal.ts": 22,
+		"src/core/relations/models/portal.ts": 12,
 		"src/core/relations/models/relation_index.ts": 19,
 		"src/core/relations/models/relation_related.ts": 10,
 		"src/core/relations/order_locators.ts": 7,
 		"src/core/relations/parent.ts": 8,
 		"src/core/relations/related.ts": 14,
-		"src/core/relations/relation_core.ts": 49,
+		"src/core/relations/relation_core.ts": 47,
 		"src/core/relations/request_config/build.ts": 20,
 		"src/core/relations/request_config/explicit.ts": 26,
 		"src/core/relations/request_config/external.ts": 8,
@@ -346,7 +361,7 @@
 		"src/core/resolve/relation_list.ts": 40,
 		"src/core/resolve/section_elements_context.ts": 22,
 		"src/core/resolve/security_access_datalist.ts": 20,
-		"src/core/resolve/structure_context.ts": 101,
+		"src/core/resolve/structure_context.ts": 90,
 		"src/core/resolve/tm_filter.ts": 18,
 		"src/core/resolve/truncate_html.ts": 36,
 		"src/core/search/bare_count.ts": 7,
@@ -367,7 +382,7 @@
 		"src/core/section/indexation_grid.ts": 42,
 		"src/core/section/list_definitions/section_list.ts": 8,
 		"src/core/section/locks.ts": 15,
-		"src/core/section/read.ts": 74,
+		"src/core/section/read.ts": 70,
 		"src/core/section/read_facade.ts": 21,
 		"src/core/section/read_source.ts": 11,
 		"src/core/section/record/delete_record.ts": 25,

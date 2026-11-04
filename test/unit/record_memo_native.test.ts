@@ -268,6 +268,6 @@ describe('memo wiring (structural — behavioural tests stay green if these reve
 		// inside the TM scope opener, so the wrap is pinned on its argument: a
 		// call of the read, whatever its name — the memo is pinned here, not the
 		// read's authorization, which authz_substring_gate_tripwire keeps behavioural).
-		expect(source).toMatch(/runWithRecordMemo\(\(\) => \w+\(rqo, principal\)\)/);
+		expect(source).toMatch(/runWithRecordMemo\(\(\) => \w+\(rqo, principal(?:, \w+)?\)\)/);
 	});
 });

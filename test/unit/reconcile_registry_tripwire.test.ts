@@ -225,6 +225,7 @@ describe('reconcile registry completeness (S-10)', () => {
 			rich_text_images: 'src/core/media/rich_text_image_reconcile.ts',
 			web_image_exposure: 'src/diffusion/api/reconcile.ts',
 			portal_declared_order: 'src/core/relations/declared_order_reconcile.ts',
+			ddo_self_depth: 'src/core/relations/request_config/self_depth_check.ts',
 		};
 		for (const definition of REGISTERED) {
 			const owner = owners[definition.name];
@@ -260,6 +261,7 @@ describe('reconcile registry completeness (S-10)', () => {
 			'public_tier',
 			'rich_text_images',
 			'portal_declared_order',
+			'ddo_self_depth',
 		]) {
 			expect((REGISTERED.find((d) => d.name === name) as ReconcileDefinition).schedule).toBe(
 				'operator',
@@ -273,7 +275,12 @@ describe('reconcile registry completeness (S-10)', () => {
 		expect(lockstep.applyRefused?.reason.length).toBeGreaterThan(40);
 		expect(REGISTERED.filter((d) => d.applyRefused !== undefined).map((d) => d.name)).toEqual([
 			'publication_apis',
+			'ddo_self_depth',
 		]);
+		// The level >= 2 'self' check (decision (c)): a DEFINITION check whose correction
+		// is a master-ontology edit — its apply is refused at the registry, with a reason.
+		const selfDepth = REGISTERED.find((d) => d.name === 'ddo_self_depth') as ReconcileDefinition;
+		expect(selfDepth.applyRefused?.reason.length).toBeGreaterThan(40);
 		// An operator APPLY that changes what the public can read is root-only at the widget
 		// door (E10): media_copy (a public machine), rich_text_images (makes login-only files
 		// public) and web_image_exposure (makes published files private), each with a reason;

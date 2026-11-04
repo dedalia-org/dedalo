@@ -49,7 +49,10 @@ import {
 } from '../ontology/resolver.ts';
 import { requiredOntologyTld } from '../ontology/tld.ts';
 import { type DataframeDeletePolicy, dataframeDeletePolicyOf } from '../relations/dataframe.ts';
+import type { ElementNode } from '../relations/element_registry.ts';
 import { declaredOrderOf } from '../relations/order_locators.ts';
+import type { ParsedRequestConfigItem } from '../relations/request_config/explicit.ts';
+import type { RqoRequestConfigItem } from '../relations/request_config/from_rqo.ts';
 import { stampSectionContext } from '../section/context.ts';
 import type { Principal } from '../security/permissions.ts';
 import { currentApplicationLang } from './request_lang.ts';
@@ -134,6 +137,12 @@ interface StructureContextCoreInternal extends StructureContextCore {
 	 * properties. Consumed by the stamp's `view` field; never emitted itself.
 	 */
 	structuralView: string | null;
+	/**
+	 * The list-mode section_list CHILD's properties.view alone (get_view's
+	 * second rung), so a governing properties.view can be slotted under it
+	 * (governedView). INTERNAL, never emitted.
+	 */
+	sectionListChildView: string | null;
 }
 
 /** A stamped context entry as the API emits it (core + per-call stamps). */
@@ -151,6 +160,21 @@ export interface StructureContextEntry extends StructureContextCore {
 	children_view: string | null;
 	/** Parsed request_config items — ABSENT when addRequestConfig=false (PHP omits). */
 	request_config?: unknown[] | null;
+	/**
+	 * PER-OCCURRENCE key (owner decision (b), 2026-11-03 — a TS divergence from
+	 * PHP's first-wins): present ONLY when the same tipo_section_tipo_mode occurs
+	 * under different parents with DIFFERENT effective configs in one response.
+	 * Each occurrence then ships its own entry, and this key — the ancestor tipo
+	 * chain from the read's top level down to the element's parent, joined by
+	 * '>' (`'tch197'`, `'tch197>rsc1400'`; `''` for a top-level element) — is
+	 * stamped on the entry AND on every data item of that occurrence, so the
+	 * client picks per cell (section/node_contexts.ts). ONE entry per chain:
+	 * two different configs under the SAME chain (a record-dependent config on
+	 * every row under one parent) dedupe first-wins, as PHP — no suffix is
+	 * ever appended, so (tipo, section_tipo, mode, caller_chain) names exactly
+	 * one entry. A key with one entry stamps nothing.
+	 */
+	caller_chain?: string;
 	/** component_filter only: the projects target descriptors (PHP
 	 * component_filter_json :117-123 — [{tipo:'dd153', label}]; the client's
 	 * filter edit buttons iterate them). */
@@ -428,13 +452,13 @@ async function buildCore(
 	// at stamp.
 	const childView = (sectionListChildProperties as { view?: unknown } | null)?.view;
 	const ownView = (effectiveProperties as { view?: unknown } | null)?.view;
-	const structuralView =
-		(typeof childView === 'string' ? childView : null) ??
-		(typeof ownView === 'string' ? ownView : null);
+	const sectionListChildView = typeof childView === 'string' ? childView : null;
+	const structuralView = sectionListChildView ?? (typeof ownView === 'string' ? ownView : null);
 
 	// request_config SOURCE properties (PHP trait resolve_source_properties,
 	// "Site B") — the stamp-time config/columns_map feed. INTERNAL: the stamp
 	// destructures it out before the entry spread; it never reaches the wire.
+	const { resolveSourceProperties } = await import('../relations/request_config/own_config.ts');
 	const configSource = await resolveSourceProperties(tipo, mode, model, effectiveProperties);
 	const configSourceProperties =
 		configSource !== null && configSource !== undefined ? structuredClone(configSource) : null;
@@ -489,43 +513,10 @@ async function buildCore(
 		configSourceProperties,
 		ownConfigProperties: effectiveProperties,
 		structuralView,
+		sectionListChildView,
 	};
 	coreCache.set(cacheKey, core);
 	return core;
-}
-
-/**
- * PHP resolve_source_properties (trait.request_config_utils.php:264-309 —
- * "Site B"): the properties the element's request_config/columns_map build
- * feeds from. For a SECTION in list / tm / list_thesaurus mode, swap to the
- * section_list(_thesaurus) child's properties — UNLESS the section declares its
- * own source.request_config (then it keeps its own). All other cases use the
- * element's own properties. NOT the emitted properties/css — that is Site A
- * (resolveEmittedPropertiesAndCss), which PHP resolves independently.
- */
-async function resolveSourceProperties(
-	tipo: string,
-	mode: string,
-	model: string,
-	ownProperties: unknown,
-): Promise<unknown> {
-	if (mode !== 'list' && mode !== 'list_thesaurus') return ownProperties;
-	if (model !== 'section') return ownProperties;
-	// Sections with a direct request_config skip the section_list swap (PHP
-	// :274, isset semantics: any non-null value).
-	const ownConfig = (ownProperties as { source?: { request_config?: unknown } } | null)?.source
-		?.request_config;
-	if (ownConfig !== undefined && ownConfig !== null) return ownProperties;
-	const listModel = mode === 'list_thesaurus' ? 'section_list_thesaurus' : 'section_list';
-	// PLAIN direct-children lookup: the trait resolves via get_ar_children_of_this
-	// (class.ontology_node.php:1586-88) — never resolve_virtual. The
-	// virtual-aware findSectionChildByModel belongs to the LIST-DEFINITIONS
-	// machinery (class.section.php:868 resolve_virtual=true), a different site.
-	const { findSectionListChild } = await import('../relations/request_config/build.ts');
-	const childTipo = await findSectionListChild(tipo, listModel);
-	const child = childTipo === null ? null : await getNode(childTipo);
-	// Use the child's properties when found; else the section's own (PHP fallthrough).
-	return child?.properties ?? ownProperties;
 }
 
 /**
@@ -752,6 +743,251 @@ async function entryLang(
 	});
 }
 
+/**
+ * Why a context door builds an element's request_config from its OWN
+ * definition instead of from an emission node — the CLOSED list of opt-outs
+ * (census: test/unit/structure_context_own_census.test.ts — a new `own` call
+ * site, or a reason not listed here, fails it). Every other door hands the node
+ * the data path resolved (ContextConfigSource 'emission'), so data and context
+ * are two projections of one config (PHP's one request_config object per
+ * element instance).
+ */
+export const OWN_CONTEXT_REASONS = {
+	'section-root':
+		'the READ TARGET section itself when the client sent NO show for it (or a Time Machine dd15 read, whose client columns the dd15 floor judges, never stage 1): the root map, never an element under a caller — a client show builds it from stage 1 (ContextConfigSource stage1)',
+	'component-sourced-root':
+		"a COMPONENT-sourced rows read (service_autocomplete picker, input_text find_equal probe): the caller component's own entry stands as the read root; its client show reaches the rows through each target section's stage 1 and the entry's show map through the caller-show narrowing",
+	'area-or-menu': 'an area / menu / start element: no caller, no data emission',
+	'non-component-element':
+		'a grouper / button / section_tab in a column map: emits no data, carries no request_config of its own',
+	'element-context-request':
+		'get_element_context: ONE element built in isolation for the client (no read, no caller)',
+	'search-panel-element': 'the search-filter panel: simple contexts of a section map, no data',
+	'iri-label-dataframe':
+		'component_iri dd560 when the read emitted NO frame item (search mode): a synthetic system frame with no data item to derive from — an emitted frame builds from its node',
+	'tm-column-without-cell':
+		'a Time Machine dd15 column no row emitted (an empty page): flat by design, no caller children',
+	'one-level-expansion':
+		'a one-level expansion node (related_list / filter): its emptied slots are a data device, the context keeps the own config',
+	'item-mode-restamped':
+		'an item whose mode was re-stamped after emission (related_list cells): the node was resolved in another mode',
+	'item-without-node':
+		'an emitted item no element node bound (defensive: logged; every emitter binds today)',
+	'unit-test': 'a unit gate building one context in isolation (test/ only — never in src/)',
+} as const;
+
+/** One OWN_CONTEXT_REASONS key. */
+export type OwnContextReason = keyof typeof OWN_CONTEXT_REASONS;
+
+/**
+ * Where an element context's request_config comes from — a REQUIRED choice at
+ * every call (buildStructureContext `configFrom`):
+ *  - `emission`: the element NODE the data path resolved (relations/
+ *    element_node.ts resolveElement): its effective config IS the context's
+ *    request_config (caller children injected per engine and slot, stage 1,
+ *    the governing limit on sqo.limit), and the governing ddo's view /
+ *    parent_grouper / properties come from it too;
+ *  - `stage1`: a section READ TARGET's stage-1 config (PHP
+ *    build_request_config_from_rqo — the client's consolidated show / search
+ *    maps and validated sqo), the same build the data half read its columns
+ *    from (section/read.ts stageOneSectionMap);
+ *  - `own`: the element's own definition (request_config/own_config.ts), for
+ *    the closed list of doors where no node exists (OWN_CONTEXT_REASONS).
+ */
+export type ContextConfigSource =
+	| { readonly source: 'emission'; readonly node: ElementNode }
+	| { readonly source: 'stage1'; readonly config: readonly RqoRequestConfigItem[] }
+	| { readonly source: 'own'; readonly reason: OwnContextReason };
+
+/**
+ * The governing ddo's per-occurrence `view` / `parent_grouper` onto a fresh
+ * entry (PHP get_subdatum :2758-2770 + get_view): the caller-passed `view`
+ * wins, then the node's governing view; a governing `parent_grouper` replaces
+ * the structural one. Its `properties` are NOT merged here — they go through
+ * the Site-A emission like any instance properties (governingOwnProperties).
+ */
+function applyGoverningFields(
+	entry: StructureContextEntry,
+	configFrom: ContextConfigSource,
+	callerView: string | null | undefined,
+): void {
+	if (configFrom.source !== 'emission') return;
+	const { node } = configFrom;
+	if ((callerView === undefined || callerView === null) && node.view !== null) {
+		entry.view = node.view;
+	}
+	if (node.parent_grouper !== null) entry.parent_grouper = node.parent_grouper;
+}
+
+/**
+ * The element's own properties with the governing ddo's `properties` merged
+ * key by key over them, or undefined when the node governs none. PHP
+ * get_subdatum (:2762-2769) set_properties()es the merge onto the instance
+ * BEFORE get_json, so build_structure_context_core (:1790-1835) runs on it:
+ * a governing `css` is lifted into the context `css` (null in list for a non
+ * list-css carrier) and never ships inside `properties`, and a section /
+ * component_portal in list swaps to its section_list child's properties
+ * (dropping the merged keys). The CONTEXT properties only — the request_config
+ * was built before the merge (PHP), so the config never sees them.
+ *
+ *   own {css:{…edit}}, governing {css:{".x":{…}}, label_mode: 'mini'}, edit
+ *     → properties {label_mode: 'mini'}, css {".x":{…}}
+ */
+function governingOwnProperties(
+	configFrom: ContextConfigSource,
+	ownProperties: unknown,
+): Record<string, unknown> | undefined {
+	if (configFrom.source !== 'emission' || configFrom.node.properties === null) return undefined;
+	return {
+		...((ownProperties as Record<string, unknown> | null | undefined) ?? {}),
+		...structuredClone(configFrom.node.properties),
+	};
+}
+
+/**
+ * The governing ddo's `properties.view` / `properties.children_view` onto the
+ * entry (PHP get_view :4464-4494 / get_children_view :4572-4583 read the
+ * MERGED instance properties get_subdatum set_properties()ed): view =
+ * caller-passed → the ddo's own `view` → the list-mode section_list child's
+ * view → the merged properties.view; children_view = caller-passed → the
+ * merged properties.children_view. Only a key the GOVERNING properties carry
+ * moves (else the merge equals the element's own and the stamp stands, so the
+ * merged value of a moved key IS the governing one).
+ *
+ *   governing {properties: {view: 'mini'}}, edit → view 'mini'
+ */
+function applyGovernedViews(
+	entry: StructureContextEntry,
+	options: {
+		readonly view?: string | null;
+		readonly childrenView?: string | null;
+		readonly configFrom: ContextConfigSource;
+	},
+	sectionListChildView: string | null,
+): void {
+	if (options.configFrom.source !== 'emission') return;
+	const { node } = options.configFrom;
+	const view = governedView(node, options.view ?? null, sectionListChildView);
+	if (view !== null) entry.view = view;
+	const childrenView = node.properties?.children_view;
+	if (typeof childrenView === 'string') {
+		entry.children_view = options.childrenView ?? childrenView;
+	}
+}
+
+/** applyGovernedViews' view: null when the governing properties declare none (the stamp stands). */
+function governedView(
+	node: ElementNode,
+	callerView: string | null,
+	sectionListChildView: string | null,
+): string | null {
+	const declared = node.properties?.view;
+	if (typeof declared !== 'string') return null;
+	return callerView ?? node.view ?? sectionListChildView ?? declared;
+}
+
+/**
+ * Re-run the Site-A emission table (resolveEmittedPropertiesAndCss) on
+ * REPLACED instance properties — the rqo override (PHP dd_core_api
+ * set_properties :2305-2308) or the governing merge (governingOwnProperties):
+ * the emitted properties (css stripped), the top-level css and the
+ * section_list swap all follow the replacement, exactly as PHP's context build
+ * runs on the replaced properties.
+ */
+async function reemitReplacedProperties(
+	entry: StructureContextEntry,
+	model: string,
+	options: { readonly tipo: string; readonly sectionTipo: string; readonly mode: string },
+	replaced: Record<string, unknown>,
+): Promise<void> {
+	const emitted = resolveEmittedPropertiesAndCss({
+		model,
+		mode: options.mode,
+		tipo: options.tipo,
+		ownProperties: replaced,
+		sectionListChildProperties: await siteASwapProperties(model, options.tipo, options.mode),
+		sectionProperties: await componentSectionProperties(model, options.sectionTipo),
+	});
+	entry.properties = emitted.properties;
+	entry.css = emitted.css;
+}
+
+/**
+ * The section_list child's properties Site A swaps to (PHP :1806 — a section /
+ * component_portal in list mode with such a child; a config-less child still
+ * counts, as `{}`), else null.
+ */
+async function siteASwapProperties(
+	model: string,
+	tipo: string,
+	mode: string,
+): Promise<unknown | null> {
+	if ((model !== 'section' && model !== 'component_portal') || mode !== 'list') return null;
+	const { findSectionListChild } = await import('../relations/request_config/build.ts');
+	const childTipo = await findSectionListChild(tipo);
+	if (childTipo === null) return null;
+	return (await getNode(childTipo))?.properties ?? {};
+}
+
+/** A component's section-node properties (the Site-A css override source), else null. */
+async function componentSectionProperties(model: string, sectionTipo: string): Promise<unknown> {
+	if (!model.startsWith('component_')) return null;
+	return (await getNode(sectionTipo))?.properties ?? null;
+}
+
+/**
+ * Whether a node carries a config the element's own definition would not
+ * (a caller-only config, or stage 1's client config): such an element gets a
+ * request_config even when its model would not declare one on its own — the
+ * context must say what its data resolved.
+ */
+function carriesNodeConfig(configFrom: ContextConfigSource): boolean {
+	return (
+		configFrom.source === 'emission' &&
+		configFrom.node.configSource !== 'own' &&
+		configFrom.node.effectiveConfig.length > 0
+	);
+}
+
+/**
+ * The entry's request_config: the NODE's effective config (a fresh clone — the
+ * entry is mutated downstream: the get_data pagination sync, the tool stamps),
+ * or, for an `own` door, THE one base own-config resolver
+ * (relations/request_config/own_config.ts — the same function the data path
+ * resolves through, so the two cannot build it differently).
+ */
+async function contextRequestConfig(
+	options: {
+		tipo: string;
+		sectionTipo: string;
+		configSectionTipo?: string;
+		mode: string;
+		lang: string;
+		propertiesOverride?: Record<string, unknown>;
+		configFrom: ContextConfigSource;
+	},
+	model: string,
+): Promise<ParsedRequestConfigItem[]> {
+	if (options.configFrom.source === 'emission') {
+		return structuredClone(
+			options.configFrom.node.effectiveConfig,
+		) as unknown as ParsedRequestConfigItem[];
+	}
+	if (options.configFrom.source === 'stage1') {
+		return structuredClone(options.configFrom.config) as unknown as ParsedRequestConfigItem[];
+	}
+	const { resolveOwnRequestConfig } = await import('../relations/request_config/own_config.ts');
+	return resolveOwnRequestConfig({
+		tipo: options.tipo,
+		sectionTipo: requestConfigSectionTipo(options),
+		mode: options.mode,
+		model,
+		lang: options.lang,
+		// undefined = no override (own_config.ts basePropertiesOf tests it).
+		propertiesOverride: options.propertiesOverride,
+	});
+}
+
 export async function buildStructureContext(options: {
 	tipo: string;
 	sectionTipo: string;
@@ -769,12 +1005,14 @@ export async function buildStructureContext(options: {
 	 */
 	childrenView?: string | null;
 	/**
-	 * The element's descendants from the CLIENT rqo ddo_map (already parent-
-	 * resolved). When non-empty, they NARROW the explicit show.ddo_map (the PHP
-	 * get_subdatum children-injection, class.common.php :2598-2681) — the
-	 * client's requested resolution wins over the ontology default.
+	 * Where the request_config comes from (ContextConfigSource) — REQUIRED, so
+	 * no door can silently rebuild an element's config apart from its data.
+	 * The retired `rqoChildrenDdos` narrowing (show slot only, re-processed
+	 * ddos, a capability-negotiated item pick that could throw) is gone: caller
+	 * children reach the context through the node's effective config
+	 * (request_config/caller_injection.ts — every slot, per engine).
 	 */
-	rqoChildrenDdos?: Record<string, unknown>[];
+	configFrom: ContextConfigSource;
 	/**
 	 * Whether to stamp the resolved request_config onto the entry (PHP
 	 * add_request_config). The `start` action builds contexts WITHOUT it —
@@ -898,7 +1136,13 @@ export async function buildStructureContext(options: {
 	// Clone-before-stamp: shallow clone + deep-cloned properties (PHP :1644/:1653).
 	// The Site-B config feed + structural view are INTERNAL — destructured out
 	// so the spread cannot leak them onto the wire entry.
-	const { configSourceProperties, ownConfigProperties, structuralView, ...coreFields } = core;
+	const {
+		configSourceProperties,
+		ownConfigProperties,
+		structuralView,
+		sectionListChildView,
+		...coreFields
+	} = core;
 	const entry: StructureContextEntry = {
 		...coreFields,
 		// Wire markers (PHP dd_object): the client keys its wrapper CSS classes
@@ -924,6 +1168,7 @@ export async function buildStructureContext(options: {
 				: null) ??
 			resolveDefaultChildrenView(core.model, core.legacy_model),
 	};
+	applyGoverningFields(entry, options.configFrom, options.view);
 
 	// RQO properties override (PHP $element->set_properties, dd_core_api read
 	// :2305-2308): re-run the Site-A emission table with the OVERRIDE as the
@@ -931,34 +1176,8 @@ export async function buildStructureContext(options: {
 	// the top-level css and the view all follow the override, exactly as PHP's
 	// context build runs on the replaced properties.
 	if (options.propertiesOverride !== undefined) {
-		const override = structuredClone(options.propertiesOverride);
-		let overrideListChildProperties: unknown | null = null;
-		if (
-			(core.model === 'section' || core.model.startsWith('component_')) &&
-			options.mode === 'list'
-		) {
-			const { findSectionListChild } = await import('../relations/request_config/build.ts');
-			const childTipo = await findSectionListChild(options.tipo);
-			if (childTipo !== null) {
-				overrideListChildProperties = (await getNode(childTipo))?.properties ?? {};
-			}
-		}
-		const overrideSectionProperties = core.model.startsWith('component_')
-			? ((await getNode(options.sectionTipo))?.properties ?? null)
-			: null;
-		const emitted = resolveEmittedPropertiesAndCss({
-			model: core.model,
-			mode: options.mode,
-			tipo: options.tipo,
-			ownProperties: override,
-			sectionListChildProperties:
-				core.model === 'section' || core.model === 'component_portal'
-					? overrideListChildProperties
-					: null,
-			sectionProperties: overrideSectionProperties,
-		});
-		entry.properties = emitted.properties;
-		entry.css = emitted.css;
+		const override = structuredClone(options.propertiesOverride) as Record<string, unknown>;
+		await reemitReplacedProperties(entry, core.model, options, override);
 		// PHP get_view on the REPLACED properties: the ddo-injected view still
 		// wins, then the override's own view, then the model default.
 		const overrideView = (override as { view?: unknown }).view;
@@ -966,6 +1185,14 @@ export async function buildStructureContext(options: {
 			options.view ??
 			(typeof overrideView === 'string' ? overrideView : null) ??
 			resolveDefaultView(core.model, core.legacy_model);
+	} else {
+		// GOVERNING properties (the node's ddo): the same Site-A emission on the
+		// merged instance properties (governingOwnProperties).
+		const governed = governingOwnProperties(options.configFrom, ownConfigProperties);
+		if (governed !== undefined) {
+			await reemitReplacedProperties(entry, core.model, options, governed);
+			applyGovernedViews(entry, options, sectionListChildView);
+		}
 	}
 
 	// component_relation_related: the json controller forces
@@ -1125,6 +1352,7 @@ export async function buildStructureContext(options: {
 	// build from resolve_source_properties output, independent of the css block.
 	// An rqo properties override replaces the feed (PHP set_properties runs
 	// BEFORE the context build, so Site B resolves over the override).
+	const { resolveSourceProperties } = await import('../relations/request_config/own_config.ts');
 	const effectiveConfigSource =
 		options.propertiesOverride !== undefined
 			? structuredClone(
@@ -1145,6 +1373,7 @@ export async function buildStructureContext(options: {
 		// entry simply never gets a request_config property.
 	} else if (
 		hasOwnExplicitConfig ||
+		carriesNodeConfig(options.configFrom) ||
 		core.model === 'section' ||
 		// The WHOLE relation family declares/inherits a config: implicit no-source
 		// components (select/radio graph walks) included — PHP stamps
@@ -1156,47 +1385,7 @@ export async function buildStructureContext(options: {
 		// (PHP resolve_source_properties). The client derives its list-table
 		// COLUMNS from this show.ddo_map (common.js get_columns_map), so a
 		// section entry without it renders an Id-only table.
-		const { buildRequestConfigForElement } = await import('../relations/request_config/build.ts');
-		const { processRqoChildren } = await import('../relations/request_config/explicit.ts');
-		const requestConfigContext = {
-			ownerTipo: options.tipo,
-			ownerSectionTipo: requestConfigSectionTipo(options),
-			mode: options.mode,
-			ownerIsSection: core.model === 'section',
-			lang: options.lang,
-		};
-		const parsedConfig = await buildRequestConfigForElement(
-			effectiveConfigSource,
-			requestConfigContext,
-		);
-		// Caller-children narrowing (PHP get_subdatum children-injection,
-		// class.common.php:2598-2681): the caller's ddo_map descendants of this
-		// element REPLACE its own show map. PHP overrides the FIRST config object
-		// per api_engine (rc_by_api_engine ??=, :2604-2608); the children here
-		// come from the caller's dedalo map, so only the first dedalo item
-		// narrows — non-dedalo engine configs keep their own maps. Empty
-		// children ⇒ untouched config (the element's ontology map stands).
-		if (options.rqoChildrenDdos !== undefined && options.rqoChildrenDdos.length > 0) {
-			const { extractSqoSectionTipos } = await import('../relations/request_config/explicit.ts');
-			// Capability-negotiated (relations/request_config/engine_select.ts):
-			// the caller's children describe COLUMNS to render at the target, so
-			// an external-only element must have an adapter that can back them.
-			const { selectConfigItemForConcern } = await import(
-				'../relations/request_config/engine_select.ts'
-			);
-			const item = await selectConfigItemForConcern(
-				parsedConfig,
-				'listColumns',
-				'resolve/structure_context.rqoChildrenNarrowing',
-			);
-			if (item !== null && item.show !== null) {
-				item.show.ddo_map = await processRqoChildren(
-					options.rqoChildrenDdos,
-					requestConfigContext,
-					extractSqoSectionTipos(item),
-				);
-			}
-		}
+		const parsedConfig = await contextRequestConfig(options, core.model);
 		// A relation column in a picker's search map is searched through what it
 		// DISPLAYS: its display ddos are written under it in the item's own
 		// `search_paths` key, so the client mints explicit deep filter paths

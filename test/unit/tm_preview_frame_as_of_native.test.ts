@@ -1657,7 +1657,17 @@ describe('(i) the history LIST: every listed row shows the frames AND frame chil
 		return pictures;
 	}
 
-	test("(h'') the SUBJECT's own record met again NESTED (a portal target pointing back at it) stays LIVE, bag and children — in the preview as in the list", async () => {
+	// CONTRACT CHANGE (nested-ddo_map plan W2, owner decision (e), 2026-11-03):
+	// the host met again NESTED under its own QMAIN (QMAIN → t → BACK → host →
+	// QMAIN) is a RECORD CYCLE on that path, so the repeat renders its QMAIN
+	// item WITHOUT expanding its targets — its frames are not re-emitted. This
+	// gate used to see the nested re-occurrence twice (the retired
+	// `depth < 4` gate was the only bound) and pinned that those copies read
+	// LIVE; with the cycle stopped there is no nested copy of the subject's
+	// frames left to read, so it now pins the stop itself — identically in the
+	// preview and in every listed row (the occurrence is the SUBJECT record in
+	// both: models/portal.ts keys it by configOwnerOf, never the dd15 row).
+	test("(h'') the SUBJECT's own record met again NESTED is a record cycle: stopped at the repeat, in the preview as in the list", async () => {
 		const id = await host();
 		const t = await target(); // QMAIN's portal target, whose BACK points at the host again
 		const x = await target(); // the subject's frame at the row
@@ -1683,16 +1693,20 @@ describe('(i) the history LIST: every listed row shows the frames AND frame chil
 		await rate(x, 9);
 		const preview = await read(QMAIN, SECTION, id, r1, { lang: SPA });
 		// THE SUBJECT (the root): its frame at r1 is [x], rating 3 as of the row.
-		// THE NESTED re-occurrences of the host (t.BACK → host → QMAIN → QSLOT,
-		// twice before the recursion bound): bag [x, y] AND x's rating 9, live —
-		// never the live bag with x at 3 (a picture that never existed).
-		expect(frameTargets(preview, QSLOT).ids).toEqual([x, x, x, y, y].sort((a, b) => a - b));
-		expect(childValues(preview, RATING, QSLOT, x).sort()).toEqual([3, 9, 9]);
+		// The nested re-occurrence of the host (t.BACK → host → QMAIN) is the
+		// cycle's repeat: its QMAIN item is there, its frames are not — never the
+		// live bag [x, y] nor x at 9.
+		expect(frameTargets(preview, QSLOT).ids).toEqual([x]);
+		expect(childValues(preview, RATING, QSLOT, x)).toEqual([3]);
+		const nestedMain = (preview as Item[]).filter(
+			(item) => item.tipo === QMAIN && item.section_tipo === SECTION,
+		);
+		expect(nestedMain.length).toBeGreaterThan(1); // the repeat's own item still emits
 		// ...and every listed row's cells == its preview, the r1 row included
-		// (FLOOR: the r1 picture is the mixed one — subject as of, nested live).
+		// (FLOOR: the r1 picture is the subject as of the row, x at 3).
 		const pictures = await expectListEqualsPreview(QMAIN, QSLOT, id);
 		const xRatings = pictures.map((p) => (p.children as Record<string, unknown>)[`${x}.${RATING}`]);
-		expect(xRatings).toContainEqual([3, 9, 9]);
+		expect(xRatings).toContainEqual([3]);
 	}, 60_000);
 
 	test('a PORTAL main: rating, relation and note of each frame target as of each row (the bound law), never live', async () => {

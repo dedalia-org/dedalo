@@ -73,7 +73,7 @@
 	import { set_before_unload, register_unsaved_instance, deregister_unsaved_instance, reset_unsaved_data, dd_request_idle_callback, get_unsaved_instances, orphaned_unsaved, claim_orphaned_unsaved_writers } from '../../common/js/events.js'
 	import { data_manager } from '../../common/js/data_manager.js'
 	import { get_instance, get_all_instances, get_instance_by_id, delete_instance } from '../../common/js/instances.js'
-	import { set_context_vars, create_source } from '../../common/js/common.js'
+	import { set_context_vars, create_source, same_occurrence_on_merge, root_caller_chains } from '../../common/js/common.js'
 	import { events_subscription } from './events_subscription.js'
 	import { ui } from '../../common/js/ui.js'
 	import { set_element_css } from '../../page/js/css.js'
@@ -1714,7 +1714,10 @@ component_common.prototype.set_value = function(value) {
 *
 * Data merge strategy (datum.data):
 *  - Existing items are matched by (tipo, section_tipo, section_id, mode) plus,
-*    for dataframe sub-entries, by (id_key, main_component_tipo).
+*    for dataframe sub-entries, by (id_key, main_component_tipo), and — when both
+*    sides carry the per-occurrence `caller_chain` (owner decision (b)) — only
+*    when the chains are compatible; a STAMPED incoming item never matches an
+*    UNSTAMPED existing one (common.same_occurrence_on_merge).
 *  - Matching items have their `entries` and `fallback_value` updated in place.
 *  - New items that have no match are appended to datum.data, in the order the
 *    server emitted them (readers such as component_dataframe.get_rating may
@@ -1725,7 +1728,8 @@ component_common.prototype.set_value = function(value) {
 * Context merge strategy (datum.context):
 *  - Only items NOT already in datum.context are appended (no update of existing).
 *  - Match is by (tipo, section_tipo, mode, lang) — added 12-10-2023 to fix
-*    component_relation_parent/children visualization after adding terms.
+*    component_relation_parent/children visualization after adding terms — and
+*    compatible `caller_chain` (per-occurrence entries, owner decision (b)).
 *
 * (!) datum is shared with the parent section. Portals create their own private datum.
 *     Do not replace the datum reference itself — only mutate it in place.
@@ -1741,6 +1745,12 @@ component_common.prototype.update_datum = async function(new_datum) {
 
 	const new_data		= new_datum.data
 	const new_context	= new_datum.context
+
+	// per-occurrence chains (owner decision (b)) of THIS instance's read (its own
+	// get_data, its save echo) are relative to this instance: tag them with its
+	// root before merging (root_caller_chains — idempotent: a response that came
+	// through build_autoload is already tagged)
+		root_caller_chains(new_datum, self)
 
 	// DATA -------------------
 		// new_data check
@@ -1805,6 +1815,11 @@ component_common.prototype.update_datum = async function(new_datum) {
 							&& el.section_tipo 			=== data_item.section_tipo
 							&& parseInt(el.section_id) 	=== parseInt(data_item.section_id)
 							&& el.mode 					=== data_item.mode
+							// per occurrence (owner decision (b)): two items of one key stamped
+							// with different parents are two occurrences, never one; a stamped
+							// incoming item never merges into an UNSTAMPED one (a split that
+							// first shows up in a later read — same_occurrence_on_merge)
+							&& same_occurrence_on_merge(el, data_item)
 							){
 							// dataframe disambiguation: match the frame entry by item id (id_key)
 							// so sibling items' frames are not overwritten.
@@ -1856,7 +1871,11 @@ component_common.prototype.update_datum = async function(new_datum) {
 						el.tipo===context_item.tipo &&
 						el.section_tipo===context_item.section_tipo &&
 						el.mode===context_item.mode && // @important Added 12-10-2023 because component_relation_parent/children visualization fails on add terms
- 						el.lang===context_item.lang
+ 						el.lang===context_item.lang &&
+						// per occurrence (owner decision (b)): an entry stamped for another
+						// parent is another occurrence — keep both; a stamped entry is never
+						// deduped into an UNSTAMPED one (same_occurrence_on_merge)
+						same_occurrence_on_merge(el, context_item)
 					)
 
 					if (!found_item) {

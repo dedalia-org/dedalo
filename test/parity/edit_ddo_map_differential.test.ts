@@ -82,6 +82,7 @@ describe.if(hasPhpCredentials())('section EDIT ddo_map differential (edit form b
 		phpKeys = phpDdoMap.map(keyOf);
 
 		const tsEntry = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo: SECTION,
 			sectionTipo: SECTION,
 			mode: 'edit',

@@ -234,3 +234,12 @@ the same map gaining nothing; the wired role held by a non-portal model gaining 
 the no-declaration caller keeping its exemption), verified red before the change and green
 after — plus `test/unit/tool_picker_wiring_tripwire.test.ts` (new tripwire, indexed in
 `engineering/TRIPWIRES.md` and `scripts/verify.ts`) marrying the table to the tool JS.
+
+## Addendum 2026-11-04 — gate 2 (READ GRANT on the linked section) RETIRED
+
+Superseded by `WC-2026-11-04-tree-picker-read-gate-retired` (owner decision (i)). The save
+door no longer re-judges the linked section for a tree-picker caller (`target_not_readable`
+and `refuseUnreadableTreePickerTarget` are gone): a pick is authorized by the component's own
+write grant, as for every other relation caller. Gates 1 (TARGET), 3 (SELECTABILITY) and 4
+(the CAP) are unchanged. The picker READ that gate 2 was the write twin of now follows the
+writer-chain scope (`WC-2026-11-04-writer-chain-scoped-search`).

@@ -33,6 +33,7 @@ import {
 	savesInRequestLang,
 } from '../ontology/resolver.ts';
 import {
+	exclusiveFloorVerdict,
 	frontierComponentAllowed,
 	frontierSectionIsGloballyVisible,
 	noteFrontierRefusal,
@@ -662,6 +663,11 @@ async function rootStepKey(
  * THE ONE COMPONENT READING of the SEC-1 keys, per (section, component): the
  * subdatum read floor, the search surface's standing grants, or the frontier's
  * component key (identity tipos + globally visible tables exempt).
+ *
+ * A SCOPED floor (owner decisions (h) / (i) — security/frontier_scope.ts
+ * exclusiveFloorVerdict) decides the sections it opened ALONE: there the
+ * writer component's filter pairs are the whole answer, with no fallback to
+ * the standing grants or a stray per-tipo profile grant.
  */
 async function componentReadable(
 	scope: SqlFrontierScope,
@@ -669,6 +675,8 @@ async function componentReadable(
 	componentTipo: string,
 	table: string,
 ): Promise<boolean> {
+	const scoped = exclusiveFloorVerdict(scope.readFloor, sectionTipo, componentTipo);
+	if (scoped !== null) return scoped;
 	if (scope.readFloor?.has(`${sectionTipo}_${componentTipo}`) === true) return true;
 	if (searchSurfaceGrants(sectionTipo, componentTipo)) return true;
 	return frontierComponentAllowed(scope, { sectionTipo, componentTipo, table });

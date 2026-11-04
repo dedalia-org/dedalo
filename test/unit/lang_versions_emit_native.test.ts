@@ -161,6 +161,7 @@ describe('requirement_translatable tools (tool_lang) on transliterable component
 
 	test('the structure-context stamp carries it (the client renders context.tools verbatim)', async () => {
 		const entry = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo: TRANSLITERABLE,
 			sectionTipo: SECTION,
 			mode: 'edit',

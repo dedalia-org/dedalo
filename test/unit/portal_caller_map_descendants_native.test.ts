@@ -22,21 +22,33 @@
  *  (a) A THREE-LEVEL caller map (portal → nested portal → leaf) emits the LEAF
  *      item, stamped from_component_tipo = the NESTED portal and row_section_id
  *      = the leaf's own target. Two levels below the section, from a map the
- *      client sent — the regression, expressed at its shortest.
+ *      client sent — the regression, expressed at its shortest. DISCRIMINATING
+ *      since 2026-11-03: NESTED_PORTAL's own config shows a DIFFERENT field
+ *      (LEAF_OTHER), so losing the caller's level-2 children (the old
+ *      `?? childDdos` shape, or a broken injection) makes the own config win —
+ *      LEAF_OTHER appears and LEAF_TEXT vanishes, and (a) goes red.
  *  (b) A FOUR-LEVEL caller map keeps going: depth is not the limit, the map is.
- *  (c) A TRUNCATED map (nested portal declared, leaf NOT) emits the nested
- *      portal's own item and NO leaf — the caller owns its map, and in list
- *      mode a nested portal does not fall back to its own config
- *      (portal.ts `ownConfig`, false for caller-map children). Documented
- *      behaviour, not the bug: pinned so the fix is not "corrected" into
- *      resolving levels the caller never asked for.
- *  (d) A CYCLIC map is REFUSED, loudly, instead of recursing until the stack
- *      dies. `[{A,parent:section},{B,parent:A},{A,parent:B}]` is a legal map
- *      shape and the map is client-supplied; before MAX_DDO_DEPTH
- *      (section/read.ts) nothing bounded the child recursion at all —
- *      relation_core's `depth < 4` gates the own-config lookup only. This is
- *      the half of the change that is a hardening, not a fix: the descendant
- *      map travelling down is what makes an arbitrary cycle reachable.
+ *  (c) A TRUNCATED map (nested portal declared, leaf NOT) — CONTRACT INVERTED
+ *      2026-11-03 (nested-ddo_map plan, owner-approved; plan Gates "give
+ *      NESTED_PORTAL an own config and invert the contract"). The old pin said
+ *      "in list mode a nested portal never falls back to its own config" —
+ *      that was the TS-only `depth<4 && (edit || list&&ownConfig)` gate, which
+ *      RELATIONS_SPEC rule 2 wrongly called PHP. PHP's get_subdatum resolves
+ *      every element through ITS OWN effective config in every mode but
+ *      'solved' (plan E2): a caller that names no children for an element
+ *      leaves the element's own map standing. NESTED_PORTAL now has an own
+ *      config showing LEAF_OTHER (a field no caller map here names), so the
+ *      truncated map emits LEAF_OTHER through it and NOT LEAF_TEXT — and a
+ *      caller that DOES name children still replaces it ((a)/(b)).
+ *  (d) A CYCLIC map — CONTRACT CHANGED 2026-11-03 (same plan). The caller's
+ *      children are now collected per element by the ancestor-path walk
+ *      (relations/request_config/caller_injection.ts): `[{A,parent:section},
+ *      {B,parent:A},{A,parent:B}]` gives A the children [B] and cuts the repeat
+ *      A<B, so a cyclic MAP no longer recurses at all — the read COMPLETES and
+ *      A appears once at the top. (Before, the whole flat map travelled down
+ *      and only MAX_DDO_DEPTH's request.invalid_rqo ended it.) MAX_DDO_DEPTH
+ *      stays the hard bound for what the map walk cannot see; a RECORD cycle
+ *      is stopped by the per-path visited guard (nested_ddo_data_native).
  *
  * Engine under test: src/core/relations/models/portal.ts (descendantsMap),
  * src/core/relations/relation_core.ts (expandPortal's child recursion),
@@ -67,6 +79,8 @@ const NESTED_PORTAL = 'zzcm4';
 const LEAF = 'zzcm5';
 /** The GRANDCHILD — two levels below the section, the item the bug lost. */
 const LEAF_TEXT = 'zzcm6';
+/** The field NESTED_PORTAL's OWN config shows — never named by a caller map here. */
+const LEAF_OTHER = 'zzcm10';
 const TAIL_PORTAL = 'zzcm7';
 const TAIL = 'zzcm8';
 const TAIL_TEXT = 'zzcm9';
@@ -77,6 +91,7 @@ const LEAF_ID = 900603;
 const TAIL_ID = 900604;
 
 const LEAF_VALUE = 'the grandchild value';
+const LEAF_OTHER_VALUE = 'the own-config value';
 const TAIL_VALUE = 'the great-grandchild value';
 
 /** One locator, the only shape any hop in this situation needs. */
@@ -95,14 +110,35 @@ const S = situation({
 	tld: 'zzcm',
 	nodes: [
 		{ tipo: HOST, parent: 'test1', model: 'section', relations: [{ tipo: 'test24' }] },
-		// (!) NO request_config on any portal here. The whole point is that the
-		// children arrive from the CALLER's map — a portal with its own config
-		// would take the other branch in portal.ts and prove nothing.
+		// (!) NO request_config on PORTAL: its children arrive ONLY from the
+		// CALLER's map (an element with no own config takes the caller's
+		// children as its config — relations/element_node.ts).
 		{ tipo: PORTAL, parent: HOST, model: 'component_portal' },
 		{ tipo: MID, parent: 'test1', model: 'section', relations: [{ tipo: 'test24' }] },
-		{ tipo: NESTED_PORTAL, parent: MID, model: 'component_portal' },
+		// NESTED_PORTAL HAS an own config (contract (c)): it shows LEAF_OTHER. A
+		// caller that names NESTED_PORTAL's children replaces that show map
+		// ((a)/(b) — the injected children win); one that names none leaves it
+		// standing ((c)).
+		{
+			tipo: NESTED_PORTAL,
+			parent: MID,
+			model: 'component_portal',
+			properties: {
+				source: {
+					request_config: [
+						{
+							sqo: { section_tipo: [{ value: [LEAF], source: 'section' }] },
+							show: {
+								ddo_map: [{ tipo: LEAF_OTHER, parent: 'self', section_tipo: LEAF }],
+							},
+						},
+					],
+				},
+			},
+		},
 		{ tipo: LEAF, parent: 'test1', model: 'section', relations: [{ tipo: 'test24' }] },
 		{ tipo: LEAF_TEXT, parent: LEAF, model: 'component_input_text' },
+		{ tipo: LEAF_OTHER, parent: LEAF, model: 'component_input_text', order_number: 3 },
 		{ tipo: TAIL_PORTAL, parent: LEAF, model: 'component_portal', order_number: 2 },
 		{ tipo: TAIL, parent: 'test1', model: 'section', relations: [{ tipo: 'test24' }] },
 		{ tipo: TAIL_TEXT, parent: TAIL, model: 'component_input_text' },
@@ -122,13 +158,17 @@ const S = situation({
 			section_tipo: LEAF,
 			section_id: LEAF_ID,
 			columns: {
-				string: { [LEAF_TEXT]: [{ id: 1, lang: 'lg-nolan', value: LEAF_VALUE }] },
+				string: {
+					[LEAF_TEXT]: [{ id: 1, lang: 'lg-nolan', value: LEAF_VALUE }],
+					[LEAF_OTHER]: [{ id: 1, lang: 'lg-nolan', value: LEAF_OTHER_VALUE }],
+				},
 				relation: {
 					[TAIL_PORTAL]: locator(TAIL_PORTAL, TAIL, TAIL_ID),
 					// The back-edge contract (d) needs: LEAF —PORTAL→ MID closes
-					// the loop, so every hop of the cyclic map finds a locator and
-					// only the depth bound can end the recursion. Unreachable from
-					// every other map here, which never declares PORTAL this deep.
+					// the loop, so every hop of the cyclic map WOULD find a
+					// locator — the map walk's cut is what keeps it unreached.
+					// Unreachable from every other map here, which never declares
+					// PORTAL this deep.
 					[PORTAL]: locator(PORTAL, MID, MID_ID),
 				},
 			},
@@ -243,6 +283,9 @@ describe('portal caller-map descendants', () => {
 		// read (relation_core's outer-subdatum re-stamp). Two levels down
 		// changes nothing about that: the anchor stays the host row.
 		expect(leaf?.row_section_id).toBe(HOST_ID);
+		// DISCRIMINATION: the caller's level-2 children REPLACED the nested
+		// portal's own show — its own field never renders.
+		expect(itemFor(items, LEAF_OTHER)).toBeUndefined();
 	});
 
 	test('(b) a four-level map keeps resolving — the map is the limit, not the depth', async () => {
@@ -261,28 +304,44 @@ describe('portal caller-map descendants', () => {
 		expect(tail?.entries).toEqual([{ id: 1, lang: 'lg-nolan', value: TAIL_VALUE }]);
 		expect(tail?.from_component_tipo).toBe(TAIL_PORTAL);
 		expect(tail?.section_id).toBe(TAIL_ID);
+		expect(itemFor(items, LEAF_OTHER)).toBeUndefined();
 	});
 
-	test('(c) a truncated map resolves the levels it declares and no more', async () => {
-		// The nested portal is declared; its leaf is NOT. The nested portal emits
-		// its locator item and stops — in list mode a caller-map child never
-		// falls back to its own config (portal.ts `ownConfig`). The caller owns
-		// its map; the engine does not widen it.
+	test('(c) a truncated map: the nested portal falls back to its OWN config in list mode', async () => {
+		// The nested portal is declared; its leaf is NOT. The caller names no
+		// children for NESTED_PORTAL, so its own config stands (PHP get_subdatum,
+		// plan E2) and the leaf resolves through it — in LIST mode, which the
+		// retired gate refused.
 		const { ok, items } = await readWithMap([portalDdo, nestedDdo]);
 		expect(ok).toBe(true);
 		expect(itemFor(items, NESTED_PORTAL)).toBeDefined();
+		const own = itemFor(items, LEAF_OTHER);
+		expect(own).toBeDefined();
+		expect(own?.entries).toEqual([{ id: 1, lang: 'lg-nolan', value: LEAF_OTHER_VALUE }]);
+		expect(own?.from_component_tipo).toBe(NESTED_PORTAL);
+		// The caller-only field is NOT what the own config shows.
 		expect(itemFor(items, LEAF_TEXT)).toBeUndefined();
 	});
 
-	test('(d) a cyclic map is refused, not recursed to death', async () => {
-		// PORTAL → NESTED_PORTAL → PORTAL → … Every hop has a stored locator, so
-		// nothing runs out of data; only the depth bound ends this.
-		const { ok, errorCode } = await readWithMap([
+	test('(d) a cyclic map is cut at the repeat: the read completes', async () => {
+		// PORTAL → NESTED_PORTAL → PORTAL: the caller-children walk cuts the
+		// back-edge PORTAL<NESTED_PORTAL (it is on its own ancestor path), so
+		// NESTED_PORTAL's injected children are empty and its OWN config governs
+		// (LEAF_OTHER). LEAF's stored PORTAL locator is never reached: PORTAL is
+		// not in anything NESTED_PORTAL resolves.
+		const { ok, items, errorCode } = await readWithMap([
 			portalDdo,
 			nestedDdo,
 			{ tipo: PORTAL, section_tipo: LEAF, parent: NESTED_PORTAL, mode: 'list' },
 		]);
-		expect(ok).toBe(false);
-		expect(errorCode).toBe('request.invalid_rqo');
+		expect(errorCode).toBeNull();
+		expect(ok).toBe(true);
+		expect(itemFor(items, NESTED_PORTAL)).toBeDefined();
+		expect(itemFor(items, LEAF_OTHER)?.entries).toEqual([
+			{ id: 1, lang: 'lg-nolan', value: LEAF_OTHER_VALUE },
+		]);
+		expect(itemFor(items, LEAF_TEXT)).toBeUndefined();
+		// PORTAL emits ONCE — at the host — never again under NESTED_PORTAL.
+		expect(items.filter((item) => item.tipo === PORTAL)).toHaveLength(1);
 	}, 30000);
 });

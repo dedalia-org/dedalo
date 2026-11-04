@@ -121,6 +121,11 @@ export const POST_RESTORE_PLAN: readonly PostRestoreStep[] = [
 		apply: false,
 		why: 'a restore can bring back portal arrays stored before their declared order (or an archive written raw); apply re-sorts every drifted record through the save door with a Time Machine row each, at install scale, so the dry list names the portals and the operator applies it from Maintenance',
 	},
+	{
+		name: 'ddo_self_depth',
+		apply: false,
+		why: "a definition check, never a repair: a restore can bring back an ontology whose request_config declares section_tipo 'self' below the first level; the dry list names each definition, and the correction is an edit on the master ontology (its apply is refused at the registry)",
+	},
 ];
 
 export interface PostRestoreStepResult {

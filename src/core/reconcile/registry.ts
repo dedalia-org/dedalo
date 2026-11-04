@@ -152,6 +152,7 @@ export const REGISTERED_NAMES: readonly string[] = [
 	'rich_text_images',
 	'web_image_exposure',
 	'portal_declared_order',
+	'ddo_self_depth',
 ];
 
 // Process-lifetime registry state (module_state_tripwire allowlisted): the

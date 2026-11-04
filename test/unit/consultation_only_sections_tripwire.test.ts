@@ -142,6 +142,7 @@ describe('consultation-only sections are read-only for every door', () => {
 		// the assertion that would have caught the "'Who' column still editable"
 		// regression (the section-level cap alone did not stop it).
 		const activitySection = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo: 'dd542',
 			sectionTipo: 'dd542',
 			mode: 'list',
@@ -150,6 +151,7 @@ describe('consultation-only sections are read-only for every door', () => {
 		});
 		expect(activitySection?.permissions).toBe(1);
 		const activityWho = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo: 'dd132', // 'Who' — the exact component reported as editable
 			sectionTipo: 'dd542',
 			mode: 'list',
@@ -160,6 +162,7 @@ describe('consultation-only sections are read-only for every door', () => {
 		// Control: a NON-consultation section keeps the level it was handed —
 		// the cap is scoped, not a blanket downgrade.
 		const normal = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo: 'dd132',
 			sectionTipo: 'dd64',
 			mode: 'list',

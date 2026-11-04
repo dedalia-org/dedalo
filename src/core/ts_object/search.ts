@@ -131,6 +131,14 @@ async function expandAncestorLevel(
 	);
 }
 
+/** The search options of a thesaurus search: the principal, plus a picker scope's read floor when present. */
+function searchOptionsOf(
+	principal: Principal,
+	readFloor: ReadonlySet<string> | undefined,
+): { principal: Principal; readFloor?: ReadonlySet<string> } {
+	return readFloor === undefined ? { principal } : { principal, readFloor };
+}
+
 /**
  * Run a thesaurus search and assemble the ancestor-expanded partial tree (PHP
  * search_thesaurus). `sqo` is the untrusted client SQO (sanitized here). The
@@ -139,9 +147,15 @@ async function expandAncestorLevel(
 export async function searchThesaurus(
 	sqo: Record<string, unknown>,
 	principal: Principal,
+	/**
+	 * The filter-path read floor of a tree PICKER's scope (owner decision (i),
+	 * area/read.ts ResolvedPickerCaller.treeScope): the pairs its writer
+	 * component shows / searches. Absent = the ordinary keyed search.
+	 */
+	readFloor?: ReadonlySet<string>,
 ): Promise<SearchThesaurusResult> {
 	const sanitized = sanitizeClientSqo(structuredClone(sqo));
-	const built = await buildSearchSql(sanitized, { principal });
+	const built = await buildSearchSql(sanitized, searchOptionsOf(principal, readFloor));
 	const hits = (await runSearch(built)) as {
 		section_tipo: string;
 		// The int PK column of the matrix table — never a stored jsonb value.

@@ -291,6 +291,7 @@ const codeOf = (body: Record<string, unknown>) =>
 
 async function stamped(principal: Principal | undefined, sectionTipo: string): Promise<unknown> {
 	const entry = await buildStructureContext({
+		configFrom: { source: 'own', reason: 'unit-test' },
 		tipo: sectionTipo,
 		sectionTipo,
 		mode: 'edit',

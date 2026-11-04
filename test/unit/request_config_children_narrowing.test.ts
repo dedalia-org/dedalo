@@ -19,9 +19,12 @@
 import { describe, expect, test } from 'bun:test';
 import type { Ddo } from '../../src/core/concepts/ddo.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { resolveElement, rootNodeFor } from '../../src/core/relations/element_node.ts';
+import { ElementNodeRegistry } from '../../src/core/relations/element_registry.ts';
+import { collectDdoMapDescendants } from '../../src/core/relations/request_config/caller_injection.ts';
 import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { buildStructureContext } from '../../src/core/resolve/structure_context.ts';
-import { collectCallerDescendants, readSection } from '../../src/core/section/read.ts';
+import { readSection } from '../../src/core/section/read.ts';
 
 /** Seed-shipped ontology, spelled out of the install-TLD census's token grammar. */
 const seed = <T extends string, N extends number>(tld: T, id: N): `${T}${N}` => `${tld}${id}`;
@@ -39,7 +42,7 @@ try {
 const ddo = (tipo: string, parent: string, extra: Record<string, unknown> = {}): Ddo =>
 	({ tipo, parent, section_tipo: 'xx1', mode: 'list', ...extra }) as unknown as Ddo;
 
-describe('collectCallerDescendants (PHP $get_children_recursive)', () => {
+describe('collectDdoMapDescendants (PHP $get_children_recursive)', () => {
 	test('collects recursively — child then its own descendants, order-preserving', () => {
 		const map = [
 			ddo('p1', 'xx1'),
@@ -48,17 +51,34 @@ describe('collectCallerDescendants (PHP $get_children_recursive)', () => {
 			ddo('c2', 'p1'),
 			ddo('other', 'xx1'),
 		];
-		expect(collectCallerDescendants(map, 'p1').map((d) => d.tipo)).toEqual(['c1', 'g1', 'c2']);
+		expect(collectDdoMapDescendants(map, 'p1', 'client').map((d) => d.tipo)).toEqual([
+			'c1',
+			'g1',
+			'c2',
+		]);
 	});
 
 	test('no descendants → empty (the element keeps its own ontology map)', () => {
 		const map = [ddo('p1', 'xx1'), ddo('other', 'xx1')];
-		expect(collectCallerDescendants(map, 'p1')).toEqual([]);
+		expect(collectDdoMapDescendants(map, 'p1', 'client')).toEqual([]);
 	});
 
 	test('a malformed cyclic map terminates instead of recursing forever', () => {
 		const map = [ddo('a', 'p1'), ddo('b', 'a'), ddo('a', 'b')];
-		expect(collectCallerDescendants(map, 'p1').map((d) => d.tipo)).toEqual(['a', 'b']);
+		expect(collectDdoMapDescendants(map, 'p1', 'client').map((d) => d.tipo)).toEqual(['a', 'b']);
+	});
+
+	test("a diamond keeps BOTH parents' children (only an ancestor-path cycle is cut)", () => {
+		// The same grandchild under two siblings (a portal listing two people
+		// autocompletes that both show name/surname). The retired global
+		// seen-set dropped the second sibling's children.
+		const map = [ddo('x', 'p1'), ddo('a', 'x'), ddo('y', 'p1'), ddo('a', 'y')];
+		expect(collectDdoMapDescendants(map, 'p1', 'client').map((d) => d.tipo)).toEqual([
+			'x',
+			'a',
+			'y',
+			'a',
+		]);
 	});
 });
 
@@ -67,21 +87,36 @@ describe.if(hasDb)('caller-children narrowing (test6837 corpus)', () => {
 		runWithRequestLangs({ applicationLang: 'lg-spa', dataLang: 'lg-spa' }, fn);
 
 	test('caller children REPLACE the portal show map; sort leaf follows (test6819 → test6837)', async () => {
-		const entry = await withLangs(() =>
-			buildStructureContext({
+		// The context is serialised from the element NODE the data path resolves
+		// (configFrom emission): the caller's map declares test6837 WITH children,
+		// so its node's effective config carries exactly those children.
+		const callerMap = [
+			ddo('test6837', 'test6813', { section_tipo: 'test6813' }),
+			ddo(seed('rsc', 62), 'test6837', { section_tipo: seed('rsc', 167) }),
+			ddo(seed('rsc', 63), 'test6837', { section_tipo: seed('rsc', 167) }),
+			ddo(seed('rsc', 35), 'test6837', { section_tipo: seed('rsc', 167) }),
+		];
+		const entry = await withLangs(async () => {
+			const registry = new ElementNodeRegistry();
+			const parentNode = rootNodeFor(registry, 'test6813', 'test6813', 'list', callerMap);
+			const node = await resolveElement({
+				ddo: callerMap[0] as Ddo,
+				parentNode,
+				ownerSectionTipo: 'test6813',
+				mode: 'list',
+				lang: 'lg-nolan',
+				registry,
+			});
+			return buildStructureContext({
+				configFrom: { source: 'emission', node },
 				tipo: 'test6837',
 				sectionTipo: 'test6813',
 				mode: 'list',
 				lang: 'lg-spa',
 				permissions: 1,
 				parent: 'test6813',
-				rqoChildrenDdos: [
-					{ tipo: seed('rsc', 62), parent: 'test6837', section_tipo: seed('rsc', 167) },
-					{ tipo: seed('rsc', 63), parent: 'test6837', section_tipo: seed('rsc', 167) },
-					{ tipo: seed('rsc', 35), parent: 'test6837', section_tipo: seed('rsc', 167) },
-				],
-			}),
-		);
+			});
+		});
 		const config = entry?.request_config as
 			| { api_engine: string; show: { ddo_map: { tipo: string }[] } | null }[]
 			| undefined;
@@ -100,6 +135,7 @@ describe.if(hasDb)('caller-children narrowing (test6837 corpus)', () => {
 	test(`no caller children → the element own ontology map stands (${seed('rsc', 20)} leads)`, async () => {
 		const entry = await withLangs(() =>
 			buildStructureContext({
+				configFrom: { source: 'own', reason: 'unit-test' },
 				tipo: 'test6837',
 				sectionTipo: 'test6813',
 				mode: 'list',

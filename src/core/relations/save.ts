@@ -581,9 +581,9 @@ export async function deriveRelationSearch(
  * why), which is the exact "silently narrowed scope" CLAUDE.md forbids. They
  * are THROWN as the registered errors below, so the save transaction rolls
  * back and the API answers a named refusal (`relation.insert_refused` 400 for
- * off_target / project_not_member / term_not_selectable / selection_limit; the generic
- * `perm.denied` 403 for target_not_readable — a refusal must not describe what
- * the actor may not reach, the same posture the picker read takes).
+ * off_target / project_not_member / term_not_selectable / selection_limit — the
+ * tree picker's `target_not_readable` 403 was retired with its gate, owner
+ * decision (i), 2026-11-03).
  * Callers wanting per-locator verdicts WITHOUT a throw use the batch door.
  */
 export async function validateRelationInsert(
@@ -639,9 +639,6 @@ function refusalToError(
 		section_tipo: context.hostSectionTipo,
 		section_id: context.hostSectionId,
 	};
-	if (outcome.code === 'target_not_readable') {
-		return new DedaloError('perm.denied', { message, coordinates });
-	}
 	return new DedaloError('relation.insert_refused', {
 		message,
 		coordinates,
@@ -732,7 +729,6 @@ export type RelationInsertRefusalCode =
 	| 'autoreference'
 	| 'duplicate'
 	| 'off_target'
-	| 'target_not_readable'
 	| 'project_not_member'
 	| 'term_not_selectable'
 	| 'selection_limit';
@@ -802,10 +798,9 @@ export interface RelationInsertBatchResult {
  *     resolved on both sides, `isTargetAllowed`). A caller that declares NO
  *     target is exempt, and that exemption is the `reason` on the branch, not a
  *     silent pass.
- *  2. READ GRANT — an operator must not persist a locator into a section they
- *     cannot see. Scoped to TREE-PICKER callers (the write twin of the picker
- *     read's pruning) and FAIL-CLOSED there; every other caller is authorized
- *     by the caller grant dispatch enforced (see gate 2).
+ *  2. (retired, owner decision (i) 2026-11-03) — no read grant on the linked
+ *     section is asked: every caller, tree pickers included, is authorized by
+ *     the caller grant dispatch enforced (see the gate-2 note in the body).
  *  2b. PROJECT MEMBERSHIP — a NET-NEW dd153 assignment on the projects-filter
  *     family must name one of the actor's own projects (global admins exempt;
  *     FAIL-CLOSED) — the write twin of the projects datalist (D2).
@@ -851,9 +846,9 @@ export async function validateRelationInserts(
 	};
 	// The actor: the principal the caller THREADED, else the request-context ALS
 	// as the documented backstop (read per call, never captured at module
-	// level). It is resolved once for the batch and handed to the read-grant
-	// gate, which is FAIL-CLOSED inside its scope: no actor there is a refusal,
-	// not an exemption — see refuseByPickerConstraint gate 2.
+	// level). It is resolved once for the batch and handed to the membership
+	// gate (refuseByPickerConstraint gate 2b), which falls back to the
+	// attributed user and refuses fail-closed with no identity at all.
 	const actor = context.principal ?? (await ambientPrincipal());
 
 	const accepted: Record<string, unknown>[] = [];
@@ -1095,35 +1090,23 @@ async function refuseByPickerConstraint(
 		};
 	}
 
-	// 2. READ GRANT on the linked section — SCOPED TO TREE-PICKER CALLERS, the
-	// same scope as gate 3(a), and for the same reason: it is the write twin of
-	// the picker READ, which prunes the hierarchies a principal holds no grant
-	// on (area/read.ts, the 403 branch). Everywhere else the read model is the
-	// OPPOSITE: a value reached THROUGH an authorized caller is floored to read
-	// (`permissions.inheritSubdatumPermission` — the portal's resolved values,
-	// the autocomplete's picks, the component_filter's project datalist are all
-	// rendered from targets the actor may hold 0 on). Authorization there IS the
-	// caller grant, which dispatch already enforced (>= 2 on componentTipo)
-	// before this door was reached. Judging the target section here for those
-	// callers refused every non-admin's own project pick (component_filter →
-	// dd153: level 2 on the filter, 0 on the section, and the datalist was built
-	// from THEIR OWN authorized projects) — a rule the read side never had.
-	//
-	// FAIL-CLOSED inside the scope: no actor (a picker caller written with no
-	// principal threaded AND no request scope) is a refusal, never a skip. A
-	// write-authorization gate that answers "allowed" because it could not see
-	// who was asking is not a gate. The doors that legitimately run credless
-	// (import, maintenance) re-persist through `storedItems` (gate 0) and are
-	// unaffected; a NET-NEW pick into a tree picker with no actor is refused.
-	const readGrantRefusal = await refuseUnreadableTreePickerTarget(
-		context,
-		targetSectionTipo,
-		actor,
-	);
-	if (readGrantRefusal !== null) return readGrantRefusal;
+	// 2. (RETIRED 2026-11-03, owner decision (i) —
+	// WC-2026-11-04-tree-picker-read-gate-retired superseding
+	// WC-2026-08-14-relation-insert-target-validation addendum item 1.) There is
+	// NO read-grant gate on the linked section, for tree pickers either. It was
+	// the write twin of the picker read's hierarchy prune; both flipped
+	// together: a user who can WRITE a `view:'tree'` component browses its
+	// target thesaurus read-only through the component's verified caller chain
+	// (area/read.ts, ts_object/ts_api.ts — security/writer_chain_scope.ts) and
+	// saves the locator like any portal / autocomplete pick. Authorization IS
+	// the caller grant (dispatch enforced >= 2 on componentTipo before this
+	// door), exactly as PHP: the only target-permission check in
+	// component_portal is delete_all (class.component_portal.php:211-219), and
+	// every target reached through an authorized caller is floored to read
+	// (permissions.inheritSubdatumPermission).
 
 	// 2b. PROJECT MEMBERSHIP (owner decision 2026-10-21, D2) — the WRITE TWIN of
-	// the projects datalist, as gate 2 is the write twin of the picker read.
+	// the projects datalist (what is OFFERED and what is PERSISTED are one law).
 	const membershipRefusal = await refuseProjectOutsideMembership(
 		value,
 		context,
@@ -1337,8 +1320,8 @@ async function callerDeclaresTreePicker(componentTipo: string): Promise<boolean>
  * (request_config/implicit.ts SECTION_PROJECTS_TIPO), so gate 1 has already
  * refused any other section. Any other dd153 link — dd153's own project tree
  * (dd1593 parent), a portal into the catalog — comes from another model: a
- * relation, not an assignment, authorized by the caller grant as gate 2
- * explains.
+ * relation, not an assignment, authorized by the caller grant (the retired
+ * gate 2's note).
  *
  * NEVER RE-JUDGES A STORED LOCATOR: gate 0 has already returned for a
  * re-persist, so a colleague's project on a shared record survives every save
@@ -1349,7 +1332,8 @@ async function callerDeclaresTreePicker(componentTipo: string): Promise<boolean>
  * save is ATTRIBUTED to (`attributedUserId` — see its field). GLOBAL ADMINS are
  * exempt — their scope is `all`, the whole catalog, exactly as their datalist.
  * FAIL-CLOSED otherwise: with no identity at all the assignment is a refusal,
- * never an exemption (gate 2's argument).
+ * never an exemption — a write-authorization gate that answers "allowed"
+ * because it could not see who was asking is not a gate.
  */
 async function refuseProjectOutsideMembership(
 	value: Record<string, unknown>,
@@ -1389,36 +1373,6 @@ async function resolveMembershipJudge(
 	if (actor !== undefined) return actor;
 	if (context.attributedUserId === undefined) return undefined;
 	return await resolvePrincipal(context.attributedUserId);
-}
-
-/**
- * GATE 2 — the read grant on the linked section, for TREE-PICKER callers only,
- * fail-closed when no actor exists. The full reasoning (scope, the opposite
- * read model elsewhere, why no actor is a refusal) is narrated at the gate's
- * call site in refuseByPickerConstraint. Returns the refusal, or null.
- */
-async function refuseUnreadableTreePickerTarget(
-	context: RelationInsertContext,
-	targetSectionTipo: string,
-	actor: Principal | undefined,
-): Promise<{ code: RelationInsertRefusalCode; reason: string } | null> {
-	if (!(await callerDeclaresTreePicker(context.componentTipo))) return null;
-	if (actor === undefined) {
-		return {
-			code: 'target_not_readable',
-			reason: `no principal to judge the read grant on the linked section '${targetSectionTipo}' (write refused fail-closed)`,
-		};
-	}
-	const { getSectionPermissions } = await import('../security/permissions.ts');
-	if ((await getSectionPermissions(actor, targetSectionTipo)) < 1) {
-		return {
-			code: 'target_not_readable',
-			// Names the SECTION, never the record: the actor already named the
-			// section in the payload, so nothing is disclosed by repeating it.
-			reason: `no read grant on the linked section '${targetSectionTipo}'`,
-		};
-	}
-	return null;
 }
 
 /**

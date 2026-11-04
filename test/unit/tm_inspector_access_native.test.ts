@@ -629,6 +629,7 @@ describe('a time_machine_list nested under a grouper', () => {
 describe('the section context carries config.time_machine_list per principal', () => {
 	async function stamped(principal: Principal, sectionTipo: string): Promise<unknown> {
 		const entry = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo: sectionTipo,
 			sectionTipo,
 			mode: 'edit',
@@ -906,14 +907,33 @@ describe('the component pair: a section-wide TM grant never reads a level-0 comp
 
 	test('the inspector record block: the raw value (dd1574) of a restricted row is withheld', async () => {
 		const rqo = historyRqo('read', [{ section_tipo: DIRECT_SECTION, section_id: RECORD_ID }]);
-		expect(served(await send('read', admin, rqo))).toContain(SECRET);
+		const adminAnswer = await send('read', admin, rqo);
+		expect(served(adminAnswer)).toContain(SECRET);
+		// The superuser resolves the Who column's user subdatum (dd132 username).
+		expect(served(adminAnswer)).toContain('"tipo":"dd132"');
 		const answer = await send('read', granted, rqo);
 		// The CONTROLS: the readable component's raw value and the history's own
-		// columns (Who, with its user subdatum) still serve.
+		// Who column still serve.
 		expect(served(answer)).toContain(PUBLIC_VALUE);
 		expect(served(answer)).toContain('"tipo":"dd578"');
-		expect(served(answer)).toContain('"tipo":"dd132"');
 		expect(served(answer)).not.toContain(SECRET);
+		// The Who column's USER SUBDATUM (dd132) is NOT served to a profile holding
+		// 0 on dd128 — exact PHP, W4 2026-11-03 (a CONVERGENCE, so no wire_contract
+		// entry: engineering/WIRE_CONTRACT.md ledgers divergences only). dd578
+		// declares no source.request_config, so PHP builds its config through
+		// build_request_config_v5, whose STEP 5 filter_authorized_related
+		// (trait.request_config_v5.php:123-127 → :574-586) keeps only the related
+		// tipos the user holds > 0 on AGAINST THE TARGET SECTION:
+		// get_permissions('dd128', 'dd132') = 0 for this profile (users is not a
+		// matrix_list/matrix_dd table, and security::$read_only_scope excludes
+		// dd128 — class.security.php:208-224, :276-284) → dd132 is dropped at
+		// BUILD time, the show.ddo_map is empty and get_subdatum skips it
+		// (class.common.php:2316-2325) — the :2564-2571 raise to read never runs,
+		// because there is no child left to raise. The engine's implicit builder
+		// (relations/request_config/implicit.ts filterAuthorizedRelated) does
+		// exactly that; the old control asserted a dd132 the v5 path never
+		// emitted for this profile.
+		expect(served(answer)).not.toContain('"tipo":"dd132"');
 	});
 
 	test('the snapshot list: the restricted column of a whole-record snapshot is withheld', async () => {

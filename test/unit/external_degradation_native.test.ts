@@ -368,9 +368,11 @@ describe('the KEPT search-mode guards (generic, not artifacts of the old misrout
 		const text = await readSource.text();
 		expect(text).toContain('render_search_component_external');
 		// The guarantee itself: a search-mode source with a null record answers an
-		// item with entries:[] rather than nothing.
+		// item with entries:[] rather than nothing. Since 2026-11-03 the
+		// producers answer {items, nodes} (the element-node registry rides with
+		// the items), so the item array may be wrapped by `bareData(…)`.
 		expect(text).toMatch(
-			/if \(\(source\.mode \?\? 'edit'\) === 'search'\) \{\s*\n\s*return \[buildDataItem\(/,
+			/if \(\(source\.mode \?\? 'edit'\) === 'search'\) \{\s*\n\s*return (?:bareData\()?\[buildDataItem\(/,
 		);
 	});
 

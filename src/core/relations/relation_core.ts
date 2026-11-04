@@ -36,6 +36,14 @@ import {
 import { isTimeMachineRead } from '../section/list_definitions/tm_scope_context.ts';
 import { loadRecordCached } from '../section/record_loader.ts';
 import {
+	depthBoundNotice,
+	MAX_DDO_DEPTH,
+	nodeListPageLimit,
+	resolveElement,
+	rootNodeFor,
+} from './element_node.ts';
+import type { ElementNode, EmitScope } from './element_registry.ts';
+import {
 	assertViewOrder,
 	rankByViewColumn,
 	storedIndexOf,
@@ -368,15 +376,32 @@ export interface ExpandPortalOptions {
 	childRowFromTarget?: boolean;
 	/** resolve_data only: stamp parent_section_id on entry-carrying children. */
 	stampParentSectionId?: boolean;
-	/** Full config ddo map for RECURSIVE descendant resolution. */
-	descendantsMap?: Ddo[];
+	/**
+	 * The portal's resolved node (relations/element_node.ts resolveElement):
+	 * its effective config is what every NESTED element collects its caller
+	 * children from. Absent (a caller that resolved no node): the direct
+	 * `childDdos` stand in as the caller map, so nested elements see no
+	 * grandchildren from it.
+	 */
+	node?: ElementNode;
+	/**
+	 * The record-occurrence path INCLUDING this portal's own occurrence
+	 * (element_registry.ts EmitScope.path) — handed down so a nested element can
+	 * see a record cycle (owner decision (e), models/portal.ts).
+	 */
+	path?: readonly string[];
 	/** The REQUEST lang for translatable children (portals are nolan). */
 	childrenLang?: string;
 	/** Effective list-config page limit (show.sqo_config.limit ?? sqo.limit). */
 	cellLimit?: number | null;
-	/** Children came from the component's OWN config (not the client map). */
-	ownConfig?: boolean;
-	/** Nesting depth (cycle guard for list-cell recursion). */
+	/**
+	 * The children are the element's OWN config, untouched by a caller (node
+	 * configSource 'own' and no DATA slot — show / hide — injected; a
+	 * search/choose-only caller leaves them own). Keeps the pre-existing thesaurus-
+	 * TABLE ddinfo branch exactly where it applied (see the ddinfo block).
+	 */
+	childrenFromOwnConfig?: boolean;
+	/** Nesting depth (bounded by MAX_DDO_DEPTH in section/read.ts emitDdoData). */
 	depth?: number;
 	/** Page offset (the get_data pagination rqo's sqo.offset). */
 	offset?: number;
@@ -470,6 +495,15 @@ function paginateLocators(
  * Child items are stamped row_section_id = locator.section_id and
  * parent_tipo = the portal tipo (class.common.php :2792-2799).
  */
+/** Bind an item to its node when the caller resolved one (first bind wins). */
+function bindToNode(
+	emission: EmissionContext,
+	item: DataItem,
+	node: ElementNode | undefined,
+): void {
+	if (node !== undefined) emission.nodes.bindItem(item, node);
+}
+
 export async function expandPortal(
 	record: MatrixRecord,
 	portalDdo: Ddo,
@@ -582,6 +616,10 @@ export async function expandPortal(
 	portalItem.parent_tipo = callerTipo;
 	portalItem.parent_section_id = row.section_id;
 	portalItem.row_section_id = row.section_id;
+	// The portal's own item IS a projection of its node: bind it here, where the
+	// exact occurrence is known (element_registry.ts bindItem — first bind wins),
+	// so its context is serialised from this node's effective config.
+	bindToNode(emission, portalItem, options.node);
 	emission.items.push(portalItem);
 
 	// EXTERNAL targets of this page, resolved in ONE bounded fan-out before the
@@ -662,29 +700,24 @@ export async function expandPortal(
 			section_tipo: targetSectionTipo,
 			section_id: targetSectionId as number,
 		};
-		// The DESCENDANT map — every level below this portal, not just its own
-		// children — so a grandchild resolves by walking the parent chain. The
-		// `?? childDdos` fallback is a LAST RESORT for callers that pass no map
-		// at all (relation_index's deliberate one-level expansions): a caller
-		// that HAS a map must hand the whole thing down, or every level below
-		// the first is silently dropped (the numisdata3 list bug).
-		const descendantsMap = options.descendantsMap ?? childDdos;
-		// LIST-cell subdatum recurses into nested portals' OWN configs (PHP goes
-		// bibliography → reference → author, three levels); get_data/resolve_data
-		// stay one level (their gates pinned the PHP depth). The CYCLE guard is
-		// not here — `depth < 4` below gates the own-config lookup only; the
-		// child recursion itself is bounded by MAX_DDO_DEPTH in section/read.ts
-		// emitDdoData, the one place every hop passes through.
+		// The NESTED scope every child resolves under: this portal's node (whose
+		// effective config supplies each child's caller children — the whole
+		// injected chain travels in it, so a grandchild declared in the CALLER's
+		// map resolves: the numisdata3 list's numisdata77 → numisdata164 → rsc29)
+		// and the record-occurrence path (the cycle guard, models/portal.ts).
+		// PHP recursion is STRUCTURAL: every child element re-enters its own
+		// get_subdatum in EVERY mode but 'solved', so the retired
+		// `depth < 4 && (edit || list && ownConfig)` gate is gone (plan E2 — a
+		// nested portal in a LIST cell now falls back to its own config). The
+		// bounds are MAX_DDO_DEPTH (section/read.ts emitDdoData, the one place
+		// every hop passes through) and the per-path record-cycle guard.
 		const depth = options.depth ?? 0;
-		// PHP recursion is STRUCTURAL: nested portals re-enter portal_json in
-		// EVERY mode. LIST/TM keep the ownConfig gate (their effective config
-		// is the substituted section_list map); EDIT portals always recurse —
-		// a nested portal with declared grandchildren uses the parent-map
-		// slice (childDdos filtering), otherwise its OWN config (PHP injected
-		// request_config precedence, class.common.php:2603-2681). depth<4 is
-		// the pragmatic bound on how far the own-config lookup chases.
-		const allowNestedOwnConfig =
-			depth < 4 && (portalMode === 'edit' || (portalMode === 'list' && options.ownConfig === true));
+		const childScope: EmitScope = {
+			parentNode:
+				options.node ??
+				rootNodeFor(emission.nodes, portalDdo.tipo, row.section_tipo, portalMode, childDdos),
+			path: options.path ?? [],
+		};
 		for (const childDdo of childDdos) {
 			// PHP get_subdatum groups child ddos BY section_tipo and expands only
 			// the ones compatible with the current locator's target (numisdata97
@@ -735,20 +768,22 @@ export async function expandPortal(
 					emission,
 					depth,
 					emitDdo,
+					childScope, // the frame resolves its node under this portal's
 				);
 				continue;
 			}
 			await emitDdo(
 				childDdo,
-				descendantsMap, // full map → grandchildren resolve by parent chain
+				childDdos,
 				targetRecord,
 				targetRow,
 				'list',
 				options.childrenLang ?? portalLang,
 				callerTipo,
 				emission,
-				allowNestedOwnConfig,
+				true,
 				depth + 1,
+				childScope, // the parent node → grandchildren resolve by the injected chain
 			);
 		}
 		// ddinfo: the HIERARCHY widget (component_autocomplete_hi) appends each
@@ -759,26 +794,27 @@ export async function expandPortal(
 		// service_time_machine cell emits no ddinfo breadcrumb (verified against
 		// the live oracle), unlike the edit widget.
 		//
-		// A target qualifies when it lives in the thesaurus table OR when the
-		// own config declares `value_with_parents` on a child ddo compatible
-		// with it (portalCellEmitsDdinfo): PHP emits dd_info per vwp ddo, and
-		// USER-DEFINED thesauri live in the generic `matrix` table (`tch555`'s
-		// `tchi1`), so the table check alone loses their edit-cell breadcrumb.
+		// THE TRIGGER (owner decision (g), 2026-11-03 — the TS gates above are
+		// kept, only the trigger moved): the GOVERNING children — the node's
+		// effective config, whoever supplied it — declaring `value_with_parents`
+		// on a child ddo compatible with the target (portalCellEmitsDdinfo).
+		// PHP emits dd_info per vwp ddo, and USER-DEFINED thesauri live in the
+		// generic `matrix` table (`tch555`'s `tchi1`), so the vwp test is what
+		// reaches them. The pre-existing thesaurus-TABLE branch (a target in a
+		// thesaurus table qualifies without a vwp ddo) stays exactly where it
+		// applied: children that are the element's OWN, uninjected config — it
+		// is not widened to caller-supplied children.
 		// The TM check is the READ's data source, not the cell's render mode:
 		// dd15 cells now emit mode 'list' like every other list cell
 		// (WC-2026-08-14-tm-ddo-mode-retired), so `portalMode !== 'tm'` stopped
 		// being able to see a Time Machine cell. This is one of the two sites where
 		// 'tm' was a real branch rather than a synonym of 'list'; the suppression
 		// itself is unchanged and still oracle-verified.
-		if (
-			options.ownConfig === true &&
-			storedModel === 'component_autocomplete_hi' &&
-			!isTimeMachineRead()
-		) {
+		if (storedModel === 'component_autocomplete_hi' && !isTimeMachineRead()) {
 			const { buildDdInfoChain, isThesaurusTarget } = await import('../resolve/dd_info.ts');
 			if (
 				portalCellEmitsDdinfo(childDdos, targetSectionTipo) ||
-				(await isThesaurusTarget(targetSectionTipo))
+				(options.childrenFromOwnConfig === true && (await isThesaurusTarget(targetSectionTipo)))
 			) {
 				// ddinfoBare (the component get_data / save-echo surface, PHP
 				// component get_json → get_subdatum → get_ddinfo_parents): the item
@@ -916,6 +952,9 @@ function siblingFrameSection(frameDdo: Ddo, ownSections: readonly string[]): str
 	return declared;
 }
 
+/** A frame that declares no page size pairs ONE entry per main item (the engine's frame default, kept as it was). */
+const FRAME_DEFAULT_PAGE_LIMIT = 1;
+
 /**
  * component_dataframe slot (PHP get_subdatum's dataframe branch + the frame's
  * own json): the frame pairs with the MAIN record — entries are the main
@@ -937,10 +976,59 @@ export async function emitDataframeItem(
 	emission: EmissionContext,
 	depth: number,
 	emitDdo: EmitDdoFn,
+	scope?: EmitScope,
 ): Promise<void> {
-	const { resolveFrameConfig } = await import('../section/list_definitions/section_list.ts');
-	const frame = await resolveFrameConfig(frameDdo.tipo);
-	const frameLimit = frame.limit;
+	// THE FRAME'S NODE (element_node.ts resolveElement) — a component_dataframe
+	// is an element like any other in PHP get_subdatum (class.common.php
+	// :2512-2681): its governing ddo's `limit` is its page size (:2592-2596)
+	// and its caller's children are injected per engine and slot (:2603-2681).
+	// The parent is the node of the element the frame pairs with: the portal's
+	// node under a relation main, the literal's node under a literal main
+	// (section/read.ts emitDdoData resolves it under ITS caller, so a caller map
+	// naming the frame's children under the literal reaches the frame too).
+	// Null only where there is no element above at all.
+	const frameSectionTipo =
+		(Array.isArray(frameDdo.section_tipo) ? frameDdo.section_tipo[0] : frameDdo.section_tipo) ??
+		row.section_tipo;
+	const frameNode = await resolveElement({
+		ddo: frameDdo,
+		parentNode: scope?.parentNode ?? null,
+		ownerSectionTipo: frameSectionTipo,
+		ownerSectionId: row.section_id,
+		mode: frameModeIn,
+		lang: requestLang,
+		registry: emission.nodes,
+		model: 'component_dataframe',
+	});
+	// Children: the frame NODE's direct data children — flatten(show + hide) of
+	// its effectiveConfig (element_node.ts nodeDataChildren), the SAME build its
+	// context serialises from (node_contexts.ts). Caller-injected or own, one
+	// source: never a second raw read of the frame's properties.
+	// A child is carried WHOLE (element_node.ts dataChildDdo: limit, view,
+	// parent_grouper, properties, value_with_parents) — it is the child's
+	// GOVERNING ddo, and the child's own node reads its page size and governing
+	// fields from it (a caller `limit: 2` on a frame child portal is that
+	// portal's page).
+	type FrameChild = Record<string, unknown> & { tipo: string; mode?: string; lang?: string };
+	const frameChildren: FrameChild[] = frameNode.children.map((child) => {
+		const { mode, lang, ...rest } = child;
+		return {
+			...rest,
+			tipo: child.tipo as string,
+			...(typeof mode === 'string' ? { mode } : {}),
+			...(typeof lang === 'string' ? { lang } : {}),
+		};
+	});
+	// Page size: the node's list page (governing limit, else its own
+	// show.sqo_config.limit ?? sqo.limit), else the frame default of ONE entry.
+	const frameLimit = nodeListPageLimit(frameNode) ?? FRAME_DEFAULT_PAGE_LIMIT;
+	const frameScope: EmitScope = { parentNode: frameNode, path: scope?.path ?? [] };
+	// DEPTH BOUND (element_node.ts MAX_DDO_DEPTH) — the frame's children sit one
+	// hop deeper. The portal resolver is not on this hop, so the frame applies
+	// the same rule itself: an ONTOLOGY-driven chain stops here with a typed
+	// notice (the frame item still emits, the rest of the read completes); a
+	// CLIENT-map-driven one goes on to emitDdoData's loud refusal.
+	const atDepthBound = depth + 1 > MAX_DDO_DEPTH && frameNode.childOrigin !== 'client';
 	// TM PREVIEW / HISTORY-LIST ROW: the subject's own frames read AS OF the
 	// row (WC-2026-09-29-tm-preview-frame-children-as-of) — the sibling bag and
 	// the frame children. Null for every other read, and for every NESTED
@@ -1005,8 +1093,16 @@ export async function emitDataframeItem(
 	item.row_section_id = row.section_id;
 	item.parent_tipo = callerTipo;
 	emission.markStamped(item);
+	// The frame item projects the frame's node (its context reads this config).
+	emission.nodes.bindItem(item, frameNode);
 	emission.items.push(item);
 
+	if (atDepthBound) {
+		if (page.length > 0 && frameChildren.length > 0) {
+			emission.nodes.addNotices([await depthBoundNotice(row, frameDdo.tipo, depth)]);
+		}
+		return;
+	}
 	// Frame children at each paired target (frame config modes AS DECLARED).
 	for (const entry of page) {
 		const targetSection = entry.section_tipo;
@@ -1030,11 +1126,11 @@ export async function emitDataframeItem(
 						targetSection,
 						frameTargetId as number,
 						asOf,
-						frame.ddos.map((child) => child.tipo),
+						frameChildren.map((child) => child.tipo),
 					)
 				: await loadRecordCached(emission, table, targetSection, frameTargetId as number);
 		if (targetRecord === null) continue;
-		for (const child of frame.ddos) {
+		for (const child of frameChildren) {
 			if (!isAddress && (await getModelByTipo(child.tipo)) !== 'component_external') continue;
 			// Frame config children default to LIST mode (dd1715); declared modes
 			// pass through (rsc1246 edit).
@@ -1042,12 +1138,13 @@ export async function emitDataframeItem(
 			const before = emission.items.length;
 			await emitDdo(
 				{
+					...child,
 					tipo: child.tipo,
 					section_tipo: targetSection,
 					parent: frameDdo.tipo,
 					mode: childMode,
 					lang: child.lang,
-				} as Ddo,
+				} as unknown as Ddo,
 				[],
 				targetRecord,
 				{ section_tipo: targetSection, section_id: frameTargetId as number },
@@ -1055,11 +1152,28 @@ export async function emitDataframeItem(
 				requestLang,
 				callerTipo,
 				emission,
-				false,
+				// A frame child resolves its node like every other element: its OWN
+				// config with the frame's children injected per slot (PHP
+				// component_dataframe_json.php:221 → get_subdatum :2603-2681 keeps a
+				// child's own slots wherever the caller supplied none) — a frame
+				// child portal expands its own children. Bounded by MAX_DDO_DEPTH
+				// and the per-path record-cycle guard like any portal.
+				true,
 				depth + 1,
+				frameScope, // a frame child resolves its node under the frame's
 			);
 			for (let i = before; i < emission.items.length; i++) {
 				const childItem = emission.items[i] as DataItem;
+				if (emission.isStamped(childItem)) {
+					// A DEEPER expansion (a frame child portal's own children, a nested
+					// frame) already fixed this item's identity — keep its creating
+					// element and record (PHP keeps the NESTED creator's
+					// from_component_tipo, as expandPortal's re-stamp does); only the
+					// row anchor and the outward parent rewrite.
+					childItem.row_section_id = row.section_id;
+					childItem.parent_tipo = callerTipo;
+					continue;
+				}
 				childItem.from_component_tipo = frameDdo.tipo;
 				childItem.section_id = targetId; // keep the entry's raw id type
 				childItem.row_section_id = row.section_id;

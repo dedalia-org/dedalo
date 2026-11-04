@@ -284,7 +284,16 @@ Each handler gates **inline** and returns the uniform `denied()` envelope:
 1. **API entry (read).** `dd_core_api.read` resolves the read permission on the
    source `(section_tipo, tipo)` and on **every SQO target section**
    (self-keyed) *before* any search/DB work. Anything `< 1` short-circuits to
-   a thrown `perm.denied` (403).
+   a thrown `perm.denied` (403). **One scoped exception — the writer's search:**
+   an autocomplete or tree picker may search a target section the user holds no
+   grant on when the request names its caller chain (`source.callers`), the
+   server verifies that chain, the component at its end holds **write** through
+   it, and its effective config targets that section exactly. The rows then carry
+   only the config's show / search / choose columns, stamped read (`1`), and the
+   filter and order paths are limited to those columns; the count door agrees. A
+   missing or refused chain, a read-only caller, or a component without an
+   explicit config gets `perm.denied` as before
+   (writer-chain scoped search: `engineering/wire_contract/WC-2026-11-04-writer-chain-scoped-search.md`).
 
 2. **Per-element read filtering + honest context stamps.** Inside the section
    read (`src/core/section/read.ts`), every element the caller holds level `0`

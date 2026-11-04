@@ -253,6 +253,29 @@ async function ensureSuiteProjectsFixture(): Promise<void> {
 	log('Suite projects fixture (dd153 second project): ensured.');
 }
 
+/**
+ * Provision the NESTING situation `test_nested_portal.js` needs — a real
+ * component whose map declares `test80`'s children, so a nested test80's
+ * reads carry a caller chain the server VERIFIES (see
+ * src/core/test_data/nested_portal_fixture.ts). Installed before the server
+ * spawns (it reads the nodes cold) and swept beside the projects fixture.
+ */
+async function ensureNestedPortalFixture(): Promise<void> {
+	const { ensureNestedPortalFixture: ensure } = await import(
+		'../src/core/test_data/nested_portal_fixture.ts'
+	);
+	await ensure();
+	log('Nested portal fixture (verified caller chain for test80): ensured.');
+}
+
+async function removeNestedPortalFixture(): Promise<void> {
+	const { removeNestedPortalFixture: remove } = await import(
+		'../src/core/test_data/nested_portal_fixture.ts'
+	);
+	await remove();
+	log('Nested portal fixture (verified caller chain for test80): swept.');
+}
+
 async function removeSuiteProjectsFixture(): Promise<void> {
 	const { removeSuiteProjectsFixture: remove } = await import(
 		'../src/core/test_data/projects_fixture.ts'
@@ -470,6 +493,8 @@ async function openTarget(options: {
  * that died in `prepareSuiteDatabase` reports a phantom "unaccounted for" row.
  */
 let projectsFixtureInstalled = false;
+/** Did THIS run install the nesting situation? (swept only then, like the projects row). */
+let nestedPortalFixtureInstalled = false;
 /**
  * The run-created sweep, armed at the test3 counter when the run started (after
  * the pre-run reseed): every section_id above its mark is a record THIS run
@@ -509,6 +534,13 @@ function sweepOnSignal(): void {
 						await removeSuiteProjectsFixture();
 					} catch (err) {
 						error(`sweep on ${signal} failed: ${(err as Error).message}`);
+					}
+				}
+				if (nestedPortalFixtureInstalled) {
+					try {
+						await removeNestedPortalFixture();
+					} catch (err) {
+						error(`nested portal sweep on ${signal} failed: ${(err as Error).message}`);
 					}
 				}
 				process.exit(signal === 'SIGINT' ? 130 : 143);
@@ -754,6 +786,10 @@ async function main(): Promise<ScrapedRun> {
 		// saves. The fixture sweeps itself first, so it is idempotent.
 		await ensureSuiteProjectsFixture();
 		projectsFixtureInstalled = true;
+		// Same reasoning as the projects row: a SITUATION a suite asserts against,
+		// installed whatever `--no-reseed` says.
+		await ensureNestedPortalFixture();
+		nestedPortalFixtureInstalled = true;
 		await assertSuiteDiffusionSurface();
 		const target = await openTarget(suite);
 		const testUrl = target.url;
@@ -928,6 +964,13 @@ async function main(): Promise<ScrapedRun> {
 				await removeSuiteProjectsFixture();
 			} catch (err) {
 				error(`post-run projects fixture sweep failed: ${(err as Error).message}`);
+			}
+		}
+		if (nestedPortalFixtureInstalled) {
+			try {
+				await removeNestedPortalFixture();
+			} catch (err) {
+				error(`post-run nested portal fixture sweep failed: ${(err as Error).message}`);
 			}
 		}
 		// The run owns its server: it must not outlive the run (an orphan holds

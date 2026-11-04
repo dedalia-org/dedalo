@@ -2699,6 +2699,28 @@ export const ERROR_REGISTRY = {
 		disclosure: 'operator',
 		retryable: false,
 	},
+	'ontology.ddo_self_refused': {
+		category: 'unavailable',
+		status: 503,
+		label_key: 'error_ontology_ddo_self_refused',
+		// A ddo at depth >= 2 of a config owner's ddo_map declares
+		// `section_tipo: 'self'` (relations/request_config/self_depth.ts).
+		// 'self' is only meaningful for a DIRECT child — it names the owner's
+		// target sections; below that it would silently mean the WRONG sections
+		// (PHP resolves it to the top owner's targets and the value disappears).
+		// Owner decision (c) of the nested-ddo_map plan, 2026-11-03: refused,
+		// never guessed. A NOTICE, not a failure — the ddo is skipped and the
+		// rest of the read stands. `owner` / `ddo` / `parent` name the
+		// definition to correct (ontology tipos, operator disclosure; each capped
+		// at 64 chars — the map may be client-sent), `depth` how deep the ddo
+		// sits, `more` how many further distinct ddos were skipped the same way
+		// (a map yields at most SCALAR_BOUNDS.ddoMapWarnings such notices).
+		message: "A nested ddo declares section_tipo 'self' below the first level; it was skipped",
+		severity: 'warn',
+		disclosure: 'operator',
+		retryable: false,
+		details_keys: ['owner', 'ddo', 'parent', 'depth', 'more'],
+	},
 	'widget.unported': {
 		category: 'unavailable',
 		status: 503,
@@ -3064,6 +3086,48 @@ export const ERROR_REGISTRY = {
 		disclosure: 'operator',
 		retryable: false,
 		details_keys: ['limit', 'cap'],
+	},
+	'relation.record_cycle_stopped': {
+		category: 'unavailable',
+		status: 503,
+		label_key: 'error_relation_record_cycle_stopped',
+		// Owner decision (e) of the nested-ddo_map plan, 2026-11-03: a RECORD
+		// cycle (A's portal → B, B's portal → A) met while a read resolves nested
+		// elements through their effective configs. PHP recursed until memory ran
+		// out; the engine stops at the repeat on THAT path (relations/models/
+		// portal.ts, the per-path visited guard on (section_tipo, section_id,
+		// tipo)) — the repeated occurrence renders its own item without its
+		// nested children, and the rest of the read completes. A NOTICE, not a
+		// failure. `tipo` / `section_tipo` / `section_id` name the repeated
+		// occurrence (each capped at 64 chars), `depth` how many relation hops
+		// below the top it was met, `more` how many further cycles of the read
+		// were folded into this notice (the emission registry bounds them).
+		message: 'A record refers back to itself through its relations; the repeat was not expanded',
+		severity: 'warn',
+		disclosure: 'operator',
+		retryable: false,
+		details_keys: ['tipo', 'section_tipo', 'section_id', 'depth', 'more'],
+	},
+	'relation.depth_bound_stopped': {
+		category: 'unavailable',
+		status: 503,
+		label_key: 'error_relation_depth_bound_stopped',
+		// A NON-cyclic chain of relation elements resolved through their
+		// ONTOLOGY configs (own configs or a derived map — each hop a new record,
+		// so the per-path record-cycle guard never fires) reached MAX_DDO_DEPTH
+		// (relations/element_node.ts). Ordinary data, not the request's fault:
+		// the portal that would cross the bound renders its own item without
+		// expanding its targets (relations/models/portal.ts) and the rest of the
+		// read completes. A NOTICE, not a failure. A CLIENT-map-driven chain is
+		// still refused by section/read.ts emitDdoData as request.invalid_rqo.
+		// `tipo` / `section_tipo` / `section_id` name the stopped occurrence
+		// (each capped at 64 chars), `depth` the hop count, `more` how many
+		// further stops of the read were folded into this notice.
+		message: 'A chain of related records is deeper than the read resolves; it was cut there',
+		severity: 'warn',
+		disclosure: 'operator',
+		retryable: false,
+		details_keys: ['tipo', 'section_tipo', 'section_id', 'depth', 'more'],
 	},
 	'section.no_matrix_table': {
 		category: 'caller',

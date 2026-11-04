@@ -39,6 +39,15 @@
  *     before the reseed, or a deleted sweep call, would let every run grow the
  *     suite database again (~80 TM snapshots per run from the export suite).
  *
+ *  4. THE NESTING SITUATION (`src/core/test_data/nested_portal_fixture.ts`).
+ *     `test_nested_portal` pages a test80 NESTED under a real portal whose map
+ *     declares test80's children, so its `rqo.source.callers` is a chain the
+ *     server VERIFIES. Pinned here: the chain the client sends verifies against
+ *     the installed situation (and its caller line names test80), the forged
+ *     test80-above-test80 chain does not, ensure is idempotent and the sweep
+ *     leaves no residue (it refuses otherwise) — and the runner installs and
+ *     sweeps it.
+ *
  * WHY THE SECTION TIPO IS SPELLED `install('rsc', 170)`: the install-TLD census
  * (scripts/lib/tld_census.ts) reads a literal `rsc170` in a test file as this
  * gate BINDING an install. It is not — it is a pin on what the run's own pinned
@@ -52,10 +61,18 @@ import { join } from 'node:path';
 import { SUITE_DIFFUSION_DOMAIN } from '../../scripts/client_test_server.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import {
+	ensureNestedPortalFixture,
+	NESTING_PORTAL_TIPO,
+	NESTING_SECTION_TIPO,
+	nestedPortalSituation,
+	removeNestedPortalFixture,
+} from '../../src/core/test_data/nested_portal_fixture.ts';
+import {
 	ensureSuiteProjectsFixture,
 	removeSuiteProjectsFixture,
 	SUITE_SECOND_PROJECT_ID,
 } from '../../src/core/test_data/projects_fixture.ts';
+import { residueOf } from '../../src/core/test_data/situations/situation.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 
 const install = (tld: string, id: number): string => `${tld}${id}`;
@@ -317,5 +334,62 @@ describe('client run — the run-created sweep is wired', () => {
 			'const swept = await sweepRecordsCreatedSince(runCreatedSweeper.mark);',
 		);
 		expect(runCreatedWiringDefects(bypass).join('\n')).toMatch(/around the armed sweeper/);
+	});
+});
+
+describe('client run pre-flight — the nesting situation (verified caller chain)', () => {
+	const NESTED = 'test80';
+	const HOST = 'test3';
+	const verify = async (callers: unknown) => {
+		const { resolveCallerChain } = await import('../../src/core/relations/caller_chain.ts');
+		return resolveCallerChain({
+			callers,
+			targetTipo: NESTED,
+			targetSectionTipo: HOST,
+			lang: 'lg-eng',
+			principal: undefined,
+		});
+	};
+
+	beforeAll(async () => {
+		await ensureNestedPortalFixture();
+	});
+	afterAll(async () => {
+		if ((await residueOf(nestedPortalSituation())) > 0) await removeNestedPortalFixture();
+	});
+
+	test('the chain the client sends verifies, and its line names test80', async () => {
+		const chain = await verify([
+			{ tipo: NESTING_PORTAL_TIPO, section_tipo: NESTING_SECTION_TIPO, mode: 'edit' },
+		]);
+		expect(chain).not.toBeNull();
+		expect(chain?.line.tipo).toBe(NESTED);
+		expect(chain?.parentNode.tipo).toBe(NESTING_PORTAL_TIPO);
+	});
+
+	test('positive control: the forged test80-above-test80 chain is refused', async () => {
+		expect(await verify([{ tipo: NESTED, section_tipo: HOST, mode: 'edit' }])).toBeNull();
+	});
+
+	test('ensure is idempotent and the sweep leaves no residue', async () => {
+		await ensureNestedPortalFixture();
+		const s = nestedPortalSituation();
+		expect(await residueOf(s)).toBe(s.nodes.length);
+		await removeNestedPortalFixture();
+		expect(await residueOf(s)).toBe(0);
+		expect(
+			await verify([
+				{ tipo: NESTING_PORTAL_TIPO, section_tipo: NESTING_SECTION_TIPO, mode: 'edit' },
+			]),
+		).toBeNull();
+	});
+
+	test('the runner installs it before its server and sweeps it after', () => {
+		const src = runnerSource().code;
+		const ensureAt = src.indexOf('await ensureNestedPortalFixture();');
+		const serverAt = src.indexOf('await openTarget(suite)');
+		expect(ensureAt).toBeGreaterThan(-1);
+		expect(serverAt).toBeGreaterThan(ensureAt);
+		expect(src.split('await removeNestedPortalFixture();').length - 1).toBe(2);
 	});
 });

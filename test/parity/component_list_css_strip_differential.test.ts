@@ -145,6 +145,7 @@ async function tsElementEntry(
 ): Promise<{ css?: unknown; view?: unknown } | null> {
 	clearStructureContextCache();
 	return await buildStructureContext({
+		configFrom: { source: 'own', reason: 'unit-test' },
 		tipo: fixture.tipo,
 		sectionTipo: fixture.section,
 		mode,

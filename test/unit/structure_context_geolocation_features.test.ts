@@ -44,7 +44,13 @@ function featuresOf(entry: Awaited<ReturnType<typeof buildStructureContext>>) {
 
 /** Build the geolocation context with an optional properties override. */
 async function geoFeatures(propertiesOverride?: Record<string, unknown>) {
-	return featuresOf(await buildStructureContext({ ...GEO, propertiesOverride }));
+	return featuresOf(
+		await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
+			...GEO,
+			propertiesOverride,
+		}),
+	);
 }
 
 describe('component_geolocation context.features', () => {
@@ -62,7 +68,11 @@ describe('component_geolocation context.features', () => {
 	});
 
 	test('the SIMPLE context (addRequestConfig:false) emits NO features', async () => {
-		const entry = await buildStructureContext({ ...GEO, addRequestConfig: false });
+		const entry = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
+			...GEO,
+			addRequestConfig: false,
+		});
 		expect(entry).toBeDefined();
 		expect(featuresOf(entry)).toBeUndefined();
 	});
@@ -71,7 +81,11 @@ describe('component_geolocation context.features', () => {
 		// Order is the point: full FIRST (populates the cached core), simple
 		// second. A features object stamped on the cached core would surface here.
 		expect(await geoFeatures()).toBeDefined();
-		const simple = await buildStructureContext({ ...GEO, addRequestConfig: false });
+		const simple = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
+			...GEO,
+			addRequestConfig: false,
+		});
 		expect(featuresOf(simple)).toBeUndefined();
 		// And the full build is still correct after the simple one (no erosion).
 		expect((await geoFeatures())?.default_view).toEqual(WORLD_VIEW);
@@ -120,13 +134,21 @@ describe('component_geolocation context.features', () => {
 	});
 
 	test('the emission is model-scoped: a NON-geolocation component carries no default_view', async () => {
-		const entry = await buildStructureContext({ ...GEO, tipo: 'test159' }); // input_text
+		const entry = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
+			...GEO,
+			tipo: 'test159',
+		}); // input_text
 		expect(entry?.model).toBe('component_input_text');
 		expect(featuresOf(entry)?.default_view).toBeUndefined();
 	});
 
 	test('a SECOND geolocation instance gets the same camera (per-tipo, not cached once)', async () => {
-		const entry = await buildStructureContext({ ...GEO, tipo: 'test31' });
+		const entry = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
+			...GEO,
+			tipo: 'test31',
+		});
 		expect(entry?.model).toBe('component_geolocation');
 		expect(featuresOf(entry)?.default_view).toEqual(WORLD_VIEW);
 	});

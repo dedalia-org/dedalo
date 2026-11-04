@@ -220,3 +220,85 @@ describe('iri label-dataframe read (TS-native, oracle-captured golden)', () => {
 		expect(tsItems.map(comparable)).toEqual(items as never);
 	});
 });
+
+/** A get_data of the iri (test140) on the scratch record, optionally with a show. */
+async function getDataIri(
+	mode: 'edit' | 'list',
+	show: Record<string, unknown>[] | null,
+): Promise<{
+	items: Record<string, unknown>[];
+	context: Record<string, unknown>[];
+	errorCode: string | null;
+}> {
+	const rqo: Record<string, unknown> = {
+		action: 'read',
+		dd_api: 'dd_core_api',
+		prevent_lock: true,
+		source: {
+			typo: 'source',
+			type: 'component',
+			action: 'get_data',
+			model: 'component_iri',
+			tipo: 'test140',
+			section_tipo: SECTION,
+			section_id: RECORD_ID,
+			mode,
+			lang: 'lg-spa',
+		},
+		sqo: {
+			section_tipo: [SECTION],
+			limit: 10,
+			offset: 0,
+			filter_by_locators: [{ section_tipo: SECTION, section_id: RECORD_ID }],
+		},
+	};
+	if (show !== null) rqo.show = { ddo_map: show };
+	const token = createSession(-1, 'root', true);
+	const session = getSession(token);
+	const body = (
+		await dispatchRqo(
+			structuredClone(rqo) as never,
+			{
+				requestId: 't',
+				clientIp: '127.0.0.1',
+				session,
+				csrfCandidate: session?.csrfToken ?? null,
+				principal: await resolvePrincipal(-1),
+			} as never,
+		)
+	).body as {
+		data?: { data?: Record<string, unknown>[]; context?: Record<string, unknown>[] };
+		error?: { code?: string };
+	};
+	return {
+		items: body.data?.data ?? [],
+		context: body.data?.context ?? [],
+		errorCode: body.error?.code ?? null,
+	};
+}
+
+describe('iri get_data: the dd560 frame context is its EMITTED node (W3)', () => {
+	test('one dd560 context, in the mode the frame item carries, the PHP injection kept (view line, level >= 2)', async () => {
+		const { items, context, errorCode } = await getDataIri('list', null);
+		expect(errorCode).toBeNull();
+		const frameItem = items.find((item) => item.tipo === 'dd560');
+		expect(frameItem).toBeDefined();
+		const frames = context.filter((entry) => entry.tipo === 'dd560');
+		expect(frames).toHaveLength(1);
+		expect(frames[0]?.mode).toBe(frameItem?.mode as never);
+		expect(frames[0]?.view).toBe('line');
+		expect(Number(frames[0]?.permissions)).toBeGreaterThanOrEqual(2);
+	});
+
+	test('a stage-1 show declaring dd560 with a view: the CONTEXT follows it, as the data did', async () => {
+		const { items, context, errorCode } = await getDataIri('list', [
+			{ tipo: 'dd560', parent: 'self', section_tipo: SECTION, view: 'mini' },
+		]);
+		expect(errorCode).toBeNull();
+		expect(items.some((item) => item.tipo === 'dd560')).toBe(true);
+		const frames = context.filter((entry) => entry.tipo === 'dd560');
+		expect(frames).toHaveLength(1);
+		// the synthetic own entry would say 'line' whatever the request declared
+		expect(frames[0]?.view).toBe('mini');
+	});
+});

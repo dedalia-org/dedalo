@@ -27,7 +27,7 @@ import {
 } from '../concepts/area.ts';
 import type { Rqo } from '../concepts/rqo.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../concepts/section_id.ts';
-import { DedaloError, ok } from '../errors/index.ts';
+import { DedaloError, isDedaloError, ok } from '../errors/index.ts';
 import {
 	getColumnNameByModel,
 	getMatrixTableFromTipo,
@@ -45,11 +45,20 @@ import {
 	getPermissions,
 	type Principal,
 } from '../security/permissions.ts';
+import { withScopedPairs } from '../security/read_floor.ts';
 import { currentRequestId } from '../security/request_context.ts';
+import {
+	resolveWriterChainScope,
+	scopeTargetsSection,
+	verifiedChainLineView,
+	type WriterChainScope,
+} from '../security/writer_chain_scope.ts';
+import type { SearchThesaurusResult } from '../ts_object/search.ts';
+import type { TsNodeData } from '../ts_object/ts_object.ts';
 import { readAreaHierarchyData } from './tree.ts';
 
 /** Shape of the tree-area boot item (subset consumed by the permission filter). */
-interface HierarchyBootItem {
+export interface HierarchyBootItem {
 	tipo: string;
 	value: {
 		target_section_tipo: string;
@@ -77,6 +86,16 @@ interface HierarchyBootItem {
 interface ResolvedPickerCaller {
 	mode: ThesaurusMode;
 	constraint: PickerConstraint | null;
+	/**
+	 * THE TREE SCOPE (owner decision (i), 2026-11-03 — security/
+	 * writer_chain_scope.ts): granted relation mode AND the caller named its
+	 * caller chain (`caller.callers`) and the chain verifies with the component
+	 * at WRITE through it. Only then may the picker browse the target sections
+	 * its effective config names although the principal holds no grant on them
+	 * (filterHierarchiesByGrant, the tree node doors ts_object/ts_api.ts). null
+	 * = no unlock: the ordinary per-hierarchy grant prune.
+	 */
+	treeScope: WriterChainScope | null;
 }
 
 /**
@@ -144,6 +163,7 @@ async function resolvePickerCaller(
 	caller: PickerCaller,
 	principal: Principal,
 	lang: string,
+	declaredCallers: unknown = undefined,
 ): Promise<ResolvedPickerCaller> {
 	const model = await getModelByTipo(caller.tipo);
 	if (model === null) {
@@ -153,7 +173,7 @@ async function resolvePickerCaller(
 		});
 	}
 	if (getColumnNameByModel(model) !== 'relation') {
-		return { mode: 'default', constraint: null };
+		return { mode: 'default', constraint: null, treeScope: null };
 	}
 	if ((await getMatrixTableFromTipo(caller.section_tipo)) === null) {
 		throw new DedaloError('area.picker_caller_invalid', {
@@ -193,12 +213,24 @@ async function resolvePickerCaller(
 	// client while the server refused the grant: an edit affordance that browses
 	// and navigates away on every click. The map is derived server-side from the
 	// section's own ontology, never taken from the request.
-	const injectedView = await ddoMapViewFor(caller.tipo, caller.section_tipo);
+	// A NESTED component (owner decision (i)) gets its view from its CALLER's
+	// ddo line, not its section's map: when the declared `callers` VERIFY, the
+	// governing line of the verified chain answers first (the same line its
+	// cell was resolved from — writer_chain_scope.ts verifiedChainLineView); a
+	// refused or absent chain falls back to the section map, exactly as before.
+	const chainView = await verifiedChainLineView(principal, {
+		tipo: caller.tipo,
+		sectionTipo: caller.section_tipo,
+		callers: declaredCallers,
+		lang,
+	});
+	const injectedView = chainView ?? (await ddoMapViewFor(caller.tipo, caller.section_tipo));
 	// EDIT mode: the picker is an edit affordance, and `view:'tree'` is
 	// registered edit-only on the client. request_config is not needed here —
 	// the caller's targets come from the ONE picker resolver, so this build
 	// answers exactly one question: which view did the caller resolve to.
 	const callerContext = await buildStructureContext({
+		configFrom: { source: 'own', reason: 'element-context-request' },
 		tipo: caller.tipo,
 		sectionTipo: caller.section_tipo,
 		mode: 'edit',
@@ -211,8 +243,76 @@ async function resolvePickerCaller(
 		callerContext?.view === PICKER_CALLER_VIEW &&
 		grant.basis !== 'rule' &&
 		grant.level >= PICKER_CALLER_MIN_PERMISSIONS;
+	// The tree scope rides ONLY a granted picker (a writer of a view:'tree'
+	// relation component) whose caller chain verifies — see ResolvedPickerCaller.
+	const treeScope = granted
+		? await resolveWriterChainScope(principal, {
+				tipo: caller.tipo,
+				sectionTipo: caller.section_tipo,
+				callers: declaredCallers,
+				lang,
+			})
+		: null;
 
-	return { mode: granted ? 'relation' : 'default', constraint };
+	return { mode: granted ? 'relation' : 'default', constraint, treeScope };
+}
+
+/**
+ * May a TREE NODE door (ts_object/ts_api.ts get_node_data / get_children_data)
+ * read `sectionTipo` for this request although the principal holds no grant on
+ * it? Only for the tree picker of a component the principal can WRITE, through
+ * its verified caller chain, when `sectionTipo` is one of that component's
+ * targets (owner decision (i) — ResolvedPickerCaller.treeScope). The picker
+ * client sends the same `source.caller` declaration on every node read it makes
+ * (ts_object.js get_picker_caller). A malformed or absent declaration answers
+ * false (the door then refuses exactly as before) — and so does a well-shaped
+ * but INVALID one (an unknown tipo, a sectionless section, a tipo that is not
+ * a member of its section): resolvePickerCaller's `area.picker_caller_invalid`
+ * is the AREA boot read's answer, but on a node door the caller is only a
+ * claim of a scope, so a bogus claim earns no scope and the door's own
+ * perm.denied stands (no second error code that would tell an ungranted
+ * principal which tipos exist where).
+ */
+export async function pickerTreeReadAllowed(
+	declaredCaller: unknown,
+	sectionTipo: string,
+	principal: Principal,
+	lang: string,
+): Promise<boolean> {
+	const treeScope = await pickerTreeScope(declaredCaller, principal, lang);
+	return treeScope !== null && scopeTargetsSection(treeScope, sectionTipo);
+}
+
+/**
+ * The tree scope a node door's declared picker caller earns (owner decision
+ * (i)), or null — absent, malformed or invalid declaration, or no scope
+ * (pickerTreeReadAllowed; ts_object/ts_api.ts resolves it once per node read).
+ */
+export async function pickerTreeScope(
+	declaredCaller: unknown,
+	principal: Principal,
+	lang: string,
+): Promise<WriterChainScope | null> {
+	// parsePickerCaller refuses absent / null / non-object declarations too.
+	const caller = parsePickerCaller(declaredCaller);
+	if (caller === null) return null;
+	try {
+		const resolved = await resolvePickerCaller(
+			caller,
+			principal,
+			lang,
+			(declaredCaller as { callers?: unknown }).callers,
+		);
+		return resolved.treeScope;
+	} catch (error) {
+		if (isPickerCallerInvalid(error)) return null;
+		throw error;
+	}
+}
+
+/** resolvePickerCaller's client-input refusal (an invalid declaration), as opposed to a real failure. */
+function isPickerCallerInvalid(error: unknown): boolean {
+	return isDedaloError(error) && error.code === 'area.picker_caller_invalid';
 }
 
 /**
@@ -282,6 +382,7 @@ async function buildAreaContext(
 	permissions: number,
 ): Promise<Record<string, unknown>[]> {
 	const entry = await buildStructureContext({
+		configFrom: { source: 'own', reason: 'area-or-menu' },
 		tipo: areaTipo,
 		sectionTipo: areaTipo,
 		mode,
@@ -435,7 +536,12 @@ async function resolveDeclaredPickerCaller(
 			publicMessage: PICKER_CALLER_MALFORMED_MESSAGE,
 		});
 	}
-	return resolvePickerCaller(caller, principal, lang);
+	return resolvePickerCaller(
+		caller,
+		principal,
+		lang,
+		(declaredCaller as { callers?: unknown }).callers,
+	);
 }
 
 /**
@@ -502,11 +608,21 @@ interface PrunedHierarchies {
  * their thesaurus is forbidden when it is merely unconfigured (or the reverse,
  * which leaks that it exists).
  */
-async function filterHierarchiesByGrant(
+export async function filterHierarchiesByGrant(
 	hierarchies: HierarchyBootItem['value'],
 	principal: Principal,
 	isOntologyArea: boolean,
+	/**
+	 * The picker's TREE SCOPE (ResolvedPickerCaller.treeScope — owner decision
+	 * (i)): a thesaurus hierarchy whose target section, and a root term whose
+	 * section, is one of the writer component's targets is read through it
+	 * whatever the principal's grant. null = the ordinary grant prune.
+	 */
+	treeScope: WriterChainScope | null = null,
 ): Promise<PrunedHierarchies> {
+	const readable = async (sectionTipo: string): Promise<boolean> =>
+		(treeScope !== null && scopeTargetsSection(treeScope, sectionTipo)) ||
+		(await getPermissions(principal, sectionTipo, sectionTipo)) >= 1;
 	const pruned: PrunedHierarchies = { kept: [], refusedByAcl: 0, droppedByConfig: 0 };
 	for (const hierarchy of hierarchies) {
 		if (isOntologyArea) {
@@ -526,13 +642,7 @@ async function filterHierarchiesByGrant(
 			pruned.kept.push(hierarchy);
 			continue;
 		}
-		if (
-			(await getPermissions(
-				principal,
-				hierarchy.target_section_tipo,
-				hierarchy.target_section_tipo,
-			)) < 1
-		) {
+		if (!(await readable(hierarchy.target_section_tipo))) {
 			pruned.refusedByAcl++;
 			continue;
 		}
@@ -540,7 +650,7 @@ async function filterHierarchiesByGrant(
 			pruned.droppedByConfig++;
 			continue;
 		}
-		const rootTerms = await filterRootTermsByGrant(hierarchy.root_terms, principal);
+		const rootTerms = await filterRootTermsByGrant(hierarchy.root_terms, readable);
 		if (rootTerms.kept.length === 0) {
 			// Root terms the principal may not read → refused. NO root terms (or
 			// only unaddressable ones) → the hierarchy declares no entry point.
@@ -553,16 +663,16 @@ async function filterHierarchiesByGrant(
 	return pruned;
 }
 
-/** The root terms whose section the principal may read, and how many it may not. */
+/** The root terms whose section the principal may read (`readable`), and how many it may not. */
 async function filterRootTermsByGrant<T extends { section_tipo?: unknown }>(
 	rootTerms: readonly T[],
-	principal: Principal,
+	readable: (sectionTipo: string) => Promise<boolean>,
 ): Promise<{ kept: T[]; refused: number }> {
 	const kept: T[] = [];
 	let refused = 0;
 	for (const rootTerm of rootTerms) {
 		if (typeof rootTerm.section_tipo !== 'string') continue;
-		if ((await getPermissions(principal, rootTerm.section_tipo, rootTerm.section_tipo)) < 1) {
+		if (!(await readable(rootTerm.section_tipo))) {
 			refused++;
 			continue;
 		}
@@ -593,6 +703,150 @@ function emptyPickerRefusal(pruned: PrunedHierarchies, areaTipo: string): Dedalo
 		publicMessage: PICKER_NO_HIERARCHY_MESSAGE,
 		coordinates: { area_tipo: areaTipo },
 	});
+}
+
+/** The picker's tree scope (owner decision (i)), or null — no picker, or none granted. */
+function treeScopeOf(picker: ResolvedPickerCaller | null): WriterChainScope | null {
+	return picker?.treeScope ?? null;
+}
+
+/** The sections an SQO names (`section_tipo`: one tipo or a list), non-strings dropped. */
+function sqoSectionsOf(sqo: Record<string, unknown>): string[] {
+	const declared = sqo.section_tipo;
+	const list = Array.isArray(declared) ? declared : [declared];
+	return list.filter((entry): entry is string => typeof entry === 'string' && entry !== '');
+}
+
+/**
+ * A tree-area SEARCH confined to what the principal may read (owner decision
+ * (i), W4b review): the client's `sqo.section_tipo` is client input, so each
+ * named section is judged exactly as the hierarchy prune judges a hierarchy
+ * (filterHierarchiesByGrant) — the section read grant (1), or, for a picker,
+ * its tree scope's TARGETS. A section neither admits is dropped from the
+ * search (the tree it would land in was pruned the same way); a search that
+ * keeps NONE of the sections it named is refused (perm.denied), never run
+ * against an empty list. The sections the scope alone opened are floored by
+ * its writer component's filterPairs, EXCLUSIVELY (withScopedPairs). The
+ * caller's SQO is never mutated (a clone is narrowed).
+ */
+async function confineTreeSearch(
+	sqo: Record<string, unknown>,
+	principal: Principal,
+	pickerScope: WriterChainScope | null,
+	areaModel: 'area_thesaurus' | 'area_ontology',
+	areaTipo: string,
+): Promise<{
+	sqo: Record<string, unknown>;
+	readFloor: ReadonlySet<string> | undefined;
+	treeScope: WriterChainScope | null;
+	/** The sections ONLY the scope admitted (scopeTreeSearchNodes reads it). */
+	scoped: ReadonlySet<string>;
+}> {
+	// A tree scope opens THESAURUS targets only (the ontology area has no picker).
+	const treeScope = areaModel === 'area_ontology' ? null : pickerScope;
+	const named = sqoSectionsOf(sqo);
+	const { kept, scoped } = await admittedTreeSearchSections(principal, named, treeScope);
+	const confined = structuredClone(sqo);
+	if (named.length > 0) {
+		if (kept.length === 0) {
+			throw new DedaloError('perm.denied', { coordinates: { area_tipo: areaTipo } });
+		}
+		confined.section_tipo = kept;
+	}
+	return { sqo: confined, readFloor: treeSearchFloor(treeScope, scoped), treeScope, scoped };
+}
+
+/** The named sections a tree search keeps (treeSearchAdmission), and those only the scope opened. */
+async function admittedTreeSearchSections(
+	principal: Principal,
+	named: readonly string[],
+	treeScope: WriterChainScope | null,
+): Promise<{ kept: string[]; scoped: Set<string> }> {
+	const kept: string[] = [];
+	const scoped = new Set<string>();
+	for (const sectionTipo of named) {
+		const admission = await treeSearchAdmission(principal, sectionTipo, treeScope);
+		if (admission === null) continue;
+		kept.push(sectionTipo);
+		if (admission === 'scoped') scoped.add(sectionTipo);
+	}
+	return { kept, scoped };
+}
+
+/**
+ * How a tree search admits one of its sections: by the principal's read grant
+ * ('granted'), ONLY through the picker's tree scope ('scoped'), or not at all.
+ */
+async function treeSearchAdmission(
+	principal: Principal,
+	sectionTipo: string,
+	treeScope: WriterChainScope | null,
+): Promise<'granted' | 'scoped' | null> {
+	if ((await getPermissions(principal, sectionTipo, sectionTipo)) >= 1) return 'granted';
+	if (treeScope !== null && scopeTargetsSection(treeScope, sectionTipo)) return 'scoped';
+	return null;
+}
+
+/**
+ * The NODES a picker's tree search answers (hits and their expanded
+ * ancestors), judged exactly as the tree NODE doors judge a scoped children
+ * page (ts_object/ts_api.ts scopedChildrenPage — owner decision (i), W4b
+ * review): a node of a granted section passes untouched; a node of a section
+ * the principal reads ONLY through the picker's tree scope is trimmed to its
+ * writer component's shown pairs (ts_object.ts trimNodeToScopeColumns); a node
+ * of a section NEITHER admits is DROPPED. The last case is real:
+ * searchThesaurus expands every hit's ancestry across sections
+ * (relations/parent.ts getParentsRecursive follows parent locators into ANY
+ * section) and builds each ancestor level's full sibling list, with no section
+ * gate — so a scoped hit could otherwise pull whole nodes of a third, ungranted
+ * and untargeted section into the answer. No scope, or a search the scope
+ * opened nothing for (every named section granted): untouched — the ordinary
+ * search's PHP parity (only its sections are judged) holds. Exported for its
+ * gate (subdatum_permission_native).
+ */
+export async function scopeTreeSearchNodes(
+	found: SearchThesaurusResult,
+	principal: Principal,
+	treeScope: WriterChainScope | null,
+	scoped: ReadonlySet<string>,
+): Promise<SearchThesaurusResult> {
+	if (treeScope === null || scoped.size === 0) return found;
+	const { trimNodeToScopeColumns } = await import('../ts_object/ts_object.ts');
+	const admissionOf = memoizedTreeAdmission(principal, treeScope);
+	const result: TsNodeData[] = [];
+	for (const node of found.result) {
+		const admission = await admissionOf(node.section_tipo);
+		if (admission === null) continue;
+		result.push(
+			admission === 'scoped' ? trimNodeToScopeColumns(node, treeScope.columnPairs) : node,
+		);
+	}
+	return { ...found, result };
+}
+
+/** treeSearchAdmission memoized per section for one search answer (scopeTreeSearchNodes). */
+function memoizedTreeAdmission(
+	principal: Principal,
+	treeScope: WriterChainScope,
+): (sectionTipo: string) => Promise<'granted' | 'scoped' | null> {
+	const admissions = new Map<string, Promise<'granted' | 'scoped' | null>>();
+	return (sectionTipo) => {
+		let admission = admissions.get(sectionTipo);
+		if (admission === undefined) {
+			admission = treeSearchAdmission(principal, sectionTipo, treeScope);
+			admissions.set(sectionTipo, admission);
+		}
+		return admission;
+	};
+}
+
+/** The read floor of a tree search: none without a scope; the scope's pairs, EXCLUSIVE on `scoped`, with one. */
+function treeSearchFloor(
+	treeScope: WriterChainScope | null,
+	scoped: ReadonlySet<string>,
+): ReadonlySet<string> | undefined {
+	if (treeScope === null) return undefined;
+	return withScopedPairs(undefined, { sections: scoped, filterPairs: treeScope.filterPairs });
 }
 
 /**
@@ -629,6 +883,7 @@ async function readTreeArea(
 	// THE PICKER CALLER (engineering/AREA_SPEC.md §5) — resolved from the
 	// declaration alone; see resolveDeclaredPickerCaller.
 	const picker = await resolveDeclaredPickerCaller(rqo, principal, lang);
+	const treeScope = treeScopeOf(picker);
 
 	// terms_are_model (PHP build_options->terms_are_model): the ontology model
 	// view. The client sends it in source.build_options.
@@ -659,6 +914,7 @@ async function readTreeArea(
 		item.value,
 		principal,
 		areaModel === 'area_ontology',
+		treeScope,
 	);
 	const filteredValue = pruned.kept;
 	// Rebuild typologies from the surviving hierarchies (dedup, first-seen).
@@ -690,9 +946,23 @@ async function readTreeArea(
 	const searchAction = (rqo.source as { search_action?: string })?.search_action;
 	if (searchAction === 'search' && rqo.sqo !== undefined) {
 		const { searchThesaurus } = await import('../ts_object/search.ts');
-		item.ts_search = await searchThesaurus(
+		// THE SEARCH'S SECTIONS ARE GATED like the tree's (confineTreeSearch):
+		// a section the principal cannot read is never searched, and a picker's
+		// TREE SCOPE (owner decision (i)) opens only its targets — floored by its
+		// writer component's filterPairs, EXCLUSIVELY on the sections it opened
+		// (security/read_floor.ts withScopedPairs).
+		const confined = await confineTreeSearch(
 			rqo.sqo as unknown as Record<string, unknown>,
 			principal,
+			treeScope,
+			areaModel,
+			areaTipo,
+		);
+		item.ts_search = await scopeTreeSearchNodes(
+			await searchThesaurus(confined.sqo, principal, confined.readFloor),
+			principal,
+			confined.treeScope,
+			confined.scoped,
 		);
 		// hierarchy_terms IS NOT READ FROM THE REQUEST, deliberately (engineering/AREA_SPEC.md §5).
 		// PHP folded a `hierarchy_terms` URL var onto the page context, but the

@@ -65,19 +65,23 @@ await ensureSuiteProjectsFixture();
 // nothing, and that refusal is the guarantee the row never survives a run.
 let projectsFixtureInstalled = true;
 console.log('Suite projects fixture (dd153 second project): ensured.');
+// The nesting situation test_nested_portal.js needs (a real caller whose map
+// declares test80's children — src/core/test_data/nested_portal_fixture.ts):
+// same lifecycle, same cold-read reason.
+const { ensureNestedPortalFixture, removeNestedPortalFixture } = await import(
+	'../src/core/test_data/nested_portal_fixture.ts'
+);
+// Armed BEFORE the ensure: its node upserts commit before its last check can
+// throw, so a failed ensure may still leave rows the sweep must take.
+let nestedPortalFixtureInstalled = false;
 
-const port = await findFreePort(preferredPort);
-const expected = await localSuiteFingerprint();
-const server = await startClientTestServer({ suiteDb, expectedFingerprint: expected, port });
-
-console.log(`\nClient tests on the SUITE database ('${suiteDb}'):`);
-console.log(`  ${server.origin}/dedalo/test/client/index.html`);
-console.log('\nCtrl-C stops the server and sweeps the projects fixture.');
-
-let stopping = false;
-const stop = async (): Promise<void> => {
-	if (stopping) return;
-	stopping = true;
+/**
+ * Sweep every fixture this run installed (each once, guarded by its flag). The
+ * ONE cleanup of both exits: a failed startup below and Ctrl-C (stop) — a
+ * fixture left in the shared suite DB widens what every unit and parity gate
+ * sees (nested_portal_fixture.ts header).
+ */
+const sweepFixtures = async (): Promise<void> => {
 	if (projectsFixtureInstalled) {
 		projectsFixtureInstalled = false;
 		try {
@@ -87,6 +91,42 @@ const stop = async (): Promise<void> => {
 			console.error(`projects fixture sweep failed: ${(err as Error).message}`);
 		}
 	}
+	if (nestedPortalFixtureInstalled) {
+		nestedPortalFixtureInstalled = false;
+		try {
+			await removeNestedPortalFixture();
+			console.log('Nested portal fixture: swept.');
+		} catch (err) {
+			console.error(`nested portal fixture sweep failed: ${(err as Error).message}`);
+		}
+	}
+};
+
+// Everything between the first install and the signal handlers can throw (the
+// nested ensure, no free port, a /health fingerprint mismatch, a server that
+// never boots): sweep, then rethrow.
+let server: Awaited<ReturnType<typeof startClientTestServer>>;
+try {
+	nestedPortalFixtureInstalled = true;
+	await ensureNestedPortalFixture();
+	console.log('Nested portal fixture (verified caller chain for test80): ensured.');
+	const port = await findFreePort(preferredPort);
+	const expected = await localSuiteFingerprint();
+	server = await startClientTestServer({ suiteDb, expectedFingerprint: expected, port });
+} catch (err) {
+	await sweepFixtures();
+	throw err;
+}
+
+console.log(`\nClient tests on the SUITE database ('${suiteDb}'):`);
+console.log(`  ${server.origin}/dedalo/test/client/index.html`);
+console.log('\nCtrl-C stops the server and sweeps the projects and nested portal fixtures.');
+
+let stopping = false;
+const stop = async (): Promise<void> => {
+	if (stopping) return;
+	stopping = true;
+	await sweepFixtures();
 	await server.stop();
 	process.exit(0);
 };

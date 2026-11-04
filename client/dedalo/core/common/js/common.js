@@ -45,6 +45,9 @@
 *
 * Exported stand-alone helpers:
 *   set_context_vars, create_source, get_columns_map, get_ar_inverted_paths,
+*   caller chain (nested-ddo_map plan W4/W5): create_callers,
+*   get_component_ancestors, get_caller_chain_tipos, root_caller_chains,
+*   select_by_caller_chain, caller_chains_compatible, same_occurrence_on_merge,
 *   load_data_debug, render_tree_data, validate_tipo, get_fallback_value,
 *   push_browser_history, build_autoload, set_environment, update_process_status
 *   row windows (WC-2026-10-30-section-record-row-box): lock_rows,
@@ -1727,6 +1730,627 @@ export const create_source = function (self, action) {
 
 
 /**
+* CREATE_CALLERS
+* The caller chain of a NESTED component instance — `rqo.source.callers`, the
+* component instances it sits under, from the OUTERMOST down to its direct
+* parent (server: src/core/relations/caller_chain.ts). Sent on the component's
+* own get_data (paging, build_rqo_show) and search (autocomplete,
+* build_rqo_search) so the server resolves it UNDER its caller, exactly as the
+* cell was resolved on page 1: the children its caller injected are expanded
+* and inherited (a read-only column a restricted profile saw on page 1 stays on
+* page 2), and the search read floor admits them (a field only the caller's map
+* names is searchable from inside the cell). The server VERIFIES every link and
+* answers a refused chain as a top-level read — the chain is a claim, never a
+* grant.
+*
+* Shape:
+*   tch197's rsc1400 cell on tch1/1 (edit):
+*     [{tipo:'tch197', section_tipo:'tch1', mode:'edit'}]
+*   the same cell in a tch1 LIST (the column map is the section's):
+*     [{tipo:'tch1', section_tipo:'tch1', mode:'list'},
+*      {tipo:'tch197', section_tipo:'tch1'}]
+*
+* The walk is by MODEL, never by depth (client_caller_chain_tripwire): rows
+* (section_record) and groupers are passed through, components collected, a
+* section ends it; any other ancestor (a tool, a service, an area) ends it too —
+* what stands above it is not the cell's data chain. Cycle-safe (tool_common's
+* new-window path sets caller.caller = self).
+*
+* A component whose children its SECTION's map injects (a section list line
+* `{tipo: rsc86, parent: <portal>}`, a nested line a section EDIT
+* request_config declares — DECL → DREL → REL4) is rooted at the SECTION in
+* either mode (section_injects_children), the top-level one included:
+*   DREL, top-level in a test3 edit whose map declares DREL's children:
+*     [{tipo:'test3', section_tipo:'test3', mode:'edit'}]
+*
+* @param {Object} self - The component instance the rqo is built for
+* @returns {Array|null} the chain, or null for a top-level component its
+*   section does not inject into, or a chain the server could not accept (root
+*   mode not edit/list, deeper than CALLERS_MAX_DEPTH)
+*/
+const CALLERS_MAX_DEPTH = 12 // = server MAX_DDO_DEPTH (relations/element_node.ts)
+const CALLERS_ROOT_MODES = ['edit', 'list']
+export const create_callers = function (self) {
+
+	if (!self || typeof self.model!=='string' || !self.model.startsWith('component_')) {
+		return null
+	}
+	// dataframes are paired to their main component, not nested under it
+	if (self.model==='component_dataframe') {
+		return null
+	}
+
+	// the component ancestors, outermost first (get_component_ancestors)
+		const {components, section, dataframe} = get_component_ancestors(self)
+		if (dataframe===true) {
+			return null
+		}
+		if (components.length===0) {
+			// top level: a chain only when the section's map injects this
+			// component's children (its own config otherwise, nothing to resolve
+			// under)
+			const root = section_root_link(section, self)
+			return root ? [root] : null
+		}
+
+	// links
+		const callers = components.map(el => ({
+			tipo			: el.tipo,
+			section_tipo	: el.section_tipo
+		}))
+
+	// root. A LIST column's map is its section's: the section is the root. So is
+	// it when the section's map injects the outermost's children (an EDIT
+	// request_config declaring a nested line, DECL → DREL → REL4 —
+	// section_root_link). Otherwise the outermost component is, with its own
+	// render mode.
+	// The root is where the occurrence was READ, never the cell instance's
+	// current render mode: a list column whose ddo declares mode 'edit', or one
+	// switched to edit inline (component_common change_mode keeps the list read's
+	// context), still sits in the LIST read's map. Server side the section root
+	// is derived in the READ's mode (caller_chain.ts sectionRootNode) and child
+	// lines match by tipo / section only (childLineOf).
+		const outermost		= components[0]
+		const section_root	= section_root_link(section, outermost)
+		if (section && section.mode==='list'
+			&& section.tipo && section.tipo===(section.section_tipo || section.tipo)) {
+			callers.unshift({
+				tipo			: section.tipo,
+				section_tipo	: section.tipo,
+				mode			: 'list'
+			})
+		}else if (section_root) {
+			callers.unshift(section_root)
+		}else{
+			if (!CALLERS_ROOT_MODES.includes(outermost.mode)) {
+				return null
+			}
+			callers[0].mode = outermost.mode
+		}
+
+		if (callers.length > CALLERS_MAX_DEPTH) {
+			return null
+		}
+
+
+	return callers
+}//end create_callers
+
+
+
+/**
+* CREATE_SEARCH_CALLERS
+* The caller chain a component names on its PICKING reads — the autocomplete
+* search (build_rqo_search) and the tree picker's reads (component_portal
+* picker_caller → area_thesaurus / ts_object). Exactly create_callers, plus a
+* TOP-LEVEL component's own section as root: `[{tipo:S, section_tipo:S, mode}]`.
+*
+* WHY. A user may pick a value into a component they can WRITE from a target
+* section they hold no grant on (owner decision (h)/(i), nested-ddo_map plan
+* round 4). The server admits that read ONLY through a VERIFIED chain ending at
+* the component (src/core/security/writer_chain_scope.ts): a top-level
+* component has no component caller, so its chain is its section — the read
+* that rendered it. Its paging read (build_rqo_show) keeps create_callers: no
+* chain there for a top-level component, as before.
+*
+*   rsc91 (autocomplete → toponymy) top-level in an rsc197 edit:
+*     [{tipo:'rsc197', section_tipo:'rsc197', mode:'edit'}]
+*
+* @param {Object} self - The component instance
+* @returns {Array|null} the chain, or null (dataframe, no section, virtual
+*   section mismatch, a root mode the server does not accept)
+*/
+export const create_search_callers = function (self) {
+
+	const callers = create_callers(self)
+	if (callers) {
+		return callers
+	}
+	if (!self || typeof self.model!=='string' || !self.model.startsWith('component_')
+		|| self.model==='component_dataframe') {
+		return null
+	}
+	const {components, section, dataframe} = get_component_ancestors(self)
+	if (dataframe===true || components.length>0) {
+		return null
+	}
+	if (!section || !section.tipo || section.tipo!==(section.section_tipo || section.tipo)) {
+		return null
+	}
+	if (!CALLERS_ROOT_MODES.includes(section.mode)) {
+		return null
+	}
+
+
+	return [{
+		tipo			: section.tipo,
+		section_tipo	: section.tipo,
+		mode			: section.mode
+	}]
+}//end create_search_callers
+
+
+
+/**
+* SECTION_INJECTS_CHILDREN
+* Whether a SECTION instance's own map (its main dedalo request_config item's
+* show ddo_map: the list columns, or the edit request_config it declares)
+* declares children for the component `tipo` — a line with `parent: tipo`. Then
+* that component's context was INJECTED by the section (server: relations/
+* element_node.ts rootNodeFor — the read's column map is the caller of every
+* top-level element), and its own reads must say so (component_portal
+* sends_own_show, create_callers).
+*
+*   test3 list map [test80, {tipo:test52, parent:'test80'}] → test80: true
+*
+* @param {Object|null} section - The section instance (get_component_ancestors)
+* @param {string} tipo - The component tipo
+* @returns {boolean}
+*/
+export const section_injects_children = function(section, tipo) {
+
+	if (!section || typeof tipo!=='string') {
+		return false
+	}
+	const request_config_object = section.request_config_object
+		|| section.context?.request_config?.find(el => el.api_engine==='dedalo' && el.type==='main')
+	const ddo_map = request_config_object?.show?.ddo_map
+
+
+	return Array.isArray(ddo_map) && ddo_map.some(el => el && el.parent===tipo)
+}//end section_injects_children
+
+
+
+/**
+* SECTION_ROOT_LINK
+* Module-private. The SECTION root link `{tipo:S, section_tipo:S, mode}` for a
+* component whose children the section's map injects (section_injects_children),
+* in the section's own render mode (edit / list) — else null. A virtual-section
+* mismatch (tipo ≠ section_tipo) has no root the server can derive.
+* The component's own render mode is NOT compared: the root is the read the
+* section ran (its mode), whatever mode the cell instance renders in now (a
+* list column with ddo mode 'edit', an inline change_mode to edit).
+* @param {Object|null} section
+* @param {Object} component - The outermost component instance (or the top-level one)
+* @returns {Object|null}
+*/
+const section_root_link = function(section, component) {
+
+	if (!section || !section.tipo || section.tipo!==(section.section_tipo || section.tipo)) {
+		return null
+	}
+	if (!CALLERS_ROOT_MODES.includes(section.mode)) {
+		return null
+	}
+	if (!section_injects_children(section, component.tipo)) {
+		return null
+	}
+
+
+	return {
+		tipo			: section.tipo,
+		section_tipo	: section.tipo,
+		mode			: section.mode
+	}
+}//end section_root_link
+
+
+
+/**
+* GET_COMPONENT_ANCESTORS
+* THE one walk up an instance's `.caller` chain to the COMPONENT instances it
+* sits under (nested-ddo_map plan W5). Two consumers read it, and they must
+* agree on what "the chain" is:
+*   - create_callers — `rqo.source.callers`, the chain the server verifies;
+*   - get_caller_chain_tipos — the per-occurrence `caller_chain` a cell's
+*     context / data item is matched by (owner decision (b)).
+*
+* By MODEL, never by depth (client_caller_chain_tripwire): rows
+* (section_record) and groupers are passed through, components collected, a
+* section ends it (and is returned as the root); any other ancestor (a tool, a
+* service, an area) ends it too — what stands above it is not the cell's data
+* chain. Cycle-safe (tool_common's new-window path sets caller.caller = self).
+*
+* Example — tch197's rsc1400 cell, a rsc86 instance inside it:
+*   rsc86 → section_record → rsc1400 → section_record → tch197 → section_group → tch1
+*   get_component_ancestors(rsc86) → {components:[tch197, rsc1400], section:tch1, dataframe:false}
+*
+* @param {Object} instance - Any instance (component, section_record …); the walk starts at its caller
+* @returns {{components: Array<Object>, section: Object|null, dataframe: boolean}}
+*   components outermost first (the instance itself is never included); section
+*   the section that ended the walk, if any; dataframe true when a
+*   component_dataframe stands on the path
+*/
+const CALLERS_PASS_THROUGH = ['section_record', 'section_group', 'section_group_div', 'section_tab', 'tab']
+export const get_component_ancestors = function(instance) {
+
+	const components	= []
+	const visited		= new Set([instance])
+	let section			= null
+	let dataframe		= false
+	let current			= instance ? instance.caller : null
+	while (current && !visited.has(current)) {
+		visited.add(current)
+		const model = current.model
+		if (model==='section') {
+			section = current
+			break
+		}
+		if (typeof model==='string' && model.startsWith('component_')) {
+			if (model==='component_dataframe') {
+				dataframe = true
+			}
+			components.push(current)
+		}else if (!CALLERS_PASS_THROUGH.includes(model) && current.type!=='grouper') {
+			break // a tool / service / area: not the cell's data chain
+		}
+		current = current.caller
+	}
+	components.reverse() // outermost first
+
+
+	return {components, section, dataframe}
+}//end get_component_ancestors
+
+
+
+/**
+* GET_CALLER_CHAIN_TIPOS
+* The component tipos an instance sits under, outermost first — the client
+* side of the server's per-occurrence `caller_chain` (src/core/section/
+* node_contexts.ts: the ancestor TIPO path from the read's top level down to
+* the element's parent, joined by '>'). For a CELL built by a section_record,
+* pass the section_record: the cell's chain is everything above the row.
+*
+*   tch197 → row → [rsc1400 cell]   get_caller_chain_tipos(row) → ['tch197']
+*   a top-level column of a section list                         → []
+*
+* The server's chain is relative to the read that carried it (a page-2
+* get_data of rsc1400 roots its response at rsc1400: rsc1400 itself is '',
+* its cells 'rsc1400'). Each received item is therefore tagged with the path of
+* its read's root (root_caller_chains, at intake — build_autoload,
+* update_datum) and matched EXACTLY on root + chain (select_by_caller_chain);
+* a suffix match survives only for an item that arrived untagged.
+*
+* @param {Object} instance
+* @returns {Array<string>}
+*/
+export const get_caller_chain_tipos = function(instance) {
+
+	return get_component_ancestors(instance).components.map(el => el.tipo)
+}//end get_caller_chain_tipos
+
+
+
+/**
+* ROOT_CALLER_CHAINS
+* Tag every `caller_chain`-stamped item of a READ's response with the path of
+* that read's root (owner decision (b) — W5 review 2026-11-03). The server
+* stamps chains relative to the read's own top level
+* (relations/element_registry.ts ancestorTipos stops at the read's root):
+*   - a SECTION read is rooted at the section: chains are already the cell
+*     paths the client computes (get_caller_chain_tipos) — root ''.
+*   - a COMPONENT's own read (page 2, refresh, save echo) is rooted at the
+*     component: its own entry is '', its cells '<tipo>' — root = the
+*     component's own ancestor path (get_caller_chain_tipos(reader)).
+* So an item's ABSOLUTE chain = root + chain, compared EXACTLY with an
+* instance's path (select_by_caller_chain): no suffix guess, which picks the
+* wrong occurrence when a tipo repeats in the ancestry (a self-portal test80
+* under test80 — path [test80, test80] ends both 'test80' and
+* 'test80>test80').
+*
+* The tag is `caller_root` (a '>'-joined path), NON-enumerable: it never goes
+* back on the wire (JSON) nor survives a structuredClone — such a copy is
+* matched by the legacy suffix rule. Idempotent: an item already tagged keeps
+* its root (a shared datum item is tagged by the read that brought it).
+*
+* @param {Object|null} datum - {context:[], data:[]} of one response
+* @param {Object} reader - The instance that issued the read (section or component)
+* @returns {Object|null} the same datum
+*/
+export const root_caller_chains = function(datum, reader) {
+
+	if (!datum || typeof datum!=='object' || !reader) {
+		return datum
+	}
+
+	// lazily: most responses carry no stamped item at all
+	let root = null
+	const root_of_reader = () => {
+		if (root===null) {
+			root = (typeof reader.model==='string' && reader.model.startsWith('component_'))
+				? get_caller_chain_tipos(reader).join('>')
+				: '' // a section (or any other container) is its read's top level
+		}
+		return root
+	}
+
+	for (const list of [datum.context, datum.data]) {
+		if (!Array.isArray(list)) {
+			continue
+		}
+		for (const item of list) {
+			if (!item || typeof item!=='object' || typeof item.caller_chain!=='string') {
+				continue
+			}
+			if (typeof item.caller_root==='string') {
+				continue // idempotent
+			}
+			Object.defineProperty(item, 'caller_root', {
+				value			: root_of_reader(),
+				enumerable		: false,
+				writable		: true,
+				configurable	: true
+			})
+		}
+	}
+
+
+	return datum
+}//end root_caller_chains
+
+
+
+/**
+* ABSOLUTE_CALLER_CHAIN
+* Module-private. The tipo path of a stamped item from the PAGE's top level
+* (root_caller_chains `caller_root` + its own `caller_chain`), or null when the
+* item arrived untagged (its read's root is unknown).
+* @param {Object} item
+* @returns {Array<string>|null}
+*/
+const absolute_caller_chain = function(item) {
+	if (typeof item.caller_root!=='string') {
+		return null
+	}
+	return [
+		...caller_chain_segments(item.caller_root),
+		...caller_chain_segments(item.caller_chain)
+	]
+}//end absolute_caller_chain
+
+
+
+/**
+* SAME_CHAIN
+* Module-private. Two tipo lists are equal.
+* @param {Array<string>} a
+* @param {Array<string>} b
+* @returns {boolean}
+*/
+const same_chain = function(a, b) {
+	return a.length===b.length && a.every((tipo, i) => tipo===b[i])
+}//end same_chain
+
+
+
+/**
+* CALLER_CHAIN_SEGMENTS
+* A wire `caller_chain` ('tch197>rsc1400', '' = top level) as its tipo list.
+* @param {string} caller_chain
+* @returns {Array<string>}
+*/
+const caller_chain_segments = function(caller_chain) {
+	return caller_chain==='' ? [] : caller_chain.split('>')
+}//end caller_chain_segments
+
+
+
+/**
+* IS_CHAIN_SUFFIX
+* Whether `suffix` (tipo list) ends `path` (tipo list).
+* @param {Array<string>} suffix
+* @param {Array<string>} path
+* @returns {boolean}
+*/
+const is_chain_suffix = function(suffix, path) {
+	if (suffix.length > path.length) {
+		return false
+	}
+	const offset = path.length - suffix.length
+	for (let i = 0; i < suffix.length; i++) {
+		if (suffix[i]!==path[offset + i]) {
+			return false
+		}
+	}
+	return true
+}//end is_chain_suffix
+
+
+
+/**
+* SELECT_BY_CALLER_CHAIN
+* Pick, among the context entries (or data items) sharing one identity key
+* (tipo, section_tipo, mode …), the one whose `caller_chain` belongs to the
+* instance path `chain_tipos` (owner decision (b), 2026-11-03 — each occurrence
+* resolves its own; server: src/core/section/node_contexts.ts).
+*
+* The server stamps `caller_chain` ONLY when one key has two or more distinct
+* effective configs in a response; otherwise no candidate carries it and the
+* first one wins — exactly the previous first-wins `.find()`.
+*
+* Matching: a candidate TAGGED with its read's root (root_caller_chains) matches
+* when root + chain EQUALS `chain_tipos` exactly — the response may be rooted
+* below the page's top (a nested portal's page 2), the tag puts its chains back
+* on the page's path. An UNTAGGED stamped candidate (a cloned item, a
+* hand-built datum) falls back to the legacy rule: its chain must be a SUFFIX
+* of `chain_tipos`, the LONGEST matching suffix wins. With no stamped match: the
+* first UNSTAMPED candidate; else the ONE untagged stamped chain the path
+* itself ends (a response chain longer than the client can see — a tool
+* between the cell and its section); else NOTHING (undefined, warned). Never an arbitrary stamped candidate: that is another
+* parent's config, the very thing decision (b) exists to prevent. The server
+* gives EVERY chain of a split key its own entry (node_contexts.ts
+* NodeContextSet.absorb), so a cell of a real read always finds its own.
+*
+*   candidates: [{caller_chain:'tch197', …[rsc86, rsc85]}, {caller_chain:'P2', …[rsc85]}]
+*   chain_tipos ['P2']               → the P2 entry
+*   chain_tipos ['tch1x', 'tch197']  → the tch197 entry
+*
+* @param {Array<Object>} candidates - entries sharing one identity key, in datum order
+* @param {Array<string>|Function} chain_tipos - the instance path, or a function
+*   returning it (called only when a choice is really needed)
+* @returns {Object|undefined} the selected candidate (undefined for no candidates)
+*/
+export const select_by_caller_chain = function(candidates, chain_tipos) {
+
+	if (!candidates || candidates.length===0) {
+		return undefined
+	}
+	if (candidates.length===1) {
+		return candidates[0]
+	}
+	const stamped = candidates.filter(el => typeof el.caller_chain==='string')
+	if (stamped.length===0) {
+		return candidates[0]
+	}
+
+	const path = typeof chain_tipos==='function'
+		? (chain_tipos() || [])
+		: (chain_tipos || [])
+
+	// tagged: exact, on the page's path
+	const exact = stamped.find(el => {
+		const absolute = absolute_caller_chain(el)
+		return absolute!==null && same_chain(absolute, path)
+	})
+	if (exact) {
+		return exact
+	}
+
+	// untagged (legacy): the longest stamped suffix of the path
+	const untagged = stamped.filter(el => typeof el.caller_root!=='string')
+	let best		= null
+	let best_length	= -1
+	for (const candidate of untagged) {
+		const segments = caller_chain_segments(candidate.caller_chain)
+		if (segments.length > best_length && is_chain_suffix(segments, path)) {
+			best		= candidate
+			best_length	= segments.length
+		}
+	}
+	if (best) {
+		return best
+	}
+
+	const unstamped = candidates.find(el => typeof el.caller_chain!=='string')
+	if (unstamped) {
+		return unstamped
+	}
+
+	// the path is a suffix of exactly ONE untagged stamped chain (the client
+	// sees less of the ancestry than the response was rooted at)
+	const extending = untagged.filter(el => is_chain_suffix(path, caller_chain_segments(el.caller_chain)))
+	if (extending.length===1) {
+		return extending[0]
+	}
+
+	console.warn('[select_by_caller_chain] no occurrence matches the instance path:', path, stamped.map(el => el.caller_chain));
+
+
+	return undefined
+}//end select_by_caller_chain
+
+
+
+/**
+* CALLER_CHAINS_COMPATIBLE
+* Whether two items of one identity key may be the SAME occurrence when one
+* response is merged into a shared datum (component_common.update_datum).
+* Unstamped on either side → compatible (the pre-(b) identity). Both stamped
+* AND both tagged with their read's root (root_caller_chains `caller_root`) →
+* compatible only when the absolute chains are EQUAL ('tch197>rsc1400' from
+* the section read and 'rsc1400' rooted at 'tch197' from that portal's own page
+* 2 are one occurrence; a repeated tipo — 'test80' vs 'test80>test80' — is
+* two). Otherwise (an untagged side) the legacy rule: compatible when one chain
+* is a suffix of the other — never two different parents ('tch197' vs 'P2').
+*
+* @param {string|undefined} chain_a
+* @param {string|undefined} chain_b
+* @param {string} [root_a] - chain_a's item `caller_root`, when tagged
+* @param {string} [root_b] - chain_b's item `caller_root`, when tagged
+* @returns {boolean}
+*/
+export const caller_chains_compatible = function(chain_a, chain_b, root_a, root_b) {
+
+	if (typeof chain_a!=='string' || typeof chain_b!=='string') {
+		return true
+	}
+	if (typeof root_a==='string' && typeof root_b==='string') {
+		return same_chain(
+			[...caller_chain_segments(root_a), ...caller_chain_segments(chain_a)],
+			[...caller_chain_segments(root_b), ...caller_chain_segments(chain_b)]
+		)
+	}
+	const a = caller_chain_segments(chain_a)
+	const b = caller_chain_segments(chain_b)
+
+
+	return a.length <= b.length
+		? is_chain_suffix(a, b)
+		: is_chain_suffix(b, a)
+}//end caller_chains_compatible
+
+
+
+/**
+* SAME_OCCURRENCE_ON_MERGE
+* Whether an INCOMING item of a response may be merged INTO an EXISTING datum
+* item of the same identity key (component_common.update_datum — owner
+* decision (b)). Directional, unlike caller_chains_compatible:
+*   - incoming UNSTAMPED → the pre-(b) identity: it matches any existing item
+*     (stamped or not) and updates it in place.
+*   - incoming STAMPED → it matches only a STAMPED existing item with a
+*     compatible chain. An UNSTAMPED existing entry is never its twin: the
+*     server stamps a key only when it splits WITHIN one response
+*     (node_contexts.ts), so a key can arrive unstamped in the section read and
+*     split only in a later read (a nested portal's page 2, a refresh after a
+*     link is added). Matching that unstamped entry would swallow EVERY stamped
+*     occurrence ('P' and 'P>Q' alike) and lose the split. The stamped items
+*     are appended beside it instead; select_by_caller_chain prefers an exact
+*     stamped match, so each cell takes its own occurrence and the stale
+*     unstamped entry serves only paths no stamped one matches.
+*
+* @param {Object} existing - item already in the shared datum
+* @param {Object} incoming - item of the response being merged
+* @returns {boolean}
+*/
+export const same_occurrence_on_merge = function(existing, incoming) {
+
+	if (typeof incoming.caller_chain!=='string') {
+		return true
+	}
+	if (typeof existing.caller_chain!=='string') {
+		return false
+	}
+
+
+	return caller_chains_compatible(existing.caller_chain, incoming.caller_chain, existing.caller_root, incoming.caller_root)
+}//end same_occurrence_on_merge
+
+
+
+/**
 * REBUILD_COMPONENT_IN_LANG
 * Switch an ALREADY-BUILT component to another data language and really reload
 * its data in that language.
@@ -2304,6 +2928,12 @@ common.prototype.build_rqo_show = async function(_request_config_object, action,
 	// source. build new one with source of the instance caller (self)
 		const source = create_source(self, action)
 
+	// callers. A nested component names its caller chain (create_callers)
+		const callers = create_callers(self)
+		if (callers) {
+			source.callers = callers
+		}
+
 	// sqo_config
 		const sqo_config = request_config_object && request_config_object.show && request_config_object.show.sqo_config
 			? request_config_object.show.sqo_config
@@ -2438,6 +3068,15 @@ common.prototype.build_rqo_search = async function(request_config_object, action
 
 	// build new one with source of the instance caller (self)
 		const source	= create_source(self, action);
+
+	// callers. The component names its caller chain (create_search_callers —
+	// a top-level one names its section): the search read floor then admits
+	// the fields its caller injected, and a WRITER component may search a
+	// target section the user holds no grant on (scoped, server-verified)
+		const callers = create_search_callers(self)
+		if (callers) {
+			source.callers = callers
+		}
 
 	// get the operator to use into the filter free
 	// '$or' default mirrors the server default in request_config_utils
@@ -3422,6 +4061,10 @@ export const build_autoload = async function(self, {recovery_retry=false}={}) {
 
 			return false
 		}//end if (request_failed(api_response) || !response_data(api_response))
+
+	// per-occurrence chains (owner decision (b)) are relative to THIS read's
+	// root: tag them before any consumer matches a cell (root_caller_chains)
+		root_caller_chains(response_data(api_response), self)
 
 
 	return api_response

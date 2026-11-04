@@ -64,6 +64,7 @@ describe.if(hasPhpCredentials())('virtual section edit differential (SECTION_SPE
 
 		clearStructureContextCache();
 		const tsEntry = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo: VIRTUAL_SECTION,
 			sectionTipo: VIRTUAL_SECTION,
 			mode: 'edit',

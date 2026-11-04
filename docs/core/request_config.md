@@ -36,8 +36,10 @@ relations/request_config/build.ts       # buildRequestConfigForElement() — the
 |-------|----------------|-------------|
 | `concepts/request_config.ts` | Pure contract: schemas, the explicit/implicit selection rule | `requestConfigSchema`, `selectRequestConfigStrategy()`, `EXPLICIT_CONFIG_REQUIRED_MODELS` |
 | `relations/request_config/build.ts` | Entry point: preset override, LIST/TM section_list substitution, then explicit/implicit dispatch | `buildRequestConfigForElement()`, `getElementColumnsMap()`, `findSectionListChild()` |
-| `relations/request_config/explicit.ts` | Explicit config parsing: ddo self-resolution, mode/label enrichment, `get_ddo_map`, the enriched `sqo.section_tipo` ddo objects, per-ddo permission gating | `buildExplicitRequestConfig()`, `resolveSqoSectionTipos()`, `buildSqoSectionTipoDdos()`, `processRqoChildren()` |
+| `relations/request_config/explicit.ts` | Explicit config parsing: ddo self-resolution, mode/label enrichment, `get_ddo_map`, the enriched `sqo.section_tipo` ddo objects, per-ddo permission gating | `buildExplicitRequestConfig()`, `resolveSqoSectionTipos()`, `buildSqoSectionTipoDdos()` |
 | `relations/request_config/implicit.ts` | The ontology-relation-graph walk (component list targets + the full section edit-form tree) | `buildImplicitComponentListConfig()`, `buildImplicitSectionEditConfig()`, `resolveVirtualEditScope()` |
+| `relations/request_config/from_rqo.ts` | Stage 1: the config of the element a request TARGETS, built from the request's own `show` (client grammar, per-ddo grant judgement, the scrubbed and clamped client `sqo`) | `buildRequestConfigFromRqo()` |
+| `relations/request_config/caller_injection.ts` | Caller children: the slots a caller's map declares for a nested element replace that element's own, per slot and per engine | `injectCallerChildren()` |
 | `relations/request_config/presets.ts` | Per-user saved layout overrides (section `dd1244`) | `resolvePresetRequestConfig()`, `getActiveRequestConfigPresets()`, `selectMatchingPreset()` |
 | `relations/request_config/filters.ts` | Live `filter_by_list` / `fixed_filter` expansion (record/DB data, never cached) | `expandFilterByList()`, `expandFixedFilter()` |
 | `relations/request_config/external.ts` | Attaches the TARGET section's `api_config` for non-`dedalo` engines, shaped for publication (credential keys stripped, unknown keys dropped, `http(s)`-only URLs) | `resolveExternalConfig()` |
@@ -105,7 +107,7 @@ Per-ddo permission gating (dropping ddos the current user holds permission 0 on)
 
 ## Construction flow
 
-`buildRequestConfigForElement()` runs three concerns in sequence: an optional per-user layout-preset override, the base build (section_list substitution + strategy selection + the matching builder), and — when the request carries client children ddos — an RQO-derived narrowing overlay. Every call is a plain, stateless async function of `(properties, context)` scoped to the current request (`AsyncLocalStorage`; see `src/core/resolve/request_lang.ts` for the pattern) — there is no cross-request cache to bleed between users (see [Caching](#caching-and-the-cache-key) below).
+`buildRequestConfigForElement()` runs two concerns in sequence: an optional per-user layout-preset override, then the base build (section_list substitution + strategy selection + the matching builder). What the REQUEST then changes is decided by the element node the read resolves for each element occurrence (`relations/element_node.ts` `resolveElement`): stage 1 when the request targets the element, the caller's children when it is nested — see [RQO-derived narrowing](#rqo-derived-narrowing-the-reverse-path-partial). Every call is a plain, stateless async function of `(properties, context)` scoped to the current request (`AsyncLocalStorage`; see `src/core/resolve/request_lang.ts` for the pattern) — there is no cross-request cache to bleed between users (see [Caching](#caching-and-the-cache-key) below).
 
 ```mermaid
 flowchart TD
@@ -114,11 +116,13 @@ flowchart TD
     B --> C{"selectRequestConfigStrategy()<br/>explicit or implicit?"}
     C -->|explicit| D["buildExplicitRequestConfig()<br/>+ live filter_by_list/fixed_filter/external expansion"]
     C -->|implicit| E["buildImplicitComponentListConfig() /<br/>buildImplicitSectionEditConfig()"]
-    D --> F{client sent<br/>show.ddo_map?}
+    D --> F{"resolveElement()<br/>(relations/element_node.ts)"}
     E --> F
-    F -->|yes| G["processRqoChildren()<br/>replaces show.ddo_map with the<br/>validated client ddos"]
-    F -->|no| H[stamped onto the element context]
-    G --> H
+    F -->|request targets the element| G["stage 1: buildRequestConfigFromRqo()<br/>(relations/request_config/from_rqo.ts)"]
+    F -->|nested under a caller| I["injectCallerChildren()<br/>(relations/request_config/caller_injection.ts)<br/>per slot, per engine"]
+    F -->|neither| H
+    G --> H["the element node: its data AND<br/>its serialised context"]
+    I --> H
 ```
 
 ### Base build — strategy selection (every call)
@@ -127,7 +131,13 @@ flowchart TD
 
 ### RQO-derived narrowing (the reverse path, partial)
 
-The base build always runs first (time machine, `tool_qr`, graph view, "portal full grid in one read" — [cookbook #18](request_config_examples.md#18-portal-full-grid-in-one-read)): `structure_context.ts` always runs the base build, then — only when the request carries client children ddos (`options.rqoChildrenDdos`) — calls `processRqoChildren()` (`relations/request_config/explicit.ts`) to REPLACE each parsed item's `show.ddo_map` with the client-sent ddos, each passed through the same self-resolution/mode/label enrichment pipeline as an ontology ddo. There is no separate structural-validation pass beyond that enrichment pipeline today — be careful relying on it as the sole gate for a security-sensitive client-ddo surface.
+The base build always runs first (time machine, `tool_qr`, graph view, "portal full grid in one read" — [cookbook #18](request_config_examples.md#18-portal-full-grid-in-one-read)). What a request then changes is decided ONCE per element occurrence, by the element node the read resolves (`relations/element_node.ts` `resolveElement`):
+
+- **Stage 1** — the request TARGETS the element and carries a `show`: `relations/request_config/from_rqo.ts` `buildRequestConfigFromRqo` builds the config from the request (validated, consolidated, client ddos outside the client grammar dropped).
+- **Caller children** — the element sits under a caller whose map declares children for it: `relations/request_config/caller_injection.ts` `injectCallerChildren` replaces the matching slot (`show` / `search` / `choose` / `hide`) of the element's FIRST config item of each engine.
+- **Governing ddo** — the caller's line for the element supplies its page size (`sqo.limit`), `view`, `mode`, `lang`, `parent_grouper` and a `properties` merge.
+
+The element's context is serialised from that same node (`section/node_contexts.ts`, `buildStructureContext` with `configFrom: {source: 'emission', node}`), so its `request_config` always describes what its data used. The doors that build a context without a node name their reason from a closed list (`OWN_CONTEXT_REASONS` in `resolve/structure_context.ts`, censused by `test/unit/structure_context_own_census.test.ts`). When one element (same `tipo`, `section_tipo`, `mode`) resolves different configs under different parents in one read, each config ships its own context entry, and those entries and their data items carry `caller_chain` — the ancestor tipo path, joined by `>` — so the client binds each cell to the right one. Under one parent the first config wins, as for identical configs: a configuration that varies with the owning record (an `sqo.fixed_filter` read from the record) ships the first row's context, not one per row.
 
 ### Per-call overlay (session sqo)
 
@@ -212,13 +222,20 @@ See [dd_object.md](dd_object.md) for the per-field contract. Note `parent_groupe
 
 A ddo whose `parent` names a *relation* component is resolved **inside that component's target section**, and its own children below it, to as many levels as the map declares. On the `monedaiberica` install the `numisdata3` list column is three levels deep: `numisdata77` (`component_portal`, targeting `numisdata4`) → `numisdata164`/`numisdata165` (`component_portal`, the obverse and reverse faces, targeting `rsc170`) → `rsc29` (`component_image`, the thumbnail actually shown in the cell).
 
-Two consequences worth knowing before you author a nested map:
+Three rules worth knowing before you author a nested map.
 
-!!! warning "Declare every level you want resolved"
-    A nested relation component does **not** fall back to its own `request_config` in list mode — the caller's map is the whole story. Declare `numisdata164` but omit `rsc29` and you get the portal's locator item and nothing under it: the cell renders empty, with no error. In edit mode the same rule appears as a precedence — a level the caller's map declares wins over the nested component's own config.
+!!! info "The caller's children replace the nested component's own, slot by slot"
+    Every element of a nested map has ONE effective config, built from its own `request_config` and the children its caller declares for it. The caller's map is matched to an element by `parent` (and, for an engine other than `dedalo`, by `api_engine`), and it replaces only the slots it fills: children the caller declares under `show` replace the element's own `show`; a slot the caller leaves empty (`hide`, `search`, `choose`) keeps the element's own. A level the caller does **not** declare falls back to the element's own `request_config` — in list mode its `section_list` — in every mode. So declaring `numisdata164` without `rsc29` resolves `numisdata164` with its own columns; it does not render an empty cell.
 
-!!! note "There is a depth ceiling"
-    Because a map is a flat list, `[{A, parent: section}, {B, parent: A}, {A, parent: B}]` describes a cycle. Nesting is bounded at **12 levels** (`MAX_DDO_DEPTH`, `src/core/section/read.ts`); a map that exceeds it is refused with `request.invalid_rqo` rather than resolved part-way. Real chains are two or three levels, so the ceiling only ever catches a malformed map.
+    A real example, from the `rsc`/`tch` core ontology: `tch197` (`component_portal` "Tasks", targeting `rsc1389` "Work process") lists `rsc1399` (Task), `rsc1400` and `rsc1402` (`component_autocomplete`, both targeting `rsc197` "People"). For `rsc1400` it declares `rsc86` (Surname) then `rsc85` (Name); `rsc1400`'s own `show` is `rsc85` then `rsc86`. Inside the Tasks portal the "Assigned user" cell therefore reads *surname, name* — the caller's order — while the same `rsc1400` opened on its own section reads *name, surname*. For `rsc1402` the caller declares `rsc85` then `rsc86`, so that cell reads *name, surname*.
+
+    Because a map is flat, children match by `parent` alone: one map that names the same component under two different parents gives it the UNION of the children declared for it. Two different callers (two portals with their own maps) each give it their own.
+
+!!! note "Depth and cycles are bounded"
+    Nesting is bounded at **12 levels** (`MAX_DDO_DEPTH`, `src/core/relations/element_node.ts`). A chain the ontology drives stops one level before the bound and the response carries a `relation.depth_bound_stopped` notice naming where it stopped; a map sent by the client that would go past it is refused with `request.invalid_rqo` rather than resolved part-way. Records cycle too — a person whose portal points back to the record above it — and a record already being expanded higher up the same chain is not expanded again: the chain stops there with a `relation.record_cycle_stopped` notice. Real chains are two or three levels, so these bounds only catch a malformed map or cyclic data.
+
+!!! note "Paging a nested portal keeps its columns"
+    The next page of a nested portal is read with the same effective config as the first page: the client sends the chain of callers it is nested under (`rqo.source.callers`), the server verifies that chain against the ontology, and the page resolves the columns the caller declared. A chain that does not verify is ignored (the element falls back to its own config), never trusted.
 
 ## Self-resolution and dynamic `section_tipo` sources
 
@@ -232,6 +249,9 @@ The ontology cannot know installation-specific tipos, so configs use placeholder
 |-------|--------------------|
 | `section_tipo` | the item's resolved `sqo.section_tipo` targets — or the CALLER's own section_tipo (scalar) for `component_dataframe` |
 | `parent` | `context.ownerTipo` (the current element's tipo) |
+
+!!! warning "`section_tipo: \"self\"` is valid only at the first level"
+    `self` names the targets of the element that owns the map, so it is meaningful only for a ddo whose `parent` is that element (`parent: "self"`). Below the first level — a ddo whose parent is a nested relation component — the read skips the ddo and the response carries an `ontology.ddo_self_refused` notice naming it. That holds for every map owner, a section's own `section_list` / edit map included (the notice's owner is then the section); only a door that has no response to carry it — the Time Machine scope derivation, the caller-chain verifier, the area boot map and the context-only own-config build — writes a bounded server log line instead. Declare the section explicitly (`"section_tipo": "rsc197"`) or as a source array (`"section_tipo": [{"source": "hierarchy_types", "value": [2]}]`), which a nested ddo resolves the same way a `sqo.section_tipo` does. The maintenance reconcile check `ddo_self_depth` lists every installed definition that still declares a deep `self`, so they can be corrected on the master ontology before a reader meets the notice.
 
 ### `sqo.section_tipo` source vocabulary
 
@@ -329,9 +349,17 @@ There is no config-level cache: every `buildRequestConfigForElement()` call is a
 
 ## Error contract and warnings
 
-An invalid tipo, an unresolvable node, or a missing model simply produces `null`/is filtered out of the ddo_map (the `return null` steps in `processSingleDdo()`) — there is no separate warnings collection or debug-gated surface to inspect. `EXPLICIT_CONFIG_REQUIRED_MODELS` (`component_relation_parent`/`children`) is the one case that throws instead of dropping silently.
+An invalid tipo, an unresolvable node, or a missing model simply produces `null`/is filtered out of the ddo_map (the `return null` steps in `processSingleDdo()`), with no report. `EXPLICIT_CONFIG_REQUIRED_MODELS` (`component_relation_parent`/`children`) is the one case that throws instead of dropping silently.
 
-The raw maps a relation component's LIST cell expands (`resolveListCellMap()` / `resolveOwnConfigMap()` / `resolveFrameConfig()` in `src/core/section/list_definitions/section_list.ts`) do not pass through `processSingleDdo()`, so `pickConfig()` applies the same rule there: a ddo whose tipo has no resolvable model is dropped with a `[section_list] dropped ddo …` server warning. This is what keeps a shipped config naming an optional TLD the installation does not have (the `rsc` place components rsc92/rsc65/rsc119 name `tchi15`) from failing the whole record read with `request.invalid_tipo`. Gate: `test/unit/list_cell_unresolvable_ddo_native.test.ts`. To debug an empty `ddo_map`, step through `buildRequestConfigForElement()`/`processSingleDdo()` directly rather than reading a warnings field from the response.
+The raw maps a relation component's LIST cell expands (`resolveListCellMap()` / `resolveOwnConfigMap()` / `resolveFrameConfig()` in `src/core/section/list_definitions/section_list.ts`) do not pass through `processSingleDdo()`, so `pickConfig()` applies the same rule there: a ddo whose tipo has no resolvable model is dropped with a `[section_list] dropped ddo …` server warning. This is what keeps a shipped config naming an optional TLD the installation does not have (the `rsc` place components rsc92/rsc65/rsc119 name `tchi15`) from failing the whole record read with `request.invalid_tipo`. Gate: `test/unit/list_cell_unresolvable_ddo_native.test.ts`. Three skips ARE reported, because a reader would otherwise chase a missing column:
+
+| What was skipped | Where it is reported |
+|------------------|----------------------|
+| A ddo declaring `section_tipo: "self"` below the first level | an `ontology.ddo_self_refused` notice in the response's `notices[]`, naming the owner, the ddo, its parent and its depth — for every map owner, a SECTION's own `section_list` / edit map included (owner = the section). Only a door with no response (Time Machine scope derivation, caller-chain verifier, area boot map, context-only own-config build) writes one bounded `[request_config/explicit]` server log line instead |
+| A chain stopped by the record-cycle or the depth bound | a `relation.record_cycle_stopped` / `relation.depth_bound_stopped` notice in `notices[]` |
+| Client ddos dropped or limits clamped by stage 1 (the request's own `show`) | one bounded `[request_config/from_rqo]` server log line per element |
+
+The notice codes and the envelope's `notices[]` are described in [Errors](system/errors.md). For any other empty `ddo_map`, step through `buildRequestConfigForElement()`/`processSingleDdo()` directly.
 
 ## Best practices
 
@@ -346,11 +374,11 @@ The raw maps a relation component's LIST cell expands (`resolveListCellMap()` / 
 
 ## Troubleshooting
 
-- **Empty `ddo_map`** — verify the `section_tipo` source resolves and that the node/model lookups in `processSingleDdo()` succeed; there is no warnings field to inspect — step through the builder directly.
+- **Empty `ddo_map`** — first look at the response's `notices[]` and the server log for the reported skips (see [Error contract and warnings](#error-contract-and-warnings)); otherwise verify the `section_tipo` source resolves and that the node/model lookups in `processSingleDdo()` succeed, stepping through the builder directly.
 - **`self` not resolving** — remember it resolves to the item's SQO TARGET sections for a normal ddo, and to the CALLER's own section only for `component_dataframe` (`processSingleDdo()`); confirm which one applies.
 - **Config changes not taking effect** — there is no config-level cache (see [Caching](#caching-and-the-cache-key)), so a stale value here is almost certainly upstream (the ontology read cache) rather than a request_config cache mismatch.
 - **`component_relation_parent`/`children` throws** — these models require an explicit `request_config`; give the node one.
-- **A nested column renders empty** — the map almost certainly stops one level short. A relation ddo resolves only the children the map declares under it (see [Nesting](#nesting--a-ddo_map-is-a-flat-list-made-a-tree-by-parent)); confirm the leaf ddo is present with its `parent` set to the relation component directly above it, not to the section.
+- **A nested column renders empty** — a level the map does not declare falls back to the element's own config (see [Nesting](#nesting--a-ddo_map-is-a-flat-list-made-a-tree-by-parent)), so a map that stops short is not the cause. Look in the response's `notices[]`: an `ontology.ddo_self_refused` notice means the leaf declares `section_tipo: "self"` below the first level (declare its section explicitly); a `relation.record_cycle_stopped` or `relation.depth_bound_stopped` notice means the chain was stopped by a record cycle or the depth bound. With no notice, check the leaf's `parent` names the relation component directly above it and, for a column of the section itself, that the user holds a grant on it: a section column the user may not read is dropped, while the children of a relation component are shown at least read-only.
 - **`request.invalid_rqo` on a read that used to work** — check the map for a `parent` cycle; nesting is capped at 12 levels.
 - **Preset not applied** — presets only override SECTION owners (`context.ownerIsSection`); confirm the preset's `(tipo, section_tipo, mode)` triple matches and that it is marked active (`dd1566`).
 
@@ -376,7 +404,10 @@ export function selectRequestConfigStrategy(properties: unknown): 'explicit' | '
 - `src/core/relations/request_config/presets.ts` — per-user saved layout overrides
 - `src/core/relations/request_config/filters.ts` — `filter_by_list` / `fixed_filter` live expansion
 - `src/core/relations/request_config/external.ts` — non-`dedalo` engine `api_config` attachment
-- `src/core/resolve/structure_context.ts` — where the parsed config gets stamped onto an element's context (and where the RQO-children narrowing happens)
+- `src/core/resolve/structure_context.ts` — serialises an element node's effective config onto its context (`configFrom({source: 'emission', node})`); it does no narrowing of its own
+- `src/core/relations/element_node.ts` — `resolveElement`: one element node per parent occurrence, its effective config (own config with the caller's slots injected, the governing ddo's `limit`)
+- `src/core/relations/request_config/caller_injection.ts` — how a caller's `ddo_map` children replace an element's own slots
+- `src/core/relations/request_config/from_rqo.ts` — stage 1: the `show`/`search` a request sends, checked and merged onto the element's config
 
 ## Related documentation
 

@@ -212,6 +212,7 @@ describe('effective properties merge (top-level-key wholesale)', () => {
 describe('wire identity — structure context (WC-020)', () => {
 	test('context: tipo=alias, model/legacy_model=target, label=alias term, config merged', async () => {
 		const entry = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo: ALIAS,
 			sectionTipo: SECTION,
 			mode: 'edit',

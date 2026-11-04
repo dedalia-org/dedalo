@@ -55,6 +55,7 @@ async function toolNamesOf(
 	simple = false,
 ): Promise<string[]> {
 	const entry = await buildStructureContext({
+		configFrom: { source: 'own', reason: 'unit-test' },
 		tipo,
 		sectionTipo,
 		mode,

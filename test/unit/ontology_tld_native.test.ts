@@ -320,6 +320,7 @@ describe('layer 2 — the save refusal', () => {
 describe('layer 3 — the read-only display stamp', () => {
 	const build = (tipo: string, sectionTipo: string) =>
 		buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo,
 			sectionTipo,
 			mode: 'edit',

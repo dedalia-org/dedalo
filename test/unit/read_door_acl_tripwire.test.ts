@@ -419,7 +419,7 @@ describe('F — the human read’s write side goes through ONE grant', () => {
 		expect(count(facade, "import('./record/external_refresh.ts')")).toBe(1);
 		expect(count(facade, 'maybeRefreshExternal(rqo, principal)')).toBe(1);
 		const refreshAt = facade.indexOf('maybeRefreshExternal(rqo, principal)');
-		const readAt = facade.indexOf('const componentData = await readComponentData(rqo);');
+		const readAt = facade.indexOf('await readComponentDataEmission(rqo);');
 		expect(readAt).toBeGreaterThan(refreshAt);
 		// no other write door is imported by the read facade
 		for (const writer of ['observers.ts', 'save_component.ts', 'record_write.ts']) {

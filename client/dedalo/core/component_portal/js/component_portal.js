@@ -60,7 +60,11 @@
 		create_source,
 		lock_rows,
 		destroy_row_windows,
-		destroy_unwindowed_dependencies
+		destroy_unwindowed_dependencies,
+		get_caller_chain_tipos,
+		select_by_caller_chain,
+		create_callers,
+		create_search_callers
 	} from '../../common/js/common.js'
 	import {component_common, init_events_subscription, check_unsaved_data} from '../../component_common/js/component_common.js'
 	import {DATAFRAME_TYPE} from '../../component_common/js/dataframe.js'
@@ -698,6 +702,127 @@ component_portal.prototype.init = async function(options) {
 
 
 /**
+* SENDS_OWN_SHOW
+* Whether this portal's own reads carry its context's show / search ddo_map
+* (`add_show`, owner decision (a) — consistent paging) — whenever its context
+* may have been INJECTED: a NESTED instance (a component stands above it in the
+* caller chain, get_component_ancestors), or a top-level one whose SECTION's map
+* declares its children (section_injects_children — the section is the caller
+* of every top-level column, server relations/element_node.ts rootNodeFor).
+* Only on get_data, only in the cell modes ('edit', 'list'), never for a
+* component_dataframe (paired to its main item, read through its own door).
+*
+*   tch1 edit → tch197 (top level, own map)               → false (its own config)
+*   test3 list [test80, test52<test80] → test80 (top)     → true  (section-injected)
+*   tch197 → row → rsc1400 (nested, list)                 → true
+*
+* The server merges the sent maps onto the element's resolved config and
+* replaces ONLY show / search (relations/element_node.ts mergeComponentStageOne):
+* hide, choose, the other engines and the sqo (a fresh fixed_filter) stay its own.
+*
+* @param {Object} self - The component_portal instance
+* @param {string} action - 'get_data' | 'resolve_data'
+* @returns {boolean}
+*/
+export const sends_own_show = function(self, action) {
+
+	if (action!=='get_data' || self.model==='component_dataframe') {
+		return false
+	}
+	if (self.mode!=='edit' && self.mode!=='list') {
+		return false
+	}
+
+
+	// a show map never travels without the chain that verifies it: whenever
+	// create_callers has no chain to send (a top-level portal its section does
+	// not inject into, a dataframe ancestry, a chain the server could not accept),
+	// the read resolves the portal's own config. create_callers returns a chain
+	// exactly when the portal is nested or section-injected (section_injects_children).
+	return create_callers(self)!==null
+}//end sends_own_show
+
+
+
+/**
+* ATTACH_SHOW_MAPS
+* Put the context's show / search ddo_map on a nested portal's rqo (add_show,
+* owner decision (a)). The server copies ONLY `ddo_map` from `show` and
+* `search` (request_config/from_rqo.ts — never `sqo_config`, never choose /
+* hide), so only the maps travel: `rqo.show = {ddo_map}`, plus
+* `rqo.search = {ddo_map}` when the context declares a search map. Clones —
+* the context's maps are never shared with the wire object.
+*
+* @param {Object} rqo - The rqo build_rqo_show returned (mutated)
+* @param {Object|null} request_config_object - The main dedalo request_config item
+* @returns {Object} rqo
+*/
+export const attach_show_maps = function(rqo, request_config_object) {
+
+	const show_map		= request_config_object?.show?.ddo_map
+	const search_map	= request_config_object?.search?.ddo_map
+
+	rqo.show = {
+		ddo_map : Array.isArray(show_map) ? clone(show_map) : []
+	}
+	if (Array.isArray(search_map)) {
+		rqo.search = {
+			ddo_map : clone(search_map)
+		}
+	}else{
+		delete rqo.search
+	}
+
+
+	return rqo
+}//end attach_show_maps
+
+
+
+/**
+* MERGE_FIXED_FILTER_SQO
+* A refresh of a portal whose config carries a `fixed_filter` (resolved server
+* side from live record data, e.g. an observed component value) takes the
+* FRESH sqo of each request_config item — matched by api_engine + type — and
+* NOTHING else: the context is write-once, so show / search / choose / hide stay
+* what the caller injected (tch197's [rsc86 surname, rsc85 name] must not flip
+* back to rsc1400's own [rsc85, rsc86] on refresh — plan E11; the old code
+* replaced the whole request_config). An item the fresh config has but the
+* context lacks is not added (the context's shape is the caller's).
+*
+* @param {Object} context - self.context (its request_config items mutated in place)
+* @param {Array<Object>} fresh_request_config - The refreshed context's request_config
+* @returns {boolean} true when at least one sqo was taken
+*/
+export const merge_fixed_filter_sqo = function(context, fresh_request_config) {
+
+	const current_request_config = context?.request_config
+	if (!Array.isArray(current_request_config) || !Array.isArray(fresh_request_config)) {
+		return false
+	}
+
+	let merged = false
+	for (const fresh_item of fresh_request_config) {
+		if (!fresh_item || !fresh_item.sqo) {
+			continue
+		}
+		const current_item = current_request_config.find(el =>
+			el.api_engine===fresh_item.api_engine && el.type===fresh_item.type
+		)
+		if (!current_item) {
+			continue
+		}
+		current_item.sqo = clone(fresh_item.sqo)
+		merged = true
+	}
+
+
+	return merged
+}//end merge_fixed_filter_sqo
+
+
+
+/**
 * BUILD
 * Loads server data (context + data) when `autoload=true`, then resolves all
 * instance state that depends on context: RQO, columns_map, paginator, show_interface
@@ -776,13 +901,34 @@ component_portal.prototype.build = async function(autoload=false) {
 			// In search mode the portal acts as a filter input; it sends 'resolve_data'
 			// with the current locator entries as the source value so the search engine
 			// can identify matching records.
+			// add_show — CONSISTENT PAGING (owner decision (a), nested-ddo_map plan): a
+			// NESTED portal's context came from its caller, which may have injected
+			// its children (tch197 declares rsc1400's [rsc86 surname, rsc85 name] while
+			// rsc1400's own map is [rsc85, rsc86]). Page 1 arrived inside the caller's
+			// read; without its show on page 2 the server would resolve the portal's
+			// OWN map and the rows would no longer fit the (write-once) columns. So a
+			// nested instance sends the show (and search) ddo_map of its context with
+			// every own read; the server validates it (stage 1, request_config/
+			// from_rqo.ts) under the caller chain create_callers sends beside it. So
+			// does a top-level portal whose SECTION's map injected its children
+			// (sends_own_show); any other top-level portal resolves its own config
+			// server side, as before.
 			const action	= (self.mode==='search') ? 'resolve_data' : 'get_data'
-			const add_show	= false
-			self.rqo = self.rqo || await self.build_rqo_show(
-				self.request_config_object, // object request_config_object
-				action,  // string action like 'get_data' or 'resolve_data'
-				add_show // bool add_show
-			)
+			// (only a context that HAS a show map is sent: an instance built without
+			// one must never send an empty show, which the server would honour as
+			// "no columns")
+			const add_show	= sends_own_show(self, action)
+				&& Array.isArray(self.request_config_object?.show?.ddo_map)
+			if (!self.rqo) {
+				self.rqo = await self.build_rqo_show(
+					self.request_config_object, // object request_config_object
+					action,  // string action like 'get_data' or 'resolve_data'
+					add_show // bool add_show
+				)
+				if (add_show===true) {
+					attach_show_maps(self.rqo, self.request_config_object)
+				}
+			}
 			if(self.mode==='search') {
 				// Inject current entries as the RQO source value so the server knows
 				// which records to resolve for the search filter.
@@ -863,8 +1009,15 @@ component_portal.prototype.build = async function(autoload=false) {
 				// first build.  The raw API context for rsc368 uses the default config, so if we
 				// overwrote self.context here we would lose the ddo_map customisation on every
 				// refresh.  Context is therefore treated as write-once from the outside.
+				// own_chain — the portal's own ancestry, for a response that split its key
+				// per parent occurrence (owner decision (b), `caller_chain`): the entry /
+				// item of THIS occurrence is taken (select_by_caller_chain)
+				const own_chain = () => get_caller_chain_tipos(self)
 				if(!self.context){
-					const context = datum.context.find(el => el.tipo===self.tipo && el.section_tipo===self.section_tipo)
+					const context = select_by_caller_chain(
+						datum.context.filter(el => el.tipo===self.tipo && el.section_tipo===self.section_tipo),
+						own_chain
+					)
 					if (!context) {
 						console.error("context not found in api_response:", api_response);
 					}else{
@@ -872,16 +1025,23 @@ component_portal.prototype.build = async function(autoload=false) {
 					}
 				}else{
 					// fixed_filter. It is resolved server side from live record data (e.g. observed component value),
-					// so on refresh take the fresh request_config, preserving the rest of the context
-					const context = datum.context.find(el => el.tipo===self.tipo && el.section_tipo===self.section_tipo)
+					// so on refresh take the fresh SQO — and ONLY the sqo: the show / search /
+					// choose / hide maps stay the write-once context's (merge_fixed_filter_sqo)
+					const context = select_by_caller_chain(
+						datum.context.filter(el => el.tipo===self.tipo && el.section_tipo===self.section_tipo),
+						own_chain
+					)
 					if (context?.request_config?.some(el => el.sqo?.fixed_filter)) {
-						self.context.request_config = context.request_config
+						merge_fixed_filter_sqo(self.context, context.request_config)
 					}
 				}
 
 			// set Data
-			// Match by tipo + section_tipo + section_id (string-coerced).
-				const data = datum.data.find(el => el.tipo===self.tipo && el.section_tipo===self.section_tipo && String(el.section_id) === String(self.section_id))
+			// Match by tipo + section_tipo + section_id (string-coerced), per occurrence.
+				const data = select_by_caller_chain(
+					datum.data.filter(el => el.tipo===self.tipo && el.section_tipo===self.section_tipo && String(el.section_id) === String(self.section_id)),
+					own_chain
+				)
 				if(!data){
 					console.warn("data not found in api_response:",api_response);
 				}
@@ -2064,10 +2224,14 @@ component_portal.prototype.filter_data_by_tag_id = async function(options) {
 	// get all data from datum because if the user select one tag the portal data is filtered by the tag_id,
 	// in the next tag selection by user the data doesn't have all locators and is necessary get the original data
 	// the full_data is clone to a new object because need to preserve the datum from these changes.
-		const full_data	= self.datum.data.find(el =>
+		// (per occurrence: owner decision (b), select_by_caller_chain)
+		const full_data	= select_by_caller_chain(
+			self.datum.data.filter(el =>
 				el.tipo===self.tipo &&
 				el.section_tipo===self.section_tipo &&
 				String(el.section_id) === String(self.section_id)
+			),
+			() => get_caller_chain_tipos(self)
 		) || {}
 		self.data = clone(full_data)
 
@@ -2127,7 +2291,11 @@ component_portal.prototype.reset_filter_data = async function() {
 		self.active_tag = null
 
 	// refresh the data with the full data from datum and render portal.
-		self.data = self.datum.data.find(el => el.tipo===self.tipo && el.section_tipo===self.section_tipo && String(el.section_id) === String(self.section_id)) || {}
+		// (per occurrence: owner decision (b), select_by_caller_chain)
+		self.data = select_by_caller_chain(
+			self.datum.data.filter(el => el.tipo===self.tipo && el.section_tipo===self.section_tipo && String(el.section_id) === String(self.section_id)),
+			() => get_caller_chain_tipos(self)
+		) || {}
 
 	// reset status to able re-render
 		self.status = 'built'
@@ -3311,11 +3479,12 @@ component_portal.prototype.focus_first_input = function() {
 * ordinary browse tree, which is what it had before the picker existed. The absence is
 * reported, never silent.
 *
-* @param {Object} self - The `component_portal` instance (module-private function).
-* @returns {Object|null} {section_tipo, section_id, tipo}, or null when this component
+* @param {Object} self - The `component_portal` instance (exported for the client
+*                        gate test_caller_chain.js only).
+* @returns {Object|null} {section_tipo, section_id, tipo[, callers]}, or null when this component
 *                        names no record to declare a picker from.
 */
-const picker_caller = function(self) {
+export const picker_caller = function(self) {
 
 	if (!self.section_tipo || !self.tipo || self.section_id===null || self.section_id===undefined) {
 		console.warn(
@@ -3326,11 +3495,24 @@ const picker_caller = function(self) {
 		return null
 	}
 
-	return {
+	// callers. The component's caller chain (create_search_callers — its section
+	// for a top-level one): the server opens the target thesaurus to a WRITER of
+	// this component only through it, read-only, even where the user holds no
+	// grant on the thesaurus (owner decision (i), src/core/security/
+	// writer_chain_scope.ts). The tree's node reads carry the same declaration
+	// (ts_object get_picker_caller).
+	const caller = {
 		section_tipo	: self.section_tipo,
 		section_id		: self.section_id,
 		tipo			: self.tipo
 	}
+	const callers = create_search_callers(self)
+	if (callers) {
+		caller.callers = callers
+	}
+
+
+	return caller
 }//end picker_caller
 
 

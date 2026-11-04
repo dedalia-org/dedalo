@@ -64,6 +64,7 @@ describe.if(hasPhpCredentials())('component edit-context extras differential', (
 		clearStructureContextCache();
 		const ts = (
 			(await buildStructureContext({
+				configFrom: { source: 'own', reason: 'unit-test' },
 				tipo: IMAGE,
 				sectionTipo: SECTION,
 				mode: 'edit',
@@ -86,6 +87,7 @@ describe.if(hasPhpCredentials())('component edit-context extras differential', (
 		clearStructureContextCache();
 		const ts = (
 			(await buildStructureContext({
+				configFrom: { source: 'own', reason: 'unit-test' },
 				tipo: CHECK_BOX,
 				sectionTipo: SECTION,
 				mode: 'edit',

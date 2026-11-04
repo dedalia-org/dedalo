@@ -28,8 +28,8 @@
 import { config as dedaloConfig } from '../../config/config.ts';
 import { type EmitHookContext, getEmitHook } from '../components/emit_hooks.ts';
 import { getComponentModel } from '../components/registry.ts';
-import type { Ddo } from '../concepts/ddo.ts';
-import type { EmitRow } from '../concepts/emit_row.ts';
+import { type Ddo, SELF_SENTINEL } from '../concepts/ddo.ts';
+import { configOwnerOf, type EmitRow } from '../concepts/emit_row.ts';
 import {
 	callerDataframePairing,
 	isTemporalSource,
@@ -43,13 +43,24 @@ import type { MatrixRecord } from '../db/matrix.ts';
 import { memoizedReadMatrixRecord, runWithRecordMemo } from '../db/record_memo.ts';
 import type { TmCoords } from '../db/time_machine.ts';
 import { DedaloError, isErrorInDomain } from '../errors/dedalo_error.ts';
+import type { ApiNotice } from '../errors/schema.ts';
 import {
+	getAncestorSectionTipo,
 	getColumnNameByModel,
 	getMatrixTableFromTipo,
 	getModelByTipo,
+	tipoBelongsToSection,
 } from '../ontology/resolver.ts';
 import type { SlotTarget } from '../relations/dataframe_slots.ts';
+import type { ResolveElementInput } from '../relations/element_node.ts';
+import { MAX_DDO_DEPTH } from '../relations/element_node.ts';
+import {
+	type ElementNode,
+	ElementNodeRegistry,
+	type EmitScope,
+} from '../relations/element_registry.ts';
 import { emitDataframeItem, expandPortal } from '../relations/relation_core.ts';
+import type { RqoRequestConfigItem } from '../relations/request_config/from_rqo.ts';
 import {
 	buildDataItem,
 	type DataItem,
@@ -61,7 +72,7 @@ import {
 import { currentDataLang } from '../resolve/request_lang.ts';
 import {
 	buildStructureContext,
-	contextKey,
+	type ContextConfigSource,
 	type StructureContextEntry,
 } from '../resolve/structure_context.ts';
 import {
@@ -70,9 +81,11 @@ import {
 	getRecordComponentPermission,
 	getSectionPermissions,
 	inheritSubdatumPermission,
+	metadataComponentTipos,
 	type Principal,
 	resolveComponentContextPermission,
 } from '../security/permissions.ts';
+import type { TargetSearchScope } from '../security/writer_chain_scope.ts';
 import type { LaneValue, RowLaneState } from '../tm_record/lane_state.ts';
 import {
 	classifyRelationSnapshot,
@@ -82,6 +95,13 @@ import {
 	currentTimeMachineScopeSection,
 	isTimeMachineRead,
 } from './list_definitions/tm_scope_context.ts';
+import {
+	appendItemContexts,
+	type DerivedItemContextOptions,
+	NodeContextSet,
+	withListPageLimit,
+} from './node_contexts.ts';
+import { type NodeLevelPolicy, NodePermissionLevels } from './node_permissions.ts';
 import { pickReadSource } from './read_source.ts';
 import { prefetchRecords } from './record_loader.ts';
 
@@ -97,6 +117,12 @@ import { prefetchRecords } from './record_loader.ts';
 export interface ReadResult {
 	context: StructureContextEntry[];
 	data: (SectionsEnvelope | DataItem)[];
+	/**
+	 * The notices the read's emission owes its response (relations/
+	 * element_registry.ts notices()), present only when there are any. NOT part
+	 * of the result payload: the door lifts them onto the envelope's `notices`.
+	 */
+	notices?: ApiNotice[];
 }
 
 /**
@@ -104,7 +130,28 @@ export interface ReadResult {
  * per resolved component ddo, deduplicated by context_key (tipo+section+mode,
  * first occurrence wins — PHP merge_unique_context).
  */
-export async function readSection(rqo: Rqo, principal?: Principal): Promise<ReadResult> {
+/**
+ * What a section read may be handed beyond the rqo and the principal.
+ *
+ * `targetSearchScope` — a SCOPED TARGET SEARCH (owner decision (h),
+ * security/writer_chain_scope.ts): Gate B admitted sqo sections the principal
+ * holds no grant on ONLY through a writer component's verified caller chain.
+ * On those sections the read's columns are limited to the pairs that
+ * component's effective config shows / searches / offers to choose
+ * (`columnPairs` — data AND context, judged at every scoped row section),
+ * stamped read (1), and the search's filter paths to `filterPairs`
+ * (security/read_floor.ts withScopedPairs). Built at the API door, threaded
+ * explicitly — never ambient request state.
+ */
+export interface SectionReadOptions {
+	readonly targetSearchScope?: TargetSearchScope;
+}
+
+export async function readSection(
+	rqo: Rqo,
+	principal?: Principal,
+	options: SectionReadOptions = {},
+): Promise<ReadResult> {
 	// One read = one point-in-time view, so a matrix row fetched for one
 	// component is reused by every other component that wants it (see
 	// db/record_memo.ts — the component_info widgets otherwise re-read the same
@@ -123,7 +170,7 @@ export async function readSection(rqo: Rqo, principal?: Principal): Promise<Read
 	// same answer from the same SQO, kept for the direct callers.
 	const { withTimeMachineReadScope } = await import('./list_definitions/time_machine_list.ts');
 	return withTimeMachineReadScope(rqo.sqo, () =>
-		runWithRecordMemo(() => readSectionScoped(rqo, principal)),
+		runWithRecordMemo(() => readSectionScoped(rqo, principal, options)),
 	);
 }
 
@@ -208,112 +255,330 @@ function isUnscopedAdminTmBrowse(principal: Principal | undefined): boolean {
 	return principal === undefined || principal.isGlobalAdmin;
 }
 
-async function readSectionScoped(rqo: Rqo, principal?: Principal): Promise<ReadResult> {
-	const data = await readSectionRows(rqo, principal);
-	const source = rqo.source ?? {};
-	const callerTipo = source.tipo as string;
-	// Same 'search'→'list' normalization as readSectionRows (the context half
-	// must match the data half for the search-panel picker read).
-	const mode = source.mode === 'search' ? 'list' : (source.mode ?? 'list');
-	// Request-scoped data lang, never a hardcoded install default (S2-28): an
-	// RQO that omits lang resolves the session's active data language.
-	const lang = source.lang ?? currentDataLang();
-	// PER-ELEMENT permissions stamp (PHP build_json_rows: each element's context
-	// carries get_permissions(section, tipo) — the client renders <1 hidden,
-	// ===1 read-only, >1 editable from exactly this field). An undefined
-	// principal (internal calls, parity fixture replays) stamps 3; everyone
-	// else — global admins included, PHP has no admin bypass — resolves through
-	// the matrix (the superuser short-circuits to 3 inside getPermissions).
-	// CONSULTATION-ONLY read: when the READ TARGET is a read-only section
-	// (Activity dd542, Time Machine dd15, …) cap the whole emitted tree at read
-	// (1) AT THE SOURCE — not just the section's own columns (buildStructureContext
-	// handles those by section_tipo), but also the cross-section subdatum children
-	// a portal pulls in (e.g. the 'Who' column's username dd132, whose own
-	// section_tipo is dd128/Users and would otherwise escape the cap and render
-	// editable). appendDerivedItemContexts threads the same cap.
-	const readTargetSection = source.section_tipo ?? callerTipo;
-	const capForReadTarget = (level: number): number =>
-		level > 1 && isConsultationOnlySection(readTargetSection) ? 1 : level;
-	// dd128 OWN-USER-RECORD override (PHP component_common::
-	// get_component_permissions → resolve_component_read_permission, which EVERY
-	// component instance's stamp goes through). It both upgrades the four
-	// self-editable components (name/password/email/image → 2, what makes
-	// tool_user_admin's self-service editor work for a user whose profile grants
-	// nothing on dd128) and downgrades the guarded ones (own security-admin flag
-	// → 1 always; profile/developer/username/section_id → 1 for a non-global-admin,
-	// the anti-self-elevation half). The save door already consults the same
-	// resolver; without it here the read stamp and the write gate disagree.
-	//
-	// Scoped to ddos of the READ TARGET section: only then is source.section_id
-	// the element's own record id. A cross-section subdatum that happens to be a
-	// dd128 component (the Activity 'Who' column's dd132) carries the id of ITS
-	// row, not the read target's, so it must keep the matrix level.
-	const ownRecordSectionId = source.section_id;
-	const elementPermissions = async (
-		elementSection: string,
-		elementTipo: string,
-	): Promise<number> => {
-		if (principal === undefined) return capForReadTarget(3);
-		return capForReadTarget(
-			elementSection === readTargetSection
-				? await getRecordComponentPermission(
-						principal,
-						elementSection,
-						elementTipo,
-						ownRecordSectionId,
-					)
-				: await getPermissions(principal, elementSection, elementTipo),
-		);
-	};
+async function readSectionScoped(
+	rqo: Rqo,
+	principal: Principal | undefined,
+	options: SectionReadOptions,
+): Promise<ReadResult> {
+	// The data half FIRST: its emission registry holds every element node the
+	// context below is serialised from (section/node_contexts.ts), and its column
+	// map is the ONE map both halves read (never re-derived here).
+	const {
+		items: data,
+		nodes,
+		ddoMap: rqoDdoMap,
+		stageOneConfig,
+	} = await readSectionRowsEmission(rqo, principal, options);
+	const scope = sectionReadScope(rqo, principal, nodes, options.targetSearchScope);
+	const dataItems = data.filter(
+		(item): item is DataItem => (item as { typo?: string }).typo !== 'sections',
+	);
 
 	// Sources may OWN the structure-context (the dd15 TM source does — its columns
 	// are client-driven, not ontology-derived). When present, skip the generic
 	// context building below. The source is keyed by sqo.mode (the TM signal),
 	// not source.mode (which stays 'list'/'edit').
 	const readSource = await pickReadSource((rqo.sqo as { mode?: string } | undefined)?.mode);
-	if (readSource.buildContext !== undefined) {
-		const ctxPrincipal: Principal = principal ?? {
-			userId: -1,
-			isGlobalAdmin: true,
-			isDeveloper: false,
-		};
-		const ownContext = await readSource.buildContext(rqo, ctxPrincipal);
-		// The source owns the section + column contexts; the SUBDATUM child
-		// contexts (e.g. the dd132 username under the dd578 user column) still come
-		// from the emitted data items, same as the generic path — without them the
-		// client can't render the subdatum rows (PHP get_subdatum merge).
-		const ownSeen = new Set(ownContext.map(contextKey));
-		await appendDerivedItemContexts(
-			ownContext,
-			ownSeen,
-			data.filter((item): item is DataItem => (item as { typo?: string }).typo !== 'sections'),
-			{ sectionTipo: source.section_tipo ?? callerTipo, lang, principal, capForReadTarget },
-		);
-		return { context: stripSessionSqoStamp(ownContext, source as Record<string, unknown>), data };
-	}
+	const contexts = new NodeContextSet(
+		nodes,
+		await sourceOwnedContexts(readSource, rqo, principal, nodes),
+	);
+	const sourceOwned = readSource.buildContext !== undefined;
+	const sectionEntry = sourceOwned
+		? null
+		: await appendSectionOwnContexts(contexts, {
+				rqo,
+				ddoMap: rqoDdoMap,
+				stageOneConfig,
+				data,
+				nodes,
+				...scope,
+			});
 
-	const context: StructureContextEntry[] = [];
-	const seen = new Set<string>();
-	// A caller may request a SECTION view (PHP get_view top precedence — the
-	// ddo/source-injected view wins over the section_list child's and the model
-	// default). The search-panel preset picker requests view:'search_user_presets'
-	// so the SAME section (dd623) renders compact HERE while its general menu list
-	// (no source.view) keeps the section_list default. Mirrors the MAIN-component
-	// requestedView below (the ?view=viewer deep link).
-	const requestedSectionView =
-		typeof source.view === 'string' && source.view !== '' ? source.view : null;
-	const sectionEntry = await buildStructureContext({
+	// SUBDATUM CHILD contexts (PHP get_subdatum merges every element's
+	// subcontext into the response): one entry per UNIQUE (tipo, section,
+	// mode) among the emitted child items — per occurrence when two parents
+	// resolved different configs (owner decision (b)) — each from its node.
+	// Without these the client's portal/autocomplete rows have no component
+	// structure to render (the empty-chips bug of 2026-07-03). A source that
+	// owns its section + column contexts (dd15) still gets these: the dd132
+	// username under the dd578 user column renders from them.
+	await appendItemContexts(
+		contexts,
+		dataItems,
+		nodes,
+		sectionDerivedOptions(contexts.entries, scope.sectionTipo, principal, scope, nodes),
+	);
+	// PHP traversal order: each column's undeclared subcontexts right after it,
+	// before the next column (the column pass above added every column first).
+	contexts.orderByTraversal();
+	contexts.stampItems(data);
+	if (!sourceOwned) {
+		finishSectionContexts(contexts.entries, sectionEntry, rqo, rqoDdoMap, stageOneConfig);
+	}
+	return sectionReadResult(contexts.entries, data, rqo.source ?? {}, nodes);
+}
+
+/** The contexts a read source OWNS (dd15), or none (the generic door builds them). */
+async function sourceOwnedContexts(
+	readSource: Awaited<ReturnType<typeof pickReadSource>>,
+	rqo: Rqo,
+	principal: Principal | undefined,
+	nodes: ElementNodeRegistry,
+): Promise<StructureContextEntry[]> {
+	if (readSource.buildContext === undefined) return [];
+	return readSource.buildContext(rqo, principal ?? SOURCE_CONTEXT_PRINCIPAL, nodes);
+}
+
+/**
+ * The generic door's last two passes: section_tab children, then the
+ * caller-show narrowing of the section entry — only when the entry was NOT
+ * built from stage 1 (a stage-1 entry already IS the caller's config; the
+ * narrowing serves the get_ddo_map directive and the component-sourced read).
+ */
+function finishSectionContexts(
+	entries: StructureContextEntry[],
+	sectionEntry: StructureContextEntry | null,
+	rqo: Rqo,
+	ddoMap: readonly Ddo[],
+	stageOneConfig: readonly RqoRequestConfigItem[] | null,
+): void {
+	attachSectionTabChildren(entries);
+	if (sectionEntry !== null && stageOneConfig === null && hasCallerShow(rqo)) {
+		narrowSectionShowToCaller(sectionEntry, ddoMap, entries);
+	}
+}
+
+/** A source-owned context build with no principal runs as an internal superuser. */
+const SOURCE_CONTEXT_PRINCIPAL: Principal = Object.freeze({
+	userId: -1,
+	isGlobalAdmin: true,
+	isDeveloper: false,
+}) as Principal;
+
+/** The section door's request scope (the context half matches the data half's normalisation). */
+interface SectionReadScope {
+	readonly callerTipo: string;
+	readonly sectionTipo: string;
+	readonly mode: string;
+	readonly lang: string;
+	readonly principal: Principal | undefined;
+	readonly permissionsOf: SectionReadPermissions;
+	/**
+	 * The PHP subdatum level of every element occurrence of this read
+	 * (section/node_permissions.ts — owner decision (d)): a column is stamped
+	 * with its own level (permissionsOf.elementPermissions), every nested
+	 * element inherits from its IMMEDIATE caller occurrence.
+	 */
+	readonly levels: NodePermissionLevels;
+	/** The scoped target search Gate B admitted (SectionReadOptions), if any. */
+	readonly targetSearchScope: TargetSearchScope | undefined;
+}
+
+function sectionReadScope(
+	rqo: Rqo,
+	principal: Principal | undefined,
+	nodes: ElementNodeRegistry,
+	targetSearchScope: TargetSearchScope | undefined,
+): SectionReadScope {
+	const source = rqo.source ?? {};
+	const callerTipo = source.tipo as string;
+	const permissionsOf = sectionReadPermissions(source, callerTipo, principal, targetSearchScope);
+	return {
+		callerTipo,
+		sectionTipo: source.section_tipo ?? callerTipo,
+		// Same 'search'→'list' normalization as readSectionRows (the context half
+		// must match the data half for the search-panel picker read).
+		mode: source.mode === 'search' ? 'list' : (source.mode ?? 'list'),
+		// Request-scoped data lang, never a hardcoded install default (S2-28): an
+		// RQO that omits lang resolves the session's active data language.
+		lang: source.lang ?? currentDataLang(),
+		principal,
+		permissionsOf,
+		targetSearchScope,
+		levels: new NodePermissionLevels(nodes, {
+			topLevelOf: (node) => permissionsOf.elementPermissions(node.section_tipo, node.tipo),
+			ownLevelOf: async (sectionTipo, tipo, sectionId, mode) =>
+				principal === undefined
+					? 3
+					: resolveComponentContextPermission(principal, sectionTipo, tipo, sectionId, mode),
+			...scopedRaisePolicy(targetSearchScope),
+		}),
+	};
+}
+
+/**
+ * On a read a writer scope opened (owner decision (h)), the subdatum raise
+ * reaches the writer component's column pairs ONLY (NodeLevelPolicy.raises):
+ * a scoped relation column's OWN-config child on a section outside them keeps
+ * the actor's own grant, so a third section the scope never opened is not
+ * served on every scoped row (WC-2026-11-04-writer-chain-scoped-search).
+ */
+function scopedRaise(scope: TargetSearchScope, sectionTipo: string, tipo: string): boolean {
+	return scope.columnPairs.has(`${sectionTipo}_${tipo}`);
+}
+
+/** The NodeLevelPolicy.raises bound of a scoped read (scopedRaise); nothing without a scope. */
+function scopedRaisePolicy(scope: TargetSearchScope | undefined): Pick<NodeLevelPolicy, 'raises'> {
+	if (scope === undefined) return {};
+	return { raises: (sectionTipo, tipo) => scopedRaise(scope, sectionTipo, tipo) };
+}
+
+/**
+ * The generic section door's OWN contexts: the section entry, then THE COLUMN
+ * PASS — one entry per column-map ddo, each built from the element NODE the
+ * data half resolved for it (or resolves now, for a column no row emitted) —
+ * never from the raw map with a re-processed narrowing. Returns the section
+ * entry (narrowSectionShowToCaller rewrites it last).
+ */
+async function appendSectionOwnContexts(
+	contexts: NodeContextSet,
+	pass: SectionColumnPass & { readonly stageOneConfig: readonly RqoRequestConfigItem[] | null },
+): Promise<StructureContextEntry | null> {
+	const sectionEntry = await buildSectionEntry(pass);
+	if (sectionEntry !== null) contexts.addOwn(sectionEntry);
+	await appendSectionColumnContexts(contexts, pass);
+	return sectionEntry;
+}
+
+/**
+ * The read's result: its context (session stamp stripped when the read opted
+ * out of session navigation) and data, plus the notices the emission owes
+ * (refused level >= 2 'self' ddos, stopped record cycles) — which ride OUT of
+ * the result: the door puts them on the envelope (read_facade.ts), never
+ * inside the result payload.
+ */
+function sectionReadResult(
+	context: StructureContextEntry[],
+	data: (SectionsEnvelope | DataItem)[],
+	source: NonNullable<Rqo['source']>,
+	nodes: ElementNodeRegistry,
+): ReadResult {
+	const notices = nodes.notices();
+	return {
+		context: stripSessionSqoStamp(context, source as Record<string, unknown>),
+		data,
+		...(notices.length > 0 ? { notices } : {}),
+	};
+}
+
+/**
+ * An emitted item's own row id for the per-instance own level
+ * (section/node_permissions.ts): a string / number id, else null.
+ */
+function itemRowId(sectionId: unknown): string | number | null {
+	return typeof sectionId === 'string' || typeof sectionId === 'number' ? sectionId : null;
+}
+
+/** The per-element permission stamp of one section read (sectionReadPermissions). */
+interface SectionReadPermissions {
+	/** The read-target consultation-only cap. */
+	readonly capForReadTarget: (level: number) => number;
+	/** One element's stamped level. */
+	readonly elementPermissions: (elementSection: string, elementTipo: string) => Promise<number>;
+	/** The section entry's own level. */
+	readonly sectionLevel: () => Promise<number>;
+}
+
+/**
+ * PER-ELEMENT permissions stamp (PHP build_json_rows: each element's context
+ * carries get_permissions(section, tipo) — the client renders <1 hidden,
+ * ===1 read-only, >1 editable from exactly this field). An undefined
+ * principal (internal calls, parity fixture replays) stamps 3; everyone
+ * else — global admins included, PHP has no admin bypass — resolves through
+ * the matrix (the superuser short-circuits to 3 inside getPermissions).
+ *
+ * CONSULTATION-ONLY read: when the READ TARGET is a read-only section
+ * (Activity dd542, Time Machine dd15, …) cap the whole emitted tree at read
+ * (1) AT THE SOURCE — not just the section's own columns (buildStructureContext
+ * handles those by section_tipo), but also the cross-section subdatum children
+ * a portal pulls in (e.g. the 'Who' column's username dd132, whose own
+ * section_tipo is dd128/Users and would otherwise escape the cap and render
+ * editable). The derived item contexts thread the same cap.
+ *
+ * dd128 OWN-USER-RECORD override (PHP component_common::
+ * get_component_permissions → resolve_component_read_permission, which EVERY
+ * component instance's stamp goes through). It both upgrades the four
+ * self-editable components (name/password/email/image → 2, what makes
+ * tool_user_admin's self-service editor work for a user whose profile grants
+ * nothing on dd128) and downgrades the guarded ones (own security-admin flag
+ * → 1 always; profile/developer/username/section_id → 1 for a non-global-admin,
+ * the anti-self-elevation half). The save door already consults the same
+ * resolver; without it here the read stamp and the write gate disagree.
+ *
+ * Scoped to ddos of the READ TARGET section: only then is source.section_id
+ * the element's own record id. A cross-section COLUMN that happens to be a
+ * dd128 component (the Activity 'Who' column's dd132) has no single row at
+ * the column level, so its column entry keeps the matrix level; its emitted
+ * ITEMS are judged with their own row (section/node_permissions.ts — PHP
+ * builds each subdatum instance with its locator's section_id).
+ */
+function sectionReadPermissions(
+	source: NonNullable<Rqo['source']>,
+	callerTipo: string,
+	principal: Principal | undefined,
+	targetSearchScope?: TargetSearchScope,
+): SectionReadPermissions {
+	const readTargetSection = source.section_tipo ?? callerTipo;
+	const capForReadTarget = (level: number): number =>
+		level > 1 && isConsultationOnlySection(readTargetSection) ? 1 : level;
+	const ownRecordSectionId = source.section_id;
+	return {
+		capForReadTarget,
+		elementPermissions: async (elementSection, elementTipo) => {
+			if (principal === undefined) return capForReadTarget(3);
+			// A SCOPED column (owner decision (h)): read, raised like every child
+			// of the writer component it is shown through (PHP :2564-2571) — and
+			// only when that component's config shows it; anything else on an
+			// ungranted section stays at its own (zero) level.
+			const scoped = scopedColumnLevel(targetSearchScope, elementSection, elementTipo);
+			if (scoped !== null) return scoped;
+			return capForReadTarget(
+				elementSection === readTargetSection
+					? await getRecordComponentPermission(
+							principal,
+							elementSection,
+							elementTipo,
+							ownRecordSectionId,
+						)
+					: await getPermissions(principal, elementSection, elementTipo),
+			);
+		},
+		// Section-level ACL (PHP section::get_section_permissions — includes the
+		// consultation-only cap); the handler's Gate A/B guarantee ≥ 1 here.
+		sectionLevel: async () =>
+			principal === undefined
+				? capForReadTarget(3)
+				: capForReadTarget(await getSectionPermissions(principal, readTargetSection)),
+	};
+}
+
+/**
+ * The READ TARGET section's own entry (the root of the read — OWN_CONTEXT_REASONS
+ * 'section-root'). A caller may request a SECTION view (PHP get_view top
+ * precedence — the ddo/source-injected view wins over the section_list
+ * child's and the model default): the search-panel preset picker requests
+ * view:'search_user_presets' so the SAME section (dd623) renders compact HERE
+ * while its general menu list (no source.view) keeps the section_list default.
+ */
+async function buildSectionEntry(entry: {
+	readonly rqo: Rqo;
+	readonly callerTipo: string;
+	readonly mode: string;
+	readonly lang: string;
+	readonly principal: Principal | undefined;
+	readonly permissionsOf: SectionReadPermissions;
+	readonly stageOneConfig: readonly RqoRequestConfigItem[] | null;
+}): Promise<StructureContextEntry | null> {
+	const { rqo, callerTipo, mode, lang, principal, permissionsOf } = entry;
+	const source = rqo.source ?? {};
+	return buildStructureContext({
 		tipo: callerTipo,
 		sectionTipo: source.section_tipo ?? callerTipo,
 		mode,
 		lang,
-		view: requestedSectionView,
-		// Section-level ACL (PHP section::get_section_permissions — includes the
-		// consultation-only cap); the handler's Gate A/B guarantee ≥ 1 here.
-		permissions:
-			principal === undefined
-				? capForReadTarget(3)
-				: capForReadTarget(await getSectionPermissions(principal, readTargetSection)),
+		view: typeof source.view === 'string' && source.view !== '' ? source.view : null,
+		permissions: await permissionsOf.sectionLevel(),
 		// Thread the principal so the section button context uses the real
 		// per-button ACL (SECTION_SPEC §9) instead of the caller-permission cap.
 		principal,
@@ -327,18 +592,154 @@ async function readSectionScoped(rqo: Rqo, principal?: Principal): Promise<ReadR
 		// different columns, none of them flagged, so the view filtered every one
 		// out and each record rendered as a bare drag handle.
 		propertiesOverride: (source.properties ?? undefined) as Record<string, unknown> | undefined,
+		configFrom: sectionEntryConfigFrom(entry.stageOneConfig, await getModelByTipo(callerTipo)),
 	});
-	if (sectionEntry !== null) {
-		context.push(sectionEntry);
-		seen.add(contextKey(sectionEntry));
+}
+
+/**
+ * Where the read root's request_config comes from:
+ *  - STAGE 1 when the client sent a show for a SECTION read target (PHP
+ *    build_request_config returns build_request_config_from_rqo's one dedalo
+ *    main item and stops, :2964-2975): the consolidated show map the data half
+ *    read, the rqo search map, the validated rqo sqo — never the ontology's;
+ *  - the section's OWN config otherwise (no client show: the section is the
+ *    root map, never an element under a caller);
+ *  - a COMPONENT-sourced read's caller entry keeps its own config
+ *    ('component-sourced-root').
+ */
+function sectionEntryConfigFrom(
+	stageOneConfig: readonly RqoRequestConfigItem[] | null,
+	callerModel: string | null,
+): ContextConfigSource {
+	if (stageOneConfig !== null) return { source: 'stage1', config: stageOneConfig };
+	return callerModel === 'section'
+		? { source: 'own', reason: 'section-root' }
+		: { source: 'own', reason: 'component-sourced-root' };
+}
+
+/** What the section door's column pass reads. */
+interface SectionColumnPass {
+	readonly rqo: Rqo;
+	/** The column map the DATA half emitted (readSectionRowsEmission). */
+	readonly ddoMap: readonly Ddo[];
+	readonly callerTipo: string;
+	readonly sectionTipo: string;
+	readonly mode: string;
+	readonly lang: string;
+	readonly data: readonly unknown[];
+	readonly nodes: ElementNodeRegistry;
+	readonly principal: Principal | undefined;
+	readonly permissionsOf: SectionReadPermissions;
+	/** The read's node-chain levels (SectionReadScope.levels). */
+	readonly levels: NodePermissionLevels;
+	/** The scoped target search Gate B admitted (SectionReadOptions), if any. */
+	readonly targetSearchScope: TargetSearchScope | undefined;
+}
+
+/**
+ * A SCOPED column's level (owner decision (h)): on a section the scope opened,
+ * 1 when the writer component's config shows / searches the pair, else 0 —
+ * null when the section is not scoped (the ordinary rule applies).
+ */
+function scopedColumnLevel(
+	scope: TargetSearchScope | undefined,
+	sectionTipo: string,
+	tipo: string,
+): number | null {
+	if (scope === undefined || !scope.sections.has(sectionTipo)) return null;
+	return scope.columnPairs.has(`${sectionTipo}_${tipo}`) ? 1 : 0;
+}
+
+/**
+ * The column read gate of BOTH halves (PHP check_ddo_permissions): the
+ * actor's own grant (ddoIsAuthorized), except on a section a scoped target
+ * search opened, where ONLY the writer component's shown pairs pass (owner
+ * decision (h) — the scoped rows carry exactly those columns).
+ * NOTE: this judges the column at ONE section. The DATA half also judges it at
+ * every section the scoped rows come from (scopedRowsReadable), because a row
+ * emits every direct ddo from its OWN record whatever section the ddo declares.
+ */
+async function scopedDdoReadable(
+	principal: Principal | undefined,
+	scope: TargetSearchScope | undefined,
+	sectionTipo: string,
+	tipo: string,
+): Promise<boolean> {
+	const scoped = scopedColumnLevel(scope, sectionTipo, tipo);
+	if (scoped !== null) return scoped > 0;
+	return ddoIsAuthorized(principal, sectionTipo, tipo);
+}
+
+/**
+ * THE ROW SIDE of the scoped column gate (owner decision (h)): a row emits
+ * every direct ddo of the map from the row's OWN record, reading the
+ * component by tipo whatever section the ddo DECLARES (read_source.ts
+ * emitRow / emitDdoDataUnbound). So a ddo declaring another section — a
+ * rule-granted one (dd1324, dd655) that scopedDdoReadable admits — would
+ * still serve the value of a component of a scoped section on every scoped
+ * row. Every section the scope opened therefore judges the ddo too: a
+ * component that BELONGS to that section must be one of the writer
+ * component's column pairs on it. A component of another section reads
+ * nothing from that section's records (a multi-target config's per-section
+ * columns stay served). No scope = true.
+ */
+async function scopedRowsReadable(
+	scope: TargetSearchScope | undefined,
+	tipo: string,
+): Promise<boolean> {
+	if (scope === undefined) return true;
+	for (const rowSection of scope.sections) {
+		if (scope.columnPairs.has(`${rowSection}_${tipo}`)) continue;
+		if (!(await provablyNotOnScopedRecord(tipo, rowSection))) return false;
 	}
-	const rqoDdoMap = await resolveSectionColumnDdoMap(
-		rqo,
-		callerTipo,
-		source.section_tipo ?? callerTipo,
-		mode,
-	);
-	for (const ddo of rqoDdoMap) {
+	return true;
+}
+
+/**
+ * The section-info tipos EVERY record stores or answers by tipo whatever
+ * section owns it (W4b review): the audit pair dd199/dd200 + dd197/dd201
+ * (record_metadata.ts) and the inverse-relations info component dd1596. They
+ * do not belong to the scoped section, yet a row emits them from its own record
+ * — the filter side already denies them on a scoped section
+ * (frontier_scope.ts exclusiveFloorVerdict), the column side agrees.
+ */
+const RECORD_WIDE_TIPOS: ReadonlySet<string> = new Set([
+	...metadataComponentTipos(),
+	// DEDALO_SECTION_INFO_INVERSE_RELATIONS (resolve/environment.ts).
+	'dd1596',
+]);
+
+/**
+ * May a ddo outside the writer component's pairs on `rowSection` pass the
+ * scoped rows (scopedRowsReadable)? Only when the value it would read is
+ * provably NOT on that section's records: the tipo is owned by ANOTHER real
+ * section (a multi-target config's per-section column) and is not a
+ * record-wide section-info tipo. A tipo whose ancestry reaches no section
+ * (the dd196 section-info group's components among them) is refused — its
+ * ownership is unknown, so it fails closed.
+ */
+async function provablyNotOnScopedRecord(tipo: string, rowSection: string): Promise<boolean> {
+	if (RECORD_WIDE_TIPOS.has(tipo)) return false;
+	if ((await getAncestorSectionTipo(tipo)) === null) return false;
+	return !(await tipoBelongsToSection(tipo, rowSection));
+}
+
+/** The column pass's read gate (scopedDdoReadable for the pass). */
+function columnReadable(pass: SectionColumnPass, sectionTipo: string, tipo: string) {
+	return scopedDdoReadable(pass.principal, pass.targetSearchScope, sectionTipo, tipo);
+}
+
+/**
+ * THE COLUMN PASS of the section door: one context entry per column-map ddo
+ * (top-level columns and the nested children the map declares), in map order,
+ * each serialised from its element NODE (columnNodeOf).
+ */
+async function appendSectionColumnContexts(
+	contexts: NodeContextSet,
+	pass: SectionColumnPass,
+): Promise<void> {
+	const columnNodes: ColumnNodeMemo = { nodes: new Map(), visiting: new Set() };
+	for (const ddo of pass.ddoMap) {
 		// A multi-target ddo (a picker whose show map names N target sections, e.g.
 		// the epigraphy autocomplete's hierarchy95 over the eight glyph thesauri)
 		// is a DIFFERENT ontology element in each of those sections. The client
@@ -347,106 +748,549 @@ async function readSectionScoped(rqo: Rqo, principal?: Principal): Promise<ReadR
 		// the first target silently drops every row from the other seven. Emit one
 		// entry per section the read ACTUALLY returned rows from; with no rows to
 		// go on (an empty result still ships structure) fall back to the first target.
-		const ddoSectionTipos = resolveDdoContextSections(ddo, source.section_tipo ?? callerTipo, data);
-		for (const ddoSectionTipo of ddoSectionTipos) {
-			// Per-component READ gate (PHP check_ddo_permissions / STEP 5
-			// filter_authorized_related): a denied component contributes NO context
-			// entry. This is the confidentiality boundary for CLIENT-SENT maps —
-			// the client can name any tipo in show.ddo_map, and the config-build
-			// gates only shape the server-derived default.
-			if (!(await ddoIsAuthorized(principal, ddoSectionTipo, ddo.tipo))) continue;
-			// The element's descendants in the caller's map narrow its show config
-			// (PHP get_subdatum children-injection).
-			const rqoChildren = collectCallerDescendants(rqoDdoMap, ddo.tipo);
-			const resolvedParent = ddo.parent === 'self' ? callerTipo : (ddo.parent ?? null);
-			// A NESTED ddo (parent is a component, not the section) is a subdatum: its
-			// sort join must start at the LISTED section, so hand its parent-portal to
-			// buildOrderPath for the prepend (PHP get_order_path from_component/from_section).
-			const orderPathFrom =
-				resolvedParent !== null && resolvedParent !== callerTipo
-					? {
-							componentTipo: resolvedParent,
-							sectionTipo:
-								context.find((existing) => existing.tipo === resolvedParent)?.section_tipo ??
-								source.section_tipo ??
-								callerTipo,
-						}
-					: undefined;
-			const entry = await buildStructureContext({
-				tipo: ddo.tipo,
-				sectionTipo: ddoSectionTipo,
-				mode: ddo.mode ?? mode,
-				lang: ddo.lang ?? lang,
-				// Only a DECLARED ddo lang is an explicit ask; the section read's
-				// own `lang` is the ambient page data lang, which must never make
-				// the edit form build a transliterable in a version (elementLang).
-				requestedLang: ddo.lang ?? null,
-				// Per-element matrix level (the ddoIsAuthorized drop above guarantees
-				// ≥ 1 for defined principals — the client renders 1 read-only, ≥2 edit).
-				permissions: await elementPermissions(ddoSectionTipo, ddo.tipo),
-				parent: resolvedParent,
-				view: ddo.view ?? null,
-				childrenView: (ddo as { children_view?: string | null }).children_view ?? null,
-				rqoChildrenDdos: rqoChildren as unknown as Record<string, unknown>[],
-				orderPathFrom,
-				// WC-079: a temporal clone ships no component toolbar.
-				isTemporal: isTemporalSource(source),
-			});
-			if (entry !== null && !seen.has(contextKey(entry))) {
-				seen.add(contextKey(entry));
-
-				// PER-RECORD context options for section EDIT views (the same
-				// resolveContextOptions facet buildGetDataContext dispatches on the
-				// tool/get_data route — see there for the full why; registry dispatch,
-				// never a model conditional, S2-24). The context is deduped by
-				// contextKey across the read's rows, so this is first-record-wins —
-				// exactly PHP merge_unique_context, which kept the first component
-				// context it built.
-				if ((entry.mode ?? mode) === 'edit') {
-					const ddoModel = await getModelByTipo(ddo.tipo);
-					const contextHook = ddoModel === null ? undefined : getEmitHook(ddoModel);
-					if (contextHook?.resolveContextOptions !== undefined) {
-						const firstRow = data.find((item) => (item as { typo?: string }).typo === 'sections') as
-							| { section_id?: unknown }
-							| undefined;
-						const rowId = Number(firstRow?.section_id ?? Number.NaN);
-						if (Number.isInteger(rowId) && rowId > 0) {
-							const options = await contextHook.resolveContextOptions({
-								tipo: ddo.tipo,
-								sectionTipo: ddoSectionTipo,
-								sectionId: rowId,
-							});
-							if (options !== null) {
-								entry.options = { ...(entry.options ?? {}), ...options };
-							}
-						}
-					}
-				}
-
-				context.push(entry);
-			}
+		for (const ddoSectionTipo of resolveDdoContextSections(ddo, pass.sectionTipo, pass.data)) {
+			await appendColumnEntry(contexts, ddo, ddoSectionTipo, pass, columnNodes);
 		}
 	}
+}
 
-	// SUBDATUM CHILD contexts (PHP get_subdatum merges every element's
-	// subcontext into the response): one entry per UNIQUE (tipo, section,
-	// mode) among the emitted child items, parented to its generating
-	// component. Without these the client's portal/autocomplete rows have no
-	// component structure to render (the empty-chips bug of 2026-07-03).
-	await appendDerivedItemContexts(
-		context,
-		seen,
-		data.filter((item): item is DataItem => (item as { typo?: string }).typo !== 'sections'),
-		{ sectionTipo: source.section_tipo ?? callerTipo, lang, principal, capForReadTarget },
-	);
+/** One column-map ddo's entry at one of its sections (appendSectionColumnContexts). */
+async function appendColumnEntry(
+	contexts: NodeContextSet,
+	ddo: Ddo,
+	ddoSectionTipo: string,
+	pass: SectionColumnPass,
+	columnNodes: ColumnNodeMemo,
+): Promise<void> {
+	// Per-component READ gate (PHP check_ddo_permissions / STEP 5
+	// filter_authorized_related): a denied component contributes NO context
+	// entry. This is the confidentiality boundary for CLIENT-SENT maps —
+	// the client can name any tipo in show.ddo_map, and the config-build
+	// gates only shape the server-derived default.
+	if (!(await columnReadable(pass, ddoSectionTipo, ddo.tipo))) return;
+	const node = await columnNodeOf(ddo, ddoSectionTipo, pass, columnNodes);
+	// A nested COMPONENT whose parent element has no node (its parent is not
+	// in the map, or the read gate dropped it) emits no data: no column entry
+	// either. An own-config entry here would ship a config no cell used, and
+	// absorb the derived pass's node-built entry.
+	if (node === ORPHAN_COLUMN) return;
+	const entry = await buildColumnEntry(ddo, ddoSectionTipo, node, pass, contexts.entries);
+	if (entry === null) return;
+	withListPageLimit(entry, node);
+	if (!contexts.add(entry, node)) return;
+	await stampColumnContextOptions(entry, ddo, ddoSectionTipo, pass);
+}
 
-	attachSectionTabChildren(context);
+/**
+ * The resolved parent of a column ddo: 'self' / undeclared = the caller (a
+ * TOP-LEVEL column); anything else names the column's parent element.
+ */
+function columnParentOf(ddo: Ddo, callerTipo: string): string {
+	return ddo.parent === undefined || ddo.parent === SELF_SENTINEL ? callerTipo : ddo.parent;
+}
 
-	if (sectionEntry !== null && hasCallerShow(rqo)) {
-		narrowSectionShowToCaller(sectionEntry, rqoDdoMap, context);
+/**
+ * A nested COMPONENT column whose parent element resolves to no node (the
+ * parent is absent from the map, gate-dropped, or a cycle): it has no
+ * occurrence, so it gets no column entry (appendSectionColumnContexts).
+ */
+const ORPHAN_COLUMN = Symbol('orphan-column');
+type ColumnNode = ElementNode | null | typeof ORPHAN_COLUMN;
+
+/**
+ * The column pass's node memo: by `tipo@section` and by bare tipo (the first
+ * section's node — a nested child looks its parent up by tipo), plus the
+ * ddos being resolved (a parent chain that loops resolves to ORPHAN).
+ */
+interface ColumnNodeMemo {
+	readonly nodes: Map<string, ColumnNode>;
+	readonly visiting: Set<string>;
+}
+
+/**
+ * The element NODE of one column-map ddo at `ddoSectionTipo` — the occurrence
+ * the data half resolved (the FIRST one, PHP first-wins: element_registry.ts
+ * findChild), else resolved now under the same parent (a column no row
+ * emitted — an empty page still ships its structure). A TOP-LEVEL column's
+ * parent is the read's ROOT map; a NESTED one's is its parent column's node
+ * (resolved on demand, WHATEVER the map order — the data side collects
+ * children by parent alone), and its governing ddo is that node's line for it
+ * (exactly what the data path handed it). null = not an element with a node
+ * (a grouper, a button, a child of one); ORPHAN = a component whose parent
+ * has no node.
+ */
+async function columnNodeOf(
+	ddo: Ddo,
+	ddoSectionTipo: string,
+	pass: SectionColumnPass,
+	memo: ColumnNodeMemo,
+): Promise<ColumnNode> {
+	const memoKey = `${ddo.tipo}@${ddoSectionTipo}`;
+	const known = memo.nodes.get(memoKey);
+	if (known !== undefined) return known;
+	if (memo.visiting.has(memoKey)) return ORPHAN_COLUMN;
+	memo.visiting.add(memoKey);
+	const node = await resolveColumnNode(ddo, ddoSectionTipo, pass, memo);
+	memo.visiting.delete(memoKey);
+	memo.nodes.set(memoKey, node);
+	if (!memo.nodes.has(ddo.tipo)) memo.nodes.set(ddo.tipo, node);
+	return node;
+}
+
+/**
+ * A NESTED column's parent node, by node lookup, never by map order: the
+ * memo when the parent was already processed, else the parent ddo's node
+ * resolved now at its first READABLE section (a parent the read gate denies
+ * at every section has no node — its data is not expanded either). A
+ * non-component parent (a grouper) = null.
+ */
+async function nestedColumnParentNode(
+	parentTipo: string,
+	pass: SectionColumnPass,
+	memo: ColumnNodeMemo,
+): Promise<ColumnNode> {
+	const known = memo.nodes.get(parentTipo);
+	if (known !== undefined) return known;
+	const parentDdo = pass.ddoMap.find((candidate) => candidate.tipo === parentTipo);
+	// A component parent the map never lists is never expanded by the data
+	// side either: its children are orphans. A non-component one (a grouper)
+	// has no node by nature.
+	if (parentDdo === undefined)
+		return (await componentModelOf(parentTipo)) === null ? null : ORPHAN_COLUMN;
+	for (const section of resolveDdoContextSections(parentDdo, pass.sectionTipo, pass.data)) {
+		if (!(await columnReadable(pass, section, parentDdo.tipo))) continue;
+		return columnNodeOf(parentDdo, section, pass, memo);
 	}
+	return ORPHAN_COLUMN;
+}
 
-	return { context: stripSessionSqoStamp(context, source as Record<string, unknown>), data };
+/** A column's parent node (the read's ROOT map for a top-level column), and whether it is top-level. */
+async function columnParentNode(
+	ddo: Ddo,
+	pass: SectionColumnPass,
+	memo: ColumnNodeMemo,
+): Promise<{ parentNode: ColumnNode; topLevel: boolean }> {
+	const parentTipo = columnParentOf(ddo, pass.callerTipo);
+	const topLevel = parentTipo === pass.callerTipo || parentTipo === pass.sectionTipo;
+	if (!topLevel)
+		return { parentNode: await nestedColumnParentNode(parentTipo, pass, memo), topLevel };
+	const { rootNodeFor } = await import('../relations/element_node.ts');
+	return {
+		parentNode: rootNodeFor(
+			pass.nodes,
+			pass.callerTipo,
+			pass.sectionTipo,
+			pass.mode,
+			pass.ddoMap as Ddo[],
+		),
+		topLevel,
+	};
+}
+
+/**
+ * A column's GOVERNING ddo: its own line at the top level; a nested column's
+ * is its parent node's line for it — exactly what the data path handed it
+ * (relation_core expandPortal: node.children).
+ */
+function governingColumnDdo(ddo: Ddo, parentNode: ElementNode, topLevel: boolean): Ddo {
+	if (topLevel) return ddo;
+	const line = parentNode.children.find((child) => child.tipo === ddo.tipo) as unknown as
+		| Ddo
+		| undefined;
+	return line ?? ddo;
+}
+
+/**
+ * The section a column ddo's READ gate judges it on: its declared section, or
+ * the read's (`readSection`) for an undeclared / 'self' one. A multi-target
+ * NESTED ddo (sectionColumnDdo keeps its whole section_tipo) is judged on its
+ * FIRST target — exactly the section the flattened map handed this gate
+ * before; a client map's array likewise.
+ */
+function ddoGateSection(ddo: Ddo, readSection: string): string {
+	const declared = Array.isArray(ddo.section_tipo) ? ddo.section_tipo[0] : ddo.section_tipo;
+	return declared === undefined || declared === 'self' ? readSection : declared;
+}
+
+/**
+ * THE SCOPED read drop over EVERY section a ddo declares (owner decision (h),
+ * W4b review) — the scoped path's stand-in for stage 1's strict drop
+ * (request_config/from_rqo.ts readableSectionTipoOf), which a scoped search
+ * runs without (its actor-less stage 1 must keep the scoped columns the
+ * actor's own grant would drop). Each declared section ('self' / undeclared =
+ * the read's section) is judged by scopedDdoReadable: a section the scope
+ * opened admits only the writer component's shown pairs, every other one the
+ * actor's own grant. A multi-section ddo is NARROWED to the sections that
+ * pass (a copy — the map's ddo is never mutated); none passing drops it
+ * (null). This is what keeps a nested client child declaring ['dd1324', Z]
+ * under a scoped relation column from serving Z's values: Z is judged on its
+ * own (and dropped), not hidden behind the rule-granted dd1324.
+ */
+async function scopedDeclaredSections(
+	principal: Principal,
+	scope: TargetSearchScope,
+	ddo: Ddo,
+	readSection: string,
+): Promise<Ddo | null> {
+	const declared = ddo.section_tipo;
+	const entries: readonly unknown[] = Array.isArray(declared)
+		? declared.length > 0
+			? declared
+			: [undefined]
+		: [declared];
+	const kept: string[] = [];
+	for (const entry of entries) {
+		const judged = declaredSectionOf(entry, readSection);
+		if (await scopedDdoReadable(principal, scope, judged, ddo.tipo)) kept.push(String(entry));
+	}
+	return narrowedDdo(ddo, kept);
+}
+
+/**
+ * `ddo` narrowed to the `kept` sections of its declared list (a copy), itself
+ * when nothing was dropped, null when nothing was kept (scopedDeclaredSections).
+ */
+function narrowedDdo(ddo: Ddo, kept: readonly string[]): Ddo | null {
+	if (kept.length === 0) return null;
+	const declared = ddo.section_tipo;
+	if (!Array.isArray(declared) || kept.length === declared.length) return ddo;
+	return { ...ddo, section_tipo: [...kept] } as Ddo;
+}
+
+/** A declared section entry, 'self' / undeclared standing for the read's section (scopedDeclaredSections). */
+function declaredSectionOf(entry: unknown, readSection: string): string {
+	if (typeof entry !== 'string' || entry === '' || entry === 'self') return readSection;
+	return entry;
+}
+
+/**
+ * The DATA side's per-column READ gate of a section read (readSectionRowsEmission):
+ * each ddo is kept when its declared section(s) pass scopedDdoReadable and
+ * its rows side passes scopedRowsReadable. A Time Machine read judges every
+ * ddo in dd15 (its rows are virtual dd15 records). A SCOPED search's stage 1
+ * ran with no actor, so the strict drop that judges EVERY section a ddo
+ * declares — and narrows a nested multi-section ddo to its readable ones —
+ * did not run; it is re-done here on the scoped rule (scopedDeclaredSections),
+ * or a nested client child declaring ['dd1324', Z] would be judged on dd1324
+ * alone and serve Z's values under a scoped relation column.
+ */
+async function authorizedColumnMap(
+	principal: Principal,
+	scope: TargetSearchScope | undefined,
+	ddoMap: readonly Ddo[],
+	readSection: string,
+	readsTimeMachine: boolean,
+): Promise<Ddo[]> {
+	const authorized: Ddo[] = [];
+	for (const ddo of ddoMap) {
+		const gated = await gatedColumnDdo(principal, scope, ddo, readSection, readsTimeMachine);
+		if (gated !== null && (await scopedRowsReadable(scope, ddo.tipo))) authorized.push(gated);
+	}
+	return authorized;
+}
+
+/** One ddo through the column gate (authorizedColumnMap): the ddo (narrowed on a scoped read), or null. */
+async function gatedColumnDdo(
+	principal: Principal,
+	scope: TargetSearchScope | undefined,
+	ddo: Ddo,
+	readSection: string,
+	readsTimeMachine: boolean,
+): Promise<Ddo | null> {
+	if (readsTimeMachine) {
+		return (await scopedDdoReadable(principal, scope, TIME_MACHINE_SECTION_TIPO, ddo.tipo))
+			? ddo
+			: null;
+	}
+	if (scope !== undefined) return scopedDeclaredSections(principal, scope, ddo, readSection);
+	return (await scopedDdoReadable(principal, scope, ddoGateSection(ddo, readSection), ddo.tipo))
+		? ddo
+		: null;
+}
+
+/** Whose map a read's ROOT is: the client's (a sent show map) or the ontology's. */
+function rootMapOrigin(rqo: Rqo): 'client' | 'ontology' {
+	return clientShowDdoMap(rqo) !== null ? 'client' : 'ontology';
+}
+
+/** The element's model when it is a COMPONENT (the elements that have a node), else null. */
+async function componentModelOf(tipo: string): Promise<string | null> {
+	const model = await getModelByTipo(tipo);
+	return model?.startsWith('component_') ? model : null;
+}
+
+/** columnNodeOf's resolution (no memo). */
+async function resolveColumnNode(
+	ddo: Ddo,
+	ddoSectionTipo: string,
+	pass: SectionColumnPass,
+	memo: ColumnNodeMemo,
+): Promise<ColumnNode> {
+	const model = await componentModelOf(ddo.tipo);
+	if (model === null) return null;
+	const { parentNode, topLevel } = await columnParentNode(ddo, pass, memo);
+	// A component under a non-component parent (a grouper) keeps the own-config
+	// entry (no node exists there); under a node-less COMPONENT it is an orphan.
+	if (parentNode === null) return null;
+	if (parentNode === ORPHAN_COLUMN) return ORPHAN_COLUMN;
+	return emittedOrFreshColumnNode(ddo, ddoSectionTipo, parentNode, topLevel, model, pass);
+}
+
+/** A column's node under its resolved parent: the emitted occurrence, else resolved now. */
+async function emittedOrFreshColumnNode(
+	ddo: Ddo,
+	ddoSectionTipo: string,
+	parentNode: ElementNode,
+	topLevel: boolean,
+	model: string,
+	pass: SectionColumnPass,
+): Promise<ElementNode> {
+	const governing = governingColumnDdo(ddo, parentNode, topLevel);
+	// Nested children render in their declared mode, LIST by default (the data
+	// path's portal children default).
+	const mode = governing.mode ?? (topLevel ? pass.mode : 'list');
+	const emitted = pass.nodes.findChild(parentNode.key, ddo.tipo, ddoSectionTipo, mode);
+	return (
+		emitted ?? resolveFreshColumnNode(ddo, governing, parentNode, ddoSectionTipo, mode, model, pass)
+	);
+}
+
+/** A column node no row emitted (an empty page still ships its structure): resolved now. */
+async function resolveFreshColumnNode(
+	ddo: Ddo,
+	governing: Ddo,
+	parentNode: ElementNode,
+	ddoSectionTipo: string,
+	mode: string,
+	model: string,
+	pass: SectionColumnPass,
+): Promise<ElementNode> {
+	const { elementLang } = await import('../ontology/resolver.ts');
+	const { resolveElement } = await import('../relations/element_node.ts');
+	const requested = ddo.lang ?? null;
+	return resolveElement({
+		ddo: governing,
+		parentNode,
+		ownerSectionTipo: ddoSectionTipo,
+		mode,
+		lang: await elementLang(ddo.tipo, model, { requested, ambient: pass.lang }),
+		configLang: requested ?? pass.lang,
+		registry: pass.nodes,
+		model,
+	});
+}
+
+/**
+ * A NESTED column (parent is a component, not the section) is a subdatum: its
+ * sort join must start at the LISTED section, so hand its parent-portal to
+ * buildOrderPath for the prepend (PHP get_order_path from_component/from_section).
+ */
+function columnOrderPathFrom(
+	resolvedParent: string | null,
+	pass: SectionColumnPass,
+	entries: readonly StructureContextEntry[],
+): { componentTipo: string; sectionTipo: string } | undefined {
+	if (resolvedParent === null || resolvedParent === pass.callerTipo) return undefined;
+	const parentEntry = entries.find((existing) => existing.tipo === resolvedParent);
+	return {
+		componentTipo: resolvedParent,
+		sectionTipo: parentEntry?.section_tipo ?? pass.sectionTipo,
+	};
+}
+
+/** A column ddo's declared per-occurrence fields, defaulted from the pass. */
+function columnDeclaredFields(ddo: Ddo, pass: SectionColumnPass) {
+	return {
+		mode: ddo.mode ?? pass.mode,
+		lang: ddo.lang ?? pass.lang,
+		// Only a DECLARED ddo lang is an explicit ask; the section read's
+		// own `lang` is the ambient page data lang, which must never make
+		// the edit form build a transliterable in a version (elementLang).
+		requestedLang: ddo.lang ?? null,
+		view: ddo.view ?? null,
+		childrenView: (ddo as { children_view?: string | null }).children_view ?? null,
+	};
+}
+
+/** One column entry (appendSectionColumnContexts), from its node when it has one. */
+async function buildColumnEntry(
+	ddo: Ddo,
+	ddoSectionTipo: string,
+	node: ElementNode | null,
+	pass: SectionColumnPass,
+	entries: readonly StructureContextEntry[],
+): Promise<StructureContextEntry | null> {
+	const resolvedParent = ddo.parent === 'self' ? pass.callerTipo : (ddo.parent ?? null);
+	return buildStructureContext({
+		tipo: ddo.tipo,
+		sectionTipo: ddoSectionTipo,
+		...columnDeclaredFields(ddo, pass),
+		// The entry declares the mode of the node it serialises: a NESTED column
+		// whose map line names no mode resolves (and its data emits) in 'list',
+		// whatever the read's mode — an '_edit' key over a list-mode config would
+		// be a context no cell binds to.
+		...(node !== null ? { mode: node.mode } : {}),
+		// Per-element level (the ddoIsAuthorized drop guarantees ≥ 1 for defined
+		// principals — the client renders 1 read-only, ≥2 edit): a TOP-LEVEL
+		// column's own matrix level; a NESTED declared column (its parent is a
+		// component of the map) inherits from that parent occurrence's computed
+		// level (PHP get_subdatum :2564-2571 — a read-only parent caps it at 1;
+		// owner decision (d), section/node_permissions.ts).
+		permissions: await columnPermissions(ddo, ddoSectionTipo, node, pass),
+		parent: resolvedParent,
+		orderPathFrom: columnOrderPathFrom(resolvedParent, pass, entries),
+		// WC-079: a temporal clone ships no component toolbar.
+		isTemporal: isTemporalSource(pass.rqo.source ?? {}),
+		configFrom:
+			node !== null
+				? { source: 'emission', node }
+				: { source: 'own', reason: 'non-component-element' },
+	});
+}
+
+/**
+ * A column entry's stamped level (buildColumnEntry): the node chain's when the
+ * column has a node (section/node_permissions.ts — its section is the entry's,
+ * a multi-target column is stamped per section), else the column's own level.
+ */
+async function columnPermissions(
+	ddo: Ddo,
+	ddoSectionTipo: string,
+	node: ElementNode | null,
+	pass: SectionColumnPass,
+): Promise<number> {
+	if (node === null || pass.principal === undefined || pass.levels.isTop(node)) {
+		return pass.permissionsOf.elementPermissions(ddoSectionTipo, ddo.tipo);
+	}
+	const level = await pass.levels.itemLevel(node, ddoSectionTipo, ddo.tipo);
+	return pass.permissionsOf.capForReadTarget(level ?? 3);
+}
+
+/**
+ * PER-RECORD context options for section EDIT views (the same
+ * resolveContextOptions facet buildGetDataContext dispatches on the
+ * tool/get_data route — see there for the full why; registry dispatch,
+ * never a model conditional, S2-24). The context is deduped by
+ * contextKey across the read's rows, so this is first-record-wins —
+ * exactly PHP merge_unique_context, which kept the first component
+ * context it built.
+ */
+async function stampColumnContextOptions(
+	entry: StructureContextEntry,
+	ddo: Ddo,
+	ddoSectionTipo: string,
+	pass: SectionColumnPass,
+): Promise<void> {
+	if ((entry.mode ?? pass.mode) !== 'edit') return;
+	const firstRow = pass.data.find((item) => (item as { typo?: string }).typo === 'sections') as
+		| { section_id?: unknown }
+		| undefined;
+	mergeContextOptions(
+		entry,
+		await recordContextOptions(ddo.tipo, ddoSectionTipo, positiveRecordId(firstRow?.section_id)),
+	);
+}
+
+/** A positive integer record id, else null (a search/temporal id has no record options). */
+function positiveRecordId(value: unknown): number | null {
+	const id = Number(value ?? Number.NaN);
+	return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/**
+ * The model's per-record context options (the resolveContextOptions emit-hook
+ * facet — registry dispatch, never a model conditional, S2-24), or null.
+ */
+async function recordContextOptions(
+	tipo: string,
+	sectionTipo: string,
+	sectionId: number | null,
+): Promise<Record<string, unknown> | null> {
+	if (sectionId === null) return null;
+	const model = await getModelByTipo(tipo);
+	const contextHook = model === null ? undefined : getEmitHook(model);
+	if (contextHook?.resolveContextOptions === undefined) return null;
+	return contextHook.resolveContextOptions({ tipo, sectionTipo, sectionId });
+}
+
+/** Merge per-record options into a (fresh, per-call) context entry. */
+function mergeContextOptions(
+	entry: StructureContextEntry,
+	options: Record<string, unknown> | null,
+): void {
+	if (options !== null) entry.options = { ...(entry.options ?? {}), ...options };
+}
+
+/**
+ * The section door's DERIVED item rules (appendItemContexts): an item with no
+ * creating component is the column's own (already covered); the subdatum
+ * permission inheritance (PHP get_subdatum, class.common.php :2564-2571 —
+ * owner decision (d), section/node_permissions.ts): the child's own matrix
+ * level, floored to read through its component caller (portal targets stay
+ * visible without a target-section grant) and capped at read under a
+ * read-only caller, judged against the IMMEDIATE caller OCCURRENCE's computed
+ * level (the item's node chain — never the first context entry of the parent
+ * tipo, which owner decision (b) made ambiguous), then the read-target
+ * consultation-only cap; the sort join of a subdatum starts at the LISTED
+ * section (the parent portal's own section when its entry is built, else the
+ * listed section).
+ */
+function sectionDerivedOptions(
+	entries: readonly StructureContextEntry[],
+	sectionTipo: string,
+	principal: Principal | undefined,
+	scope: Pick<SectionReadScope, 'permissionsOf' | 'levels' | 'targetSearchScope'>,
+	nodes: ElementNodeRegistry,
+): DerivedItemContextOptions {
+	const { permissionsOf, levels, targetSearchScope } = scope;
+	const parentEntryOf = (parentTipo: string) =>
+		entries.find((existing) => existing.tipo === parentTipo);
+	return {
+		isOwnItem: (item) => String(item.from_component_tipo ?? item.tipo) === String(item.tipo),
+		fallbackParent: (item) => String(item.tipo),
+		permissionsOf: async (item, parentTipo) => {
+			if (principal === undefined) return permissionsOf.capForReadTarget(3);
+			const chained = await levels.itemLevel(
+				nodes.nodeOfItem(item),
+				String(item.section_tipo),
+				String(item.tipo),
+				itemRowId(item.section_id),
+			);
+			// An item no emitter bound (defensive — every emitter binds today):
+			// the parent tipo's first entry stands in for the caller occurrence.
+			const level =
+				chained ??
+				(await unboundItemLevel(
+					principal,
+					item,
+					parentEntryOf(parentTipo)?.permissions ?? 3,
+					targetSearchScope,
+				));
+			return permissionsOf.capForReadTarget(level);
+		},
+		orderPathFrom: (parentTipo) => ({
+			componentTipo: parentTipo,
+			sectionTipo: parentEntryOf(parentTipo)?.section_tipo ?? sectionTipo,
+		}),
+	};
+}
+
+/**
+ * The level of an item no emitter bound (sectionDerivedOptions): its own grant
+ * inherited from the parent tipo's first entry — the raise bounded on a scoped
+ * read exactly as NodeLevelPolicy.raises bounds it (scopedRaise).
+ */
+async function unboundItemLevel(
+	principal: Principal,
+	item: { readonly section_tipo?: unknown; readonly tipo?: unknown },
+	callerLevel: number,
+	scope: TargetSearchScope | undefined,
+): Promise<number> {
+	const sectionTipo = String(item.section_tipo);
+	const tipo = String(item.tipo);
+	const own = await getPermissions(principal, sectionTipo, tipo);
+	if (own < 1 && scope !== undefined && !scopedRaise(scope, sectionTipo, tipo)) return 0;
+	return inheritSubdatumPermission(own, callerLevel);
 }
 
 /** The caller sent its own columns (a literal show.ddo_map or a get_ddo_map directive). */
@@ -519,7 +1363,12 @@ function callerColumn(
 	ontologyDdos: readonly Record<string, unknown>[],
 	context: readonly StructureContextEntry[],
 ): Record<string, unknown> | undefined {
-	const ddoSection = selfOr(ddo.section_tipo, sectionEntry.section_tipo);
+	// A multi-target ddo binds its column by its FIRST target (the flattened
+	// shape this lookup always saw).
+	const ddoSection = selfOr(
+		Array.isArray(ddo.section_tipo) ? ddo.section_tipo[0] : ddo.section_tipo,
+		sectionEntry.section_tipo,
+	);
 	const built = context.find((c) => c.tipo === ddo.tipo && c.section_tipo === ddoSection);
 	if (built === undefined) return undefined;
 	const known = ontologyDdos.find((d) => d.tipo === ddo.tipo && d.section_tipo === ddoSection);
@@ -557,14 +1406,6 @@ export function attachSectionTabChildren(context: StructureContextEntry[]): void
 	}
 }
 
-/**
- * An element's descendants in the caller's ddo_map — RECURSIVE, child then its
- * own descendants, order-preserving (PHP get_subdatum $get_children_recursive,
- * class.common.php:2297-2310): a grandchild declared in the caller's map lands
- * in the SAME flat injected show.ddo_map as its parent. The seen-set guards a
- * malformed self-/cyclic-parent map (PHP would recurse forever there too — the
- * ontology never declares one, but a client-sent map could).
- */
 /**
  * The section(s) a ddo_map entry's structure context must be built for.
  *
@@ -615,118 +1456,6 @@ function sectionTiposPresentFor(data: readonly unknown[], tipo: string): Set<str
 		if (row.tipo === tipo && typeof row.section_tipo === 'string') present.add(row.section_tipo);
 	}
 	return present;
-}
-
-export function collectCallerDescendants(callerDdoMap: Ddo[], elementTipo: string): Ddo[] {
-	const collect = (parentTipo: string, seenTipos: Set<string>): Ddo[] => {
-		const descendants: Ddo[] = [];
-		for (const candidate of callerDdoMap) {
-			if (candidate.parent !== parentTipo || seenTipos.has(candidate.tipo)) continue;
-			seenTipos.add(candidate.tipo);
-			descendants.push(candidate, ...collect(candidate.tipo, seenTipos));
-		}
-		return descendants;
-	};
-	return collect(elementTipo, new Set([elementTipo]));
-}
-
-/**
- * Derive context entries from ACTUALLY-EMITTED data items (the get_data
- * derivation generalized): each unique (tipo, section_tipo, mode) gets one
- * entry, parented to its generating component (from_component_tipo), with
- * the ddo view looked up in the parent's own edit config. Deduplicates
- * against — and appends to — the caller's entries/seen set.
- */
-async function appendDerivedItemContexts(
-	entries: StructureContextEntry[],
-	seen: Set<string>,
-	items: DataItem[],
-	defaults: {
-		sectionTipo: string;
-		lang: string;
-		principal?: Principal;
-		capForReadTarget: (level: number) => number;
-	},
-): Promise<void> {
-	// per-parent ddo-view lookup: a child's context `view` comes from the
-	// GENERATING component's config ddo (e.g. numisdata158 declares 'line' in
-	// numisdata77's show.ddo_map).
-	const ownerSectionOf = new Map<string, string>();
-	const viewCache = new Map<string, Map<string, string | null>>();
-	const ddoViewOf = async (parentTipo: string, childTipo: string): Promise<string | null> => {
-		let views = viewCache.get(parentTipo);
-		if (views === undefined) {
-			views = new Map<string, string | null>();
-			const { getEffectivePropertiesByTipo } = await import('../ontology/alias.ts');
-			const { buildRequestConfigForElement } = await import('../relations/request_config/build.ts');
-			// component_alias (WC-020): a child's view may be declared in an ALIAS
-			// parent's merged show map.
-			const parentConfig = await buildRequestConfigForElement(
-				(await getEffectivePropertiesByTipo(parentTipo)) ?? null,
-				{
-					ownerTipo: parentTipo,
-					ownerSectionTipo: ownerSectionOf.get(parentTipo) ?? defaults.sectionTipo,
-					mode: 'edit',
-					ownerIsSection: false,
-				},
-			);
-			// EVERY config item's show map (PHP full_ddo_map): a second source's
-			// column may carry the `view` its child renders with.
-			const { flattenConfigDdoMaps } = await import('../relations/config_ddo_map.ts');
-			for (const ddo of flattenConfigDdoMaps(parentConfig, { ownerTipo: parentTipo })) {
-				if (typeof ddo.tipo !== 'string') continue;
-				views.set(ddo.tipo, (ddo.view as string | undefined) ?? null);
-			}
-			viewCache.set(parentTipo, views);
-		}
-		return views.get(childTipo) ?? null;
-	};
-
-	for (const item of items) {
-		const itemTipo = String(item.tipo);
-		const parentTipo = String(item.from_component_tipo ?? itemTipo);
-		if (parentTipo === itemTipo) continue; // own items — already covered
-		if (!ownerSectionOf.has(itemTipo)) {
-			ownerSectionOf.set(itemTipo, String(item.section_tipo));
-		}
-		// A subdatum's sort join must start at the LISTED section (PHP
-		// get_order_path from_component/from_section prepend): the parent portal's
-		// own section is where it hangs (already-built context entry), else the
-		// listed section for a direct child.
-		const parentEntry = entries.find((existing) => existing.tipo === parentTipo);
-		const parentSection = parentEntry?.section_tipo ?? defaults.sectionTipo;
-		// Subdatum permission inheritance (PHP get_subdatum, class.common.php
-		// :2567-2575): the child's own matrix level, floored to read through the
-		// authorized generating component (portal targets stay visible without a
-		// target-section grant) and capped at read under a read-only caller —
-		// then the read-target consultation-only cap.
-		const permissions =
-			defaults.principal === undefined
-				? defaults.capForReadTarget(3)
-				: defaults.capForReadTarget(
-						inheritSubdatumPermission(
-							await getPermissions(defaults.principal, String(item.section_tipo), itemTipo),
-							parentEntry?.permissions ?? 3,
-						),
-					);
-		const entry = await buildStructureContext({
-			tipo: itemTipo,
-			sectionTipo: String(item.section_tipo),
-			mode: String(item.mode),
-			lang: String(item.lang),
-			// The emitted item lang IS the child's instance lang (emitDdoData,
-			// elementLang) — its context must agree with it.
-			requestedLang: String(item.lang),
-			permissions,
-			parent: parentTipo,
-			view: await ddoViewOf(parentTipo, itemTipo),
-			orderPathFrom: { componentTipo: parentTipo, sectionTipo: parentSection },
-		});
-		if (entry !== null && !seen.has(contextKey(entry))) {
-			seen.add(contextKey(entry));
-			entries.push(entry);
-		}
-	}
 }
 
 /**
@@ -1191,10 +1920,97 @@ function stampSearchShellItems(items: DataItem[], sectionId: unknown, searchShel
 	}
 }
 
+/**
+ * What a data PRODUCER answers: the data items AND the element nodes the
+ * emission resolved (relations/element_registry.ts) — the one effective config
+ * per element occurrence the context is serialised from, and the notices the
+ * read owes its response (`nodes.notices()`: refused level >= 2 'self' ddos,
+ * stopped record cycles).
+ */
+export interface ProducedData {
+	readonly items: DataItem[];
+	readonly nodes: ElementNodeRegistry;
+	/**
+	 * The TARGETED element's own node — the one its data was emitted from (the
+	 * portal get_data and resolve_data hand it to expandPortal; a literal, the
+	 * select/filter family and relation_index PIN it before emitting,
+	 * pinGetDataTarget): the main context entry is serialised from it
+	 * (buildGetDataContext) — its stage-1 config when the rqo carried a show.
+	 * Absent only for an answer that emitted no element (an empty shell, a bare
+	 * item): the context door resolves it then (resolveGetDataMainNode).
+	 */
+	readonly mainNode?: ElementNode;
+}
+
+/** A producer answer that resolved no element (an empty shell, a bare item). */
+function bareData(items: DataItem[]): ProducedData {
+	return { items, nodes: new ElementNodeRegistry() };
+}
+
+/** A producer answer whose targeted element resolved `mainNode` (or none). */
+function producedFrom(
+	items: DataItem[],
+	nodes: ElementNodeRegistry,
+	mainNode: ElementNode | null,
+): ProducedData {
+	return { items, nodes, ...(mainNode !== null ? { mainNode } : {}) };
+}
+
+/**
+ * Run a producer that fills a registry it is handed, with the rqo's TARGET
+ * node pinned in it first (pinGetDataTarget) — `governing` is the ddo fields
+ * the producer emits the target with (its page `limit`).
+ */
+async function producedWithTarget(
+	rqo: Rqo,
+	governing: GetDataGoverning,
+	produce: (nodes: ElementNodeRegistry) => Promise<DataItem[]>,
+): Promise<ProducedData> {
+	const nodes = new ElementNodeRegistry();
+	const mainNode = await pinGetDataTarget(rqo, nodes, governing);
+	return producedFrom(await produce(nodes), nodes, mainNode);
+}
+
+/**
+ * Resolve the get_data TARGET's node ONCE — in the read's real mode, over the
+ * rqo `source.properties` override, STAGE 1 when the rqo carries a show
+ * (resolveGetDataMainNode) — and PIN it in the producer's registry
+ * (element_registry.ts setTarget), so the producer's top-level emission of the
+ * target answers this very node (element_node.ts resolveEmittedElement). The
+ * returned node is the producer's `mainNode`: its data children and its main
+ * context entry are one projection — a literal's frames, the select/filter
+ * family's item and relation_index's own-config children no longer follow the
+ * own config while the context ships the client's show.
+ */
+async function pinGetDataTarget(
+	rqo: Rqo,
+	nodes: ElementNodeRegistry,
+	governing: GetDataGoverning = {},
+): Promise<ElementNode | null> {
+	const { currentPrincipal } = await import('../security/request_context.ts');
+	const node = await resolveGetDataMainNode(rqo, nodes, currentPrincipal(), governing);
+	if (node !== null) nodes.setTarget(node);
+	return node;
+}
+
+/** A component get_data's items (readComponentDataEmission without its nodes). */
 export async function readComponentData(rqo: Rqo): Promise<DataItem[]> {
+	return (await readComponentDataEmission(rqo)).items;
+}
+
+/**
+ * A component get_data — items AND nodes (ProducedData). The doors that build a
+ * context or owe notices call this one; readComponentData is the items-only
+ * convenience.
+ */
+export async function readComponentDataEmission(rqo: Rqo): Promise<ProducedData> {
 	const refusal: TmPreviewRefusal = { reason: null };
-	const items = await readComponentDataUnflagged(rqo, refusal);
-	return flagRefusedPreview(items, String(rqo.source?.tipo ?? ''), refusal.reason);
+	const produced = await readComponentDataUnflagged(rqo, refusal);
+	return {
+		items: flagRefusedPreview(produced.items, String(rqo.source?.tipo ?? ''), refusal.reason),
+		nodes: produced.nodes,
+		...(produced.mainNode !== undefined ? { mainNode: produced.mainNode } : {}),
+	};
 }
 
 /**
@@ -1217,7 +2033,7 @@ function explicitLangField(source: { lang?: unknown }): { lang?: string } {
 async function readComponentDataUnflagged(
 	rqo: Rqo,
 	refusal: TmPreviewRefusal,
-): Promise<DataItem[]> {
+): Promise<ProducedData> {
 	const source = rqo.source ?? {};
 	const tipo = source.tipo;
 	const sectionTipo = source.section_tipo;
@@ -1359,7 +2175,7 @@ async function readComponentDataUnflagged(
 	);
 	// PHP get_data returns null (empty) when the snapshot is absent — or, since
 	// P0-14, when it belongs to a dead generation at the same address.
-	if (preview.served === false) return [];
+	if (preview.served === false) return bareData([]);
 	const tmOverride: TmPreviewGraft | null = preview.graft;
 
 	// NON-relation components: PHP dd_core_api serves get_data for ANY
@@ -1376,7 +2192,7 @@ async function readComponentDataUnflagged(
 		let literalRowId = Number(sectionId);
 		if (literalRecord === null) {
 			const shell = await materializeLiteralShell(source, sectionTipo, sectionId, tmOverride);
-			if (shell === null) return []; // PHP empty shell
+			if (shell === null) return bareData([]); // PHP empty shell
 			literalRecord = shell.record;
 			literalRowId = shell.rowId;
 			literalSearchShell = shell.searchShell;
@@ -1392,6 +2208,9 @@ async function readComponentDataUnflagged(
 		const literalEmission = literalRoot.emission;
 		const literalData = literalEmission.items;
 		const literalMode = source.mode ?? 'edit';
+		// The literal's node (and its frames' governing lines) IS the main
+		// context entry's: pinned before the emission (pinGetDataTarget).
+		const literalNode = await pinGetDataTarget(rqo, literalEmission.nodes);
 		// The ddo carries the lang ONLY when the caller sent one: a component
 		// read's own `source.lang` is an EXPLICIT ask (the tool_lang target
 		// building rsc85-like transliterables in lg-spa — resolver.ts
@@ -1436,7 +2255,7 @@ async function readComponentDataUnflagged(
 				item.parent_section_id = canonicalId;
 			}
 		}
-		return literalData as DataItem[];
+		return producedFrom(literalData as DataItem[], literalEmission.nodes, literalNode);
 	}
 	// Client-managed paging: the paginator rqo carries sqo.limit/offset — a
 	// CLIENT page, bounded HERE by the ONE page primitive (clampClientPage,
@@ -1472,15 +2291,21 @@ async function readComponentDataUnflagged(
 		// (a lg-nolan get_data still renders translatable pointing-section values
 		// in the active data language).
 		const { currentDataLang } = await import('../resolve/request_lang.ts');
-		return readRelationIndexData(
-			tipo,
-			sectionTipo,
-			String(sectionId),
-			limit,
-			sqoOffset,
-			currentDataLang(),
-			emitDdoData,
-			source.mode ?? 'edit',
+		// The index element's node — governed by this page's limit, exactly the
+		// ddo its own-config portal expansion emits — pinned before the emission,
+		// so the own-config children and the main context entry are ONE node.
+		return producedWithTarget(rqo, { limit }, (nodes) =>
+			readRelationIndexData(
+				tipo,
+				sectionTipo,
+				String(sectionId),
+				limit,
+				sqoOffset,
+				currentDataLang(),
+				emitDdoData,
+				source.mode ?? 'edit',
+				nodes,
+			),
 		);
 	}
 
@@ -1521,7 +2346,7 @@ async function readComponentDataUnflagged(
 			emptyItem.pagination = { total: 0, limit, offset: sqoOffset };
 			emptyItem.parent_tipo = tipo;
 			emptyItem.parent_section_id = Number(sectionId);
-			return [emptyItem];
+			return bareData([emptyItem]);
 		}
 		// SELECT / FILTER family in SEARCH mode against a SYNTHETIC filter-row id:
 		// the search panel builds each filter component with a client-minted
@@ -1562,7 +2387,7 @@ async function readComponentDataUnflagged(
 			// entries:[] rather than nothing. section_id is echoed VERBATIM (leading
 			// zeros kept) so String(el.section_id)===String(self.section_id) matches.
 			if ((source.mode ?? 'edit') === 'search') {
-				return [buildDataItem(tipo, sectionTipo, sectionId, 'search', lang, [])];
+				return bareData([buildDataItem(tipo, sectionTipo, sectionId, 'search', lang, [])]);
 			}
 			// TEMPORAL (WC-059): same contract, the clone's own mode. The client
 			// resolves its item by the stringified section_id, so the SENTINEL is
@@ -1580,13 +2405,15 @@ async function readComponentDataUnflagged(
 				// a worse regression than the bug this store fixes. So an empty
 				// scratch keeps the bare item and only a NON-empty one falls through.
 				if (scratchEntries === null || scratchEntries.length === 0) {
-					return [buildDataItem(tipo, sectionTipo, sectionId, source.mode ?? 'edit', lang, [])];
+					return bareData([
+						buildDataItem(tipo, sectionTipo, sectionId, source.mode ?? 'edit', lang, []),
+					]);
 				}
 				const { makeVirtualRecord } = await import('../section_record/virtual_record.ts');
 				record = makeVirtualRecord(sectionTipo, Number(sectionId));
 				await graftScratch(record);
 			} else {
-				return [];
+				return bareData([]);
 			}
 		}
 	}
@@ -1624,6 +2451,7 @@ async function readComponentDataUnflagged(
 		const familyRoot = await tmPreviewEmission(preview, record);
 		const familyEmission = familyRoot.emission;
 		const familyData = familyEmission.items;
+		const familyNode = await pinGetDataTarget(rqo, familyEmission.nodes);
 		// Echo a non-record id VERBATIM — the search filter's 'search_<n>' token
 		// and an external remote id both match the client instance by String()
 		// equality; a RECORD address emits as canonical INT
@@ -1648,7 +2476,7 @@ async function readComponentDataUnflagged(
 				// biome-ignore lint/performance/noDelete: PHP parity — row_section_id must be ABSENT here
 				delete (item as { row_section_id?: unknown }).row_section_id;
 		}
-		return familyData as DataItem[];
+		return producedFrom(familyData as DataItem[], familyEmission.nodes, familyNode);
 	}
 
 	// DATAFRAME get_data — the PAIRED read (PHP component_dataframe::get_data
@@ -1719,88 +2547,74 @@ async function readComponentDataUnflagged(
 				emptyItem.parent_tipo = tipo;
 				emptyItem.id_key = Number(pairing.id_key);
 				emptyItem.main_component_tipo = pairing.main_component_tipo;
-				return [emptyItem];
+				return bareData([emptyItem]);
 			}
 		}
 	}
 
-	// The component's OWN request_config (edit mode → the full child tree).
-	// An rqo source.properties OVERRIDE replaces the ontology properties (PHP
-	// dd_core_api read :2305-2308, $element->set_properties): TOOL component
-	// instances read with their ddo_map-declared properties (client
-	// create_source), so the child map, the external sqo and the page size all
-	// derive from the override — the epigraphy coins portal pages by the
-	// override's sqo_config.limit 1, not the ontology's 9 (wire-pinned
-	// 2026-07-10, section_tool_component_read_differential).
-	// component_alias (WC-020): the EFFECTIVE properties accessor returns the
-	// alias-merged config for alias tipos and the plain node properties
-	// otherwise — the rqo override still wins on top (precedence chain:
-	// override → alias merge → target).
-	const { getEffectivePropertiesByTipo } = await import('../ontology/alias.ts');
-	const { buildRequestConfigForElement } = await import('../relations/request_config/build.ts');
+	// THE ELEMENT'S NODE (relations/element_node.ts resolveElement) — its ONE
+	// effective config, the same one its context reads:
+	//  - STAGE 1 when this rqo carries a `show` (request_config/from_rqo.ts —
+	//    validated, consolidated, grant-judged client ddos; PHP
+	//    build_request_config_from_rqo). The portal paginator sends none
+	//    (add_show=false), so paging resolves the element's own map;
+	//  - otherwise its OWN config through the one base resolver
+	//    (request_config/own_config.ts): an rqo `source.properties` OVERRIDE
+	//    replaces the ontology properties (PHP dd_core_api read :2305-2308 —
+	//    TOOL component instances read with their ddo_map-declared properties,
+	//    so the child map, the external sqo and the page size all derive from
+	//    the override: the epigraphy coins portal pages by the override's
+	//    sqo_config.limit 1, not the ontology's 9, wire-pinned 2026-07-10), else
+	//    the alias-merged properties (WC-020).
+	// The mode is the READ's real mode (`source.mode ?? 'edit'` — exactly the
+	// main context entry's, buildGetDataContext), so a LIST get_data (a list
+	// cell's paginator) resolves the section_list config its context declares
+	// and page 2 expands the same children the section read's list cell did
+	// (models/portal.ts resolves that cell in its real mode too). The emitted
+	// items keep their pinned 'edit' expansion below — only the CONFIG follows
+	// the mode. A top-level read has no caller: nothing is injected.
+	const { occurrenceKey, resolveElement } = await import('../relations/element_node.ts');
+	const { currentPrincipal: principalOfRequest } = await import('../security/request_context.ts');
 	const propertiesOverride = source.properties ?? undefined;
-	const config = await buildRequestConfigForElement(
-		propertiesOverride ?? (await getEffectivePropertiesByTipo(tipo)) ?? null,
-		{
-			ownerTipo: tipo,
-			ownerSectionTipo: sectionTipo,
-			mode: 'edit',
-			ownerIsSection: false,
-			ownerSectionId: sectionId,
-			lang,
-		},
-	);
+	const portalRoot = await tmPreviewEmission(preview, record);
+	const emission = portalRoot.emission;
+	const data = emission.items;
+	const nodeMode = source.mode ?? 'edit';
+	const node = await resolveElement({
+		ddo: { tipo, section_tipo: sectionTipo, parent: 'self', mode: nodeMode } as Ddo,
+		parentNode: await getDataCallerNode(rqo, emission.nodes, principalOfRequest(), lang),
+		ownerSectionTipo: sectionTipo,
+		ownerSectionId: sectionId,
+		mode: nodeMode,
+		lang,
+		registry: emission.nodes,
+		model,
+		...(propertiesOverride !== undefined ? { propertiesOverride } : {}),
+		rqo,
+		principal: principalOfRequest(),
+	});
 
 	// PHP page-size precedence (calculate_default_limit + the element's
 	// pagination sync, wire-pinned 2026-07-10): the client's sqo.limit wins;
 	// else the component's EFFECTIVE config limit (sqo.limit ??
 	// show.sqo_config.limit, LAST config item wins — same chain as
 	// relation_core's ownEditLimit); else the clamped mode default above.
-	let effectiveLimit = limit;
-	if (rawLimit == null) {
-		let configured: number | undefined;
-		for (const item of config) {
-			const candidate =
-				(item.sqo as { limit?: unknown } | undefined)?.limit ??
-				((item.show?.sqo_config as { limit?: unknown } | undefined)?.limit as unknown);
-			if (typeof candidate === 'number' && candidate > 0) configured = candidate;
-		}
-		if (configured !== undefined) effectiveLimit = configured;
-	}
+	const configuredLimit = rawLimit == null ? await getDataConfigLimit(node) : null;
+	const effectiveLimit = configuredLimit ?? limit;
 	// EVERY config item's children, not just the first one's (PHP full_ddo_map,
-	// class.common.php:2312) — the get_data twin of the section-read rule in
-	// relations/models/portal.ts. Without it, paging a two-source component
-	// (rsc368: dedalo + zenon) drops the second source's columns.
-	const { configChildRenderFields, flattenConfigDdoMaps } = await import(
-		'../relations/config_ddo_map.ts'
-	);
-	const childDdos: Ddo[] = flattenConfigDdoMaps(config, { ownerTipo: tipo }).map(
-		(ddo) =>
-			({
-				tipo: ddo.tipo,
-				parent: ddo.parent,
-				lang: (ddo as { lang?: string }).lang,
-				// section_tipo / mode / limit / value_with_parents: the ONE mapper
-				// shared with the section-read twin (relations/models/portal.ts).
-				// It keeps the DECLARED section list INTACT: a multi-target
-				// component's child spans EVERY target section and the per-locator
-				// grouping picks the matching one. Flattening to [0] skipped every
-				// non-first target — rsc92's hierarchy25 spans [es1,fr1,…], so a
-				// picked fr1 term emitted NO subdatum in the save echo and the chip
-				// stayed blank until reload (found live 2026-07-09). And it carries
-				// the child `limit`: without it a nested portal cell
-				// (numisdata965 → numisdata9 limit 4) fell back to the 1-locator
-				// list default on every refresh / save echo / page.
-				...configChildRenderFields(ddo),
-			}) as Ddo,
-	);
+	// class.common.php:2312) — the node's direct children through the ONE
+	// mapper shared with the section read (config_ddo_map.ts
+	// configChildRenderFields). It keeps the DECLARED section list INTACT (a
+	// picked fr1 term under rsc92's hierarchy25 [es1,fr1,…] must match the
+	// per-locator grouping — found live 2026-07-09), carries the child `limit`
+	// (numisdata965 → numisdata9 limit 4 on every refresh / save echo / page) and
+	// a second source's columns (rsc368: dedalo + zenon).
+	const childDdos = node.children as unknown as Ddo[];
 
 	// Portal ddo: paginate the locators by the rqo sqo (get_data pages fully).
 	// tmAsOf: a TM preview's frame children read as of the row
-	// (WC-2026-09-29-tm-preview-frame-children-as-of), rooted at this record.
-	const portalRoot = await tmPreviewEmission(preview, record);
-	const emission = portalRoot.emission;
-	const data = emission.items;
+	// (WC-2026-09-29-tm-preview-frame-children-as-of), rooted at this record
+	// (the emission above, whose registry holds the node).
 	const portalDdo: Ddo = {
 		tipo,
 		section_tipo: sectionTipo,
@@ -1821,19 +2635,22 @@ async function readComponentDataUnflagged(
 		emitDdoData,
 		// get_data subdatum rows anchor on the LOCATOR TARGET (PHP get_subdatum
 		// row_section_id = $current_locator->section_id) — unlike the section
-		// read, where the outer record re-stamp applies. ownConfig: the children
-		// above came from the component's OWN config, which also enables the
-		// autocomplete_hi ddinfo breadcrumb in its BARE get_data shape (the save
-		// echo depends on it — the picked chip renders its thesaurus chain
-		// without a reload; byte-diffed vs the oracle, 2026-07-09).
+		// read, where the outer record re-stamp applies. The node's children are
+		// the component's OWN config (nothing injects into a top-level read),
+		// which keeps the autocomplete_hi ddinfo breadcrumb in its BARE get_data
+		// shape (the save echo depends on it — the picked chip renders its
+		// thesaurus chain without a reload; byte-diffed vs the oracle,
+		// 2026-07-09). A stage-1 (client show) config is not the own config.
 		{
+			node,
+			path: [occurrenceKey({ section_tipo: sectionTipo, section_id: Number(sectionId) }, tipo)],
 			offset: sqoOffset,
 			// The TEMPORARY header-click order (sqo.view_order, wire-validated by
 			// sqoSchema — WC-2026-10-31-portal-order-model): the full list ordered
 			// before this page is cut; paginated_key stays the stored index.
 			viewOrder: rqo.sqo?.view_order,
 			childRowFromTarget: true,
-			ownConfig: true,
+			childrenFromOwnConfig: node.configSource === 'own' && !node.dataChildrenInjected,
 			ddinfoBare: true,
 			...portalAsOfOption(model, preview),
 		},
@@ -1877,7 +2694,7 @@ async function readComponentDataUnflagged(
 			data.unshift(emptyItem);
 		}
 	}
-	return data as DataItem[];
+	return { items: data as DataItem[], nodes: emission.nodes, mainNode: node };
 }
 
 /**
@@ -1888,7 +2705,16 @@ async function readComponentDataUnflagged(
  * children resolve each locator's TARGET record through the component's own
  * child ddos, stamped with the target's raw section_id.
  */
+/** resolve_data's items (resolveSearchDataEmission without its nodes). */
 export async function resolveSearchData(rqo: Rqo, principal?: Principal): Promise<DataItem[]> {
+	return (await resolveSearchDataEmission(rqo, principal)).items;
+}
+
+/** resolve_data — items AND nodes (ProducedData). */
+export async function resolveSearchDataEmission(
+	rqo: Rqo,
+	principal?: Principal,
+): Promise<ProducedData> {
 	const source = rqo.source ?? {};
 	const tipo = source.tipo;
 	const sectionTipo = source.section_tipo;
@@ -1945,55 +2771,45 @@ export async function resolveSearchData(rqo: Rqo, principal?: Principal): Promis
 			: locator,
 	);
 
-	// The component's child ddos — the RAW config entries so section_tipo
-	// stays AS DECLARED ('self' = match-all in the per-locator grouping).
-	// component_alias (WC-020): the effective accessor merges an alias's config.
+	// THE ELEMENT'S NODE (relations/element_node.ts resolveElement), mode
+	// 'search': its own config through the one base resolver (the alias-merged
+	// properties — WC-020 — through the RELATIONS-driven builder; reading the
+	// component's raw `source.request_config` missed the display children of a
+	// section component whose target display is section/relation-defined: dd543
+	// "Who" carries only `show_interface`, so its chip rendered blank —
+	// reported 2026-07-17), or stage 1 when the rqo carries a show. Its
+	// children are show + hide of that config, like every other door (PHP
+	// get_subdatum full_ddo_map) — they were show-only here.
 	const { getTranslatableByTipo, getModelByTipo: modelOf } = await import(
 		'../ontology/resolver.ts'
 	);
-	const { getEffectivePropertiesByTipo: effectivePropsOf } = await import('../ontology/alias.ts');
-	// The child ddos (the target's DISPLAY components — e.g. dd132 Username for the
-	// dd543 Who portal) come from the RELATIONS-driven request_config builder, the
-	// same one buildGetDataContext uses for the edit-mode child tree. Reading the
-	// component's OWN `source.request_config` misses them for a section component
-	// whose target display is section/relation-defined (dd543 carries only
-	// `show_interface`), so the picked chip resolved NO subdatum and rendered blank
-	// (reported 2026-07-17: Activity "Who" search chip had no username).
-	const { buildRequestConfigForElement } = await import('../relations/request_config/build.ts');
-	const searchConfig = await buildRequestConfigForElement((await effectivePropsOf(tipo)) ?? null, {
-		ownerTipo: tipo,
+	const { occurrenceKey, resolveElement } = await import('../relations/element_node.ts');
+	const searchEmission = new EmissionContext();
+	const data = searchEmission.items;
+	const node = await resolveElement({
+		ddo: { tipo, section_tipo: sectionTipo, parent: 'self', mode: 'search' } as Ddo,
+		parentNode: await getDataCallerNode(rqo, searchEmission.nodes, principal, lang),
 		ownerSectionTipo: sectionTipo,
 		mode: 'search',
-		ownerIsSection: false,
 		lang,
+		registry: searchEmission.nodes,
+		model,
+		rqo,
+		principal,
 	});
-	const allDdos = searchConfig.flatMap((rc) => rc?.show?.ddo_map ?? []) as {
-		tipo: string;
-		parent?: string;
-		section_tipo?: string | string[];
-		mode?: string;
-		lang?: string;
-	}[];
 	// Dataframe ddos are NOT per-target children — they pair with the MAIN
 	// item's entries (id_key) and are emitted separately below.
-	const dataframeDdos: typeof allDdos = [];
+	const dataframeDdos: Ddo[] = [];
 	const childDdos: Ddo[] = [];
-	for (const ddo of allDdos) {
-		if (typeof ddo?.tipo !== 'string') continue;
-		if ((await modelOf(ddo.tipo)) === 'component_dataframe') {
-			dataframeDdos.push(ddo);
+	for (const child of node.children as unknown as Ddo[]) {
+		if ((await modelOf(child.tipo)) === 'component_dataframe') {
+			dataframeDdos.push(child);
 			continue;
 		}
 		// PHP instantiates each child with its INSTANCE lang: the request lang
 		// for translatable components, lg-nolan otherwise.
-		const childLang = (await getTranslatableByTipo(ddo.tipo)) ? lang : 'lg-nolan';
-		childDdos.push({
-			tipo: ddo.tipo,
-			section_tipo: ddo.section_tipo,
-			parent: ddo.parent === 'self' || ddo.parent === undefined ? tipo : ddo.parent,
-			mode: ddo.mode,
-			lang: ddo.lang ?? childLang,
-		} as Ddo);
+		const childLang = (await getTranslatableByTipo(child.tipo)) ? lang : 'lg-nolan';
+		childDdos.push({ ...child, lang: child.lang ?? childLang } as Ddo);
 	}
 
 	// Synthetic record carrying ONLY the injected locators (via the substitution
@@ -2002,8 +2818,6 @@ export async function resolveSearchData(rqo: Rqo, principal?: Principal): Promis
 	const syntheticRecord = makeVirtualRecord(sectionTipo, 0);
 	injectComponentData(syntheticRecord, tipo, model, injected);
 
-	const searchEmission = new EmissionContext();
-	const data = searchEmission.items;
 	await expandPortal(
 		syntheticRecord,
 		{ tipo, section_tipo: sectionTipo, parent: 'self', mode: 'search', limit } as Ddo,
@@ -2015,7 +2829,12 @@ export async function resolveSearchData(rqo: Rqo, principal?: Principal): Promis
 		tipo,
 		searchEmission,
 		emitDdoData,
-		{ childRowFromTarget: true, stampParentSectionId: true },
+		{
+			node,
+			path: [occurrenceKey({ section_tipo: sectionTipo, section_id: 0 }, tipo)],
+			childRowFromTarget: true,
+			stampParentSectionId: true,
+		},
 	);
 
 	// Main-item fixups (PHP set_data on the element): injected entries are
@@ -2032,9 +2851,24 @@ export async function resolveSearchData(rqo: Rqo, principal?: Principal): Promis
 	// as canonical INT, WC-2026-08-10-section-id-int-canonical: it is a
 	// number-typed key here, so the old String() minting is repealed).
 	for (const dataframeDdo of dataframeDdos) {
-		for (let index = 0; index < Math.max(injected.length, 0); index++) {
+		if (injected.length === 0) continue;
+		// THE FRAME'S NODE under the search node (the same occurrence the frame's
+		// child line came from: own, caller-injected or stage 1), in the mode the
+		// synthesized items carry — each item is BOUND to it, so its context is
+		// serialised from that node like every other emitted item
+		// (node_contexts.ts), never rebuilt from the frame's own definition.
+		const frameNode = await resolveElement({
+			ddo: dataframeDdo,
+			parentNode: node,
+			ownerSectionTipo: sectionTipo,
+			mode: 'list',
+			lang: 'lg-nolan',
+			registry: searchEmission.nodes,
+			model: 'component_dataframe',
+		});
+		for (let index = 0; index < injected.length; index++) {
 			const idKey = index + 1;
-			data.push({
+			const frameItem = {
 				section_id: null,
 				section_tipo: sectionTipo,
 				tipo: dataframeDdo.tipo,
@@ -2048,10 +2882,65 @@ export async function resolveSearchData(rqo: Rqo, principal?: Principal): Promis
 				id_key: idKey,
 				main_component_tipo: tipo,
 				row_section_id: idKey,
-			} as unknown as DataItem);
+			} as unknown as DataItem;
+			searchEmission.nodes.bindItem(frameItem, frameNode);
+			data.push(frameItem);
 		}
 	}
-	return data as DataItem[];
+	return { items: data as DataItem[], nodes: searchEmission.nodes, mainNode: node };
+}
+
+/**
+ * The page size a get_data's node CONFIGURES, or null. LIST: the list cell's
+ * own rule (element_node.ts nodeListPageLimit — the governing limit, else the
+ * local item's show.sqo_config.limit ?? sqo.limit), so page 2 of a list cell
+ * pages exactly like the section read's page 1 did (owner decision (a): a
+ * component resolves the same way on every page). Otherwise the edit chain:
+ * sqo.limit ?? show.sqo_config.limit, LAST config item wins — the same chain
+ * as relation_core's ownEditLimit.
+ */
+async function getDataConfigLimit(node: ElementNode): Promise<number | null> {
+	if (node.mode === 'list') {
+		const { nodeListPageLimit } = await import('../relations/element_node.ts');
+		return nodeListPageLimit(node);
+	}
+	let configured: number | null = null;
+	for (const item of node.effectiveConfig) {
+		const candidate =
+			(item.sqo as { limit?: unknown } | undefined)?.limit ??
+			((item.show?.sqo_config as { limit?: unknown } | undefined)?.limit as unknown);
+		if (typeof candidate === 'number' && candidate > 0) configured = candidate;
+	}
+	return configured;
+}
+
+/**
+ * The mode a literal main's ddo_map DECLARES for one of its frames, or
+ * undefined when it declares none (section/read.ts emitDdoData, literal frames).
+ *
+ * The literal's OWN show line is read RAW (section_list.ts resolveOwnConfigMap):
+ * the config builder stamps 'list' on every undeclared child mode of a
+ * non-section owner (explicit.ts processSingleDdo step 7), so in the processed
+ * governing ddo a declared "mode":"list" and an undeclared mode look the same —
+ * reading the processed one either lost the declared 'list' to the frame
+ * node's properties.mode (a dd560-shaped frame rendered in edit) or let an
+ * undeclared one mask that property. A line the CALLER supplied (an injected
+ * show, a caller-only or stage-1 config) is taken as given — the caller's map
+ * IS the declaration, as on a relation main (relation_core `childDdo.mode`).
+ */
+async function declaredFrameMode(
+	literalNode: ElementNode,
+	literalTipo: string,
+	frameTipo: string,
+	governing: Readonly<Record<string, unknown>> | undefined,
+): Promise<string | undefined> {
+	const ownShow = literalNode.configSource === 'own' && !literalNode.injectedSlots.includes('show');
+	if (!ownShow) return typeof governing?.mode === 'string' ? governing.mode : undefined;
+	const { resolveOwnConfigMap } = await import('./list_definitions/section_list.ts');
+	const declared = ((await resolveOwnConfigMap(literalTipo)).rawDdos ?? []).find(
+		(raw) => raw.tipo === frameTipo,
+	);
+	return typeof declared?.mode === 'string' ? declared.mode : undefined;
 }
 
 /**
@@ -2071,6 +2960,15 @@ export async function deriveSectionDdoMap(
 	 * by an exact (tipo, mode, section_tipo) match and silently drops the rest.
 	 */
 	propertiesOverride?: unknown,
+	/**
+	 * The response's notice sink (owner decision (c)): a level >= 2 'self' ddo
+	 * the build refuses in the section's OWN map is named here as
+	 * `ontology.ddo_self_refused` (owner = the section), exactly like a
+	 * component-owned map (own_config.ts). Only a door that HAS a response to
+	 * carry it passes one (readSectionRowsEmission); a door without one (the TM
+	 * scope, the chain verifier, the area boot) keeps the bounded log line.
+	 */
+	notices?: ApiNotice[],
 ): Promise<Ddo[]> {
 	const { getNode } = await import('../ontology/resolver.ts');
 	const { buildRequestConfigForElement } = await import('../relations/request_config/build.ts');
@@ -2082,24 +2980,247 @@ export async function deriveSectionDdoMap(
 			ownerSectionTipo,
 			mode,
 			ownerIsSection: true,
+			...(notices !== undefined ? { notices } : {}),
 		},
 	);
 	const showDdos = config[0]?.show?.ddo_map ?? [];
-	return showDdos.map(
-		(ddo) =>
-			({
-				tipo: ddo.tipo,
-				// The read loop resolves direct children against each row's
-				// section; keep the ddo's own section_tipo for cross-section ddos.
-				section_tipo: Array.isArray(ddo.section_tipo) ? ddo.section_tipo[0] : ddo.section_tipo,
-				parent: ddo.parent,
-				mode: ddo.mode,
-				lang: (ddo as { lang?: string }).lang,
-				// view drives the client's per-cell renderer choice (e.g. the
-				// publication toggle needs view 'line') — must survive derivation.
-				view: (ddo as { view?: string }).view,
-			}) as Ddo,
+	return showDdos.map((ddo) =>
+		sectionColumnDdo(ddo as unknown as Record<string, unknown>, sectionTipo),
 	);
+}
+
+/**
+ * The governing fields a server-derived section column map carries per ddo,
+ * beyond tipo / section_tipo / parent / mode / lang / view — what the read's
+ * ROOT node hands each element (relations/element_node.ts rootNodeFor →
+ * resolveElement / collectCallerChildren). PHP get_subdatum hands the
+ * PROCESSED ddo whole: its `limit` is the element's page size
+ * (class.common.php:2592-2596), its `value_with_parents` the ddinfo trigger,
+ * and the caller injection (:2603-2681) copies the caller's ddos verbatim.
+ * Dropping them here (the pre-2026-11 shape) silently lost a section-declared
+ * column limit and every section-declared nested child's limit / ddinfo
+ * trigger at the default door (a client read with add_show=false).
+ */
+const SECTION_COLUMN_GOVERNING_FIELDS = [
+	'limit',
+	'value_with_parents',
+	'properties',
+	'permissions',
+	'parent_grouper',
+] as const;
+
+/**
+ * ONE ddo of a server-derived section column map (deriveSectionDdoMap, the
+ * get_ddo_map directive). The section_tipo is flattened to its FIRST entry
+ * only for a TOP-LEVEL column (parent = the section / 'self' / undeclared):
+ * the read loop and the per-row gates bind a column to one section. A NESTED
+ * child keeps its whole section_tipo — it reaches the column portal through
+ * the caller injection, whose per-locator grouping matches by membership
+ * (relation_core ddoTargetsSection): [es1, fr1] cut to es1 dropped the child
+ * at every fr1 target.
+ */
+function sectionColumnDdo(
+	ddo: Record<string, unknown>,
+	sectionTipo: string,
+	callerTipo: string = sectionTipo,
+): Ddo {
+	const parent = ddo.parent as string | undefined;
+	// undefined / 'self' / the section / the caller: a TOP-LEVEL column.
+	const topLevel = [undefined, SELF_SENTINEL, sectionTipo, callerTipo].includes(parent);
+	const declaredSection = ddo.section_tipo as string | string[] | undefined;
+	const column: Record<string, unknown> = {
+		tipo: ddo.tipo,
+		// The read loop resolves direct children against each row's
+		// section; keep the ddo's own section_tipo for cross-section ddos.
+		section_tipo: topLevel && Array.isArray(declaredSection) ? declaredSection[0] : declaredSection,
+		parent,
+		mode: ddo.mode as string | undefined,
+		lang: ddo.lang as string | undefined,
+		// view drives the client's per-cell renderer choice (e.g. the
+		// publication toggle needs view 'line') — must survive derivation.
+		view: ddo.view as string | undefined,
+	};
+	for (const field of SECTION_COLUMN_GOVERNING_FIELDS) {
+		if (ddo[field] !== undefined) column[field] = ddo[field];
+	}
+	return column as unknown as Ddo;
+}
+
+/**
+ * The rqo's own show.ddo_map when it carries a non-empty one (the CLIENT
+ * literal resolveSectionColumnDdoMap returns verbatim), else `null` — the one
+ * test both that function and the descendant walk's origin use, so the two
+ * cannot disagree about whose map it is.
+ */
+function clientShowDdoMap(rqo: Rqo): Ddo[] | null {
+	const literal = rqo.show?.ddo_map;
+	return Array.isArray(literal) && literal.length > 0 ? literal : null;
+}
+
+/**
+ * The CLIENT's literal show.ddo_map for a SECTION read, through STAGE 1 (PHP
+ * build_request_config_from_rqo :3056-3131 — relations/request_config/
+ * from_rqo.ts): every ddo validated (an object, a known tipo, an installed
+ * TLD), consolidated on a clone ('self' parent → the section, 'self'
+ * section_tipo → the section, label / mode filled, `model` the server's,
+ * `permissions` dropped, a `limit` clamped) and read-judged for the actor (a
+ * SECTION element's strict drop — PHP STEP 11). Only its show map is taken:
+ * the client's sqo is the read's own (sanitizeClientSqo, below) and its
+ * sqo_config is never copied.
+ *
+ * Two element shapes, both PHP-exact on WHICH element runs stage 1:
+ *  - a SECTION-sourced read (source.tipo is the section): the gate passes on
+ *    the source tipo; one build, the section element;
+ *  - a COMPONENT-sourced read (the service_autocomplete picker, the
+ *    input_text find_equal probe: source.tipo is the component, the rows are
+ *    its targets): PHP routes it through each TARGET SECTION instance
+ *    (dd_core_api case 'search' → sections_json → section::get_json →
+ *    build_request_config STAGE 1, whose gate :3062-3066 passes because the
+ *    section is in sqo.section_tipo). So stage 1 runs once per string target
+ *    in sqo.section_tipo as a SECTION element (stageOneTargetSectionsMap) —
+ *    the client ddos are validated, consolidated and read-judged exactly as
+ *    for a section read; never the component's own element.
+ * One read keeps the literal verbatim: a Time Machine read (dd15) — its
+ * columns are judged by the dd15 floor (WC-2026-08-14-tm-permission-floor),
+ * which a stage-1 section judgement on the subject section would contradict.
+ */
+async function stageOneSectionMap(
+	rqo: Rqo,
+	literal: Ddo[],
+	callerTipo: string,
+	sectionTipo: string,
+	mode: string,
+	principal: Principal | undefined,
+): Promise<SectionColumnMap> {
+	if (sectionTipo === TIME_MACHINE_SECTION_TIPO || rqo.sqo?.mode === 'tm') {
+		return { ddoMap: literal, stageOneConfig: null };
+	}
+	if ((await getModelByTipo(callerTipo)) !== 'section') {
+		return {
+			ddoMap: await stageOneTargetSectionsMap(rqo, literal, callerTipo, mode, principal),
+			stageOneConfig: null,
+		};
+	}
+	const { buildRequestConfigFromRqo } = await import('../relations/request_config/from_rqo.ts');
+	const built = await buildRequestConfigFromRqo(
+		rqo,
+		{ kind: 'section', tipo: callerTipo, mode },
+		principal,
+	);
+	if (built === null) return { ddoMap: literal, stageOneConfig: null };
+	// The WHOLE stage-1 config is kept, not only its show map: it IS the
+	// section's own context request_config (PHP build_request_config returns it
+	// and stops — :2964-2975), so the section entry ships exactly what the data
+	// half read (buildSectionEntry).
+	return { ddoMap: (built[0]?.show.ddo_map ?? []) as unknown as Ddo[], stageOneConfig: built };
+}
+
+/**
+ * A section read's column map, and — when the read target is a SECTION the
+ * client sent a show for — the stage-1 request_config that map came from
+ * (null for every other source: derived, directive, TM, component-sourced).
+ */
+interface SectionColumnMap {
+	readonly ddoMap: Ddo[];
+	readonly stageOneConfig: readonly RqoRequestConfigItem[] | null;
+}
+
+/**
+ * STAGE 1 of a COMPONENT-sourced section read (stageOneSectionMap): one build
+ * per string target section the rqo's sqo.section_tipo names (PHP: one
+ * section instance per target, each running build_request_config_from_rqo
+ * through the sqo.section_tipo gate), merged in client order.
+ *
+ * Two TS adaptations of the merge, both shape-only (validation, consolidation
+ * and the read grant are each target's own build):
+ *  - PHP's section instance rewrites a direct child's parent (the component,
+ *    or 'self') to ITSELF and emits it as its own direct child. Here the rows
+ *    read stays the COMPONENT's read (read_source emitRow: a direct child is
+ *    one whose parent is the caller), so a parent the build set to a target
+ *    is handed back to the caller — the same direct child, in this read's
+ *    grammar.
+ *  - every target build answers the SAME client ddo, consolidated against its
+ *    own section; one rows read emits every direct ddo on every row, so one
+ *    ddo per (tipo, parent) survives, its section_tipo the union of what the
+ *    targets kept (one string when one section) — never one copy per target.
+ * No string target (no build passes its gate) → the literal unchanged: no
+ * element the rqo targets, so no stage 1 (PHP); the per-ddo read gate below
+ * still judges every client ddo.
+ *
+ *   source {tipo: portal P, section_tipo: S}, sqo.section_tipo ['A', 'B'],
+ *   show [{tipo: x, parent: P, section_tipo: 'self'}, {tipo: bogus}]
+ *     → [{tipo: x, parent: P, section_tipo: ['A', 'B'], label, mode, model}]
+ */
+async function stageOneTargetSectionsMap(
+	rqo: Rqo,
+	literal: Ddo[],
+	callerTipo: string,
+	mode: string,
+	principal: Principal | undefined,
+): Promise<Ddo[]> {
+	const merged = new Map<string, Record<string, unknown>>();
+	let built = false;
+	for (const target of stringSqoSections(rqo)) {
+		const map = await stageOneTargetMap(rqo, target, mode, principal);
+		if (map === null) continue;
+		built = true;
+		for (const consolidated of map) {
+			const ddo = { ...(consolidated as Record<string, unknown>) };
+			if (ddo.parent === target) ddo.parent = callerTipo;
+			mergeTargetDdo(merged, ddo);
+		}
+	}
+	if (!built) return literal;
+	return [...merged.values()] as unknown as Ddo[];
+}
+
+/** The rqo sqo.section_tipo's distinct non-empty STRING members (the client grammar PHP's in_array gate matches). */
+function stringSqoSections(rqo: Rqo): string[] {
+	const raw = rqo.sqo?.section_tipo as unknown;
+	const list = Array.isArray(raw) ? raw : [raw];
+	return [
+		...new Set(
+			list.filter((target): target is string => typeof target === 'string' && target !== ''),
+		),
+	];
+}
+
+/** One target SECTION's stage-1 show map, or null (not a section, or the rqo does not target it). */
+async function stageOneTargetMap(
+	rqo: Rqo,
+	target: string,
+	mode: string,
+	principal: Principal | undefined,
+): Promise<readonly unknown[] | null> {
+	if ((await getModelByTipo(target)) !== 'section') return null;
+	const { buildRequestConfigFromRqo } = await import('../relations/request_config/from_rqo.ts');
+	const items = await buildRequestConfigFromRqo(
+		rqo,
+		{ kind: 'section', tipo: target, mode },
+		principal,
+	);
+	if (items === null) return null;
+	return items[0]?.show.ddo_map ?? [];
+}
+
+/** One target build's ddo into the merge: first-wins per (tipo, parent), sections unioned. */
+function mergeTargetDdo(
+	merged: Map<string, Record<string, unknown>>,
+	ddo: Record<string, unknown>,
+): void {
+	const key = `${String(ddo.tipo)}|${String(ddo.parent ?? SELF_SENTINEL)}`;
+	const existing = merged.get(key);
+	if (existing === undefined) {
+		merged.set(key, ddo);
+		return;
+	}
+	const sectionsOf = (value: unknown): unknown[] =>
+		Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
+	const union = [
+		...new Set([...sectionsOf(existing.section_tipo), ...sectionsOf(ddo.section_tipo)]),
+	];
+	if (union.length === 0) return;
+	existing.section_tipo = union.length === 1 ? union[0] : union;
 }
 
 /**
@@ -2118,24 +3239,34 @@ async function resolveSectionColumnDdoMap(
 	callerTipo: string,
 	sectionTipo: string,
 	mode: string,
+	principal: Principal | undefined,
+	/** The response's notice sink for the derived map's refusals (deriveSectionDdoMap). */
+	notices: ApiNotice[],
+): Promise<SectionColumnMap> {
+	const literal = clientShowDdoMap(rqo);
+	if (literal !== null)
+		return stageOneSectionMap(rqo, literal, callerTipo, sectionTipo, mode, principal);
+	return {
+		ddoMap: await resolveServerSectionColumnDdoMap(rqo, callerTipo, sectionTipo, mode, notices),
+		stageOneConfig: null,
+	};
+}
+
+/** resolveSectionColumnDdoMap's server-side sources: a get_ddo_map directive, the TM scope, the ontology. */
+async function resolveServerSectionColumnDdoMap(
+	rqo: Rqo,
+	callerTipo: string,
+	sectionTipo: string,
+	mode: string,
+	notices: ApiNotice[],
 ): Promise<Ddo[]> {
-	const literal = rqo.show?.ddo_map;
-	if (Array.isArray(literal) && literal.length > 0) return literal;
 	const directive = (rqo.show as { get_ddo_map?: unknown } | undefined)?.get_ddo_map;
 	if (directive !== undefined) {
 		const { resolveSectionMapGetDdoMap } = await import('../relations/request_config/explicit.ts');
 		const raw = await resolveSectionMapGetDdoMap(callerTipo, sectionTipo, directive);
 		if (raw.length > 0) {
-			return raw.map(
-				(d) =>
-					({
-						tipo: d.tipo,
-						section_tipo: Array.isArray(d.section_tipo) ? d.section_tipo[0] : d.section_tipo,
-						parent: d.parent,
-						mode: (d as { mode?: string }).mode,
-						lang: (d as { lang?: string }).lang,
-						view: (d as { view?: string }).view,
-					}) as Ddo,
+			return raw.map((d) =>
+				sectionColumnDdo(d as unknown as Record<string, unknown>, sectionTipo, callerTipo),
 			);
 		}
 	}
@@ -2172,7 +3303,8 @@ async function resolveSectionColumnDdoMap(
 		callerTipo,
 		sectionTipo,
 		mode,
-		(rqo.source ?? {}).properties ?? undefined,
+		rqo.source?.properties ?? undefined,
+		notices,
 	);
 }
 
@@ -2203,6 +3335,13 @@ export async function deriveSectionListSqoDefaults(
 	 * met the sanitizer.
 	 */
 	propertiesOverride?: unknown,
+	/**
+	 * The response's notice sink — the SAME one the column map was built with
+	 * (deriveSectionDdoMap): this second build of the same config refuses the
+	 * same deep 'self' ddos, and the registry deduplicates them (one notice per
+	 * refusal, never a stray log line next to it).
+	 */
+	notices?: ApiNotice[],
 ): Promise<{ limit?: number; order?: unknown }> {
 	const { getNode } = await import('../ontology/resolver.ts');
 	const { buildRequestConfigForElement } = await import('../relations/request_config/build.ts');
@@ -2214,6 +3353,7 @@ export async function deriveSectionListSqoDefaults(
 			ownerSectionTipo,
 			mode,
 			ownerIsSection: true,
+			...(notices !== undefined ? { notices } : {}),
 		},
 	);
 	const sqo = config[0]?.sqo as { limit?: unknown; order?: unknown } | undefined;
@@ -2237,10 +3377,42 @@ export async function deriveSectionListSqoDefaults(
 	return { limit, order };
 }
 
+/** A section read's rows: the envelope + data items (readSectionRowsEmission without its nodes). */
 export async function readSectionRows(
 	rqo: Rqo,
 	principal?: Principal,
 ): Promise<(SectionsEnvelope | DataItem)[]> {
+	return (await readSectionRowsEmission(rqo, principal)).items;
+}
+
+/** What a section read's DATA half produced (readSectionRowsEmission). */
+export interface SectionRowsEmission {
+	readonly items: (SectionsEnvelope | DataItem)[];
+	/** The element nodes the emission resolved (the context half serialises them). */
+	readonly nodes: ElementNodeRegistry;
+	/**
+	 * The column map the rows were emitted through — resolved ONCE (stage 1 /
+	 * directive / derived) and read-gated; the context half reads THIS map, so
+	 * the two halves can never derive different columns (nor different roots:
+	 * the read's root node is keyed by this map object, element_node.ts
+	 * rootNodeFor).
+	 */
+	readonly ddoMap: Ddo[];
+	/**
+	 * The stage-1 request_config the column map came from, when the read target
+	 * is a SECTION the client sent a show for (SectionColumnMap), else null —
+	 * the section entry's request_config (buildSectionEntry).
+	 */
+	readonly stageOneConfig: readonly RqoRequestConfigItem[] | null;
+}
+
+/** A section read's rows — items AND the element nodes they resolved (ProducedData). */
+export async function readSectionRowsEmission(
+	rqo: Rqo,
+	principal?: Principal,
+	options: SectionReadOptions = {},
+): Promise<SectionRowsEmission> {
+	const { targetSearchScope } = options;
 	const source = rqo.source ?? {};
 	const callerTipo = source.tipo;
 	if (callerTipo === undefined) {
@@ -2281,12 +3453,24 @@ export async function readSectionRows(
 	// The client's show.ddo_map wins; else a caller section_map get_ddo_map
 	// directive (the preset picker), else the section's ontology default (PHP
 	// build_request_config → the section_list/implicit columns).
-	let ddoMap: Ddo[] = await resolveSectionColumnDdoMap(
+	// A SCOPED target search (owner decision (h)) runs stage 1 with no actor:
+	// its read grant would drop exactly the scoped columns, which the gate
+	// below admits by the writer component's shown pairs instead (every other
+	// ddo is still judged by its own grant there).
+	// The notices the section's OWN config build owes the response (a refused
+	// level >= 2 'self' ddo in its section_list / edit map — owner decision (c)):
+	// collected here, lifted onto the emission registry below, so a section-owned
+	// map names its refusal exactly as a component-owned one does.
+	const configNotices: ApiNotice[] = [];
+	const columnMap = await resolveSectionColumnDdoMap(
 		rqo,
 		callerTipo,
 		source.section_tipo ?? callerTipo,
 		mode,
+		targetSearchScope === undefined ? principal : undefined,
+		configNotices,
 	);
+	let ddoMap: Ddo[] = columnMap.ddoMap;
 	// Per-component READ gate on the DATA side (PHP check_ddo_permissions +
 	// STEP 5 filter_authorized_related): a component the actor holds level 0 on
 	// never reaches emitDdoData — client-sent maps included (the config-build
@@ -2304,16 +3488,13 @@ export async function readSectionRows(
 	const readsTimeMachine =
 		rqo.sqo?.mode === 'tm' || (source.section_tipo ?? callerTipo) === TIME_MACHINE_SECTION_TIPO;
 	if (principal !== undefined) {
-		const authorized: Ddo[] = [];
-		for (const ddo of ddoMap) {
-			const gateSection = readsTimeMachine
-				? TIME_MACHINE_SECTION_TIPO
-				: ddo.section_tipo === undefined || ddo.section_tipo === 'self'
-					? (source.section_tipo ?? callerTipo)
-					: ddo.section_tipo;
-			if (await ddoIsAuthorized(principal, gateSection, ddo.tipo)) authorized.push(ddo);
-		}
-		ddoMap = authorized;
+		ddoMap = await authorizedColumnMap(
+			principal,
+			targetSearchScope,
+			ddoMap,
+			source.section_tipo ?? callerTipo,
+			readsTimeMachine,
+		);
 	}
 	if (rqo.sqo === undefined) {
 		throw new DedaloError('request.invalid_rqo', {
@@ -2374,6 +3555,7 @@ export async function readSectionRows(
 				source.section_tipo ?? callerTipo,
 				mode,
 				source.properties ?? undefined,
+				configNotices,
 			)
 		: {};
 	const sqo = sanitizeClientSqo(structuredClone(rqo.sqo) as Record<string, unknown>);
@@ -2431,8 +3613,10 @@ export async function readSectionRows(
 	// source's request_config names, although the profile holds 0 on them (PHP
 	// get_subdatum's floor). Computed from the ontology, re-verified against the
 	// principal — never read from the client payload.
-	const { subdatumReadFloor } = await import('../security/read_floor.ts');
-	const readFloor = await subdatumReadFloor(principal, source);
+	const { subdatumReadFloor, withScopedPairs } = await import('../security/read_floor.ts');
+	// A scoped target search (owner decision (h)) may also FILTER by what its
+	// writer component shows / searches on the sections it opened.
+	const readFloor = withScopedPairs(await subdatumReadFloor(principal, source), targetSearchScope);
 	const rows = await readSource.getRows(sqo, principal, readFloor);
 
 	// --- envelope (PHP sections_json.php :136) ------------------------------
@@ -2496,7 +3680,14 @@ export async function readSectionRows(
 	// The source owns per-row emission (matrix: record + direct-child ddo loop;
 	// tm: who/when/where/what + snapshot cell policy). emitDdoData is passed in
 	// so the source can resolve generic components without an import cycle.
-	const emission = new EmissionContext([envelope]);
+	const emission = new EmissionContext([envelope], {
+		callerChildrenOnly: targetSearchScope !== undefined,
+	});
+	// Whose map the ROOT is (relations/element_node.ts rootNodeFor): a fan-out
+	// below a CLIENT-sent show map is the request's fault, below a derived one
+	// the definition's (caller_injection.ts, BOUNDED WALK).
+	emission.nodes.rootOrigin = rootMapOrigin(rqo);
+	emission.nodes.addNotices(configNotices);
 	// Pre-seed the per-read record loader with the page's first-level relation
 	// targets: one batch read per target section replaces the per-locator
 	// round-trips inside the relation-cell expansion (nested levels load lazily
@@ -2533,37 +3724,40 @@ export async function readSectionRows(
 			principal,
 		});
 	}
-	return emission.items;
+	return {
+		items: emission.items,
+		nodes: emission.nodes,
+		ddoMap,
+		stageOneConfig: columnMap.stageOneConfig,
+	};
 }
 
-/**
- * The hard bound on ddo recursion depth (this function re-enters itself
- * through every relation expansion — portal children, dataframe frames,
- * autocomplete targets).
- *
- * THE MAP IS CLIENT-SUPPLIED (`show.ddo_map` — the client's map wins, see the
- * config-build note above), and a map is a parent-CHAIN, not a tree the
- * server validated: `[{A,parent:section},{B,parent:A},{A,parent:B}]` is a
- * cycle, and every hop with stored locators re-enters here one level deeper.
- * Nothing else stops it — relation_core's `depth < 4` gates the nested
- * OWN-CONFIG lookup, never this recursion — so without this bound a cyclic
- * map blows the stack instead of answering.
- *
- * The value is generous on purpose: PHP's deepest observed real chain is
- * three levels (bibliography → reference → author) and the numisdata3 list
- * cell is three (numisdata77 → numisdata164 → rsc29), so 12 refuses only
- * maps that are already pathological. A refusal is LOUD (a caller-category
- * DedaloError naming the chain), never a silent truncation: a legitimately
- * deeper map must be seen and raised here, not quietly served short one
- * level — which is the exact failure this whole change fixes.
- */
-const MAX_DDO_DEPTH = 12;
+// MAX_DDO_DEPTH (relations/element_node.ts) — the hard recursion bound. An
+// ONTOLOGY-driven chain never reaches the throw below: EVERY hop that adds a
+// level checks the bound first and stops one hop earlier with a
+// `relation.depth_bound_stopped` notice — a portal's children
+// (models/portal.ts), a dataframe's frame children (relation_core.ts
+// emitDataframeItem, relation AND literal mains), a relation_index's
+// related_list children (models/relation_index.ts emitRelationIndexData). What
+// still arrives here past the bound is a chain driven by a CLIENT-sent map —
+// the request's fault, refused loudly as before. A NEW depth+1 emitter must add
+// the same check (or this comment is false).
 
 /**
  * Resolve one ddo against one record and push its data item(s) — the single
  * per-component emission path shared by the section read and portal
  * expansion. Splits by model family (relation label/portal/media/literal)
  * exactly as PHP's component get_json controllers do.
+ *
+ * EVERY ITEM IS BOUND TO ITS NODE (element_registry.ts bindItem): the element's
+ * own item(s) this call pushed project the element's node, so the context door
+ * (section/node_contexts.ts) serialises each child's context from exactly
+ * the effective config its data came from — data and context are two
+ * projections of ONE node (PHP's one request_config object per element
+ * instance). An emitter that knows a more exact occurrence binds first
+ * (expandPortal's own item, a dataframe's frame item); this pass binds what is
+ * still unbound, resolving the node only then (literal elements included —
+ * they get a node like any element).
  */
 export async function emitDdoData(
 	ddo: Ddo,
@@ -2576,6 +3770,130 @@ export async function emitDdoData(
 	emission: EmissionContext,
 	allowOwnConfigChildren = true,
 	depth = 0,
+	scope?: EmitScope,
+): Promise<void> {
+	const before = emission.items.length;
+	// A scoped read expands relation elements one level only (EmissionContext.callerChildrenOnly).
+	const ownChildren = allowOwnConfigChildren && !emission.callerChildrenOnly;
+	await emitDdoDataUnbound(
+		ddo,
+		ddoMap,
+		record,
+		row,
+		defaultMode,
+		defaultLang,
+		callerTipo,
+		emission,
+		ownChildren,
+		depth,
+		scope,
+	);
+	const unbound = emission.items
+		.slice(before)
+		.filter((item) => item.tipo === ddo.tipo && !emission.nodes.isItemBound(item));
+	if (unbound.length === 0) return;
+	const model = await componentModelOf(ddo.tipo);
+	if (model === null) return;
+	const node = await resolveUnboundElementNode({
+		ddo,
+		ddoMap,
+		row,
+		model,
+		defaultMode,
+		defaultLang,
+		callerTipo,
+		emission,
+		allowOwnConfigChildren: ownChildren,
+		scope,
+	});
+	for (const item of unbound) emission.nodes.bindItem(item, node);
+}
+
+/** What resolveUnboundElementNode needs (emitDdoData's own arguments). */
+interface UnboundElementInput {
+	readonly ddo: Ddo;
+	readonly ddoMap: Ddo[];
+	readonly row: EmitRow;
+	readonly model: string;
+	readonly defaultMode: string;
+	readonly defaultLang: string;
+	readonly callerTipo: string;
+	readonly emission: EmissionContext;
+	readonly allowOwnConfigChildren: boolean;
+	readonly scope: EmitScope | undefined;
+}
+
+/** The node of an element whose items no emitter bound (literals; relation fallbacks). */
+async function resolveUnboundElementNode(input: UnboundElementInput): Promise<ElementNode> {
+	const { ddo, model, scope } = input;
+	const { elementLang } = await import('../ontology/resolver.ts');
+	const { resolveEmittedElement } = await import('../relations/element_node.ts');
+	// A relation element's node carries its one-level flag exactly as its
+	// resolver asked for it (models/portal.ts); a literal has no own children
+	// to withhold.
+	const oneLevel = getColumnNameByModel(model) === 'relation' && !input.allowOwnConfigChildren;
+	return resolveEmittedElement({
+		ddo,
+		ddoMap: input.ddoMap,
+		row: input.row,
+		model,
+		ddoMode: ddo.mode ?? input.defaultMode,
+		ddoLang: await elementLang(ddo.tipo, model, {
+			requested: ddo.lang ?? null,
+			ambient: input.defaultLang,
+		}),
+		defaultMode: input.defaultMode,
+		defaultLang: input.defaultLang,
+		callerTipo: input.callerTipo,
+		registry: input.emission.nodes,
+		...(scope !== undefined ? { scope } : {}),
+		...(oneLevel ? { useOwnConfig: false } : {}),
+	});
+}
+
+/**
+ * A literal's FRAME ddo: the governing line (the literal node's child for the
+ * frame, or a bare ddo) placed on its record. Frames live on the caller's
+ * record unless the ddo names ANOTHER section — the sibling-record case
+ * emitDataframeItem resolves. The builder resolves 'self' to the owner
+ * section, so the owner (or an undeclared / 'self' section) means the row's
+ * own record.
+ */
+function literalFrameDdo(
+	governing: Readonly<Record<string, unknown>> | undefined,
+	frameTipo: string,
+	literalTipo: string,
+	row: EmitRow,
+): Ddo {
+	const governingSections = governing?.section_tipo;
+	const declared = Array.isArray(governingSections) ? governingSections[0] : governingSections;
+	const frameSection =
+		typeof declared === 'string' &&
+		declared !== 'self' &&
+		declared !== configOwnerOf(row).section_tipo
+			? declared
+			: row.section_tipo;
+	return {
+		...(governing ?? {}),
+		tipo: frameTipo,
+		section_tipo: frameSection,
+		parent: literalTipo,
+	} as unknown as Ddo;
+}
+
+/** emitDdoData's body (the per-model emission), before the item → node binding. */
+async function emitDdoDataUnbound(
+	ddo: Ddo,
+	ddoMap: Ddo[],
+	record: MatrixRecord,
+	row: EmitRow,
+	defaultMode: string,
+	defaultLang: string,
+	callerTipo: string,
+	emission: EmissionContext,
+	allowOwnConfigChildren: boolean,
+	depth: number,
+	scope?: EmitScope,
 ): Promise<void> {
 	if (depth > MAX_DDO_DEPTH) {
 		throw new DedaloError('request.invalid_rqo', {
@@ -2704,6 +4022,7 @@ export async function emitDdoData(
 			emission,
 			allowOwnConfigChildren,
 			depth,
+			scope,
 			emitDdo: emitDdoData,
 		});
 		return;
@@ -2795,39 +4114,53 @@ export async function emitDdoData(
 			// here (DATA-27) paired the blank frame at a key the client never asks
 			// for whenever the counter had moved past zero.
 			const pairIds = storedIds.length > 0 ? storedIds : [frameCounter + 1];
-			// The main's OWN declared ddo for each slot. A dataframe must behave
-			// IDENTICALLY on a literal and on a relation main — one component,
-			// one ontology contract — so the frame's mode/target come from the
-			// same place in both: the ddo the main declares in its
-			// `show.ddo_map`. The relation path already does exactly this
-			// (relation_core: `childDdo.mode ?? portalMode`); this path used to
-			// pass a SYNTHETIC ddo `{tipo, section_tipo}` and read the mode off
-			// the slot NODE instead, so a ddo that declared `"mode":"edit"` was
-			// silently ignored on a literal and the frame resolved to 'list' —
-			// which, with any view other than default/text/mini, renders nothing.
-			// Discovery still walks fixedDataframeTipos / has_dataframe children
-			// (a slot need not be declared to exist); the ddo only supplies HOW
-			// it renders, and the node-property fallback keeps every config that
-			// declares no ddo byte-identical.
-			const { resolveOwnConfigMap } = await import('../section/list_definitions/section_list.ts');
-			const declaredDdos = (await resolveOwnConfigMap(ddo.tipo)).rawDdos ?? [];
+			// THE LITERAL'S NODE (relations/element_node.ts resolveElement), under
+			// ITS caller: the portal node a nested literal sits under, else — at a
+			// read's top level — the read's ROOT map (rootNodeFor), exactly as a
+			// top-level portal resolves (models/portal.ts), so every top-level
+			// element has the same caller. PHP get_subdatum injects the caller's
+			// children and limit into EVERY child component, literals included
+			// (class.common.php :2598-2681, no model filter), and a literal's frames
+			// re-enter get_subdatum over that injected config
+			// (trait.dataframe_common.php:432 build_dataframe_subdatum) — so a
+			// section map [L, F<L, X<F] reaches the frame F's children [X].
+			const { resolveEmittedElement } = await import('../relations/element_node.ts');
+			const literalNode = await resolveEmittedElement({
+				ddo,
+				ddoMap,
+				row,
+				model,
+				ddoMode,
+				ddoLang,
+				defaultMode,
+				defaultLang,
+				callerTipo,
+				registry: emission.nodes,
+				...(scope !== undefined ? { scope } : {}),
+			});
+			const frameScope: EmitScope = { parentNode: literalNode, path: scope?.path ?? [] };
 			for (const frameTipo of frameTipos) {
-				const declared = declaredDdos.find((entry) => entry.tipo === frameTipo);
-				// Frame item mode: the DECLARED ddo, else the frame NODE's own
-				// properties.mode (dd560 → 'edit'), else LIST (the generic
-				// literal default, oracle-pinned).
+				// THE FRAME'S GOVERNING DDO = the literal node's line for it (its
+				// effective config: own, or the caller's when it named the frame) —
+				// the relation main's rule (relation_core: the portal node's
+				// childDdo), so a dataframe behaves IDENTICALLY on a literal and on a
+				// relation main and a caller-declared frame limit / view / mode /
+				// properties reach it. Discovery still walks fixedDataframeTipos /
+				// has_dataframe children (a slot need not be declared to exist); a
+				// slot the node names nothing for renders from a bare ddo.
+				const governing = literalNode.children.find((child) => child.tipo === frameTipo);
+				// Frame item mode: the governing ddo's DECLARED mode (PHP get_subdatum
+				// `$dd_object->mode ?? …` — a declared 'list' included), else the
+				// frame NODE's own properties.mode (dd560 → 'edit'), else LIST (the
+				// generic literal default, oracle-pinned).
 				const frameMode =
-					declared?.mode ?? (await resolveFrameConfig(frameTipo)).nodeMode ?? 'list';
-				// Frames live on the caller's record unless the ddo names another
-				// section ('self'/undeclared = the caller's) — the sibling-record
-				// case emitDataframeItem resolves.
-				const declaredSection =
-					typeof declared?.section_tipo === 'string' && declared.section_tipo !== 'self'
-						? declared.section_tipo
-						: row.section_tipo;
+					(await declaredFrameMode(literalNode, ddo.tipo, frameTipo, governing)) ??
+					(await resolveFrameConfig(frameTipo)).nodeMode ??
+					'list';
+				const frameDdo = literalFrameDdo(governing, frameTipo, ddo.tipo, row);
 				for (const pairId of pairIds) {
 					await emitDataframeItem(
-						{ tipo: frameTipo, section_tipo: declaredSection, view: declared?.view } as Ddo,
+						frameDdo,
 						record,
 						ddo.tipo,
 						pairId,
@@ -2838,6 +4171,7 @@ export async function emitDdoData(
 						emission,
 						depth,
 						emitDdoData,
+						frameScope,
 					);
 				}
 			}
@@ -2853,242 +4187,450 @@ export async function emitDdoData(
 }
 
 /**
+ * The TARGETED element's node when its producer resolved none (a literal
+ * get_data, an empty shell, a bare item): the same top-level resolution
+ * readComponentData runs for a relation component — no caller, the read's real
+ * mode, the rqo `source.properties` override, and STAGE 1 when the rqo carries
+ * a show (element_node.ts resolveElement) — so the main context entry is a
+ * projection of a node at every get_data door.
+ */
+async function resolveGetDataMainNode(
+	rqo: Rqo,
+	nodes: ElementNodeRegistry,
+	principal: Principal | undefined,
+	governing: GetDataGoverning = {},
+): Promise<ElementNode | null> {
+	const target = getDataTarget(rqo);
+	const model = await getModelByTipo(target.tipo);
+	if (model === null) return null;
+	const { resolveElement } = await import('../relations/element_node.ts');
+	return resolveElement({
+		ddo: {
+			tipo: target.tipo,
+			section_tipo: target.sectionTipo,
+			parent: 'self',
+			mode: target.mode,
+			...(governing.limit !== undefined ? { limit: governing.limit } : {}),
+		} as Ddo,
+		parentNode: await getDataCallerNode(rqo, nodes, principal, target.lang),
+		ownerSectionTipo: target.sectionTipo,
+		...getDataOwnerFields(rqo.source ?? {}),
+		mode: target.mode,
+		lang: target.lang,
+		registry: nodes,
+		model,
+		rqo,
+		principal,
+	});
+}
+
+/**
+ * The get_data TARGET's verified caller node (relations/caller_chain.ts): when
+ * the rqo names the element's caller instances (`source.callers`) and every
+ * link verifies, the target resolves UNDER its caller — its effective config
+ * carries the caller's injected children, so page 2 of a nested portal expands
+ * the same children page 1 did, and stage 1 treats a resent show of those
+ * children as inherited (from_rqo.ts READ GRANT — owner decisions (a), (d)).
+ * null = no chain, or a refused one: a top-level read, as before. Built once
+ * per registry (every door resolving the target in it agrees).
+ */
+function getDataCallerNode(
+	rqo: Rqo,
+	registry: ElementNodeRegistry,
+	principal: Principal | undefined,
+	lang: string,
+): Promise<ElementNode | null> {
+	return registry.callerParent(async () => {
+		// No chain (callers absent/null) → resolveCallerChain answers null itself.
+		const { resolveCallerChain } = await import('../relations/caller_chain.ts');
+		const target = getDataTarget(rqo);
+		const chain = await resolveCallerChain({
+			callers: rqo.source?.callers,
+			targetTipo: target.tipo,
+			targetSectionTipo: target.sectionTipo,
+			lang,
+			principal,
+		});
+		return chain?.parentNode ?? null;
+	});
+}
+
+/** The governing ddo fields a producer emits its get_data target with (its page limit). */
+interface GetDataGoverning {
+	readonly limit?: number;
+}
+
+/** The get_data door's TARGET element (source tipo/section/mode/lang, defaulted). */
+function getDataTarget(rqo: Rqo): {
+	tipo: string;
+	sectionTipo: string;
+	mode: string;
+	lang: string;
+} {
+	const source = rqo.source ?? {};
+	return {
+		tipo: String(source.tipo ?? ''),
+		sectionTipo: String(source.section_tipo ?? ''),
+		mode: source.mode ?? 'edit',
+		// Request-scoped data lang, never a hardcoded install default (S2-28): an
+		// RQO that omits lang resolves the session's active data language.
+		lang: source.lang ?? currentDataLang(),
+	};
+}
+
+/** The owning record and the rqo `source.properties` override, when the source carries them. */
+function getDataOwnerFields(
+	source: NonNullable<Rqo['source']>,
+): Pick<ResolveElementInput, 'ownerSectionId' | 'propertiesOverride'> {
+	return {
+		...(source.section_id !== undefined && source.section_id !== null
+			? { ownerSectionId: source.section_id as ResolveElementInput['ownerSectionId'] }
+			: {}),
+		...(source.properties !== undefined && source.properties !== null
+			? { propertiesOverride: source.properties }
+			: {}),
+	};
+}
+
+/**
  * The CONTEXT of a get_data response (PHP: each recursive get_json merges its
- * structure context, deduped by context_key). Faithful derivation: one entry
- * for the component itself, then one per UNIQUE (tipo, section_tipo, mode)
- * among the emitted subdatum items in first-emission order — the context
- * mirrors the children ACTUALLY resolved (per-locator section grouping
- * included), each parented to its generating component
- * (from_component_tipo).
+ * structure context, deduped by context_key) — serialised from the SAME
+ * element nodes its data was emitted from (section/node_contexts.ts): one
+ * entry for the component itself (its node: stage 1 when the rqo targets it
+ * with a show, else its own config), then one per subdatum item in emission
+ * order (an element, then its subcontexts), each from the node its item was
+ * bound to and parented to its generating component (from_component_tipo).
+ * First-wins by context_key for identical configs; one entry per occurrence
+ * when two parents resolved different configs (owner decision (b)).
  */
 export async function buildGetDataContext(
 	rqo: Rqo,
-	items: DataItem[],
+	produced: ProducedData,
 	principal?: Principal,
 ): Promise<StructureContextEntry[]> {
 	const source = rqo.source ?? {};
-	const tipo = String(source.tipo ?? '');
-	const sectionTipo = String(source.section_tipo ?? '');
-	const mode = source.mode ?? 'edit';
-	// Request-scoped data lang, never a hardcoded install default (S2-28): an
-	// RQO that omits lang resolves the session's active data language.
-	const lang = source.lang ?? currentDataLang();
+	const target = getDataTarget(rqo);
+	const { items, nodes } = produced;
+	const mainLevel = await getDataMainLevel(source, target, principal);
+	const contexts = new NodeContextSet(nodes);
+	const mainNode = await getDataMainNodeFor(rqo, produced, target, principal);
+	const mainEntry = await buildGetDataMainEntry(source, target, mainLevel, mainNode);
+	if (mainEntry !== null) {
+		contexts.add(mainEntry, mainNode);
+		await stampMainContextOptions(mainEntry, target.tipo, target.sectionTipo, source, target.mode);
+		await syncMainContextPagination(mainEntry, items, target.tipo);
+	}
+	await appendIriLabelFrameContext(contexts, source, target, mainLevel, produced);
+	await appendItemContexts(
+		contexts,
+		items,
+		nodes,
+		getDataDerivedOptions(source, target, mainLevel, principal, nodes, mainNode),
+	);
+	// PHP traversal order (get_subdatum: an element's context, THEN its
+	// subcontexts): a literal's frames are emitted before the literal's own item,
+	// so raw item order would put a nested frame's context ahead of its element.
+	contexts.orderByTraversal();
+	contexts.stampItems(items);
+	return contexts.entries;
+}
 
-	// per-parent ddo-view lookup: a child's context `view` comes from the
-	// GENERATING component's config ddo (e.g. numisdata158 declares 'line' in
-	// numisdata77's show.ddo_map).
-	const ownerSectionOf = new Map<string, string>([[tipo, sectionTipo]]);
-	const viewCache = new Map<string, Map<string, string | null>>();
-	const ddoViewOf = async (parentTipo: string, childTipo: string): Promise<string | null> => {
-		let views = viewCache.get(parentTipo);
-		if (views === undefined) {
-			views = new Map<string, string | null>();
-			const { getEffectivePropertiesByTipo } = await import('../ontology/alias.ts');
-			const { buildRequestConfigForElement } = await import('../relations/request_config/build.ts');
-			// component_alias (WC-020): a child's view may be declared in an ALIAS
-			// parent's merged show map.
-			const parentConfig = await buildRequestConfigForElement(
-				(await getEffectivePropertiesByTipo(parentTipo)) ?? null,
-				{
-					ownerTipo: parentTipo,
-					ownerSectionTipo: ownerSectionOf.get(parentTipo) ?? sectionTipo,
-					mode: 'edit',
-					ownerIsSection: false,
-				},
-			);
-			// EVERY config item's show map (PHP full_ddo_map): a second source's
-			// column may carry the `view` its child renders with.
-			const { flattenConfigDdoMaps } = await import('../relations/config_ddo_map.ts');
-			for (const ddo of flattenConfigDdoMaps(parentConfig, { ownerTipo: parentTipo })) {
-				if (typeof ddo.tipo !== 'string') continue;
-				views.set(ddo.tipo, (ddo.view as string | undefined) ?? null);
-			}
-			viewCache.set(parentTipo, views);
-		}
-		return views.get(childTipo) ?? null;
-	};
+/** The get_data door's target, as getDataTarget resolves it. */
+type GetDataTarget = ReturnType<typeof getDataTarget>;
 
-	// MAIN element permission: the matrix level with PHP's search-mode special
-	// grants (thesaurus / metadata tipos / synthetic 'search_<n>' ids → 2). An
-	// undefined principal (internal calls, harnesses) stamps 3. The handler's
-	// Gate A already denied level 0 for the non-search path.
-	const mainLevel =
-		principal === undefined
-			? 3
-			: await resolveComponentContextPermission(
-					principal,
-					sectionTipo,
-					tipo,
-					source.section_id as number | string | null | undefined,
-					String(mode),
-				);
+/**
+ * The node the get_data MAIN entry is serialised from: the producer's own
+ * target node when it resolved one IN THE ENTRY'S MODE (the entry declares the
+ * mode its config was built for — the derived items' rule, node_contexts.ts
+ * itemConfigSource 'item-mode-restamped'), else resolved now in that mode. Only
+ * a resolve_data read under a non-search source.mode (the temporal save's
+ * echo) takes the second branch: its producer resolves in 'search', and the
+ * entry's mode is the caller's.
+ */
+async function getDataMainNodeFor(
+	rqo: Rqo,
+	produced: ProducedData,
+	target: GetDataTarget,
+	principal: Principal | undefined,
+): Promise<ElementNode | null> {
+	const producedMain = produced.mainNode;
+	if (producedMain !== undefined && producedMain.mode === target.mode) return producedMain;
+	return resolveGetDataMainNode(rqo, produced.nodes, principal);
+}
 
-	const entries: StructureContextEntry[] = [];
-	const seen = new Set<string>();
-	const push = async (entry: {
-		tipo: string;
-		sectionTipo: string;
-		mode: string;
-		lang: string;
-		/** The EXPLICITLY requested lang (buildStructureContext requestedLang). */
-		requestedLang?: string | null;
-		permissions: number;
-		parent: string | null;
-		view: string | null;
-		propertiesOverride?: Record<string, unknown>;
-	}): Promise<StructureContextEntry | null> => {
-		const built = await buildStructureContext({
-			tipo: entry.tipo,
-			sectionTipo: entry.sectionTipo,
-			mode: entry.mode,
-			lang: entry.lang,
-			requestedLang: entry.requestedLang ?? null,
-			permissions: entry.permissions,
-			parent: entry.parent,
-			view: entry.view,
-			propertiesOverride: entry.propertiesOverride,
-			// WC-079: a temporal clone ships no component toolbar. This is the
-			// get_data door — the one service_tmp_section's children actually use,
-			// so the suppression has to be stamped here and not only on the
-			// section ddo-map path.
-			isTemporal: isTemporalSource(source),
-		});
-		if (built === null) return null;
-		const key = contextKey(built);
-		if (seen.has(key)) return null;
-		seen.add(key);
-		entries.push(built);
-		return built;
-	};
+/**
+ * MAIN element permission: the matrix level with PHP's search-mode special
+ * grants (thesaurus / metadata tipos / synthetic 'search_<n>' ids → 2). An
+ * undefined principal (internal calls, harnesses) stamps 3. The handler's
+ * Gate A already denied level 0 for the non-search path.
+ */
+async function getDataMainLevel(
+	source: NonNullable<Rqo['source']>,
+	target: GetDataTarget,
+	principal: Principal | undefined,
+): Promise<number> {
+	if (principal === undefined) return 3;
+	return resolveComponentContextPermission(
+		principal,
+		target.sectionTipo,
+		target.tipo,
+		source.section_id as number | string | null | undefined,
+		String(target.mode),
+	);
+}
 
-	// The MAIN component's context carries the REQUESTED view (source.view) — a
-	// get_data for a ?view=viewer deep link must ship view:'viewer' so the client
-	// instance adopts it (self.view is a getter over context.view) and mounts the
-	// dedicated view (e.g. component_image view_viewer_image) instead of the edit
-	// view. Hardcoding null here left the viewer window rendering the edit UI.
-	const requestedView = typeof source.view === 'string' && source.view !== '' ? source.view : null;
-	// The MAIN entry emits from the EFFECTIVE properties: an rqo
-	// source.properties override replaces the ontology's (PHP set_properties,
-	// dd_core_api read :2305-2308) — properties echo, css, view and
-	// request_config all follow the override.
-	const mainEntry = await push({
-		tipo,
-		sectionTipo,
-		mode,
-		lang,
+/**
+ * The get_data MAIN entry, from the element's node (or its own config when no
+ * node resolves). It carries the REQUESTED view (source.view) — a get_data for
+ * a ?view=viewer deep link must ship view:'viewer' so the client instance
+ * adopts it (self.view is a getter over context.view) and mounts the dedicated
+ * view (e.g. component_image view_viewer_image) instead of the edit view.
+ * The entry emits from the EFFECTIVE properties: an rqo source.properties
+ * override replaces the ontology's (PHP set_properties, dd_core_api read
+ * :2305-2308) — properties echo, css, view and request_config all follow the
+ * override (the node was resolved over the same override).
+ */
+function buildGetDataMainEntry(
+	source: NonNullable<Rqo['source']>,
+	target: GetDataTarget,
+	mainLevel: number,
+	mainNode: ElementNode | null,
+): Promise<StructureContextEntry | null> {
+	return buildStructureContext({
+		tipo: target.tipo,
+		sectionTipo: target.sectionTipo,
+		mode: target.mode,
+		lang: target.lang,
 		// The read's own source.lang is the EXPLICIT ask (the tool_lang target
 		// of a transliterable runs in it); an omitted one is not — `lang` above
 		// is then only the ambient default.
 		requestedLang: explicitSourceLang(source),
 		permissions: mainLevel,
-		parent: sectionTipo,
-		view: requestedView,
+		parent: target.sectionTipo,
+		view: requestedView(source),
 		propertiesOverride: source.properties ?? undefined,
+		// WC-079: a temporal clone ships no component toolbar. This is the
+		// get_data door — the one service_tmp_section's children actually use,
+		// so the suppression has to be stamped here and not only on the
+		// section ddo-map path.
+		isTemporal: isTemporalSource(source),
+		configFrom:
+			mainNode !== null
+				? { source: 'emission', node: mainNode }
+				: { source: 'own', reason: 'item-without-node' },
 	});
-	// PER-RECORD context options (the resolveContextOptions facet — today
-	// component_text_area's original language, PHP component_text_area_json
-	// :61-69: the transcription/indexation/lang tools read
-	// `options.related_component_lang` to open the component in the interview's
-	// own language). Dispatched through the REGISTRY, never a model conditional
-	// (S2-24). Stamped HERE because this entry is per-request and per-record
-	// (clone-before-stamp: buildStructureContext returns a fresh object; the
-	// structural core cache never sees `options`).
-	if (mainEntry !== null && String(mode) === 'edit') {
-		const sectionId = Number(source.section_id ?? Number.NaN);
-		const mainModel = await getModelByTipo(tipo);
-		const contextHook = mainModel === null ? undefined : getEmitHook(mainModel);
-		if (
-			Number.isInteger(sectionId) &&
-			sectionId > 0 &&
-			contextHook?.resolveContextOptions !== undefined
-		) {
-			const options = await contextHook.resolveContextOptions({ tipo, sectionTipo, sectionId });
-			if (options !== null) {
-				mainEntry.options = { ...(mainEntry.options ?? {}), ...options };
-			}
-		}
-	}
+}
 
-	// The get_data context mirrors the element's RUNTIME pagination (PHP
-	// syncs the element's sqo before emitting it): the dedalo request_config
-	// item's sqo carries the limit the data actually paged with — 9 (ontology
-	// sqo_config) / 1 (tool override) / the client-sent value; sqo.offset is
-	// NOT stamped (wire-pinned 2026-07-10).
-	if (mainEntry !== null && Array.isArray(mainEntry.request_config)) {
-		const mainItem = items.find(
-			(item) =>
-				item.tipo === tipo &&
-				typeof (item as { pagination?: { limit?: unknown } }).pagination?.limit === 'number',
-		);
-		if (mainItem !== undefined) {
-			// LOCAL narrowing (relations/request_config/engine_select.ts): the
-			// dedalo item when there is one, else the first. NO capability gate —
-			// the number stamped here is the limit THIS engine already paged the
-			// emitted data with, so the remote service's own paging ability cannot
-			// change it; negotiating `capabilities.pagination` would throw an
-			// external-only component's whole get_data out of the read path.
-			const { selectLocalConfigItem } = await import(
-				'../relations/request_config/engine_select.ts'
-			);
-			const dedaloItem = selectLocalConfigItem(
-				mainEntry.request_config as { api_engine?: string; sqo?: Record<string, unknown> }[],
-			);
-			if (dedaloItem?.sqo !== undefined) {
-				dedaloItem.sqo.limit = (
-					mainItem as unknown as { pagination: { limit: number } }
-				).pagination.limit;
-			}
-		}
-	}
-	// component_iri label dataframe (dd560): the list/text render resolves the title
-	// frame via get_dataframe, which requires the dataframe's OWN structure context in
-	// datum.context (dataframe.js:249 returns null — then a null.render() crash —
-	// without it). No dd560 DATA item exists to derive it from, so emit it explicitly,
-	// mirroring the request_config slot synthesized in buildStructureContext (PHP
-	// class.component_iri::get_properties dd560 injection).
-	if ((await getModelByTipo(tipo)) === 'component_iri') {
+/** The source's requested view (a non-empty string), else null. */
+function requestedView(source: { view?: unknown }): string | null {
+	return typeof source.view === 'string' && source.view !== '' ? source.view : null;
+}
+
+/**
+ * component_iri label dataframe (dd560): the list/text render resolves the title
+ * frame via get_dataframe, which requires the dataframe's OWN structure context in
+ * datum.context (dataframe.js:249 returns null — then a null.render() crash —
+ * without it). PHP class.component_iri::get_properties injects the dd560 slot
+ * with the caller's edit rights (at least 2) and the 'line' view.
+ *
+ * Two shapes:
+ *  - the literal emission DID emit a dd560 frame for the IRI (every non-search
+ *    get_data — read.ts emitDdoData's literal branch, one frame per pair id,
+ *    bound to its frame node): the entry is built FROM THAT NODE (data and
+ *    context, one node), the PHP injection kept as overrides — the view
+ *    defaults to 'line' when the governing line declares none, and the level
+ *    is max(main, 2). The derived pass then dedupes the frame item into it.
+ *  - no frame item (search mode emits none): the synthetic `own` entry, the
+ *    one case OWN_CONTEXT_REASONS['iri-label-dataframe'] names.
+ */
+async function appendIriLabelFrameContext(
+	contexts: NodeContextSet,
+	source: NonNullable<Rqo['source']>,
+	target: GetDataTarget,
+	mainLevel: number,
+	produced: { readonly items: readonly unknown[]; readonly nodes: ElementNodeRegistry },
+): Promise<void> {
+	if ((await getModelByTipo(target.tipo)) !== 'component_iri') return;
+	const frame = iriLabelFrameOf(produced, target) ?? SYNTHETIC_IRI_FRAME;
+	const frameNode = frame.node;
+	const frameEntry = await buildStructureContext({
+		tipo: 'dd560',
+		sectionTipo: frame.sectionTipo ?? target.sectionTipo,
+		mode: frame.mode,
+		lang: target.lang,
+		requestedLang: null,
 		// The dd560 label frame is system-managed and always writable through its
 		// IRI (PHP component_iri injection carries the caller's edit rights).
-		await push({
-			tipo: 'dd560',
-			sectionTipo,
-			mode: 'edit',
-			lang,
-			permissions: Math.max(mainLevel, 2),
-			parent: tipo,
-			view: 'line',
-		});
-	}
-	for (const item of items) {
-		if (item.tipo === tipo && String(item.section_id) === String(source.section_id ?? '')) {
-			continue; // the component's own item
-		}
-		const itemTipo = String(item.tipo);
-		const parentTipo = String(item.from_component_tipo ?? tipo);
-		if (!ownerSectionOf.has(itemTipo)) {
-			ownerSectionOf.set(itemTipo, String(item.section_tipo));
-		}
-		await push({
-			tipo: itemTipo,
+		permissions: Math.max(mainLevel, 2),
+		parent: target.tipo,
+		view: frame.view,
+		isTemporal: isTemporalSource(source),
+		configFrom:
+			frameNode !== null
+				? { source: 'emission', node: frameNode }
+				: { source: 'own', reason: 'iri-label-dataframe' },
+	});
+	if (frameEntry === null) return;
+	contexts.add(frameEntry, frameNode);
+}
+
+/** The dd560 frame an IRI get_data builds its entry from (iriLabelFrameOf), or the synthetic one. */
+interface IriLabelFrame {
+	readonly node: ElementNode | null;
+	/** null = the read target's section. */
+	readonly sectionTipo: string | null;
+	readonly mode: string;
+	readonly view: string;
+}
+
+/** No frame item emitted (search mode): PHP's injected slot — edit mode, the 'line' view. */
+const SYNTHETIC_IRI_FRAME: IriLabelFrame = Object.freeze({
+	node: null,
+	sectionTipo: null,
+	mode: 'edit',
+	view: 'line',
+});
+
+/**
+ * The IRI's own dd560 frame item's node (the first one the literal emission
+ * bound, in the frame item's mode — its context must say the mode its cell
+ * carries), or null when none was emitted (search mode).
+ */
+function iriLabelFrameOf(
+	produced: { readonly items: readonly unknown[]; readonly nodes: ElementNodeRegistry },
+	target: GetDataTarget,
+): IriLabelFrame | null {
+	for (const raw of produced.items) {
+		const item = raw as DataItem;
+		if (item?.tipo !== 'dd560' || item.from_component_tipo !== target.tipo) continue;
+		const node = produced.nodes.nodeOfItem(item);
+		if (!nodeStandsForItem(node, item)) continue;
+		return {
+			node,
 			sectionTipo: String(item.section_tipo),
-			mode: String(item.mode),
-			lang: String(item.lang),
-			// The emitted item lang IS the child's instance lang (emitDdoData,
-			// elementLang) — its context must agree with it.
-			requestedLang: String(item.lang),
-			// Subdatum inheritance off the MAIN element (PHP get_subdatum
-			// :2567-2575): floor-1 through the authorized caller, cap-1 under a
-			// read-only caller.
-			permissions:
-				principal === undefined
-					? 3
-					: inheritSubdatumPermission(
-							await getPermissions(principal, String(item.section_tipo), itemTipo),
-							mainLevel,
-						),
-			parent: parentTipo,
-			view: await ddoViewOf(parentTipo, itemTipo),
-		});
+			mode: node.mode,
+			// PHP's injected default when the governing line declares no view
+			view: node.view ?? 'line',
+		};
 	}
-	return entries;
+	return null;
+}
+
+/** Whether an item's bound node can stand for its context (node_contexts.ts itemConfigSource's emission case). */
+function nodeStandsForItem(node: ElementNode | undefined, item: DataItem): node is ElementNode {
+	return node !== undefined && node.mode === item.mode && !node.oneLevel;
+}
+
+/**
+ * The get_data door's DERIVED item rules (appendItemContexts): the component's
+ * own item gets no derived entry; subdatum permission inheritance (PHP
+ * get_subdatum :2564-2571 — owner decision (d), section/node_permissions.ts):
+ * floor-1 through the component caller, cap-1 under a read-only caller, each
+ * element judged against its IMMEDIATE caller occurrence — the MAIN element's
+ * level for its direct children, the child's own computed level for a
+ * grandchild (a level-2 grandchild under a read-only child stamps 1 even when
+ * the main element is editable). The main node is the chain's top whatever its
+ * own parent is (a verified caller chain, source.callers).
+ */
+function getDataDerivedOptions(
+	source: NonNullable<Rqo['source']>,
+	target: GetDataTarget,
+	mainLevel: number,
+	principal: Principal | undefined,
+	nodes: ElementNodeRegistry,
+	mainNode: ElementNode | null,
+): DerivedItemContextOptions {
+	const ownId = String(source.section_id ?? '');
+	const levels = new NodePermissionLevels(nodes, {
+		isTop: (node) => node.key === mainNode?.key,
+		topLevelOf: async () => mainLevel,
+		ownLevelOf: async (sectionTipo, tipo, sectionId, mode) =>
+			principal === undefined
+				? 3
+				: resolveComponentContextPermission(principal, sectionTipo, tipo, sectionId, mode),
+	});
+	return {
+		isOwnItem: (item) => item.tipo === target.tipo && String(item.section_id) === ownId,
+		fallbackParent: () => target.tipo,
+		permissionsOf: async (item) => {
+			if (principal === undefined) return 3;
+			const chained = await levels.itemLevel(
+				nodes.nodeOfItem(item),
+				String(item.section_tipo),
+				String(item.tipo),
+				itemRowId(item.section_id),
+			);
+			// An item no emitter bound (a hand-built answer): the main element
+			// stands in for its caller.
+			return (
+				chained ??
+				inheritSubdatumPermission(
+					await getPermissions(principal, String(item.section_tipo), String(item.tipo)),
+					mainLevel,
+				)
+			);
+		},
+		isTemporal: isTemporalSource(source),
+	};
+}
+
+/**
+ * PER-RECORD context options (the resolveContextOptions facet — today
+ * component_text_area's original language, PHP component_text_area_json
+ * :61-69: the transcription/indexation/lang tools read
+ * `options.related_component_lang` to open the component in the interview's
+ * own language). Dispatched through the REGISTRY, never a model conditional
+ * (S2-24). Stamped HERE because this entry is per-request and per-record
+ * (clone-before-stamp: buildStructureContext returns a fresh object; the
+ * structural core cache never sees `options`).
+ */
+async function stampMainContextOptions(
+	mainEntry: StructureContextEntry,
+	tipo: string,
+	sectionTipo: string,
+	source: NonNullable<Rqo['source']>,
+	mode: string,
+): Promise<void> {
+	if (mode !== 'edit') return;
+	mergeContextOptions(
+		mainEntry,
+		await recordContextOptions(tipo, sectionTipo, positiveRecordId(source.section_id)),
+	);
+}
+
+/**
+ * The get_data context mirrors the element's RUNTIME pagination (PHP syncs the
+ * element's sqo before emitting it): the dedalo request_config item's sqo
+ * carries the limit the data actually paged with — 9 (ontology sqo_config) /
+ * 1 (tool override) / the governing / client-sent value; sqo.offset is NOT
+ * stamped (wire-pinned 2026-07-10).
+ *
+ * LOCAL narrowing (relations/request_config/engine_select.ts): the dedalo item
+ * when there is one, else the first. NO capability gate — the number stamped
+ * here is the limit THIS engine already paged the emitted data with, so the
+ * remote service's own paging ability cannot change it; negotiating
+ * `capabilities.pagination` would throw an external-only component's whole
+ * get_data out of the read path.
+ */
+async function syncMainContextPagination(
+	mainEntry: StructureContextEntry,
+	items: readonly DataItem[],
+	tipo: string,
+): Promise<void> {
+	if (!Array.isArray(mainEntry.request_config)) return;
+	const mainItem = items.find(
+		(item) =>
+			item.tipo === tipo &&
+			typeof (item as { pagination?: { limit?: unknown } }).pagination?.limit === 'number',
+	);
+	if (mainItem === undefined) return;
+	const { selectLocalConfigItem } = await import('../relations/request_config/engine_select.ts');
+	const dedaloItem = selectLocalConfigItem(
+		mainEntry.request_config as { api_engine?: string; sqo?: Record<string, unknown> }[],
+	);
+	if (dedaloItem?.sqo !== undefined) {
+		dedaloItem.sqo.limit = (
+			mainItem as unknown as { pagination: { limit: number } }
+		).pagination.limit;
+	}
 }

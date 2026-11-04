@@ -156,6 +156,22 @@ export const rqoSourceSchema = z
 		 */
 		tm_surface: z.string().max(64).nullish(),
 		/**
+		 * THE CALLER CHAIN of a nested element's own read (nested-ddo_map plan
+		 * W4, 2026-11-03): the element's caller instances, outermost first, each
+		 * `{tipo, section_tipo}` (+ `mode` on the first) — e.g. a page-2 get_data
+		 * of tch197's rsc1400 cell names `[{tipo:'tch197', section_tipo:'tch1',
+		 * mode:'edit'}]`. A CLAIM, never trusted: relations/caller_chain.ts
+		 * re-derives every link from the ontology and the actor's grant on the
+		 * outermost element, and a refused chain is simply ignored (the read
+		 * resolves the element as a top-level read). NOT validated here, on
+		 * purpose — the verifier owns the shape (an array of 1..MAX_DDO_DEPTH
+		 * links, checked by length BEFORE any link is walked, so it cannot be an
+		 * amplifier), and EVERY malformed chain — a non-array, an over-long list
+		 * included — degrades to "no chain" instead of 400-ing the read
+		 * (WC-2026-11-04-rqo-source-callers).
+		 */
+		callers: z.unknown().optional(),
+		/**
 		 * BUILD OPTIONS (PHP `$this->build_options`, set from `source.build_options`
 		 * by the component json controllers) — per-request switches on HOW an
 		 * element is built, never WHAT it addresses.

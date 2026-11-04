@@ -338,6 +338,7 @@ describe('request isolation — structure-context core cache (ISO-02)', () => {
 		// userId -1 ever reaches 3.
 		const low = await runWithRequestLangs({ applicationLang: 'lg-eng', dataLang: 'lg-eng' }, () =>
 			buildStructureContext({
+				configFrom: { source: 'own', reason: 'unit-test' },
 				tipo: TIPO,
 				sectionTipo: SECTION_TIPO,
 				mode: 'edit',
@@ -347,6 +348,7 @@ describe('request isolation — structure-context core cache (ISO-02)', () => {
 		);
 		const high = await runWithRequestLangs({ applicationLang: 'lg-eng', dataLang: 'lg-eng' }, () =>
 			buildStructureContext({
+				configFrom: { source: 'own', reason: 'unit-test' },
 				tipo: TIPO,
 				sectionTipo: SECTION_TIPO,
 				mode: 'edit',

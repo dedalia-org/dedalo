@@ -30,6 +30,7 @@ import type { EmitRow } from '../concepts/emit_row.ts';
 import type { MatrixRecord } from '../db/matrix.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import type { DataItem, EmissionContext, SectionsEnvelope } from '../resolve/component_data.ts';
+import type { EmitScope } from './element_registry.ts';
 import { filterResolver, portalResolver } from './models/portal.ts';
 import { relationChildrenResolver } from './models/relation_children.ts';
 import { relationIndexResolver } from './models/relation_index.ts';
@@ -55,6 +56,14 @@ export type EmitDdoFn = (
 	emission: EmissionContext,
 	allowOwnConfigChildren?: boolean,
 	depth?: number,
+	/**
+	 * The NESTED resolution scope (relations/element_registry.ts EmitScope): the
+	 * parent element's node — whose effective config supplies this element's
+	 * caller children — and the record-occurrence path (the record-cycle
+	 * guard). Absent at a read's top level: the element's caller is then the
+	 * read's ROOT map (`ddoMap`, element_node.ts rootNodeFor).
+	 */
+	scope?: EmitScope,
 ) => Promise<void>;
 
 /** Everything a relation resolver needs to emit one ddo's item(s) for one record. */
@@ -87,10 +96,17 @@ export interface RelationEmitContext {
 	callerTipo: string;
 	/** The per-read emission context: items array + stamp ledger (S2-29). */
 	emission: EmissionContext;
-	/** May list/tm cells fall back to the component's OWN config children. */
+	/**
+	 * false = the element takes ONLY its caller's children, never its own
+	 * config (the deliberately one-level expansions — element_node.ts
+	 * ResolveElementInput.useOwnConfig). It no longer depends on the mode: every
+	 * mode but 'solved' resolves the element's effective config.
+	 */
 	allowOwnConfigChildren: boolean;
-	/** Nesting depth (cycle guard for list-cell recursion). */
+	/** Nesting depth (bounded by MAX_DDO_DEPTH in section/read.ts emitDdoData). */
 	depth: number;
+	/** The nested resolution scope (see EmitDdoFn); undefined at a read's top level. */
+	scope?: EmitScope;
 	/** The generic emission path for child recursion. */
 	emitDdo: EmitDdoFn;
 }

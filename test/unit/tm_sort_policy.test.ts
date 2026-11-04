@@ -103,6 +103,7 @@ const TM_META_COLUMNS = [
 async function tmColumnContext(tipo: string): Promise<{ sortable?: unknown } | null> {
 	return runWithRequestLangs({ applicationLang: 'lg-eng', dataLang: 'lg-eng' }, () =>
 		buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo,
 			sectionTipo: TIME_MACHINE_SECTION_TIPO,
 			mode: 'tm',
@@ -224,6 +225,7 @@ describe('time machine (dd15) sort policy', () => {
 			{ applicationLang: 'lg-eng', dataLang: 'lg-eng' },
 			() =>
 				buildStructureContext({
+					configFrom: { source: 'own', reason: 'unit-test' },
 					tipo: ORDINARY_COMPONENT,
 					sectionTipo: ORDINARY_SECTION,
 					mode: 'list',

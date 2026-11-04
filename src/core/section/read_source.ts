@@ -27,6 +27,7 @@ import type { MatrixRecord } from '../db/matrix.ts';
 import { readMatrixRecordBatch } from '../db/matrix.ts';
 import { memoizedReadMatrixRecord, seedRecordMemo } from '../db/record_memo.ts';
 import { getMatrixTableFromTipo } from '../ontology/resolver.ts';
+import type { ElementNodeRegistry } from '../relations/element_registry.ts';
 import type { EmissionContext } from '../resolve/component_data.ts';
 import type { StructureContextEntry } from '../resolve/structure_context.ts';
 import { runSearch, type SearchStatementOptions } from '../search/search_statement.ts';
@@ -115,7 +116,16 @@ export interface SectionReadSource {
 	 * ddo_map must be built from rqo.show.ddo_map — a dd15-specific massaging the
 	 * generic builder can't produce.
 	 */
-	buildContext?(rqo: Rqo, principal: Principal): Promise<StructureContextEntry[]>;
+	buildContext?(
+		rqo: Rqo,
+		principal: Principal,
+		/**
+		 * The read's element nodes (the data half's emission registry): a column
+		 * whose cells were emitted builds its context from the SAME node its data
+		 * came from (section/node_contexts.ts).
+		 */
+		nodes?: ElementNodeRegistry,
+	): Promise<StructureContextEntry[]>;
 }
 
 /**

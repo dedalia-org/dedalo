@@ -303,6 +303,7 @@ HERMETIC_TRIPWIRES=(
 	test/unit/client_serving.test.ts
 	test/unit/docs_locator_shape_tripwire.test.ts
 	test/unit/external_config_narrowing_census.test.ts
+	test/unit/structure_context_own_census.test.ts
 	test/unit/external_registry_totality_tripwire.test.ts
 	test/unit/ip_allowlist.test.ts
 	test/unit/migration_shared_row_tripwire.test.ts

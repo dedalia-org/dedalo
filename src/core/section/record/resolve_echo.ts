@@ -109,9 +109,12 @@ export async function resolveRelationEcho(options: {
 		...rqo,
 		source: { ...source, action: 'resolve_data', value: picked },
 	} as typeof rqo;
-	const { resolveSearchData, buildGetDataContext } = await import('../read.ts');
+	const { resolveSearchDataEmission, buildGetDataContext } = await import('../read.ts');
 	const { buildDataItem } = await import('../../resolve/component_data.ts');
-	const resolved = await resolveSearchData(resolveRqo, principal);
+	// The EMISSION variant: its notices (a record cycle, a depth-bound stop, a
+	// refused deep 'self') ride this envelope exactly as resolve_data's do.
+	const produced = await resolveSearchDataEmission(resolveRqo, principal);
+	const { items: resolved, nodes } = produced;
 	// resolveSearchData emits the main item with a NULL record identity
 	// (synthetic record — read.ts expandPortal stamp), so match by tipo only and
 	// RE-STAMP the caller's id: the client picks its item by comparing the
@@ -157,9 +160,20 @@ export async function resolveRelationEcho(options: {
 		limit: picked.length,
 		offset: 0,
 	};
-	const context = await buildGetDataContext(resolveRqo, resolved as never, principal);
+	// The context is serialised from the SAME nodes the data was emitted from
+	// (section/node_contexts.ts); `resolved` IS produced.items (a synthesized
+	// main item was unshifted into it above and has no node — the main entry
+	// comes from produced.mainNode, never from an item).
+	const context = await buildGetDataContext(resolveRqo, produced, principal);
+	// Read AFTER the context build: its main node may resolve in the caller's
+	// mode into the SAME registry (getDataMainNodeFor), and a notice that
+	// resolution adds rides this envelope too (read_facade reads them there).
+	const notices = nodes.responseNotices();
 	return {
 		status: 200,
-		body: ok({ context, data: resolved }, { requestId: currentRequestContext()?.requestId ?? '' }),
+		body: ok(
+			{ context, data: resolved },
+			{ requestId: currentRequestContext()?.requestId ?? '', notices },
+		),
 	};
 }

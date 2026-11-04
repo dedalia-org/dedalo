@@ -667,6 +667,45 @@ export async function buildNodeData(
 }
 
 /**
+ * The element types a TREE PICKER needs to NAVIGATE a node whatever its writer
+ * component's config shows (owner decision (i)): the node's label (`term` —
+ * what the user picks; without it the picker renders blank rows) and the
+ * expand affordances (`link_children`, `link_children_nd`). Everything else a
+ * thesaurus map renders — icons with their indexation counts, notes, images,
+ * any mapped component's raw data — is DATA of the section, and on a section
+ * the principal reads only through the picker's scope it is served only when
+ * the writer component's config shows it (trimNodeToScopeColumns).
+ */
+const SCOPE_NAVIGATION_ELEMENT_TYPES: ReadonlySet<string> = new Set([
+	'term',
+	'link_children',
+	'link_children_nd',
+]);
+
+/**
+ * A node built for a principal who reads its section ONLY through a tree
+ * picker's scope (owner decision (i), W4b review): its `ar_elements` are
+ * limited to what the writer component's effective config shows
+ * (`columnPairs`, `<section_tipo>_<tipo>` — the same pairs a scoped
+ * autocomplete search is limited to, section/read.ts scopedColumnLevel) plus
+ * the navigation entries the picker needs (SCOPE_NAVIGATION_ELEMENT_TYPES). A
+ * multi-tipo element passes only when EVERY tipo it reads is shown. Returns a
+ * new node; the input is not mutated.
+ */
+export function trimNodeToScopeColumns(
+	node: TsNodeData,
+	columnPairs: ReadonlySet<string>,
+): TsNodeData {
+	const shown = (tipo: string) => columnPairs.has(`${node.section_tipo}_${tipo}`);
+	const arElements = node.ar_elements.filter((element) => {
+		if (SCOPE_NAVIGATION_ELEMENT_TYPES.has(element.type)) return true;
+		const tipos = Array.isArray(element.tipo) ? element.tipo : [element.tipo];
+		return tipos.length > 0 && tipos.every(shown);
+	});
+	return { ...node, ar_elements: arElements };
+}
+
+/**
  * An `img` element's value is a URL STRING or nothing — the CHOKEPOINT for the
  * class of bug that made this element ship an array (see
  * WC-2026-09-01-ts-object-svg-url).

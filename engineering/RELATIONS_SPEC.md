@@ -69,6 +69,113 @@ Standing spec for the relation family, companion to `engineering/REWRITE_SPEC.md
 > `engineering/wire_contract/WC-2026-08-05-multi-engine-ddo-expansion.md` +
 > `-external-request-field-union.md`.
 
+> **ADDENDUM 2026-11-04 — Effective config per element (read this before §5.3).**
+> The nested-ddo_map rebuild (plan W1–W6) replaced the per-site config builds
+> with PHP's model: **ONE effective request_config per element instance**, and
+> the data AND the context are projections of it (PHP `build_request_config`
+> memo :2956, injected in place by the parent's `get_subdatum` :2603-2681,
+> read by the context :1668-1672 and the element's own subdatum :2280).
+>
+> 1. **The node.** `relations/element_node.ts resolveElement(ddo, parentNode,
+>    …)` returns an `ElementNode` `{tipo, section_tipo, mode, view, lang,
+>    limit, parent_grouper, properties, effectiveConfig, configSource,
+>    injectedSlots, …}`, memoised in the emission's `ElementNodeRegistry`
+>    (scoped to the `EmissionContext`, never module state; TM forks share it by
+>    reference), keyed per PARENT OCCURRENCE. `effectiveConfig` = the stage-1
+>    config when the rqo targets the element (configSource `rqo`), otherwise the
+>    ONE base own-config resolver (`request_config/own_config.ts`: override →
+>    alias → `section_list` swap in list/tm, real mode) with the caller's
+>    children injected; an element with no config of its own takes the
+>    caller's DEDALO children as its config (configSource `caller`). The
+>    governing ddo's `limit` lands on `sqo.limit` (the context reads it, the
+>    data pages by it); its `view` / `mode` / `lang` / `parent_grouper` ride the
+>    node, its `properties` merge into the context properties only.
+> 2. **Injection** (`request_config/caller_injection.ts`).
+>    `collectCallerChildren(callerConfig, tipo)`: per `api_engine`, the
+>    caller's FIRST item of that engine, four slots (show / search / choose /
+>    hide), PARENT-only match, depth-first in caller order, DUPLICATES KEPT (a
+>    diamond keeps both paths), only a cycle on the ancestor path cut.
+>    `injectCallerChildren(base, children)`: onto the element's FIRST item of
+>    each engine, a slot replaced ONLY when the caller's list is non-empty (a
+>    hide-only caller keeps the own show, a show-only caller keeps the own
+>    hidden dataframe, a choose slot is created where the element had none),
+>    an engine the element lacks skipped silently, the caller's PROCESSED ddos
+>    injected verbatim. `sqo` and every other key stay the element's.
+> 3. **Data.** Children = `show + hide` of the node's effective config, in
+>    EVERY mode except `solved` (tm forced to list). **Rule 2 and the
+>    `depth < 4` sentence of the 2026-08-31 addendum (§5.3) are SUPERSEDED**:
+>    PHP has no depth/ownConfig/list gate — a nested element without caller
+>    children falls back to its OWN config in list exactly as in edit
+>    (`WC-2026-11-04-nested-list-payload-growth`). Bounds: `MAX_DDO_DEPTH` (12)
+>    — an ontology-driven chain stops softly with `relation.depth_bound_stopped`,
+>    a client map past it is still refused — and a per-path record-cycle guard
+>    on `(section_tipo, section_id, tipo)` with `relation.record_cycle_stopped`
+>    (`WC-2026-11-04-record-cycle-stop`). relation_index related_list children:
+>    a relation child with an explicit request_config expands its own show in
+>    `related_list` mode, a config-less one stays one-level (PHP-verified).
+> 4. **Context** (`section/node_contexts.ts`). Serialised from the SAME nodes
+>    (`buildStructureContext` `configFrom: {source:'emission', node}`; an
+>    `{source:'own', reason}` door is censused —
+>    `test/unit/structure_context_own_census.test.ts`), in element-tree order
+>    (`WC-2026-11-04-context-traversal-order`), first-wins by context key for
+>    identical projections; distinct configs of one key under different parents
+>    ship one entry each stamped `caller_chain` (owner decision (b),
+>    `WC-2026-11-04-caller-chain-per-occurrence`). Time Machine (dd15) top-level
+>    columns are NOT flat: their parent is the root map, so children the
+>    client's column map declares under a column are injected (show replaced,
+>    sqo/limit the column's own `section_list` ones), in the cells and the
+>    column context alike (`test/unit/nested_ddo_map_injection_native.test.ts`,
+>    "TM, caller children").
+> 5. **Stage 1** (`request_config/from_rqo.ts`, PHP
+>    `build_request_config_from_rqo` + validate/consolidate): applies when the
+>    rqo targets the element and carries a show object; only `ddo_map` is
+>    copied, the client sqo goes through `sanitizeClientSqo`, every ddo is
+>    judged by `ddoIsAuthorized` (stricter than PHP —
+>    `WC-2026-11-04-stage1-authorized-sqo-scrub`). On a component the client
+>    replaces show (and search when sent) on the base's first dedalo item;
+>    hide / choose / sqo / other engines stay the server's. A base with no
+>    dedalo item (external-only, or none) takes stage 1 as is, its sanitized
+>    client sqo included.
+> 6. **Caller chains** (`relations/caller_chain.ts`). A request targeting a
+>    nested element names its callers in `source.callers`
+>    (`WC-2026-11-04-rqo-source-callers`); the server verifies every link
+>    (root readable by grant, every further link a declared data child in the
+>    effective config) and resolves the element under it — page 2 keeps page
+>    1's columns (owner decision (a), `WC-2026-11-04-nested-paging-add-show`).
+> 7. **Permissions** (decision (d), exact PHP): a child of a COMPONENT caller —
+>    literal or relation, at any depth, own-config or injected alike — is
+>    raised to read (1) and capped at read under a read-only caller
+>    (`inheritSubdatumPermission`, PHP :2564-2571); only a SECTION caller's ddos
+>    are dropped without a grant (STEP 11). (f) The search read floor is
+>    computed from the effective config through the verified chain. (h) An
+>    autocomplete WRITER may search an ungranted target only through its
+>    verified chain, scoped to its config's columns
+>    (`WC-2026-11-04-writer-chain-scoped-search`); (i) the tree picker follows
+>    the same scope and its save-door read gate is retired
+>    (`WC-2026-11-04-tree-picker-read-gate-retired`); (j) a config-less (v5)
+>    component keeps PHP's STEP 5 `filter_authorized_related` and opens no
+>    scope.
+> 8. **`self`** (decision (c)). `section_tipo: 'self'` (four spellings) means
+>    the owner's targets at the FIRST level only; at depth ≥ 2 the ddo is
+>    refused with `ontology.ddo_self_refused` — on the response whatever owns
+>    the map, a section's own `section_list` / edit map included (owner = the
+>    section; only a door with no response keeps the log line) — and listed by
+>    the `ddo_self_depth` ontology check, which measures a list node from every
+>    section that reads it (a virtual reader as its own owner)
+>    (`WC-2026-11-04-ddo-self-first-level-only`). A ddo
+>    `section_tipo` may be an SQO source array, resolved by the sqo resolver.
+> 9. **ddinfo** (decision (g)): the TS gates (`component_autocomplete_hi`, not
+>    TM) stay; the trigger is the governing children's `value_with_parents`
+>    (`WC-2026-11-04-ddinfo-gates-kept`).
+>
+> Gates: `test/unit/nested_ddo_data_native.test.ts`,
+> `test/unit/nested_ddo_map_injection_native.test.ts`,
+> `test/unit/subdatum_permission_native.test.ts`,
+> `test/unit/caller_injection.test.ts`, `test/unit/request_config_from_rqo.test.ts`,
+> `test/unit/element_node_registry.test.ts`, `test/unit/ddo_self_depth.test.ts`,
+> `test/unit/ddo_section_tipo_source_array.test.ts`; client
+> `test_nested_portal.js`, `test_caller_chain.js`.
+
 **Relation components are the first-class, critical part of Dédalo.** Sections connect to sections *only* through locators stored by relation components; the thesaurus tree, portals, indexation, access control (projects filter), and the dataframe system are all expressions of the same relation machinery. A rewrite that gets relations wrong gets Dédalo wrong.
 
 The current TS implementation of relations is judged **not done correctly** and is hereby superseded as a foundation. It is concentrated in `src/core/resolve/read_rows.ts` (~1,600 lines, the portal/subdatum/dataframe renderer), `src/core/resolve/request_config_v6.ts`, `src/core/search/search_related.ts`, and `src/core/resolve/save_component.ts`, with good value objects in `src/core/concepts/locator.ts` and `src/core/concepts/ddo.ts`. **Audit it, salvage what is proven (the differential parity tests and the locator/ddo value objects are assets), then rebuild the relation family on the coherent model below — do not patch around the existing shape.** Known defects and ledgered gaps in the current code, which the rebuild must resolve rather than inherit:
@@ -207,6 +314,31 @@ A ddo_map is a flat list made a tree by each ddo's `parent` (=`tipo` of the ddo 
 >    `section/read.ts emitDdoData`, the one point every hop passes through:
 >    exceeding it is a loud `request.invalid_rqo`, never a silent truncation.
 >    Gate: `test/unit/portal_caller_map_descendants_native.test.ts`.
+>
+> **Superseded 2026-11-04 (rule 1's mechanism, rule 2, rule 3's `depth < 4` and
+> its placement):** see the §1 addendum *Effective config per element*.
+>
+> - **Rule 1** — only its PRINCIPLE stands: every level is resolved from the
+>   full flat map, so a grandchild resolves by walking `parent`. Its MECHANISM is
+>   gone: there is no `options.descendantsMap`, no `portalDescendants ?? ddoMap`
+>   and no `?? childDdos` fallback in `src/` any more. An element's children now
+>   come from its NODE (`relations/element_node.ts`): the parent's
+>   `effectiveConfig` is the map, and `collectCallerChildren`
+>   (`request_config/caller_injection.ts`) hands each element the descendants
+>   its caller declares for it, slot by slot. The relation_index exception is
+>   narrowed, not gone: a `related_list` relation child with an EXPLICIT
+>   request_config expands its own show in `related_list` mode (PHP
+>   `component_relation_index_json.php` :190-206); a config-less (v5) child or a
+>   literal stays a one-level `list` cell
+>   (`WC-2026-11-04-nested-list-payload-growth`).
+> - **Rule 2** — the caller owns the slots it fills, the element's own config
+>   fills the rest in EVERY mode (PHP has no list gate).
+> - **Rule 3** — the `depth < 4` own-config gate is gone. The bound is still
+>   `MAX_DDO_DEPTH` (12), now DEFINED in `relations/element_node.ts`: a
+>   CLIENT-sent map past it is still the loud `request.invalid_rqo` in
+>   `section/read.ts emitDdoData`; an ONTOLOGY-driven chain past it is a soft
+>   stop — the element renders its own item, its targets are not expanded, and
+>   the response carries `relation.depth_bound_stopped`.
 
 ## 6. The particular cases — same concept, specific twist
 

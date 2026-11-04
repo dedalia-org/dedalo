@@ -65,6 +65,7 @@ afterAll(async () => {
 
 const build = (tipo: string, sectionTipo: string, addRequestConfig?: boolean) =>
 	buildStructureContext({
+		configFrom: { source: 'own', reason: 'unit-test' },
 		tipo,
 		sectionTipo,
 		mode: 'edit',

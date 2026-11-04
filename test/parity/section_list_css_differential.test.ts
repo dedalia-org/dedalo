@@ -108,6 +108,7 @@ describe.if(hasPhpCredentials())('section_list css swap differential (SECTION_SP
 			clearStructureContextCache();
 			const phpCss = await phpSectionListCss(php, tipo, unclonedSeam);
 			const tsEntry = await buildStructureContext({
+				configFrom: { source: 'own', reason: 'unit-test' },
 				tipo,
 				sectionTipo: tipo,
 				mode: 'list',
@@ -126,6 +127,7 @@ describe.if(hasPhpCredentials())('section_list css swap differential (SECTION_SP
 	test('the object section carries the section_list column-width css, not .list_body', async () => {
 		clearStructureContextCache();
 		const tsEntry = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo: OBJECT_SECTION,
 			sectionTipo: OBJECT_SECTION,
 			mode: 'list',

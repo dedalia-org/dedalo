@@ -317,6 +317,53 @@ export function frontierSectionIsGloballyVisible(sectionTipo: string, table?: st
 }
 
 /**
+ * A SCOPED READ FLOOR (owner decision (h) / (i), security/read_floor.ts
+ * withScopedPairs): an ordinary floor Set that additionally names the sections
+ * whose filter / order paths it decides EXCLUSIVELY — the sections a writer
+ * component's scope opened although the principal holds no grant on them. It
+ * rides the same `readFloor` member every door already threads (a Set with one
+ * more member, never a second channel that a door could forget to pass).
+ */
+export interface ScopedReadFloor extends ReadonlySet<string> {
+	readonly exclusiveSections: ReadonlySet<string>;
+}
+
+/**
+ * The verdict a SCOPED floor gives a (section, component) path step, or null
+ * when the floor does not own the section (the ordinary keys then decide).
+ * On an owned section the answer is the floor's pairs ALONE — no standing
+ * search-surface grant (the metadata tipos, the thesaurus template), no
+ * per-tipo profile grant, no globally-visible-table exemption: a scope opens
+ * exactly the writer component's filter pairs on a section the user holds
+ * nothing on, so anything else there would be a predicate oracle. The
+ * record-identity steps (IDENTITY_PATH_TIPOS, a step with no component) stay
+ * admitted: they read no component data and the RECORD key governs them.
+ */
+export function exclusiveFloorVerdict(
+	floor: unknown,
+	sectionTipo: string,
+	componentTipo: string | undefined,
+): boolean | null {
+	const exclusive = exclusiveSectionsOf(floor);
+	if (exclusive === null || !exclusive.has(sectionTipo)) return null;
+	if (readsNoComponentData(componentTipo)) return true;
+	return (floor as ReadonlySet<string>).has(`${sectionTipo}_${componentTipo}`);
+}
+
+/** The sections a SCOPED floor owns, or null for an ordinary floor (or none). */
+function exclusiveSectionsOf(floor: unknown): ReadonlySet<string> | null {
+	if (!(floor instanceof Set)) return null;
+	return (floor as Partial<ScopedReadFloor>).exclusiveSections ?? null;
+}
+
+/** A step that reads no component data: no component, or a record-identity tipo. */
+function readsNoComponentData(componentTipo: string | undefined): boolean {
+	return (
+		componentTipo === undefined || componentTipo === '' || IDENTITY_PATH_TIPOS.has(componentTipo)
+	);
+}
+
+/**
  * THE ONE COMPONENT PREDICATE at every frontier (property 2). `ddoIsAuthorized`
  * is its only decision — the same predicate `section/read.ts`
  * buildStructureContextEntries and `filterAuthorizedRelated` run when they
@@ -329,6 +376,17 @@ export async function frontierComponentAllowed(
 	step: FrontierStep,
 ): Promise<boolean> {
 	if (scope.principal === undefined) return true; // internal resolution
+	// A SCOPED floor only NARROWS a join step on a section it owns: the
+	// component must be one of the scope's pairs, AND pass the ordinary key.
+	if (
+		exclusiveFloorVerdict(
+			(scope as { readFloor?: unknown }).readFloor,
+			step.sectionTipo,
+			step.componentTipo,
+		) === false
+	) {
+		return false;
+	}
 	const componentTipo = grantedComponentOf(step);
 	if (componentTipo === null) return true;
 	if (scope.componentGrant !== undefined) {
