@@ -226,8 +226,7 @@ running Bun and this tree's pin, and the bytes free where the update stages.
 
     - **An instance installed by the installer** runs a root-owned Bun at
       `/opt/dedalo/bun/<pin>/`. The installer has no command that installs a new
-      pin on a live instance today: follow the release notes, or ask the system
-      administrator.
+      pin on a live instance today: follow [Updating the Bun runtime](../../install/bun_runtime.md).
     - **A host set up by hand** runs `bun` from its root bin directory
       (`/opt/dedalo/bin/bun` in the manual's example): install the new pin into
       that path as root, restart Dédalo onto it, and only then apply the

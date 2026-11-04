@@ -151,7 +151,7 @@ In the list you can view the changelog for the highlights of each release.
 
 ## Server services and dependencies
 
-Dédalo has service dependencies such as PostgreSQL, the Bun runtime and FFmpeg. By default, recent Dédalo versions are compatible with the current stable version of each dependency and its previous version. The Bun runtime itself is pinned per install (`.bun-version`); upgrading it is a deliberate, separately-tested change, not something a code update does for you.
+Dédalo has service dependencies such as PostgreSQL, the Bun runtime and FFmpeg. By default, recent Dédalo versions are compatible with the current stable version of each dependency and its previous version. The Bun runtime itself is pinned per install (`.bun-version`); upgrading it is a deliberate, separately-tested change, not something a code update does for you. On an installer instance the move is [Updating the Bun runtime](../../install/bun_runtime.md).
 
 It is highly recommended to keep server services on the latest stable versions. You can check the version compatibility in our [readme file](https://github.com/dedalia-org/dedalo/blob/master/Readme.md#4-dependencies).
 

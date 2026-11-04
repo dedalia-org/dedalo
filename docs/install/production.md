@@ -523,7 +523,7 @@ These are the installed defaults. Check that nothing has changed them, because e
 The installer installs; it does not maintain. It refuses to run over a sealed instance, and `--abort` never takes apart an instance that has served. An instance counts as served once its unit has run: `host_first_boot` started it, or `--abort` measures that systemd ever ran the unit or that the engine answers on its socket. An interruption that stopped the start before the unit ran, even inside that step, is not a served instance. After that, `--abort` undoes only the host steps after `host_engine`, and `--resume` puts them back. Before that, `--abort` removes the instance completely, even when its engine install finished. Three things are therefore manual today, with no installer support:
 
 - **The root-run scripts** in `/opt/dedalo/instances/<i>/bin/` are not refreshed by an in-app code update, which runs as the instance. When a release changes a script under `deploy/`, its release notes say so.
-- **A new Bun pin.** The code update panel refuses a release whose `.bun-version` differs from the running runtime, and the runtime is root-owned at `/opt/dedalo/bun/<pin>/`.
+- **A new Bun pin.** The code update panel refuses a release whose `.bun-version` differs from the running runtime, and the runtime is root-owned at `/opt/dedalo/bun/<pin>/`. The procedure is [Updating the Bun runtime](bun_runtime.md).
 - **Removing an instance that has served.** No command removes it. [Removing an instance](multi_instance.md#removing-an-instance) lists what to remove by hand.
 
 See [Upgrading](upgrading.md) for what the in-app code update does cover.
