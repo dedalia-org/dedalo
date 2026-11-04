@@ -83,6 +83,13 @@
 
 	&.search {
 
+		// One row per section tipo, so the list runs long. The card body already
+		// caps at 22rem (search.less); without this the rows spilled out of it
+		// and painted over the next card.
+		>.content_data {
+			overflow: auto;
+		}
+
 		.inputs_container {
 
 			>li {

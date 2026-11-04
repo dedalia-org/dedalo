@@ -23812,6 +23812,9 @@ body.inspector_resizing {
   color: var(--fg_muted);
   padding: 0.333rem;
 }
+.component_filter_records.search > .content_data {
+  overflow: auto;
+}
 .component_filter_records.search .inputs_container > li {
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
