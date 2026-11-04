@@ -188,6 +188,12 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-04-nested-paging-add-show`, `WC-2026-11-04-caller-chain-per-occurrence`, `WC-2026-11-04-config-less-element-adopts-caller-children`, `WC-2026-11-04-nested-list-payload-growth`, `WC-2026-11-04-record-cycle-stop`, `WC-2026-11-04-ddinfo-gates-kept`, `WC-2026-11-04-context-traversal-order`, `WC-2026-11-04-governing-limit-sqo-limit-only`.
 
+- **A search field no longer jumps when you click it, and the date picker button stays on its field**
+
+    In the search panel, clicking into a filter field used to shrink its name row and pull the whole field up by a line, so the row you aimed at moved under the pointer. The date fields' calendar button made it worse: it rode that shift and covered the field's own name.
+
+    Both are fixed. A search card keeps the same height whether or not it is in use, and the calendar button now sits at the end of the date field's own line, inside the card, where it covers neither the field name nor the value.
+
 - **The record's Id badge can be selected to show its information in the inspector.**
 
     Clicking the Id badge of a record in the edit view did nothing, so the inspector

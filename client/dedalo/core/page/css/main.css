@@ -5299,7 +5299,6 @@ input::placeholder {
 .wrapper_component.search.active:not(:where(.edit.component_section_id)):not(.hilite_element),
 .wrapper_component.player.active:not(:where(.edit.component_section_id)):not(.hilite_element) {
   background-color: var(--color_hilite);
-  border-radius: 3px;
 }
 .wrapper_component.edit.active:not(:where(.edit.component_section_id)):not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)),
 .wrapper_component.search.active:not(:where(.edit.component_section_id)):not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)),
@@ -8811,7 +8810,8 @@ body:has(.component_av.view_viewer) {
   padding: 0;
   border-radius: inherit;
 }
-.search_component > .wrapper_component.search > .label {
+.search_component > .wrapper_component.search > .label,
+.search_component > .wrapper_component.search.active > .label {
   grid-row: 1;
   grid-column: 1;
   padding: 0.75rem 4.25rem 0.75rem 0.75rem;
@@ -8825,7 +8825,8 @@ body:has(.component_av.view_viewer) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.search_component > .wrapper_component.search > .label > .label_info {
+.search_component > .wrapper_component.search > .label > .label_info,
+.search_component > .wrapper_component.search.active > .label > .label_info {
   margin-left: 0.25rem;
   font-size: 0.95em;
   font-weight: 400;
@@ -22976,11 +22977,13 @@ body.inspector_resizing {
   cursor: pointer;
 }
 .component_date.search > .content_data > .content_value > .input-group > .button_container.button_calendar_container {
-  left: -0.9rem;
-  right: auto;
-  top: -1.4rem;
-  height: 1.8rem;
+  position: relative;
+  inset: auto;
+  display: inline-block;
+  flex: 0 0 1.8rem;
   width: 1.8rem;
+  height: 1.8rem;
+  margin: 0 0 2px 0.25rem;
 }
 .component_date.search > .content_data > .content_value > .input-group:has(>.button_container.button_calendar_container) > input {
   padding-left: 0.2rem;
@@ -22997,7 +23000,7 @@ body.inspector_resizing {
 }
 .component_date.search > .content_data > .content_value:has(>.dates_separator) > .input-group input {
   min-width: 0;
-  font-size: clamp(0.75rem, calc((100cqi - 1.25rem) / 12.4), 1rem);
+  font-size: clamp(0.75rem, calc(((100cqi - 0.5rem) / 2 - 2.6rem) / 6.3), 1rem);
 }
 .component_date.search > .content_data > .content_value:has(>.dates_separator) > .dates_separator {
   position: absolute;
