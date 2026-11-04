@@ -117,7 +117,7 @@ export async function resolveUserImageUrl(userId: number): Promise<string | null
 	const { resolveMediaPathOptions } = await import('../media/ontology_path.ts');
 	const { versionedMediaUrl } = await import('../media/url_version.ts');
 	const { config } = await import('../../config/config.ts');
-	const pathOpts = await resolveMediaPathOptions(USER_IMAGE_COMPONENT, USERS_SECTION);
+	const pathOpts = await resolveMediaPathOptions(USER_IMAGE_COMPONENT, USERS_SECTION, userId);
 	// image is not translatable: no lang suffix on the identifier
 	const entries = scanFilesInfo(
 		spec,
