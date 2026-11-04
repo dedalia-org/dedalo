@@ -2884,6 +2884,11 @@
 			"skipped": 0,
 			"assertions": 56
 		},
+		"test/unit/login_user_image_native.test.ts": {
+			"tests": 2,
+			"skipped": 0,
+			"assertions": 9
+		},
 		"test/unit/magick_policy_tripwire.test.ts": {
 			"tests": 67,
 			"skipped": 0,
