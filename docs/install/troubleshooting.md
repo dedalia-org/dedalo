@@ -837,7 +837,7 @@ the process answering is not that unit at all (a server started by hand).
 instance; with several, set `I` to the one you restarted):
 
 ```shell
-I=${I:-$(systemctl list-units --all --no-legend 'dedalo-ts@*' | sed -n 's/.*dedalo-ts@\([^.]*\)\.service.*/\1/p' | head -1)}
+I=${I:-$(systemctl list-units --all --plain --no-legend 'dedalo-ts@*' | awk '{print $1}' | sed -n 's/^dedalo-ts@\(.*\)\.service$/\1/p' | head -1)}
 P=$(systemctl show -p MainPID --value "dedalo-ts@$I")
 echo "pid=$P"
 sudo readlink -f "/proc/$P/exe"                          # the binary the process IS

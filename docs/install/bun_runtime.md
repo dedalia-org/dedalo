@@ -78,8 +78,8 @@ Read-only. The first block fills the variables every later block uses.
 ```bash
 # the Dédalo instances on this host, and their names
 systemctl list-units 'dedalo-ts@*' --all --no-legend --no-pager
-INSTANCES=$(systemctl list-units --all --no-legend --no-pager 'dedalo-ts@*' \
-  | sed -n 's/.*dedalo-ts@\([^.]*\)\.service.*/\1/p' | grep -v '^$')
+INSTANCES=$(systemctl list-units --all --plain --no-legend --no-pager 'dedalo-ts@*' \
+  | awk '{print $1}' | sed -n 's/^dedalo-ts@\(.*\)\.service$/\1/p')
 printf 'instances: %s\n' "$INSTANCES"
 COUNT=$(printf '%s\n' "$INSTANCES" | grep -c .)
 if [ -z "$I" ] && [ "$COUNT" -gt 1 ]; then
@@ -98,7 +98,7 @@ printf 'drop-in=%s runtime-pin=%s code-pin=%s\n' "$F" "$PIN_NOW" "$(sudo cat "$D
 [ -n "$PIN_NOW" ] || echo "STOP: no ExecStart in $F — this is not an installer instance"
 ```
 
-A host whose instance has never been started lists no unit; in that case run `systemctl list-unit-files 'dedalo-ts@*'` and set `I` by hand from its output.
+A host whose instance has never been started lists no unit; in that case run `systemctl list-unit-files 'dedalo-ts@*'` and set `I` by hand from its output. The instance name is everything between `@` and `.service`, dots included — a host set up by hand is often named after its domain (`dedalo-ts@example.org`).
 
 `PIN_NOW` is deliberately read from the unit, not from the code: they are the same value on a healthy host, and when they differ the unit is the one that runs. The code's pin is printed beside it (`code-pin`), and [the mismatch warning](#why-the-runtime-is-pinned) is what a divergence looks like in the journal.
 
