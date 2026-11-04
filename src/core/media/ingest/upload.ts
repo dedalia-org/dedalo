@@ -1283,6 +1283,8 @@ async function replayJoinedUpload(
  * SYNCHRONOUS prefix is the claim that makes a concurrent resend a conflict: a
  * replay pre-check here awaits, yields the loop, and every resend then finds no
  * assembly output yet and joins the same parts a second time.
+ * A record and parts CAN coexist (a chunk re-posted after the join, or a crash
+ * mid-retire): that state re-assembles, and the new outcome replaces the record.
  */
 export async function joinChunkedUpload(
 	input: JoinChunkedUploadInput,
