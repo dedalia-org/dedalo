@@ -727,6 +727,11 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 				...(config.menu.dataLangSync === true ? { dataLang: adoptedLang } : {}),
 			});
 		}
+		// The account's own image (dd522). The panel shows it in the files-loader
+		// circle while the asset cache warms; null keeps the bundled icon.
+		const { resolveUserImageUrl } = await import('../../security/user_identity.ts');
+		const userImage =
+			outcome.userId === undefined ? null : await resolveUserImageUrl(outcome.userId);
 		return {
 			status: 200,
 			// `user_id` + `csrf_token` are owned top-level keys: the fresh session is
@@ -736,7 +741,11 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 			// client adopts a token only for its own page user.
 			body: ok(true, {
 				requestId: context.requestId,
-				extend: { user_id: outcome.userId, ...tokenWithOwner(freshSession, outcome.userId) },
+				extend: {
+					user_id: outcome.userId,
+					user_image: userImage,
+					...tokenWithOwner(freshSession, outcome.userId),
+				},
 			}),
 			setSessionToken: outcome.sessionToken,
 			// Media access control (Rule A). Undefined when the mode is false, so a

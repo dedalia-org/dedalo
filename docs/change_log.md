@@ -176,6 +176,12 @@ Merged since the last release; these ship with the next one.
     is long. It used to overflow its card and paint over the field below; now the list
     scrolls inside the card.
 
+- **The login screen shows your own user image while it loads.**
+
+    After you sign in, the circle that fills as Dédalo loads its files now shows the picture on your user record (the same image you can change in the *User admin* panel) instead of the grey Dédalo icon. Accounts without an image keep the grey icon. The image belongs to the account that just signed in, so it never shows another person's picture.
+
+    Wire contract: `WC-2026-11-04-login-user-image`.
+
 - **Columns declared for a nested portal now show everywhere it appears, in every mode and on every page.**
 
     A portal can declare which columns a portal nested inside it shows — the Tasks portal of a work process, for example, shows the assigned user as *surname, name*. Those declared columns were applied only in some views: in a list a nested portal could appear empty, the second page of a nested portal switched back to the nested portal's own columns, and the same field nested under two different portals showed the columns of whichever was read first. Now every nested element uses one effective configuration — the columns its parent declares, and its own configuration for anything the parent leaves out — in edit and list views, on every page, and per parent; a page size the parent declares for a nested portal is the page size it pages by. Related-record lists expand linked portals with their own columns as well. A chain of linked records that points back to itself stops where it repeats instead of failing the whole page, with a notice naming the record. See [Nesting](./core/request_config.md#nesting-a-ddo_map-is-a-flat-list-made-a-tree-by-parent).
@@ -1007,7 +1013,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 58 entries"
+??? note "Wire contract — 59 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -1059,6 +1065,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-04-ddinfo-gates-kept`
     - `WC-2026-11-04-ddo-self-first-level-only`
     - `WC-2026-11-04-governing-limit-sqo-limit-only`
+    - `WC-2026-11-04-login-user-image`
     - `WC-2026-11-04-nested-list-payload-growth`
     - `WC-2026-11-04-nested-paging-add-show`
     - `WC-2026-11-04-record-cycle-stop`

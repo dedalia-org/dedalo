@@ -568,13 +568,12 @@ login.quit = async function() {
 *
 * @param {Object} api_response - Raw response object returned by login.prototype.login()
 * @param {boolean} api_response.data - true on successful authentication
-* @param {Object} [api_response.result_options] - Extra data returned on success
-* @param {number} [api_response.result_options.user_id] - Numeric ID of the logged-in user;
-*   DEDALO_SUPERUSER (-1) activates the raspa_loading animation
-* @param {string} [api_response.result_options.user_image] - URL of the user's avatar; falls
-*   back to the default Dédalo icon SVG when absent
-* @param {string} [api_response.result_options.redirect] - When present, overrides all other
-*   navigation targets (used by dd_init_test to force the maintenance area)
+* @param {number} [api_response.user_id] - Numeric ID of the logged-in user (envelope v2
+*   extension key, top level); DEDALO_SUPERUSER (-1) activates the raspa_loading animation
+* @param {string|null} [api_response.user_image] - URL of the user's avatar (dd522); the
+*   bundled Dédalo icon is used when absent/null
+* @param {string} [api_response.redirect] - PHP-era key, not sent by the TS engine.
+*   When present, overrides all other navigation targets
 * @param {string} [api_response.default_section] - Tipo string for the user's default section
 * @param {string} [api_response.saml_redirect] - SAML SSO redirect URL (handled by quit, not here)
 * @returns {Promise<boolean>} Always resolves to true
@@ -608,7 +607,9 @@ login.prototype.action_dispatch = async function(api_response) {
 		if (response_data(api_response)===true) {
 
 			// short vars
-			const user_id				= api_response.result_options?.user_id
+			// envelope v2: extension keys (`user_id`, `user_image`) ride at the top
+			// level, beside `data` — there is no `result_options` on this wire.
+			const user_id				= api_response.user_id
 			const is_development_server	= typeof DEVELOPMENT_SERVER!=='undefined' && DEVELOPMENT_SERVER===true
 
 			// hide component_message OK
@@ -621,9 +622,8 @@ login.prototype.action_dispatch = async function(api_response) {
 			// user image load
 			// Preload the avatar so the CSS transition starts only when the image is ready.
 			// Falls back to the bundled grey icon if no user image is available.
-				const bg_image = (api_response.result_options && api_response.result_options.user_image)
-					? api_response.result_options.user_image
-					: DEDALO_ROOT_WEB + '/core/themes/default/icons/dedalo_icon_grey.svg'
+				const fallback_image = DEDALO_ROOT_WEB + '/core/themes/default/icons/dedalo_icon_grey.svg'
+				const bg_image = api_response.user_image || fallback_image
 				if (bg_image) {
 					// force preload background image
 					const image_loaded = await new Promise(function(resolve){
@@ -648,6 +648,11 @@ login.prototype.action_dispatch = async function(api_response) {
 					// wired — the login would neither navigate nor show the ring.
 					if (image_loaded) {
 						self.node?.style.setProperty('--user_login_image', `url('${bg_image}')`);
+					} else if (api_response.user_image) {
+						// the engine reported an image but the browser could not read it
+						// (a media-protection/URL fault, named by the console line above):
+						// keep the bundled icon rather than leave the circle blank
+						self.node?.style.setProperty('--user_login_image', `url('${fallback_image}')`);
 					}
 					if (user_id===-1 && is_development_server===true && self.node) {
 						self.node.classList.add('raspa_loading')
