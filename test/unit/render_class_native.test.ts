@@ -215,6 +215,7 @@ describe('render class — the read half', () => {
 		for (const mode of ['edit', 'list'] as const) {
 			test(`${model} ${mode}: the context entry carries render_class '${renderClass}'`, async () => {
 				const entry = await buildStructureContext({
+					configFrom: { source: 'own', reason: 'unit-test' },
 					tipo,
 					sectionTipo: SECTION,
 					mode,
@@ -230,6 +231,7 @@ describe('render class — the read half', () => {
 
 	test('a SECTION entry carries no render_class at all (it has no value)', async () => {
 		const entry = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo: SECTION,
 			sectionTipo: SECTION,
 			mode: 'edit',

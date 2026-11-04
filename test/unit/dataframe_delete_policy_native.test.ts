@@ -831,6 +831,7 @@ describe('the whole-record door — deleting the host applies each slot’s poli
 describe('the resolved policy is SERVED to the client — context.delete_policy', () => {
 	const contextOf = async (tipo: string) =>
 		buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo,
 			sectionTipo: HOST,
 			mode: 'edit',

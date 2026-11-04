@@ -25,8 +25,11 @@ import { getSectionTipos } from '../../concepts/sqo.ts';
 import { ok } from '../../errors/convert.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
 import { specOf } from '../../errors/registry.ts';
+import type { ApiNotice } from '../../errors/schema.ts';
+import type { DataItem } from '../../resolve/component_data.ts';
 import { currentApplicationLang, currentDataLang } from '../../resolve/request_lang.ts';
 import { withTimeMachineReadScope } from '../../section/list_definitions/time_machine_list.ts';
+import type { ProducedData } from '../../section/read.ts';
 import { gateTimeMachineRead, routeSectionRead } from '../../section/read_facade.ts';
 import {
 	type ChangedDataItem,
@@ -38,6 +41,7 @@ import {
 	getRecordComponentPermission,
 	type Principal,
 } from '../../security/permissions.ts';
+import type { TargetSearchScope } from '../../security/writer_chain_scope.ts';
 import { getTermByLocator, getTermTipos } from '../../ts_object/term_resolver.ts';
 import {
 	type ActionHandler,
@@ -60,6 +64,36 @@ const INDEXATION_GRID_DEFAULT_LIMIT = 500;
 
 /** The related search's owning-section wildcard (relation_list.js, build_graph_data.js send ['all']). */
 const RELATED_ALL_SECTIONS = 'all';
+
+/**
+ * The relation save echo's CONTEXT: serialised from the element nodes of the
+ * WINNING echo read (section/node_contexts.ts — the context and the data cannot
+ * disagree), or, when no read won (the bare echo), from the main node the
+ * get_data context door resolves from the rqo itself.
+ */
+async function saveEchoContext(
+	rqo: Rqo,
+	produced: ProducedData | null,
+	savedData: unknown[],
+	principal: Principal,
+): Promise<{ context: unknown[]; notices: ApiNotice[] | undefined }> {
+	const { buildGetDataContext } = await import('../../section/read.ts');
+	if (produced !== null) {
+		const context = await buildGetDataContext(rqo, produced, principal);
+		// The winning read's notices, read AFTER its context build: the context
+		// half resolves into the SAME registry, and what it adds rides the save
+		// envelope too (read_facade reads them there).
+		return { context, notices: produced.nodes.responseNotices() };
+	}
+	const { ElementNodeRegistry } = await import('../../relations/element_registry.ts');
+	const context = await buildGetDataContext(
+		rqo,
+		{ items: savedData as DataItem[], nodes: new ElementNodeRegistry() },
+		principal,
+	);
+	// A bare echo (no read won): no emission, no notices.
+	return { context, notices: undefined };
+}
 
 /**
  * THE HOST GATE of the related search (sqo.mode 'related') — D3, 2026-10-21.
@@ -161,21 +195,62 @@ async function gateReadSource(source: RqoSource | undefined, principal: Principa
 }
 
 /**
+ * Gate B's question per SQO target: the sections the principal holds < 1 on
+ * (the related search's literal 'all' is not a section — gateRelatedHosts
+ * gates its hosts instead).
+ */
+async function ungrantedTargetSections(
+	sqo: NonNullable<Rqo['sqo']>,
+	principal: Principal,
+): Promise<string[]> {
+	const relatedHosts = await gateRelatedHosts(sqo, principal);
+	const ungranted: string[] = [];
+	for (const targetSectionTipo of getSectionTipos(sqo)) {
+		if (relatedHosts && targetSectionTipo === RELATED_ALL_SECTIONS) continue;
+		const level = await getPermissions(principal, targetSectionTipo, targetSectionTipo);
+		if (level < 1) ungranted.push(targetSectionTipo);
+	}
+	return ungranted;
+}
+
+/**
  * Gate B: every SQO target section, self-keyed — except the related search's
  * literal 'all' (D3, 2026-10-21), which is not a section: for mode 'related'
  * the gate is the HOST locators' sections, and the owning records are scoped
  * row by row by the related search's own predicate (D1).
+ *
+ * THE SCOPED TARGET SEARCH (owner decision (h), 2026-11-03 — a divergence from
+ * PHP, WC-2026-11-04-writer-chain-scoped-search): an sqo section the principal holds NO read grant on is
+ * admitted ONLY for the autocomplete of a component the principal can WRITE,
+ * through its server-verified caller chain (security/writer_chain_scope.ts
+ * resolveTargetSearchScope), and only for the sections that component's
+ * effective config targets. The returned scope is threaded to the read / count
+ * (its columns and filter paths are limited to what the component shows); null
+ * = every target is granted, the read is the ordinary one. Anything else is
+ * refused exactly as before — no chain, a refused chain, a read-only
+ * component, a section the component does not target. The read and the count
+ * door both decide here, so they cannot disagree.
  */
-async function gateReadTargets(sqo: Rqo['sqo'], principal: Principal): Promise<void> {
-	if (sqo === undefined) return;
-	const relatedHosts = await gateRelatedHosts(sqo, principal);
-	for (const targetSectionTipo of getSectionTipos(sqo)) {
-		if (relatedHosts && targetSectionTipo === RELATED_ALL_SECTIONS) continue;
-		const level = await getPermissions(principal, targetSectionTipo, targetSectionTipo);
-		if (level < 1) {
-			throw new DedaloError('perm.denied', { coordinates: { section_tipo: targetSectionTipo } });
-		}
+async function gateReadTargets(
+	rqo: Pick<Rqo, 'sqo' | 'source'>,
+	principal: Principal,
+): Promise<TargetSearchScope | null> {
+	const sqo = rqo.sqo;
+	if (sqo === undefined) return null;
+	const ungranted = await ungrantedTargetSections(sqo, principal);
+	if (ungranted.length === 0) return null;
+	const { resolveTargetSearchScope } = await import('../../security/writer_chain_scope.ts');
+	const source = rqo.source ?? {};
+	const scope = await resolveTargetSearchScope(principal, {
+		source,
+		sqoMode: (sqo as { mode?: unknown }).mode,
+		ungranted,
+		lang: typeof source.lang === 'string' ? source.lang : currentDataLang(),
+	});
+	if (scope === null) {
+		throw new DedaloError('perm.denied', { coordinates: { section_tipo: ungranted[0] as string } });
 	}
+	return scope;
 }
 
 /**
@@ -189,11 +264,15 @@ async function readGatedSection(
 	principal: Principal,
 ): Promise<ApiResult> {
 	await gateReadSource(rqo.source, principal);
-	await gateReadTargets(rqo.sqo, principal);
+	const targetSearchScope = await gateReadTargets(rqo, principal);
 
 	// Sub-action routing + the generic section read live in the section
 	// facade (S2-25) — everything below the gates is section semantics.
-	const readResult = await routeSectionRead(rqo, principal);
+	const readResult = await routeSectionRead(
+		rqo,
+		principal,
+		targetSearchScope === null ? {} : { targetSearchScope },
+	);
 	// LOAD activity (PHP dd_core_api::read :771 → log_activity): every
 	// section/area page load appends a 'LOAD EDIT'/'LOAD LIST' audit row keyed
 	// by the SECTION tipo. This is the stream the dashboard timeline aggregates
@@ -215,12 +294,12 @@ async function countGatedRows(
 	context: Parameters<ActionHandler>[1],
 	principal: Principal,
 ): Promise<ApiResult> {
-	for (const targetSectionTipo of getSectionTipos(clientSqo)) {
-		const level = await getPermissions(principal, targetSectionTipo, targetSectionTipo);
-		if (level < 1) {
-			throw new DedaloError('perm.denied', { coordinates: { section_tipo: targetSectionTipo } });
-		}
-	}
+	// Gate B — the SAME function the read takes (a scoped target search, owner
+	// decision (h), is admitted or refused alike at both doors).
+	const targetSearchScope = await gateReadTargets(
+		{ sqo: clientSqo, source: rqo.source },
+		principal,
+	);
 	await gateTimeMachineRead(rqo, principal);
 	// The read STRATEGY owns counting: the default matrix source runs the
 	// SQO full_count; the dd15 TM source counts matrix_time_machine with the
@@ -232,8 +311,11 @@ async function countGatedRows(
 	const readSource = await pickReadSource((clientSqo as { mode?: string }).mode);
 	// The same subdatum read floor the rows read applies (SEC-1): a count
 	// that refused what the page served would paginate a different set.
-	const { subdatumReadFloor } = await import('../../security/read_floor.ts');
-	const readFloor = await subdatumReadFloor(principal, rqo.source);
+	const { subdatumReadFloor, withScopedPairs } = await import('../../security/read_floor.ts');
+	const readFloor = withScopedPairs(
+		await subdatumReadFloor(principal, rqo.source),
+		targetSearchScope,
+	);
 	const total = await readSource.count(sqo, principal, readFloor);
 	return { status: 200, body: ok({ total }, { requestId: context.requestId }) };
 }
@@ -551,6 +633,10 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		// The full response data payload: [main item] for scalars; for relation
 		// saves the main item PLUS the linked targets' subdatum (below).
 		let savedData: unknown[] = [savedDataItem];
+		// The relation echo's emission notices (a record cycle, a depth-bound
+		// stop, a refused deep 'self' met while re-reading the component — the
+		// same notices its get_data would carry: relations/element_registry.ts).
+		let echoNotices: ApiNotice[] | undefined;
 		// Select-family AND filter-family components re-render from data.datalist
 		// after a save (e.g. component_radio_button get_checked_value_label reads
 		// self.data.datalist; view_default_edit_filter iterates it); the edit read
@@ -596,8 +682,19 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				// second request (found live 2026-07-09: the picker link saved but
 				// stayed blank until reload). Reuse the get_data pipeline; on any
 				// resolution hiccup keep the bare echo (never fail a durable save).
+				// The produced emission of the WINNING echo read (first or last page) and
+				// its rqo: the context is serialised from the SAME element nodes its data
+				// was emitted from (section/node_contexts.ts). A bare echo (no read won)
+				// has no nodes — buildGetDataContext resolves the main node from the rqo.
+				let echoProduced: ProducedData | null = null;
+				let echoContextRqo: typeof rqo = rqo;
 				try {
-					const { readComponentData } = await import('../../section/read.ts');
+					const { readComponentDataEmission } = await import('../../section/read.ts');
+					// The EMISSION variant: its notices ride this envelope (echoNotices).
+					const readEcho = async (echo: typeof rqo) => {
+						const produced = await readComponentDataEmission(echo);
+						return { items: produced.items, produced, rqo: echo };
+					};
 					const findMain = (items: unknown[]) =>
 						items.find(
 							(item) =>
@@ -624,7 +721,9 @@ export const coreApiActions: Record<string, ActionHandler> = {
 									},
 								} as typeof rqo)
 							: rqo;
-					let fullData = await readComponentData(echoRqo);
+					const firstRead = await readEcho(echoRqo);
+					let fullData = firstRead.items;
+					let winningRead = firstRead;
 					let mainItem = findMain(fullData);
 					// PHP :1459-1479 — after an ADD or a LINK the echo must answer the
 					// LAST page, where the appended locator lives. The echo becomes the
@@ -652,7 +751,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 								? pageLimit * (Math.ceil(total / pageLimit) - 1)
 								: 0;
 						if (lastPageOffset !== (pagination?.offset ?? 0)) {
-							const lastPageData = await readComponentData({
+							const lastPageRead = await readEcho({
 								...echoRqo,
 								sqo: {
 									...(echoRqo.sqo ?? {}),
@@ -661,9 +760,10 @@ export const coreApiActions: Record<string, ActionHandler> = {
 									offset: lastPageOffset,
 								},
 							} as typeof rqo);
-							const lastPageMain = findMain(lastPageData);
+							const lastPageMain = findMain(lastPageRead.items);
 							if (lastPageMain !== undefined) {
-								fullData = lastPageData;
+								fullData = lastPageRead.items;
+								winningRead = lastPageRead;
 								mainItem = lastPageMain;
 							}
 						}
@@ -675,12 +775,18 @@ export const coreApiActions: Record<string, ActionHandler> = {
 						}
 						savedDataItem = mainItem as typeof savedDataItem;
 						savedData = fullData;
+						echoProduced = winningRead.produced;
+						echoContextRqo = winningRead.rqo;
 					}
 				} catch {
 					// bare echo fallback — the save itself is already durable
 				}
-				const { buildGetDataContext } = await import('../../section/read.ts');
-				savedContext = await buildGetDataContext(rqo, savedData as never, principal);
+				({ context: savedContext, notices: echoNotices } = await saveEchoContext(
+					echoContextRqo,
+					echoProduced,
+					savedData,
+					principal,
+				));
 			}
 			// SCALAR saves: dispatch the model's emit-hook decorateItem on the
 			// echoed item (registry facet, no model conditional — S2-24), the
@@ -752,7 +858,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 					data: savedData,
 					...(createdSectionId !== undefined ? { created_section_id: createdSectionId } : {}),
 				},
-				{ requestId: context.requestId },
+				{ requestId: context.requestId, notices: echoNotices },
 			),
 		};
 	},
@@ -1283,6 +1389,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			const toolStartContext: unknown[] = [];
 			if ((rqo.options as { menu?: boolean } | undefined)?.menu === true) {
 				const menuCtx = await buildStructureContext({
+					configFrom: { source: 'own', reason: 'area-or-menu' },
 					tipo: 'dd85',
 					sectionTipo: 'dd85',
 					mode: 'list',
@@ -1320,6 +1427,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		if (requestedTipo === null && config.mainSection === '') {
 			const homeContext: unknown[] = [];
 			const menuCtx = await buildStructureContext({
+				configFrom: { source: 'own', reason: 'area-or-menu' },
 				tipo: 'dd85',
 				sectionTipo: 'dd85',
 				mode: 'list',
@@ -1474,6 +1582,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		const menuWanted = (rqo.options as { menu?: boolean } | undefined)?.menu === true;
 		const [sectionContext, menuContext, environment] = await Promise.all([
 			buildStructureContext({
+				configFrom: { source: 'own', reason: 'area-or-menu' },
 				tipo: pageTipo,
 				sectionTipo: pageSectionTipo,
 				mode: sectionRecordDeepLink || pageMode === 'edit' ? 'edit' : 'list',
@@ -1490,6 +1599,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			// rendered at fixed permission level 2 (menu_json.php).
 			menuWanted
 				? buildStructureContext({
+						configFrom: { source: 'own', reason: 'area-or-menu' },
 						tipo: 'dd85',
 						sectionTipo: 'dd85',
 						mode: 'list',
@@ -1598,6 +1708,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			throw new DedaloError('perm.denied', { coordinates: { section_tipo: sectionTipo, tipo } });
 		}
 		const entry = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'element-context-request' },
 			tipo,
 			sectionTipo,
 			mode,
@@ -2004,6 +2115,7 @@ async function readMenu(
 
 	// The menu is always rendered at permission level 2 (PHP menu_json.php).
 	const menuContext = await buildStructureContext({
+		configFrom: { source: 'own', reason: 'area-or-menu' },
 		tipo: menuTipo,
 		sectionTipo: source.section_tipo ?? menuTipo,
 		mode: 'list',

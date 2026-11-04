@@ -552,6 +552,11 @@ ts_object.prototype.get_node_data = async function() {
 				thesaurus_view_mode	: thesaurus_view_mode
 			}
 		}
+		// picker caller (get_picker_caller): only set when the tree is a picker
+		const picker_caller = get_picker_caller(self)
+		if (picker_caller) {
+			rqo.source.caller = picker_caller
+		}
 
 		const api_response = await data_manager.request({
 			use_worker	: false,
@@ -591,6 +596,41 @@ ts_object.prototype.get_node_data = async function() {
 		throw custom_error;
 	}
 }//end get_node_data
+
+
+
+/**
+* GET_PICKER_CALLER
+* The tree PICKER's caller declaration this node was opened for — the owning
+* area's `picker_caller` (`{section_tipo, section_id, tipo, callers}`, set by
+* component_portal build_thesaurus_pane), found up the `.caller` chain (a node's
+* caller is its parent node, a root node's is the area). Cycle-safe.
+* The node reads send it as `source.caller`: a user who can WRITE the picker
+* component browses its target thesaurus read-only through it, even without a
+* grant on the thesaurus (owner decision (i) — server: ts_object/ts_api.ts
+* requireTreeReadLevel). An ordinary browse tree has none → null, and the reads
+* keep their exact previous shape.
+* @param {Object} self - The ts_object instance
+* @returns {Object|null}
+*/
+export const get_picker_caller = function(self) {
+
+	const visited = new Set()
+	let current = self ? self.caller : null
+	while (current && !visited.has(current)) {
+		visited.add(current)
+		if (current.picker_caller) {
+			return current.picker_caller
+		}
+		if (typeof current.model==='string' && current.model.startsWith('area_')) {
+			return null
+		}
+		current = current.caller
+	}
+
+
+	return null
+}//end get_picker_caller
 
 
 
@@ -667,6 +707,11 @@ ts_object.prototype.get_children_data = async function(options) {
 					pagination			: pagination,
 					thesaurus_view_mode	: thesaurus_view_mode
 				}
+			}
+			// picker caller (get_picker_caller): only set when the tree is a picker
+			const picker_caller = get_picker_caller(self)
+			if (picker_caller) {
+				rqo.source.caller = picker_caller
 			}
 
 			const api_response = await data_manager.request({

@@ -458,16 +458,32 @@ function parsedClientLimit(rawLimit: unknown): number {
 }
 
 export function clampClientLimit(rawLimit: unknown, scope: string): number {
-	const limit = parsedClientLimit(rawLimit);
-	if (Number.isFinite(limit) && limit > 0 && limit <= CLIENT_MAX_LIMIT) {
-		return limit;
-	}
-	if (rawLimit !== undefined && rawLimit !== null) {
+	const { limit, clamped } = clampClientLimitQuietly(rawLimit);
+	if (clamped) {
 		console.warn(
 			`[sqo] client limit ${JSON.stringify(rawLimit)} (section_tipo ${scope}) clamped to CLIENT_MAX_LIMIT=${CLIENT_MAX_LIMIT} — response may be truncated (DEC-07)`,
 		);
 	}
-	return CLIENT_MAX_LIMIT;
+	return limit;
+}
+
+/**
+ * The SAME clamp without the log line — for a door that clamps MANY client
+ * values in one request (stage 1's per-ddo limits, relations/request_config/
+ * from_rqo.ts) and folds every clamp into ONE bounded report itself: one
+ * line per value would be a log amplifier the client controls. `clamped` is
+ * true exactly when clampClientLimit would have logged (an explicit value
+ * outside [1, CLIENT_MAX_LIMIT]).
+ */
+export function clampClientLimitQuietly(rawLimit: unknown): {
+	readonly limit: number;
+	readonly clamped: boolean;
+} {
+	const limit = parsedClientLimit(rawLimit);
+	if (Number.isFinite(limit) && limit > 0 && limit <= CLIENT_MAX_LIMIT) {
+		return { limit, clamped: false };
+	}
+	return { limit: CLIENT_MAX_LIMIT, clamped: rawLimit !== undefined && rawLimit !== null };
 }
 
 /**

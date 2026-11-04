@@ -371,6 +371,7 @@ describe('2. context `lang` = the instance lang, at every context door', () => {
 	test('buildStructureContext: requestedLang is the explicit signal; the read lang alone is ambient', async () => {
 		const build = (requestedLang?: string) =>
 			buildStructureContext({
+				configFrom: { source: 'own', reason: 'unit-test' },
 				tipo: XLIT,
 				sectionTipo: SECTION,
 				mode: 'edit',

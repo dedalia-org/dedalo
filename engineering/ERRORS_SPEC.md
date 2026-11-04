@@ -123,7 +123,12 @@ Every JSON API body is one of:
   `retryAfterMs` → `Retry-After` at the chokepoint.
 - `notices[]` carries non-fatal coded facts (external `source_status`,
   identify warnings, truncation) — external-service degradation is
-  `ok:true + notices`, not an error.
+  `ok:true + notices`, not an error. The nested-ddo resolution adds three
+  (2026-11-04, `engineering/RELATIONS_SPEC.md` §1 *Effective config per
+  element*): `ontology.ddo_self_refused` (a level ≥ 2 `'self'` ddo skipped),
+  `relation.record_cycle_stopped` and `relation.depth_bound_stopped` (a cell
+  rendered without its nested children); each is bounded per response by the
+  emission registry (`more` counts the folded remainder).
 - Schema: `src/core/errors/schema.ts` (`apiEnvelopeSchema` =
   `z.discriminatedUnion('ok', …)`, `error.code = z.enum(ERROR_CODES)`; both
   shapes `.passthrough()` for the extension keys below).

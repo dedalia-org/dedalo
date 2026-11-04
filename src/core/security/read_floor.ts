@@ -60,9 +60,20 @@
  * production dispatchRqo seeded that same principal, so it is the identity;
  * a caller outside any scope gets one), and nothing is kept between calls.
  * Gate: search_path_acl_native ("IMPLICIT SOURCE", both population orders).
+ *
+ * THE CALLER CHAIN (owner decision (f), W4 2026-11-03): a source nested in a
+ * cell (tch197 → rsc1400) is floored by its EFFECTIVE config — its own config
+ * plus the children its caller injects — when it names its caller instances
+ * (`source.callers`) and the chain verifies (relations/caller_chain.ts, the
+ * outermost element held by a PROFILE grant). See chainFloorPairsOf. Gate:
+ * test/unit/subdatum_permission_native.test.ts (E10). The client names the
+ * chain on the autocomplete search of every nested cell (common.js
+ * create_callers via build_rqo_search; client gate test_caller_chain.js); a
+ * search without one is floored by the element's own map.
  */
 
 import { getModelByTipo, tipoBelongsToSection } from '../ontology/resolver.ts';
+import type { ScopedReadFloor } from './frontier_scope.ts';
 import { getPermissionGrant, type Principal } from './permissions.ts';
 import {
 	currentRequestContext,
@@ -74,6 +85,8 @@ import {
 export interface ReadFloorSource {
 	readonly section_tipo?: unknown;
 	readonly tipo?: unknown;
+	/** The source element's caller chain (relations/caller_chain.ts) — untrusted. */
+	readonly callers?: unknown;
 }
 
 /**
@@ -90,10 +103,143 @@ export async function subdatumReadFloor(
 	if (coordinates === null) return undefined;
 	if (!(await isComponentTipo(coordinates.tipo))) return undefined;
 	if (!(await tipoBelongsToSection(coordinates.tipo, coordinates.sectionTipo))) return undefined;
+	// Condition 2 (module header) holds for the CHAINED floor too: a source the
+	// profile does not read by its own pair gets NO floor of any kind. The read
+	// door refuses such a source at Gate A (dd_core_api.ts gateReadSource — a
+	// RAISED nested element, own 0, under a verified chain included), but the
+	// generic `count` has no Gate A; minting the chained floor here would let a
+	// count answer real totals (a prefix oracle) for a source the read refuses —
+	// count and read must decide alike (W4 review, 2026-11-03). DECIDED (owner
+	// decision (h), 2026-11-03): a verified chain does NOT raise Gate A — a
+	// read-only / raised caller unlocks nothing. What a chain opens is the
+	// TARGET search of a component the user can WRITE through it
+	// (writer_chain_scope.ts; withScopedPairs below), on both doors alike.
 	if (!(await profileReadPair(principal, coordinates.sectionTipo, coordinates.tipo))) {
 		return undefined;
 	}
-	return asCaller(principal, () => floorPairsOf(coordinates.sectionTipo, coordinates.tipo));
+	return asCaller(principal, async () => {
+		const chained = await chainFloorPairsOf(principal, coordinates, source?.callers);
+		const own = await floorPairsOf(coordinates.sectionTipo, coordinates.tipo);
+		return chained === null ? own : new Set([...own, ...chained]);
+	});
+}
+
+/**
+ * The floor a SCOPED TARGET SEARCH runs with (owner decision (h),
+ * security/writer_chain_scope.ts). On the sections the scope OPENED (the
+ * ungranted ones) the filter / order paths are EXACTLY the writer component's
+ * `filterPairs` (show + search + choose, plus its declared fixed_filter /
+ * filter_by_list paths): every pair the ordinary floor keys on those sections
+ * is dropped first — the ordinary floor is built from all four slots, so its
+ * HIDE / CHOOSE-only pairs there would otherwise be a predicate oracle over a
+ * section the user holds nothing on. Every other section keeps the ordinary
+ * floor, unchanged. No scope = the ordinary floor, unchanged.
+ *
+ * EXCLUSIVE ON THE OPENED SECTIONS: the result is a ScopedReadFloor naming
+ * `scope.sections`, so the search's SEC-1 key (search/conform.ts
+ * componentReadable, frontier_scope.ts exclusiveFloorVerdict) answers ONLY
+ * these pairs there — a metadata tipo, a thesaurus-template component or a
+ * component the profile happens to hold a per-tipo grant on is NOT a filter /
+ * order path on a section the scope opened (the column side's own rule,
+ * section/read.ts scopedColumnLevel). Without that the pair replacement above
+ * would bound only the floor, not the key.
+ */
+export function withScopedPairs(
+	floor: ReadonlySet<string> | undefined,
+	scope:
+		| { readonly sections: ReadonlySet<string>; readonly filterPairs: ReadonlySet<string> }
+		| null
+		| undefined,
+): ReadonlySet<string> | undefined {
+	if (scope === null || scope === undefined) return floor;
+	const kept = [...(floor ?? [])].filter((pair) => !pairOnSections(pair, scope.sections));
+	const scoped: ScopedReadFloor = Object.assign(new Set([...kept, ...scope.filterPairs]), {
+		exclusiveSections: new Set(scope.sections),
+	});
+	return scoped;
+}
+
+/** Whether a `${section}_${component}` pair is keyed on one of `sections`. */
+function pairOnSections(pair: string, sections: ReadonlySet<string>): boolean {
+	for (const section of sections) if (pair.startsWith(`${section}_`)) return true;
+	return false;
+}
+
+/**
+ * THE CHAINED FLOOR (owner decision (f), nested-ddo_map plan E10, W4
+ * 2026-11-03): when the source names its caller instances (`callers`) and the
+ * chain VERIFIES (relations/caller_chain.ts — the outermost element read by a
+ * PROFILE grant, never a rule, every further link a declared data child of the
+ * one above), the floor is the source element's EFFECTIVE config as the cell
+ * resolved it: its own config with the children its caller injects. So a
+ * search by a field only the caller's map names (rsc1400 under tch197 showing
+ * X, X not in rsc1400's own map) is floored like the cell shows it — every
+ * child of a COMPONENT caller is raised to read (PHP get_subdatum
+ * :2564-2571, decision (d)). A child a SECTION caller dropped (STEP 11 — the
+ * chain's section root is gated like the section read) is in no effective
+ * config, so it is never floored: the floor applies the same (d) rule the
+ * cell does. A refused chain floors nothing of its own (null) — never more
+ * than no chain.
+ *
+ * Only a source the profile reads by its OWN pair reaches this (subdatumReadFloor
+ * condition 2 — count has no Gate A, so a raised source must not be floored
+ * here either); its own floor is always added to the chained one.
+ *
+ * A SECTION root raises nothing: under a section caller PHP judges a column by
+ * its OWN grant (STEP 11; is_component_caller is false, class.common.php
+ * :2356/:2564), and the chain's section-root gate (ddoIsAuthorized) accepts a
+ * RULE basis. So for a chain rooted at a section, the OUTERMOST COMPONENT —
+ * the link right below the section, or the target itself when it is a direct
+ * column — must pass the floor's own predicate (a PROFILE read pair, module
+ * header step 3), exactly as an unchained source does; else nothing is
+ * floored (null).
+ */
+async function chainFloorPairsOf(
+	principal: Principal,
+	coordinates: { sectionTipo: string; tipo: string },
+	callers: unknown,
+): Promise<ReadonlySet<string> | null> {
+	if (callers === undefined || callers === null) return null;
+	const { currentDataLang } = await import('../resolve/request_lang.ts');
+	const lang = currentDataLang();
+	const { resolveCallerChain } = await import('../relations/caller_chain.ts');
+	const chain = await resolveCallerChain({
+		callers,
+		targetTipo: coordinates.tipo,
+		targetSectionTipo: coordinates.sectionTipo,
+		lang,
+		principal,
+		authorizeRoot: (sectionTipo, tipo) => profileReadPair(principal, sectionTipo, tipo),
+	});
+	if (chain === null) return null;
+	if (!(await sectionRootedChainHeld(principal, callers, coordinates))) return null;
+	const node = await chainedSourceNode(chain, coordinates.sectionTipo, lang);
+	const pairs = new Set<string>();
+	for (const item of node.effectiveConfig) addItemDdoPairs(pairs, item as unknown as ConfigItem);
+	const { getEffectivePropertiesByTipo } = await import('../ontology/alias.ts');
+	addDeclaredFilterPairs(pairs, await getEffectivePropertiesByTipo(coordinates.tipo));
+	return pairs;
+}
+
+/**
+ * For a VERIFIED chain rooted at a SECTION (`{tipo: S, section_tipo: S}`): the
+ * outermost component (the second link, else the target) holds a PROFILE read
+ * pair (chainFloorPairsOf). A component-rooted chain already passed it as its
+ * root (authorizeRoot) — true.
+ */
+async function sectionRootedChainHeld(
+	principal: Principal,
+	callers: unknown,
+	target: { sectionTipo: string; tipo: string },
+): Promise<boolean> {
+	// The chain verified, so its shape is the parsed one (caller_chain.ts step 1).
+	const links = callers as readonly { tipo: string; section_tipo: string }[];
+	const root = links[0];
+	if (root === undefined || root.tipo !== root.section_tipo) return true;
+	const outermost = links[1];
+	return outermost === undefined
+		? profileReadPair(principal, target.sectionTipo, target.tipo)
+		: profileReadPair(principal, outermost.section_tipo, outermost.tipo);
 }
 
 /**
@@ -177,16 +323,72 @@ async function floorPairsOf(sectionTipo: string, tipo: string): Promise<Readonly
 	return pairs;
 }
 
+/**
+ * The source element's node UNDER its verified caller — the cell's node: the
+ * caller's line governs it (its mode: a nested line declares one, else 'list',
+ * the mode PHP forces under a non-section caller).
+ */
+async function chainedSourceNode(
+	chain: import('../relations/caller_chain.ts').VerifiedCallerChain,
+	sectionTipo: string,
+	lang: string,
+): Promise<import('../relations/element_registry.ts').ElementNode> {
+	const { resolveElement } = await import('../relations/element_node.ts');
+	const { ElementNodeRegistry } = await import('../relations/element_registry.ts');
+	const declaredMode = chain.line.mode;
+	return resolveElement({
+		ddo: chain.line as unknown as import('../concepts/ddo.ts').Ddo,
+		parentNode: chain.parentNode,
+		ownerSectionTipo: sectionTipo,
+		mode: typeof declaredMode === 'string' && declaredMode !== '' ? declaredMode : 'list',
+		lang,
+		registry: new ElementNodeRegistry(),
+	});
+}
+
 type ConfigItem = Awaited<
 	ReturnType<typeof import('../relations/request_config/build.ts').buildRequestConfigForElement>
 >[number];
 
 const DDO_MAPS = ['show', 'search', 'choose', 'hide'] as const;
 
-/** Every ddo of one config item's maps, at every section it resolves to. */
-function addItemDdoPairs(pairs: Set<string>, item: ConfigItem): void {
+/** One request_config slot a pair set may be read off. */
+export type ConfigSlotName = (typeof DDO_MAPS)[number];
+
+/**
+ * The `${section}_${component}` pairs of the named slots of a config (every
+ * ddo, at every section it resolves to — a declared section, else the item's
+ * sqo targets). Shared with security/writer_chain_scope.ts, whose scoped
+ * searches are limited to the SHOW + SEARCH slots of a writer component's
+ * effective config (owner decision (h)).
+ */
+export function slotPairsOf(
+	config: readonly unknown[],
+	slots: readonly ConfigSlotName[],
+): Set<string> {
+	const pairs = new Set<string>();
+	for (const item of config) addItemDdoPairs(pairs, item as ConfigItem, slots);
+	return pairs;
+}
+
+/**
+ * The declared `fixed_filter` path steps and `filter_by_list` fields of a
+ * component's properties (see addDeclaredFilterPairs) as a fresh set.
+ */
+export function declaredFilterPairsOf(properties: unknown): Set<string> {
+	const pairs = new Set<string>();
+	addDeclaredFilterPairs(pairs, properties);
+	return pairs;
+}
+
+/** Every ddo of one config item's maps (all four, or `slots`), at every section it resolves to. */
+function addItemDdoPairs(
+	pairs: Set<string>,
+	item: ConfigItem,
+	slots: readonly ConfigSlotName[] = DDO_MAPS,
+): void {
 	const targets = itemTargets(item);
-	for (const mapName of DDO_MAPS) {
+	for (const mapName of slots) {
 		const ddos = item[mapName]?.ddo_map;
 		if (!Array.isArray(ddos)) continue;
 		for (const ddo of ddos) addDdoPairs(pairs, ddo, targets);
@@ -195,7 +397,9 @@ function addItemDdoPairs(pairs: Set<string>, item: ConfigItem): void {
 
 /** The item's resolved sqo target sections (flat tipos). */
 function itemTargets(item: ConfigItem): string[] {
-	return (item.sqo.section_tipo ?? [])
+	// `sqo?.`: a caller-only effective config (relations/element_node.ts NO OWN
+	// CONFIG AT ALL) carries no sqo, so it names no target section.
+	return ((item.sqo as ConfigItem['sqo'] | undefined)?.section_tipo ?? [])
 		.map((entry) => (typeof entry === 'string' ? entry : entry?.tipo))
 		.filter((tipo): tipo is string => typeof tipo === 'string' && tipo !== '');
 }

@@ -993,13 +993,15 @@ describe.if(DB_READY)(
 			).toEqual([[HOST_SECTION, hb]]);
 		});
 
-		test('a PERMISSION refusal inside an op (the tree picker’s read grant) is a skip with its code; the IRI commits the rest', async () => {
+		test('a tree picker link into a section the actor cannot read is WRITTEN (owner decision (i)); the IRI commits it all', async () => {
 			// The control writes test3 and (for this test) both tree pickers at the pair,
 			// but holds NO grant on zzrdfhost1. A creator record there, already linked from
 			// the caller, is FOUND through its path (stored locators — no search, so no
 			// read grant needed); linking it through the second tree picker reaches the
-			// insert door, which refuses it as target_not_readable → perm.denied, thrown
-			// INSIDE the save, past the executor's own write pre-check.
+			// insert door, which — since the tree picker's read-grant gate was retired
+			// (owner decision (i), 2026-11-03; it used to refuse this as
+			// target_not_readable → perm.denied, a skip) — accepts it: the caller grant
+			// (2 on the picker) is the authorization, exactly as PHP.
 			const profile = authzProfileId(AUTHZ_CONTROL_USER_ID);
 			const before = (await sql.unsafe(
 				`SELECT misc->'dd774' AS grants FROM matrix_profiles WHERE section_tipo = 'dd234' AND section_id = $1`,
@@ -1025,13 +1027,13 @@ describe.if(DB_READY)(
 				})),
 			]);
 			try {
-				await treePickerRefusal();
+				await treePickerLinkWritten();
 			} finally {
 				await setGrants(grants);
 			}
 		});
 
-		async function treePickerRefusal(): Promise<void> {
+		async function treePickerLinkWritten(): Promise<void> {
 			expect(await getPermissions(ids.control, SECTION, TREE_PICKER_2)).toBe(2);
 			expect(await getPermissions(ids.control, HOST_SECTION, HOST_SECTION)).toBe(0);
 			const creatorIri = iriOf('tree-creator');
@@ -1078,23 +1080,26 @@ describe.if(DB_READY)(
 					plan(iriOf('tree-plan'), [
 						treeCreator,
 						{ ...link(CALLER, TREE_PICKER_2, ref('tc')), to_section_tipo: HOST_SECTION },
-						set(CALLER, TITLE, 'lg-eng', [{ value: 'Kept beside a refused link' }]),
+						set(CALLER, TITLE, 'lg-eng', [{ value: 'Written beside the tree link' }]),
 					]),
 				],
 				ids.control,
 			);
 			expect(report.iris[0]?.error).toBeNull();
 			expect(report.created).toEqual([]);
-			expect(report.written.map((entry) => [entry.section_id, entry.component_tipo])).toEqual([
-				[id, TITLE],
-			]);
-			expect(report.skipped.map((entry) => [entry.component_tipo, entry.code])).toEqual([
-				[TREE_PICKER_2, 'perm.denied'],
-			]);
+			expect(report.skipped).toEqual([]);
+			expect(
+				report.written.map((entry) => `${entry.section_id}:${entry.component_tipo}`).sort(),
+			).toEqual([`${id}:${TITLE}`, `${id}:${TREE_PICKER_2}`].sort());
 			expect((await items(id, 'string', TITLE)).map((item) => item.value)).toEqual([
-				'Kept beside a refused link',
+				'Written beside the tree link',
 			]);
-			expect(await items(id, 'relation', TREE_PICKER_2)).toEqual([]);
+			expect(
+				(await items(id, 'relation', TREE_PICKER_2)).map((item) => [
+					(item as { section_tipo?: unknown }).section_tipo,
+					Number((item as { section_id?: unknown }).section_id),
+				]),
+			).toEqual([[HOST_SECTION, holder]]);
 		}
 
 		test('a term whose find is REFUSED is not created; every op naming it is skipped as depending on it', async () => {

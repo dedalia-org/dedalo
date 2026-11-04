@@ -91,6 +91,7 @@ export async function expandFilterByList(
 
 		const { buildStructureContext } = await import('../../resolve/structure_context.ts');
 		const context = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'search-panel-element' },
 			tipo: componentTipo,
 			sectionTipo,
 			mode: 'edit',

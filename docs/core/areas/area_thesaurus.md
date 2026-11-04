@@ -215,9 +215,20 @@ no affordance — an affordance is never offered on a guess, and never withheld 
 See `is_indexable` in the section map documentation for what declaring the role costs:
 [The `is_indexable` contract](../ontology/section_map.md#the-is_indexable-contract-declared-or-absent).
 
+The picker is a **writer's** tool, and it is scoped to the writer. The picker names the
+chain of components it is nested under (`source.callers`, see
+[the RQO source fields](../rqo.md#source-object-mandatory)); when the server verifies that
+chain, the component at its end holds **write** through it, and its effective config
+targets the thesaurus exactly, the picker browses that thesaurus **read-only even when the
+user holds no grant on it** — the same rule an autocomplete search follows. Every node it
+builds is still gated by its own section, and the scope opens only the thesaurus the
+component's config names
+(writer-chain scoped search: `engineering/wire_contract/WC-2026-11-04-writer-chain-scoped-search.md`).
+
 Two empty pickers are two different facts, and the read distinguishes them: everything
-refused by permissions answers `403` with a message that names nothing (naming what you
-may not see is itself a leak), while a target that declares no active hierarchy — or
+refused by permissions — a picker without a verified writer chain on a thesaurus the user
+may not read, among others — answers `403` with a message that names nothing (naming what
+you may not see is itself a leak), while a target that declares no active hierarchy — or
 none among this caller's targets — answers `409 read: no active hierarchy is configured
 for this component target`, which is a configuration problem, not a permission one.
 
@@ -226,9 +237,11 @@ for this component target`, which is a configuration problem, not a permission o
     the same module. What the tree offers and what the save accepts are literally the
     same value, so a stale or altered client cap changes nothing. A pick the save
     refuses — a term outside the caller's targets, a non-selectable term, one past the
-    cap — is answered as a named error (`relation.insert_refused`, HTTP 400), and a
-    thesaurus the picker's user may not read answers the generic permission error
-    (HTTP 403); a refused pick is never a silent no-op.
+    cap — is answered as a named error (`relation.insert_refused`, HTTP 400); a refused
+    pick is never a silent no-op. The save is authorized by the component's own **write**
+    grant: it does not re-check the user's grant on the thesaurus, because picking a
+    value into a component you may write is exactly what the scoped picker read offers
+    (tree-picker read gate retired: `engineering/wire_contract/WC-2026-11-04-tree-picker-read-gate-retired.md`).
 
 !!! warning "The context must never be empty"
     An area read that returns an empty `context` makes the client render the area
@@ -262,6 +275,12 @@ A search reaches the area two ways: the client sends
 `source.search_action = 'search'` together with an `rqo.sqo`, or the area node
 carries `properties.hierarchy_terms`. Either way the request-specific values are
 never baked into the shared structure-context cache.
+
+Before the search runs, the area confines it (`confineTreeSearch`,
+`src/core/area/read.ts`): every section named in `sqo.section_tipo` must be one
+the user can read — or, for a tree picker, one its writer-chain scope targets.
+A section that fails is dropped from the search; a search left with no section
+at all is refused with `perm.denied` (403).
 
 ## How it fits with the rest of Dédalo
 

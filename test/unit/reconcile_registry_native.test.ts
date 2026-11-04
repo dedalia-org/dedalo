@@ -31,6 +31,10 @@
  *   - zzrc8 section (matrix_test) hosting zzrc7, a component_portal over zzrc8
  *     itself that DECLARES `order: asc` on zzrc9 (its component_input_text) —
  *     the portal_declared_order pair (stored array vs declared order).
+ *   - `zzrs` TLD (its OWN): a component_portal node whose show map declares
+ *     `section_tipo: 'self'` on a GRANDCHILD — the ddo_self_depth pair
+ *     (installed request_configs vs the decision-(c) depth rule). Planted
+ *     through upsertDdOntologyNode, swept TLD-wide.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -115,6 +119,9 @@ const ONTO_SECTION = `${ONTO_TLD}0`;
 /** A grammar violator: a valid tipo whose PARENT is not a tipo (SURF-1 legacy shape). */
 const GRAMMAR_VIOLATOR = { tipo: 'zzrg1', tld: 'zzrg', parent: "zzrg0'" };
 const PARENT_GRAMMAR = 'dd_ontology_parent_grammar';
+
+/** ddo_self_depth: one portal whose map declares 'self' at depth 2 (decision (c)). */
+const SELF_DEPTH_TLD = 'zzrs';
 
 const HIER_TLD = 'zzrh';
 const HIER_SECTION = 'hierarchy1';
@@ -374,6 +381,7 @@ afterAll(async () => {
 	await sweepMediaSituation();
 	await sweepOntologySituation();
 	await sweepHierarchySituation();
+	await deleteTldNodes(SELF_DEPTH_TLD);
 	rmSync(join(mediaRoot(), '.publication', 'pub', `${MEDIA_SECTION}_999999`), { force: true });
 	rmSync(join(mediaRoot(), '.publication', 'dbs', 'zzrc_ghost_db'), {
 		recursive: true,
@@ -785,6 +793,42 @@ const PLANTERS: Record<string, Planter> = {
 		},
 		async unplant() {
 			await cleanScratchTipo(ORDER_HOST, TABLE);
+		},
+	},
+	ddo_self_depth: {
+		scope: [SELF_DEPTH_TLD],
+		async plant() {
+			// A definition the reads refuse: NAME declares section_tipo 'self' one
+			// level below the owner's direct child — the definition-side half of
+			// decision (c). A dd_ontology row only (no records, no projection).
+			await assertTestDatabase('reconcile_registry_native ddo_self_depth');
+			await upsertDdOntologyNode({
+				tipo: `${SELF_DEPTH_TLD}1`,
+				parent: 'test1',
+				model: 'component_portal',
+				tld: SELF_DEPTH_TLD,
+				properties: {
+					source: {
+						request_config: [
+							{
+								sqo: { section_tipo: [{ value: ['test3'], source: 'section' }] },
+								show: {
+									ddo_map: [
+										{ tipo: 'test80', parent: 'self', section_tipo: 'self' },
+										{ tipo: 'test52', parent: 'test80', section_tipo: 'self' },
+									],
+								},
+							},
+						],
+					},
+				},
+			} as never);
+			await clearOntologyDerivedCaches();
+			return 1;
+		},
+		async unplant() {
+			await deleteTldNodes(SELF_DEPTH_TLD);
+			await clearOntologyDerivedCaches();
 		},
 	},
 	hierarchy: {

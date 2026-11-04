@@ -177,6 +177,7 @@ async function purgeScratch(): Promise<void> {
 /** The caller component's own emitted context — what the client renders from. */
 async function callerContext(tipo: string): Promise<CallerContext> {
 	const entry = await buildStructureContext({
+		configFrom: { source: 'own', reason: 'unit-test' },
 		tipo,
 		sectionTipo: HOST,
 		mode: 'edit',

@@ -15,10 +15,11 @@
  * asked the dedalo engine to order, page or SQL-search it.
  *
  * This file is the complete census of those sites and what each of them does
- * today. It exists because the fix is staged: six sites negotiate with the
- * adapter (relations/request_config/engine_select.ts), four ddo-map sites
- * stopped narrowing altogether (they consume EVERY item —
- * relations/config_ddo_map.ts), TWO narrow with no gate at all because their
+ * today. It exists because the fix is staged: five sites negotiate with the
+ * adapter (relations/request_config/engine_select.ts), ONE injects the
+ * caller's children per engine and slot (the element node every context and
+ * data item is built from), three ddo-map sites stopped narrowing altogether
+ * (they consume EVERY item — relations/config_ddo_map.ts), TWO narrow with no gate at all because their
  * concern is local paging that no adapter can answer (`local`), and the rest
  * are listed with the reason they are still indexed, so none of them is a
  * silent narrowing.
@@ -44,9 +45,10 @@ const ROOT = join(import.meta.dir, '..', '..');
 
 type Status =
 	| 'negotiated' // consults the adapter through selectConfigItemForConcern
+	| 'engine_matched' // injects per ENGINE (caller_injection.injectCallerChildren): no single item chosen
 	| 'flattened' // no longer narrows: consumes EVERY item's ddo map
 	| 'local' // narrows, but the concern is answered LOCALLY — no capability gate
-	| 'section_owned' // the config belongs to a SECTION, which is never multi-engine
+	| 'section_owned' // the config belongs to a SECTION (or an AREA), which is never multi-engine
 	| 'deferred'; // still indexed; the reason says why that is safe TODAY
 
 interface CensusEntry {
@@ -66,7 +68,7 @@ interface CensusEntry {
  * or that used to. Ordered by file.
  */
 const CENSUS: readonly CensusEntry[] = [
-	// ---- negotiated (6) -----------------------------------------------------
+	// ---- negotiated (5) -----------------------------------------------------
 	{
 		file: 'src/core/components/component_info/widgets/grid.ts',
 		symbol: 'resolveGridColumns',
@@ -83,15 +85,6 @@ const CENSUS: readonly CensusEntry[] = [
 		concern: 'listColumns',
 		reason:
 			'the separator joins a component values INSIDE a list/export cell; was find(dedalo) ?? rcs[0]',
-	},
-	{
-		file: 'src/core/resolve/structure_context.ts',
-		symbol: 'buildStructureContext rqo-children narrowing',
-		status: 'negotiated',
-		site: 'resolve/structure_context.rqoChildrenNarrowing',
-		concern: 'listColumns',
-		reason:
-			"the caller's ddo children REPLACE the element's show map — columns rendered at the target",
 	},
 	{
 		file: 'src/core/search/order_path.ts',
@@ -118,10 +111,32 @@ const CENSUS: readonly CensusEntry[] = [
 		reason: "the tree 'M' badge renders a value per target record",
 	},
 
-	// ---- flattened: these no longer narrow at all (5) ------------------------
+	// ---- engine-matched: caller children land per engine, per slot (1) -------
 	{
-		file: 'src/core/relations/models/portal.ts',
-		symbol: 'portalResolver edit-cell children',
+		// nested-ddo_map W3 (2026-11-03): the context's request_config IS the
+		// element NODE's effective config (configFrom emission), and the node
+		// injects the caller's children through injectCallerChildren — every
+		// engine of the caller onto the element's FIRST item of that engine, each
+		// slot separately (PHP class.common.php:2629-2678). The retired
+		// structure_context rqo-children narrowing picked ONE item for the
+		// listColumns concern; nothing is picked any more.
+		file: 'src/core/relations/element_node.ts',
+		symbol: 'resolveElement injectedConfig (the context request_config source)',
+		status: 'engine_matched',
+		reason:
+			"the caller's children replace the element's map per engine and slot — the same node the data was emitted from",
+	},
+
+	// ---- flattened: these no longer narrow at all (2) ------------------------
+	{
+		// Moved from models/portal.ts (nested-ddo_map W2, 2026-11-03): the portal
+		// takes its children off the element NODE, whose data children are the
+		// flatten of EVERY effective-config item. The same file's callerOnlyConfig
+		// picks the caller's `dedalo` children on purpose — PHP's v5 fallback
+		// config (the one a config-less element has) is a single dedalo item, so
+		// a non-dedalo caller engine has nothing to land on, exactly as PHP.
+		file: 'src/core/relations/element_node.ts',
+		symbol: 'directDataChildren (element node data children) + callerOnlyConfig',
 		status: 'flattened',
 		reason: 'consumes every item through flattenConfigDdoMaps (PHP full_ddo_map)',
 	},
@@ -130,18 +145,6 @@ const CENSUS: readonly CensusEntry[] = [
 		symbol: 'pickConfig (the ddo map)',
 		status: 'flattened',
 		reason: 'every item show + hide, deduped structurally',
-	},
-	{
-		file: 'src/core/section/read.ts',
-		symbol: 'resolveComponentData child ddos',
-		status: 'flattened',
-		reason: 'the get_data twin of the portal rule — paging must not drop a source',
-	},
-	{
-		file: 'src/core/section/read.ts',
-		symbol: 'view lookup (two copies: section read + get_data)',
-		status: 'flattened',
-		reason: "a second source's column may carry the view its child renders with",
 	},
 
 	// ---- local: narrows, but no adapter can answer the question (2) ----------
@@ -163,7 +166,17 @@ const CENSUS: readonly CensusEntry[] = [
 			"stamps the limit the engine ALREADY paged the emitted data with onto the item's sqo — a mirror of local runtime state, not a request to the service",
 	},
 
-	// ---- section-owned: not multi-engine by construction (3) -----------------
+	// ---- section-owned: not multi-engine by construction (4) -----------------
+	{
+		// Censused under its narrowing until W3; the narrowing is gone (the
+		// engine-matched element node replaced it) and what the scan still sees
+		// is this PRODUCER: an area's synthesized request_config.
+		file: 'src/core/resolve/structure_context.ts',
+		symbol: 'the area request_config (api_engine literal)',
+		status: 'section_owned',
+		reason:
+			'PRODUCES the one dedalo item an AREA context carries (area.js reads request_config.find(main)); an area is never multi-engine and nothing is narrowed',
+	},
 	{
 		file: 'src/core/resolve/read_tm.ts',
 		symbol: 'usernameComponentTipo',
@@ -285,6 +298,24 @@ describe('census integrity', () => {
 			// CONCERN string is exactly the miscast this status exists to forbid.
 			expect(source, `${entry.file}: still negotiates 'pagination'`).not.toContain("'pagination'");
 		}
+	});
+
+	test('every engine-matched site really injects per engine', () => {
+		for (const entry of CENSUS) {
+			if (entry.status !== 'engine_matched') continue;
+			const source = readFileSync(join(ROOT, entry.file), 'utf8');
+			expect(source, `${entry.file}: injectCallerChildren not called`).toContain(
+				'injectCallerChildren(',
+			);
+		}
+	});
+
+	test('the retired context narrowing stays retired (structure_context picks no item)', () => {
+		// Code lines only: the module documents what it retired.
+		const source = codeLines('src/core/resolve/structure_context.ts').join('\n');
+		expect(source).not.toContain('rqoChildrenNarrowing');
+		expect(source).not.toContain('selectConfigItemForConcern');
+		expect(source).not.toContain('rqoChildrenDdos');
 	});
 
 	test('every flattened site really calls the flattener', () => {

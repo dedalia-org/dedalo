@@ -46,6 +46,7 @@ import {
 	insertMatrixRecordWithCounter,
 } from '../../src/core/db/matrix_write.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
+import { ElementNodeRegistry } from '../../src/core/relations/element_registry.ts';
 import { buildRelatedSections } from '../../src/core/resolve/related_sections.ts';
 import { buildGetDataContext, readSection } from '../../src/core/section/read.ts';
 import {
@@ -438,20 +439,29 @@ describe('toolbar_buttons (server-gated CKEditor extras, WC-066)', () => {
 	}
 
 	test('a text_area with all three tag families gates person+note+reference', async () => {
-		const context = await buildGetDataContext(editContextRqo(TEXT_AREA, HOST_SECTION, 'edit'), []);
+		const context = await buildGetDataContext(editContextRqo(TEXT_AREA, HOST_SECTION, 'edit'), {
+			items: [],
+			nodes: new ElementNodeRegistry(),
+		});
 		const main = context.find((entry) => entry.tipo === TEXT_AREA);
 		expect(main?.toolbar_buttons).toEqual(['button_person', 'button_note', 'reference']);
 	});
 
 	test('a text_area without tag properties gets the empty array (PHP shape)', async () => {
-		const context = await buildGetDataContext(editContextRqo(OH_MAIN, OH_SECTION, 'edit'), []);
+		const context = await buildGetDataContext(editContextRqo(OH_MAIN, OH_SECTION, 'edit'), {
+			items: [],
+			nodes: new ElementNodeRegistry(),
+		});
 		const main = context.find((entry) => entry.tipo === OH_MAIN);
 		expect(main).toBeDefined();
 		expect(main?.toolbar_buttons).toEqual([]);
 	});
 
 	test('outside edit mode the key is absent', async () => {
-		const context = await buildGetDataContext(editContextRqo(TEXT_AREA, HOST_SECTION, 'list'), []);
+		const context = await buildGetDataContext(editContextRqo(TEXT_AREA, HOST_SECTION, 'list'), {
+			items: [],
+			nodes: new ElementNodeRegistry(),
+		});
 		const main = context.find((entry) => entry.tipo === TEXT_AREA);
 		expect(main).toBeDefined();
 		expect('toolbar_buttons' in (main ?? {})).toBe(false);

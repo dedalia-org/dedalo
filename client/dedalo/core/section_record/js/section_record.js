@@ -39,7 +39,7 @@
 
 
 // imports
-	import {common} from '../../common/js/common.js'
+	import {common, get_caller_chain_tipos, select_by_caller_chain} from '../../common/js/common.js'
 	import {clone, same_section_id} from '../../common/js/utils/index.js'
 	import {get_instance} from '../../common/js/instances.js'
 	import {render_list_section_record} from './render_list_section_record.js'
@@ -528,18 +528,32 @@ section_record.prototype.get_ar_instances_edit = async function() {
 	// items — filter datum.context to those children that belong to this record
 	// When caller is a plain 'section': exclude component_dataframe (handled by the section itself)
 	// When caller is a portal or other model: include component_dataframe so it can render inline
-		const items = (self.caller.model === 'section')
+	// parent — an entry stamped per occurrence (owner decision (b)) is matched
+	// by its `caller_chain` (last segment): a chain whose config was absorbed
+	// into another chain's entry ships a COPY of that entry (server
+	// node_contexts.ts #materialiseAbsorbed), stamped with its own chain and
+	// parent (Z/X/Y under rsc1400: Y's copy says parent Y, chain Y).
+	// '' = the read's top level, judged by `parent`.
+		const is_child_of_row = (el) => belongs_to_parent(el, tipo)
+		const candidate_items = (self.caller.model === 'section')
 			? self.datum.context.filter(el =>
 				el.section_tipo===section_tipo
-				&& el.parent===tipo
+				&& is_child_of_row(el)
 				&& (el.type==='component' || el.type==='grouper')
 				&& el.model!=='component_dataframe'
 				&& el.mode===mode)
 			: self.datum.context.filter(el =>
 				el.section_tipo===section_tipo
-				&& el.parent===tipo
+				&& is_child_of_row(el)
 				&& (el.type==='component' || el.type==='grouper')
 				&& el.mode===mode)
+
+	// items per occurrence (owner decision (b)). A key the server split per parent
+	// occurrence (entries stamped `caller_chain`) appears more than once here: keep
+	// ONE entry per tipo — the one of this row's ancestry (select_by_caller_chain) —
+	// at the position of its first appearance. Unstamped contexts are never
+	// repeated (the server dedupes them first-wins), so this is a no-op for them.
+		const items = select_items_by_caller_chain(self, candidate_items)
 
 	// instances — launch all build_instance calls concurrently
 		const ar_promises	= []
@@ -778,10 +792,18 @@ section_record.prototype.get_ar_columns_instances_list = async function() {
 
 							// current_context — locate the datum.context entry for this ddo
 							// When section_tipo is multi-valued, match only on tipo+mode (omit section_tipo)
-							// because the same context descriptor covers all section_tipo values
-								const current_context = current_ddo_section_tipo.length > 1
-									? self.datum.context.find(el => el.tipo===current_ddo.tipo && el.mode===current_ddo.mode)
-									: self.datum.context.find(el => el.tipo===current_ddo.tipo && el.mode===current_ddo.mode && el.section_tipo===current_ddo_section_tipo[0])
+							// because the same context descriptor covers all section_tipo values.
+							// PER OCCURRENCE (owner decision (b)): when the server split one key into
+							// several entries (the same tipo under two parents with different configs,
+							// each stamped `caller_chain`), the entry of THIS row's ancestry is taken
+							// (select_by_caller_chain); unstamped = the previous first-wins match
+								const context_candidates = current_ddo_section_tipo.length > 1
+									? self.datum.context.filter(el => el.tipo===current_ddo.tipo && el.mode===current_ddo.mode)
+									: self.datum.context.filter(el => el.tipo===current_ddo.tipo && el.mode===current_ddo.mode && el.section_tipo===current_ddo_section_tipo[0])
+								const current_context = select_by_caller_chain(
+									context_candidates,
+									() => self.get_caller_chain()
+								)
 
 								// check is valid context
 								// Missing context is non-fatal: it happens when a column is defined in the ontology
@@ -998,8 +1020,12 @@ section_record.prototype.get_component_data = function(options) {
 			return null;
 		}
 
-	// component_data — scan datum.data for the entry matching this component's identity tuple
-		const component_data = self.datum.data.find(function(el) {
+	// component_data — scan datum.data for the entries matching this component's identity tuple.
+	// PER OCCURRENCE (owner decision (b)): items of a key the server split per parent
+	// occurrence carry `caller_chain`; the one of this row's ancestry is taken
+	// (select_by_caller_chain — the same choice its context made). Unstamped items:
+	// the first match, as before.
+		const component_data_candidates = self.datum.data.filter(function(el) {
 
 			if( el.tipo 					=== ddo.tipo // match tipo
 				&& parseInt(el.section_id)	=== parseInt(section_id)  // match section_id
@@ -1025,6 +1051,10 @@ section_record.prototype.get_component_data = function(options) {
 
 			return false
 		})
+		const component_data = select_by_caller_chain(
+			component_data_candidates,
+			() => self.get_caller_chain()
+		)
 
 	// undefined case — synthesise an empty stub so build_instance always receives a valid data object
 		if(!component_data) {
@@ -1052,6 +1082,97 @@ section_record.prototype.get_component_data = function(options) {
 
 	return component_data
 }//end get_component_data
+
+
+
+/**
+* GET_CALLER_CHAIN
+* The component tipos this row sits under, outermost first — the path a cell's
+* per-occurrence `caller_chain` is matched against (owner decision (b);
+* common.get_caller_chain_tipos / select_by_caller_chain). A row of a section
+* list or edit has none (`[]`, the server's top-level ''); a row of tch197's
+* portal cell is `['tch197']`; a row of the rsc1400 cell inside it is
+* `['tch197', 'rsc1400']`.
+*
+* Memoised: an instance's caller ancestry is fixed at init.
+*
+* @returns {Array<string>}
+*/
+section_record.prototype.get_caller_chain = function() {
+
+	const self = this
+
+	if (!self._caller_chain) {
+		self._caller_chain = get_caller_chain_tipos(self)
+	}
+
+
+	return self._caller_chain
+}//end get_caller_chain
+
+
+
+/**
+* BELONGS_TO_PARENT
+* Module-private. Whether a datum.context entry is a direct child of the
+* element `parent_tipo` (a row's tipo: its portal, or its section). An entry
+* stamped `caller_chain` (owner decision (b)) is judged by the chain's LAST
+* segment — the element's direct parent as the server walked it
+* (relations/element_registry.ts ancestorTipos). The server stamps the
+* absorbed copy of a split key with its own `parent` too (node_contexts.ts
+* #materialiseAbsorbed — WC-2026-11-04-caller-chain-per-occurrence), so both
+* agree; the chain stays authoritative. An unstamped entry, or one at the
+* read's top level (chain ''), is judged by `parent`.
+*   {parent:'X', caller_chain:'Y'}        → child of Y, not of X
+*   {parent:'P', caller_chain:'X>P'}      → child of P
+*   {parent:'test3', caller_chain:''}     → child of test3
+* @param {Object} el - datum.context entry
+* @param {string} parent_tipo
+* @returns {boolean}
+*/
+const belongs_to_parent = function(el, parent_tipo) {
+
+	if (typeof el.caller_chain==='string' && el.caller_chain!=='') {
+		const segments = el.caller_chain.split('>')
+		return segments[segments.length - 1]===parent_tipo
+	}
+
+
+	return el.parent===parent_tipo
+}//end belongs_to_parent
+
+
+
+/**
+* SELECT_ITEMS_BY_CALLER_CHAIN
+* Module-private. The edit-mode child contexts with ONE entry per
+* (tipo, section_tipo, mode) key: when the server split a key per parent
+* occurrence (owner decision (b), entries stamped `caller_chain`), the entry of
+* this row's ancestry replaces the group at the position of its first member.
+* @param {Object} self - The section_record instance
+* @param {Array<Object>} candidate_items - The filtered datum.context entries, in datum order
+* @returns {Array<Object>}
+*/
+const select_items_by_caller_chain = function(self, candidate_items) {
+
+	const groups = new Map()
+	for (const item of candidate_items) {
+		const key = item.tipo + '_' + item.section_tipo + '_' + item.mode
+		const group = groups.get(key)
+		if (group) {
+			group.push(item)
+		}else{
+			groups.set(key, [item])
+		}
+	}
+
+
+	// a group none of whose occurrences belongs to this row yields nothing (never
+	// another parent's entry — select_by_caller_chain)
+	return [...groups.values()]
+		.map(group => select_by_caller_chain(group, () => self.get_caller_chain()))
+		.filter(Boolean)
+}//end select_items_by_caller_chain
 
 
 

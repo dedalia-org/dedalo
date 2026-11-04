@@ -153,6 +153,22 @@ The concept the user names "sections": *a group of multiple section_records, one
 
 Inside the core, section-relevant steps in order: `section_list` property swap for list/tm (`:1806-1822`, §7.1); css `:1828`; **tools** `:1857-1917` (config override chain configuration→register→ontology `:1882`); **buttons** via `get_buttons_context` `:1919-1922` (skipped in `simple` mode); label preset override `:1930`; columns_map when add_rqo `:1947`; then the **`$model==='section'` block `:2056-2101`**: stamps `section_map` (`:2075`), `config->relation_list_tipo` = first legacy `relation_list` child (`:2077-2094` — the in-code comment records that the section_map `relation_list` *scope* only changes grid columns and does NOT replace this trigger), and `matrix_table` (`:2097`).
 
+> **ADDENDUM 2026-11-04 — the request_config stamp comes from the element NODE.**
+> The `request_config` a context entry stamps (`:1670`) is no longer rebuilt
+> per door from the element's own ontology map: every context door (section
+> read column pass, derived subcontexts, get_data, resolve_data, the save echo
+> incl. the last-page swap, resolve_echo, relation_index, TM framed and
+> whole-record rows) serialises it from the SAME `ElementNode` the data was
+> emitted from — `buildStructureContext` takes a REQUIRED `configFrom`:
+> `{source:'emission', node}` or a censused `{source:'own', reason}`
+> (`OWN_CONTEXT_REASONS`, `test/unit/structure_context_own_census.test.ts`).
+> The section-column pass reads the node registry instead of pre-seeding its
+> `seen` set from the raw show map; entries ship in element-tree order and
+> first-wins only for identical projections, a conflicting key being split per
+> parent occurrence with `caller_chain`. The model is defined in
+> `engineering/RELATIONS_SPEC.md` §1 *Effective config per element
+> (2026-11-04)* — read it there, not here.
+
 ### 6.2 section_map — the role marker (`core/section/class.section_map.php`)
 Scopes `main`/`thesaurus`/`relation_list`, per-scope keys `term/model/order/parent/is_indexable/is_descriptor` + optional `fields_separator` (class doc `:1-40`). Pure stateless static service: `SCOPE_FALLBACK = ['main','thesaurus','relation_list']` `:52`; `get_scope` `:139`; `resolve_key_scope` `:172` — **per-KEY fallback**: a scope that exists but lacks the key does not stop the walk (doc `:26`); `get_element_tipo` `:222`, `get_term_tipos` `:273`, `get_fields_separator` `:299` (default `', '` `:60`), `get_term` `:331` (delegates to `ts_term_resolver`). The raw map is the `section_map` child node's `properties`, read by `section::get_section_map` `:1702-1740` (virtual fallback `:1723`, cache `:1743`). Consumers: thesaurus tree, hierarchy, relation_list columns, `resolve_get_ddo_map` (§7.6), component_relation_parent, filters, dd_core_api. The TS `src/core/ontology/section_map.ts` is faithful — the rebuild's job is to **stamp it into the section context** and route all consumers through it.
 

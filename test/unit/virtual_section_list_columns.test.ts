@@ -107,6 +107,7 @@ describe.if(hasDb)(
 				{ applicationLang: 'lg-eng', dataLang: 'lg-eng' },
 				async () =>
 					buildStructureContext({
+						configFrom: { source: 'own', reason: 'unit-test' },
 						tipo: seed('rsc', 197),
 						sectionTipo: seed('rsc', 197),
 						mode: 'list_thesaurus',

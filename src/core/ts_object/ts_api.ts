@@ -49,12 +49,15 @@ import {
 import { createSectionRecord } from '../section/record/create_record.ts';
 import type { Principal } from '../security/permissions.ts';
 import { getPermissions } from '../security/permissions.ts';
+import { scopeTargetsSection, type WriterChainScope } from '../security/writer_chain_scope.ts';
 import { withTreeTransaction } from './tree_locks.ts';
 import {
 	invalidateNode,
 	type ParseLocator,
 	parseChildData,
+	type TsNodeData,
 	type TsOptions,
+	trimNodeToScopeColumns,
 	getChildrenData as tsGetChildrenData,
 } from './ts_object.ts';
 
@@ -117,6 +120,162 @@ async function requireSectionLevel(
 	}
 }
 
+/**
+ * How a tree node door admits ONE section (owner decision (i), W4b review):
+ * by the principal's own read grant ('granted' — PHP parity, the node is built
+ * exactly as before), ONLY through a tree picker's verified scope ('scoped' —
+ * the node is then trimmed to what the writer component's config shows,
+ * trimNodeToScopeColumns), or not at all (null).
+ */
+type TreeAdmission = 'granted' | 'scoped' | null;
+
+/**
+ * One request's tree-picker scope, resolved at most ONCE however many sections
+ * the door judges (the caller-chain verification is the expensive part). The
+ * picker client sends the same `source.caller` declaration on every node read
+ * it makes (ts_object.js get_picker_caller): `{tipo, section_tipo, section_id,
+ * callers}`. An absent, malformed or invalid declaration earns no scope.
+ */
+interface TreePickerScope {
+	readonly source: Record<string, unknown>;
+	resolved?: Promise<WriterChainScope | null>;
+}
+
+function treePickerScopeOf(source: Record<string, unknown>): TreePickerScope {
+	return { source };
+}
+
+/** The request's verified picker scope (area/read.ts pickerTreeScope), or null. */
+async function resolveTreePickerScope(
+	picker: TreePickerScope,
+	principal: Principal,
+): Promise<WriterChainScope | null> {
+	const declared = picker.source.caller;
+	if (declared === undefined || declared === null) return null;
+	if (picker.resolved === undefined) {
+		picker.resolved = (async () => {
+			const { pickerTreeScope } = await import('../area/read.ts');
+			const { currentDataLang } = await import('../resolve/request_lang.ts');
+			return pickerTreeScope(declared, principal, currentDataLang());
+		})();
+	}
+	return picker.resolved;
+}
+
+/** How `sectionTipo` is admitted (TreeAdmission). */
+async function treeAdmission(
+	principal: Principal,
+	sectionTipo: string,
+	picker: TreePickerScope,
+): Promise<TreeAdmission> {
+	if ((await getPermissions(principal, sectionTipo, sectionTipo)) >= 1) return 'granted';
+	const scope = await resolveTreePickerScope(picker, principal);
+	if (scope !== null && scopeTargetsSection(scope, sectionTipo)) return 'scoped';
+	return null;
+}
+
+/**
+ * The READ gate of the two tree NODE doors (get_node_data, get_children_data):
+ * the section read grant (1), PHP parity — OR, for a TREE PICKER, the scope of
+ * the component it opened for (owner decision (i), 2026-11-03 — a divergence
+ * from PHP, WC-2026-11-04-tree-picker-read-gate-retired): the read declares the picker's `source.caller`, the
+ * principal can WRITE that `view:'tree'` component through its VERIFIED caller
+ * chain, and the node's section is one of the component's targets (area/read.ts
+ * pickerTreeScope → security/writer_chain_scope.ts). Read-only browsing for
+ * exactly that use: the node's own buttons stay at the principal's grant
+ * (getPermissionsElement), so no write affordance appears, and a scoped node
+ * carries only what the writer component's config shows (scopeNodes).
+ */
+async function requireTreeReadLevel(
+	principal: Principal,
+	sectionTipo: string,
+	picker: TreePickerScope,
+): Promise<'granted' | 'scoped'> {
+	const admission = await treeAdmission(principal, sectionTipo, picker);
+	if (admission !== null) return admission;
+	throw new DedaloError('perm.denied', {
+		coordinates: { section_tipo: sectionTipo, required_level: 1 },
+	});
+}
+
+/**
+ * The READ gate over EVERY section of a CLIENT-supplied node list (mode B of
+ * get_children_data, owner decision (i), W4b review): the list is client
+ * input, so each distinct section is judged by requireTreeReadLevel before a
+ * node of it is built — once per section per request. (get_node_data's one
+ * section rides it too; a null / empty section names nothing to judge.) Answers the sections
+ * the scope ALONE admitted (their nodes are trimmed, scopeNodes).
+ */
+async function requireTreeReadLevels(
+	principal: Principal,
+	sectionTipos: Iterable<unknown>,
+	picker: TreePickerScope,
+): Promise<Set<string>> {
+	const judged = new Set<string>();
+	const scoped = new Set<string>();
+	for (const sectionTipo of sectionTipos) {
+		if (typeof sectionTipo !== 'string' || sectionTipo === '' || judged.has(sectionTipo)) continue;
+		judged.add(sectionTipo);
+		if ((await requireTreeReadLevel(principal, sectionTipo, picker)) === 'scoped') {
+			scoped.add(sectionTipo);
+		}
+	}
+	return scoped;
+}
+
+/**
+ * Trim every node of a section the scope ALONE admitted to the writer
+ * component's shown pairs (trimNodeToScopeColumns, owner decision (i)). Nodes
+ * of granted sections pass untouched.
+ */
+async function scopeNodes(
+	nodes: readonly TsNodeData[],
+	scopedSections: ReadonlySet<string>,
+	principal: Principal,
+	picker: TreePickerScope,
+): Promise<TsNodeData[]> {
+	if (scopedSections.size === 0) return [...nodes];
+	const scope = await resolveTreePickerScope(picker, principal);
+	if (scope === null) return [...nodes];
+	return nodes.map((node) =>
+		scopedSections.has(node.section_tipo) ? trimNodeToScopeColumns(node, scope.columnPairs) : node,
+	);
+}
+
+/**
+ * Mode A's children page of a parent the scope ALONE admitted (owner decision
+ * (i), W4b review): the children component may hold children of OTHER
+ * sections, so each child's section is judged too — a child the principal can
+ * neither read nor reach through the scope is PRUNED from the page (never a
+ * refusal of its readable siblings), a scoped child is trimmed. The page's
+ * `pagination` stays the children component's own (offset / limit address
+ * positions of that list; a pruned child only leaves its slot empty, so the
+ * next page is still fetched at offset + limit). A parent the principal READS
+ * by its own grant never comes here: PHP judged only the parent section
+ * (dd_ts_api::get_children_data → assert_section_permission), and so does that
+ * path.
+ */
+async function scopedChildrenPage(
+	nodes: readonly TsNodeData[],
+	principal: Principal,
+	picker: TreePickerScope,
+): Promise<TsNodeData[]> {
+	const admissions = new Map<string, TreeAdmission>();
+	const kept: TsNodeData[] = [];
+	const scopedSections = new Set<string>();
+	for (const node of nodes) {
+		let admission = admissions.get(node.section_tipo);
+		if (admission === undefined) {
+			admission = await treeAdmission(principal, node.section_tipo, picker);
+			admissions.set(node.section_tipo, admission);
+		}
+		if (admission === null) continue;
+		if (admission === 'scoped') scopedSections.add(node.section_tipo);
+		kept.push(node);
+	}
+	return scopeNodes(kept, scopedSections, principal, picker);
+}
+
 /** The RQO carries no `source` — nothing addresses a node. */
 function requireSource(rqo: Rqo, action: string): Record<string, unknown> {
 	if (rqo.source === undefined) {
@@ -155,10 +314,10 @@ export async function getNodeData(rqo: Rqo, principal: Principal): Promise<TsApi
 	const options = (rqo.options ?? {}) as Record<string, unknown>;
 	const thesaurusViewMode = (options.thesaurus_view_mode as string | undefined) ?? 'default';
 
-	// SEC: read ≥1 on the section.
-	if (sectionTipo !== null && sectionTipo !== '') {
-		await requireSectionLevel(principal, sectionTipo, 1);
-	}
+	// SEC: read ≥1 on the section — or a verified tree picker's scope
+	// (requireTreeReadLevel, owner decision (i)); a scoped node is trimmed.
+	const picker = treePickerScopeOf(source);
+	const scopedSections = await requireTreeReadLevels(principal, [sectionTipo], picker);
 
 	const tsOptions: TsOptions = { model: thesaurusViewMode === 'model', area_model: areaModel };
 	const locator: ParseLocator = {
@@ -168,7 +327,8 @@ export async function getNodeData(rqo: Rqo, principal: Principal): Promise<TsApi
 	if (childrenTipo !== null && childrenTipo !== '') locator.from_component_tipo = childrenTipo;
 
 	const arChildrenData = await parseChildData([locator], areaModel, tsOptions, null, principal);
-	return { data: arChildrenData[0] ?? null };
+	const [node] = await scopeNodes(arChildrenData, scopedSections, principal, picker);
+	return { data: node ?? null };
 }
 
 // ===========================================================================
@@ -235,47 +395,97 @@ function clampChildrenPagination(
 	return clamped;
 }
 
-export async function getChildrenData(rqo: Rqo, principal: Principal): Promise<TsApiOutcome> {
-	requireSource(rqo, 'get_children_data');
-	const request = parseChildrenDataRequest(rqo);
-	const { sectionTipo, sectionId, childrenTipo, areaModel, children, pagination } = request;
+/** The children page size when the request names none (PHP get_children_data). */
+const CHILDREN_DEFAULT_LIMIT = 300;
 
+export async function getChildrenData(rqo: Rqo, principal: Principal): Promise<TsApiOutcome> {
+	const source = requireSource(rqo, 'get_children_data');
+	const request = parseChildrenDataRequest(rqo);
+	const { sectionTipo, sectionId, childrenTipo, areaModel, children } = request;
+
+	// SEC: read ≥1 on the section — or a verified tree picker's scope
+	// (requireTreeReadLevel, owner decision (i)).
+	const picker = treePickerScopeOf(source);
+	let parentAdmission: 'granted' | 'scoped' | null = null;
 	if (sectionTipo !== null && sectionTipo !== '') {
-		await requireSectionLevel(principal, sectionTipo, 1);
+		parentAdmission = await requireTreeReadLevel(principal, sectionTipo, picker);
 	}
 
 	const tsOptions: TsOptions = {
 		model: request.thesaurusViewMode === 'model',
 		area_model: areaModel,
 	};
-	const defaultLimit = 300;
 
 	// mode A: standard children resolution (delegates to ts_object.getChildrenData).
 	if ((children === null || children.length === 0) && sectionId && childrenTipo) {
-		return {
-			data: await tsGetChildrenData(
-				sectionTipo as string,
-				sectionId,
-				childrenTipo,
-				defaultLimit,
-				areaModel,
-				tsOptions,
-				pagination,
-				principal,
-			),
-		};
+		return childrenComponentPage(request, tsOptions, parentAdmission, principal, picker);
 	}
+	return clientChildrenList(request, tsOptions, parentAdmission, principal, picker);
+}
 
-	// mode B: pre-built children list.
+/**
+ * Mode A of get_children_data: the children component's own page. A parent
+ * read by the principal's OWN grant: PHP parity — the parent section is the
+ * only one judged. A parent the picker scope ALONE admitted: each child is
+ * judged, unreadable ones pruned, scoped ones trimmed (scopedChildrenPage).
+ */
+async function childrenComponentPage(
+	request: ChildrenDataRequest,
+	tsOptions: TsOptions,
+	parentAdmission: 'granted' | 'scoped' | null,
+	principal: Principal,
+	picker: TreePickerScope,
+): Promise<TsApiOutcome> {
+	const childrenData = await tsGetChildrenData(
+		request.sectionTipo as string,
+		request.sectionId as number,
+		request.childrenTipo as string,
+		CHILDREN_DEFAULT_LIMIT,
+		request.areaModel,
+		tsOptions,
+		request.pagination,
+		principal,
+	);
+	if (parentAdmission === 'scoped') {
+		childrenData.ar_children_data = await scopedChildrenPage(
+			childrenData.ar_children_data,
+			principal,
+			picker,
+		);
+	}
+	return { data: childrenData };
+}
+
+/**
+ * Mode B of get_children_data: a pre-built children list. SEC: the list is
+ * CLIENT input — every locator's section is judged BEFORE a node of it is
+ * built, whether or not the request also names (or omits) `source.section_tipo`.
+ */
+async function clientChildrenList(
+	request: ChildrenDataRequest,
+	tsOptions: TsOptions,
+	parentAdmission: 'granted' | 'scoped' | null,
+	principal: Principal,
+	picker: TreePickerScope,
+): Promise<TsApiOutcome> {
+	const { sectionTipo, sectionId, pagination } = request;
+	const children = request.children ?? [];
+	const scopedSections = await requireTreeReadLevels(
+		principal,
+		children.map((locator) => locator.section_tipo),
+		picker,
+	);
+	if (parentAdmission === 'scoped') scopedSections.add(sectionTipo as string);
 	const parentLocator =
 		sectionTipo && sectionId ? { section_tipo: sectionTipo, section_id: sectionId } : null;
-	const arChildrenData = await parseChildData(
-		children ?? [],
-		areaModel,
+	const builtChildren = await parseChildData(
+		children,
+		request.areaModel,
 		tsOptions,
 		parentLocator,
 		principal,
 	);
+	const arChildrenData = await scopeNodes(builtChildren, scopedSections, principal, picker);
 	return { data: { ar_children_data: arChildrenData, pagination } };
 }
 

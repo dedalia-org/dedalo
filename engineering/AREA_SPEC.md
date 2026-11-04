@@ -92,6 +92,8 @@ Dispatch: called class `area_thesaurus` → `hierarchy::get_active_elements()` (
 ### 5.3 Per-hierarchy filtering (`area_thesaurus_json.php:141-219`) — the ACL surface
 In order: **ontology + global-admin → add unconditionally** (`:147-150` — the PHP bypass; TS drops it (§9, 2026-10-07): an ontology hierarchy is kept iff the principal holds read on its TLD section, and keeps the inactive/rootless bypasses below); skip when `get_permissions(target_section_tipo) < 1` (`:155-160`); skip inactive (`:167-169` — **bypassed for ontology** `:212`, which keeps inactive entries); skip missing children_tipo (`:176-183`); **prune root_terms lacking read permission** (`:189-198`); skip when no authorized root terms remain (`:203-210` — bypassed for ontology `:251`, which keeps rootless entries); clone before mutating (`:216-218`). **The client never re-checks any of this** (`active_in_thesaurus` is unreferenced in client JS; `render_area_thesaurus.js:356` assumes server pruning) — server-side pruning IS the contract.
 
+> **TS note 2026-11-04 — the picker's writer-chain scope is the ONE exception to the grant prune** (owner decision (i), `WC-2026-11-04-tree-picker-read-gate-retired`, `WC-2026-11-04-writer-chain-scoped-search`). On a GRANTED picker read (§5.7 item 2) whose declared caller chain verifies (`src/core/security/writer_chain_scope.ts`), a hierarchy whose target the principal holds no read on is KEPT when the writer component's effective config targets that thesaurus EXACTLY (`filterHierarchiesByGrant` with the read's `treeScope`); it is served read-only, every node gated by its own section. Without that scope — no picker, no chain, a refused chain, a read-only caller, a config-less (v5) component — the prune above stands unchanged.
+
 ### 5.4 Thesaurus search (`class.area_thesaurus.php`)
 `search_thesaurus(sqo)` `:551` — run the SQO, then walk each hit's ancestor chain via `component_relation_parent::get_parents_recursive` (memoized `:587-592`), building a **flat ts_object map keyed `'section_tipo:section_id'`** (`:570`) of hit + sibling + ancestor nodes (`:619-713`). Return `{result: ts_object_data[], msg, errors, total, found:[{section_tipo,section_id}]}` (`:716-724`). `get_hierarchy_terms_sqo(hierarchy_terms)` `:764` — OR-of-AND filter over path `hierarchy22`/`component_section_id` (`:779-787`), sqo id `'thesaurus'`, limit 100 (`:826-830`). The client hands `ts_search.result/found` to `ts_object.parse_search_result` (`render_area_thesaurus.js:137-155`) and totals from `found.length` (`area_thesaurus.js:806-818`).
 
@@ -130,6 +132,18 @@ so engine and gate cannot disagree about them. An ABSENT caller is an ordinary b
 byte-unchanged. Nothing else about the picker travels in the request: a client conclusion
 (`thesaurus_mode`, a target list) would be authority the client does not have (§5.5).
 
+*2026-11-04 — the caller may name its CHAIN* (owner decision (i),
+`WC-2026-11-04-rqo-source-callers`, `WC-2026-11-04-tree-picker-read-gate-retired`). A
+nested picker's caller carries `callers` — the ordered chain of elements it sits under
+(`source.caller.callers`, the same chain grammar as a component read's `source.callers`;
+the client builds it with `create_search_callers`, `component_portal.js` `picker_caller`).
+It is a CLAIM, never a conclusion: the server verifies it against the ontology and the
+read grant only (`src/core/relations/caller_chain.ts` — shape, the root's read grant, each
+link a declared show/hide line of the link above in its EFFECTIVE config); a link carries no
+`section_id`, so NO record path is checked — the chain proves the picker sits under a
+declared ontology path, not under a stored record. And a refused or absent chain changes
+nothing but the two answers below (the chain's view, the tree scope).
+
 **2. The mode is GRANTED, on three conditions, all server-resolved.** Relation mode requires
 the caller's resolved `context.view === 'tree'` (a `ddo_map`-injected view counts — it is the
 resolved view, not the node property), a model that stores in the relation column, and
@@ -140,7 +154,13 @@ only by the preset assembler's owner predicate, and that bound does not travel i
 thesaurus read (the read floor's law — `src/core/security/read_floor.ts`; gate
 `area_picker_mode_native`, "a RULE-granted EDIT is not a picker grant"). Otherwise the read
 proceeds in `'default'` mode:
-the intent is simply not granted. On a caller-declared read the AREA NODE's own
+the intent is simply not granted. *2026-11-04:* the `view` of a NESTED caller is read from
+its VERIFIED chain's governing ddo line first (`writer_chain_scope.ts`
+`verifiedChainLineView` — the line its cell was resolved from), else from its section's map
+as before. A granted picker whose chain verifies ALSO earns the read's tree scope
+(`resolveWriterChainScope`): the writer component holds write through the chain and its
+effective config targets the thesaurus exactly — what §5.3's note and item 7 below exempt
+from the prune. On a caller-declared read the AREA NODE's own
 `properties.thesaurus_mode` no longer decides anything — it is the install default for
 ordinary browse reads and must not be able to hand a picker request a mode the caller did
 not earn.
@@ -169,16 +189,17 @@ sites, one answer — which is what makes a rendered affordance stop being an au
 and a forged client cap stop mattering.
 
 The WRITE side (`relations/save.ts refuseByPickerConstraint`, on every NET-NEW locator —
-a locator the component already holds is re-persisted untouched, `storedItems`) runs four
-gates: TARGET (`isTargetAllowed`, every caller); READ GRANT on the linked section
-(**tree-picker callers only** — the write twin of §7's pruning; a non-picker caller is
-authorized by the CALLER grant dispatch enforced, the read-side `inheritSubdatumPermission`
-model — and **fail-closed**: no principal ⇒ refused, never exempted); SELECTABILITY
+a locator the component already holds is re-persisted untouched, `storedItems`) runs three
+gates: TARGET (`isTargetAllowed`, every caller); ~~READ GRANT on the linked section
+(tree-picker callers only)~~ — **RETIRED 2026-11-04** (owner decision (i),
+`WC-2026-11-04-tree-picker-read-gate-retired`: a pick is authorized by the component's own
+write grant like every relation caller, and the picker READ opens an ungranted thesaurus only
+through the verified writer-chain scope, `src/core/security/writer_chain_scope.ts`); SELECTABILITY
 (tree-picker callers whose target declares `is_indexable`); the CAP (`data_limit`, counted
 in the cap scope — per main item for a frame — on BOTH the held and the resulting side).
-A refusal reaching a save is THROWN — `relation.insert_refused` (400) or, for the read
-grant, the generic `perm.denied` (403) — never a silent ok. Wire:
-`WC-2026-08-14-relation-insert-target-validation` (+ its 2026-08-16 addendum).
+A refusal reaching a save is THROWN — `relation.insert_refused` (400) — never a silent ok.
+Wire: `WC-2026-08-14-relation-insert-target-validation` (+ its 2026-08-16 and 2026-11-04
+addenda).
 
 **4. What the request_config does and does NOT constrain.** The `sqo` names the target
 section(s) and nothing more. The tree's CONTENTS are the thesaurus's; it is not paged
@@ -202,7 +223,17 @@ keeps the frozen differentials byte-identical.
 
 **7. The two empty trees are two different facts.** Every candidate dropped by a permission
 check → a thrown `perm.denied` (403) with the GENERIC registry message, naming no section
-(the code's disclosure is `operator`, so a site's sentence never reaches the wire). Dropped by the data-driven skips (no
+(the code's disclosure is `operator`, so a site's sentence never reaches the wire).
+*2026-11-04:* under the verified writer-chain tree scope (item 2) a hierarchy the principal
+holds no read on but the writer component's config targets exactly is NOT a permission drop
+— it is kept and served read-only, every node gated by its own section, and the tree search
+is confined the same way (`area/read.ts` `confineTreeSearch`: a section the scope alone
+opens is floored by the writer component's filter pairs only;
+`WC-2026-11-04-writer-chain-scoped-search`). Without the scope the picker read's prune is
+unchanged — but the tree SEARCH is confined on every read, picker or not: a named section
+the principal cannot read is dropped from `sqo.section_tipo`, and a search that keeps none
+answers `perm.denied` (403) where it used to run unconfined
+(`WC-2026-11-04-tree-picker-read-gate-retired`). Dropped by the data-driven skips (no
 active hierarchy, or none of them among the caller's targets) → `409 read: no active
 hierarchy is configured for this component target`, which the client renders as "this picker
 has no thesaurus" rather than as a permission error. The two causes are counted separately at

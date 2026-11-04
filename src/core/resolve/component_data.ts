@@ -24,6 +24,7 @@ import { config } from '../../config/config.ts';
 import { getComponentModel } from '../components/registry.ts';
 import type { MatrixRecord } from '../db/matrix.ts';
 import { elementLang, getColumnNameByModel, getTranslatableByTipo } from '../ontology/resolver.ts';
+import { ElementNodeRegistry } from '../relations/element_registry.ts';
 import { equivalentLangsOf } from './lang_alias.ts';
 
 /**
@@ -358,12 +359,53 @@ export class EmissionContext {
 	 */
 	readonly tmAsOf: TmAsOf | null;
 
+	/**
+	 * The element nodes this emission resolved — one per element occurrence,
+	 * keyed per parent occurrence (relations/element_registry.ts). A TM FORK
+	 * (`fork`, read_tm.ts) shares its parent's registry, so the whole response
+	 * has ONE registry; every other emission starts its own.
+	 * Never module state.
+	 */
+	readonly nodes: ElementNodeRegistry;
+
+	/**
+	 * Every relation element of this emission expands ONE level only — its
+	 * children come from its caller's map, never from its OWN config
+	 * (relations/element_node.ts ONE-LEVEL EXPANSIONS). Set by a read a WRITER
+	 * SCOPE opened (owner decision (h), section/read.ts): the scope serves the
+	 * writer config's columns, so a scoped relation column's own-config children
+	 * (a third section the scope never opened) are not expanded
+	 * (WC-2026-11-04-writer-chain-scoped-search). False for every other read.
+	 */
+	readonly callerChildrenOnly: boolean;
+
 	constructor(
 		items: (SectionsEnvelope | DataItem)[] = [],
-		options: { tmAsOf?: TmAsOf | null } = {},
+		options: {
+			tmAsOf?: TmAsOf | null;
+			nodes?: ElementNodeRegistry;
+			callerChildrenOnly?: boolean;
+		} = {},
 	) {
 		this.items = items;
 		this.tmAsOf = options.tmAsOf ?? null;
+		this.nodes = options.nodes ?? new ElementNodeRegistry();
+		this.callerChildrenOnly = options.callerChildrenOnly === true;
+	}
+
+	/**
+	 * A TIME MACHINE FORK of this emission (read_tm.ts graftRowFrameState /
+	 * snapshotCellEmission): the SAME response — same items array, same node
+	 * registry (so a node resolved, or a notice raised, inside the fork belongs
+	 * to the response) — under its own as-of bound. The one place a fork is
+	 * made, so the sharing cannot be dropped at one site and kept at another.
+	 */
+	fork(tmAsOf: TmAsOf | null): EmissionContext {
+		return new EmissionContext(this.items, {
+			tmAsOf,
+			nodes: this.nodes,
+			callerChildrenOnly: this.callerChildrenOnly,
+		});
 	}
 
 	markStamped(item: object): void {

@@ -57,6 +57,7 @@ afterAll(async () => {
 
 const build = (mode: string) =>
 	buildStructureContext({
+		configFrom: { source: 'own', reason: 'unit-test' },
 		tipo: FIELD,
 		sectionTipo: SECTION,
 		mode,

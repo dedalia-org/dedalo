@@ -170,6 +170,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Columns declared for a nested portal now show everywhere it appears, in every mode and on every page.**
+
+    A portal can declare which columns a portal nested inside it shows — the Tasks portal of a work process, for example, shows the assigned user as *surname, name*. Those declared columns were applied only in some views: in a list a nested portal could appear empty, the second page of a nested portal switched back to the nested portal's own columns, and the same field nested under two different portals showed the columns of whichever was read first. Now every nested element uses one effective configuration — the columns its parent declares, and its own configuration for anything the parent leaves out — in edit and list views, on every page, and per parent; a page size the parent declares for a nested portal is the page size it pages by. Related-record lists expand linked portals with their own columns as well. A chain of linked records that points back to itself stops where it repeats instead of failing the whole page, with a notice naming the record. See [Nesting](./core/request_config.md#nesting-a-ddo_map-is-a-flat-list-made-a-tree-by-parent).
+
+    Wire contract: `WC-2026-11-04-nested-paging-add-show`, `WC-2026-11-04-caller-chain-per-occurrence`, `WC-2026-11-04-config-less-element-adopts-caller-children`, `WC-2026-11-04-nested-list-payload-growth`, `WC-2026-11-04-record-cycle-stop`, `WC-2026-11-04-ddinfo-gates-kept`, `WC-2026-11-04-context-traversal-order`, `WC-2026-11-04-governing-limit-sqo-limit-only`.
+
 - **The record's Id badge can be selected to show its information in the inspector.**
 
     Clicking the Id badge of a record in the edit view did nothing, so the inspector
@@ -546,6 +552,12 @@ Merged since the last release; these ship with the next one.
 
 #### Security
 
+- **A user who may write a relation field can now search and pick its target records without a read grant on the target section.**
+
+    This changes what a profile's grants allow. Until now, filling a portal or autocomplete field, or picking a term in the thesaurus tree picker, needed a read grant on the section the field points at. Now a write grant on the field itself is enough to search and pick its target records, when the field's configuration declares the columns it shows from that target. The user sees only the columns the field declares, and only within the chain of fields that leads to it, which the server verifies. They get no other access to the target section: opening its records or listing it still needs a read grant. A field shown in those columns that itself links to a third section shows only what the user may read there. A thesaurus search now skips the sections the user cannot read, and is refused when none is left. Review your profiles if a writer of a relation field must not see the target's declared columns, and remove the write grant on that field where needed.
+
+    Wire contract: `WC-2026-11-04-writer-chain-scoped-search`, `WC-2026-11-04-tree-picker-read-gate-retired`.
+
 - **Ontology updates now check every downloaded file against the master's digest before importing it.**
 
     An ontology master now records the sha256 of every file it exports in its `ontology.json`, and an installation updating from it refuses any file whose bytes do not match, before anything is decompressed or imported. A master that has not re-exported since this release publishes no digests: its files are still accepted, and the server log says once per update that they were not verified. Re-export the ontologies on the master to publish digests. See [Updating the ontology](./management/updates/updating_ontology.md).
@@ -565,6 +577,12 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-10-28-start-component-deep-link-record-scope`.
 
 #### Changed
+
+- **A column defined with a level-two `section_tipo: "self"` is no longer shown; the new `ddo_self_depth` check lists every such definition.**
+
+    `section_tipo: "self"` names the target sections of the element that owns a `ddo_map`, so it means something only for a first-level ddo. Until now a ddo below the first level that declared it was guessed and shown; from this version the read skips it and the page shows an `ontology.ddo_self_refused` notice naming the definition, its ddo, its parent and its depth. If an installed ontology still holds such a definition, the column it described is no longer shown. After updating, run the report-only check **Maintenance › Reconcile › `ddo_self_depth`**: it lists every installed definition that declares a deep `self`, with the element whose map holds it and every section or component that reads it. The fix is a definition edit (an explicit `section_tipo` or a source array) made on the master ontology and delivered by an ontology update; the check never rewrites a definition itself. See [Self-resolution](./core/request_config.md#self-resolution-and-dynamic-section_tipo-sources).
+
+    Wire contract: `WC-2026-11-04-ddo-self-first-level-only`.
 
 - **Dédalo now runs on Bun 1.4.4, the latest stable release.** *(action needed)*
 
@@ -906,6 +924,12 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Nested reads carry a verified caller chain; the client's `show` and search query are checked; a level-two `self` in a client map is refused with a notice.**
+
+    A request that targets a nested element directly (the next page of a nested portal, the autocomplete inside its cell) may send `rqo.source.callers`, the chain of elements it is nested under; the server verifies every link against the ontology and the user's grants and ignores a chain that does not verify. The `show`/`search` a client sends is checked against the user's grants and its search query is cleaned before use. In a `ddo_map` a client sends, `section_tipo: "self"` is accepted only on a first-level ddo; below that the ddo is skipped with an `ontology.ddo_self_refused` notice in the response, and a ddo `section_tipo` may now be a source array (what this means for installed definitions is in the administrator entry on the same rule). A nested element's own permission level, as stamped on its context, is the user's level on that component, no longer the level read from whichever record came first; the remaining differences from the previous engine's per-component permission cases are recorded in the wire contract. See [Self-resolution](./core/request_config.md#self-resolution-and-dynamic-section_tipo-sources).
+
+    Wire contract: `WC-2026-11-04-rqo-source-callers`, `WC-2026-11-04-stage1-authorized-sqo-scrub`, `WC-2026-11-04-ddo-self-first-level-only`, `WC-2026-11-04-subdatum-own-level-residual-divergences`.
+
 - **Database migrations are frozen by content hash.**
 
     Each schema migration is now recorded together with the hash of the exact file that ran. If an applied migration file is changed later, the server refuses to migrate and says which file differs. The fix is to restore the file and ship the change as a new migration. Every migration file is listed in `install/db/migrations.lock.json` with its hash, its class and its release. The class is `compatible` (the previous code still runs on the new schema) or `incompatible`. A migration is `compatible` only when it is provably additive, such as an index, a new table or a nullable column. An `incompatible` migration can only ship in a minor release.
@@ -977,7 +1001,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 44 entries"
+??? note "Wire contract — 58 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -1023,6 +1047,20 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-01-menu-dead-area`
     - `WC-2026-11-01-update-plan-declared`
     - `WC-2026-11-02-ui-preferences`
+    - `WC-2026-11-04-caller-chain-per-occurrence`
+    - `WC-2026-11-04-config-less-element-adopts-caller-children`
+    - `WC-2026-11-04-context-traversal-order`
+    - `WC-2026-11-04-ddinfo-gates-kept`
+    - `WC-2026-11-04-ddo-self-first-level-only`
+    - `WC-2026-11-04-governing-limit-sqo-limit-only`
+    - `WC-2026-11-04-nested-list-payload-growth`
+    - `WC-2026-11-04-nested-paging-add-show`
+    - `WC-2026-11-04-record-cycle-stop`
+    - `WC-2026-11-04-rqo-source-callers`
+    - `WC-2026-11-04-stage1-authorized-sqo-scrub`
+    - `WC-2026-11-04-subdatum-own-level-residual-divergences`
+    - `WC-2026-11-04-tree-picker-read-gate-retired`
+    - `WC-2026-11-04-writer-chain-scoped-search`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

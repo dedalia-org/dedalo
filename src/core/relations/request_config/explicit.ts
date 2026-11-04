@@ -27,6 +27,7 @@ import type { PublishedApiConfig } from '../../../external/api/index.ts';
 import { getActiveTlds } from '../../db/dd_ontology.ts';
 import { assertMatrixTable } from '../../db/matrix.ts';
 import { sql } from '../../db/postgres.ts';
+import type { ApiNotice } from '../../errors/schema.ts';
 import { createOntologyCache } from '../../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../../ontology/cache_invalidation.ts';
 import { getModelSectionForSection } from '../../ontology/model_section.ts';
@@ -38,6 +39,11 @@ import {
 	relationProbeGroups,
 } from '../../search/containment.ts';
 import { registerSectionDataListener } from '../../section_record/save_event.ts';
+import {
+	partitionDeepSelfDdos,
+	SQO_SOURCES_WITHOUT_SECTION_VALUE,
+	splitSelfSectionTipoEntry,
+} from './self_depth.ts';
 
 /** The parsing context: who owns the config and where it lives. */
 export interface RequestConfigContext {
@@ -79,17 +85,21 @@ export interface RequestConfigContext {
 	 * hierarchy20, the raw 69,148-row thesaurus template.
 	 */
 	modelDefaultTargets?: readonly string[];
+	/**
+	 * Where a refused level >= 2 `section_tipo: 'self'` ddo reports its typed
+	 * notice (owner decision (c) — self_depth.ts partitionDeepSelfDdos, applied
+	 * per block in parseBlock below). The ddo is SKIPPED whether or not a sink
+	 * is given; without one the refusal is ONE log line per block, never silent.
+	 * The per-element resolution (relations/element_node.ts) passes the
+	 * emission's registry sink so the notice reaches the response.
+	 */
+	notices?: ApiNotice[];
 }
 
 /** Source names with a dedicated case below ('section_tipo' is a live alias
  * of the default section semantics — 8 production configs use it). */
 const KNOWN_SQO_SOURCES: ReadonlySet<string> = new Set([
-	'self',
-	'hierarchy_types',
-	'section_model',
-	'ontology_sections',
-	'field_value',
-	'hierarchy_terms',
+	...SQO_SOURCES_WITHOUT_SECTION_VALUE,
 	'section',
 	'section_tipo',
 ]);
@@ -253,7 +263,7 @@ export async function resolveSqoSectionTipos(
 			// :2867-88 — uninstalled targets are DROPPED, not emitted).
 			if (typeof source === 'string' && !KNOWN_SQO_SOURCES.has(source)) {
 				console.warn(
-					`[request_config/explicit] unknown sqo section_tipo source '${source}' resolved with section semantics (PHP default branch)`,
+					`[request_config/explicit] unknown sqo section_tipo source ${JSON.stringify(source.slice(0, 64))} resolved with section semantics (PHP default branch)`,
 				);
 			}
 			for (const tipo of asSqoValueList(value)) {
@@ -276,7 +286,7 @@ export async function resolveSqoSectionTipos(
 	for (const tipo of [...new Set(resolved)]) {
 		if ((await getModelByTipo(tipo)) === null) {
 			console.warn(
-				`[request_config/explicit] dropped sqo target '${tipo}': no resolvable ontology model (PHP check_tipo_is_valid)`,
+				`[request_config/explicit] dropped sqo target ${JSON.stringify(tipo.slice(0, 64))}: no resolvable ontology model (PHP check_tipo_is_valid)`,
 			);
 			continue;
 		}
@@ -291,7 +301,7 @@ export async function resolveSqoSectionTipos(
  * (leading letters, PHP get_tld_from_tipo /^[a-z]{2,}/) must be installed in
  * dd_ontology (getActiveTlds — hub-invalidated module cache).
  */
-async function isActiveTldTipo(tipo: string): Promise<boolean> {
+export async function isActiveTldTipo(tipo: string): Promise<boolean> {
 	if (tipo === 'section_id') return true;
 	const tld = tipo.match(/^[a-z]{2,}/)?.[0];
 	if (tld === undefined) return false;
@@ -458,7 +468,7 @@ async function resolveFieldValueSections(
 		// Interpolated as a jsonb key — enforce the tipo grammar strictly.
 		if (!/^[a-z]{2,}[0-9]+$/.test(componentTipo)) {
 			console.warn(
-				`[request_config/explicit] field_value skipped malformed component tipo '${componentTipo}'`,
+				`[request_config/explicit] field_value skipped malformed component tipo ${JSON.stringify(componentTipo.slice(0, 64))}`,
 			);
 			continue;
 		}
@@ -515,6 +525,208 @@ export interface ProcessedDdo {
 	[extra: string]: unknown;
 }
 
+/**
+ * True when a ddo's `section_tipo` is written in the SQO SOURCE-ARRAY grammar —
+ * `[{value:[…], source:'section'|'hierarchy_types'|…}]` (or one such object) —
+ * rather than as plain tipo strings.
+ */
+export function isSourceArraySectionTipo(raw: unknown): boolean {
+	if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) return true;
+	return Array.isArray(raw) && raw.some((entry) => entry !== null && typeof entry === 'object');
+}
+
+/**
+ * The SOURCE-ARRAY grammar a CLIENT ddo may use. resolveSqoSectionTipos was
+ * written for ONTOLOGY input: `hierarchy_types` fills a cross-request cache
+ * keyed by its values, `field_value` scans the owner section's records per
+ * value, unknown sources log per entry. A client map (up to
+ * SCALAR_BOUNDS.ddoMapEntries ddos) must never drive any of that, so a client
+ * declaration may only name sections — plain strings, `{source:'self'}`,
+ * `{source:'section', value:[…]}` — with at most CLIENT_SOURCE_ARRAY_MAX
+ * entries and values in all. Today the wire schema (concepts/ddo.ts ddoSchema:
+ * section_tipo = string | string[]) already refuses object entries; this is
+ * the seam's own guard, so a future schema widening cannot reopen it.
+ */
+const CLIENT_SOURCE_ARRAY_SOURCES: ReadonlySet<string> = new Set(['self', 'section']);
+export const CLIENT_SOURCE_ARRAY_MAX = 64;
+
+/**
+ * Why a CLIENT ddo's `section_tipo` is refused (CLIENT_SOURCE_ARRAY_SOURCES),
+ * or null when the client may send it. Examples:
+ *   'rsc197' / ['rsc197'] / 'self' / undefined                → null (no resolver)
+ *   [{source:'self'}, {source:'section', value:['rsc197']}]    → null
+ *   [{source:'hierarchy_types', value:[5]}]                    → refused
+ *   [{source:'field_value', value:['rsc85']}]                  → refused
+ *   [{source:'section', value:[…65 tipos]}]                    → refused (too large)
+ */
+export function clientSectionTipoRefusal(raw: unknown): string | null {
+	if (!isSourceArraySectionTipo(raw)) return null;
+	const entries = Array.isArray(raw) ? raw : [raw];
+	let size = 0;
+	for (const entry of entries) {
+		const entrySize = clientSourceEntrySize(entry);
+		if (entrySize === null) return 'section_tipo source not allowed from a client';
+		size += entrySize;
+	}
+	return size > CLIENT_SOURCE_ARRAY_MAX ? 'section_tipo source array too large' : null;
+}
+
+/**
+ * ONE entry of a client source array (clientSectionTipoRefusal): what it adds
+ * to the size budget — 1 for a plain entry, 1 + its values for a source
+ * object — or null when its source is outside the client grammar.
+ */
+function clientSourceEntrySize(entry: unknown): number | null {
+	if (entry === null || typeof entry !== 'object') return 1;
+	const { source, value } = entry as { source?: unknown; value?: unknown };
+	if (typeof source !== 'string' || !CLIENT_SOURCE_ARRAY_SOURCES.has(source)) return null;
+	return 1 + asSqoValueList(value).length;
+}
+
+/**
+ * A declared `section_tipo` split into its 'self' part and the rest. `null`
+ * when it is neither a source array nor a string array holding 'self' — i.e.
+ * a value every seam keeps verbatim (plain string, plain string list, absent).
+ * Every 'self' spelling counts (self_depth.ts splitSelfSectionTipoEntry), and a
+ * mixed entry splits: `{source:'section', value:['self','rsc197']}` → namesSelf
+ * + rest `[{source:'section', value:['rsc197']}]`.
+ */
+function splitDeclaredSectionTipo(
+	raw: unknown,
+): { namesSelf: boolean; rest: unknown[]; restIsSourceArray: boolean } | null {
+	const entries = declaredEntriesOf(raw);
+	if (entries === null) return null;
+	const { namesSelf, rest } = splitSelfEntries(entries);
+	if (!namesSelf && !isSourceArraySectionTipo(raw)) return null; // plain tipo list
+	return { namesSelf, rest, restIsSourceArray: isSourceArraySectionTipo(rest) };
+}
+
+/** A declaration as a list of entries; `null` for a plain string or an absent value. */
+function declaredEntriesOf(raw: unknown): unknown[] | null {
+	if (Array.isArray(raw)) return raw;
+	return isSourceArraySectionTipo(raw) ? [raw] : null;
+}
+
+/** Every entry split (self_depth.ts splitSelfSectionTipoEntry): any 'self' + what is left. */
+function splitSelfEntries(entries: readonly unknown[]): { namesSelf: boolean; rest: unknown[] } {
+	let namesSelf = false;
+	const rest: unknown[] = [];
+	for (const entry of entries) {
+		const split = splitSelfSectionTipoEntry(entry);
+		if (split.namesSelf) namesSelf = true;
+		if (split.rest !== null) rest.push(split.rest);
+	}
+	return { namesSelf, rest };
+}
+
+/**
+ * A declared `section_tipo` as "does it name 'self'" + the plain section tipos
+ * the REST of it resolves to (a source-array rest through THE sqo resolver,
+ * resolveSqoSectionTipos; plain strings verbatim). `null` for a declaration
+ * every seam keeps verbatim (plain string, plain string list, absent) — the
+ * caller decides what that means for it. The one split behind
+ * resolveDdoSectionTipo, resolveRawDdoSectionTipo and stage 1 (from_rqo.ts).
+ *
+ *   [{source:'self'}, {source:'section', value:['test38']}] → {namesSelf, sections:['test38']}
+ *   [{source:'section', value:['self']}]                   → {namesSelf, sections:[]}
+ *   [{value:[1], source:'hierarchy_types'}]                → {!namesSelf, sections:[es1, fr1, …]}
+ *   'rsc197' / ['rsc197'] / undefined                      → null
+ */
+export async function resolveSectionTipoDeclaration(
+	raw: unknown,
+	context: RequestConfigContext,
+): Promise<{ readonly namesSelf: boolean; readonly sections: string[] } | null> {
+	const split = splitDeclaredSectionTipo(raw);
+	if (split === null) return null;
+	const sections = split.restIsSourceArray
+		? await resolveSqoSectionTipos(split.rest, context)
+		: (split.rest.filter((entry) => typeof entry === 'string') as string[]);
+	return { namesSelf: split.namesSelf, sections };
+}
+
+/**
+ * A ddo's `section_tipo`, resolved (PHP resolve_ddo_self_references :250-255,
+ * extended by owner decision (c) of the nested-ddo_map plan, 2026-11-03).
+ *
+ * ONE MEANING OF 'self' IN A DDO, whatever its spelling — the literal
+ * `'self'`, a `'self'` string inside an array, a `{source:'self'}` entry, a
+ * `'self'` inside a section-semantics entry's value — self_depth.ts refuses all
+ * four at depth >= 2 as one sentinel, so at depth 1 all four must mean the same
+ * sections:
+ *  - a normal ddo → the item's TARGET sections (the child lives at the portal
+ *    targets; the owner section only when the item has no targets);
+ *  - a component_dataframe → the owner section (frames live on the caller's
+ *    record) — SCALAR for the literal, a one-entry list inside an array.
+ * Example, tch197 (a portal in tch1 → rsc1389), a direct child rsc1399:
+ *   'self'                                 → ['rsc1389']
+ *   ['self']                               → ['rsc1389']   (PHP kept it verbatim: it matched nothing)
+ *   [{source:'self'}]                      → ['rsc1389']   (NOT tch1 — the sqo meaning would be
+ *                                                           the owner's section, which holds no rsc1399)
+ *   [{source:'section', value:['self']}]   → ['rsc1389']   (NOT tch1, same reason)
+ *
+ * The REST of a source array (`[{value:[1], source:'hierarchy_types'}]`,
+ * `{source:'section', value:[…]}`, a mix with plain strings) resolves through
+ * THE resolver `sqo.section_tipo` uses (resolveSqoSectionTipos), never a fork —
+ * so a self-free declaration means the same sections in both places. The
+ * resolved list may be empty (an inactive typology); it stays empty — the ddo
+ * then matches no section, which is the honest answer.
+ *
+ * Anything else (plain string, plain string list, absent) → verbatim. An absent
+ * section_tipo stays absent: the per-locator grouping treats undeclared as
+ * match-all.
+ */
+export async function resolveDdoSectionTipo(
+	rawSectionTipo: unknown,
+	model: string,
+	context: RequestConfigContext,
+	targetTipos: readonly string[],
+): Promise<string | string[] | undefined> {
+	const isDataframe = model === 'component_dataframe';
+	const selfSections = ddoSelfSections(isDataframe, context, targetTipos);
+	if (rawSectionTipo === 'self') return isDataframe ? context.ownerSectionTipo : selfSections;
+	const declaration = await resolveSectionTipoDeclaration(rawSectionTipo, context);
+	if (declaration === null) return rawSectionTipo as string | string[] | undefined;
+	return [...new Set([...(declaration.namesSelf ? selfSections : []), ...declaration.sections])];
+}
+
+/**
+ * What a ddo's 'self' names at depth 1 (resolveDdoSectionTipo): the item's
+ * TARGET sections — the owner section for a dataframe (frames live on the
+ * caller's record) or when the item has no targets.
+ */
+function ddoSelfSections(
+	isDataframe: boolean,
+	context: RequestConfigContext,
+	targetTipos: readonly string[],
+): string[] {
+	return isDataframe || targetTipos.length === 0 ? [context.ownerSectionTipo] : [...targetTipos];
+}
+
+/**
+ * The same declaration at a RAW seam — the list-cell path that copies config
+ * ddos AS DECLARED (relations/models/portal.ts, rawListDdos), where the
+ * literal `'self'` deliberately stays the per-locator MATCH-ALL wildcard
+ * (relation_core ddoTargetsSection) because the item targets are not in hand.
+ * Without this the raw seam kept a source array as objects, which match no
+ * locator: the edit context (resolved by processSingleDdo) showed the column
+ * and the list data left it empty.
+ *  - any 'self' spelling (all four) → `'self'` (the raw seam's own meaning of
+ *    it; the rest of a declaration that also names 'self' is subsumed — every
+ *    locator of the portal is at one of its targets);
+ *  - a self-free source array → resolveSqoSectionTipos, exactly as above;
+ *  - anything else → verbatim.
+ */
+export async function resolveRawDdoSectionTipo(
+	rawSectionTipo: unknown,
+	context: RequestConfigContext,
+): Promise<string | string[] | undefined> {
+	if (rawSectionTipo === 'self') return 'self';
+	const split = splitDeclaredSectionTipo(rawSectionTipo);
+	if (split === null) return rawSectionTipo as string | string[] | undefined;
+	if (split.namesSelf) return 'self';
+	return resolveSqoSectionTipos(split.rest, context);
+}
+
 /** Process one raw ddo (PHP process_single_ddo, the 11-step pipeline — v0 subset).
  * `targetTipos` = the item's RESOLVED sqo target sections: a non-dataframe
  * ddo's section_tipo 'self' resolves to THEM (PHP resolve_ddo_self_references
@@ -543,19 +755,10 @@ async function processSingleDdo(
 	// child lives at the portal targets) and to the SCALAR caller section for
 	// dataframes (frames live on the caller's record). An UNDEFINED
 	// section_tipo stays undefined (PHP only rewrites the literal 'self');
-	// the per-locator grouping treats undeclared as match-all.
-	const rawSectionTipo = rawDdo.section_tipo;
-	let sectionTipo: string | string[] | undefined;
-	if (rawSectionTipo === 'self') {
-		sectionTipo =
-			model === 'component_dataframe'
-				? context.ownerSectionTipo
-				: targetTipos.length > 0
-					? targetTipos
-					: [context.ownerSectionTipo];
-	} else {
-		sectionTipo = rawSectionTipo as string | string[] | undefined;
-	}
+	// the per-locator grouping treats undeclared as match-all. Every 'self'
+	// spelling means the same sections, and an SQO source-array section_tipo
+	// resolves through resolveSqoSectionTipos (resolveDdoSectionTipo above).
+	const sectionTipo = await resolveDdoSectionTipo(rawDdo.section_tipo, model, context, targetTipos);
 	const parent = rawDdo.parent === 'self' ? context.ownerTipo : ((rawDdo.parent as string) ?? '');
 
 	// step 7: mode — unset modes: non-section owners force 'list'; section owners
@@ -730,7 +933,10 @@ export interface ParsedRequestConfigItem {
  * projection every ENGINE-side consumer works with.
  */
 export function extractSqoSectionTipos(item: ParsedRequestConfigItem | undefined): string[] {
-	const entries = item?.sqo.section_tipo ?? [];
+	// `sqo?.`: a caller-only config (relations/element_node.ts NO OWN CONFIG AT
+	// ALL — a bare portal whose caller's children ARE its config) carries no sqo,
+	// so it names no target section.
+	const entries = item?.sqo?.section_tipo ?? [];
 	// Deduped WITHIN this one config item (PHP array_unique at the end of
 	// get_request_config_section_tipo, :2892-95). Cross-CONFIG duplicates are
 	// preserved by the consumers that flatten multi-config elements — PHP
@@ -947,6 +1153,11 @@ async function parseBlock(
 	if (rawMap.length === 0 && block.get_ddo_map !== undefined) {
 		rawMap = await resolveGetDdoMap(targetSections, block.get_ddo_map, context);
 	}
+	// Owner decision (c): a ddo below the first level that declares
+	// `section_tipo: 'self'` (any of its four spellings) is REFUSED here, on the
+	// RAW map — processing rewrites 'self' into the owner's targets and the
+	// sentinel would be gone. ONE place, so the data path and the context agree.
+	rawMap = skipDeepSelfDdos(rawMap, context, mapType);
 	const processed: ProcessedDdo[] = [];
 	for (const rawDdo of rawMap) {
 		const ddo = await processSingleDdo(rawDdo, context, mapType, targetSections);
@@ -956,21 +1167,37 @@ async function parseBlock(
 }
 
 /**
- * Process CLIENT-rqo children ddos through the same enrichment pipeline (the
- * narrowing path — PHP get_subdatum children-injection): self-resolution,
- * mode resolution, model + label enrichment.
+ * The raw block map without its level >= 2 'self' ddos (self_depth.ts). The
+ * refusals go to the context's notice sink when one is given (the emission
+ * registry — relations/element_node.ts), else to ONE bounded log line.
  */
-export async function processRqoChildren(
-	rqoChildren: Record<string, unknown>[],
+function skipDeepSelfDdos(
+	rawMap: Record<string, unknown>[],
 	context: RequestConfigContext,
-	targetTipos: string[] = [],
-): Promise<ProcessedDdo[]> {
-	const processed: ProcessedDdo[] = [];
-	for (const rawDdo of rqoChildren) {
-		const ddo = await processSingleDdo(rawDdo, context, 'show', targetTipos);
-		if (ddo !== null) processed.push(ddo);
+	mapType: string,
+): Record<string, unknown>[] {
+	// A tipo-less entry takes no part in the parent-chain walk; it stays in
+	// place for processSingleDdo, which reports it.
+	const walkable = rawMap.filter(
+		(ddo) => ddo !== null && typeof ddo === 'object' && typeof ddo.tipo === 'string',
+	) as (Record<string, unknown> & { tipo: string })[];
+	const { kept, notices } = partitionDeepSelfDdos(context.ownerTipo, walkable);
+	if (notices.length === 0) return rawMap;
+	const keptDdos = new Set<unknown>(kept);
+	const walkableDdos = new Set<unknown>(walkable);
+	const survivors = rawMap.filter((ddo) => !walkableDdos.has(ddo) || keptDdos.has(ddo));
+	if (context.notices !== undefined) {
+		context.notices.push(...notices);
+	} else {
+		const named = notices.map((notice) => `${notice.details?.ddo}<${notice.details?.parent}`);
+		// boundedNotices puts the remainder on the LAST notice shown (0 on the
+		// others): sum it, never read one position.
+		const more = notices.reduce((sum, notice) => sum + Number(notice.details?.more ?? 0), 0);
+		console.warn(
+			`[request_config/explicit] ${context.ownerTipo} ${mapType}: skipped ddo(s) declaring section_tipo 'self' below the first level: ${named.join(', ')}${more > 0 ? ` (+${more} more)` : ''} — declare their section_tipo explicitly`,
+		);
 	}
-	return processed;
+	return survivors;
 }
 
 /**

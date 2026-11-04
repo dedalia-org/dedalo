@@ -36,6 +36,7 @@ import {
 	insertMatrixRecordWithCounter,
 } from '../../src/core/db/matrix_write.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
+import { ElementNodeRegistry } from '../../src/core/relations/element_registry.ts';
 import {
 	clearSelectLangCache,
 	getLangCodeBySectionId,
@@ -195,7 +196,10 @@ describe('edit context carries options.related_component_lang', () => {
 	}
 
 	test('stamped for the record WITH an original language', async () => {
-		const context = await buildGetDataContext(editRqo(withLangId), []);
+		const context = await buildGetDataContext(editRqo(withLangId), {
+			items: [],
+			nodes: new ElementNodeRegistry(),
+		});
 		const main = context.find((entry) => entry.tipo === TEXT_AREA);
 		expect(main).toBeDefined();
 		expect(main?.options).toEqual({ related_component_lang: 'lg-spa' });
@@ -205,7 +209,10 @@ describe('edit context carries options.related_component_lang', () => {
 		// Order matters: the previous test stamped a context built from the same
 		// structural core. If the stamp leaked into the shared core, this record
 		// would now claim an original language it does not have.
-		const context = await buildGetDataContext(editRqo(withoutLangId), []);
+		const context = await buildGetDataContext(editRqo(withoutLangId), {
+			items: [],
+			nodes: new ElementNodeRegistry(),
+		});
 		const main = context.find((entry) => entry.tipo === TEXT_AREA);
 		expect(main).toBeDefined();
 		expect(main?.options).toBeUndefined();
@@ -213,7 +220,10 @@ describe('edit context carries options.related_component_lang', () => {
 	});
 
 	test('and the stamped record still resolves after the bare one (both orders)', async () => {
-		const context = await buildGetDataContext(editRqo(withLangId), []);
+		const context = await buildGetDataContext(editRqo(withLangId), {
+			items: [],
+			nodes: new ElementNodeRegistry(),
+		});
 		expect(context.find((entry) => entry.tipo === TEXT_AREA)?.options).toEqual({
 			related_component_lang: 'lg-spa',
 		});

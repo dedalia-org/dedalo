@@ -30,6 +30,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
 import { isConsultationOnlySection } from '../../src/core/concepts/section.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { ElementNodeRegistry } from '../../src/core/relations/element_registry.ts';
 import {
 	buildGetDataContext,
 	deriveSectionDdoMap,
@@ -310,7 +311,11 @@ describe('per-component permission gates (AUTHZ, 2026-07-10)', () => {
 			value: [],
 		} as never;
 		const context = await asUser16(() =>
-			buildGetDataContext(getDataRqo, [deniedChildItem], nonAdmin),
+			buildGetDataContext(
+				getDataRqo,
+				{ items: [deniedChildItem], nodes: new ElementNodeRegistry() },
+				nonAdmin,
+			),
 		);
 		const mainEntry = context.find((entry) => entry.tipo === grantedTipo);
 		expect(mainEntry?.permissions).toBe(mainLevel);

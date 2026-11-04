@@ -66,6 +66,7 @@ import {
 	tipoBelongsToSection,
 } from '../ontology/resolver.ts';
 import { resolveDataframeSlotTipos, splitComposed } from '../relations/dataframe_slots.ts';
+import type { ElementNode, ElementNodeRegistry } from '../relations/element_registry.ts';
 import { laneLaw, NOLAN } from '../relations/main_lanes.ts';
 import { currentTimeMachineScopeSection } from '../section/list_definitions/tm_scope_context.ts';
 import type {
@@ -95,7 +96,7 @@ import {
 } from '../tm_record/tm_record.ts';
 import { EmissionContext } from './component_data.ts';
 import { currentDataLang } from './request_lang.ts';
-import type { StructureContextEntry } from './structure_context.ts';
+import type { ContextConfigSource, StructureContextEntry } from './structure_context.ts';
 import { assertNoTmReferencedBy, conformTmFilter, type ParamSink } from './tm_filter.ts';
 
 /**
@@ -391,6 +392,13 @@ export interface TmReadData {
 	data: Record<string, unknown>[];
 	/** Ledger of requested ddos this reader does not model. */
 	unhandled: string[];
+	/**
+	 * The element nodes the emission resolved — every per-row fork shares this
+	 * one registry (relations/element_registry.ts), so the context serialiser
+	 * and the notices see the whole read. Absent on an answer that emitted
+	 * nothing.
+	 */
+	nodes?: ElementNodeRegistry;
 }
 
 /**
@@ -790,7 +798,8 @@ async function graftRowFrameState(
 	// (frame_as_of.ts subjectRowOf, by identity) — the subject's live record met
 	// as a portal target inside the row's cells stays live.
 	const tmAsOf = rootedAt(await tmAsOfRow({ ...row, section_id: live.sectionId }), record);
-	return new EmissionContext(emission.items, { tmAsOf });
+	// A FORK of the row's emission: same items, same node registry, its own bound.
+	return emission.fork(tmAsOf);
 }
 
 /** One cell's emission: the row's shared one, or a per-cell bound (a whole-record snapshot row). */
@@ -857,7 +866,8 @@ async function snapshotCellEmission(
 		await resolveDataTipo(cellTipo),
 		(await loadSubjectRecord(emission, subject)) !== null,
 	);
-	return new EmissionContext(emission.items, { tmAsOf: rootedAt(bound, record) });
+	// A FORK of the row's emission: same items, same node registry, its own bound.
+	return emission.fork(rootedAt(bound, record));
 }
 
 /** The snapshot's record as it lives now (null: gone, or its section has no matrix table). */
@@ -1307,7 +1317,11 @@ async function tmMainLaneLaw(tipo: string): Promise<{ tipo: string; lang_sliced:
  * The generic readSection context builder can't produce this, so the TM source
  * owns it (formerly the dispatch mode:'tm' branch).
  */
-async function buildTmContext(rqo: Rqo, principal: Principal): Promise<StructureContextEntry[]> {
+async function buildTmContext(
+	rqo: Rqo,
+	principal: Principal,
+	nodes?: ElementNodeRegistry,
+): Promise<StructureContextEntry[]> {
 	const source = (rqo.source ?? {}) as Record<string, unknown>;
 	// The Time Machine (dd15) is consultation-only — cap at read (1) even for
 	// admins so no TM column/subdatum renders editable (reverts go through
@@ -1315,6 +1329,7 @@ async function buildTmContext(rqo: Rqo, principal: Principal): Promise<Structure
 	// section by section_tipo too; this caps the value threaded to the columns.
 	const permissions = 1;
 	const { buildStructureContext } = await import('./structure_context.ts');
+	const { withListPageLimit } = await import('../section/node_contexts.ts');
 
 	// dd15's LIST columns are DERIVED FROM THE AUTHORISED SCOPE
 	// (WC-2026-08-14-tm-scope-server-owned). The scope comes from the SQO the read
@@ -1356,6 +1371,7 @@ async function buildTmContext(rqo: Rqo, principal: Principal): Promise<Structure
 		tipo: TM_SECTION_TIPO,
 		sectionTipo: TM_SECTION_TIPO,
 		mode: 'list',
+		configFrom: { source: 'own', reason: 'section-root' },
 		lang: typeof source.lang === 'string' ? source.lang : currentDataLang(),
 		permissions,
 	});
@@ -1397,31 +1413,78 @@ async function buildTmContext(rqo: Rqo, principal: Principal): Promise<Structure
 	}
 	for (const ddo of columns) {
 		if (typeof ddo.tipo !== 'string') continue;
-		// Per-column lang follows PHP's component lang rule: a TRANSLATABLE column
-		// gets the data lang, a non-translatable one lg-nolan. The dd15 meta
-		// columns are all non-translatable; rsc329 (the TM annotation) is NOT —
-		// its context lang seeds the note modal's editor, so notes must WRITE in
-		// the same lang the TM read lang-filters by, or a saved note never shows
-		// (grey icon over existing text).
-		const columnLang = (await getTranslatableByTipo(ddo.tipo))
-			? typeof source.lang === 'string'
-				? source.lang
-				: currentDataLang()
-			: 'lg-nolan';
+		const columnLang = await tmColumnLang(ddo.tipo, source);
 		const configSectionTipo = await tmColumnConfigSection(ddo.tipo, scope.sectionTipo);
+		// The column's context comes from the node its cells were emitted from
+		// (TM rows: top-level, mode 'list'; children the client's column map
+		// declares under the column ARE injected per slot by caller_injection.ts —
+		// PHP dd15 get_subdatum injects the rqo's children — while the column's
+		// section_list sqo/limit stay its own); an empty page emitted none.
+		const columnNode = tmTopLevelColumnNode(nodes, ddo.tipo) ?? null;
 		const entry = await buildStructureContext({
 			tipo: ddo.tipo,
 			sectionTipo: TM_SECTION_TIPO,
 			mode: 'list',
+			configFrom: tmColumnConfigFrom(columnNode),
 			lang: columnLang,
 			permissions,
 			parent: TM_SECTION_TIPO,
 			view: (ddo as { view?: string }).view ?? null,
 			...(configSectionTipo !== undefined ? { configSectionTipo } : {}),
 		});
-		if (entry !== null) tmContext.push(entry);
+		if (entry === null) continue;
+		// The context's sqo.limit is the page size the column's LIST cells were
+		// cut at (nodeListPageLimit) — the section column pass does the same.
+		withListPageLimit(entry, columnNode);
+		// keyed under dd15 while a subject-component column's node lives in the
+		// SUBJECT section: name the node, so the column's subcontexts (a portal
+		// column's target fields) follow it, not every dd15 column (get_subdatum
+		// :2779-2786 order — section/node_contexts.ts orderByTraversal)
+		if (columnNode !== null) nodes?.placeContext(entry, columnNode);
+		tmContext.push(entry);
 	}
 	return tmContext;
+}
+
+/**
+ * A dd15 column's context lang — PHP's component lang rule: a TRANSLATABLE
+ * column gets the data lang, a non-translatable one lg-nolan. The dd15 meta
+ * columns are all non-translatable; rsc329 (the TM annotation) is NOT — its
+ * context lang seeds the note modal's editor, so notes must WRITE in the same
+ * lang the TM read lang-filters by, or a saved note never shows (grey icon
+ * over existing text).
+ */
+async function tmColumnLang(tipo: string, source: Record<string, unknown>): Promise<string> {
+	if (!(await getTranslatableByTipo(tipo))) return 'lg-nolan';
+	return typeof source.lang === 'string' ? source.lang : currentDataLang();
+}
+
+/** A dd15 column's context source: its emitted node, else its own config (an empty page). */
+function tmColumnConfigFrom(node: ElementNode | null): ContextConfigSource {
+	return node !== null
+		? { source: 'emission', node }
+		: { source: 'own', reason: 'tm-column-without-cell' };
+}
+
+/**
+ * The FIRST node (resolution order) the TM emission resolved for a top-level
+ * dd15 column `tipo` — a node whose parent is a root map, in mode 'list' — or
+ * undefined when no row emitted that column.
+ */
+function tmTopLevelColumnNode(
+	nodes: ElementNodeRegistry | undefined,
+	tipo: string,
+): ElementNode | undefined {
+	if (nodes === undefined) return undefined;
+	return nodes
+		.nodes()
+		.find(
+			(node) =>
+				node.tipo === tipo &&
+				node.mode === 'list' &&
+				node.parentKey !== null &&
+				nodes.nodeByKey(node.parentKey)?.configSource === 'root',
+		);
 }
 
 /** The columns the principal may read, judged as the data side judges them (dd15 floor). */
@@ -1495,5 +1558,5 @@ export async function readTimeMachineData(rqo: Rqo): Promise<TmReadData> {
 		await emitTmRow(row, ddoMap, lang, emission, emitDdoData as EmitDdo, undefined);
 	}
 
-	return { data, unhandled };
+	return { data, unhandled, nodes: emission.nodes };
 }

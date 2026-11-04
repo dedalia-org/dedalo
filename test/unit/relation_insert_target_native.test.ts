@@ -139,7 +139,7 @@ interface Identity {
 
 let hierarchyId = 0;
 let provisioner: Identity | undefined;
-/** Holds NO grant on test3 — the read-grant gate's subject. */
+/** Holds NO grant on test3 / the scratch thesaurus (the retired read-grant gate's subject). */
 let ungranted: Identity | undefined;
 /** Level 2 on test3's component_filter, 0 on dd153, member of PROJECT_HELD + PROJECT_PICKED. */
 let filterEditor: Identity | undefined;
@@ -666,101 +666,90 @@ describe.if(DB_READY)('the insert door — the TARGET constraint', () => {
 	});
 });
 
-describe.if(DB_READY)('the insert door — the READ GRANT on the linked section', () => {
-	test('a TREE-PICKER caller: a principal with no read on the thesaurus cannot persist a term', async () => {
-		// The write twin of the picker READ, which prunes the hierarchies the
-		// principal holds no grant on: `ungranted` holds 0 on the scratch
-		// thesaurus, and term 1 is the SELECTABLE root — so the refusal is the
-		// grant, not selectability (gate 2 runs before gate 3).
-		expect(ungranted).toBeDefined();
-		const refused = await asPrincipal(ungranted?.principal, () =>
-			validateRelationInserts([{ section_tipo: TERMS, section_id: 1 }], context(TREE)),
-		);
-		expect(codes(refused)).toEqual([['refused', 'target_not_readable']]);
-		expect(refused.outcomes[0]?.reason).toContain(TERMS);
+describe.if(DB_READY)(
+	'the insert door — NO read grant on the linked section (owner decision (i))',
+	() => {
+		// WC-2026-08-14-relation-insert-target-validation addendum item 1 is
+		// SUPERSEDED (owner decision (i), 2026-11-03 —
+		// WC-2026-11-04-tree-picker-read-gate-retired): the tree
+		// picker's read-grant gate (target_not_readable) and the area tree prune
+		// flipped together. A user who can WRITE a view:'tree' component browses its
+		// target read-only through the component's verified caller chain and saves
+		// the locator like any portal / autocomplete pick — authorization IS the
+		// caller grant, exactly as PHP (no save-time target read grant).
+		test('a TREE-PICKER caller: a principal with no read on the thesaurus PERSISTS a term', async () => {
+			// `ungranted` holds 0 on the scratch thesaurus, and term 1 is the
+			// SELECTABLE root — the gates that remain (target, selectability, cap)
+			// all pass, and no read-grant gate refuses any more.
+			expect(ungranted).toBeDefined();
+			const accepted = await asPrincipal(ungranted?.principal, () =>
+				validateRelationInserts([{ section_tipo: TERMS, section_id: 1 }], context(TREE)),
+			);
+			expect(codes(accepted)).toEqual([['accepted', null]]);
 
-		// The CONTROL: the identical locator, accepted for a principal that may
-		// read the section. The refusal is the grant and nothing else.
-		const accepted = await asPrincipal(superuser, () =>
-			validateRelationInserts([{ section_tipo: TERMS, section_id: 1 }], context(TREE)),
-		);
-		expect(codes(accepted)).toEqual([['accepted', null]]);
-	});
+			// The CONTROL: the identical locator for a principal that may read the
+			// section — the same verdict, so the grant is no longer an input.
+			const control = await asPrincipal(superuser, () =>
+				validateRelationInserts([{ section_tipo: TERMS, section_id: 1 }], context(TREE)),
+			);
+			expect(codes(control)).toEqual([['accepted', null]]);
+		});
 
-	test('a NON-picker caller is authorized by the CALLER grant — the target is not re-judged', async () => {
-		// The read model for a portal/autocomplete/filter: a value reached
-		// THROUGH an authorized caller is floored to read
-		// (inheritSubdatumPermission); the actor may hold 0 on the target
-		// section and still see and pick its records. Dispatch enforced >= 2 on
-		// the caller before this door; judging the target here refused every
-		// non-admin's own project pick (component_filter → dd153).
-		const result = await asPrincipal(ungranted?.principal, () =>
-			validateRelationInserts([{ section_tipo: HOST, section_id: IN_TARGET[0] }], context(PLAIN)),
-		);
-		expect(codes(result)).toEqual([['accepted', null]]);
-	});
+		test('a NON-picker caller is authorized by the CALLER grant — the target is not re-judged', async () => {
+			// The read model for a portal/autocomplete/filter: a value reached
+			// THROUGH an authorized caller is floored to read
+			// (inheritSubdatumPermission); the actor may hold 0 on the target
+			// section and still see and pick its records. Dispatch enforced >= 2 on
+			// the caller before this door; judging the target here refused every
+			// non-admin's own project pick (component_filter → dd153).
+			const result = await asPrincipal(ungranted?.principal, () =>
+				validateRelationInserts([{ section_tipo: HOST, section_id: IN_TARGET[0] }], context(PLAIN)),
+			);
+			expect(codes(result)).toEqual([['accepted', null]]);
+		});
 
-	test('the gate is FAIL-CLOSED: a picker insert with NO actor is refused, not exempted', async () => {
-		// No threaded principal and no request scope. Inside gate 2's scope this
-		// is a refusal — a write-authorization gate that answers "allowed"
-		// because it could not see who was asking is not a gate.
-		const noActor = await validateRelationInserts(
-			[{ section_tipo: TERMS, section_id: 1 }],
-			context(TREE),
-		);
-		expect(codes(noActor)).toEqual([['refused', 'target_not_readable']]);
-		expect(noActor.outcomes[0]?.reason).toContain('fail-closed');
+		test('a credless picker insert (no actor) is no longer refused by a read gate; the TARGET gate still judges it', async () => {
+			// No threaded principal and no request scope: the retired gate refused
+			// this fail-closed. Now the remaining gates decide — the declared target
+			// is honoured (an in-target term is accepted) …
+			const noActor = await validateRelationInserts(
+				[{ section_tipo: TERMS, section_id: 1 }],
+				context(TREE),
+			);
+			expect(codes(noActor)).toEqual([['accepted', null]]);
+			// … and an off-target section is still refused by name (gate 1).
+			const offTarget = await validateRelationInserts(
+				[{ section_tipo: HOST, section_id: IN_TARGET[0] }],
+				context(TREE),
+			);
+			expect(codes(offTarget)).toEqual([['refused', 'off_target']]);
+		});
 
-		// Outside the scope the same credless call is unaffected (the import
-		// and maintenance doors keep working).
-		const plain = await validateRelationInserts(
-			[{ section_tipo: HOST, section_id: IN_TARGET[0] }],
-			context(PLAIN),
-		);
-		expect(codes(plain)).toEqual([['accepted', null]]);
-	});
+		test('a non-admin with level 2 on a component_filter and 0 on dd153 PERSISTS a project pick', async () => {
+			// The shape every install has: the profile grants the filter component,
+			// never the projects section; the datalist is built from the user's OWN
+			// authorized projects (filter_projects.ts). Through the REAL save door,
+			// as that user (dispatch enforces >= 2 on the filter and the per-record
+			// projects scope, which the seeded PROJECT_HELD locator satisfies).
+			expect(filterEditor).toBeDefined();
+			const editor = filterEditor as Identity;
+			const { getPermissions } = await import('../../src/core/security/permissions.ts');
+			expect(await getPermissions(editor.principal, HOST, HOST_FILTER)).toBe(2);
+			expect(await getPermissions(editor.principal, PROJECTS, PROJECTS)).toBe(0);
+			expect((await storedLocators(HOST_FILTER)).map((l) => l.section_id)).toEqual([PROJECT_HELD]);
 
-	test('the THREADED principal is the actor; the request-context ALS is only the backstop', async () => {
-		// ALS says superuser, the context says `ungranted`: the explicit channel
-		// wins, so a caller cannot be judged as whoever happens to be ambient.
-		const threaded = await asPrincipal(superuser, () =>
-			validateRelationInserts([{ section_tipo: TERMS, section_id: 1 }], {
-				...context(TREE),
-				principal: ungranted?.principal,
-			}),
-		);
-		expect(codes(threaded)).toEqual([['refused', 'target_not_readable']]);
-		// …and with nothing threaded the ALS backstop still identifies the actor.
-		const ambient = await asPrincipal(superuser, () =>
-			validateRelationInserts([{ section_tipo: TERMS, section_id: 1 }], context(TREE)),
-		);
-		expect(codes(ambient)).toEqual([['accepted', null]]);
-	});
-
-	test('a non-admin with level 2 on a component_filter and 0 on dd153 PERSISTS a project pick', async () => {
-		// The shape every install has: the profile grants the filter component,
-		// never the projects section; the datalist is built from the user's OWN
-		// authorized projects (filter_projects.ts). Through the REAL save door,
-		// as that user (dispatch enforces >= 2 on the filter and the per-record
-		// projects scope, which the seeded PROJECT_HELD locator satisfies).
-		expect(filterEditor).toBeDefined();
-		const editor = filterEditor as Identity;
-		const { getPermissions } = await import('../../src/core/security/permissions.ts');
-		expect(await getPermissions(editor.principal, HOST, HOST_FILTER)).toBe(2);
-		expect(await getPermissions(editor.principal, PROJECTS, PROJECTS)).toBe(0);
-		expect((await storedLocators(HOST_FILTER)).map((l) => l.section_id)).toEqual([PROJECT_HELD]);
-
-		const status = await saveInserts(
-			HOST_FILTER,
-			[{ section_tipo: PROJECTS, section_id: PROJECT_PICKED }],
-			{ principal: editor.principal, userId: editor.userId },
-		);
-		expect(status).toBe(200);
-		const stored = await storedLocators(HOST_FILTER);
-		expect(stored.map((locator) => locator.section_id)).toEqual([PROJECT_HELD, PROJECT_PICKED]);
-		expect(stored[1]?.from_component_tipo).toBe(HOST_FILTER);
-	});
-});
+			const status = await saveInserts(
+				HOST_FILTER,
+				[{ section_tipo: PROJECTS, section_id: PROJECT_PICKED }],
+				{ principal: editor.principal, userId: editor.userId },
+			);
+			expect(status).toBe(200);
+			const stored = await storedLocators(HOST_FILTER);
+			expect(stored.map((locator) => locator.section_id)).toEqual([PROJECT_HELD, PROJECT_PICKED]);
+			expect(stored[1]?.from_component_tipo).toBe(HOST_FILTER);
+		});
+	},
+);
 
 describe.if(DB_READY)('the insert door — SELECTABILITY is re-asked at the write', () => {
 	test('a non-selectable term is refused even though the client sent it', async () => {
@@ -1088,18 +1077,21 @@ describe.if(DB_READY)('the insert door — wired into the SAVE path, under concu
 		expect(answer.code).toBe('relation.insert_refused');
 		expect(await storedLocators(PLAIN)).toEqual([]);
 
-		// The read-grant refusal is the GENERIC permission code, naming nothing:
-		// `treeEditor` passes dispatch's own gate (level 2 on the picker caller,
-		// host in scope) and is stopped by gate 2 (0 on the thesaurus).
+		// The tree picker's read-grant refusal is RETIRED (owner decision (i),
+		// 2026-11-03): `treeEditor` passes dispatch's own gate (level 2 on the
+		// picker caller, host in scope) and, holding 0 on the thesaurus, now
+		// PERSISTS the selectable term through the same route — the caller grant
+		// is the authorization.
 		const editor = treeEditor as Identity;
-		const denied = await saveChanges(
+		expect(await storedLocators(TREE)).toEqual([]);
+		const picked = await saveChanges(
 			TREE,
 			[{ action: 'insert', id: null, value: { section_tipo: TERMS, section_id: 1 } }],
 			{ principal: editor.principal, userId: editor.userId },
 		);
-		expect(denied.status).toBe(403);
-		expect(denied.code).toBe('perm.denied');
-		expect(await storedLocators(TREE)).toEqual([]);
+		expect(picked.status).toBe(200);
+		expect(picked.code).toBeNull();
+		expect((await storedLocators(TREE)).map((locator) => locator.section_tipo)).toEqual([TERMS]);
 
 		// The CONTROL: an in-target locator through the same route DOES store.
 		await saveInserts(PLAIN, [{ section_tipo: HOST, section_id: IN_TARGET[0] }]);

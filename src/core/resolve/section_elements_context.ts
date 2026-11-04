@@ -199,6 +199,7 @@ export async function buildSectionElementsContext(
 		if (sectionPerm < 1) continue; // PHP skips unauthorized sections (not deny).
 
 		const sectionEntry = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'search-panel-element' },
 			tipo: sectionTipo,
 			sectionTipo,
 			mode: 'list',
@@ -240,6 +241,7 @@ export async function buildSectionElementsContext(
 			// portals, resolves the search-mode source config rather than the list
 			// section_list swap.
 			const entry = await buildStructureContext({
+				configFrom: { source: 'own', reason: 'search-panel-element' },
 				tipo,
 				sectionTipo,
 				mode: isComponent ? 'search' : 'list',

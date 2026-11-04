@@ -76,6 +76,7 @@ describe.if(DB_READY)('tool_upload into a component_json', () => {
 
 	test('the context offers the upload descriptor', async () => {
 		const entry = await buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo: 'zzjs2',
 			sectionTipo: 'zzjs1',
 			mode: 'edit',

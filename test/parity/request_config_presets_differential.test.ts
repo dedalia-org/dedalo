@@ -174,6 +174,7 @@ async function phpSectionDdoTipos(client: PhpApiClient, mode: string): Promise<s
 
 async function tsSectionDdoTipos(mode: string): Promise<string[]> {
 	const entry = await buildStructureContext({
+		configFrom: { source: 'own', reason: 'unit-test' },
 		tipo: SECTION,
 		sectionTipo: SECTION,
 		mode,

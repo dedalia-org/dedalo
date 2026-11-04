@@ -88,3 +88,15 @@ per-locator `outcomes` wire is STILL not shipped: a batch through the length-1 d
 (every production caller) is refused as a whole on its first refused net-new locator, and
 the accepted siblings roll back with it. Wiring `outcomes` onto the save response as
 per-locator notices remains the open work; ledgered in `rewrite/LEDGER.md` known-open.
+
+## Addendum 2026-11-04 — `target_not_readable` retired; three constraint refusals remain
+
+"What is deliberately NOT shipped" above and the 2026-08-16 addendum count FOUR constraint
+refusals. One is gone: `target_not_readable` (the tree-picker READ GRANT gate,
+`refuseUnreadableTreePickerTarget` in `src/core/relations/save.ts`) is retired by owner
+decision (i) — the tree picker follows the writer-chain scope instead
+(`WC-2026-11-04-tree-picker-read-gate-retired`). The length-1 door now throws on THREE
+constraint refusals of this entry's set: `off_target`, `term_not_selectable`,
+`selection_limit` (plus `project_not_member`, added later for the projects filter —
+`WC-2026-10-22-filter-project-pick-membership`). Nothing else in this entry changes: the
+per-locator `outcomes` wire is still not shipped.

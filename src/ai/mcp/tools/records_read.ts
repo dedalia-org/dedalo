@@ -14,6 +14,7 @@
 import { z } from 'zod';
 import type { Rqo } from '../../../core/concepts/rqo.ts';
 import type { SqoFilterNode } from '../../../core/concepts/sqo.ts';
+import type { ApiNotice } from '../../../core/errors/schema.ts';
 import { getModelByTipo } from '../../../core/ontology/resolver.ts';
 import { assertValidTipo } from '../../../core/search/identifier_gate.ts';
 import { runSearch } from '../../../core/search/search_statement.ts';
@@ -152,7 +153,7 @@ export async function searchSectionRecords(
 export async function readSectionRecord(
 	principal: Principal,
 	input: { section_tipo: string; section_id: number; lang?: string; mode?: string },
-): Promise<{ context: unknown[]; data: unknown[] }> {
+): Promise<{ context: unknown[]; data: unknown[]; notices?: ApiNotice[] }> {
 	const sectionTipo = assertValidTipo(input.section_tipo, 'mcp.read.section_tipo');
 	const sectionId = Math.floor(input.section_id);
 	await authorizeComponentRead(
@@ -182,7 +183,19 @@ export async function readSectionRecord(
 	} as unknown as Rqo;
 
 	const result = await readSection(rqo, principal);
-	return { context: result.context, data: result.data as unknown[] };
+	// The emission's notices (a stopped record cycle, a depth-bound stop, a
+	// refused level >= 2 'self' ddo — section/read.ts ReadResult.notices) ride
+	// the tool result exactly as read_facade.ts lifts them onto the HTTP
+	// envelope: a shortened subtree is never silent for the assistant either.
+	// (agent/egress.ts gateAgentToolResult walks them too — their section_tipo
+	// details are classified like any other section in the result.)
+	return {
+		context: result.context,
+		data: result.data as unknown[],
+		...(result.notices !== undefined && result.notices.length > 0
+			? { notices: result.notices }
+			: {}),
+	};
 }
 
 /**

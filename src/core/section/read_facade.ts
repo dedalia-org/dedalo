@@ -31,7 +31,7 @@ import { type ApiNotice, DedaloError, isErrorInDomain, ok, specOf } from '../err
 import type { RelatedLocatorFilter } from '../search/search_related.ts';
 import { getPermissions, type Principal } from '../security/permissions.ts';
 import { currentRequestId } from '../security/request_context.ts';
-import { readSection } from './read.ts';
+import { readSection, type SectionReadOptions } from './read.ts';
 
 /**
  * PHP's empty component shell — the 200 answer for "there is nothing to show
@@ -411,19 +411,23 @@ export async function gateTimeMachineRead(rqo: Rqo, principal: Principal): Promi
 async function readResolveData(rqo: Rqo, principal: Principal): Promise<ApiResult> {
 	const source = rqo.source ?? {};
 	const requestId = currentRequestId();
-	const { resolveSearchData, buildGetDataContext } = await import('./read.ts');
+	const { resolveSearchDataEmission, buildGetDataContext } = await import('./read.ts');
 	// Pass the principal so injected target locators outside the caller's
 	// projects filter are dropped (foundation audit AUTHZ-02 — same root cause
 	// as AUTHZ-01, bounded to the relation's declared target sections).
-	const resolved = await resolveSearchData(rqo, principal);
+	const produced = await resolveSearchDataEmission(rqo, principal);
+	const { items: resolved, nodes } = produced;
 	await ensureOwnSearchItem(source, resolved);
 	// The client BUILDS the search-mode instance from this response and
 	// aborts if result.context is empty (component_portal.js:632 —
 	// "component without context", leaving status stuck at 'building').
 	// Emit the component's structure context (buildGetDataContext), same as
 	// the get_data path, so the search filter builds + renders.
-	const context = await buildGetDataContext(rqo, resolved, principal);
-	return { status: 200, body: ok({ context, data: resolved }, { requestId }) };
+	const context = await buildGetDataContext(rqo, produced, principal);
+	return {
+		status: 200,
+		body: ok({ context, data: resolved }, { requestId, notices: joinNotices(nodes.notices()) }),
+	};
 }
 
 /**
@@ -534,7 +538,16 @@ async function getDataRecordGateAdmits(
 }
 
 /** Route a permission-gated dd_core_api read RQO to its read strategy. */
-export async function routeSectionRead(rqo: Rqo, principal: Principal): Promise<ApiResult> {
+export async function routeSectionRead(
+	rqo: Rqo,
+	principal: Principal,
+	/**
+	 * The scoped target search Gate B admitted (owner decision (h),
+	 * security/writer_chain_scope.ts) — threaded to the generic section read,
+	 * which limits the columns to it. Absent = the ordinary read.
+	 */
+	options: SectionReadOptions = {},
+): Promise<ApiResult> {
 	const source = rqo.source ?? {};
 	// The correlation id of the request in scope (dispatchRqo opens the ALS) —
 	// this facade is called without the API context, ERRORS_SPEC §3.
@@ -640,17 +653,18 @@ export async function routeSectionRead(rqo: Rqo, principal: Principal): Promise<
 		// import: the section/record write graph (import_scc_tripwire).
 		const { maybeRefreshExternal } = await import('./record/external_refresh.ts');
 		const refreshNotices = await maybeRefreshExternal(rqo, principal);
-		const { readComponentData, buildGetDataContext } = await import('./read.ts');
+		const { readComponentDataEmission, buildGetDataContext } = await import('./read.ts');
 		// component_filter_records' datalist rides the SHARED emission hook
 		// (components/component_filter_records/emit.ts), so this door and the
 		// section read serve the same key — PHP's single json builder.
-		const componentData = await readComponentData(rqo);
-		const componentContext = await buildGetDataContext(rqo, componentData, principal);
+		const produced = await readComponentDataEmission(rqo);
+		const { items: componentData, nodes } = produced;
+		const componentContext = await buildGetDataContext(rqo, produced, principal);
 		return {
 			status: 200,
 			body: ok(
 				{ context: componentContext, data: componentData },
-				{ requestId, notices: joinNotices(refreshNotices) },
+				{ requestId, notices: joinNotices(refreshNotices, nodes.notices()) },
 			),
 		};
 	}
@@ -680,6 +694,8 @@ export async function routeSectionRead(rqo: Rqo, principal: Principal): Promise<
 
 	// Pass the principal so the per-record projects filter applies
 	// (non-admins never over-see records on a gated section, §7.4).
-	const result = await readSection(rqo, principal);
-	return { status: 200, body: ok(result, { requestId }) };
+	// The emission's notices (refused level >= 2 'self' ddos, stopped record
+	// cycles) ride the envelope, never the result payload.
+	const { notices, ...result } = await readSection(rqo, principal, options);
+	return { status: 200, body: ok(result, { requestId, notices: joinNotices(notices) }) };
 }

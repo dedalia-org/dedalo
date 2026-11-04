@@ -28,6 +28,7 @@ import { ONTOLOGY_RECONCILE } from '../ontology/ontology_state.ts';
 import { PUBLICATION_APIS_RECONCILE } from '../publication_host/api_reconcile.ts';
 import { PUBLICATION_PROBE_RECONCILE } from '../publication_host/probe.ts';
 import { PORTAL_DECLARED_ORDER_RECONCILE } from '../relations/declared_order_reconcile.ts';
+import { DDO_SELF_DEPTH_RECONCILE } from '../relations/request_config/self_depth_check.ts';
 import { OBSERVER_MIRRORS_RECONCILE } from '../section/record/observer_reconcile.ts';
 import {
 	listReconciles,
@@ -60,6 +61,7 @@ export async function loadAllReconciles(): Promise<readonly ReconcileDefinition[
 		RICH_TEXT_IMAGES_RECONCILE,
 		WEB_IMAGE_EXPOSURE_RECONCILE,
 		PORTAL_DECLARED_ORDER_RECONCILE,
+		DDO_SELF_DEPTH_RECONCILE,
 	];
 }
 

@@ -6,11 +6,12 @@
  *
  * Emits the portal's paginated locator item and expands each paged locator's
  * target record through the child ddos (relation_core.expandPortal). The
- * children come from the CLIENT map's descendants when present, else from the
- * component's EFFECTIVE config (PHP resolve_source_properties): for list/tm
- * cells the section_list-substituted config (explicit raw ddos or implicit legacy
- * relations map); for edit cells the component's own config through the explicit
- * builder.
+ * children are the DIRECT children of the element's NODE
+ * (../element_node.ts resolveElement): its effective config — the own config
+ * through the one base resolver (request_config/own_config.ts: override → alias
+ * → section_list swap in list/tm → real mode) with the caller's children
+ * injected per engine and slot (PHP get_subdatum :2603-2681) — show + hide, in
+ * every mode but 'solved'.
  *
  * A component may declare SEVERAL config items (a main + a secondary scope, or a
  * dedalo item + a non-dedalo one — rsc368, numisdata162, rsc1285, tchi29,
@@ -26,12 +27,6 @@
 
 import type { Ddo } from '../../concepts/ddo.ts';
 import { configOwnerOf, type EmitRow } from '../../concepts/emit_row.ts';
-import {
-	type ConfigDdo,
-	type ConfigDdoMapSource,
-	configChildRenderFields,
-	flattenConfigDdoMaps,
-} from '../config_ddo_map.ts';
 import type { RelationEmitContext, RelationModelResolver } from '../registry.ts';
 import { expandPortal } from '../relation_core.ts';
 
@@ -100,156 +95,26 @@ export const filterResolver: RelationModelResolver = {
 };
 
 /**
- * The section a portal cell's OWN config resolves against. A host row (dd15)
- * names the component's own record first: the ddo's section_tipo there is the
- * HOST's (it binds the cell), not the owner. Otherwise the ddo's declared
- * section, else the row's.
- */
-function ownConfigSectionTipo(ddo: Ddo, row: EmitRow): string {
-	if (row.config_owner !== undefined) return row.config_owner.section_tipo;
-	return (
-		(Array.isArray(ddo.section_tipo) ? ddo.section_tipo[0] : ddo.section_tipo) ?? row.section_tipo
-	);
-}
-
-/**
- * The child ddos of a portal whose CALLER declared none — built from the
- * component's own effective config, and returned as the FULL descendant map
- * (every level, keyed by `parent`), not just this portal's own children.
+ * The section a portal cell's OWN config resolves against (its owner section —
+ * what 'self' in that config means, and the node key's section): ALWAYS the
+ * record the cell sits on (configOwnerOf — the subject record for a dd15 host
+ * row, whose ddo section_tipo binds the HOST, not the owner).
  *
- * Extracted from `portalResolver.emitDdoItems`, which is the branchiest
- * function in the file: this is a self-contained decision (which of the three
- * config shapes describes this portal's children — an implicit legacy map, an
- * explicit list map, or the edit-mode own config) and it reads better with a
- * name than as a 120-line arm of an `if`.
- *
- * Called ONLY when the caller declared no children for this portal; when it
- * did, its map is used as-is and `ownConfig` stays false.
+ * PHP get_subdatum builds every non-dataframe child with
+ * `$section_tipo = $current_locator->section_tipo` (class.common.php
+ * ~2443-2444): the ROW's section, never the ddo's declared one. That holds at
+ * a read's top level too — a multi-section read (es1 + fr1 thesaurus rows, an
+ * sqo over several sections) hands ONE column ddo to every row
+ * (section/read_source.ts emitRow), and the column map keeps only its FIRST
+ * section (read.ts deriveSectionDdoMap). Owning an fr1 row's cell by the ddo's
+ * section resolved its 'self' targets against es1, stamped its children es1,
+ * and expandPortal's per-locator filter then dropped every child at the fr1
+ * targets (a blank cell); it also folded every section's rows into one es1
+ * node. The ddo's declared section decides only whether a ddo applies to a
+ * row — never whose config it is.
  */
-async function buildOwnConfigDescendants(args: {
-	ddo: Ddo;
-	row: EmitRow;
-	defaultLang: string;
-	isListCell: boolean;
-}): Promise<Ddo[]> {
-	const { ddo, row, defaultLang, isListCell } = args;
-	const {
-		getNode,
-		getTranslatableByTipo,
-		getModelByTipo: modelOf,
-	} = await import('../../ontology/resolver.ts');
-	const { buildRequestConfigForElement } = await import('../request_config/build.ts');
-	const fullMap: Ddo[] = [];
-
-	// The instance-lang rule (PHP get_element_lang): request lang when
-	// translatable, lg-nolan otherwise.
-	const stampLang = async (tipo: string, declared?: string): Promise<string> =>
-		declared ?? ((await getTranslatableByTipo(tipo)) ? defaultLang : 'lg-nolan');
-
-	let implicitRelations: string[] | null = null;
-	let rawListDdos: import('../../section/list_definitions/section_list.ts').RawConfigDdo[] | null =
-		null;
-	if (isListCell) {
-		const { resolveListCellMap } = await import('../../section/list_definitions/section_list.ts');
-		const cell = await resolveListCellMap(ddo.tipo);
-		implicitRelations = cell.implicitRelations;
-		rawListDdos = cell.rawDdos;
-	}
-
-	if (implicitRelations !== null) {
-		// implicit LEGACY map: the section_list node's relations — first
-		// 'section' model is the target section, components become
-		// list-mode ddos (PHP build_legacy_ddo_map, current_mode='list').
-		let targetSection: string | undefined;
-		const componentTipos: string[] = [];
-		for (const relTipo of implicitRelations) {
-			const relModel = await modelOf(relTipo);
-			if (relModel === 'section') {
-				targetSection = targetSection ?? relTipo;
-				continue;
-			}
-			if (relModel === null || !relModel.startsWith('component_')) continue;
-			componentTipos.push(relTipo);
-		}
-		// section_list relations without a section node fall back to the
-		// component's main related section (PHP
-		// resolve_ar_related_list_component :454-473).
-		if (targetSection === undefined) {
-			const { getMainRelatedSectionTipo } = await import('../request_config/implicit.ts');
-			targetSection = (await getMainRelatedSectionTipo(ddo.tipo)) ?? undefined;
-		}
-		for (const relTipo of componentTipos) {
-			fullMap.push({
-				tipo: relTipo,
-				section_tipo: targetSection,
-				parent: ddo.tipo,
-				mode: 'list',
-				lang: await stampLang(relTipo),
-			} as Ddo);
-		}
-	} else if (rawListDdos !== null && rawListDdos.length > 0) {
-		// explicit LIST map: the RAW ddo entries of the effective (possibly
-		// section_list-substituted) config. section_tipo stays AS DECLARED
-		// ('self' = the portal's own targets, match-all) so the per-locator
-		// section grouping can skip incompatible children (numisdata97
-		// declares numisdata33 → never renders at an object1 target). Ddo
-		// modes pass through AS DECLARED (edit ddos render in edit —
-		// dd560's rsc1246 case); component_dataframe ddos stay in the map
-		// and route to the frame emitter inside expandPortal.
-		for (const child of rawListDdos) {
-			if (typeof child?.tipo !== 'string') continue;
-			fullMap.push({
-				tipo: child.tipo,
-				parent: child.parent === 'self' || child.parent === undefined ? ddo.tipo : child.parent,
-				lang: await stampLang(child.tipo, child.lang),
-				// section_tipo / mode / limit / value_with_parents: the ONE mapper
-				// shared with the get_data twin (section/read.ts)
-				...configChildRenderFields(child as unknown as ConfigDdo),
-			} as Ddo);
-		}
-	} else {
-		// EDIT cells: the component's own config through the explicit builder.
-		const node = await getNode(ddo.tipo);
-		const ownConfig = await buildRequestConfigForElement(node?.properties ?? null, {
-			ownerTipo: ddo.tipo,
-			ownerSectionTipo: ownConfigSectionTipo(ddo, row),
-			mode: 'edit',
-			ownerIsSection: false,
-			ownerSectionId: configOwnerOf(row).section_id,
-			lang: defaultLang,
-		});
-		// PHP get_subdatum builds ONE full_ddo_map out of EVERY config
-		// item's show + hide maps (class.common.php:2312-2341) — not just
-		// the first item's. Taking `ownConfig[0]` dropped a second engine's
-		// children entirely, which is where rsc368's zenon source died; it
-		// also dropped a `secondary` dedalo item's children (numisdata573's
-		// hierarchy95). The shared flattener owns the rule, including the
-		// dedup and the empty-show-map skip.
-		const configChildren = flattenConfigDdoMaps(ownConfig as unknown as ConfigDdoMapSource[], {
-			ownerTipo: ddo.tipo,
-			logEmptyShowMap: true,
-		});
-		for (const child of configChildren) {
-			const childTipo = child.tipo;
-			if (typeof childTipo !== 'string' || childTipo === '') continue;
-			fullMap.push({
-				tipo: childTipo,
-				parent: child.parent === 'self' ? ddo.tipo : (child.parent as string),
-				lang: await stampLang(childTipo, child.lang as string | undefined),
-				// section_tipo / mode / limit / value_with_parents: the ONE mapper
-				// shared with the get_data twin (section/read.ts). It keeps the
-				// DECLARED section list intact — a multi-target hi component's
-				// 'self' children resolve to EVERY target (numisdata20's
-				// hierarchy25 spans 26 hierarchy sections); flattening to [0] made
-				// the per-locator grouping skip all but the first target (the
-				// numisdata6 §2 client bug). It is ALSO what keeps a multi-engine
-				// map safe: the zenon ddos declare zenon1, so only a zenon1
-				// locator ever sees them.
-				...configChildRenderFields(child),
-			} as Ddo);
-		}
-	}
-	return fullMap;
+export function ownConfigSectionTipo(row: EmitRow): string {
+	return configOwnerOf(row).section_tipo;
 }
 
 export const portalResolver: RelationModelResolver = {
@@ -264,41 +129,89 @@ export const portalResolver: RelationModelResolver = {
 			model,
 			ddoMode,
 			ddoLang,
+			defaultMode,
 			defaultLang,
 			callerTipo,
 			emission,
 			allowOwnConfigChildren,
 			depth,
+			scope,
 			emitDdo,
 		} = context;
-		const childDdos = ddoMap.filter((child) => child.parent === ddo.tipo);
+		const {
+			depthBoundNotice,
+			MAX_DDO_DEPTH,
+			nodeListPageLimit,
+			occurrenceKey,
+			recordCycleNotice,
+			resolveEmittedElement,
+		} = await import('../element_node.ts');
 
-		// Children: the CLIENT map's descendants when present, else the
-		// component's EFFECTIVE config ddos. For list/tm cells the effective
-		// config is the SECTION_LIST-substituted one (PHP
-		// resolve_source_properties): the section_list child node's
-		// request_config, or an implicit legacy map from its relations, or — with no
-		// section_list child — the component's own config/relations.
-		let portalChildren = childDdos;
-		let portalDescendants: Ddo[] | undefined;
-		let cellLimit: number | null = null;
-		const isListCell = ddoMode === 'list';
-		if (isListCell) {
-			// The cell page limit follows the effective list config even when
-			// the children come from the client map (PHP instance pagination).
-			const { resolveListCellMap } = await import('../../section/list_definitions/section_list.ts');
-			cellLimit = (await resolveListCellMap(ddo.tipo)).cellLimit;
+		// THE ELEMENT'S NODE (relations/element_node.ts): its EFFECTIVE config —
+		// the own config (the ONE base resolver: override → alias → section_list
+		// swap in list/tm → real mode) with the PARENT's children injected per
+		// engine and slot (PHP get_subdatum :2603-2681), the governing ddo's limit
+		// as its page size. At a read's top level the parent is the read's ROOT
+		// map (the section's column map, a TM column map …). The children below
+		// are that config's show + hide, in EVERY mode but 'solved' — the caller
+		// map no longer has to carry every level, and a nested portal in a list
+		// cell falls back to its own config like PHP (plan E2). Resolved through
+		// the ONE emitted-element spelling (resolveEmittedElement — the own
+		// config built in the READ's data lang, never the portal's lg-nolan), so
+		// the item binding and the context door meet this same node.
+		const node = await resolveEmittedElement({
+			ddo,
+			ddoMap,
+			row,
+			model,
+			ddoMode,
+			ddoLang,
+			defaultMode,
+			defaultLang,
+			callerTipo,
+			registry: emission.nodes,
+			...(scope !== undefined ? { scope } : {}),
+			useOwnConfig: allowOwnConfigChildren,
+		});
+
+		// RECORD CYCLE (owner decision (e)): this element on this record already
+		// sits on the path from the read's top level (A's portal → B → B's portal
+		// → A → A's portal …). Stop at the repeat: the portal's own item is still
+		// emitted, its targets are not expanded again, and a typed notice names
+		// the cycle. Only THIS path stops — the same record reached through a
+		// different path (a diamond) is not a cycle.
+		// The occurrence is the element's OWN record (configOwnerOf): a Time
+		// Machine list cell is bound to a dd15 row but IS the subject record's
+		// component — keyed by the dd15 row, the list would expand one cycle
+		// round more than the preview of the same row (which is keyed by the
+		// record, section/read.ts readComponentData).
+		const owner = configOwnerOf(row);
+		const path = scope?.path ?? [];
+		const occurrence = occurrenceKey(owner, ddo.tipo);
+		const isCycle = path.includes(occurrence);
+		if (isCycle) {
+			emission.nodes.addNotices([await recordCycleNotice(owner, ddo.tipo, path.length)]);
 		}
-		if (portalChildren.length === 0 && allowOwnConfigChildren) {
-			const fullMap = await buildOwnConfigDescendants({ ddo, row, defaultLang, isListCell });
-			portalDescendants = fullMap;
-			portalChildren = fullMap.filter((child) => child.parent === ddo.tipo);
+		// DEPTH BOUND (element_node.ts MAX_DDO_DEPTH): the children would sit one
+		// hop deeper than the bound. A chain the ONTOLOGY drives (own configs,
+		// a derived map) is ordinary data — stop here with a typed notice, the
+		// rest of the read completes. A CLIENT-map-driven chain goes on to
+		// emitDdoData's loud refusal (the request asked for it).
+		const atDepthBound = !isCycle && depth + 1 > MAX_DDO_DEPTH && node.childOrigin !== 'client';
+		if (atDepthBound && node.children.length > 0) {
+			emission.nodes.addNotices([await depthBoundNotice(owner, ddo.tipo, depth)]);
 		}
+		const children = isCycle || atDepthBound ? [] : (node.children as unknown as Ddo[]);
+
+		// The LIST/TM cell page size follows the effective config (the section_list
+		// swap included — what resolveListCellMap used to read raw); the governing
+		// ddo's own `limit` still wins inside expandPortal.
+		const cellLimit = ddoMode === 'list' ? nodeListPageLimit(node) : null;
 		await expandPortal(
 			record,
 			ddo,
 			model,
-			portalChildren,
+			children,
 			ddoMode,
 			ddoLang,
 			row,
@@ -306,37 +219,16 @@ export const portalResolver: RelationModelResolver = {
 			emission,
 			emitDdo,
 			{
-				// The DESCENDANT map, never just the direct children: a
-				// grandchild declared in the CALLER's map (numisdata3's list
-				// map declares rsc29 with parent numisdata164, itself a child
-				// of the numisdata77 cell) only resolves if the whole map
-				// travels down the parent chain. Passing `undefined` here let
-				// expandPortal fall back to `childDdos` (relation_core.ts:501)
-				// and dropped every level below the first whenever the children
-				// came from the caller map instead of the component's own
-				// config — the numisdata3 list showed the image placeholder for
-				// every coin.
-				//
-				// (!) The map must CARRY the levels. `ownConfig` below stays
-				// false for caller-map children, so in list mode a nested
-				// portal still cannot fall back to its own config: a map that
-				// declares numisdata164 but not rsc29 renders the placeholder
-				// exactly as before. That is PHP's substituted-config
-				// semantics, not a second bug — the caller owns its map.
-				//
-				// (!) In EDIT mode this also settles a precedence: caller-map
-				// grandchildren now win over the nested portal's own config
-				// (pre-fix the slice was empty by construction, so own config
-				// always won). That is PHP's injected-request_config order,
-				// class.common.php:2603-2681.
-				descendantsMap: portalDescendants ?? ddoMap,
+				node,
+				path: [...path, occurrence],
 				childrenLang: defaultLang,
 				cellLimit,
-				// ownConfig gates the nested-own-config recursion for list/tm
-				// cells AND the ddinfo breadcrumb emission (autocomplete_hi) —
-				// PHP emits ddinfo in EVERY mode when the children came from the
-				// component's own config.
-				ownConfig: portalDescendants !== undefined,
+				// The thesaurus-table ddinfo branch keeps its pre-existing scope (the
+				// element's own DATA children — show + hide not replaced by a caller;
+				// a search/choose-only caller leaves them own, plan E3, so it never
+				// narrows the branch); the value_with_parents trigger
+				// reads the governing children whoever supplied them (relation_core).
+				childrenFromOwnConfig: node.configSource === 'own' && !node.dataChildrenInjected,
 				depth,
 			},
 		);

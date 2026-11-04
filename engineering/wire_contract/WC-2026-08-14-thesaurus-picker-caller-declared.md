@@ -157,3 +157,13 @@ facts make this precise, and both were measured on the frozen store:
   are its only baseline. Measured: zero fixture requests carry `caller`, `thesaurus_mode` or
   `hierarchy_sections` (the `hierarchy_sections` occurrences in four relation fixtures are
   ontology properties inside response bodies).
+
+## Addendum 2026-11-04 — the picker read follows the writer-chain scope
+
+Superseded in part by `WC-2026-11-04-tree-picker-read-gate-retired` (owner decision (i)): a
+hierarchy whose target section the principal holds no grant on is no longer pruned from a
+picker read when the caller names its verified chain (`callers`) and holds WRITE on a
+component whose effective config targets that thesaurus exactly; the tree is then served
+read-only, every node gated by its own section. Without that scope the prune and the generic
+`perm.denied` stand as described above. The mode grant, the narrowing, `picker` and
+`root_terms_selectable` are unchanged.

@@ -27,6 +27,8 @@ import { clampClientLimit } from '../../concepts/sqo.ts';
 import { memoizedReadMatrixRecord } from '../../db/record_memo.ts';
 import { getMatrixTableFromTipo } from '../../ontology/resolver.ts';
 import { buildDataItem, type DataItem, EmissionContext } from '../../resolve/component_data.ts';
+import { depthBoundNotice, MAX_DDO_DEPTH } from '../element_node.ts';
+import type { ElementNodeRegistry } from '../element_registry.ts';
 import type { EmitDdoFn, RelationEmitContext, RelationModelResolver } from '../registry.ts';
 import { PORTAL_LIST_LIMIT } from '../relation_core.ts';
 import { portalResolver } from './portal.ts';
@@ -212,6 +214,145 @@ async function emitOwnConfigIndexData(
 }
 
 /**
+ * Stamp the related_list child cell ITSELF (`childTipo` at the pointing
+ * section, the first such item emitted from `from`) — never one of the items
+ * its own show expanded. PHP builds
+ * the direct cell in the pointing section's 'related_list' mode with no
+ * component source (so from_component_tipo echoes its own tipo), while a
+ * grandchild is built by that child's own get_subdatum: mode 'list'
+ * (trait.request_config_ddo.php resolve_ddo_mode, a non-section caller) and
+ * `from_component_tipo` = the child portal (class.common.php :2683-2686,
+ * echoed by get_data_item :3665). Re-stamping a grandchild with the direct
+ * cell's values would lose both.
+ */
+function stampDirectRelatedListCell(
+	items: readonly unknown[],
+	from: number,
+	childTipo: string,
+	pointingSection: string,
+): void {
+	for (let i = from; i < items.length; i++) {
+		const item = items[i] as DataItem;
+		if (item.tipo === childTipo && item.section_tipo === pointingSection) {
+			item.mode = 'related_list';
+			item.from_component_tipo = item.tipo;
+			return;
+		}
+	}
+}
+
+/**
+ * The related_list children of ONE pointing section (emitRelationIndexData):
+ * each child tipo resolved against each pool record, one hop deeper; the child
+ * cell itself re-stamped as a related_list cell of this index item, and every
+ * emitted item (its own expanded children too) given this row's stamps.
+ */
+async function emitRelatedListChildren(
+	context: RelationEmitContext,
+	table: string,
+	pointingSection: string,
+	recordIds: readonly number[],
+	childTipos: readonly string[],
+): Promise<void> {
+	const { ddo, row, callerTipo, emission, depth, emitDdo } = context;
+	const plans = await relatedListChildPlans(childTipos);
+	for (const recordId of recordIds) {
+		const targetRecord = await memoizedReadMatrixRecord(table, pointingSection, recordId);
+		if (targetRecord === null) continue;
+		for (const childTipo of childTipos) {
+			const plan = plans.get(childTipo) as RelatedListChildPlan;
+			const before = emission.items.length;
+			await emitDdo(
+				{
+					tipo: childTipo,
+					section_tipo: pointingSection,
+					parent: ddo.tipo,
+					mode: plan.mode,
+				} as Ddo,
+				[],
+				targetRecord,
+				{ section_tipo: pointingSection, section_id: recordId },
+				plan.mode,
+				'lg-nolan',
+				callerTipo,
+				emission,
+				// OWN CHILDREN exactly where PHP expands them (RelatedListChildPlan).
+				plan.ownChildren,
+				depth + 1,
+			);
+			// mode + from_component_tipo are the DIRECT cell's only; the row stamps
+			// and `parent` reach every item, grandchildren included (PHP
+			// :2789-2794 + sub_value->parent).
+			stampDirectRelatedListCell(emission.items, before, childTipo, pointingSection);
+			for (let i = before; i < emission.items.length; i++) {
+				const child = emission.items[i] as DataItem;
+				child.row_section_id = row.section_id;
+				child.parent_tipo = callerTipo;
+				(child as DataItem & { parent?: string }).parent = ddo.tipo;
+				emission.markStamped(child); // outer portals must not re-stamp
+			}
+		}
+	}
+}
+
+/**
+ * How ONE related_list child is emitted (verified 2026-11-04 against
+ * component_relation_index_json.php :190-206). PHP's no-request_config branch
+ * builds each pointing section in 'related_list' mode
+ * (get_section_datum_from_locator) and its get_json runs get_subdatum over the
+ * related_list ddos, whose mode stays 'related_list' (trait.request_config_v5
+ * .php :117 — a SECTION caller keeps its own mode for its ddos). So:
+ *
+ *  - a RELATION child with an EXPLICIT request_config expands its OWN show map
+ *    (component_portal_json.php :163 — every mode but 'solved' runs
+ *    get_subdatum), resolved in 'related_list' mode: its own properties, never
+ *    the section_list swap (trait.request_config_utils.php :270 swaps for
+ *    list / list_thesaurus / tm only), paged by the default branch;
+ *  - a config-less (v5) child resolves NO children in related_list mode
+ *    (resolve_ar_related_related_list returns [] for a non-section), and a
+ *    literal has none to resolve: both keep the pinned one-level 'list' cell
+ *    the parity store recorded.
+ */
+interface RelatedListChildPlan {
+	readonly mode: 'list' | 'related_list';
+	readonly ownChildren: boolean;
+}
+
+/** The plan of every related_list child tipo (RelatedListChildPlan). */
+async function relatedListChildPlans(
+	childTipos: readonly string[],
+): Promise<Map<string, RelatedListChildPlan>> {
+	const { getModelByTipo, getColumnNameByModel } = await import('../../ontology/resolver.ts');
+	const plans = new Map<string, RelatedListChildPlan>();
+	for (const childTipo of childTipos) {
+		const model = await getModelByTipo(childTipo);
+		const expands =
+			model !== null &&
+			getColumnNameByModel(model) === 'relation' &&
+			(await declaresOwnRequestConfig(childTipo));
+		plans.set(
+			childTipo,
+			expands ? { mode: 'related_list', ownChildren: true } : { mode: 'list', ownChildren: false },
+		);
+	}
+	return plans;
+}
+
+/**
+ * Whether `tipo` declares its OWN `properties.source.request_config` (PHP
+ * `isset($properties->source->request_config)`).
+ */
+async function declaresOwnRequestConfig(tipo: string): Promise<boolean> {
+	// alias-aware: a component_alias inherits its target's config (ontology/alias.ts)
+	const { getEffectivePropertiesByTipo } = await import('../../ontology/alias.ts');
+	const properties = (await getEffectivePropertiesByTipo(tipo)) as {
+		source?: { request_config?: unknown };
+	} | null;
+	const requestConfig = properties?.source?.request_config;
+	return requestConfig !== undefined && requestConfig !== null;
+}
+
+/**
  * No-request_config strategy (PHP json controller's per-locator branch):
  * entries = one page of inverse locators (+ full count pagination);
  * children = the pointing sections' related_list components resolved against
@@ -222,7 +363,7 @@ async function emitRelationIndexData(
 	context: RelationEmitContext,
 	config: RelationIndexConfig,
 ): Promise<void> {
-	const { ddo, row, ddoMode, callerTipo, emission, depth, emitDdo } = context;
+	const { ddo, row, ddoMode, callerTipo, emission, depth } = context;
 	const { findInverseReferenceLocators, countInverseReferences } = await import(
 		'../../search/search_related.ts'
 	);
@@ -291,34 +432,17 @@ async function emitRelationIndexData(
 		}
 		const childTipos = await getRelatedListChildTipos(pointingSection);
 		if (childTipos.length === 0) continue;
-		for (const recordId of recordIds) {
-			const targetRecord = await memoizedReadMatrixRecord(table, pointingSection, recordId);
-			if (targetRecord === null) continue;
-			for (const childTipo of childTipos) {
-				const before = emission.items.length;
-				await emitDdo(
-					{ tipo: childTipo, section_tipo: pointingSection, parent: ddo.tipo, mode: 'list' } as Ddo,
-					[],
-					targetRecord,
-					{ section_tipo: pointingSection, section_id: recordId },
-					'list',
-					'lg-nolan',
-					callerTipo,
-					emission,
-					false, // related_list children stay one level (PHP relation_list nodes)
-					depth + 1,
-				);
-				for (let i = before; i < emission.items.length; i++) {
-					const child = emission.items[i] as DataItem;
-					child.mode = 'related_list';
-					child.from_component_tipo = child.tipo;
-					child.row_section_id = row.section_id;
-					child.parent_tipo = callerTipo;
-					(child as DataItem & { parent?: string }).parent = ddo.tipo;
-					emission.markStamped(child); // outer portals must not re-stamp
-				}
-			}
+		// DEPTH BOUND (element_node.ts MAX_DDO_DEPTH): the related_list children
+		// sit one hop deeper, and the portal resolver's stop is not on this hop.
+		// Their tipos come from the ONTOLOGY (the pointing section's relation_list
+		// nodes), never from a client map — ordinary data, so stop here with a
+		// typed notice; the index item is emitted and the rest of the read
+		// completes.
+		if (depth + 1 > MAX_DDO_DEPTH) {
+			emission.nodes.addNotices([await depthBoundNotice(row, ddo.tipo, depth)]);
+			continue;
 		}
+		await emitRelatedListChildren(context, table, pointingSection, recordIds, childTipos);
 	}
 }
 
@@ -343,6 +467,13 @@ export async function readRelationIndexData(
 	requestLang: string,
 	emitDdo: EmitDdoFn,
 	mode = 'list',
+	/**
+	 * The producer's node registry (section/read.ts ProducedData): the
+	 * emissions below resolve their element nodes into it, so a get_data of a
+	 * relation_index hands its nodes on like every other producer. Absent = a
+	 * private one.
+	 */
+	nodes?: ElementNodeRegistry,
 ): Promise<DataItem[]> {
 	const { findInverseReferenceLocators, countInverseReferences } = await import(
 		'../../search/search_related.ts'
@@ -368,7 +499,7 @@ export async function readRelationIndexData(
 	// synthetic record holding the computed page (see emitOwnConfigIndexData);
 	// no representative seeding, no pool quirk (PHP get_subdatum branch).
 	if (config.hasRequestConfig) {
-		const emission = new EmissionContext();
+		const emission = new EmissionContext([], nodes === undefined ? {} : { nodes });
 		const syntheticRecord = {
 			id: 0,
 			section_id: Number(sectionId),
@@ -404,7 +535,7 @@ export async function readRelationIndexData(
 		return emission.items as DataItem[];
 	}
 
-	const emission = new EmissionContext();
+	const emission = new EmissionContext([], nodes === undefined ? {} : { nodes });
 	const item = buildDataItem(
 		tipo,
 		sectionTipo,
@@ -448,25 +579,32 @@ export async function readRelationIndexData(
 				entry.sectionId,
 			);
 			if (targetRecord === null) continue;
-			for (const childTipo of await getRelatedListChildTipos(entry.sectionTipo)) {
+			const childTipos = await getRelatedListChildTipos(entry.sectionTipo);
+			const plans = await relatedListChildPlans(childTipos);
+			for (const childTipo of childTipos) {
+				const plan = plans.get(childTipo) as RelatedListChildPlan;
 				const before = emission.items.length;
 				await emitDdo(
-					{ tipo: childTipo, section_tipo: entry.sectionTipo, parent: tipo, mode: 'list' } as Ddo,
+					{
+						tipo: childTipo,
+						section_tipo: entry.sectionTipo,
+						parent: tipo,
+						mode: plan.mode,
+					} as Ddo,
 					[],
 					targetRecord,
 					{ section_tipo: entry.sectionTipo, section_id: entry.sectionId },
-					'list',
+					plan.mode,
 					requestLang,
 					entry.sectionTipo, // parent_tipo = the pointing SECTION here
 					emission,
-					false,
+					// OWN CHILDREN exactly where PHP expands them (RelatedListChildPlan).
+					plan.ownChildren,
 					1,
 				);
+				stampDirectRelatedListCell(emission.items, before, childTipo, entry.sectionTipo);
 				for (let i = before; i < emission.items.length; i++) {
-					const childItem = emission.items[i] as DataItem;
-					childItem.mode = 'related_list';
-					childItem.from_component_tipo = childItem.tipo;
-					emission.markStamped(childItem);
+					emission.markStamped(emission.items[i] as DataItem);
 				}
 			}
 		}

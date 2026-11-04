@@ -88,6 +88,14 @@ const READONLY_CALLER = 'zzpc3';
  */
 const PRESET_CALLER = 'zzpc4';
 /**
+ * view:'tree' callers whose config SHOWS the thesaurus term (hierarchy25 on the
+ * scratch descriptor section) — a writer scope opens only a target its config
+ * shows a column of (security/writer_chain_scope.ts). The scoped writer holds
+ * EDIT on the first, READ on the second.
+ */
+const SCOPED_CALLER = 'zzpc5';
+const SCOPED_CALLER_R = 'zzpc6';
+/**
  * A tipo that exists NOWHERE else, planted in the caller's `show.ddo_map`. The
  * ddo_map governs how a LINKED value is displayed back in the caller — it is
  * not the tree's renderer, and its presence anywhere in the tree payload would
@@ -125,12 +133,25 @@ interface Identity {
 }
 
 let hierarchyId = 0;
+/**
+ * A scratch record in hierarchy20 — the NON-TARGET section the scoped area
+ * search must drop — carrying a matching hierarchy25 value, so a leak would
+ * return a hit (purged by its marker value in purgeScratch).
+ */
+let offTargetId = 0;
+const OFF_TARGET_TERM = `ZZ beside off-target ${TLD}`;
 /** The provisioning identity — its profile receives the provisioning grants. */
 let provisioner: Identity | undefined;
 /** dd100 + the scratch thesaurus + EDIT on one caller, READ on another. */
 let reader: Identity | undefined;
 /** dd100 only: every hierarchy is refused, nothing is unconfigured. */
 let outsider: Identity | undefined;
+/**
+ * dd100 + READ on the HOST section + EDIT on the picker caller, NOTHING on the
+ * scratch thesaurus: the owner-decision (i) writer, who browses the target tree
+ * ONLY through the caller's verified chain (security/writer_chain_scope.ts).
+ */
+let scopedWriter: Identity | undefined;
 let superuser: Principal;
 /** The second, deliberately NON-selectable root term. */
 let unselectableTermId = 0;
@@ -226,6 +247,20 @@ async function purgeScratch(): Promise<void> {
 			[id],
 		);
 	}
+	const offTarget = (await sql.unsafe(
+		`SELECT section_id FROM matrix_hierarchy WHERE section_tipo = 'hierarchy20' AND string @> $1::text::jsonb`,
+		[JSON.stringify({ hierarchy25: [{ value: OFF_TARGET_TERM }] })],
+	)) as { section_id: number }[];
+	const offTargetIds = new Set(offTarget.map((row) => Number(row.section_id)));
+	if (offTargetId !== 0) offTargetIds.add(offTargetId);
+	for (const id of offTargetIds) {
+		for (const table of ['matrix_hierarchy', 'matrix_time_machine']) {
+			await sql.unsafe(
+				`DELETE FROM "${table}" WHERE section_tipo = 'hierarchy20' AND section_id = $1`,
+				[id],
+			);
+		}
+	}
 	await sql.unsafe('DELETE FROM matrix_test WHERE section_tipo = $1 AND section_id = $2', [
 		HOST,
 		HOST_ID,
@@ -234,7 +269,7 @@ async function purgeScratch(): Promise<void> {
 		HOST,
 		HOST_ID,
 	]);
-	for (const identity of [provisioner, reader, outsider]) {
+	for (const identity of [provisioner, reader, outsider, scopedWriter]) {
 		if (identity === undefined) continue;
 		for (const [table, sectionTipo, sectionId] of [
 			['matrix_profiles', 'dd234', identity.profileId],
@@ -271,14 +306,16 @@ interface AreaReadBody {
 					selectable: boolean;
 				}[];
 			}[];
+			ts_search?: { found?: { section_tipo: string; section_id: number }[] };
 		}[];
 	};
 }
 
-/** The tree-area read, with or without a declared caller. */
+/** The tree-area read, with or without a declared caller (and, for a SEARCH, the client sqo). */
 async function readTree(
 	principal: Principal,
 	caller?: unknown,
+	sqo?: Record<string, unknown>,
 ): Promise<{ status: number; body: AreaReadBody }> {
 	const token = createSession(principal.userId, `u${principal.userId}`, principal.isGlobalAdmin);
 	const session = getSession(token);
@@ -297,7 +334,9 @@ async function readTree(
 			mode: 'list',
 			lang: 'lg-spa',
 			...(caller !== undefined ? { caller } : {}),
+			...(sqo !== undefined ? { search_action: 'search' } : {}),
 		},
+		...(sqo !== undefined ? { sqo } : {}),
 	};
 	const dispatched = await dispatchRqo(
 		rqo as never,
@@ -375,6 +414,26 @@ beforeAll(async () => {
 		'hierarchy25',
 		[{ id: 1, lang: 'lg-spa', value: 'ZZ not selectable' }],
 	);
+	// A literal NO caller config names (hierarchy41, an input_text of the
+	// hierarchy20 template): the scoped area search must not filter by it.
+	await updateMatrixKeyData(
+		'matrix_hierarchy',
+		TERMS,
+		unselectableTermId,
+		'string',
+		'hierarchy41',
+		[{ id: 1, lang: 'lg-nolan', value: 'ZZ hidden alias' }],
+	);
+	// The off-target record (offTargetId): a hierarchy20 term matching 'ZZ*'.
+	offTargetId = await createSectionRecord('hierarchy20', provisioner.userId);
+	await updateMatrixKeyData(
+		'matrix_hierarchy',
+		'hierarchy20',
+		offTargetId,
+		'string',
+		'hierarchy25',
+		[{ id: 1, lang: 'lg-spa', value: OFF_TARGET_TERM }],
+	);
 	// The four root terms — the selectability matrix (see the file header).
 	await registry('relation', 'hierarchy45', [
 		rootTerm(TERMS, 1, 1),
@@ -408,6 +467,19 @@ beforeAll(async () => {
 		{ view: 'tree', source: targetConfig(TERMS) },
 		TEMP_PRESET_SECTION,
 	);
+	for (const tipo of [SCOPED_CALLER, SCOPED_CALLER_R]) {
+		await buildCallerNode(tipo, {
+			view: 'tree',
+			source: {
+				request_config: [
+					{
+						sqo: { section_tipo: [{ value: [TERMS], source: 'section' }] },
+						show: { ddo_map: [{ tipo: 'hierarchy25', parent: 'self', section_tipo: TERMS }] },
+					},
+				],
+			},
+		});
+	}
 	await sql.unsafe('INSERT INTO matrix_test (section_id, section_tipo) VALUES ($1, $2)', [
 		HOST_ID,
 		HOST,
@@ -423,6 +495,12 @@ beforeAll(async () => {
 		{ tipo: READONLY_CALLER, section_tipo: HOST, value: 1 },
 	]);
 	outsider = await buildIdentity([{ tipo: AREA, section_tipo: AREA, value: 2 }]);
+	scopedWriter = await buildIdentity([
+		{ tipo: AREA, section_tipo: AREA, value: 2 },
+		{ tipo: HOST, section_tipo: HOST, value: 1 },
+		{ tipo: SCOPED_CALLER, section_tipo: HOST, value: 2 },
+		{ tipo: SCOPED_CALLER_R, section_tipo: HOST, value: 1 },
+	]);
 	superuser = await resolvePrincipal(-1);
 }, 180000);
 
@@ -803,3 +881,128 @@ describe.if(DB_READY)('the picker read — per-term selectability is the TERM’
 		).toBe(true);
 	});
 });
+
+describe.if(DB_READY)(
+	'owner decision (i): the AREA door reads an ungranted thesaurus ONLY through the verified writer chain',
+	() => {
+		// The tree picker's boot read (readTreeArea → resolveDeclaredPickerCaller →
+		// treeScope → filterHierarchiesByGrant). The scoped writer holds NOTHING on
+		// the scratch thesaurus, EDIT on the view:'tree' picker caller: the hierarchy
+		// is kept only when the picker caller names its `callers` chain and it
+		// verifies (subdatum_permission_native pins the node doors and the scope).
+		const hostRoot = [{ tipo: HOST, section_tipo: HOST, mode: 'edit' }];
+		const writer = () => scopedWriter?.principal as Principal;
+		const scopedAddress = { ...callerAddress, tipo: SCOPED_CALLER };
+
+		test('the fixture floor: the scoped writer holds no grant on the thesaurus', async () => {
+			expect(scopedWriter).toBeDefined();
+			expect((await getPermissionGrant(writer(), TERMS, TERMS)).level).toBe(0);
+			expect((await getPermissionGrant(writer(), HOST, SCOPED_CALLER)).level).toBe(2);
+			expect((await getPermissionGrant(writer(), HOST, SCOPED_CALLER_R)).level).toBe(1);
+		});
+
+		test('WITH the verified chain: the thesaurus is kept (relation mode), its own root terms only', async () => {
+			const { status, body } = await readTree(writer(), { ...scopedAddress, callers: hostRoot });
+			expect(status).toBe(200);
+			expect(body.data?.context?.[0]?.thesaurus_mode).toBe('relation');
+			const entry = scratchHierarchy(body);
+			expect(entry).toBeDefined();
+			// The scope opens the caller's TARGET only: hierarchy20 / test65 roots stay pruned.
+			expect((entry?.root_terms ?? []).every((term) => term.section_tipo === TERMS)).toBe(true);
+			expect((entry?.root_terms ?? []).length).toBeGreaterThan(0);
+		});
+
+		// THE AREA SEARCH DOOR (owner decision (i), W4b review): the client's
+		// sqo.section_tipo is judged like the hierarchy prune — read grant, or the
+		// verified tree scope's targets — and the scope's filter pairs are
+		// EXCLUSIVE on the sections it opened (hierarchy25 is the only pair).
+		const termSearch = (q: string, sections: string[] = [TERMS], component = 'hierarchy25') => ({
+			section_tipo: sections,
+			limit: 10,
+			offset: 0,
+			filter: { $and: [{ q, path: [{ section_tipo: sections[0], component_tipo: component }] }] },
+		});
+		const foundOf = (body: AreaReadBody) =>
+			(body.data?.data?.[0]?.ts_search?.found ?? []).map(
+				(hit) => `${hit.section_tipo}_${hit.section_id}`,
+			);
+		const notSelectable = () => `${TERMS}_${unselectableTermId}`;
+
+		test('search WITH the verified chain finds in the target (hit vs miss)', async () => {
+			const caller = { ...scopedAddress, callers: hostRoot };
+			const hit = await readTree(writer(), caller, termSearch('ZZ not*'));
+			expect(hit.status).toBe(200);
+			expect(foundOf(hit.body)).toContain(notSelectable());
+			const miss = await readTree(writer(), caller, termSearch('ZZ nomatch*'));
+			expect(miss.status).toBe(200);
+			expect(foundOf(miss.body)).toEqual([]);
+		});
+
+		test('a plain (caller-less) area search of the ungranted thesaurus → perm.denied', async () => {
+			const { status, body } = await readTree(writer(), undefined, termSearch('ZZ not*'));
+			expect(status).toBe(403);
+			expect(body.error?.code).toBe('perm.denied');
+		});
+
+		test('under the chain, a NON-TARGET ungranted section is not searched: dropped beside the target, refused alone', async () => {
+			const caller = { ...scopedAddress, callers: hostRoot };
+			const offTarget = `hierarchy20_${offTargetId}`;
+			// Control (non-vacuity): the off-target record IS reachable by the same
+			// search — the superuser (no scope) finds it beside the target term.
+			const admin = await readTree(
+				superuser as Principal,
+				undefined,
+				termSearch('ZZ*', [TERMS, 'hierarchy20']),
+			);
+			expect(admin.status).toBe(200);
+			expect(foundOf(admin.body)).toContain(offTarget);
+			expect(foundOf(admin.body)).toContain(notSelectable());
+			const beside = await readTree(writer(), caller, termSearch('ZZ*', [TERMS, 'hierarchy20']));
+			expect(beside.status).toBe(200);
+			expect(foundOf(beside.body)).toContain(notSelectable());
+			expect(foundOf(beside.body)).not.toContain(offTarget);
+			expect(foundOf(beside.body).every((hit) => hit.startsWith(`${TERMS}_`))).toBe(true);
+			const alone = await readTree(writer(), caller, termSearch('ZZ*', ['hierarchy20']));
+			expect(alone.status).toBe(403);
+			expect(alone.body.error?.code).toBe('perm.denied');
+		});
+
+		test('under the chain, a FILTER on a target component outside the config stays KEYED (hit = miss)', async () => {
+			// hierarchy41 is no pair of the scoped caller's config: matrix_hierarchy
+			// is globally visible, so before the exclusive floor the frontier
+			// admitted it and the hit found the term.
+			const caller = { ...scopedAddress, callers: hostRoot };
+			const byAlias = (q: string) => termSearch(q, [TERMS], 'hierarchy41');
+			const hit = await readTree(writer(), caller, byAlias('ZZ hidden*'));
+			const miss = await readTree(writer(), caller, byAlias('ZZ nomatch*'));
+			expect(hit.status).toBe(200);
+			expect(foundOf(hit.body)).not.toContain(notSelectable());
+			expect(foundOf(hit.body)).toEqual(foundOf(miss.body));
+			// Control: the superuser (no scope, ordinary keys) finds it by the same path.
+			const admin = await readTree(superuser as Principal, undefined, byAlias('ZZ hidden*'));
+			expect(admin.status).toBe(200);
+			expect(foundOf(admin.body)).toContain(notSelectable());
+		});
+
+		for (const [label, caller] of [
+			['WITHOUT a chain', scopedAddress],
+			[
+				'a FORGED chain (a root that does not declare the caller)',
+				{
+					...scopedAddress,
+					callers: [{ tipo: SCOPED_CALLER_R, section_tipo: HOST, mode: 'edit' }],
+				},
+			],
+			[
+				'the READ-ONLY tree caller under the same chain',
+				{ ...scopedAddress, tipo: SCOPED_CALLER_R, callers: hostRoot },
+			],
+		] as const) {
+			test(`${label}: the thesaurus is pruned → perm.denied`, async () => {
+				const { status, body } = await readTree(writer(), caller);
+				expect(status).toBe(403);
+				expect(body.error?.code).toBe('perm.denied');
+			});
+		}
+	},
+);

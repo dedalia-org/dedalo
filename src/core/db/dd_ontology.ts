@@ -726,6 +726,99 @@ export async function listTiposWithApiConfig(): Promise<string[]> {
 	return rows.map((row) => row.tipo);
 }
 
+/** One node that DECLARES a request_config (readDdOntologyRequestConfigRows). */
+export interface DdOntologyRequestConfigRow {
+	tipo: string;
+	tld: string | null;
+	parent: string | null;
+	model: string | null;
+	/** `properties.source.request_config` verbatim (a JSON array — the WHERE guarantees it). */
+	request_config: unknown[];
+}
+
+/**
+ * Every dd_ontology node whose `properties.source.request_config` is an
+ * ARRAY — the definitions the level >= 2 'self' ontology check walks
+ * (relations/request_config/self_depth_check.ts). `tlds` narrows to those
+ * TLDs; null = the whole installed ontology. Read-only, uncached (an operator
+ * check must see the current rows). Lives here, not in relations/, so raw
+ * SQL stays confined to the db layer (sql_confinement tiering).
+ */
+export async function readDdOntologyRequestConfigRows(
+	tlds: readonly string[] | null,
+): Promise<DdOntologyRequestConfigRow[]> {
+	if (tlds !== null && tlds.length === 0) return [];
+	const rows = (await sql.unsafe(
+		`SELECT tipo, tld, parent, model, properties->'source'->'request_config' AS request_config
+		   FROM dd_ontology
+		  WHERE jsonb_typeof(properties->'source'->'request_config') = 'array'
+		    AND ($1::text IS NULL OR tld = ANY(string_to_array($1::text, ',')))
+		  ORDER BY tld, id`,
+		[tlds === null ? null : tlds.join(',')],
+	)) as DdOntologyRequestConfigRow[];
+	return rows;
+}
+
+/**
+ * One SECTION's list-config facts (readDdOntologySectionListFacts): whether it
+ * keeps its own config in list mode, its relations (the virtual→real walk's
+ * input) and the list-node models among its OWN children.
+ */
+export interface DdOntologySectionListFacts {
+	tipo: string;
+	/**
+	 * `properties.source.request_config` is SET — any non-null JSON value, the
+	 * read's isset test (build.ts `sectionKeepsOwn`, PHP :274), never the array
+	 * shape alone.
+	 */
+	keeps_own: boolean;
+	relations: { tipo?: unknown }[] | null;
+	/** The distinct `section_list` / `section_list_thesaurus` models of its own children. */
+	list_models: string[];
+}
+
+/**
+ * Every model='section' node of the WHOLE installed ontology with the facts
+ * that decide whether a read ever swaps a section_list node in
+ * (relations/request_config/self_depth_check.ts configReaders): its keep-own
+ * test and, for the virtual fallback, its relations and own list children.
+ * Never TLD-scoped — a list node's reader (its section, or a virtual section
+ * of it) may live in another TLD. Read-only, uncached.
+ */
+export async function readDdOntologySectionListFacts(): Promise<DdOntologySectionListFacts[]> {
+	return (await sql.unsafe(
+		`SELECT s.tipo,
+		        COALESCE(jsonb_typeof(s.properties->'source'->'request_config') <> 'null', false) AS keeps_own,
+		        s.relations,
+		        COALESCE((SELECT jsonb_agg(DISTINCT c.model)
+		                    FROM dd_ontology c
+		                   WHERE c.parent = s.tipo
+		                     AND c.model IN ('section_list', 'section_list_thesaurus')), '[]'::jsonb) AS list_models
+		   FROM dd_ontology s
+		  WHERE s.model = 'section'`,
+	)) as DdOntologySectionListFacts[];
+}
+
+/**
+ * The list nodes a read can ever swap in: per (parent, model), the FIRST
+ * `section_list` / `section_list_thesaurus` child by `order_number` — exactly
+ * the row build.ts `findSectionListChild` picks (`ORDER BY order_number ASC
+ * LIMIT 1`; Postgres puts a NULL order_number last in both). A parent may hold
+ * several list children (tch546 ×4, oh123 ×2, tch20 ×2): only the first is
+ * ever a request_config (relations/request_config/self_depth_check.ts
+ * configReaders). Whole ontology, read-only, uncached.
+ */
+export async function readDdOntologyFirstListNodeTipos(): Promise<Set<string>> {
+	const rows = (await sql.unsafe(
+		`SELECT DISTINCT ON (parent, model) tipo
+		   FROM dd_ontology
+		  WHERE model IN ('section_list', 'section_list_thesaurus')
+		    AND parent IS NOT NULL
+		  ORDER BY parent, model, order_number ASC`,
+	)) as { tipo: string }[];
+	return new Set(rows.map((row) => row.tipo));
+}
+
 // --- Active-TLD set (PHP ontology_utils::get_active_tlds / check_active_tld) --
 
 /**

@@ -811,6 +811,7 @@ describe('view_order — the ranking column must be READABLE by the request prin
 describe('context — declared_order', () => {
 	const contextOf = (tipo: string) =>
 		buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo,
 			sectionTipo: SECTION,
 			mode: 'edit',
@@ -867,6 +868,7 @@ describe('alias — the declared order is asked by the DATA tipo: context, refus
 		});
 	const contextOf = (tipo: string) =>
 		buildStructureContext({
+			configFrom: { source: 'own', reason: 'unit-test' },
 			tipo,
 			sectionTipo: SECTION,
 			mode: 'edit',
