@@ -66,13 +66,13 @@
 .wrapper_tool.tool_user_admin > .content_data .components_container .wrapper_component.dd522 {
   grid-row: 1 / span 4;
   grid-column: span 4;
-  height: 26rem;
+  height: 29rem;
 }
 .wrapper_tool.tool_user_admin > .content_data .active_style_switcher {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  margin-top: 2rem;
+  margin-top: 0.5rem;
   padding: 1rem var(--field_inset_x);
   border: 1px solid var(--border_default);
   border-radius: 8px;
