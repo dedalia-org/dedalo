@@ -1160,6 +1160,7 @@ Externally provided values win over `test/preload/session_db.ts` defaults and ov
 | `DEDALO_TS_STATE_PATH` | scratch json (runner) | real maintenance-mode state |
 | `DB_NAME` / `DEDALO_DATABASE_CONN` | the SUITE database (runner) | the application's records |
 | `DEDALO_TEST_MEDIA_ROOT` | `../private/test_media/<suite db>` (runner and preload) | the installation's media tree; the key also ARMS the `.dedalo_test_media` refusal |
+| `DEDALO_RECONCILE_SCHEDULER_ENABLED` | `false` (runner's server) | the installation's publication hosts and their private runtime file: the scheduled reconciles and the media-copy worker never run from a suite server |
 | `DEDALO_DIFFUSION_DB_SOCKET` / `_USER` / `_PASSWORD` / `_HOST` / `_PORT` | `bun test` ONLY: the lane's suite MariaDB socket, its suite user, blank host/port — set by `test/preload/suite_mariadb.ts`, which OVERRIDES any externally provided value (the exception to the precedence rule above). NOT yet the client suite's server (see below) | the installation's MariaDB publication databases |
 
 `scripts/client_test_runner.ts` starts its own server with all of these EXCEPT the

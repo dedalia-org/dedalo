@@ -25601,6 +25601,12 @@ body.inspector_resizing {
   min-height: var(--content_data_min_height);
   overflow-x: auto;
 }
+@media screen and (min-width: 1025px) {
+  .component_portal.view_default.edit > .list_body:has(>.content_data >.section_record >.column_section_id >.drag),
+  .portal.view_default.edit > .list_body:has(>.content_data >.section_record >.column_section_id >.drag) {
+    padding-left: 2.2rem;
+  }
+}
 @media screen and (max-width: 1024px) {
   .component_portal.view_default.edit > .list_body.layout_table:where(:not(.column *)),
   .portal.view_default.edit > .list_body.layout_table:where(:not(.column *)) {

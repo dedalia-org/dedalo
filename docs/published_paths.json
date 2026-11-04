@@ -254,6 +254,7 @@
     "diffusion/publication_api/v2/search_and_fragments",
     "diffusion/publication_api/v2/security",
     "install/",
+    "install/bun_runtime",
     "install/dev_quickstart",
     "install/docker",
     "install/install_h264_module",

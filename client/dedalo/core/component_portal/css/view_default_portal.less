@@ -21,6 +21,19 @@
 			// display:table .section.edit under the fixed inspector
 			overflow-x: auto;
 
+			// the desktop gutter handle (component_portal.less `.drag.icon`,
+			// left:-2.2rem) must sit INSIDE this scrollport. With the 1rem padding
+			// its centre landed in the clipped strip at the list's left edge, where
+			// Chrome starts no drag at all (no dragstart, and puppeteer's
+			// dragAndDrop waits on Input.dragIntercepted forever — measured on
+			// test:crawl portal_reorder). Reserve the handle's own width; only when
+			// a handle exists, and desktop-only (the phone card carries it in flow)
+			@media screen and (min-width: (@width_break_point_0 + 1)) {
+				&:has(>.content_data >.section_record >.column_section_id >.drag) {
+					padding-left: 2.2rem;
+				}
+			}
+
 			// PHONE: the table becomes cards (list.less 'PHONE CARDS'), so the
 			// list_body is a plain block like every phone list_body — this 0,4,0
 			// grid (and its inline column tracks) would squeeze the cards into

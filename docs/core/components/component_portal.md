@@ -381,8 +381,11 @@ none on a row.
   id cell; rows stay non-draggable so their inputs keep text selection). On a
   desktop the handle hangs in the left gutter, invisible until the row is
   hovered or focused (it is never `display:none`, so it stays in the Tab order).
-  On a phone card it sits inside the id cell and is always visible. The
-  `mosaic` and `line` edit views drag the **whole row**.
+  That gutter is reserved **inside the list's own scrollport** (a wide table
+  scrolls sideways there), so the handle is never clipped by the list edge: a
+  clipped handle starts no native drag from its centre, however normal it looks
+  to a hit test. On a phone card it sits inside the id cell and is always
+  visible. The `mosaic` and `line` edit views drag the **whole row**.
 - **Drop on a row.** Every row is a target, placeholders included. A row under
   an accepted drag gets `.dragover`; the dragged row gets `.dragging`; both
   paint the row's ring. A drop on the wrapper outside any row is a MOVE only

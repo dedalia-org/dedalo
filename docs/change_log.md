@@ -188,6 +188,14 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-04-nested-paging-add-show`, `WC-2026-11-04-caller-chain-per-occurrence`, `WC-2026-11-04-config-less-element-adopts-caller-children`, `WC-2026-11-04-nested-list-payload-growth`, `WC-2026-11-04-record-cycle-stop`, `WC-2026-11-04-ddinfo-gates-kept`, `WC-2026-11-04-context-traversal-order`, `WC-2026-11-04-governing-limit-sqo-limit-only`.
 
+- **A portal row’s reorder handle is fully visible and grabbable again.**
+
+    A portal in edit mode whose rows can be reordered shows the drag handle in a
+    gutter at the left of the row. The list cut the left half of that gutter off at
+    its edge, so the handle was half hidden and a drag aimed at the cut part did
+    nothing at all. The gutter is now reserved inside the list, so the whole handle
+    is shown and a drag from it starts every time.
+
 - **A search field no longer jumps when you click it, and the date picker button stays on its field**
 
     In the search panel, clicking into a filter field used to shrink its name row and pull the whole field up by a line, so the row you aimed at moved under the pointer. The date fields' calendar button made it worse: it rode that shift and covered the field's own name.
@@ -782,6 +790,14 @@ Merged since the last release; these ship with the next one.
     When the update would be accepted, it prints `check: would update <from> -> <to>` and exits `0`. When it would be refused, it prints the same refusal a real run gives and exits non-zero. See [Updating the image](./install/docker.md#upgrading).
 
 #### Fixed
+
+- **The Bun-runtime procedure finds an instance whose name contains dots.**
+
+    On a host whose instance is named after its domain — `dedalo-ts@example.org`, not
+    `dedalo-ts@prado` — the block that reads the instance name stopped at the first dot
+    and printed nothing, so every later command in
+    [Updating the Bun runtime](./install/bun_runtime.md) ran against an empty name.
+    It now reads the whole name, dots included.
 
 - **The root user can now open their own account panel by clicking their name in the header.**
 
