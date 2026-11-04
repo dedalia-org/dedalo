@@ -6,8 +6,8 @@
 	},
 	"measured": {
 		"tier_files": 1347,
-		"tier_tests": 20988,
-		"tier_pass": 20940,
+		"tier_tests": 20996,
+		"tier_pass": 20948,
 		"tier_skip": 48,
 		"failing_files": 0,
 		"failing_tests": 0
@@ -297,7 +297,7 @@
 		"test/unit/area_picker_mode_native.test.ts": {
 			"tests": 31,
 			"skipped": 0,
-			"assertions": 104
+			"assertions": 109
 		},
 		"test/unit/area_security.test.ts": {
 			"tests": 8,
@@ -3430,14 +3430,14 @@
 			"assertions": 21
 		},
 		"test/unit/nested_ddo_data_native.test.ts": {
-			"tests": 71,
+			"tests": 72,
 			"skipped": 0,
-			"assertions": 446
+			"assertions": 456
 		},
 		"test/unit/nested_ddo_map_injection_native.test.ts": {
-			"tests": 28,
+			"tests": 32,
 			"skipped": 0,
-			"assertions": 142
+			"assertions": 158
 		},
 		"test/unit/nightly_no_data_tripwire.test.ts": {
 			"tests": 5,
@@ -3457,7 +3457,7 @@
 		"test/unit/node_context_set.test.ts": {
 			"tests": 7,
 			"skipped": 0,
-			"assertions": 20
+			"assertions": 26
 		},
 		"test/unit/node_lock_coexistence.test.ts": {
 			"tests": 1,
@@ -5440,9 +5440,9 @@
 			"assertions": 19
 		},
 		"test/unit/subdatum_permission_native.test.ts": {
-			"tests": 100,
+			"tests": 103,
 			"skipped": 0,
-			"assertions": 336
+			"assertions": 363
 		},
 		"test/unit/subtitles.test.ts": {
 			"tests": 14,
