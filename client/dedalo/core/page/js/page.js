@@ -294,10 +294,7 @@ page.prototype.init = async function(options) {
 			const activate_component_handler = function(component_instance) {
 
 				// lock_component. launch worker
-				// (!) the id badge is selectable but has no value to edit, so it
-				// never takes a lock (a second user would get an 'in use' modal
-				// over the record's identity)
-				if (typeof DEDALO_LOCK_COMPONENTS!=='undefined' && DEDALO_LOCK_COMPONENTS===true && component_instance.mode==='edit' && component_instance.model!=='component_section_id') {
+				if (typeof DEDALO_LOCK_COMPONENTS!=='undefined' && DEDALO_LOCK_COMPONENTS===true && takes_lock(component_instance)) {
 					dd_request_idle_callback(
 						() => {
 							data_manager.request({
@@ -578,6 +575,18 @@ page.prototype.init = async function(options) {
 * @param {ApiError} api_error
 * @return bool always false, so callers can `return set_page_error(…)`
 */
+/**
+* TAKES_LOCK
+* Whether an active component holds a component soft-lock (focus + heartbeat).
+* (!) The id badge is selectable but has nothing to edit: it never locks, or a
+* second user would get an 'in use' modal over the record's identity.
+* @param object component
+* @return bool
+*/
+const takes_lock = (component) => component.mode==='edit' && component.model!=='component_section_id'
+
+
+
 const set_page_error = function(api_error) {
 
 	page_globals.page_error = api_error
@@ -1264,8 +1273,7 @@ page.prototype.add_events = function() {
 					return
 				}
 				const ca = page_globals.component_active
-				// (!) the id badge holds no lock (see the activate handler)
-				if (!ca || ca.mode!=='edit' || ca.model==='component_section_id') {
+				if (!ca || !takes_lock(ca)) {
 					return
 				}
 				data_manager.request({
