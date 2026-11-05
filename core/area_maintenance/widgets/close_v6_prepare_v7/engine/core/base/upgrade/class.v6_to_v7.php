@@ -531,6 +531,31 @@ class v6_to_v7 {
 					print_cli(common::$pdata);
 				}
 
+				// Obsolete v4/v5 ontology sections: DELETE, never translated (owner decision).
+				if (v6_to_v7::is_obsolete_ontology_row($section_tipo)) {
+					if ($save) {
+						pg_query_params(
+							$conn,
+							'DELETE FROM ' . pg_escape_identifier($conn, $table) . ' WHERE id = $1',
+							[$id]
+						);
+					}
+					v6_to_v7_normalize::add(
+						$response,
+						'OBSOLETE_ONTOLOGY_ROW_DELETED',
+						v6_to_v7_normalize::SEVERITY_FIXED,
+						[
+							'table'			=> $table,
+							'section_tipo'	=> $section_tipo,
+							'section_id'	=> $section_id,
+							'tipo'			=> '',
+							'model'			=> ''
+						],
+						'Row deleted: section ' . $section_tipo . ' is an obsolete v4/v5 ontology definition'
+					);
+					return;
+				}
+
 				// datos properties
 				// Rows without a 'datos' value (already migrated or empty) are skipped silently.
 				if( isset($datos) ){
@@ -1028,6 +1053,27 @@ class v6_to_v7 {
 					return;
 				}
 
+				// Obsolete v4/v5 ontology sections: DELETE, never translated (owner decision).
+				if (v6_to_v7::is_obsolete_ontology_row($section_tipo)) {
+					if ($save) {
+						tm_db_manager::delete( (int)$id );
+					}
+					v6_to_v7_normalize::add(
+						$response,
+						'OBSOLETE_ONTOLOGY_TM_ROW_DELETED',
+						v6_to_v7_normalize::SEVERITY_FIXED,
+						[
+							'table'			=> $table,
+							'section_tipo'	=> $section_tipo,
+							'section_id'	=> $row['section_id'] ?? '',
+							'tipo'			=> (string)$tipo,
+							'model'			=> ''
+						],
+						'Time-machine row deleted: section ' . $section_tipo . ' is an obsolete v4/v5 ontology definition'
+					);
+					return;
+				}
+
 				// Test TLD rows: DELETE, before anything is migrated. The `test` TLD is the
 				// Dédalo test suite's fixture namespace; its history has no place in an
 				// installation, component and section rows alike (owner decision 2026-10-24).
@@ -1349,6 +1395,24 @@ class v6_to_v7 {
 	 * Each entry names the component's ONE target section and its relation type, so the
 	 * conversion is exact, never inferred.
 	 */
+	public const OBSOLETE_ONTOLOGY_SECTIONS = [
+		// v4/v5 ontology definitions. v6 and v7 define the ontology by ontology TLD, so
+		// every row of these sections is noise: not translated, deleted (owner decision).
+		'dd1500',
+		'dd1560',
+		'dd1266'
+	];
+
+	/**
+	 * IS_OBSOLETE_ONTOLOGY_ROW
+	 * True when a row belongs to a section listed in OBSOLETE_ONTOLOGY_SECTIONS.
+	 * @param mixed $section_tipo Row section_tipo (may be null on malformed rows)
+	 * @return bool
+	 */
+	public static function is_obsolete_ontology_row( mixed $section_tipo ) : bool {
+		return in_array($section_tipo, self::OBSOLETE_ONTOLOGY_SECTIONS, true);
+	}//end is_obsolete_ontology_row
+
 	public const STALE_ONTOLOGY_TM_TIPOS = [
 		// Ontology section → component tipos whose TM rows there are old ontology node
 		// JSON (2021-02..2024-09), not data of any current component of dd1500:
