@@ -82,7 +82,7 @@ const S = situation({
 			section_tipo: SECTION,
 			section_id: 1,
 			columns: {
-				string: { [MACHINE_NAME]: nolan('table_x'), [TLD]: nolan('zz') },
+				string: { [MACHINE_NAME]: nolan('table_x'), [TLD]: nolan('aa') },
 				relation: { [FLAG]: flag(YES) },
 			},
 		},
@@ -94,7 +94,7 @@ const S = situation({
 				string: {
 					[LABEL]: labelItems('Coins'),
 					[MACHINE_NAME]: nolan('stray_name'),
-					[TLD]: nolan('zz'),
+					[TLD]: nolan('aa'),
 				},
 				relation: { [FLAG]: flag(NO) },
 			},
@@ -104,7 +104,7 @@ const S = situation({
 			section_tipo: SECTION,
 			section_id: 3,
 			columns: {
-				string: { [LABEL]: labelItems('Borrowed'), [TLD]: nolan('zz') },
+				string: { [LABEL]: labelItems('Borrowed'), [TLD]: nolan('aa') },
 				relation: { [FLAG]: flag(YES) },
 			},
 		},
@@ -112,7 +112,7 @@ const S = situation({
 			// 4. flag unset: the declared term
 			section_tipo: SECTION,
 			section_id: 4,
-			columns: { string: { [LABEL]: labelItems('Unset'), [TLD]: nolan('zz') } },
+			columns: { string: { [LABEL]: labelItems('Unset'), [TLD]: nolan('aa') } },
 		},
 	],
 });
@@ -136,7 +136,7 @@ test('flag Yes: the machine name replaces the label at its position, and is what
 	const term = await termOf(1);
 
 	expect(term.tipo).toEqual([MACHINE_NAME, TLD]);
-	expect(String(term.value)).toBe('table_x zz');
+	expect(String(term.value)).toBe('table_x aa');
 	expect(term.model).toBe('component_input_text');
 });
 
@@ -153,7 +153,7 @@ test('flag Yes with no machine name: the label is not borrowed', async () => {
 
 	expect(term.tipo).toEqual([MACHINE_NAME, TLD]);
 	expect(String(term.value)).not.toContain('Borrowed');
-	expect(String(term.value).trim()).toBe('zz');
+	expect(String(term.value).trim()).toBe('aa');
 });
 
 test('flag unset: the declared term (No is the default)', async () => {
