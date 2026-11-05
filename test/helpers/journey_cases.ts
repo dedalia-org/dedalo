@@ -15,7 +15,7 @@
  * the UI hides).
  */
 
-import type { BrowserContext, Page } from 'puppeteer';
+import type { BrowserContext, Page, Point } from 'puppeteer';
 
 export type PersonaName = 'root' | 'admin' | 'editor';
 
@@ -231,6 +231,43 @@ async function rowPoint(
 	if (typeof point === 'string')
 		throw new Error(`row ${index}${part ? ` ${part}` : ''} of the portal: ${point}`);
 	return point;
+}
+
+/**
+ * Drag `from`→`to` through Chrome's own drag interception, BOUNDED.
+ * Puppeteer's `mouse.dragAndDrop` awaits `Input.dragIntercepted` with NO timeout:
+ * a press point Chrome starts no drag from (a clipped handle, a prevented
+ * dragstart) used to hang the whole crawl forever, holding the suite lock. Ten
+ * seconds is ~300× a working drag; a timeout is a journey finding, never a hang.
+ * A timed-out drag cannot be cancelled: it dies with the journey's page/context,
+ * which runJourneys closes — do not reuse this on a long-lived page.
+ */
+async function dragAndDrop(page: Page, from: Point, to: Point): Promise<void> {
+	await page.setDragInterception(true);
+	const drag = page.mouse.dragAndDrop(from, to);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		await Promise.race([
+			drag,
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(
+					() =>
+						reject(
+							new Error(
+								`drag did not start: no Input.dragIntercepted in 10 s from (${Math.round(from.x)},${Math.round(from.y)}) — is that a hittable point of the source?`,
+							),
+						),
+					10_000,
+				);
+			}),
+		]);
+	} finally {
+		clearTimeout(timer);
+		// after a timeout the button is still down; on success dragAndDrop already
+		// released it and this call throws — the catch is the success path
+		await page.mouse.up().catch(() => {});
+		await page.setDragInterception(false).catch(() => {});
+	}
 }
 
 /**
@@ -1008,15 +1045,11 @@ export const JOURNEYS: Record<string, Journey> = {
 				await page.goto(url(section, 'edit', host), { waitUntil: 'networkidle0', timeout: 60_000 });
 				await scrollTo(page, `${portal} .section_record .drag`);
 				await scrollRowsIntoView(page, portal);
-				await page.setDragInterception(true);
-				try {
-					const from = await rowPoint(page, portal, 1, '.drag');
-					const to = await rowPoint(page, portal, 0, REORDER_CELL);
-					await page.mouse.move(from.x, from.y);
-					await page.mouse.dragAndDrop(from, to);
-				} finally {
-					await page.setDragInterception(false);
-				}
+				await dragAndDrop(
+					page,
+					await rowPoint(page, portal, 1, '.drag'),
+					await rowPoint(page, portal, 0, REORDER_CELL),
+				);
 				await idle(page);
 				await expectStored([b, a, c], 'after the desktop drag');
 

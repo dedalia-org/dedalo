@@ -511,6 +511,9 @@ describe('additional_path: the section-scoped call sites are a NAMED, shrink-onl
 				.replace(/\/\*[\s\S]*?\*\//g, '')
 				.split('\n')
 				.filter((line) => !/^\s*(\/\/|import\b|\}?\s*from ')/.test(line))
+				// A DYNAMIC import's binding is an import binding too — `const { x } = await
+				// import('…')` is how a lazily-loaded module is named, not a bare reference.
+				.filter((line) => !/^\s*(?:const|let)\s*\{[^}]*\}\s*=\s*await import\(/.test(line))
 				.filter((line) => !/^\s*resolveMediaPathOptions,?\s*$/.test(line))
 				.join('\n');
 			for (const match of body.matchAll(/resolveMediaPathOptions\s*(\(([^)]*)\))?/g)) {

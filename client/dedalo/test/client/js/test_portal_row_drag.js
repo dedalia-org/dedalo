@@ -581,6 +581,16 @@ describe('PORTAL ROW DRAG', function () {
 			assert.equal(getComputedStyle(handle).opacity, '1', 'the reached handle is not revealed');
 			const box = handle.getBoundingClientRect();
 			assert.equal(box.width > 0 && box.height > 0, true, 'the handle has no box');
+			// the gutter must be INSIDE the list's scrollport: `overflow-x: auto`
+			// clips it otherwise, and Chrome then starts no native drag from the
+			// clipped part (elementFromPoint still returns the handle — the crawl's
+			// portal_reorder hung on exactly that). See view_default_portal.less.
+			const port = handle.closest('.list_body').getBoundingClientRect();
+			assert.equal(
+				box.left >= port.left - 0.5 && box.right <= port.right + 0.5,
+				true,
+				`the handle is clipped by the list scrollport (${Math.round(box.left)}…${Math.round(box.right)} vs ${Math.round(port.left)}…${Math.round(port.right)})`,
+			);
 			const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
 			assert.equal(hit === handle || handle.contains(hit), true, 'the point at the handle centre is not the handle');
 

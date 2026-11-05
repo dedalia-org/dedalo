@@ -93,7 +93,16 @@
 
 			// header: the field name, strong and dark (it is what the user
 			// scans for), with room on the right for the three controls
-			>.label {
+			// (!) `.active` is the SAME label box, not a variant: the default
+			// active look (layout.less `.wrapper_component…active >.label`)
+			// restyles the label of any focused field — its own padding, a
+			// fixed `--component_label_height` and the edit font size — and
+			// this sheet loads after it, so activating a card would resize the
+			// label (two lines → one) and jerk the whole body up under the
+			// pointer. Same declarations in both states: the card's in-use mark
+			// is its orange edge, not a re-laid label.
+			>.label,
+			&.active >.label {
 				grid-row: 1;
 				grid-column: 1;
 				padding: @card_inset 4.25rem @card_inset @card_inset; // same step above, around and below the label

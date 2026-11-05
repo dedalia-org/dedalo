@@ -1619,7 +1619,7 @@ describe("rule 6b — the client server's stateful surfaces are the suite databa
 			const m = await import(${JSON.stringify(join(REPO_ROOT, 'scripts', 'client_test_server.ts'))});
 			const paths = m.suiteServerPaths();
 			const out = m.suiteServerEnvironment({ suiteDb: ${JSON.stringify(suiteDb)}, port: 1, ...paths });
-			const keys = ['DB_NAME', 'DEDALO_TEST_MEDIA_ROOT', 'DEDALO_TEST_RAG_DB_NAME', 'DEDALO_SESSION_DB_PATH', 'SERVER_UNIX_SOCKET', 'DEDALO_TS_STATE_PATH'];
+			const keys = ['DB_NAME', 'DEDALO_TEST_MEDIA_ROOT', 'DEDALO_TEST_RAG_DB_NAME', 'DEDALO_SESSION_DB_PATH', 'SERVER_UNIX_SOCKET', 'DEDALO_TS_STATE_PATH', 'DEDALO_RECONCILE_SCHEDULER_ENABLED'];
 			console.log(JSON.stringify(Object.fromEntries(keys.map((k) => [k, out[k] ?? null]))));
 		`;
 		const child = Bun.spawnSync(['bun', '-e', script], { cwd: REPO_ROOT, env });
@@ -1638,6 +1638,13 @@ describe("rule 6b — the client server's stateful surfaces are the suite databa
 			"the client server's vector database must be the suite's own `<suite db>_rag` — unset, its ragSql resolves to the installation's semantic index",
 		).toBe(suiteRagDatabaseName(suiteDb));
 		expect(served.DEDALO_TEST_RAG_DB_NAME).not.toBe(installationRagDatabaseName());
+		// the reconcile scheduler + media-copy worker must never drive the
+		// installation's publication hosts (they rewrite the runtime file beside the
+		// real registry); the suite server pins the gate off
+		expect(
+			served.DEDALO_RECONCILE_SCHEDULER_ENABLED,
+			"the client server must not run the reconciler against the installation's publication hosts",
+		).toBe('false');
 	});
 
 	test('two concurrent runs get distinct session stores, sockets and state files', async () => {

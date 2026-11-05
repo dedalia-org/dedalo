@@ -144,6 +144,7 @@ The installer never installs Docker and never changes the firewall: it checks Do
 - **[Installer reference](installer_reference.md)** — every flag, the answers file, the plan and state files, resume and abort, plain mode, the host steps per route, the `.env` keys and the exit codes.
 - **[Troubleshooting](troubleshooting.md)** — installer refusals, resume and abort, boot refusals, serving and media problems.
 - **[Upgrading](upgrading.md)** — the in-app code update, the runtime pin, boot migrations, retired keys, rollback.
+- **[Updating the Bun runtime](bun_runtime.md)** — when a release moves the runtime pin: install the verified Bun beside the old one, repoint the unit, and prove the change.
 - **[Migrating a v6 install to v7](migrating_from_v6.md)** — the whole operator path from a v6 installation.
 
 ## After the install

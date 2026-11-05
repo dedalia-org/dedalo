@@ -88,6 +88,54 @@ export async function resolveUserDefaultSection(userId: number): Promise<string 
 	return /^[a-z]+[0-9]+$/.test(tipo) ? tipo : null;
 }
 
+/** The users section's image component (component_image dd522). */
+const USER_IMAGE_COMPONENT = 'dd522';
+
+/**
+ * The user's avatar WEB URL (dd522), or null when the account has no image on
+ * disk — the login panel then keeps its bundled icon.
+ *
+ * DISK IS THE TRUTH, exactly like the other server-emitted media URLs
+ * (media/component_emit.ts posterframe/base_svg_url): the location comes from
+ * the path grammar and the URL is only returned for a file that EXISTS. A URL
+ * emitted by grammar alone 404s, and the client's preload turns that into a
+ * login circle with no image at all — worse than the fallback.
+ *
+ * Quality order is the LIST ladder (default quality, then thumb): the login
+ * circle is 160 px but the same URL backs the root user's full-screen
+ * background (login.less `--user_login_image`).
+ */
+export async function resolveUserImageUrl(userId: number): Promise<string | null> {
+	// The media grammar names files by a POSITIVE section id, so root (-1) has no
+	// media file at all (buildMediaIdentifier refuses it). Null, never a throw:
+	// a login must not fail over a decorative image.
+	if (!Number.isInteger(userId) || userId <= 0) return null;
+	const { mediaTypeOf } = await import('../concepts/media.ts');
+	const spec = mediaTypeOf('component_image');
+	if (spec === null) return null;
+	const { scanFilesInfo } = await import('../media/files_info.ts');
+	const { resolveMediaPathOptions } = await import('../media/ontology_path.ts');
+	const { versionedMediaUrl } = await import('../media/url_version.ts');
+	const { config } = await import('../../config/config.ts');
+	const pathOpts = await resolveMediaPathOptions(USER_IMAGE_COMPONENT, USERS_SECTION, userId);
+	// image is not translatable: no lang suffix on the identifier
+	const entries = scanFilesInfo(
+		spec,
+		{
+			componentTipo: USER_IMAGE_COMPONENT,
+			sectionTipo: USERS_SECTION,
+			sectionId: userId,
+			lang: null,
+		},
+		pathOpts,
+	);
+	for (const quality of spec.listQualities) {
+		const entry = entries.find((el) => el.quality === quality);
+		if (entry?.file_path) return versionedMediaUrl(`${config.media.webBase}${entry.file_path}`);
+	}
+	return null;
+}
+
 /** The users section's "User interface preferences" component (component_json). */
 const USER_UI_PREFERENCES_COMPONENT = 'dd1206';
 

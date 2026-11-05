@@ -1160,6 +1160,7 @@ Externally provided values win over `test/preload/session_db.ts` defaults and ov
 | `DEDALO_TS_STATE_PATH` | scratch json (runner) | real maintenance-mode state |
 | `DB_NAME` / `DEDALO_DATABASE_CONN` | the SUITE database (runner) | the application's records |
 | `DEDALO_TEST_MEDIA_ROOT` | `../private/test_media/<suite db>` (runner and preload) | the installation's media tree; the key also ARMS the `.dedalo_test_media` refusal |
+| `DEDALO_RECONCILE_SCHEDULER_ENABLED` | `false` (runner's server) | the installation's publication hosts and their private runtime file: the scheduled reconciles and the media-copy worker never run from a suite server |
 | `DEDALO_DIFFUSION_DB_SOCKET` / `_USER` / `_PASSWORD` / `_HOST` / `_PORT` | `bun test` ONLY: the lane's suite MariaDB socket, its suite user, blank host/port — set by `test/preload/suite_mariadb.ts`, which OVERRIDES any externally provided value (the exception to the precedence rule above). NOT yet the client suite's server (see below) | the installation's MariaDB publication databases |
 
 `scripts/client_test_runner.ts` starts its own server with all of these EXCEPT the
@@ -1256,8 +1257,14 @@ naming them: the gate is what keeps every reference inside the environment-bound
    post a skip (see the dedupe). **Periodic check** (calendar it; no gate fires):
    `gh api repos/dedalia-org/dedalo/branches/<b>/protection` for both branches must list
    exactly those three contexts.
-5. **Timeouts**: the `instance` job's 60 min is a first pin from the db build plus the
-   drills' documented runtimes — re-pin from the first green run's wall clock.
+5. **Timeouts**: the `instance` job's 120 min is a PROVISIONAL re-pin (2026-11-04).
+   The 2026-11-03 green run carried the full stage set and took 48 min (`11ebd6674a`);
+   the 2026-11-04 run (`41806773687`, job `126495687352`) was cancelled at the old 60
+   at the END of the root persona's last journey (persona 1 of 3) — a ~3x excursion
+   over the 2026-10-31 stage measurements, cause unestablished. The cap is a hang
+   detector, not a budget. Compare the next complete run's `== instance_tier: TOOK`
+   lines with those measurements; shard (`scripts/ci/instance_lanes.ts`) or fix the
+   stall before re-pinning.
 6. **The image**: `ci-image.yml` publishes; `bun run ci:image:pin` moves the lock and
    every literal to it (see "The pin").
 7. **GitLab mirror**: the same `.gitlab-ci.yml` hermetic tier on shared runners, in the

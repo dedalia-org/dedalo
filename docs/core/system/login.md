@@ -351,9 +351,12 @@ Gates: `test/unit/change_lang.test.ts`.
   `get_login_context`, `login`, `quit` and `change_lang`; `dd_core_api.start`
   serves the login element context when unauthenticated. The `login` handler maps
   the wire `{username, auth}` to `login(username, auth, clientIp)` and, on
-  success, returns `{result:true, csrf_token}` with the fresh session cookie; the
-  `quit` handler calls `destroySession()` and clears the cookie. The client model
-  is the copied `core/login/js/login.js`.
+  success, returns the envelope with the fresh session's `csrf_token`, its
+  `user_id` and the account's `user_image` — the URL of the user's own image
+  (users-section `component_image`, `dd522`), or `null` when the account has
+  none, which the login panel shows in its loading circle; the `quit` handler
+  calls `destroySession()` and clears the cookie. The client model is the copied
+  `core/login/js/login.js`.
 - **The dispatch gates.** `dispatchRqo()` runs three gates per request:
   (1) the action must be in the `ACTION_REGISTRY` allowlist; (2) a session is
   required unless the action is in `NO_LOGIN_ACTIONS` (`login`,

@@ -814,6 +814,44 @@ A `DEDALO_SUPERVISED` line in `.env` does nothing, whatever its value. Without
 systemd, start the server with `bun run start:supervised` (or `bun run dev` on a
 development machine), which declares the key and restarts on exit `75`.
 
+### `Error. The release pins Bun 1.4.4 but this server runs Bun 1.4.3 — install the pinned Bun first, then retry the update.`
+
+**Cause.** The release was verified on one Bun, and its `.bun-version` names it;
+this host runs another. The refusal comes after the archive is downloaded and
+checked and **before** anything is installed or swapped, so the live tree, its
+dependencies and the database are untouched — it costs a download, not an
+install. The runtime is root-owned and outside the instance, so no code update
+can move it for you.
+
+**Fix.** Install the named Bun beside the one you run, repoint the unit at it and
+restart, then retry the update. [Updating the Bun runtime](bun_runtime.md) is the
+procedure, with the verification for each step.
+
+### The server still runs the old Bun after the runtime step
+
+**Cause.** The unit was restarted without `daemon-reload`, so systemd re-executed
+its cached `ExecStart`; or the edit landed in a file this unit does not read; or
+the process answering is not that unit at all (a server started by hand).
+
+**Fix.** These read-only checks name the case (the first line assumes one
+instance; with several, set `I` to the one you restarted):
+
+```shell
+I=${I:-$(systemctl list-units --all --plain --no-legend 'dedalo-ts@*' | awk '{print $1}' | sed -n 's/^dedalo-ts@\(.*\)\.service$/\1/p' | head -1)}
+P=$(systemctl show -p MainPID --value "dedalo-ts@$I")
+echo "pid=$P"
+sudo readlink -f "/proc/$P/exe"                          # the binary the process IS
+sudo systemctl show -p ExecStart --value "dedalo-ts@$I"  # the command systemd holds
+sudo systemctl show -p FragmentPath -p DropInPaths --value "dedalo-ts@$I"
+```
+
+The path `readlink` prints is the decisive line — when `pid` is not `0`: the new
+path means you are reading an older journal entry, the old path means the unit is
+the cause, and [the diagnosis table](bun_runtime.md#the-server-still-runs-the-old-version)
+walks from there. A `pid=0` while the site answers means a hand-started process
+owns the socket, and `sudo ss -xlp | grep dedalo` names it. After any drop-in
+edit, `sudo systemctl daemon-reload` comes before the restart.
+
 ## Using it
 
 ### Nobody can log in, and there is no error message

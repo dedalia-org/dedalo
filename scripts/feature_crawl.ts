@@ -993,15 +993,29 @@ async function checkComponents(
 async function checkInspector(page: Page, who: string, tipo: string): Promise<void> {
 	// the inspector paints after the section, and only in a VISIBLE tab (viewport
 	// observers never fire in a background one): front, then wait
-	await page.bringToFront().catch(() => {});
-	const hasInspector = await page
-		.waitForSelector('#inspector', { timeout: 30_000 })
-		.then(() => true)
-		// a page that re-navigates after load destroys the wait's context: look again once settled
-		.catch(async () => {
+	const waitInspector = async (): Promise<boolean> => {
+		await page.bringToFront().catch(() => {});
+		try {
+			await page.waitForSelector('#inspector', { timeout: 30_000 });
+			return true;
+		} catch {
+			// a page that re-navigates after load destroys the wait's context: look again once settled
 			await settle(page);
 			return (await page.$('#inspector').catch(() => null)) !== null;
-		});
+		}
+	};
+	let hasInspector = await waitInspector();
+	if (!hasInspector) {
+		// ONE FRESH LOAD BEFORE CALLING IT MISSING. The crawl holds `--concurrency 4`
+		// pages of ONE browser context open, and the panel is mounted by the section's
+		// own build: a page whose load raced the other three reads exactly like a page
+		// without an inspector. 2026-11-05 the runner reported `root:dd128:edit:inspector`
+		// once in 809 pages on a commit that was green on a desk, and this is the
+		// difference between "late" and "never". A DETERMINISTIC absence (a level-1
+		// section builds no inspector either) is still red on the second load.
+		await page.reload({ waitUntil: 'networkidle0', timeout: PAGE_TIMEOUT }).catch(() => {});
+		hasInspector = await waitInspector();
+	}
 	// select a component (its LABEL: the body may hold links that navigate away),
 	// so the component-history block has a subject
 	await page.evaluate(() => {
@@ -1018,7 +1032,25 @@ async function checkInspector(page: Page, who: string, tipo: string): Promise<vo
 		els.map((e) => (e.textContent ?? '').trim().slice(0, 160)),
 	);
 	for (const f of failures) add(who, tipo, 'edit', 'inspector', f, page);
-	if (!hasInspector) add(who, tipo, 'edit', 'inspector', 'edit page has no inspector', page);
+	if (!hasInspector) {
+		// Say WHAT the page reported: a level-1 section builds no inspector, and a page
+		// that never became visible paints nothing. Without this the next red is a bare
+		// "no inspector" and the cause has to be guessed again.
+		const visibility = await page.evaluate(() => document.visibilityState).catch(() => 'unknown');
+		const section = (await liveInstances(page).catch(() => [])).find(
+			(i) => i.model === 'section' || i.model.startsWith('area'),
+		);
+		add(
+			who,
+			tipo,
+			'edit',
+			'inspector',
+			`edit page has no inspector, also after a fresh load (page ${visibility}; section instance ${
+				section === undefined ? 'none' : `level ${section.permissions}`
+			})`,
+			page,
+		);
+	}
 }
 
 /** Offered tools must be granted; each (tool, caller model) pair is queued to open once per persona. */

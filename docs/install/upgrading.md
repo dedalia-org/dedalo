@@ -23,7 +23,7 @@ The code update panel downloads the release, verifies its checksum, installs its
 
 Two things the panel does not do, because it runs as the instance and they belong to root:
 
-- **A release that moves the runtime pin** (`.bun-version`). The panel refuses a release whose pin differs from the running Bun, and the instance's runtime is root-owned at `/opt/dedalo/bun/<pin>/`. The installer has no command that installs a new pin on a live instance today; such a release needs manual work by the system administrator, described in its release notes.
+- **A release that moves the runtime pin** (`.bun-version`). The panel refuses a release whose pin differs from the running Bun, and the instance's runtime is root-owned at `/opt/dedalo/bun/<pin>/`. The installer has no command that installs a new pin on a live instance today; such a release needs manual work by the system administrator, described in its release notes. [Updating the Bun runtime](bun_runtime.md) is that work, step by step.
 - **A release that changes the root-run scripts** (`deploy/*.sh`). Their copies in `/opt/dedalo/instances/<i>/bin/` are not refreshed by a code update, and the installer has no command that refreshes them on a live instance today. The release notes say when a script changed.
 
 Never `bun upgrade` a production runtime: the engine is coupled to version-specific runtime behaviour — JSONB parameter inference above all — and a silent drift there corrupts data rather than slowing things down. The server echoes its runtime at boot and warns loudly when it does not match the pin:
@@ -61,7 +61,7 @@ sudo curl --fail --unix-socket /run/dedalo/dedalo_ts.sock http://localhost/healt
 
 `--frozen-lockfile` refuses to resolve a dependency tree different from the one that was tested: if it errors, the lockfile and `package.json` disagree — fix that upstream, never drop the flag. Three things are yours on such a host, whichever way the code arrives:
 
-**1. The runtime pin.** Before the new code, compare `.bun-version` (`git diff HEAD..<target-ref> -- .bun-version`). If it moved, install the new runtime into the path the unit names, as root:
+**1. The runtime pin.** Before the new code, compare `.bun-version` (`git diff HEAD..<target-ref> -- .bun-version`). If it moved: on this hand-built layout, install the new runtime into the path the unit names, as root — the one command below; on an installer instance, follow [Updating the Bun runtime](bun_runtime.md), which installs beside the old pin and repoints the unit.
 
 ```shell
 curl -fsSL https://bun.sh/install | sudo BUN_INSTALL=/opt/dedalo bash -s "bun-v<the new pin>"

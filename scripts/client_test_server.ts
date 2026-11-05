@@ -219,6 +219,13 @@ export function suiteServerEnvironment(options: {
 		// this database (see SUITE_DIFFUSION_DOMAIN). Explicit, though the repoint
 		// above already put it in the inherited environment.
 		DEDALO_DIFFUSION_DOMAIN: SUITE_DIFFUSION_DOMAIN,
+		// Never the installation's publication hosts. The reconcile scheduler and the
+		// media-copy worker are gated by this key so an ephemeral/smoke instance cannot
+		// drive a public host; a suite server is exactly that. Left on, a crawl run
+		// rewrote the checkout's `publication_hosts_runtime.json` (beside the real
+		// registry) with a failed round against the installation's hosts, and retried
+		// the unreachable agent every MEDIA_COPY_PERIOD_MS for the whole run.
+		DEDALO_RECONCILE_SCHEDULER_ENABLED: 'false',
 		// The client suite exercises the developer surfaces, and the fingerprint
 		// on /health is dev-mode-only by design.
 		DEDALO_DEV_MODE: 'true',

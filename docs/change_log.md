@@ -170,11 +170,37 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The filter_records search field scrolls inside its card instead of spilling over the next one.**
+
+    In the search panel, a `filter_records` field lists one row per section and the list
+    is long. It used to overflow its card and paint over the field below; now the list
+    scrolls inside the card.
+
+- **The login screen shows your own user image while it loads.**
+
+    After you sign in, the circle that fills as Dédalo loads its files now shows the picture on your user record (the same image you can change in the *User admin* panel) instead of the grey Dédalo icon. Accounts without an image keep the grey icon. The image belongs to the account that just signed in, so it never shows another person's picture.
+
+    Wire contract: `WC-2026-11-04-login-user-image`.
+
 - **Columns declared for a nested portal now show everywhere it appears, in every mode and on every page.**
 
     A portal can declare which columns a portal nested inside it shows — the Tasks portal of a work process, for example, shows the assigned user as *surname, name*. Those declared columns were applied only in some views: in a list a nested portal could appear empty, the second page of a nested portal switched back to the nested portal's own columns, and the same field nested under two different portals showed the columns of whichever was read first. Now every nested element uses one effective configuration — the columns its parent declares, and its own configuration for anything the parent leaves out — in edit and list views, on every page, and per parent; a page size the parent declares for a nested portal is the page size it pages by. Related-record lists expand linked portals with their own columns as well. A chain of linked records that points back to itself stops where it repeats instead of failing the whole page, with a notice naming the record. See [Nesting](./core/request_config.md#nesting-a-ddo_map-is-a-flat-list-made-a-tree-by-parent).
 
     Wire contract: `WC-2026-11-04-nested-paging-add-show`, `WC-2026-11-04-caller-chain-per-occurrence`, `WC-2026-11-04-config-less-element-adopts-caller-children`, `WC-2026-11-04-nested-list-payload-growth`, `WC-2026-11-04-record-cycle-stop`, `WC-2026-11-04-ddinfo-gates-kept`, `WC-2026-11-04-context-traversal-order`, `WC-2026-11-04-governing-limit-sqo-limit-only`.
+
+- **A portal row’s reorder handle is fully visible and grabbable again.**
+
+    A portal in edit mode whose rows can be reordered shows the drag handle in a
+    gutter at the left of the row. The list cut the left half of that gutter off at
+    its edge, so the handle was half hidden and a drag aimed at the cut part did
+    nothing at all. The gutter is now reserved inside the list, so the whole handle
+    is shown and a drag from it starts every time.
+
+- **A search field no longer jumps when you click it, and the date picker button stays on its field**
+
+    In the search panel, clicking into a filter field used to shrink its name row and pull the whole field up by a line, so the row you aimed at moved under the pointer. The date fields' calendar button made it worse: it rode that shift and covered the field's own name.
+
+    Both are fixed. A search card keeps the same height whether or not it is in use, and the calendar button now sits at the end of the date field's own line, inside the card, where it covers neither the field name nor the value.
 
 - **The record's Id badge can be selected to show its information in the inspector.**
 
@@ -808,6 +834,14 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The Bun-runtime procedure finds an instance whose name contains dots.**
+
+    On a host whose instance is named after its domain — `dedalo-ts@example.org`, not
+    `dedalo-ts@prado` — the block that reads the instance name stopped at the first dot
+    and printed nothing, so every later command in
+    [Updating the Bun runtime](./install/bun_runtime.md) ran against an empty name.
+    It now reads the whole name, dots included.
+
 - **The root user can now open their own account panel by clicking their name in the header.**
 
     Clicking the username in the header opens the account panel (full name, password, email, image and the active field style). For the root user the name was not clickable, so root had no way to change their name, email or interface preferences from inside Dédalo. It now opens for root as for every other user. Root still sees and changes only their own account. Root's image and password are shown but cannot be changed there: a password change asks for no current password, and root has no emailed recovery, so a session left open could lock the real root out for good. In this panel the user name and profile are now read-only for everyone, administrators included; administrators edit them in the Users section.
@@ -1096,6 +1130,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-04-ddinfo-gates-kept`
     - `WC-2026-11-04-ddo-self-first-level-only`
     - `WC-2026-11-04-governing-limit-sqo-limit-only`
+    - `WC-2026-11-04-login-user-image`
     - `WC-2026-11-04-nested-list-payload-growth`
     - `WC-2026-11-04-nested-paging-add-show`
     - `WC-2026-11-04-ontology-machine-names`

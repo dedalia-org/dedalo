@@ -495,3 +495,25 @@ suites named above.
   cells) and the header height is stable (26px on every page). Same result in
   Chrome. Playwright's bundled WebKit could not open a page on the host, so
   the probe ran in Safari itself (self-running page, verdict read by the owner).
+
+## Addendum 2026-11-04 — the desktop handle's gutter inside the scrolling list
+
+- **Context.** `view_default_portal.less` gives an edit portal's `list_body`
+  `overflow-x: auto` (wide tables scroll there). That clips everything outside
+  the list's padding box — including the desktop `.drag.icon`, whose
+  `left: -2.2rem` puts it in a gutter to the left of the Id column. Only the
+  strip inside the scrollport stayed visible (measured: handle `-2…27`, list
+  `13…1137`), so the handle's CENTRE lay in the clipped part. Chrome
+  hit-tests that part as the handle but starts no native drag from it
+  (`dragstart` never fires, `Input.dragIntercepted` never arrives); puppeteer's
+  `mouse.dragAndDrop` waits on that event without a timeout, so `test:crawl`'s
+  `portal_reorder` journey hung forever, holding the suite run lock.
+- **Contract.** On desktop the edit `list_body` reserves the handle's own
+  gutter (`padding-left: 2.2rem`, only when a row carries `.drag`) so the
+  handle lies INSIDE its scrollport. The phone card is unchanged (the handle is
+  in flow in the Id cell, §stage 6).
+- **Gates.** `test_portal_row_drag`'s desktop leg now asserts the handle rect
+  lies inside the `list_body` rect (its old `elementFromPoint` leg passed while
+  the handle was clipped — a hit test does not prove a drag can start);
+  `test:crawl`'s `portal_reorder` drags from the handle centre, desktop and
+  phone, and checks the STORED order.

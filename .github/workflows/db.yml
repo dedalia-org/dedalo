@@ -192,11 +192,20 @@ jobs:
     needs: dedupe
     if: ${{ !cancelled() && (github.event_name != 'push' || needs.dedupe.result != 'success' || needs.dedupe.outputs.skip != 'true') }}
     runs-on: ubuntu-latest
-    # The suite build (~15 min, see `db`) plus the browser suite (133 suites) and
-    # two update drills (~3-5 min each warm). 60 is the first pin, from the db
-    # job's measured build plus the drills' documented runtimes — MEASURE the first
-    # green run and re-pin from that, never from a guess.
-    timeout-minutes: 60
+    # The suite build (~15 min, see `db`), the browser suite, the tool phone
+    # contract, the feature crawl (coverage floors 774 pages / 9,351 checks) and
+    # the update + publication-host drills. 60 was the first pin (2026-09-02),
+    # before the phone (2026-09-28), crawl (2026-10-28) and pubhost (2026-10-31)
+    # stages existed.
+    # The 2026-11-03 green run already carried the FULL stage set and took 48 min
+    # end to end (11ebd6674a). The 2026-11-04 run (41806773687, job 126495687352)
+    # was cancelled at 60:06 at the END of the root persona's last journey
+    # (persona 1 of 3) — a ~3x excursion over the 2026-10-31 stage measurements
+    # (crawl 1170s, phone 549s, pubhost 441s, client 145s), cause NOT established.
+    # 120 is provisional and keeps the cap a hang detector, not a budget. The
+    # next complete run's `== instance_tier: TOOK` lines settle it: if the crawl
+    # is far past 1170s, shard or fix the page-level stall before re-pinning.
+    timeout-minutes: 120
     # THE CI IMAGE (ci/image.json — scripts/lib/ci_image.ts), the one ci:local and GitLab
     # run: bun = .bun-version, pg18 client, Chromium, media tools, git. As uid 1001, the
     # runner user that owns the mounted workspace — never root, which defeats the
@@ -245,5 +254,5 @@ jobs:
           zipinfo -h >/dev/null 2>&1 || unzip -v | head -1
           git --version
 
-      - name: Instance tier (build the suite database + client suite + update drills)
+      - name: Instance tier (build the suite database + client/phone/crawl + drills)
         run: bash scripts/ci/instance_tier.sh
