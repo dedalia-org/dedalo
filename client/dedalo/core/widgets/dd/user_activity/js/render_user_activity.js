@@ -476,7 +476,7 @@ const build_totals_charts = function(raw_totals) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'user_activity_charts_empty',
-			inner_html		: (typeof get_label!=='undefined' && get_label.no_data) || 'No activity data',
+			inner_html		: get_label.no_data || 'No data',
 			parent			: wrapper
 		})
 		return wrapper
@@ -494,16 +494,16 @@ const build_totals_charts = function(raw_totals) {
 
 	// Decide which sections to render based on data presence.
 	const sections = []
-	if (Array.isArray(totals.what)    && totals.what.length    > 0) sections.push({ key: 'what',    label: 'Activity by type'   })
-	if (Array.isArray(totals.where)   && totals.where.length   > 0) sections.push({ key: 'where',   label: 'Activity by section' })
-	if (Array.isArray(totals.when)    && totals.when.some(d => d && d.value > 0)) sections.push({ key: 'when',    label: 'Activity by hour'    })
-	if (Array.isArray(totals.publish) && totals.publish.length > 0) sections.push({ key: 'publish', label: 'Publications'        })
+	if (Array.isArray(totals.what)    && totals.what.length    > 0) sections.push({ key: 'what',    label: get_label.activity_by_type || 'Activity by type'})
+	if (Array.isArray(totals.where)   && totals.where.length   > 0) sections.push({ key: 'where',   label: get_label.activity_by_section || 'Activity by section'})
+	if (Array.isArray(totals.when)    && totals.when.some(d => d && d.value > 0)) sections.push({ key: 'when',    label: get_label.activity_by_hour || 'Activity by hour'})
+	if (Array.isArray(totals.publish) && totals.publish.length > 0) sections.push({ key: 'publish', label: get_label.publications || 'Publications'})
 
 	if (sections.length === 0) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'user_activity_charts_empty',
-			inner_html		: (typeof get_label!=='undefined' && get_label.no_data) || 'No activity data',
+			inner_html		: get_label.no_data || 'No data',
 			parent			: grid
 		})
 		return wrapper
@@ -639,15 +639,15 @@ const build_summary_strip = function(totals) {
 	const total_publications = sum_values(totals.publish)
 
 	const tiles = [
-		{ label: 'Total actions',		value: format_number(total_actions) },
-		{ label: 'Sections touched',	value: format_number(sections_touched) },
-		{ label: 'Peak hour',			value: peak_hour && peak_hour_value > 0
+		{ label: get_label.total_actions || 'Total actions',		value: format_number(total_actions) },
+		{ label: get_label.sections_touched || 'Sections touched',	value: format_number(sections_touched) },
+		{ label: get_label.peak_hour || 'Peak hour',			value: peak_hour && peak_hour_value > 0
 			? `${String(peak_hour.label || peak_hour.key).padStart(2,'0')}:00`
 			: '—',
-			hint: peak_hour && peak_hour_value > 0 ? `${format_number(peak_hour_value)} actions` : '' },
-		{ label: 'Top section',			value: top_section ? truncate(top_section.label || top_section.key, 22) : '—',
-			hint: top_section ? format_number(top_section.value) + ' actions' : '' },
-		{ label: 'Publications',		value: format_number(total_publications) }
+			hint: peak_hour && peak_hour_value > 0 ? `${format_number(peak_hour_value)} ${get_label.actions || 'actions'}` : '' },
+		{ label: get_label.top_section || 'Top section',			value: top_section ? truncate(top_section.label || top_section.key, 22) : '—',
+			hint: top_section ? format_number(top_section.value) + ' ' + (get_label.actions || 'actions') : '' },
+		{ label: get_label.publications || 'Publications',		value: format_number(total_publications) }
 	]
 
 	const strip = ui.create_dom_element({
@@ -739,7 +739,7 @@ const render_horizontal_bars = function(d3, host, rows, opts) {
 		ui.create_dom_element({
 			element_type : 'div',
 			class_name   : 'user_activity_chart_empty',
-			inner_html   : 'No data',
+			inner_html   : get_label.no_data || 'No data',
 			parent       : host
 		})
 		return
@@ -805,7 +805,7 @@ const render_horizontal_bars = function(d3, host, rows, opts) {
 		.attr('text-anchor', 'end')
 		.text(d => truncate(String(d.label || d.key || ''), Math.max(8, Math.floor((padding_left - 16) / 6))))
 		.append('title')
-		.text(d => (d.label || d.key) + (cfg.clickable ? ' — click to open' : ''))
+		.text(d => (d.label || d.key) + (cfg.clickable ? ' — ' + (get_label.click_to_open || 'click to open') : ''))
 
 	rows_g.append('rect')
 		.attr('class', 'user_activity_where_bar')
@@ -815,7 +815,7 @@ const render_horizontal_bars = function(d3, host, rows, opts) {
 		.attr('height', y.bandwidth())
 		.attr('fill', (_, i) => PALETTE[i % PALETTE.length])
 		.append('title')
-		.text(d => `${d.label || d.key}: ${format_number(d.value)}` + (cfg.clickable ? ' — click to open' : ''))
+		.text(d => `${d.label || d.key}: ${format_number(d.value)}` + (cfg.clickable ? ' — ' + (get_label.click_to_open || 'click to open') : ''))
 
 	rows_g.append('text')
 		.attr('class', 'user_activity_where_value')
@@ -828,7 +828,7 @@ const render_horizontal_bars = function(d3, host, rows, opts) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'user_activity_where_more',
-			text_content	: `+${hidden} more`,
+			text_content	: `+${hidden} ${get_label.more || 'more'}`,
 			parent			: host
 		})
 	}
@@ -961,7 +961,7 @@ const render_when_chart = function(d3, host, rows) {
 		ui.create_dom_element({
 			element_type : 'div',
 			class_name   : 'user_activity_chart_empty',
-			inner_html   : 'No data',
+			inner_html   : get_label.no_data || 'No data',
 			parent       : host
 		})
 		return
@@ -1038,7 +1038,7 @@ const render_when_chart = function(d3, host, rows) {
 		.attr('fill', d => color_for(d.hour))
 		.attr('opacity', d => d.value > 0 ? 0.92 : 0.18)
 		.append('title')
-		.text(d => `${String(d.hour).padStart(2,'0')}:00 — ${format_number(d.value)} action${d.value===1?'':'s'}`)
+		.text(d => `${String(d.hour).padStart(2,'0')}:00 — ${format_number(d.value)} ${d.value===1 ? (get_label.action || 'action') : (get_label.actions || 'actions')}`)
 
 	// X-axis labels (every 2 hours to avoid clutter)
 	svg.append('g')

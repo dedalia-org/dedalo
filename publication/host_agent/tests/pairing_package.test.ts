@@ -61,6 +61,9 @@ function sealRaw(plaintext: string, passphrase: string): Uint8Array {
 }
 
 describe('the sealed pairing package', () => {
+  // Four production-cost KDF runs (~1.5 s each on a GitLab shared runner,
+  // 2026-11-05: 5003.74 ms > bun's 5 s default). The cost is the property under
+  // test, never lowered; the bound is explicit like the parts test below.
   test('openPairingPackageAsync: the same parts and the SAME refusals as the sync reader (KDF off the event loop)', async () => {
     expect(await openPairingPackageAsync(SEALED, PASS)).toEqual(openPairingPackage(SEALED, PASS));
     const refusal = async (bytes: Uint8Array, pass: string): Promise<string> => {
@@ -78,7 +81,7 @@ describe('the sealed pairing package', () => {
     expect(await refusal(tampered, PASS)).toBe('auth');
     expect(await refusal(SEALED, 'short')).toBe('passphrase_shape');
     expect(await refusal(SEALED.subarray(0, 4), PASS)).toBe('truncated');
-  });
+  }, 30_000);
 
   test('round trip: the three parts come back, the passphrase in any spacing/case', () => {
     expect(openPairingPackage(SEALED, PASS)).toEqual(PARTS);
@@ -98,12 +101,14 @@ describe('the sealed pairing package', () => {
     expect(reason(() => openPairingPackage(SEALED, other))).toBe('auth');
   });
 
+  // Four production-cost KDF runs: 6283.98 ms on a GitLab shared runner
+  // (2026-11-05), past bun's 5 s default. The cost is the property under test.
   test('a changed ciphertext byte, tag byte or header salt/nonce byte is `auth` (the header is the AAD)', () => {
     expect(reason(() => openPairingPackage(flip(SEALED, HEADER_BYTES + 3), PASS))).toBe('auth');
     expect(reason(() => openPairingPackage(flip(SEALED, SEALED.length - 1), PASS))).toBe('auth');
     expect(reason(() => openPairingPackage(flip(SEALED, HEADER_BYTES - 1), PASS))).toBe('auth'); // nonce
     expect(reason(() => openPairingPackage(flip(SEALED, PACKAGE_MAGIC.length + 6), PASS))).toBe('auth'); // salt
-  });
+  }, 30_000);
 
   test('the header is refused before the KDF: magic, version, every parameter, size', () => {
     expect(packageHeaderProblem(SEALED)).toBeNull();

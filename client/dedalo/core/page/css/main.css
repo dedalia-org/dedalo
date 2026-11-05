@@ -6448,10 +6448,18 @@ dd-modal.dd_presets::part(content) {
   }
 }
 /**
-* list_body
+* LIST — section and portal lists
 *
-* Included from component_portal.less file
-* Shared by section and portal.
+* Imported by page/css/main.less (`@import './layout/list'`).
+* Two shapes live here:
+*   - marker-less lists (presets, autocomplete, graph, TM history, mosaic
+*     tiles): header/content_data stay `display: contents` rows;
+*   - `.layout_table` lists (every section list and portal table, desktop +
+*     print): the row-box subgrid table — engineering/wire_contract/
+*     WC-2026-10-30-section-record-row-box.md.
+* Below the desktop breakpoint a `.layout_table` row is a phone CARD.
+* The row hover glow is a SECTION list affordance (`.wrapper_section`, never a
+* component list).
 */
 .list_after > .no_records {
   text-align: center;
@@ -6508,7 +6516,7 @@ dd-modal.dd_presets::part(content) {
   }
   .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:first-child:not(.placeholder) > .column:first-child,
   :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:first-child:not(.placeholder) > .column:first-child {
-    margin-top: 0.25rem !important;
+    margin-top: 0.25rem;
   }
   .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:not(.placeholder),
   :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:not(.placeholder) {
@@ -6539,7 +6547,6 @@ dd-modal.dd_presets::part(content) {
   :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:not(.placeholder) > .column:before {
     display: flex;
     align-items: center;
-    height: 100%;
     width: 22%;
     background-color: var(--color_grey_14);
     padding: 0.25rem;
@@ -6555,7 +6562,6 @@ dd-modal.dd_presets::part(content) {
   }
   .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:not(.placeholder) > .column.column_section_id,
   :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:not(.placeholder) > .column.column_section_id {
-    position: -webkit-sticky;
     position: sticky;
     top: 0px;
     z-index: 1;
@@ -6609,9 +6615,7 @@ dd-modal.dd_presets::part(content) {
   overflow-y: visible;
   color: var(--color_grey_5);
   font-weight: 300;
-  padding: 0.5rem;
-  padding-left: 0.25rem;
-  padding-right: 0.25rem;
+  padding: 0.5rem 0.25rem;
 }
 .header_wrapper_list .head_column.empty {
   padding-left: unset;
@@ -6619,7 +6623,6 @@ dd-modal.dd_presets::part(content) {
   width: 0;
 }
 .header_wrapper_list .head_column.section_id {
-  border-top-left-radius: 5px;
   text-align: right;
 }
 .header_wrapper_list .head_column.section_id > .name {
@@ -6627,7 +6630,6 @@ dd-modal.dd_presets::part(content) {
 }
 .header_wrapper_list .head_column:last-of-type {
   border-right: 0px;
-  border-top-right-radius: 5px;
 }
 .header_wrapper_list .head_column.with_sub_header {
   display: block;
@@ -6894,7 +6896,6 @@ dd-modal.dd_presets::part(content) {
 .column.column_section_id > .button_delete.link_button,
 .column.column_section_id > .link_button.link_button {
   font-size: 1.25rem;
-  height: 3rem;
   height: 100%;
 }
 .column.column_section_id > .button_edit.button_delete,
@@ -6905,28 +6906,26 @@ dd-modal.dd_presets::part(content) {
 .column.column_section_id > .button_edit:hover,
 .column.column_section_id > .button_delete:hover,
 .column.column_section_id > .link_button:hover {
-  z-index: 99999;
+  z-index: 2;
   background-color: var(--color_orange_dedalo);
+  color: var(--fg_on_brand);
 }
 .column.column_section_id > .button_edit:hover.button_edit,
 .column.column_section_id > .button_delete:hover.button_edit,
 .column.column_section_id > .link_button:hover.button_edit {
   background-color: var(--color_green_success);
+  color: var(--fg_inverse);
 }
 .column.column_section_id > .button_edit:hover.button_delete,
 .column.column_section_id > .button_delete:hover.button_delete,
 .column.column_section_id > .link_button:hover.button_delete {
   background-color: var(--color_danger);
-}
-.column.column_section_id > .button_edit:hover > .section_id,
-.column.column_section_id > .button_delete:hover > .section_id,
-.column.column_section_id > .link_button:hover > .section_id {
   color: var(--color_white);
 }
 .column.column_section_id > .button_edit:hover > .icon,
 .column.column_section_id > .button_delete:hover > .icon,
 .column.column_section_id > .link_button:hover > .icon {
-  background-color: var(--color_white);
+  background-color: currentColor;
 }
 .column.column_section_id > .button_edit.disable,
 .column.column_section_id > .button_delete.disable,
@@ -7012,7 +7011,7 @@ dd-modal.dd_presets::part(content) {
   pointer-events: none;
 }
 .column.column_remove > button.button_remove:hover {
-  z-index: 99999;
+  z-index: 2;
   background-color: var(--color_danger);
 }
 .column.column_remove > button.button_remove:hover > .icon {
@@ -7057,7 +7056,7 @@ dd-modal.dd_presets::part(content) {
     border: 2px dashed transparent;
     box-shadow: none;
   }
-  .list_body.layout_table > .content_data > .section_record:not(.placeholder, .dragover, .dragging):hover::after {
+  .list_body.layout_table > .content_data > .section_record:not(.placeholder, .dragover, .dragging):where(.wrapper_section *):where(:not(.wrapper_component *)):hover::after {
     box-shadow: 0px 0px 5px 0px var(--color_grey_7);
   }
   .list_body.layout_table > .content_data > .section_record.dragover::after {

@@ -24,7 +24,6 @@
  * component pair, creates in linked sections).
  */
 
-import { config } from '../../../src/config/config.ts';
 import {
 	type ApiErrorBody,
 	DedaloError,

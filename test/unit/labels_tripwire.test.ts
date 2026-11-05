@@ -90,7 +90,6 @@ const UNCATALOGED_CLIENT_KEYS: ReadonlySet<string> = new Set([
 	'tool_print_rendering',
 	'tool_print_too_many',
 	'error_report', // no call-site literal at all
-	'no_data',
 	'show_more',
 	'theme_toggle',
 ]);
