@@ -1820,7 +1820,7 @@ li .reset_input select {
   background-color: var(--color_orange_dedalo);
 }
 .no_records {
-  color: var(--color_orange_dedalo);
+  color: var(--fg_muted);
   font-size: 1em;
   padding: 1em;
   width: 100%;
