@@ -7,7 +7,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {render_join} from '../../common/js/utils/render_escape.js'
-	import {activate_edit_in_list} from '../../component_common/js/component_common.js'
+	import {bind_edit_in_list} from '../../component_common/js/component_common.js'
 
 
 
@@ -71,10 +71,7 @@ view_default_list_select.render = async function(self, options) {
 	// click handler for edit mode activation (modal)
 		// (!) mode is forced to 'modal' — component_select in list rows is
 		// typically too narrow for an inline editor; always use the overlay.
-		wrapper.addEventListener('click', (e) => {
-			e.stopPropagation()
-			activate_edit_in_list(self, e, { mode: 'modal' })
-		})
+		bind_edit_in_list(self, wrapper, { mode: 'modal' })
 
 
 	return wrapper

@@ -7,7 +7,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {render_join} from '../../common/js/utils/render_escape.js'
-	import {activate_edit_in_list, attach_item_dataframe} from '../../component_common/js/component_common.js'
+	import {bind_edit_in_list, attach_item_dataframe} from '../../component_common/js/component_common.js'
 	import {get_ar_raw_data_value} from './render_edit_component_date.js'
 
 
@@ -93,10 +93,7 @@ view_default_list_date.render = async function(self, options) {
 
 	// click handler for edit mode activation (modal)
 		// (!) Always modal — component_date's full-width calendar UI is not suited for inline mode.
-		wrapper.addEventListener('click', (e) => {
-			e.stopPropagation()
-			activate_edit_in_list(self, e, { mode: 'modal' })
-		})
+		bind_edit_in_list(self, wrapper, { mode: 'modal' })
 
 	// component_dataframe (shared literal-view glue, no-op without has_dataframe)
 		// Re-read entries from self.data rather than reusing ar_value, because

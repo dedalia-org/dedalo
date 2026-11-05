@@ -8,7 +8,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {attach_item_dataframe} from '../../component_common/js/component_common.js'
 	import {render_fallback_value, escape_html} from '../../common/js/utils/render_escape.js'
-	import {activate_edit_in_list} from '../../component_common/js/component_common.js'
+	import {bind_edit_in_list} from '../../component_common/js/component_common.js'
 
 
 
@@ -95,9 +95,7 @@ view_default_list_text_area.render = async function(self, options) {
 		const lang = self.data && self.data.lang
 			? self.data.lang
 			: self.lang
-		wrapper.addEventListener('click', (e) => {
-			e.stopPropagation()
-			activate_edit_in_list(self, e, {
+		bind_edit_in_list(self, wrapper, {
 				mode			: 'modal',
 				modal_width		: '90%',
 				lang			: lang,
@@ -110,7 +108,6 @@ view_default_list_text_area.render = async function(self, options) {
 					})
 				}
 			})
-		})
 
 	// content_data
 	// Scoped container for the text value and any dataframe label nodes.

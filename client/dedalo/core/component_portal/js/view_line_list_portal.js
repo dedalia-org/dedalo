@@ -43,12 +43,9 @@
 *                                     here so `common.destroy()` can clean them up.
 *   - `self.data.references`        — optional `Array` of back-reference locators
 *                                     appended below the record list.
-*   - `self.show_interface.read_only` — `boolean`; suppresses the dblclick
-*                                     mode-change handler when true.
-*   - `self.permissions`            — `number`; `> 1` means the user has write access.
-*   - `self.context.properties.with_value` — optional `{ mode, view }` descriptor
-*                                     that overrides the default 'edit' / 'line'
-*                                     targets for the dblclick mode change.
+*   - `self.show_interface.read_only` — `boolean`; when true a click opens nothing.
+*   - `self.permissions`            — `number`; `> 1` means the user has write access
+*                                     (a click opens the edit modal).
 *
 * Differences from `view_line_edit_portal`:
 *   - Wrapper is built with `build_wrapper_list` (not `build_wrapper_edit`), which
@@ -71,6 +68,7 @@
 	import {window_section_rows} from '../../section/js/section.js'
 	import {place_list_after} from '../../common/js/common.js'
 	import {ui} from '../../common/js/ui.js'
+	import {bind_edit_in_list} from '../../component_common/js/component_common.js'
 	import {render_list_after, render_column_component_info} from './render_edit_component_portal.js'
 
 
@@ -102,8 +100,7 @@ export const view_line_list_portal = function() {
 *   2. Hand the page's locator entries to `get_content_data`, whose row door
 *      (section.js window_section_rows) builds and renders the rows.
 *   3. When `render_level !== 'content'`, wrap the content area in a list-mode
-*      component wrapper and attach a dblclick handler that switches the portal to
-*      edit mode if the user has write permissions.
+*      component wrapper whose click opens the edit modal (bind_edit_in_list).
 *
 * The `render_level === 'content'` short-circuit is used by `self.refresh()` to
 * rebuild only the inner record list without tearing down and re-creating the outer
@@ -150,7 +147,6 @@ view_line_list_portal.render = async function(self, options) {
 		}
 
 	// wrapper. ui build_edit returns component wrapper.
-	// Note: Use 'build_wrapper_list' instead 'build_wrapper_edit' because allow user to change mode on dblclick
 		const wrapper = ui.component.build_wrapper_list(self, {
 			autoload : true // bool set autoload when change mode is called (close button)
 		})
@@ -161,34 +157,10 @@ view_line_list_portal.render = async function(self, options) {
 		// list_after. The non-row sibling, right after content_data
 		place_list_after(wrapper, content_data)
 
-	// change_mode
-		// Only attach the dblclick handler when the portal is not in strict read-only
-		// mode and the current user holds write permissions (> 1).
-		if (self.show_interface.read_only !== true && self.permissions > 1) {
-			wrapper.addEventListener('dblclick', function(e) {
-				e.stopPropagation()
-
-				// self.show_interface.read_only = true
-				// Resolve target mode: use the with_value override when it differs
-				// from the current mode, otherwise fall back to 'edit'.
-				const change_mode = self.context?.properties?.with_value
-					&& self.context.properties.with_value.mode !== self.mode
-						? self.context.properties.with_value.mode
-						: 'edit'
-
-				// Resolve target view: use the with_value override when it differs
-				// from the current context view, otherwise fall back to 'line'.
-				const change_view = self.context?.properties?.with_value
-					&& self.context.properties.with_value.view !== self.context.view
-						? self.context.properties.with_value.view
-						: 'line'
-
-				self.change_mode({
-					mode	: change_mode,
-					view	: change_view
-				})
-			})
-		}
+	// click: the edit modal, as every list-mode component (the click never
+	// bubbles; inside an edit field, its mousedown neither — component_common).
+	// Read-only / no write permission: activate_edit_in_list does nothing
+		bind_edit_in_list(self, wrapper, { mode: 'modal', modal_width: '50rem' })
 
 
 	return wrapper

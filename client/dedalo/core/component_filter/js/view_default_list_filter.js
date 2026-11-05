@@ -7,7 +7,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {render_value} from '../../common/js/utils/render_escape.js'
-	import {activate_edit_in_list} from '../../component_common/js/component_common.js'
+	import {bind_edit_in_list} from '../../component_common/js/component_common.js'
 
 
 
@@ -79,10 +79,7 @@ view_default_list_filter.render = async function(self, options) {
 		// typically too wide for inline editing within a list cell.
 		// e.stopPropagation() prevents the section row click handler from
 		// intercepting this event and triggering unintended row navigation.
-		wrapper.addEventListener('click', (e) => {
-			e.stopPropagation()
-			activate_edit_in_list(self, e, { mode: 'modal' })
-		})
+		bind_edit_in_list(self, wrapper, { mode: 'modal' })
 
 
 	return wrapper

@@ -2980,6 +2980,8 @@ export const ui = {
 	*   modality derived from remove_overlay; set on the element BEFORE it is connected,
 	*   because connectedCallback applies the isolation.
 	* @param {boolean} [options.minimizable=true] - Shows or hides the minimize button.
+	* @param {boolean} [options.focus_content=true] - false: on open the dialog keeps the focus
+	*   instead of handing it to its first content control (the body's own code places it).
 	* @param {boolean} [options.transient=false] - When true the modal skips the page-wide
 	*   unsaved-data guard on close. For transient dialogs that own no editable data
 	*   (see ui.confirm); never set it on a modal that hosts components.
@@ -3041,6 +3043,7 @@ export const ui = {
 			// the accessibility contract reads — a dialog that isolates the page is
 			// a decision the CALLER makes, never something the element infers.
 			modal_container.transient = transient
+			modal_container.focus_content = options.focus_content ?? true
 			modal_container.modality = options.modality
 				?? ((remove_overlay===true) ? 'non_modal' : 'modal')
 			modal_parent.appendChild(modal_container)
@@ -4910,7 +4913,10 @@ export const ui = {
 					callback(dd_modal)
 				}
 			},
-			size : 'normal' // string size: big|normal|small
+			size : 'normal', // string size: big|normal|small
+			// the component's activation (above) places the focus: its first
+			// input, or none (a portal) — never the first row button
+			focus_content : false
 		})
 
 

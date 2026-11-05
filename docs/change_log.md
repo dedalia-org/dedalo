@@ -202,6 +202,10 @@ Merged since the last release; these ship with the next one.
 
     About 250 interface texts per language still appeared in English. Every language catalog now has a translation for all of them. The translations have not yet been reviewed by native speakers; please report wording that reads wrong.
 
+- **Clicking a value in a list cell opens it for editing in a window, portals included, without activating the table around it.**
+
+    A click on a value shown in a list cell (a date, a text, a portal…) opens that value in an edit window. Before, the click also activated the portal table that contains the cell; portal cells needed a double click and did not open a window. The edit window of a portal no longer puts the focus on the first row's edit button when it opens.
+
 - **The id cell's hover text is now readable on its orange, green and red fills.**
 
     In a list's id cell, hovering the edit, delete or thesaurus-link button paints the cell orange, green or red. The id number and its icon were white in the light theme — about 2.4:1 on the orange, hard to read — while the dark theme flipped them to dark ink, which read poorly on the green. Each fill now takes the ink the theme defines for it: dark on the orange, white on the green, and white on the red in the light theme with dark ink on it in the dark theme. The number stays legible on every button, in both themes.

@@ -5,7 +5,7 @@
 // import
 import { ui } from '../../common/js/ui.js';
 import { render_join } from '../../common/js/utils/render_escape.js';
-import { activate_edit_in_list } from '../../component_common/js/component_common.js';
+import { bind_edit_in_list } from '../../component_common/js/component_common.js';
 
 /**
  * VIEW_DEFAULT_LIST_CHECK_BOX
@@ -80,10 +80,7 @@ view_default_list_check_box.render = async (self) => {
 	});
 
 	// click handler for edit mode activation (auto: inline if wide enough, modal otherwise)
-	wrapper.addEventListener('click', (e) => {
-		e.stopPropagation();
-		activate_edit_in_list(self, e, { mode: 'auto' });
-	});
+	bind_edit_in_list(self, wrapper, { mode: 'auto' });
 
 	return wrapper;
 }; //end render
