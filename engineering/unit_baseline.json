@@ -2889,6 +2889,46 @@
 			"skipped": 0,
 			"assertions": 9
 		},
+		"test/unit/machine_name_classification_native.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 15
+		},
+		"test/unit/machine_name_convert.test.ts": {
+			"tests": 21,
+			"skipped": 0,
+			"assertions": 161
+		},
+		"test/unit/machine_name_kernel.test.ts": {
+			"tests": 22,
+			"skipped": 0,
+			"assertions": 73
+		},
+		"test/unit/machine_name_native.test.ts": {
+			"tests": 14,
+			"skipped": 0,
+			"assertions": 39
+		},
+		"test/unit/machine_name_outcome_native.test.ts": {
+			"tests": 14,
+			"skipped": 0,
+			"assertions": 49
+		},
+		"test/unit/machine_name_reconcile_native.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 39
+		},
+		"test/unit/machine_name_rung_ratchet_native.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 107
+		},
+		"test/unit/machine_name_save_rules.test.ts": {
+			"tests": 35,
+			"skipped": 0,
+			"assertions": 77
+		},
 		"test/unit/magick_policy_tripwire.test.ts": {
 			"tests": 67,
 			"skipped": 0,
