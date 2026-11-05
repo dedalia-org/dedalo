@@ -190,6 +190,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Typing a search in a portal's search box no longer counts as an unsaved change.**
+
+    Closing an edit window after only typing in a portal's search box, without picking a record, asked "Discard unsaved changes?". The search text is not record data: the question now appears only when a value was really changed.
+
 - **The interface is now fully translated into every supported language.**
 
     About 250 interface texts per language still appeared in English. Every language catalog now has a translation for all of them. The translations have not yet been reviewed by native speakers; please report wording that reads wrong.

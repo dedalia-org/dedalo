@@ -253,6 +253,10 @@ describe('G. call-site shape', () => {
 		);
 		expect(fn).toContain('register_uncommitted_input');
 		expect(fn).toContain('deregister_uncommitted_input');
+		// the portal lookup box sits inside the EDIT wrapper; typing a query must not arm the guard
+		expect(fn, 'autocomplete search typing would raise a false "Discard unsaved changes?"').toContain(
+			"closest('.wrapper_service_autocomplete')",
+		);
 	});
 
 	test('the beforeunload handler blurs the active element before reading the flag', () => {
