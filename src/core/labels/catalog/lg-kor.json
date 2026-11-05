@@ -599,6 +599,8 @@
 	"tables_list": "테이블 목록 (예: dd_ontology, matrix_ontology, matrix)",
 	"tag": "태그",
 	"tap_term_to_place": "배치할 용어를 탭하세요",
+	"term_missing": "용어 없음",
+	"term_missing_title": "이 용어는 모든 언어에서 비어 있습니다. 레코드에 값이 없거나, section_list_thesaurus 용어 정의가 이를 담고 있는 구성 요소를 지정하지 않습니다. 용어 구성 요소:",
 	"terms": "용어",
 	"text_tags_preserved": "텍스트의 태그는 유지됩니다.",
 	"time": "시간",

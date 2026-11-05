@@ -212,6 +212,11 @@ const CENSUS: Record<string, CensusRow> = {
 		reason:
 			'the thesaurus tree mutators (persistTreeKeys, CLOSURE_PLAN Step 5): every key they write is HARD-BOUND to a section’s component_relation_parent (getParentTipo), its section_map order number, or add_child’s section_map thesaurus defaults — the users section declares no parent component (relation_children_write_through_native asserts getParentTipo(dd128) is null), so no dd128 component is reachable. Their one caller, ts_object/ts_api.ts, gates at the section level (its own row).',
 	},
+	'src/core/ontology/machine_name_reconcile.ts': {
+		verdict: 'system',
+		reason:
+			'the ontology machine-name converter (P3, WC-2026-11-04-ontology-machine-names): the two reconciles (Maintenance › Reconcile, scripts/reconcile.ts, the boot scheduler) save through saveComponentData as userId -1 with a superuser principal, and the package-import rewrite persists through persistRecordKeys with no audit; every write is HARD-BOUND to the ontology source sections (matrix_ontology `<tld>0` / localontology0) and to ontology5 / ontology43 / ontology44 — no dd128 component is reachable, and no request or principal exists.',
+	},
 	'src/core/relations/declared_order_reconcile.ts': {
 		verdict: 'system',
 		reason:

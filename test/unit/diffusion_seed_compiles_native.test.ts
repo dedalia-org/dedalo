@@ -78,6 +78,7 @@
 import { describe, expect, test } from 'bun:test';
 import { MIGRATIONS_VERSION_TABLE } from '../../install/db/migrate.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { nameOrLabelOf } from '../../src/core/ontology/labels.ts';
 import { inspectOntology } from '../../src/core/ontology/ontology_state.ts';
 import { RESERVED_TLD } from '../../src/core/test_data/situations/situation.ts';
 import { loadTestTldOntologyDoc } from '../../src/core/test_data/test_tld_materialize.ts';
@@ -86,7 +87,6 @@ import { KNOWN_FORMATS } from '../../src/diffusion/plan/formats.ts';
 import {
 	buildVirtualDiffusionTree,
 	findElementNodes,
-	termLabelOf,
 	type VirtualDiffusionTree,
 	type VirtualTreeNode,
 } from '../../src/diffusion/plan/virtual_tree.ts';
@@ -148,9 +148,16 @@ async function censusOfShippedElements(): Promise<{
 	const testTlds = new Set(doc.nodes.map((node) => node.tld ?? ''));
 
 	const domainRows = await sql<
-		{ tipo: string; tld: string | null; term: Record<string, string> | null }[]
+		{
+			tipo: string;
+			tld: string | null;
+			term: Record<string, string> | null;
+			machine_name: string | null;
+			use_machine_name: boolean | null;
+		}[]
 	>`
-		SELECT tipo, tld, term FROM dd_ontology WHERE model = 'diffusion_domain' ORDER BY tipo`;
+		SELECT tipo, tld, term, machine_name, use_machine_name
+		FROM dd_ontology WHERE model = 'diffusion_domain' ORDER BY tipo`;
 	const tldRows = await sql<{ tipo: string; tld: string | null }[]>`
 		SELECT tipo, tld FROM dd_ontology WHERE model LIKE 'diffusion_element%'`;
 	const tldOf = new Map(tldRows.map((row) => [row.tipo, row.tld ?? '']));
@@ -159,7 +166,8 @@ async function censusOfShippedElements(): Promise<{
 	const shipped: ShippedElement[] = [];
 	const scratchResidue: string[] = [];
 	for (const domain of domainRows) {
-		const domainName = termLabelOf(domain as never);
+		// The domain is a name node: the engine matches it by its machine name.
+		const domainName = nameOrLabelOf(domain);
 		if (RESERVED_TLD.test(domain.tld ?? '')) {
 			scratchResidue.push(`domain ${domain.tipo} (tld '${domain.tld}', '${domainName}')`);
 			continue;

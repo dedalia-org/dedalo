@@ -10,8 +10,9 @@
  *  - provisioning: PHP hierarchy::generate_virtual_section (class.hierarchy.php
  *    :228) / provision_virtual_sections (:459) — node structure, the <tld>0/1
  *    descriptor + <tld>0/2 model component-key sets, the byte pins the TS module
- *    header records as PHP-verified (descriptor ontology7 lang lg-spa vs the
- *    registration's lg-nolan; the BARE ontology15 parent locator; the
+ *    header records as PHP-verified (descriptor ontology7 lang — lg-spa in PHP,
+ *    lg-nolan like the registration since 2026-11-04, owner decision D7,
+ *    WC-2026-11-04-ontology-machine-names; the BARE ontology15 parent locator; the
  *    hierarchy53/58 write-back items).
  *  - delete cascade: PHP ontology::delete_main (class.ontology.php:2803) →
  *    delete_ontology (:2994) steps 1 (dd_ontology nodes purged) + 3 (every
@@ -377,7 +378,7 @@ describe('generate_virtual_section — TS-native provisioning of a scratch TLD',
 		// PHP provision_virtual_sections: <tld>0 root (model 'section'/dd6, is_main,
 		// parent = ontologytype grouper), <tld>1 descriptor (parent hierarchytype
 		// grouper, is_model false), <tld>2 model twin (parent hierarchymtype
-		// grouper, is_model true). model = dd6.term['lg-spa'] = 'section'.
+		// grouper, is_model true). model = dd6.machine_name = 'section'.
 		expect(await nodeShapes()).toEqual([
 			{
 				suffix: '0',
@@ -481,11 +482,12 @@ describe('generate_virtual_section — TS-native provisioning of a scratch TLD',
 		).toEqual([1]); // dd64/1 = "yes"
 	});
 
-	test('byte pins: descriptor tld item is lg-spa; ontology15 parent locators are BARE', async () => {
+	test('byte pins: descriptor tld item is lg-nolan; ontology15 parent locators are BARE', async () => {
 		const rec1 = await nodeRecordCols(1);
 		const rec2 = await nodeRecordCols(2);
-		// ontology7 lang lg-spa (DEDALO_DATA_LANG) — DIFFERS from the registration's lg-nolan.
-		expect(rec1.string?.ontology7).toEqual([{ id: 1, lang: 'lg-spa', value: TLD }]);
+		// ontology7 is not translatable: lg-nolan, like the registration (PHP wrote
+		// lg-spa here; retired 2026-11-04, D7, WC-2026-11-04-ontology-machine-names).
+		expect(rec1.string?.ontology7).toEqual([{ id: 1, lang: 'lg-nolan', value: TLD }]);
 		// BARE {section_tipo, section_id} — no type / from_component_tipo (PHP-pinned
 		// shape; the id is int-canonical, WC-2026-08-10-section-id-int-canonical).
 		expect(rec1.relation?.ontology15).toEqual([{ section_tipo: 'hierarchytype0', section_id: 1 }]);

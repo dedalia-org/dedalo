@@ -356,6 +356,18 @@ const TRIPWIRES = [
 	'test/unit/ontology_registry_row_native.test.ts',
 	'test/unit/ontology_dependencies_native.test.ts',
 	'test/unit/install_hierarchy_dependencies_native.test.ts',
+	// 2026-11-04 — ontology machine names: the derivation kernel's rungs, flag and classification (WC-2026-11-04-ontology-machine-names).
+	'test/unit/machine_name_kernel.test.ts',
+	'test/unit/machine_name_save_rules.test.ts',
+	// 2026-11-04 — G1: every naming consumer reads dd_ontology.machine_name, never a lang-picked term.
+	'test/unit/machine_name_outcome_native.test.ts',
+	// 2026-11-04 — G2/G5/G6: the parser over source records, the classification of the installed ontology, the legacy-rung ratchet.
+	'test/unit/machine_name_native.test.ts',
+	'test/unit/machine_name_classification_native.test.ts',
+	'test/unit/machine_name_rung_ratchet_native.test.ts',
+	// 2026-11-04 — P3: the conversion kernel's classes (pure) + the converter's doors on the suite DB.
+	'test/unit/machine_name_convert.test.ts',
+	'test/unit/machine_name_reconcile_native.test.ts',
 	// Closure Step 3 req 7 — the change-plan validator asks the write door (2026-10-01).
 	'test/unit/change_plan_write_door_native.test.ts',
 	// Closure Step 3 req 10 residual — the importers' create door + legacy frame slots (2026-10-01).

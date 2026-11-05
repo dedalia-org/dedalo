@@ -26,14 +26,11 @@
  */
 
 import { readString } from '../../config/readers.ts';
+import { nameOrLabelOf } from '../../core/ontology/labels.ts';
 import { isMariadbTargetFormat } from '../plan/formats.ts';
 import { requireSqlIdentifier } from '../plan/identifier.ts';
 import type { VirtualPathItem, VirtualTreeNode } from '../plan/virtual_tree.ts';
-import {
-	buildVirtualDiffusionTree,
-	getDatabaseNameForElement,
-	termLabelOf,
-} from '../plan/virtual_tree.ts';
+import { buildVirtualDiffusionTree, getDatabaseNameForElement } from '../plan/virtual_tree.ts';
 import { getTargetDatabaseStatus, type TargetDatabaseStatus } from '../targets/mariadb/db.ts';
 import { WRITER_REGISTRY } from '../writers/registry.ts';
 
@@ -244,10 +241,10 @@ export async function buildDiffusionInfo(sectionTipo: string): Promise<{
 			children.push({
 				tipo: childTipo,
 				model: childNode?.model ?? null,
-				label: termLabelOf(childNode),
+				label: nameOrLabelOf(childNode),
 				related_tipo: relatedTipo,
 				related_model: relatedNode?.model ?? null,
-				related_label: termLabelOf(relatedNode),
+				related_label: nameOrLabelOf(relatedNode),
 			});
 		}
 		const element = elementOf(node, elementTypesByTipo);

@@ -599,6 +599,8 @@
 	"tables_list": "テーブルリスト（例: dd_ontology, matrix_ontology, matrix）",
 	"tag": "タグ",
 	"tap_term_to_place": "配置する用語をタップしてください",
+	"term_missing": "用語がありません",
+	"term_missing_title": "この用語はすべての言語で空です。レコードに値がないか、section_list_thesaurus の用語定義がそれを保持するコンポーネントを指定していません。用語のコンポーネント:",
 	"terms": "用語",
 	"text_tags_preserved": "テキスト内のタグは保持されます。",
 	"time": "時刻",

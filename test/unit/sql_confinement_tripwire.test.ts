@@ -1266,6 +1266,8 @@ function scratchNode(overrides: Partial<DdOntologyNode> & { tipo: string }): DdO
 		is_translatable: overrides.is_translatable ?? false,
 		is_main: overrides.is_main ?? false,
 		propiedades: overrides.propiedades ?? null,
+		machine_name: overrides.machine_name ?? null,
+		use_machine_name: overrides.use_machine_name ?? false,
 	};
 }
 

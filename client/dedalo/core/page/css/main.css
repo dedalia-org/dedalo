@@ -21639,6 +21639,11 @@ body.inspector_resizing {
   padding: 0.25rem;
   margin: -0.25rem;
 }
+.wrap_ts_object > .content_data > .elements_container > .term > .term_text.term_missing {
+  color: var(--color_warning);
+  font-style: italic;
+  border: 1px dashed var(--color_warning);
+}
 .wrap_ts_object > .content_data > .elements_container > .term > .term_text:hover {
   color: var(--color_orange_dedalo) !important;
   opacity: 1;

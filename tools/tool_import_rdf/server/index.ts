@@ -396,10 +396,7 @@ export async function importRdfBatch(
 	deps: HarvestDeps = {},
 	deadlineMs: number = RDF_IRI_DEADLINE_MS,
 ): Promise<RdfImportResult> {
-	const ontology = await loadRdfImportOntology(
-		call.ontologyTipo,
-		engineRdfOntologyReader(config.lang.structureLang),
-	);
+	const ontology = await loadRdfImportOntology(call.ontologyTipo, engineRdfOntologyReader());
 	return runRdfImport({
 		...call,
 		ontology,

@@ -35,6 +35,7 @@
 
 import { readEnv } from '../../config/env.ts';
 import { sql } from '../../core/db/postgres.ts';
+import { nameOrLabelOf } from '../../core/ontology/labels.ts';
 import { getOrderedSubtree } from '../../core/ontology/resolver.ts';
 
 /** DEDALO_DIFFUSION_TIPO — the dd1190 diffusion ontology root. */
@@ -49,6 +50,14 @@ export interface RawOntologyNode {
 	parent: string | null;
 	model: string;
 	term: Record<string, string> | null;
+	/**
+	 * The language-free name (database / table / field / domain nodes) and its
+	 * flag — read through labels.ts nameOrLabelOf, never by a lang. Optional so
+	 * an in-memory node may omit the pair: it then reads as a row not derived
+	 * yet (the legacy label reading, counted).
+	 */
+	machine_name?: string | null;
+	use_machine_name?: boolean | null;
 	properties: Record<string, unknown> | null;
 	relations: { tipo?: string }[] | null;
 }
@@ -141,16 +150,6 @@ export interface VirtualDiffusionTree {
 }
 
 /**
- * Structure-lang term of a node: 'lg-spa' (DEDALO_STRUCTURE_LANG) first, then
- * the first non-empty translation — same fallback as diffusion_map.ts termOf.
- */
-export function termLabelOf(node: RawOntologyNode | null | undefined): string | null {
-	const term = node?.term;
-	if (term === null || term === undefined) return null;
-	return term['lg-spa'] ?? Object.values(term).find((value) => value !== '') ?? null;
-}
-
-/**
  * jsonb columns written as pre-stringified params come back as STRING scalars
  * (known Bun.sql trap) — parse-if-string keeps every consumer on objects.
  */
@@ -172,12 +171,15 @@ function normalizeRawNode(row: Record<string, unknown>): RawOntologyNode {
 		parent: (row.parent as string | null) ?? null,
 		model: (row.model as string) ?? '',
 		term: parseJsonbColumn<Record<string, string>>(row.term),
+		machine_name: (row.machine_name as string | null | undefined) ?? null,
+		use_machine_name: (row.use_machine_name as boolean | null | undefined) ?? null,
 		properties: parseJsonbColumn<Record<string, unknown>>(row.properties),
 		relations: parseJsonbColumn<{ tipo?: string }[]>(row.relations),
 	};
 }
 
-const NODE_COLUMNS = 'tipo, parent, model, term, properties, relations';
+const NODE_COLUMNS =
+	'tipo, parent, model, term, machine_name, use_machine_name, properties, relations';
 
 /**
  * Build the read-through OntologyIndex: ONE recursive CTE for the whole
@@ -203,6 +205,8 @@ async function loadOntologyIndex(): Promise<
 			parent: node.parent,
 			model: node.model,
 			term: node.term,
+			machine_name: node.machine_name,
+			use_machine_name: node.use_machine_name,
 			properties: node.properties,
 			relations: node.relations,
 		}),
@@ -327,7 +331,9 @@ async function resolveNodeWithAlias(index: OntologyIndex, tipo: string): Promise
 	const result: ResolvedNode = {
 		tipo,
 		model,
-		label: termLabelOf(node),
+		// Mixed class: a database / table node is named by its machine name,
+		// an element by its label (labels.ts nameOrLabelOf).
+		label: nameOrLabelOf(node),
 		realTipo: null,
 		properties: null,
 		isAlias,
@@ -391,7 +397,8 @@ export async function buildVirtualDiffusionTree(
 	let domainTipo: string | null = null;
 	for (const childTipo of index.inTreeChildren.get(DIFFUSION_ROOT) ?? []) {
 		const child = index.byTipo.get(childTipo);
-		if (child?.model === 'diffusion_domain' && termLabelOf(child) === domainName) {
+		// The domain is a name node: matched by its MACHINE NAME, never a label.
+		if (child?.model === 'diffusion_domain' && nameOrLabelOf(child) === domainName) {
 			domainTipo = childTipo;
 			break;
 		}
@@ -499,16 +506,18 @@ export async function buildVirtualDiffusionTree(
 		// Merged recursive children: alias own children first, then the real
 		// node's children whose LABEL is not already taken (PHP :335-357 —
 		// labels_seen tracks OWN labels only; real-vs-real duplicates survive).
+		// "Label" is each child's identifying string (nameOrLabelOf): a field
+		// column is deduplicated by its machine name, an element by its label.
 		const ownRecursive = await recursiveChildren(currentTipo);
 		const mergedChildren = [...ownRecursive];
 		if (resolved.isAlias && resolved.realTipo !== null) {
 			const ownLabels = new Set<string>();
 			for (const child of ownRecursive) {
-				const label = termLabelOf(await index.nodeOf(child));
+				const label = nameOrLabelOf(await index.nodeOf(child));
 				if (label !== null) ownLabels.add(label);
 			}
 			for (const child of await recursiveChildren(resolved.realTipo)) {
-				const label = termLabelOf(await index.nodeOf(child));
+				const label = nameOrLabelOf(await index.nodeOf(child));
 				if (label === null || !ownLabels.has(label)) mergedChildren.push(child);
 			}
 		}

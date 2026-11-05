@@ -217,6 +217,8 @@ describe('reconcile registry completeness (S-10)', () => {
 			rag_index: 'src/ai/rag/reconcile.ts',
 			ontology: 'src/core/ontology/ontology_state.ts',
 			ontology_identifiers: 'src/core/ontology/identifier_grammar.ts',
+			ontology_machine_names: 'src/core/ontology/machine_name_reconcile.ts',
+			ontology_machine_names_strays: 'src/core/ontology/machine_name_reconcile.ts',
 			hierarchy: 'src/core/ontology/hierarchy_state.ts',
 			public_tier: 'src/diffusion/api/reconcile.ts',
 			publication_apis: 'src/core/publication_host/api_reconcile.ts',
@@ -236,13 +238,22 @@ describe('reconcile registry completeness (S-10)', () => {
 		}
 	});
 
-	test('a scheduled APPLY is the exception with a reason — media_index (the pub/ derivation), media_copy (pub/ ∩ public files onto copy hosts), publication_probe (records an observation, repairs nothing)', () => {
+	test('a scheduled APPLY is the exception with a reason — media_index (the pub/ derivation), ontology_machine_names (the LOSSLESS machine-name conversion, never unscoped on an ontology server), media_copy (pub/ ∩ public files onto copy hosts), publication_probe (records an observation, repairs nothing)', () => {
 		const auto = REGISTERED.filter((definition) => definition.autoApply !== undefined);
 		expect(auto.map((definition) => definition.name)).toEqual([
 			'media_index',
+			'ontology_machine_names',
 			'media_copy',
 			'publication_probe',
 		]);
+		// The lossless converter's scheduled apply is guarded by an ontology-server refusal
+		// (master is converted by a human, plan §6): the guard is in its run, pinned here
+		// by source and driven in machine_name_reconcile_native.
+		const converter = stripComments(
+			readFileSync(join(ROOT, 'src/core/ontology/machine_name_reconcile.ts'), 'utf8'),
+		);
+		expect(converter).toContain('isOntologyServer: boolean = config.ontologyIo.isOntologyServer,');
+		expect(converter).toContain('const refusal = await applyRefusal(options.scope);');
 		expect(
 			(REGISTERED.find((definition) => definition.name === 'media_copy') as ReconcileDefinition)
 				.schedule,
@@ -257,6 +268,7 @@ describe('reconcile registry completeness (S-10)', () => {
 			'files_info',
 			'observer_mirrors',
 			'ontology',
+			'ontology_machine_names_strays',
 			'hierarchy',
 			'public_tier',
 			'rich_text_images',
@@ -281,12 +293,14 @@ describe('reconcile registry completeness (S-10)', () => {
 		// is a master-ontology edit — its apply is refused at the registry, with a reason.
 		const selfDepth = REGISTERED.find((d) => d.name === 'ddo_self_depth') as ReconcileDefinition;
 		expect(selfDepth.applyRefused?.reason.length).toBeGreaterThan(40);
-		// An operator APPLY that changes what the public can read is root-only at the widget
-		// door (E10): media_copy (a public machine), rich_text_images (makes login-only files
+		// An operator APPLY that changes what the public can read — or which label a UI
+		// language shows (ontology_machine_names_strays: a stray translation becomes the
+		// node's only label) — is root-only at the widget door (E10): media_copy (a public machine), rich_text_images (makes login-only files
 		// public) and web_image_exposure (makes published files private), each with a reason;
 		// reconcile_status enforces it.
 		const rootOnly = REGISTERED.filter((d) => d.applyRootOnly !== undefined);
 		expect(rootOnly.map((d) => d.name)).toEqual([
+			'ontology_machine_names_strays',
 			'media_copy',
 			'rich_text_images',
 			'web_image_exposure',

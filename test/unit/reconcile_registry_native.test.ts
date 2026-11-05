@@ -31,6 +31,10 @@
  *   - zzrc8 section (matrix_test) hosting zzrc7, a component_portal over zzrc8
  *     itself that DECLARES `order: asc` on zzrc9 (its component_input_text) —
  *     the portal_declared_order pair (stored array vs declared order).
+ *   - `zzmach` TLD (its OWN): raw ontology source records — a label record stating its
+ *     flag (clean) — the ontology_machine_names / _strays pairs (records ↔ the
+ *     machine-name shape); planted: an unflagged label (L) / a matrix_table node with a
+ *     stray translation (S). Swept with its projection.
  *   - `zzrs` TLD (its OWN): a component_portal node whose show map declares
  *     `section_tipo: 'self'` on a GRANDCHILD — the ddo_self_depth pair
  *     (installed request_configs vs the decision-(c) depth rule). Planted
@@ -78,6 +82,12 @@ import { deleteSectionRecord } from '../../src/core/section/record/delete_record
 import { type Principal, SUPERUSER_ID } from '../../src/core/security/permissions.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import {
+	deleteMachineNameScratch,
+	modelTipoNamed,
+	seedMachineNameScratch,
+	sweepMachineNameScratch,
+} from '../helpers/machine_name_scratch.ts';
+import {
 	type CopyMockAgent,
 	startCopyMockAgent,
 	unregisterCopyMockHost,
@@ -119,6 +129,15 @@ const ONTO_SECTION = `${ONTO_TLD}0`;
 /** A grammar violator: a valid tipo whose PARENT is not a tipo (SURF-1 legacy shape). */
 const GRAMMAR_VIOLATOR = { tipo: 'zzrg1', tld: 'zzrg', parent: "zzrg0'" };
 const PARENT_GRAMMAR = 'dd_ontology_parent_grammar';
+
+/**
+ * ontology_machine_names(_strays): the `zzmach` scratch section (its OWN tld — both
+ * definitions are scoped to it). Clean = one label record that STATES its flag No (the
+ * converted shape). Planted: a label record with no flag (class L) / a matrix_table
+ * instance whose lg-spa name sits beside a DIFFERENT translation (class S).
+ */
+const MN_TLD = 'zzmach';
+const MN_PLANTED_ID = 2;
 
 /** ddo_self_depth: one portal whose map declares 'self' at depth 2 (decision (c)). */
 const SELF_DEPTH_TLD = 'zzrs';
@@ -258,6 +277,10 @@ beforeAll(async () => {
 	await sweepMediaSituation();
 	await sweepOntologySituation();
 	await sweepHierarchySituation();
+	await sweepMachineNameScratch(MN_TLD);
+	await seedMachineNameScratch(MN_TLD, [
+		{ sectionId: 1, term: [{ id: 1, lang: 'lg-eng', value: 'Converted label' }], flag: false },
+	]);
 
 	// zzrc: the media pair + the RAG pair.
 	await upsertDdOntologyNode({
@@ -382,6 +405,7 @@ afterAll(async () => {
 	await sweepOntologySituation();
 	await sweepHierarchySituation();
 	await deleteTldNodes(SELF_DEPTH_TLD);
+	await sweepMachineNameScratch(MN_TLD);
 	rmSync(join(mediaRoot(), '.publication', 'pub', `${MEDIA_SECTION}_999999`), { force: true });
 	rmSync(join(mediaRoot(), '.publication', 'dbs', 'zzrc_ghost_db'), {
 		recursive: true,
@@ -595,6 +619,39 @@ const PLANTERS: Record<string, Planter> = {
 		async unplant() {
 			await sql.unsafe('DELETE FROM dd_ontology WHERE tipo = $1', [`${ONTO_TLD}9`]);
 			await clearOntologyDerivedCaches();
+		},
+	},
+	ontology_machine_names: {
+		scope: [MN_TLD],
+		async plant() {
+			// A label node that does not state its flag yet: the lossless `flag_no`.
+			await seedMachineNameScratch(MN_TLD, [
+				{ sectionId: MN_PLANTED_ID, term: [{ id: 1, lang: 'lg-eng', value: 'Legacy label' }] },
+			]);
+			return 1;
+		},
+		async unplant() {
+			await deleteMachineNameScratch(MN_TLD, [MN_PLANTED_ID]);
+		},
+	},
+	ontology_machine_names_strays: {
+		scope: [MN_TLD],
+		async plant() {
+			// A matrix_table node whose lg-spa name has a DIFFERENT translation beside it (dd853).
+			await seedMachineNameScratch(MN_TLD, [
+				{
+					sectionId: MN_PLANTED_ID,
+					modelTipo: await modelTipoNamed('matrix_table'),
+					term: [
+						{ id: 1, lang: 'lg-eus', value: 'Berria' },
+						{ id: 2, lang: 'lg-spa', value: 'zzmach_table' },
+					],
+				},
+			]);
+			return 1;
+		},
+		async unplant() {
+			await deleteMachineNameScratch(MN_TLD, [MN_PLANTED_ID]);
 		},
 	},
 	ontology_identifiers: {
@@ -954,11 +1011,17 @@ describe('reconcile registry — every definition measures its pair (S-10)', () 
 			apply: true,
 			error: 'resource.not_found',
 		});
-		// the facet is declared exactly where an apply changes what the public can read
+		// the facet is declared exactly where an apply changes what the public can read — or
+		// which label a UI language shows (the machine-name strays)
 		const rootOnly = listReconciles()
 			.filter((definition) => definition.applyRootOnly !== undefined)
 			.map((definition) => definition.name);
-		expect(rootOnly).toEqual(['media_copy', 'rich_text_images', 'web_image_exposure']);
+		expect(rootOnly).toEqual([
+			'ontology_machine_names_strays',
+			'media_copy',
+			'rich_text_images',
+			'web_image_exposure',
+		]);
 	});
 
 	test('the widget door is DRY unless apply is the boolean true: a planted drift is reported, not repaired', async () => {

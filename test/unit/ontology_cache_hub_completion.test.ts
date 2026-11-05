@@ -35,7 +35,6 @@ import {
 	getSectionIdComponentTipo,
 } from '../../src/core/ontology/section_id_component.ts';
 import { clearSectionMapCache, getSectionMap } from '../../src/core/ontology/section_map.ts';
-import { clearTermLabelCache } from '../../src/core/ontology/term_label.ts';
 import { clearSectionComponentCache, getChildrenTipo } from '../../src/core/relations/children.ts';
 import { clearDatalistCache } from '../../src/core/relations/datalist.ts';
 import {
@@ -92,7 +91,8 @@ const REGISTERED_CLEARERS: [string, () => void][] = [
 	['request_config/explicit clearHierarchySectionsCache', clearHierarchySectionsCache],
 	['request_config/explicit clearOntologySectionsCache', clearOntologySectionsCache],
 	['handlers/menu clearAreaWalkCache', clearAreaWalkCache],
-	['ontology/term_label clearTermLabelCache', clearTermLabelCache],
+	// ontology/term_label's row cache folded into labels.ts 2026-11-04: it is
+	// cleared by clearLabelCache (registered above).
 	// component_alias caches (WC-020); the object-identity probe lives in
 	// test/unit/component_alias.test.ts on scratch fixtures (no live alias node
 	// is valid pre-migration — the v5 keys throw by contract).

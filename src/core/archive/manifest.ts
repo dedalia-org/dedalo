@@ -43,6 +43,7 @@ import { canonicalJson } from '../concepts/canonical_json.ts';
 import type { DdOntologyRow } from '../db/dd_ontology.ts';
 import type { MatrixJsonbColumn } from '../db/matrix.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
+import { deriveLegacyMachineName } from '../ontology/machine_name.ts';
 
 /** The format identifier and the version this engine writes and reads. */
 export const ARCHIVE_FORMAT = 'dedalo-archive';
@@ -157,9 +158,30 @@ export function ontologyDigest(subtree: readonly DdOntologyRow[]): string {
 	return sha256Hex(canonicalJson(sorted));
 }
 
-/** Two ontology rows are the same definition (jsonb columns compared structurally). */
+/**
+ * A row with its machine-name columns STATED, for comparison. An archive written
+ * before migration 0015 carries rows WITHOUT the two keys, and a destination row
+ * no parser has derived since the migration reads `use_machine_name` NULL; both
+ * get the parser's own legacy derivation (ontology/machine_name.ts — the same one
+ * the upsert door applies when the restore writes such a row), so an unchanged
+ * definition is found unchanged, never a conflict manufactured by a schema bump.
+ */
+function withStatedMachineName(row: DdOntologyRow): DdOntologyRow {
+	if (typeof row.use_machine_name === 'boolean') return row;
+	const derived = deriveLegacyMachineName(row);
+	return {
+		...row,
+		machine_name: row.machine_name ?? derived.machine_name,
+		use_machine_name: derived.use_machine_name,
+	};
+}
+
+/**
+ * Two ontology rows are the same definition (jsonb columns compared structurally;
+ * machine-name columns as derived — withStatedMachineName).
+ */
 export function ontologyRowsEqual(a: DdOntologyRow, b: DdOntologyRow): boolean {
-	return canonicalJson(a) === canonicalJson(b);
+	return canonicalJson(withStatedMachineName(a)) === canonicalJson(withStatedMachineName(b));
 }
 
 /** A refusal of a malformed or tampered artifact — nothing is written on it. */

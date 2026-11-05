@@ -41,6 +41,7 @@ import {
 	ONTOLOGY_CONNECTED_TO,
 	ONTOLOGY_CSS,
 	ONTOLOGY_IS_MODEL,
+	ONTOLOGY_MACHINE_NAME,
 	ONTOLOGY_MODEL,
 	ONTOLOGY_ORDER,
 	ONTOLOGY_PARENT,
@@ -50,6 +51,7 @@ import {
 	ONTOLOGY_TERM,
 	ONTOLOGY_TLD,
 	ONTOLOGY_TRANSLATABLE,
+	ONTOLOGY_USE_MACHINE_NAME,
 } from '../../src/core/ontology/ontology_tipos.ts';
 import { parseSectionRecordToOntologyNode } from '../../src/core/ontology/parser.ts';
 import {
@@ -344,7 +346,8 @@ describe('test TLD ontology — the database is derived from the JSON', () => {
 		// hand a numeric column back as a string).
 		const rows = (await sql`
 			SELECT tipo, parent, term, model, order_number, relations, tld,
-			       properties, model_tipo, is_model, is_translatable, is_main, propiedades
+			       properties, model_tipo, is_model, is_translatable, is_main, propiedades,
+			       machine_name, use_machine_name
 			FROM dd_ontology
 			WHERE tld = ANY(string_to_array(${TLDS.join(',')}, ','))
 		`) as DdOntologyRow[];
@@ -397,6 +400,24 @@ describe('test TLD ontology — the database is derived from the JSON', () => {
 			expect(model, tipo).not.toBeNull();
 			expect(getColumnNameByModel(String(model)), tipo).toBe(column);
 		}
+		// The machine-name pair (ontology43/44, master-defined 2026-11-03) reaches an
+		// install through an ontology release: on one that does not carry them yet
+		// BOTH are absent (the parser's legacy rungs cover it). Once present, they must
+		// store where the inverse writes them — never one without the other.
+		const machineName: Record<string, string> = {
+			[ONTOLOGY_MACHINE_NAME]: 'string',
+			[ONTOLOGY_USE_MACHINE_NAME]: 'relation',
+		};
+		const present: string[] = [];
+		for (const [tipo, column] of Object.entries(machineName)) {
+			const model = await getModelByTipo(tipo);
+			if (model === null) continue;
+			present.push(tipo);
+			expect(getColumnNameByModel(model), tipo).toBe(column);
+		}
+		expect([0, 2], `machine-name components present: ${present.join(',')}`).toContain(
+			present.length,
+		);
 	});
 
 	test('every materialized record parses BACK into exactly its JSON node (round trip)', () => {

@@ -67,7 +67,8 @@
  *    It is NOT behind a flag: the emitted JSON must be reproducible from the
  *    plain command, so a run either has the twins or the manifest does not.
  *  - `model` stays the derived twin of `model_tipo`
- *    (`dd_ontology[model_tipo].term['lg-spa']`), because that is what the
+ *    (`dd_ontology[model_tipo].machine_name`, legacy rung its term['lg-spa'] —
+ *    src/core/ontology/machine_name.ts modelNameOf), because that is what the
  *    engine's own parser will produce when the JSON is materialized.
  */
 
@@ -75,6 +76,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import type { DdOntologyNode } from '../src/core/db/dd_ontology.ts';
+import { deriveLegacyMachineName, modelNameOf } from '../src/core/ontology/machine_name.ts';
 import { phpPrettyJsonEncode } from '../src/core/ontology/parser.ts';
 
 const REPO = join(import.meta.dir, '..');
@@ -191,6 +193,28 @@ interface SourceNode extends DdOntologyNode {
 }
 
 const sources = new Map<string, SourceNode>();
+
+/**
+ * A source node's machine-name columns: the ones it STATES (a dd_ontology dump
+ * carrying migration 0015's columns, a record carrying ontology43/44), else the
+ * parser's own legacy derivation (ontology/machine_name.ts) — never a second rule.
+ */
+function machineNameColumns(
+	node: Omit<DdOntologyNode, 'machine_name' | 'use_machine_name'>,
+	stated: { machine_name: string | null; use_machine_name: boolean | null },
+): Pick<DdOntologyNode, 'machine_name' | 'use_machine_name'> {
+	if (stated.use_machine_name !== null) {
+		return {
+			machine_name: stated.use_machine_name ? stated.machine_name : null,
+			use_machine_name: stated.use_machine_name,
+		};
+	}
+	const derived = deriveLegacyMachineName(node);
+	return {
+		machine_name: stated.machine_name ?? derived.machine_name,
+		use_machine_name: derived.use_machine_name,
+	};
+}
 const childrenOf = new Map<string, string[]>();
 const modelOf = (tipo: string): string | null => sources.get(tipo)?.model ?? null;
 
@@ -237,7 +261,7 @@ function addDdOntologyRow(columns: string[], fields: string[], source: string): 
 	if (tipo === null || tipo === '') return;
 	if (sources.has(tipo)) return; // first source wins (the fixture before the seed)
 	const order = field('order_number');
-	sources.set(tipo, {
+	const base = {
 		tipo,
 		parent: field('parent'),
 		term: parseJson(field('term')) as Record<string, string> | null,
@@ -251,6 +275,14 @@ function addDdOntologyRow(columns: string[], fields: string[], source: string): 
 		is_translatable: field('is_translatable') !== 'f',
 		is_main: field('is_main') === 't',
 		propiedades: field('propiedades'),
+	};
+	const statedFlag = field('use_machine_name');
+	sources.set(tipo, {
+		...base,
+		...machineNameColumns(base, {
+			machine_name: field('machine_name'),
+			use_machine_name: statedFlag === null ? null : statedFlag === 't',
+		}),
 		source,
 	});
 }
@@ -279,7 +311,7 @@ function loadSeed(): void {
  * The per-TLD ontology dumps are in RECORD form (`matrix_ontology` rows), so
  * this is the offline mirror of `parseSectionRecordToOntologyNode`: same
  * components, same defaults (a missing `ontology8` is translatable, `model` is
- * `dd_ontology[model_tipo].term['lg-spa']` strict, `propiedades` is the value
+ * the model node's machine name (modelNameOf), `propiedades` is the value
  * re-encoded the PHP way). Run AFTER the two dd_ontology sources so the model
  * lookup can resolve `dd*` nodes.
  */
@@ -341,10 +373,8 @@ function loadRecordDumps(): void {
 					? locatorTipo(parentLocator)
 					: null;
 			const modelTipo = locatorTipo(relation.ontology6?.[0]);
-			const model =
-				modelTipo === null
-					? null
-					: ((sources.get(modelTipo)?.term as Record<string, string> | null)?.['lg-spa'] ?? null);
+			// The model is the model node's machine name (the parser's rule, legacy rung included).
+			const model = modelTipo === null ? null : modelNameOf(sources.get(modelTipo)).model;
 			const relations = Array.isArray(relation.ontology10)
 				? relation.ontology10
 						.map((locator) => ({ tipo: locatorTipo(locator) }))
@@ -378,7 +408,7 @@ function loadRecordDumps(): void {
 			}
 			const orderValue = number.ontology41?.[0]?.value;
 
-			sources.set(tipo, {
+			const recordNode = {
 				tipo,
 				parent,
 				term: Object.keys(term).length > 0 ? term : null,
@@ -396,6 +426,14 @@ function loadRecordDumps(): void {
 					isYes(relation.ontology8 as { section_id?: unknown }[] | undefined) ?? true,
 				is_main: tipo === `${String(tld)}0`,
 				propiedades,
+			};
+			const statedName = string.ontology43?.[0]?.value;
+			sources.set(tipo, {
+				...recordNode,
+				...machineNameColumns(recordNode, {
+					machine_name: typeof statedName === 'string' && statedName !== '' ? statedName : null,
+					use_machine_name: isYes(relation.ontology44 as { section_id?: unknown }[] | undefined),
+				}),
 				source: `record_dump:${fileTld}`,
 			});
 		}
@@ -674,8 +712,8 @@ const surveyed = new Map<string, Set<string>>();
 
 /**
  * Source nodes the closure reached but that CANNOT become an ontology node:
- * their `model` does not resolve. `model` is `dd_ontology[model_tipo].term
- * ['lg-spa']`, so a node whose `ontology6` points outside the `dd` model
+ * their `model` does not resolve. `model` is the model node's machine name
+ * (modelNameOf), so a node whose `ontology6` points outside the `dd` model
  * ontology (the `tch`→`crm` CIDOC corner) has no model at all — the engine
  * cannot dispatch it, `materializeTestTldOntology` would write a node the gate
  * rejects, and its descendants inherit the problem. They are pruned WITH their
@@ -1119,6 +1157,9 @@ function main(): void {
 			is_main: false,
 			// v5 legacy blob — never cloned (manifest policy.propiedades).
 			propiedades: null,
+			// A machine name is a language-free identifier: cloned verbatim.
+			machine_name: node.machine_name,
+			use_machine_name: node.use_machine_name,
 		});
 	}
 
@@ -1185,6 +1226,8 @@ function main(): void {
 				is_translatable: node.is_translatable,
 				is_main: false,
 				propiedades: null,
+				machine_name: node.machine_name,
+				use_machine_name: node.use_machine_name,
 			});
 		}
 	}
@@ -1230,6 +1273,8 @@ function main(): void {
 			is_translatable: false,
 			is_main: true,
 			propiedades: null,
+			machine_name: null,
+			use_machine_name: false,
 		});
 	}
 

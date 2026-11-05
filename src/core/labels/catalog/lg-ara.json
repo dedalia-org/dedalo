@@ -599,6 +599,8 @@
 	"tables_list": "قائمة الجداول مثل dd_ontology، matrix_ontology، matrix",
 	"tag": "وسم",
 	"tap_term_to_place": "اضغط على مصطلح لوضعه فيه",
+	"term_missing": "مصطلح مفقود",
+	"term_missing_title": "هذا المصطلح فارغ في جميع اللغات. إما أن السجل لا يحتوي على قيمة، أو أن تعريف المصطلح في section_list_thesaurus لا يسمي المكون الذي يحتويه. مكونات المصطلح:",
 	"terms": "المصطلحات",
 	"text_tags_preserved": "سيتم الاحتفاظ بالوسوم الموجودة في النص.",
 	"time": "الوقت",

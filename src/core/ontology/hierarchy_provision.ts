@@ -16,8 +16,10 @@
  * that tx, so the wrapper is also required for concurrency.
  *
  * BYTE PINS (verified against PHP):
- *  - descriptor ontology7 tld item uses lang lg-spa (DEDALO_DATA_LANG); the
- *    matrix_ontology_main tld item (createMainSection) uses lg-nolan — different.
+ *  - descriptor ontology7 tld item uses lang lg-nolan, like the
+ *    matrix_ontology_main tld item (createMainSection) — PHP wrote lg-spa here;
+ *    retired 2026-11-04 (owner decision D7, WC-2026-11-04-ontology-machine-names:
+ *    ontology7 is not translatable).
  *  - the ontology15 parent locator written here is BARE {section_tipo, section_id}
  *    (no type/from_component_tipo) — pinned.
  *  - hierarchy53/58 items are {id:1, lang:lg-nolan, value:<tld>1|<tld>2}.
@@ -65,7 +67,6 @@ import {
 	RELATION_TYPE_LINK,
 	SI_NO_NO,
 	SI_NO_YES,
-	STRUCTURE_LANG,
 	YES_NO_SECTION,
 } from './ontology_tipos.ts';
 import {
@@ -362,8 +363,10 @@ async function provisionVirtualSections(args: ProvisionArgs): Promise<void> {
 			from_component_tipo: ONTOLOGY_CONNECTED_TO,
 		}),
 	]);
-	// tld — lang lg-spa (DEDALO_DATA_LANG) — DIFFERS from createMainSection's lg-nolan
-	await writeDescriptor('string', ONTOLOGY_TLD, [{ id: 1, lang: STRUCTURE_LANG, value: tld2 }]);
+	// tld — lg-nolan: ontology7 is NOT translatable, a tld is language-free
+	// (owner decision D7, WC-2026-11-04-ontology-machine-names; PHP wrote the
+	// structure lang here, unlike its createMainSection — the two now agree).
+	await writeDescriptor('string', ONTOLOGY_TLD, [{ id: 1, lang: DATA_NOLAN, value: tld2 }]);
 	// name
 	if (nameData.length > 0) {
 		await writeDescriptor(

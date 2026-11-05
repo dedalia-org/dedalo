@@ -397,6 +397,8 @@ function fieldNode(tipo: string, model: string, term: Record<string, string>): O
 		parent: 'zz1',
 		model,
 		term,
+		machine_name: null,
+		use_machine_name: false,
 		properties: null,
 		relations: null,
 		orderNumber: 1,

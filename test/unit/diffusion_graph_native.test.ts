@@ -29,10 +29,10 @@ import {
 	resolveAliasTarget,
 	resolveDomainTipo,
 	selectMediaIndexTargets,
-	termOf,
 	walkDiffusionSections,
 	walkDiffusionTargets,
 } from '../../src/core/diffusion_bridge/diffusion_graph.ts';
+import { nameOrLabelOf } from '../../src/core/ontology/labels.ts';
 
 // ---------------------------------------------------------------- stub graph
 
@@ -41,6 +41,8 @@ interface StubSpec {
 	parent?: string;
 	model?: string;
 	term?: Record<string, string> | null;
+	machine_name?: string | null;
+	use_machine_name?: boolean | null;
 	relations?: string[];
 	properties?: Record<string, unknown> | null;
 }
@@ -73,6 +75,9 @@ function makeGraph(specs: StubSpec[]): DiffusionGraph {
 				parent: spec.parent ?? null,
 				model: spec.model ?? '',
 				term: spec.term === undefined ? null : spec.term,
+				...(spec.use_machine_name === undefined
+					? {}
+					: { machine_name: spec.machine_name ?? null, use_machine_name: spec.use_machine_name }),
 				relations: (spec.relations ?? []).map((tipoRef) => ({ tipo: tipoRef })),
 			};
 		},
@@ -88,20 +93,56 @@ function makeGraph(specs: StubSpec[]): DiffusionGraph {
 
 const SQL_ELEMENT = { diffusion: { type: 'sql' } };
 
-// -------------------------------------------------------- termOf / domain
+// --------------------------------------------------- nameOrLabelOf / domain
+//
+// RE-PINNED 2026-11-04 (WC-2026-11-04-ontology-machine-names): the graph's own
+// first-non-empty `termOf` was DELETED in favour of the one name reader
+// (labels.ts nameOrLabelOf) over dd_ontology.machine_name — a name node is
+// named by its machine name ONLY, so a stray translation that sorts first in
+// jsonb can no longer become a database/table name.
 
-describe('termOf', () => {
-	test("prefers 'lg-spa', falls back to the first NON-EMPTY translation", async () => {
+describe('nameOrLabelOf (the diffusion name reader)', () => {
+	test('a NAME node reads its machine name, never a decoy translation', async () => {
+		const graph = makeGraph([
+			{
+				tipo: 'a',
+				model: 'table',
+				term: { 'lg-ara': 'decoy', 'lg-eus': 'Berria', 'lg-spa': 'not_the_name' },
+				machine_name: 'body_references',
+				use_machine_name: true,
+			},
+			// collision / missing at the parser → NULL: refuses, never guesses
+			{ tipo: 'b', model: 'table', term: { 'lg-spa': 'x', 'lg-eng': 'y' }, use_machine_name: true },
+		]);
+		expect(nameOrLabelOf(await graph.node('a'))).toBe('body_references');
+		expect(nameOrLabelOf(await graph.node('b'))).toBe(null);
+	});
+
+	test('a LABEL node reads the label chain in the label-fallback lang', async () => {
+		const graph = makeGraph([
+			{
+				tipo: 'a',
+				model: 'diffusion_element',
+				term: { 'lg-eng': 'english', 'lg-spa': 'spanish' },
+				use_machine_name: false,
+			},
+			{ tipo: 'b', term: { 'lg-eng': '', 'lg-fra': 'francais' }, use_machine_name: false },
+		]);
+		expect(nameOrLabelOf(await graph.node('a'))).toBe('spanish');
+		expect(nameOrLabelOf(await graph.node('b'))).toBe('francais');
+	});
+
+	test('a row not derived yet reads as before: lg-spa, then the first NON-EMPTY value', async () => {
 		const graph = makeGraph([
 			{ tipo: 'a', term: { 'lg-spa': 'spanish', 'lg-eng': 'english' } },
 			{ tipo: 'b', term: { 'lg-eng': '', 'lg-fra': 'francais' } },
 			{ tipo: 'c', term: {} },
 			{ tipo: 'd', term: null },
 		]);
-		expect(termOf(await graph.node('a'))).toBe('spanish');
-		expect(termOf(await graph.node('b'))).toBe('francais');
-		expect(termOf(await graph.node('c'))).toBe(null);
-		expect(termOf(await graph.node('d'))).toBe(null);
+		expect(nameOrLabelOf(await graph.node('a'))).toBe('spanish');
+		expect(nameOrLabelOf(await graph.node('b'))).toBe('francais');
+		expect(nameOrLabelOf(await graph.node('c'))).toBe(null);
+		expect(nameOrLabelOf(await graph.node('d'))).toBe(null);
 	});
 });
 

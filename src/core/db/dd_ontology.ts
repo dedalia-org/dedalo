@@ -7,7 +7,9 @@
  * the WRITE side plus the raw-row read and search primitives the ontology
  * pipeline needs — mirroring the PHP data-access class byte-for-byte:
  *
- *  - a fixed 13-column allowlist (no dynamic column injection);
+ *  - a fixed 15-column allowlist (no dynamic column injection; the 13 PHP
+ *    columns plus migration 0015's machine_name / use_machine_name —
+ *    ontology/machine_name.ts);
  *  - jsonb columns (term / relations / properties) bound as `$n::text::jsonb`
  *    (the Bun double-encode gotcha — see db/matrix_write.ts header);
  *  - `order_number` is int, `propiedades` is TEXT (never jsonb — v6 legacy),
@@ -70,6 +72,7 @@ import {
 	clearOntologyDerivedCaches,
 	registerOntologyCacheClearer,
 } from '../ontology/cache_invalidation.ts';
+import { deriveLegacyMachineName } from '../ontology/machine_name.ts';
 import { safeTld } from '../ontology/tld.ts';
 import { encodeForJsonb } from './json_codec.ts';
 import { isInTransaction, sql, sqlStateOf, withTransaction } from './postgres.ts';
@@ -96,6 +99,15 @@ export interface DdOntologyNode {
 	is_main: boolean;
 	/** TEXT column (v6 legacy JSON text — pretty-printed). */
 	propiedades: string | null;
+	/**
+	 * The node's language-free name (ontology43), NULL unless use_machine_name.
+	 * DERIVED ONLY — the parser fills it (ontology/machine_name.ts
+	 * projectMachineName); a rows-only writer that does not state it gets the
+	 * same kernel's legacy derivation at the upsert door.
+	 */
+	machine_name: string | null;
+	/** True → machine_name is the node's name (ontology44). Derived only, like machine_name. */
+	use_machine_name: boolean;
 }
 
 /**
@@ -116,6 +128,10 @@ const COLUMNS = [
 	'is_translatable',
 	'is_main',
 	'propiedades',
+	// Migration 0015 (WC-2026-11-04-ontology-machine-names): appended, so the
+	// declaration order still equals the table's column order.
+	'machine_name',
+	'use_machine_name',
 ] as const;
 type DdOntologyColumn = (typeof COLUMNS)[number];
 
@@ -124,7 +140,12 @@ const JSON_COLUMNS: ReadonlySet<string> = new Set(['term', 'relations', 'propert
 /** Columns cast to int. */
 const INT_COLUMNS: ReadonlySet<string> = new Set(['order_number']);
 /** Boolean flag columns. */
-const BOOLEAN_COLUMNS: ReadonlySet<string> = new Set(['is_model', 'is_translatable', 'is_main']);
+const BOOLEAN_COLUMNS: ReadonlySet<string> = new Set([
+	'is_model',
+	'is_translatable',
+	'is_main',
+	'use_machine_name',
+]);
 
 /** Search operator allowlist (PHP dd_ontology_db_manager::search $allowed_ops). */
 const ALLOWED_OPS: ReadonlySet<string> = new Set([
@@ -171,7 +192,7 @@ function placeholderFor(column: string, index: number): string {
  * false when the node omits them (PHP boolean default); everything else defaults
  * to null.
  */
-function nodeColumnValue(node: Partial<DdOntologyNode>, column: DdOntologyColumn): unknown {
+function nodeColumnValue(node: UpsertableDdOntologyNode, column: DdOntologyColumn): unknown {
 	if (column === 'tipo') return node.tipo;
 	const value = (node as Record<string, unknown>)[column];
 	if (value === undefined) {
@@ -407,6 +428,44 @@ async function guardedWrite<T>(tipo: unknown, write: () => Promise<T>): Promise<
 }
 
 /**
+ * What the upsert door accepts: any subset of a node's columns (whole-row
+ * semantics — an omitted column writes its default), keyed by tipo. A stored
+ * row (`DdOntologyRow`) fits too: its `use_machine_name` may be NULL (never
+ * derived), which the door treats as not stated.
+ */
+export type UpsertableDdOntologyNode = Omit<Partial<DdOntologyNode>, 'use_machine_name'> & {
+	tipo: string;
+	use_machine_name?: boolean | null;
+};
+
+/**
+ * The node with its machine-name columns STATED. A writer that states neither
+ * (`use_machine_name` undefined — a rows-only path with no source record: a
+ * test situation, a restored archive row from before migration 0015, a derived
+ * main node) gets the parser's own legacy derivation from the row's fields
+ * (ontology/machine_name.ts deriveLegacyMachineName), so no door can plant a
+ * name-class row without its name. A writer that states them is trusted: the
+ * parser is the one that does.
+ */
+function withMachineNameColumns(node: UpsertableDdOntologyNode): UpsertableDdOntologyNode {
+	if (typeof node.use_machine_name === 'boolean') return node;
+	const derived = deriveLegacyMachineName(machineNameClassOf(node));
+	return {
+		...node,
+		machine_name: node.machine_name ?? derived.machine_name,
+		use_machine_name: derived.use_machine_name,
+	};
+}
+
+/** The fields the machine-name kernel classifies a (possibly partial) node by. */
+function machineNameClassOf(
+	node: UpsertableDdOntologyNode,
+): Parameters<typeof deriveLegacyMachineName>[0] {
+	const { tld = null, model_tipo = null, model = null, term = null } = node;
+	return { tipo: node.tipo, tld, is_model: node.is_model === true, model_tipo, model, term };
+}
+
+/**
  * UPSERT a whole ontology node (PHP dd_ontology_db_manager::create).
  * Writes EVERY allowlisted column with the supplied-or-default value, then
  * INSERT … ON CONFLICT(tipo) DO UPDATE SET <all columns except tipo> = EXCLUDED.
@@ -414,9 +473,7 @@ async function guardedWrite<T>(tipo: unknown, write: () => Promise<T>): Promise<
  * with its default (null / false), so a re-parse never leaves stale data behind.
  * Returns the row id. Fans out cache invalidation on success.
  */
-export async function upsertDdOntologyNode(
-	node: Partial<DdOntologyNode> & { tipo: string },
-): Promise<number> {
+export async function upsertDdOntologyNode(node: UpsertableDdOntologyNode): Promise<number> {
 	// The WHOLE row is checked (an omitted field writes its default, null).
 	const violations = ddOntologyIdentifierViolations({
 		tipo: node.tipo,
@@ -427,12 +484,13 @@ export async function upsertDdOntologyNode(
 	});
 	if (violations.length > 0)
 		refuseIdentifierViolations('upsertDdOntologyNode', node.tipo, violations);
+	const stated = withMachineNameColumns(node);
 	const params: (string | number | null)[] = [];
 	const columnIdents: string[] = [];
 	const placeholders: string[] = [];
 	COLUMNS.forEach((column, position) => {
 		columnIdents.push(`"${column}"`);
-		params.push(boundValueFor(column, nodeColumnValue(node, column)));
+		params.push(boundValueFor(column, nodeColumnValue(stated, column)));
 		placeholders.push(placeholderFor(column, position + 1));
 	});
 	const updateParts = COLUMNS.filter((column) => column !== 'tipo').map(
@@ -467,6 +525,9 @@ export interface DdOntologyRow {
 	is_translatable: boolean;
 	is_main: boolean;
 	propiedades: string | null;
+	machine_name: string | null;
+	/** NULL on a row no parser has derived since migration 0015 (ontology/machine_name.ts). */
+	use_machine_name: boolean | null;
 }
 
 /**
@@ -477,7 +538,8 @@ export interface DdOntologyRow {
 export async function readDdOntologyRow(tipo: string): Promise<DdOntologyRow | null> {
 	const rows = (await sql`
 		SELECT tipo, parent, term, model, order_number, relations, tld,
-		       properties, model_tipo, is_model, is_translatable, is_main, propiedades
+		       properties, model_tipo, is_model, is_translatable, is_main, propiedades,
+		       machine_name, use_machine_name
 		FROM dd_ontology WHERE tipo = ${tipo} LIMIT 1
 	`) as DdOntologyRow[];
 	const row = rows[0];
@@ -853,6 +915,29 @@ export async function tldHoldsNodes(tld: string): Promise<boolean> {
 		[tld],
 	)) as { holds: boolean }[];
 	return rows[0]?.holds === true;
+}
+
+/**
+ * The tlds holding at least one row whose machine-name columns no parser has
+ * derived yet (`use_machine_name IS NULL`: a row from before migration 0015, or
+ * one a rows-only COPY planted — the seed scaffold). What the post-migration
+ * derive (ontology_state.ts deriveUnderivedMachineNames) re-derives. Sorted.
+ */
+export async function listTldsWithUnderivedMachineNames(): Promise<string[]> {
+	const rows = (await sql.unsafe(
+		'SELECT DISTINCT tld FROM dd_ontology WHERE use_machine_name IS NULL AND tld IS NOT NULL ORDER BY tld',
+		[],
+	)) as { tld: string }[];
+	return rows.map((row) => row.tld);
+}
+
+/** The tipos of `tld` whose machine-name columns are not derived yet (see above). */
+export async function listUnderivedMachineNameTipos(tld: string): Promise<string[]> {
+	const rows = (await sql.unsafe(
+		'SELECT tipo FROM dd_ontology WHERE tld = $1 AND use_machine_name IS NULL ORDER BY tipo',
+		[tld],
+	)) as { tipo: string }[];
+	return rows.map((row) => row.tipo);
 }
 
 /**
@@ -1358,7 +1443,8 @@ export async function deleteDdOntologyRowsReturning(
 	const rows = (await sql.unsafe(
 		`DELETE FROM dd_ontology WHERE id = ANY(string_to_array($1, ',')::bigint[])
 		 RETURNING id, tipo, parent, term, model, order_number, relations, tld,
-		           properties, model_tipo, is_model, is_translatable, is_main, propiedades`,
+		           properties, model_tipo, is_model, is_translatable, is_main, propiedades,
+		           machine_name, use_machine_name`,
 		[ids.map((id) => String(Math.trunc(id))).join(',')],
 	)) as DeletedDdOntologyRow[];
 	await clearOntologyDerivedCaches();

@@ -73,7 +73,7 @@ export interface DerivedLangConfig {
 	applicationLangsDefault: string;
 	/** DEDALO_DATA_LANG_DEFAULT + DEDALO_DATA_LANG. */
 	dataLangDefault: string;
-	/** DEDALO_STRUCTURE_LANG — the ontology structure lang (upstream accepts lg-spa only). */
+	/** DEDALO_STRUCTURE_LANG — the ontology LABEL-FALLBACK lang (labels.ts; never a name). */
 	structureLang: string;
 	/** Non-empty when the input is unusable (empty set / default ∉ set / bad code). */
 	errors: string[];
@@ -178,7 +178,9 @@ export function deriveLangConfig(input: LangConfigInput): DerivedLangConfig {
 		projectsDefaultLangs: valid,
 		applicationLangsDefault,
 		dataLangDefault,
-		// The ontology structure lang is fixed: upstream ontology exports are lg-spa.
+		// The ontology label-fallback lang: lg-spa, the language every shipped
+		// ontology label is guaranteed in. Only a label fallback — no name depends
+		// on it (machine names are language-free, WC-2026-11-04-ontology-machine-names).
 		structureLang: 'lg-spa',
 		errors,
 		fieldErrors,

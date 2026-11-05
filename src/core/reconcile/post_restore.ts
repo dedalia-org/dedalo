@@ -82,6 +82,16 @@ export const POST_RESTORE_PLAN: readonly PostRestoreStep[] = [
 		why: "apply DELETES every dd_ontology row it cannot re-derive from a tld source (returned whole in the report); the restored table carries its backup instant's rows and CHECK states, so the dry list is the operator's to confirm",
 	},
 	{
+		name: 'ontology_machine_names',
+		apply: false,
+		why: 'a restore can bring back ontology records in the legacy name shape; the conversion is lossless, but its apply rebuilds every touched tld — the same re-projection `ontology` holds for the operator — so the dry count is reported and the next boot (or the operator) applies it',
+	},
+	{
+		name: 'ontology_machine_names_strays',
+		apply: false,
+		why: 'root adjudicates each stray translation on a name node (which label a UI language then shows); a restore changes nothing about who decides',
+	},
+	{
 		name: 'hierarchy',
 		apply: false,
 		why: 'ensure re-provisions a hierarchy; the dry verdict names the broken ones and the operator applies from the maintenance area',

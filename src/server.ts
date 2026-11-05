@@ -2447,6 +2447,27 @@ export async function startServer() {
 	// …unless a run owns the boot: its confirm starts the online lane (post-VERIFIED).
 	if (bootDecision.onlineMigrations) void startOnlineMigrations();
 
+	// MACHINE-NAME DERIVE (migration 0015, ontology_state.ts deriveUnderivedMachineNames):
+	// rows from before the dd_ontology machine_name / use_machine_name columns read NULL
+	// until their tld is re-derived. The boot that ran the schema re-derives them, detached
+	// and non-fatal (a no-op once no NULL row is left). Dynamic: a cold path, once per boot.
+	if (bootDecision.bootMigrations) {
+		void import('./core/ontology/ontology_state.ts')
+			.then(({ deriveUnderivedMachineNames }) => deriveUnderivedMachineNames())
+			.then((outcome) => {
+				const failed = Object.entries(outcome.rebuilt).filter(([, result]) => !result.ok);
+				for (const [tld, result] of failed) {
+					console.error(
+						`[ontology_machine_names] ${tld}: ${result.msg} ${result.errors.join(' | ')}`,
+					);
+				}
+				for (const tld of outcome.fillFailed) {
+					console.error(`[ontology_machine_names] ${tld}: rows-only fill failed (logged above)`);
+				}
+			})
+			.catch((error) => console.error('[ontology_machine_names] derive failed:', error));
+	}
+
 	// CODE-UPDATE BOOT CONFIRMATION (core/update/boot_confirm.ts): once the
 	// listener is up AND the first DB ping is green, flip a pending update
 	// sentinel to 'confirmed' so the supervisor-side rollback stands down.

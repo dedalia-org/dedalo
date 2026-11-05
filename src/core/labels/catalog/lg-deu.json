@@ -599,6 +599,8 @@
 	"tables_list": "Tabellenliste wie dd_ontology, matrix_ontology, matrix",
 	"tag": "Label",
 	"tap_term_to_place": "Tippe auf einen Begriff, um es abzulegen",
+	"term_missing": "Fehlender Begriff",
+	"term_missing_title": "Dieser Begriff ist in allen Sprachen leer. Entweder hat der Datensatz keinen Wert, oder die Begriffsdefinition in section_list_thesaurus nennt nicht die Komponente, die ihn enthält. Begriffskomponenten:",
 	"terms": "Begriffe",
 	"text_tags_preserved": "Die Labels im Text bleiben erhalten.",
 	"time": "Uhrzeit",

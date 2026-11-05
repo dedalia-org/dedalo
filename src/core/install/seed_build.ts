@@ -722,7 +722,7 @@ async function scratchTables(conn: DbConnDescriptor, database: string): Promise<
 /**
  * The tables the data script keeps: what the compile child wrote, plus the
  * langs, loaded ONCE before the compile (compile(): the registry door resolves
- * STRUCTURE_LANG's lg1 record from them). Loaded once, never reloaded: the
+ * REGISTRY_LANG's lg1 record from them). Loaded once, never reloaded: the
  * langs id sequence is not OWNED by its column, so a TRUNCATE … RESTART
  * IDENTITY would not reset it and a reload would ship shifted ids.
  */
@@ -1155,7 +1155,7 @@ async function compile(build: SeedBuild, release: OntologyRelease): Promise<void
 		'load the dd_ontology scaffold',
 	);
 	// The langs BEFORE the compile: the registry door files every ontology35 row
-	// under STRUCTURE_LANG's lg1 record, RESOLVED from matrix_langs (no
+	// under REGISTRY_LANG's lg1 record, RESOLVED from matrix_langs (no
 	// hard-coded id — ontology_write.ts resolveRegistryLangId), so an empty
 	// langs table would refuse the first package. Loaded once: the data script
 	// keeps them (CHILD_WRITTEN).

@@ -599,6 +599,8 @@
 	"tables_list": "Taulen zerrenda, adibidez dd_ontology, matrix_ontology, matrix",
 	"tag": "etiketa",
 	"tap_term_to_place": "Sakatu termino bat kokatzeko",
+	"term_missing": "Termino falta da",
+	"term_missing_title": "Termino hau hutsik dago hizkuntza guztietan. Erregistroak ez du baliorik, edo section_list_thesaurus termino-definizioak ez du izendatzen hura duen osagaia. Terminoaren osagaiak:",
 	"terms": "Terminoak",
 	"text_tags_preserved": "Testuko etiketak mantenduko dira.",
 	"time": "Ordua",

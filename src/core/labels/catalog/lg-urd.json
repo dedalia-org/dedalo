@@ -599,6 +599,8 @@
 	"tables_list": "جدولوں کی فہرست جیسے dd_ontology، matrix_ontology، matrix",
 	"tag": "ٹیگ",
 	"tap_term_to_place": "رکھنے کے لیے کسی اصطلاح پر ٹیپ کریں",
+	"term_missing": "اصطلاح موجود نہیں",
+	"term_missing_title": "یہ اصطلاح تمام زبانوں میں خالی ہے۔ یا تو ریکارڈ میں کوئی قدر نہیں، یا section_list_thesaurus کی اصطلاحی تعریف اس جزو کا نام نہیں لیتی جس میں یہ موجود ہے۔ اصطلاح کے اجزاء:",
 	"terms": "شرائط",
 	"text_tags_preserved": "متن میں موجود ٹیگ محفوظ رہیں گے۔",
 	"time": "وقت",

@@ -56,6 +56,7 @@ import {
 	runPsqlScript,
 } from '../install/pg_exec.ts';
 import { fileSha256, isSafeSectionTipo, safeTld } from './data_io.ts';
+import { importedMachineNameMessages } from './machine_name_reconcile.ts';
 import { DATA_NOLAN, ONTOLOGY_MODEL, ONTOLOGY_TLD } from './ontology_tipos.ts';
 import { requiredOntologyTld } from './tld.ts';
 
@@ -990,6 +991,11 @@ export async function importOntologyFile(
 		}
 		const counter = await consolidateSectionCounter(sectionTipo, 'matrix_ontology', conn);
 		if (!counter) imported.errors.push(`counter consolidation failed for ${sectionTipo}`);
+		// Machine names (P3): the lossless class, after COPY + ONT-TLD, before any
+		// re-derive (machine_name_reconcile.ts — non-fatal, a no-op unarmed).
+		imported.msg += (await importedMachineNameMessages(sectionTipo))
+			.map((line) => ` (${line})`)
+			.join('');
 	}
 	return imported;
 }

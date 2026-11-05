@@ -4,7 +4,7 @@
  * running the doors and reading the `matrix_ontology_main` row back.
  *
  *  - createMainSection mints the whole contract: hierarchy4 YES, hierarchy125
- *    no (not 'dd'), hierarchy8 = the lg1 record of STRUCTURE_LANG (resolved,
+ *    no (not 'dd'), hierarchy8 = the lg1 record of REGISTRY_LANG (resolved,
  *    never a hard-coded id), hierarchy54 dd153/1, name/tld/target/typology,
  *    hierarchy60 in `misc` when declared. An existing row is refused.
  *  - syncMainSectionFromDefinition (the import door) on an EXISTING row writes
@@ -33,7 +33,7 @@ import { sql } from '../../src/core/db/postgres.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
 import { rebuildOntology } from '../../src/core/ontology/ontology_state.ts';
-import { STRUCTURE_LANG } from '../../src/core/ontology/ontology_tipos.ts';
+import { REGISTRY_LANG } from '../../src/core/ontology/ontology_tipos.ts';
 import {
 	createMainSection,
 	ensureMainSection,
@@ -173,8 +173,8 @@ let structureLangId = 0;
 beforeAll(async () => {
 	await assertTestDatabase(DOOR);
 	await sweep();
-	const resolved = await getLangSectionIdByCode(STRUCTURE_LANG);
-	if (resolved === null) throw new Error(`the suite DB has no lg1 record for ${STRUCTURE_LANG}`);
+	const resolved = await getLangSectionIdByCode(REGISTRY_LANG);
+	if (resolved === null) throw new Error(`the suite DB has no lg1 record for ${REGISTRY_LANG}`);
 	structureLangId = resolved;
 });
 
@@ -185,7 +185,7 @@ afterAll(async () => {
 });
 
 describe('createMainSection — the whole contract, only for a TLD without a row', () => {
-	test('a new domain TLD is born ACTIVE, filed under STRUCTURE_LANG, with its declaration', async () => {
+	test('a new domain TLD is born ACTIVE, filed under REGISTRY_LANG, with its declaration', async () => {
 		const sectionId = await createMainSection({
 			tld: TLD_A,
 			typology_id: 14,
@@ -338,7 +338,7 @@ describe('the rebuild doors never write an existing row', () => {
 			name_data: [{ lang: 'lg-eng', value: 'Registry probe B' }],
 		});
 		scratchIds.push(sectionId);
-		// Plant also what the IMPORT door would correct (hierarchy8 → STRUCTURE_LANG,
+		// Plant also what the IMPORT door would correct (hierarchy8 → REGISTRY_LANG,
 		// hierarchy125 → the dd-only rule): a rebuild that went through
 		// syncMainSectionFromDefinition would rewrite them, so the row would differ.
 		await operatorSets(sectionId, 'relation', {
@@ -362,7 +362,7 @@ describe('the rebuild doors never write an existing row', () => {
 });
 
 describe('hierarchy8 is resolved, never guessed', () => {
-	test('STRUCTURE_LANG resolves to its lg1 record', async () => {
+	test('REGISTRY_LANG resolves to its lg1 record', async () => {
 		expect(await resolveRegistryLangId()).toBe(structureLangId);
 	});
 	test('an unresolvable language is refused, typed', async () => {

@@ -82,6 +82,16 @@
  *      create-with-values and duplicate). The atomic append REFUSES a
  *      declared-order key (a concatenation cannot sort): save_component routes
  *      such an insert to the full-array persist under its own row lock.
+ *   3g. THE MACHINE-NAME RULES (ontology machine names, plan §4 —
+ *      WC-2026-11-04-ontology-machine-names; machine_name_save.ts): a key write
+ *      onto an ontology node record (`<tld>0`, or a localontology0 override)
+ *      touching the name / flag / label / model keys runs INSIDE one transaction
+ *      with its own row lock and verdict: the save entries REFUSE a write that
+ *      would introduce a machine-name violation (typed `ontology.machine_name_*`,
+ *      400), the atomic append likewise; the RESTORE entries (persistRestoredKeys,
+ *      persistRecordColumns, the birth) are never refused — the restored state
+ *      passes through the conversion kernel (ontology/machine_name_rules.ts).
+ *      Armed only on an ontology that defines ontology43 + ontology44.
  *   4. THE COMPONENT_IMAGE SVG ENVELOPE — a `media`-column write persists any
  *      `svg_file_data` its items carry to the .svg overlay file BEFORE the row
  *      write (PHP component_image::save → create_svg_file, which likewise
@@ -111,9 +121,17 @@ import {
 } from '../db/matrix_write.ts';
 import { withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
+import { machineNameScope } from '../ontology/machine_name_rules.ts';
 import { componentDeclaresOrder, sortByDeclaredOrder } from '../relations/order_locators.ts';
 import type { RelationSearchLaw } from '../relations/save.ts';
 import { auditDateItem, auditUserLocator } from '../section/record/create_record.ts';
+import {
+	assertMachineNameAppend,
+	assertMachineNameWrite,
+	convertRestoredColumns,
+	convertRestoredKeys,
+	machineNameComponentsDefined,
+} from './machine_name_save.ts';
 import {
 	assertObservedDeclared,
 	enqueueObservedChange,
@@ -206,7 +224,7 @@ export async function persistRecordKeys(
 	audit: AuditStamp,
 	derived: WriteDerivation,
 ): Promise<void> {
-	await writeKeys(target, savePath, audit, derived, {
+	await writeKeyEntry(target, savePath, audit, derived, {
 		door: 'persistRecordKeys',
 		law: 'save',
 		ledger: true,
@@ -235,7 +253,7 @@ export async function persistRestoredKeys(
 	audit: AuditStamp,
 	derived: WriteDerivation,
 ): Promise<void> {
-	await writeKeys(target, savePath, audit, derived, {
+	await writeKeyEntry(target, savePath, audit, derived, {
 		door: 'persistRestoredKeys',
 		law: 'save',
 		ledger: true,
@@ -257,7 +275,7 @@ export async function persistRelationRemovalKeys(
 	audit: AuditStamp,
 	derived: WriteDerivation,
 ): Promise<void> {
-	await writeKeys(target, savePath, audit, derived, {
+	await writeKeyEntry(target, savePath, audit, derived, {
 		door: 'persistRelationRemovalKeys',
 		law: 'removal',
 		ledger: true,
@@ -279,7 +297,7 @@ export async function persistObserverMirrorKeys(
 	audit: AuditStamp,
 	derived: WriteDerivation,
 ): Promise<void> {
-	await writeKeys(target, savePath, audit, derived, {
+	await writeKeyEntry(target, savePath, audit, derived, {
 		door: 'persistObserverMirrorKeys',
 		law: 'save',
 		ledger: false,
@@ -306,7 +324,7 @@ export async function persistObserverResaveKeys(
 	audit: AuditStamp,
 	derived: WriteDerivation,
 ): Promise<void> {
-	await writeKeys(target, savePath, audit, derived, {
+	await writeKeyEntry(target, savePath, audit, derived, {
 		door: 'persistObserverResaveKeys',
 		law: 'save',
 		ledger: false,
@@ -571,13 +589,15 @@ async function applySaveRulesToBag(
 }
 
 /**
- * THE KEY WRITE shared by the four key entries: the key save rules (§3f), the
- * SVG envelope (§4), then —
- * inside ONE transaction when anything derived is owed — the before-image of
- * every observed key under the row lock, ONE UPDATE carrying the values, the
- * derived index keys and the stamps, and the post-write hook with the change.
+ * THE KEY WRITE shared by the key entries: the key save rules (§3f), the
+ * machine-name rules (§3g — only an ontology node record, in one transaction
+ * with the write), then the key write proper (writeKeys): the SVG envelope
+ * (§4), then — inside ONE transaction when anything derived is owed — the
+ * before-image of every observed key under the row lock, ONE UPDATE carrying
+ * the values, the derived index keys and the stamps, and the post-write hook
+ * with the change.
  */
-async function writeKeys(
+async function writeKeyEntry(
 	target: RecordWriteTarget,
 	givenPath: readonly SavePathItem[],
 	audit: AuditStamp,
@@ -588,8 +608,54 @@ async function writeKeys(
 	// 3f. THE KEY SAVE RULES — before anything reads the values: the envelope,
 	//    the observed `after`, the derived index and the UPDATE all see the key
 	//    as it will be STORED (a declared-order portal: sorted).
-	const savePath = await applySaveRulesToPath(target, givenPath);
+	const ruledPath = await applySaveRulesToPath(target, givenPath);
+	// 3g. THE MACHINE-NAME RULES (ontology node records only — a Set lookup for
+	//    every other write): checked, or for a restore converted, under the row
+	//    lock inside ONE transaction with the write itself, so the verdict reads
+	//    the record the UPDATE replaces and a refusal rolls everything back.
+	if (await machineNameRulesApply(target, ruledPath)) {
+		await withTransaction(async () => {
+			const savePath = await machineNameRuledPath(target, ruledPath, mode.door);
+			await writeKeys(target, savePath, audit, derived, mode);
+		});
+		return;
+	}
+	await writeKeys(target, ruledPath, audit, derived, mode);
+}
 
+/** §3g scope: an ontology node record write the rules read, on an ontology that defines them. */
+async function machineNameRulesApply(
+	target: RecordWriteTarget,
+	savePath: readonly SavePathItem[],
+): Promise<boolean> {
+	const keys = savePath.map((item) => item.key);
+	if (machineNameScope(target.sectionTipo, keys) === null) return false;
+	return machineNameComponentsDefined();
+}
+
+/**
+ * §3g verdict, inside the write's transaction: a RESTORE entry's path through the
+ * conversion kernel (never refused); every other entry's path checked as given
+ * (a refusal throws a typed `ontology.machine_name_*`).
+ */
+async function machineNameRuledPath(
+	target: RecordWriteTarget,
+	savePath: readonly SavePathItem[],
+	door: string,
+): Promise<readonly SavePathItem[]> {
+	if (door === 'persistRestoredKeys') return convertRestoredKeys(target, savePath, door);
+	await assertMachineNameWrite(target, savePath);
+	return savePath;
+}
+
+/** The key write proper, after the key save rules (§3f) and the machine-name rules (§3g). */
+async function writeKeys(
+	target: RecordWriteTarget,
+	savePath: readonly SavePathItem[],
+	audit: AuditStamp,
+	derived: WriteDerivation,
+	mode: KeyWriteMode,
+): Promise<void> {
 	// 4. COMPONENT_IMAGE SVG ENVELOPE (PHP component_image::save :119-133 →
 	//    create_svg_file). The vector editor ships the drawing inside the saved
 	//    item as `svg_file_data`, a TEMPORAL CONTAINER, and the SAVE is what turns
@@ -716,6 +782,8 @@ export async function persistAppendedKeyItems(
 ): Promise<void> {
 	await assertAppendableKey(target, column, key);
 	await withTransaction(async () => {
+		// §3g — the machine-name rules over the stored value plus the inserts.
+		await assertMachineNameAppend(target, column, key, inserts);
 		await assertParentLinkKeys(target, [{ column, key, value: inserts }], 'append');
 		const appended = await appendMatrixKeyItems(
 			target.table,
@@ -1323,6 +1391,9 @@ export async function persistRecordColumns(
 		const values: MatrixWriteValues = { ...columns };
 		// §3f — a restored relation bag stores every declared-order key sorted.
 		await applySaveRulesToBag(target, values);
+		// §3g — a restore is never refused: an ontology node's legacy name is
+		// converted into the shape the node has now (machine_name_save.ts).
+		await convertRestoredColumns(target, values, liveColumns, 'persistRecordColumns');
 		const pinned = await pinCoveredObserverSlots(values, bagOf(liveColumns.relation));
 		await rederiveHiIndex(values, liveColumns);
 		await askChangedKeysDoor(door, target, audit, values, liveColumns);
@@ -1518,6 +1589,8 @@ async function writeBirth(
 	// §3f — every declared-order key is born sorted (the index below is derived
 	// from the bag as stored).
 	await applySaveRulesToBag(target, values);
+	// §3g — an undelete is a restore: converted, never refused (machine_name_save.ts).
+	await convertRestoredColumns(target, values, null, door);
 	// The covered units stand as given (see persistRecordBirth); only the index
 	// is re-derived from what the row carries.
 	const kept = await coveredSlotsOf(bagOf(values.relation));

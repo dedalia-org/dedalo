@@ -70,6 +70,11 @@
 			"sha256": "70fb006444c2bbe27b95ea3001abf891cdfe613e72eab209bec377b2e4297dde",
 			"class": "compatible",
 			"release": "7.0.0"
+		},
+		"0015_dd_ontology_machine_names.sql": {
+			"sha256": "194ee2934d598706d0cba765b94769a49d8dbd5229c62d0f85b989b1e35f5bdd",
+			"class": "incompatible",
+			"release": "7.0.0"
 		}
 	}
 }

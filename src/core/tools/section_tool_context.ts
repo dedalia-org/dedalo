@@ -17,8 +17,8 @@
  * the configured components are never built.
  */
 
+import { getOntologyTermLabel } from '../ontology/labels.ts';
 import { getModelByTipo, getTranslatableByTipo } from '../ontology/resolver.ts';
-import { getOntologyTermLabel } from '../ontology/term_label.ts';
 import type { ToolSimpleContext } from './types.ts';
 
 /**
