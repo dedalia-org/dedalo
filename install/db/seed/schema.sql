@@ -165,6 +165,8 @@ CREATE TABLE public.dd_ontology (
     parent character varying(32),
     term jsonb,
     model text,
+    machine_name text,
+    use_machine_name boolean
     order_number numeric(4,0),
     relations jsonb,
     tld character varying(32),
@@ -173,9 +175,7 @@ CREATE TABLE public.dd_ontology (
     is_model boolean,
     is_translatable boolean,
     is_main boolean,
-    propiedades text,
-    machine_name text,
-    use_machine_name boolean
+    propiedades text
 );
 
 
@@ -327,6 +327,8 @@ CREATE TABLE public.dd_ontology_recovery (
     parent character varying(32),
     term jsonb,
     model character varying(256),
+    machine_name text,
+    use_machine_name boolean,
     order_number numeric(4,0),
     relations jsonb,
     tld character varying(32),
@@ -335,9 +337,7 @@ CREATE TABLE public.dd_ontology_recovery (
     is_model boolean,
     is_translatable boolean,
     propiedades text,
-    is_main boolean,
-    machine_name text,
-    use_machine_name boolean
+    is_main boolean
 );
 
 
