@@ -696,32 +696,51 @@ async function termTiposShown(
 	record: MatrixRecord | null,
 	declaredTipos: string[],
 ): Promise<string[]> {
-	const machineNameTipo = await getSectionMapValue(sectionTipo, 'thesaurus', 'machine_name');
-	const flagTipo = await getSectionMapValue(sectionTipo, 'thesaurus', 'use_machine_name');
-	if (typeof machineNameTipo !== 'string' || machineNameTipo === '') return declaredTipos;
-	if (typeof flagTipo !== 'string' || flagTipo === '') return declaredTipos;
-
-	const flagModel = await getModelByTipo(flagTipo);
-	if (flagModel === null) return declaredTipos;
-	const first = readItemsFromRecord(record, flagTipo, flagModel)[0] as Locator | undefined;
-	const usesMachineName =
-		first !== undefined &&
-		compareLocators(first, { section_id: SI_NO_YES } as unknown as Locator, ['section_id']);
-	if (!usesMachineName) return declaredTipos;
-
+	const machineNameTipo = await sectionMapRoleTipo(sectionTipo, 'machine_name');
+	const flagTipo = await sectionMapRoleTipo(sectionTipo, 'use_machine_name');
+	if (machineNameTipo === null || flagTipo === null) return declaredTipos;
+	if (!(await recordFlagIsYes(record, flagTipo))) return declaredTipos;
 	const termRole = await getSectionMapValue(sectionTipo, 'thesaurus', 'term');
 	const termTipos = new Set(Array.isArray(termRole) ? termRole : [termRole]);
+	return (
+		(await replaceTranslatableTermTipos(declaredTipos, termTipos, machineNameTipo)) ?? declaredTipos
+	);
+}
+
+/** A section_map thesaurus role naming one component tipo, or null when not declared. */
+async function sectionMapRoleTipo(sectionTipo: string, role: string): Promise<string | null> {
+	const tipo = await getSectionMapValue(sectionTipo, 'thesaurus', role);
+	return typeof tipo === 'string' && tipo !== '' ? tipo : null;
+}
+
+/** True when the record's si/no component holds Yes (the locator law, loose section_id). */
+async function recordFlagIsYes(record: MatrixRecord | null, flagTipo: string): Promise<boolean> {
+	const flagModel = await getModelByTipo(flagTipo);
+	if (flagModel === null) return false;
+	const first = readItemsFromRecord(record, flagTipo, flagModel)[0] as Locator | undefined;
+	if (first === undefined) return false;
+	return compareLocators(first, { section_id: SI_NO_YES } as unknown as Locator, ['section_id']);
+}
+
+/**
+ * The declared tipos with the translatable members of `term` replaced by the
+ * machine-name tipo (once, at the first such position); null when nothing was
+ * replaced.
+ */
+async function replaceTranslatableTermTipos(
+	declaredTipos: string[],
+	termTipos: ReadonlySet<unknown>,
+	machineNameTipo: string,
+): Promise<string[] | null> {
 	const shown: string[] = [];
 	let replaced = false;
 	for (const tipo of declaredTipos) {
-		if (termTipos.has(tipo) && (await getTranslatableByTipo(tipo))) {
-			if (!replaced) shown.push(machineNameTipo);
-			replaced = true;
-			continue;
-		}
-		shown.push(tipo);
+		const isLabel = termTipos.has(tipo) && (await getTranslatableByTipo(tipo));
+		if (!isLabel) shown.push(tipo);
+		else if (!replaced) shown.push(machineNameTipo);
+		replaced ||= isLabel;
 	}
-	return replaced ? shown : declaredTipos;
+	return replaced ? shown : null;
 }
 
 /**
