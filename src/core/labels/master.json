@@ -847,6 +847,8 @@
 	"tables_list": "Tables list as dd_ontology, matrix_ontology, matrix",
 	"tag": "tag",
 	"tap_term_to_place": "Tap a term to place it",
+	"term_missing": "Missing term",
+	"term_missing_title": "This term resolved empty in every language. Either the record has no value, or the section_list_thesaurus term definition does not name the component that holds it. Term components:",
 	"terms": "Terms",
 	"text_tags_preserved": "The tags in the text will be preserved.",
 	"time": "Time",

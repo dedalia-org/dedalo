@@ -592,6 +592,35 @@ export const render_ts_line = function(self) {
 
 
 /**
+* MARK_MISSING_TERM
+* A term that resolved empty is a defect to SEE, never a blank line: the record
+* has no value in any language, or the section_list_thesaurus term definition
+* does not name the component that holds it (e.g. a renamed or moved
+* component). A silent blank lets a misconfigured ontology spread unnoticed, so
+* the node shows a marked placeholder and names the configured term tipos.
+* Generic: it reads only the element's own tipo list, never a fixed tipo.
+* @param {HTMLElement} term_text_node - The rendered term_text span.
+* @param {Object} item - The 'term' ar_elements entry.
+* @returns {boolean} true when the term was empty and is now marked.
+*/
+const mark_missing_term = function(term_text_node, item) {
+
+	if (term_text_node.textContent.trim().length > 0) {
+		return false
+	}
+
+	const tipos = (Array.isArray(item?.tipo) ? item.tipo : [item?.tipo]).filter(Boolean)
+	term_text_node.classList.add('term_missing')
+	term_text_node.textContent = get_label.term_missing || 'Missing term'
+	term_text_node.title = (get_label.term_missing_title || 'This term resolved empty in every language. Term components:')
+		+ ' ' + tipos.join(', ')
+
+	return true
+}//end mark_missing_term
+
+
+
+/**
 * RENDER_TERM
 * Creates the term label node for a standard thesaurus row (area_thesaurus context).
 *
@@ -655,6 +684,8 @@ const render_term = function(options) {
 			parent			: term_node
 		})
 		self.term_text = term_text
+		// an empty term is shown as a defect, never as a blank line
+		mark_missing_term(term_text, item)
 		// click on term text → open component editor in the ts_object panel,
 		// except when thesaurus_mode==='relation' (indexation tool context)
 		// where clicks are intentionally ignored to avoid accidental navigation.
@@ -788,6 +819,8 @@ const render_ontology_term = function(options) {
 			inner_html		: term_text,
 			parent			: term_node
 		})
+		// an empty term is shown as a defect, never as a blank line
+		mark_missing_term(term_text_node, item)
 		// click on term text → open component editor.
 		// Guard: ignore clicks when thesaurus_mode==='relation' (indexation tool).
 		const click_handler = (e) => {

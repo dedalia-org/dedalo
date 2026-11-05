@@ -589,6 +589,8 @@
 	"tables_list": "টেবিলের তালিকা যেমন dd_ontology, matrix_ontology, matrix",
 	"tag": "ট্যাগ",
 	"tap_term_to_place": "রাখতে একটি পদে ট্যাপ করুন",
+	"term_missing": "পদ অনুপস্থিত",
+	"term_missing_title": "এই পদটি সব ভাষায় খালি। হয় রেকর্ডে কোনো মান নেই, নয়তো section_list_thesaurus-এর পদ সংজ্ঞা সেই উপাদানের নাম দেয় না যেখানে এটি আছে। পদের উপাদান:",
 	"terms": "শর্তাবলী",
 	"text_tags_preserved": "টেক্সটের ট্যাগগুলি সংরক্ষিত থাকবে।",
 	"time": "সময়",

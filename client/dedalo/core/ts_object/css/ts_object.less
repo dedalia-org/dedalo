@@ -243,6 +243,13 @@
 					min-width: 1.5rem;
 					min-height: 1rem;
 
+					// an empty term is a definition/data defect: shown, never blank
+					&.term_missing {
+						color: @color_warning;
+						font-style: italic;
+						border: 1px dashed @color_warning;
+					}
+
 					@size : 0.25rem;
 					padding: @size;
 					margin: -@size;

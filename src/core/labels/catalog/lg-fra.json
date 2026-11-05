@@ -589,6 +589,8 @@
 	"tables_list": "Liste de tables comme dd_ontology, matrix_ontology, matrix",
 	"tag": "libellé",
 	"tap_term_to_place": "Touchez un terme pour le placer",
+	"term_missing": "Terme manquant",
+	"term_missing_title": "Ce terme est vide dans toutes les langues. Soit l'enregistrement n'a pas de valeur, soit la définition de terme de section_list_thesaurus ne nomme pas le composant qui la contient. Composants du terme :",
 	"terms": "Conditions d'utilisation",
 	"text_tags_preserved": "Les libellés dans le texte seront conservés.",
 	"time": "Heure",

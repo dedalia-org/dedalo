@@ -43,3 +43,10 @@ is now refused with an error that names both nodes, instead of silently reading 
 the default table. A machine name, once set on a node that uses one, cannot be emptied (to
 rename, write the new name). On an ontology server, imported ontology packages are never
 converted automatically.
+
+In the thesaurus and ontology trees a term that resolves empty in every language is no longer
+a blank line: it shows a marked **Missing term** placeholder, and its tooltip names the
+components the section's `section_list_thesaurus` term definition reads. Either the record has
+no value, or the definition does not name the component that holds it; both are worth fixing
+at the source rather than living with. The tree never substitutes another field on its own:
+what a term shows is decided only by that definition.

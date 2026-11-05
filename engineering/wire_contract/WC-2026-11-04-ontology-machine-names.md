@@ -100,9 +100,14 @@ TLD JSON is unconverted: its loader fills the pair through the same legacy deriv
   requested lang and its equivalent but has the fallback lang among several translations
   (it now reads the fallback lang instead of the first in jsonb order), and where a stored
   value is `''` (absent, never served).
-- **Tree:** an ontology node (`<tld>0` section, element ontology5) whose term has no value in
-  any language shows its ontology43 machine name PLAIN — never wrapped in the untranslated
-  `<mark>` (`ts_object.ts` ontologyMachineNameFallback). Old data has no ontology43: unchanged.
+- **Tree: no engine change.** The node term is resolved ONLY from the section's
+  `section_list_thesaurus` ddo_map (and `section_map`), never a hardcoded tipo. A name node whose
+  ontology5 is gone shows an empty term until the ontology's `term` ddo lists ontology43 — an
+  ontology definition change made on the master ontology, not engine code. (A first draft
+  hardcoded an ontology5 → ontology43 fallback in `ts_object.ts`; removed 2026-11-05.) The
+  empty term is NOT silent: the client (`render_ts_line.js` mark_missing_term, both term
+  renderers) shows a `term_missing` placeholder naming the element's configured tipos, so a
+  misconfigured definition is visible instead of spreading. Server payload unchanged.
 - **STRUCTURE_LANG is gone** (the export is deleted so every site states its role): names →
   the columns; labels → `ONTOLOGY_LABEL_FALLBACK_LANG` (`labels.ts`, = config
   DEDALO_STRUCTURE_LANG, re-documented as "ontology label fallback" only; the key and `.env`

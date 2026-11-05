@@ -599,6 +599,8 @@
 	"tables_list": "Lista de tablas como dd_ontology, matrix_ontology, matrix",
 	"tag": "etiqueta",
 	"tap_term_to_place": "Toca un término para colocarlo",
+	"term_missing": "Término ausente",
+	"term_missing_title": "Este término está vacío en todos los idiomas. O el registro no tiene valor, o la definición de término de section_list_thesaurus no nombra el componente que lo contiene. Componentes del término:",
 	"terms": "Términos",
 	"text_tags_preserved": "Las etiquetas del texto se conservarán.",
 	"time": "Hora",

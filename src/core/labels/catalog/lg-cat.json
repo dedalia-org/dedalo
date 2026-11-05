@@ -598,6 +598,8 @@
 	"tables_list": "Llista de taules com dd_ontology, matrix_ontology, matrix",
 	"tag": "etiqueta",
 	"tap_term_to_place": "Toca un terme per a col·locar-lo",
+	"term_missing": "Terme absent",
+	"term_missing_title": "Aquest terme és buit en tots els idiomes. O el registre no té valor, o la definició de terme de section_list_thesaurus no anomena el component que el conté. Components del terme:",
 	"terms": "Termes",
 	"text_tags_preserved": "Les etiquetes del text es conservaran.",
 	"time": "Hora",

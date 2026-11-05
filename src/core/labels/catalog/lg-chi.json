@@ -589,6 +589,8 @@
 	"tables_list": "表列表，如 dd_ontology, matrix_ontology, matrix",
 	"tag": "标签",
 	"tap_term_to_place": "轻触一个术语以放置",
+	"term_missing": "缺少术语",
+	"term_missing_title": "此术语在所有语言中均为空。要么记录没有值,要么 section_list_thesaurus 的术语定义未指明包含它的组件。术语组件:",
 	"terms": "术语",
 	"text_tags_preserved": "文本中的标签将保留。",
 	"time": "时间",

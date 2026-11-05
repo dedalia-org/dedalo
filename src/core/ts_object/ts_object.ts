@@ -42,8 +42,6 @@ import { labelByTipo, ONTOLOGY_LABEL_FALLBACK_LANG } from '../ontology/labels.ts
 import {
 	HIERARCHY_BUTTON_NEW,
 	HIERARCHY_MAIN_SECTION,
-	ONTOLOGY_MACHINE_NAME,
-	ONTOLOGY_TERM,
 	THESAURUS_BUTTON_DELETE,
 	THESAURUS_BUTTON_NEW,
 	THESAURUS_SECTION,
@@ -58,7 +56,6 @@ import {
 	getTranslatableByTipo,
 } from '../ontology/resolver.ts';
 import { getSectionMap } from '../ontology/section_map.ts';
-import { getSectionIdFromTipo } from '../ontology/tld.ts';
 import {
 	type ChildLocator,
 	countChildrenOrNull,
@@ -936,27 +933,6 @@ async function resolveModelValue(
 	return values.join(showMap.recordsSeparator);
 }
 
-/**
- * The machine-name close of the label chain in the TREE (labels.ts
- * resolveLabel; WC-2026-11-04-ontology-machine-names): an ONTOLOGY node whose
- * term (ontology5) has no value in any language — a table / model node whose
- * name moved to ontology43 — shows its machine name, served PLAIN: a machine
- * name is language-free, so it is never "untranslated" and takes no `<mark>`.
- * Scoped to the term element (ontology5) of an ontology section (`<tld>0`,
- * the getMatrixTableFromTipo rule); everything else answers '' (the old
- * value). Old data carries no ontology43, so its output is unchanged.
- */
-function ontologyMachineNameFallback(
-	record: MatrixRecord | null,
-	sectionTipo: string,
-	elementTipo: string,
-): string {
-	if (elementTipo !== ONTOLOGY_TERM || getSectionIdFromTipo(sectionTipo) !== '0') return '';
-	const items = readItemsFromRecord(record, ONTOLOGY_MACHINE_NAME, 'component_input_text');
-	const named = items.find((item) => typeof item.value === 'string' && item.value !== '');
-	return (named?.value as string | undefined) ?? '';
-}
-
 /** PHP resolve_element_value (:1504): dispatch by element type; false = skip. */
 async function resolveElementValue(
 	current: DdoMapEntry,
@@ -979,10 +955,7 @@ async function resolveElementValue(
 				// lang fallback: main-lang → nolan → any, decorated as untranslated.
 				const rawItems = readItemsFromRecord(record, elementTipo, model);
 				const fallback = componentDataFallbackValue(rawItems);
-				elementValue =
-					fallback === ''
-						? ontologyMachineNameFallback(record, sectionTipo, elementTipo)
-						: `<mark>${toStr(fallback)}</mark>`;
+				elementValue = fallback === '' ? '' : `<mark>${toStr(fallback)}</mark>`;
 			} else {
 				const first = componentData[0] as { value?: unknown } | string | undefined;
 				elementValue =

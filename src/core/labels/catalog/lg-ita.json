@@ -589,6 +589,8 @@
 	"tables_list": "Elenco di tabelle come dd_ontology, matrix_ontology, matrix",
 	"tag": "Etichetta",
 	"tap_term_to_place": "Tocca un termine per collocarlo",
+	"term_missing": "Termine mancante",
+	"term_missing_title": "Questo termine è vuoto in tutte le lingue. Il record non ha alcun valore, oppure la definizione del termine in section_list_thesaurus non nomina il componente che lo contiene. Componenti del termine:",
 	"terms": "Termini",
 	"text_tags_preserved": "Le etichette nel testo verranno conservate.",
 	"time": "Ora",

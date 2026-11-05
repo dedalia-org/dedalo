@@ -651,6 +651,13 @@ Merged since the last release; these ship with the next one.
     rename, write the new name). On an ontology server, imported ontology packages are never
     converted automatically.
 
+    In the thesaurus and ontology trees a term that resolves empty in every language is no longer
+    a blank line: it shows a marked **Missing term** placeholder, and its tooltip names the
+    components the section's `section_list_thesaurus` term definition reads. Either the record has
+    no value, or the definition does not name the component that holds it; both are worth fixing
+    at the source rather than living with. The tree never substitutes another field on its own:
+    what a term shows is decided only by that definition.
+
     Wire contract: `WC-2026-11-04-ontology-machine-names`.
 
 - **Dédalo now runs on Bun 1.4.4, the latest stable release.** *(action needed)*
