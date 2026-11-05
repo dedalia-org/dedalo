@@ -5325,7 +5325,7 @@ input::placeholder {
   height: var(--component_label_height);
   max-width: 100%;
   font-size: inherit;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--color_orange_dark);
 }
 .wrapper_component.edit.active:not(:where(.edit.component_section_id)) .show_on_active,
