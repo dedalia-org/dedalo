@@ -366,7 +366,7 @@ The notice codes and the envelope's `notices[]` are described in [Errors](system
 1. **Use an explicit config for new nodes.** The implicit walk will keep serving un-migrated nodes, but explicit config is auditable and predictable — and it is the better-tested path (`test/parity/relation_corpus_config.test.ts`).
 2. **Use `self`** for `parent` and ddo `section_tipo` rather than hardcoding installation tipos.
 3. **Prefer the `{source, value}` object form** for `sqo.section_tipo` — a bare `"self"` string still resolves, but the object form is the documented shape.
-4. **Define `show`, `search` and `choose` separately** for autocomplete components.
+4. **Define `show`, `search` and `choose` separately** for autocomplete components. Without a `choose.ddo_map` the search results reuse `search` (or `show`) as their columns; the client builds them read-only either way (`build_rqo_search`, `common.js`, turns a ddo `mode: "edit"` into `list`), so a column pinned to `edit` for in-cell editing in the caller's table renders as text in a result row, never as an editable field.
 5. **Prefer `get_ddo_map`** for column sets shared across sections.
 6. **Let the server own limits** (`limit: null`) so the mode/model default wins; client limits are clamped anyway. Do not rely on cross-request session-limit continuity — the client must resend `sqo_session` itself (see [Session override](#session-override)).
 7. **Test under multiple user permissions** — per-ddo permission gating only applies to SECTION-owned explicit configs; portal and other component-owned configs are not gated at the `processSingleDdo()` step.

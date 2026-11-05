@@ -241,8 +241,8 @@ Both keys share ONE ranking engine (`rankLocatorsByColumns`): a search over the 
 
 ### with_value
 
-- **Values:** an object `{mode, view}`.
-- **Effect:** in `list` line view, double-clicking an entry switches the portal to the `mode` / `view` declared here (defaults `edit` / `line`) — the inline "open for editing" transition. Only fires for users with write permission and when the portal is not read-only.
+- **Values:** an object `{mode, view}`, declared on a **ddo** of a caller's `ddo_map` (see [dd_object `with_value`](../dd_object.md#properties)).
+- **Effect:** when the portal has data, it renders in the `mode` / `view` declared here instead of the ddo's own (e.g. a compact `list` / `line` once populated). It is a render-time choice only; it no longer drives an interaction. (Until 2026-11 a double-click on a `list` line view switched the portal to this mode/view in place; a click now opens the portal in the edit window, as every list-mode component — see [Modes](#render-views--modes).)
 
 ### service_autocomplete
 
@@ -264,7 +264,7 @@ Views are selected from `context.view` (default `default`) and dispatched by the
 | View | edit | list / tm | Notes |
 | --- | :---: | :---: | --- |
 | `default` | yes | yes | Full list: label, buttons (add / link / open / autocomplete), a row-box table with one row per linked record and a drag handle per row (edit); temporary header sort on columns declaring `sort_by_column`. |
-| `line` | yes | yes | Compact single-line list; in list mode supports the [`with_value`](#with_value) double-click-to-edit transition. |
+| `line` | yes | yes | Compact single-line list. Nested in a table cell (edit), each linked record is a wrapping line whose edit / unlink buttons sit over its end on hover, behind a fade, without taking width. |
 | `text` | yes | yes | Plain joined text of the resolved values, no chrome. (Registered for both edit and list.) |
 | `mini` | — | yes | Minimal inline view, used by the service autocomplete / tight layouts. |
 | `mosaic` | yes | — | Grid layout of linked records (visual / media-heavy targets). |
@@ -338,7 +338,11 @@ Two consequences follow, and they are the whole contract of the view:
 Modes:
 
 - **edit** — read/write: autocomplete-add, link existing, open target, reorder (drag, tap-tap, move-to-position), cross-portal move, remove (`remove_element` with `delete_link` or `delete_all`), `data_limit` cap, temporary header sort and its **Save**, and the update-external recompute of an `external` portal.
-- **list / tm** — read-only listing; `tm` (Time Machine) reuses the list render (list mode `limit` is always 1 per row).
+- **list / tm** — read-only listing; `tm` (Time Machine) reuses the list render (list mode `limit` is always 1 per row). A click on a `list` portal opens it in the edit window, the rule of every list-mode component (`bind_edit_in_list` in `component_common.js`: write permission, not read-only, not inside a dataframe). The click never also activates a portal table that contains the cell. The window keeps the focus on itself when it opens; it does not hand it to the first row's edit button.
+
+**Full screen.** The tools' full-screen button (`ui.enter_fullscreen`) turns the portal into a full-page panel in every active style, also when it is nested in a table cell: the label on top, the tools as the orange pill beside the exit button (its own full-screen button hidden), and the search box in flow under the rows, its results capped and scrolled. Escape or the exit button restores the portal in place.
+
+**Search results** are a list to choose from: the result columns render read-only even when the caller's `ddo_map` pins a column to `edit` (see [request_config best practices](../request_config.md#best-practices)), and every column of a result starts on the same line. Typing a query is not a data change: it never arms the [unsaved-work guard](../ui/page.md#unsaved-work-guard).
 - **search** — builds the SQO filter input; saves blocked.
 
 ## Rows, drag and drop, and order
@@ -379,13 +383,14 @@ none on a row.
 
 - **Sources.** The `default` view drags by the row's **handle** (`.drag`, in the
   id cell; rows stay non-draggable so their inputs keep text selection). On a
-  desktop the handle hangs in the left gutter, invisible until the row is
-  hovered or focused (it is never `display:none`, so it stays in the Tab order).
-  That gutter is reserved **inside the list's own scrollport** (a wide table
-  scrolls sideways there), so the handle is never clipped by the list edge: a
-  clipped handle starts no native drag from its centre, however normal it looks
-  to a hit test. On a phone card it sits inside the id cell and is always
-  visible. The `mosaic` and `line` edit views drag the **whole row**.
+  desktop the handle is a narrow grip (`drag.svg`, a 0.75rem strip, grab
+  cursor) at the **left edge of the id cell**, level with the edit button and
+  invisible until the row is hovered or focused (it is never `display:none`,
+  so it stays in the Tab order). It sits **inside the list's own scrollport**
+  (a wide table scrolls sideways there), so the handle is never clipped by the
+  list edge: a clipped handle starts no native drag from its centre, however
+  normal it looks to a hit test. On a phone card it sits inside the id cell
+  and is always visible. The `mosaic` and `line` edit views drag the **whole row**.
 - **Drop on a row.** Every row is a target, placeholders included. A row under
   an accepted drag gets `.dragover`; the dragged row gets `.dragging`; both
   paint the row's ring. A drop on the wrapper outside any row is a MOVE only

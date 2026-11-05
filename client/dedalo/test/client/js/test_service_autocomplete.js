@@ -636,6 +636,20 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 				[[{tipo: 'test52', section_tipo: 'test3', component_tipo: 'test52', model: 'component_input_text'}]]
 			)
 		})
+
+		// result rows are a PICK LIST: a column the caller's table pins to edit
+		// (in-cell editing: fixed_mode + mode 'edit' + view 'line') rendered a whole
+		// editable portal — label, tools, pen/remove — inside every result row
+		it("result columns pinned to edit come back read-only (list), the rest untouched", async function() {
+			const pinned = {tipo: 'test54', parent: SEARCH_PATHS_OWNER, section_tipo: ['test3'], model: 'component_portal', mode: 'edit', view: 'line', fixed_mode: true}
+			const plain = {tipo: 'test52', parent: SEARCH_PATHS_OWNER, section_tipo: ['test3'], model: 'component_input_text', mode: 'list'}
+			const rco = request_config_object({show: {ddo_map: [clone(pinned), clone(plain)]}})
+			const rqo = await common.prototype.build_rqo_search.call(picker(), rco, 'search')
+
+			assert.deepEqual(rqo.show.ddo_map, [{...pinned, mode: 'list'}, plain], 'only the mode of the edit column changes')
+			assert.isTrue(rqo.show.columns.flat().every((ddo) => ddo.mode!=='edit'), 'no result column renders as an editor')
+			assert.strictEqual(rco.show.ddo_map[0].mode, 'edit', "the caller's own map keeps its edit column")
+		})
 	})//end describe build_rqo_search
 
 })//end describe SERVICE_AUTOCOMPLETE
