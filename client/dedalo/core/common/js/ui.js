@@ -390,6 +390,13 @@ export const ui = {
 					fragment.appendChild(component_label)
 					wrapper.label = component_label
 
+					// labels are one line with an ellipsis (layout.less): a cut one shows its full name on hover
+					component_label.addEventListener('mouseenter', () => {
+						component_label.title = component_label.scrollWidth > component_label.clientWidth
+							? component_label.textContent
+							: ''
+					})
+
 					// a11y (CLI-10). THE association: the label node gets an id, the
 					// wrapper is announced as a group named by it, and every control
 					// inside — including the ones this component appends later, when its
@@ -4121,6 +4128,9 @@ export const ui = {
 				section_id				: 'minmax(auto, var(--column_id_width))', // 6rem default from var.less root
 				component_publication	: '5rem',
 				component_info			: 'minmax(9rem, 1fr)',
+				// fixed-width inputs: their own size, so the free space goes to text columns
+				component_date			: 'minmax(7.5rem, auto)',
+				component_number		: 'minmax(5rem, auto)',
 				component_3d			: '102px',
 				component_av			: '102px',
 				component_image			: '102px',

@@ -24,6 +24,10 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Field names cut short in the edit form show in full on hover.**
+
+    A field name too long for its column ends in "…" in the edit form, and until now there was no way to read the rest of it. Pointing at a cut name now shows the whole name as a tooltip. Names that fit show no tooltip.
+
 - **Field labels in the edit form are easier to read on Mac.**
 
     The names above each field in the edit form used the thinnest weight of the system font, which on macOS draws hairline strokes that are hard to read. They now use the light weight, which keeps the same quiet look and reads the same on macOS and Windows.
@@ -201,6 +205,10 @@ Merged since the last release; these ship with the next one.
 - **PDF and SVG fields show the placeholder when their file is missing.**
 
     When a record listed a PDF or SVG file that was no longer on disk (moved, deleted or still being processed), lists showed the browser's broken-image icon and the PDF viewer kept spinning on a grey box. They now show the same placeholder as images, audiovisual and 3D files, and clicking it in the edit form opens the upload tool. The PDF reader now appears only once its file is confirmed to load.
+
+- **Portals inside a portal table use the space of their column and no longer cover neighbouring rows.**
+
+    In a portal shown as a table (for example Authorship: person, role, date), the linked records inside a column broke their text letter by letter. The edit and unlink buttons of each linked record no longer take width while hidden; they appear over the record on hover. Words now wrap whole, and date and number columns take only the width they need. The drag handle for reordering rows now sits over the Id column instead of a reserved strip on the left. When a portal inside a column is active, its tools and its search box stay inside the column instead of covering the row above and the rows below.
 
 - **The user activity statistics are now translated.**
 
