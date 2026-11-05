@@ -2687,6 +2687,66 @@ export const ERROR_REGISTRY = {
 		disclosure: 'operator',
 		retryable: false,
 	},
+	'ontology.machine_name_invalid': {
+		// a machine name with surrounding whitespace, a control character, or several values. Caller fault: the request asked for a data state the
+		// machine-name contract forbids; the message names the fix.
+		category: 'caller',
+		status: 400,
+		label_key: 'error_ontology_machine_name_invalid',
+		message: 'The machine name is not valid',
+		severity: 'warn',
+		disclosure: 'operator',
+		retryable: false,
+		details_keys: ['node', 'rule'],
+	},
+	'ontology.machine_name_without_flag': {
+		// an ontology43 value on a node whose ontology44 (use machine name) is No. Caller fault: the request asked for a data state the
+		// machine-name contract forbids; the message names the fix.
+		category: 'caller',
+		status: 400,
+		label_key: 'error_ontology_machine_name_without_flag',
+		message: 'A machine name was given to a node that does not use one',
+		severity: 'warn',
+		disclosure: 'operator',
+		retryable: false,
+		details_keys: ['node'],
+	},
+	'ontology.machine_name_required': {
+		// a write that leaves a flag-Yes node with no derivable machine name. Caller fault: the request asked for a data state the
+		// machine-name contract forbids; the message names the fix.
+		category: 'caller',
+		status: 400,
+		label_key: 'error_ontology_machine_name_required',
+		message: 'The node uses a machine name and would be left without one',
+		severity: 'warn',
+		disclosure: 'operator',
+		retryable: false,
+		details_keys: ['node'],
+	},
+	'ontology.machine_name_flag_mismatch': {
+		// owner decision D12: a model change to a name model (or flag No on a name-class node). Caller fault: the request asked for a data state the
+		// machine-name contract forbids; the message names the fix.
+		category: 'caller',
+		status: 400,
+		label_key: 'error_ontology_machine_name_flag_mismatch',
+		message: 'The node is named by a machine name but its flag says it is not',
+		severity: 'warn',
+		disclosure: 'operator',
+		retryable: false,
+		details_keys: ['node'],
+	},
+	'ontology.machine_name_override_flag': {
+		// a localontology0 override stating another ontology44 than its node. Caller fault: the request asked for a data state the
+		// machine-name contract forbids; the message names the fix.
+		category: 'caller',
+		status: 400,
+		label_key: 'error_ontology_machine_name_override_flag',
+		message: 'An override may not change whether a node uses a machine name',
+		severity: 'warn',
+		disclosure: 'operator',
+		retryable: false,
+		details_keys: ['node'],
+	},
 	'ontology.invalid_node': {
 		category: 'unavailable',
 		status: 503,

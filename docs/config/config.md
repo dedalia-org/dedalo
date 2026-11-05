@@ -379,9 +379,9 @@ DEDALO_DIFFUSION_LANGS=["lg-spa","lg-cat","lg-eng"]
 
 DEDALO_STRUCTURE_LANG `string`
 
-This parameter defines the default language that the ontology will use as main language. The ontology (abstracted structure) is the definition of areas, sections, fields, connections between data and definition models. All terms used in the ontology can be translated to any language, but this main language defined here will be use as mandatory language, if Dédalo is configured in other language that is not defined in the ontology translations Dédalo will do a fall back to this main language, if these main language is not present, Dédalo will use any other language to show the interface and explanations.
+This parameter defines the ontology LABEL FALLBACK language. Every ontology label (the name of an area, section, field or tool shown in the interface) can be translated to any language; when the interface language has no translation for a label, Dédalo shows it in this language, and when this language is missing too, in any other language available.
 
-This parameter do not define the main data language, it only affect to the Dédalo interface and definitions in the ontology.
+It is only a label fallback. It does not name anything: model names, table, column and database names and RDF names are language-free machine names stored in the ontology (the "machine name" field), so changing this parameter never renames a table or a model. It does not define the main data language either.
 
 ```bash
 DEDALO_STRUCTURE_LANG="lg-spa"

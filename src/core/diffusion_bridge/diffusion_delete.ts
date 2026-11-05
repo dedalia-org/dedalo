@@ -48,6 +48,7 @@ import { sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/index.ts';
 import { fsyncDirectory } from '../files/durable.ts';
 import { assertTestMediaRoot } from '../media/test_media_root.ts';
+import { nameOrLabelOf } from '../ontology/labels.ts';
 import { relationProbeGroups } from '../search/containment.ts';
 import { virtualDateNow } from '../section/record/create_record.ts';
 import type { DiffusionSqlTarget } from './diffusion_graph.ts';
@@ -56,7 +57,6 @@ import {
 	diffusionFilesRoot,
 	PER_RECORD_FILE_FORMATS,
 	publishedRecordFilePath,
-	publishedTermLabel,
 	sanitizePublishedFileName,
 } from './published_files.ts';
 import { fileTargetLockKey, withDeleteDoorLock } from './target_lock.ts';
@@ -1086,14 +1086,22 @@ export async function resolvePublishedFile(
 	let rdfName: string | null = null;
 	if (type === 'rdf') {
 		// rdf: the owl:Class child whose related section matches names the file.
+		// The class is a name node: its file name is its MACHINE NAME, read by
+		// the same nameOrLabelOf as the publish side (virtual_tree), so the two
+		// sides can never name a different rdf file.
 		const owlRows = (await sql.unsafe(
-			`SELECT term, relations FROM dd_ontology WHERE parent = $1 AND model = 'owl:Class'`,
+			`SELECT term, machine_name, use_machine_name, relations FROM dd_ontology WHERE parent = $1 AND model = 'owl:Class'`,
 			[elementTipo],
-		)) as { term: Record<string, string> | null; relations: { tipo?: string }[] | null }[];
+		)) as {
+			term: Record<string, string> | null;
+			machine_name: string | null;
+			use_machine_name: boolean | null;
+			relations: { tipo?: string }[] | null;
+		}[];
 		for (const row of owlRows) {
 			const related = (row.relations ?? []).map((link) => link.tipo);
 			if (related.includes(sectionTipo)) {
-				rdfName = publishedTermLabel(row.term);
+				rdfName = nameOrLabelOf(row);
 				break;
 			}
 		}

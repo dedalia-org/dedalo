@@ -28,6 +28,7 @@ import { DedaloError } from '../errors/dedalo_error.ts';
 import { createOntologyCache } from './cache_factory.ts';
 import { registerOntologyCacheClearer } from './cache_invalidation.ts';
 import { refuseLabelNode } from './label_node_guard.ts';
+import { nameOrLabelOf, resolveLabel } from './labels.ts';
 import { retiredKeysOf } from './property_census.ts';
 import { announceRetiredProperties } from './retired_property_notice.ts';
 import { getSectionIdFromTipo } from './tld.ts';
@@ -479,24 +480,21 @@ export async function getRecursiveChildrenTipos(sectionTipo: string): Promise<st
 /**
  * tipo → term (label) in a given lang, or null. Reads the dd_ontology `term`
  * translations map; used for the RAG chunker's contextual document title.
- * Best-effort: falls back to the structure lang, then any non-empty term.
- * A model='label' node is refused (refuseLabelNode, ./label_node_guard.ts):
- * dev/test throw; production logs once and answers null (this resolver's
- * existing "no term" value). Uncached, so nothing to keep a refusal in.
+ * The ONE label chain (labels.ts resolveLabel: lang → equivalent → label
+ * fallback lang → any non-empty → machine name). A model='label' node is
+ * refused (refuseLabelNode, ./label_node_guard.ts): dev/test throw; production
+ * logs once and answers null (this resolver's existing "no term" value).
+ * Uncached, so nothing to keep a refusal in.
  */
 export async function getTermByTipo(tipo: string, lang: string): Promise<string | null> {
-	const rows = (await sql`SELECT term, model FROM dd_ontology WHERE tipo = ${tipo} LIMIT 1`) as {
-		term: Record<string, string> | null;
-		model: string | null;
-	}[];
+	const rows =
+		(await sql`SELECT term, model, machine_name FROM dd_ontology WHERE tipo = ${tipo} LIMIT 1`) as {
+			term: Record<string, string> | null;
+			model: string | null;
+			machine_name: string | null;
+		}[];
 	if (refuseLabelNode(tipo, rows[0]?.model)) return null;
-	return termInLang(rows[0]?.term ?? null, lang);
-}
-
-/** getTermByTipo's lang fallback: lang → lg-spa → any non-empty term → null. */
-function termInLang(term: Record<string, string> | null, lang: string): string | null {
-	if (term === null) return null;
-	return term[lang] ?? term['lg-spa'] ?? Object.values(term).find((value) => value) ?? null;
+	return resolveLabel(rows[0]?.term ?? null, lang, rows[0]?.machine_name ?? null);
 }
 
 // ---------------------------------------------------------------------------
@@ -517,6 +515,10 @@ export interface OntologySubtreeNode {
 	parent: string | null;
 	model: string | null;
 	term: Record<string, string> | null;
+	/** The node's language-free name (NULL unless use_machine_name; labels.ts nameOrLabelOf). */
+	machine_name: string | null;
+	/** true → machine_name names the node; NULL on a row not derived yet. */
+	use_machine_name: boolean | null;
 	properties: unknown;
 	relations: unknown;
 	/** Numeric order_number; Infinity when the column is NULL (sorts last). */
@@ -544,6 +546,8 @@ function toSubtreeNode(row: {
 	parent: string | null;
 	model: string | null;
 	term: Record<string, string> | null;
+	machine_name: string | null;
+	use_machine_name: boolean | null;
 	properties: unknown;
 	relations: unknown;
 	order_number: number | string | null;
@@ -553,6 +557,8 @@ function toSubtreeNode(row: {
 		parent: row.parent,
 		model: row.model,
 		term: row.term,
+		machine_name: row.machine_name ?? null,
+		use_machine_name: row.use_machine_name ?? null,
 		properties: row.properties,
 		relations: row.relations,
 		orderNumber:
@@ -583,15 +589,15 @@ export async function getOrderedSubtree(
 		: `WHERE subtree.model IS DISTINCT FROM 'section' AND (subtree.model IS NULL OR subtree.model NOT LIKE 'area%')`;
 	const rows = (await sql.unsafe(
 		`WITH RECURSIVE subtree AS (
-			SELECT tipo, parent, model, term, properties, relations, order_number
+			SELECT tipo, parent, model, term, machine_name, use_machine_name, properties, relations, order_number
 			FROM dd_ontology WHERE parent = $1
 			UNION ALL
-			SELECT child.tipo, child.parent, child.model, child.term, child.properties, child.relations, child.order_number
+			SELECT child.tipo, child.parent, child.model, child.term, child.machine_name, child.use_machine_name, child.properties, child.relations, child.order_number
 			FROM dd_ontology child
 			JOIN subtree ON child.parent = subtree.tipo
 			${guard}
 		)
-		SELECT tipo, parent, model, term, properties, relations, order_number FROM subtree`,
+		SELECT tipo, parent, model, term, machine_name, use_machine_name, properties, relations, order_number FROM subtree`,
 		[rootTipo],
 	)) as Parameters<typeof toSubtreeNode>[0][];
 	const nodes = rows.map(toSubtreeNode);
@@ -614,7 +620,7 @@ export async function getOrderedSubtree(
 	walk(rootTipo);
 	if (options.includeRoot) {
 		const rootRows = (await sql.unsafe(
-			`SELECT tipo, parent, model, term, properties, relations, order_number
+			`SELECT tipo, parent, model, term, machine_name, use_machine_name, properties, relations, order_number
 			 FROM dd_ontology WHERE tipo = $1 LIMIT 1`,
 			[rootTipo],
 		)) as Parameters<typeof toSubtreeNode>[0][];
@@ -629,7 +635,7 @@ export async function getOrderedSubtree(
  */
 export async function getChildrenNodes(parentTipo: string): Promise<OntologySubtreeNode[]> {
 	const rows = (await sql`
-		SELECT tipo, parent, model, term, properties, relations, order_number
+		SELECT tipo, parent, model, term, machine_name, use_machine_name, properties, relations, order_number
 		FROM dd_ontology WHERE parent = ${parentTipo}
 	`) as Parameters<typeof toSubtreeNode>[0][];
 	return rows.map(toSubtreeNode).sort(compareSiblingOrder);
@@ -982,25 +988,39 @@ export async function getMatrixTableFromTipo(sectionTipo: string): Promise<strin
  * The matrix_table related to one section node, or null when the node carries
  * no explicit matrix_table relation. dd_ontology.relations is an array of
  * {tipo} links — join against nodes of model 'matrix_table' and read the
- * table name from their term (any language key; they are plain). Guard: only
- * unnest when relations is a JSON array — some nodes carry a non-array (or
- * null) relations column, which would make jsonb_array_elements raise 22023.
+ * table name: the node's MACHINE NAME (matrix_table is a name model,
+ * machine_name.ts NAME_MODELS), never a label — some matrix_table nodes carry
+ * stray translations (e.g. dd1200), which the old lg-spa → first-non-empty
+ * reading could pick. A matrix_table node whose name the parser could not
+ * derive (`missing` / `collision`) THROWS `ontology.invalid_node` naming both
+ * tipos: falling to the virtual / default rules would read and write the
+ * section's records in ANOTHER table, silently. Guard: only unnest
+ * when relations is a JSON array — some nodes carry a non-array (or null)
+ * relations column, which would make jsonb_array_elements raise 22023.
  */
 async function relatedMatrixTable(sectionTipo: string): Promise<string | null> {
 	const rows = (await sql`
-		SELECT t.term
+		SELECT t.tipo, t.term, t.machine_name, t.use_machine_name
 		FROM dd_ontology s,
 		     jsonb_array_elements(s.relations) AS rel(link)
 		JOIN dd_ontology t ON t.tipo = rel.link->>'tipo' AND t.model = 'matrix_table'
 		WHERE s.tipo = ${sectionTipo}
 		  AND jsonb_typeof(s.relations) = 'array'
 		LIMIT 1
-	`) as { term: Record<string, string> | null }[];
-	const term = rows[0]?.term ?? null;
-	if (term === null) return null;
-	// PHP reads the table name in DEDALO_STRUCTURE_LANG (lg-spa) — some
-	// matrix_table nodes carry stray terms in other langs (e.g. dd1200).
-	return term['lg-spa'] ?? Object.values(term).find((value) => value) ?? null;
+	`) as {
+		tipo: string;
+		term: Record<string, string> | null;
+		machine_name: string | null;
+		use_machine_name: boolean | null;
+	}[];
+	const row = rows[0];
+	if (row === undefined) return null;
+	const table = nameOrLabelOf(row);
+	if (table !== null) return table;
+	throw new DedaloError('ontology.invalid_node', {
+		message: `section '${sectionTipo}': its matrix_table node '${row.tipo}' has no machine name (missing or collision — see the ontology inspect defects); refusing to fall back to another table`,
+		coordinates: { tipo: sectionTipo, matrix_table: row.tipo, reason: 'machine_name_unresolved' },
+	});
 }
 
 /**

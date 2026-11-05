@@ -3,9 +3,9 @@
 	"engine_version": "7.0.0",
 	"seed": {
 		"file": "install/db/dedalo_install.pgsql.gz",
-		"bytes": 1837171,
-		"sha256": "a49b90185fa3e2ea2561aa46b8d641085efc3be54a24c3604d6e689e83cb64f5",
-		"content_sha256": "5c288eec72ff5476ee0f8020ffc840d1c1214ae3a81dccacf62eb49ee034144c",
+		"bytes": 1840970,
+		"sha256": "42b24f0e5a00ed4ccedcd13f0510f3537f5cdcdb5a84b91e58754315ee519f5d",
+		"content_sha256": "c4fefd69ec66fdcd63cf3e625ca28466436c138de3b5c9d3b3753fbb8f5692b7",
 		"pg_dump_version": "18.4 (Homebrew)"
 	},
 	"sources": {
@@ -23,10 +23,11 @@
 		"install/db/migrations/0012_tm_history_visible_index.sql": "ab17d41ded9cc933f261b0e66d52d62f236d7c44a465b70b355fc4a64520510b",
 		"install/db/migrations/0013_dd_ontology_identifier_grammar.sql": "ad59ab164eec61101dea095138b8b77083817a91d6adc7a9d7222c054d6c64d7",
 		"install/db/migrations/0014_diffusion_activity_dead_indexes.sql": "70fb006444c2bbe27b95ea3001abf891cdfe613e72eab209bec377b2e4297dde",
+		"install/db/migrations/0015_dd_ontology_machine_names.sql": "194ee2934d598706d0cba765b94769a49d8dbd5229c62d0f85b989b1e35f5bdd",
 		"install/db/seed/dd_ontology_scaffold.copy.gz": "604fd78b7799aa22079a8f7d07405e4c631495faa0bcb1e55a88bc3c40565427",
 		"install/db/seed/matrix_hierarchy_main.copy.gz": "428a17df3cd241164b21af50d0f2bded6ed8677014853329182c554a655b1336",
 		"install/db/seed/matrix_langs.copy.gz": "ba220588e8405426180997c285c1aa685022c8818ed77f29379a624f9f73a908",
-		"install/db/seed/schema.sql": "fedf29490147b2332d31cacfa27fff78ed53a83d30d05defdafadd75b93f5ba7",
+		"install/db/seed/schema.sql": "de3e0f6454a4a7ff741c8fd62d2cbf0cc185c8593e5b702b653e2b39e5c57df0",
 		"install/import/ontology/7.0/dd.copy.gz": "18d2a084d622bbdb4b92a547dc5d429d8bef49da6bce8437929d6669b4aeeb23",
 		"install/import/ontology/7.0/hierarchy.copy.gz": "8c04699f6569aa6dc3083cf3c183873554f9fe7ecac5fab5099ddfa523730359",
 		"install/import/ontology/7.0/lg.copy.gz": "4c4e955478b26a0854900e23aa39eaf1a8ce1ca878c5f34993de075f9a9f6724",
@@ -37,7 +38,7 @@
 		"install/import/ontology/7.0/rsc.copy.gz": "3c495e8b2b8957258952261201c14f53d8131e9aac4240bf312657348eec460e",
 		"scripts/seed_build_child.ts": "97e9caa5785d2fca86fd692fa468800d1f63c4b22b39798496d1705142471513",
 		"src/core/install/copy_section_ids.ts": "f9a9efa56897f0bc862b64343cca5dfc3e175f44b38537d789e85225ec0ce4cc",
-		"src/core/install/seed_build.ts": "7981253e07f467ed622738f23dc57eb8ffc717424882cd2863532521fdf64f25",
+		"src/core/install/seed_build.ts": "3683fef397ef09d4ddb0b0a09913507c8f0fa99f8d1b23c411cfdeb0d6a5a623",
 		"src/core/install/seed_sources.ts": "64d9af586ba6c61a5e9f103b163e36f48a3119d2fba6ac4187be588a704edae6"
 	},
 	"rules_digest": "37c08ceda16f2f743df6a6d847629b1548280378d712b5f26a0c2a9ef74ae34e",
@@ -84,7 +85,7 @@
 	"verified": {
 		"checks": [
 			"Database installed from seed (core ontologies: dd, rsc, ontology, ontologytype, hierarchy, lg) + derived search stores + core hierarchies activated (lg) — OK",
-			"boot migrations: 12 applied, 0 skipped; online: 2 applied",
+			"boot migrations: 13 applied, 0 skipped; online: 2 applied",
 			"ontology dd in sync (1731 nodes)",
 			"ontology rsc in sync (1566 nodes)",
 			"ontology ontology in sync (42 nodes)",

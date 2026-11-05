@@ -197,6 +197,8 @@ const BASE: DdOntologyNode = {
 	is_translatable: false,
 	is_main: false,
 	propiedades: null,
+	machine_name: null,
+	use_machine_name: false,
 };
 
 interface Cell {

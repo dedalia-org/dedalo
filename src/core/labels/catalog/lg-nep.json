@@ -589,6 +589,8 @@
 	"tables_list": "तालिकाहरूको सूची जस्तै dd_ontology, matrix_ontology, matrix",
 	"tag": "ट्याग",
 	"tap_term_to_place": "राख्न कुनै पदमा ट्याप गर्नुहोस्",
+	"term_missing": "पद हराएको",
+	"term_missing_title": "यो पद सबै भाषामा खाली छ। या त रेकर्डमा कुनै मान छैन, या section_list_thesaurus को पद परिभाषाले त्यो घटकको नाम दिँदैन जसमा यो छ। पदका घटकहरू:",
 	"terms": "सर्तहरू",
 	"text_tags_preserved": "पाठमा रहेका ट्यागहरू यथावत् रहनेछन्।",
 	"time": "समय",

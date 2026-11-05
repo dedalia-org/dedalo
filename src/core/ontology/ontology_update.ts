@@ -82,7 +82,9 @@ import {
 	stagedOntologyDiff,
 } from './data_io_import.ts';
 import { reportMissingDependencies } from './dependency_report.ts';
-import { termByTipo } from './labels.ts';
+import { ONTOLOGY_LABEL_FALLBACK_LANG, termByTipo } from './labels.ts';
+import { modelNameOf } from './machine_name.ts';
+import { importedMachineNameMessages } from './machine_name_reconcile.ts';
 import {
 	inspectOntology,
 	type OntologyWriteResult,
@@ -90,7 +92,6 @@ import {
 	rebuildOntology,
 	withOrderReconcileBatch,
 } from './ontology_state.ts';
-import { STRUCTURE_LANG } from './ontology_tipos.ts';
 import { type OntologySourceDeps, resolveOntologySource } from './ontology_update_source.ts';
 import {
 	type OntologyUpdateCatalog,
@@ -217,6 +218,11 @@ export async function importOntologyPackage(
 	if (!(await consolidateSectionCounter(file.sectionTipo, 'matrix_ontology', conn))) {
 		outcome.errors.push(`counter consolidation failed for ${file.sectionTipo}`);
 	}
+	// Machine names (P3, WC-2026-11-04-ontology-machine-names): the LOSSLESS class
+	// of the imported rows moves into the machine-name shape here — after the COPY
+	// and the ONT-TLD rewrite, BEFORE the re-derive, no TM row (the package is the
+	// history). Non-fatal and a no-op on an ontology without ontology43/44.
+	outcome.messages.push(...(await importedMachineNameMessages(file.sectionTipo)));
 	return outcome;
 }
 
@@ -284,7 +290,7 @@ async function ensureStagedGrouperRecords(
  * stored row (a same-tld model resolves inside rebuildOntology). A tld derived BEFORE the tld
  * that adds or renames one of its models was parsed against the old row, so every tld that
  * committed in pass 1 is re-inspected AFTER all of them and re-derived when a `model` column
- * is stale — one pass reaches the fixpoint (no node's term depends on another node). A
+ * (or a machine-name column, STALE_NAME_COLUMNS) is stale — one pass reaches the fixpoint (no node's term depends on another node). A
  * rolled-back tld keeps its failure. Gate: ontology_derive_packages_native G1f.
  */
 async function rederiveStaleModels(
@@ -299,8 +305,19 @@ async function rederiveStaleModels(
 
 async function hasStaleModel(tld: string): Promise<boolean> {
 	const { drift } = await inspectOntology(tld);
-	return drift.some((item) => item.kind === 'stale' && item.diffColumns.includes('model'));
+	return drift.some(
+		(item) =>
+			item.kind === 'stale' &&
+			STALE_NAME_COLUMNS.some((column) => item.diffColumns.includes(column)),
+	);
 }
+
+/**
+ * The columns pass 2 converges: `model`, and the machine-name pair a model
+ * definition carries (a dd model row has no model_tipo, so a `model` diff never
+ * flags it — yet its machine_name is what every instance's `model` reads).
+ */
+const STALE_NAME_COLUMNS = ['model', 'machine_name', 'use_machine_name'] as const;
 
 /** Every tld's last derive → the step messages and error lines (module doc: severity). */
 function deriveReport(outcomes: ReadonlyMap<string, OntologyWriteResult>): {
@@ -715,7 +732,7 @@ export async function updateOntology(
 
 		// root_info read-back (dd1 term + properties)
 		const rootRow = await readDdOntologyRow(DEDALO_ROOT_TIPO);
-		const rootTerm = await termByTipo(DEDALO_ROOT_TIPO, config.lang.structureLang);
+		const rootTerm = await termByTipo(DEDALO_ROOT_TIPO, ONTOLOGY_LABEL_FALLBACK_LANG);
 		response.root_info = {
 			term: rootTerm,
 			properties: (rootRow as { properties?: unknown } | null)?.properties ?? null,
@@ -760,9 +777,9 @@ export interface CensusRemodelledNode {
 /**
  * The census of one staged TLD, taken after staging and before Phase B/C: what
  * the import is about to REMOVE from `<tld>0` and what it RE-MODELS (same tipo,
- * another ontology6 model). A model is its model node's `lg-spa` term, read the
+ * another ontology6 model). A model is its model node's machine name, read the
  * way the parser reads it (ontology6 locator → getTermIdFromLocator →
- * dd_ontology term) — or the model TIPO when that node is not in dd_ontology
+ * dd_ontology machine_name, machine_name.ts modelNameOf) — or the model TIPO when that node is not in dd_ontology
  * yet (a model the same update introduces), null when no model is stated.
  * Overrides (localontology0) are not applied: the census compares the canonical
  * rows the import replaces. `records` is set only when the node's CURRENT model
@@ -836,8 +853,9 @@ async function censusModel(locator: StoredModelLocator): Promise<string | null> 
 		locator as Parameters<typeof getTermIdFromLocator>[0],
 	);
 	if (modelTipo === null) return null;
-	const row = await readDdOntologyRow(modelTipo);
-	return row?.term?.[STRUCTURE_LANG] ?? modelTipo;
+	// The model node's machine name — the parser's reading (machine_name.ts
+	// modelNameOf, incl. its bridge rung for a model row not yet derived).
+	return modelNameOf(await readDdOntologyRow(modelTipo)).model ?? modelTipo;
 }
 
 /** `records` on every removed / re-modelled node whose current model is `section`. */

@@ -52,6 +52,7 @@ dropdb dedalo_restore_test
 | Check | Required value | Where to look |
 | --- | --- | --- |
 | Data version | **6.9.1 or later, and below 7.0.0** | the `matrix_updates` table; the v6 preparation panel reports it |
+| v6 ontology | **updated**: the nodes `ontology43` (machine name) and `ontology44` (use machine name) are present | run the ontology update in the v6 Maintenance area; the preflight refuses without them (code 10) |
 | You are logged in as | the Dédalo **superuser** | the panel refuses anyone else |
 | Maintenance mode | **on** before anything that writes | [maintenance status](../management/maintenance_status.md) |
 | Dump tool on the **v6** host | `pg_dump --version` not older than the v6 server's `SELECT version();`, and not older than the v7 target's major | the preflight fails hard if the dump cannot run |
@@ -63,8 +64,8 @@ If you cannot install PostgreSQL 18 client tools on the v6 host, dump remotely f
 
 The version is checked as a **range**, not an exact match: any v6 at or after 6.9.1 and below 7.0.0 is eligible, so an install kept current (6.9.2, 6.9.3, …) migrates without any adjustment. Below 6.9.1, update it on v6 first — that floor can never be forced. At or above 7.0.0 the database is already migrated.
 
-!!! note "You do not update the ontology separately"
-    The migration builds the v7 ontology itself, from the v6 one, as its first step. There is no ontology import to do beforehand.
+!!! note "One ontology update on v6, then nothing more"
+    The migration builds the v7 ontology itself, from the v6 one, as its first step: there is no v7 ontology import to do. It does need one ordinary **v6 ontology update** first, the one that defines the machine-name nodes `ontology43` and `ontology44`. They come with the ontology, not with a data update, so the data version cannot prove they are there: the preflight checks for the nodes themselves and refuses without them (code 10). That refusal cannot be forced.
 
 ### Inventory — what you must carry to the v7 host
 
@@ -131,7 +132,7 @@ This is the mode that tells you whether your data is clean. It classifies every 
 | Bucket | Meaning | What you do |
 | --- | --- | --- |
 | **auto-fixed** | repaired in memory during the run — most often a value stored as a bare language map, which gets wrapped, or a fabricated map view, which is [repaired below](#the-fabricated-map-view) | nothing |
-| **notices** | dropped on purpose, typically a value under a tipo that no longer exists in the ontology | read them, decide whether the loss matters |
+| **notices** | dropped on purpose, typically a value under a tipo that no longer exists in the ontology — or kept as it is and only reported, like the [machine-name](#ontology-machine-names) notices | read them, decide whether the loss matters |
 | **needs attention** | the ontology model and the stored shape disagree — a human must decide | **fix it before migrating**; this is the only bucket that blocks |
 
 A non-empty *needs attention* bucket fails the preflight. See [when something goes wrong](#9-when-something-goes-wrong-data-errors).
@@ -185,12 +186,29 @@ The panel is only a tail: closing it does not stop the run. From the shell, `ps 
 What the run does, in order:
 
 1. **Backup**, then build the v7 ontology.
-2. **Schema and data transform**: adds the v7 typed columns (`data`, `relation`, `string`, `date`, `iri`, `geo`, `number`, `media`, `misc`, `relation_search`, `meta`) to 23 matrix tables, then redistributes each record's single v6 value blob into them by component model — applying, on the way, the same repairs the deep preflight counted, including [the fabricated map view](#the-fabricated-map-view). Rebuilds the time machine, drops the legacy `datos` column, migrates the dataframe pairing locators to the v7 contract, materialises IRI titles, then **unifies `section_id` as an integer** inside every stored locator (the historical string form `"7"` becomes `7`, across all content tables, the time machine and the ontology relations — external-service references such as zenon's zero-padded remote ids are recognised by shape and kept verbatim, and anything unconvertible is reported in the log, never guessed), and finally builds and backfills the two derived search stores from the unified form. The unification records a `section_id_int_normalize` marker row in `matrix_updates` — a future engine release refuses to boot without it, so do not delete it.
+2. **Schema and data transform**: sets the [ontology machine names](#ontology-machine-names) on the ontology records, adds the v7 typed columns (`data`, `relation`, `string`, `date`, `iri`, `geo`, `number`, `media`, `misc`, `relation_search`, `meta`) to 23 matrix tables, then redistributes each record's single v6 value blob into them by component model — applying, on the way, the same repairs the deep preflight counted, including [the fabricated map view](#the-fabricated-map-view). Rebuilds the time machine, drops the legacy `datos` column, migrates the dataframe pairing locators to the v7 contract, materialises IRI titles, then **unifies `section_id` as an integer** inside every stored locator (the historical string form `"7"` becomes `7`, across all content tables, the time machine and the ontology relations — external-service references such as zenon's zero-padded remote ids are recognised by shape and kept verbatim, and anything unconvertible is reported in the log, never guessed), and finally builds and backfills the two derived search stores from the unified form. The unification records a `section_id_int_normalize` marker row in `matrix_updates` — a future engine release refuses to boot without it, so do not delete it.
 3. **Passwords**: converts every recoverable account to Argon2id.
 4. **Diffusion ontology**: rewrites the diffusion properties.
 
 !!! note "The review and the run are the same pass"
-    The deep preflight and the migration run the same transform; the preflight simply does not save. So the *auto-fixed* counts you read in [3.2](#32-deep-preflight) are not a prediction of what the run might do — they are what it will do. Every repair is applied in memory, on the way into the v7 columns; the legacy value column is never rewritten in place, and the backup taken as the run's first step is the undo for all of it.
+    The deep preflight and the migration run the same transform; the preflight simply does not save. So the *auto-fixed* counts you read in [3.2](#32-deep-preflight) are not a prediction of what the run might do — they are what it will do. Every repair is applied in memory, on the way into the v7 columns; the legacy value column is never rewritten in place — except on the ontology records, where the [machine names](#ontology-machine-names) are written in the v6 shape just before the transform — and the backup taken as the run's first step is the undo for all of it.
+
+#### Ontology machine names
+
+Every v7 ontology node carries a language-free **machine name** (`ontology43`) next to its translatable label (`ontology5`), and a **use machine name** flag (`ontology44`, Yes or No). A node is a name when the engine reads its term as an identifier: the model definitions, and the nodes whose model is a database, table, table alias, matrix table, field, diffusion domain, or an RDF / OWL term. Every other node is a label. v6 had only the label, so the migration sets both on every ontology record, right before the transform, and the transform then converts them like any other value. The preflights review it without saving, and the deep preflight converts the ontology records with those values applied in memory, as the run will find them.
+
+| Situation | What the migration does |
+| --- | --- |
+| a value already set (by the master ontology or by you) | kept, never overwritten; one that contradicts the classification is a notice, `MACHINE_NAME_FLAG_MISMATCH` |
+| a flag Yes already set on a label node that has no machine name | the label is left untouched, no name is derived. *Needs attention*: `MACHINE_NAME_MISSING` |
+| a name node with one Spanish term | the term becomes the machine name and is **removed** from the label; the other languages stay as labels (differing ones are a notice, `MACHINE_NAME_LABEL_KEPT`); flag Yes |
+| a name node without a Spanish term, one distinct value in the other languages | that value is moved, with a notice `MACHINE_NAME_FROM_<LANG>` |
+| a name node with several distinct terms, or several Spanish items | flag Yes, **no machine name**: nothing is ever picked. *Needs attention*: `MACHINE_NAME_AMBIGUOUS` |
+| a name node with no term at all | *needs attention*: `MACHINE_NAME_MISSING` |
+| every other node | flag No |
+| a local override (`localontology0`) | the same rules, but only for what it overrides: an override that changes neither term nor model is left alone, and only a Spanish override term moves (`MACHINE_NAME_OVERRIDE_NOT_SPA` otherwise); an override that makes a label node a name without a Spanish term of its own is *needs attention*: `MACHINE_NAME_MISSING` |
+
+History follows the name: the Spanish-term history rows of every node that ends with a machine name and no Spanish label are re-keyed to the machine name, so a restore lands in the new component. Only the key changes, never the value, and the move itself writes no history. The step is idempotent, and only a database failure stops the run there, before anything has been converted. After the upgrade, the v7 engine checks the result on every node and reports a disagreement as a named defect.
 
 Duration is a function of how many rows you have. There is no progress bar: the runner prints a `progress:` heartbeat about every 10 seconds. **No heartbeat for several minutes means the run is stuck** — read the log tail and check the database for locks.
 
@@ -224,6 +242,7 @@ Duration is a function of how many rows you have. There is no progress bar: the 
 | 7 | the diffusion ontology migration failed (database migration already done) |
 | 8 | this interpreter has no Argon2 support (database migration already done) |
 | 9 | an uncaught error — the run failed, loudly, on purpose |
+| 10 | not eligible: the v6 ontology update has not been run (`ontology43` / `ontology44` missing) |
 
 ## 4. Phase B — move the database and the media
 
@@ -576,6 +595,7 @@ Most trouble is found by the deep preflight, **before** the migration. The rule 
 | --- | --- | --- |
 | Preflight refuses: not eligible, no data version found | the database is fresh or not a Dédalo database | you are pointed at the wrong database |
 | Preflight refuses: requires 6.9.1 or later | v6 data is too old | update the v6 install first; this can never be forced |
+| Preflight refuses: ontology nodes missing, run the ontology update first (code 10) | the v6 ontology predates the machine-name nodes | run the ontology update in the v6 Maintenance area, then the preflight again; this can never be forced |
 | Preflight refuses: already at or beyond 7.0.0 | already migrated | do not re-run; go to Phase B |
 | Preflight fails on the backup | the dump client is unusable or older than the server | install matching client tools; the backup is the real run's first step, so this is fatal by design |
 | Preflight fails with *needs attention* findings | model and stored shape disagree | [fix in v6 first](#91-needs-attention-findings-v6-host-before-phase-a) |

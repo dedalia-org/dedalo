@@ -7,7 +7,10 @@
  *   - `loadRdfImportOntology` reads the external-ontology subtree ONCE through an
  *     injected `RdfOntologyReader` into a plain snapshot. Production gets that
  *     reader from `engineRdfOntologyReader()` (ontology/resolver.ts, imported
- *     dynamically, so this module loads without the database).
+ *     dynamically, so this module loads without the database). A node's RDF
+ *     name is read by the engine's ONE name reader (ontology/labels.ts
+ *     nameOrLabelOf, a pure function): the machine name of a name node, the
+ *     label of any other.
  *   - `planRdfImport` / `planRdfResource` walk the snapshot against a parsed graph
  *     (core/tools/rdf_graph.ts). No I/O, no ambient state: the languages come in
  *     as input (`engineRdfPlanLangs()` builds them for production).
@@ -67,6 +70,7 @@
  */
 
 import type { DdDate } from '../../../src/core/concepts/dd_date_time.ts';
+import { nameOrLabelOf } from '../../../src/core/ontology/labels.ts';
 import { PHP_NUMERIC } from '../../../src/core/section/record/value_shape.ts';
 import { textAsParagraph } from '../../../src/core/tools/import_code_lookup.ts';
 import type { RdfGraph, RdfLiteral, XmlnsMap } from '../../../src/core/tools/rdf_graph.ts';
@@ -116,14 +120,20 @@ export interface RdfReaderNode {
 	readonly tipo: string;
 	readonly model: string | null;
 	readonly term: Readonly<Record<string, string>> | null;
+	/**
+	 * The language-free name and its flag (an owl:Class / rdf:* node is named by
+	 * its machine name, a mixed crm child by its label — labels.ts
+	 * nameOrLabelOf). Optional: a reader that omits them reads as a row not
+	 * derived yet (the legacy label reading).
+	 */
+	readonly machine_name?: string | null;
+	readonly use_machine_name?: boolean | null;
 	readonly properties: unknown;
 	readonly relations: unknown;
 }
 
 /** The injected ontology access. Production: `engineRdfOntologyReader()`. */
 export interface RdfOntologyReader {
-	/** The language the terms (RDF names) are authored in. */
-	readonly structureLang: string;
 	properties(tipo: string): Promise<unknown>;
 	children(tipo: string): Promise<readonly RdfReaderNode[]>;
 	tipoInfo(tipo: string): Promise<RdfTipoInfo>;
@@ -316,17 +326,27 @@ function relatedTipos(relations: unknown): string[] {
 	return relations.map((entry) => asString(asRecord(entry).tipo)).filter((t) => t !== null);
 }
 
-/** The term in the structure language, else the first one authored. */
-function termName(term: Readonly<Record<string, string>> | null, lang: string): string {
-	if (term === null) return '';
-	return asString(term[lang]) ?? Object.values(term).find((t) => asString(t) !== null) ?? '';
+/**
+ * A node's RDF name: its machine name when it is a name node (owl:Class,
+ * rdf:predicate …), else its label — the ONE reader (labels.ts nameOrLabelOf),
+ * never a structure-lang guess. A name node whose name the parser could not
+ * derive reads '' (no stray translation is picked).
+ */
+function rdfNodeName(row: RdfReaderNode): string {
+	return (
+		nameOrLabelOf({
+			term: row.term === null ? null : { ...row.term },
+			machine_name: row.machine_name ?? null,
+			use_machine_name: row.use_machine_name ?? null,
+		}) ?? ''
+	);
 }
 
-function toOntologyNode(row: RdfReaderNode, lang: string): RdfOntologyNode {
+function toOntologyNode(row: RdfReaderNode): RdfOntologyNode {
 	return {
 		tipo: row.tipo,
 		model: row.model,
-		name: termName(row.term, lang).trim(),
+		name: rdfNodeName(row).trim(),
 		properties: asRecord(row.properties),
 		related: relatedTipos(row.relations),
 	};
@@ -369,7 +389,7 @@ export async function loadRdfImportOntology(
 			parent,
 			rows.map((row) => row.tipo),
 		);
-		for (const row of rows) nodes.set(row.tipo, toOntologyNode(row, reader.structureLang));
+		for (const row of rows) nodes.set(row.tipo, toOntologyNode(row));
 		queue.push(...rows.map((row) => row.tipo));
 	}
 	const tipos = new Map<string, RdfTipoInfo>();
@@ -384,9 +404,8 @@ export async function loadRdfImportOntology(
 }
 
 /** The production reader: ontology/resolver.ts + the component registry. */
-export function engineRdfOntologyReader(structureLang: string): RdfOntologyReader {
+export function engineRdfOntologyReader(): RdfOntologyReader {
 	return {
-		structureLang,
 		async properties(tipo) {
 			const { getPropertiesByTipo } = await import('../../../src/core/ontology/resolver.ts');
 			return getPropertiesByTipo(tipo);

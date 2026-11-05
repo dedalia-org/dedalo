@@ -10,8 +10,6 @@
  * edit and every consumer stays in lockstep.
  */
 
-import { config } from '../../config/config.ts';
-
 // --- Ontology definition components (read off a matrix_ontology record) ---
 /** ontology3 — properties.publication flag (DEDALO_ONTOLOGY_PUBLICATION_TIPO). */
 export const ONTOLOGY_PUBLICATION = 'ontology3';
@@ -43,6 +41,19 @@ export const ONTOLOGY_PROPIEDADES_V5 = 'ontology19';
 export const ONTOLOGY_IS_MODEL = 'ontology30';
 /** ontology41 — order number (DEDALO_ONTOLOGY_ORDER_TIPO). */
 export const ONTOLOGY_ORDER = 'ontology41';
+/**
+ * ontology43 — machine name: the node's language-free name (component_input_text,
+ * not translatable, stored lg-nolan). Projected into dd_ontology.machine_name
+ * (ontology/machine_name.ts). Master-defined 2026-11-03; absent from an ontology
+ * release older than that, which the parser's legacy rungs cover.
+ */
+export const ONTOLOGY_MACHINE_NAME = 'ontology43';
+/**
+ * ontology44 — use machine name: dd64 yes/no flag saying whether the node is
+ * identified by its machine name (yes) or by its translatable label (no).
+ * Canonical-only. Projected into dd_ontology.use_machine_name.
+ */
+export const ONTOLOGY_USE_MACHINE_NAME = 'ontology44';
 
 // --- Ontology registry structure ---
 /** ontology35 — the ontology main section (a virtual section of hierarchy1). */
@@ -153,8 +164,21 @@ export const RELATION_TYPE_INDEX = 'dd96';
 export const PROJECTS_SECTION = 'dd153';
 /** dd128 — the users section (DEDALO_SECTION_USERS_TIPO). */
 export const USERS_SECTION = 'dd128';
-/** The ontology STRUCTURE language (model terms are read strictly in this lang;
- * config DEDALO_STRUCTURE_LANG — only lg-spa is accepted upstream). */
-export const STRUCTURE_LANG = config.lang.structureLang;
+/**
+ * The language every ontology REGISTRY row (matrix_ontology_main) is filed
+ * under: hierarchy8 points at THIS code's lg1 record (resolved from the
+ * installation's langs section, never a hard-coded id). It is a registry
+ * convention, not a structure or label language — there is no lg1 record for
+ * `lg-nolan`, so the registry needs a real language, and it is fixed so a
+ * label-fallback choice (DEDALO_STRUCTURE_LANG) can never re-file the registry
+ * (owner decision D7, WC-2026-11-04-ontology-machine-names).
+ *
+ * There is deliberately NO "structure lang" constant any more: the old
+ * STRUCTURE_LANG mixed four roles (a node's machine name — now
+ * dd_ontology.machine_name; the label fallback — labels.ts
+ * ONTOLOGY_LABEL_FALLBACK_LANG; this registry lang; the tld descriptor —
+ * DATA_NOLAN). Each site states which one it means.
+ */
+export const REGISTRY_LANG = 'lg-spa';
 /** lg-nolan — the no-language marker (nolan values). */
 export const DATA_NOLAN = 'lg-nolan';

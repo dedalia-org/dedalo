@@ -516,8 +516,12 @@ export interface IdentityConfig {
 /** Language catalog settings beyond the per-request langs (PHP lang.php domain). */
 export interface LangConfig {
 	/**
-	 * Ontology structure lang (PHP DEDALO_STRUCTURE_LANG). Only lg-spa is
-	 * accepted by upstream ontology exports; used as the label-term fallback.
+	 * The ontology LABEL-FALLBACK lang (PHP DEDALO_STRUCTURE_LANG, the key kept:
+	 * .env is append-only). ONLY a label fallback (ontology/labels.ts
+	 * ONTOLOGY_LABEL_FALLBACK_LANG): it never names a node — model / table /
+	 * column / rdf names are dd_ontology.machine_name — and never files a
+	 * registry row (ontology_tipos.ts REGISTRY_LANG).
+	 * WC-2026-11-04-ontology-machine-names.
 	 */
 	readonly structureLang: string;
 	/**

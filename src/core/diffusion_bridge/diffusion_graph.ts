@@ -22,6 +22,7 @@
  */
 
 import { requireSqlIdentifier } from '../db/sql_identifier.ts';
+import { nameOrLabelOf } from '../ontology/labels.ts';
 
 /** The dd_ontology row shape the diffusion walk reads. */
 export interface DiffusionNode {
@@ -29,6 +30,13 @@ export interface DiffusionNode {
 	parent: string | null;
 	model: string;
 	term: Record<string, string> | null;
+	/**
+	 * The language-free name and its flag (read through labels.ts
+	 * nameOrLabelOf). Optional: an in-memory graph node may omit them and then
+	 * reads as a row not derived yet (the legacy label reading, counted).
+	 */
+	machine_name?: string | null;
+	use_machine_name?: boolean | null;
 	relations: { tipo?: string }[] | null;
 }
 
@@ -67,13 +75,6 @@ const ELEMENT_MODELS: ReadonlySet<string> = new Set([
 	'diffusion_element_alias',
 ]);
 
-/** Node label: 'lg-spa' first, else the first non-empty translation. */
-export function termOf(node: DiffusionNode | null | undefined): string | null {
-	const term = node?.term;
-	if (term === null || term === undefined) return null;
-	return term['lg-spa'] ?? Object.values(term).find((value) => value !== '') ?? null;
-}
-
 async function relationsOf(graph: DiffusionGraph, tipo: string): Promise<string[]> {
 	return ((await graph.node(tipo))?.relations ?? [])
 		.map((link) => link.tipo)
@@ -105,7 +106,8 @@ export async function resolveDomainTipo(
 ): Promise<string | null> {
 	for (const child of await graph.children(root)) {
 		const node = await graph.node(child);
-		if (node?.model === 'diffusion_domain' && termOf(node) === domainName) {
+		// The domain is a name node: matched by its machine name (nameOrLabelOf).
+		if (node?.model === 'diffusion_domain' && nameOrLabelOf(node) === domainName) {
 			return child;
 		}
 	}
@@ -400,7 +402,9 @@ export async function walkDiffusionTargets(
 			return;
 		}
 		const realTipo = model.includes('_alias') ? await resolveAliasTarget(graph, tipo) : null;
-		const label = termOf(node ?? undefined);
+		// Mixed class: database / table nodes are named by their machine name,
+		// elements by their label (labels.ts nameOrLabelOf).
+		const label = nameOrLabelOf(node ?? undefined);
 
 		let currentElement = element;
 		if (ELEMENT_MODELS.has(model)) {

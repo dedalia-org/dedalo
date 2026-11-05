@@ -144,6 +144,8 @@ export const REGISTERED_NAMES: readonly string[] = [
 	'rag_index',
 	'ontology',
 	'ontology_identifiers',
+	'ontology_machine_names',
+	'ontology_machine_names_strays',
 	'hierarchy',
 	'public_tier',
 	'publication_apis',

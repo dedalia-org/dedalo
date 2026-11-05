@@ -82,6 +82,8 @@ describe('canonicalJson', () => {
 			is_translatable: false,
 			is_main: false,
 			propiedades: null,
+			machine_name: null,
+			use_machine_name: false,
 		};
 		const expected = new Bun.CryptoHasher('sha256')
 			.update(legacyArchiveCanonical([row]))
@@ -156,6 +158,8 @@ describe('canonicalJson consumers answer what the canonical form implies', () =>
 		is_translatable: false,
 		is_main: false,
 		propiedades: null,
+		machine_name: null,
+		use_machine_name: false,
 	});
 
 	test('archive/manifest.ts: ontologyDigest is sha256(canonicalJson(rows)); ontologyRowsEqual is canonical equality', () => {

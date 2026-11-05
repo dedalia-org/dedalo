@@ -115,6 +115,7 @@ const INFO_EMIT = 'src/core/components/component_info/emit.ts';
 const U = {
 	afterRecordWrite: AFTER_RECORD_WRITE,
 	writeKeys: `${RECORD_WRITE}#writeKeys`,
+	writeKeyEntry: `${RECORD_WRITE}#writeKeyEntry`,
 	persistRecordKeys: `${RECORD_WRITE}#persistRecordKeys`,
 	persistRecordColumns: `${RECORD_WRITE}#persistRecordColumns`,
 	persistRecordBirth: `${RECORD_WRITE}#persistRecordBirth`,
@@ -545,7 +546,16 @@ const DERIVATION_REACH: readonly (readonly [string, string])[] = [
  */
 const EXCLUSIVE: readonly { target: string; allowed: readonly string[]; why: string }[] = [
 	{
+		// The key write proper is reached ONLY through the shared entry step
+		// (record_write.ts writeKeyEntry: the key save rules §3f + the
+		// machine-name rules §3g, WC-2026-11-04-ontology-machine-names), so the
+		// entry's row below is the one that pins the five named entries.
 		target: U.writeKeys,
+		allowed: [U.writeKeyEntry],
+		why: 'writeKeys holds the raw per-key UPDATE (census A attributes it there); it is called only by writeKeyEntry, which applies the key save rules and the machine-name rules (one transaction with the write when an ontology node record is in scope) and is itself pinned to the five named entries — so every key write passes both rule steps and no door reaches the raw write around them.',
+	},
+	{
+		target: U.writeKeyEntry,
 		allowed: [
 			U.persistRecordKeys,
 			U.persistRestoredKeys,
@@ -859,24 +869,24 @@ describe('B. the obligation ledger, derived from the writer closure', () => {
 	test('B5 POSITIVE CONTROL: an unnamed extra entry onto the per-key kernel (a flag-value hatch) is reported', () => {
 		const files: Record<string, string> = {
 			[RECORD_WRITE]: [
-				'async function writeKeys(_mode: unknown): Promise<void> {}',
-				'export async function persistRecordKeys(): Promise<void> { await writeKeys({ ledger: true }); }',
-				'export async function persistRestoredKeys(): Promise<void> { await writeKeys({ ledger: true }); }',
-				"export async function persistRelationRemovalKeys(): Promise<void> { await writeKeys({ law: 'removal' }); }",
-				'export async function persistObserverMirrorKeys(): Promise<void> { await writeKeys({ ledger: false }); }',
+				'async function writeKeyEntry(_mode: unknown): Promise<void> {}',
+				'export async function persistRecordKeys(): Promise<void> { await writeKeyEntry({ ledger: true }); }',
+				'export async function persistRestoredKeys(): Promise<void> { await writeKeyEntry({ ledger: true }); }',
+				"export async function persistRelationRemovalKeys(): Promise<void> { await writeKeyEntry({ law: 'removal' }); }",
+				'export async function persistObserverMirrorKeys(): Promise<void> { await writeKeyEntry({ ledger: false }); }',
 				// the second sanctioned ledger-less entry (the default branch's re-save)
-				'export async function persistObserverResaveKeys(): Promise<void> { await writeKeys({ ledger: false }); }',
+				'export async function persistObserverResaveKeys(): Promise<void> { await writeKeyEntry({ ledger: false }); }',
 				// the hatch re-exposed under a new name — no edge names the flag
-				'export async function persistQuietKeys(): Promise<void> { await writeKeys({ ledger: false }); }',
+				'export async function persistQuietKeys(): Promise<void> { await writeKeyEntry({ ledger: false }); }',
 			].join('\n'),
 		};
 		const closure = buildWriterClosure({
 			files: Object.keys(files),
 			read: (rel) => files[rel] as string,
 		});
-		const row = EXCLUSIVE.find((candidate) => candidate.target === U.writeKeys);
+		const row = EXCLUSIVE.find((candidate) => candidate.target === U.writeKeyEntry);
 		expect(row, 'the per-key kernel has no exclusivity row').toBeDefined();
-		expect(exclusivity(closure, U.writeKeys, row?.allowed ?? [])).toEqual({
+		expect(exclusivity(closure, U.writeKeyEntry, row?.allowed ?? [])).toEqual({
 			extra: [`${RECORD_WRITE}#persistQuietKeys`],
 			missing: [],
 		});

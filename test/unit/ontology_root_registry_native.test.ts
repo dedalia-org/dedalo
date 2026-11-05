@@ -42,6 +42,9 @@ import { readDdOntologyRow } from '../../src/core/db/dd_ontology.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
 import { VENDORED_ONTOLOGY_DIR } from '../../src/core/install/paths.ts';
 import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
+// The registry names / root terms are LABELS: the label-fallback lang (the
+// retired LABEL_LANG's label role, 2026-11-04).
+import { ONTOLOGY_LABEL_FALLBACK_LANG as LABEL_LANG } from '../../src/core/ontology/labels.ts';
 import {
 	inspectOntology,
 	type OntologyDriftItem,
@@ -55,7 +58,6 @@ import {
 	HIERARCHY_TYPE_TLD,
 	ONTOLOGY_MAIN_SECTION,
 	ONTOLOGY_TYPE_TLD,
-	STRUCTURE_LANG,
 } from '../../src/core/ontology/ontology_tipos.ts';
 import {
 	createMainSection,
@@ -110,7 +112,7 @@ async function plantRoot(tld: string, parent: string): Promise<void> {
 			parent,
 			tld,
 			JSON.stringify([{ tipo: 'ontology1' }, { tipo: 'dd1201' }]),
-			JSON.stringify({ [STRUCTURE_LANG]: tld }),
+			JSON.stringify({ [LABEL_LANG]: tld }),
 		],
 	);
 	await clearOntologyDerivedCaches();
@@ -122,7 +124,7 @@ async function register(tld: string, typologyId: number | null): Promise<void> {
 		{
 			tld,
 			typology_id: typologyId,
-			name_data: [{ lang: STRUCTURE_LANG, value: `${tld} name` }],
+			name_data: [{ lang: LABEL_LANG, value: `${tld} name` }],
 		},
 		USER_ID,
 	);
@@ -247,9 +249,9 @@ describe('(d) a grouper tld is registered with the master definition the release
 			const definition = await grouperTldDefinition(tld);
 			expect(definition.typology_id).toBe(typologyId);
 			const spa = (entry as { name_data: { lang: string; value: string }[] }).name_data.find(
-				(item) => item.lang === STRUCTURE_LANG,
+				(item) => item.lang === LABEL_LANG,
 			);
-			expect(definition.name_data?.find((item) => item.lang === STRUCTURE_LANG)?.value).toBe(
+			expect(definition.name_data?.find((item) => item.lang === LABEL_LANG)?.value).toBe(
 				spa?.value,
 			);
 		}
@@ -265,7 +267,7 @@ describe('(d) a grouper tld is registered with the master definition the release
 	});
 
 	test('D4 each half of a grouper definition is the release’s when it states it, the fallback only when it does not', () => {
-		const releaseName = [{ lang: STRUCTURE_LANG, value: 'zz release name | hierarchymtype' }];
+		const releaseName = [{ lang: LABEL_LANG, value: 'zz release name | hierarchymtype' }];
 		// Floor: the synthetic name is NOT the generic label (else this proves nothing).
 		const fallback = grouperTldDefinitionFrom(HIERARCHY_MODEL_TYPE_TLD, null);
 		expect(fallback.name_data).not.toEqual(releaseName);
@@ -289,7 +291,7 @@ describe('(d) a grouper tld is registered with the master definition the release
 		const entry = vendoredEntry(HIERARCHY_MODEL_TYPE_TLD) as Record<string, unknown>;
 		const releaseTypology = Number(entry.typology_id);
 		const releaseName = (entry.name_data as { lang: string; value: string }[]).find(
-			(item) => item.lang === STRUCTURE_LANG,
+			(item) => item.lang === LABEL_LANG,
 		)?.value;
 		const seen: Record<string, unknown> = {};
 		await rolledBack(async () => {
@@ -313,11 +315,11 @@ describe('(d) a grouper tld is registered with the master definition the release
 			await clearOntologyDerivedCaches();
 			seen.registryTypology = await getMainTypologyId(HIERARCHY_MODEL_TYPE_TLD);
 			seen.registryName = (await getMainNameData(HIERARCHY_MODEL_TYPE_TLD))?.find(
-				(item) => item.lang === STRUCTURE_LANG,
+				(item) => item.lang === LABEL_LANG,
 			)?.value;
 			const root = await readDdOntologyRow(`${HIERARCHY_MODEL_TYPE_TLD}0`);
 			seen.rootParent = root?.parent ?? null;
-			seen.rootTerm = (root?.term as Record<string, unknown> | null)?.[STRUCTURE_LANG] ?? null;
+			seen.rootTerm = (root?.term as Record<string, unknown> | null)?.[LABEL_LANG] ?? null;
 			const state = await inspectOntology(HIERARCHY_MODEL_TYPE_TLD);
 			seen.rootDrift = state.drift.filter((item) => item.tipo === `${HIERARCHY_MODEL_TYPE_TLD}0`);
 		});
@@ -339,7 +341,7 @@ describe('(d) a grouper tld is registered with the master definition the release
 			seen.registryTypology = await getMainTypologyId(UNDEFINED_GROUPER);
 			const root = await readDdOntologyRow(`${UNDEFINED_GROUPER}0`);
 			seen.rootParent = root?.parent ?? null;
-			seen.rootTerm = (root?.term as Record<string, unknown> | null)?.[STRUCTURE_LANG] ?? null;
+			seen.rootTerm = (root?.term as Record<string, unknown> | null)?.[LABEL_LANG] ?? null;
 		});
 		expect(seen).toEqual({
 			registryTypology: 14,

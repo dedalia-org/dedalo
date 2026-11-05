@@ -1686,7 +1686,8 @@ describe('backfill — ontology-change trigger, the operator run', () => {
 		await assertTestDatabase('portal_order_native backfill');
 		await sweepPortalTld();
 		const models = (await sql.unsafe(
-			`SELECT tipo FROM dd_ontology WHERE term->>'lg-spa' = $1 AND is_model = true ORDER BY tipo LIMIT 1`,
+			// A model is found by its machine name (WC-2026-11-04-ontology-machine-names).
+			`SELECT tipo FROM dd_ontology WHERE machine_name = $1 AND is_model = true ORDER BY tipo LIMIT 1`,
 			[PORTAL_TYPE],
 		)) as { tipo: string }[];
 		portalModelTipo = models[0]?.tipo ?? '';

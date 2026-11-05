@@ -276,7 +276,7 @@ describe('seed compiler — pure halves', () => {
 			addressesConverted: 0,
 		});
 		// matrix_langs is loaded ONCE, before the compile (the registry door
-		// resolves STRUCTURE_LANG from it) — kept, never truncated nor reloaded.
+		// resolves REGISTRY_LANG from it) — kept, never truncated nor reloaded.
 		expect(sql).toContain('TRUNCATE "matrix", "matrix_time_machine" RESTART IDENTITY;');
 		expect(sql).not.toContain('matrix_langs');
 		expect(sql).toContain('\\copy matrix_hierarchy_main (section_id, section_tipo,');

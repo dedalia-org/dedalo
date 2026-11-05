@@ -315,6 +315,14 @@ const SAVE_DOORS: ReadonlyMap<string, { lang: string; reason: string }> = new Ma
 		},
 	],
 	[
+		'src/core/ontology/machine_name_reconcile.ts',
+		{
+			lang: 'items+nolan',
+			reason:
+				'The machine-name converter writes ontology43 (the machine name) and ontology44 (the flag) as lg-nolan, and re-saves ontology5 only per lang the conversion REMOVED an item from (conversion.removedLangs — the lang the stored items carry), never a request or install language.',
+		},
+	],
+	[
 		'src/core/ontology/data_io.ts',
 		{ lang: 'nolan', reason: 'Ontology data import writes DATA_NOLAN.' },
 	],
