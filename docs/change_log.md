@@ -174,6 +174,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The interface is now fully translated into every supported language.**
+
+    About 250 interface texts per language still appeared in English. Every language catalog now has a translation for all of them. The translations have not yet been reviewed by native speakers; please report wording that reads wrong.
+
 - **The id cell's hover text is now readable on its orange, green and red fills.**
 
     In a list's id cell, hovering the edit, delete or thesaurus-link button paints the cell orange, green or red. The id number and its icon were white in the light theme — about 2.4:1 on the orange, hard to read — while the dark theme flipped them to dark ink, which read poorly on the green. Each fill now takes the ink the theme defines for it: dark on the orange, white on the green, and white on the red in the light theme with dark ink on it in the dark theme. The number stays legible on every button, in both themes.
@@ -858,6 +862,13 @@ Merged since the last release; these ship with the next one.
     When the update would be accepted, it prints `check: would update <from> -> <to>` and exits `0`. When it would be refused, it prints the same refusal a real run gives and exits non-zero. See [Updating the image](./install/docker.md#upgrading).
 
 #### Fixed
+
+- **The maintenance System Map follows the interface language.**
+
+    The System Map of the Maintenance area showed its node names, status lines,
+    summary and tool descriptions in English whatever the interface language. They
+    now come from the label catalogs and are translated into every application
+    language. The widget names themselves are unchanged.
 
 - **The Bun-runtime procedure finds an instance whose name contains dots.**
 
