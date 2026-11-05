@@ -182,6 +182,10 @@ Merged since the last release; these ship with the next one.
 
     A list cell holding several values, such as two dates, showed them run together ("09/06/162825/06/2024") when the field had no separator configured. They are now separated by a comma ("09/06/1628, 25/06/2024"). This affected dates, emails, geolocations and other fields shown as plain text in lists.
 
+- **The user activity statistics are now translated.**
+
+    The statistics block on a user record (total actions, peak hour, activity by type, section and hour) always showed its titles in English. They now follow the interface language. The Spanish name of the automatic transcription button in the transcription tool is also corrected ("automática").
+
 - **The filter_records search field scrolls inside its card instead of spilling over the next one.**
 
     In the search panel, a `filter_records` field lists one row per section and the list
