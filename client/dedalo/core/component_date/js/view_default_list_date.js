@@ -7,7 +7,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {render_join} from '../../common/js/utils/render_escape.js'
-	import {bind_edit_in_list, attach_item_dataframe} from '../../component_common/js/component_common.js'
+	import {attach_item_dataframe, bind_edit_in_list} from '../../component_common/js/component_common.js'
 	import {get_ar_raw_data_value} from './render_edit_component_date.js'
 
 

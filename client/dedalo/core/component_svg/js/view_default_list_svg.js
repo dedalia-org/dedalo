@@ -7,7 +7,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {handler_open_viewer} from '../../component_media_common/js/component_media_common.js'
-	import {get_media_url, fallback_on_error} from '../../component_media_common/js/media_url.js'
+	import {fallback_on_error, get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
