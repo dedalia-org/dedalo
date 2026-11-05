@@ -160,6 +160,12 @@
 			"!**/dev_tools",
 			"!**/rewrite",
 			"!**/.superpowers",
+			// TEST SCRATCH inside the publication daemons (`publication/*/.test-tmp/`,
+			// each package's own .gitignore). Their `bun test` writes it, and the hermetic
+			// tier installs AND tests those packages in the background WHILE the lint budget
+			// measures them: the SCRATCH counted as findings, so one sha measured 436 one
+			// run and 438 the next (2026-11-05, biome 2.6.4). Files no clone has.
+			"!**/.test-tmp",
 
 			// HAND-AUTHORED PROSE — the manual (mkdocs sources, the style guide, the
 			// docs_current_engine_tripwire gate read it), tracked and edited
