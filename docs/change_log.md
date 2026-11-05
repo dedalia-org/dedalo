@@ -178,6 +178,10 @@ Merged since the last release; these ship with the next one.
 
     In a list's id cell, hovering the edit, delete or thesaurus-link button paints the cell orange, green or red. The id number and its icon were white in the light theme — about 2.4:1 on the orange, hard to read — while the dark theme flipped them to dark ink, which read poorly on the green. Each fill now takes the ink the theme defines for it: dark on the orange, white on the green, and white on the red in the light theme with dark ink on it in the dark theme. The number stays legible on every button, in both themes.
 
+- **Lists separate multiple values again instead of gluing them together.**
+
+    A list cell holding several values, such as two dates, showed them run together ("09/06/162825/06/2024") when the field had no separator configured. They are now separated by a comma ("09/06/1628, 25/06/2024"). This affected dates, emails, geolocations and other fields shown as plain text in lists.
+
 - **The filter_records search field scrolls inside its card instead of spilling over the next one.**
 
     In the search panel, a `filter_records` field lists one row per section and the list

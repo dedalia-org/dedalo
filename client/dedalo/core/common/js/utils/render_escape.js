@@ -122,7 +122,8 @@ export const render_join = (values, separator, render_class) => {
 			? []
 			: [values];
 
-	return render_value(list, render_class).join(escape_html(separator));
+	// a context without fields_separator must not glue values together ('09/06/162825/06/2024')
+	return render_value(list, render_class).join(escape_html(separator ?? ', '));
 }; //end render_join
 
 /**
