@@ -21,16 +21,30 @@
 			// display:table .section.edit under the fixed inspector
 			overflow-x: auto;
 
-			// the desktop gutter handle (component_portal.less `.drag.icon`,
-			// left:-2.2rem) must sit INSIDE this scrollport. With the 1rem padding
-			// its centre landed in the clipped strip at the list's left edge, where
-			// Chrome starts no drag at all (no dragstart, and puppeteer's
-			// dragAndDrop waits on Input.dragIntercepted forever — measured on
-			// test:crawl portal_reorder). Reserve the handle's own width; only when
-			// a handle exists, and desktop-only (the phone card carries it in flow)
+			// the desktop drag handle (component_portal.less `.drag.icon`) lies OVER
+			// the Id cell's left edge (the number is right-aligned there), not in a
+			// left gutter: a gutter (left:-2.2rem + 2.2rem list padding) cost every
+			// portal that width at every nesting level for a rarely used gesture.
+			// It stays INSIDE this scrollport — a handle in the clipped strip at the
+			// list's left edge gets no drag from Chrome at all (no dragstart;
+			// puppeteer's dragAndDrop hangs on Input.dragIntercepted — measured on
+			// test:crawl portal_reorder). Desktop-only (the phone card has it in flow)
 			@media screen and (min-width: (@width_break_point_0 + 1)) {
-				&:has(>.content_data >.section_record >.column_section_id >.drag) {
-					padding-left: 2.2rem;
+				>.content_data >.section_record >.column_section_id:has(>.drag) {
+					position: relative;
+
+					>.drag.icon {
+						top: 0;
+						left: 0;
+						height: 100%;
+						min-height: 0;
+						width: 1.4rem;
+						min-width: 0;
+						padding: 0;
+						background-size: 16px 16px;
+						background-position: center 0.6rem; // on the number's line, not mid-row
+						border-radius: 0;
+					}
 				}
 			}
 

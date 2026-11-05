@@ -6756,7 +6756,7 @@ dd-modal.dd_presets::part(content) {
 .column.column_ddinfo span {
   padding: 0.25rem;
   display: inline-block;
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 @media screen and (max-width: 1024px) {
   .column.column_ddinfo span {
@@ -6799,7 +6799,7 @@ dd-modal.dd_presets::part(content) {
 .column div.wrapper_component span {
   padding: 0.12rem;
   display: inline-block;
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 @media screen and (max-width: 1024px) {
   .column div.wrapper_component span {
@@ -7111,6 +7111,47 @@ dd-modal.dd_presets::part(content) {
   .list_after > .print_notice {
     display: block;
   }
+}
+:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) {
+  height: auto;
+  min-height: 100%;
+}
+:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .buttons_container {
+  position: static;
+  display: flex !important;
+  flex-wrap: wrap;
+  white-space: normal;
+  max-height: none;
+  background-color: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .buttons_container .buttons_fold {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .buttons_container .button {
+  background-color: var(--color_grey_5);
+}
+:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .buttons_container .button:hover {
+  background-color: var(--color_orange_dark);
+}
+:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .buttons_container span,
+:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .buttons_container span:first-child,
+:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .buttons_container span:last-child {
+  margin: 0.2rem 0.25rem;
+}
+:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search) {
+  position: relative;
+  top: auto;
+  min-width: 10rem;
+  border-radius: 0.5rem;
+}
+:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search) > .autocomplete_data {
+  position: absolute;
+  left: 0;
+  top: 100%;
 }
 /**
 * ontology_server
@@ -25620,9 +25661,22 @@ body.inspector_resizing {
   overflow-x: auto;
 }
 @media screen and (min-width: 1025px) {
-  .component_portal.view_default.edit > .list_body:has(>.content_data >.section_record >.column_section_id >.drag),
-  .portal.view_default.edit > .list_body:has(>.content_data >.section_record >.column_section_id >.drag) {
-    padding-left: 2.2rem;
+  .component_portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id:has(>.drag),
+  .portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id:has(>.drag) {
+    position: relative;
+  }
+  .component_portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id:has(>.drag) > .drag.icon,
+  .portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id:has(>.drag) > .drag.icon {
+    top: 0;
+    left: 0;
+    height: 100%;
+    min-height: 0;
+    width: 1.4rem;
+    min-width: 0;
+    padding: 0;
+    background-size: 16px 16px;
+    background-position: center 0.6rem;
+    border-radius: 0;
   }
 }
 @media screen and (max-width: 1024px) {
@@ -25938,13 +25992,13 @@ body.inspector_resizing {
   display: inline-block;
   vertical-align: middle;
   align-items: center;
-  word-break: break-word;
+  overflow-wrap: break-word;
   line-height: unset;
 }
 .component_portal.view_line > .content_data .section_record .column *:not(.icon, button, .button, .wrapper_component),
 .portal.view_line > .content_data .section_record .column *:not(.icon, button, .button, .wrapper_component) {
   display: inline;
-  word-break: break-word;
+  overflow-wrap: break-word;
   line-height: unset;
 }
 .component_portal.view_line > .content_data .section_record .column.column_component_dataframe,
@@ -26112,12 +26166,22 @@ body.inspector_resizing {
 .portal.view_line.edit:hover > .content_data > .section_record.view_text > .button_edit.button_view_line,
 .component_portal.view_line.edit.active > .content_data > .section_record.view_text > .button_edit.button_view_line,
 .portal.view_line.edit.active > .content_data > .section_record.view_text > .button_edit.button_view_line,
+.component_portal.view_line.edit:focus-within > .content_data > .section_record.view_text > .button_edit.button_view_line,
+.portal.view_line.edit:focus-within > .content_data > .section_record.view_text > .button_edit.button_view_line,
 .component_portal.view_line.edit:hover > .content_data > .section_record.view_text > .button_remove,
 .portal.view_line.edit:hover > .content_data > .section_record.view_text > .button_remove,
 .component_portal.view_line.edit.active > .content_data > .section_record.view_text > .button_remove,
-.portal.view_line.edit.active > .content_data > .section_record.view_text > .button_remove {
+.portal.view_line.edit.active > .content_data > .section_record.view_text > .button_remove,
+.component_portal.view_line.edit:focus-within > .content_data > .section_record.view_text > .button_remove,
+.portal.view_line.edit:focus-within > .content_data > .section_record.view_text > .button_remove {
   opacity: 1;
   pointer-events: auto;
+}
+.column .component_portal.view_line.edit > .content_data,
+.column .portal.view_line.edit > .content_data {
+  padding-top: 0.15rem;
+  padding-bottom: 0.15rem;
+  padding-left: 0px;
 }
 .component_portal.view_line.edit > .content_data,
 .portal.view_line.edit > .content_data {
@@ -26214,6 +26278,39 @@ body.inspector_resizing {
 .component_portal.view_line.edit > .content_data > .section_record.view_text > .column:first-of-type,
 .portal.view_line.edit > .content_data > .section_record.view_text > .column:first-of-type {
   margin-left: -1.33rem;
+}
+.column .component_portal.view_line.edit > .content_data > .section_record.view_text,
+.column .portal.view_line.edit > .content_data > .section_record.view_text {
+  display: block;
+  position: relative;
+  padding-right: 0.25rem;
+}
+.column .component_portal.view_line.edit > .content_data > .section_record.view_text .separator,
+.column .portal.view_line.edit > .content_data > .section_record.view_text .separator {
+  white-space: pre-wrap;
+}
+.column .component_portal.view_line.edit > .content_data > .section_record.view_text > .button_edit,
+.column .portal.view_line.edit > .content_data > .section_record.view_text > .button_edit,
+.column .component_portal.view_line.edit > .content_data > .section_record.view_text > .button_remove,
+.column .portal.view_line.edit > .content_data > .section_record.view_text > .button_remove {
+  position: absolute;
+  top: 0;
+  z-index: 1;
+  margin: 0px;
+  background-color: var(--color_white);
+}
+.column .component_portal.view_line.edit > .content_data > .section_record.view_text > .button_remove,
+.column .portal.view_line.edit > .content_data > .section_record.view_text > .button_remove {
+  right: 0;
+  border-radius: 0 0.25rem 0.25rem 0;
+}
+.column .component_portal.view_line.edit > .content_data > .section_record.view_text > .button_edit,
+.column .portal.view_line.edit > .content_data > .section_record.view_text > .button_edit {
+  right: 1rem;
+  padding-left: 0.33rem;
+  padding-right: 0.33rem;
+  width: auto;
+  border-radius: 0.25rem 0 0 0.25rem;
 }
 .component_portal.view_line.edit > .content_data > .section_record.view_line,
 .portal.view_line.edit > .content_data > .section_record.view_line {

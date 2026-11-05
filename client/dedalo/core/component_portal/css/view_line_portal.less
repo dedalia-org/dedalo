@@ -49,12 +49,12 @@
 				display: inline-block;
 				vertical-align: middle;
 				align-items: center;
-				word-break: break-word;
+				overflow-wrap: break-word; // not word-break: break-word, which lets min-content shrink to one letter and collapses 1fr grid tracks
 				line-height: unset;
 
 				*:not(.icon, button, .button, .wrapper_component) {
 					display: inline;
-					word-break: break-word;
+					overflow-wrap: break-word;
 					line-height: unset;
 				}
 
@@ -187,7 +187,8 @@
 		// portal component is hovered or active; hidden otherwise. Scoped to the
 		// component's own direct rows (>) so nested child portals are unaffected.
 		&:hover,
-		&.active {
+		&.active,
+		&:focus-within {
 			// .view_text raises specificity to beat the per-button hide rules
 			// (which live in the .view_text block); without it button_remove —
 			// having no second class like button_edit's .button_view_line — would
@@ -199,6 +200,13 @@
 					pointer-events: auto;
 				}
 			}
+		}
+
+		// nested in another list's cell: the cell already pads, don't double it
+		.column &>.content_data {
+			padding-top: 0.15rem;
+			padding-bottom: 0.15rem;
+			padding-left: 0px;
 		}
 
 		>.content_data {
@@ -299,6 +307,45 @@
 
 					>.column:first-of-type {
 						margin-left: -1.33rem;
+					}
+
+					// NESTED in another list's cell: the cell is narrow and the pen +
+					// trash are hidden most of the time, so at rest they take NO width
+					// (in flow they cost ~46px per row, the text wrapped letter by
+					// letter). They float over the row's top-right as one small chip,
+					// revealed by the same hover/active/focus rule as above.
+					.column & {
+						// block, not flex: as flex each text run is its own nowrap item and
+						// the cell's min-content is the SUM of their longest words
+						display: block;
+						position: relative;
+						padding-right: 0.25rem;
+
+						// general.less `.separator` is `pre`: its trailing space is no
+						// break point, gluing "Introducción, Roles" into one min-content run
+						.separator {
+							white-space: pre-wrap;
+						}
+
+						>.button_edit,
+						>.button_remove {
+							position: absolute;
+							top: 0;
+							z-index: 1;
+							margin: 0px;
+							background-color: var(--color_white);
+						}
+						>.button_remove {
+							right: 0;
+							border-radius: 0 0.25rem 0.25rem 0;
+						}
+						>.button_edit {
+							right: 1rem; // the trash's width: one contiguous chip
+							padding-left: 0.33rem;
+							padding-right: 0.33rem;
+							width: auto;
+							border-radius: 0.25rem 0 0 0.25rem;
+						}
 					}
 				}
 

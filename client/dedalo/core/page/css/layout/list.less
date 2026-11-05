@@ -482,7 +482,7 @@
 		span {
 			padding: 0.25rem;
 			display: inline-block;
-			word-break: break-word;
+			overflow-wrap: break-word;
 
 			@media screen and (max-width: @width_break_point_0) {
 				padding-left: 0.3rem;
@@ -536,7 +536,7 @@
 		span {
 			padding: @common_padding;
 			display: inline-block;
-			word-break: break-word;
+			overflow-wrap: break-word; // not word-break (see view_line_portal.less .column)
 
 			@media screen and (max-width: @width_break_point_0) {
 				padding-left: 0.3rem;
@@ -1042,5 +1042,63 @@ screen and (min-width: (@width_break_point_0 + 1)) {
 
 	.list_after>.print_notice {
 		display: block;
+	}
+}
+
+// ACTIVE IN A LIST CELL (default active style only; frame/lift/margin place
+// nested tools themselves). The floating pill (layout.less: top -2.4rem,
+// right 0) is wider than a cell: it hung over the row above and past the
+// table's left edge. The docked autocomplete bar (service_autocomplete.less)
+// shrank to the cell (a 35px input) and floated over the rows below. Both go
+// IN FLOW: the tools as a wrapping row of grey icons on the cell's top, the bar
+// under the rows; the cell grows instead of covering its neighbours.
+:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) {
+	// fill the cell (activation must not shrink the click target between mousedown
+	// and click) yet grow with the in-flow bar instead of overflowing it
+	height: auto;
+	min-height: 100%;
+
+	>.buttons_container {
+		position: static;
+		display: flex !important;
+		flex-wrap: wrap;
+		white-space: normal;
+		max-height: none;
+		background-color: transparent;
+		box-shadow: none;
+		border-radius: 0;
+
+		.buttons_fold {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+		}
+		.button {
+			background-color: var(--color_grey_5);
+
+			&:hover {
+				background-color: var(--color_orange_dark);
+			}
+		}
+		span,
+		span:first-child,
+		span:last-child {
+			margin: 0.2rem 0.25rem;
+		}
+	}
+
+	>.wrapper_service_autocomplete:not(.search) {
+		position: relative;
+		top: auto;
+		min-width: 10rem; // a usable input: the column widens while searching
+		border-radius: 0.5rem;
+
+		// the results drop down OVER the rows: in flow, their 25rem min-width
+		// (service_autocomplete.less) would widen the column even when empty
+		>.autocomplete_data {
+			position: absolute;
+			left: 0;
+			top: 100%;
+		}
 	}
 }
