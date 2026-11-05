@@ -41,7 +41,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {handler_open_viewer} from '../../component_media_common/js/component_media_common.js'
-	import {get_media_url} from '../../component_media_common/js/media_url.js'
+	import {get_media_url, fallback_on_error} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -158,10 +158,8 @@ view_default_list_pdf.render = async function(self, options) {
 			height	: 800
 		}
 
-		// error event
-			image.addEventListener('error', function() {
-				console.log('pdf icon load error:', url);
-			})
+		// error event: missing file → placeholder (shared media helper)
+			fallback_on_error(image)
 
 		// open viewer. Media common handler for 3d, av, image, pdf, svg
 			image.addEventListener('mousedown', handler_open_viewer.bind(self))

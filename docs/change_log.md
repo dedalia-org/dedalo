@@ -186,6 +186,10 @@ Merged since the last release; these ship with the next one.
 
     A list cell holding several values, such as two dates, showed them run together ("09/06/162825/06/2024") when the field had no separator configured. They are now separated by a comma ("09/06/1628, 25/06/2024"). This affected dates, emails, geolocations and other fields shown as plain text in lists.
 
+- **PDF and SVG fields show the placeholder when their file is missing.**
+
+    When a record listed a PDF or SVG file that was no longer on disk (moved, deleted or still being processed), lists showed the browser's broken-image icon and the PDF viewer kept spinning on a grey box. They now show the same placeholder as images, audiovisual and 3D files, and clicking it in the edit form opens the upload tool. The PDF reader now appears only once its file is confirmed to load.
+
 - **The user activity statistics are now translated.**
 
     The statistics block on a user record (total actions, peak hour, activity by type, section and hour) always showed its titles in English. They now follow the interface language. The Spanish name of the automatic transcription button in the transcription tool is also corrected ("automática").

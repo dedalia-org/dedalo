@@ -12,7 +12,7 @@
 
 // imports
 	import {ui} from '../../common/js/ui.js'
-	import {get_media_url} from '../../component_media_common/js/media_url.js'
+	import {get_media_url, fallback_on_error} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -121,6 +121,7 @@ view_mini_pdf.render = async function(self, options) {
 		})
 		image.loading	= 'lazy'
 		image.decoding	= 'async'
+		fallback_on_error(image)
 
 	return wrapper
 }//end render

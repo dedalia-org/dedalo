@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global DEDALO_MEDIA_URL*/
+/*global DEDALO_MEDIA_URL, page_globals*/
 /*eslint no-undef: "error"*/
 
 
@@ -24,6 +24,49 @@ export const get_media_url = (file_info) => {
 
 	return DEDALO_MEDIA_URL + file_info.file_path + '?v=' + version
 }//end get_media_url
+
+
+
+/**
+* FALLBACK_ON_ERROR
+* A media <img> whose file does not load (files_info says it exists, the disk
+* disagrees: moved, deleted, still processing) shows the app placeholder instead
+* of the browser's broken-image icon — once, so a failing placeholder cannot loop.
+* @param {HTMLImageElement} image
+* @returns {HTMLImageElement} image
+*/
+export const fallback_on_error = (image) => {
+
+	image.addEventListener('error', () => {
+		if (image.src !== page_globals.fallback_image) {
+			image.src = page_globals.fallback_image
+		}
+	})
+
+	return image
+}//end fallback_on_error
+
+
+
+/**
+* MEDIA_FILE_READY
+* Whether a media URL answers 2xx — checked before building a heavy viewer
+* (pdf.js) so a missing file shows the placeholder, never a spinning reader.
+* GET, not HEAD (the engine's media route is GET-only); the body is cancelled
+* as soon as the status is known, so nothing beyond the headers is read.
+* @param {string} url
+* @returns {Promise<boolean>}
+*/
+export const media_file_ready = async (url) => {
+
+	try {
+		const response = await fetch(url, { credentials: 'same-origin' })
+		response.body?.cancel()
+		return response.ok
+	} catch {
+		return false
+	}
+}//end media_file_ready
 
 
 
