@@ -383,7 +383,7 @@ function reportConversion(
 		console.warn(
 			`[machine_name_save] ${door} ${target.sectionTipo}/${target.sectionId}: restore conversion ` +
 				`${conversion.outcome}${conversion.renamed ? ' (the restore RENAMED the node — its published name changes)' : ''}; ` +
-				`check ${NAME}/${FLAG}/${ONTOLOGY_TERM} with tool_ontology inspect`,
+				`check ${NAME}/${FLAG}/${ONTOLOGY_TERM} with the ontology inspect`,
 		);
 	}
 }

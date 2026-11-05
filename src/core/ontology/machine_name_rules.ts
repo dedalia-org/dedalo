@@ -66,6 +66,7 @@
  * reports. P3's converter reuses `legacyNameMove` for its L class.
  */
 
+import { compareLocators, type Locator } from '../concepts/locator.ts';
 import { canonicalizeStoredSectionId } from '../concepts/section_id.ts';
 import { LEGACY_NAME_LANG, projectMachineName, type TermItem } from './machine_name.ts';
 import {
@@ -453,9 +454,10 @@ export function machineNameFlagItems(flag: boolean): Record<string, unknown>[] {
 
 /** A stored si/no flag off raw items: true (dd64/1), false (other locator), null (empty). */
 export function flagFromItems(items: readonly unknown[] | null): boolean | null {
-	const first = items?.[0] as { section_id?: unknown } | undefined;
+	const first = items?.[0] as Locator | undefined;
 	if (first === undefined || first === null) return null;
-	return Number(first.section_id) === SI_NO_YES;
+	// the locator law (loose-numeric section_id), never an inline ===
+	return compareLocators(first, { section_id: SI_NO_YES } as unknown as Locator, ['section_id']);
 }
 
 /** The string values of literal items (`''` kept; non-string scalars stringified). */
