@@ -24,6 +24,10 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Field labels in the edit form are easier to read on Mac.**
+
+    The names above each field in the edit form used the thinnest weight of the system font, which on macOS draws hairline strokes that are hard to read. They now use the light weight, which keeps the same quiet look and reads the same on macOS and Windows.
+
 - **Required fields that are still empty no longer look like errors.**
 
     An empty field marked as mandatory, such as a user's email, showed a red error border as soon as the record opened. It now shows a light red tint instead, and the red border is kept for real errors, such as an email address that is not valid.
