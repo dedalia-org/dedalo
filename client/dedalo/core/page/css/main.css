@@ -16644,6 +16644,12 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   font-size: 0.8rem;
   color: var(--fg_muted);
 }
+.wrapper_widget.reconcile_status .dd_table .reconcile_scope {
+  width: 100%;
+  max-width: 24rem;
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+}
 .wrapper_widget.reconcile_status .dd_table .actions {
   display: flex;
   gap: 0.35rem;

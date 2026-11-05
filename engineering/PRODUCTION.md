@@ -1156,7 +1156,7 @@ a shape, so an operator learns three doors, not one per subsystem:
 | --- | --- |
 | maintenance area → **Reconcile** (`reconcile_status` widget) | lists every reconcile with its last verdict; **Check** (dry) / **Apply** per row |
 | `bun scripts/reconcile.ts list` / `run <name> [--apply] [--scope a,b] [--json]` | the same from a terminal; exit 2 = drift reported and not repaired |
-| `GET /api/v1/counters` → `gauges.reconcile` | per name: `schedule`, `auto_apply`, `last_run_at`, `last_apply`, `last_drift`, `last_applied`, `last_deferred` (why the last apply could not happen, else null), `last_error` (a code, never text) |
+| `GET /api/v1/counters` → `gauges.reconcile` | per name: `schedule`, `auto_apply`, `last_run_at`, `last_apply`, `last_drift`, `last_applied`, `last_deferred` (why the last apply could not happen, else null), `last_refused` (why the last apply was refused by its own precondition — not owed, not re-armed — else null), `last_error` (a code, never text) |
 
 The registered set (grow/shrink only through `REGISTERED_NAMES` + the catalog;
 `reconcile_registry_tripwire` derives every reconcile-shaped module in the tree
@@ -1205,7 +1205,10 @@ period (`atBoot: true` also after the listen), both fire-and-forget and non-fata
 (`last_error` in the gauge). A run whose apply was DEFERRED — another writer held
 the store past the run's bound, nothing applied, `last_deferred` says why — is
 re-armed after 60 s (or its period, if shorter) until one completes; a thrown run
-is not retried sooner than its period. One run per name is in flight at a time
+is not retried sooner than its period. A run whose apply was REFUSED by the definition's own
+precondition (`last_refused` says why; e.g. machine names on an ontology server without a
+TLD scope) wrote nothing and is NOT owed: it is not re-armed, and the widget and CLI show
+the reason instead of a bare `applied 0`. One run per name is in flight at a time
 (the next is armed only once the previous settled), each run executes in the
 scheduler's own scope (no principal, request id `reconcile:<name>`), and SIGTERM
 clears every pending run — one already in flight never re-arms, and the shutdown

@@ -113,6 +113,8 @@ async function main(): Promise<number> {
 		console.log(JSON.stringify(report.detail, null, 2));
 		if (report.deferred !== undefined)
 			console.log(`\nDEFERRED: ${report.deferred.reason} — nothing applied. Re-run it.`);
+		if (report.refused !== undefined)
+			console.log(`\nREFUSED: ${report.refused.reason} — nothing applied.`);
 		if (!apply && report.drift > 0)
 			console.log('\nDry run: nothing written. Re-run with --apply to repair.');
 	}

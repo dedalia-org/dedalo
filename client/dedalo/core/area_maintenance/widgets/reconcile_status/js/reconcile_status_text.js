@@ -37,6 +37,10 @@ export const last_run_text = (last_run) => {
 		// The apply could not happen then (a writer held the store); it is owed.
 		return `${last_run.ranAt} DEFERRED — drift ${last_run.drift}, nothing applied: ${last_run.deferred}`;
 	}
+	if (last_run.refused) {
+		// The apply was refused by its own precondition; re-running unchanged is refused again.
+		return `${last_run.ranAt} REFUSED — drift ${last_run.drift}, nothing applied: ${last_run.refused}`;
+	}
 	return (
 		last_run.ranAt +
 		' ' +

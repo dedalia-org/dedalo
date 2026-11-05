@@ -340,6 +340,7 @@ describe('reconcile registry completeness (S-10)', () => {
 					'last_apply',
 					'last_applied',
 					'last_deferred',
+					'last_refused',
 					'last_drift',
 					'last_error',
 					'last_run_at',

@@ -133,6 +133,13 @@ async function runScheduled(definition: ReconcileDefinition): Promise<RunOutcome
 			);
 			return 'deferred';
 		}
+		if (report.refused !== undefined) {
+			// not owed: the same precondition answers the same way next period
+			console.warn(
+				`[reconcile] ${definition.name}: apply REFUSED (${report.refused.reason}) — drift ${report.drift} left`,
+			);
+			return 'completed';
+		}
 		if (report.drift > 0) {
 			console.warn(
 				`[reconcile] ${definition.name}: drift ${report.drift}${apply ? `, applied ${report.applied}` : ' (reported, not applied)'}`,

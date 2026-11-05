@@ -77,6 +77,16 @@ export interface ReconcileReport {
 	 * `reason` names what held it off. Absent on a run that completed.
 	 */
 	deferred?: { reason: string };
+	/**
+	 * Set when an APPLY was REFUSED by the definition's own precondition and
+	 * nothing was applied (machine names: the ontology does not define the
+	 * tipos yet, or an unscoped apply on an ontology server). Unlike `deferred`
+	 * it is NOT owed: re-running unchanged gets the same answer, so the
+	 * scheduler does not re-arm it. `reason` says what the operator must change.
+	 * Never folded into `detail` — a refusal the operator cannot see reads as
+	 * "applied 0" (WC-2026-11-05-reconcile-apply-refused).
+	 */
+	refused?: { reason: string };
 }
 
 export interface ReconcileDefinition {
@@ -124,6 +134,8 @@ export interface ReconcileRunRecord {
 	applied: number;
 	/** The report's `deferred.reason` — the apply did not happen and is owed — else null. */
 	deferred: string | null;
+	/** The report's `refused.reason` — the apply was refused, nothing applied, not owed — else null. */
+	refused: string | null;
 	/**
 	 * Set when the run threw: the DedaloError CODE (or `internal.unexpected`
 	 * for an untyped throw) — never the exception text, which goes to the log.
@@ -328,6 +340,7 @@ export async function runReconcile(
 			drift: report.drift,
 			applied: report.applied,
 			deferred: report.deferred?.reason ?? null,
+			refused: report.refused?.reason ?? null,
 			error: null,
 		};
 		lastRuns.set(name, record);
@@ -370,6 +383,7 @@ function recordRunFailure(
 		drift: 0,
 		applied: 0,
 		deferred: null,
+		refused: null,
 		error: error instanceof DedaloError ? error.code : 'internal.unexpected',
 	});
 }
@@ -394,15 +408,34 @@ export function reconcileGauge(): Record<string, unknown> {
 		out[definition.name] = {
 			schedule: definition.schedule,
 			auto_apply: definition.autoApply !== undefined,
-			last_run_at: last?.ranAt ?? null,
-			last_apply: last?.apply ?? null,
-			last_drift: last?.drift ?? null,
-			last_applied: last?.applied ?? null,
-			last_deferred: last?.deferred ?? null,
-			last_error: last?.error ?? null,
+			...gaugeLastRun(last),
 		};
 	}
 	return out;
+}
+
+/** The gauge's `last_*` keys for one name (all null before its first run). */
+function gaugeLastRun(last: ReconcileRunRecord | null): Record<string, unknown> {
+	if (last === null) {
+		return {
+			last_run_at: null,
+			last_apply: null,
+			last_drift: null,
+			last_applied: null,
+			last_deferred: null,
+			last_refused: null,
+			last_error: null,
+		};
+	}
+	return {
+		last_run_at: last.ranAt,
+		last_apply: last.apply,
+		last_drift: last.drift,
+		last_applied: last.applied,
+		last_deferred: last.deferred,
+		last_refused: last.refused,
+		last_error: last.error,
+	};
 }
 
 let gaugeRegistered = false;

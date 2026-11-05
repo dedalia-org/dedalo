@@ -118,6 +118,27 @@ const get_content_data_edit = async (self) => {
 			text_content: item.description,
 			parent: name_cell,
 		});
+		// scope: offered only where the definition can be narrowed (scope_label —
+		// what one entry is: a tld, a section tipo…). Empty = the whole store. Some
+		// applies REQUIRE it (machine names on an ontology server), and a refused
+		// apply says so in the response line.
+		const scope_input = item.scope_label
+			? ui.create_dom_element({
+					element_type: 'input',
+					type: 'text',
+					class_name: 'reconcile_scope',
+					placeholder: `scope: ${item.scope_label}, comma-separated (empty = all)`,
+					title: `Narrow the run to these ${item.scope_label} values`,
+					parent: name_cell,
+				})
+			: null;
+		const read_scope = () => {
+			const values = (scope_input?.value || '')
+				.split(',')
+				.map((value) => value.trim())
+				.filter((value) => value !== '');
+			return values.length > 0 ? values : undefined;
+		};
 		// stores
 		ui.create_dom_element({
 			element_type: 'div',
@@ -161,7 +182,12 @@ const get_content_data_edit = async (self) => {
 			e.stopPropagation();
 			button_check.classList.add('button_spinner');
 			try {
-				await self.run_reconcile({ body_response, name: item.name, apply: false });
+				await self.run_reconcile({
+					body_response,
+					name: item.name,
+					apply: false,
+					scope: read_scope(),
+				});
 			} finally {
 				button_check.classList.remove('button_spinner');
 			}
@@ -201,7 +227,12 @@ const get_content_data_edit = async (self) => {
 			}
 			button_apply.classList.add('button_spinner');
 			try {
-				await self.run_reconcile({ body_response, name: item.name, apply: true });
+				await self.run_reconcile({
+					body_response,
+					name: item.name,
+					apply: true,
+					scope: read_scope(),
+				});
 			} finally {
 				button_apply.classList.remove('button_spinner');
 			}
