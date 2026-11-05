@@ -25387,14 +25387,22 @@ body.inspector_resizing {
 .component_pdf.disabled_component > .content_data {
   pointer-events: initial !important;
 }
+.component_pdf.edit > .content_data > .content_value {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
 .component_pdf.edit > .content_data > .content_value > img {
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  object-fit: contain;
 }
 .component_pdf.edit > .content_data > .content_value > .pdf_viewer_container {
   display: flex;
   flex-direction: column;
   width: 100%;
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .component_pdf.edit > .content_data > .content_value > .pdf_viewer_container.loading {
   min-height: var(--media_min_height);
@@ -25410,7 +25418,7 @@ body.inspector_resizing {
   border-right: 1px solid var(--color_grey_3);
   background-color: var(--color_grey_3);
 }
-.component_pdf.edit > .content_data > .content_value > .pdf_viewer_container > .fields {
+.component_pdf.edit > .content_data > .content_value > .fields {
   height: 30px;
   flex: 0 0 auto;
   width: 100%;
@@ -25423,11 +25431,11 @@ body.inspector_resizing {
   align-items: center;
   font-size: 1em;
 }
-.component_pdf.edit > .content_data > .content_value > .pdf_viewer_container > .fields span {
+.component_pdf.edit > .content_data > .content_value > .fields span {
   color: var(--color_white);
   text-transform: capitalize;
 }
-.component_pdf.edit > .content_data > .content_value > .pdf_viewer_container > .fields input {
+.component_pdf.edit > .content_data > .content_value > .fields input {
   width: 5em;
   margin-left: 1em;
   text-align: center;
