@@ -237,6 +237,98 @@
 		}
 	}
 
+	// FULLSCREEN (ui.enter_fullscreen: the generic `.fullscreen` panel + a fixed
+	// `.exit_button` at the top right, layout.less). A portal is a full-page
+	// panel in EVERY active style, top-level or nested in a list cell: the
+	// active styles' floating tools (lift's tab at top:-32px, frame's docked
+	// tab, the default pill above the field) sat off-screen or under the exit
+	// button, and a nested portal kept its in-cell compactness (no label, no
+	// inset, row icons under the exit button). `!important` like the generic
+	// `.fullscreen` block: the active-style rules it must beat are (1,10,0)+.
+	&.fullscreen {
+		display: block !important;
+		padding: 0.25rem 1rem 1rem !important;
+		overflow-y: auto !important;
+		border-radius: 0 !important;
+		outline: none !important;
+		box-shadow: none !important;
+
+		>.label {
+			display: block !important;
+			padding: 0.4rem 0 0.5rem !important;
+			padding-right: 22rem !important; // clear of the tools pill
+			min-height: 2.4rem; // the pill's band: the first row's icons start below it
+			box-sizing: border-box;
+			white-space: nowrap;
+			font-size: 1.1rem;
+		}
+
+		// tools: the orange pill, at the top right beside the exit button and
+		// centred on it (exit: 1.5rem at top 0.25rem). Its own full-screen
+		// button is the exit button's twin: hidden while fullscreen
+		>.buttons_container {
+			display: flex !important;
+			position: absolute !important;
+			top: 0.1rem !important;
+			right: 2.5rem !important;
+			left: auto !important;
+			width: auto !important;
+			height: auto !important;
+			max-height: 2rem !important;
+			margin: 0 !important;
+			background-color: @color_orange_dedalo !important;
+			border-radius: var(--radius-pill) !important;
+			box-shadow: none !important;
+
+			// the generic fullscreen rule fixes the fold to the viewport
+			// (layout.less), which left the pill empty behind its icons
+			.buttons_fold {
+				position: static !important;
+				display: flex;
+				align-items: center;
+			}
+			.button {
+				background-color: @color_white;
+			}
+			// the base pill's spacing (layout.less), which lift / margin compact.
+			// Ends padded on the pill, not on first/last icon: the last child
+			// (full_screen) is hidden here
+			padding: 0 0.85rem 0 0.25rem !important;
+
+			span {
+				margin: 0.45rem 0 0.45rem 0.6rem !important;
+			}
+			.button.full_screen {
+				display: none !important;
+			}
+		}
+
+		>.content_data,
+		>.list_body {
+			height: auto !important;
+			max-height: none !important;
+		}
+
+		// the search bar docks under the field (absolute top:100%): below a
+		// 100%-high panel that is off-screen. In flow, results capped + scrolled
+		>.wrapper_service_autocomplete:not(.search) {
+			position: relative !important;
+			top: auto !important;
+			left: auto !important;
+			width: 100% !important;
+			margin-top: 0.5rem;
+
+			>.autocomplete_data {
+				position: static !important;
+				width: auto !important;
+				min-width: 0 !important;
+				max-width: 100% !important;
+				max-height: 50vh;
+				overflow-y: auto;
+			}
+		}
+	}
+
 }//end &.component_portal, &.portal
 
 

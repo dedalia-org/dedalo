@@ -25,8 +25,8 @@
 *   - `get_content_data(self, rows, children_view, id_variant)` — hands the page's rows
 *       to the row door inside a `content_data` container; references, server-side
 *       errors and the empty-iri placeholder go to the `.list_after` slot.
-*   - `rebuild_columns_map(self)` — prepends the `section_id` column and appends the
-*       `remove` column around the ontology-provided base columns; memoised via
+*   - `rebuild_columns_map(self)` — appends the `section_id` then the `remove`
+*       column after the ontology-provided base columns; memoised via
 *       `self.fixed_columns_map`.
 *
 * Differences from `view_default_edit_portal`:
@@ -302,10 +302,10 @@ const get_content_data = async function(self, rows, children_view, id_variant) {
 *
 * Constructs the final ordered columns array used by section_record renderers to lay
 * out each row cell.  The order is always:
-*   1. `section_id`  — "open record" button (always first).
-*   2. Base columns  — whatever the ontology / request-config defined (`self.columns_map`).
+*   1. Base columns  — whatever the ontology / request-config defined (`self.columns_map`).
 *      If `self.add_component_info === true`, the `ddinfo` column's callback is patched
 *      to `render_column_component_info` so its cell renders the component-info overlay.
+*   2. `section_id`  — "open record" button (after the text: see the note in the body).
 *   3. `remove`      — unlink button (appended last, only when permissions > 1 and the
 *      portal's source mode is not `'external'`, since external sources are read-only).
 *
@@ -325,14 +325,6 @@ const rebuild_columns_map = async function(self) {
 
 	const columns_map = []
 
-	// column section_id
-		columns_map.push({
-			id			: 'section_id',
-			label		: 'Id',
-			width		: 'auto',
-			callback	: view_line_edit_portal.render_column_id
-		})
-
 	// base_columns_map
 		const base_columns_map = self.columns_map || []
 
@@ -349,6 +341,17 @@ const rebuild_columns_map = async function(self) {
 		}
 		columns_map.push(...base_columns_map)
 
+	// column section_id, AFTER the record's text: a row nested in a list cell
+	// shows pen + trash inline at the END of its text (view_line_portal.less), as
+	// one unit (no break opportunity between the two buttons). Top-level rows
+	// place them by flex `order`, so this DOM order changes nothing there
+		columns_map.push({
+			id			: 'section_id',
+			label		: 'Id',
+			width		: 'auto',
+			callback	: view_line_edit_portal.render_column_id
+		})
+
 	// column remove
 		if ( self.context?.properties?.source?.mode !== 'external' && self.permissions > 1) {
 			columns_map.push({
@@ -358,6 +361,7 @@ const rebuild_columns_map = async function(self) {
 				callback	: view_line_edit_portal.render_column_remove
 			})
 		}
+
 
 	// fixed as calculated
 		self.fixed_columns_map = true

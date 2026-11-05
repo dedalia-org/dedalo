@@ -222,6 +222,13 @@ Merged since the last release; these ship with the next one.
 
     In a portal shown as a table (for example Authorship: person, role, date), the linked records inside a column broke their text letter by letter. The edit and unlink buttons of each linked record no longer take width while hidden; they appear over the record on hover. Words now wrap whole, and date and number columns take only the width they need. The drag handle for reordering rows now sits over the Id column instead of a reserved strip on the left. When a portal inside a column is active, its tools and its search box stay inside the column instead of covering the row above and the rows below.
 
+- **Portal tables, their search box and full-screen view are tidier and use space better.**
+
+    - Linked records inside a table cell use the whole cell width; their edit and unlink buttons appear over the end of the line on hover, with a fade, and never overlap each other.
+    - The Id, its edit button, the unlink button and the reorder handle line up with the first line of the row. The reorder handle is a small grip at the left of the Id instead of a reserved strip, and shows a grab cursor.
+    - In an edit window, the search box and its results stay inside the window (scrolling when long) instead of running past it, with rounded corners and a single bottom line.
+    - Full screen shows the portal with its name, its tools next to the exit button and its search box usable, also for a portal opened from inside a table cell.
+
 - **The user activity statistics are now translated.**
 
     The statistics block on a user record (total actions, peak hour, activity by type, section and hour) always showed its titles in English. They now follow the interface language. The Spanish name of the automatic transcription button in the transcription tool is also corrected ("automática").

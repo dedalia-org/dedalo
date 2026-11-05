@@ -21,29 +21,55 @@
 			// display:table .section.edit under the fixed inspector
 			overflow-x: auto;
 
-			// the desktop drag handle (component_portal.less `.drag.icon`) lies OVER
-			// the Id cell's left edge (the number is right-aligned there), not in a
-			// left gutter: a gutter (left:-2.2rem + 2.2rem list padding) cost every
-			// portal that width at every nesting level for a rarely used gesture.
-			// It stays INSIDE this scrollport — a handle in the clipped strip at the
-			// list's left edge gets no drag from Chrome at all (no dragstart;
-			// puppeteer's dragAndDrop hangs on Input.dragIntercepted — measured on
-			// test:crawl portal_reorder). Desktop-only (the phone card has it in flow)
+			// the desktop drag handle (component_portal.less `.drag.icon`) is a
+			// narrow GRIP (drag.svg, the 6-dot "reorder row" sign) at the Id cell's
+			// LEFT edge: 0.75rem reserved, only when the row can be dragged. The pen
+			// stays next to the data (the old right-edge strip pushed it 1.25rem
+			// away). Not laid over the Id digits (the number sits beside it) nor
+			// over the previous cell, and not the old left gutter (left:-2.2rem +
+			// 2.2rem list padding at every nesting level). It stays INSIDE this
+			// scrollport — a handle in the clipped strip at the list's left edge
+			// gets no drag from Chrome at all (no dragstart; puppeteer's
+			// dragAndDrop hangs on Input.dragIntercepted — measured on test:crawl
+			// portal_reorder). Quiet like the pen/trash: muted ink, only the glyph
+			// tints on hover (mask, no full-height bar); the hit area stays the
+			// full row height. Desktop-only (the phone card has it in flow).
 			@media screen and (min-width: (@width_break_point_0 + 1)) {
 				>.content_data >.section_record >.column_section_id:has(>.drag) {
 					position: relative;
+					padding-left: 0.75rem;
 
 					>.drag.icon {
 						top: 0;
 						left: 0;
 						height: 100%;
 						min-height: 0;
-						width: 1.4rem;
+						width: 0.75rem;
 						min-width: 0;
 						padding: 0;
-						background-size: 16px 16px;
-						background-position: center 0.6rem; // on the number's line, not mid-row
 						border-radius: 0;
+						// the HOST is a plain, unmasked hit box that owns the cursor; the
+						// glyph is a masked ::before that takes no pointer. A mask on the
+						// host itself left the grab cursor unreliable across engines
+						cursor: grab;
+						background: none;
+
+						&:active {
+							cursor: grabbing;
+						}
+
+						&::before {
+							content: '';
+							position: absolute;
+							inset: 0;
+							pointer-events: none;
+							background-color: var(--fg_muted);
+							mask: url('../../themes/default/icons/drag.svg') no-repeat center 0.43rem / 12px 12px; // centred on the pen icon (its 0.12rem top step, below), not mid-row
+						}
+
+						&:hover::before {
+							background-color: @color_orange_dedalo;
+						}
 					}
 				}
 			}
@@ -60,6 +86,29 @@
 
 			.column_section_id {
 				padding: unset;
+			}
+
+			// ROW CHROME QUIETER THAN THE DATA. In a form, the linked records are
+			// the content: the Id (1.25rem in section lists) and the pure-black
+			// pen / trash outweighed the 1rem text they frame. Id a step smaller,
+			// the icons muted ink at rest (their hover fills — green edit, red
+			// remove, ink currentColor — are list.less's, untouched).
+			--section_id_font_size: 1.1rem;
+
+			>.content_data >.section_record {
+				>.column_section_id >.button_edit:not(:hover) >.icon,
+				>.column_remove >.button_remove:not(:hover) >.icon {
+					background-color: var(--fg_muted);
+				}
+
+				// desktop: no grey stripe behind the trash (the row rule already
+				// separates rows; the active tint drops it too, layout.less). The
+				// phone card keeps its own remove styling (list.less PHONE CARDS)
+				@media screen and (min-width: (@width_break_point_0 + 1)) {
+					>.column_remove {
+						background-color: transparent;
+					}
+				}
 			}
 
 			// column-title header: trim the shared head_column vertical padding
@@ -98,12 +147,33 @@
 				align-items: flex-start;
 			}
 
-			// One line per row: the pen takes the SAME 0.5em top padding
-			// `button.button_remove` carries, so the number and the trash icon
-			// sit level instead of 2px apart.
+			// One line per row, ON the text's first line: no top padding on the
+			// pen nor the trash. The value cells start their text at the cell
+			// padding + 0.12rem (list.less @common_padding); the 0.5em the trash
+			// carried (and the pen copied, to sit level with it) put the Id
+			// number's baseline ~6px under the text's. The trash's bottom padding
+			// (the row-height floor) stays.
 			.column.column_section_id > .button_edit,
-			.column.column_section_id > .button_delete {
-				padding-top: 0.5em;
+			.column.column_section_id > .button_delete,
+			.column.column_remove > button.button_remove {
+				padding-top: 0px;
+			}
+			// …but the 18px icons rose above the text's first line (top-heavy pen
+			// and trash). Their tops go level with the line's (~3.6px into the row);
+			// the trash button sits 1px higher than the pen, hence the larger step.
+			// The Id number moves WITH the pen (same 18.2px box): shifting only the
+			// icon left the number riding above it.
+			.column.column_section_id > .button_edit {
+				padding-top: 0.12rem;
+
+				// number and pen read as one control: the icon box already carries
+				// its own inset, so the 3px list padding left them looking apart
+				>.section_id {
+					padding-right: 1px;
+				}
+			}
+			.column.column_remove > button.button_remove {
+				padding-top: 0.2rem;
 			}
 
 			// portal inside, in view_text

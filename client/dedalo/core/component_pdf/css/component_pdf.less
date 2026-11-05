@@ -40,7 +40,9 @@
 					min-height: 0;
 
 					&.loading {
-						min-height: var(--media_min_height);
+						// a floor for the spinner where the box has no height (phone);
+						// not --media_min_height, which pushed the offset row out
+						min-height: 10rem;
 						background: @color_grey_3 url('../../themes/default/icons/spinner.svg') no-repeat center center;
 						background-size: 2em;
 					}

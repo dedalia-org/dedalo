@@ -107,6 +107,47 @@
 		}
 	}
 
+	// IN A MODAL (an edit modal, a tool): the same docked footer, but IN FLOW.
+	// Hanging below the field (absolute), the results ran far past the dialog,
+	// which clips its body: one or two visible, the rest behind a scrollbar.
+	// In flow the dialog grows with the bar; the results are capped with their
+	// own scroll. The field's surface rounds its bottom corners with the bar's
+	// (rule after this block). `&:has(…)` too: it must beat the open-results
+	// rule above, which clips the list (overflow: hidden)
+	dd-modal .wrapper_component.edit.active:not(.hilite_element) > &:not(.search) {
+		position: relative;
+		top: auto;
+
+		&,
+		&:has(>.autocomplete_data>*) {
+			>.autocomplete_data {
+				position: static;
+				width: auto;
+				min-width: 0;
+				max-width: 100%;
+				max-height: 20rem;
+				overflow-y: auto;
+			}
+		}
+		// results open: the scrolled rows ran into the rounded corner and read
+		// square. The orange bar wraps the list and owns the bottom curve; the
+		// list ends inside it, nested radius. 1px band = the side borders' width.
+		&:has(>.autocomplete_data>*) {
+			border-radius: 0 0 8px 8px;
+			padding-bottom: 1px;
+
+			>.autocomplete_data {
+				border-bottom: none;
+				border-radius: 0 0 7px 7px;
+
+				// the band is the bottom line: a short (unscrolled) list must not double it
+				>*:last-child {
+					border-bottom: none;
+				}
+			}
+		}
+	}
+
 	.spinner {
 		right: 3rem;
 		top: 0.6rem;
@@ -398,7 +439,9 @@
 			>.section_record {
 				pointer-events: none;
 				display: flex;
-				align-items: center;
+				// first lines level: centred, a short column (a date) floated
+				// mid-row beside a wrapped multi-value one (two roles)
+				align-items: baseline;
 				flex-wrap: wrap;
 
 				>* {
@@ -429,3 +472,13 @@
 }//end .wrapper_service_autocomplete
 
 // grid_choose_container: is moved to layout.less because is NOT inside wrapper_service_autocomplete
+
+
+// the field in a modal, while its in-flow bar is open: its bottom corners are
+// the bar's (square, they showed the field's surface behind the bar's rounded ones)
+// (`.active:not(.hilite_element)`: it must beat layout.less, which squares them
+// for the bar docked BELOW the field)
+dd-modal .wrapper_component.edit.active:not(.hilite_element):has(>.wrapper_service_autocomplete.active:not(.search)) {
+	border-bottom-left-radius: 8px;
+	border-bottom-right-radius: 8px;
+}

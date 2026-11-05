@@ -7112,46 +7112,54 @@ dd-modal.dd_presets::part(content) {
     display: block;
   }
 }
-:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) {
+:root:is([data-active_style], :not([data-active_style])) .list_body .column .wrapper_component.edit.active:not(.hilite_element):not(#inspector *):not(.wrapper_tool *):is(.wrapper_component *) {
   height: auto;
   min-height: 100%;
 }
-:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .buttons_container {
+:root:is([data-active_style], :not([data-active_style])) .list_body .column .wrapper_component.edit.active:not(.hilite_element):not(#inspector *):not(.wrapper_tool *):is(.wrapper_component *) > .buttons_container {
   position: static;
   display: flex !important;
   flex-wrap: wrap;
   white-space: normal;
+  width: fit-content;
+  max-width: 100%;
+  height: auto;
   max-height: none;
-  background-color: transparent;
+  margin: 0.25rem 0 0.35rem auto;
+  padding: 0.1rem 0.35rem;
+  background-color: var(--color_orange_dedalo);
   box-shadow: none;
-  border-radius: 0;
+  border-radius: 1rem;
 }
-:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .buttons_container .buttons_fold {
+:root:is([data-active_style], :not([data-active_style])) .list_body .column .wrapper_component.edit.active:not(.hilite_element):not(#inspector *):not(.wrapper_tool *):is(.wrapper_component *) > .buttons_container .buttons_fold {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
 }
-:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .buttons_container .button {
-  background-color: var(--color_grey_5);
+:root:is([data-active_style], :not([data-active_style])) .list_body .column .wrapper_component.edit.active:not(.hilite_element):not(#inspector *):not(.wrapper_tool *):is(.wrapper_component *) > .buttons_container .button {
+  background-color: var(--color_white);
 }
-:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .buttons_container .button:hover {
-  background-color: var(--color_orange_dark);
+:root:is([data-active_style], :not([data-active_style])) .list_body .column .wrapper_component.edit.active:not(.hilite_element):not(#inspector *):not(.wrapper_tool *):is(.wrapper_component *) > .buttons_container span,
+:root:is([data-active_style], :not([data-active_style])) .list_body .column .wrapper_component.edit.active:not(.hilite_element):not(#inspector *):not(.wrapper_tool *):is(.wrapper_component *) > .buttons_container span:first-child,
+:root:is([data-active_style], :not([data-active_style])) .list_body .column .wrapper_component.edit.active:not(.hilite_element):not(#inspector *):not(.wrapper_tool *):is(.wrapper_component *) > .buttons_container span:last-child {
+  margin: 0.3rem 0.3rem;
 }
-:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .buttons_container span,
-:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .buttons_container span:first-child,
-:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .buttons_container span:last-child {
-  margin: 0.2rem 0.25rem;
+:root:is([data-active_style], :not([data-active_style])) .list_body .column .wrapper_component.edit.active:not(.hilite_element):not(#inspector *):not(.wrapper_tool *):is(.wrapper_component *):has( > .wrapper_service_autocomplete:not(.search)) {
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
 }
-:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search) {
+:root:is([data-active_style], :not([data-active_style])) .list_body .column .wrapper_component.edit.active:not(.hilite_element):not(#inspector *):not(.wrapper_tool *):is(.wrapper_component *) > .wrapper_service_autocomplete:not(.search) {
   position: relative;
   top: auto;
   min-width: 10rem;
-  border-radius: 0.5rem;
 }
-:root:not([data-active_style]) .list_body .column .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search) > .autocomplete_data {
-  position: absolute;
-  left: 0;
-  top: 100%;
+:root:is([data-active_style], :not([data-active_style])) .list_body .column .wrapper_component.edit.active:not(.hilite_element):not(#inspector *):not(.wrapper_tool *):is(.wrapper_component *) > .wrapper_service_autocomplete:not(.search) > .autocomplete_data {
+  position: static;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  max-height: 20rem;
+  overflow-y: auto;
 }
 /**
 * ontology_server
@@ -11298,6 +11306,30 @@ body:has(.component_av.view_viewer) {
   border-radius: 0 0 8px 8px;
   overflow: hidden;
 }
+dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search) {
+  position: relative;
+  top: auto;
+}
+dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search) > .autocomplete_data,
+dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search):has(>.autocomplete_data>*) > .autocomplete_data {
+  position: static;
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  max-height: 20rem;
+  overflow-y: auto;
+}
+dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search):has(>.autocomplete_data>*) {
+  border-radius: 0 0 8px 8px;
+  padding-bottom: 1px;
+}
+dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search):has(>.autocomplete_data>*) > .autocomplete_data {
+  border-bottom: none;
+  border-radius: 0 0 7px 7px;
+}
+dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_autocomplete:not(.search):has(>.autocomplete_data>*) > .autocomplete_data > *:last-child {
+  border-bottom: none;
+}
 .wrapper_service_autocomplete .spinner {
   right: 3rem;
   top: 0.6rem;
@@ -11505,7 +11537,7 @@ body:has(.component_av.view_viewer) {
 .wrapper_service_autocomplete > .autocomplete_data > .autocomplete_data_li > .section_record {
   pointer-events: none;
   display: flex;
-  align-items: center;
+  align-items: baseline;
   flex-wrap: wrap;
 }
 .wrapper_service_autocomplete > .autocomplete_data > .autocomplete_data_li > .section_record > * {
@@ -11522,6 +11554,10 @@ body:has(.component_av.view_viewer) {
 }
 .wrapper_service_autocomplete > .autocomplete_data > .autocomplete_data_li:last-child {
   border-bottom: 1px solid var(--color_orange_dedalo);
+}
+dd-modal .wrapper_component.edit.active:not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)) {
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
 }
 /**
 * service_upload
@@ -25405,7 +25441,7 @@ body.inspector_resizing {
   min-height: 0;
 }
 .component_pdf.edit > .content_data > .content_value > .pdf_viewer_container.loading {
-  min-height: var(--media_min_height);
+  min-height: 10rem;
   background: var(--color_grey_3) url('../../themes/default/icons/spinner.svg') no-repeat center center;
   background-size: 2em;
 }
@@ -25654,6 +25690,83 @@ body.inspector_resizing {
   align-items: center;
   white-space: pre-wrap;
 }
+.component_portal.fullscreen,
+.portal.fullscreen {
+  display: block !important;
+  padding: 0.25rem 1rem 1rem !important;
+  overflow-y: auto !important;
+  border-radius: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+.component_portal.fullscreen > .label,
+.portal.fullscreen > .label {
+  display: block !important;
+  padding: 0.4rem 0 0.5rem !important;
+  padding-right: 22rem !important;
+  min-height: 2.4rem;
+  box-sizing: border-box;
+  white-space: nowrap;
+  font-size: 1.1rem;
+}
+.component_portal.fullscreen > .buttons_container,
+.portal.fullscreen > .buttons_container {
+  display: flex !important;
+  position: absolute !important;
+  top: 0.1rem !important;
+  right: 2.5rem !important;
+  left: auto !important;
+  width: auto !important;
+  height: auto !important;
+  max-height: 2rem !important;
+  margin: 0 !important;
+  background-color: var(--color_orange_dedalo) !important;
+  border-radius: var(--radius-pill) !important;
+  box-shadow: none !important;
+  padding: 0 0.85rem 0 0.25rem !important;
+}
+.component_portal.fullscreen > .buttons_container .buttons_fold,
+.portal.fullscreen > .buttons_container .buttons_fold {
+  position: static !important;
+  display: flex;
+  align-items: center;
+}
+.component_portal.fullscreen > .buttons_container .button,
+.portal.fullscreen > .buttons_container .button {
+  background-color: var(--color_white);
+}
+.component_portal.fullscreen > .buttons_container span,
+.portal.fullscreen > .buttons_container span {
+  margin: 0.45rem 0 0.45rem 0.6rem !important;
+}
+.component_portal.fullscreen > .buttons_container .button.full_screen,
+.portal.fullscreen > .buttons_container .button.full_screen {
+  display: none !important;
+}
+.component_portal.fullscreen > .content_data,
+.portal.fullscreen > .content_data,
+.component_portal.fullscreen > .list_body,
+.portal.fullscreen > .list_body {
+  height: auto !important;
+  max-height: none !important;
+}
+.component_portal.fullscreen > .wrapper_service_autocomplete:not(.search),
+.portal.fullscreen > .wrapper_service_autocomplete:not(.search) {
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  width: 100% !important;
+  margin-top: 0.5rem;
+}
+.component_portal.fullscreen > .wrapper_service_autocomplete:not(.search) > .autocomplete_data,
+.portal.fullscreen > .wrapper_service_autocomplete:not(.search) > .autocomplete_data {
+  position: static !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  max-height: 50vh;
+  overflow-y: auto;
+}
 /**
 * view_default_portal
 *
@@ -25667,11 +25780,13 @@ body.inspector_resizing {
   height: fit-content;
   min-height: var(--content_data_min_height);
   overflow-x: auto;
+  --section_id_font_size: 1.1rem;
 }
 @media screen and (min-width: 1025px) {
   .component_portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id:has(>.drag),
   .portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id:has(>.drag) {
     position: relative;
+    padding-left: 0.75rem;
   }
   .component_portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id:has(>.drag) > .drag.icon,
   .portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id:has(>.drag) > .drag.icon {
@@ -25679,12 +25794,29 @@ body.inspector_resizing {
     left: 0;
     height: 100%;
     min-height: 0;
-    width: 1.4rem;
+    width: 0.75rem;
     min-width: 0;
     padding: 0;
-    background-size: 16px 16px;
-    background-position: center 0.6rem;
     border-radius: 0;
+    cursor: grab;
+    background: none;
+  }
+  .component_portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id:has(>.drag) > .drag.icon:active,
+  .portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id:has(>.drag) > .drag.icon:active {
+    cursor: grabbing;
+  }
+  .component_portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id:has(>.drag) > .drag.icon::before,
+  .portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id:has(>.drag) > .drag.icon::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-color: var(--fg_muted);
+    mask: url('../../themes/default/icons/drag.svg') no-repeat center 0.43rem / 12px 12px;
+  }
+  .component_portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id:has(>.drag) > .drag.icon:hover::before,
+  .portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id:has(>.drag) > .drag.icon:hover::before {
+    background-color: var(--color_orange_dedalo);
   }
 }
 @media screen and (max-width: 1024px) {
@@ -25696,6 +25828,18 @@ body.inspector_resizing {
 .component_portal.view_default.edit > .list_body .column_section_id,
 .portal.view_default.edit > .list_body .column_section_id {
   padding: unset;
+}
+.component_portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id > .button_edit:not(:hover) > .icon,
+.portal.view_default.edit > .list_body > .content_data > .section_record > .column_section_id > .button_edit:not(:hover) > .icon,
+.component_portal.view_default.edit > .list_body > .content_data > .section_record > .column_remove > .button_remove:not(:hover) > .icon,
+.portal.view_default.edit > .list_body > .content_data > .section_record > .column_remove > .button_remove:not(:hover) > .icon {
+  background-color: var(--fg_muted);
+}
+@media screen and (min-width: 1025px) {
+  .component_portal.view_default.edit > .list_body > .content_data > .section_record > .column_remove,
+  .portal.view_default.edit > .list_body > .content_data > .section_record > .column_remove {
+    background-color: transparent;
+  }
 }
 .component_portal.view_default.edit > .list_body > .header_wrapper_list > .head_column:not(.with_sub_header),
 .portal.view_default.edit > .list_body > .header_wrapper_list > .head_column:not(.with_sub_header) {
@@ -25724,8 +25868,22 @@ body.inspector_resizing {
 .component_portal.view_default.edit > .list_body .column.column_section_id > .button_edit,
 .portal.view_default.edit > .list_body .column.column_section_id > .button_edit,
 .component_portal.view_default.edit > .list_body .column.column_section_id > .button_delete,
-.portal.view_default.edit > .list_body .column.column_section_id > .button_delete {
-  padding-top: 0.5em;
+.portal.view_default.edit > .list_body .column.column_section_id > .button_delete,
+.component_portal.view_default.edit > .list_body .column.column_remove > button.button_remove,
+.portal.view_default.edit > .list_body .column.column_remove > button.button_remove {
+  padding-top: 0px;
+}
+.component_portal.view_default.edit > .list_body .column.column_section_id > .button_edit,
+.portal.view_default.edit > .list_body .column.column_section_id > .button_edit {
+  padding-top: 0.12rem;
+}
+.component_portal.view_default.edit > .list_body .column.column_section_id > .button_edit > .section_id,
+.portal.view_default.edit > .list_body .column.column_section_id > .button_edit > .section_id {
+  padding-right: 1px;
+}
+.component_portal.view_default.edit > .list_body .column.column_remove > button.button_remove,
+.portal.view_default.edit > .list_body .column.column_remove > button.button_remove {
+  padding-top: 0.2rem;
 }
 .component_portal.view_default.edit > .list_body .component_portal .section_record.view_text .button_edit,
 .portal.view_default.edit > .list_body .component_portal .section_record.view_text .button_edit {
@@ -25974,6 +26132,16 @@ body.inspector_resizing {
 *
 * Included from component_portal.less file
 */
+:root {
+  --row_fade_active: var(--color_hilite);
+}
+:root[data-active_style="frame"],
+:root[data-active_style="margin"] {
+  --row_fade_active: var(--color_white);
+}
+:root[data-active_style="lift"] {
+  --row_fade_active: var(--bg_elevated);
+}
 .component_portal.view_line,
 .portal.view_line {
   display: block;
@@ -26185,11 +26353,38 @@ body.inspector_resizing {
   opacity: 1;
   pointer-events: auto;
 }
+.column .component_portal.view_line.edit,
+.column .portal.view_line.edit {
+  --row_fade_base: var(--bg_surface);
+  --row_fade_outer_tint: var(--field_hover_bg);
+  --row_fade_tint: var(--field_hover_bg);
+}
+.column .component_portal.view_line.edit:is(.active *),
+.column .portal.view_line.edit:is(.active *) {
+  --row_fade_base: var(--row_fade_active);
+  --row_fade_outer_tint: transparent;
+}
+.column .component_portal.view_line.edit.active,
+.column .portal.view_line.edit.active {
+  --row_fade_base: var(--row_fade_active);
+  --row_fade_outer_tint: transparent;
+  --row_fade_tint: transparent;
+}
+.column .component_portal.view_line.edit:hover > .content_data > .section_record.view_text::after,
+.column .portal.view_line.edit:hover > .content_data > .section_record.view_text::after,
+.column .component_portal.view_line.edit.active > .content_data > .section_record.view_text::after,
+.column .portal.view_line.edit.active > .content_data > .section_record.view_text::after,
+.column .component_portal.view_line.edit:focus-within > .content_data > .section_record.view_text::after,
+.column .portal.view_line.edit:focus-within > .content_data > .section_record.view_text::after {
+  opacity: 1;
+}
 .column .component_portal.view_line.edit > .content_data,
 .column .portal.view_line.edit > .content_data {
-  padding-top: 0.15rem;
-  padding-bottom: 0.15rem;
-  padding-left: 0px;
+  padding: 0px;
+}
+.column .component_portal.view_line.edit > .content_data > .section_record:first-child,
+.column .portal.view_line.edit > .content_data > .section_record:first-child {
+  margin-top: 0px;
 }
 .component_portal.view_line.edit > .content_data,
 .portal.view_line.edit > .content_data {
@@ -26248,6 +26443,7 @@ body.inspector_resizing {
 }
 .component_portal.view_line.edit > .content_data > .section_record.view_text .button.tree,
 .portal.view_line.edit > .content_data > .section_record.view_text .button.tree {
+  order: -1;
   opacity: 0.3;
   margin-top: 1px;
   margin-right: 0.33rem;
@@ -26291,6 +26487,7 @@ body.inspector_resizing {
 .column .portal.view_line.edit > .content_data > .section_record.view_text {
   display: block;
   position: relative;
+  padding-left: 0.12rem;
   padding-right: 0.25rem;
 }
 .column .component_portal.view_line.edit > .content_data > .section_record.view_text .separator,
@@ -26302,23 +26499,44 @@ body.inspector_resizing {
 .column .component_portal.view_line.edit > .content_data > .section_record.view_text > .button_remove,
 .column .portal.view_line.edit > .content_data > .section_record.view_text > .button_remove {
   position: absolute;
-  top: 0;
   z-index: 1;
+  bottom: 0.12rem;
+  height: 1.2rem;
+  box-sizing: border-box;
+  justify-content: center;
+  align-items: center;
   margin: 0px;
-  background-color: var(--color_white);
-}
-.column .component_portal.view_line.edit > .content_data > .section_record.view_text > .button_remove,
-.column .portal.view_line.edit > .content_data > .section_record.view_text > .button_remove {
-  right: 0;
-  border-radius: 0 0.25rem 0.25rem 0;
+  padding: 0px;
 }
 .column .component_portal.view_line.edit > .content_data > .section_record.view_text > .button_edit,
 .column .portal.view_line.edit > .content_data > .section_record.view_text > .button_edit {
-  right: 1rem;
-  padding-left: 0.33rem;
-  padding-right: 0.33rem;
-  width: auto;
-  border-radius: 0.25rem 0 0 0.25rem;
+  right: 1.35rem;
+  width: 1.4rem;
+}
+.column .component_portal.view_line.edit > .content_data > .section_record.view_text > .button_remove,
+.column .portal.view_line.edit > .content_data > .section_record.view_text > .button_remove {
+  right: 0.25rem;
+  width: 1.1rem;
+}
+.column .component_portal.view_line.edit > .content_data > .section_record.view_text > .button_edit .icon,
+.column .portal.view_line.edit > .content_data > .section_record.view_text > .button_edit .icon,
+.column .component_portal.view_line.edit > .content_data > .section_record.view_text > .button_remove .icon,
+.column .portal.view_line.edit > .content_data > .section_record.view_text > .button_remove .icon {
+  margin: 0px;
+}
+.column .component_portal.view_line.edit > .content_data > .section_record.view_text::after,
+.column .portal.view_line.edit > .content_data > .section_record.view_text::after {
+  content: '';
+  position: absolute;
+  bottom: 0.12rem;
+  right: 0;
+  width: 3.75rem;
+  height: 1.2rem;
+  background: linear-gradient(var(--row_fade_tint), var(--row_fade_tint)), linear-gradient(var(--row_fade_outer_tint), var(--row_fade_outer_tint)), var(--row_fade_base);
+  mask-image: linear-gradient(to right, transparent, #000 1rem);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
 }
 .component_portal.view_line.edit > .content_data > .section_record.view_line,
 .portal.view_line.edit > .content_data > .section_record.view_line {
