@@ -49,4 +49,6 @@ a blank line: it shows a marked **Missing term** placeholder, and its tooltip na
 components the section's `section_list_thesaurus` term definition reads. Either the record has
 no value, or the definition does not name the component that holds it; both are worth fixing
 at the source rather than living with. The tree never substitutes another field on its own:
-what a term shows is decided only by that definition.
+what a term shows is decided only by the section's definition. In the ontology tree a node
+whose "Use machine name" is Yes shows its machine name in place of its label, and clicking it
+opens the machine name for editing; any other node shows, and opens, its label.

@@ -33,6 +33,7 @@
 
 import { statSync } from 'node:fs';
 import { config } from '../../config/config.ts';
+import { compareLocators, type Locator } from '../concepts/locator.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../concepts/section_id.ts';
 import { type MatrixRecord, readMatrixRecord } from '../db/matrix.ts';
 import { sql } from '../db/postgres.ts';
@@ -42,6 +43,7 @@ import { labelByTipo, ONTOLOGY_LABEL_FALLBACK_LANG } from '../ontology/labels.ts
 import {
 	HIERARCHY_BUTTON_NEW,
 	HIERARCHY_MAIN_SECTION,
+	SI_NO_YES,
 	THESAURUS_BUTTON_DELETE,
 	THESAURUS_BUTTON_NEW,
 	THESAURUS_SECTION,
@@ -55,7 +57,7 @@ import {
 	getSectionRealTipo,
 	getTranslatableByTipo,
 } from '../ontology/resolver.ts';
-import { getSectionMap } from '../ontology/section_map.ts';
+import { getSectionMap, getSectionMapValue } from '../ontology/section_map.ts';
 import {
 	type ChildLocator,
 	countChildrenOrNull,
@@ -645,8 +647,15 @@ export async function buildNodeData(
 			data.children_tipo = null;
 			continue;
 		}
-		const arElementTipo = Array.isArray(currentTipo) ? currentTipo : [currentTipo];
-		const elementObj: TsElement = { type: current.type ?? '', tipo: currentTipo };
+		const declaredTipos = Array.isArray(currentTipo) ? currentTipo : [currentTipo];
+		const arElementTipo =
+			current.type === 'term'
+				? await termTiposShown(sectionTipo, record, declaredTipos)
+				: declaredTipos;
+		const elementObj: TsElement = {
+			type: current.type ?? '',
+			tipo: arElementTipo === declaredTipos ? currentTipo : arElementTipo,
+		};
 
 		const valid = await processElementDetails(
 			current,
@@ -665,6 +674,54 @@ export async function buildNodeData(
 	}
 
 	return data;
+}
+
+/**
+ * The tipos a node's `term` element SHOWS (WC-2026-11-04-ontology-machine-names).
+ * The section_map may name two roles next to `term`: `machine_name` (the
+ * language-free name component) and `use_machine_name` (the si/no component
+ * saying which one names THIS node). When the node's flag is Yes, the
+ * TRANSLATABLE members of the map's `term` — the label — are replaced by
+ * `machine_name` (once, at the label's position); the rest of the composite
+ * (tld, id) stays as declared. Flag No or unset, or a map without both roles:
+ * the ddo_map tipos as declared, the same array instance.
+ *
+ * Not a fallback: the flag selects, the value is never borrowed. A Yes node
+ * with an empty machine name, like a No node with an empty term, renders the
+ * client's missing-term marker. The element carries the tipos it shows, so a
+ * click on the text edits the component the user is reading.
+ */
+async function termTiposShown(
+	sectionTipo: string,
+	record: MatrixRecord | null,
+	declaredTipos: string[],
+): Promise<string[]> {
+	const machineNameTipo = await getSectionMapValue(sectionTipo, 'thesaurus', 'machine_name');
+	const flagTipo = await getSectionMapValue(sectionTipo, 'thesaurus', 'use_machine_name');
+	if (typeof machineNameTipo !== 'string' || machineNameTipo === '') return declaredTipos;
+	if (typeof flagTipo !== 'string' || flagTipo === '') return declaredTipos;
+
+	const flagModel = await getModelByTipo(flagTipo);
+	if (flagModel === null) return declaredTipos;
+	const first = readItemsFromRecord(record, flagTipo, flagModel)[0] as Locator | undefined;
+	const usesMachineName =
+		first !== undefined &&
+		compareLocators(first, { section_id: SI_NO_YES } as unknown as Locator, ['section_id']);
+	if (!usesMachineName) return declaredTipos;
+
+	const termRole = await getSectionMapValue(sectionTipo, 'thesaurus', 'term');
+	const termTipos = new Set(Array.isArray(termRole) ? termRole : [termRole]);
+	const shown: string[] = [];
+	let replaced = false;
+	for (const tipo of declaredTipos) {
+		if (termTipos.has(tipo) && (await getTranslatableByTipo(tipo))) {
+			if (!replaced) shown.push(machineNameTipo);
+			replaced = true;
+			continue;
+		}
+		shown.push(tipo);
+	}
+	return replaced ? shown : declaredTipos;
 }
 
 /**

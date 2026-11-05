@@ -100,14 +100,21 @@ TLD JSON is unconverted: its loader fills the pair through the same legacy deriv
   requested lang and its equivalent but has the fallback lang among several translations
   (it now reads the fallback lang instead of the first in jsonb order), and where a stored
   value is `''` (absent, never served).
-- **Tree: no engine change.** The node term is resolved ONLY from the section's
-  `section_list_thesaurus` ddo_map (and `section_map`), never a hardcoded tipo. A name node whose
-  ontology5 is gone shows an empty term until the ontology's `term` ddo lists ontology43 — an
-  ontology definition change made on the master ontology, not engine code. (A first draft
-  hardcoded an ontology5 → ontology43 fallback in `ts_object.ts`; removed 2026-11-05.) The
-  empty term is NOT silent: the client (`render_ts_line.js` mark_missing_term, both term
-  renderers) shows a `term_missing` placeholder naming the element's configured tipos, so a
-  misconfigured definition is visible instead of spreading. Server payload unchanged.
+- **Tree: the section_map roles select, never a hardcoded tipo.** The node term is resolved
+  from the section's `section_list_thesaurus` ddo_map, steered by two `section_map` roles beside
+  `term` (owner decision 2026-11-05: `term` is not the place for a machine name):
+  `machine_name` (the language-free name component) and `use_machine_name` (the si/no component
+  saying which one names the node) — on the ontology: `ontology33.thesaurus.machine_name =
+  ontology43`, `use_machine_name = ontology44`. Flag Yes → the TRANSLATABLE members of `term`
+  (the label) are replaced by `machine_name` at the label's position; tld/id stay
+  (`ts_object.ts` termTiposShown). Flag No or unset, or a map without both roles → the declared
+  tipos. The element's `tipo` (and `model`) is what it SHOWS, so a click on the text edits the
+  component being read — the machine name, not the label. Never a fallback: a Yes node with an
+  empty machine name (or a No node with an empty label) is not filled from the other field; the
+  client (`render_ts_line.js` mark_missing_term, both term renderers) shows a `term_missing`
+  placeholder naming the element's tipos, so a misconfigured definition is visible instead of
+  spreading. (A first draft hardcoded an ontology5 → ontology43 fallback; removed 2026-11-05.)
+  Gate: `test/unit/ts_object_machine_name_term_native.test.ts`.
 - **STRUCTURE_LANG is gone** (the export is deleted so every site states its role): names →
   the columns; labels → `ONTOLOGY_LABEL_FALLBACK_LANG` (`labels.ts`, = config
   DEDALO_STRUCTURE_LANG, re-documented as "ontology label fallback" only; the key and `.env`
