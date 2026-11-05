@@ -17,7 +17,8 @@
 * On full success update_version() records the new version in matrix_updates.
 *
 * Exit codes: 0 ok · 2 usage/boot · 3 no matching descriptor · 5 update failed ·
-*             9 died on an uncaught throwable (see prepare_v7_fail_loud)
+*             9 died on an uncaught throwable (see prepare_v7_fail_loud) ·
+*             10 ontology update missing (ontology43/44 not in jer_dd)
 *
 * @package Dédalo
 * @subpackage close_v6_prepare_v7
@@ -57,6 +58,14 @@ if ($gate->aligned === true) {
 	prepare_v7_version_gate::apply_update_from($gate);
 	$log('descriptor update_from aligned to ' . implode('.', $gate->current)
 		. ' (declared minimum: ' . implode('.', $gate->expected) . ').');
+}
+
+// ontology prerequisites: re-checked in this fresh process, before any write
+$ontology_gate = prepare_v7_version_gate::check_ontology_prerequisites();
+$log('ontology prerequisites: ' . $ontology_gate->msg);
+if ($ontology_gate->result !== true) {
+	$log('ABORT: the v6 ontology update has not been run (ontology43/ontology44 missing).');
+	exit(10);
 }
 
 // select the descriptor matching the current DB version (same logic as the engine)

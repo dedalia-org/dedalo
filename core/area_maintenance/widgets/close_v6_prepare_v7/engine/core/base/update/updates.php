@@ -441,6 +441,24 @@ $updates->$v = new stdClass();
 			// 	] // Note that only ONE argument encoded is sent
 			// ];
 
+		// Ontology machine names (ontology43 / ontology44), owner decisions 2026-11-03 / 2026-11-04.
+		// Writes v6-SHAPED values on the v6 ontology records (and re-keys their ontology5 lg-spa
+		// Time Machine rows), so it MUST run after pre_update (classification) and BEFORE
+		// reformat_matrix_data, which then converts them like any other component.
+		// stop_on_error=true: only a database failure fails it (an ambiguous name is a finding,
+		// reported by the preflight), and nothing has been converted yet when it stops.
+		// Idempotent: a re-run finds every value present.
+			$updates->$v->run_scripts[] = (object)[
+				'info'			=> 'Set the ontology machine names (ontology43) and their use flag (ontology44) on the v6 ontology records',
+				'script_class'	=> 'v6_to_v7',
+				'script_method'	=> 'migrate_ontology_machine_names',
+				'stop_on_error'	=> true,
+				'script_vars'	=> [
+					['matrix_ontology'],
+					true // save option. On false, only data review is made. Not save
+				] // Note that only ONE argument encoded is sent
+			];
+
 		// Updates all data in PostgreSQL with the new v7 format
 		// stop_on_error=false: individual row failures are logged but do not
 		// halt the migration; the update pipeline continues to subsequent steps.

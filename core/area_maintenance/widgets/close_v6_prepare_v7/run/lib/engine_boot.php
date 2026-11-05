@@ -142,6 +142,36 @@ function prepare_v7_migration_tables() : array {
 
 
 /**
+* prepare_v7_script_vars
+* The script_vars of one run_scripts step of the migration descriptor, by method name,
+* so the preflight reviews a step with exactly the arguments the real run passes.
+*
+* @param string $method - v6_to_v7 method name, e.g. 'migrate_ontology_machine_names'
+* @return array|null - null when the descriptor does not declare the step
+*/
+function prepare_v7_script_vars(string $method) : ?array {
+
+	if (!class_exists('update')) {
+		return null;
+	}
+
+	$updates = update::get_updates();
+	$first   = array_key_first((array)$updates);
+	if ($first === null) {
+		return null;
+	}
+
+	foreach ((array)($updates->$first->run_scripts ?? []) as $script) {
+		if (($script->script_method ?? '') === $method) {
+			return (array)($script->script_vars ?? []);
+		}
+	}
+
+	return null;
+}//end prepare_v7_script_vars
+
+
+/**
 * prepare_v7_boot_engine
 * Boots the bundled engine and a CLI superuser session. Returns resolved paths.
 * @return array{engine_root:string, package_root:string, var_dir:string}

@@ -529,7 +529,7 @@ const render_verdict = function(node, counts) {
 	add_chip('attention', counts.errors + ' need attention',
 		'Findings a person has to decide about. These are what make the preflight fail.')
 	add_chip('notices', counts.notices + ' notices',
-		'Values that cannot be migrated and will be dropped. Nothing to repair.')
+		'Values that cannot be migrated and will be dropped, or are kept as they are and only reported. Nothing to repair.')
 	// A high 'auto-fixed' count on an upgraded install is normally the studio default map view
 	// (the old edit view stored the factory map position on any save). One branch of that
 	// removal REWRITES the view of records that carry drawn features, so the chip names both

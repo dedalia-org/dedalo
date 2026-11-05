@@ -54,6 +54,14 @@ There is exactly ONE copy of every file: the package is what runs.
   is past the minimum the runner exports `PREPARE_V7_UPDATE_FROM=<db version>` and the descriptor
   aligns to it (`engine/core/base/update/updates.php`). The override can only *raise* `update_from`:
   a DB below 6.9.1 can never be forced through.
+- The v6 **ontology update** must have been run, so `jer_dd` holds the machine-name nodes
+  `ontology43` (machine name) and `ontology44` (use machine name). They arrive by ontology update,
+  not data update, so the data version cannot prove them: the runner checks the outcome, in phase 1
+  (panel and CLI, every mode) and again in phase 2, before any write, and refuses with **exit 10**
+  ("run the ontology update first"). No flag skips it.
+  (The plan raises the data-version floor to 6.9.8 together with those definitions; it stays 6.9.1
+  until a v6 6.9.7→6.9.8 data rung exists — today no install can reach 6.9.8, so the floor
+  would refuse everyone.)
 - PostgreSQL client tools (`pg_dump`) reachable at the engine's `DB_BIN_PATH` (mandatory backup).
 - Superuser (`DEDALO_SUPERUSER`) + **maintenance mode** enabled (guards mirror the current
   update widget).
@@ -205,7 +213,7 @@ which the summary block and the widget's chips report separately:
 | Bucket | Meaning | Blocks? |
 |---|---|---|
 | **AUTO-FIXED** | Repaired automatically. The commonest by far is a component value stored as the bare language map (`{"lg-nolan":[…]}`) instead of `{"dato":{…}}`; it is wrapped. Empty values (`{}`) are skipped. On an upgraded install most of the count is usually the studio default map view — see below. | no |
-| **NOTICES** | Cannot be migrated and will be dropped — typically an *orphan tipo*: referenced by matrix data but absent from `jer_dd`, so no model resolves. Nothing to repair. | no |
+| **NOTICES** | Cannot be migrated and will be dropped — typically an *orphan tipo*: referenced by matrix data but absent from `jer_dd`, so no model resolves — or kept exactly as it is and only reported (the `MACHINE_NAME_*` notices, see below). Nothing to repair. | no |
 | **NEEDS ATTENTION** | The ontology model and the stored shape disagree (the report names both: "the ontology says `button_new` but the value was written as `component_input_text`"). A person has to decide. | **yes** |
 
 Because NEEDS ATTENTION is the bucket somebody has to open, each of its groups also lists **every
@@ -226,9 +234,43 @@ fields per group.
 
 The repairs are applied by the *same* function the migration runs (`reformat_matrix_data`, with
 `save=false` for the review), so the report is not a prediction: it is what phase 2 will do. The
-legacy `datos` column is never rewritten.
+legacy `datos` column is never rewritten — with ONE exception, the ontology machine names below.
 
 Exit code: **0** clean or only auto-fixed/notices · **6** something needs attention.
+
+### Ontology machine names (`migrate_ontology_machine_names`)
+
+v7 gives every ontology node a language-free **machine name** (`ontology43`, lg-nolan) and a
+**use machine name** flag (`ontology44`, dd64: 1 Yes / 2 No). Model definitions and the nodes whose
+term is read by code are names; everything else is a label. Legacy data is converted here, in the
+v6 upgrade; v7 converts nothing. The step runs in phase 2 right after `pre_update` and **before**
+`reformat_matrix_data`, and writes **v6-shaped** values into `matrix_ontology.datos`, so the
+normal conversion types them like any other component. The preflight reviews it with `save=false`
+first, then arms `set_machine_name_review()` so the data review converts the ontology records
+with the same values applied in memory (the real run's input).
+
+- **Name class**: strict descendants of `dd2`, or a node whose model is one of database,
+  database_alias, table, table_alias, matrix_table, the 11 `field_*`, diffusion_domain,
+  rdf:predicate / subject / object, owl:ObjectProperty, owl:Class (the list is a copy; the v7
+  engine is its source of truth and re-checks every node after the upgrade). A localontology0
+  override is classified by the merged model.
+- **Values already present are kept**; a disagreement is reported (`MACHINE_NAME_FLAG_MISMATCH`,
+  notice). Only gaps are filled, and a name only on a name-class node: a stored Yes on a label
+  node without a name keeps `ontology5` untouched → `MACHINE_NAME_MISSING` (needs attention).
+- **Name, no value**: `ontology43` = the `ontology5` lg-spa term, which is **removed** from the label
+  (other langs stay; differing ones → `MACHINE_NAME_LABEL_KEPT`), flag Yes. No lg-spa but one
+  distinct value elsewhere → moved, `MACHINE_NAME_FROM_<LANG>`. Several distinct values (or several
+  lg-spa items) → flag Yes, no name, **`MACHINE_NAME_AMBIGUOUS` (needs attention)**: never picked.
+  No term at all → `MACHINE_NAME_MISSING` (needs attention).
+- **Every other node**: explicit flag No.
+- **Overrides** state only what they override: one without its own term or model is left alone,
+  only an lg-spa override value moves (`MACHINE_NAME_OVERRIDE_NOT_SPA` otherwise). An override
+  that makes a label main node a name without an lg-spa term of its own → `MACHINE_NAME_MISSING`.
+- **Time Machine**: the `ontology5` lg-spa rows of every node left with a name and no lg-spa label
+  are re-keyed to `ontology43` / lg-nolan (tipo + lang only, the value is untouched), while the TM
+  table is still v6-shaped, so history restores into the new component. No TM row is written for
+  the move itself. Whole-record snapshot rows (deleted records) still carry the old shape.
+- Idempotent; only a database failure fails the step (`stop_on_error`), before anything is converted.
 
 ### The studio default map view (why AUTO-FIXED can read 50 000+)
 
@@ -310,7 +352,7 @@ the engine imports the rest via Dédalo's own legacy‑config auto‑migration:
 1. **Phase 1** — blocking full `pg_dump -F c` (**aborts on failure** unless `--skip-backup`),
    then `update::pre_update_version()` → creates `dd_ontology` from `jer_dd`.
 2. **Phase 2** (fresh process ⇒ clean ontology cache) — `update::update_version()` with every
-   step enabled: schema DDL, `reformat_matrix_data`, time‑machine migration, dataframe/relation
+   step enabled: schema DDL, the ontology machine names, `reformat_matrix_data`, time‑machine migration, dataframe/relation
    migration, drop legacy `datos`, and finally the derived stores
    `matrix_activity_diffusion`, `matrix_string_search` and `matrix_relation_index`
    (tables + sync triggers + **backfill**). On success the new version is recorded in
@@ -415,7 +457,7 @@ dry run.
   rows/second on a box with slow fsync. The CLI line reports a live rows/s figure. The step is
   idempotent, so if a crash loses the async-commit tail, re-run it.
 
-- Only **6.9.1+ → 7.0.0** is supported (the single descriptor in `engine/core/base/update/updates.php`,
+- Only **6.9.1+ → 7.0.0** is supported, with the v6 ontology update run (exit 10 otherwise) (the single descriptor in `engine/core/base/update/updates.php`,
   read as a minimum — see Prerequisites).
 - The runner is spawned with the **PHP CLI** binary from `PHP_BIN_PATH` (the v6 config constant, same
   one `exec_::request_cli` uses), never `PHP_BINARY`: under php-fpm that is the FPM binary, which
