@@ -24,12 +24,12 @@
  * same condition as the P2 save rules): moving a name into a component the parser
  * cannot read would NULL it. Unarmed, every dry run still MEASURES (the census reads
  * the stored keys under their fixed columns — see below), and an apply writes nothing
- * and says why (`detail.apply_refused`).
+ * and says why (`report.refused`).
  *
  * NEVER AUTO-APPLIED ON AN ONTOLOGY SERVER (plan §6, hazard §11.3): master is converted
  * by a human (P4). On `IS_AN_ONTOLOGY_SERVER` an apply needs an explicit TLD `scope` —
  * which no scheduled or post-restore run carries — or it is refused (dry report +
- * `detail.apply_refused`). The package import rewrite is refused there OUTRIGHT (no
+ * `report.refused`). The package import rewrite is refused there OUTRIGHT (no
  * scope exists for it): on master an ontology file import lands master's own records,
  * and converting them with no Time Machine row would be the P4 migration the owner
  * reserved to a human. The seed compiler that drives the same door is unaffected and
@@ -377,7 +377,7 @@ export async function applyRefusal(
 	isOntologyServer: boolean = config.ontologyIo.isOntologyServer,
 ): Promise<string | null> {
 	if (isOntologyServer && (scope === undefined || scope.length === 0)) {
-		return 'this is an ontology server: master is converted by a human — run it with an explicit TLD scope';
+		return "this is an ontology server: master is converted by a human — give an explicit TLD scope (the widget's scope field, or scripts/reconcile.ts --scope dd,rsc) and apply it TLD by TLD";
 	}
 	return armingRefusal();
 }
@@ -579,7 +579,7 @@ async function runClass(
 	if (!options.apply) return { drift: units.length, applied: 0, detail };
 	const refusal = await applyRefusal(options.scope);
 	if (refusal !== null) {
-		return { drift: units.length, applied: 0, detail: { ...detail, apply_refused: refusal } };
+		return { drift: units.length, applied: 0, detail, refused: { reason: refusal } };
 	}
 	const outcome = await applyClass(units, cls, door, options.signal);
 	return {

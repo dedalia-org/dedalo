@@ -31,7 +31,7 @@ import { render_reconcile_status } from './render_reconcile_status.js';
  *     { reconciles: Array<{
  *         name, stores:[a,b], description, scope_label, schedule,
  *         auto_apply: string|null,
- *         last_run: {ranAt, apply, drift, applied, durationMs, deferred, error}|null
+ *         last_run: {ranAt, apply, drift, applied, durationMs, deferred, refused, error}|null
  *     }> }
  *   `run_reconcile` posts {name, apply} and the response carries the fresh
  *   listing (`reconciles`) plus the run `report` and `record`.
@@ -86,6 +86,7 @@ reconcile_status.prototype.list = render_reconcile_status.prototype.list;
  * @param {HTMLElement} options.body_response - node that receives the status text.
  * @param {string} options.name - the registered reconcile name.
  * @param {boolean} [options.apply=false] - repair instead of report.
+ * @param {string[]} [options.scope] - narrow the run (the row's scope_label values); omitted = all.
  * @returns {Promise<boolean>}
  */
 reconcile_status.prototype.run_reconcile = async function (options) {
@@ -105,6 +106,7 @@ reconcile_status.prototype.run_reconcile = async function (options) {
 			options: {
 				name: options.name,
 				apply: options.apply === true,
+				...(Array.isArray(options.scope) ? { scope: options.scope } : {}),
 			},
 		},
 		retries: 1, // one try only: a reconcile must never be re-run behind the operator's back

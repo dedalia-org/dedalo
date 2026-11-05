@@ -870,6 +870,21 @@ Merged since the last release; these ship with the next one.
     now come from the label catalogs and are translated into every application
     language. The widget names themselves are unchanged.
 
+- **A reconcile apply that is refused now says why, and the Reconcile panel can narrow a run.**
+
+    When a reconcile refuses to apply because one of its own conditions is not met, the
+    maintenance **Reconcile** panel and the command line used to show only `applied 0`, which
+    looked like a run with nothing to repair. They now say *REFUSED* and give the reason, and
+    `GET /api/v1/counters` carries it as `last_refused`. A refused run is not retried on its own:
+    it waits for you to change what the reason names.
+
+    Reconciles that can be narrowed (to a TLD, a section…) now have a scope field in the panel;
+    Check and Apply use it, and leaving it empty runs everything. On an ontology server, the
+    ontology machine-name conversion requires this: give the TLDs to convert and apply them one
+    at a time.
+
+    Wire contract: `WC-2026-11-05-reconcile-apply-refused`.
+
 - **The Bun-runtime procedure finds an instance whose name contains dots.**
 
     On a host whose instance is named after its domain — `dedalo-ts@example.org`, not
@@ -1114,7 +1129,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 60 entries"
+??? note "Wire contract — 61 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -1176,6 +1191,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-04-subdatum-own-level-residual-divergences`
     - `WC-2026-11-04-tree-picker-read-gate-retired`
     - `WC-2026-11-04-writer-chain-scoped-search`
+    - `WC-2026-11-05-reconcile-apply-refused`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

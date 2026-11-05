@@ -110,6 +110,9 @@ export function runMessage(name: string, apply: boolean, report: ReconcileReport
 	if (report.deferred !== undefined) {
 		return `${name}: drift ${report.drift}, nothing applied — DEFERRED: ${report.deferred.reason}. Run it again`;
 	}
+	if (report.refused !== undefined) {
+		return `${name}: drift ${report.drift}, nothing applied — REFUSED: ${report.refused.reason}`;
+	}
 	const note = unresolvedNote(report);
 	if (report.drift === 0) {
 		return note === ''

@@ -5,7 +5,7 @@
  * so a server-side rename breaks this file's typecheck, not the page); the
  * render wiring is pinned at the source level (vanilla JS, no DOM here).
  *
- * Asserted: a DEFERRED run says so — with its reason and "nothing applied" —
+ * Asserted: a DEFERRED and a REFUSED run each say so (WC-2026-11-05-reconcile-apply-refused) — with its reason and "nothing applied" —
  * and never reads as a clean `apply — drift N, applied 0`; a failed run names
  * its code; the interval schedule reads `boot + every 10 min` / `every N min`.
  */
@@ -34,6 +34,7 @@ const base = {
 	drift: 3,
 	applied: 0,
 	deferred: null,
+	refused: null,
 	error: null,
 } satisfies ReconcileRunRecord;
 
@@ -43,6 +44,22 @@ describe('reconcile_status client sentences', () => {
 		const text = last_run_text({ ...base, deferred: reason } satisfies ReconcileRunRecord);
 		expect(text).toBe(`${RAN_AT} DEFERRED — drift 3, nothing applied: ${reason}`);
 		expect(text).not.toContain('applied 0');
+	});
+
+	test('a REFUSED apply reads REFUSED with its reason and nothing applied — never a clean "applied 0"', () => {
+		const reason =
+			'this is an ontology server: master is converted by a human — give an explicit TLD scope';
+		const text = last_run_text({ ...base, refused: reason } satisfies ReconcileRunRecord);
+		expect(text).toBe(`${RAN_AT} REFUSED — drift 3, nothing applied: ${reason}`);
+		expect(text).not.toContain('applied 0');
+	});
+
+	test('a scopable row offers a scope field and sends it on check AND apply', () => {
+		const render = readFileSync(join(DIR, 'render_reconcile_status.js'), 'utf8');
+		const run = readFileSync(join(DIR, 'reconcile_status.js'), 'utf8');
+		expect(render).toContain('item.scope_label');
+		expect(render.match(/scope: read_scope\(\)/g)?.length).toBe(2);
+		expect(run).toContain('scope: options.scope');
 	});
 
 	test('a completed apply, a check, a failure and no run each read as what they are', () => {

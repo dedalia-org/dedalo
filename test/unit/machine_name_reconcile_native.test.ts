@@ -11,7 +11,7 @@
  *    release does not define the tipos yet);
  *  - A DRY RUN WRITES NOTHING: the section's bytes are equal before and after;
  *  - UNARMED APPLY WRITES NOTHING: on an ontology without ontology43/44 (the vendored
- *    7.0 today) an apply reports `detail.apply_refused` naming the missing tipo,
+ *    7.0 today) an apply reports `report.refused` naming the missing tipo,
  *    applied 0, bytes unchanged — never a name moved into a component the parser cannot
  *    read;
  *  - NEVER AUTO-APPLIED ON AN ONTOLOGY SERVER: an unscoped apply is refused there; a
@@ -23,6 +23,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { runMessage } from '../../src/core/area_maintenance/widgets/reconcile_status.ts';
 import {
 	applyRefusal,
 	censusMachineNames,
@@ -164,10 +165,13 @@ describe('apply refusals write nothing', () => {
 		);
 		const before = await scratchBytes(TLD);
 		for (const name of [ONTOLOGY_MACHINE_NAMES, ONTOLOGY_MACHINE_NAMES_STRAYS]) {
-			const { report } = await runReconcile(name, { apply: true, scope: [TLD] });
+			const { report, record } = await runReconcile(name, { apply: true, scope: [TLD] });
 			expect(report.applied).toBe(0);
 			expect(report.drift).toBeGreaterThan(0);
-			expect(String(report.detail.apply_refused)).toContain('ontology43');
+			expect(report.refused?.reason).toContain('ontology43');
+			// the refusal reaches what the operator READS, never a bare "applied 0"
+			expect(record.refused).toContain('ontology43');
+			expect(runMessage(name, true, report)).toContain('REFUSED');
 		}
 		expect(await scratchBytes(TLD)).toBe(before);
 	});
