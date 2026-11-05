@@ -1737,7 +1737,9 @@ describe('one escaper at the render boundary — the escaper itself', () => {
 		expect(escaper.render_join(null, ' | ', 'text')).toBe('');
 		expect(escaper.render_join('<x>', ' | ', 'text')).toBe('&lt;x&gt;');
 		// absent separator (context without fields_separator) → ', ', never values glued together
-		expect(escaper.render_join(['09/06/1628', '25/06/2024'], undefined, 'text')).toBe('09/06/1628, 25/06/2024');
+		expect(escaper.render_join(['09/06/1628', '25/06/2024'], undefined, 'text')).toBe(
+			'09/06/1628, 25/06/2024',
+		);
 	});
 
 	test('render_fallback_value escapes BEFORE the <mark> wrap', () => {
