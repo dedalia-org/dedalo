@@ -3,7 +3,7 @@
  *
  * `bun run test:crawl [--persona root,admin,editor] [--only <tipo,…>] [--max <n>]
  *                     [--concurrency <n>] [--journey <a,b>] [--no-journeys]
- *                     [--out <dir>] [--port <n>] [--headful] [--strict] [--update]`
+ *                     [--out <dir>] [--shots <dir>] [--port <n>] [--headful] [--strict] [--update]`
  *   --update  after a green FULL run, raise the coverage floors (engineering/crawl_inventory.json)
  *
  * Starts its OWN server on the SUITE database (the verified door of
@@ -29,7 +29,8 @@
  * by direct URL, must be refused — never served, never a crash.
  *
  * Verdict: findings minus KNOWN_FAILING and INTERMITTENT (test/helpers/feature_crawl_ratchet.ts,
- * shrink-only). `--out` writes crawl_report.json + crawl_report.html + one PNG per finding.
+ * shrink-only). `--out` writes crawl_report.json + crawl_report.html + one PNG per finding;
+ * `--shots` writes a full-page PNG of EVERY visited list/edit/area page.
  * Needs `bun run test:db:setup` once. ONE suite run at a time: `bun test` and
  * test:client reseed test3 wholesale and would wipe the crawl's fixture records.
  *
@@ -92,6 +93,7 @@ const flag = (name: string): string | undefined => {
 };
 const list = (name: string): string[] | undefined => flag(name)?.split(',').filter(Boolean);
 const outDir = flag('--out');
+const shotsDir = flag('--shots'); // every visited page, for visual review
 const onlyTipos = list('--only');
 const maxSections = Number.parseInt(flag('--max') ?? '0', 10);
 const strict = args.includes('--strict');
@@ -219,6 +221,7 @@ const browser = await puppeteer.launch({
 });
 const hostname = new URL(server.origin).hostname;
 if (outDir) mkdirSync(outDir, { recursive: true });
+if (shotsDir) mkdirSync(shotsDir, { recursive: true });
 
 try {
 	for (const persona of PERSONAS) await crawlPersona(persona);
@@ -746,6 +749,10 @@ async function visit(
 		await page.goto(url, { waitUntil: 'networkidle0', timeout: PAGE_TIMEOUT });
 		await settle(page);
 		await scrollAll(page);
+		if (shotsDir)
+			await page
+				.screenshot({ path: join(shotsDir, `${who}_${mode}_${tipo}.png`), fullPage: true })
+				.catch(() => {});
 		const instances = await liveInstances(page);
 		const ids = [
 			...new Set(
