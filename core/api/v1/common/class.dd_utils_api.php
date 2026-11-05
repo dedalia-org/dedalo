@@ -572,7 +572,7 @@ final class dd_utils_api {
 		// options
 			$options		= $rqo->options;
 			$file_to_upload	= $options->file_to_upload ?? $options->file ?? $options->upload;	// assoc array Added from PHP input '$_FILES'
-			$key_dir		= $options->key_dir; // string like 'tool_upload'
+			$key_dir		= basename($options->key_dir); // string like 'tool_upload'
 			$tipo			= $options->tipo ?? null;
 			$chunked		= isset($options->chunked) // received as string 'true'|'false'
 				? (bool)json_decode($options->chunked)
@@ -582,6 +582,12 @@ final class dd_utils_api {
 			$response = new stdClass();
 				$response->result	= false;
 				$response->msg		= 'Error. '.label::get_label('error_on_upload_file');
+
+		// key_dir check
+			if (!self::is_valid_key_dir($key_dir)) {
+				$response->msg .= ' Invalid key_dir';
+				return $response;
+			}
 
 		// check for upload issues
 		try {
@@ -688,7 +694,7 @@ final class dd_utils_api {
 
 				// blob case (componen_3d posterframe auto-generated)
 				if ($file_name==='blob' && isset($options->file_name)) {
-					$file_name = $options->file_name;
+					$file_name = basename($options->file_name);
 				}
 
 				// extension
@@ -703,9 +709,9 @@ final class dd_utils_api {
 			// name
 				$name = $file_name;
 				if($chunked===true) {
-					$file_name		= $options->file_name;
+					$file_name		= basename($options->file_name);
 					$total_chunks	= $options->total_chunks;
-					$chunk_index	= $options->chunk_index;
+					$chunk_index	= (int)$options->chunk_index;
 					$tmp_name		= basename($file_tmp_name);
 					$extension		= 'blob';
 					$name			= "{$chunk_index}-{$tmp_name}.{$extension}";
@@ -934,56 +940,39 @@ final class dd_utils_api {
 	*/
 	public static function join_chunked_files_uploaded(object $rqo) : object {
 
+		// unlock session and keep joining even if the proxy drops the connection
+			session_write_close();
+			ignore_user_abort(true);
+
 		// options
 			$options		= $rqo->options;
 			$files_chunked	= $options->files_chunked;
 			$file_data		= $options->file_data;
-			$key_dir 		= $file_data->key_dir;
+			$key_dir 		= basename($file_data->key_dir);
 
 		// response
 			$response = new stdClass();
 				$response->result 	= false;
 				$response->msg 		= 'Error. Request failed';
 
+		// key_dir check
+			if (!self::is_valid_key_dir($key_dir)) {
+				$response->msg .= ' Invalid key_dir';
+				return $response;
+			}
+
 		// file_path
 			$user_id	= logged_user_id();
 			$file_path	= DEDALO_UPLOAD_TMP_DIR . '/'. $user_id . '/' . $key_dir;
 
 		// tmp_joined_file
-			$tmp_joined_file = 'tmp_'.$file_data->name;
+			$tmp_joined_file = 'tmp_'.basename($file_data->name);
 
 		// target path of the final file joined
 			$target_path = $file_path .'/'. $tmp_joined_file;
 
-		// loop through temp files and grab the content
-			foreach ($files_chunked as $chunk_filename) {
-
-				// copy chunk
-				$temp_file_path	= "{$file_path}/{$chunk_filename}";
-				$chunk			= file_get_contents($temp_file_path);
-				if ( empty($chunk) ){
-					$response->msg = "Chunks are uploading as empty strings.";
-					debug_log(__METHOD__
-						.' Error: '.$response->msg
-						, logger::ERROR
-					);
-					return $response;
-				}
-
-				// add chunk to main file
-				file_put_contents($target_path, $chunk, FILE_APPEND | LOCK_EX);
-
-				// delete chunk
-				unlink($temp_file_path);
-				if ( file_exists($temp_file_path) ) {
-					$response->msg = "Your temp files could not be deleted.";
-					debug_log(__METHOD__
-						.' Error: '.$response->msg
-						, logger::ERROR
-					);
-					return $response;
-				}
-			}
+		// join into part_<name> and rename at the end, so tmp_<name> only exists once fully joined (the client polls for it)
+			$part_path = $file_path .'/part_'. basename($file_data->name);
 
 		// extension
 			$extension = strtolower( pathinfo($tmp_joined_file, PATHINFO_EXTENSION) );
@@ -1007,14 +996,101 @@ final class dd_utils_api {
 				return $response;
 			}
 
+		// joining large files (several GB) can exceed max_execution_time
+			set_time_limit(0);
+
+		// remove stale files from a previous failed attempt (chunks are appended)
+			foreach ([$target_path, $part_path] as $stale_path) {
+				if (file_exists($stale_path)) {
+					unlink($stale_path);
+				}
+			}
+
+		// open target once and stream every chunk into it (constant memory)
+			$target_handle = fopen($part_path, 'ab');
+			if ($target_handle===false) {
+				$response->msg = "Unable to open target file: {$tmp_joined_file}";
+				debug_log(__METHOD__
+					.' Error: '.$response->msg
+					, logger::ERROR
+				);
+				return $response;
+			}
+
+		// loop through temp files and append the content
+			$error_msg = null;
+			foreach ($files_chunked as $chunk_filename) {
+
+				// copy chunk
+				$chunk_filename	= basename($chunk_filename);
+				$temp_file_path	= "{$file_path}/{$chunk_filename}";
+				if (!is_file($temp_file_path)) {
+					$error_msg = "Chunk file not found: {$chunk_filename}";
+					break;
+				}
+				$chunk_size = filesize($temp_file_path);
+				if ( empty($chunk_size) ){
+					$error_msg = "Chunk file is empty: {$chunk_filename}";
+					break;
+				}
+				$chunk_handle = fopen($temp_file_path, 'rb');
+				if ($chunk_handle===false) {
+					$error_msg = "Unable to open chunk file: {$chunk_filename}";
+					break;
+				}
+
+				// add chunk to main file
+				$copied = stream_copy_to_stream($chunk_handle, $target_handle);
+				fclose($chunk_handle);
+				if ($copied!==$chunk_size) {
+					$error_msg = "Incomplete copy of chunk: {$chunk_filename} (".to_string($copied)." of {$chunk_size} bytes)";
+					break;
+				}
+
+				// delete chunk
+				unlink($temp_file_path);
+				if ( file_exists($temp_file_path) ) {
+					$error_msg = "Your temp files could not be deleted.";
+					break;
+				}
+			}
+			fclose($target_handle);
+
+		// on error, remove the partial file and the remaining chunks: the join cannot be resumed and they would fill the disk
+			if ($error_msg!==null) {
+				foreach ($files_chunked as $chunk_filename) {
+					$temp_file_path = $file_path .'/'. basename($chunk_filename);
+					if (is_file($temp_file_path)) {
+						unlink($temp_file_path);
+					}
+				}
+				unlink($part_path);
+				$response->msg = $error_msg;
+				debug_log(__METHOD__
+					.' Error: '.$response->msg
+					, logger::ERROR
+				);
+				return $response;
+			}
+
 		// thumbnail
 			$thumb_options = new stdClass();
 				$thumb_options->tmp_dir		= $file_path;
 				$thumb_options->name		= $tmp_joined_file;
-				$thumb_options->target_path	= $target_path;
+				$thumb_options->target_path	= $part_path;
 				$thumb_options->key_dir		= $key_dir;
 				$thumb_options->user_id		= $user_id;
 			$thumbnail_url = dd_utils_api::create_thumbnail($thumb_options);
+
+		// publish the joined file
+			if (!rename($part_path, $target_path)) {
+				$response->msg = "Unable to rename joined file: {$tmp_joined_file}";
+				debug_log(__METHOD__
+					.' Error: '.$response->msg
+					, logger::ERROR
+				);
+				return $response;
+			}
 
 		// set the file values
 			$file_data->tmp_name		= $tmp_joined_file; // like 'phpv75h2K'
@@ -1056,7 +1132,13 @@ final class dd_utils_api {
 			$response->msg 		= 'Error. Request failed';
 
 		// options
-			$key_dir = $rqo->options->key_dir ?? null;
+			$key_dir = basename($rqo->options->key_dir ?? '');
+
+		// key_dir check
+			if (!self::is_valid_key_dir($key_dir)) {
+				$response->msg .= ' Invalid key_dir';
+				return $response;
+			}
 
 		// dir
 			$user_id = logged_user_id();
@@ -1117,7 +1199,13 @@ final class dd_utils_api {
 
 		// short vars
 			$file_names	= is_array($options->file_name) ? $options->file_name : [$options->file_name];
-			$key_dir	= $options->key_dir; // key_dir. Contraction of tipo + section_tipo, like: 'rsc29_rsc176'
+			$key_dir	= basename($options->key_dir); // key_dir. Contraction of tipo + section_tipo, like: 'rsc29_rsc176'
+
+		// key_dir check
+			if (!self::is_valid_key_dir($key_dir)) {
+				$response->msg .= ' Invalid key_dir';
+				return $response;
+			}
 
 		// dir
 			$user_id	= logged_user_id();
@@ -1127,6 +1215,7 @@ final class dd_utils_api {
 			foreach ($file_names as $file_name) {
 
 				// file_path
+					$file_name = basename($file_name);
 					$file_path = $tmp_dir . '/' . $file_name;
 
 				// delete file
@@ -1373,8 +1462,21 @@ final class dd_utils_api {
 			$pid	= $rqo->options->pid;
 
 		// only logged users can access SSE events
+			// SSE formatted message (is_running false) to stop client reconnections
 			if(login::is_logged()!==true) {
-				die('Authentication error: please login');
+				$msg = 'Authentication error: please login';
+				$output = (object)[
+					'pid'			=> $pid,
+					'pfile'			=> $pfile,
+					'is_running'	=> false,
+					'data'			=> (object)[
+						'msg' => $msg
+					],
+					'time'			=> date("Y-m-d H:i:s"),
+					'errors'		=> [$msg]
+				];
+				echo 'data:' . "\n" . json_handler::encode($output, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n\n";
+				die();
 			}
 
 		// header print as event stream
@@ -2072,6 +2174,20 @@ final class dd_utils_api {
 
 		return $mime_types;
 	}//end get_known_mime_types
+
+
+
+	/**
+	* IS_VALID_KEY_DIR
+	* Checks a basenamed key_dir. basename() keeps '.' and '..', that would
+	* resolve to the user dir or the shared upload root
+	* @param string $key_dir
+	* @return bool
+	*/
+	private static function is_valid_key_dir(string $key_dir) : bool {
+
+		return !in_array($key_dir, ['', '.', '..'], true);
+	}//end is_valid_key_dir
 
 
 

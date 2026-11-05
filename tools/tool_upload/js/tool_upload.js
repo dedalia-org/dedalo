@@ -10,7 +10,7 @@
 	import {data_manager} from '../../../core/common/js/data_manager.js'
 	import {event_manager} from '../../../core/common/js/event_manager.js'
 	import {common, create_source} from '../../../core/common/js/common.js'
-	import {tool_common} from '../../tool_common/js/tool_common.js'
+	import {tool_common, wait_background_process} from '../../tool_common/js/tool_common.js'
 	import {render_tool_upload} from './render_tool_upload.js'
 
 
@@ -165,6 +165,23 @@ tool_upload.prototype.process_uploaded_file_controller = async function(file_dat
 
 	return api_response
 }//end process_uploaded_file_controller
+
+
+
+/**
+* WAIT_BACKGROUND_VERSIONS
+* @see tool_common wait_background_process
+* @param int|string pid
+* @param string pfile
+* @return promise
+*/
+tool_upload.prototype.wait_background_versions = function(pid, pfile) {
+
+	const self = this
+
+	// stop waiting when the tool is closed
+	return wait_background_process(pid, pfile, () => self.status==='destroyed')
+}//end wait_background_versions
 
 
 

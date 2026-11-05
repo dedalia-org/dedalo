@@ -987,4 +987,157 @@ const get_tool_label = function(label_name, ...rest) {
 
 
 
+/**
+* WAIT_BACKGROUND_PROCESS
+* Waits until a background CLI process (exec_::request_cli) ends.
+* Used when the server builds media versions in background (e.g. component_av big files).
+* Reads the process status stream (dd_utils_api::get_process_status) until the process ends.
+* If the stream is lost while the process is still running (network drop, server restart, etc.)
+* it reconnects. The pfile is kept after the process ends, so a reconnection gets the final result.
+* @see common.js update_process_status
+* @param int|string pid
+* @param string pfile
+* @param function|null should_stop
+* 	optional. Returns true when the waiting UI is gone (e.g. tool destroyed) to stop waiting
+* @return promise
+* 	Resolve: object {result: bool, msg: string, stopped?: bool} (process_runner output)
+*/
+export const wait_background_process = async function(pid, pfile, should_stop=null) {
+
+	const max_reconnections	= 20
+	const reconnect_delay	= 10000 // milliseconds
+
+	const is_stopped = () => typeof should_stop==='function' && should_stop()===true
+	const stopped_response = {
+		result	: false,
+		stopped	: true,
+		msg		: 'Stopped waiting for the background process. It may still be running'
+	}
+
+	let reconnections = 0
+	while (true) {
+
+		const outcome = await read_process_status(pid, pfile, is_stopped)
+
+		// process ended. Last data is the process_runner output (JSON response)
+		if (outcome.ended===true) {
+			const data = outcome.data
+			// waiting UI is gone. Callers must not update it
+			if (is_stopped()) {
+				return {...stopped_response, result: data?.result===true}
+			}
+			return {
+				result	: data?.result===true,
+				msg		: (typeof data?.result==='boolean' && data?.msg)
+					? data.msg
+					: (data?.msg || 'Background process ended without result. Check the PHP error log')
+			}
+		}
+
+		if (is_stopped()) {
+			return stopped_response
+		}
+
+		// connection lost. Retry. A connection that got server messages resets the counter
+		reconnections = outcome.got_server_msg===true ? 1 : reconnections + 1
+		if (reconnections > max_reconnections) {
+			return {
+				result	: false,
+				msg		: 'Lost connection with the background process. It may still be running. Reload the page later to check the result'
+			}
+		}
+		console.warn(`Background process status stream lost. Reconnecting (${reconnections}/${max_reconnections}) ..`);
+		await new Promise(resolve => setTimeout(resolve, reconnect_delay))
+
+		if (is_stopped()) {
+			return stopped_response
+		}
+	}
+}//end wait_background_process
+
+
+
+/**
+* READ_PROCESS_STATUS
+* Reads one get_process_status stream until it closes
+* @param int|string pid
+* @param string pfile
+* @param function is_stopped
+* 	returns true to cancel the stream read
+* @return promise
+* 	Resolve: object {ended: bool, data: object|null, got_server_msg: bool}
+* 	ended is false when the stream is lost while the process is still running
+* 	got_server_msg is true when at least one real server message was received
+*/
+const read_process_status = async function(pid, pfile, is_stopped) {
+
+	// request stream. Note that request_stream never resolves on fetch error. Use a timeout
+		const stream_promise = data_manager.request_stream({
+			body : {
+				dd_api		: 'dd_utils_api',
+				action		: 'get_process_status',
+				update_rate	: 5000, // int milliseconds
+				options		: {
+					pid		: pid,
+					pfile	: pfile
+				}
+			}
+		})
+		const stream = await Promise.race([
+			stream_promise,
+			new Promise(resolve => setTimeout(() => resolve(null), 30000))
+		])
+		if (!stream) {
+			// timeout. Cancel the stream if it opens later to free the connection
+			stream_promise.then(late_stream => late_stream?.cancel())
+			return {ended: false, data: null, got_server_msg: false}
+		}
+
+	return new Promise(function(resolve){
+
+		let last_data		= null
+		let last_is_running	= true
+		let read_count		= 0 // first on_read call is the read_stream fake 'Preparing data...' message
+		let settled			= false
+		const settle = (value) => {
+			if (!settled) {
+				settled = true
+				resolve(value)
+			}
+		}
+
+		const on_read = (sse_response, reader) => {
+			read_count++
+			if (sse_response?.data) {
+				last_data = sse_response.data
+			}
+			if (typeof sse_response?.is_running==='boolean') {
+				last_is_running = sse_response.is_running
+			}
+			// waiting UI is gone. Cancel the reader (fires on_done)
+			if (last_is_running===true && is_stopped()) {
+				reader.cancel('stopped')
+			}
+		}
+		// stream closed. Only a final message (is_running false) means the process ended
+		const on_done = () => {
+			settle({
+				ended			: last_is_running===false,
+				data			: last_data,
+				got_server_msg	: read_count > 1
+			})
+		}
+		const on_error = () => {
+			settle({
+				ended			: false,
+				data			: null,
+				got_server_msg	: read_count > 1
+			})
+		}
+		data_manager.read_stream(stream, on_read, on_done, on_error)
+	})
+}//end read_process_status
+
+
+
 // @license-end

@@ -196,6 +196,10 @@ const render_sync_data = function(self) {
 
 				self.sync_files()
 				.then(function(response){
+					// tool closed while waiting the background process
+					if (response.stopped===true) {
+						return
+					}
 					if (response.result===true) {
 						self.refresh({
 							build_autoload	: false,

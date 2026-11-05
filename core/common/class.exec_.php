@@ -312,6 +312,24 @@ class exec_ {
 			$class_file		= $options->class_file;
 			$params			= $options->params;
 
+		// PHP_BIN_PATH check. With a wrong path, nohup returns a valid PID but the process dies
+		// immediately with an empty output, and nothing is logged. Fail here with a clear message
+		// Skipped when open_basedir is set: is_executable returns false for paths outside it
+			$open_basedir = ini_get('open_basedir');
+			if (!defined('PHP_BIN_PATH') || (empty($open_basedir) && !is_executable(PHP_BIN_PATH))) {
+				$response = new stdClass();
+					$response->result	= false;
+					$response->pid		= 0;
+					$response->pfile	= null;
+					$response->msg		= 'Error. Unable to launch the background process. PHP binary is not executable. Check PHP_BIN_PATH in config_db.php'
+						. ' (current: ' . (defined('PHP_BIN_PATH') ? PHP_BIN_PATH : 'undefined') . ')';
+				debug_log(__METHOD__
+					. ' ' . $response->msg
+					, logger::ERROR
+				);
+				return $response;
+			}
+
 			$safe_params = new stdClass();
 			foreach ($params as $key => $value) {
 				$safe_params->{$key} = safe_xss($value);

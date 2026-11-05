@@ -825,9 +825,11 @@ data_manager.request_stream = async function(options) {
 * 	callback function fired for each reader chunk
 * @param function on_done
 * 	callback function fired on reader done (close read)
+* @param function|null on_error
+* 	optional callback function fired on reader error (connection lost, etc.)
 * @return void
 */
-data_manager.read_stream = function(stream, on_read, on_done) {
+data_manager.read_stream = function(stream, on_read, on_done, on_error=null) {
 
 	// Get the reader from the stream
 	const reader = stream.getReader();
@@ -935,6 +937,10 @@ data_manager.read_stream = function(stream, on_read, on_done) {
 			.catch(error => {
 				// Log the error
 				console.error(error);
+				// exec optional callback function on_error
+				if (typeof on_error==='function') {
+					on_error(error)
+				}
 			});
 	};
 	// Start reading the first chunk

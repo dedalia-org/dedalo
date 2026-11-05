@@ -8,7 +8,7 @@
 	import {dd_console} from '../../../core/common/js/utils/index.js'
 	import {data_manager} from '../../../core/common/js/data_manager.js'
 	import {common, create_source} from '../../../core/common/js/common.js'
-	import {tool_common} from '../../tool_common/js/tool_common.js'
+	import {tool_common, wait_background_process} from '../../tool_common/js/tool_common.js'
 	import {render_tool_media_versions} from './render_tool_media_versions.js' // self tool rendered (called from render common)
 
 
@@ -518,12 +518,16 @@ tool_media_versions.prototype.sync_files = async function() {
 	// this generates a call as my_tool_name::my_function_name(options)
 		const source = create_source(self, 'sync_files')
 
+	// background. component_av FFmpeg builds can exceed the PHP-FPM time limit. Run in background CLI
+		const background_running = self.main_element.model==='component_av'
+
 	// rqo
 		const rqo = {
 			dd_api	: 'dd_tools_api',
 			action	: 'tool_request',
 			source	: source,
 			options	: {
+				background_running	: background_running,
 				tipo				: self.main_element.tipo,
 				section_tipo		: self.main_element.section_tipo,
 				section_id			: self.main_element.section_id,
@@ -532,21 +536,22 @@ tool_media_versions.prototype.sync_files = async function() {
 		}
 
 	// call to the API, fetch data and get response
-		return new Promise(function(resolve){
-
-			data_manager.request({
-				body : rqo,
-				retries : 1, // one try only
-				timeout : 3600 * 1000 // 3600 secs waiting response
-			})
-			.then(function(response){
-				if(SHOW_DEVELOPER===true) {
-					dd_console("-> sync_files API response:",'DEBUG',response);
-				}
-
-				resolve(response)
-			})
+		const response = await data_manager.request({
+			body : rqo,
+			retries : 1, // one try only
+			timeout : 3600 * 1000 // 3600 secs waiting response
 		})
+		if(SHOW_DEVELOPER===true) {
+			dd_console("-> sync_files API response:",'DEBUG',response);
+		}
+
+	// background case. Wait until the CLI process ends. Resolve the process result {result, msg}
+		if (background_running && response?.result===true && response.pid) {
+			// stop waiting when the tool is closed
+			return wait_background_process(response.pid, response.pfile, () => self.status==='destroyed')
+		}
+
+		return response
 }//end sync_files
 
 

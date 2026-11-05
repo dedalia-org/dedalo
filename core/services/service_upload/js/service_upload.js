@@ -206,6 +206,8 @@ export const upload = async function(options) {
 			}
 
 			const queue				= [];
+			const active_xhrs		= new Set();
+			let stopped				= false;
 			let active_count		= 0;
 			let total_chunks		= 0;
 			let file_size 			= 0;
@@ -301,6 +303,14 @@ export const upload = async function(options) {
 				}
 			}//end upload_progress
 
+		// stop_queue
+			// a chunk failed: drop the queued chunks and abort the ones in flight (no-op when not chunked)
+			const stop_queue = function() {
+				stopped = true
+				queue.length = 0
+				active_xhrs.forEach(xhr => xhr.abort())
+			}//end stop_queue
+
 		// on_xhr_load
 			// check if the upload was done, and process the result in the server
 			// if the process use a chunk files, join the chunks previously.
@@ -320,6 +330,7 @@ export const upload = async function(options) {
 						if (evt.target.responseText) {
 							response.msg = evt.target.responseText
 						}
+						stop_queue()
 						resolve(response)
 						return false
 					}
@@ -340,7 +351,8 @@ export const upload = async function(options) {
 
 							service_upload.prototype.join_chunked_files({
 								file_data		: file_data,
-								files_chunked	: files_chunked
+								files_chunked	: files_chunked,
+								file_size		: file.size
 							})
 							.then(function(api_response){
 								resolve(api_response)
@@ -348,6 +360,9 @@ export const upload = async function(options) {
 							})
 						}
 					}else{
+						if (!api_response.result) {
+							stop_queue()
+						}
 						resolve(api_response)
 						return true
 					}
@@ -452,9 +467,11 @@ export const upload = async function(options) {
 				const chunked 		= true
 				const max_retry		= 3
 
-				return new Promise(function(resolve){
+				return new Promise(function(resolve, reject){
 
 					const xhr = new XMLHttpRequest();
+					active_xhrs.add(xhr)
+					xhr.addEventListener('loadend', () => active_xhrs.delete(xhr))
 
 					xhr.open('POST', api_url, true);
 
@@ -477,8 +494,8 @@ export const upload = async function(options) {
 						formdata.append('total_chunks', total_chunks);
 						formdata.append('file_to_upload', chunk);
 
-					// upload_error (the upload ends in error)
-						xhr.upload.addEventListener("error", function(evt) {
+					// upload_error (the request ends in error). On xhr: xhr.upload does not fire once the body is fully sent
+						xhr.addEventListener("error", function(evt) {
 							upload_error(evt)
 							console.error('xhr.upload error evt:', evt);
 							console.log('xhr.upload error chunk:', chunk);
@@ -490,6 +507,10 @@ export const upload = async function(options) {
 
 								const result_retry = new Promise(function(resolve, reject){
 									setTimeout( function(){
+										if (stopped) {
+											reject(new Error('Upload stopped'))
+											return
+										}
 										// Clean up current XHR to prevent memory leaks
 										xhr.onreadystatechange = null;
 										xhr.upload.onerror = null;
@@ -519,13 +540,15 @@ export const upload = async function(options) {
 							}
 						}, false);
 
-					// upload_abort (the upload has been aborted by the user)
+					// upload_abort (the upload has been aborted by the user or by stop_queue)
 						const abort_handler = (e) => {
-							console.error('xhr.upload abort');
-							upload_abort(e)
+							console.error('xhr abort');
+							if (!stopped) {
+								upload_abort(e)
+							}
 							reject(e)
 						}
-						xhr.upload.addEventListener("abort", abort_handler, false);
+						xhr.addEventListener("abort", abort_handler, false);
 
 					// progress
 						xhr.upload.addEventListener("progress", function(event) {
@@ -598,7 +621,18 @@ export const upload = async function(options) {
 
 		// chunk_file on end, else send next chunk
 			if (DEDALO_UPLOAD_SERVICE_CHUNK_FILES > 0) {
+				// a failed chunk rejects Promise.all; end the upload with an error response instead of hanging
 				chunk_file(file, key_dir)
+				.catch(function(error){
+					console.error('Error on chunk_file:', error);
+					// already stopped and resolved by on_xhr_load (this is the abort of the chunks in flight)
+					if (stopped) {
+						return
+					}
+					stop_queue()
+					response.msg = error?.message || `${get_label.error_on_upload_file} ${file.name}`
+					resolve(response)
+				})
 			}else{
 				send()
 			}
@@ -672,6 +706,7 @@ service_upload.prototype.join_chunked_files = async function(options) {
 	// options
 		const file_data		= options.file_data
 		const files_chunked	= options.files_chunked
+		const file_size		= options.file_size
 
 	// rqo
 		const rqo = {
@@ -688,17 +723,77 @@ service_upload.prototype.join_chunked_files = async function(options) {
 
 			data_manager.request({
 				body : rqo,
-				retries : 5, // try
-				timeout : 10 * 1000 // 10 secs waiting response
+				// no retries: join deletes the chunks, so a retry would always fail on the first chunk
+				retries : 1,
+				timeout : 3600 * 1000 // joining several GB can take minutes
 			})
-			.then(function(response){
+			.then(async function(response){
 				if(SHOW_DEVELOPER===true) {
-					dd_console("-> get_system_info API response:",'DEBUG',response);
+					dd_console("-> join_chunked_files API response:",'DEBUG',response);
+				}
+				// response lost (proxy 504, network): the server keeps joining (ignore_user_abort), so wait for its result file
+				if (response.error instanceof Error) {
+					const joined = await wait_for_joined_file({
+						key_dir		: file_data.key_dir,
+						name		: 'tmp_' + file_data.name,
+						size		: file_size
+					})
+					if (joined) {
+						file_data.tmp_name		= joined.name
+						file_data.extension		= joined.name.split('.').pop().toLowerCase()
+						file_data.thumbnail_url	= joined.url
+						response = {
+							result		: true,
+							file_data	: file_data,
+							msg			: 'OK. ' + (get_label.file_uploaded_successfully || 'File uploaded successfully')
+						}
+					}
 				}
 				resolve(response)
 			})
 		})
-}//end get_system_info
+}//end join_chunked_files
+
+
+
+/**
+* WAIT_FOR_JOINED_FILE
+* Polls list_uploaded_files until the joined file appears with its full size.
+* The server writes it as part_<name> and renames it to tmp_<name> only when the join is done
+* @param object options {key_dir, name, size}
+* @return object|null file
+* 	Listed file like {name, size, url} or null on timeout
+*/
+const wait_for_joined_file = async function(options) {
+
+	const { key_dir, name, size } = options
+
+	const interval	= 10 * 1000
+	const max_wait	= 3600 * 1000 // same as the join request timeout
+	for (let waited = 0; waited < max_wait; waited += interval) {
+
+		await new Promise(resolve => setTimeout(resolve, interval))
+
+		const api_response = await data_manager.request({
+			body : {
+				dd_api			: 'dd_utils_api',
+				action			: 'list_uploaded_files',
+				prevent_lock	: true,
+				options			: {
+					key_dir : key_dir
+				}
+			}
+		})
+		const found = Array.isArray(api_response?.result)
+			? api_response.result.find(el => el.name===name && el.size===size)
+			: null
+		if (found) {
+			return found
+		}
+	}
+
+	return null
+}//end wait_for_joined_file
 
 
 

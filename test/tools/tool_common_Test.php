@@ -282,6 +282,52 @@ final class tool_common_test extends TestCase {
 
 
 	/**
+	* TEST_READ_CSV_FILE_AS_ARRAY_BLANK_LINES
+	* Blank lines (fgetcsv returns [null]) must be skipped, not crash trim()
+	* @return void
+	*/
+	public function test_read_csv_file_as_array_blank_lines() {
+
+		$directory = DEDALO_UPLOAD_TMP_DIR . '/test';
+		if (!is_dir($directory)) {
+			mkdir($directory, 0750, true);
+		}
+		$file_test_csv = $directory . '/blank_lines.csv';
+
+		// BOM + blank first line + blank middle line + trailing blank lines
+		file_put_contents($file_test_csv, pack('H*','EFBBBF') . "\n\"section_id\";\"dd200\"\r\n\r\n\"1\";\" a \"\n;\n\n\n");
+
+		$this->assertSame(
+			[['section_id','dd200'], ['1','a'], ['','']],
+			tool_common::read_csv_file_as_array($file_test_csv)
+		);
+
+		// skip_header keeps original keys (starts at 1)
+		$this->assertSame(
+			[1 => ['1','a'], 2 => ['','']],
+			tool_common::read_csv_file_as_array($file_test_csv, true)
+		);
+
+		// BOM before quoted first cell must not leave literal quotes
+		file_put_contents($file_test_csv, pack('H*','EFBBBF') . "\"section_id\";\"dd200\"\n");
+
+		$this->assertSame(
+			[['section_id','dd200']],
+			tool_common::read_csv_file_as_array($file_test_csv)
+		);
+
+		// non UTF-8 line followed by blank line (mb_convert_encoding path)
+		file_put_contents($file_test_csv, "\"1\";\"caf\xE9\"\n\n\"2\";\"b\"\n");
+
+		$this->assertSame(
+			[['1','café'], ['2','b']],
+			tool_common::read_csv_file_as_array($file_test_csv)
+		);
+	}//end test_read_csv_file_as_array_blank_lines
+
+
+
+	/**
 	* TEST_GET_USER_TOOLS
 	* @return void
 	*/
