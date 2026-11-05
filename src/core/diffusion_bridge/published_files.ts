@@ -101,18 +101,6 @@ export function sanitizePublishedFileName(name: string): string {
 }
 
 /**
- * The label an ontology `term` bag names a published node by — `lg-spa` first,
- * else the first NON-EMPTY value (the plan compiler's termLabelOf, verbatim:
- * src/diffusion/plan/virtual_tree.ts). The delete side used to take the first
- * value even when empty, so a term whose first lang is '' named a different
- * rdf file on each side.
- */
-export function publishedTermLabel(term: Record<string, string> | null | undefined): string | null {
-	if (term === null || term === undefined) return null;
-	return term['lg-spa'] ?? Object.values(term).find((value) => value !== '') ?? null;
-}
-
-/**
  * Per-record file NAME of a per-record format. rdf names carry the owl:Class
  * label (PHP class.diffusion_rdf.php:324-328); xml/markdown are
  * `<st>_<id>.<ext>` (PHP class.diffusion_xml.php:565 / markdown

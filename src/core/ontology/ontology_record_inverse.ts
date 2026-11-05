@@ -28,6 +28,18 @@
  *   | properties (rest) | ontology18 | misc          |                           |
  *   | propiedades       | ontology19 | misc          | v5 legacy JSON text       |
  *   | order_number      | ontology41 | number        |                           |
+ *   | machine_name      | ontology43 | string        | lg-nolan, WHEN NEEDED (1) |
+ *   | use_machine_name  | ontology44 | relation      | dd64/1 yes, dd64/2 no (1) |
+ *
+ * (1) The machine-name pair is written only where the node's values DIFFER
+ * from what the parser's legacy rungs derive from the rest of the record
+ * (ontology/machine_name.ts deriveLegacyMachineName): an unconverted node —
+ * its name still in ontology5 lg-spa, its flag its classification — is
+ * written exactly as before, and parses back to the same columns through the
+ * rungs; a converted one (name ≠ lg-spa, no lg-spa, or a flag that is not the
+ * classification) states its components. On an ontology release that does
+ * not define ontology43/44 yet the parser ignores them, so such a node only
+ * round-trips once the release carries them — the honest outcome.
  *
  * PURE except `provisionOntologyMainRegistry`, which writes through
  * `syncMainSectionFromDefinition` (the registry's IMPORT door — a JSON node is
@@ -40,11 +52,14 @@ import type { DdOntologyNode } from '../db/dd_ontology.ts';
 import type { MatrixJsonbColumn } from '../db/matrix.ts';
 import { withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/index.ts';
+import { resolveLabel } from './labels.ts';
+import { deriveLegacyMachineName } from './machine_name.ts';
 import {
 	DATA_NOLAN,
 	ONTOLOGY_CONNECTED_TO,
 	ONTOLOGY_CSS,
 	ONTOLOGY_IS_MODEL,
+	ONTOLOGY_MACHINE_NAME,
 	ONTOLOGY_MODEL,
 	ONTOLOGY_ORDER,
 	ONTOLOGY_PARENT,
@@ -54,6 +69,7 @@ import {
 	ONTOLOGY_TERM,
 	ONTOLOGY_TLD,
 	ONTOLOGY_TRANSLATABLE,
+	ONTOLOGY_USE_MACHINE_NAME,
 	RELATION_TYPE_LINK,
 	RELATION_TYPE_PARENT,
 	SI_NO_NO,
@@ -142,7 +158,31 @@ function relationColumnFromNode(node: DdOntologyNode): Record<string, unknown[]>
 	// Always written: the parser reads a MISSING ontology8 as translatable=true.
 	relation[ONTOLOGY_TRANSLATABLE] = [yesNoLocator(node.is_translatable, ONTOLOGY_TRANSLATABLE)];
 	relation[ONTOLOGY_IS_MODEL] = [yesNoLocator(node.is_model, ONTOLOGY_IS_MODEL)];
-	return relation;
+	return { ...relation, ...machineNameFlagColumn(node) };
+}
+
+/** `relation.ontology44` when the node must state its flag (explicitMachineName), else nothing. */
+function machineNameFlagColumn(node: DdOntologyNode): Record<string, unknown[]> {
+	if (!explicitMachineName(node).flag) return {};
+	return {
+		[ONTOLOGY_USE_MACHINE_NAME]: [yesNoLocator(node.use_machine_name, ONTOLOGY_USE_MACHINE_NAME)],
+	};
+}
+
+/**
+ * Which machine-name components the node must STATE (module header, note 1):
+ * each one whose value differs from the parser's legacy derivation. A node
+ * that does not carry the columns (a JSON definition from before them) states
+ * nothing — its record is the legacy shape the rungs read.
+ */
+function explicitMachineName(node: DdOntologyNode): { flag: boolean; name: boolean } {
+	if (typeof node.use_machine_name !== 'boolean') return { flag: false, name: false };
+	const legacy = deriveLegacyMachineName(node);
+	const name = node.machine_name ?? null;
+	return {
+		flag: node.use_machine_name !== legacy.use_machine_name,
+		name: name !== null && name !== legacy.machine_name,
+	};
 }
 
 /** `string` — the MANDATORY tld plus one term item per language. */
@@ -151,6 +191,9 @@ function stringColumnFromNode(node: DdOntologyNode, tld: string): Record<string,
 	const string: Record<string, unknown[]> = { [ONTOLOGY_TLD]: [literalItem(1, DATA_NOLAN, tld)] };
 	const items = Object.entries(node.term ?? {}).map(([lang, value]) => literalItem(1, lang, value));
 	if (items.length > 0) string[ONTOLOGY_TERM] = items;
+	if (explicitMachineName(node).name) {
+		string[ONTOLOGY_MACHINE_NAME] = [literalItem(1, DATA_NOLAN, node.machine_name)];
+	}
 	return string;
 }
 
@@ -208,7 +251,9 @@ function dataColumnFromNode(
 	return {
 		section_id: sectionId,
 		section_tipo: `${tld}0`,
-		label: node.term?.['lg-eng'] ?? node.term?.['lg-spa'] ?? node.tipo,
+		// The ONE label chain (labels.ts), read in lg-eng — it ends in the
+		// machine name, then the tipo.
+		label: resolveLabel(node.term ?? null, 'lg-eng', node.machine_name ?? null) ?? node.tipo,
 	};
 }
 

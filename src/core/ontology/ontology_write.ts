@@ -52,6 +52,7 @@ import {
 	projectOntologyNode,
 } from '../section_record/ontology_projection.ts';
 import { isCoreOntologyTld } from './core_tlds.ts';
+import { ONTOLOGY_LABEL_FALLBACK_LANG } from './labels.ts';
 import {
 	dependenciesMiscItems,
 	normalizeOntologyDependencies,
@@ -87,13 +88,13 @@ import {
 	ONTOLOGY_TYPE_GROUP,
 	ONTOLOGY_TYPE_TLD,
 	PROJECTS_SECTION,
+	REGISTRY_LANG,
 	RELATION_TYPE_CHILDREN,
 	RELATION_TYPE_LINK,
 	RELATION_TYPE_PARENT,
 	SECTION_MODEL_TIPO,
 	SI_NO_NO,
 	SI_NO_YES,
-	STRUCTURE_LANG,
 	YES_NO_SECTION,
 } from './ontology_tipos.ts';
 import { getTermIdFromLocator } from './parser.ts';
@@ -329,8 +330,10 @@ async function resolveRootIdentity(
 ): Promise<{ typologyId: number; nameData: NonNullable<FileItem['name_data']> }> {
 	const tld = fileItem.tld;
 	const typologyId = fileItem.typology_id ?? (await getMainTypologyId(tld)) ?? 15; // 15 = 'others'
+	// The bare-tld placeholder is a LABEL of the root node (its term), so it
+	// goes in the label-fallback lang (labels.ts), not lg-nolan.
 	const nameData = fileItem.name_data ??
-		(await getMainNameData(tld)) ?? [{ lang: STRUCTURE_LANG, value: tld }];
+		(await getMainNameData(tld)) ?? [{ lang: ONTOLOGY_LABEL_FALLBACK_LANG, value: tld }];
 	return { typologyId, nameData };
 }
 
@@ -369,6 +372,9 @@ export async function createDdOntologyRootNode(fileItem: FileItem, userId = -1):
 		is_translatable: false,
 		is_main: true,
 		propiedades: null,
+		// A `<tld>0` main node is a section: label class, never a machine name.
+		machine_name: null,
+		use_machine_name: false,
 	};
 	await upsertDdOntologyNode(node);
 	return tipo;
@@ -385,7 +391,7 @@ export async function createDdOntologyRootNode(fileItem: FileItem, userId = -1):
 //    names the TLD. It writes the whole registry contract: hierarchy4 active =
 //    YES (an admin switches a development TLD off by hand; the export filters
 //    on it), hierarchy125 = yes only for 'dd', hierarchy8 = the lg1 record of
-//    STRUCTURE_LANG, hierarchy54 = dd153/1, name, tld, target section,
+//    REGISTRY_LANG, hierarchy54 = dd153/1, name, tld, target section,
 //    typology, declared dependencies (hierarchy60) and, for 'dd', the general
 //    term children.
 //  - syncMainSectionFromDefinition — the IMPORT door (package install, ontology
@@ -428,17 +434,18 @@ function writeOntologyMainKey(
 }
 
 /**
- * The lg1 record id of a language code — by default STRUCTURE_LANG, the
- * language every registry row is filed under (hierarchy8). Resolved from the
+ * The lg1 record id of a language code — by default REGISTRY_LANG
+ * (ontology_tipos.ts), the language every registry row is filed under
+ * (hierarchy8; its own constant since 2026-11-04, owner decision D7). Resolved from the
  * installation's own langs section, never a hard-coded id; an unresolvable code
  * is an install defect and is refused loudly (no fallback: a guessed id would
  * file the row under whatever language happens to own it).
  */
-export async function resolveRegistryLangId(code: string = STRUCTURE_LANG): Promise<number> {
+export async function resolveRegistryLangId(code: string = REGISTRY_LANG): Promise<number> {
 	const sectionId = await getLangSectionIdByCode(code);
 	if (sectionId === null) {
 		throw new DedaloError('ontology.invalid_node', {
-			message: `ontology registry: the structure language '${code}' has no ${LANG_SECTION} record — the installation's langs section is incomplete`,
+			message: `ontology registry: the registry language '${code}' has no ${LANG_SECTION} record — the installation's langs section is incomplete`,
 			coordinates: { section_tipo: LANG_SECTION, lang: code },
 		});
 	}
@@ -492,7 +499,7 @@ function definitionDependencies(fileItem: FileItem): OntologyDependency[] | null
 	return dependencies;
 }
 
-/** hierarchy8: the registry row's language (STRUCTURE_LANG's lg1 record). */
+/** hierarchy8: the registry row's language (REGISTRY_LANG's lg1 record). */
 function writeRegistryLang(mainSectionId: number, langId: number): Promise<void> {
 	return writeOntologyMainKey(mainSectionId, 'relation', HIERARCHY_LANG, [
 		relationLocator({
@@ -557,7 +564,7 @@ function ddGeneralTermValue(targetSectionTipo: string): Record<string, unknown>[
  * law above). Refuses a TLD that already has a row — use
  * syncMainSectionFromDefinition (an import) or ensureMainSection (a rebuild).
  * Every input is resolved BEFORE the record is minted, so a refusal (an
- * unresolvable STRUCTURE_LANG, unnormalized dependencies) writes nothing.
+ * unresolvable REGISTRY_LANG, unnormalized dependencies) writes nothing.
  * Returns the new section_id.
  */
 export async function createMainSection(fileItem: FileItem, userId = -1): Promise<number> {
@@ -642,7 +649,9 @@ async function mintRegistryRow(fileItem: FileItem, userId: number): Promise<numb
 	await write('string', HIERARCHY_TARGET_SECTION, [literalItem(1, DATA_NOLAN, targetSectionTipo)]);
 	await writeDefinitionKeys(
 		mainSectionId,
-		nameItems.length > 0 ? nameItems : [literalItem(1, STRUCTURE_LANG, tld)],
+		// hierarchy5 is translatable: the bare-tld placeholder name is a label in
+		// the label-fallback lang (labels.ts), not lg-nolan.
+		nameItems.length > 0 ? nameItems : [literalItem(1, ONTOLOGY_LABEL_FALLBACK_LANG, tld)],
 		definitionTypologyId(fileItem),
 		dependencies,
 	);
@@ -675,7 +684,7 @@ export async function ensureMainSection(
  * definition (each only when stated — an absent `dependencies` is "not
  * declared" and leaves the local value), hierarchy4 = yes for a CORE TLD
  * (isCoreOntologyTld) and unchanged otherwise, hierarchy125 by the dd-only
- * rule, hierarchy8 by the STRUCTURE_LANG rule. Returns the row's section_id.
+ * rule, hierarchy8 by the REGISTRY_LANG rule. Returns the row's section_id.
  */
 export async function syncMainSectionFromDefinition(
 	fileItem: FileItem,

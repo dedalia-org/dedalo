@@ -33,9 +33,16 @@
  *    no bootstrap row in the seed. `rebuildOntology` stays the single deriver:
  *    this door only puts the term and the typology where `ensureMainNode`
  *    already looks for them.
- *  - `model` is likewise derived (`dd_ontology[model_tipo].term['lg-spa']`), so
- *    the JSON's `model` string is a REDUNDANT twin of `model_tipo`; the gate
- *    asserts the two agree instead of this door trying to write it.
+ *  - `model` is likewise derived (the model node's machine name —
+ *    ontology/machine_name.ts modelNameOf), so the JSON's `model` string is a
+ *    REDUNDANT twin of `model_tipo`; the gate asserts the two agree instead of
+ *    this door trying to write it.
+ *  - `machine_name` / `use_machine_name` are derived too. A JSON node from
+ *    before the columns does not state them: the loader fills them with the
+ *    parser's own legacy derivation (deriveLegacyMachineName — the counted
+ *    rungs), which is exactly what its unconverted record parses back to, so
+ *    the round trip and the gate compare like with like until P4 regenerates
+ *    the JSON through the converter kernel.
  *
  * `propiedades` round-trips by MEANING, not bytes: the parser re-encodes the
  * stored value with PHP's JSON_PRETTY_PRINT, while the seed's rows are
@@ -68,6 +75,7 @@ import { deleteMatrixRecord, insertMatrixRecordWithExplicitId } from '../db/matr
 import { sql, withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/index.ts';
 import { clearOntologyDerivedCaches } from '../ontology/cache_invalidation.ts';
+import { deriveLegacyMachineName } from '../ontology/machine_name.ts';
 import {
 	ontologyRecordFromNode,
 	provisionOntologyMainRegistry,
@@ -161,7 +169,19 @@ async function assertAllowedDatabase(options: { expectDatabase?: string }): Prom
 /** Load the committed JSON source (dynamic import — only when a door runs). */
 export async function loadTestTldOntologyDoc(): Promise<TestTldOntologyDoc> {
 	const module = await import('./test_tld_ontology.json');
-	return module.default as unknown as TestTldOntologyDoc;
+	const doc = module.default as unknown as TestTldOntologyDoc;
+	return { ...doc, nodes: doc.nodes.map(withMachineNameColumns) };
+}
+
+/** A JSON node with its machine-name columns stated (module header). */
+function withMachineNameColumns(node: DdOntologyNode): DdOntologyNode {
+	if (typeof node.use_machine_name === 'boolean') return node;
+	const derived = deriveLegacyMachineName(node);
+	return {
+		...node,
+		machine_name: node.machine_name ?? derived.machine_name,
+		use_machine_name: derived.use_machine_name,
+	};
 }
 
 /**

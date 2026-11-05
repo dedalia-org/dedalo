@@ -53,6 +53,7 @@ import { assertMatrixTable } from '../db/matrix.ts';
 import { sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
+import { nameOrLabelOf } from '../ontology/labels.ts';
 import { getMatrixTableFromTipo } from '../ontology/resolver.ts';
 import { assertValidTipo, VALID_DATA_COLUMNS } from './identifier_gate.ts';
 import { requireRelationIndex } from './search_store.ts';
@@ -144,13 +145,23 @@ registerOntologyCacheClearer(clearRelatedTablesCache);
  */
 export async function getRelationTables(): Promise<string[]> {
 	if (relationTablesCache !== null) return relationTablesCache;
+	// The table name is the matrix_table node's MACHINE NAME (a name model —
+	// ontology/machine_name.ts), never a label lang: the same reading as
+	// resolver.ts relatedMatrixTable (labels.ts nameOrLabelOf, which also
+	// bridges a row no parser has derived yet to the legacy lg-spa reading).
 	const rows = (await sql`
-		SELECT term->>'lg-spa' AS table_name, properties
+		SELECT term, machine_name, use_machine_name, properties
 		FROM dd_ontology
 		WHERE parent = 'dd627' AND model = 'matrix_table'
-	`) as { table_name: string | null; properties: { inverse_relations?: boolean } | null }[];
+	`) as {
+		term: Record<string, string> | null;
+		machine_name: string | null;
+		use_machine_name: boolean | null;
+		properties: { inverse_relations?: boolean } | null;
+	}[];
 	const tables: string[] = [];
-	for (const row of rows) {
+	for (const node of rows) {
+		const row = { table_name: nameOrLabelOf(node), properties: node.properties };
 		if (row.table_name === null) continue;
 		const include = row.properties?.inverse_relations === true || row.table_name === 'matrix_test';
 		if (!include) continue;

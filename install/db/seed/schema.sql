@@ -173,7 +173,9 @@ CREATE TABLE public.dd_ontology (
     is_model boolean,
     is_translatable boolean,
     is_main boolean,
-    propiedades text
+    propiedades text,
+    machine_name text,
+    use_machine_name boolean
 );
 
 
@@ -283,6 +285,20 @@ COMMENT ON COLUMN public.dd_ontology.propiedades IS 'V5 properties, DEPRECATED';
 
 
 --
+-- Name: COLUMN dd_ontology.machine_name; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dd_ontology.machine_name IS 'Language-free node name (ontology43); NULL unless use_machine_name. Derived by the parser.';
+
+
+--
+-- Name: COLUMN dd_ontology.use_machine_name; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dd_ontology.use_machine_name IS 'True: machine_name is the node name (ontology44); false: named by its label (term); NULL: not derived yet.';
+
+
+--
 -- Name: dd_ontology_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -319,7 +335,9 @@ CREATE TABLE public.dd_ontology_recovery (
     is_model boolean,
     is_translatable boolean,
     propiedades text,
-    is_main boolean
+    is_main boolean,
+    machine_name text,
+    use_machine_name boolean
 );
 
 

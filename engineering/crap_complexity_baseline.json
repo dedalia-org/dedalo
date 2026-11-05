@@ -4,10 +4,10 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 837,
-		"functions": 14477,
-		"functionsOverCap": 660,
-		"filesOverCap": 258
+		"files": 841,
+		"functions": 14695,
+		"functionsOverCap": 659,
+		"filesOverCap": 257
 	},
 	"ledger": [
 		{
@@ -180,6 +180,11 @@
 			"generated": "2026-11-03",
 			"functionsOverCap": 660,
 			"filesOverCap": 258
+		},
+		{
+			"generated": "2026-11-04",
+			"functionsOverCap": 659,
+			"filesOverCap": 257
 		}
 	],
 	"files": {
@@ -320,7 +325,6 @@
 		"src/core/ontology/data_io_import.ts": 18,
 		"src/core/ontology/hierarchy_provision.ts": 20,
 		"src/core/ontology/hierarchy_state.ts": 22,
-		"src/core/ontology/labels.ts": 11,
 		"src/core/ontology/ontology_delete.ts": 9,
 		"src/core/ontology/ontology_state.ts": 15,
 		"src/core/ontology/ontology_update.ts": 15,

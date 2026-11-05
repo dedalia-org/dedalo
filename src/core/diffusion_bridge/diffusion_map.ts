@@ -55,6 +55,8 @@ function toNodeRow(node: OntologySubtreeNode): DiffusionNode {
 		parent: node.parent,
 		model: node.model ?? '',
 		term: node.term,
+		machine_name: node.machine_name,
+		use_machine_name: node.use_machine_name,
 		relations: node.relations as { tipo?: string }[] | null,
 	};
 }
@@ -96,7 +98,7 @@ async function createDbDiffusionGraph(): Promise<DiffusionGraph> {
 			const cached = external.get(tipo);
 			if (cached !== undefined) return cached;
 			const found = (await sql.unsafe(
-				'SELECT tipo, parent, model, term, relations FROM dd_ontology WHERE tipo = $1',
+				'SELECT tipo, parent, model, term, machine_name, use_machine_name, relations FROM dd_ontology WHERE tipo = $1',
 				[tipo],
 			)) as DiffusionNode[];
 			const node = found[0] ?? null;

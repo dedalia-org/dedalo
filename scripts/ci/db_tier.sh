@@ -190,6 +190,11 @@ DB_TIER_TRIPWIRES=(
 	test/unit/ai_spend_budget_native.test.ts
 	test/unit/install_tld_provenance_native.test.ts
 	test/unit/ontology_registry_row_native.test.ts
+	test/unit/machine_name_outcome_native.test.ts
+	test/unit/machine_name_native.test.ts
+	test/unit/machine_name_classification_native.test.ts
+	test/unit/machine_name_rung_ratchet_native.test.ts
+	test/unit/machine_name_reconcile_native.test.ts
 	test/unit/ontology_dependencies_native.test.ts
 	test/unit/install_hierarchy_dependencies_native.test.ts
 	test/unit/change_plan_write_door_native.test.ts

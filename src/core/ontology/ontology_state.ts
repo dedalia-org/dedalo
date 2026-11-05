@@ -117,7 +117,10 @@ import {
 	deleteDdOntologyRowsReturning,
 	deleteTldNodesExcept,
 	deleteTldNodesReturningTipos,
+	listTldsWithUnderivedMachineNames,
+	listUnderivedMachineNameTipos,
 	lockOntologyProjection,
+	readDdOntologyRow,
 	tldHoldsNodes,
 	upsertDdOntologyNode,
 } from '../db/dd_ontology.ts';
@@ -126,11 +129,14 @@ import { DedaloError } from '../errors/dedalo_error.ts';
 import type { ReconcileDefinition } from '../reconcile/registry.ts';
 import { changedDeclaredOrderTipos, declaredOrderSignature } from '../relations/order_locators.ts';
 import {
-	ONTOLOGY_MAIN_SECTION,
-	ONTOLOGY_TLD,
-	ONTOLOGY_TYPE_TLD,
-	STRUCTURE_LANG,
-} from './ontology_tipos.ts';
+	isNameClassNode,
+	type MachineNameDefectKind,
+	type MachineNameInput,
+	type MachineNameLegacyRung,
+	modelNameOf,
+	projectMachineName,
+} from './machine_name.ts';
+import { ONTOLOGY_MAIN_SECTION, ONTOLOGY_TLD, ONTOLOGY_TYPE_TLD } from './ontology_tipos.ts';
 import {
 	createDdOntologyRootNode,
 	ensureMainSection,
@@ -139,7 +145,11 @@ import {
 	getOntologyMainFromTld,
 	type OntologyWriteResponse,
 } from './ontology_write.ts';
-import { type OntologyNodeDefect, parseSectionRecordToOntologyNodeWithDefects } from './parser.ts';
+import {
+	modelResolutionDefects,
+	type OntologyNodeDefect,
+	parseSectionRecordToOntologyNodeWithDefects,
+} from './parser.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from './resolver.ts';
 import {
 	getTldFromTipo,
@@ -195,6 +205,21 @@ export interface OntologyState {
 	invalidReferenceNodes: number;
 	/** Every dropped reference, by SOURCE record (see the module header, INVALID REFERENCES). */
 	invalidReferenceRecords: InvalidReferenceRecord[];
+	/**
+	 * Count of own nodes with at least one machine-name finding — a WARNING channel, like
+	 * invalidReferenceNodes, never a drift kind (the projection still matches its source;
+	 * the SOURCE is what is wrong). Plan §6b: this is the post-upgrade verification —
+	 * an explicit flag that disagrees with the classification, a flag-yes node with no name,
+	 * a model that resolves to nothing — so a drifted PHP list is named, never silent.
+	 */
+	machineNameDefectNodes: number;
+	/** Every machine-name finding, by SOURCE record (ontology/machine_name.ts MachineNameDefectKind). */
+	machineNameDefects: MachineNameDefectRecord[];
+	/**
+	 * How many own nodes derived their machine-name columns through each legacy rung
+	 * (ontology/machine_name.ts) — the P1→P4 bridge, shrink-only to zero (G6).
+	 */
+	machineNameLegacyRungs: Record<MachineNameLegacyRung, number>;
 	drift: OntologyDriftItem[];
 	/** No drift and the main node is present → dd_ontology matches its source. */
 	inSync: boolean;
@@ -253,6 +278,30 @@ export interface InvalidReferenceRecord {
 	value: unknown;
 }
 
+/** One machine-name finding on a source record (see OntologyState.machineNameDefects). */
+export interface MachineNameDefectRecord {
+	/** `<section_tipo>/<section_id>` — the record the operator must fix. */
+	source: string;
+	/** The node the record parses into. */
+	tipo: string;
+	kind: MachineNameDefectKind;
+	/** The competing / offending values, when the kind has any. */
+	values?: unknown[];
+}
+
+/** A zeroed rung tally (every key present, so a consumer can ratchet each). */
+function emptyRungTally(): Record<MachineNameLegacyRung, number> {
+	return { legacy_lang: 0, single_value: 0, derived_flag: 0 };
+}
+
+/** What the model fixpoint needs to RE-derive one node's machine-name columns. */
+interface MachineNameSource {
+	source: string;
+	input: MachineNameInput;
+	rungs: MachineNameLegacyRung[];
+	defects: MachineNameDefectRecord[];
+}
+
 interface ParsedMatrixNodes {
 	/** Nodes that belong to the inspected tld, keyed by tipo — the projection. */
 	own: Map<string, DdOntologyNode>;
@@ -262,6 +311,10 @@ interface ParsedMatrixNodes {
 	tldless: TldlessRecord[];
 	/** References of `own` nodes dropped for breaking the identifier grammar. */
 	invalidReferences: InvalidReferenceRecord[];
+	/** Machine-name findings of `own` nodes, after the model fixpoint. */
+	machineNameDefects: MachineNameDefectRecord[];
+	/** Legacy-rung tally of `own` nodes, after the model fixpoint. */
+	machineNameLegacyRungs: Record<MachineNameLegacyRung, number>;
 }
 
 /**
@@ -277,12 +330,21 @@ async function parseMatrixNodes(tld: string): Promise<ParsedMatrixNodes> {
 	const foreign: ForeignRecord[] = [];
 	const tldless: TldlessRecord[] = [];
 	const invalidReferences: InvalidReferenceRecord[] = [];
-	if (table === null) return { own, foreign, tldless, invalidReferences };
+	const machineNames = new Map<string, MachineNameSource>();
+	const empty = (): ParsedMatrixNodes => ({
+		own,
+		foreign,
+		tldless,
+		invalidReferences,
+		machineNameDefects: [],
+		machineNameLegacyRungs: emptyRungTally(),
+	});
+	if (table === null) return empty();
 	// localontology0 records are OVERRIDES of other tlds' nodes, never nodes of
 	// their own (parser.ts refuses them): the `localontology` tld projects to its
 	// main node only, and anything else stored under it is `orphaned` drift that
 	// rebuild removes (e.g. a `localontology1` left by the pre-2026-10-01 parse).
-	if (sectionTipo === LOCAL_ONTOLOGY_SECTION) return { own, foreign, tldless, invalidReferences };
+	if (sectionTipo === LOCAL_ONTOLOGY_SECTION) return empty();
 
 	// BEFORE blaming any record: can `ontology7` itself be resolved?
 	//
@@ -307,10 +369,8 @@ async function parseMatrixNodes(tld: string): Promise<ParsedMatrixNodes> {
 	)) as { section_id: number }[];
 	for (const row of rows) {
 		const sectionId = Number(row.section_id);
-		const { node, defects } = await parseSectionRecordToOntologyNodeWithDefects(
-			sectionTipo,
-			sectionId,
-		);
+		const parsed = await parseSectionRecordToOntologyNodeWithDefects(sectionTipo, sectionId);
+		const { node, defects } = parsed;
 		if (node === null) {
 			// With ontology7 resolvable (guarded above), the remaining cause is what
 			// this kind names: the RECORD declares no tld. Reported, never dropped.
@@ -326,6 +386,19 @@ async function parseMatrixNodes(tld: string): Promise<ParsedMatrixNodes> {
 			continue;
 		}
 		own.set(node.tipo, node);
+		const source = `${sectionTipo}/${sectionId}`;
+		if (parsed.machineNameInput !== null) {
+			machineNames.set(node.tipo, {
+				source,
+				input: parsed.machineNameInput,
+				rungs: parsed.machineNameRungs,
+				defects: parsed.machineNameDefects.map((defect) => ({
+					source,
+					tipo: node.tipo,
+					...defect,
+				})),
+			});
+		}
 		for (const defect of defects) {
 			invalidReferences.push({
 				source: `${sectionTipo}/${sectionId}`,
@@ -335,30 +408,81 @@ async function parseMatrixNodes(tld: string): Promise<ParsedMatrixNodes> {
 			});
 		}
 	}
-	resolveModelsAgainstParse(own, tld);
-	return { own, foreign, tldless, invalidReferences };
+	resolveModelsAgainstParse(own, tld, machineNames);
+	return { own, foreign, tldless, invalidReferences, ...machineNameFindings(machineNames) };
+}
+
+/** The machine-name findings + legacy-rung tally of every own node (after the fixpoint). */
+function machineNameFindings(
+	machineNames: ReadonlyMap<string, MachineNameSource>,
+): Pick<ParsedMatrixNodes, 'machineNameDefects' | 'machineNameLegacyRungs'> {
+	const tally = emptyRungTally();
+	const defects: MachineNameDefectRecord[] = [];
+	for (const entry of machineNames.values()) {
+		for (const rung of entry.rungs) tally[rung] += 1;
+		defects.push(...entry.defects);
+	}
+	return { machineNameDefects: defects, machineNameLegacyRungs: tally };
+}
+
+/**
+ * RE-derive one node's machine-name columns after the fixpoint changed its model: the
+ * classification reads the model (a node whose model became `table` is name-class now), so
+ * the kernel runs again on the SAME source input with the new class, and the node's findings
+ * are replaced (its `model_unresolved` included). Not re-counted: the parse already counted.
+ */
+function rederiveMachineName(node: DdOntologyNode, entry: MachineNameSource): void {
+	const projection = projectMachineName({ ...entry.input, nameClass: isNameClassNode(node) });
+	node.machine_name = projection.machine_name;
+	node.use_machine_name = projection.use_machine_name;
+	entry.rungs = projection.rungs;
+	entry.defects = [
+		...projection.defects,
+		...modelResolutionDefects(node.model_tipo, node.model),
+	].map((defect) => ({ source: entry.source, tipo: node.tipo, ...defect }));
 }
 
 /**
  * MODEL FIXPOINT. `model` is the one column a node takes from ANOTHER node: the parser reads
- * `dd_ontology(model_tipo).term[STRUCTURE_LANG]` off the STORED row (parser.ts projectModel).
+ * `dd_ontology(model_tipo).machine_name` off the STORED row (parser.ts projectModel).
  * A whole-tld parse runs before any upsert, so for a model node of the SAME tld that stored row
  * is the pre-rebuild one: a model the release adds, or renames, would leave every instance with
  * `model = NULL` / the old name until a second pass. Resolve those against the parse being
- * written instead (same strict rule: that node's term in STRUCTURE_LANG, no fallback), so one
+ * written instead (same rule, machine_name.ts modelNameOf: that node's machine_name), so one
  * rebuild converges and inspect compares against the fixpoint. A same-tld model the parse
  * does NOT produce (its record removed: the rebuild deletes its row as an orphan) resolves to
  * `null` — what the parser reads once that row is gone — never to the stored row's name the
  * same transaction is about to delete. A model of ANOTHER tld is the update's second pass
  * (ontology_update.ts deriveOntologyPackages). Gate: ontology_derive_packages_native G1f.
+ *
+ * The model is read before the instance's machine name is classified, so a node whose model
+ * the fixpoint CHANGES is re-derived (rederiveMachineName). Model nodes come first: their own
+ * columns never depend on another node's model (a model definition is classified by its row).
  */
-function resolveModelsAgainstParse(own: Map<string, DdOntologyNode>, tld: string): void {
+function resolveModelsAgainstParse(
+	own: Map<string, DdOntologyNode>,
+	tld: string,
+	machineNames: ReadonlyMap<string, MachineNameSource>,
+): void {
 	for (const node of own.values()) {
 		if (node.model_tipo === null) continue;
-		const modelNode = own.get(node.model_tipo);
-		if (modelNode !== undefined) node.model = modelNode.term?.[STRUCTURE_LANG] ?? null;
-		else if (isRemovedSameTldModel(node.model_tipo, tld)) node.model = null;
+		const before = node.model;
+		node.model = modelAgainstParse(node.model_tipo, before, own, tld);
+		const entry = machineNames.get(node.tipo);
+		if (entry !== undefined && node.model !== before) rederiveMachineName(node, entry);
 	}
+}
+
+/** One node's model against the parse being written (resolveModelsAgainstParse). */
+function modelAgainstParse(
+	modelTipo: string,
+	parsedModel: string | null,
+	own: ReadonlyMap<string, DdOntologyNode>,
+	tld: string,
+): string | null {
+	const modelNode = own.get(modelTipo);
+	if (modelNode !== undefined) return modelNameOf(modelNode).model;
+	return isRemovedSameTldModel(modelTipo, tld) ? null : parsedModel;
 }
 
 /** A model tipo of THIS tld the parse does not produce (and not its root): its row is an orphan. */
@@ -424,11 +548,30 @@ function invalidReferenceNote(state: OntologyState): string {
 	return ` — ${state.invalidReferenceNodes} node(s) dropped a reference that is not a valid identifier (fix the source record): ${named}${rest > 0 ? ` (+${rest} more)` : ''}`;
 }
 
+/**
+ * The warning suffix naming nodes with machine-name findings, or ''. Same shape and cap as
+ * invalidReferenceNote; the full list is `state.machineNameDefects`.
+ */
+function machineNameNote(state: OntologyState): string {
+	if (state.machineNameDefectNodes === 0) return '';
+	const records = state.machineNameDefects;
+	const named = records
+		.slice(0, TLDLESS_NAMED_LIMIT)
+		.map(
+			(item) =>
+				`${item.source} ${item.kind}${item.values === undefined ? '' : ` ${(JSON.stringify(item.values) ?? '').slice(0, 64)}`}`,
+		)
+		.join(', ');
+	const rest = records.length - TLDLESS_NAMED_LIMIT;
+	return ` — ${state.machineNameDefectNodes} node(s) have a machine-name finding (fix the source record's machine name / use-machine-name): ${named}${rest > 0 ? ` (+${rest} more)` : ''}`;
+}
+
 /** Read every dd_ontology row for the TLD, keyed by tipo. */
 async function storedNodes(tld: string): Promise<Map<string, DdOntologyRow>> {
 	const rows = (await sql.unsafe(
 		`SELECT tipo, parent, term, model, order_number, relations, tld,
-		        properties, model_tipo, is_model, is_translatable, is_main, propiedades
+		        properties, model_tipo, is_model, is_translatable, is_main, propiedades,
+		        machine_name, use_machine_name
 		 FROM dd_ontology WHERE tld = $1`,
 		[tld],
 	)) as DdOntologyRow[];
@@ -507,6 +650,10 @@ export function nodeDiffColumns(parsed: DdOntologyNode, stored: DdOntologyRow): 
 		'is_model',
 		'is_translatable',
 		'is_main',
+		// Migration 0015: a row no parser has derived since reads use_machine_name NULL —
+		// `stale` until the tld's next rebuild, which is exactly the trigger it needs.
+		'machine_name',
+		'use_machine_name',
 	];
 	for (const key of scalar) {
 		if ((parsed[key] ?? null) !== (stored[key] ?? null)) diffs.push(key);
@@ -563,11 +710,21 @@ export async function inspectOntology(rawTld: string): Promise<OntologyState> {
 			tldlessRecords: [],
 			invalidReferenceNodes: 0,
 			invalidReferenceRecords: [],
+			machineNameDefectNodes: 0,
+			machineNameDefects: [],
+			machineNameLegacyRungs: emptyRungTally(),
 			drift: [],
 			inSync: false,
 		};
 	}
-	const { own: parsed, foreign, tldless, invalidReferences } = await parseMatrixNodes(tld);
+	const {
+		own: parsed,
+		foreign,
+		tldless,
+		invalidReferences,
+		machineNameDefects,
+		machineNameLegacyRungs,
+	} = await parseMatrixNodes(tld);
 	const stored = await storedNodes(tld);
 	const mainTipo = `${tld}0`;
 	const mainNodeOk = (stored.get(mainTipo)?.is_main ?? false) === true;
@@ -623,6 +780,9 @@ export async function inspectOntology(rawTld: string): Promise<OntologyState> {
 		tldlessRecords: tldless.map((item) => item.source),
 		invalidReferenceNodes: new Set(invalidReferences.map((item) => item.tipo)).size,
 		invalidReferenceRecords: invalidReferences,
+		machineNameDefectNodes: new Set(machineNameDefects.map((item) => item.tipo)).size,
+		machineNameDefects,
+		machineNameLegacyRungs,
 		drift,
 		inSync: drift.length === 0 && mainNodeOk,
 	};
@@ -873,7 +1033,7 @@ export async function rebuildOntology(
 	return {
 		ok: converged,
 		msg: converged
-			? `Ontology '${tld}' rebuilt${tldlessNote(state)}${invalidReferenceNote(state)}`
+			? `Ontology '${tld}' rebuilt${tldlessNote(state)}${invalidReferenceNote(state)}${machineNameNote(state)}`
 			: state.foreignNodes > 0
 				? `Ontology '${tld}' rebuilt; ${state.foreignNodes} source record(s) declare another tld and were skipped`
 				: `Ontology '${tld}' rebuilt with drift`,
@@ -1051,6 +1211,71 @@ export async function tldHasSourceRecords(rawTld: string): Promise<boolean> {
 		sectionTipo,
 	])) as unknown[];
 	return rows.length > 0;
+}
+
+/* ------------------------------------------------- machine-name columns */
+
+/** What one post-migration derive did, per tld. */
+export interface MachineNameDeriveOutcome {
+	/** Tlds re-derived from their source records (rebuildOntology), with its outcome. */
+	rebuilt: Record<string, Pick<OntologyWriteResult, 'ok' | 'msg' | 'errors'>>;
+	/** Rows-only tlds (no source record): rows filled by the kernel's legacy derivation. */
+	filled: Record<string, number>;
+	/** Rows-only tlds whose fill threw (the error is logged here, never carried). */
+	fillFailed: string[];
+}
+
+/**
+ * THE POST-MIGRATION DERIVE (migration 0015, WC-2026-11-04-ontology-machine-names). Every
+ * row from before the machine-name columns reads `use_machine_name` NULL; this re-derives
+ * them, so no reader ever meets an underived row once it has run:
+ *  - a tld WITH source records is REBUILT (`rebuildOntology`, `mainNode: 'existing'` — the
+ *    registry is never written): the single writer re-parses every node, machine-name
+ *    columns included. A rebuild is a projection, so it is sound on an ontology server too
+ *    (it changes no source record);
+ *  - a ROWS-ONLY tld (no source record: a seed scaffold row, an archive-restored or
+ *    test-situation tld) cannot be re-parsed, and rebuilding it would wipe it; its NULL rows
+ *    are re-upserted whole, unchanged, through the door — which fills the pair with the
+ *    parser's own legacy derivation (db/dd_ontology.ts withMachineNameColumns).
+ * Idempotent: a tld with no NULL row is not touched, so after one pass it is a no-op.
+ * NON-FATAL per tld: a failed rebuild (a misfiled record, a resolution failure) is reported
+ * in the outcome and logged; its rows stay NULL — and stale in inspect — until it is fixed.
+ * Boot chore: server.ts runs it detached after the listener binds (never awaited).
+ */
+export async function deriveUnderivedMachineNames(userId = -1): Promise<MachineNameDeriveOutcome> {
+	const outcome: MachineNameDeriveOutcome = { rebuilt: {}, filled: {}, fillFailed: [] };
+	for (const tld of await listTldsWithUnderivedMachineNames()) {
+		if (safeTld(tld) === null) continue;
+		if (await tldHasSourceRecords(tld)) {
+			const rebuilt = await rebuildOntology(tld, userId, { mainNode: 'existing' });
+			outcome.rebuilt[tld] = { ok: rebuilt.ok, msg: rebuilt.msg, errors: rebuilt.errors };
+			continue;
+		}
+		try {
+			outcome.filled[tld] = await fillRowsOnlyMachineNames(tld);
+		} catch (error) {
+			// e.g. a legacy row that breaks the identifier grammar the door enforces:
+			// that tld stays underived (and named here), the others still run.
+			console.error(`[ontology_machine_names] filling rows-only tld '${tld}' failed:`, error);
+			outcome.fillFailed.push(tld);
+		}
+	}
+	return outcome;
+}
+
+/** Re-upsert every underived row of a rows-only tld through the door (see above). */
+async function fillRowsOnlyMachineNames(tld: string): Promise<number> {
+	return withTransaction(async () => {
+		await lockOntologyProjection([tld]);
+		let filled = 0;
+		for (const tipo of await listUnderivedMachineNameTipos(tld)) {
+			const row = await readDdOntologyRow(tipo);
+			if (row === null || row.use_machine_name !== null) continue;
+			await upsertDdOntologyNode(row);
+			filled += 1;
+		}
+		return filled;
+	});
 }
 
 /* --------------------------------------------------------------- registry */

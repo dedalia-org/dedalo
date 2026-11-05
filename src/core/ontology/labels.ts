@@ -6,7 +6,11 @@
  * structure-context builder (cycle-free).
  *
  * PHP reference: RecordObj_dd term resolution + common label fallback
- * (application lang first, then the first non-empty translation).
+ * (application lang first, then the first non-empty translation). Since
+ * 2026-11-04 this module is the ONE home of the label chain (resolveLabel —
+ * the duplicate chains in term_label.ts, resolver.ts getTermByTipo and
+ * create_record.ts were folded into it) and of nameOrLabelOf, the reader of a
+ * node's identifying string (WC-2026-11-04-ontology-machine-names).
  *
  * LABEL NODES: labelByTipo and termByTipo are guarded term resolvers — a
  * model='label' node is refused (dev/test throw, production log-once +
@@ -16,54 +20,129 @@
  */
 
 import { config } from '../../config/config.ts';
+import { incrementCounter } from '../api/counters.ts';
 import { sql } from '../db/postgres.ts';
 import { translationLangOf } from '../resolve/lang_alias.ts';
 import { currentApplicationLang } from '../resolve/request_lang.ts';
 import { createOntologyCache } from './cache_factory.ts';
 import { registerOntologyCacheClearer } from './cache_invalidation.ts';
 import { refuseLabelNode } from './label_node_guard.ts';
+import { LEGACY_NAME_LANG } from './machine_name.ts';
 
 /**
- * The language the ONTOLOGY STRUCTURE itself is authored in (S2-28: one named
- * constant so every structure-lang fallback is auditable — this is NOT a data
- * or interface language default; those are request-scoped via
- * currentDataLang()/currentApplicationLang()). Config: DEDALO_STRUCTURE_LANG
- * (only lg-spa is accepted upstream). Dédalo's shipped ontology terms are
- * guaranteed present in Spanish; term fallback chains end here before the
- * first-non-empty scan.
+ * The ontology LABEL-FALLBACK language (config DEDALO_STRUCTURE_LANG): the
+ * language a label falls back to when the requested one (and its declared
+ * equivalent) is missing — Dédalo's shipped ontology labels are guaranteed in
+ * Spanish. It is ONLY a label fallback: it never names a node (a model, table,
+ * column or rdf name is dd_ontology.machine_name — machine_name.ts), never
+ * files a registry row (ontology_tipos.ts REGISTRY_LANG) and is not a data or
+ * interface default (those are request-scoped: currentDataLang() /
+ * currentApplicationLang()). WC-2026-11-04-ontology-machine-names.
  */
-export const ONTOLOGY_STRUCTURE_LANG = config.lang.structureLang;
+export const ONTOLOGY_LABEL_FALLBACK_LANG = config.lang.structureLang;
+
+/** A non-empty string value of a term map, else null (`''` is absent). */
+function termValue(termMap: Record<string, unknown>, lang: string | null): string | null {
+	if (lang === null) return null;
+	const value = termMap[lang];
+	return typeof value === 'string' && value !== '' ? value : null;
+}
 
 /**
- * Pick the display label from an ontology term object: the requested
- * application language first, then the PHP fallback (first non-empty entry).
- * `lang` defaults to the request-scoped effective application language, so a
- * user's interface-language choice re-labels every ontology-derived title.
+ * THE ontology label chain — the ONLY one (the menu, the section tool context,
+ * the record metadata, the RAG title, the tree and the list cells all read it):
+ *
+ *   requested lang → its declared equivalent → ONTOLOGY_LABEL_FALLBACK_LANG
+ *   → the first non-empty translation → the node's machine name → null
+ *
+ * The equivalent (PHP lang::get_label_lang via RecordObj_dd): ontology labels
+ * are authored in the canonical member — Català — and the other members read
+ * it; without that step a Valencian interface fell to an ARBITRARY language.
+ * The machine name closes the chain: a name node (a table, a model) with no
+ * labels shows its language-free name in every UI language. `''` counts as
+ * absent at every step. `lang` defaults to the request-scoped application
+ * language, so a user's interface-language choice re-labels every
+ * ontology-derived title.
  */
 export function resolveLabel(
 	term: unknown,
 	lang: string = currentApplicationLang(),
+	machineName: string | null = null,
 ): string | null {
-	if (term === null || typeof term !== 'object') return null;
-	const termMap = term as Record<string, string>;
-	if (typeof termMap[lang] === 'string' && termMap[lang] !== '') return termMap[lang] as string;
-	// Declared language equivalence (PHP lang::get_label_lang via RecordObj_dd:
-	// ontology terms are authored in the canonical member — Català — and the
-	// other members read it). Without this step a Valencian interface fell to
-	// the first-non-empty scan below, i.e. an ARBITRARY language.
-	const translationLang = translationLangOf(lang);
-	if (
-		translationLang !== null &&
-		typeof termMap[translationLang] === 'string' &&
-		termMap[translationLang] !== ''
-	) {
-		return termMap[translationLang] as string;
-	}
-	// First non-empty entry, PHP fallback.
+	const fromTerm =
+		term !== null && typeof term === 'object'
+			? labelFromTerm(term as Record<string, unknown>, lang)
+			: null;
+	if (fromTerm !== null) return fromTerm;
+	return machineName === null || machineName === '' ? null : machineName;
+}
+
+/** The term steps of the chain (everything but the machine-name close). */
+function labelFromTerm(termMap: Record<string, unknown>, lang: string): string | null {
+	const direct =
+		termValue(termMap, lang) ??
+		termValue(termMap, translationLangOf(lang)) ??
+		termValue(termMap, ONTOLOGY_LABEL_FALLBACK_LANG);
+	return direct ?? firstNonEmptyValue(termMap);
+}
+
+/** The first non-empty string value of a term map (jsonb key order), or null. */
+function firstNonEmptyValue(termMap: Record<string, unknown>): string | null {
 	for (const value of Object.values(termMap)) {
 		if (typeof value === 'string' && value !== '') return value;
 	}
 	return null;
+}
+
+/** What nameOrLabelOf reads off a node (a dd_ontology row or any projection of one). */
+export interface NamedOntologyNode {
+	term?: Record<string, string> | null;
+	machine_name?: string | null;
+	use_machine_name?: boolean | null;
+}
+
+/**
+ * The identifying string of a node where a MIXED-class consumer meets it — the
+ * diffusion walk (database / table / column / domain names next to element
+ * labels), the published rdf file name, the rdf importer's class / predicate
+ * names:
+ *
+ *  - use_machine_name true  → its machine_name, STRICT (null when the parser
+ *    reported the name `missing` or a `collision` — a multi-valued guess
+ *    refuses, it never picks a stray translation);
+ *  - use_machine_name false → its label in ONTOLOGY_LABEL_FALLBACK_LANG (the
+ *    label chain; a diffusion element is named by its label);
+ *  - use_machine_name NULL / absent → a row no parser has derived yet (before
+ *    migration 0015's boot derive finished, a tld whose derive failed, an
+ *    in-memory node that does not state the pair): EXACTLY the pre-machine-name
+ *    reading the deleted readers applied — the LEGACY_NAME_LANG (lg-spa) term,
+ *    else the first non-empty value. Never the configurable label-fallback lang:
+ *    that lang names nothing (with DEDALO_STRUCTURE_LANG=lg-eng an un-derived
+ *    matrix_table row would otherwise resolve to its English stray). Counted
+ *    (`ontology_machine_name_rung_underived_row`, G6).
+ *
+ * This replaced the three diffusion first-non-empty readers (virtual_tree
+ * termLabelOf, diffusion_graph termOf, published_files publishedTermLabel),
+ * so the publish and delete sides cannot name a node differently.
+ */
+export function nameOrLabelOf(node: NamedOntologyNode | null | undefined): string | null {
+	if (node === null || node === undefined) return null;
+	if (node.use_machine_name === true) return storedMachineName(node.machine_name);
+	const term = node.term ?? null;
+	if (node.use_machine_name === false) return resolveLabel(term, ONTOLOGY_LABEL_FALLBACK_LANG);
+	incrementCounter('ontology_machine_name_rung_underived_row');
+	return legacyNameReading(term);
+}
+
+/** A stored machine_name, `''` read as absent. */
+function storedMachineName(name: string | null | undefined): string | null {
+	return name === undefined || name === null || name === '' ? null : name;
+}
+
+/** The pre-machine-name reading of an un-derived row: lg-spa, else the first non-empty value. */
+function legacyNameReading(term: Record<string, string> | null): string | null {
+	const termMap = term ?? {};
+	return termValue(termMap, LEGACY_NAME_LANG) ?? firstNonEmptyValue(termMap);
 }
 
 /**
@@ -82,11 +161,11 @@ export async function labelByTipo(
 	const cached = labelCache.get(cacheKey);
 	if (cached !== undefined) return cached;
 	const rows = (await sql`
-		SELECT term, model FROM dd_ontology WHERE tipo = ${tipo} LIMIT 1
-	`) as { term: unknown; model: string | null }[];
+		SELECT term, model, machine_name FROM dd_ontology WHERE tipo = ${tipo} LIMIT 1
+	`) as { term: unknown; model: string | null; machine_name: string | null }[];
 	// Not cached when refused: a dev/test throw must recur on every call.
 	if (refuseLabelNode(tipo, rows[0]?.model)) return null;
-	const label = resolveLabel(rows[0]?.term ?? null, lang);
+	const label = resolveLabel(rows[0]?.term ?? null, lang, rows[0]?.machine_name ?? null);
 	labelCache.set(cacheKey, label);
 	return label;
 }
@@ -95,6 +174,7 @@ export async function labelByTipo(
 export function clearLabelCache(): void {
 	labelCache.clear();
 	termCache.clear();
+	termRowCache.clear();
 }
 registerOntologyCacheClearer(clearLabelCache);
 
@@ -109,10 +189,8 @@ const termCache = createOntologyCache<string, string>();
  * The display term of one ontology node in `lang` (PHP get_term_by_tipo) —
  * THE canonical termByTipo (audit S2-27: this collapses the four parallel
  * resolvers; tm_record/ts_object copies are deleted, read_tm re-exports this
- * one for legacy importers). Fallback chain (distinct from labelByTipo's):
- * requested lang → the ontology structure lang → first non-empty translation
- * → the tipo itself (labelByTipo instead resolves lang → first non-empty →
- * null, the PHP RecordObj_dd label rule). A model='label' node throws in
+ * one for legacy importers). The label chain (resolveLabel), then the tipo
+ * itself — labelByTipo answers null instead. A model='label' node throws in
  * dev/test and, in production, answers the tipo itself — this resolver's
  * existing "no term" value, so its `string` contract holds for every caller
  * (see refuseLabelNode). Never cached when refused.
@@ -122,21 +200,14 @@ export async function termByTipo(tipo: string, lang: string): Promise<string> {
 	const cached = termCache.get(cacheKey);
 	if (cached !== undefined) return cached;
 	const rows = (await sql`
-		SELECT term, model FROM dd_ontology WHERE tipo = ${tipo} LIMIT 1
-	`) as { term: Record<string, string> | null; model: string | null }[];
+		SELECT term, model, machine_name FROM dd_ontology WHERE tipo = ${tipo} LIMIT 1
+	`) as {
+		term: Record<string, string> | null;
+		model: string | null;
+		machine_name: string | null;
+	}[];
 	if (refuseLabelNode(tipo, rows[0]?.model)) return tipo;
-	const term = rows[0]?.term ?? null;
-	// The declared language equivalence slots between the requested lang and the
-	// structure lang, same as resolveLabel (Valencià reads the Català term).
-	const translationLang = term === null ? null : translationLangOf(lang);
-	const resolved =
-		term === null
-			? tipo
-			: (term[lang] ??
-				(translationLang !== null ? term[translationLang] : undefined) ??
-				term[ONTOLOGY_STRUCTURE_LANG] ??
-				Object.values(term).find((value) => value) ??
-				tipo);
+	const resolved = resolveLabel(rows[0]?.term ?? null, lang, rows[0]?.machine_name ?? null) ?? tipo;
 	termCache.set(cacheKey, resolved);
 	return resolved;
 }
@@ -154,4 +225,49 @@ export async function termByTipo(tipo: string, lang: string): Promise<string> {
  */
 export async function ontologyTermLabel(tipo: string, lang: string): Promise<string> {
 	return `${await termByTipo(tipo, lang)} [${tipo}]`;
+}
+
+/**
+ * Raw `{term, machine_name}` rows for the section_tool ddo_map label stamps
+ * (moved here from the retired ontology/term_label.ts, 2026-11-04, so the menu
+ * and the section_tool enrichment read the ONE label chain). The per-entry
+ * SELECT was the DOMINANT surviving menu cost after the walk cache (~30
+ * queries per read across the 6 section_tool nodes, measured 2026-07-09).
+ * Lang-free raw rows — resolveLabel applies the per-request application lang
+ * downstream. Factory-created, hub-cleared with the other label caches.
+ */
+/** The two columns the label chain reads off a dd_ontology row. */
+interface LabelRow {
+	term: Record<string, string> | null;
+	machine_name: string | null;
+}
+
+const termRowCache = createOntologyCache<string, LabelRow | null>();
+
+/**
+ * The app-lang display term of one ontology node (PHP get_term_by_tipo), ''
+ * when the chain finds nothing. A model='label' node is refused
+ * (refuseLabelNode, ./label_node_guard.ts): dev/test throw; production logs
+ * once and answers '' (this resolver's empty-term value). A refusal is NOT
+ * cached — only resolvable rows enter termRowCache, so a dev/test throw recurs
+ * on every call.
+ */
+export async function getOntologyTermLabel(tipo: string): Promise<string> {
+	// has() (not get()) — an unknown tipo caches null.
+	if (termRowCache.has(tipo)) return appLangLabelOfRow(termRowCache.get(tipo) ?? null);
+	const rows = (await sql.unsafe(
+		'SELECT term, model, machine_name FROM dd_ontology WHERE tipo = $1',
+		[tipo],
+	)) as (LabelRow & { model: string | null })[];
+	const found = rows[0];
+	if (refuseLabelNode(tipo, found?.model)) return '';
+	const row = found === undefined ? null : { term: found.term, machine_name: found.machine_name };
+	termRowCache.set(tipo, row);
+	return appLangLabelOfRow(row);
+}
+
+/** The application-lang label of a cached row, '' when the chain finds nothing. */
+function appLangLabelOfRow(row: LabelRow | null): string {
+	if (row === null) return '';
+	return resolveLabel(row.term, currentApplicationLang(), row.machine_name) ?? '';
 }

@@ -24,6 +24,10 @@ import { FILES_INFO_RECONCILE } from '../media/files_info_reconcile.ts';
 import { RICH_TEXT_IMAGES_RECONCILE } from '../media/rich_text_image_reconcile.ts';
 import { HIERARCHY_RECONCILE } from '../ontology/hierarchy_state.ts';
 import { ONTOLOGY_IDENTIFIERS_RECONCILE } from '../ontology/identifier_grammar.ts';
+import {
+	ONTOLOGY_MACHINE_NAMES_RECONCILE,
+	ONTOLOGY_MACHINE_NAMES_STRAYS_RECONCILE,
+} from '../ontology/machine_name_reconcile.ts';
 import { ONTOLOGY_RECONCILE } from '../ontology/ontology_state.ts';
 import { PUBLICATION_APIS_RECONCILE } from '../publication_host/api_reconcile.ts';
 import { PUBLICATION_PROBE_RECONCILE } from '../publication_host/probe.ts';
@@ -53,6 +57,8 @@ export async function loadAllReconciles(): Promise<readonly ReconcileDefinition[
 		RAG_INDEX_RECONCILE,
 		ONTOLOGY_RECONCILE,
 		ONTOLOGY_IDENTIFIERS_RECONCILE,
+		ONTOLOGY_MACHINE_NAMES_RECONCILE,
+		ONTOLOGY_MACHINE_NAMES_STRAYS_RECONCILE,
 		HIERARCHY_RECONCILE,
 		PUBLIC_TIER_RECONCILE,
 		PUBLICATION_APIS_RECONCILE,

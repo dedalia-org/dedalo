@@ -238,6 +238,9 @@ HERMETIC_TRIPWIRES=(
 	test/unit/diffusion_queue_stream_tripwire.test.ts
 	test/unit/hierarchy_single_writer_tripwire.test.ts
 	test/unit/ontology_single_writer_tripwire.test.ts
+	test/unit/machine_name_kernel.test.ts
+	test/unit/machine_name_save_rules.test.ts
+	test/unit/machine_name_convert.test.ts
 	test/unit/client_caller_chain_tripwire.test.ts
 	test/unit/generic_tld_tripwire.test.ts
 	# 2026-10-25: AST census of predictable temp paths + the scratch helper RUN

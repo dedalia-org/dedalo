@@ -17,7 +17,7 @@
 import { isMatrixTable } from '../../db/matrix.ts';
 import { counterFloorExpression, counterTableFor } from '../../db/matrix_write.ts';
 import { sql } from '../../db/postgres.ts';
-import { termByTipo } from '../../ontology/labels.ts';
+import { ONTOLOGY_LABEL_FALLBACK_LANG, termByTipo } from '../../ontology/labels.ts';
 import {
 	getMatrixTableFromTipo,
 	getModelByTipo,
@@ -204,7 +204,9 @@ async function auditRowFor(
 
 	return {
 		section_tipo: sectionTipo,
-		label: await termByTipo(sectionTipo, 'lg-spa'),
+		// Operator widget: labelled in the ontology label-fallback lang (was a
+		// literal 'lg-spa', the same value on a default install).
+		label: await termByTipo(sectionTipo, ONTOLOGY_LABEL_FALLBACK_LANG),
 		counter_value: governing?.value ?? 0,
 		last_section_id: lastSectionId,
 		// The value the client flags against; >= last_section_id by construction.

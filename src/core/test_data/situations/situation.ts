@@ -53,6 +53,7 @@ import { sql, withTransaction } from '../../db/postgres.ts';
 import { DedaloError } from '../../errors/index.ts';
 import { createOntologyCache } from '../../ontology/cache_factory.ts';
 import { clearOntologyDerivedCaches } from '../../ontology/cache_invalidation.ts';
+import { deriveLegacyMachineName, modelNameOf } from '../../ontology/machine_name.ts';
 import { getMatrixTableFromTipo } from '../../ontology/resolver.ts';
 import { assertTestDatabase } from '../test_database_marker.ts';
 
@@ -105,11 +106,15 @@ function refuse(message: string, coordinates: Record<string, string | number> = 
  */
 const modelTipoCache = createOntologyCache<string, string>();
 
-/** Fill the model → model_tipo map from the `dd` model nodes (first name wins). */
+/**
+ * Fill the model → model_tipo map from the `dd` model nodes (first name wins). A
+ * model's name is its machine name (machine_name.ts modelNameOf — the same rule
+ * the parser projects `model` by, legacy lg-spa rung included).
+ */
 async function fillModelTipoCache(): Promise<void> {
 	const modelTipos = await searchDdOntology({ tld: 'dd', is_model: true });
 	for (const tipo of modelTipos) {
-		const name = (await readDdOntologyRow(tipo))?.term?.['lg-spa'];
+		const name = modelNameOf(await readDdOntologyRow(tipo)).model;
 		if (typeof name === 'string' && name !== '' && !modelTipoCache.has(name)) {
 			modelTipoCache.set(name, tipo);
 		}
@@ -120,13 +125,16 @@ export async function modelTipoFor(model: string): Promise<string> {
 	if (modelTipoCache.size === 0) await fillModelTipoCache();
 	const tipo = modelTipoCache.get(model);
 	if (tipo === undefined) {
-		refuse(`no dd model node for model '${model}' (is_model=true, term lg-spa)`, { model });
+		refuse(`no dd model node for model '${model}' (is_model=true, machine name)`, { model });
 	}
 	return tipo;
 }
 
 /** Defaults for every optional node column — ONE object, so a node is `{...defaults, ...given}`. */
-const NODE_DEFAULTS: Omit<DdOntologyNode, 'tipo' | 'model' | 'tld' | 'term'> = {
+const NODE_DEFAULTS: Omit<
+	DdOntologyNode,
+	'tipo' | 'model' | 'tld' | 'term' | 'machine_name' | 'use_machine_name'
+> = {
 	parent: null,
 	order_number: 1,
 	relations: [],
@@ -168,8 +176,10 @@ function normalizeNode(
 		n.model === 'section' && given.relations === undefined
 			? [{ tipo: MATRIX_TEST_TABLE_TIPO }]
 			: undefined;
-	return {
+	const node = {
 		...NODE_DEFAULTS,
+		machine_name: null,
+		use_machine_name: false,
 		term: { 'lg-eng': n.tipo },
 		...given,
 		...(relations === undefined ? {} : { relations }),
@@ -177,6 +187,16 @@ function normalizeNode(
 		model: n.model,
 		tld,
 	} as DdOntologyNode;
+	// A situation writes dd_ontology DIRECTLY (no source record, so no parser): a node
+	// that does not state its machine-name columns gets the parser's own legacy
+	// derivation (a `table` node named by its lg-spa term reads as the parser would
+	// project it). One rung for every direct-row fixture, in one place.
+	if (typeof given.use_machine_name !== 'boolean') {
+		const derived = deriveLegacyMachineName(node);
+		node.machine_name = (given.machine_name as string | null | undefined) ?? derived.machine_name;
+		node.use_machine_name = derived.use_machine_name;
+	}
+	return node;
 }
 
 /** Validate a descriptor into a Situation. Pure — no DB. */

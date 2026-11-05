@@ -39,6 +39,7 @@ import { openEpochIfReborn } from '../../db/record_generation.ts';
 import { recordBulkBirth } from '../../db/time_machine.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
 import { refuseLabelNode } from '../../ontology/label_node_guard.ts';
+import { resolveLabel } from '../../ontology/labels.ts';
 import { getMatrixTableFromTipo } from '../../ontology/resolver.ts';
 import { currentRequestContext } from '../../security/request_context.ts';
 import { bulkIdOf } from './bulk_capture.ts';
@@ -91,27 +92,23 @@ export { dbTimestamp } from '../../db/db_timestamp.ts';
 
 /**
  * Resolve a section's display label from its ontology `term` map (PHP
- * build_metadata → get_term_by_tipo, application lang with fallback to any
- * non-empty term). Empty string when the node has no term (PHP casts null→''),
- * and for a model='label' node (refuseLabelNode — dev/test throw, production
- * logs once): a by-tipo term read is a guarded home
- * (test/unit/term_by_tipo_label_guard.test.ts census).
+ * build_metadata → get_term_by_tipo): the ONE label chain (labels.ts
+ * resolveLabel) in the install's application lang. Empty string when the chain
+ * finds nothing (PHP casts null→''), and for a model='label' node
+ * (refuseLabelNode — dev/test throw, production logs once): a by-tipo term read
+ * is a guarded home (test/unit/term_by_tipo_label_guard.test.ts census).
  */
 async function resolveSectionLabel(sectionTipo: string): Promise<string> {
 	const rows =
-		(await sql`SELECT term, model FROM dd_ontology WHERE tipo = ${sectionTipo} LIMIT 1`) as {
+		(await sql`SELECT term, model, machine_name FROM dd_ontology WHERE tipo = ${sectionTipo} LIMIT 1`) as {
 			term: Record<string, string> | null;
 			model: string | null;
+			machine_name: string | null;
 		}[];
 	if (refuseLabelNode(sectionTipo, rows[0]?.model)) return '';
-	const term = rows[0]?.term;
-	if (term == null) return '';
-	const appLang = config.menu.applicationLang;
-	if (term[appLang]) return term[appLang];
-	for (const value of Object.values(term)) {
-		if (value) return value;
-	}
-	return '';
+	const row = rows[0];
+	if (row === undefined) return '';
+	return resolveLabel(row.term, config.menu.applicationLang, row.machine_name) ?? '';
 }
 
 /** The options of createSectionRecord (see its header). */

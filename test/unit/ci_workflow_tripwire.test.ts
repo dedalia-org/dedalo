@@ -810,6 +810,26 @@ const NOT_HERMETIC: ReadonlyMap<string, string> = new Map([
 		"It mints scratch ontology35 registry rows through the engine's registry doors on the suite database, runs the import and rebuild doors over them (and over the suite's real lg row, snapshotted and restored) and reads every column back, so it cannot run without a live suite Postgres.",
 	],
 	[
+		'test/unit/machine_name_outcome_native.test.ts',
+		"It writes a zzmn scratch ontology situation (name nodes with decoy translations) into the suite database's dd_ontology and reads it back through the matrix-table resolver, the diffusion virtual tree, the rdf importer's engine reader and the label resolvers, so it cannot run without a live suite Postgres.",
+	],
+	[
+		'test/unit/machine_name_native.test.ts',
+		"It writes raw zzmp scratch ontology source records and two localontology0 override records into the suite database's matrix_ontology, rebuilds the tld through rebuildOntology and reads the derived dd_ontology columns back, so it cannot run without a live suite Postgres.",
+	],
+	[
+		'test/unit/machine_name_classification_native.test.ts',
+		'It reads every installed dd_ontology row of the suite database (the vendored release, the seed and the repo test fixtures) and checks the stored machine-name columns against the classification, so it cannot run without a live suite Postgres.',
+	],
+	[
+		'test/unit/machine_name_rung_ratchet_native.test.ts',
+		'It runs inspectOntology over every installed tld of the suite database and ratchets the legacy machine-name rungs the parse uses, so it cannot run without a live suite Postgres.',
+	],
+	[
+		'test/unit/machine_name_reconcile_native.test.ts',
+		"It writes raw zzmr scratch ontology source records into the suite database's matrix_ontology and drives the machine-name reconciles through the registry door and the package-import rewrite over them, comparing the stored bytes before and after, so it cannot run without a live suite Postgres.",
+	],
+	[
 		'test/unit/ontology_dependencies_native.test.ts',
 		"It writes scratch ontology35 registry rows and their stored hierarchy60 declarations on the suite database, then reads them back through the census, the manifest builder and the update's missing-dependency report, so it cannot run without a live suite Postgres.",
 	],

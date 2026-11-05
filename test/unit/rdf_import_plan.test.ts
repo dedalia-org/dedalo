@@ -377,7 +377,6 @@ const RUNTIME_MODEL: Record<string, string> = {
 function memoryReader(nodes: readonly FixtureNode[]): RdfOntologyReader {
 	const byTipo = new Map(nodes.map((node) => [node.tipo, node]));
 	return {
-		structureLang: 'lg-spa',
 		properties: async (tipo) => byTipo.get(tipo)?.properties ?? null,
 		children: async (tipo) =>
 			nodes
@@ -2032,7 +2031,11 @@ describe('rdf_import_plan — loadRdfImportOntology', () => {
 		expect(ONT.tipos.has(ROOT)).toBe(false);
 	});
 
-	test('terms: the structure language, else the first authored; malformed rows are tolerated', async () => {
+	// RE-PINNED 2026-11-04 (WC-2026-11-04-ontology-machine-names): the reader no
+	// longer takes a structure language — a node's RDF name is its MACHINE NAME
+	// when it is a name node (labels.ts nameOrLabelOf), its label otherwise; a
+	// row that states no flag reads as before (lg-spa, else the first authored).
+	test('names: the machine name of a name node, else the label; malformed rows are tolerated', async () => {
 		const rootRows = [
 			{
 				tipo: 'a',
@@ -2062,9 +2065,38 @@ describe('rdf_import_plan — loadRdfImportOntology', () => {
 				properties: null,
 				relations: [],
 			},
+			// a NAME node: the machine name wins over every decoy translation
+			{
+				tipo: 'e',
+				model: 'owl:Class',
+				term: { 'lg-ara': 'ex:Decoy', 'lg-spa': 'ex:Spa' },
+				machine_name: ' ex:Machine ',
+				use_machine_name: true,
+				properties: null,
+				relations: [],
+			},
+			// a name node the parser could not name (collision): no guess
+			{
+				tipo: 'f',
+				model: 'owl:Class',
+				term: { 'lg-eng': 'ex:One', 'lg-spa': 'ex:Two' },
+				machine_name: null,
+				use_machine_name: true,
+				properties: null,
+				relations: [],
+			},
+			// a LABEL node (a mixed crm child): the label chain
+			{
+				tipo: 'g',
+				model: 'component_input_text',
+				term: { 'lg-eng': 'English label', 'lg-spa': 'Etiqueta' },
+				machine_name: null,
+				use_machine_name: false,
+				properties: null,
+				relations: [],
+			},
 		] as RdfReaderNode[];
 		const reader: RdfOntologyReader = {
-			structureLang: 'lg-spa',
 			properties: async () => ({ xmlns: { ok: 'urn:ok#', bad: 3, toString: 'urn:t#' } }),
 			children: async (tipo) =>
 				tipo === 'r'
@@ -2086,6 +2118,9 @@ describe('rdf_import_plan — loadRdfImportOntology', () => {
 		expect(ont.nodes.get('b')).toMatchObject({ name: '', related: ['a'], properties: {} });
 		expect(ont.nodes.get('c')).toMatchObject({ name: 'ex:C' });
 		expect(ont.nodes.get('d')).toMatchObject({ name: 'ex:Spa' });
+		expect(ont.nodes.get('e')).toMatchObject({ name: 'ex:Machine' });
+		expect(ont.nodes.get('f')).toMatchObject({ name: '' });
+		expect(ont.nodes.get('g')).toMatchObject({ name: 'Etiqueta' });
 		expect(ont.children.get('a')).toEqual([]);
 		expect([...ont.tipos.keys()]).toEqual(['a']);
 		expect({ ...ont.xmlns }).toEqual({ ok: 'urn:ok#', toString: 'urn:t#' });
@@ -2119,7 +2154,7 @@ describe('rdf_import_plan — production reader on the suite database', () => {
 	});
 
 	test('the engine reader loads the same snapshot as the fixture reader', async () => {
-		const engine = await loadRdfImportOntology(ROOT, engineRdfOntologyReader('lg-spa'));
+		const engine = await loadRdfImportOntology(ROOT, engineRdfOntologyReader());
 		expect(engine.xmlns).toEqual(ONT.xmlns);
 		expect([...engine.children]).toEqual([...ONT.children]);
 		expect([...engine.nodes]).toEqual([...ONT.nodes]);
@@ -2129,7 +2164,7 @@ describe('rdf_import_plan — production reader on the suite database', () => {
 	});
 
 	test('the engine reader on a tipo that does not exist', async () => {
-		const reader = engineRdfOntologyReader('lg-spa');
+		const reader = engineRdfOntologyReader();
 		expect(await reader.properties('zzrdf999')).toBeNull();
 		expect(await reader.children('zzrdf999')).toEqual([]);
 		expect(await reader.tipoInfo('zzrdf999')).toEqual({
@@ -2142,7 +2177,7 @@ describe('rdf_import_plan — production reader on the suite database', () => {
 
 	test('the engine reader flags the number column and the markup render, from the engine', async () => {
 		// test22: component_number, test17: component_text_area (repo-owned test TLD ontology)
-		const reader = engineRdfOntologyReader('lg-spa');
+		const reader = engineRdfOntologyReader();
 		expect(await reader.tipoInfo('test22')).toMatchObject({
 			model: 'component_number',
 			html: false,

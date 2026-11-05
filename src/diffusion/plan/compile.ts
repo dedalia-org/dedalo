@@ -73,6 +73,7 @@ import { readEnv } from '../../config/env.ts';
 import { getComponentModel } from '../../core/components/registry.ts';
 import { getPopulatedTlds } from '../../core/db/dd_ontology.ts';
 import { DedaloError } from '../../core/errors/dedalo_error.ts';
+import { nameOrLabelOf } from '../../core/ontology/labels.ts';
 import { getModelByTipo } from '../../core/ontology/resolver.ts';
 import { getTldFromTipo } from '../../core/ontology/tld.ts';
 import { tableRowSizeViolation } from '../targets/mariadb/sql_generator.ts';
@@ -96,7 +97,6 @@ import {
 	getDatabaseNameForElement,
 	getSectionNodeForElement,
 	getSectionsForElement,
-	termLabelOf,
 } from './virtual_tree.ts';
 
 /**
@@ -609,7 +609,8 @@ async function compileFieldPlan(
 		diagnostics.errors.push(`field '${fieldTipo}': node not found in the ontology`);
 		return null;
 	}
-	const label = termLabelOf(node) ?? '';
+	// The column name: a field_* node's MACHINE NAME (labels.ts nameOrLabelOf).
+	const label = nameOrLabelOf(node) ?? '';
 	const properties = node.properties;
 	const process = properties?.process as Record<string, unknown> | undefined;
 
@@ -617,7 +618,7 @@ async function compileFieldPlan(
 	// emits NO output column — so its name is exempt from the SQL chokepoint.
 	const excludeColumn = Boolean(properties?.exclude_column);
 
-	// Column name = the field node's structure-lang term (:1288). SQL targets
+	// Column name = the field node's machine name (PHP :1288 read its structure-lang term). SQL targets
 	// go through the identifier chokepoint; file targets keep the verbatim
 	// label (XML/RDF names like 'skos:prefLabel' are not SQL identifiers).
 	let columnName = label;

@@ -701,6 +701,55 @@ table-driven-tested function — not in writers, not in resolution (the IR keeps
 all langs so future formats choose their own policy).
 `FieldPolicy.emptyToString/defaultValue/emptyValue` apply here, in one place.
 
+### 4.4.1 Names vs labels: which diffusion nodes have a machine name — 2026-11-04
+
+`engineering/wire_contract/WC-2026-11-04-ontology-machine-names.md`. This
+supersedes the "labels-as-names" wording above (§2, §4.1, §8): a node that
+NAMES a publication object is identified by `dd_ontology.machine_name`, which
+has no language. Only a LABEL node is read through its translations.
+
+**Name models.** The closed list is `NAME_MODELS` in
+`src/core/ontology/machine_name.ts`, the single source; the PHP upgrade step
+copies it. For diffusion it holds:
+- `database` and `database_alias` (the target database);
+- `table` and `table_alias` (the target table, and an rdf class file's
+  `SectionPlan.tableName`);
+- the 11 `field_*` models (the column name);
+- `diffusion_domain`, matched against `DEDALO_DIFFUSION_DOMAIN`;
+- `rdf:predicate`, `rdf:subject`, `rdf:object`, `owl:ObjectProperty` and
+  `owl:Class` (QNames, and the rdf file name on both the publish side and the
+  delete side).
+
+Every model definition under dd2 is a name node too.
+
+**Label models.** These are found by model, by `properties.diffusion.type` or
+by `service_name`, never by their term:
+- `diffusion_element` and `diffusion_element_alias`;
+- `diffusion_group`, `diffusion_section`, `diffusion_section_stats`,
+  `diffusion_component` and `diffusion_head`;
+- the document containers `xml`, `rdf`, `head`, `body` and `structure_data`.
+
+Their term only reaches display (`api/info.ts`) and the alias-dedup sets.
+
+**One reader.** `nameOrLabelOf` in `src/core/ontology/labels.ts` is the only
+place that turns a node into its identifying string. It returns `machine_name`
+when `use_machine_name` is set, strictly (NULL on a `missing` or `collision`
+defect, never a guessed translation), and otherwise the label chain. It
+replaced three first-non-empty readers: `virtual_tree` termLabelOf,
+`diffusion_graph` termOf and `published_files` publishedTermLabel. The publish
+and delete sides therefore cannot name a node differently.
+
+Consequences:
+- A mixed walk (the virtual tree, alias dedup, the rdf importer) branches per
+  node on the flag.
+- A table whose name collided refuses its element's compile, through the
+  identifier chokepoint (§8).
+
+**Gates.**
+- `machine_name_outcome_native` (G1) covers every consumer named above.
+- `machine_name_classification_native` (G5) keeps each dd1226 model classified
+  as a name model or a label model, with the label list declared in the gate.
+
 ## 5. Parser registry (the compatibility surface, rethought)
 
 Every fn name in the old engine's registry stays **resolvable** — but split at

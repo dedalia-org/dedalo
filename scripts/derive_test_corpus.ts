@@ -129,7 +129,11 @@ const SEED_PATH = join(REPO, 'install/db/dedalo_install.pgsql.gz');
 interface SeedNode {
 	model: string | null;
 	relations: { tipo: string }[] | null;
-	/** `term['lg-spa']` — a `matrix_table` node's term IS the table name. */
+	/**
+	 * The node's NAME: its `machine_name` column (migration 0015) when the seed
+	 * carries it, else `term['lg-spa']` (the legacy rung,
+	 * src/core/ontology/machine_name.ts) — a `matrix_table` node's name IS the table name.
+	 */
 	term: string | null;
 }
 const seedNodes = new Map<string, SeedNode>();
@@ -167,8 +171,10 @@ function loadSeed(): void {
 			}
 			const model = fields[columns.indexOf('model')] ?? '\\N';
 			const rawTerm = fields[columns.indexOf('term')] ?? '\\N';
-			let term: string | null = null;
-			if (rawTerm !== '\\N') {
+			const machineNameAt = columns.indexOf('machine_name');
+			const rawMachineName = machineNameAt === -1 ? '\\N' : (fields[machineNameAt] ?? '\\N');
+			let term: string | null = rawMachineName === '\\N' ? null : rawMachineName;
+			if (term === null && rawTerm !== '\\N') {
 				try {
 					term = (JSON.parse(rawTerm) as Record<string, string>)['lg-spa'] ?? null;
 				} catch {

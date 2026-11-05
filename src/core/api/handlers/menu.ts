@@ -56,8 +56,8 @@ import {
 import { sql } from '../../db/postgres.ts';
 import { createOntologyCache } from '../../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../../ontology/cache_invalidation.ts';
+import { resolveLabel } from '../../ontology/labels.ts';
 import { getModelByTipo } from '../../ontology/resolver.ts';
-import { resolveLabel } from '../../ontology/term_label.ts';
 import { canAccessOntologyArea } from '../../security/permissions.ts';
 import { buildSectionToolContext } from '../../tools/section_tool_context.ts';
 
@@ -153,7 +153,8 @@ interface AreaNode {
  * downstream on every call, so the key needs NO lang dimension. Consumers must
  * treat the rows as READ-ONLY (the section_tool enrichment deep-clones
  * tool_config before enriching). The section_tool term-row cache moved to
- * ontology/term_label.ts (clearTermLabelCache) 2026-07-10.
+ * ontology/labels.ts (getOntologyTermLabel, cleared with clearLabelCache) —
+ * via term_label.ts 2026-07-10, folded into labels.ts 2026-11-04.
  */
 const areaWalkCache = createOntologyCache<'walk', OntologyAreaRow[]>();
 
@@ -246,7 +247,7 @@ async function getOntologyAreas(): Promise<AreaNode[]> {
 			tipo: row.tipo,
 			model: row.model,
 			parent: row.parent,
-			label: resolveLabel(row.term),
+			label: resolveLabel(row.term) ?? '',
 			properties: row.properties as AreaNode['properties'],
 		}));
 }
@@ -279,7 +280,7 @@ export async function getAllAreas(): Promise<AreaStateNode[]> {
 		tipo: row.tipo,
 		model: row.model,
 		parent: row.parent,
-		label: resolveLabel(row.term),
+		label: resolveLabel(row.term) ?? '',
 		denied: denySet.has(row.tipo),
 		allowed: allowSet.has(row.tipo),
 	}));

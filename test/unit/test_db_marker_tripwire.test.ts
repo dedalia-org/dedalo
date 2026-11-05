@@ -370,6 +370,15 @@ const DOORS: readonly { name: string; run: () => Promise<unknown> }[] = [
 		run: async () => (await import('../helpers/ai_spend_ledger.ts')).sweepAiSpendLedger(),
 	},
 	{
+		// The machine-name converter's scratch records (test/helpers/machine_name_scratch.ts):
+		// a raw matrix_ontology INSERT — refused, writing nothing, on an unmarked database.
+		name: 'seedMachineNameScratch',
+		run: async () =>
+			(await import('../helpers/machine_name_scratch.ts')).seedMachineNameScratch('zzq', [
+				{ sectionId: 1 },
+			]),
+	},
+	{
 		name: 'ensureTestCorpus',
 		run: async () =>
 			(await import('../../src/core/test_data/test_corpus/ensure.ts')).ensureTestCorpus('dd128'),

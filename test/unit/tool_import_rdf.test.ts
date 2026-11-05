@@ -1264,7 +1264,7 @@ describe.if(DB_READY)('tool_import_rdf: the import (graph → ontology → recor
 	});
 
 	test('a class of ANOTHER section is unmapped for this record (its components are not the caller’s)', async () => {
-		const ontology = await loadRdfImportOntology(W_ROOT, engineRdfOntologyReader('lg-spa'));
+		const ontology = await loadRdfImportOntology(W_ROOT, engineRdfOntologyReader());
 		const result = await runRdfImport({
 			...runBase(await wRecord(), { [wIri('c-other')]: coinDoc('c-other', []) }),
 			caller: { section_tipo: 'dd64', section_id: 1 },
@@ -1303,7 +1303,7 @@ describe.if(DB_READY)('tool_import_rdf: the import (graph → ontology → recor
 	}
 
 	async function run(base: ReturnType<typeof runBase>): Promise<RdfImportResult> {
-		const ontology = await loadRdfImportOntology(W_ROOT, engineRdfOntologyReader('lg-spa'));
+		const ontology = await loadRdfImportOntology(W_ROOT, engineRdfOntologyReader());
 		return track(await runRdfImport({ ...base, ontology }));
 	}
 
@@ -1410,7 +1410,7 @@ describe.if(DB_READY)('tool_import_rdf: the import (graph → ontology → recor
 			[wIri('farM')]: mintDoc('farM'),
 		});
 		let lookups = 0;
-		const ontology = await loadRdfImportOntology(W_ROOT, engineRdfOntologyReader('lg-spa'));
+		const ontology = await loadRdfImportOntology(W_ROOT, engineRdfOntologyReader());
 		const result = track(
 			await runRdfImport({
 				...base,
@@ -1443,7 +1443,7 @@ describe.if(DB_READY)('tool_import_rdf: the import (graph → ontology → recor
 		const doc = coinDoc('coin5', ['known5', 'mint5'], 'Broken', 'other');
 		const base = runBase(caller, { [wIri('coin5')]: doc, [wIri('mint5')]: mintDoc('mint5') });
 		let lookups = 0;
-		const ontology = await loadRdfImportOntology(W_ROOT, engineRdfOntologyReader('lg-spa'));
+		const ontology = await loadRdfImportOntology(W_ROOT, engineRdfOntologyReader());
 		const result = track(
 			await runRdfImport({
 				...base,
@@ -2064,7 +2064,7 @@ describe.if(DB_READY)('tool_import_rdf: the import (graph → ontology → recor
 		const doc = coinDoc('coin12', names);
 		const base = runBase(caller, { [wIri('coin12')]: doc });
 		let lookups = 0;
-		const ontology = await loadRdfImportOntology(W_ROOT, engineRdfOntologyReader('lg-spa'));
+		const ontology = await loadRdfImportOntology(W_ROOT, engineRdfOntologyReader());
 		const started = performance.now();
 		const result = track(
 			await runRdfImport({

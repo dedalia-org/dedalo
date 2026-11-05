@@ -20,20 +20,29 @@
  *    A localontology0 record is never a node itself — parsing one is refused.
  *  - parent: null iff the parent locator points at the ontology main section
  *    (ontology35) — the dd1/dd2 roots; otherwise the parent's term-id.
- *  - model: dd_ontology(model_tipo).term['lg-spa'] STRICT — no lang fallback.
+ *  - model: dd_ontology(model_tipo).machine_name — the model node's language-free
+ *    name (ontology/machine_name.ts modelNameOf; bridge rung: a model row not
+ *    yet derived falls back to its term['lg-spa'], STRICT — no lang fallback).
+ *  - machine_name / use_machine_name (ontology43 / ontology44): derived by the
+ *    kernel in ontology/machine_name.ts (projectMachineName) — the component
+ *    first, then the counted legacy rungs; an override's machine name REPLACES
+ *    the canonical one, its flag is never applied (canonical-only; a differing
+ *    one is the `override_flag_flip` defect). Defects are RETURNED
+ *    (`machineNameDefects`), never thrown.
  *  - is_translatable: defaults TRUE when the component is missing.
  *  - order_number / properties: `(int)` cast / empty→SQL NULL (never {}).
  *  - propiedades (v5 legacy): the value re-encoded via phpPrettyJsonEncode so the
  *    stored TEXT is byte-identical to PHP json_encode(..., JSON_PRETTY_PRINT).
  *
- * Only db/dd_ontology.ts, db/matrix*.ts, resolver.ts and resolve/component_data
- * are called here — plus one direct read-only jsonb probe for the overwrite scan
+ * Only db/dd_ontology.ts, db/matrix*.ts, resolver.ts, resolve/component_data,
+ * the pure machine_name.ts kernel and the api/counters rung counters are called here — plus one direct read-only jsonb probe for the overwrite scan
  * (a related-search that no matrix helper expresses), parameterized + tipo-gated.
  *
  * LEDGER: the request_config validate-on-save warning (PHP :1973, non-blocking)
  * is not reproduced — it only logs; it never changes the parsed node.
  */
 
+import { incrementCounter } from '../api/counters.ts';
 import { isValidTipo } from '../concepts/ontology.ts';
 import {
 	type DdOntologyNode,
@@ -45,9 +54,20 @@ import { sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { readComponentItems } from '../resolve/component_data.ts';
 import {
+	isNameClassNode,
+	LEGACY_NAME_LANG,
+	type MachineNameDefect,
+	type MachineNameInput,
+	type MachineNameProjection,
+	modelNameOf,
+	projectMachineName,
+	type TermItem,
+} from './machine_name.ts';
+import {
 	ONTOLOGY_CONNECTED_TO,
 	ONTOLOGY_CSS,
 	ONTOLOGY_IS_MODEL,
+	ONTOLOGY_MACHINE_NAME,
 	ONTOLOGY_MAIN_SECTION,
 	ONTOLOGY_MODEL,
 	ONTOLOGY_ORDER,
@@ -59,8 +79,8 @@ import {
 	ONTOLOGY_TERM,
 	ONTOLOGY_TLD,
 	ONTOLOGY_TRANSLATABLE,
+	ONTOLOGY_USE_MACHINE_NAME,
 	SI_NO_YES,
-	STRUCTURE_LANG,
 } from './ontology_tipos.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from './resolver.ts';
 import { getTldFromTipo, LOCAL_ONTOLOGY_SECTION } from './tld.ts';
@@ -80,6 +100,24 @@ interface Locator {
 }
 
 /**
+ * The models the machine-name contract fixes for ontology43/44 — the READ fallback
+ * while their own dd_ontology rows do not resolve yet. Without it the derive is
+ * circular on the update that FIRST brings them: dd (staged before the ontology tld)
+ * is parsed while getModelByTipo('ontology43') is null, so a converted model
+ * definition (lg-spa moved out of ontology5, D16) derives no machine_name, every
+ * instance's `model` goes NULL — and ontology43's own row then takes its model
+ * from that NULL name, keeping the read dead for good. A fallback ONLY: a defined
+ * row wins, and arming (machine_name_save / machine_name_reconcile) still asks
+ * getModelByTipo, so this never arms the save rules or the converter. On a release
+ * without the components the records carry no such keys and the read stays empty.
+ * Gate: machine_name_native (first-arrival leg).
+ */
+const MACHINE_NAME_CONTRACT_MODELS: Readonly<Record<string, string>> = {
+	[ONTOLOGY_MACHINE_NAME]: 'component_input_text',
+	[ONTOLOGY_USE_MACHINE_NAME]: 'component_radio_button',
+};
+
+/**
  * Read the raw items of one component off a matrix record (PHP
  * get_node_component_data). Resolves the component's model from the ontology,
  * then reads its slice of the typed jsonb column. Returns null when absent/empty
@@ -90,7 +128,8 @@ async function getComponentItems(
 	componentTipo: string,
 ): Promise<unknown[] | null> {
 	if (record === null) return null;
-	const model = await getModelByTipo(componentTipo);
+	const model =
+		(await getModelByTipo(componentTipo)) ?? MACHINE_NAME_CONTRACT_MODELS[componentTipo] ?? null;
 	if (model === null) return null;
 	const items = readComponentItems(record, componentTipo, model);
 	return items !== null && items.length > 0 ? items : null;
@@ -299,6 +338,122 @@ async function resolveMergedTerm(
 	return Object.keys(filled).length > 0 ? { ...(term ?? {}), ...filled } : term;
 }
 
+/** A record's raw ontology5 items (several per lang are kept — ontology5 is multi_value). */
+async function readTermItems(record: MatrixRecord | null): Promise<TermItem[]> {
+	const items = await getComponentItems(record, ONTOLOGY_TERM);
+	const out: TermItem[] = [];
+	for (const item of items ?? []) {
+		const literal = item as { lang?: string; value?: unknown };
+		if (typeof literal.lang === 'string') {
+			out.push({ lang: literal.lang, value: String(literal.value ?? '') });
+		}
+	}
+	return out;
+}
+
+/**
+ * The EFFECTIVE ontology5 items the machine-name rungs read: the per-lang merge
+ * resolveMergedTerm applies to `term` (a lang the override fills with a
+ * non-empty value replaces the canonical items of that lang; every other lang
+ * keeps its canonical items), but keeping every item, so several lg-spa items
+ * read as the collision they are instead of the last one winning.
+ */
+async function resolveEffectiveTermItems(
+	canonicalRecord: MatrixRecord | null,
+	overwriteRecord: MatrixRecord | null,
+): Promise<TermItem[]> {
+	const canonical = await readTermItems(canonicalRecord);
+	if (overwriteRecord === null) return canonical;
+	const filled = (await readTermItems(overwriteRecord)).filter((item) => item.value !== '');
+	const filledLangs = new Set(filled.map((item) => item.lang));
+	return [...canonical.filter((item) => !filledLangs.has(item.lang)), ...filled];
+}
+
+/** The string values of a literal component (ontology43), or null when it is empty. */
+function literalValues(items: unknown[] | null): string[] | null {
+	if (items === null) return null;
+	const values = items
+		.map((item) => (item as { value?: unknown } | null)?.value)
+		.filter(
+			(value): value is string | number => typeof value === 'string' || typeof value === 'number',
+		)
+		.map(String);
+	return values.length > 0 ? values : null;
+}
+
+/** A stored si/no flag: true (dd64/1), false (any other locator), null (component empty). */
+function flagOf(items: unknown[] | null): boolean | null {
+	return items === null ? null : isYesLocator(items);
+}
+
+/**
+ * An unconverted override's legacy rename (kernel `overrideLegacyName`): its own
+ * non-empty lg-spa ontology5 values when it states no ontology43, else null. An
+ * override stating ontology43 renames through `resolved` (it REPLACES) instead.
+ */
+async function readOverrideLegacyName(
+	overwriteRecord: MatrixRecord | null,
+): Promise<string[] | null> {
+	if (overwriteRecord === null) return null;
+	if (literalValues(await getComponentItems(overwriteRecord, ONTOLOGY_MACHINE_NAME)) !== null) {
+		return null;
+	}
+	const spa = (await readTermItems(overwriteRecord))
+		.filter((item) => item.lang === LEGACY_NAME_LANG && item.value !== '')
+		.map((item) => item.value);
+	return spa.length > 0 ? spa : null;
+}
+
+/**
+ * The machine-name kernel's input for one node, read off its source record(s):
+ * ontology43 override-resolved (an override's name REPLACES the canonical one,
+ * no per-lang merge), ontology44 canonical-only (the override's own value is
+ * passed only to be reported if it differs), the effective ontology5 items.
+ * On an ontology release without ontology43/44 (getModelByTipo null) they are
+ * still read, under the contract models (MACHINE_NAME_CONTRACT_MODELS): a record
+ * that carries no such key reads as empty, so only the legacy rungs fire — the
+ * transition is a data-free deploy — and converted records arriving with the
+ * definitions are read before those definitions' own rows are derived.
+ */
+async function readMachineNameInput(
+	canonicalRecord: MatrixRecord | null,
+	overwriteRecord: MatrixRecord | null,
+	resolved: ResolvedItems,
+	classFields: Parameters<typeof isNameClassNode>[0],
+): Promise<MachineNameInput> {
+	return {
+		componentValues: literalValues(await resolved(ONTOLOGY_MACHINE_NAME)),
+		overrideLegacyName: await readOverrideLegacyName(overwriteRecord),
+		canonicalFlag: flagOf(await getComponentItems(canonicalRecord, ONTOLOGY_USE_MACHINE_NAME)),
+		overrideFlag:
+			overwriteRecord === null
+				? null
+				: flagOf(await getComponentItems(overwriteRecord, ONTOLOGY_USE_MACHINE_NAME)),
+		termItems: await resolveEffectiveTermItems(canonicalRecord, overwriteRecord),
+		nameClass: isNameClassNode(classFields),
+	};
+}
+
+/**
+ * `model_unresolved` when the node names a model (model_tipo) whose name
+ * resolves to nothing — the model node has no machine name (or no row). The
+ * post-upgrade verification (plan §6b): a model NULL there sends the node's
+ * data to the wrong matrix table, so it is reported, never silent.
+ */
+export function modelResolutionDefects(
+	modelTipo: string | null,
+	model: string | null,
+): MachineNameDefect[] {
+	return modelTipo !== null && model === null
+		? [{ kind: 'model_unresolved', values: [modelTipo] }]
+		: [];
+}
+
+/** Count the legacy rungs one derivation used (G6 watches them reach zero). */
+export function countMachineNameRungs(projection: MachineNameProjection): void {
+	for (const rung of projection.rungs) incrementCounter(`ontology_machine_name_rung_${rung}`);
+}
+
 /**
  * A reference the parser composed from a source record but could NOT project:
  * it breaks the dd_ontology identifier grammar (db/dd_ontology.ts
@@ -318,6 +473,17 @@ export interface OntologyNodeDefect {
 export interface ParsedOntologyNode {
 	node: DdOntologyNode | null;
 	defects: OntologyNodeDefect[];
+	/** Machine-name findings of the node (ontology/machine_name.ts MachineNameDefectKind). */
+	machineNameDefects: MachineNameDefect[];
+	/**
+	 * The kernel input the node's machine-name columns were derived from — kept so
+	 * a whole-tld rebuild can RE-derive them once the model fixpoint
+	 * (ontology_state.ts resolveModelsAgainstParse) changes the node's model, and
+	 * with it its classification. Null when there is no node.
+	 */
+	machineNameInput: MachineNameInput | null;
+	/** The legacy rungs the derivation used (counted; empty = explicit data). */
+	machineNameRungs: MachineNameProjection['rungs'];
 }
 
 /**
@@ -330,7 +496,7 @@ export async function parseSectionRecordToOntologyNode(
 	sectionTipo: string,
 	sectionId: number | string,
 ): Promise<DdOntologyNode | null> {
-	const { node, defects } = await parseSectionRecordToOntologyNodeWithDefects(
+	const { node, defects, machineNameDefects } = await parseSectionRecordToOntologyNodeWithDefects(
 		sectionTipo,
 		sectionId,
 	);
@@ -339,7 +505,23 @@ export async function parseSectionRecordToOntologyNode(
 			`[ontology_parser] ${sectionTipo}/${sectionId}: ${defect.column} ${(JSON.stringify(defect.value) ?? '').slice(0, 64)} is not a valid identifier — dropped from node ${JSON.stringify(node?.tipo ?? null)} (SURF-1; fix the source record)`,
 		);
 	}
+	warnMachineNameDefects(`${sectionTipo}/${sectionId}`, node?.tipo ?? null, machineNameDefects);
 	return node;
+}
+
+/** One warning per machine-name finding of a single-record parse (the rebuild REPORTS them instead). */
+function warnMachineNameDefects(
+	source: string,
+	tipo: string | null,
+	defects: readonly MachineNameDefect[],
+): void {
+	for (const defect of defects) {
+		const values =
+			defect.values === undefined ? '' : ` ${(JSON.stringify(defect.values) ?? '').slice(0, 96)}`;
+		console.warn(
+			`[ontology_parser] ${source}: machine name ${defect.kind}${values} on node ${JSON.stringify(tipo)} (fix the source record's ${ONTOLOGY_MACHINE_NAME} / ${ONTOLOGY_USE_MACHINE_NAME})`,
+		);
+	}
 }
 
 /** The identifier-grammar verdict of one reference value for its dd_ontology column. */
@@ -386,7 +568,11 @@ async function projectParent(
 	return projectReference('parent', parentLocator, defects);
 }
 
-/** model_tipo + model (= dd_ontology(model_tipo).term['lg-spa'] STRICT, no lang fallback). */
+/**
+ * model_tipo + model (= the STORED model row's machine_name; bridge rung for a
+ * row not yet derived: its term['lg-spa'], STRICT — machine_name.ts modelNameOf,
+ * counted as `legacy_model_term`).
+ */
 async function projectModel(
 	resolved: ResolvedItems,
 	defects: OntologyNodeDefect[],
@@ -395,8 +581,9 @@ async function projectModel(
 	if (modelLocator === undefined) return { modelTipo: null, model: null };
 	const modelTipo = await projectReference('model_tipo', modelLocator, defects);
 	if (modelTipo === null) return { modelTipo, model: null };
-	const modelRow = await readDdOntologyRow(modelTipo);
-	return { modelTipo, model: modelRow?.term?.[STRUCTURE_LANG] ?? null };
+	const { model, legacy } = modelNameOf(await readDdOntologyRow(modelTipo));
+	if (legacy) incrementCounter('ontology_machine_name_rung_legacy_model_term');
+	return { modelTipo, model };
 }
 
 /**
@@ -440,6 +627,13 @@ export async function parseSectionRecordToOntologyNodeWithDefects(
 		});
 	}
 	const defects: OntologyNodeDefect[] = [];
+	const noNode = (): ParsedOntologyNode => ({
+		node: null,
+		defects,
+		machineNameDefects: [],
+		machineNameInput: null,
+		machineNameRungs: [],
+	});
 	// canonical record
 	const canonicalTable = await getMatrixTableFromTipo(sectionTipo);
 	const canonicalRecord =
@@ -476,11 +670,11 @@ export async function parseSectionRecordToOntologyNodeWithDefects(
 	// create-door default) would re-home the node into another namespace.
 	const tldItems = await getComponentItems(canonicalRecord, ONTOLOGY_TLD);
 	if (tldItems === null) {
-		return { node: null, defects }; // PHP: ignore record — TLD is mandatory.
+		return noNode(); // PHP: ignore record — TLD is mandatory.
 	}
 	const tld = String((tldItems[0] as { value?: unknown }).value ?? '');
 	if (tld === '') {
-		return { node: null, defects };
+		return noNode();
 	}
 	const tipo = `${tld}${sectionId}`;
 
@@ -491,7 +685,7 @@ export async function parseSectionRecordToOntologyNodeWithDefects(
 	const isModelItems = await getComponentItems(canonicalRecord, ONTOLOGY_IS_MODEL);
 	const isModel = isYesLocator(isModelItems);
 
-	// Model — overwrite-aware; model = dd_ontology(model_tipo).term['lg-spa'] STRICT.
+	// Model — overwrite-aware; model = dd_ontology(model_tipo).machine_name (projectModel).
 	const { modelTipo, model } = await projectModel(resolved, defects);
 
 	// Order — canonical only, (int) cast, empty → null.
@@ -547,6 +741,20 @@ export async function parseSectionRecordToOntologyNodeWithDefects(
 	// Term — all langs, merged per lang with an override (resolveMergedTerm).
 	const term = await resolveMergedTerm(canonicalRecord, overwriteRecord);
 
+	// Machine name + flag (ontology43/44) — the kernel in machine_name.ts. The
+	// classification reads the CANONICAL is_model/tld and the MERGED model (an
+	// override record is classified by the model it resolves to, plan §5).
+	const machineNameInput = await readMachineNameInput(canonicalRecord, overwriteRecord, resolved, {
+		tipo,
+		tld,
+		is_model: isModel,
+		model_tipo: modelTipo,
+		model,
+	});
+	const machineName = projectMachineName(machineNameInput);
+	countMachineNameRungs(machineName);
+	const machineNameDefects = [...machineName.defects, ...modelResolutionDefects(modelTipo, model)];
+
 	const node: DdOntologyNode = {
 		tipo,
 		parent,
@@ -561,8 +769,16 @@ export async function parseSectionRecordToOntologyNodeWithDefects(
 		is_translatable: isTranslatable,
 		is_main: isMain,
 		propiedades,
+		machine_name: machineName.machine_name,
+		use_machine_name: machineName.use_machine_name,
 	};
-	return { node, defects };
+	return {
+		node,
+		defects,
+		machineNameDefects,
+		machineNameInput,
+		machineNameRungs: machineName.rungs,
+	};
 }
 
 /**

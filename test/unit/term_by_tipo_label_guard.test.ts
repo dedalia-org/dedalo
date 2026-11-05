@@ -55,9 +55,13 @@ import {
 	LABEL_NODE_MODEL,
 	runWithLabelGuardTestPosture,
 } from '../../src/core/ontology/label_node_guard.ts';
-import { labelByTipo, ontologyTermLabel, termByTipo } from '../../src/core/ontology/labels.ts';
+import {
+	getOntologyTermLabel,
+	labelByTipo,
+	ontologyTermLabel,
+	termByTipo,
+} from '../../src/core/ontology/labels.ts';
 import { getTermByTipo } from '../../src/core/ontology/resolver.ts';
-import { getOntologyTermLabel } from '../../src/core/ontology/term_label.ts';
 import { buildRecordMetadata } from '../../src/core/section/record/create_record.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { sectionLabelAtoms } from '../../src/diffusion/resolve/resolver.ts';
@@ -120,7 +124,7 @@ const RESOLVERS: readonly GuardedResolver[] = [
 	},
 	{
 		name: 'getOntologyTermLabel',
-		file: 'src/core/ontology/term_label.ts',
+		file: LABELS_TS,
 		run: (tipo) => getOntologyTermLabel(tipo),
 		fallback: () => '',
 	},
@@ -331,15 +335,14 @@ interface CensusEntry {
  */
 const TERM_READ_LEDGER: Readonly<Record<string, CensusEntry>> = {
 	'src/core/ontology/labels.ts': {
-		bases: { guarded: 2 },
-		reason: 'labelByTipo + termByTipo',
+		bases: { guarded: 3 },
+		reason: 'labelByTipo + termByTipo + getOntologyTermLabel (term_label.ts folded in 2026-11-04)',
 	},
 	'src/core/ontology/resolver.ts': {
 		bases: { guarded: 1, 'not-by-tipo': 3, 'model-predicate': 1, 'full-row': 1 },
 		reason:
 			'getTermByTipo; subtree/children loaders + listSectionNodes; relatedMatrixTable; the node-row loader (full-row: selects model, consumer trusted)',
 	},
-	'src/core/ontology/term_label.ts': { bases: { guarded: 1 }, reason: 'getOntologyTermLabel' },
 	'src/core/section/record/create_record.ts': {
 		bases: { guarded: 1 },
 		reason: 'resolveSectionLabel',
