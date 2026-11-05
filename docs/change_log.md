@@ -24,6 +24,10 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Portal rows no longer glow on hover; only section list rows do.**
+
+    Hovering a list row used to paint a soft grey glow around it, in section lists and in portal lists alike. The glow now belongs to section lists only: a portal's rows, and the rows of the other relation fields that use a portal list, no longer draw it. The dashed orange ring of a row being dragged and the orange outline of the row you are dropping onto are unchanged, and a section list row still glows when you hover it.
+
 - **Background is now the default active-field style; Frame becomes one of the choices.**
 
     The switcher in Users → your own record now lists **Background (default), Frame, Lift, Margin**.
@@ -169,6 +173,10 @@ Merged since the last release; these ship with the next one.
     The text being edited in the indexation, transcription and translation (target language) tools now shows the time machine button next to full screen and save, so earlier versions of the text can be opened without leaving the tool. In the transcription tool it replaces the header's separate time machine button.
 
 #### Fixed
+
+- **The id cell's hover text is now readable on its orange, green and red fills.**
+
+    In a list's id cell, hovering the edit, delete or thesaurus-link button paints the cell orange, green or red. The id number and its icon were white in the light theme — about 2.4:1 on the orange, hard to read — while the dark theme flipped them to dark ink, which read poorly on the green. Each fill now takes the ink the theme defines for it: dark on the orange, white on the green, and white on the red in the light theme with dark ink on it in the dark theme. The number stays legible on every button, in both themes.
 
 - **The filter_records search field scrolls inside its card instead of spilling over the next one.**
 
