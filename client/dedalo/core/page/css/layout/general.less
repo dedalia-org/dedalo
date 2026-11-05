@@ -939,9 +939,10 @@
 
 /* mandatory common
 ------------------------------------------------------- */
+	// a SOFT cue (required, not yet filled): tint only. Danger red is for real
+	// errors (`.error`, set on a failed save) — on load it read as one.
 	.wrapper_component .mandatory {
 		background-color: @color_mandatory;
-		border: 1px solid @color_danger;
 	}
 
 /* dark mode: input overrides

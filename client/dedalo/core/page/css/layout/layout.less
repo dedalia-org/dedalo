@@ -725,6 +725,11 @@ input::placeholder {
 			// to the field grid, so the inputs that are NOT fields (search panel,
 			// login, tool forms, modals) keep the surface they sit on.
 			background-color: var(--field_rest_bg);
+
+			// the required cue (general.less .mandatory) must outrank the rest bg
+			&.mandatory {
+				background-color: var(--color_mandatory);
+			}
 		}
 
 		// A read-only value (permissions < 2, Time Machine preview) is a plain

@@ -1888,7 +1888,6 @@ li .reset_input select {
 ------------------------------------------------------- */
 .wrapper_component .mandatory {
   background-color: var(--color_mandatory);
-  border: 1px solid var(--color_danger);
 }
 /* dark mode: input overrides
 ------------------------------------------------------- */
@@ -5491,6 +5490,15 @@ dd-modal .wrapper_component > .content_data.vertical,
   padding-left: var(--field_box_bleed);
   line-height: var(--field_line_h);
   background-color: var(--field_rest_bg);
+}
+.wrapper_component.edit.component_input_text > .content_data input.input_value.mandatory,
+.wrapper_component.edit.component_number > .content_data input.input_value.mandatory,
+.wrapper_component.edit.component_date > .content_data input.input_value.mandatory,
+.wrapper_component.edit.component_email > .content_data input.input_value.mandatory,
+.wrapper_component.edit.component_url > .content_data input.input_value.mandatory,
+.wrapper_component.edit.component_password > .content_data input.input_value.mandatory,
+.wrapper_component.edit.component_iri > .content_data input.input_value.mandatory {
+  background-color: var(--color_mandatory);
 }
 .wrapper_component.edit.component_input_text:not(.component_iri) > .content_data > .content_value.read_only,
 .wrapper_component.edit.component_number:not(.component_iri) > .content_data > .content_value.read_only,
