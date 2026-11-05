@@ -3230,9 +3230,15 @@ common.prototype.build_rqo_search = async function(request_config_object, action
 
 	// DDO_MAP
 	// get the ddo_map to show the components, if is set choose get it, if not get the search.ddo_map if not get the show.ddo_map
-		const ddo_map = request_config_object.choose && request_config_object.choose.ddo_map
+		// (!) Result rows are a PICK LIST, never editors: a ddo pinned to edit (an
+		// in-cell editable column of the caller's table, e.g. a portal fixed_mode
+		// 'edit' view 'line') rendered a whole editable portal — label, tools,
+		// pen/remove — inside every result row, breaking the row's text flow.
+		// Downgraded to list here, as the filter paths above already are.
+		const ddo_map = (request_config_object.choose && request_config_object.choose.ddo_map
 			? request_config_object.choose.ddo_map
 			: search_ddo_map
+		).map(ddo => ddo.mode==='edit' ? {...ddo, mode : 'list'} : ddo)
 
 	// columns. get the sub elements with the ddo_map, the method is recursive,
 	// it get only the items that don't has relations and is possible get values (component_input_text, component_text_area, compomnent_select, etc )

@@ -190,6 +190,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Portal search results show each record as one line of text, with its columns aligned.**
+
+    In a portal whose table lets you edit a column in place (for example Authorship: person, role, date), every search result embedded that column as an editable field: a "Person" heading, tool buttons and edit/unlink buttons inside each result, and the role and date columns pushed out of line. Results are a list to choose from, so their columns now always render as read-only text, and all columns of a result start on the same line.
+
 - **Typing a search in a portal's search box no longer counts as an unsaved change.**
 
     Closing an edit window after only typing in a portal's search box, without picking a record, asked "Discard unsaved changes?". The search text is not record data: the question now appears only when a value was really changed.
