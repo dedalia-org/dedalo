@@ -684,7 +684,7 @@ Merged since the last release; these ship with the next one.
 
 - **An ontology master can promote chosen tlds from another provider.**
 
-    An installation that serves ontology (`IS_AN_ONTOLOGY_SERVER=true`) can now list other providers in `ONTOLOGY_SERVERS` and update chosen tlds from them, with the same checks as any update: census, recovery snapshot, file digests and the data-model refusal. On such an installation every `ONTOLOGY_SERVERS` entry must list its `tlds`; an entry without them is refused, so a remote can never replace the whole authored ontology. Tlds no entry lists stay untouched. Without entries nothing changes. `bun run update plan <release>` now asks every configured code server for the release, instead of only the first.
+    An installation that serves ontology (`IS_AN_ONTOLOGY_SERVER=true`) can now list other providers in `ONTOLOGY_SERVERS` and update chosen tlds from them, with the same checks as any update: census, recovery snapshot, file digests and the data-model refusal. On such an installation only entries that list `tlds` are providers; an entry without them is code-only (it supplies an accepted access code and nothing is pulled from it), so a remote can never replace the whole authored ontology. Tlds no provider lists stay untouched. Without providers nothing changes. `bun run update plan <release>` now asks every configured code server for the release, instead of only the first.
 
 - **A column defined with a level-two `section_tipo: "self"` is no longer shown; the new `ddo_self_depth` check lists every such definition.**
 
