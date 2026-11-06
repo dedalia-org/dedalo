@@ -666,6 +666,12 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-10-28-start-component-deep-link-record-scope`.
 
+#### Removed
+
+- **An ontology server accepts the access codes listed in ONTOLOGY_SERVERS; ONTOLOGY_SERVER_CODE is retired.** *(action needed)*
+
+    `ONTOLOGY_SERVER_CODE` no longer authorises anything (it was already deprecated in v6). An installation with `IS_AN_ONTOLOGY_SERVER=true` now accepts the `code` of every entry in its `ONTOLOGY_SERVERS`. **If clients pull from your ontology server with the code you set in `ONTOLOGY_SERVER_CODE`, add one `ONTOLOGY_SERVERS` entry per client carrying that code** (no `tlds`: such an entry is code-only and nothing is pulled from it) and restart. The old line still parses, so a v6 `.env` boots; remove it. The *Serve Ontology* panel now reports the codes of `ONTOLOGY_SERVERS`. See [ONTOLOGY_SERVERS](./config/config.md#ontology-servers).
+
 #### Changed
 
 - **The official servers moved to master7.dedalo.dev; beta7.dedalo.dev is an opt-in beta provider** *(action needed)*
