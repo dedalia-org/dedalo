@@ -8343,12 +8343,11 @@ body:has(.component_av.view_viewer) {
   margin-top: var(--space-2);
 }
 .inspector > .inspector_content_data > .buttons_container.bottom > .register_download {
-  padding: 0.25rem;
-  padding-top: 0.5rem;
-  padding-bottom: 0px;
-  display: block;
-  text-align: center;
-  color: var(--color_grey_7);
+  padding: 0.375rem 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
 }
 .inspector .css_section_group_content {
   display: table;
@@ -23079,13 +23078,11 @@ body.inspector_resizing {
   cursor: pointer;
 }
 .component_date.search > .content_data > .content_value > .input-group > .button_container.button_calendar_container {
-  position: relative;
-  inset: auto;
-  display: inline-block;
-  flex: 0 0 1.8rem;
-  width: 1.8rem;
+  left: -0.9rem;
+  right: auto;
+  top: -1.4rem;
   height: 1.8rem;
-  margin: 0 0 2px 0.25rem;
+  width: 1.8rem;
 }
 .component_date.search > .content_data > .content_value > .input-group:has(>.button_container.button_calendar_container) > input {
   padding-left: 0.2rem;
@@ -23102,7 +23099,7 @@ body.inspector_resizing {
 }
 .component_date.search > .content_data > .content_value:has(>.dates_separator) > .input-group input {
   min-width: 0;
-  font-size: clamp(0.75rem, calc(((100cqi - 0.5rem) / 2 - 2.6rem) / 6.3), 1rem);
+  font-size: clamp(0.75rem, calc((100cqi - 1.25rem) / 12.4), 1rem);
 }
 .component_date.search > .content_data > .content_value:has(>.dates_separator) > .dates_separator {
   position: absolute;

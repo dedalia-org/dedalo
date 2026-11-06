@@ -287,11 +287,11 @@ Merged since the last release; these ship with the next one.
     nothing at all. The gutter is now reserved inside the list, so the whole handle
     is shown and a drag from it starts every time.
 
-- **A search field no longer jumps when you click it, and the date picker button stays on its field**
+- **A search field no longer jumps when you click it**
 
     In the search panel, clicking into a filter field used to shrink its name row and pull the whole field up by a line, so the row you aimed at moved under the pointer. The date fields' calendar button made it worse: it rode that shift and covered the field's own name.
 
-    Both are fixed. A search card keeps the same height whether or not it is in use, and the calendar button now sits at the end of the date field's own line, inside the card, where it covers neither the field name nor the value.
+    Both are fixed. A search card keeps the same height whether or not it is in use, and the date fields keep their calendar button on the field corner.
 
 - **The record's Id badge can be selected to show its information in the inspector.**
 
