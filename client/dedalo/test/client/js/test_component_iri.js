@@ -285,6 +285,56 @@ describe(`COMPONENT_IRI DATA OPERATIONS`, function() {
 
 
 
+	it(`dataframe and title share their line equally, vertically centred (edit layout)`, async function() {
+
+		// component_iri.less: dataframe + title share flex basis/grow (12rem, 1),
+		// and the dataframe centres its record (its content_data is taller than
+		// the 2rem box and used to hang below the title's text line)
+		const find_row = () => [...instance.node.querySelectorAll('.content_value')]
+			.find(el => el.querySelector(':scope >.component_dataframe') && el.querySelector(':scope >.input_value.title'))
+		let content_value = find_row()
+		for (let i = 0; !content_value && i < 50; i++) {
+			await new Promise(resolve => setTimeout(resolve, 100))
+			content_value = find_row()
+		}
+		assert.isOk(content_value, 'expected a content_value with dataframe + title input')
+
+		// a WIDE rule (the phone tier puts each on its own line) and the suite
+		// frame sits under the breakpoint: widen the frame for this leg, prove it
+		// got there, restore it after (as test_portal_row_drag does)
+		const frame			= window.frameElement
+		const frame_width	= frame ? frame.style.width : null
+		if (frame) {
+			frame.style.width = '1440px'
+		}
+		try {
+			await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+			assert.equal(window.matchMedia('(min-width: 961px)').matches, true, 'the leg could not reach the wide layout')
+
+			const df_rect		= content_value.querySelector(':scope >.component_dataframe').getBoundingClientRect()
+			const title_rect	= content_value.querySelector(':scope >.input_value.title').getBoundingClientRect()
+			// what the dataframe shows: its linked record or, empty (the fixture
+			// row holds none), the placeholder hint
+			const shown_node	= content_value.querySelector(':scope >.component_dataframe .section_record, :scope >.component_dataframe >.list_after >.component_placeholder')
+			assert.isOk(shown_node, 'expected a dataframe record or placeholder')
+			const record_rect	= shown_node.getBoundingClientRect()
+			assert.isAbove(title_rect.width, 0, 'title input expected rendered')
+			assert.isBelow(Math.abs(df_rect.top - title_rect.top), 2, 'dataframe and title expected on one line')
+
+			assert.isBelow(Math.abs(df_rect.width - title_rect.width), 2, 'dataframe and title expected equal width')
+
+			const title_mid		= title_rect.top + title_rect.height / 2
+			const record_mid	= record_rect.top + record_rect.height / 2
+			assert.isBelow(Math.abs(title_mid - record_mid), 2, 'dataframe content expected centred on the title line')
+		} finally {
+			if (frame) {
+				frame.style.width = frame_width
+			}
+		}
+	});
+
+
+
 	it(`change data via change_value (update)`, async function() {
 
 		const data		= instance.data || {}

@@ -194,6 +194,10 @@ Merged since the last release; these ship with the next one.
 
     In a URL field, the remove and open-link buttons used to take a row of their own. They now sit over the end of the address, which fades out under them, so each link takes one line less. The linked-record selector next to it gives its label more room, and its edit and remove icons line up with the text. On narrow screens the selector spans the full width like the title and address, and the toolbar that appears when you select it is no longer cut off.
 
+- **Text editors, URL fields and record pickers fit better, especially on phones.**
+
+    The text editor's toolbar now sits flush at the top of the field across its full width, just under the line that shows unsaved and saved changes, for both plain and rich text. On phones, a selected long text no longer spills over the field below it; it scrolls inside its box. In a URL field, the linked-record selector and the title now share their line equally and are vertically aligned. On phones, the record picker opened from a field no longer gets cut off when a record has a long, unbroken label such as a web address.
+
 - **Portal search results show each record as one line of text, with its columns aligned.**
 
     In a portal whose table lets you edit a column in place (for example Authorship: person, role, date), every search result embedded that column as an editable field: a "Person" heading, tool buttons and edit/unlink buttons inside each result, and the role and date columns pushed out of line. Results are a list to choose from, so their columns now always render as read-only text, and all columns of a result start on the same line.

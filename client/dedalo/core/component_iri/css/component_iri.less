@@ -112,14 +112,31 @@
 				}
 
 				// dataframe inside
-				// Wide container: dataframe (30%), title and url (1:2 grow) together
+				// Wide container: dataframe, title and url (1:1:2 grow) together
 				// fill one line; when the widths no longer fit, each input wraps to
 				// its own full-width line. basis values are under 100% so shrink
-				// resolves tightness before wrap fires.
+				// resolves tightness before wrap fires. Dataframe and title share
+				// basis + grow (12rem = title min-width, 1) so on a shared line they split it equally.
 				>.component_dataframe {
-					flex: 0 1 30%;
+					flex: 1 1 12rem;
 					min-width: 8rem;
 					height: 2rem;
+					// centre the record on the title input's line: its content_data
+					// (field padding) is taller than this 2rem box and, in block flow,
+					// hung below it — the label sat ~4px under the title text
+					display: flex;
+					flex-direction: column;
+					justify-content: center;
+
+					// empty: the padded empty content_data stacked over the hint
+					// (list_after) and pushed it below the title line. Collapse it
+					// and drop the hint's pull-up so the hint is what gets centred.
+					>.content_data:empty {
+						display: none;
+					}
+					>.list_after >.component_placeholder {
+						margin-top: 0px;
+					}
 
 					>.content_data {
 						>.section_record.view_line {
@@ -177,7 +194,7 @@
 					padding-right: 0.5rem;
 
 					&.title {
-						flex: 1 1 15rem;
+						flex: 1 1 12rem;
 						min-width: 12rem;
 						padding-left: 0.5rem;
 					}

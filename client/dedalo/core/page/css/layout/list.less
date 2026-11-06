@@ -540,6 +540,10 @@
 
 			@media screen and (max-width: @width_break_point_0) {
 				padding-left: 0.3rem;
+				// card stack: an unbreakable value (a URL label) kept its full
+				// min-content and widened the whole list page past the screen
+				// (the select modal's iframe was cut). No 1fr track to collapse here.
+				overflow-wrap: anywhere;
 			}
 		}
 

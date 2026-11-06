@@ -6804,6 +6804,7 @@ dd-modal.dd_presets::part(content) {
 @media screen and (max-width: 1024px) {
   .column div.wrapper_component span {
     padding-left: 0.3rem;
+    overflow-wrap: anywhere;
   }
 }
 .column div.wrapper_component .list.view_text {
@@ -24910,9 +24911,18 @@ body.inspector_resizing {
   padding-left: 0.5rem;
 }
 .component_iri.edit > .content_data > .content_value > .component_dataframe {
-  flex: 0 1 30%;
+  flex: 1 1 12rem;
   min-width: 8rem;
   height: 2rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data:empty {
+  display: none;
+}
+.component_iri.edit > .content_data > .content_value > .component_dataframe > .list_after > .component_placeholder {
+  margin-top: 0px;
 }
 .component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data > .section_record.view_line {
   flex-wrap: nowrap;
@@ -24952,7 +24962,7 @@ body.inspector_resizing {
   padding-right: 0.5rem;
 }
 .component_iri.edit > .content_data > .content_value > .input_value.title {
-  flex: 1 1 15rem;
+  flex: 1 1 12rem;
   min-width: 12rem;
   padding-left: 0.5rem;
 }
@@ -28109,10 +28119,6 @@ body.inspector_resizing {
   font-size: 0.75rem;
   transform: translateY(-60%);
 }
-.component_text_area.edit.active:not(.view_line) > .content_data > .content_value > .toolbar_container {
-  margin-left: 4px;
-  margin-right: 4px;
-}
 .component_text_area.edit:not(.view_line) > .content_data {
   overflow: visible;
 }
@@ -28128,8 +28134,10 @@ body.inspector_resizing {
 .component_text_area.edit:not(.view_line) > .content_data > .content_value > .toolbar_container {
   position: sticky;
   top: var(--menu_offset);
+  left: 0;
+  width: auto;
   align-self: start;
-  margin-top: var(--text_area_toolbar_lift, calc(6px - var(--component_label_height)));
+  margin-top: var(--text_area_toolbar_lift, calc(4px - var(--component_label_height)));
 }
 .component_text_area.edit.fullscreen:not(.view_line) > .content_data > .content_value > .toolbar_container {
   top: 0;
@@ -28139,6 +28147,17 @@ body.inspector_resizing {
 }
 .wrapper_component.component_text_area.edit:not(.view_line) > .content_data {
   height: 100%;
+}
+@media screen and (max-width: 960px) {
+  .wrapper_component.component_text_area.edit:not(.view_line) > .content_data {
+    display: flex;
+    flex-direction: column;
+  }
+  .wrapper_component.component_text_area.edit:not(.view_line) > .content_data > .content_value {
+    flex: 1 1 auto;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+  }
 }
 .component_text_area.edit.fullscreen .ck-content {
   width: calc(100vw - 3rem);
