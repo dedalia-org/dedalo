@@ -8347,7 +8347,7 @@ body:has(.component_av.view_viewer) {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #ffffff;
+  color: var(--fg_on_warning);
 }
 .inspector .css_section_group_content {
   display: table;
@@ -21841,7 +21841,7 @@ body.inspector_resizing {
   border: 0px;
   padding-left: 3px;
   padding-right: 3px;
-  color: var(--color_white);
+  color: var(--fg_on_brand);
   border-radius: 3px;
   margin: 0px;
   margin-right: 5px;
@@ -25122,7 +25122,7 @@ body.inspector_resizing {
 .component_json.modified .jse-main .jse-menu > .jse-button.button_save {
   opacity: 1;
   background-color: var(--color_orange_dedalo);
-  color: var(--fg_inverse);
+  color: var(--fg_on_brand);
 }
 .component_json.modified .jse-main .jse-menu > .jse-button.button_save:hover {
   filter: brightness(1.08);
