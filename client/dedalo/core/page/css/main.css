@@ -590,7 +590,7 @@ template {
   --color_ontology_css: #826b85;
   --color_ontology_rqo: #9d4a4a;
   --color_ontology_properties: #1b531f;
-  --color_ontology_properties_v5: #e9dd9f;
+  --color_ontology_properties_v5: #d6b938;
   --color_tag_indexation_normal: #ffa43d;
   --color_tag_indexation_removed: #2775d1;
   --color_tag_indexation_to_review: #d73c16;
@@ -21787,19 +21787,23 @@ body.inspector_resizing {
   width: 1rem;
   height: 1rem;
   cursor: pointer;
+  --ts_arrow_color: var(--color_orange);
   border-style: solid;
   border-width: 6px 0px 6px 10.4px;
-  border-color: transparent transparent transparent var(--color_orange);
+  border-color: transparent transparent transparent var(--ts_arrow_color);
 }
 .wrap_ts_object > .content_data > .elements_container > .link_children:active {
   opacity: 0.5;
+}
+[data-theme="dark"] .wrap_ts_object > .content_data > .elements_container > .link_children {
+  --ts_arrow_color: color-mix(in srgb, var(--color_orange_dedalo) 55%, transparent);
 }
 .area_ontology .wrap_ts_object > .content_data > .elements_container > .link_children {
   border-left-color: var(--color_grey_9);
 }
 .wrap_ts_object > .content_data > .elements_container > .link_children.open {
   border-width: 10.4px 6px 0px 6px;
-  border-color: var(--color_orange) transparent transparent transparent;
+  border-color: var(--ts_arrow_color) transparent transparent transparent;
   top: 2px;
   left: -2px;
 }
@@ -21837,31 +21841,34 @@ body.inspector_resizing {
   align-items: center;
   justify-content: center;
   background-color: var(--color_orange_dedalo);
-  opacity: 0.6;
+  opacity: 0.75;
   border: 0px;
   padding-left: 3px;
   padding-right: 3px;
-  color: var(--fg_on_brand);
+  color: var(--color_white);
   border-radius: 3px;
   margin: 0px;
   margin-right: 5px;
   width: auto;
   min-width: 1.27rem;
-  height: 17px;
-  line-height: 1.2rem;
+  height: 15px;
+  line-height: 1;
   font-size: 0.9rem;
   cursor: pointer;
+  user-select: none;
+}
+[data-theme="dark"] .wrap_ts_object > .content_data > .elements_container .button_show_indexations,
+[data-theme="dark"] .wrap_ts_object > .content_data > .elements_container .default {
+  opacity: 0.55;
 }
 .area_ontology .wrap_ts_object > .content_data > .elements_container .button_show_indexations,
 .area_ontology .wrap_ts_object > .content_data > .elements_container .default {
   min-width: 1.16rem;
   background-color: var(--color_grey_11);
   color: var(--color_grey_1);
-  padding: 3px;
-  border-radius: 1px;
-  height: 1.2rem;
+  padding: 0 4px;
   font-size: 11px;
-  vertical-align: bottom;
+  font-weight: 500;
 }
 .wrap_ts_object > .content_data > .elements_container .button_show_indexations.button_show_component.ontology16,
 .wrap_ts_object > .content_data > .elements_container .default.button_show_component.ontology16 {
@@ -21939,6 +21946,9 @@ body.inspector_resizing {
   float: left;
   clear: both;
   transition: opacity 0.12s ease-out;
+}
+.wrap_ts_object > .content_data > .data_container > .wrapper_component.component_json {
+  width: 100%;
 }
 .wrap_ts_object > .content_data > .indexations_container {
   display: flex;
@@ -22131,14 +22141,14 @@ body.inspector_resizing {
     content: '';
     border-style: solid;
     border-width: 6px 0px 6px 10.4px;
-    border-color: transparent transparent transparent var(--color_orange);
+    border-color: transparent transparent transparent var(--ts_arrow_color);
   }
   .area_ontology .wrap_ts_object > .content_data > .elements_container > .link_children::before {
     border-left-color: var(--color_grey_9);
   }
   .wrap_ts_object > .content_data > .elements_container > .link_children.open::before {
     border-width: 10.4px 6px 0px 6px;
-    border-color: var(--color_orange) transparent transparent transparent;
+    border-color: var(--ts_arrow_color) transparent transparent transparent;
   }
   .area_ontology .wrap_ts_object > .content_data > .elements_container > .link_children.open::before {
     border-top-color: var(--color_grey_9);

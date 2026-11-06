@@ -15,6 +15,7 @@
 	@ts_object_line_height: 20px;
 	@grey_color: @color_grey_11;
 	@grey_dark_color: @color_grey_1;
+	@ts_dark_orange_strength: 0.55; // dark-mode orange of indexation badges + expand arrow
 	// id-column icons: one hit box for every button, and one INK size all four
 	// icons are normalized to. `mask-size` must be absolute px, never a %: a %
 	// resolves against the (flex-shrinkable) box, so any width pressure in the
@@ -350,10 +351,17 @@
 					opacity: 0.5;
 				}
 
+				// arrow colour (also read by the phone ::before triangle below)
+				--ts_arrow_color: @color_orange;
+				[data-theme="dark"] & {
+					// same ink as the indexation badges — dark --color_orange is a muted surface
+					--ts_arrow_color: color-mix(in srgb, @color_orange_dedalo percentage(@ts_dark_orange_strength), transparent);
+				}
+
 				// default status : closed
 				border-style: solid;
 				border-width: 6px 0px 6px 10.4px;
-				border-color: transparent transparent transparent @color_orange;
+				border-color: transparent transparent transparent var(--ts_arrow_color);
 
 				.area_ontology & {
 					border-left-color: @color_grey_9;
@@ -361,7 +369,7 @@
 
 				&.open {
 					border-width: 10.4px 6px 0px 6px;
-					border-color: @color_orange transparent transparent transparent;
+					border-color: var(--ts_arrow_color) transparent transparent transparent;
 					top: 2px;
 					left: -2px;
 
@@ -437,32 +445,34 @@
 				align-items: center;
 				justify-content: center;
 				background-color: @color_orange_dedalo;
-				opacity: 0.6;
+				opacity: 0.75;
+				[data-theme="dark"] & {
+					opacity: @ts_dark_orange_strength; // toned down; arrow uses the same value
+				}
 				border: 0px;
 				padding-left: 3px;
 				padding-right: 3px;
-				color: var(--fg_on_brand);
+				color: @color_white;
 				border-radius: 3px;
 				margin: 0px;
 				margin-right: 5px;
 				width: auto;
 				min-width: 1.27rem;
-				height: 17px;
-				line-height: 1.2rem;
+				height: 15px;
+				line-height: 1;
 				font-size: 0.9rem;
 				cursor: pointer;
+				user-select: none;
 
 				// area_ontology elements common
 				.area_ontology & {
 					min-width: 1.16rem;
 					background-color: @grey_color;
 					color: @grey_dark_color;
-					padding: 3px;
-					border-radius: 1px;
-					height: 1.2rem;
+					// same compact pill as the thesaurus badges (height/radius inherited)
+					padding: 0 4px;
 					font-size: 11px;
-					vertical-align: bottom;
-					// top: -1px;
+					font-weight: 500;
 				}
 
 				&.button_show_component {
@@ -561,6 +571,12 @@
 				float: left;
 				clear: both;
 				transition: opacity 0.12s ease-out;
+
+				// the json editor renders only the visible lines, so a shrink-to-fit
+				// float re-measured its width on every scroll: pin it to the row
+				&.component_json {
+					width: 100%;
+				}
 			}
 		}//end .data_container
 
@@ -847,7 +863,7 @@
 						content: '';
 						border-style: solid;
 						border-width: 6px 0px 6px 10.4px;
-						border-color: transparent transparent transparent @color_orange;
+						border-color: transparent transparent transparent var(--ts_arrow_color);
 
 						.area_ontology & {
 							border-left-color: @color_grey_9;
@@ -855,7 +871,7 @@
 					}
 					&.open::before {
 						border-width: 10.4px 6px 0px 6px;
-						border-color: @color_orange transparent transparent transparent;
+						border-color: var(--ts_arrow_color) transparent transparent transparent;
 
 						.area_ontology & {
 							border-top-color: @color_grey_9;

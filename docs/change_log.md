@@ -198,6 +198,10 @@ Merged since the last release; these ship with the next one.
 
     The text editor's toolbar now sits flush at the top of the field across its full width, just under the line that shows unsaved and saved changes, for both plain and rich text. On phones, a selected long text no longer spills over the field below it; it scrolls inside its box. In a URL field, the linked-record selector and the title now share their line equally and are vertically aligned. On phones, the record picker opened from a field no longer gets cut off when a record has a long, unbroken label such as a web address.
 
+- **Thesaurus and ontology tree badges are easier to read, and the inline JSON editor keeps its width.**
+
+    In the thesaurus and ontology trees, the information badges are slightly smaller and share one compact style, their text can no longer be selected by accident, and in dark mode the badges and the expand arrow now use the same, softer orange. The ontology's v5 properties badge, which was barely visible on the light background, is now a clear yellow. The JSON editor opened inside the ontology tree no longer changes width while you scroll through it.
+
 - **Portal search results show each record as one line of text, with its columns aligned.**
 
     In a portal whose table lets you edit a column in place (for example Authorship: person, role, date), every search result embedded that column as an editable field: a "Person" heading, tool buttons and edit/unlink buttons inside each result, and the role and date columns pushed out of line. Results are a list to choose from, so their columns now always render as read-only text, and all columns of a result start on the same line.
