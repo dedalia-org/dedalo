@@ -1025,31 +1025,24 @@ section_record.prototype.get_component_data = function(options) {
 	// occurrence carry `caller_chain`; the one of this row's ancestry is taken
 	// (select_by_caller_chain — the same choice its context made). Unstamped items:
 	// the first match, as before.
-		const component_data_candidates = self.datum.data.filter(function(el) {
+	// The identity match (tipo, section_id, section_tipo, mode) is an indexed
+	// lookup (data_index_of): a filter here scanned all of datum.data per cell.
+		const component_data_candidates = data_index_of(self.datum.data, ddo.tipo, section_tipo, section_id, ddo.mode).filter(function(el) {
 
-			if( el.tipo 					=== ddo.tipo // match tipo
-				&& parseInt(el.section_id)	=== parseInt(section_id)  // match section_id
-				&& el.section_tipo			=== section_tipo // match section_tipo
-				&& el.mode					=== ddo.mode // match mode
-				){
+			// dataframe case — additional discriminators are needed because the same component_dataframe
+			// tipo can appear multiple times in datum.data (one per virtual row).
+			// Example: portal numisdata3/1 has dataframe section numisdata_1016; its child components
+			// are keyed by (row_section_id === caller section_id, row_section_tipo === caller section_tipo)
+			// so each virtual row can be independently addressed.
 
-				// dataframe case — additional discriminators are needed because the same component_dataframe
-				// tipo can appear multiple times in datum.data (one per virtual row).
-				// Example: portal numisdata3/1 has dataframe section numisdata_1016; its child components
-				// are keyed by (row_section_id === caller section_id, row_section_tipo === caller section_tipo)
-				// so each virtual row can be independently addressed.
+			if (ddo.model==='component_dataframe') {
 
-				if (ddo.model==='component_dataframe') {
-
-					// pairing key: id_key (the main item id) + main_component_tipo
-					return parseInt(el.id_key)===parseInt(id_key)
-						&& el.main_component_tipo === main_component_tipo
-				}
-
-				return true
+				// pairing key: id_key (the main item id) + main_component_tipo
+				return parseInt(el.id_key)===parseInt(id_key)
+					&& el.main_component_tipo === main_component_tipo
 			}
 
-			return false
+			return true
 		})
 		const component_data = select_by_caller_chain(
 			component_data_candidates,
@@ -1082,6 +1075,56 @@ section_record.prototype.get_component_data = function(options) {
 
 	return component_data
 }//end get_component_data
+
+
+
+/**
+* DATA_INDEX_OF
+* Module-private. The datum.data items of one identity tuple (tipo, section_tipo,
+* section_id compared as parseInt, mode), in array order — what a filter over
+* the whole array returned, without the scan. The index is built once per array
+* and rebuilt when its length changes: datum.data is only ever reassigned
+* (new array) or spliced (length change) — update_datum merges into existing
+* items IN PLACE and never edits an identity field.
+* A section_id that is not an integer never matches (NaN!==NaN, as before).
+* @param {Array} data - datum.data
+* @param {string} tipo
+* @param {string} section_tipo
+* @param {string|number} section_id
+* @param {string} mode
+* @returns {Array} the matching items (shared: callers must not mutate it)
+*/
+const data_indexes = new WeakMap()
+const data_index_of = function(data, tipo, section_tipo, section_id, mode) {
+
+	const id = parseInt(section_id)
+	if (Number.isNaN(id)) {
+		return []
+	}
+
+	let cached = data_indexes.get(data)
+	if (!cached || cached.length!==data.length) {
+		const map = new Map()
+		for (const el of data) {
+			const el_id = parseInt(el.section_id)
+			if (Number.isNaN(el_id)) {
+				continue
+			}
+			const key = `${el.tipo}|${el.section_tipo}|${el_id}|${el.mode}`
+			const bucket = map.get(key)
+			if (bucket) {
+				bucket.push(el)
+			}else{
+				map.set(key, [el])
+			}
+		}
+		cached = { length : data.length, map : map }
+		data_indexes.set(data, cached)
+	}
+
+
+	return cached.map.get(`${tipo}|${section_tipo}|${id}|${mode}`) || []
+}//end data_index_of
 
 
 

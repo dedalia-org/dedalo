@@ -153,45 +153,5 @@ const t0 = performance.now()
 
 })()
 
-// scroll window. Improve performance in browser scroll
-// The pattern: capture the latest scrollY synchronously in onScroll, then
-// coalesce all scroll events fired within a single animation frame into one
-// readAndUpdatePage call.  Using { passive: true } on the listener allows the
-// browser to scroll without waiting for this handler to finish, eliminating
-// jank on mobile and high-frequency scroll events.
-	let lastScrollY, scheduledAnimationFrame
-	// (!) readAndUpdatePage is currently a no-op stub. The rAF scheduling
-	// infrastructure is wired up but the actual read/update work has not been
-	// implemented yet.  `e` (the rAF timestamp) is accepted but unused.
-	const readAndUpdatePage = () => {
-		// reset the flag so subsequent scroll events can schedule a new frame
-		scheduledAnimationFrame = false
-	}
-	/**
-	* ONSCROLL
-	* Passive scroll handler that debounces scroll processing to one
-	* `requestAnimationFrame` tick. Records the latest `window.scrollY` value
-	* and schedules `readAndUpdatePage` if no frame is already pending. The
-	* `scheduledAnimationFrame` flag is intentionally not reset to `false` inside
-	* `readAndUpdatePage` while it remains a stub — the guard will suppress all
-	* subsequent scroll processing until the page is reloaded.
-	*
-	* @param {Event} evt - native scroll event (unused beyond triggering the call)
-	* @returns {void}
-	*/
-	function onScroll (evt) {
-
-		// Store the scroll value for use later.
-		lastScrollY = window.scrollY;
-
-		// Prevent multiple rAF callbacks.
-		if (scheduledAnimationFrame) {
-			return;
-		}
-
-		scheduledAnimationFrame = true;
-		requestAnimationFrame(readAndUpdatePage);
-	}
-	window.addEventListener('scroll', onScroll, { passive: true });
 
 // @license-end

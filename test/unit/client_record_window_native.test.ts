@@ -303,11 +303,14 @@ class FakeIntersectionObserver {
 		this.disconnected = true;
 		this.observed.clear();
 	}
-	/** Report the observed nodes whose index is in `reach` as intersecting, the rest not. */
-	fire(reach: Set<number>) {
+	/** Report the observed nodes whose index is in `reach` as intersecting, the rest not.
+	 * `rect_height`: also hand each entry a `boundingClientRect` of that height (a real
+	 * observer always does; omitted, the window must fall back to measuring). */
+	fire(reach: Set<number>, rect_height?: number) {
 		const entries = [...this.observed].map((target) => ({
 			target,
 			isIntersecting: reach.has(Number(target.dataset.index)),
+			...(rect_height === undefined ? {} : { boundingClientRect: { height: rect_height } }),
 		}));
 		this.callback(entries);
 	}
@@ -825,6 +828,26 @@ describe('1. the row invariant and the bound', () => {
 		expect(built_count(content_data)).toBe(ROW_WINDOW_MAX_ROWS - ROW_WINDOW_MARGIN);
 		expect(handle.is_built(580), 'the rows in reach stay built').toBe(true);
 		expect(handle.is_built(629)).toBe(true);
+		await handle.destroy();
+	});
+
+	test('release sizes the placeholder from the observer rect, never by forcing a layout', async () => {
+		const h = make_harness();
+		const { content_data } = make_container(h);
+		const { handle } = await open(h, content_data, { n: 1000 });
+		h.doc.frame();
+		const rect_spy = spyOn(FakeElement.prototype, 'getBoundingClientRect');
+		try {
+			// the real observer hands every entry its rect (55px here, the node says 40)
+			last_observer().fire(range_set(600, 609), 55);
+			await handle.idle();
+			expect(handle.is_built(0)).toBe(false);
+			const placeholder = content_data.children[0] as FakeElement;
+			expect(placeholder.style.getPropertyValue('--row_size')).toBe('55px');
+			expect(rect_spy, 'a release measured a row the observer had already sized').not.toHaveBeenCalled();
+		} finally {
+			rect_spy.mockRestore();
+		}
 		await handle.destroy();
 	});
 });

@@ -1241,25 +1241,27 @@ section.prototype.build = async function(autoload=false) {
 			// console.log("__Time to build", self.model, "(ms):", performance.now()-t0);
 			// dd_console(`__Time to build ${self.model} ${Math.round(performance.now()-t0)} ms`, 'DEBUG')
 
-			// debug duplicates check
-				const ar_used = []
+			// debug duplicates check. Only items carrying a tag_id can collide (the
+			// old pairwise test required `item.tag_id`), so one keyed pass over
+			// those replaces the O(n²) scan (SHOW_DEBUG = every superuser)
+				const used = new Map()
 				for(const element of self.datum.data) {
 
-					if (element.matrix_id) { continue; } // skip verification in matrix data
+					if (element.matrix_id || !element.tag_id) { continue; } // skip matrix data and untagged items
 
-					const index = ar_used.findIndex(item => item.tipo===element.tipo &&
-													item.section_tipo===element.section_tipo &&
-													item.section_id==element.section_id &&
-													item.from_component_tipo===element.from_component_tipo &&
-													item.parent_section_id==element.parent_section_id
-													// && item.row_section_id==element.row_section_id
-													// && (item.matrix_id && item.matrix_id==element.matrix_id)
-													&& (item.tag_id && item.tag_id==element.tag_id)
-													)
-					if (index!==-1) {
-						console.error("SECTION ERROR. self.datum.data contains duplicated elements:", ar_used[index]); // clone(self.datum.data)
+					const key = [
+						element.tipo,
+						element.section_tipo,
+						element.section_id ?? '',
+						element.from_component_tipo,
+						element.parent_section_id ?? '',
+						element.tag_id
+					].join('|')
+					const previous = used.get(key)
+					if (previous) {
+						console.error("SECTION ERROR. self.datum.data contains duplicated elements:", previous);
 					}else{
-						ar_used.push(element)
+						used.set(key, element)
 					}
 				}
 		}

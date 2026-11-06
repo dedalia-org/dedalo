@@ -206,6 +206,14 @@ Merged since the last release; these ship with the next one.
 
     In JSON fields, the editor's toolbar now stays on one line: the Save button is part of the toolbar instead of floating over the undo and redo buttons, the buttons tighten on narrow windows and Save shows only its icon when space is short, so every button stays reachable. Save is dimmed while there is nothing to save and turns orange as soon as the value changes, with a tooltip like the other tool buttons. The editor also no longer leaves a double gap under its status bar, and inside the ontology tree it keeps a steady width while you scroll.
 
+- **Long lists (hundreds of records per page) scroll smoothly again.**
+
+    A list showing several hundred records per page (e.g. Time Machine at 500
+    rows) froze for up to a second or more at a time while scrolling, as rows
+    were swapped in and out. Scrolling now runs without those pauses, and the
+    column widths no longer jump while new rows appear. Lists also render a
+    little faster for administrators.
+
 - **The term picker opened from a field has a Close button instead of the area's tools.**
 
     When you link a term from a field (the Link resource button), the floating thesaurus or ontology window no longer shows the area's own tools, such as Ontology parser, which do not belong in a selection window. It shows a Close button instead. The same picker inside the indexing tool also no longer shows those tools.

@@ -333,8 +333,6 @@ const get_content_data = async function(self) {
 */
 const render_column = async function(self, current_column, ar_columns_instances) {
 
-	const t = performance.now()
-
 	// ar_result_nodes. Ordered nodes to be appended to the fragment by the caller
 		const ar_result_nodes = []
 
@@ -426,17 +424,6 @@ const render_column = async function(self, current_column, ar_columns_instances)
 				// append current_instance wrapper node
 				if (current_instance.node) column_node.appendChild( current_instance.node );
 		}//end for (let j = 0; j < column_instances_length; j++)
-
-	// debug
-		if(SHOW_DEBUG===true) {
-			// wall clock from this column's start to settle; columns overlap, so
-			// this includes time yielded to sibling columns (upper bound, not exclusive cost)
-			const time = performance.now() - t
-			if (time > 25) {
-				console.warn('current_column render time is big: ', time, current_column);
-			}
-		}
-
 
 	return ar_result_nodes
 }//end render_column

@@ -592,14 +592,21 @@ export const create_record_window = async function(options) {
 			}
 		}
 
-		/** Mean block-size bookkeeping; written only while connected. */
+		/** Built-row heights from the observer's entries (index → px). */
+		const io_heights = new Map()
+
+		/** Mean block-size bookkeeping. Accumulates only: `publish_size` writes. */
 		const record_size = (height) => {
 			if (!(height > 0)) {
 				return
 			}
 			size_sum += height
 			size_count++
-			if (container.isConnected) {
+		}
+		// ONE write per batch: the var sits on content_data, so every write
+		// re-lays-out the whole list (measured ~10-20 ms at 500 rows)
+		const publish_size = () => {
+			if (size_count > 0 && container.isConnected) {
 				container.style.setProperty('--placeholder_size', `${(size_sum / size_count).toFixed(1)}px`)
 			}
 		}
@@ -812,11 +819,11 @@ export const create_record_window = async function(options) {
 		 * measure → flush([i]) → replace with a sized placeholder → destroy.
 		 * A failed or pending flush pins the row instead.
 		 */
-		const release_one = async (index) => {
+		const release_one = async (index, measured = null) => {
 			const node = container.children[index]
 			const row_instance = instances.get(index)
 			state[index] = 'releasing'
-			const height = measure(node)
+			const height = measured ?? measure(node)
 			let flushed
 			try {
 				flushed = await flush_indexes([index])
@@ -869,6 +876,7 @@ export const create_record_window = async function(options) {
 			}
 			instances.delete(index)
 			state[index] = 'placeholder'
+			io_heights.delete(index)
 			set_placeholder_count(placeholder_count + 1)
 			if (row_instance && row_instance.status!=='destroyed' && typeof row_instance.destroy==='function') {
 				await row_instance.destroy(true, true, false)
@@ -906,6 +914,14 @@ export const create_record_window = async function(options) {
 			const candidates = built
 				.filter(i => !intersecting.has(i) && !keep?.has(i))
 				.sort((a, b) => distance(b) - distance(a))
+			// read every height BEFORE the first swap (measuring after each
+			// replaceWith forced one full-list layout per released row); the
+			// observer's rect when it has one, so usually no forced layout at all
+			const heights = new Map()
+			for (let k = 0; k < candidates.length && k < built.length - target; k++) {
+				const i = candidates[k]
+				heights.set(i, io_heights.get(i) ?? measure(container.children[i]))
+			}
 			let count = built.length
 			for (const index of candidates) {
 				if (count <= target || dead) {
@@ -914,11 +930,12 @@ export const create_record_window = async function(options) {
 				if (is_pinned(index)) {
 					continue
 				}
-				await release_one(index)
+				await release_one(index, heights.get(index))
 				if (state[index]==='placeholder') {
 					count--
 				}
 			}
+			publish_size()
 			if (count > ROW_WINDOW_MAX_ROWS && !warned_bound) {
 				warned_bound = true
 				console.warn('[record_window] no releasable row: the window holds more than the bound (pinned rows)', {
@@ -1110,13 +1127,18 @@ export const create_record_window = async function(options) {
 		const arm = () => {
 			// 1. read the layout (forces style resolution once, for the measure below)
 			sync_semantics()
-			// 3. measure --placeholder_size from up to SIZE_SAMPLE_ROWS built rows
-			let sampled = 0
-			for (let i = 0; i < size && sampled < SIZE_SAMPLE_ROWS; i++) {
-				if (state[i]==='built') {
-					record_size(measure(container.children[i]))
-					sampled++
+			// 3. measure --placeholder_size from up to SIZE_SAMPLE_ROWS built rows.
+			// Only when placeholders can exist: a fully built window (every
+			// nested portal) would force one page layout each, for a var no row reads
+			if (size > ROW_WINDOW_MAX_ROWS || placeholder_count > 0) {
+				let sampled = 0
+				for (let i = 0; i < size && sampled < SIZE_SAMPLE_ROWS; i++) {
+					if (state[i]==='built') {
+						record_size(measure(container.children[i]))
+						sampled++
+					}
 				}
+				publish_size()
 			}
 			// 4. the observer, only above the bound
 			if (size > ROW_WINDOW_MAX_ROWS && typeof view.IntersectionObserver==='function') {
@@ -1128,6 +1150,11 @@ export const create_record_window = async function(options) {
 						const index = Number(entry.target.dataset.index)
 						if (!Number.isInteger(index) || container.children[index]!==entry.target) {
 							continue
+						}
+						// the browser's own rect: release reads it instead of forcing a layout
+						const height = entry.boundingClientRect?.height
+						if (height > 0 && state[index]==='built') {
+							io_heights.set(index, height)
 						}
 						if (entry.isIntersecting) {
 							intersecting.add(index)
@@ -1286,6 +1313,7 @@ export const create_record_window = async function(options) {
 			}
 			instances.delete(index)
 			state[index] = 'placeholder'
+			io_heights.delete(index)
 			set_placeholder_count(placeholder_count + 1)
 			// destroyed BEFORE the build, so the instance cache cannot hand it back
 			if (row_instance && row_instance.status!=='destroyed' && typeof row_instance.destroy==='function') {
