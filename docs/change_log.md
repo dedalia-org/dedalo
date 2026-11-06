@@ -194,6 +194,10 @@ Merged since the last release; these ship with the next one.
 
     In a URL field, the remove and open-link buttons used to take a row of their own. They now sit over the end of the address, which fades out under them, so each link takes one line less. The linked-record selector next to it gives its label more room, and its edit and remove icons line up with the text. On narrow screens the selector spans the full width like the title and address, and the toolbar that appears when you select it is no longer cut off.
 
+- **The JSON editor toolbar fits narrow windows and shows when there is something to save.**
+
+    In JSON fields, the editor's toolbar now stays on one line: the Save button is part of the toolbar instead of floating over the undo and redo buttons, the buttons tighten on narrow windows and Save shows only its icon when space is short, so every button stays reachable. Save is dimmed while there is nothing to save and turns orange as soon as the value changes, with a tooltip like the other tool buttons. The editor also no longer leaves a double gap under its status bar, and inside the ontology tree it keeps a steady width while you scroll.
+
 - **Text editors, URL fields and record pickers fit better, especially on phones.**
 
     The text editor's toolbar now sits flush at the top of the field across its full width, just under the line that shows unsaved and saved changes, for both plain and rich text. On phones, a selected long text no longer spills over the field below it; it scrolls inside its box. In a URL field, the linked-record selector and the title now share their line equally and are vertically aligned. On phones, the record picker opened from a field no longer gets cut off when a record has a long, unbroken label such as a web address.

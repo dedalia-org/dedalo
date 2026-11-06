@@ -5937,9 +5937,6 @@ dd-modal.dd_presets::part(content) {
   --jse-theme-color: var(--color_grey_8);
   overflow: auto;
 }
-.jse-main .jse-menu {
-  padding-right: 3.617rem;
-}
 .jse-main .jse-menu > button.svelte-3erbu0 {
   width: 2.25rem;
 }
@@ -21949,6 +21946,7 @@ body.inspector_resizing {
 }
 .wrap_ts_object > .content_data > .data_container > .wrapper_component.component_json {
   width: 100%;
+  padding-bottom: 0.5rem;
 }
 .wrap_ts_object > .content_data > .indexations_container {
   display: flex;
@@ -25077,23 +25075,60 @@ body.inspector_resizing {
 *
 * Included from main.less file
 */
-.component_json .button_save {
-  position: absolute;
-  right: 0px;
-  top: 1px;
+.component_json .jse-main .jse-menu {
+  container-type: inline-size;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.component_json .jse-main .jse-menu > .jse-button {
+  flex: 0 0 auto;
+}
+.component_json .jse-main .jse-menu > .jse-button.button_save {
+  position: sticky;
+  right: 0;
   z-index: 1;
-  height: 30px;
+  width: auto;
+  padding: 0 0.75rem;
   margin: 0;
-  background-color: transparent;
+  background-color: inherit;
   border-color: transparent;
   color: var(--color_white);
 }
-.component_json .button_save:hover {
+.component_json .jse-main .jse-menu > .jse-button.button_save:hover {
   background-color: var(--color_grey_5);
-  border-color: var(--color_grey_5);
 }
-.component_json.edit {
-  padding-bottom: 1.5rem;
+@container (max-width: 600px) {
+  .component_json .jse-main .jse-menu > .jse-button:not(.jse-group-button):not(.button_save) {
+    width: 1.75rem;
+  }
+  .component_json .jse-main .jse-menu > .jse-separator {
+    margin-left: 2px;
+    margin-right: 2px;
+  }
+}
+@container (max-width: 480px) {
+  .component_json .jse-main .jse-menu > .jse-button.button_save {
+    font-size: 0;
+    padding: 0 0.6rem;
+  }
+  .component_json .jse-main .jse-menu > .jse-button.button_save::before {
+    width: 1rem;
+    height: 1rem;
+    margin-right: 0;
+  }
+}
+.component_json:not(.modified) .jse-main .jse-menu > .jse-button.button_save {
+  opacity: 0.45;
+}
+.component_json.modified .jse-main .jse-menu > .jse-button.button_save {
+  opacity: 1;
+  background-color: var(--color_orange_dedalo);
+  color: var(--fg_inverse);
+}
+.component_json.modified .jse-main .jse-menu > .jse-button.button_save:hover {
+  filter: brightness(1.08);
 }
 .component_json.edit > .content_data {
   height: var(--media_min_height);
@@ -25189,7 +25224,7 @@ body.inspector_resizing {
 .component_json.view_collapse .activity_record_button.visited:hover {
   opacity: 0.7;
 }
-:root[data-theme="dark"] .component_json .button_save {
+:root[data-theme="dark"] .component_json:not(.modified) .jse-main .jse-menu > .jse-button.button_save {
   color: var(--fg_default);
 }
 :root[data-theme="dark"] .component_json .content_value {
