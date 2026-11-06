@@ -6,9 +6,13 @@
  */
 
 import { describe, expect, mock, test } from 'bun:test';
-import { readOntologyServerList } from '../../src/config/readers.ts';
+import { readOntologyServerList, warnCodeOnlyOntologyServers } from '../../src/config/readers.ts';
 import { isDedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { assertSourceAssignment } from '../../src/core/ontology/ontology_update_source.ts';
+import {
+	pullServers,
+	resolveUpdateTarget,
+} from '../../src/core/ontology/ontology_update_target.ts';
 
 const OURS = 'https://v7.master.example/dedalo/core/api/v1/json/';
 const MUSEUM = 'https://ontology.museum.example/dedalo/core/api/v1/json/';
@@ -116,12 +120,44 @@ describe('an ontology SERVER pulling from a remote provider (promotion)', () => 
 		);
 	});
 
-	test('an entry without tlds (absent or empty) is refused — even a single one', () => {
+	test('an entry without tlds (absent or empty) is CODE-ONLY: not refused, but never a source', () => {
 		for (const catalog of [promoting(), promoting([])]) {
+			// not a pull target: nothing is assignable to it (source_mismatch, never "everything")
 			expect(ruleOf(() => assertSourceAssignment(files('dd'), target(MUSEUM), catalog))).toBe(
-				'source_unassigned',
+				'source_mismatch',
 			);
+			// …and it is not refused as a configuration: the local export still passes
+			expect(
+				ruleOf(() =>
+					assertSourceAssignment(files('dd'), { isLocal: true, configuredOrigin: null }, catalog),
+				),
+			).toBe('passed');
 		}
+	});
+
+	test('mixed list: the provider keeps its TLDs, the code-only entry takes none', () => {
+		const catalog = {
+			servers: [
+				{ code: 'client', url: OURS },
+				{ code: 'beta', url: MUSEUM, tlds: ['dd'] },
+			],
+			isOntologyServer: true,
+		};
+		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(MUSEUM), catalog))).toBe(
+			'passed',
+		);
+		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(OURS), catalog))).toBe(
+			'source_mismatch',
+		);
+		// the same shape on an ORDINARY install: both entries are masters, the tlds-less one undeclared
+		expect(
+			ruleOf(() =>
+				assertSourceAssignment(files('dd'), target(MUSEUM), {
+					...catalog,
+					isOntologyServer: false,
+				}),
+			),
+		).toBe('source_unassigned');
 	});
 
 	test('two providers listing one TLD stay ambiguous', () => {
@@ -143,6 +179,54 @@ describe('an ontology SERVER pulling from a remote provider (promotion)', () => 
 				assertSourceAssignment(files('dd'), { isLocal: true, configuredOrigin: null }, promoting()),
 			),
 		).toBe('passed');
+	});
+});
+
+describe('pull targets on an ontology server', () => {
+	const mixed = {
+		servers: [
+			{ code: 'client', url: OURS },
+			{ code: 'beta', url: MUSEUM, tlds: ['dd'] },
+		],
+		isOntologyServer: true,
+	};
+
+	test('pullServers keeps only providers on a server, everything on an ordinary install', () => {
+		expect(pullServers(mixed).map((entry) => entry.url)).toEqual([MUSEUM]);
+		expect(pullServers({ ...mixed, isOntologyServer: false })).toHaveLength(2);
+	});
+
+	test('a code-only entry cannot be picked as the update target; the provider can', () => {
+		const pick = (url: string) => resolveUpdateTarget({ name: 'x', url, code: 'c' }, mixed);
+		expect(pick(OURS)).toHaveProperty('error');
+		expect(pick(MUSEUM)).toEqual({ isLocal: false, configuredOrigin: new URL(MUSEUM).origin });
+	});
+});
+
+describe('the boot line for code-only entries', () => {
+	const entries = [
+		{ url: OURS, code: 'a' },
+		{ url: MUSEUM, code: 'b', tlds: ['dd'] },
+	];
+	function lines(isServer: boolean, list = entries): string[] {
+		const original = console.error;
+		const out: string[] = [];
+		console.error = mock((line: string) => out.push(String(line)));
+		try {
+			expect(warnCodeOnlyOntologyServers(isServer, list)).toBe(list);
+		} finally {
+			console.error = original;
+		}
+		return out;
+	}
+
+	test('ONE line naming only the code-only entries, on an ontology server only', () => {
+		const out = lines(true);
+		expect(out).toHaveLength(1);
+		expect(out[0]).toContain(OURS);
+		expect(out[0]).not.toContain(MUSEUM);
+		expect(lines(false)).toEqual([]);
+		expect(lines(true, [entries[1] as (typeof entries)[number]])).toEqual([]);
 	});
 });
 

@@ -231,9 +231,9 @@ IS_A_CODE_SERVER=false
 		default: false,
 		heading: 'Is an ontology master server',
 		typeLabel: 'bool',
-		doc: `It defines if the installation server can provide his ontology files to other Dédalo servers.
+		doc: `It defines if the installation server can provide his ontology files to other Dédalo servers. The access codes such a server accepts come from its [ONTOLOGY_SERVERS](#ontology-servers) list: the \`code\` of every entry.
 
-The maintenance area's **Serve Ontology** panel shows whether this key, \`ONTOLOGY_SERVER_CODE\` and \`DEDALO_CORS_ALLOWED_ORIGINS\` are set, and the endpoint other installations register. See [Updating ontology](../management/updates/updating_ontology.md#serving-other-installations-ontology-master).
+The maintenance area's **Serve Ontology** panel shows whether this key, the access codes listed in [ONTOLOGY_SERVERS](#ontology-servers) and \`DEDALO_CORS_ALLOWED_ORIGINS\` are set, and the endpoint other installations register. See [Updating ontology](../management/updates/updating_ontology.md#serving-other-installations-ontology-master).
 
 \`\`\`bash
 IS_AN_ONTOLOGY_SERVER=false
@@ -288,16 +288,18 @@ ONTOLOGY_DATA_IO_DIR="/srv/dedalo/ontology"
 	ONTOLOGY_SERVER_CODE: {
 		type: 'string',
 		scope: 'operator',
+		// Retired 2026-11-06 (v6 deprecated it too): the value authorises nothing. The
+		// only reader is the boot warning (warnRetiredOntologyServerCode); the accepted
+		// codes are the `code` of ONTOLOGY_SERVERS entries.
 		default: undefined,
-		heading: 'defining the  ontology master server code',
+		heading: 'Ontology master server code (retired)',
 		typeLabel: 'string',
-		doc: `It  defines the valid code for clients to validate to get ontology files.
+		typeSuffix: '*no longer consulted*',
+		doc: `**Not honoured by the engine.** The key is still parsed, but only to log a boot warning on an ontology server, and it authorises nothing: an ontology server accepts only the \`code\` of the entries in its [ONTOLOGY_SERVERS](#ontology-servers) list (the v6 behaviour, where this key was already deprecated). A v6 \`.env\` that carries it keeps booting; move its value into an \`ONTOLOGY_SERVERS\` entry for each client that presents it, and remove the line.
 
 \`\`\`bash
 ONTOLOGY_SERVER_CODE="x3a0B4Y020Eg9w"
-\`\`\`
-
-This parameter needs to be included as \`code\` in [ONTOLOGY_SERVERS](#ontology-servers) defintion in every authorized client.`,
+\`\`\``,
 	},
 	DEDALO_UPDATE_HTTP_SOURCES_DEV: {
 		type: 'boolean',
@@ -325,6 +327,13 @@ DEDALO_UPDATE_HTTP_SOURCES_DEV=true
 
 Each entry is a JSON object with \`name\`, \`url\` and \`code\`.
 
+**On an ontology server (\`IS_AN_ONTOLOGY_SERVER=true\`) this list is also the ONLY source of the access codes it accepts**: the \`code\` of every entry, whether or not the server pulls from it, plus the built-in \`localhost\` code of the *Local files* source. There is no separate server-code key (\`ONTOLOGY_SERVER_CODE\` is retired). An entry then has one of two roles:
+
+- **Code-only** (no \`tlds\`, or an empty one): it supplies an accepted code and nothing else. Nothing is pulled from it, the update panel does not offer it, and it is never refused. Set its \`url\` to the client's address (it must still be a valid \`https://\` one) and its \`code\` to the code that client presents.
+- **Provider** (with \`tlds\`): the server pulls exactly those TLDs from it (see *one source per TLD* below), and its code is accepted too. The server's own authored TLDs that no provider lists are never touched. With no provider at all, the server updates from its own export (*Local files*), as before.
+
+A boot line names the code-only entries of an ontology server.
+
 The installer (\`sh install.sh\`, or \`bun run dedalo:install\`) WRITES the official dedalo.dev entry below, unless the install is declared air-gapped (\`--no-update-servers\`, or answering no to its update-server question), which writes \`[]\`. Unset or \`[]\` means no masters: the panel offers no ontology updates. When the installer writes \`.env\` over an existing one in the same private directory (an unfinished install, or a fresh install into a reused private directory) and is not air-gapped, it leaves a NON-EMPTY list already in the file untouched (mirrors you added survive); a \`[]\`, or a value that is not a valid JSON list, is replaced by the official entry.
 
 The list also has an install-time role: its FIRST entry (a preserved custom list, otherwise the official server) is where the installer fetches every domain ontology other than the built-in \`oh\`, and whose catalog decides which ontologies can be chosen, unless \`--ontology-source\` names a local export. With \`[]\` and no \`--ontology-source\`, only \`oh\` can be installed.
@@ -337,7 +346,7 @@ ONTOLOGY_SERVERS=[{"name":"Official Dédalo Ontology server","url":"https://mast
 # ONTOLOGY_SERVERS=[{"name":"Dédalo","url":"https://master7.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w","tlds":["dd","rsc","ontology","ontologytype","hierarchy","lg","matrix_dd"]},{"name":"Dédalo beta","url":"https://beta7.dedalo.dev/dedalo/core/api/v1/json/","code":"4Ofvb8noHMNvS5","tlds":["oh"]}]
 \`\`\`
 
-**Beta ontology (opt-in).** \`beta7.dedalo.dev\` is a second official ontology server where ontology changes are tested before they reach \`master7\`. It has no channel setting: it is just another provider in this list, and an installation that does not list it never sees it. The installer never writes it; it has its own access code, and the decision to list it is the operator's. To take some TLDs from it, list it with those TLDs and remove them from the \`master7\` entry (every TLD in exactly one entry, \`matrix_dd\` included), as in the commented example above. An installation serves the ontology to others with \`IS_AN_ONTOLOGY_SERVER=true\`; both official servers do.
+**Beta ontology (opt-in).** \`beta7.dedalo.dev\` is a second official ontology server where ontology changes are tested before they reach \`master7\`. It has no channel setting: it is just another provider in this list, and an installation that does not list it never sees it. The installer never writes it; it has its own access code, and the decision to list it is the operator's. To take some TLDs from it, list it with those TLDs and remove them from the \`master7\` entry (every TLD in exactly one entry, \`matrix_dd\` included), as in the commented example above. An installation serves the ontology to others with \`IS_AN_ONTOLOGY_SERVER=true\`; both official servers do, and each lists in its own \`ONTOLOGY_SERVERS\` the codes it accepts.
 
 **Moving from \`v7.master.dedalo.dev\`.** That address is retired, with no alias: edit this list (and \`CODE_SERVERS\`) in \`../private/.env\` to the new URL and **restart**. A list still naming the old host logs one line at every boot.
 

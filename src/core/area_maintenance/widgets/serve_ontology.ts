@@ -6,7 +6,7 @@
  * a snapshot, overwrite the local ontology) and carried this readout as a collapsed
  * aside, so a master installation found its primary concern buried under a
  * destructive action it never runs. The answer is spread over three unrelated .env
- * keys (IS_AN_ONTOLOGY_SERVER, ONTOLOGY_SERVER_CODE, DEDALO_CORS_ALLOWED_ORIGINS);
+ * keys (IS_AN_ONTOLOGY_SERVER, ONTOLOGY_SERVERS codes, DEDALO_CORS_ALLOWED_ORIGINS);
  * the panel reports each one plus the endpoint clients register.
  *
  * DISPLAY-ONLY: no apiActions — nothing new is reachable from the wire, and
@@ -27,8 +27,9 @@ async function serveOntologyGetValue(): Promise<WidgetResponse> {
 	return {
 		data: {
 			enabled: config.ontologyIo.isOntologyServer === true,
-			has_server_code:
-				typeof config.ontologyIo.serverCode === 'string' && config.ontologyIo.serverCode.length > 0,
+			// At least one accepted access code: the codes live in ONTOLOGY_SERVERS
+			// (ONTOLOGY_SERVER_CODE is retired). Wire key kept for the client contract.
+			has_server_code: config.ontologyIo.servers.some((entry) => entry.code.length > 0),
 			cors_enabled: CORS_ENABLED,
 			url: `${publicOrigin()}/dedalo/core/api/v1/json/`,
 		},

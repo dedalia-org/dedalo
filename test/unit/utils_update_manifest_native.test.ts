@@ -448,7 +448,7 @@ describe('both doors refuse a remote peer when this master would advertise a loc
 		const env: Record<string, string> = {
 			...(process.env as Record<string, string>),
 			IS_AN_ONTOLOGY_SERVER: 'true',
-			ONTOLOGY_SERVER_CODE: ONTOLOGY_CODE,
+			ONTOLOGY_SERVERS: JSON.stringify([{ name: 'c', url: 'https://c.test', code: ONTOLOGY_CODE }]),
 			IS_A_CODE_SERVER: 'true',
 			CODE_SERVERS: JSON.stringify([{ name: 'p', url: 'https://p.test', code: CODE_CODE }]),
 			DEDALO_HOST: host,
@@ -497,15 +497,22 @@ describe('both doors refuse a remote peer when this master would advertise a loc
 	}
 });
 
-describe("the ontology manifest door authorises ONLY this server's own code, never its providers'", () => {
+describe('the ontology manifest door accepts exactly the codes listed in ONTOLOGY_SERVERS', () => {
 	const HANDLER = join(import.meta.dir, '../../src/core/api/handlers/dd_utils_api.ts');
 	const IO = scratchOntologyIoDir();
 	afterAll(() => {
 		rmSync(IO, { recursive: true, force: true });
 	});
 
-	/** The REAL handler in a child configured as an ontology master that also pulls from provider 'B'. */
-	function drive(code: string): { ok?: true; code?: string; publicMessage?: string } {
+	/**
+	 * The REAL handler in a child configured as an ontology server whose
+	 * ONTOLOGY_SERVERS holds a code-only entry (zzclientA), a provider entry with
+	 * tlds (zzprovB) and — when `retiredKey` is set — the retired ONTOLOGY_SERVER_CODE.
+	 */
+	function drive(
+		code: string,
+		overrides: Record<string, string> = {},
+	): { ok?: true; code?: string; publicMessage?: string } {
 		const script = `
 			const { utilsApiActions } = await import(${JSON.stringify(HANDLER)});
 			const context = { requestId: 'probe', clientIp: '127.0.0.1', session: null, sessionToken: null, csrfCandidate: null };
@@ -520,10 +527,14 @@ describe("the ontology manifest door authorises ONLY this server's own code, nev
 		const env: Record<string, string> = {
 			...(process.env as Record<string, string>),
 			IS_AN_ONTOLOGY_SERVER: 'true',
-			ONTOLOGY_SERVER_CODE: 'zzownA',
-			ONTOLOGY_SERVERS: JSON.stringify([{ name: 'p', url: 'https://p.test', code: 'zzprovB' }]),
+			ONTOLOGY_SERVER_CODE: '',
+			ONTOLOGY_SERVERS: JSON.stringify([
+				{ name: 'a', url: 'https://a.test', code: 'zzclientA' },
+				{ name: 'p', url: 'https://p.test', code: 'zzprovB', tlds: ['oh'] },
+			]),
 			DEDALO_HOST: 'localhost',
 			ONTOLOGY_DATA_IO_DIR: IO,
+			...overrides,
 		};
 		const run = Bun.spawnSync(['bun', '-e', script], { env, cwd: join(import.meta.dir, '../..') });
 		const out = run.stdout.toString().trim().split('\n').at(-1) ?? '';
@@ -535,15 +546,28 @@ describe("the ontology manifest door authorises ONLY this server's own code, nev
 		return JSON.parse(out);
 	}
 
-	test("a provider's code is refused with 'Invalid code'", () => {
-		const answer = drive('zzprovB');
+	test('a code-only entry code and a provider entry code are both accepted', () => {
+		expect(drive('zzclientA')).toEqual({ ok: true });
+		expect(drive('zzprovB')).toEqual({ ok: true });
+	}, 30_000);
+
+	test("the 'localhost' pseudo-code is accepted", () => {
+		expect(drive('localhost')).toEqual({ ok: true });
+	}, 30_000);
+
+	test("a code listed in no ONTOLOGY_SERVERS entry is refused with 'Invalid code'", () => {
+		const answer = drive('zzunlisted');
 		expect(answer.code, JSON.stringify(answer)).toBe('update_server.refused');
 		expect(answer.publicMessage).toBe('Error. Invalid code');
 	}, 30_000);
 
-	test("this server's own code and the 'localhost' pseudo-code are accepted", () => {
-		expect(drive('zzownA')).toEqual({ ok: true });
-		expect(drive('localhost')).toEqual({ ok: true });
+	test('the retired ONTOLOGY_SERVER_CODE, set alone, authorises nothing', () => {
+		const answer = drive('zzretired', {
+			ONTOLOGY_SERVER_CODE: 'zzretired',
+			ONTOLOGY_SERVERS: '[]',
+		});
+		expect(answer.code, JSON.stringify(answer)).toBe('update_server.refused');
+		expect(answer.publicMessage).toBe('Error. Invalid code');
 	}, 30_000);
 });
 

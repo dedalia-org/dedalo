@@ -106,14 +106,14 @@ const get_content_data_edit = function (self) {
 		},
 		{
 			ok: serving.has_server_code === true,
-			k: 'ONTOLOGY_SERVER_CODE',
+			k: 'ONTOLOGY_SERVERS',
 			v:
 				serving.has_server_code === true
 					? get_label.serve_ontology_state_configured || 'configured'
 					: get_label.serve_ontology_state_not_set || 'not set',
 			d:
 				get_label.serve_ontology_key_code_info ||
-				'Shared access code a client must present. Pick your own; clients store it in their ONTOLOGY_SERVERS entry.',
+				'The access codes this server accepts: the code of every ONTOLOGY_SERVERS entry. Pick your own per client; each client stores its code in its own ONTOLOGY_SERVERS entry.',
 		},
 		{
 			ok: serving.cors_enabled === true,
@@ -167,7 +167,7 @@ const get_content_data_edit = function (self) {
 		class_name: 'env_sample',
 		text_content: [
 			'IS_AN_ONTOLOGY_SERVER=true',
-			'ONTOLOGY_SERVER_CODE=xx-myspecialcode-xxx',
+			'ONTOLOGY_SERVERS=[{"name":"A client","url":"https://client.example.org/dedalo/core/api/v1/json/","code":"xx-myspecialcode-xxx"}]',
 			'DEDALO_CORS_ALLOWED_ORIGINS=["*"]',
 		].join('\n'),
 		parent: content_data,

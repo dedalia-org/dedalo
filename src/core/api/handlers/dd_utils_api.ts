@@ -939,9 +939,10 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 		};
 		const auth = authorizeUpdateManifest({
 			isServer: config.ontologyIo.isOntologyServer === true,
-			// Only THIS server's own code: the codes of the providers it pulls from
-			// (ONTOLOGY_SERVERS, e.g. master7 listing beta7) authorise nothing here.
-			configuredCodes: [config.ontologyIo.serverCode],
+			// ONTOLOGY_SERVERS is the ONLY source of accepted codes (v6 behaviour;
+			// ONTOLOGY_SERVER_CODE is retired). An entry with `tlds` is also a pull
+			// provider; one without is code-only — either way its code is accepted.
+			configuredCodes: config.ontologyIo.servers.map((entry) => entry.code),
 			// The localhost pseudo-code is always honored on a master (the panel's
 			// 'Local files' source posts it to our own API).
 			allowLocalhost: true,

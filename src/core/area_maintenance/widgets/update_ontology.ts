@@ -17,6 +17,7 @@
  */
 
 import { config } from '../../../config/config.ts';
+import { pullServers } from '../../ontology/ontology_update_target.ts';
 import { publicOrigin } from '../../resolve/public_origin.ts';
 import type { Principal } from '../../security/permissions.ts';
 import { engineDenied, gated, type WidgetModule, type WidgetResponse } from './support.ts';
@@ -48,7 +49,9 @@ function forceLocalhostReachable(server: Record<string, unknown>): void {
 async function probeOntologyServers(): Promise<Record<string, unknown>[]> {
 	const { checkRemoteServer } = await import('../../ontology/data_io_import.ts');
 
-	const servers: Record<string, unknown>[] = config.ontologyIo.servers.map((server) => ({
+	// On an ontology server a tlds-less entry is CODE-ONLY (an accepted code, not
+	// a pull source): the panel does not offer it.
+	const servers: Record<string, unknown>[] = pullServers(config.ontologyIo).map((server) => ({
 		...server,
 	}));
 	if (config.ontologyIo.isOntologyServer === true) {

@@ -194,28 +194,38 @@ describe('an ontology SERVER promotes from remote providers (master7 pulling bet
 		expect(calls).toEqual([{ url: BETA, tlds: ['zzupopa', 'matrix_dd'] }]);
 	});
 
-	test('an entry without tlds (absent or empty) is REFUSED before any manifest read or import', async () => {
+	test('an entry without tlds (absent or empty) is CODE-ONLY: never refused, never a source; all code-only keeps localhost', async () => {
 		for (const tlds of [undefined, []] as (string[] | undefined)[]) {
-			let reads = 0;
+			const sources: string[] = [];
 			const result = await runOntologyPhase({ kind: 'ontology' }, -1, {
 				catalog: {
-					servers: [{ url: BETA, code: 'beta-code', ...(tlds === undefined ? {} : { tlds }) }],
+					servers: [{ url: BETA, code: 'client-code', ...(tlds === undefined ? {} : { tlds }) }],
 					isOntologyServer: true,
 				},
 				activeTlds: ['zzupopa'],
-				readManifest: async () => {
-					reads++;
-					return manifestOf(ORIGIN_B, ['zzupopa']);
+				readManifest: async (source) => {
+					sources.push(source.server.code);
+					return manifestOf('http://localhost', ['zzupopa']);
 				},
-				update: async () => {
-					throw new Error('the door must not be reached');
-				},
+				update: async () => ({ ok: true, msg: 'OK', errors: [] }),
 			});
-			expect(result.outcome).toBe('failed');
-			expect(String(result.evidence.summary)).toContain('must list the TLDs it provides');
-			expect(String(result.evidence.summary)).toContain(BETA);
-			expect(reads).toBe(0);
+			expect(result.outcome).toBe('ok');
+			// the remote is never read; the server's own export is the source, as before
+			expect(sources).toEqual(['localhost']);
 		}
+	});
+
+	test('mixed list: providers only for the tlds entries; the code-only entry is not read, localhost is dropped', async () => {
+		const { run, calls } = phase({
+			master: true,
+			servers: [
+				{ url: `${ORIGIN_A}/api/`, code: 'client-code' },
+				{ url: BETA, code: 'beta-code', tlds: ['zzupopa'] },
+			],
+			manifests: readManifest,
+		});
+		expect((await run).outcome).toBe('ok');
+		expect(calls).toEqual([{ url: BETA, tlds: ['zzupopa'] }]);
 	});
 
 	test('a non-server install with an entry without tlds is unchanged (takes everything)', async () => {

@@ -44,21 +44,23 @@ The minimum configuration for an installation that serves its ontology is three 
 
 ```bash
 IS_AN_ONTOLOGY_SERVER=true
-ONTOLOGY_SERVER_CODE=xx-myspecialcode-xxx
+ONTOLOGY_SERVERS=[{"name":"Museum client","url":"https://museum.example.org/dedalo/core/api/v1/json/","code":"xx-myspecialcode-xxx"}]
 DEDALO_CORS_ALLOWED_ORIGINS=["*"]
 ```
 
 [`IS_AN_ONTOLOGY_SERVER`](../../config/config.md#is-an-ontology-master-server) opens the ontology JSON
 endpoint (and adds a *Local files* source to this installation's own panel);
-[`ONTOLOGY_SERVER_CODE`](../../config/config.md#defining-the-ontology-master-server-code) is the access code every
-client must present — pick your own, and give it to the installations you authorize. The
+[`ONTOLOGY_SERVERS`](../../config/config.md#ontology-servers) is the only source of the access codes the
+server accepts: the `code` of each entry. Pick one per installation you authorize and give it to them. An
+entry without `tlds` is **code-only** — it supplies an accepted code and nothing is pulled from it. The
+retired `ONTOLOGY_SERVER_CODE` key is no longer read and authorises nothing. The
 endpoint clients register is `<your origin>/dedalo/core/api/v1/json/`, printed in the
 **Serve Ontology** panel, which also shows the three keys as a live checklist.
 
 Which value of `DEDALO_CORS_ALLOWED_ORIGINS` depends on who you serve:
 
 * **A known set of installations** — list every client origin, as exact `scheme://host[:port]` strings (no partial wildcards, no trailing slash): `DEDALO_CORS_ALLOWED_ORIGINS=["https://archive.example.org","https://museum.example.org"]`.
-* **A public master**, serving installations you do not know in advance — their origins cannot be enumerated, so set the single entry `*`: `DEDALO_CORS_ALLOWED_ORIGINS=["*"]`. This opens only the **anonymous** API, the same surface any `curl` on the internet already reaches; clients still present the `ONTOLOGY_SERVER_CODE` access code, and no cross-origin caller ever carries a session.
+* **A public master**, serving installations you do not know in advance — their origins cannot be enumerated, so set the single entry `*`: `DEDALO_CORS_ALLOWED_ORIGINS=["*"]`. This opens only the **anonymous** API, the same surface any `curl` on the internet already reaches; clients still present an access code listed in your `ONTOLOGY_SERVERS`, and no cross-origin caller ever carries a session.
 
 ### Declaring what an ontology requires
 
@@ -139,7 +141,7 @@ the `[]`, or add the entry inside the list — then restart. An entry looks like
 ONTOLOGY_SERVERS=[{"name":"Dédalo Ontology server","url":"https://myserverdomain.org/dedalo/core/api/v1/json/","code":"xx-myspecialcode-xxx"}]
 ```
 
-`code` is the `ONTOLOGY_SERVER_CODE` configured on **that** server; a wrong or missing one makes
+`code` is an access code **that** server lists in its own `ONTOLOGY_SERVERS`; a wrong or missing one makes
 the master answer as *Unreachable* in the picker. Add one object per master.
 
 A master is identified by its `url`, never by its `code`: several masters may share the same
@@ -257,8 +259,9 @@ An ontology master (`IS_AN_ONTOLOGY_SERVER=true`) can also be a **client** of an
 The rules are stricter than for an ordinary installation, because a master *authors* its ontology:
 
 * With **no** `ONTOLOGY_SERVERS` entry the master behaves as always: its own export is the only source (*Local files*).
-* With entries, each entry **must** list the tlds it provides in `tlds`. An entry without `tlds` (absent or empty) is refused with a message naming it — a remote never replaces the whole authored ontology by accident.
-* Only the listed tlds are pulled, each from exactly one entry. Tlds no entry lists stay untouched, and `matrix_dd` (the shared value lists) is imported only when an entry lists it. The master's own export is not a source of the run while entries exist.
+* An entry **without** `tlds` (absent or empty) is **code-only**: its `code` is accepted by this server, but it is not a provider — nothing is pulled from it, the panel does not offer it, and it is never refused. A remote therefore never replaces the whole authored ontology by accident. A master whose entries are all code-only behaves exactly as with no entry (*Local files*).
+* An entry **with** `tlds` is a provider: those tlds are pulled from it (its code is accepted too). While at least one provider exists, the master's own export is not a source of the run.
+* Only the listed tlds are pulled, each from exactly one provider. Tlds no provider lists stay untouched, and `matrix_dd` (the shared value lists) is imported only when a provider lists it.
 * A tld is imported only when it is also in `ACTIVE_ONTOLOGY_TLDS` (the usual rule for every update).
 * A provider on a **newer data model** is refused: that is correct, update the master's code and data first.
 * The ontology the master serves afterwards is stamped by the master's own code, not by the provider.
@@ -268,7 +271,7 @@ The rules are stricter than for an ordinary installation, because a master *auth
 ONTOLOGY_SERVERS=[{"name":"Dédalo beta","url":"https://beta7.dedalo.dev/dedalo/core/api/v1/json/","code":"<code of the beta server>","tlds":["dd","rsc"]}]
 ```
 
-Restart after editing (the browser's `connect-src` is built at boot). The access code must be the one the *beta* server has in its own configuration: a server answers a manifest only to codes in its own config.
+Restart after editing (the browser's `connect-src` is built at boot). The access code must be the one the *beta* server has in its own configuration: a server answers a manifest only to codes listed in its own `ONTOLOGY_SERVERS`.
 
 ### Updating without a network (air-gapped installs)
 

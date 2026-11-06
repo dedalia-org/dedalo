@@ -367,6 +367,38 @@ export function warnRetiredUpdateHost(
 	);
 }
 
+/**
+ * ONE boot line naming the CODE-ONLY entries of ONTOLOGY_SERVERS on an ontology
+ * server (entries without `tlds`): they supply an accepted access code and are
+ * not pull providers. Returns the list unchanged.
+ */
+export function warnCodeOnlyOntologyServers<
+	T extends { readonly url: string; readonly tlds?: readonly string[] },
+>(isOntologyServer: boolean, servers: readonly T[]): readonly T[] {
+	if (!isOntologyServer) return servers;
+	const codeOnly = servers.filter((entry) => entry.tlds === undefined || entry.tlds.length === 0);
+	if (codeOnly.length === 0) return servers;
+	console.error(
+		`[config] ONTOLOGY_SERVERS: ${codeOnly.length} code-only entr${codeOnly.length === 1 ? 'y' : 'ies'} (no tlds) on this ontology server — accepted access code(s) only, nothing is pulled from: ${codeOnly.map((entry) => entry.url).join(', ')}`,
+	);
+	return servers;
+}
+
+/**
+ * ONE boot line when the RETIRED `ONTOLOGY_SERVER_CODE` is still set on an ontology
+ * server. The key authorises nothing: clients presenting that code get 'Invalid
+ * code' until it moves into an ONTOLOGY_SERVERS entry. The value is never logged.
+ */
+export function warnRetiredOntologyServerCode(
+	isOntologyServer: boolean,
+	retiredCode: string | undefined,
+): void {
+	if (!isOntologyServer || retiredCode === undefined || retiredCode.trim() === '') return;
+	console.error(
+		'[config] ONTOLOGY_SERVER_CODE is retired and NOT honoured — clients presenting that code get "Invalid code". Move its value into an ONTOLOGY_SERVERS entry (code-only entry: {"name","url","code"}, https url) in ../private/.env, remove the ONTOLOGY_SERVER_CODE line and restart. See docs/config/config.md#ontology-servers.',
+	);
+}
+
 /** A server list with every entry breaking the transport rule DROPPED, loudly. */
 export function secureServerList<T extends { readonly url: string }>(
 	key: string,

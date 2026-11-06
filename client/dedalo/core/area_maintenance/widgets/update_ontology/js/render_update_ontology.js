@@ -771,7 +771,7 @@ const build_backup_gate = function (check, form_container, button_submit) {
 * Admin help for the PULL side: which servers this installation may pull from
 * comes from ONE config key, so the panel names it, reports how many entries it
 * holds, and shows the exact `../private/.env` line to add. The `code` must be
-* the `ONTOLOGY_SERVER_CODE` of the server being contacted.
+* an access code the server being contacted lists in its `ONTOLOGY_SERVERS`.
 *
 * @param {Array} servers - value.servers (already probed server-side)
 * @returns {HTMLElement} collapsed <details> (collapsed on load in every state)
@@ -830,7 +830,7 @@ const build_client_info = function (servers) {
 	;[
 		{ k:'name', d:(get_label.update_ontology_field_name_info || 'Free label, only shown in the list above.') },
 		{ k:'url',  d:(get_label.update_ontology_field_url_info || 'The master’s JSON API endpoint, ending in <code>/dedalo/core/api/v1/json/</code>.') },
-		{ k:'code', d:(get_label.update_ontology_field_code_info || 'The <code>ONTOLOGY_SERVER_CODE</code> configured on THAT server. A wrong or missing code makes it answer as unreachable.') }
+		{ k:'code', d:(get_label.update_ontology_field_code_info || 'An access code THAT server accepts: one it lists in its <code>ONTOLOGY_SERVERS</code>. A wrong or missing code makes it answer as unreachable.') }
 	].forEach(field => {
 		const row = ui.create_dom_element({ element_type:'div', class_name:'chk field', parent:fields })
 		ui.create_dom_element({ element_type:'span', class_name:'mark', inner_html:'·', parent:row })

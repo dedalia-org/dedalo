@@ -491,24 +491,56 @@ describe('an ontology SERVER pulling from a remote provider (promotion, e.g. mas
 		isOntologyServer: true,
 	});
 
-	test('an entry without tlds is refused (update.refused, source_unassigned) before any artifact exists', async () => {
+	test('an entry without tlds is CODE-ONLY: not a pull target — refused as unconfigured, nothing created', async () => {
 		const { ioBaseDir, changesDir } = makeDirs();
-		let refusal: unknown;
-		try {
-			await updateOntology(optionsFor('http://x.example', [TLD]), -1, {
-				catalog: serverCatalog('http://x.example'),
-				...sourceFor('http://x.example', [TLD]),
-				ioBaseDir,
-				changesDir,
-				activeTlds: SCRATCH_ACTIVE_TLDS,
-			});
-		} catch (error) {
-			refusal = error;
-		}
-		expect(isDedaloError(refusal)).toBe(true);
-		expect((refusal as DedaloError).code).toBe('update.refused');
-		expect(String((refusal as DedaloError).publicMessage)).toContain('must list the TLDs');
+		const out = await updateOntology(optionsFor('http://x.example', [TLD]), -1, {
+			catalog: serverCatalog('http://x.example'),
+			...sourceFor('http://x.example', [TLD]),
+			ioBaseDir,
+			changesDir,
+			activeTlds: SCRATCH_ACTIVE_TLDS,
+		});
+		expect(out.ok).toBe(false);
+		expect(out.errors).toEqual(['unknown ontology server: http://x.example']);
 		expect(readdirSync(ioBaseDir)).toEqual([]);
+		expect(existsSync(changesDir)).toBe(false);
+	});
+
+	test('a mixed list: the code-only entry is not selectable while the provider entry passes the target stage', async () => {
+		const { ioBaseDir, changesDir } = makeDirs();
+		const catalog = {
+			servers: [
+				{ code: 'zzclient', url: 'http://x.example/api/' },
+				{ code: 'zzdbeta', url: 'http://y.example/api/', tlds: [TLD] },
+			],
+			isOntologyServer: true,
+		};
+		const codeOnly = await updateOntology(optionsFor('http://x.example', [TLD]), -1, {
+			catalog,
+			...sourceFor('http://x.example', [TLD]),
+			ioBaseDir,
+			changesDir,
+			activeTlds: SCRATCH_ACTIVE_TLDS,
+		});
+		expect(codeOnly.errors).toEqual(['unknown ontology server: http://x.example']);
+		const manifestCalls: string[] = [];
+		const providerSource = sourceFor('http://y.example', [TLD]);
+		const provider = await updateOntology(optionsFor('http://y.example', [TLD]), -1, {
+			catalog,
+			...providerSource,
+			readManifest: async (...args: Parameters<typeof providerSource.readManifest>) => {
+				manifestCalls.push(JSON.stringify(args));
+				return providerSource.readManifest(...args);
+			},
+			ioBaseDir,
+			changesDir,
+			activeTlds: SCRATCH_ACTIVE_TLDS,
+		});
+		// POSITIVE: the provider was resolved and the pipeline reached the source
+		// manifest stage for ITS url (the code-only entry never got that far).
+		expect(manifestCalls.length).toBeGreaterThan(0);
+		expect(manifestCalls.join('\n')).toContain('y.example');
+		expect(provider.errors.join('\n')).not.toMatch(/unknown ontology server|not configured/);
 	});
 
 	test('a newer data model on the provider is refused, nothing is touched', async () => {

@@ -323,13 +323,14 @@ Two servers publish Dédalo v7: **master7** (release: stable code, the official 
 | `IS_A_CODE_SERVER` | true | true |
 | `DEDALO_CODE_SERVER_PRERELEASE_CHANNEL` / `DEDALO_CODE_SERVER_DEV_CHANNEL` | off | on |
 | `IS_AN_ONTOLOGY_SERVER` | true | true |
-| access code | its own | its own, distinct |
+| accepted codes | the `code` of each `ONTOLOGY_SERVERS` / `CODE_SERVERS` entry it lists | likewise, distinct |
 
-A server answers a manifest only to codes in its own config. The installer writes only master7 entries;
+A server answers a manifest only to codes in its own lists (`ONTOLOGY_SERVER_CODE` is retired: on an ontology server `ONTOLOGY_SERVERS` is the only source of accepted codes; an entry without `tlds` is code-only, an entry with `tlds` is also a pull provider).
+beta7 sets `IS_AN_ONTOLOGY_SERVER=true` and lists in `ONTOLOGY_SERVERS` the code of each installation allowed to pull from it; master7 does the same, and additionally lists beta7 (with `tlds`) as a provider. The installer writes only master7 entries;
 beta7 is an opt-in, commented example in `install/sample.env` with its own code.
 
 **Promotion.** The ontology reaches master7 from beta7 through the normal update run: master7 lists beta7 in
-`ONTOLOGY_SERVERS` with the tlds to promote (an entry without `tlds` is refused on an ontology server), and
+`ONTOLOGY_SERVERS` with the tlds to promote (that entry needs `tlds`; a tlds-less entry is code-only and pulls nothing), and
 runs Update ontology. Only the listed tlds move; census, recovery snapshot, digests and the data-model
 refusal apply. Code is promoted by cutting the stable tag from the tested prerelease, as below.
 

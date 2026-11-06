@@ -55,6 +55,8 @@ import {
 	requireMap,
 	requireString,
 	secureServerList,
+	warnCodeOnlyOntologyServers,
+	warnRetiredOntologyServerCode,
 } from './readers.ts';
 
 /** PostgreSQL connection settings (system of record — same DB the PHP server uses). */
@@ -268,7 +270,12 @@ export interface OntologyServerEntry {
 
 /** Ontology update/exchange settings (PHP ONTOLOGY_* constants). */
 export interface OntologyIoConfig {
-	/** Remote masters the update panel offers (PHP ONTOLOGY_SERVERS). */
+	/**
+	 * PHP ONTOLOGY_SERVERS. On an ordinary install: the remote masters the update
+	 * panel offers. On an ontology server (`isOntologyServer`) it is ALSO the only
+	 * source of the access codes the server accepts; an entry without `tlds` is
+	 * CODE-ONLY there (an accepted code, not a pull provider).
+	 */
 	readonly servers: readonly OntologyServerEntry[];
 	/**
 	 * This instance serves ontology snapshots to other installations (PHP
@@ -276,8 +283,6 @@ export interface OntologyIoConfig {
 	 * file route + the 'Local files' panel entry. Default false (fail-closed).
 	 */
 	readonly isOntologyServer: boolean;
-	/** Access code remote clients must present (PHP ONTOLOGY_SERVER_CODE). */
-	readonly serverCode: string | undefined;
 	/**
 	 * Top-level domains of the ontologies active in this installation
 	 * (PHP glossary: DEDALO_PREFIX_TIPOS / defaults.prefix_tipos).
@@ -1181,6 +1186,12 @@ if (diffusionLangs.outsideProject.length > 0) {
 	);
 }
 
+// Boot warning only: the retired key's value is never stored or used.
+warnRetiredOntologyServerCode(
+	readString('IS_AN_ONTOLOGY_SERVER') === 'true',
+	readEnv('ONTOLOGY_SERVER_CODE'),
+);
+
 export const config: DedaloConfig = Object.freeze({
 	entity: requireString('ENTITY'),
 	mainSection: readString('MAIN_SECTION'),
@@ -1317,13 +1328,15 @@ export const config: DedaloConfig = Object.freeze({
 		restorePointsKeep: readNumber('DEDALO_CODE_RESTORE_POINTS_KEEP'),
 	}),
 	ontologyIo: Object.freeze({
-		servers: secureServerList(
-			'ONTOLOGY_SERVERS',
-			readOntologyServerList('ONTOLOGY_SERVERS'),
-			readBool('DEDALO_UPDATE_HTTP_SOURCES_DEV'),
+		servers: warnCodeOnlyOntologyServers(
+			readString('IS_AN_ONTOLOGY_SERVER') === 'true',
+			secureServerList(
+				'ONTOLOGY_SERVERS',
+				readOntologyServerList('ONTOLOGY_SERVERS'),
+				readBool('DEDALO_UPDATE_HTTP_SOURCES_DEV'),
+			),
 		),
 		isOntologyServer: readString('IS_AN_ONTOLOGY_SERVER') === 'true',
-		serverCode: readEnv('ONTOLOGY_SERVER_CODE'),
 		activeOntologyTlds: readList('ACTIVE_ONTOLOGY_TLDS'),
 		activeOntologyTldsConfigured: readOptionalList('ACTIVE_ONTOLOGY_TLDS') !== null,
 		structureFromServer: (() => {

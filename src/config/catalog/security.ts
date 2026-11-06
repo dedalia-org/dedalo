@@ -65,8 +65,8 @@ is still what gets echoed back, so \`Vary: Origin\` keeps meaning what it says.
 What \`*\` changes is **who may ASK**: from "any HTTP client" — already true today, since CORS
 is a browser rule and not a firewall — to "any HTTP client, plus any web page in a visitor's
 browser". The surface it opens is the anonymous one \`curl\` already reaches: the update
-manifest and the reachability probe (still behind the \`ONTOLOGY_SERVER_CODE\` access code
-every client presents), plus login and password reset, which are throttled per client address
+manifest and the reachability probe (still behind an access code listed in the server's
+\`ONTOLOGY_SERVERS\`, which every client presents), plus login and password reset, which are throttled per client address
 (\`LOGIN_MAX_ATTEMPTS\`) — note that a page running in a visitor's browser spends the
 VISITOR's address against that throttle. Nothing authenticated is reachable either way, on
 any setting. Use \`*\` on a deliberately public master; on an ordinary installation, name the

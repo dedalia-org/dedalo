@@ -4,8 +4,9 @@
  *
  * The run decides the request itself — no browser relays it: for every
  * configured source (this install's own export when it IS the ontology master
- * with no ONTOLOGY_SERVERS entry; else each entry — an ontology master's entries
- * are PROMOTION sources, usable only for the TLDs they list), the files are that source's manifest
+ * with no provider entry; else each entry — an ontology master's entries with
+ * `tlds` are PROMOTION sources, usable only for the TLDs they list; entries
+ * without are code-only and no source), the files are that source's manifest
  * entries for the shared TLDs this install updates —
  *
  *   ACTIVE_ONTOLOGY_TLDS ∩ admissible (never a local TLD, never localontology0)
@@ -31,8 +32,7 @@ import {
 	readLocalOntologyManifest,
 } from '../../ontology/ontology_manifest.ts';
 import { admissibleUpdateTlds, updateOntology } from '../../ontology/ontology_update.ts';
-import { authoringMasterRefusal } from '../../ontology/ontology_update_source.ts';
-import type { OntologyUpdateCatalog } from '../../ontology/ontology_update_target.ts';
+import { type OntologyUpdateCatalog, pullServers } from '../../ontology/ontology_update_target.ts';
 import type { ReleaseStep } from '../catalog_file.ts';
 import {
 	compareVersionArrays,
@@ -80,34 +80,28 @@ export interface OntologyPhaseDeps {
 }
 
 /**
- * This install's sources. An ontology server with NO ONTOLOGY_SERVERS entry
- * updates from its own export (localhost), as it always did. With entries it
- * PROMOTES from them — only the TLDs each lists, one source per TLD; its own
- * authored TLDs that no entry lists are untouched, so its own export is no
- * source then. An entry without `tlds` is a refusal (authoringMasterRefusal),
- * never a silent narrowing. Anything else: the configured servers.
+ * This install's sources. An ontology server with NO provider (no
+ * ONTOLOGY_SERVERS entry with `tlds` — entries without them are CODE-ONLY: an
+ * accepted access code, never a source) updates from its own export
+ * (localhost), as it always did. With providers it PROMOTES from them — only
+ * the TLDs each lists, one source per TLD; its own authored TLDs that no
+ * provider lists are untouched, so its own export is no source then. Anything
+ * else: the configured servers.
  */
-function sourcesOf(
-	catalog: OntologyUpdateCatalog,
-): { sources: OntologySource[] } | { refusal: string } {
-	if (catalog.isOntologyServer && catalog.servers.length === 0) {
-		return {
-			sources: [
-				{
-					server: { name: 'localhost', url: 'http://localhost/', code: 'localhost' },
-					tlds: undefined,
-				},
-			],
-		};
+function sourcesOf(catalog: OntologyUpdateCatalog): OntologySource[] {
+	const providers = pullServers(catalog);
+	if (catalog.isOntologyServer && providers.length === 0) {
+		return [
+			{
+				server: { name: 'localhost', url: 'http://localhost/', code: 'localhost' },
+				tlds: undefined,
+			},
+		];
 	}
-	const refusal = authoringMasterRefusal(catalog);
-	if (refusal !== null) return { refusal };
-	return {
-		sources: catalog.servers.map((entry) => ({
-			server: { name: entry.url, url: entry.url, code: entry.code },
-			tlds: entry.tlds,
-		})),
-	};
+	return providers.map((entry) => ({
+		server: { name: entry.url, url: entry.url, code: entry.code },
+		tlds: entry.tlds,
+	}));
 }
 
 async function defaultReadManifest(
@@ -119,7 +113,7 @@ async function defaultReadManifest(
 			join(config.ops.ontologyDataIoDir, DEDALO_VERSION_MAJOR_MINOR),
 		);
 	}
-	return fetchOntologyManifest(source.server, catalog.servers);
+	return fetchOntologyManifest(source.server, pullServers(catalog));
 }
 
 /** The files this source serves for this install (see the header). */
@@ -235,9 +229,7 @@ export async function runOntologyPhase(
 ): Promise<PhaseResult> {
 	const resolved = resolvedDeps(deps);
 	const sources: Record<string, unknown>[] = [];
-	const chosen = sourcesOf(resolved.catalog);
-	if ('refusal' in chosen) return { outcome: 'failed', evidence: { summary: chosen.refusal } };
-	for (const source of chosen.sources) {
+	for (const source of sourcesOf(resolved.catalog)) {
 		sources.push(await updateFrom(source, step, userId, resolved));
 	}
 	if (sources.length === 0) {

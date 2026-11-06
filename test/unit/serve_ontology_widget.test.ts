@@ -4,7 +4,7 @@
  *
  * Split out of update_ontology (2026-09-28). The answer to "can OTHER
  * installations pull their ontology from here?" is spread over three unrelated
- * .env keys (IS_AN_ONTOLOGY_SERVER, ONTOLOGY_SERVER_CODE,
+ * .env keys (IS_AN_ONTOLOGY_SERVER, the ONTOLOGY_SERVERS codes,
  * DEDALO_CORS_ALLOWED_ORIGINS); the client renders one checklist row per key, so
  * the contract gated here is:
  *
@@ -91,7 +91,7 @@ describe('serve_ontology widget — serving readout', () => {
 		// this case if the overlay says so.
 		const boot = panelServingWith({
 			IS_AN_ONTOLOGY_SERVER: 'false',
-			ONTOLOGY_SERVER_CODE: '',
+			ONTOLOGY_SERVERS: '[]',
 			DEDALO_CORS_ALLOWED_ORIGINS: '[]',
 		});
 		expect(boot.exitCode).toBe(0);
@@ -109,7 +109,9 @@ describe('serve_ontology widget — serving readout', () => {
 	test('each flag tracks its own key', () => {
 		const boot = panelServingWith({
 			IS_AN_ONTOLOGY_SERVER: 'true',
-			ONTOLOGY_SERVER_CODE: '',
+			// the retired key set ALONE does not count as an accepted code
+			ONTOLOGY_SERVER_CODE: 'zzretired',
+			ONTOLOGY_SERVERS: '[]',
 			DEDALO_CORS_ALLOWED_ORIGINS: '["https://client.example.org"]',
 		});
 		expect(boot.exitCode).toBe(0);
@@ -122,7 +124,10 @@ describe('serve_ontology widget — serving readout', () => {
 		const secret = 'xx-myspecialcode-xxx';
 		const boot = panelServingWith({
 			IS_AN_ONTOLOGY_SERVER: 'true',
-			ONTOLOGY_SERVER_CODE: secret,
+			// a code-only entry (no tlds): it is not probed as a pull source
+			ONTOLOGY_SERVERS: JSON.stringify([
+				{ name: 'client', url: 'https://client.example.org/api/', code: secret },
+			]),
 			DEDALO_CORS_ALLOWED_ORIGINS: '["*"]',
 		});
 		expect(boot.exitCode).toBe(0);
@@ -132,4 +137,35 @@ describe('serve_ontology widget — serving readout', () => {
 		// must not carry it.
 		expect(boot.stdout).not.toContain(secret);
 	}, 30000);
+
+	test('update_ontology (on an ontology server) lists the provider, never the code-only entry', () => {
+		const CODE_ONLY = 'https://client.example.org/api/';
+		const PROVIDER = 'https://provider.invalid/api/';
+		const script =
+			"const { dispatchGetWidgetValue } = await import('./src/core/area_maintenance/widgets/registry.ts');" +
+			'const ADMIN = { userId: -1, isGlobalAdmin: true, isDeveloper: true };' +
+			"const pull = await dispatchGetWidgetValue(ADMIN, { model: 'update_ontology' });" +
+			'console.log(JSON.stringify({ urls: (pull.data.servers ?? []).map((s) => s.url) }));';
+		const child = Bun.spawnSync(['bun', '-e', script], {
+			cwd: ROOT,
+			env: {
+				...process.env,
+				IS_AN_ONTOLOGY_SERVER: 'true',
+				DEDALO_CORS_ALLOWED_ORIGINS: '[]',
+				ONTOLOGY_SERVERS: JSON.stringify([
+					{ name: 'client', url: CODE_ONLY, code: 'zzclientcode' },
+					{ name: 'provider', url: PROVIDER, code: 'zzprovcode', tlds: ['dd'] },
+				]),
+			} as Record<string, string>,
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		expect(child.exitCode).toBe(0);
+		const last = (child.stdout.toString().trim().split('\n').pop() ?? '').trim();
+		const urls = (JSON.parse(last) as { urls: string[] }).urls;
+		expect(urls).toContain(PROVIDER);
+		expect(urls).not.toContain(CODE_ONLY);
+		// the built-in Local files source is still there on an ontology server
+		expect(urls.length).toBeGreaterThanOrEqual(2);
+	}, 60000);
 });

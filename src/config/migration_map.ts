@@ -140,6 +140,8 @@ const SAME_KEYS: readonly string[] = [
 	'UPDATE_LOG_FILE',
 	// ontology io + code update
 	'ONTOLOGY_SERVERS',
+	// RETIRED in v7 (v6 deprecated it too): carried so a v6 .env parses, never read.
+	// The codes an ontology server accepts are the `code` of its ONTOLOGY_SERVERS entries.
 	'ONTOLOGY_SERVER_CODE',
 	'IS_AN_ONTOLOGY_SERVER',
 	'ONTOLOGY_DATA_IO_DIR',

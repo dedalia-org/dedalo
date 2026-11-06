@@ -78,6 +78,26 @@ export interface OntologyUpdateCatalog {
 	readonly isOntologyServer: boolean;
 }
 
+/**
+ * A CODE-ONLY entry: on an ontology SERVER, an ONTOLOGY_SERVERS entry without
+ * `tlds` (absent or empty) only SUPPLIES an accepted access code. It is not a
+ * provider: nothing is pulled from it and it is never offered as a pull target.
+ */
+export function isCodeOnlyEntry(entry: { readonly tlds?: readonly string[] }): boolean {
+	return entry.tlds === undefined || entry.tlds.length === 0;
+}
+
+/**
+ * The entries this install may PULL from. An ordinary install: all of them.
+ * An ontology server: only the providers (entries WITH tlds) — code-only
+ * entries are access codes, not sources.
+ */
+export function pullServers(catalog: OntologyUpdateCatalog): OntologyUpdateCatalog['servers'] {
+	return catalog.isOntologyServer
+		? catalog.servers.filter((entry) => !isCodeOnlyEntry(entry))
+		: catalog.servers;
+}
+
 export interface UpdateTarget {
 	isLocal: boolean;
 	configuredOrigin: string | null;
@@ -108,7 +128,7 @@ export function resolveUpdateTarget(
 	const configured =
 		selected === null
 			? undefined
-			: catalog.servers.find((entry) => originOf(entry.url) === selected);
+			: pullServers(catalog).find((entry) => originOf(entry.url) === selected);
 	if (configured === undefined) {
 		return {
 			error: `unknown ontology server: ${selected ?? server.url}`,

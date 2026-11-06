@@ -6,7 +6,11 @@
 
 import { describe, expect, mock, test } from 'bun:test';
 import { join } from 'node:path';
-import { secureServerList, warnRetiredUpdateHost } from '../../src/config/readers.ts';
+import {
+	secureServerList,
+	warnRetiredOntologyServerCode,
+	warnRetiredUpdateHost,
+} from '../../src/config/readers.ts';
 
 const OLD = 'https://v7.master.dedalo.dev/dedalo/core/api/v1/json/';
 const NEW = 'https://master7.dedalo.dev/dedalo/core/api/v1/json/';
@@ -84,4 +88,41 @@ describe('at boot, from the real env reader', () => {
 		expect(stderr).toContain('master7.dedalo.dev');
 		expect(JSON.parse(child.stdout.toString())).toEqual([{ name: 'old', url: OLD, code: 'a' }]);
 	});
+});
+
+describe('warnRetiredOntologyServerCode', () => {
+	test('one actionable line on an ontology server when set; value never logged', () => {
+		const { errors } = captureErrors(() => warnRetiredOntologyServerCode(true, 'zzsecretcode'));
+		expect(errors).toHaveLength(1);
+		expect(errors[0]).toContain('ONTOLOGY_SERVER_CODE');
+		expect(errors[0]).toContain('ONTOLOGY_SERVERS');
+		expect(errors[0]).toContain('Invalid code');
+		expect(errors[0]).not.toContain('zzsecretcode');
+	});
+
+	test('silent when not an ontology server, unset or blank', () => {
+		const { errors } = captureErrors(() => {
+			warnRetiredOntologyServerCode(false, 'x');
+			warnRetiredOntologyServerCode(true, undefined);
+			warnRetiredOntologyServerCode(true, '  ');
+		});
+		expect(errors).toEqual([]);
+	});
+
+	test('boot wiring: a child with the key set on an ontology server logs it once', () => {
+		const run = (env: Record<string, string>) =>
+			Bun.spawnSync(['bun', '-e', "await import('./src/config/config.ts')"], {
+				cwd: join(import.meta.dir, '..', '..'),
+				env: { ...process.env, ONTOLOGY_SERVERS: '[]', ...env } as Record<string, string>,
+				stdout: 'pipe',
+				stderr: 'pipe',
+			}).stderr.toString();
+		const count = (text: string) => text.split('ONTOLOGY_SERVER_CODE is retired').length - 1;
+		expect(count(run({ IS_AN_ONTOLOGY_SERVER: 'true', ONTOLOGY_SERVER_CODE: 'zzretired' }))).toBe(
+			1,
+		);
+		expect(count(run({ IS_AN_ONTOLOGY_SERVER: 'false', ONTOLOGY_SERVER_CODE: 'zzretired' }))).toBe(
+			0,
+		);
+	}, 30000);
 });
