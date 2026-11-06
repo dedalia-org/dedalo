@@ -844,7 +844,10 @@ describe('1. the row invariant and the bound', () => {
 			expect(handle.is_built(0)).toBe(false);
 			const placeholder = content_data.children[0] as FakeElement;
 			expect(placeholder.style.getPropertyValue('--row_size')).toBe('55px');
-			expect(rect_spy, 'a release measured a row the observer had already sized').not.toHaveBeenCalled();
+			expect(
+				rect_spy,
+				'a release measured a row the observer had already sized',
+			).not.toHaveBeenCalled();
 		} finally {
 			rect_spy.mockRestore();
 		}
