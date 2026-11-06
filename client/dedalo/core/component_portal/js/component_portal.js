@@ -581,8 +581,18 @@ component_portal.prototype.init = async function(options) {
 					// the thesaurus pane closes with the component's blur: it is a
 					// picker FOR this component, and an open picker on a component the
 					// operator has left is a stale surface over the rest of the form
+					// ...unless the blur is caused by activating a component INSIDE the
+					// pane (search field, tree tool button): ui.component.activate
+					// deactivates the previous one BEFORE fixing page_globals.component_active,
+					// so the check is deferred until the new one is in place.
 					if (self.thesaurus_pane && !self.thesaurus_pane.classList.contains('hide')) {
-						close_thesaurus_pane(self)
+						setTimeout(() => {
+							const active_node = page_globals.component_active?.node
+							if (active_node && self.thesaurus_pane?.contains(active_node)) {
+								return
+							}
+							close_thesaurus_pane(self)
+						}, 0)
 					}
 					if(self.autocomplete_active===true){
 						// Defer to the idle callback so the autocomplete can finish any
