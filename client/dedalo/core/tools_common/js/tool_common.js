@@ -62,7 +62,7 @@
 		printf,
 		open_window,
 		load_style,
-		tool_base_url
+		tool_css_url
 		} from '../../../core/common/js/utils/index.js'
 	import {render_error} from './render_tool_common.js'
 
@@ -406,8 +406,7 @@ tool_common.prototype.build = async function(autoload=false, options={}) {
 	// load self style
 		// (!) The version query string busts the browser cache on upgrades.
 		// load_style deduplicates: a second call for the same URL is a no-op.
-		const tool_css_url = tool_base_url(self.model) + '/css/' + self.model + '.css' + `?v=${page_globals.dedalo_version}`
-		await load_style(tool_css_url)
+		await load_style( tool_css_url(self.model) )
 
 	// options
 		// load_ddo_map could be a callback or the default loader function
@@ -1110,16 +1109,16 @@ const view_modal = async function(options) {
 			// is applied (build() awaits its own load_style the same way). Started in
 			// PARALLEL with the module import: sequenced after it, it cost one extra
 			// network round trip on every first open (~0.6s on a slow network).
-			// (!) Build the versioned URL exactly as build() does so the two loads
-			// dedup to a single request — the server css.url is unversioned, and
-			// load_style keys on the exact string, so a bare url would fetch twice.
-			const tool_css_url = tool_context.model
-				? tool_base_url(tool_context.model) + '/css/' + tool_context.model + '.css' + `?v=${page_globals.dedalo_version}`
+			// (!) tool_css_url, exactly as build() does, so the two loads dedup to a
+			// single request — the server css.url is unversioned, and load_style
+			// keys on the exact string, so a bare url would fetch twice.
+			const css_url = tool_context.model
+				? tool_css_url(tool_context.model)
 				: tool_context.css?.url
 
 			const [instance] = await Promise.all([
 				get_instance(instance_options),
-				tool_css_url ? load_style(tool_css_url) : null
+				css_url ? load_style(css_url) : null
 			])
 
 			// already running elsewhere (status other than 'initialized'): toggle-close

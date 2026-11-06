@@ -32,7 +32,7 @@ front-end infrastructure consumed by the work-system client.
 | **`client/dedalo/core/page/css/layout/vars_tokens.less`** | The design tokens themselves: the light `:root` palette, semantic surface/spacing/radius/elevation/motion tokens, component & modal tokens. |
 | **`client/dedalo/core/page/css/layout/vars.less`** | The `@color_*` LESS aliases that map onto those custom properties, plus the breakpoints. Emits nothing — see below. |
 | **`client/dedalo/core/page/css/layout/theme_dark.less`** | The dark palette: the *same* custom properties re-declared under `:root[data-theme="dark"]`. |
-| **`client/dedalo/core/page/js/theme.js` + `theme-init.js`** | The runtime theme switch: set/toggle `data-theme="dark"` on `<html>`, persisted in `localStorage.dedalo_theme`. |
+| **`client/dedalo/core/page/js/theme.js` + `head-init.js`** | The runtime theme switch: set/toggle `data-theme="dark"` on `<html>`, persisted in `localStorage.dedalo_theme`. |
 | **`client/dedalo/core/themes/default/`** | Static assets: `icons/*.svg`, `fonts/`, logos, tag bases. Referenced from LESS by relative URL (`../../themes/default/icons/<name>.svg`). |
 
 !!! note "Not a class — verify against `client/dedalo/core/page/css/`, not `client/dedalo/core/themes/`"
@@ -60,7 +60,7 @@ front-end infrastructure consumed by the work-system client.
   `.fn_build_button`, `.fn_append_icon`) and `functions.less` (tag builders),
   all keyed off the SVG assets in `client/dedalo/core/themes/default/icons/`.
 - **Switch theme at runtime** — `theme.js` toggles `data-theme` on `<html>` and
-  persists the choice; `theme-init.js` applies it synchronously before paint to
+  persists the choice; `head-init.js` applies it synchronously before paint to
   avoid a flash of the wrong theme.
 - **Host the static assets** — `client/dedalo/core/themes/default/` is the single asset root
   every LESS `url()` and client icon reference points at.
@@ -200,7 +200,7 @@ some tokens flip behaviour entirely — e.g. `--select_icon_url` points at
   persists/clears `localStorage`, and publishes a `theme_changed` event.
 - `toggle_theme()` → flips between the two.
 
-`theme-init.js` is a tiny IIFE loaded **synchronously in `<head>` before any
+`head-init.js` is a tiny IIFE loaded **synchronously in `<head>` before any
 module** (see `client/dedalo/core/page/index.html`); it reads `localStorage.dedalo_theme` and
 sets `data-theme` before first paint, preventing a flash of the light theme on a
 dark-mode reload. The user-facing trigger is the `.theme_toggle` button in the
@@ -209,7 +209,7 @@ Enter/Space call `toggle_theme()`).
 
 ```mermaid
 flowchart LR
-    INIT["theme-init.js (head, sync)"] -->|reads localStorage| HTML["<html data-theme>"]
+    INIT["head-init.js (head, sync)"] -->|reads localStorage| HTML["<html data-theme>"]
     TOGGLE[".theme_toggle button<br/>(menu top bar)"] -->|click| TJS["theme.js toggle_theme()"]
     TJS -->|set/remove data-theme<br/>+ persist localStorage| HTML
     HTML -->|":root[data-theme=dark]"| DARK["theme_dark.less overrides"]
@@ -241,7 +241,7 @@ client/dedalo/core/page/css/
 
 client/dedalo/core/page/js/
 ├── theme.js                      # get_theme / set_theme / toggle_theme (localStorage + event)
-└── theme-init.js                 # sync head IIFE: apply data-theme before paint
+└── head-init.js                 # sync head IIFE: apply data-theme before paint
 
 client/dedalo/core/themes/
 └── default/                      # STATIC ASSETS (no LESS here)

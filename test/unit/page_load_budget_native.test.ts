@@ -153,6 +153,20 @@ async function walkBootGraph(): Promise<BootGraph> {
 	for (const match of html.matchAll(/<link\b[^>]*\bhref=["']([^"']+)["']/g)) {
 		headAssets.push(stripUrl(match[1] as string));
 	}
+	// A stylesheet a head script WRITES is a head subresource too: head-init.js
+	// document.write()s the versioned main.css (WC-2026-11-06-css-version) — the
+	// same render-blocking request a static <link> made, invisible to the scan above.
+	for (const match of html.matchAll(
+		/<script\b(?![^>]*type=["']module["'])[^>]*\bsrc=["']([^"']+)["']/g,
+	)) {
+		const script = await serve(
+			new URL(stripUrl(match[1] as string), `http://boot${PAGE_DIR}`).pathname,
+		);
+		const code = await script.text();
+		for (const written of code.matchAll(/document\.write\(\s*'<link\b[^']*rel="stylesheet"/g)) {
+			headAssets.push(`${written[0]} (written by ${match[1]})`);
+		}
+	}
 
 	const absolute = (base: string, spec: string): string =>
 		new URL(spec, `http://boot${base}`).pathname;

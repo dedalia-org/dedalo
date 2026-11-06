@@ -737,7 +737,7 @@ page.prototype.build = async function(autoload=false) {
 				// fix API environment vars to window (page_globals, plain_vars, get_label)
 				set_environment(api_response.environment.result)
 				// the user's active-field style (page_globals.ui_preferences). Lazy: off the
-				// boot graph (page_load_budget); theme-init.js already painted the cached style
+				// boot graph (page_load_budget); head-init.js already painted the cached style
 				import('./active_style.js').then(m => m.sync_active_style_from_server())
 
 				// engine-build cache guard. The 'section_cache_*' / 'page_cache_*'

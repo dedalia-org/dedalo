@@ -942,6 +942,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Style changes reach browsers right after a code update, whatever the web server's cache headers.**
+
+    Before, a web server that sent no `Cache-Control` header for the client files let browsers keep the previous `main.css` and tool stylesheets for days after an update, so the interface looked broken or unchanged until a hard reload. Now the engine tells the page which stylesheet version is current at every start, and the page loads exactly that version before it draws anything. Nothing to configure. `Cache-Control: no-cache` on the client files (see [reverse proxy](./install/reverse_proxy.md)) is still recommended for the scripts.
+
+    Wire contract: `WC-2026-11-06-css-version`.
+
 - **The maintenance System Map follows the interface language.**
 
     The System Map of the Maintenance area showed its node names, status lines,
@@ -1208,7 +1214,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 61 entries"
+??? note "Wire contract — 62 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -1271,6 +1277,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-04-tree-picker-read-gate-retired`
     - `WC-2026-11-04-writer-chain-scoped-search`
     - `WC-2026-11-05-reconcile-apply-refused`
+    - `WC-2026-11-06-css-version`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

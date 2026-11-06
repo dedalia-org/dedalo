@@ -16,6 +16,7 @@
 
 import { config } from '../../config/config.ts';
 import { readBool, readString } from '../../config/readers.ts';
+import { clientCssVersion } from '../api/dedalo_files.ts';
 import { sql } from '../db/postgres.ts';
 import { getLabels } from '../labels/catalog.ts';
 import { resolveMediaAccessMode } from '../media/protection.ts';
@@ -244,6 +245,12 @@ export async function buildPageGlobals(
 		// never carries a constant of its own (client/dedalo/core/common/js/
 		// sqo_limit.js). Not session-gated: it is a shape of the API, not a secret.
 		dedalo_search_client_max_limit: config.features.searchClientMaxLimit,
+		// WC-2026-11-06-css-version: TS-ONLY key (PHP get_page_globals has no twin).
+		// Content hash of every client stylesheet (core/api/dedalo_files.ts
+		// clientCssVersion) — the client builds main.css / tool css URLs from it, so a
+		// code update reaches the browser whatever cache headers the web server sends.
+		// Not session-gated: the login page needs it, and it hashes public files.
+		css_version: await clientCssVersion(),
 		tag_id: null,
 		// PHP: media_protection::get_mode()!==false ? 1 : 0. Resolved through the media
 		// protection module, NOT read straight off the frozen catalog: the root user can

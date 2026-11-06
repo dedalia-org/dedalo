@@ -1579,6 +1579,23 @@ export function tool_base_url(model) {
 	return DEDALO_TOOLS_URL + '/' + model
 }//end tool_base_url
 
+
+
+/**
+* TOOL_CSS_URL
+* The versioned URL of a tool's stylesheet. The ONE spelling: load_style keys on
+* the exact string, so every caller must build it identically or the sheet loads
+* twice. `?v=` is page_globals.css_version — the server's content hash of the
+* client stylesheets (core/api/dedalo_files.ts clientCssVersion) — so a code
+* update busts the browser cache whatever headers the web server sends.
+* @param {string} model - Tool model identifier, e.g. 'tool_lang'
+* @returns {string}
+*/
+export function tool_css_url(model) {
+
+	return tool_base_url(model) + '/css/' + model + '.css?v=' + (page_globals?.css_version ?? '')
+}//end tool_css_url
+
 /**
 * APPEND_TEXT_LINES
 * Append one or more lines to a node as TEXT NODES separated by real <br>

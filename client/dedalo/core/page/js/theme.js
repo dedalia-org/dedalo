@@ -14,7 +14,7 @@
 * - Light is the implicit default: no attribute means light, avoiding a FOUC
 *   on first visit. `localStorage.removeItem` is used (not setItem('light'))
 *   so that clearing storage also resets to light.
-* - A companion inline script (`core/page/js/theme-init.js`) runs synchronously
+* - A companion inline script (`core/page/js/head-init.js`) runs synchronously
 *   in the document `<head>` — before any module loads — to set `data-theme`
 *   from localStorage immediately, preventing a flash of wrong theme. This
 *   module is loaded afterwards and manages subsequent runtime changes.
@@ -32,7 +32,7 @@
 import {event_manager} from '../../common/js/event_manager.js'
 
 // Storage key used for persisting the user's theme preference across sessions.
-// Kept as a named export so that theme-init.js and any other early-boot
+// Kept as a named export so that head-init.js and any other early-boot
 // scripts can import the same constant rather than duplicating the literal.
 export const THEME_KEY = 'dedalo_theme'
 

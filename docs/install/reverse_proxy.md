@@ -392,11 +392,17 @@ a2enmod ssl headers http2 rewrite proxy proxy_http
     </Directory>
 
     # --- Client static files ----------------------------------------------
+    # Served IN PLACE (not content-hashed): without no-cache the browser
+    # caches heuristically and keeps old CSS/JS after a code update.
     Alias /dedalo /opt/dedalo/master_dedalo/client/dedalo
     <Directory /opt/dedalo/master_dedalo/client/dedalo>
         Options -Indexes
         AllowOverride None
         Require all granted
+        Header set Cache-Control "no-cache"
+        <FilesMatch "\.(png|jpe?g|gif|webp|ico|woff2?|ttf|otf)$">
+            Header set Cache-Control "public, max-age=3600"
+        </FilesMatch>
     </Directory>
 
     Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"

@@ -246,6 +246,13 @@ describe.if(hasPhpCredentials())('environment payload differential (Phase 7 gate
 		expect('dedalo_search_client_max_limit' in phpGlobals).toBe(false);
 		// biome-ignore lint/performance/noDelete: same as the WC-031 strip above — undefined would keep the key in Object.keys()
 		delete tsGlobals.dedalo_search_client_max_limit;
+		// engineering/wire_contract/WC-2026-11-06-css-version.md: the content hash
+		// every client stylesheet URL is built from. TS-ONLY (PHP stamped a constant
+		// into index.html). Same explicit-then-strip handling as WC-031.
+		expect(tsGlobals.css_version).toMatch(/^[0-9a-f]{16}$/);
+		expect('css_version' in phpGlobals).toBe(false);
+		// biome-ignore lint/performance/noDelete: same as the WC-031 strip above — undefined would keep the key in Object.keys()
+		delete tsGlobals.css_version;
 		// engineering/wire_contract/WC-2026-10-15-release-identity-from-tag.md:
 		// `dedalo_data_version` is a TS-ONLY page_globals key — the bare data triple
 		// beside `dedalo_version`, which became the RELEASE IDENTITY (`7.0.0-beta.6`).

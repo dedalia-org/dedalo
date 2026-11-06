@@ -35,6 +35,140 @@ const t0 = performance.now()
 	import {get_instance} from '../../common/js/instances.js'
 
 /**
+* MAIN_CSS
+* Keeps the page's main stylesheet on the version the SERVER says is current.
+*
+* The client tree is served by the institution's web server, whose cache headers
+* Dédalo does not control: without `Cache-Control: no-cache` a browser keeps
+* main.css — and index.html itself — heuristically fresh for days after a code
+* update, so no URL written into a static file can be trusted. The `start`
+* response is fresh on every install, and carries page_globals.css_version (a
+* content hash of the client stylesheets, core/api/dedalo_files.ts
+* clientCssVersion). A URL built from it changes exactly when the bytes do.
+*
+* Lives HERE, not in a module of its own: the boot graph's module count is a
+* shrink-only budget (page_load_budget_native).
+*
+* Two halves, one storage key:
+*   1. head-init.js (classic, synchronous, in <head>) writes
+*      `<link id="main_css" href="css/main.css?v=<last version>">` PARSER-INSERTED,
+*      so first paint is render-blocked exactly as by a static link.
+*   2. sync_main_css (below, called by the boot after `start`, before render)
+*      swaps to the server's version when it differs, and remembers it.
+* Steady state: one stylesheet request, from cache. After an update: the new URL
+* is fetched once, before the page renders.
+*/
+
+
+
+// string storage key — head-init.js reads the SAME literal (gate:
+// test/unit/css_version_native.test.ts)
+const MAIN_CSS_KEY = 'dedalo_css_version'
+
+// a css_version is 16 lowercase hex (clientCssVersion); anything else is ignored
+const VERSION_RE = /^[0-9a-f]{16}$/
+
+// ceiling for the new sheet's load: past it the page renders with what it has
+const LOAD_TIMEOUT_MS = 15000
+
+
+
+/**
+* MAIN_CSS_URL
+* Absolute URL of main.css at `version` (no query when null).
+* @param {string|null} version
+* @returns {string}
+*/
+const main_css_url = (version) => {
+
+	const url = new URL('../css/main.css', import.meta.url)
+	if (version) {
+		url.searchParams.set('v', version)
+	}
+	return url.href
+}//end main_css_url
+
+
+
+/**
+* SYNC_MAIN_CSS
+* Make #main_css the server's version. Resolves when the right sheet is applied
+* (or the attempt failed — never rejects: a stylesheet must not stop the boot).
+* @param {string|null|undefined} version - page_globals.css_version
+* @returns {Promise<boolean>} true when a new sheet was loaded
+*/
+const sync_main_css = async (version) => {
+
+	const valid		= typeof version==='string' && VERSION_RE.test(version)
+	// the written sheet — or, from a stale index.html of before head-init.js, its
+	// id-less static link: replaced in place, never left after (and so over) the new one
+	const current	= document.getElementById('main_css')
+		|| document.head.querySelector('link[rel="stylesheet"][href*="/core/page/css/main.css"]')
+
+	// already right — or no version to go by and a sheet already present
+	if (current && (valid ? current.dataset.version===version : true)) {
+		if (valid) remember(version)
+		return false
+	}
+
+	const link = document.createElement('link')
+	link.id				= 'main_css'
+	link.rel			= 'stylesheet'
+	link.href			= main_css_url(valid ? version : null)
+	if (valid) {
+		link.dataset.version = version
+	}
+
+	const loaded = new Promise((resolve) => {
+		const timer = setTimeout(() => resolve(false), LOAD_TIMEOUT_MS)
+		link.onload		= () => { clearTimeout(timer); resolve(true) }
+		link.onerror	= () => { clearTimeout(timer); resolve(false) }
+	})
+
+	// main.css comes FIRST in the cascade: tool sheets and the ontology
+	// #elements_style_sheet must keep overriding it
+	if (current) {
+		current.removeAttribute('id')
+		current.after(link)
+	}else{
+		document.head.prepend(link)
+	}
+
+	const ok = await loaded
+	if (ok) {
+		if (current) current.remove()
+		if (valid) remember(version)
+	}else{
+		console.error('[main_css] failed to load', link.href)
+		if (current) {
+			// keep the old sheet: stale styles beat an unstyled page
+			link.remove()
+			current.id = 'main_css'
+		}
+	}
+
+	return ok
+}//end sync_main_css
+
+
+
+/**
+* REMEMBER
+* Store the version head-init.js writes on the next page load.
+* @param {string} version
+* @returns {void}
+*/
+const remember = (version) => {
+	try {
+		localStorage.setItem(MAIN_CSS_KEY, version)
+	} catch (_) {
+		// storage blocked: every boot then loads the sheet after `start`
+	}
+}//end remember
+
+
+
+/**
 * PAGE START
 * Immediately-invoked async IIFE that orchestrates the entire application boot
 * sequence. Errors at any stage (network failure, missing DOM node, render
@@ -100,6 +234,12 @@ const t0 = performance.now()
 		// and downloads the full application context (sections, labels, toolbars…).
 			await page_instance.build(true)
 
+		// main stylesheet. On the server's css_version BEFORE anything renders: the
+		// sheet head-init.js wrote is the one the LAST boot saw, and a code update
+		// since then must not paint with it (see MAIN_CSS above). Also runs when build
+		// failed (no css_version): the error panel still gets a sheet.
+			await sync_main_css(window.page_globals?.css_version)
+
 		// page instance render
 		// render() resolves with the top-level HTMLElement containing the complete
 		// application shell. A null return means an unrecoverable render error.
@@ -139,6 +279,7 @@ const t0 = performance.now()
 		// (!) `error_ode` below is a typo for `error_node`; do not rename here —
 		// it is a variable-only identifier with no external contract, but flagged
 		// so it can be corrected in a dedicated code-change commit.
+		sync_main_css(null) // no-op when a sheet is already present
 		const main = document.getElementById('main')
 		if (main) {
 			while (main.firstChild) main.removeChild(main.firstChild)

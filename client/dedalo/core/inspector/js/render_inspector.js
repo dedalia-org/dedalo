@@ -81,7 +81,7 @@
 		get_section_id_from_tipo,
 		clone,
 		load_style,
-		tool_base_url
+		tool_css_url
 	} from '../../common/js/utils/index.js'
 
 
@@ -931,8 +931,7 @@ const get_content_data = function(self) {
 					? buttons_container
 					: tools_container
 				// load tool CSS lazily (no duplicate injection — load_style is idempotent)
-				const tool_css_url = tool_base_url(tool_context.model) + '/css/' + tool_context.model + '.css' + `?v=${page_globals.dedalo_version}`
-				load_style(tool_css_url)
+				load_style( tool_css_url(tool_context.model) )
 				// tool_button
 					const tool_button = ui.create_dom_element({
 						element_type	: 'span',
