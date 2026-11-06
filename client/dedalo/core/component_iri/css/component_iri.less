@@ -7,6 +7,16 @@
 
 	&.edit {
 
+		// what the field paints under the actions ramp (see >.content_actions):
+		// hover = surface + hover tint; active = the active style's opaque
+		// surface (--row_fade_active, view_line_portal.less)
+		--iri_fade_base: var(--bg_surface);
+		--iri_fade_tint: var(--field_hover_bg);
+		&.active {
+			--iri_fade_base: var(--row_fade_active);
+			--iri_fade_tint: transparent;
+		}
+
 		// pen + trash (inside the embedded dataframe) and the iri's own actions
 		// cluster (active checkbox + remove/link icons) are hidden at rest and
 		// revealed only when the whole component is hovered or active. The
@@ -23,6 +33,13 @@
 
 		>.content_data >.content_value >.input_value:not(:focus) {
 			outline-color: transparent;
+		}
+
+		// small screens: layout.less gives every edit wrapper `overflow-x: auto`,
+		// which also clips y — cutting the selected inner portal's buttons pill
+		// that floats above it. Every line here is full width, so no scroller.
+		@media screen and (max-width: @width_break_point_1) {
+			overflow: visible;
 		}
 
 		// BLANK AT REST (see component_date `&.edit`): the Title / http://
@@ -81,6 +98,11 @@
 				display: flex;
 				flex-wrap: wrap;
 				row-gap: 1rem;
+				// actions cluster width (>.content_actions), read by the url input too
+				--iri_actions_width: 4.5rem;
+				&:has(>.content_actions >.input_iri_active) {
+					--iri_actions_width: 6rem;
+				}
 
 				&.read_only {
 
@@ -100,31 +122,52 @@
 					height: 2rem;
 
 					>.content_data {
-						>.section_record {
+						>.section_record.view_line {
 							// One line only always
 							flex-wrap: nowrap;
+							// Tight pen + trash: the portal view_line row gap, the
+							// trash's own side margins and the end padding left
+							// ~2.5rem of blank around two 13px icons — space the
+							// truncated label needs. (Path depth outranks the
+							// view_line_portal.less row rule: .view_line breaks the tie.)
+							column-gap: 0.4rem;
+							padding-right: 0.25rem;
 
-							// Icon pen
-							.column.column_section_id {
-								min-height: 1.6rem;
+							>.column.column_remove {
+								min-width: 0px;
+								width: auto;
+								margin-left: 0px; // stays beside the pen (the portal rule pins it right on its own)
+
+								>.button_remove {
+									margin: 0px;
+									padding: 0px;
+								}
+							}
+
+							// pen + trash: icon centred on the row (the label's line)
+							>.column_section_id,
+							>.column_remove {
+								display: flex;
+								align-items: center;
+								min-height: 0px;
+							}
+
+							// pen + trash grouped at the row end (as the url actions below)
+							>.column.column_section_id {
+								margin-left: auto;
 							}
 						}
 					}
 
 					@media screen and (max-width: @width_break_point_1) {
+						// full line, like the title and url inputs below it
+						flex: 0 0 100%;
 						height: unset;
 						min-height: unset;
 
 						>.content_data {
 						    padding: 0px;
 						    padding-left: 0.5rem;
-
-						    >.section_record {
-						    	// Icon pen
-								.column.column_section_id {
-									min-height: 1.2rem;
-								}
-							}
 						}
 					}
 				}
@@ -146,20 +189,30 @@
 
 					@media screen and (max-width: @width_break_point_1) {
 						margin-right: 1px;
+						min-width: 0px; // full-line inputs never overflow (wrapper scroller is off, below)
 
 						&.title {
 							flex: 0 0 100%;
 						}
 
+						// minus its 1px margin: the outer size must not exceed the line,
+						// or the zero-width actions cluster wraps to a line of its own
 						&.url {
-							flex: 0 0 100%;
+							flex: 0 0 calc(100% - 1px);
 						}
 					}
 				}
 
-				// actions cluster at the row end: active checkbox + remove/link
-				// icons. One flow element that wraps with the row and right-aligns
-				// itself on its own line, so the icons never overlay an input.
+				// focused url: keep the caret and typed end clear of the icons
+				>.input_value.url:focus {
+					padding-right: var(--iri_actions_width);
+				}
+
+				// actions cluster: active checkbox + remove/link icons LIE OVER the
+				// url input's end (like the portal view_line pen + trash), the url
+				// text fading out under them (::before ramp) — no row of its own.
+				// Width == -margin-left: outer size 0, so it always stays on the
+				// url's flex line and overlaps it exactly.
 				// The cluster's own opacity does the reveal; inside it the buttons
 				// stay always-rendered, overriding the generic
 				// .hidden_button display:none (a display toggle here would kill
@@ -167,7 +220,30 @@
 				>.content_actions {
 					display: flex;
 					align-items: center;
-					margin-left: auto;
+					justify-content: flex-end;
+					flex: 0 0 auto;
+					align-self: stretch;
+					box-sizing: border-box;
+					width: var(--iri_actions_width);
+					margin-left: calc(-1 * var(--iri_actions_width));
+					padding-left: 1.25rem; // the ramp
+					padding-right: 0.25rem;
+					position: relative;
+					z-index: 1; // own stacking context: the ramp stays above the input
+
+					// the surface the field paints (layout.less hover tint / active
+					// style), faded in from the left — same layers as the portal's
+					&::before {
+						content: '';
+						position: absolute;
+						inset: 0;
+						z-index: -1;
+						background:
+							linear-gradient(var(--iri_fade_tint), var(--iri_fade_tint)),
+							var(--iri_fade_base);
+						mask-image: linear-gradient(to right, transparent, #000 1.25rem);
+						pointer-events: none;
+					}
 
 					>.button {
 						display: inline-flex;

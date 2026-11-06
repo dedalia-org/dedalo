@@ -22853,8 +22853,6 @@ body.inspector_resizing {
   width: 100%;
   padding: 0px;
   padding-left: 0.25rem;
-  position: relative;
-  top: -0.1rem;
 }
 /**
 * LITERAL MAIN + ITS FRAME = ONE DATA UNIT
@@ -24842,6 +24840,14 @@ body.inspector_resizing {
 *
 * Included from main.less file
 */
+.component_iri.edit {
+  --iri_fade_base: var(--bg_surface);
+  --iri_fade_tint: var(--field_hover_bg);
+}
+.component_iri.edit.active {
+  --iri_fade_base: var(--row_fade_active);
+  --iri_fade_tint: transparent;
+}
 .component_iri.edit .component_dataframe .column_section_id,
 .component_iri.edit .component_dataframe .column_remove,
 .component_iri.edit > .content_data > .content_value > .content_actions:not(:focus-within) {
@@ -24851,6 +24857,11 @@ body.inspector_resizing {
 }
 .component_iri.edit > .content_data > .content_value > .input_value:not(:focus) {
   outline-color: transparent;
+}
+@media screen and (max-width: 960px) {
+  .component_iri.edit {
+    overflow: visible;
+  }
 }
 .component_iri.edit:not(:hover):not(.active) > .content_data > .content_value > .input_value:not(:focus)::placeholder {
   color: transparent;
@@ -24890,6 +24901,10 @@ body.inspector_resizing {
   display: flex;
   flex-wrap: wrap;
   row-gap: 1rem;
+  --iri_actions_width: 4.5rem;
+}
+.component_iri.edit > .content_data > .content_value:has(>.content_actions >.input_iri_active) {
+  --iri_actions_width: 6rem;
 }
 .component_iri.edit > .content_data > .content_value.read_only > .iri {
   padding-left: 0.5rem;
@@ -24899,23 +24914,38 @@ body.inspector_resizing {
   min-width: 8rem;
   height: 2rem;
 }
-.component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data > .section_record {
+.component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data > .section_record.view_line {
   flex-wrap: nowrap;
+  column-gap: 0.4rem;
+  padding-right: 0.25rem;
 }
-.component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data > .section_record .column.column_section_id {
-  min-height: 1.6rem;
+.component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data > .section_record.view_line > .column.column_remove {
+  min-width: 0px;
+  width: auto;
+  margin-left: 0px;
+}
+.component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data > .section_record.view_line > .column.column_remove > .button_remove {
+  margin: 0px;
+  padding: 0px;
+}
+.component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data > .section_record.view_line > .column_section_id,
+.component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data > .section_record.view_line > .column_remove {
+  display: flex;
+  align-items: center;
+  min-height: 0px;
+}
+.component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data > .section_record.view_line > .column.column_section_id {
+  margin-left: auto;
 }
 @media screen and (max-width: 960px) {
   .component_iri.edit > .content_data > .content_value > .component_dataframe {
+    flex: 0 0 100%;
     height: unset;
     min-height: unset;
   }
   .component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data {
     padding: 0px;
     padding-left: 0.5rem;
-  }
-  .component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data > .section_record .column.column_section_id {
-    min-height: 1.2rem;
   }
 }
 .component_iri.edit > .content_data > .content_value > .input_value {
@@ -24933,18 +24963,40 @@ body.inspector_resizing {
 @media screen and (max-width: 960px) {
   .component_iri.edit > .content_data > .content_value > .input_value {
     margin-right: 1px;
+    min-width: 0px;
   }
   .component_iri.edit > .content_data > .content_value > .input_value.title {
     flex: 0 0 100%;
   }
   .component_iri.edit > .content_data > .content_value > .input_value.url {
-    flex: 0 0 100%;
+    flex: 0 0 calc(100% - 1px);
   }
+}
+.component_iri.edit > .content_data > .content_value > .input_value.url:focus {
+  padding-right: var(--iri_actions_width);
 }
 .component_iri.edit > .content_data > .content_value > .content_actions {
   display: flex;
   align-items: center;
-  margin-left: auto;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  align-self: stretch;
+  box-sizing: border-box;
+  width: var(--iri_actions_width);
+  margin-left: calc(-1 * var(--iri_actions_width));
+  padding-left: 1.25rem;
+  padding-right: 0.25rem;
+  position: relative;
+  z-index: 1;
+}
+.component_iri.edit > .content_data > .content_value > .content_actions::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(var(--iri_fade_tint), var(--iri_fade_tint)), var(--iri_fade_base);
+  mask-image: linear-gradient(to right, transparent, #000 1.25rem);
+  pointer-events: none;
 }
 .component_iri.edit > .content_data > .content_value > .content_actions > .button {
   display: inline-flex;

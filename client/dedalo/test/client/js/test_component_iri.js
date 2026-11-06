@@ -254,6 +254,37 @@ describe(`COMPONENT_IRI DATA OPERATIONS`, function() {
 
 
 
+	it(`actions cluster lies over the url input end (edit layout)`, async function() {
+
+		// component_iri.less: the remove/link cluster overlays the url input's
+		// end (zero outer size) instead of taking a row of its own — at any width
+		// the row is filled after its dataframe resolves (render_edit get_content_value)
+		const find_row = () => [...instance.node.querySelectorAll('.content_value')]
+			.find(el => el.querySelector(':scope >.input_value.url') && el.querySelector(':scope >.content_actions'))
+		let content_value = find_row()
+		for (let i = 0; !content_value && i < 50; i++) {
+			await new Promise(resolve => setTimeout(resolve, 100))
+			content_value = find_row()
+		}
+		assert.isOk(content_value, 'expected a content_value with url input + actions cluster')
+
+		const url_node		= content_value.querySelector(':scope >.input_value.url')
+		const url_rect		= url_node.getBoundingClientRect()
+		// the cluster closes the url's margin box (it follows the input in flow)
+		const url_end		= url_rect.right + parseFloat(getComputedStyle(url_node).marginRight)
+		const actions_rect	= content_value.querySelector(':scope >.content_actions').getBoundingClientRect()
+		assert.isAbove(url_rect.width, 0, 'url input expected rendered')
+
+		const url_mid		= url_rect.top + url_rect.height / 2
+		const actions_mid	= actions_rect.top + actions_rect.height / 2
+		assert.isBelow(Math.abs(url_mid - actions_mid), 2, 'actions expected on the url line (not wrapped)')
+		assert.isBelow(actions_rect.left, url_rect.right, 'actions expected to overlap the url input')
+		assert.isAtLeast(actions_rect.left, url_rect.left, 'actions expected not to escape left of the url input')
+		assert.isBelow(Math.abs(actions_rect.right - url_end), 2, 'actions expected at the url input end')
+	});
+
+
+
 	it(`change data via change_value (update)`, async function() {
 
 		const data		= instance.data || {}
