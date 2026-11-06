@@ -51,7 +51,7 @@ function invalidImageDownload(message: string): DedaloError {
 }
 
 /** The descriptor's three control points, [lat, lon] each — the same shape
- * `L.imageOverlay.rotated` takes and `image_edit.js` moves. */
+ * `js/rotated_image_overlay.js` takes and `image_edit.js` moves. */
 export interface ImageCorners {
 	top_left: [number, number];
 	top_right: [number, number];

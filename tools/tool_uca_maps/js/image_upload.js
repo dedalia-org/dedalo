@@ -25,6 +25,7 @@ import {commit, ensure_properties, ensure_uca_maps, report_client_error, deliver
 import {carrier_image} from './uca_maps_data.js'
 import {DEFAULT_IMAGE_DOWNLOAD_NAME, sanitize_download_name} from './download_filename.js'
 import {hull_bounds, is_image_editing, attach_handles, detach_handles, seal_carrier_from_geoman, attach_carrier_drag, detach_carrier_drag} from './image_edit.js'
+import {rotated_image_overlay} from './rotated_image_overlay.js'
 
 
 
@@ -65,41 +66,6 @@ const image_z_index = function(value) {
 		? Math.min(MAX_IMAGE_Z_INDEX, Math.max(0, Math.trunc(value)))
 		: DEFAULT_IMAGE_Z_INDEX
 }//end image_z_index
-
-
-
-/**
-* LOAD_ROTATED_OVERLAY
-* Loads the vendored `Leaflet.ImageOverlay.Rotated` as a CLASSIC `<script>`: the
-* plugin extends the `L` global at its top level, which a module `import()` does
-* not give it. Cached promise; rejects LOUDLY, unlike v6's silent `try{}catch`.
-*
-* @returns {Promise<void>}
-*/
-let rotated_load_promise = null
-
-const load_rotated_overlay = function() {
-
-	if (L.ImageOverlay && L.ImageOverlay.Rotated) {
-		return Promise.resolve()
-	}
-
-	if (!rotated_load_promise) {
-		rotated_load_promise = new Promise((resolve, reject) => {
-			const script	= document.createElement('script')
-			script.src		= new URL('./lib/leaflet-imageoverlay-rotated/leaflet-imageoverlay-rotated.js', import.meta.url).href
-			script.onload	= () => resolve()
-			script.onerror	= () => reject(new Error('tool_uca_maps: failed to load leaflet-imageoverlay-rotated'))
-			document.head.appendChild(script)
-		})
-		// a FAILED load must not be cached: caching the rejection would
-		// disable image overlays for the rest of the page session over one
-		// transient network error, and re-report it on every later edit
-		rotated_load_promise.catch(() => { rotated_load_promise = null })
-	}
-
-	return rotated_load_promise
-}//end load_rotated_overlay
 
 
 
@@ -578,7 +544,7 @@ export const create_image_object = async function(self, image) {
 	// every uploaded image would show as an "Untitled object" vector
 	uca_maps.is_raster = true
 
-	await attach_overlay(self, carrier)
+	attach_overlay(self, carrier)
 
 	map.fire('pm:create', {layer: carrier})
 	// padded: an image zoomed edge-to-edge leaves no map to judge its placement by
@@ -596,15 +562,19 @@ export const create_image_object = async function(self, image) {
 * from the object the user clicked) and the tool (`_image_overlays`, so
 * teardown can sweep every one without walking the map).
 *
+* SYNCHRONOUS on purpose: `hydrate_image_overlays` runs un-serialized on every
+* `updated_layer_data_` event, and with no await between the check below and the
+* assignment, a second rebuild always finds the carrier taken.
+*
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} carrier - the transparent rectangle carrying the descriptor
-* @returns {Promise<Object|null>} the overlay, or null if it could not be built
+* @returns {Object|null} the overlay, or null if it could not be built
 */
-const attach_overlay = async function(self, carrier) {
+const attach_overlay = function(self, carrier) {
 
 	const image = carrier_image(carrier)
 
-	if (!image || !image.corners || carrier._uca_maps_overlay || carrier._uca_maps_overlay_pending) {
+	if (!image || !image.corners || carrier._uca_maps_overlay) {
 		return null
 	}
 
@@ -614,40 +584,25 @@ const attach_overlay = async function(self, carrier) {
 	seal_carrier_from_geoman(carrier)
 	attach_carrier_drag(self, carrier)
 
-	// CLAIM THE CARRIER BEFORE THE FIRST await: `hydrate_image_overlays` runs
-	// un-serialized on every `updated_layer_data_` event, so an edit during the
-	// plugin load would start a second rebuild and paint a duplicate overlay.
-	carrier._uca_maps_overlay_pending = true
-
-	let overlay
-	try {
-		await load_rotated_overlay()
-
-		// the tool may have been torn down while the plugin was loading
-		if (!self.geolocation || !self.geolocation.map) {
-			return null
-		}
-
-		overlay = L.imageOverlay.rotated(
-			image_url(image),
-			image.corners.top_left,
-			image.corners.top_right,
-			image.corners.bottom_left,
-			{
-				opacity		: typeof image.opacity==='number' ? image.opacity : DEFAULT_IMAGE_OPACITY,
-				zIndex		: image_z_index(image.z_index),
-				// the CARRIER takes the clicks. `interactive:false` only stops Leaflet
-				// layer events; the class's `pointer-events:none` (tool_uca_maps.less)
-				// stops the picture covering its own selection handle
-				interactive	: false,
-				className	: 'uca-maps-image-overlay'
-			}
-		)
-
-		overlay.addTo(self.geolocation.map)
-	} finally {
-		delete carrier._uca_maps_overlay_pending
+	if (!self.geolocation || !self.geolocation.map) {
+		return null
 	}
+
+	const overlay = rotated_image_overlay(
+		image_url(image),
+		image.corners.top_left,
+		image.corners.top_right,
+		image.corners.bottom_left,
+		{
+			opacity		: typeof image.opacity==='number' ? image.opacity : DEFAULT_IMAGE_OPACITY,
+			zIndex		: image_z_index(image.z_index),
+			// the CARRIER takes the clicks: the class's `pointer-events:none`
+			// (tool_uca_maps.less) stops the picture covering its own selection handle
+			className	: 'uca-maps-image-overlay'
+		}
+	)
+
+	overlay.addTo(self.geolocation.map)
 
 	carrier._uca_maps_overlay = overlay
 	// tracked as a PAIR, not as a bare overlay: the sweep in
@@ -896,13 +851,12 @@ export const download_image = async function(self, carrier, format, quality, fil
 * HYDRATE_IMAGE_OVERLAYS
 * Rebuilds every stored overlay across the FeatureGroups. Walks them here
 * rather than riding `object_console.js`'s own `reapply_all` pass: that would
-* make the two modules import each other, and this hydration is asynchronous
-* (the plugin loads on demand) while every reapply_* there is synchronous.
+* make the two modules import each other.
 *
 * @param {Object} self - tool_uca_maps instance
-* @returns {Promise<number>} how many overlays were rebuilt
+* @returns {number} how many overlays were rebuilt
 */
-const hydrate_image_overlays = async function(self) {
+const hydrate_image_overlays = function(self) {
 
 	const feature_groups = self.geolocation && self.geolocation.FeatureGroup
 	if (!feature_groups) {
@@ -932,7 +886,7 @@ const hydrate_image_overlays = async function(self) {
 
 	let rebuilt = 0
 	for (const carrier of carriers) {
-		const overlay = await attach_overlay(self, carrier)
+		const overlay = attach_overlay(self, carrier)
 		if (overlay) {
 			rebuilt++
 		}
@@ -967,15 +921,15 @@ export const attach_image_overlays = function(self) {
 	}
 	self.geolocation.map.on('pm:remove', self._image_overlay_remove_handler)
 
-	// both calls are deliberately not awaited (a Leaflet event handler and an
-	// attach step, neither of which can block), so both need their own
-	// rejection handler — the plugin load can fail, and a detached rejection
-	// is invisible
+	// runs from an event handler and an attach step: a throw (a stored descriptor
+	// Leaflet cannot place) would surface nowhere a user looks, so it is reported
 	const rebuild = () => {
-		hydrate_image_overlays(self).catch((error) => {
+		try {
+			hydrate_image_overlays(self)
+		} catch (error) {
 			console.error('tool_uca_maps: image overlays could not be rebuilt', error)
 			report_client_error((error && error.message) || 'Image overlays could not be rebuilt')
-		})
+		}
 	}
 
 	self._image_overlay_token = event_manager.subscribe(

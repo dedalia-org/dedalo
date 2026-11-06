@@ -1,7 +1,7 @@
 /**
  * tool_uca_maps — `get_image_overlay`: where on the map an uploaded image goes.
  * GDAL's ring order (upperLeft, lowerLeft, lowerRight, upperRight) is not the
- * order `L.imageOverlay.rotated` takes (top-left, top-right, bottom-left), and
+ * order `js/rotated_image_overlay.js` takes (top-left, top-right, bottom-left), and
  * getting it wrong mirrors every uploaded raster without failing anything.
  */
 

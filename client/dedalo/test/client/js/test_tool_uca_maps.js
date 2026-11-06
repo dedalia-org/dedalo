@@ -50,6 +50,7 @@ import {
 import { download_map_image, keep_in_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import { DEFAULT_MAP_IMAGE_NAME } from '../../../tools/tool_uca_maps/js/download_filename.js'
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
+import { rotated_image_overlay } from '../../../tools/tool_uca_maps/js/rotated_image_overlay.js'
 import { create_image_object, corners_from_viewport, image_download_width, ingest_image_upload, IMAGE_DOWNLOAD_TIMEOUT_MS, IMAGE_SECTION_TIPO, IMAGE_COMPONENT_TIPO } from '../../../tools/tool_uca_maps/js/image_upload.js'
 import {
 	associate_image,
@@ -855,7 +856,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		return carrier
 	}
 
-	// the overlay plugin loads on demand (classic <script>): the overlay appears asynchronously
+	// the hydration places the overlay synchronously; awaited anyway, so no test
+	// depends on that
 	const await_overlay = (carrier) => until(() => carrier._uca_maps_overlay)
 
 	const add_image_carrier_with_overlay = async function() {
@@ -6813,7 +6815,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// the picture itself, and every handle, at the stored corners
 		const overlay = carrier._uca_maps_overlay
 		assert.isOk(overlay, 'expected the picture on the map')
-		const placed = {top_left: overlay._topLeft, top_right: overlay._topRight, bottom_left: overlay._bottomLeft}
+		const placed = overlay.get_corners()
 		const keys = ['top_left', 'top_right', 'bottom_left']
 		keys.forEach((key, index) => {
 			for (const [label, latlng] of [['picture', placed[key]], ['handle', handles[index].getLatLng()]]) {
@@ -6825,10 +6827,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('two concurrent hydrations never paint the same image twice', async function() {
 
-		// hydrate_image_overlays runs un-serialized on every layer-data event
-		// and the plugin load suspends: without a synchronous claim on the
-		// carrier, an edit during that window starts a second rebuild that
-		// paints a duplicate only one of which anything can reach afterwards
+		// hydrate_image_overlays runs un-serialized on every layer-data event: a
+		// second rebuild must find the carrier taken, or it paints a duplicate
+		// only one of which anything can reach afterwards
 		const carrier = add_image_carrier()
 
 		tool.attach_image_overlays()
@@ -6842,33 +6843,19 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool._image_overlays.length, 1, 'expected exactly one overlay, not a stacked duplicate')
 	})
 
-	/** The overlay plugin, loaded as the tool loads it, so a test can wrap its factory first. */
-	const rotated_plugin_loaded = function() {
-		if (L.imageOverlay.rotated) {
-			return Promise.resolve()
-		}
-		return new Promise((resolve, reject) => {
-			const script	= document.createElement('script')
-			script.src		= new URL('../../../tools/tool_uca_maps/js/lib/leaflet-imageoverlay-rotated/leaflet-imageoverlay-rotated.js', import.meta.url).href
-			script.onload	= resolve
-			script.onerror	= reject
-			document.head.appendChild(script)
-		})
-	}
+	// a stored descriptor Leaflet cannot place throws inside the rebuild: it must
+	// reach the user, leave no picture, and not stop a later rebuild painting it
+	it('a hydration that throws is reported once, and the next one paints a single overlay', async function() {
 
-	// the claim on the carrier is released in a finally: a throw while building
-	// the picture must not leave it claimed, or no later hydration could paint it
-	it('a hydration that throws releases its claim on the carrier, so the next one paints a single overlay', async function() {
-
-		await rotated_plugin_loaded()
-		const original_rotated	= L.imageOverlay.rotated
-		let throws				= 1
-		L.imageOverlay.rotated = function(...args) {
-			if (throws > 0) {
+		const map					= geolocation.map
+		const original_add_layer	= map.addLayer
+		let throws					= 1
+		map.addLayer = function(layer) {
+			if (throws > 0 && layer instanceof L.ImageOverlay) {
 				throws--
 				throw new Error('Boom.')
 			}
-			return original_rotated.apply(this, args)
+			return original_add_layer.call(this, layer)
 		}
 		const toasts	= []
 		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
@@ -6877,9 +6864,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			tool.attach_image_overlays()
 			await until(() => toasts.length > 0)
 
-			assert.deepEqual(toasts.map((toast) => toast.message), ['Boom.'], 'expected the rebuild rejected with the throw, and reported once')
+			assert.deepEqual(toasts.map((toast) => toast.message), ['Boom.'], 'expected the rebuild\'s throw reported, once')
 			assert.isUndefined(carrier._uca_maps_overlay, 'expected no picture from the failed build')
-			assert.notProperty(carrier, '_uca_maps_overlay_pending', 'expected the claim released by the failure')
 
 			event_manager.publish(`updated_layer_data_${geolocation.id_base}`, {})
 			await await_overlay(carrier)
@@ -6887,8 +6873,95 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isOk(carrier._uca_maps_overlay, 'expected the next hydration to paint the picture')
 			assert.equal(tool._image_overlays.length, 1, 'expected exactly one overlay')
 		} finally {
-			L.imageOverlay.rotated = original_rotated
+			map.addLayer = original_add_layer
 			event_manager.unsubscribe(token)
+		}
+	})
+
+	/** Every corner of the picture on the layer point of its corner: the written matrix,
+	 * and the box the browser actually draws (a wrong transform-origin shifts it, a hidden
+	 * picture collapses it), which by construction is the container's. */
+	const assert_on_corners = function(overlay, corners, when) {
+		const map		= geolocation.map
+		const container	= overlay.getElement()
+		const picture	= container.querySelector('img')
+		const origin	= L.DomUtil.getPosition(container)
+		const matrix	= new DOMMatrix(picture.style.transform)
+		const [tl, tr, bl] = [corners.top_left, corners.top_right, corners.bottom_left].map((el) => map.latLngToLayerPoint(L.latLng(el)))
+		const w = picture.naturalWidth
+		const h = picture.naturalHeight
+		const expected = [
+			[0, 0, tl, 'top-left'],
+			[w, 0, tr, 'top-right'],
+			[0, h, bl, 'bottom-left'],
+			[w, h, L.point(tr.x + bl.x - tl.x, tr.y + bl.y - tl.y), 'bottom-right (inferred)']
+		]
+		for (const [x, y, target, name] of expected) {
+			const landed = matrix.transformPoint(new DOMPoint(x, y))
+			assert.closeTo(origin.x + landed.x, target.x, 0.01, `expected the picture's ${name} on its corner ${when} (x)`)
+			assert.closeTo(origin.y + landed.y, target.y, 0.01, `expected the picture's ${name} on its corner ${when} (y)`)
+		}
+		const drawn	= picture.getBoundingClientRect()
+		const box	= container.getBoundingClientRect()
+		assert.isAbove(drawn.width * drawn.height, 0, `expected the picture drawn ${when}`)
+		for (const side of ['left', 'top', 'right', 'bottom']) {
+			assert.closeTo(drawn[side], box[side], 0.5, `expected the drawn picture to fill its box ${when} (${side})`)
+		}
+	}
+
+	it('a rotated, skewed picture lands on its three corners, and stays on them through zooms and a move', async function() {
+
+		const map		= geolocation.map
+		const zoom		= map.getZoom()
+		const center	= map.getCenter()
+		// a real picture: the matrix needs a natural size, and the fixture's media path is not on disk
+		const canvas	= document.createElement('canvas')
+		canvas.width	= 40
+		canvas.height	= 20
+		const corners = {
+			top_left	: [center.lat + 0.004, center.lng - 0.006],
+			top_right	: [center.lat + 0.006, center.lng + 0.005],
+			bottom_left	: [center.lat - 0.003, center.lng - 0.008]
+		}
+		const overlay = rotated_image_overlay(
+			canvas.toDataURL('image/png'), corners.top_left, corners.top_right, corners.bottom_left,
+			{opacity: 0.5, zIndex: 300, className: 'uca-maps-image-overlay'}
+		)
+		const loaded = new Promise((resolve, reject) => {
+			overlay.once('load', resolve)
+			overlay.once('error', () => reject(new Error('the test picture did not load')))
+		})
+		overlay.addTo(map)
+		try {
+			await loaded
+
+			const container = overlay.getElement()
+			assert.isTrue(container.classList.contains('uca-maps-image-overlay'), 'expected the className on the overlay')
+			assert.equal(container.style.opacity, '0.5', 'expected the opacity on the overlay')
+			assert.equal(container.style.zIndex, '300', 'expected the zIndex on the overlay')
+			assert_on_corners(overlay, corners, 'as placed')
+
+			map.setZoom(zoom + 1, {animate: false})
+			assert_on_corners(overlay, corners, 'after a zoom')
+
+			// animated, as a wheel or +/- zooms: the inherited zoom animation reads the
+			// overlay's bounds, and a throw there leaves the map stuck mid-zoom
+			const zoomed = new Promise((resolve) => map.once('zoomend', resolve))
+			map.setZoom(zoom)
+			await Promise.race([zoomed, tick(3000).then(() => { throw new Error('the animated zoom never ended') })])
+			assert.equal(map.getZoom(), zoom, 'expected the animated zoom to land')
+			assert_on_corners(overlay, corners, 'after an animated zoom')
+
+			const moved = {
+				top_left	: [corners.top_left[0] + 0.001, corners.top_left[1]],
+				top_right	: [corners.top_right[0] - 0.002, corners.top_right[1] + 0.003],
+				bottom_left	: corners.bottom_left
+			}
+			overlay.reposition(moved.top_left, moved.top_right, moved.bottom_left)
+			assert_on_corners(overlay, moved, 'after a move')
+		} finally {
+			overlay.remove()
+			map.setZoom(zoom, {animate: false})
 		}
 	})
 
@@ -7281,12 +7354,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.deepEqual(after.top_left, before.top_left, 'expected the other two corners untouched')
 		assert.deepEqual(after.bottom_left, before.bottom_left, 'expected the other two corners untouched')
 
-		// the overlay is what the user sees: the plugin keeps its corners in these three
-		const overlay = carrier._uca_maps_overlay
-		assert.closeTo(overlay._topRight.lat, 40.47, 1e-9, 'expected the image itself moved with the handle')
-		assert.closeTo(overlay._topRight.lng, -3.60, 1e-9, 'expected the image itself moved with the handle')
-		assert.deepEqual([overlay._topLeft.lat, overlay._topLeft.lng], before.top_left, 'expected the image\'s other corners untouched')
-		assert.deepEqual([overlay._bottomLeft.lat, overlay._bottomLeft.lng], before.bottom_left, 'expected the image\'s other corners untouched')
+		// the overlay is what the user sees
+		const placed = carrier._uca_maps_overlay.get_corners()
+		assert.closeTo(placed.top_right.lat, 40.47, 1e-9, 'expected the image itself moved with the handle')
+		assert.closeTo(placed.top_right.lng, -3.60, 1e-9, 'expected the image itself moved with the handle')
+		assert.deepEqual([placed.top_left.lat, placed.top_left.lng], before.top_left, 'expected the image\'s other corners untouched')
+		assert.deepEqual([placed.bottom_left.lat, placed.bottom_left.lng], before.bottom_left, 'expected the image\'s other corners untouched')
 
 		// the carrier is what can be clicked and deleted — an overlay that
 		// moved away from it would be unselectable

@@ -1,7 +1,7 @@
 /**
  * get_image_overlay — where on the map an uploaded image goes. v6 parsed the
  * GeoTIFF in the browser with georaster to read its corners; `gdalinfo -json`
- * answers here. They are the three `L.imageOverlay.rotated` takes, not a bbox:
+ * answers here. They are the three `js/rotated_image_overlay.js` takes, not a bbox:
  * a projected rectangle reprojected to WGS84 is a skewed quadrilateral.
  */
 

@@ -7,7 +7,7 @@
 /**
 * IMAGE_EDIT
 * "Activar edición": three draggable points place, scale and rotate an uploaded
-* overlay (v6 `special_tools.js`); the plugin's AFFINE transform infers the
+* overlay (v6 `special_tools.js`); the overlay's AFFINE transform infers the
 * fourth corner, so a drag skews. A drag ends in `commit()`, never a save (v6
 * saved on every `dragend`). image_upload.js imports from here, never the reverse.
 */
@@ -28,8 +28,8 @@ const HANDLE_SIZE = 14
 /**
 * HULL_BOUNDS
 * The axis-aligned bounds enclosing the three control points AND the inferred
-* fourth corner (top_right + bottom_left − top_left, the same inference the
-* plugin itself makes) — dropping the fourth would clip the hull of a skewed
+* fourth corner (top_right + bottom_left − top_left, the same inference
+* `rotated_image_overlay.js` makes) — dropping the fourth would clip the hull of a skewed
 * raster.
 *
 * @param {Object} corners - {top_left, top_right, bottom_left}, each [lat, lng]
