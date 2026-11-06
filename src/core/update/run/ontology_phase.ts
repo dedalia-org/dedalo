@@ -3,8 +3,9 @@
  * decisions D-3, D-6, D-8).
  *
  * The run decides the request itself — no browser relays it: for every
- * configured source (this install's own export when it IS the ontology master,
- * else each ONTOLOGY_SERVERS entry), the files are that source's manifest
+ * configured source (this install's own export when it IS the ontology master
+ * with no ONTOLOGY_SERVERS entry; else each entry — an ontology master's entries
+ * are PROMOTION sources, usable only for the TLDs they list), the files are that source's manifest
  * entries for the shared TLDs this install updates —
  *
  *   ACTIVE_ONTOLOGY_TLDS ∩ admissible (never a local TLD, never localontology0)
@@ -30,6 +31,7 @@ import {
 	readLocalOntologyManifest,
 } from '../../ontology/ontology_manifest.ts';
 import { admissibleUpdateTlds, updateOntology } from '../../ontology/ontology_update.ts';
+import { authoringMasterRefusal } from '../../ontology/ontology_update_source.ts';
 import type { OntologyUpdateCatalog } from '../../ontology/ontology_update_target.ts';
 import type { ReleaseStep } from '../catalog_file.ts';
 import {
@@ -77,20 +79,35 @@ export interface OntologyPhaseDeps {
 	}>;
 }
 
-/** This install's sources: its own export when it is the master, else the configured servers. */
-function sourcesOf(catalog: OntologyUpdateCatalog): OntologySource[] {
-	if (catalog.isOntologyServer) {
-		return [
-			{
-				server: { name: 'localhost', url: 'http://localhost/', code: 'localhost' },
-				tlds: undefined,
-			},
-		];
+/**
+ * This install's sources. An ontology server with NO ONTOLOGY_SERVERS entry
+ * updates from its own export (localhost), as it always did. With entries it
+ * PROMOTES from them — only the TLDs each lists, one source per TLD; its own
+ * authored TLDs that no entry lists are untouched, so its own export is no
+ * source then. An entry without `tlds` is a refusal (authoringMasterRefusal),
+ * never a silent narrowing. Anything else: the configured servers.
+ */
+function sourcesOf(
+	catalog: OntologyUpdateCatalog,
+): { sources: OntologySource[] } | { refusal: string } {
+	if (catalog.isOntologyServer && catalog.servers.length === 0) {
+		return {
+			sources: [
+				{
+					server: { name: 'localhost', url: 'http://localhost/', code: 'localhost' },
+					tlds: undefined,
+				},
+			],
+		};
 	}
-	return catalog.servers.map((entry) => ({
-		server: { name: entry.url, url: entry.url, code: entry.code },
-		tlds: entry.tlds,
-	}));
+	const refusal = authoringMasterRefusal(catalog);
+	if (refusal !== null) return { refusal };
+	return {
+		sources: catalog.servers.map((entry) => ({
+			server: { name: entry.url, url: entry.url, code: entry.code },
+			tlds: entry.tlds,
+		})),
+	};
 }
 
 async function defaultReadManifest(
@@ -218,7 +235,9 @@ export async function runOntologyPhase(
 ): Promise<PhaseResult> {
 	const resolved = resolvedDeps(deps);
 	const sources: Record<string, unknown>[] = [];
-	for (const source of sourcesOf(resolved.catalog)) {
+	const chosen = sourcesOf(resolved.catalog);
+	if ('refusal' in chosen) return { outcome: 'failed', evidence: { summary: chosen.refusal } };
+	for (const source of chosen.sources) {
 		sources.push(await updateFrom(source, step, userId, resolved));
 	}
 	if (sources.length === 0) {

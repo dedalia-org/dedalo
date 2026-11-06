@@ -88,11 +88,11 @@
 - [ ] TODO-048: Database 'role' is the same as database 'user' ? Clarify (In MariaDB config 'user' is used)
 - [ ] TODO-049: Ontologies selector: The labels are in spanish (e.g. España | es). It is intentional? Because the rest of the interface is in english.
 - [ ] TODO-050: Installing into an already installed code fails. This is OK, but the failure message is at end of all the installation process, not at the beginning. Check at beginning of installation process.
-- [ ] TODO-051: Add a sample to https://dedalo.dev/docs/v7/install/#what-you-are-installing where refer 'https://v7.master.dedalo.dev/dedalo/install/code/<version>/<version>.zip'
+- [ ] TODO-051: Add a sample to https://dedalo.dev/docs/v7/install/#what-you-are-installing where refer 'https://master7.dedalo.dev/dedalo/install/code/<version>/<version>.zip'
 See this error:
 ```
-sudo sh install.sh --release https://v7.master.dedalo.dev/dedalo/install/code/7/7.0/7.0.0-dev.zip \
-  --release-sha256 https://v7.master.dedalo.dev/dedalo/install/code/7/7.0/7.0.0-dev.zip.sha256
+sudo sh install.sh --release https://master7.dedalo.dev/dedalo/install/code/7/7.0/7.0.0-dev.zip \
+  --release-sha256 https://master7.dedalo.dev/dedalo/install/code/7/7.0/7.0.0-dev.zip.sha256
 install.sh: --release needs --release-sha256 <the sha256 the release was published with> (64 hex digits)
 ```
 - [x] TODO-052: Check this error on dev install finish (the installer doesn't install all dependencies): (2026-10-17: the developer route's install_dev_dependencies step; `bun run dev` stops when its CSS watcher dies, and the serve check names the missing package. Gates test/unit/install_dev_dependencies_native.test.ts, test/unit/install_dev_serve_native.test.ts C.)

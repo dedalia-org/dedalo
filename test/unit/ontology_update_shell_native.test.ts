@@ -76,15 +76,18 @@ import { config } from '../../src/config/config.ts';
 import { validateDdOntologyIdentifierConstraints } from '../../src/core/db/dd_ontology.ts';
 import { MATRIX_COPY_COLUMNS } from '../../src/core/db/matrix_write.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
+import { type DedaloError, isDedaloError } from '../../src/core/errors/dedalo_error.ts';
 import type { DbConnDescriptor } from '../../src/core/install/pg_exec.ts';
 import type { OntologyDependency } from '../../src/core/ontology/ontology_dependencies.ts';
 import { inspectOntology } from '../../src/core/ontology/ontology_state.ts';
 import { updateOntology } from '../../src/core/ontology/ontology_update.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
+import { DEDALO_DATA_VERSION } from '../../src/core/update/version.ts';
 import {
 	manifestSourceDeps,
 	type PlantedManifestFile,
+	plantedManifest,
 } from '../helpers/ontology_manifest_fixture.ts';
 
 // ---------------------------------------------------------------------------
@@ -480,6 +483,89 @@ describe('target refusal short-circuits before any artifact exists', () => {
 		expect(existsSync(join(versioned as string, 'recovery'))).toBe(false);
 		expect(existsSync(join(versioned as string, '.staging'))).toBe(false);
 	});
+});
+
+describe('an ontology SERVER pulling from a remote provider (promotion, e.g. master7 from beta7)', () => {
+	const serverCatalog = (origin: string, tlds?: string[]) => ({
+		servers: [{ code: 'zzdbeta', url: `${origin}/api/`, ...(tlds === undefined ? {} : { tlds }) }],
+		isOntologyServer: true,
+	});
+
+	test('an entry without tlds is refused (update.refused, source_unassigned) before any artifact exists', async () => {
+		const { ioBaseDir, changesDir } = makeDirs();
+		let refusal: unknown;
+		try {
+			await updateOntology(optionsFor('http://x.example', [TLD]), -1, {
+				catalog: serverCatalog('http://x.example'),
+				...sourceFor('http://x.example', [TLD]),
+				ioBaseDir,
+				changesDir,
+				activeTlds: SCRATCH_ACTIVE_TLDS,
+			});
+		} catch (error) {
+			refusal = error;
+		}
+		expect(isDedaloError(refusal)).toBe(true);
+		expect((refusal as DedaloError).code).toBe('update.refused');
+		expect(String((refusal as DedaloError).publicMessage)).toContain('must list the TLDs');
+		expect(readdirSync(ioBaseDir)).toEqual([]);
+	});
+
+	test('a newer data model on the provider is refused, nothing is touched', async () => {
+		const { ioBaseDir, changesDir } = makeDirs();
+		const origin = 'http://x.example';
+		const files = [{ tld: TLD, url: `${origin}/${TLD}.copy.gz` }];
+		let refusal: unknown;
+		await assertScratchOnly(async () => {
+			try {
+				await updateOntology(optionsFor(origin, [TLD]), -1, {
+					catalog: serverCatalog(origin, [TLD]),
+					readManifest: async () => plantedManifest(files, '99.0.0'),
+					installedDataVersion: async () => [...DEDALO_DATA_VERSION],
+					ioBaseDir,
+					changesDir,
+					activeTlds: SCRATCH_ACTIVE_TLDS,
+				});
+			} catch (error) {
+				refusal = error;
+			}
+		});
+		expect(isDedaloError(refusal)).toBe(true);
+		expect((refusal as DedaloError).code).toBe('update.refused');
+		expect((refusal as DedaloError).coordinates).toMatchObject({ rule: 'ontology_model_unknown' });
+		expect(String((refusal as DedaloError).publicMessage)).toMatch(
+			/data model.*update the code first/,
+		);
+		expect(readdirSync(ioBaseDir)).toEqual([]);
+		expect(await scratchRows()).toEqual([]);
+	});
+
+	test('an entry listing the TLD imports it through the normal door: snapshot taken, census reported', async () => {
+		const { ioBaseDir, changesDir } = makeDirs();
+		const fixture = serveFiles({ 'zzd.copy.gz': validPayload('zzd0') });
+		await assertScratchOnly(async () => {
+			const out = await updateOntology(optionsFor(fixture.origin, [TLD]), -1, {
+				catalog: serverCatalog(fixture.origin, [TLD]),
+				...sourceFor(fixture.origin, [TLD]),
+				ioBaseDir,
+				changesDir,
+				activeTlds: SCRATCH_ACTIVE_TLDS,
+			});
+			fixture.stop();
+			expect(out.errors).toEqual([]);
+			expect(out.ok).toBe(true);
+			expect(Array.isArray(out.census)).toBe(true);
+			expect((await scratchRows()).map((row) => row.section_id)).toEqual(IMPORT_IDS);
+			// the Phase-B recovery snapshot of the slice was taken on a server too
+			const versioned = versionedIoDir(ioBaseDir) as string;
+			const recovery = readdirSync(join(versioned, 'recovery'));
+			expect(recovery.length).toBe(1);
+			expect(readdirSync(join(versioned, 'recovery', recovery[0] as string))).toContain(
+				`${TLD}.copy`,
+			);
+		});
+		await sweepScratch(true);
+	}, 120_000);
 });
 
 // ---------------------------------------------------------------------------

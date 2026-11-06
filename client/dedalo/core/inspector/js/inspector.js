@@ -365,7 +365,7 @@ const update_section_info = (self) => {
 *                           local Dédalo page URL; falls through to
 *                           'local_ontology_search' if the locator is not found
 *   'local_ontology_search' — local search page pre-filtered to the tipo
-*   'master_ontology'     — master.dedalo.dev record for the TLD section of tipo
+*   'master_ontology'     — master7.dedalo.dev record for the TLD section of tipo
 *
 * (!) The 'local_ontology' case has no explicit break/return before the
 * 'local_ontology_search' case; if ontology_info is null the switch falls through
@@ -401,7 +401,7 @@ export const get_ontology_url = async function (tipo, target) {
 		case 'master_ontology':
 			const section_tipo_base	= get_tld_from_tipo(tipo) + '0'; // as 'tch0'
 			const section_id_base	= get_section_id_from_tipo(tipo); // as '38'
-			return `https://master.dedalo.dev/dedalo/core/page/?tipo=${section_tipo_base}&section_id=${section_id_base}&session_save=false&menu=false`
+			return `https://master7.dedalo.dev/dedalo/core/page/?tipo=${section_tipo_base}&section_id=${section_id_base}&session_save=false&menu=false`
 	}
 
 

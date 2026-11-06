@@ -250,6 +250,26 @@ A schema-changes snapshot of the update is written under `../private/backups/ont
 
 When one of those nodes is a section, the report also counts the records stored in that section. Each such tld gets one line in the import log, and the full list comes back in the response as `census`. The census only reports. It never stops the update: decide from it whether the records under a removed section need attention.
 
+### Promoting ontology from the beta server
+
+An ontology master (`IS_AN_ONTOLOGY_SERVER=true`) can also be a **client** of another provider: the official release server pulls the tlds that were tested on the beta server through the same update run a museum uses — census, recovery snapshot, the data-model refusal and the file digests all apply.
+
+The rules are stricter than for an ordinary installation, because a master *authors* its ontology:
+
+* With **no** `ONTOLOGY_SERVERS` entry the master behaves as always: its own export is the only source (*Local files*).
+* With entries, each entry **must** list the tlds it provides in `tlds`. An entry without `tlds` (absent or empty) is refused with a message naming it — a remote never replaces the whole authored ontology by accident.
+* Only the listed tlds are pulled, each from exactly one entry. Tlds no entry lists stay untouched, and `matrix_dd` (the shared value lists) is imported only when an entry lists it. The master's own export is not a source of the run while entries exist.
+* A tld is imported only when it is also in `ACTIVE_ONTOLOGY_TLDS` (the usual rule for every update).
+* A provider on a **newer data model** is refused: that is correct, update the master's code and data first.
+* The ontology the master serves afterwards is stamped by the master's own code, not by the provider.
+
+```bash
+# on the release master only; the beta server is a provider, never the other way round
+ONTOLOGY_SERVERS=[{"name":"Dédalo beta","url":"https://beta7.dedalo.dev/dedalo/core/api/v1/json/","code":"<code of the beta server>","tlds":["dd","rsc"]}]
+```
+
+Restart after editing (the browser's `connect-src` is built at boot). The access code must be the one the *beta* server has in its own configuration: a server answers a manifest only to codes in its own config.
+
 ### Updating without a network (air-gapped installs)
 
 Copying ontology files onto the server imports nothing by itself: every import

@@ -210,4 +210,42 @@ describe('plan (the dry run)', () => {
 			detail: expect.stringContaining('CODE_SERVERS'),
 		});
 	});
+
+	test('with two masters, a prerelease is asked of EVERY master on the prerelease channel, not only the first', async () => {
+		const first = { url: 'https://master.example/api/', code: 'k1' };
+		const second = { url: 'https://beta.example/api/', code: 'k2' };
+		const asked: string[] = [];
+		const read = async (master: { url: string }, channel: string) => {
+			asked.push(`${master.url}|${channel}`);
+			return master.url === second.url
+				? {
+						items: [{ version: '7.1.0', release: '7.1.0-beta.1' }],
+						plans: { plans: {}, data: {} },
+					}
+				: { items: [], plans: { plans: {}, data: {} } };
+		};
+		const plan = await planCodeUpdate('7.1.0-beta.1', read as never, [first, second]);
+		expect(asked).toEqual([`${first.url}|prerelease`, `${second.url}|prerelease`]);
+		// Found on the second master, so planRun ran on ITS manifest: the refusal is the
+		// catalog one for that release (the fake manifest ships no plans), not "no master offers it".
+		expect(plan).toMatchObject({
+			ok: false,
+			refusal: 'release_unknown',
+			detail: expect.stringContaining('7.1.0-beta.1 is in no catalog'),
+		});
+	});
+
+	test('no master offers it: every master asked is named; an unreachable one is named, not thrown', async () => {
+		const first = { url: 'https://master.example/api/', code: 'k1' };
+		const second = { url: 'https://beta.example/api/', code: 'k2' };
+		const read = async (master: { url: string }) => {
+			if (master.url === second.url) throw new Error('HTTP 403');
+			return { items: [], plans: { plans: {}, data: {} } };
+		};
+		const plan = await planCodeUpdate('7.0.2', read as never, [first, second]);
+		expect(plan).toMatchObject({ ok: false, refusal: 'release_unknown' });
+		const detail = (plan as { detail: string }).detail;
+		expect(detail).toContain(first.url);
+		expect(detail).toContain(`${second.url} (internal.unexpected)`);
+	});
 });

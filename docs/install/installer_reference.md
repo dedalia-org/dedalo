@@ -1447,8 +1447,8 @@ owns are these:
 By default both keys name the official Dédalo master:
 
 ```dotenv
-ONTOLOGY_SERVERS=[{"name":"Official Dédalo Ontology server","url":"https://v7.master.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w"}]
-CODE_SERVERS=[{"name":"Official Dédalo code server","url":"https://v7.master.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w"}]
+ONTOLOGY_SERVERS=[{"name":"Official Dédalo Ontology server","url":"https://master7.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w"}]
+CODE_SERVERS=[{"name":"Official Dédalo code server","url":"https://master7.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w"}]
 ```
 
 `ONTOLOGY_SERVERS` is where ontology updates come from; `CODE_SERVERS` is where

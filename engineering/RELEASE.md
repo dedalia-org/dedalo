@@ -313,6 +313,26 @@ ANYTHING under `src/core/update/`, the update widgets, or `.gitattributes`
 export rules; it is the only gate that exercises build → serve → discover →
 install → restart as one wire-true sequence.
 
+## Two official servers
+
+Two servers publish Dédalo v7: **master7** (release: stable code, the official ontology) and **beta7**
+(beta: prereleases and dev builds, ontology tested there). Roles are plain configuration, no engine concept:
+
+| | master7 | beta7 |
+|---|---|---|
+| `IS_A_CODE_SERVER` | true | true |
+| `DEDALO_CODE_SERVER_PRERELEASE_CHANNEL` / `DEDALO_CODE_SERVER_DEV_CHANNEL` | off | on |
+| `IS_AN_ONTOLOGY_SERVER` | true | true |
+| access code | its own | its own, distinct |
+
+A server answers a manifest only to codes in its own config. The installer writes only master7 entries;
+beta7 is an opt-in, commented example in `install/sample.env` with its own code.
+
+**Promotion.** The ontology reaches master7 from beta7 through the normal update run: master7 lists beta7 in
+`ONTOLOGY_SERVERS` with the tlds to promote (an entry without `tlds` is refused on an ontology server), and
+runs Update ontology. Only the listed tlds move; census, recovery snapshot, digests and the data-model
+refusal apply. Code is promoted by cutting the stable tag from the tested prerelease, as below.
+
 ## Cutting a prerelease
 
 A prerelease (`vX.Y.Z-(alpha|beta|rc).N`) IS a release (owner Q1, 2026-10-15):

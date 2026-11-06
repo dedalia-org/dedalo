@@ -127,7 +127,7 @@ export interface MasterServerEntry {
 }
 
 /** The official master's JSON API endpoint (both ontology and code). */
-export const OFFICIAL_MASTER_URL = 'https://v7.master.dedalo.dev/dedalo/core/api/v1/json/';
+export const OFFICIAL_MASTER_URL = 'https://master7.dedalo.dev/dedalo/core/api/v1/json/';
 
 /**
  * The official entries — byte-equal to the catalog examples

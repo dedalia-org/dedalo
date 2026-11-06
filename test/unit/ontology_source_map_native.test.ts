@@ -100,6 +100,52 @@ describe('assertSourceAssignment', () => {
 	});
 });
 
+describe('an ontology SERVER pulling from a remote provider (promotion)', () => {
+	const promoting = (tlds?: string[]) => ({
+		servers: [{ code: 'beta', url: MUSEUM, ...(tlds === undefined ? {} : { tlds }) }],
+		isOntologyServer: true,
+	});
+
+	test('only the TLDs the entry lists; everything else is source_mismatch', () => {
+		const catalog = promoting(['dd', 'matrix_dd']);
+		expect(
+			ruleOf(() => assertSourceAssignment(files('dd', 'matrix_dd'), target(MUSEUM), catalog)),
+		).toBe('passed');
+		expect(ruleOf(() => assertSourceAssignment(files('oh'), target(MUSEUM), catalog))).toBe(
+			'source_mismatch',
+		);
+	});
+
+	test('an entry without tlds (absent or empty) is refused — even a single one', () => {
+		for (const catalog of [promoting(), promoting([])]) {
+			expect(ruleOf(() => assertSourceAssignment(files('dd'), target(MUSEUM), catalog))).toBe(
+				'source_unassigned',
+			);
+		}
+	});
+
+	test('two providers listing one TLD stay ambiguous', () => {
+		const catalog = {
+			servers: [
+				{ code: 'a', url: OURS, tlds: ['dd'] },
+				{ code: 'b', url: MUSEUM, tlds: ['dd'] },
+			],
+			isOntologyServer: true,
+		};
+		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(OURS), catalog))).toBe(
+			'source_ambiguous',
+		);
+	});
+
+	test('the Local files target of a server is still never sourced, entries or not', () => {
+		expect(
+			ruleOf(() =>
+				assertSourceAssignment(files('dd'), { isLocal: true, configuredOrigin: null }, promoting()),
+			),
+		).toBe('passed');
+	});
+});
+
 describe('readOntologyServerList — the env → catalog read keeps each `tlds` with ITS master', () => {
 	/** Read ONTOLOGY_SERVERS as `value`, capturing the drop lines; the key is restored after. */
 	function readAs(value: unknown): {

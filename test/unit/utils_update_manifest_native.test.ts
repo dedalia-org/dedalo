@@ -497,6 +497,56 @@ describe('both doors refuse a remote peer when this master would advertise a loc
 	}
 });
 
+describe("the ontology manifest door authorises ONLY this server's own code, never its providers'", () => {
+	const HANDLER = join(import.meta.dir, '../../src/core/api/handlers/dd_utils_api.ts');
+	const IO = scratchOntologyIoDir();
+	afterAll(() => {
+		rmSync(IO, { recursive: true, force: true });
+	});
+
+	/** The REAL handler in a child configured as an ontology master that also pulls from provider 'B'. */
+	function drive(code: string): { ok?: true; code?: string; publicMessage?: string } {
+		const script = `
+			const { utilsApiActions } = await import(${JSON.stringify(HANDLER)});
+			const context = { requestId: 'probe', clientIp: '127.0.0.1', session: null, sessionToken: null, csrfCandidate: null };
+			const rqo = { dd_api: 'dd_utils_api', action: 'get_ontology_update_info', options: { version: '7.0', code: ${JSON.stringify(code)} } };
+			try {
+				await utilsApiActions.get_ontology_update_info(rqo, context);
+				console.log(JSON.stringify({ ok: true }));
+			} catch (error) {
+				console.log(JSON.stringify({ code: error?.code, publicMessage: error?.publicMessage }));
+			}
+			process.exit(0);`;
+		const env: Record<string, string> = {
+			...(process.env as Record<string, string>),
+			IS_AN_ONTOLOGY_SERVER: 'true',
+			ONTOLOGY_SERVER_CODE: 'zzownA',
+			ONTOLOGY_SERVERS: JSON.stringify([{ name: 'p', url: 'https://p.test', code: 'zzprovB' }]),
+			DEDALO_HOST: 'localhost',
+			ONTOLOGY_DATA_IO_DIR: IO,
+		};
+		const run = Bun.spawnSync(['bun', '-e', script], { env, cwd: join(import.meta.dir, '../..') });
+		const out = run.stdout.toString().trim().split('\n').at(-1) ?? '';
+		if (run.exitCode !== 0 || !out.startsWith('{')) {
+			throw new Error(
+				`probe child failed (${run.exitCode}): ${run.stderr.toString().slice(-2000)}`,
+			);
+		}
+		return JSON.parse(out);
+	}
+
+	test("a provider's code is refused with 'Invalid code'", () => {
+		const answer = drive('zzprovB');
+		expect(answer.code, JSON.stringify(answer)).toBe('update_server.refused');
+		expect(answer.publicMessage).toBe('Error. Invalid code');
+	}, 30_000);
+
+	test("this server's own code and the 'localhost' pseudo-code are accepted", () => {
+		expect(drive('zzownA')).toEqual({ ok: true });
+		expect(drive('localhost')).toEqual({ ok: true });
+	}, 30_000);
+});
+
 describe('publicOriginIsLocal — the predicate BOTH the refusal above and the boot warning read', () => {
 	// localOriginRefusal is tested with an INJECTED boolean; this is the thing that
 	// produces it. Behaviour, not a source grep: an earlier text-window assertion of
@@ -525,7 +575,7 @@ describe('publicOriginIsLocal — the predicate BOTH the refusal above and the b
 		},
 	);
 
-	test.each(['v7.master.dedalo.dev', 'dedalo.example.org', 'localhost.dedalo.dev', '10.0.0.5'])(
+	test.each(['master7.dedalo.dev', 'dedalo.example.org', 'localhost.dedalo.dev', '10.0.0.5'])(
 		'a real name (%p) is NOT local — or every server would be refused or warned forever',
 		async (host) => {
 			expect(await withHost(host)).toBe(false);

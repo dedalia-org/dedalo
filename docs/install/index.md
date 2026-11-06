@@ -32,13 +32,13 @@ The Production route installs from a **release archive** — or from a git check
 
 | You need | Where it is |
 | --- | --- |
-| a release archive (Production) | the official code server publishes each release at `https://v7.master.dedalo.dev/dedalo/install/code/<version>/<version>.zip`, and its sha256 beside it, at the same address with `.sha256` added. The releases are also listed at `https://github.com/dedalia-org/dedalo/releases` |
+| a release archive (Production) | the official code server publishes each release at `https://master7.dedalo.dev/dedalo/install/code/<version>/<version>.zip`, and its sha256 beside it, at the same address with `.sha256` added. The releases are also listed at `https://github.com/dedalia-org/dedalo/releases` |
 | a checkout (Docker, Trial, Developer — or Production at a release tag) | `git clone https://github.com/dedalia-org/dedalo.git`, then `git checkout v<version>` for a release. Keep the git remote: a Docker update builds from the release's tag. Under `sudo`, the bootstrap installs the installer's dependencies as the checkout's owner: root never writes in it |
 
 Unpack the archive and run `install.sh` from it, or let the bootstrap fetch and check it for you:
 
 ```shell
-sudo sh install.sh --release https://v7.master.dedalo.dev/dedalo/install/code/<version>/<version>.zip \
+sudo sh install.sh --release https://master7.dedalo.dev/dedalo/install/code/<version>/<version>.zip \
   --release-sha256 <sha256>
 ```
 

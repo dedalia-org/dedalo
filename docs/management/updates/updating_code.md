@@ -118,6 +118,8 @@ database backup together with the previous code. The rules, the states and the c
 
 The panel follows the run after the restart and reports how it ended.
 
+With more than one entry in `CODE_SERVERS` (for example the release server and the beta server), `bun run update plan <release>` asks **every** configured server, on the channel the release belongs to (a prerelease on the prerelease channel, a stable release on the release channel), and plans from the first one that offers it. A server that does not offer it, or cannot be reached, is named in the refusal.
+
 ### Installations that run from a container image
 
 On a Docker installation the code is part of the **image**, not a tree on disk,

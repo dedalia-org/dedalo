@@ -5556,8 +5556,16 @@ The installer (`sh install.sh`, or `bun run dedalo:install`) WRITES the official
 
 `url` is the master's JSON API endpoint — it MUST end in `/dedalo/core/api/v1/json/` (or `/api/v1/json`); any other path answers 404 and the panel reports the server as unreachable. `code` is the shared secret: the master only answers a release manifest to a caller presenting a code listed in its OWN `CODE_SERVERS`.
 
+**Beta channel (opt-in).** A second official server, `beta7.dedalo.dev`, publishes prereleases and developer builds. The installer never writes it: you enable it by hand, with its own access code, by adding the commented entry below to the array. It only offers anything to a code-update panel set to **Prereleases** or **Developer builds**; a panel left on published releases keeps seeing only what `master7` publishes. Which servers an installation trusts is the operator's decision — nothing is asked of us.
+
+To act as such a server, an installation sets `IS_A_CODE_SERVER=true` and `DEDALO_CODE_FILES_DIR`; the beta server also sets `DEDALO_CODE_SERVER_PRERELEASE_CHANNEL=true` and `DEDALO_CODE_SERVER_DEV_CHANNEL=true`, while `master7` leaves both channel switches off (the default).
+
+**Moving from `v7.master.dedalo.dev`.** That address is retired, with no alias. Edit `CODE_SERVERS` (and `ONTOLOGY_SERVERS`) in `../private/.env` to the `master7` (or `beta7`) URL and **restart**: the browser's `connect-src` is built at boot. A list still naming the old host logs one line at every boot.
+
 ```bash
-CODE_SERVERS=[{"name":"Official Dédalo code server","url":"https://v7.master.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w"}]
+CODE_SERVERS=[{"name":"Official Dédalo code server","url":"https://master7.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w"}]
+# Opt-in beta channel, INACTIVE (to enable: replace the line above with this one, without the leading "# "):
+# CODE_SERVERS=[{"name":"Official Dédalo code server","url":"https://master7.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w"},{"name":"Dédalo beta code server","url":"https://beta7.dedalo.dev/dedalo/core/api/v1/json/","code":"4Ofvb8noHMNvS5"}]
 ```
 
 *Default: (unset)*
@@ -5785,8 +5793,14 @@ The list also has an install-time role: its FIRST entry (a preserved custom list
 Configuration for the official dedalo.dev server:
 
 ```bash
-ONTOLOGY_SERVERS=[{"name":"Official Dédalo Ontology server","url":"https://v7.master.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w"}]
+ONTOLOGY_SERVERS=[{"name":"Official Dédalo Ontology server","url":"https://master7.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w"}]
+# Opt-in beta ontology provider, INACTIVE (to enable: replace the line above with this one, without the leading "# "). It takes oh from beta7:
+# ONTOLOGY_SERVERS=[{"name":"Dédalo","url":"https://master7.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w","tlds":["dd","rsc","ontology","ontologytype","hierarchy","lg","matrix_dd"]},{"name":"Dédalo beta","url":"https://beta7.dedalo.dev/dedalo/core/api/v1/json/","code":"4Ofvb8noHMNvS5","tlds":["oh"]}]
 ```
+
+**Beta ontology (opt-in).** `beta7.dedalo.dev` is a second official ontology server where ontology changes are tested before they reach `master7`. It has no channel setting: it is just another provider in this list, and an installation that does not list it never sees it. The installer never writes it; it has its own access code, and the decision to list it is the operator's. To take some TLDs from it, list it with those TLDs and remove them from the `master7` entry (every TLD in exactly one entry, `matrix_dd` included), as in the commented example above. An installation serves the ontology to others with `IS_AN_ONTOLOGY_SERVER=true`; both official servers do.
+
+**Moving from `v7.master.dedalo.dev`.** That address is retired, with no alias: edit this list (and `CODE_SERVERS`) in `../private/.env` to the new URL and **restart**. A list still naming the old host logs one line at every boot.
 
 It gets the tld from the [ACTIVE_ONTOLOGY_TLDS](#defining-active-ontology-tlds) definition.
 
@@ -5803,7 +5817,7 @@ list, or that the picked master does not list. One master needs no `tlds`: every
 from it.
 
 ```bash
-ONTOLOGY_SERVERS=[{"name":"Dédalo","url":"https://v7.master.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w","tlds":["dd","rsc","ontology","ontologytype","hierarchy","lg","oh","matrix_dd"]},{"name":"Museum master","url":"https://ontology.museum.example/dedalo/core/api/v1/json/","code":"…","tlds":["mus"]}]
+ONTOLOGY_SERVERS=[{"name":"Dédalo","url":"https://master7.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w","tlds":["dd","rsc","ontology","ontologytype","hierarchy","lg","oh","matrix_dd"]},{"name":"Museum master","url":"https://ontology.museum.example/dedalo/core/api/v1/json/","code":"…","tlds":["mus"]}]
 ```
 
 The update panel interrogates each master **from the browser**, so the engine adds every origin

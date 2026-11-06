@@ -17,6 +17,7 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - The official servers moved to master7.dedalo.dev; beta7.dedalo.dev is an opt-in beta provider
     - Dédalo now runs on Bun 1.4.4, the latest stable release.
     - Irreversible maintenance actions now require the superuser, maintenance mode and a recent backup.
 
@@ -666,6 +667,18 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-10-28-start-component-deep-link-record-scope`.
 
 #### Changed
+
+- **The official servers moved to master7.dedalo.dev; beta7.dedalo.dev is an opt-in beta provider** *(action needed)*
+
+    The official Dédalo update servers now live at `https://master7.dedalo.dev` (releases and the shared ontology). The previous address, `v7.master.dedalo.dev`, is retired with no alias. New installations are written with the new address.
+
+    **Installations that already have a `.env` (beta testers included) must edit it:** in `../private/.env`, change the URL in `CODE_SERVERS` and `ONTOLOGY_SERVERS` to `https://master7.dedalo.dev/dedalo/core/api/v1/json/` and **restart** the server (the browser's `connect-src` is built at boot). The access code stays the same. An entry still naming the old address is kept, and logs one line at every boot until it is changed.
+
+    A second official server, `https://beta7.dedalo.dev`, publishes prereleases and developer builds, and is where ontology changes are tested before they reach `master7`. It is opt-in: the installer never writes it, and it has its own access code. To use it, list it by hand as a provider (`CODE_SERVERS`, and in `ONTOLOGY_SERVERS` with the `tlds` it should supply; every TLD comes from exactly one entry), as in the commented examples in [CODE_SERVERS](./config/config.md#defining-server-code-provider) and [ONTOLOGY_SERVERS](./config/config.md#ontology-servers). Prereleases are then offered only to a code-update panel set to **Prereleases** or **Developer builds**.
+
+- **An ontology master can promote chosen tlds from another provider.**
+
+    An installation that serves ontology (`IS_AN_ONTOLOGY_SERVER=true`) can now list other providers in `ONTOLOGY_SERVERS` and update chosen tlds from them, with the same checks as any update: census, recovery snapshot, file digests and the data-model refusal. On such an installation every `ONTOLOGY_SERVERS` entry must list its `tlds`; an entry without them is refused, so a remote can never replace the whole authored ontology. Tlds no entry lists stay untouched. Without entries nothing changes. `bun run update plan <release>` now asks every configured code server for the release, instead of only the first.
 
 - **A column defined with a level-two `section_tipo: "self"` is no longer shown; the new `ddo_self_depth` check lists every such definition.**
 

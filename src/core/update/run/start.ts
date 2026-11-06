@@ -15,6 +15,7 @@
 
 import { config } from '../../../config/config.ts';
 import { getCurrentDataVersion } from '../../area_maintenance/backup.ts';
+import { toDedaloError } from '../../errors/convert.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
 import type { Principal } from '../../security/permissions.ts';
 import { DEDALO_ENGINE_VERSION } from '../build_stamp.ts';
@@ -197,16 +198,20 @@ export async function startCodeUpdateRun(
 
 /**
  * The DRY RUN (`bun run update plan <release>`): what a run to `release` would
- * execute, planned from the first configured master's manifest exactly as a
- * run is — no lock, no write. A release the master does not offer is refused.
+ * execute, planned from the manifest of the first configured master that OFFERS
+ * it, exactly as a run is — no lock, no write. With several code masters (an
+ * official release server and a beta one) the release's own channel decides who
+ * can offer it: a prerelease asks every master for its prerelease channel, a
+ * stable release for its master channel, and a master that does not serve that
+ * channel or does not list the release is passed over, never trusted as "the
+ * first". A release no master offers is refused, naming each one asked.
  */
 export async function planCodeUpdate(
 	release: string,
 	readManifest: ManifestFetch = fetchCodeManifest,
 	masters: readonly CodeMaster[] = config.update.codeServers,
 ): Promise<RunPlan> {
-	const master = masters[0];
-	if (master === undefined) {
+	if (masters.length === 0) {
 		return {
 			ok: false,
 			refusal: 'release_unknown',
@@ -214,14 +219,35 @@ export async function planCodeUpdate(
 		};
 	}
 	const prerelease = parseReleaseVersion(release)?.prerelease != null;
-	const manifest = await readManifest(master, prerelease ? 'prerelease' : 'master');
-	if (!manifest.items.some((item) => (item.release ?? item.version) === release)) {
-		return {
-			ok: false,
-			refusal: 'release_unknown',
-			detail: `${master.url} does not offer ${release} to this install`,
-		};
+	const channel = prerelease ? 'prerelease' : 'master';
+	const notOffered: string[] = [];
+	for (const master of masters) {
+		let manifest: Awaited<ReturnType<ManifestFetch>>;
+		try {
+			manifest = await readManifest(master, channel);
+		} catch (error) {
+			// Stable reason only: the raw message may carry a remote body or a local path.
+			notOffered.push(`${master.url} (${toDedaloError(error).code})`);
+			continue;
+		}
+		if (!manifest.items.some((item) => (item.release ?? item.version) === release)) {
+			notOffered.push(master.url);
+			continue;
+		}
+		return planFromManifest(release, manifest);
 	}
+	return {
+		ok: false,
+		refusal: 'release_unknown',
+		detail: `${notOffered.join(', ')} ${notOffered.length === 1 ? 'does' : 'do'} not offer ${release} to this install`,
+	};
+}
+
+/** The plan of `release` from the manifest of the master that offers it. */
+async function planFromManifest(
+	release: string,
+	manifest: Awaited<ReturnType<ManifestFetch>>,
+): Promise<RunPlan> {
 	const triple = parseReleaseVersion(release)?.triple;
 	const targetData = triple === undefined ? undefined : manifest.plans.data[formatVersion(triple)];
 	return planRun({

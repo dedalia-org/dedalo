@@ -2907,7 +2907,7 @@ export const open_ontology_window = function(self, url, docu_type, focus=false) 
 *     for this tipo (e.g. https://localhost/dedalo/core/page/?tipo=dd0&section_id=1)
 *   - local_ontology_search ('button tree') — opens the thesaurus tree (dd5) with a
 *     pre-filled search_tipos parameter so the user lands directly on this tipo's node
-*   - master_ontology ('button edit') — opens master.dedalo.dev for the canonical
+*   - master_ontology ('button edit') — opens master7.dedalo.dev for the canonical
 *     source ontology record
 *
 * All buttons call open_ontology_window(), which reuses a single 'docu_window' popup
@@ -3006,7 +3006,7 @@ const render_docu_links = function(self, tipo) {
 			}
 			local_ontology_search.addEventListener('mousedown', mousedown_handler_tree)
 
-		// master_ontology — opens master.dedalo.dev for the canonical source ontology record
+		// master_ontology — opens master7.dedalo.dev for the canonical source ontology record
 			const master_ontology = ui.create_dom_element({
 				element_type	: 'a',
 				class_name		: 'button edit',
@@ -3016,7 +3016,7 @@ const render_docu_links = function(self, tipo) {
 			// mousedown event
 			const mousedown_handler_master = async (e) => {
 				e.stopPropagation()
-				// open master.dedalo.dev section edit window
+				// open master7.dedalo.dev section edit window
 				const docu_type	= 'master_ontology'
 				const url		= await get_ontology_url(tipo, docu_type)
 				open_ontology_window(

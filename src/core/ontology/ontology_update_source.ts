@@ -168,13 +168,34 @@ export function assertSourceAssignment(
 	if (target.isLocal) return;
 	const servers = catalog.servers;
 	const selected = servers.find((entry) => originOf(entry.url) === target.configuredOrigin);
-	if (servers.length === 1 && selected?.tlds === undefined) return;
+	const authoring = authoringMasterRefusal(catalog);
+	if (authoring !== null) refuse('source_unassigned', authoring);
+	// An ontology server never takes "everything" from one remote: the single-
+	// source shortcut below is for ordinary installs only.
+	if (!catalog.isOntologyServer && servers.length === 1 && selected?.tlds === undefined) return;
 	requireDeclaredSources(servers);
 	for (const { tld } of files) {
 		const owners = servers.filter((entry) => entry.tlds?.includes(tld)).map((entry) => entry.url);
 		const refusal = sourceRefusal(tld, owners, selected?.url);
 		if (refusal !== null) refuse(refusal.rule, refusal.sentence);
 	}
+}
+
+/**
+ * An ontology SERVER (an authoring master) that lists remote providers takes
+ * from them ONLY the TLDs each entry names: an entry without `tlds` (absent or
+ * empty) would let a remote replace the master's whole authored ontology by
+ * accident, so it is refused. Null = nothing to refuse (no entries, not a
+ * server, or every entry declares). Shared by the update door and the run's
+ * ontology phase (run/ontology_phase.ts).
+ */
+export function authoringMasterRefusal(catalog: OntologyUpdateCatalog): string | null {
+	if (!catalog.isOntologyServer) return null;
+	const undeclared = catalog.servers
+		.filter((entry) => entry.tlds === undefined || entry.tlds.length === 0)
+		.map((entry) => entry.url);
+	if (undeclared.length === 0) return null;
+	return `this install is an ontology server: each ONTOLOGY_SERVERS entry must list the TLDs it provides in tlds, so a remote never replaces the whole authored ontology (missing for ${undeclared.join(', ')})`;
 }
 
 /** With several masters, every one declares its tlds. */

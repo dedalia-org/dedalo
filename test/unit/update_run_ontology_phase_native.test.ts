@@ -53,13 +53,15 @@ function phase(options: {
 	min?: string;
 	fail?: string;
 	scope?: string[];
+	/** The install is itself an ontology server (IS_AN_ONTOLOGY_SERVER). */
+	master?: boolean;
 }) {
 	const calls: { url: string; tlds: string[] }[] = [];
 	const run = runOntologyPhase(
 		{ kind: 'ontology', ...(options.min ? { min: options.min } : {}) },
 		-1,
 		{
-			catalog: { servers: options.servers, isOntologyServer: false },
+			catalog: { servers: options.servers, isOntologyServer: options.master === true },
 			...(options.scope === undefined ? {} : { scope: options.scope }),
 			activeTlds: options.active ?? ['zzupopa', 'zzupopb', 'localontology'],
 			readManifest: async (source) =>
@@ -147,6 +149,82 @@ describe('the run computes the ontology request itself', () => {
 		expect((await door.run).outcome).toBe('failed');
 		const none = phase({ servers: [], manifests: {} });
 		expect((await none.run).outcome).toBe('failed');
+	});
+});
+
+describe('an ontology SERVER promotes from remote providers (master7 pulling beta7)', () => {
+	const BETA = `${ORIGIN_B}/api/`;
+	const readManifest = {
+		[BETA]: manifestOf(ORIGIN_B, ['zzupopa', 'zzupopb']),
+	};
+
+	test('no entries: its own export is the source, as before (localhost)', async () => {
+		const sources: string[] = [];
+		const result = await runOntologyPhase({ kind: 'ontology' }, -1, {
+			catalog: { servers: [], isOntologyServer: true },
+			activeTlds: ['zzupopa'],
+			readManifest: async (source) => {
+				sources.push(source.server.code);
+				return manifestOf('http://localhost', ['zzupopa']);
+			},
+			update: async () => ({ ok: true, msg: 'OK', errors: [] }),
+		});
+		expect(result.outcome).toBe('ok');
+		expect(sources).toEqual(['localhost']);
+	});
+
+	test('entries with tlds: ONLY those TLDs are pulled from the remote; own export is no source; matrix_dd not unless listed', async () => {
+		const { run, calls } = phase({
+			master: true,
+			servers: [{ url: BETA, code: 'beta-code', tlds: ['zzupopa'] }],
+			manifests: readManifest,
+		});
+		expect((await run).outcome).toBe('ok');
+		// zzupopb is in the remote manifest and active, but not listed: untouched
+		expect(calls).toEqual([{ url: BETA, tlds: ['zzupopa'] }]);
+	});
+
+	test('matrix_dd is imported when an entry lists it', async () => {
+		const { run, calls } = phase({
+			master: true,
+			servers: [{ url: BETA, code: 'beta-code', tlds: ['zzupopa', 'matrix_dd'] }],
+			manifests: readManifest,
+		});
+		expect((await run).outcome).toBe('ok');
+		expect(calls).toEqual([{ url: BETA, tlds: ['zzupopa', 'matrix_dd'] }]);
+	});
+
+	test('an entry without tlds (absent or empty) is REFUSED before any manifest read or import', async () => {
+		for (const tlds of [undefined, []] as (string[] | undefined)[]) {
+			let reads = 0;
+			const result = await runOntologyPhase({ kind: 'ontology' }, -1, {
+				catalog: {
+					servers: [{ url: BETA, code: 'beta-code', ...(tlds === undefined ? {} : { tlds }) }],
+					isOntologyServer: true,
+				},
+				activeTlds: ['zzupopa'],
+				readManifest: async () => {
+					reads++;
+					return manifestOf(ORIGIN_B, ['zzupopa']);
+				},
+				update: async () => {
+					throw new Error('the door must not be reached');
+				},
+			});
+			expect(result.outcome).toBe('failed');
+			expect(String(result.evidence.summary)).toContain('must list the TLDs it provides');
+			expect(String(result.evidence.summary)).toContain(BETA);
+			expect(reads).toBe(0);
+		}
+	});
+
+	test('a non-server install with an entry without tlds is unchanged (takes everything)', async () => {
+		const { run, calls } = phase({
+			servers: [{ url: BETA, code: 'k' }],
+			manifests: readManifest,
+		});
+		expect((await run).outcome).toBe('ok');
+		expect(calls[0]?.tlds).toEqual(['zzupopa', 'zzupopb', 'matrix_dd']);
 	});
 });
 

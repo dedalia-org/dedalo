@@ -289,9 +289,9 @@ REL=/var/lib/dedalo-install/release-$I
 install -d -o root -g "$G" -m 0750 "$REL"
 cd "$REL"
 /usr/bin/curl -fsSL --proto =https --tlsv1.2 -o release.zip \
-  "https://v7.master.dedalo.dev/dedalo/install/code/$V/$V.zip"
+  "https://master7.dedalo.dev/dedalo/install/code/$V/$V.zip"
 /usr/bin/curl -fsSL --proto =https --tlsv1.2 -o release.zip.sha256 \
-  "https://v7.master.dedalo.dev/dedalo/install/code/$V/$V.zip.sha256"
+  "https://master7.dedalo.dev/dedalo/install/code/$V/$V.zip.sha256"
 printf '%s  release.zip\n' "$(cut -c1-64 release.zip.sha256)" | sha256sum -c -    # release.zip: OK
 /usr/bin/unzip -q release.zip -d tree
 SRC=$(dirname "$(dirname "$(ls "$REL"/tree/scripts/install.ts "$REL"/tree/*/scripts/install.ts 2>/dev/null)")")

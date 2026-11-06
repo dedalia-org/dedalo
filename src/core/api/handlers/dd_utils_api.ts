@@ -939,10 +939,9 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 		};
 		const auth = authorizeUpdateManifest({
 			isServer: config.ontologyIo.isOntologyServer === true,
-			configuredCodes: [
-				config.ontologyIo.serverCode,
-				...config.ontologyIo.servers.map((entry) => entry.code),
-			],
+			// Only THIS server's own code: the codes of the providers it pulls from
+			// (ONTOLOGY_SERVERS, e.g. master7 listing beta7) authorise nothing here.
+			configuredCodes: [config.ontologyIo.serverCode],
 			// The localhost pseudo-code is always honored on a master (the panel's
 			// 'Local files' source posts it to our own API).
 			allowLocalhost: true,
