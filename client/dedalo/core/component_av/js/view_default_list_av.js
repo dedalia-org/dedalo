@@ -231,7 +231,7 @@ const get_content_data = function(self) {
 			// self.tipo, self.section_tipo, self.section_id, self.tools, and
 			// self.permissions when deciding whether to open the viewer or
 			// fire the upload tool.
-			image.addEventListener('mousedown', handler_open_viewer.bind(self))
+			image.addEventListener('click', handler_open_viewer.bind(self))
 
 
 	return content_data

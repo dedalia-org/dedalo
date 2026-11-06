@@ -162,7 +162,7 @@ view_default_list_pdf.render = async function(self, options) {
 			fallback_on_error(image)
 
 		// open viewer. Media common handler for 3d, av, image, pdf, svg
-			image.addEventListener('mousedown', handler_open_viewer.bind(self))
+			image.addEventListener('click', handler_open_viewer.bind(self))
 
 
 	return wrapper

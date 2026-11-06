@@ -184,7 +184,7 @@ export const get_content_data = function(self) {
 	// `open_window_features` is how a list view states its own viewer size; the
 	// handler reads it off the node.
 		image.open_window_features = { width: 1024, height: 720 }
-		image.addEventListener('mousedown', handler_open_viewer.bind(self))
+		image.addEventListener('click', handler_open_viewer.bind(self))
 
 
 	return content_data
