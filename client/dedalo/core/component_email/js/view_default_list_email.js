@@ -8,7 +8,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {render_join} from '../../common/js/utils/render_escape.js'
 	import {attach_item_dataframe} from '../../component_common/js/component_common.js'
-	import {activate_edit_in_list} from '../../component_common/js/component_common.js'
+	import {bind_edit_in_list} from '../../component_common/js/component_common.js'
 
 
 
@@ -81,10 +81,7 @@ view_default_list_email.render = async function(self, options) {
 		// stopPropagation prevents the enclosing section row from intercepting the event.
 		// modal_width of '40rem' gives enough room for an e-mail address without being
 		// too large on narrow viewports.
-		wrapper.addEventListener('click', (e) => {
-			e.stopPropagation()
-			activate_edit_in_list(self, e, { mode: 'modal', modal_width: '40rem' })
-		})
+		bind_edit_in_list(self, wrapper, { mode: 'modal', modal_width: '40rem' })
 
 	// component_dataframe (shared literal-view glue, no-op without has_dataframe)
 		// For each data entry, attempt to attach a companion dataframe component.

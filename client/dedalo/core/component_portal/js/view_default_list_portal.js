@@ -11,6 +11,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {render_list_after} from './render_edit_component_portal.js'
 	import {set_element_css} from '../../page/js/css.js'
+	import {bind_edit_in_list} from '../../component_common/js/component_common.js'
 
 
 
@@ -144,11 +145,9 @@ view_default_list_portal.render = async function(self, options) {
 		wrapper.list_body		= list_body
 		// list_after. The non-row sibling, right after list_body (never inside role=table)
 		place_list_after(wrapper, content_data)
-		// click event capture
-		wrapper.addEventListener('click', function(e) {
-			e.stopPropagation()
-			// nothing to do in list mode, only catch click event
-		})
+		// click: the edit modal, as every list-mode component (the click never
+		// bubbles; inside an edit field, its mousedown neither — component_common)
+		bind_edit_in_list(self, wrapper, { mode: 'modal', modal_width: '50rem' })
 
 
 	return wrapper

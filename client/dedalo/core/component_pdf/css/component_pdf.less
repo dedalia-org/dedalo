@@ -18,10 +18,17 @@
 			// Wrapper height/overflow handled by .media_wrapper.edit in layout.less
 
 			// pdf container
+			// column: the viewer (or the no-file placeholder) takes the height, the
+			// offset field row stays under it (view_default_edit_pdf.js)
 			>.content_value {
+				display: flex;
+				flex-direction: column;
+				flex-wrap: nowrap; // layout.less .media_content_value wraps: no second column
 
 				>img {
-					height: 100%;
+					flex: 1 1 auto;
+					min-height: 0;
+					object-fit: contain;
 				}
 
 				// viewer container (lazy load wrapper)
@@ -29,10 +36,13 @@
 					display: flex;
 					flex-direction: column;
 					width: 100%;
-					height: 100%;
+					flex: 1 1 auto;
+					min-height: 0;
 
 					&.loading {
-						min-height: var(--media_min_height);
+						// a floor for the spinner where the box has no height (phone);
+						// not --media_min_height, which pushed the offset row out
+						min-height: 10rem;
 						background: @color_grey_3 url('../../themes/default/icons/spinner.svg') no-repeat center center;
 						background-size: 2em;
 					}
@@ -47,33 +57,34 @@
 						border-right: 1px solid @color_grey_3;
 						background-color: @color_grey_3;
 					}
+				}
 
-					>.fields {
-						height: 30px;
-						flex: 0 0 auto;
-						width: 100%;
-						order: 2;
-						background-color: @color_grey_3;
-						padding: 0px;
-						padding-left: 1.25em;
-						margin: 0px;
-						display: flex;
-						align-items: center;
-						font-size: 1em;
+				// offset field row
+				>.fields {
+					height: 30px;
+					flex: 0 0 auto;
+					width: 100%;
+					order: 2;
+					background-color: @color_grey_3;
+					padding: 0px;
+					padding-left: 1.25em;
+					margin: 0px;
+					display: flex;
+					align-items: center;
+					font-size: 1em;
 
-						span {
-							color: @color_white;
-							text-transform: capitalize;
-						}
-						input {
-							width: 5em;
-							margin-left: 1em;
-							text-align: center;
-							height: 20px;
-							background-color: var(--bg_fill_inverse);
-							outline-color: @color_grey_10_dark;
-							color: var(--fg_inverse);
-						}
+					span {
+						color: @color_white;
+						text-transform: capitalize;
+					}
+					input {
+						width: 5em;
+						margin-left: 1em;
+						text-align: center;
+						height: 20px;
+						background-color: var(--bg_fill_inverse);
+						outline-color: @color_grey_10_dark;
+						color: var(--fg_inverse);
 					}
 				}
 			}

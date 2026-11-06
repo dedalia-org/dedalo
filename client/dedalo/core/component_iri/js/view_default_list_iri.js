@@ -37,7 +37,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {render_value} from '../../common/js/utils/render_escape.js'
-	import {activate_edit_in_list} from '../../component_common/js/component_common.js'
+	import {bind_edit_in_list} from '../../component_common/js/component_common.js'
 
 
 
@@ -130,10 +130,7 @@ view_default_list_iri.render = async function(self, options) {
 		// two fields per entry (title + URL) which need the extra width of the modal.
 		// activate_edit_in_list skips silently when the component is read-only or
 		// nested inside a dataframe, so no additional guard is required.
-		wrapper.addEventListener('click', (e) => {
-			e.stopPropagation()
-			activate_edit_in_list(self, e, { mode: 'modal', modal_width: '40rem' })
-		})
+		bind_edit_in_list(self, wrapper, { mode: 'modal', modal_width: '40rem' })
 
 
 	return wrapper

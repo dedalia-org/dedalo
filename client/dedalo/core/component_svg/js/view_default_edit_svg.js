@@ -8,7 +8,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {lazy_load_media, media_fade_in} from '../../component_media_common/js/component_media_common.js'
-	import {get_media_url} from '../../component_media_common/js/media_url.js'
+	import {get_media_url, fallback_on_error} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -256,8 +256,9 @@ const get_content_value = function(i, value, self) {
 				reveal()
 			}
 			image.addEventListener('load', load_handler)
-			// error also reveals so a broken svg does not stay invisible
+			// error also reveals so a broken svg does not stay invisible, and swaps in the placeholder
 			image.addEventListener('error', reveal)
+			fallback_on_error(image)
 
 		}else{
 
@@ -354,6 +355,7 @@ const get_content_value_read = function(i, value, self) {
 				src				: url,
 				parent			: content_value
 			})
+			fallback_on_error(image)
 		}
 
 

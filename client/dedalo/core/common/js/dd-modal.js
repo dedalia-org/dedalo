@@ -159,6 +159,11 @@ class DDModal extends HTMLElement {
 		// behind them usable, so aria-modal, the inert sweep and the Tab trap would
 		// each be a lie about them.
 		this.modality = 'modal';
+		// FOCUS_CONTENT. false: the dialog keeps the focus on open (no first
+		// content control is focused, see _focus_initial). For a body whose own
+		// code places the focus — the edit modal: activating the component focuses
+		// its input, and a portal has none, so its first row button took it.
+		this.focus_content = true;
 
 		// Transient drag state. Reset to null on mouseup. x/y store the cursor-to-element
 		// offset computed at drag start so mousemove can move cleanly.
@@ -829,6 +834,7 @@ class DDModal extends HTMLElement {
 	_focus_initial() {
 		if (this.mini || !this._release_focus) return; // not armed (parked / closed)
 		if (a11y.deep_active_element()!==this) return;
+		if (this.focus_content===false) return; // the body places it (constructor)
 		const safe_content	= a11y.list_focusables([this]).find(el => !el.classList.contains('danger'));
 		const target		= safe_content || this.shadowRoot.querySelector('.close_modal');
 		if (target) {

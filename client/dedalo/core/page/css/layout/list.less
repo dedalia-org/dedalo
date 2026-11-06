@@ -482,7 +482,7 @@
 		span {
 			padding: 0.25rem;
 			display: inline-block;
-			word-break: break-word;
+			overflow-wrap: break-word;
 
 			@media screen and (max-width: @width_break_point_0) {
 				padding-left: 0.3rem;
@@ -536,7 +536,7 @@
 		span {
 			padding: @common_padding;
 			display: inline-block;
-			word-break: break-word;
+			overflow-wrap: break-word; // not word-break (see view_line_portal.less .column)
 
 			@media screen and (max-width: @width_break_point_0) {
 				padding-left: 0.3rem;
@@ -1042,5 +1042,91 @@ screen and (min-width: (@width_break_point_0 + 1)) {
 
 	.list_after>.print_notice {
 		display: block;
+	}
+}
+
+// ACTIVE IN A LIST CELL, every active style. A cell has no room for any
+// style's floating tools: the default pill (layout.less: top -2.4rem, right 0),
+// frame's docked tab, lift's label-row icons and margin's no_side_room icons
+// all spilled over the row above or the Id column, and the docked autocomplete
+// bar (service_autocomplete.less) shrank to the cell (a 35px input) over the
+// rows below, its results clipped by the list's scroll box. All go IN FLOW: the
+// tools as the usual orange pill on the cell's top, the bar and its
+// results under the rows; the cell grows instead of covering its neighbours.
+// (!) Specificity is load-bearing (1,11,0 with the child): it must beat
+// margin.less's nested rule, (1,10,0) through its `:not(#inspector *)`.
+:root:is([data-active_style], :not([data-active_style])) .list_body .column .wrapper_component.edit.active:not(.hilite_element):not(#inspector *):not(.wrapper_tool *):is(.wrapper_component *) {
+	// fill the cell (activation must not shrink the click target between mousedown
+	// and click) yet grow with the in-flow bar instead of overflowing it
+	height: auto;
+	min-height: 100%;
+
+	// the SAME orange pill as a top-level field's tools (layout.less): at the
+	// field's right, fully rounded. Only in flow (floating above the field it
+	// covered the row above and the list's scroll box clipped it): sized to
+	// its icons, wrapping onto a second line in a narrow cell, no float shadow.
+	// Radius 1rem, not --radius-pill: the same full round on one line (the
+	// strip is 2rem high), a rounded block on two (a full pill turned that
+	// into a blob, its corner icons cut)
+	>.buttons_container {
+		position: static;
+		display: flex !important;
+		flex-wrap: wrap;
+		white-space: normal;
+		width: fit-content;
+		max-width: 100%;
+		height: auto; // lift / margin fix it to one 1.1rem row
+		max-height: none;
+		margin: 0.25rem 0 0.35rem auto; // auto: at the right, as top-level
+		padding: 0.1rem 0.35rem;
+		background-color: @color_orange_dedalo;
+		box-shadow: none;
+		border-radius: 1rem;
+
+		.buttons_fold {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+		}
+		// white ink, as buttons.less gives every pill: restated because lift /
+		// margin paint nested tools grey
+		.button {
+			background-color: @color_white;
+		}
+		span,
+		span:first-child,
+		span:last-child {
+			margin: 0.3rem 0.3rem;
+		}
+	}
+
+	// the search bar is the SAME docked footer as a top-level field's
+	// (service_autocomplete.less: full width, square top, 0 0 8px 8px, the
+	// results list taking the radius when open), only in flow at the bottom
+	// of the field instead of hanging below it. In flow it lies ON the field's
+	// own surface, so that surface rounds its bottom corners with it — square,
+	// they showed the tint behind the bar's rounded ones
+	&:has(>.wrapper_service_autocomplete:not(.search)) {
+		border-bottom-left-radius: 8px;
+		border-bottom-right-radius: 8px;
+	}
+
+	>.wrapper_service_autocomplete:not(.search) {
+		position: relative;
+		top: auto;
+		min-width: 10rem; // a usable input: the column widens while searching
+
+		// the results stay IN FLOW too: dropped down over the rows (absolute) they
+		// were clipped by the list's scroll box (list_body overflow-x:auto), two
+		// of thirty visible. In flow they grow the row; capped, with their own
+		// scroll. Cell width, not the docked 25rem (that would widen the column).
+		>.autocomplete_data {
+			position: static;
+			width: auto;
+			min-width: 0;
+			max-width: 100%;
+			max-height: 20rem;
+			overflow-y: auto;
+		}
 	}
 }

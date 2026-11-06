@@ -3,6 +3,20 @@
 *
 * Included from component_portal.less file
 */
+// the opaque surface an ACTIVE field paints, per active style (layout.less
+// `.active` tint / frame.less + margin.less --color_white / lift.less
+// --bg_elevated): the nested row fade (below) must match it
+:root {
+	--row_fade_active: var(--color_hilite);
+}
+:root[data-active_style="frame"],
+:root[data-active_style="margin"] {
+	--row_fade_active: var(--color_white);
+}
+:root[data-active_style="lift"] {
+	--row_fade_active: var(--bg_elevated);
+}
+
 .component_portal.view_line, .portal.view_line {
 	display: block;
 
@@ -49,12 +63,12 @@
 				display: inline-block;
 				vertical-align: middle;
 				align-items: center;
-				word-break: break-word;
+				overflow-wrap: break-word; // not word-break: break-word, which lets min-content shrink to one letter and collapses 1fr grid tracks
 				line-height: unset;
 
 				*:not(.icon, button, .button, .wrapper_component) {
 					display: inline;
-					word-break: break-word;
+					overflow-wrap: break-word;
 					line-height: unset;
 				}
 
@@ -187,7 +201,8 @@
 		// portal component is hovered or active; hidden otherwise. Scoped to the
 		// component's own direct rows (>) so nested child portals are unaffected.
 		&:hover,
-		&.active {
+		&.active,
+		&:focus-within {
 			// .view_text raises specificity to beat the per-button hide rules
 			// (which live in the .view_text block); without it button_remove —
 			// having no second class like button_edit's .button_view_line — would
@@ -198,6 +213,47 @@
 					opacity: 1;
 					pointer-events: auto;
 				}
+			}
+		}
+
+		// NESTED: what is painted under a row (the fade under its icons copies it,
+		// section_record rule below). Not revealed: the surface plus the two hover
+		// tints (layout.less `:hover:not(.active)`: the outer portal's and this
+		// one's). An ACTIVE portal paints the active style's opaque surface instead
+		// (its own and, outer active, this one's too), no tint over it
+		.column & {
+			--row_fade_base: var(--bg_surface);
+			--row_fade_outer_tint: var(--field_hover_bg);
+			--row_fade_tint: var(--field_hover_bg);
+
+			&:is(.active *) {
+				--row_fade_base: var(--row_fade_active);
+				--row_fade_outer_tint: transparent;
+			}
+			&.active {
+				--row_fade_base: var(--row_fade_active);
+				--row_fade_outer_tint: transparent;
+				--row_fade_tint: transparent;
+			}
+
+			&:hover,
+			&.active,
+			&:focus-within {
+				>.content_data >.section_record.view_text::after {
+					opacity: 1;
+				}
+			}
+		}
+
+		// nested in another list's cell: the cell already pads, don't double it.
+		// The record text starts where a plain cell's does (a date, a number:
+		// the cell padding + the 0.12rem of its value span, list.less
+		// @common_padding), so a row's first lines align across its columns
+		.column &>.content_data {
+			padding: 0px;
+
+			>.section_record:first-child {
+				margin-top: 0px;
 			}
 		}
 
@@ -263,6 +319,7 @@
 					}
 
 					.button.tree {
+						order: -1; // its column now renders after the text: keep it first
 						opacity: 0.3;
 						margin-top: 1px;
 						margin-right: 0.33rem;
@@ -299,6 +356,78 @@
 
 					>.column:first-of-type {
 						margin-left: -1.33rem;
+					}
+
+					// NESTED in another list's cell: the cell is narrow, so the pen +
+					// trash take NO space (in flow they cost ~46px per row and the text
+					// wrapped letter by letter; holding their place cost a blank line on
+					// most rows). Revealed (same hover/active/focus rule as above), they
+					// lie over the row's LAST line, bottom-right: in the empty end of a
+					// short line, or over the end of a full one, whose last characters
+					// FADE out under them (::after) — an ellipsis that moves nothing.
+					// Bare icons, no chip (a white box read as a box on the tinted row).
+					.column & {
+						// block, not flex: as flex each text run is its own nowrap item and
+						// the cell's min-content is the SUM of their longest words
+						display: block;
+						position: relative;
+						padding-left: 0.12rem; // a plain cell's value inset (above)
+						padding-right: 0.25rem;
+
+						// general.less `.separator` is `pre`: its trailing space is no
+						// break point, gluing "Introducción, Roles" into one min-content run
+						.separator {
+							white-space: pre-wrap;
+						}
+
+						>.button_edit,
+						>.button_remove {
+							position: absolute;
+							z-index: 1;
+							// ON the last line box: the row's padding-bottom (list.less
+							// `.list.view_text` @common_padding) lies under it — at bottom:0
+							// the icons sat ~2px below the text
+							bottom: 0.12rem;
+							height: 1.2rem; // the row's line-height: the last line
+							box-sizing: border-box;
+							justify-content: center;
+							align-items: center;
+							margin: 0px;
+							padding: 0px;
+						}
+						>.button_edit {
+							right: 1.35rem; // the trash + the row's padding-right
+							width: 1.4rem;
+						}
+						>.button_remove {
+							right: 0.25rem;
+							width: 1.1rem;
+						}
+						>.button_edit .icon,
+						>.button_remove .icon {
+							margin: 0px;
+						}
+
+						// the fade: the surface the row sits on, painted under the icons and
+						// faded in from the left. Layers = what the page paints there (see
+						// --row_fade_* on the nested wrapper below), so it matches in every
+						// state, active style and theme.
+						&::after {
+							content: '';
+							position: absolute;
+							bottom: 0.12rem; // the icons' line (above)
+							right: 0;
+							width: 3.75rem; // 1rem fade + pen + trash + padding
+							height: 1.2rem;
+							background:
+								linear-gradient(var(--row_fade_tint), var(--row_fade_tint)),
+								linear-gradient(var(--row_fade_outer_tint), var(--row_fade_outer_tint)),
+								var(--row_fade_base);
+							mask-image: linear-gradient(to right, transparent, #000 1rem);
+							opacity: 0;
+							pointer-events: none;
+							transition: opacity var(--transition-fast);
+						}
 					}
 				}
 

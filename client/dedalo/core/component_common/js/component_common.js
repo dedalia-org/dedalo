@@ -3411,6 +3411,54 @@ export const is_empty = function( instance ) {
 
 
 /**
+* CAN_EDIT_IN_LIST
+* Whether a list-mode component opens its editor on click: not read-only, with
+* write permission, and not inside a dataframe.
+* @param {Object} self - The component instance
+* @returns {boolean}
+*/
+const can_edit_in_list = (self) => {
+	return self.show_interface.read_only !== true
+		&& self.permissions >= 2
+		&& !ui.inside_dataframe(self)
+}//end can_edit_in_list
+
+
+
+/**
+* BIND_EDIT_IN_LIST
+* Wires a list-mode component's wrapper to its editor: a click opens it
+* (activate_edit_in_list), and the click does not bubble (the row / section
+* behind must not react).
+* An editable cell inside an EDIT component (a list cell of a portal) also
+* keeps its MOUSEDOWN: the container activates on mousedown (ui.js
+* build_wrapper_edit), so without this a click that opens the cell's edit
+* modal also activated the portal behind it (tools pill, search bar). A
+* read-only cell lets it through: there, clicking it activates the portal,
+* as clicking any other part of it does.
+*
+* @param {Object} self - The component instance
+* @param {HTMLElement} wrapper - The list wrapper (ui.component.build_wrapper_list)
+* @param {Object} [options] - activate_edit_in_list options
+* @returns {void}
+*/
+export const bind_edit_in_list = (self, wrapper, options={}) => {
+
+	wrapper.addEventListener('mousedown', (e) => {
+		if (can_edit_in_list(self) && wrapper.parentElement?.closest('.wrapper_component.edit')) {
+			e.stopPropagation()
+		}
+	})
+
+	wrapper.addEventListener('click', (e) => {
+		e.stopPropagation()
+		activate_edit_in_list(self, e, options)
+	})
+}//end bind_edit_in_list
+
+
+
+/**
 * ACTIVATE_EDIT_IN_LIST
 * Unified edit mechanism for components in list view.
 * Handles permissions, read-only mode, dataframe context, and edit mode selection.
@@ -3455,13 +3503,8 @@ export const activate_edit_in_list = (self, e, options={}) => {
 		const lang			= options.lang ?? null
 		const on_close		= options.on_close ?? null
 
-	// read only check
-		if (self.show_interface.read_only === true || self.permissions < 2) {
-			return false
-		}
-
-	// dataframe detection
-		if (ui.inside_dataframe(self)) {
+	// read only / dataframe
+		if (!can_edit_in_list(self)) {
 			return false
 		}
 

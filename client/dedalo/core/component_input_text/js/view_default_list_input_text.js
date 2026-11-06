@@ -7,7 +7,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {render_fallback_value, render_value} from '../../common/js/utils/render_escape.js'
-	import {attach_item_dataframe, activate_edit_in_list} from '../../component_common/js/component_common.js'
+	import {attach_item_dataframe, bind_edit_in_list} from '../../component_common/js/component_common.js'
 
 
 
@@ -83,10 +83,7 @@ view_default_list_input_text.render = async function(self, options) {
 		const wrapper = ui.component.build_wrapper_list(self)
 
 	// click handler for edit mode activation
-		wrapper.addEventListener('click', (e) => {
-			e.stopPropagation()
-			activate_edit_in_list(self, e)
-		})
+		bind_edit_in_list(self, wrapper)
 
 	// render values
 		const fallback_length = fallback.length

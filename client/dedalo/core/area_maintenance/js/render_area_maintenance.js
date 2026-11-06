@@ -626,26 +626,26 @@ const build_list_view = async function(self, widgets) {
 * added id is never hidden — it simply also shows in the palette.
 */
 	const MAP_NODES = [
-		{ id:'clients',	title:'Clients',		x:10, y:14, tools:['lock_components'] },
-		{ id:'web',		title:'Web server',		x:29, y:14, tools:['system_info','runtime_info','environment'] },
-		{ id:'core',	title:'Dédalo core',	x:50, y:14, kind:'core',
+		{ id:'clients',	x:10, y:14, tools:['lock_components'] },
+		{ id:'web',		x:29, y:14, tools:['system_info','runtime_info','environment'] },
+		{ id:'core',	x:50, y:14, kind:'core',
 			tools:['check_config','config_areas','menu_skip_tipos','update_code','serve_code','update_data_version','error_reports'] },
 		// the tools/ package tree + its dd1324 registry records (matrix_tools) — a
 		// subsystem of its own, not part of the engine core: register_tools reconciles
 		// the two and touches nothing else.
-		{ id:'tools',	title:'Tools',			x:71, y:14, tools:['register_tools'] },
+		{ id:'tools',	x:71, y:14, tools:['register_tools'] },
 		// developer surfaces: sandboxes that exercise the engine (API, SQO) or
 		// provision a known-state fixture row. They act ON the engine, they are not
 		// part of it — and unlike every other node, opening one is the whole point,
 		// so this node is never probed (unit_test WRITES a matrix_test row).
-		{ id:'dev',		title:'Dev & testing',	x:90, y:14,
+		{ id:'dev',		x:90, y:14,
 			tools:['unit_test','dedalo_api_test_environment','sqo_test_environment'] },
-		{ id:'pg',		title:'PostgreSQL',		x:12, y:66,
+		{ id:'pg',		x:12, y:66,
 			tools:['database_info','counters_status','sequences_status','reconcile_status','dataframe_control','move_to_table','build_database_version','make_backup'] },
-		{ id:'bak',		title:'Backups',		x:31, y:66, tools:['make_backup','build_database_version'] },
-		{ id:'pub',		title:'Publication',	x:50, y:66, tools:['diffusion_server_control','publication_api','site_builder_status','publication_hosts'] },
-		{ id:'media',	title:'Media store',	x:69, y:66, tools:['media_control','ai_models'] },
-		{ id:'onto',	title:'Ontology',		x:88, y:66,
+		{ id:'bak',		x:31, y:66, tools:['make_backup','build_database_version'] },
+		{ id:'pub',		x:50, y:66, tools:['diffusion_server_control','publication_api','site_builder_status','publication_hosts'] },
+		{ id:'media',	x:69, y:66, tools:['media_control','ai_models'] },
+		{ id:'onto',	x:88, y:66,
 			tools:['update_ontology','serve_ontology','move_tld','move_locator','move_to_portal','move_lang','export_hierarchy','add_hierarchy'] }
 	]
 	const MAP_EDGES = [
@@ -661,55 +661,47 @@ const build_list_view = async function(self, widgets) {
 	])
 	// one-line "what this does" leads, shown above the mounted tool in the panel
 	// body (the mockup's .lead). Purely descriptive — no data, so always honest.
-	// The English here is the call-site FALLBACK; a tool listed in
-	// MAP_TOOL_DESC_LABEL below serves its translated lead from the label
-	// catalogs instead (WC-033). Translating the rest is the same two lines each.
-	const MAP_TOOL_DESC = {
-		system_info:				'Full server snapshot — OS, CPU, RAM, disk, uptime and prerequisites.',
-		check_config:				'Audits the live install config: database status and private sources.',
-		runtime_info:				'Bun engine runtime — version, pid, memory, uptime — plus cache and session pruning.',
-		environment:				'Server environment snapshot.',
-		register_tools:				'Imports tool register.json metadata into the ontology.',
-		config_areas:				'Runtime allow / deny editor for areas.',
-		menu_skip_tipos:			'Runtime override for menu grouping tipos.',
-		unit_test:					'Provisions a known-state matrix_test row from a fixture.',
-		dedalo_api_test_environment:'API endpoint testing sandbox.',
-		sqo_test_environment:		'Search-query-object testing sandbox.',
-		update_code:				'Downloads, verifies and installs a new code release, then restarts. The previous tree is kept as a restore point.',
-		serve_code:					'Code server: builds releases from git and serves them to the installations that update from this one.',
-		update_data_version:		'Runs pending data-version migrations against live data.',
-		lock_components:			'Active user sessions and component-lock tracking.',
-		database_info:				'Live PostgreSQL catalog snapshot and maintenance actions.',
-		build_database_version:		'Builds a clean-slate database snapshot. Heavy but additive.',
-		counters_status:			'Audit of the matrix_counter section-id counters.',
-		sequences_status:			'PostgreSQL sequence-counter audit.',
-		reconcile_status:			'Every cross-store reconcile in one place: check drift between two stores, apply the repair.',
-		dataframe_control:			'Audit and repair dataframe locator pairing.',
-		move_to_table:				'Migrates section records between matrix tables. Irreversible.',
-		make_backup:				'Creates a compressed PostgreSQL dump in the backup directory.',
-		diffusion_server_control:	'Native publication engine: status, job queue and scheduler.',
-		publication_api:			'Diffusion API endpoint status and network probe.',
-		site_builder_status:		'Agent-built public websites: daemon status and a launcher for the site builder.',
-		publication_hosts:			'Separate publication machines: pairing, media rules and API releases. Hosts are paired on the command line.',
-		media_control:				'Sets the media access-protection mode and rebuilds the gate rules.',
-		ai_models:					'Local AI model store: which speech models are installed and usable.',
-		update_ontology:			'Replaces the ontologies of the selected TLDs with a snapshot from a master server and re-processes them. Your local ontology is kept. Irreversible.',
-		serve_ontology:				'Whether other installations can pull their ontology from this one: the three .env keys that decide it and the endpoint they register.',
-		move_tld:					'Rewrites the ontology tipo across every matrix table. Irreversible.',
-		move_locator:				'Bulk-moves locators from a source section to a target. Irreversible.',
-		move_to_portal:				'Portalizes component data into a portal-linked sub-section.',
-		move_lang:					'Migrates component data between translatable and non-translatable.',
-		export_hierarchy:			'Exports thesaurus tables to gzipped COPY files.',
-		add_hierarchy:				'Installs additional hierarchy packages.',
-		error_reports:				'Browse and manage stored error reports.'
-	}
-	// tool id → label key, resolved at RENDER time (get_label is populated at boot,
-	// after this module is imported, so a module-level read would serve undefined).
-	const MAP_TOOL_DESC_LABEL = {
-		update_code			: 'update_code_lead',
-		update_ontology		: 'update_ontology_lead',
-		publication_hosts	: 'publication_hosts_lead'
-	}
+	// A function, resolved at RENDER time: get_label is populated at boot, after
+	// this module is imported, so a module-level read would serve undefined.
+	const map_tool_desc = () => ({
+		system_info                 : get_label.maintenance_desc_system_info || 'Full server snapshot — OS, CPU, RAM, disk, uptime and prerequisites.',
+		check_config                : get_label.maintenance_desc_check_config || 'Audits the live install config: database status and private sources.',
+		runtime_info                : get_label.maintenance_desc_runtime_info || 'Bun engine runtime — version, pid, memory, uptime — plus cache and session pruning.',
+		environment                 : get_label.maintenance_desc_environment || 'Server environment snapshot.',
+		register_tools              : get_label.maintenance_desc_register_tools || 'Imports tool register.json metadata into the ontology.',
+		config_areas                : get_label.maintenance_desc_config_areas || 'Runtime allow / deny editor for areas.',
+		menu_skip_tipos             : get_label.maintenance_desc_menu_skip_tipos || 'Runtime override for menu grouping tipos.',
+		unit_test                   : get_label.maintenance_desc_unit_test || 'Provisions a known-state matrix_test row from a fixture.',
+		dedalo_api_test_environment : get_label.maintenance_desc_dedalo_api_test_environment || 'API endpoint testing sandbox.',
+		sqo_test_environment        : get_label.maintenance_desc_sqo_test_environment || 'Search-query-object testing sandbox.',
+		update_code                 : get_label.update_code_lead || 'Downloads, verifies and installs a new code release, then restarts. The previous tree is kept as a restore point.',
+		serve_code                  : get_label.maintenance_desc_serve_code || 'Code server: builds releases from git and serves them to the installations that update from this one.',
+		update_data_version         : get_label.maintenance_desc_update_data_version || 'Runs pending data-version migrations against live data.',
+		lock_components             : get_label.maintenance_desc_lock_components || 'Active user sessions and component-lock tracking.',
+		database_info               : get_label.maintenance_desc_database_info || 'Live PostgreSQL catalog snapshot and maintenance actions.',
+		build_database_version      : get_label.maintenance_desc_build_database_version || 'Builds a clean-slate database snapshot. Heavy but additive.',
+		counters_status             : get_label.maintenance_desc_counters_status || 'Audit of the matrix_counter section-id counters.',
+		sequences_status            : get_label.maintenance_desc_sequences_status || 'PostgreSQL sequence-counter audit.',
+		reconcile_status            : get_label.maintenance_desc_reconcile_status || 'Every cross-store reconcile in one place: check drift between two stores, apply the repair.',
+		dataframe_control           : get_label.maintenance_desc_dataframe_control || 'Audit and repair dataframe locator pairing.',
+		move_to_table               : get_label.maintenance_desc_move_to_table || 'Migrates section records between matrix tables. Irreversible.',
+		make_backup                 : get_label.maintenance_desc_make_backup || 'Creates a compressed PostgreSQL dump in the backup directory.',
+		diffusion_server_control    : get_label.maintenance_desc_diffusion_server_control || 'Native publication engine: status, job queue and scheduler.',
+		publication_api             : get_label.maintenance_desc_publication_api || 'Diffusion API endpoint status and network probe.',
+		site_builder_status         : get_label.maintenance_desc_site_builder_status || 'Agent-built public websites: daemon status and a launcher for the site builder.',
+		publication_hosts           : get_label.publication_hosts_lead || 'Separate publication machines: pairing, media rules and API releases. Hosts are paired on the command line.',
+		media_control               : get_label.maintenance_desc_media_control || 'Sets the media access-protection mode and rebuilds the gate rules.',
+		ai_models                   : get_label.maintenance_desc_ai_models || 'Local AI model store: which speech models are installed and usable.',
+		update_ontology             : get_label.update_ontology_lead || 'Replaces the ontologies of the selected TLDs with a snapshot from a master server and re-processes them. Your local ontology is kept. Irreversible.',
+		serve_ontology              : get_label.maintenance_desc_serve_ontology || 'Whether other installations can pull their ontology from this one: the three .env keys that decide it and the endpoint they register.',
+		move_tld                    : get_label.maintenance_desc_move_tld || 'Rewrites the ontology tipo across every matrix table. Irreversible.',
+		move_locator                : get_label.maintenance_desc_move_locator || 'Bulk-moves locators from a source section to a target. Irreversible.',
+		move_to_portal              : get_label.maintenance_desc_move_to_portal || 'Portalizes component data into a portal-linked sub-section.',
+		move_lang                   : get_label.maintenance_desc_move_lang || 'Migrates component data between translatable and non-translatable.',
+		export_hierarchy            : get_label.maintenance_desc_export_hierarchy || 'Exports thesaurus tables to gzipped COPY files.',
+		add_hierarchy               : get_label.maintenance_desc_add_hierarchy || 'Installs additional hierarchy packages.',
+		error_reports               : get_label.maintenance_desc_error_reports || 'Browse and manage stored error reports.'
+	})
 
 
 
@@ -779,21 +771,40 @@ export const build_map_view = function(self, widgets, opts={}) {
 		const code_ver	= String(G.dedalo_version || '').trim()
 		const maint		= truthy(G.maintenance_mode)
 		const recov		= truthy(G.recovery_mode)
+		// node titles — resolved here, at render time (see map_tool_desc)
+		const NODE_TITLE = {
+			clients	: get_label.maintenance_map_node_clients || 'Clients',
+			web		: get_label.maintenance_map_node_web || 'Web server',
+			core	: get_label.maintenance_map_node_core || 'Dédalo core',
+			tools	: get_label.tools || 'Tools',
+			dev		: get_label.maintenance_map_node_dev || 'Dev & testing',
+			pg		: 'PostgreSQL',
+			bak		: get_label.maintenance_map_node_bak || 'Backups',
+			pub		: get_label.maintenance_cat_publication || 'Publication',
+			media	: get_label.maintenance_map_node_media || 'Media store',
+			onto	: get_label.ontology || 'Ontology'
+		}
+		const title_of = (n) => NODE_TITLE[n.id] || n.id
 		const MAP_BASE = {
-			clients:{ status:'ok',   state:'Connected',                    sub: user ? ('@'+user) : 'sessions' },
-			web:	{ status:'ok',   state: runtime || 'Web server',       sub: (typeof location!=='undefined' && location.host) || 'http' },
+			clients:{ status:'ok',   state: get_label.maintenance_map_connected || 'Connected',
+					  sub: user ? ('@'+user) : (get_label.maintenance_map_sessions || 'sessions') },
+			web:	{ status:'ok',   state: runtime || NODE_TITLE.web,  sub: (typeof location!=='undefined' && location.host) || 'http' },
 			core:	{ status:(maint||recov) ? 'warn' : 'ok',
-					  state: maint ? 'Maintenance mode' : recov ? 'Recovery mode' : (code_ver ? ('v'+code_ver) : 'Dédalo core'),
-					  sub: entity || 'engine' },
-			tools:	{ status:'idle', state:'Tools',                       sub:'registry' },
+					  state: maint ? (get_label.maintenance_map_maintenance_mode || 'Maintenance mode')
+						: recov ? (get_label.maintenance_map_recovery_mode || 'Recovery mode')
+						: (code_ver ? ('v'+code_ver) : NODE_TITLE.core),
+					  sub: entity || (get_label.maintenance_map_engine || 'engine') },
+			tools:	{ status:'idle', state: NODE_TITLE.tools,  sub: get_label.maintenance_map_registry || 'registry' },
 			// no probe ever refines this one (see MAP_NODES), so the base line stays on
 			// screen — it describes the surfaces instead of echoing the node title
-			dev:	{ status:'idle', state:'Sandboxes',                    sub:'API · SQO · fixture' },
-			pg:		{ status:'ok',   state:'Online',                       sub: pg_ver ? ('PostgreSQL '+pg_ver) : 'database' },
-			bak:	{ status:'idle', state:'Backups',                     sub:'snapshots' },
-			pub:	{ status:'idle', state:'Publication',                 sub:'diffusion engine' },
-			media:	{ status:'idle', state:'Media store',                 sub:'protected assets' },
-			onto:	{ status:'idle', state:'Ontology',                    sub:'definition model' }
+			dev:	{ status:'idle', state: get_label.maintenance_map_sandboxes || 'Sandboxes',
+					  sub: get_label.maintenance_map_dev_sub || 'API · SQO · fixture' },
+			pg:		{ status:'ok',   state: get_label.maintenance_map_online || 'Online',
+					  sub: pg_ver ? ('PostgreSQL '+pg_ver) : (get_label.maintenance_map_database || 'database') },
+			bak:	{ status:'idle', state: NODE_TITLE.bak,    sub: get_label.maintenance_map_snapshots || 'snapshots' },
+			pub:	{ status:'idle', state: NODE_TITLE.pub,    sub: get_label.maintenance_map_diffusion_engine || 'diffusion engine' },
+			media:	{ status:'idle', state: NODE_TITLE.media,  sub: get_label.maintenance_map_protected_assets || 'protected assets' },
+			onto:	{ status:'idle', state: NODE_TITLE.onto,   sub: get_label.maintenance_map_definition_model || 'definition model' }
 		}
 
 	// live status per node id: 'idle' (neutral) | 'ok' | 'warn' | 'bad'
@@ -801,7 +812,7 @@ export const build_map_view = function(self, widgets, opts={}) {
 		const state_by_id = {}
 		const sub_by_id = {}
 		MAP_NODES.forEach(n => {
-			const b = MAP_BASE[n.id] || { status:'idle', state:n.title, sub:'' }
+			const b = MAP_BASE[n.id] || { status:'idle', state:title_of(n), sub:'' }
 			status_by_id[n.id]	= b.status
 			state_by_id[n.id]	= b.state
 			sub_by_id[n.id]		= b.sub
@@ -877,7 +888,7 @@ export const build_map_view = function(self, widgets, opts={}) {
 				'<div class="n_top"><span class="map_dot"></span>' +
 				'<span class="n_title"></span><span class="n_icon"></span></div>' +
 				'<div class="n_state"></div><div class="n_sub"></div>'
-			el.querySelector('.n_title').textContent = n.title
+			el.querySelector('.n_title').textContent = title_of(n)
 			el.addEventListener('click', () => select_node(n.id))
 			node_els[n.id] = el
 		})
@@ -920,10 +931,11 @@ export const build_map_view = function(self, widgets, opts={}) {
 				seg.appendChild(document.createTextNode('\u00a0' + text))
 				return seg
 			}
-			const segments = [segment('s_seg', 'ok', healthy, 'healthy')]
+			const segments = [segment('s_seg', 'ok', healthy, get_label.maintenance_map_healthy || 'healthy')]
 			if (warn_nodes.length) {
 				segments.push(segment('s_seg warn', 'warn', warn_nodes.length,
-					'need attention — ' + warn_nodes.map(n => n.title).join(', ')))
+					format_label(get_label.maintenance_map_need_attention || 'need attention — ${nodes}',
+						{ nodes: warn_nodes.map(title_of).join(', ') })))
 			}
 			summary.replaceChildren(...segments)
 			const warn_seg = summary.querySelector('.s_seg.warn')
@@ -1024,13 +1036,18 @@ export const build_map_view = function(self, widgets, opts={}) {
 				ui.create_dom_element({ element_type : 'div', class_name : 'ctx_tools' }),
 				ui.create_dom_element({ element_type : 'div', class_name : 'ctx_body' })
 			)
-			context.querySelector('.ctx_title').textContent = n.title
+			context.querySelector('.ctx_title').textContent = title_of(n)
 			context.querySelector('.ctx_state').textContent = state_by_id[id] || ''
 			context.querySelector('.ctx_sub').textContent = sub_by_id[id] || ''
 
 			const tools_wrap = context.querySelector('.ctx_tools')
 			if (!tools.length) {
-				tools_wrap.innerHTML = '<span class="map_ctx_lead">No tools served for this subsystem on this engine.</span>'
+				ui.create_dom_element({
+					element_type	: 'span',
+					class_name		: 'map_ctx_lead',
+					text_content	: get_label.maintenance_map_no_tools || 'No tools served for this subsystem on this engine.',
+					parent			: tools_wrap
+				})
 			}
 			tools.forEach(tid => {
 				const chip = ui.create_dom_element({
@@ -1075,7 +1092,7 @@ export const build_map_view = function(self, widgets, opts={}) {
 			const id_el = context.querySelector('.ctx_widget_id')
 			if (id_el) {
 				id_el.textContent	= tid
-				id_el.title			= 'Widget module: ' + tid
+				id_el.title			= format_label(get_label.maintenance_map_widget_module || 'Widget module: ${id}', { id: tid })
 			}
 
 			// (!) Destroy the outgoing tool BEFORE wiping its DOM. `innerHTML=''`
@@ -1102,8 +1119,7 @@ export const build_map_view = function(self, widgets, opts={}) {
 			if (!descriptor) { return }
 
 			// lead: one-line "what this does" above the tool (the mockup's .lead)
-			const tool_lead = (MAP_TOOL_DESC_LABEL[tid] && get_label[MAP_TOOL_DESC_LABEL[tid]])
-				|| MAP_TOOL_DESC[tid]
+			const tool_lead = map_tool_desc()[tid]
 			if (tool_lead) {
 				ui.create_dom_element({
 					element_type	: 'p',
@@ -1218,11 +1234,14 @@ export const build_map_view = function(self, widgets, opts={}) {
 				if (r && Array.isArray(r.tables)) {
 					const degraded	= r.statistics?.status==='degraded'
 					const stale		= Number(r.statistics?.never_analyzed || 0) + Number(r.statistics?.counters_reset || 0)
-					const sub		= r.tables.length + ' tables' + (degraded ? ' · statistics degraded' : '')
+					const sub		= format_label(get_label.maintenance_map_tables_count || '${count} tables', { count: r.tables.length })
+						+ (degraded ? ' · ' + (get_label.maintenance_map_statistics_degraded_sub || 'statistics degraded') : '')
 					set_node_status(
 						'pg',
 						degraded ? 'warn' : 'ok',
-						degraded ? 'Statistics degraded' : 'Online',
+						degraded
+							? (get_label.maintenance_map_statistics_degraded || 'Statistics degraded')
+							: (get_label.maintenance_map_online || 'Online'),
 						degraded && stale>0 ? sub + ' (' + stale + ')' : sub
 					)
 				}
@@ -1238,8 +1257,11 @@ export const build_map_view = function(self, widgets, opts={}) {
 					const running	= Number(r.scheduler.running || 0)
 					const queued	= Number(r.scheduler.queued || 0)
 					const warn		= paused || pending>0
-					const sub		= running + ' running · ' + queued + ' queued' + (pending ? ' · ' + pending + ' pending' : '')
-					set_node_status('pub', warn ? 'warn' : 'ok', paused ? 'Paused' : 'Running', sub)
+					const sub		= format_label(get_label.maintenance_map_queue_counts || '${running} running · ${queued} queued', { running, queued })
+						+ (pending ? ' · ' + format_label(get_label.maintenance_map_pending_count || '${count} pending', { count: pending }) : '')
+					set_node_status('pub', warn ? 'warn' : 'ok',
+						paused ? (get_label.maintenance_map_paused || 'Paused') : (get_label.maintenance_map_running || 'Running'),
+						sub)
 				}
 			})
 
@@ -1251,8 +1273,8 @@ export const build_map_view = function(self, widgets, opts={}) {
 					const mode = r.mode===false ? 'off' : String(r.mode || '')
 					if (mode) {
 						set_node_status('media', 'ok',
-							mode==='private' ? 'Protected' : cap(mode),
-							'mode: ' + mode)
+							mode==='private' ? (get_label.maintenance_map_protected || 'Protected') : cap(mode),
+							format_label(get_label.maintenance_map_mode || 'mode: ${mode}', { mode }))
 					}
 				}
 			})
@@ -1263,7 +1285,7 @@ export const build_map_view = function(self, widgets, opts={}) {
 				const r = await probe_value('update_ontology')
 				const ver = r && r.current_ontology ? r.current_ontology.version : null
 				if (ver) {
-					set_node_status('onto', 'ok', 'v' + ver, 'installed model')
+					set_node_status('onto', 'ok', 'v' + ver, get_label.maintenance_map_installed_model || 'installed model')
 				}
 			})
 
@@ -1285,10 +1307,12 @@ export const build_map_view = function(self, widgets, opts={}) {
 				if (!r || !Array.isArray(r.datalist)) { return }
 				const errors	= Array.isArray(r.errors) ? r.errors.length : 0
 				const n			= r.datalist.length
-				const state		= n + (n===1 ? ' tool' : ' tools')
+				const state		= format_label(n===1
+					? (get_label.maintenance_map_tool_count_one || '${count} tool')
+					: (get_label.maintenance_map_tool_count || '${count} tools'), { count: n })
 
 				if (errors) {
-					set_node_status('tools', 'warn', state, 'registry outdated')
+					set_node_status('tools', 'warn', state, get_label.maintenance_map_registry_outdated || 'registry outdated')
 					return
 				}
 
@@ -1303,7 +1327,7 @@ export const build_map_view = function(self, widgets, opts={}) {
 					.map(item => format_label(item.label, {count: item.n}))
 
 				set_node_status('tools', parts.length ? 'warn' : 'ok', state,
-					parts.length ? parts.join(' · ') : 'registered')
+					parts.length ? parts.join(' · ') : (get_label.maintenance_map_registered || 'registered'))
 			})
 
 			// Backups — age of the most recent dump (warn when stale)
@@ -1313,16 +1337,18 @@ export const build_map_view = function(self, widgets, opts={}) {
 				const files = r && Array.isArray(r.psql_backup_files) ? r.psql_backup_files : null
 				if (!files) { return }
 				if (!files.length) {
-					set_node_status('bak', 'warn', 'No backups', 'none yet')
+					set_node_status('bak', 'warn', get_label.maintenance_map_no_backups || 'No backups', get_label.maintenance_map_none_yet || 'none yet')
 					return
 				}
 				const m = String(files[0].name || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
 				if (!m) {
-					set_node_status('bak', 'ok', files.length + ' backups', '')
+					set_node_status('bak', 'ok', format_label(get_label.maintenance_map_backups_count || '${count} backups', { count: files.length }), '')
 					return
 				}
 				const days = Math.floor((Date.now() - new Date(+m[1], +m[2]-1, +m[3]).getTime()) / 86400000)
-				const label = days<=0 ? 'Today' : days===1 ? '1 day old' : days + ' days old'
+				const label = days<=0 ? (get_label.today || 'Today')
+					: days===1 ? (get_label.maintenance_map_day_old || '1 day old')
+					: format_label(get_label.maintenance_map_days_old || '${count} days old', { count: days })
 				set_node_status('bak', days>14 ? 'warn' : 'ok', label, m[0])
 			})
 		}
@@ -1333,7 +1359,7 @@ export const build_map_view = function(self, widgets, opts={}) {
 		// node title for each served id (first node that lists it), for the palette hint column
 		const node_of = (id) => {
 			const n = MAP_NODES.find(x => x.tools.includes(id))
-			return n ? n.title : '—'
+			return n ? title_of(n) : '—'
 		}
 		const open_tool = (id) => {
 			const n = MAP_NODES.find(x => x.tools.includes(id))

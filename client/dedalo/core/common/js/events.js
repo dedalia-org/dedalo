@@ -464,6 +464,11 @@ export const events_init = function() {
 			// in its own search-mode wrapper and is NOT record data — matching
 			// '.wrapper_component.edit' directly would skip past it and arm the
 			// guard on every keystroke of a lookup box.
+			// The relation lookup box (service_autocomplete) is rendered straight
+			// into the edit-mode portal wrapper: its query is never record data.
+			if (node.closest('.wrapper_service_autocomplete')!==null) {
+				return false
+			}
 			const wrapper = node.closest('.wrapper_component')
 			return wrapper!==null && wrapper.classList.contains('edit')
 		}

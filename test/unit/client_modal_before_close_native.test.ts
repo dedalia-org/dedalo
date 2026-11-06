@@ -52,6 +52,7 @@ else {
 		deactivate_components: unreached('deactivate_components'),
 		is_empty: unreached('is_empty'),
 		activate_edit_in_list: unreached('activate_edit_in_list'),
+		bind_edit_in_list: unreached('bind_edit_in_list'),
 		get_dataframe: unreached('get_dataframe'),
 		delete_dataframe: unreached('delete_dataframe'),
 		attach_item_dataframe: unreached('attach_item_dataframe'),

@@ -24,6 +24,22 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Field names cut short in the edit form show in full on hover.**
+
+    A field name too long for its column ends in "…" in the edit form, and until now there was no way to read the rest of it. Pointing at a cut name now shows the whole name as a tooltip. Names that fit show no tooltip.
+
+- **Field labels in the edit form are easier to read on Mac.**
+
+    The names above each field in the edit form used the thinnest weight of the system font, which on macOS draws hairline strokes that are hard to read. They now use the light weight, which keeps the same quiet look and reads the same on macOS and Windows.
+
+- **An empty list no longer looks like a warning.**
+
+    When a search or a list has no records, the "No records found" message was shown in orange, the colour used for warnings. It is now shown in the same grey as other secondary text, in both light and dark themes.
+
+- **Required fields that are still empty no longer look like errors.**
+
+    An empty field marked as mandatory, such as a user's email, showed a red error border as soon as the record opened. It now shows a light red tint instead, and the red border is kept for real errors, such as an email address that is not valid.
+
 - **Portal rows no longer glow on hover; only section list rows do.**
 
     Hovering a list row used to paint a soft grey glow around it, in section lists and in portal lists alike. The glow now belongs to section lists only: a portal's rows, and the rows of the other relation fields that use a portal list, no longer draw it. The dashed orange ring of a row being dragged and the orange outline of the row you are dropping onto are unchanged, and a section list row still glows when you hover it.
@@ -174,6 +190,22 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Portal search results show each record as one line of text, with its columns aligned.**
+
+    In a portal whose table lets you edit a column in place (for example Authorship: person, role, date), every search result embedded that column as an editable field: a "Person" heading, tool buttons and edit/unlink buttons inside each result, and the role and date columns pushed out of line. Results are a list to choose from, so their columns now always render as read-only text, and all columns of a result start on the same line.
+
+- **Typing a search in a portal's search box no longer counts as an unsaved change.**
+
+    Closing an edit window after only typing in a portal's search box, without picking a record, asked "Discard unsaved changes?". The search text is not record data: the question now appears only when a value was really changed.
+
+- **The interface is now fully translated into every supported language.**
+
+    About 250 interface texts per language still appeared in English. Every language catalog now has a translation for all of them. The translations have not yet been reviewed by native speakers; please report wording that reads wrong.
+
+- **Clicking a value in a list cell opens it for editing in a window, portals included, without activating the table around it.**
+
+    A click on a value shown in a list cell (a date, a text, a portal…) opens that value in an edit window. Before, the click also activated the portal table that contains the cell; portal cells needed a double click and did not open a window. The edit window of a portal no longer puts the focus on the first row's edit button when it opens.
+
 - **The id cell's hover text is now readable on its orange, green and red fills.**
 
     In a list's id cell, hovering the edit, delete or thesaurus-link button paints the cell orange, green or red. The id number and its icon were white in the light theme — about 2.4:1 on the orange, hard to read — while the dark theme flipped them to dark ink, which read poorly on the green. Each fill now takes the ink the theme defines for it: dark on the orange, white on the green, and white on the red in the light theme with dark ink on it in the dark theme. The number stays legible on every button, in both themes.
@@ -181,6 +213,21 @@ Merged since the last release; these ship with the next one.
 - **Lists separate multiple values again instead of gluing them together.**
 
     A list cell holding several values, such as two dates, showed them run together ("09/06/162825/06/2024") when the field had no separator configured. They are now separated by a comma ("09/06/1628, 25/06/2024"). This affected dates, emails, geolocations and other fields shown as plain text in lists.
+
+- **PDF and SVG fields show the placeholder when their file is missing.**
+
+    When a record listed a PDF or SVG file that was no longer on disk (moved, deleted or still being processed), lists showed the browser's broken-image icon and the PDF viewer kept spinning on a grey box. They now show the same placeholder as images, audiovisual and 3D files, and clicking it in the edit form opens the upload tool. The PDF reader now appears only once its file is confirmed to load.
+
+- **Portals inside a portal table use the space of their column and no longer cover neighbouring rows.**
+
+    In a portal shown as a table (for example Authorship: person, role, date), the linked records inside a column broke their text letter by letter. The edit and unlink buttons of each linked record no longer take width while hidden; they appear over the record on hover. Words now wrap whole, and date and number columns take only the width they need. The drag handle for reordering rows now sits over the Id column instead of a reserved strip on the left. When a portal inside a column is active, its tools and its search box stay inside the column instead of covering the row above and the rows below.
+
+- **Portal tables, their search box and full-screen view are tidier and use space better.**
+
+    - Linked records inside a table cell use the whole cell width; their edit and unlink buttons appear over the end of the line on hover, with a fade, and never overlap each other.
+    - The Id, its edit button, the unlink button and the reorder handle line up with the first line of the row. The reorder handle is a small grip at the left of the Id instead of a reserved strip, and shows a grab cursor.
+    - In an edit window, the search box and its results stay inside the window (scrolling when long) instead of running past it, with rounded corners and a single bottom line.
+    - Full screen shows the portal with its name, its tools next to the exit button and its search box usable, also for a portal opened from inside a table cell.
 
 - **The user activity statistics are now translated.**
 
@@ -858,6 +905,13 @@ Merged since the last release; these ship with the next one.
     When the update would be accepted, it prints `check: would update <from> -> <to>` and exits `0`. When it would be refused, it prints the same refusal a real run gives and exits non-zero. See [Updating the image](./install/docker.md#upgrading).
 
 #### Fixed
+
+- **The maintenance System Map follows the interface language.**
+
+    The System Map of the Maintenance area showed its node names, status lines,
+    summary and tool descriptions in English whatever the interface language. They
+    now come from the label catalogs and are translated into every application
+    language. The widget names themselves are unchanged.
 
 - **A reconcile apply that is refused now says why, and the Reconcile panel can narrow a run.**
 

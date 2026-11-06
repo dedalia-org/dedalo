@@ -8,7 +8,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {render_join} from '../../common/js/utils/render_escape.js'
 	import {attach_item_dataframe} from '../../component_common/js/component_common.js'
-	import {activate_edit_in_list} from '../../component_common/js/component_common.js'
+	import {bind_edit_in_list} from '../../component_common/js/component_common.js'
 
 
 
@@ -100,10 +100,7 @@ view_default_list_number.render = async function(self, options) {
 		// (!) stopPropagation is required: without it the click bubbles to the section
 		// row handler which intercepts all clicks for row-selection, swallowing the
 		// intent to open the edit modal.
-		wrapper.addEventListener('click', (e) => {
-			e.stopPropagation()
-			activate_edit_in_list(self, e, { mode: 'modal' })
-		})
+		bind_edit_in_list(self, wrapper, { mode: 'modal' })
 
 
 	// component_dataframe (shared literal-view glue, no-op without has_dataframe)

@@ -370,6 +370,12 @@ So `events_init()` (called once from `index.js`) attaches one document-level,
 - `focusout` → retire the field. Covers type-then-revert, where `change` never
   fires at all.
 
+Only real editors of a component in **edit** mode arm it: the nearest component
+wrapper decides, so search forms and list filters do not. A portal's search box
+(`.wrapper_service_autocomplete`) is rendered straight into the edit portal's
+wrapper, so it is excluded by name — a typed query is not record data, and
+closing a window after only searching must not ask to discard changes.
+
 !!! warning "Only edit-mode record fields are guarded"
     A field is guarded when its **nearest** `.wrapper_component` ancestor carries
     the `edit` mode class. List cells, search forms and a lookup/autocomplete box

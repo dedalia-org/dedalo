@@ -12,7 +12,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {lazy_load_media} from '../../component_media_common/js/component_media_common.js'
-	import {get_media_url} from '../../component_media_common/js/media_url.js'
+	import {get_media_url, media_file_ready} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -248,17 +248,18 @@ const get_content_value = function(i, current_value, self) {
 		const pdf_url	= file_info
 			? get_media_url(file_info)
 			: null
-		// no PDF file url available case
-		if (!pdf_url) {
+		// placeholder that opens the upload tool: no file, or a file that does not load
+		const render_fallback = () => {
 
 			const url = page_globals.fallback_image // page_globals.fallback_image
 
 			const image = ui.create_dom_element({
 				element_type	: 'img',
 				class_name		: '',
-				src				: url,
-				parent			: content_value
+				src				: url
 			})
+			// above the offset field, which is rendered first
+			content_value.prepend(image)
 			// open viewer
 			image.addEventListener('mousedown', function (e) {
 				e.stopPropagation();
@@ -272,20 +273,31 @@ const get_content_value = function(i, current_value, self) {
 						caller			: self
 					})
 			})
-
+		}
+		// no PDF file url available case
+		if (!pdf_url) {
+			render_fallback()
 			return content_value
 		}
 
 	// pdf viewer container with loading placeholder
 		// The 'loading' class is removed once the iframe fires its 'load' event.
+		// Built DETACHED: it is attached only once the file is confirmed to load
+		// (init_viewer), so a missing file never flashes the reader interface.
 		const viewer_container = ui.create_dom_element({
 			element_type	: 'div',
-			class_name		: 'pdf_viewer_container loading',
-			parent			: content_value
+			class_name		: 'pdf_viewer_container loading'
 		})
 
 	// lazy load: create iframe and setup viewer only when in viewport
-		const init_viewer = () => {
+		const init_viewer = async () => {
+
+			// files_info can claim a file the disk no longer has: probe it first
+				if (!await media_file_ready(pdf_url)) {
+					render_fallback()
+					return
+				}
+				content_value.prepend(viewer_container) // above the offset field
 
 			// iframe. PDF viewer (pdfjs) is loaded inside a iframe
 				const iframe = ui.create_dom_element({
@@ -402,6 +414,9 @@ const get_content_value = function(i, current_value, self) {
 							// files_info is out of sync with the files on disk). Handle
 							// gracefully instead of leaving an uncaught promise rejection.
 							console.warn('Ignored error opening PDF (file may be missing or out of sync):', (error && error.message) || error);
+							// never leave a grey viewer spinning: show the no-file placeholder instead
+							viewer_container.remove()
+							render_fallback()
 						})
 
 					// listener cleanup
@@ -422,17 +437,19 @@ const get_content_value = function(i, current_value, self) {
 
 	// observe viewport entry to lazy init the viewer (shared media helper, 200px preload)
 		lazy_load_media(
-			viewer_container,
+			content_value,
 			init_viewer
 		)
 
 	// fields. Bottom line with input offset options
 	// The offset field maps logical page numbers to PDF internal page numbers.
 	// For example, an offset of 3 means PDF page 1 corresponds to document page 3.
+		// On content_value, NOT in the viewer: the viewer is attached only once the
+		// file is confirmed (lazy, in viewport), and the offset is record data
 		const fields = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'fields',
-			parent			: viewer_container
+			parent			: content_value
 		})
 		// offset label
 		ui.create_dom_element({

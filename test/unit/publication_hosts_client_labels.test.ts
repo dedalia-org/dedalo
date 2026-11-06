@@ -4,7 +4,7 @@
  * `get_label['x']` references, so these keys are invisible to it:
  *   - `publication_hosts_check_<id>` through check_row(…, 'publication_hosts') — for every
  *     fixed check id AND every decorator check id (phase 5: media_copy);
- *   - `publication_hosts_lead` through the System Map's MAP_TOOL_DESC_LABEL;
+ *   - `publication_hosts_lead` through the System Map's map_tool_desc;
  *   - the phase-6 probe fact labels through probe_view.js probe_facts (its own keys,
  *     read off a full probe — never copied here).
  * Each key must be defined in master.json and translated in every catalog except
@@ -80,7 +80,7 @@ describe('publication_hosts client labels', () => {
 		expect(shared).toContain("get_label[label_prefix + '_check_' + check.id]");
 	});
 
-	test('the System Map resolves the lead through MAP_TOOL_DESC_LABEL', () => {
+	test('the System Map resolves the lead through map_tool_desc', () => {
 		const map = readFileSync(
 			resolve(
 				import.meta.dir,
@@ -88,6 +88,6 @@ describe('publication_hosts client labels', () => {
 			),
 			'utf8',
 		);
-		expect(map).toMatch(/publication_hosts\s*:\s*'publication_hosts_lead'/);
+		expect(map).toMatch(/publication_hosts\s*:\s*get_label\.publication_hosts_lead\b/);
 	});
 });

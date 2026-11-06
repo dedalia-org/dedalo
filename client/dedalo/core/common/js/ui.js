@@ -390,6 +390,13 @@ export const ui = {
 					fragment.appendChild(component_label)
 					wrapper.label = component_label
 
+					// labels are one line with an ellipsis (layout.less): a cut one shows its full name on hover
+					component_label.addEventListener('mouseenter', () => {
+						component_label.title = component_label.scrollWidth > component_label.clientWidth
+							? component_label.textContent
+							: ''
+					})
+
 					// a11y (CLI-10). THE association: the label node gets an id, the
 					// wrapper is announced as a group named by it, and every control
 					// inside — including the ones this component appends later, when its
@@ -2973,6 +2980,8 @@ export const ui = {
 	*   modality derived from remove_overlay; set on the element BEFORE it is connected,
 	*   because connectedCallback applies the isolation.
 	* @param {boolean} [options.minimizable=true] - Shows or hides the minimize button.
+	* @param {boolean} [options.focus_content=true] - false: on open the dialog keeps the focus
+	*   instead of handing it to its first content control (the body's own code places it).
 	* @param {boolean} [options.transient=false] - When true the modal skips the page-wide
 	*   unsaved-data guard on close. For transient dialogs that own no editable data
 	*   (see ui.confirm); never set it on a modal that hosts components.
@@ -3034,6 +3043,7 @@ export const ui = {
 			// the accessibility contract reads — a dialog that isolates the page is
 			// a decision the CALLER makes, never something the element infers.
 			modal_container.transient = transient
+			modal_container.focus_content = options.focus_content ?? true
 			modal_container.modality = options.modality
 				?? ((remove_overlay===true) ? 'non_modal' : 'modal')
 			modal_parent.appendChild(modal_container)
@@ -4121,6 +4131,9 @@ export const ui = {
 				section_id				: 'minmax(auto, var(--column_id_width))', // 6rem default from var.less root
 				component_publication	: '5rem',
 				component_info			: 'minmax(9rem, 1fr)',
+				// fixed-width inputs: their own size, so the free space goes to text columns
+				component_date			: 'minmax(7.5rem, auto)',
+				component_number		: 'minmax(5rem, auto)',
 				component_3d			: '102px',
 				component_av			: '102px',
 				component_image			: '102px',
@@ -4900,7 +4913,10 @@ export const ui = {
 					callback(dd_modal)
 				}
 			},
-			size : 'normal' // string size: big|normal|small
+			size : 'normal', // string size: big|normal|small
+			// the component's activation (above) places the focus: its first
+			// input, or none (a portal) — never the first row button
+			focus_content : false
 		})
 
 

@@ -489,7 +489,7 @@ input::placeholder {
 			// (!) `:not(.hilite_element)` is not decoration: it is the specificity
 			// that beats component_text_area's own `.active > .label` legend
 			// (transform/shrink/max-width), which is written for a framed field.
-			&:not(.hilite_element) > .label {
+			&:not(.hilite_element)>.label {
 				transform: none;
 				background: none;
 				justify-self: stretch;
@@ -499,7 +499,7 @@ input::placeholder {
 				height: var(--component_label_height);
 				max-width: 100%;
 				font-size: inherit;
-				font-weight: 600;
+				font-weight: 400;
 				color: var(--color_orange_dark);
 			}
 
@@ -725,6 +725,11 @@ input::placeholder {
 			// to the field grid, so the inputs that are NOT fields (search panel,
 			// login, tool forms, modals) keep the surface they sit on.
 			background-color: var(--field_rest_bg);
+
+			// the required cue (general.less .mandatory) must outrank the rest bg
+			&.mandatory {
+				background-color: var(--color_mandatory);
+			}
 		}
 
 		// A read-only value (permissions < 2, Time Machine preview) is a plain
@@ -784,10 +789,12 @@ input::placeholder {
 	// (`layout.less .active` for the default tinted look, each
 	// core/page/css/active_styles/ sheet for the others). Pinned here, this
 	// block (0,5,0) outranks the default look's deep orange.
-	&:not(.active) > .label {
+	&:not(.active)>.label {
 		color: var(--field_label_fg); // edit labels were color_grey_8
 		font-size: 1rem;
-		font-weight: 100;
+		// 300, not 100: system-ui on macOS has a true Ultralight 100 (hairline
+		// strokes, too thin to read at 1rem); Windows had no 100 and showed 300 anyway
+		font-weight: 300;
 		// letter-spacing: 0.015em;
 	}
 

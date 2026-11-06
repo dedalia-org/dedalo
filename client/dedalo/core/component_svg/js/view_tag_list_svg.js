@@ -6,7 +6,7 @@
 
 // imports
 	import {ui} from '../../common/js/ui.js'
-	import {get_media_url} from '../../component_media_common/js/media_url.js'
+	import {fallback_on_error, get_media_url} from '../../component_media_common/js/media_url.js'
 
 
 
@@ -160,6 +160,7 @@ view_tag_list_svg.render = function(self, options) {
 				})
 				image.loading	= 'lazy'
 				image.decoding	= 'async'
+				fallback_on_error(image)
 		}
 
 
