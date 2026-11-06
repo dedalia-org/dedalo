@@ -368,8 +368,24 @@ const get_content_value = (key, current_value, self) => {
 							onChange	: (updatedContent, previousContent, { contentErrors, patchResult }) => {
 								// debounced: parsing + cloning a large value on every keystroke lags typing
 								clearTimeout(self.change_timers[key])
-								if (typeof contentErrors === 'undefined') {
-									self.change_timers[key] = setTimeout(() => handle_json_change(self, updatedContent, key), CHANGE_DEBOUNCE_MS)
+								// typed while active and deactivated (click-out) before the debounce
+								// fired: deactivate found no change to save, so save it here, as it would have
+								const was_active = self.active===true
+								const apply_change = (content) => {
+									const changed = handle_json_change(self, content, key)
+									if (changed && was_active && self.active!==true && self.save_on_deactivate===true) {
+										self.change_value({
+											changed_data	: self.data.changed_data,
+											refresh			: false
+										})
+									}
+								}
+								// an emptied editor is a parse error, but it means "no value" (null)
+								if (updatedContent.text !== undefined && updatedContent.text.trim() === '') {
+									self.change_timers[key] = setTimeout(() => apply_change({ json : null }), CHANGE_DEBOUNCE_MS)
+								}
+								else if (typeof contentErrors === 'undefined') {
+									self.change_timers[key] = setTimeout(() => apply_change(updatedContent), CHANGE_DEBOUNCE_MS)
 								}
 							}
 						}

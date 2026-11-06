@@ -24,6 +24,10 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **JSON fields save when you leave them, like every other field.**
+
+    Before, a change in a JSON field was not saved when you clicked out of it, but it was saved later, the next time you clicked into any field, which made saving look random. Now a JSON field saves when you leave it, like every other field; only content that is valid JSON is saved, and emptying the editor clears the value. Going back to the saved value also clears the unsaved state, so the Save button dims again.
+
 - **Field names cut short in the edit form show in full on hover.**
 
     A field name too long for its column ends in "…" in the edit form, and until now there was no way to read the rest of it. Pointing at a cut name now shows the whole name as a tooltip. Names that fit show no tooltip.

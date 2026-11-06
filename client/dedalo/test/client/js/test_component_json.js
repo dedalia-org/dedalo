@@ -9,6 +9,7 @@ import {get_instance} from '../../../core/common/js/instances.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {is_empty} from '../../../core/component_common/js/component_common.js'
 import {ui} from '../../../core/common/js/ui.js'
+import {handle_json_change} from '../../../core/component_json/js/component_json.js'
 
 
 
@@ -273,6 +274,43 @@ describe(`COMPONENT_JSON DATA OPERATIONS`, function() {
 
 
 
+	it(`editing back to the stored value clears the unsaved state`, async function() {
+
+		const stored = instance.db_data?.entries?.[0]
+		assert.isOk(stored, 'expected a stored entry (added by the insert above)')
+
+		// an edit marks the component modified (Save is highlighted from this class)
+		handle_json_change(instance, { json : { revert_probe : 1 } }, 0)
+		assert.isTrue(instance.node.classList.contains('modified'), 'edit expected modified')
+
+		// typing the stored value again is a revert, not a change
+		handle_json_change(instance, { json : structuredClone(stored.value) }, 0)
+		assert.isFalse(instance.node.classList.contains('modified'), 'revert expected not modified')
+		assert.equal((instance.data.changed_data || []).length, 0, 'revert expected no pending change')
+	});
+
+
+
+	it(`deactivate saves a pending edit (auto-save like every component)`, async function() {
+
+		await ui.component.activate(instance, false)
+		handle_json_change(instance, { json : { deactivate_probe : 1 } }, 0)
+		assert.isTrue(instance.node.classList.contains('modified'), 'edit expected modified')
+
+		await ui.component.deactivate(instance)
+
+		// deactivate saves fire-and-forget: wait for that save to settle
+		const started = Date.now()
+		while ((instance.changing===true || instance.saving===true) && Date.now() - started < 8000) {
+			await new Promise(resolve => setTimeout(resolve, 50))
+		}
+		assert.deepEqual(instance.db_data?.entries?.[0]?.value, { deactivate_probe : 1 }, 'deactivate expected the edit saved')
+		assert.equal((instance.data.changed_data || []).length, 0, 'saved edit expected no pending change')
+		assert.isFalse(instance.node.classList.contains('modified'), 'saved edit expected not modified')
+	});
+
+
+
 	it(`change data via change_value (update)`, async function() {
 
 		const data		= instance.data || {}
@@ -344,9 +382,9 @@ describe(`COMPONENT_JSON DATA OPERATIONS`, function() {
 
 
 
-	it(`save_on_deactivate is false`, async function() {
+	it(`save_on_deactivate is true`, async function() {
 
-		assert.equal(instance.save_on_deactivate, false, 'save_on_deactivate expected false for component_json')
+		assert.equal(instance.save_on_deactivate, true, 'save_on_deactivate expected true for component_json (auto-saves like every component)')
 	});
 
 
