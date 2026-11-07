@@ -543,15 +543,19 @@ export function rootEntriesCheck(treeRoot: string = projectRoot): {
 		);
 		const releaseShipped = installedRootEntriesOf(treeRoot);
 		const repoOnly = releaseExcludedRootEntriesOf(treeRoot);
-		const entries = readdirSync(treeRoot).filter(
-			(name) =>
-				!PRESERVE_ROOT_ENTRIES.has(name) &&
-				!IGNORED_ROOT_ENTRIES.has(name) &&
-				name !== 'node_modules' &&
-				!censusInside.has(name) &&
-				!isRepoOnlyRootAlias(treeRoot, name, repoOnly) &&
-				releaseShipped?.has(name) !== true,
-		);
+		// Sorted (code-unit order): readdir order is the filesystem's — sorted on APFS, hash
+		// order on ext4/overlay — and the operator's list must read the same everywhere.
+		const entries = readdirSync(treeRoot)
+			.sort()
+			.filter(
+				(name) =>
+					!PRESERVE_ROOT_ENTRIES.has(name) &&
+					!IGNORED_ROOT_ENTRIES.has(name) &&
+					name !== 'node_modules' &&
+					!censusInside.has(name) &&
+					!isRepoOnlyRootAlias(treeRoot, name, repoOnly) &&
+					releaseShipped?.has(name) !== true,
+			);
 		if (releaseShipped === null) {
 			// A release ships most of these; only the operator knows which are theirs.
 			return { entries, check: check('root_entries', 'unknown', String(entries.length)) };

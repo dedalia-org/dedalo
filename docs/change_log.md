@@ -844,6 +844,9 @@ Merged since the last release; these ship with the next one.
     what a term shows is decided only by the section's definition. In the ontology tree a node
     whose "Use machine name" is Yes shows its machine name in place of its label, and clicking it
     opens the machine name for editing; any other node shows, and opens, its label.
+    The ontology tree's model badge (Ctrl+M) follows the same rule: a model whose "Use machine
+    name" is Yes is shown by its machine name, so the badges are not empty once your ontology
+    stores model names in the machine-name field.
 
     Wire contract: `WC-2026-11-04-ontology-machine-names`.
 

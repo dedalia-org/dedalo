@@ -52,3 +52,6 @@ at the source rather than living with. The tree never substitutes another field 
 what a term shows is decided only by the section's definition. In the ontology tree a node
 whose "Use machine name" is Yes shows its machine name in place of its label, and clicking it
 opens the machine name for editing; any other node shows, and opens, its label.
+The ontology tree's model badge (Ctrl+M) follows the same rule: a model whose "Use machine
+name" is Yes is shown by its machine name, so the badges are not empty once your ontology
+stores model names in the machine-name field.

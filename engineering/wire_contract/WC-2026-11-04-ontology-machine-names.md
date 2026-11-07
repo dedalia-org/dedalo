@@ -321,5 +321,10 @@ TLD JSON is unconverted: its loader fills the pair through the same legacy deriv
 - **G6 banked on arrival.** `machine_name_rung_ratchet_native`: `legacy_lang` shrank to
   {dd, test} (7.0 converted hierarchy/oh/rsc); `derived_flag` is now a shrink-only bank —
   4 dd nodes plus the suite's repo-owned `test*` fixtures.
+- **The 'M' badge (`model_value`) follows the roles too.** `resolveModelValue` reads the
+  component's `show.ddo_map` ON the target record through the same section_map role
+  selection as a tree term (`termTiposShown`): a dd0 model record flagged Yes is read by
+  ontology43 (its ontology5 is empty since 7.0, so the badge served ''). Gate:
+  `ts_tree_db_semantics` (dd35 → `area_tool`, red before).
 - **Gate reconciliation:** no fixture in `test/parity/fixtures/oracle_harvest/` is touched.
   Re-harvest: impossible, not needed.

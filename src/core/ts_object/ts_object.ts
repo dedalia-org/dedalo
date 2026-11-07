@@ -1003,10 +1003,30 @@ async function resolveModelValue(
 
 	const values: string[] = [];
 	for (const locator of locators) {
-		const value = await getDdoValueByLocator(locator, showMap.tipos, showMap.fieldsSeparator, lang);
+		const tipos = await targetTiposShown(locator, showMap.tipos);
+		const value = await getDdoValueByLocator(locator, tipos, showMap.fieldsSeparator, lang);
 		if (value !== '') values.push(value);
 	}
 	return values.join(showMap.recordsSeparator);
+}
+
+/**
+ * The display tipos ON one target record: the same section_map role selection a tree
+ * term makes (termTiposShown, WC-2026-11-04-ontology-machine-names). A dd0 model record
+ * whose ontology44 is Yes is named by ontology43 — its ontology5 label is empty since
+ * 7.0 — so the ddo_map's translatable term member is read as the machine name there.
+ * A target without the roles, or flagged No, reads the ddo_map as declared.
+ */
+async function targetTiposShown(locator: TermLocator, tipos: string[]): Promise<string[]> {
+	const sectionTipo = locator.section_tipo;
+	const sectionId = Number(locator.section_id);
+	if (typeof sectionTipo !== 'string' || sectionTipo === '' || !Number.isInteger(sectionId)) {
+		return tipos;
+	}
+	const table = await getMatrixTableFromTipo(sectionTipo);
+	if (table === null) return tipos;
+	const target = await readMatrixRecord(table, sectionTipo, sectionId);
+	return termTiposShown(sectionTipo, target, tipos);
 }
 
 /** PHP resolve_element_value (:1504): dispatch by element type; false = skip. */

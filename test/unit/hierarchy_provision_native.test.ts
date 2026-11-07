@@ -184,6 +184,13 @@ async function nodeRecordCols(sectionId: number): Promise<{
 	return rows[0] ?? { relation: null, string: null };
 }
 
+/** The ontology44 (use_machine_name) locator section_ids of a record's relation column. */
+function flagIds(relation: Record<string, unknown> | null): string[] {
+	return ((relation?.ontology44 ?? []) as { section_id?: unknown }[]).map((item) =>
+		String(item.section_id),
+	);
+}
+
 /** Only the ONTOLOGY component keys — the audit keys (dd199/dd200/…) are create-path metadata. */
 function ontologyKeys(obj: Record<string, unknown> | null): string[] {
 	return Object.keys(obj ?? {})
@@ -443,10 +450,13 @@ describe('generate_virtual_section — TS-native provisioning of a scratch TLD',
 			'ontology3', // publication yes
 			'ontology30', // "Is model" = dd64/2 "no" (ontology30 dato_default)
 			'ontology4', // is_descriptor yes
+			'ontology44', // use_machine_name = dd64/2 "no" (birth default; the release defines it since 7.0)
 			'ontology6', // model → dd0/6
 			'ontology8', // translatable no
 		]);
 		expect(ontologyKeys(rec1.string)).toEqual(['ontology5', 'ontology7']);
+		// A `section` node is named by its label, never a machine name: the default stands.
+		expect(flagIds(rec1.relation)).toEqual(['2']);
 	});
 
 	test('model <tld>0/2 component-key sets = the descriptor set, ontology30 FLIPPED', async () => {
@@ -458,10 +468,12 @@ describe('generate_virtual_section — TS-native provisioning of a scratch TLD',
 			'ontology3',
 			'ontology30', // the provisioner OVERWRITES the dd64/2 default with dd64/1
 			'ontology4',
+			'ontology44',
 			'ontology6',
 			'ontology8',
 		]);
 		expect(ontologyKeys(rec2.string)).toEqual(['ontology5', 'ontology7']);
+		expect(flagIds(rec2.relation)).toEqual(['2']);
 	});
 
 	test('ontology30 is the "no" DEFAULT on the descriptor and the explicit "yes" on the model', async () => {
