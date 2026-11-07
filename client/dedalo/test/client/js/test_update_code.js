@@ -522,7 +522,7 @@ describe('UPDATE_CODE WIDGET', function () {
 				assert.ok(hero, 'a version block');
 				assert.strictEqual(hero.textContent, '7.0.0-beta.9');
 				const when = wrapper.querySelector('.installed_version_date').textContent;
-				assert.include(when, '2026', 'with its date');
+				assert.include(when, '2026-10-02T09:22:10+02:00', 'with its build date verbatim');
 				assert.include(when, 'code.example.test', 'and the code server it came from');
 				assert.strictEqual(
 					wrapper.firstElementChild.firstElementChild.classList.contains('installed_version'),

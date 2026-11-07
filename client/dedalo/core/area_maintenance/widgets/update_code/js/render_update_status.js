@@ -6,7 +6,6 @@
 
 // imports
 	import {ui} from '../../../../common/js/ui.js'
-	import {get_locale} from '../../../../component_date/js/calendar_popup.js'
 	import {item_release} from './update_code_channel.js'
 
 
@@ -1121,16 +1120,13 @@ export const render_consumer_status = function(parent, consumer, on_restore, on_
 				: (get_label.update_code_posture_dev || 'Development checkout')
 		// WHEN and WHERE FROM: the commit date (build stamp, or a checkout's HEAD),
 		// the kind of build, and the code server its archive came from
-		const build_date = engine.date ? new Date(engine.date) : null
 		let source_host = null
 		try { source_host = engine.install_source ? new URL(engine.install_source).host : null } catch (_error) { /* not a URL */ }
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'installed_version_date',
 			text_content	: [
-				build_date && !isNaN(build_date)
-					? build_date.toLocaleDateString(get_locale(), { year : 'numeric', month : 'long', day : 'numeric' })
-					: null,
+				engine.date, // the stamp verbatim (ISO with offset): exact, unambiguous
 				posture_text,
 				source_host
 			].filter(Boolean).join(' · '),
