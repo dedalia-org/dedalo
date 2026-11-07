@@ -759,8 +759,8 @@ export interface PublishedRelease {
 	 * request.
 	 */
 	channel: 'master' | 'prerelease' | 'dev';
-	/** The release identity the archive is named after (`7.0.1`, `7.0.1-beta.2`); null for a dev build. */
-	identity: string | null;
+	/** The release identity the archive is named after (`7.0.1`, `7.0.1-beta.2`, `7.0.1-dev`). */
+	identity: string;
 	file: string;
 	bytes: number;
 	stamp: number;

@@ -485,9 +485,9 @@ describe('code server status', () => {
 						? 'prerelease'
 						: 'master',
 			);
-			expect(release.identity).toBe(
-				release.channel === 'dev' ? null : release.file.replace(/\.zip$/, ''),
-			);
+			// Every channel's identity is its archive stem — a dev build's too
+			// (`<X.Y.Z>-dev`, release_identity.ts DEV_VERSION_RE, since d803117865).
+			expect(release.identity).toBe(release.file.replace(/\.zip$/, ''));
 			// EXACT, not endsWith: the panel used to append the
 			// /dedalo/install/code prefix to a base that already carried it,
 			// emitting a doubled path that resolveCodeReleaseFile refuses —
@@ -588,7 +588,7 @@ describe('the advertised release URL is probed, and the failure NAMES the layer'
 		{
 			version: '7.0.2',
 			channel: 'dev' as const,
-			identity: null,
+			identity: '7.0.2-dev',
 			file: '7.0.2-dev.zip',
 			bytes: 10,
 			stamp: 9,
