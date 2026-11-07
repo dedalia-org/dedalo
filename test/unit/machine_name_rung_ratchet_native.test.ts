@@ -17,10 +17,9 @@
  *     no longer uses the rung is red too (lower the bank in the same change).
  *  3. `single_value`: banked EMPTY — a repo source whose name lives only in a
  *     non-Spanish label is a new legacy shape, never accepted.
- *  4. `derived_flag`: while the release does not define ontology44 nothing CAN
- *     state the flag, so every parsed node derives it (asserted: the measure is
- *     honest). The day the release defines it this leg goes red, asking for the
- *     derived-flag tld set to be banked like (2).
+ *  4. `derived_flag`: the release defines ontology44 since 7.0 (2026-11-07), so a
+ *     node CAN state its flag; the set of tlds where some node still derives it is
+ *     banked in DERIVED_FLAG_TLDS — shrink-only, like (2).
  *  5. THE READER BRIDGES ARE IDLE: no dd_ontology row is un-derived
  *     (`use_machine_name` NULL — what `underived_row` and `legacy_model_term`
  *     bridge), and no installed source carries a machine-name defect.
@@ -35,8 +34,53 @@ import { inspectOntology, type OntologyState } from '../../src/core/ontology/ont
 import { getModelByTipo } from '../../src/core/ontology/resolver.ts';
 import { engineSourceFiles } from '../helpers/engine_source_corpus.ts';
 
-/** tlds whose nodes still take their name from ontology5 lg-spa (measured 2026-11-04). */
-const LEGACY_LANG_TLDS: readonly string[] = ['dd', 'hierarchy', 'oh', 'rsc', 'test'];
+/**
+ * tlds whose nodes still take their name from ontology5 lg-spa. Measured 2026-11-04 as
+ * dd/hierarchy/oh/rsc/test; the 7.0 release (2026-11-07) converted hierarchy, oh and rsc.
+ */
+const LEGACY_LANG_TLDS: readonly string[] = ['dd', 'test'];
+
+/**
+ * tlds where some node still DERIVES its flag (no ontology44 stated) — banked on the
+ * 7.0 release's arrival (2026-11-07): 4 dd nodes, and the suite's own repo-owned `test*`
+ * fixtures, none converted yet. Shrink-only; a banked tld that no longer derives is red.
+ */
+const DERIVED_FLAG_TLDS: readonly string[] = [
+	'dd',
+	'test',
+	'testaa',
+	'testactivity',
+	'testcatalogs',
+	'testcoincatalog',
+	'testcont',
+	'testcult',
+	'testculture',
+	'testeventype',
+	'testgraves',
+	'testgrup',
+	'testheritagecatalog',
+	'testicon',
+	'testimmovable',
+	'testmint',
+	'testperi',
+	'testplace',
+	'testrespathology',
+	'testsccmk',
+	'testscell',
+	'testsclat',
+	'testscsym',
+	'testsctxr',
+	'testscxibm',
+	'testscxibo',
+	'testscxpu',
+	'testseri',
+	'testtema',
+	'testterr',
+	'testtypology',
+	'testuncertainty',
+	'testunit',
+	'testweb',
+];
 
 /** The parser rungs (OntologyState.machineNameLegacyRungs keys). */
 const PARSER_RUNGS: readonly string[] = ['derived_flag', 'legacy_lang', 'single_value'];
@@ -99,13 +143,10 @@ describe('legacy machine-name rungs ratchet (G6)', () => {
 		expect(tldsUsing('single_value')).toEqual([]);
 	});
 
-	test('derived_flag: universal while ontology44 is undefined (then bank its set)', () => {
-		expect(armed, 'the suite release now defines ontology43/44: bank the derived_flag tlds').toBe(
-			false,
-		);
-		for (const [tld, state] of states) {
-			expect(state.machineNameLegacyRungs.derived_flag, tld).toBe(state.matrixNodes);
-		}
+	test('derived_flag: the release defines ontology44, and only the banked tlds still derive it (shrink-only)', () => {
+		// Armed: a node CAN state its flag, so a derived one is legacy debt, banked like (2).
+		expect(armed, 'the suite release defines ontology43/44').toBe(true);
+		expect(tldsUsing('derived_flag')).toEqual([...DERIVED_FLAG_TLDS]);
 	});
 
 	test('the reader bridges are idle: no un-derived row, no machine-name defect', async () => {

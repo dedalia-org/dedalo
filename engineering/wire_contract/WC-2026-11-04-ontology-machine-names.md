@@ -318,5 +318,8 @@ TLD JSON is unconverted: its loader fills the pair through the same legacy deriv
   unreachable on the suite (its release defines both tipos) and is one `getModelByTipo` null
   check. A rebuild of a scratch TLD answers `ok:false` only for `mainNodeOk` (no hierarchy
   registry row) — the gate asserts the derived rows, not that flag.
+- **G6 banked on arrival.** `machine_name_rung_ratchet_native`: `legacy_lang` shrank to
+  {dd, test} (7.0 converted hierarchy/oh/rsc); `derived_flag` is now a shrink-only bank —
+  4 dd nodes plus the suite's repo-owned `test*` fixtures.
 - **Gate reconciliation:** no fixture in `test/parity/fixtures/oracle_harvest/` is touched.
   Re-harvest: impossible, not needed.
