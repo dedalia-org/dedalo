@@ -64,3 +64,7 @@
   the shrink-only uncataloged ratchet) is the new invariant gate. The one-time
   DB↔file reconcile (dup-name rows, the 22 mojibake-corrupted DB Italian
   values, baked-fallback removal) is recorded in rewrite/LABELS_RECONCILE.md.
+
+## Addendum 2026-11-07 — the dictionary no longer rides the environment (WC-2026-11-07-labels-separate-resource)
+
+The catalogs and the fallback chain are unchanged, but `environment.result.get_label` is gone. The merged dictionary is served by `GET /api/v1/labels?lang=&v=`, versioned by `page_globals.labels_version`. `environment_differential` now checks the containment law against `getLabels(lang)` directly.

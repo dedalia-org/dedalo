@@ -1,6 +1,6 @@
 ---
 name: dedalo-labels-ts
-description: Dédalo v7 TS/Bun UI-label subsystem — repo-owned catalogs as the SINGLE source of truth for program strings (WC-033/WC-034, 2026-07-16). Covers the two roles (src/core/labels/master.json = source of definitions; catalog/lg-<code>.json = per-lang translations), the getLabels serving/fallback chain (src/core/labels/catalog.ts), the labels_tripwire invariants, the scripts/labels_fill.ts translation backlog, the WC-034 rename/tool-local/removal map (test/parity/wc034_label_cleanup.json), and why dd_ontology model='label' rows are now INERT. Use when adding/renaming/removing a UI label key, translating a lang catalog, editing src/core/labels/**, debugging a labels_tripwire or environment_differential get_label failure, wiring a get_label.x reference in client/widget code, moving a string to a tool's register.json, or asking "why does my label serve undefined / why did my label change not show up". Replaces (history): dd_ontology dd383 label children, rebuild_lang_files, the deleted client lang/lg-*.js files.
+description: Dédalo v7 TS/Bun UI-label subsystem — repo-owned catalogs as the SINGLE source of truth for program strings (WC-033/WC-034, 2026-07-16). Covers the two roles (src/core/labels/master.json = source of definitions; catalog/lg-<code>.json = per-lang translations), the getLabels serving/fallback chain (src/core/labels/catalog.ts), the labels_tripwire invariants, the scripts/labels_fill.ts translation backlog, the WC-034 rename/tool-local/removal map (test/parity/wc034_label_cleanup.json), and why dd_ontology model='label' rows are now INERT. Use when adding/renaming/removing a UI label key, translating a lang catalog, editing src/core/labels/**, debugging a labels_tripwire or environment_differential get_label failure or /api/v1/labels caching, wiring a get_label.x reference in client/widget code, moving a string to a tool's register.json, or asking "why does my label serve undefined / why did my label change not show up".
 ---
 
 # Dédalo v7 UI labels (TypeScript/Bun)
@@ -18,7 +18,7 @@ This skill POINTS — the authoritative content lives in `engineering/wire_contr
 
 ## Serving: `getLabels` (`src/core/labels/catalog.ts`)
 
-`getLabels(lang)` is served as `get_environment`'s `get_label` — always the FULL master key set, localized. The **wire shape is unchanged** (a lang-keyed string map); only its provenance moved. Fallback overlay order (later wins, no hardcoded language priority):
+`getLabels(lang)` — always the FULL master key set, localized (a lang-keyed string map) — is served as its OWN resource since WC-2026-11-07-labels-separate-resource: `GET|HEAD /api/v1/labels?lang=<lg>&v=<version>` (+ twin `/dedalo/core/api/v1/labels`; `src/core/api/labels_resource.ts`). PUBLIC (login needs it); `lang` must be well-formed (`isValidLang`, not `all`) else 404; a well-formed lang outside `config.lang.applicationLangs` is served `labelsServingLang(lang)` (= the install default) — the SAME mapping `labels_version` uses, so every lang the environment emits answers 200; body = the plain dictionary JSON (no envelope), gzip-negotiated. `v` == `getLabelsVersion(lang)` (16 hex sha256 of the MERGED dict, ontology-hub cached) → `immutable`; absent/stale → `no-cache` + `ETag "<version>"` (304 on match). The environment carries only `page_globals.labels_version` (= `getLabelsVersion(labelsServingLang(dedalo_application_lang))`) — NO `get_label` key; the client's `load_labels()` (`client/dedalo/core/common/js/labels.js`) fetches it after `set_environment` and assigns the global `get_label`. Gate: `test/unit/labels_resource_native.test.ts`. Fallback overlay order (later wins, no hardcoded language priority):
 
 1. `master.json` — the guaranteed-complete base;
 2. the INSTALL's default application lang (`config.lang.applicationLangsDefault` = `DEDALO_APPLICATION_LANGS_DEFAULT`, the operator's choice);
@@ -93,7 +93,7 @@ Add translated keys to `catalog/lg-<code>.json` (sorted, tab-indented), review t
 
 ## Gotchas
 
-- **Label change not showing?** Labels ride CODE deploys, not ontology updates. A running server caches merged dictionaries — the cache lives in the ontology hub; an invalidation/clear re-reads the files. In production, files are immutable per deploy.
+- **Label change not showing?** Labels ride CODE deploys, not ontology updates. A running server caches merged dictionaries AND their versions — the cache lives in the ontology hub; an invalidation/clear re-reads the files and re-hashes (new `labels_version` → new URL; the browser's immutable copy of the old URL is simply never asked for again). In production, files are immutable per deploy. Browser holds stale labels? Check the `v=` it requested against `page_globals.labels_version`.
 - **`get_label` serves `undefined`?** Pre-migration behavior — no longer possible for a defined key (master is complete). If a key is undefined, it's either in the `UNCATALOGED_CLIENT_KEYS` ratchet (add the definition) or genuinely missing (tripwire would fail).
 - **Keys must be sorted** in both master and every catalog, or the tripwire fails.
 - **Two deliberate VALUE divergences from the frozen PHP-era dictionary** (WC-033 dup-name collision fixes): asserted present-and-changed in `environment_differential`, not byte-equal. Don't "fix" them back.
@@ -105,7 +105,8 @@ Add translated keys to `catalog/lg-<code>.json` (sorted, tab-indented), review t
 |---|---|
 | `src/core/labels/master.json` | Source of definitions — complete key set, tripwired complete. |
 | `src/core/labels/catalog/lg-<code>.json` | Per-lang translations (sparse); `lg-eng.json` = sparse override, starts `{}`. |
-| `src/core/labels/catalog.ts` | `getLabels` serving + fallback chain; `MASTER_SOURCE_LANG`, cache. |
+| `src/core/labels/catalog.ts` | `getLabels` + fallback chain; `getLabelsVersion`; `MASTER_SOURCE_LANG`, caches. |
+| `src/core/api/labels_resource.ts` | The `/api/v1/labels` route (cache headers, ETag, lang allowlist). |
 | `src/core/resolve/lang_alias.ts` | `translationLangOf` — lang equivalences (`DEDALO_LANG_EQUIVALENCES`). |
 | `test/unit/labels_tripwire.test.ts` | The invariant gate. |
 | `scripts/labels_fill.ts` | Per-lang missing-key translation backlog. |
@@ -115,6 +116,6 @@ Add translated keys to `catalog/lg-<code>.json` (sorted, tab-indented), review t
 | `client/dedalo/core/tools_common/js/tool_common.js` | `get_tool_label` — the client resolver. |
 | `test/unit/tool_context_labels_lang.test.ts` | Gate for the single-lang serving contract. |
 | `engineering/TOOLS_SPEC.md` (§ Tool labels) | Authoritative tool-label spec. |
-| `engineering/wire_contract/` (WC-033, WC-034) | Authoritative contract + gate reconciliation. |
+| `engineering/wire_contract/` (WC-033, WC-034, WC-2026-11-07-labels-separate-resource) | Authoritative contract + gate reconciliation. |
 
-Foundation: **`dedalo-ts-foundation`** (tripwire law). Serving lands in `get_environment` — section/environment read path.
+Foundation: **`dedalo-ts-foundation`** (tripwire law). Serving: the `/api/v1/labels` resource, versioned by `page_globals.labels_version` (environment read path).

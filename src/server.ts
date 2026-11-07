@@ -47,6 +47,7 @@ import { handleCountersRequest } from './core/api/counters.ts';
 import { type ApiRequestContext, dispatchRqo } from './core/api/dispatch.ts';
 import { handleEnvironmentView } from './core/api/environment_view.ts';
 import { anonymousHealthView, buildHealthPayload } from './core/api/health_payload.ts';
+import { handleLabelsRequest, LABELS_PATHS } from './core/api/labels_resource.ts';
 import { getProcessPoison } from './core/api/process_health.ts';
 import { handleRawView } from './core/api/raw_view.ts';
 import { MIN_GZIP_BYTES, SECURITY_HEADERS, staticAssetResponse } from './core/api/static_asset.ts';
@@ -1173,6 +1174,12 @@ export async function handleRequest(request: Request, context: RequestContext): 
 	// Environment diagnostic view (developer tool). Same ordering reason as above.
 	if (request.method === 'GET' && ENVIRONMENT_VIEW_PATHS.has(url.pathname)) {
 		return handleEnvironmentView(request);
+	}
+
+	// UI-label dictionary — public versioned resource (core/api/labels_resource.ts).
+	// Same ordering reason as above.
+	if ((request.method === 'GET' || request.method === 'HEAD') && LABELS_PATHS.has(url.pathname)) {
+		return handleLabelsRequest(request, url, context.requestId);
 	}
 
 	// component_text_area inline-tag image factory (PHP core/component_text_area/tag/).

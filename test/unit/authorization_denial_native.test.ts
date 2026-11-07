@@ -167,10 +167,12 @@ describe.if(DB_READY)('the live refusal (dispatch, real grants)', () => {
 		const refused = await dispatchRqo(startRqo(ADMIN_ONLY_AREA) as never, nonAdminContext as never);
 		const environment = (refused.body as { environment?: { result?: Record<string, unknown> } })
 			.environment;
-		const labels = environment?.result?.get_label as Record<string, string> | undefined;
-		// Without this the panel can only render in the master source language,
-		// whatever interface language the operator chose.
-		expect(labels?.no_access_page).toBeDefined();
+		// The labels ride their own resource (WC-2026-11-07-labels-separate-resource);
+		// the refusal carries what the client fetches them by. Without it the panel
+		// can only render in the master source language.
+		const globals = environment?.result?.page_globals as Record<string, unknown> | undefined;
+		expect(globals?.labels_version).toMatch(/^[0-9a-f]{16}$/);
+		expect(typeof globals?.dedalo_application_lang).toBe('string');
 		// …and it carries no context/data for the element that was refused.
 		expect('result' in refused.body).toBe(false);
 		expect('data' in refused.body).toBe(false);

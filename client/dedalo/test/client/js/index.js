@@ -8,6 +8,7 @@
 // imports
 	import {data_manager} from '../../../core/common/js/data_manager.js'
 	import {set_environment} from '../../../core/common/js/common.js'
+	import {load_labels} from '../../../core/common/js/labels.js'
 	import {url_vars_to_object} from '../../../core/common/js/utils/index.js'
 	import {response_data} from '../../../core/common/js/api_error.js'
 	import {card_state_from_message, apply_card_state, count_run, reset_run_count} from './card_state.js'
@@ -38,6 +39,8 @@
 			body : rqo
 		});
 		set_environment(response_data(api_response))
+		// labels: their own versioned resource (WC-2026-11-07-labels-separate-resource)
+		await load_labels(page_globals.dedalo_application_lang, page_globals.labels_version)
 	})()
 
 // login check

@@ -209,9 +209,10 @@ describe.if(DB_READY)('start: a section deep link is record-scope gated', () => 
 			status: 403,
 			code: 'perm.denied',
 		});
-		const environment = (refused.body as { environment?: { result?: { get_label?: object } } })
-			.environment;
-		expect(environment?.result?.get_label).toBeDefined();
+		const environment = (
+			refused.body as { environment?: { result?: { page_globals?: { labels_version?: string } } } }
+		).environment;
+		expect(environment?.result?.page_globals?.labels_version).toBeDefined();
 		expect('data' in refused.body).toBe(false);
 		const text = JSON.stringify(refused.body);
 		expect(text).not.toContain(SECTION);

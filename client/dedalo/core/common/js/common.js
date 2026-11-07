@@ -4095,9 +4095,10 @@ export const build_autoload = async function(self, {recovery_retry=false}={}) {
 *     module-level variable via Object.assign so existing keys are overwritten and
 *     new keys are added without replacing the reference.
 *
-*   'get_label' — the value (already a parsed JSON object from the server) is
-*     assigned to the `get_label` module-level variable used throughout the UI for
-*     localized string lookups.
+*   'get_label' — IGNORED. The label dictionary is no longer part of the
+*     environment: it is its own versioned resource loaded by labels.js
+*     `load_labels()` (WC-2026-11-07-labels-separate-resource). A stray key must
+*     never overwrite the loaded dictionary through the default branch.
 *
 *   anything else — the entire value is assigned to `window[key]`.
 *
@@ -4107,7 +4108,6 @@ export const build_autoload = async function(self, {recovery_retry=false}={}) {
 * @param {Object} api_response_environment - Environment payload from the API
 * @param {Object} [api_response_environment.plain_vars] - Flat constant assignments
 * @param {Object} [api_response_environment.page_globals] - Runtime globals to merge
-* @param {Object} [api_response_environment.get_label] - Localization string map
 * @returns {void}
 */
 export const set_environment = function (api_response_environment) {
@@ -4128,12 +4128,7 @@ export const set_environment = function (api_response_environment) {
 				break;
 
 			case 'get_label':
-				// value is already server parsed JSON value.
-				// `get_label` is declared `const` at page scope (environment.js.php),
-				// so reassigning it throws "Assignment to constant variable". Mutate in
-				// place instead so the existing binding (referenced everywhere as a bare
-				// global) reflects the new labels.
-				get_label = value;
+				// not an environment key any more (labels.js load_labels owns get_label)
 				break;
 
 			default:

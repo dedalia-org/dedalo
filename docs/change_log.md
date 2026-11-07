@@ -1154,6 +1154,12 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Interface labels are a separate, cacheable download — `get_environment` and `start` no longer carry `get_label`.**
+
+    The localized interface-label dictionary used to ride every `start` / `get_environment` response as `get_label`, so every page load downloaded it again. The environment now carries only `page_globals.labels_version`, and the client fetches the dictionary from the public `GET /api/v1/labels?lang=<lang>&v=<labels_version>`, which the browser keeps until the labels actually change (a code update). An API consumer that read `get_label` from the environment must fetch that URL instead; the body is the same dictionary. Pages load faster; nothing to configure.
+
+    Wire contract: `WC-2026-11-07-labels-separate-resource`.
+
 - **Nested reads carry a verified caller chain; the client's `show` and search query are checked; a level-two `self` in a client map is refused with a notice.**
 
     A request that targets a nested element directly (the next page of a nested portal, the autocomplete inside its cell) may send `rqo.source.callers`, the chain of elements it is nested under; the server verifies every link against the ontology and the user's grants and ignores a chain that does not verify. The `show`/`search` a client sends is checked against the user's grants and its search query is cleaned before use. In a `ddo_map` a client sends, `section_tipo: "self"` is accepted only on a first-level ddo; below that the ddo is skipped with an `ontology.ddo_self_refused` notice in the response, and a ddo `section_tipo` may now be a source array (what this means for installed definitions is in the administrator entry on the same rule). A nested element's own permission level, as stamped on its context, is the user's level on that component, no longer the level read from whichever record came first; the remaining differences from the previous engine's per-component permission cases are recorded in the wire contract. See [Self-resolution](./core/request_config.md#self-resolution-and-dynamic-section_tipo-sources).
@@ -1231,7 +1237,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 63 entries"
+??? note "Wire contract — 64 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -1296,6 +1302,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-05-reconcile-apply-refused`
     - `WC-2026-11-06-css-version`
     - `WC-2026-11-06-update-panel-verdicts`
+    - `WC-2026-11-07-labels-separate-resource`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

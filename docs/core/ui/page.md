@@ -113,7 +113,8 @@ The two systemic pieces around the context:
   request_message, `csrf_token`), then enriched by `set_environment()` with the
   server environment (version, data_version, langs, `is_logged`, `recovery_mode`,
   `maintenance_mode`, `dedalo_notification`, `user_id`, …). Many `page` behaviours
-  branch on these flags.
+  branch on these flags. It does NOT carry the label dictionary: its
+  `labels_version` drives a separate `load_labels()` fetch of `get_label`.
 - **`self.ar_instances`** — the live child instances. On navigation, elements
   whose `model` is in the keep-list (`['menu']`) are flagged `destroyable=false`
   and reused; everything else is destroyed to free memory and events.
@@ -254,7 +255,11 @@ Lifecycle stages, in order:
 2. **`build(autoload=true)`** — issue the `start` RQO
    (`{action:'start', options:{search_obj, menu}}`), validate
    `api_response.result` and `api_response.environment`, run `set_environment()`,
-   then set `self.context = api_response.result.context`. On the first start only.
+   then `await load_labels(page_globals.dedalo_application_lang,
+   page_globals.labels_version)` (`common/js/labels.js` — fetches the UI-label
+   dictionary from `/api/v1/labels` and sets the global `get_label`; a failure
+   stops the build through `set_page_error`), then set
+   `self.context = api_response.result.context`. On the first start only.
 3. **`render()` → `edit()`** — build the `.wrapper.page` node, the `content_data`
    container, and the `bubbles_notification_container`; `get_content_data()`
    instantiates/builds/renders each context element (with spinners) and publishes

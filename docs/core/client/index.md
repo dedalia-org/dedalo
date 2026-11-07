@@ -30,7 +30,8 @@ understand the client.
 The page boots from `core/page/js/index.js`, which seeds `window.page_globals`
 and constructs the singleton [`page`](../ui/page.md). `page.build(true)` fires the
 server `start` action through `data_manager.request`; the response is merged into
-`window` (`page_globals`, `get_label`, the `DEDALO_*` globals) and the active
+`window` (`page_globals`, the `DEDALO_*` globals), `get_label` is fetched from
+the labels resource by `page_globals.labels_version`, and the active
 area/section is mounted. From there everything is the same cycle: `get_instance(…)`
 resolves the model, dynamically imports the matching ES module, constructs it,
 runs `init → build → render`, and the render layer turns the ddo into DOM with the
@@ -72,6 +73,7 @@ sequenceDiagram
     API-->>DM: { context, csrf_token, environment… }
     DM-->>P: response
     P->>P: set_environment() → merge into window
+    P->>API: GET /api/v1/labels?lang&v (load_labels → get_label)
     P->>P: mount menu + active section/area
 ```
 

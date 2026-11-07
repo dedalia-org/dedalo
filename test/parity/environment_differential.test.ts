@@ -8,7 +8,10 @@
  * - get_label: CONTAINMENT since WC-033 (labels are repo catalogs — the served
  *   dictionary is a SUPERSET of the frozen oracle one: every oracle key must
  *   be present with the oracle's value, except the two ledgered dup-name
- *   collision fixes; TS-only keys are the catalog additions);
+ *   collision fixes; TS-only keys are the catalog additions). Since
+ *   WC-2026-11-07-labels-separate-resource the dictionary is no longer in the
+ *   environment: the TS side is getLabels(<oracle app lang>) — the exact bytes
+ *   /api/v1/labels serves — and the environment must NOT carry it;
  * - plain_vars: exact equality (urls/flags/DD_TIPOS mirror the install);
  * - page_globals: exact KEY SET + exact values except the engine-specific
  *   debug facts (pg/php version, memory, root path — PHP engine values by
@@ -32,6 +35,7 @@ import { config } from '../../src/config/config.ts';
 import { readEnv } from '../../src/config/env.ts';
 import { dispatchRqo } from '../../src/core/api/dispatch.ts';
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
+import { getLabels } from '../../src/core/labels/catalog.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 import { parseReleaseVersion } from '../../src/core/update/release_identity.ts';
@@ -90,6 +94,7 @@ const PROJECT_LANGS_KEY = 'dedalo_projects_default_langs';
 describe.if(hasPhpCredentials())('environment payload differential (Phase 7 gate)', () => {
 	let phpEnv: Record<string, Record<string, unknown>>;
 	let tsEnv: Record<string, Record<string, unknown>>;
+	let tsLabels: Record<string, string>;
 
 	beforeAll(async () => {
 		const client = new PhpApiClient();
@@ -134,11 +139,13 @@ describe.if(hasPhpCredentials())('environment payload differential (Phase 7 gate
 				environment: { result: Record<string, Record<string, unknown>> };
 			}
 		).environment.result;
+		tsLabels = await getLabels(oracleAppLang);
 	});
 
 	test('get_label: every oracle key is served, renamed, or ledger-removed (WC-033/WC-034)', () => {
 		const phpLabels = phpEnv.get_label as Record<string, string>;
-		const tsLabels = tsEnv.get_label as Record<string, string>;
+		// WC-2026-11-07-labels-separate-resource: the dictionary left the environment.
+		expect(tsEnv).not.toHaveProperty('get_label');
 		expect(Object.keys(tsLabels).length).toBeGreaterThan(400);
 		// WC-034 label cleanup: the repo catalogs renamed non-conforming keys,
 		// migrated tool-specific keys into their tools' register.json labels,
@@ -253,6 +260,13 @@ describe.if(hasPhpCredentials())('environment payload differential (Phase 7 gate
 		expect('css_version' in phpGlobals).toBe(false);
 		// biome-ignore lint/performance/noDelete: same as the WC-031 strip above — undefined would keep the key in Object.keys()
 		delete tsGlobals.css_version;
+		// engineering/wire_contract/WC-2026-11-07-labels-separate-resource.md: the
+		// label dictionary's content version (the client fetches /api/v1/labels by
+		// it). TS-ONLY; same explicit-then-strip handling as WC-031.
+		expect(tsGlobals.labels_version).toMatch(/^[0-9a-f]{16}$/);
+		expect('labels_version' in phpGlobals).toBe(false);
+		// biome-ignore lint/performance/noDelete: same as the WC-031 strip above — undefined would keep the key in Object.keys()
+		delete tsGlobals.labels_version;
 		// engineering/wire_contract/WC-2026-10-15-release-identity-from-tag.md:
 		// `dedalo_data_version` is a TS-ONLY page_globals key — the bare data triple
 		// beside `dedalo_version`, which became the RELEASE IDENTITY (`7.0.0-beta.6`).

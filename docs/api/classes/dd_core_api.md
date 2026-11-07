@@ -32,7 +32,7 @@ Initialize the application, retrieve environment and session state.
 
 ### Returns
 
-`{ ok: true, request_id, data: { context: [ … ], data: [] }, environment: { page_globals, plain_vars, get_label } }`. `environment` is a top-level extension key, not part of `data`.
+`{ ok: true, request_id, data: { context: [ … ], data: [] }, environment: { page_globals, plain_vars } }`. `environment` is a top-level extension key, not part of `data`.
 
 ### Usage
 
@@ -58,7 +58,7 @@ Typically called on page load. `data.context` describes the element the client i
   "ok": true,
   "request_id": "c0ffea00",
   "data": { "context": [ /* section/menu element contexts */ ], "data": [] },
-  "environment": { "page_globals": {}, "plain_vars": {}, "get_label": {} }
+  "environment": { "page_globals": {}, "plain_vars": {} }
 }
 ```
 
@@ -794,7 +794,7 @@ Authenticated (the dispatch session + CSRF gates already ran). A missing or malf
 
 ### Purpose
 
-Return the full client environment payload — `page_globals` + `plain_vars` + `get_label` (the same block `start` embeds). The copied client injects it via `set_environment()` at boot.
+Return the full client environment payload — `page_globals` + `plain_vars` (the same block `start` embeds). The client injects it via `set_environment()` at boot. The UI-label dictionary is not in it: the client fetches it from `GET /api/v1/labels?lang=<page_globals.dedalo_application_lang>&v=<page_globals.labels_version>` (public; immutable-cached while `v` is current, `no-cache` + `ETag` otherwise).
 
 ### Accepts
 
@@ -802,7 +802,7 @@ No arguments. The block is built for the current session (or the anonymous envir
 
 ### Returns
 
-`{ ok: true, request_id, data: { page_globals, plain_vars, get_label } }`, built by `src/core/resolve/environment.ts`. It is the same block `start` ships as its `environment` extension key.
+`{ ok: true, request_id, data: { page_globals, plain_vars } }`, built by `src/core/resolve/environment.ts`. It is the same block `start` ships as its `environment` extension key.
 
 ### Usage
 
@@ -825,8 +825,7 @@ No arguments. The block is built for the current session (or the anonymous envir
   "request_id": "c0ffea14",
   "data": {
     "page_globals": { /* … */ },
-    "plain_vars": { /* … */ },
-    "get_label": { /* … */ }
+    "plain_vars": { /* … */ }
   }
 }
 ```

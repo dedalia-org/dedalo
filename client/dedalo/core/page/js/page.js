@@ -606,7 +606,8 @@ const set_page_error = function(api_error) {
 *    when the `menu` param is absent).
 * 2. Sends a `start` action to the default API to receive context + environment.
 * 3. Calls `set_environment()` to inject API-supplied vars (`page_globals`,
-*    `get_label`, `DEDALO_ENVIRONMENT`, etc.) into the window scope.
+*    `DEDALO_ENVIRONMENT`, etc.) into the window scope, then `load_labels()`
+*    fetches the versioned `get_label` dictionary (its own cacheable resource).
 * 4. Validates the response at three levels: missing result, missing environment,
 *    and missing DEDALO_ENVIRONMENT global — each pushes a descriptive entry to
 *    `page_globals.page_error` and returns false so
@@ -687,11 +688,17 @@ page.prototype.build = async function(autoload=false) {
 					if (request_failed(api_response) && api_response.error.code==='perm.denied') {
 
 						// The refusal carries the environment (start is the first call —
-						// without it there is no get_label and the message could only be
-						// rendered in the source language). Inject it exactly like the
-						// success path below, so the panel speaks the user's language.
+						// without it there is no lang/labels_version to load get_label for,
+						// and the message could only be rendered in the source language).
+						// Inject it exactly like the success path below, so the panel
+						// speaks the user's language.
 						if (api_response.environment?.result) {
 							set_environment(api_response.environment.result)
+							// labels are their own resource (WC-2026-11-07-labels-separate-resource).
+							// Tolerated failure: render_api_error copes with an empty get_label.
+							await import('../../common/js/labels.js')
+								.then(m => m.load_labels(page_globals.dedalo_application_lang, page_globals.labels_version))
+								.catch(error => console.error('labels unavailable on the refusal panel:', error))
 						}
 
 						// policy `perm.denied` → no_access_page: sets page_globals.page_error
@@ -734,8 +741,21 @@ page.prototype.build = async function(autoload=false) {
 						})
 					)
 				}
-				// fix API environment vars to window (page_globals, plain_vars, get_label)
+				// fix API environment vars to window (page_globals, plain_vars)
 				set_environment(api_response.environment.result)
+				// UI labels: their own versioned, HTTP-cacheable resource (WC-2026-11-07-labels-separate-resource).
+				// Dynamic import: off the static boot graph (page_load_budget).
+				try {
+					const {load_labels} = await import('../../common/js/labels.js')
+					await load_labels(page_globals.dedalo_application_lang, page_globals.labels_version)
+				} catch (error) {
+					console.error('!!! STOP build: UI labels unavailable:', error);
+					return set_page_error(
+						error?.is_api_error
+							? error
+							: new ApiError({code: CLIENT_ERROR.BAD_RESPONSE, message: String(error?.message || error)})
+					)
+				}
 				// the user's active-field style (page_globals.ui_preferences). Lazy: off the
 				// boot graph (page_load_budget); head-init.js already painted the cached style
 				import('./active_style.js').then(m => m.sync_active_style_from_server())
