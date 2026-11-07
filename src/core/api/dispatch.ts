@@ -1023,6 +1023,31 @@ async function nestedToolActionIsReadOnly(rqo: Rqo, userId: number): Promise<boo
 	);
 }
 
+/** A `tool_request` whose nested action declares `readOnly` (the one per-request refinement). */
+async function isReadOnlyToolCall(rqo: Rqo, actionKey: string, userId: number): Promise<boolean> {
+	if (actionKey !== TOOL_REQUEST_ACTION_KEY) return false;
+	return nestedToolActionIsReadOnly(rqo, userId);
+}
+
+/**
+ * Does this request go through the ledger at all? Its ledger key, principal key and
+ * fingerprint when it does; null — run it unledgered — when it carries no key, has
+ * no authenticated principal, is a read-only tool call, or cannot be fingerprinted.
+ */
+async function ledgerAdmission(
+	rqo: Rqo,
+	context: ApiRequestContext,
+	actionKey: string,
+): Promise<{ ledgerKey: string; principalKey: string; fingerprint: string } | null> {
+	const ledgerKey = idempotencyLedgerKey(rqo, context, actionKey);
+	if (ledgerKey === null) return null;
+	const principalKey = idempotencyPrincipalKey(context);
+	if (principalKey === null || context.session === null) return null;
+	if (await isReadOnlyToolCall(rqo, actionKey, context.session.userId)) return null;
+	const fingerprint = requestFingerprint(rqo);
+	return fingerprint === null ? null : { ledgerKey, principalKey, fingerprint };
+}
+
 /**
  * Gate 4 itself: run once under this key, or answer with what the once produced.
  *
@@ -1044,17 +1069,9 @@ async function withIdempotency(
 	actionKey: string,
 	run: () => Promise<ApiResult>,
 ): Promise<ApiResult> {
-	const ledgerKey = idempotencyLedgerKey(rqo, context, actionKey);
-	if (ledgerKey === null) return run();
-	const principalKey = idempotencyPrincipalKey(context);
-	if (principalKey === null || context.session === null) return run();
-	if (
-		actionKey === TOOL_REQUEST_ACTION_KEY &&
-		(await nestedToolActionIsReadOnly(rqo, context.session.userId))
-	)
-		return run();
-	const fingerprint = requestFingerprint(rqo);
-	if (fingerprint === null) return run();
+	const admission = await ledgerAdmission(rqo, context, actionKey);
+	if (admission === null) return run();
+	const { ledgerKey, principalKey, fingerprint } = admission;
 	// THE TTL IS ENFORCED HERE, on the path requests actually take. Sweeping only
 	// from the leader's success path (the first draft) made the documented window
 	// unlike the window production had: a ledger that stopped receiving successful

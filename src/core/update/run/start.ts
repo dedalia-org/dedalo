@@ -222,25 +222,39 @@ export async function planCodeUpdate(
 	const channel = prerelease ? 'prerelease' : 'master';
 	const notOffered: string[] = [];
 	for (const master of masters) {
-		let manifest: Awaited<ReturnType<ManifestFetch>>;
-		try {
-			manifest = await readManifest(master, channel);
-		} catch (error) {
-			// Stable reason only: the raw message may carry a remote body or a local path.
-			notOffered.push(`${master.url} (${toDedaloError(error).code})`);
+		const offer = await manifestOffering(release, master, channel, readManifest);
+		if (typeof offer === 'string') {
+			notOffered.push(offer);
 			continue;
 		}
-		if (!manifest.items.some((item) => (item.release ?? item.version) === release)) {
-			notOffered.push(master.url);
-			continue;
-		}
-		return planFromManifest(release, manifest);
+		return planFromManifest(release, offer);
 	}
 	return {
 		ok: false,
 		refusal: 'release_unknown',
 		detail: `${notOffered.join(', ')} ${notOffered.length === 1 ? 'does' : 'do'} not offer ${release} to this install`,
 	};
+}
+
+/**
+ * `master`'s manifest on `channel` when it lists `release`; otherwise the words
+ * the refusal names it by — its url, plus the stable error code when it could not
+ * be read (never the raw message: it may carry a remote body or a local path).
+ */
+async function manifestOffering(
+	release: string,
+	master: CodeMaster,
+	channel: 'prerelease' | 'master',
+	readManifest: ManifestFetch,
+): Promise<Awaited<ReturnType<ManifestFetch>> | string> {
+	let manifest: Awaited<ReturnType<ManifestFetch>>;
+	try {
+		manifest = await readManifest(master, channel);
+	} catch (error) {
+		return `${master.url} (${toDedaloError(error).code})`;
+	}
+	const offers = manifest.items.some((item) => (item.release ?? item.version) === release);
+	return offers ? manifest : master.url;
 }
 
 /** The plan of `release` from the manifest of the master that offers it. */

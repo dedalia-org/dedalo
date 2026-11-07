@@ -135,13 +135,25 @@ export async function isReadOnlyToolRequest(
 		const candidate = readOnlyCandidate(source, options);
 		if (candidate === null) return false;
 		if (!(await isToolGranted(userId, candidate.tool))) return false;
-		if (isJobFrameworkAction(candidate.method)) return true;
-		const loaded = await getLoadedTool(candidate.tool);
-		const spec = loaded === undefined ? null : resolveAction(loaded.module, candidate.method);
-		return spec !== null && runsReadOnly(spec, candidate.options);
+		return await candidateDeclaresReadOnly(candidate);
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * Past the grant: a reserved framework job action, or a module action whose own
+ * spec declares `readOnly` (an unloaded tool or an unknown action answers false).
+ */
+async function candidateDeclaresReadOnly(candidate: {
+	tool: string;
+	method: string;
+	options: Record<string, unknown>;
+}): Promise<boolean> {
+	if (isJobFrameworkAction(candidate.method)) return true;
+	const loaded = await getLoadedTool(candidate.tool);
+	const spec = loaded === undefined ? null : resolveAction(loaded.module, candidate.method);
+	return spec !== null && runsReadOnly(spec, candidate.options);
 }
 
 /**
@@ -154,12 +166,23 @@ function readOnlyCandidate(
 	source: { model?: unknown; action?: unknown } | undefined,
 	options: unknown,
 ): { tool: string; method: string; options: Record<string, unknown> } | null {
-	if (options !== undefined && (typeof options !== 'object' || options === null)) return null;
-	const tool = typeof source?.model === 'string' ? source.model : '';
-	const method = typeof source?.action === 'string' ? source.action : '';
-	const optionRecord = (options ?? {}) as Record<string, unknown>;
+	const optionRecord = optionsRecordOf(options);
+	if (optionRecord === null) return null;
+	const tool = stringOr(source?.model);
 	if (!TOOL_NAME_PATTERN.test(tool) || optionRecord.background_running === true) return null;
-	return { tool, method, options: optionRecord };
+	return { tool, method: stringOr(source?.action), options: optionRecord };
+}
+
+/** The request's options as a record: absent → {}, anything but an object → null. */
+function optionsRecordOf(options: unknown): Record<string, unknown> | null {
+	if (options === undefined) return {};
+	if (typeof options !== 'object' || options === null) return null;
+	return options as Record<string, unknown>;
+}
+
+/** A value when it is a string, else ''. */
+function stringOr(value: unknown): string {
+	return typeof value === 'string' ? value : '';
 }
 
 /** The two reserved framework actions (job status / list): they read the job registry only. */

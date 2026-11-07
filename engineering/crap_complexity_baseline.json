@@ -4,8 +4,8 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 841,
-		"functions": 14700,
+		"files": 893,
+		"functions": 15343,
 		"functionsOverCap": 658,
 		"filesOverCap": 257
 	},
@@ -370,7 +370,7 @@
 		"src/core/resolve/relation_list.ts": 40,
 		"src/core/resolve/section_elements_context.ts": 22,
 		"src/core/resolve/security_access_datalist.ts": 20,
-		"src/core/resolve/structure_context.ts": 90,
+		"src/core/resolve/structure_context.ts": 85,
 		"src/core/resolve/tm_filter.ts": 18,
 		"src/core/resolve/truncate_html.ts": 36,
 		"src/core/search/bare_count.ts": 7,

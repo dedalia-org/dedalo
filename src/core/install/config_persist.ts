@@ -20,7 +20,7 @@ import { installPrivateDir, SAMPLE_ENV_PATH } from './paths.ts';
 import { readPriorEnv } from './prior_env.ts';
 import { refuseInstall } from './refuse.ts';
 import { generateSecret } from './secret.ts';
-import { statePathOutsidePrivateDir } from './state_path_guard.ts';
+import { assertStateInPrivateDir } from './state_path_guard.ts';
 
 /**
  * The existing .env's assignment lines, VERBATIM and in file order.
@@ -166,8 +166,7 @@ export async function persistConfig(
 	// B14 at the DOOR, before any write: .env goes to installPrivateDir(), the
 	// install status to statePath(). Redirecting only the first would mark the
 	// LIVE installation unfinished (state_path_guard.ts).
-	const statePathProblem = statePathOutsidePrivateDir();
-	if (statePathProblem !== null) refuseInstall('install.invalid_input', statePathProblem);
+	assertStateInPrivateDir();
 	const prior = await readPriorEnv();
 	const generated: Record<string, string> = {};
 

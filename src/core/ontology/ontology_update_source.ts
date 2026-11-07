@@ -168,15 +168,26 @@ export function assertSourceAssignment(
 	// On an ontology server code-only entries are not sources (pullServers).
 	const servers = pullServers(catalog);
 	const selected = servers.find((entry) => originOf(entry.url) === target.configuredOrigin);
-	// An ontology server never takes "everything" from one remote: the single-
-	// source shortcut below is for ordinary installs only.
-	if (!catalog.isOntologyServer && servers.length === 1 && selected?.tlds === undefined) return;
+	if (takesEverythingFromOne(catalog, servers, selected)) return;
 	requireDeclaredSources(servers);
 	for (const { tld } of files) {
 		const owners = servers.filter((entry) => entry.tlds?.includes(tld)).map((entry) => entry.url);
 		const refusal = sourceRefusal(tld, owners, selected?.url);
 		if (refusal !== null) refuse(refusal.rule, refusal.sentence);
 	}
+}
+
+/**
+ * The single-source shortcut: ONE configured master that declares no `tlds`
+ * supplies everything. Ordinary installs only — an ontology server never takes
+ * "everything" from one remote.
+ */
+function takesEverythingFromOne(
+	catalog: OntologyUpdateCatalog,
+	servers: OntologyUpdateCatalog['servers'],
+	selected: OntologyUpdateCatalog['servers'][number] | undefined,
+): boolean {
+	return !catalog.isOntologyServer && servers.length === 1 && selected?.tlds === undefined;
 }
 
 /** With several masters, every one declares its tlds. */

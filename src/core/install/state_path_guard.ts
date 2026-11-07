@@ -23,6 +23,13 @@ import { dirname, resolve } from 'node:path';
 import { readEnv } from '../../config/env.ts';
 import { statePath } from '../resolve/server_state.ts';
 import { installPrivateDir } from './paths.ts';
+import { refuseInstall } from './refuse.ts';
+
+/** Refuse (before any write) when the state file is not in the install's private dir. */
+export function assertStateInPrivateDir(): void {
+	const problem = statePathOutsidePrivateDir();
+	if (problem !== null) refuseInstall('install.invalid_input', problem);
+}
 
 /** Why the state file and the install's private dir disagree; null when they agree. */
 export function statePathOutsidePrivateDir(): string | null {
