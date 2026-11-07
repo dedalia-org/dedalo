@@ -117,7 +117,7 @@ type ActiveOntology = z.infer<typeof activeOntologySchema>;
 const TLD_RE = /^[a-z]{2,}$/;
 
 /** The export's data dump: TLD-shaped, never an ontology (doc of parseOntologyManifest). */
-const NOT_AN_ONTOLOGY = new Set(['matrix']);
+const NOT_AN_ONTOLOGY: ReadonlySet<string> = new Set(['matrix']);
 
 /** info.active_ontologies by (lowercased) TLD. */
 function infoByTld(

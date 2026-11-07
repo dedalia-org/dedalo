@@ -89,11 +89,16 @@ async function askWidget(options: Record<string, unknown>) {
 	const id = String(response.extend?.pfile ?? '').slice(0, -'.json'.length);
 	const deadline = Date.now() + 10000;
 	let status = mediaJobs.status(id);
-	while (status !== null && (status.status === 'queued' || status.status === 'running') && Date.now() < deadline) {
+	while (
+		status !== null &&
+		(status.status === 'queued' || status.status === 'running') &&
+		Date.now() < deadline
+	) {
 		await Bun.sleep(10);
 		status = mediaJobs.status(id);
 	}
-	if (status?.status !== 'done') throw new Error(`update_ontology job ${id} ended ${status?.status}`);
+	if (status?.status !== 'done')
+		throw new Error(`update_ontology job ${id} ended ${status?.status}`);
 	return status.data as Record<string, unknown>;
 }
 
@@ -163,7 +168,9 @@ describe('update_ontology: the response the client reads', () => {
 			mock.module('../../src/core/update/run/start.ts', () => REAL_START);
 		}
 		expect(response).toMatchObject({ data: true, extend: { pid: process.pid } });
-		expect(String((response as unknown as { extend: { pfile: string } }).extend.pfile)).toEndWith('.json');
+		expect(String((response as unknown as { extend: { pfile: string } }).extend.pfile)).toEndWith(
+			'.json',
+		);
 	});
 
 	test('a clean phase → the job result {msg, run_id, root_info}: no errors, no census', async () => {
@@ -205,7 +212,12 @@ describe('update_ontology: the response the client reads', () => {
 		} finally {
 			mock.module('../../src/core/update/run/start.ts', () => REAL_START);
 		}
-		expect(result).toEqual({ msg: 'imported zzuow', run_id: journal.run_id, root_info: ROOT_INFO, census });
+		expect(result).toEqual({
+			msg: 'imported zzuow',
+			run_id: journal.run_id,
+			root_info: ROOT_INFO,
+			census,
+		});
 	});
 
 	test('the import progress rides the job data while it runs', async () => {
@@ -261,7 +273,10 @@ describe('ontology update progress sink', () => {
 			},
 		);
 		expect(frames).toEqual([
-			{ msg: 'download tld_a (0/2)', progress: { stage: 'download', done: 0, total: 2, tld: 'tld_a' } },
+			{
+				msg: 'download tld_a (0/2)',
+				progress: { stage: 'download', done: 0, total: 2, tld: 'tld_a' },
+			},
 			{ msg: 'finish (0/1)', progress: { stage: 'finish', done: 0, total: 1 } },
 		]);
 		reportOntologyProgress('import', 1, 2, 'tld_b');
