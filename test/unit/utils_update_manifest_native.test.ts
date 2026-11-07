@@ -562,8 +562,8 @@ describe('the ontology manifest door accepts exactly the codes listed in ONTOLOG
 	}, 30_000);
 
 	test('the retired ONTOLOGY_SERVER_CODE, set alone, authorises nothing', () => {
-		const answer = drive('zzretired', {
-			ONTOLOGY_SERVER_CODE: 'zzretired',
+		const answer = drive('zzretiredmanifest', {
+			ONTOLOGY_SERVER_CODE: 'zzretiredmanifest',
 			ONTOLOGY_SERVERS: '[]',
 		});
 		expect(answer.code, JSON.stringify(answer)).toBe('update_server.refused');

@@ -7,7 +7,8 @@
  * Raw rows on purpose: the converter must judge the bytes an import or an old install
  * leaves, not what a save door would have normalised. Suite database only
  * (assertTestDatabase before the first write); `sweepMachineNameScratch` removes the
- * rows AND any dd_ontology projection a rebuild made of them.
+ * rows, any dd_ontology projection a rebuild made of them, and the Time Machine rows an
+ * armed apply's saves wrote.
  */
 
 import { deleteTldNodes } from '../../src/core/db/dd_ontology.ts';
@@ -119,10 +120,11 @@ export async function deleteMachineNameScratch(
 	await clearOntologyDerivedCaches();
 }
 
-/** Every record of `<tld>0` and its projection gone. */
+/** Every record of `<tld>0`, its projection and its Time Machine rows (an armed apply's saves) gone. */
 export async function sweepMachineNameScratch(tld: string): Promise<void> {
 	await assertTestDatabase('sweepMachineNameScratch');
 	await sql.unsafe('DELETE FROM matrix_ontology WHERE section_tipo = $1', [`${tld}0`]);
+	await sql.unsafe('DELETE FROM matrix_time_machine WHERE section_tipo = $1', [`${tld}0`]);
 	await deleteTldNodes(tld);
 	await clearOntologyDerivedCaches();
 }
@@ -135,4 +137,23 @@ export async function scratchBytes(tld: string): Promise<string> {
 		[`${tld}0`],
 	)) as { section_id: number; s: string | null; r: string | null }[];
 	return JSON.stringify(rows);
+}
+
+/** The stored `string` + `relation` of ONE record of `<tld>0`, as text (per-record byte probes). */
+export async function scratchRecordBytes(tld: string, sectionId: number): Promise<string> {
+	const rows = (await sql.unsafe(
+		`SELECT string::text AS s, relation::text AS r FROM matrix_ontology
+		  WHERE section_tipo = $1 AND section_id = $2`,
+		[`${tld}0`, sectionId],
+	)) as { s: string | null; r: string | null }[];
+	return JSON.stringify(rows);
+}
+
+/** How many Time Machine rows `<tld>0` holds (an armed apply writes one per saved key). */
+export async function scratchTimeMachineRows(tld: string): Promise<number> {
+	const rows = (await sql.unsafe(
+		'SELECT count(*)::int AS n FROM matrix_time_machine WHERE section_tipo = $1',
+		[`${tld}0`],
+	)) as { n: number }[];
+	return rows[0]?.n ?? 0;
 }

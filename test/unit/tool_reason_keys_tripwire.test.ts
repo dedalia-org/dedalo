@@ -392,7 +392,7 @@ const CONTEXTUAL_CAUSE = new Error('driver said no');
 const CONTEXTUAL = new DedaloError('tool.source_unavailable', {
 	message: 'log-only text',
 	details: { reason_key: 'down', site: 'tiles.example.org' },
-	coordinates: { tipo: 'zz1' },
+	coordinates: { tipo: 'test1' },
 	retryAfterMs: 1500,
 	extend: { candidates: 2 },
 	cause: CONTEXTUAL_CAUSE,

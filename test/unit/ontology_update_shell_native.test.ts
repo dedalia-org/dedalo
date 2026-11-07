@@ -510,7 +510,7 @@ describe('an ontology SERVER pulling from a remote provider (promotion, e.g. mas
 		const { ioBaseDir, changesDir } = makeDirs();
 		const catalog = {
 			servers: [
-				{ code: 'zzclient', url: 'http://x.example/api/' },
+				{ code: 'zzshellclient', url: 'http://x.example/api/' },
 				{ code: 'zzdbeta', url: 'http://y.example/api/', tlds: [TLD] },
 			],
 			isOntologyServer: true,

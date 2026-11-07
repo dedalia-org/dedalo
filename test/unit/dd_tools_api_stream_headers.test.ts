@@ -35,6 +35,7 @@ afterAll(() => {
 describe('dd_tools_api.tool_request stream-header merge', () => {
 	test('merges the tool streamHeaders over the default Content-Type', async () => {
 		mock.module('../../src/core/tools/dispatch.ts', () => ({
+			...REAL_DISPATCH_MODULE,
 			dispatchToolRequest: async () => ({
 				result: true,
 				msg: 'OK',
@@ -64,6 +65,7 @@ describe('dd_tools_api.tool_request stream-header merge', () => {
 
 	test('falls back to ndjson Content-Type when the tool declares no streamContentType', async () => {
 		mock.module('../../src/core/tools/dispatch.ts', () => ({
+			...REAL_DISPATCH_MODULE,
 			dispatchToolRequest: async () => ({
 				result: true,
 				msg: 'OK',

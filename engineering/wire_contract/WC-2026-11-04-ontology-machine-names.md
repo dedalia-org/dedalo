@@ -302,3 +302,21 @@ TLD JSON is unconverted: its loader fills the pair through the same legacy deriv
 - **Gates.** `NAME_MODELS` is pinned literally in `machine_name_kernel`; G6 walks the
   registered engine-source lister (census_derivation_tripwire); G2's mutation claim names
   only discriminating records.
+
+## Addendum 2026-11-07 — the armed apply is driven (P3)
+
+- **Trigger.** The vendored 7.0 release (re-exported from beta7) defines ontology43/44, so the
+  suite database is ARMED: `machine_name_reconcile_native`'s unarmed legs went red on purpose
+  ("write the armed apply legs").
+- **Gate now.** On the `zzmr` scratch section: class L through the save door (a TM row per
+  key), the touched TLD rebuilt and its projection carrying `machine_name` + `use_machine_name`,
+  S and C byte-equal, a second run at drift 0; class S moves the name and keeps the stray as
+  the node's only label (D3); the package import rewrite converts L WITHOUT a TM row and
+  states what it left in one operator line; the ontology-server rule (unscoped refused,
+  scoped passes, import refused outright). `sweepMachineNameScratch` also deletes the TM rows.
+- **No longer driven:** the UNARMED branch (`armingRefusal` naming the missing tipo). It is
+  unreachable on the suite (its release defines both tipos) and is one `getModelByTipo` null
+  check. A rebuild of a scratch TLD answers `ok:false` only for `mainNodeOk` (no hierarchy
+  registry row) — the gate asserts the derived rows, not that flag.
+- **Gate reconciliation:** no fixture in `test/parity/fixtures/oracle_harvest/` is touched.
+  Re-harvest: impossible, not needed.

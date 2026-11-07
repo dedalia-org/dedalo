@@ -560,7 +560,7 @@ describe('public host — the routes', () => {
 			const asked = questionsOver({ route }).filter((q) => q.key === 'public_host');
 			expect(asked.length, route).toBeGreaterThan(0);
 		}
-		const production = questionsOver({ route: 'production', instance: 'zzpub' });
+		const production = questionsOver({ route: 'production', instance: 'zzpubhost' });
 		const docker = questionsOver({ route: 'docker' });
 		for (const [route, questions] of [
 			['production', production],

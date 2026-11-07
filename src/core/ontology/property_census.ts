@@ -159,10 +159,6 @@ export const RETIRED_PROPERTY_KEYS: Readonly<Record<string, RetiredPropertyKey>>
 		reason: 'v6 hand-written SQL fragment grammar (2 nodes). No v7 answer: search is SQO-driven.',
 		replacement: null,
 	},
-	delete_action_pre: {
-		reason: 'v6 pre-delete hook name; no hook registry in this engine reads it.',
-		replacement: null,
-	},
 	copy_value: {
 		reason: 'An install-specific v6 tool flag (tool_numisdata_order_coins); no engine reader.',
 		replacement: null,

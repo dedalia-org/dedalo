@@ -110,7 +110,7 @@ describe('serve_ontology widget — serving readout', () => {
 		const boot = panelServingWith({
 			IS_AN_ONTOLOGY_SERVER: 'true',
 			// the retired key set ALONE does not count as an accepted code
-			ONTOLOGY_SERVER_CODE: 'zzretired',
+			ONTOLOGY_SERVER_CODE: 'zzretiredwidget',
 			ONTOLOGY_SERVERS: '[]',
 			DEDALO_CORS_ALLOWED_ORIGINS: '["https://client.example.org"]',
 		});

@@ -1442,7 +1442,7 @@ describe.if(DB_READY)('map tile proxy — gates, door and memory, end to end', (
 			);
 			expect(denied.some((line) => line.includes(`user=${IDENTITIES.noSection.user}`))).toBe(true);
 			for (const line of denied) {
-				expect(line, 'a caller-chosen name never reaches the log').not.toContain('zz');
+				expect(line, 'a caller-chosen name never reaches the log').not.toMatch(/zz/);
 				expect(line).not.toContain(SECTION);
 			}
 			const after = getCounters();
@@ -1904,7 +1904,7 @@ describe.if(DB_READY)('map tile proxy — gates, door and memory, end to end', (
 			itemId: 1,
 		} as const;
 		for (const hostile of [
-			{ componentTipo: 'zz"]) || (1' },
+			{ componentTipo: 'zztile"]) || (1' },
 			{ key: 'sources"][*] ? (@.id == 1' },
 			{ key: 'Sources' },
 			{ itemId: 0 },
