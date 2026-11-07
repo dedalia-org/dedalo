@@ -160,8 +160,9 @@ export function installedRootEntriesOf(treeRoot: string): ReadonlySet<string> | 
 /** The tree's own release-root manifest; undefined when absent or malformed. */
 function readReleaseRootManifestOf(treeRoot: string): readonly string[] | undefined {
 	try {
-		const value: unknown = JSON.parse(readFileSync(join(treeRoot, RELEASE_ROOT_MANIFEST_PATH), 'utf8'));
-		return optionalRootEntries((value as { root_entries?: unknown } | null)?.root_entries).root_entries;
+		const value: unknown = JSON.parse(readTreeFile(treeRoot, RELEASE_ROOT_MANIFEST_PATH) ?? 'null');
+		return optionalRootEntries((value as { root_entries?: unknown } | null)?.root_entries)
+			.root_entries;
 	} catch {
 		return undefined;
 	}
@@ -174,7 +175,17 @@ function readReleaseRootManifestOf(treeRoot: string): readonly string[] | undefi
  */
 export function readInstallStampOf(treeRoot: string): InstallStamp | null {
 	try {
-		return parseInstallStamp(readFileSync(join(treeRoot, INSTALL_STAMP_PATH), 'utf8'));
+		const text = readTreeFile(treeRoot, INSTALL_STAMP_PATH);
+		return text === null ? null : parseInstallStamp(text);
+	} catch {
+		return null;
+	}
+}
+
+/** The ONE file read of this module (a tree's stamp or its release-root manifest); null when unreadable. */
+function readTreeFile(treeRoot: string, rel: string): string | null {
+	try {
+		return readFileSync(join(treeRoot, rel), 'utf8');
 	} catch {
 		return null;
 	}

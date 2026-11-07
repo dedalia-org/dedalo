@@ -308,7 +308,9 @@ describe('serve_code build feedback', () => {
 			'build_mark && build_mark.channel===channel',
 		).toBe(true);
 		expect(
-			has('render_code_server_status = (parent, code_server, mount_builder, build_mark, details_open) =>'),
+			has(
+				'render_code_server_status = (parent, code_server, mount_builder, build_mark, details_open) =>',
+			),
 		).toBe(true);
 	});
 
@@ -411,8 +413,11 @@ describe('client constructors keep their prototype', () => {
 		for (const rel of readdirSync(client, { recursive: true }) as string[]) {
 			if (!rel.endsWith('.js') || rel.includes('node_modules') || rel.includes('/lib/')) continue;
 			const src = readFileSync(join(client, rel), 'utf8');
-			for (const [, name] of src.matchAll(/^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/gm)) {
-				if (new RegExp(`^${name.replace(/\$/g, '\\$')}\\.prototype\\.`, 'm').test(src)) offenders.push(`${rel}: ${name}`);
+			for (const [, name = ''] of src.matchAll(
+				/^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/gm,
+			)) {
+				if (new RegExp(`^${name.replace(/\$/g, '\\$')}\\.prototype\\.`, 'm').test(src))
+					offenders.push(`${rel}: ${name}`);
 			}
 		}
 		expect(offenders).toEqual([]);

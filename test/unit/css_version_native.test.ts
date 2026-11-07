@@ -124,7 +124,13 @@ const memoryStore = (
 	seed: Record<string, string> = {},
 ): Store & { data: Record<string, string> } => {
 	const data = { ...seed };
-	return { data, getItem: (k) => data[k] ?? null, setItem: (k, v) => void (data[k] = v) };
+	return {
+		data,
+		getItem: (k) => data[k] ?? null,
+		setItem: (k, v) => {
+			data[k] = v;
+		},
+	};
 };
 const blockedStore: Store = {
 	getItem() {
@@ -140,7 +146,11 @@ function runHeadInit(storage: Store): { written: string[]; attrs: Record<string,
 	const written: string[] = [];
 	const attrs: Record<string, string> = {};
 	const document = {
-		documentElement: { setAttribute: (k: string, v: string) => void (attrs[k] = v) },
+		documentElement: {
+			setAttribute: (k: string, v: string) => {
+				attrs[k] = v;
+			},
+		},
 		currentScript: { src: `${PAGE_URL}js/head-init.js` },
 		write: (html: string) => void written.push(html),
 	};

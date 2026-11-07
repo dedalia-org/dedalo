@@ -249,7 +249,10 @@ describe('consumer status', () => {
 			writeFileSync(join(tree, 'README.md'), '');
 			const manifest = join(tree, RELEASE_ROOT_MANIFEST_PATH);
 			mkdirSync(dirname(manifest), { recursive: true });
-			writeFileSync(manifest, JSON.stringify({ root_entries: ['README.md', 'engineering', 'src'] }));
+			writeFileSync(
+				manifest,
+				JSON.stringify({ root_entries: ['README.md', 'engineering', 'src'] }),
+			);
 			expect(rootEntriesCheck(tree).check).toEqual({ id: 'root_entries', state: 'ok' });
 			writeFileSync(join(tree, 'my_notes.txt'), '');
 			expect(rootEntriesCheck(tree).check).toEqual({
@@ -279,7 +282,14 @@ describe('consumer status', () => {
 			const tree = mkdtempSync(join(tmpdir(), 'dedalo_status_space_'));
 			try {
 				return byId(
-					(await consumerStatus(who, { backupDir: PANEL_BACKUP_DIR, waitMs: 2_000, treeRoot: tree, ...seams })).checks,
+					(
+						await consumerStatus(who, {
+							backupDir: PANEL_BACKUP_DIR,
+							waitMs: 2_000,
+							treeRoot: tree,
+							...seams,
+						})
+					).checks,
 					'disk_space',
 				);
 			} finally {
@@ -289,14 +299,18 @@ describe('consumer status', () => {
 		const GB = 1024 ** 3;
 
 		test('enough room is ok, with both figures', async () => {
-			const line = await spaceOf({ space: { measure: async () => GB, available: () => 10 * GB, exists: () => false } });
+			const line = await spaceOf({
+				space: { measure: async () => GB, available: () => 10 * GB, exists: () => false },
+			});
 			expect(line.state).toBe('ok');
 			// required = staged × SPACE_MARGIN (1.15), the pipeline's own formula
 			expect(line.detail).toBe(`${10 * GB}/${Math.round(GB * 1.15)}`);
 		});
 
 		test('a measured shortfall is BLOCKED — the refusal the pipeline would answer', async () => {
-			const line = await spaceOf({ space: { measure: async () => 2 * GB, available: () => GB, exists: () => false } });
+			const line = await spaceOf({
+				space: { measure: async () => 2 * GB, available: () => GB, exists: () => false },
+			});
 			expect(line.state).toBe('blocked');
 			expect(line.detail).toBe(`${GB}/${Math.round(2 * GB * 1.15)}`);
 		});
@@ -304,20 +318,35 @@ describe('consumer status', () => {
 		test('a measurement that outlives the wait says measuring, never ok', async () => {
 			const line = await spaceOf({
 				waitMs: 20,
-				space: { measure: () => new Promise<number>((r) => setTimeout(() => r(GB), 300)), available: () => 10 * GB, exists: () => false },
+				space: {
+					measure: () => new Promise<number>((r) => setTimeout(() => r(GB), 300)),
+					available: () => 10 * GB,
+					exists: () => false,
+				},
 			});
 			expect(line).toMatchObject({ state: 'unknown', detail: 'measuring' });
 		});
 
 		test('an unmeasurable side is unknown (the pipeline proceeds unchecked too)', async () => {
-			const line = await spaceOf({ space: { measure: async () => null, available: () => 10 * GB, exists: () => false } });
+			const line = await spaceOf({
+				space: { measure: async () => null, available: () => 10 * GB, exists: () => false },
+			});
 			expect(line).toMatchObject({ state: 'unknown', detail: 'unmeasurable' });
 		});
 
 		test('only the superuser panel pays for a walk', async () => {
 			let walked = 0;
 			const line = await spaceOf(
-				{ space: { measure: async () => { walked++; return GB }, available: () => 10 * GB, exists: () => false } },
+				{
+					space: {
+						measure: async () => {
+							walked++;
+							return GB;
+						},
+						available: () => 10 * GB,
+						exists: () => false,
+					},
+				},
 				mortal,
 			);
 			expect(line).toMatchObject({ state: 'unknown', detail: 'superuser_required' });
@@ -337,7 +366,10 @@ describe('consumer status', () => {
 			expect(installedRootEntriesOf(tree)).toBeNull();
 			const stamp = join(tree, INSTALL_STAMP_PATH);
 			mkdirSync(dirname(stamp), { recursive: true });
-			writeFileSync(stamp, JSON.stringify({ digest: 'e'.repeat(64), channel: 'master', root_entries: ['c'] }));
+			writeFileSync(
+				stamp,
+				JSON.stringify({ digest: 'e'.repeat(64), channel: 'master', root_entries: ['c'] }),
+			);
 			expect([...(installedRootEntriesOf(tree) ?? [])]).toEqual(['c']);
 		} finally {
 			rmSync(tree, { recursive: true, force: true });
