@@ -263,6 +263,13 @@
 	// light (#c4511d) and BRIGHT in dark (#f08245), i.e. the opposite lightness to
 	// the brand fill in the same theme, so it cannot share --fg_on_brand.
 	--fg_on_warning:   #ffffff;
+	// THESAURUS INDEXATION BADGE ("U:N", IMG, M, NA). Secondary info, so the
+	// light theme deliberately keeps the brand orange + white ink at opacity
+	// 0.75 (ts_object.less) — a KNOWN sub-AA pair (2.44:1 before the opacity),
+	// accepted 2026-11-07 for its low weight beside the term. Dark is AA: a
+	// brown tint with orange ink, 5.70:1, no opacity.
+	--ts_badge_bg:  var(--color_orange_dedalo);
+	--ts_badge_fg:  #ffffff;
 	--border_default:  var(--color_grey_13);
 	--border_strong:   var(--color_grey_11);
 	--shadow_default:  rgba(0, 0, 0, 0.1);

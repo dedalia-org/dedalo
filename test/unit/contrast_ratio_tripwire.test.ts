@@ -91,7 +91,8 @@
  * vanished small one inside.
  *
  * EXEMPTIONS are enumerated below, keyed (sheet, selector, palette), one reason
- * each, shrink-only; an exemption whose pair no longer fails is red.
+ * each (a proven shadow, or an owner-accepted secondary-info pair), shrink-only;
+ * an exemption whose pair no longer fails is red.
  */
 import { describe, expect, test } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
@@ -150,16 +151,27 @@ const STANDALONE_DOCUMENTS: ReadonlyArray<{ entrypoint: string; document: string
  * selector and the palette it fails under (a selector recurs across sheets and a
  * pair can fail under one palette and pass under another). A listed entry that
  * no longer fails is red: the exemption outlived the pair it excused. The only
- * admissible reason is a PROVEN shadow — a same-document rule of higher
- * specificity that always paints over this one — cited by file and line; a
- * failing pair is otherwise a FIX (retune the token, consume `--fg_on_brand`).
+ * admissible reasons are (a) a PROVEN shadow — a same-document rule of higher
+ * specificity that always paints over this one — cited by file and line, or
+ * (b) an OWNER-ACCEPTED sub-AA pair on secondary, non-essential information,
+ * stating who decided, when, and the measured ratio. A failing pair is
+ * otherwise a FIX (retune the token, consume `--fg_on_brand`).
  */
+const TS_BADGE_SELECTOR =
+	'.wrap_ts_object > .content_data > .elements_container .button_show_indexations, .wrap_ts_object > .content_data > .elements_container .default';
+const TS_BADGE_REASON =
+	'(b) owner-accepted 2026-11-07: thesaurus indexation badge (U:N, IMG, M, NA) is secondary info; light theme keeps brand orange + white ink at opacity 0.75 by design (2.44:1 before opacity). Dark theme is AA (--ts_badge_* tint, 5.70:1). Tokens: vars_tokens.less --ts_badge_bg/--ts_badge_fg.';
 const EXEMPTIONS: ReadonlyArray<{
 	sheet: string;
 	selector: string;
 	palette: string;
 	reason: string;
-}> = [];
+}> = ['frame', 'lift', 'light', 'margin'].map((palette) => ({
+	sheet: 'client/dedalo/core/page/css/main.css',
+	selector: TS_BADGE_SELECTOR,
+	palette,
+	reason: TS_BADGE_REASON,
+}));
 
 // ---------------------------------------------------------------------------
 // Colour maths (WCAG 2.1 relative luminance / contrast ratio).

@@ -24,6 +24,13 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Thesaurus indexation badges: white text in the light theme, a readable brown tint in the dark theme.**
+
+    The small badges after a thesaurus term (`U:N` indexation count, `IMG`, `M`, `NA`)
+    are back to white text on the Dédalo orange in the light theme, kept soft so they do
+    not compete with the term. In the dark theme they are now a brown tint with orange
+    text, which meets the WCAG AA contrast minimum.
+
 - **JSON fields save when you leave them, like every other field.**
 
     Before, a change in a JSON field was not saved when you clicked out of it, but it was saved later, the next time you clicked into any field, which made saving look random. Now a JSON field saves when you leave it, like every other field; only content that is valid JSON is saved, and emptying the editor clears the value. Going back to the saved value also clears the unsaved state, so the Save button dims again.

@@ -15,7 +15,7 @@
 	@ts_object_line_height: 20px;
 	@grey_color: @color_grey_11;
 	@grey_dark_color: @color_grey_1;
-	@ts_dark_orange_strength: 0.55; // dark-mode orange of indexation badges + expand arrow
+	@ts_dark_orange_strength: 0.55; // dark-mode orange of the expand arrow
 	// id-column icons: one hit box for every button, and one INK size all four
 	// icons are normalized to. `mask-size` must be absolute px, never a %: a %
 	// resolves against the (flex-shrinkable) box, so any width pressure in the
@@ -444,15 +444,17 @@
 				display: inline-flex;
 				align-items: center;
 				justify-content: center;
-				background-color: @color_orange_dedalo;
+				// light: orange + white at 0.75 (accepted sub-AA, secondary info);
+				// dark: AA tint, full opacity — tokens in vars_tokens / theme_dark
+				background-color: var(--ts_badge_bg);
 				opacity: 0.75;
 				[data-theme="dark"] & {
-					opacity: @ts_dark_orange_strength; // toned down; arrow uses the same value
+					opacity: 1;
 				}
 				border: 0px;
 				padding-left: 3px;
 				padding-right: 3px;
-				color: var(--fg_on_brand); // ink on the brand fill (white was 2.44:1)
+				color: var(--ts_badge_fg);
 				border-radius: 3px;
 				margin: 0px;
 				margin-right: 5px;
@@ -513,6 +515,10 @@
 				&:hover {
 					color: @color_white !important;
 					opacity: 1;
+				}
+				// --color_white is dark in dark theme: keep the badge's own ink on hover
+				&.button_show_indexations:hover {
+					color: var(--ts_badge_fg) !important;
 				}
 				&:active {
 					background-color: @color_grey_13;
