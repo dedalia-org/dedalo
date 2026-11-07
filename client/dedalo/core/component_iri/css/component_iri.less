@@ -192,6 +192,9 @@
 				// input (text title && url)
 				>.input_value {
 					padding-right: 0.5rem;
+					// the global input margin-right (0.5em) pushed the url's end left of
+					// the overlaid actions cluster, whose opaque ramp then hid the right outline
+					margin-right: 0px;
 
 					&.title {
 						flex: 1 1 12rem;

@@ -25096,6 +25096,7 @@ body.inspector_resizing {
 }
 .component_iri.edit > .content_data > .content_value > .input_value {
   padding-right: 0.5rem;
+  margin-right: 0px;
 }
 .component_iri.edit > .content_data > .content_value > .input_value.title {
   flex: 1 1 12rem;
