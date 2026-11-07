@@ -5526,7 +5526,7 @@ dd-modal .wrapper_component > .content_data.vertical,
 .section_record.edit .wrapper_component.edit:not(.active) > .label {
   color: var(--field_label_fg);
   font-size: 1rem;
-  font-weight: 300;
+  font-weight: 200;
 }
 .section_record.edit .wrapper_component.edit > .content_data {
   color: var(--field_value_fg);
