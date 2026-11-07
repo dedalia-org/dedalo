@@ -43,9 +43,8 @@
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import { parse } from '@babel/parser';
-import { Glob } from 'bun';
 import { config } from '../../src/config/config.ts';
 import {
 	APP_CSP,
@@ -60,6 +59,7 @@ import {
 import { findBuiltinSource } from '../../src/core/geo/tile_proxy/builtin_sources.ts';
 
 import { type AstNode, nameOf, walkAst } from '../helpers/ast_walk.ts';
+import { browserSources } from '../helpers/browser_corpus.ts';
 
 const ROOT = join(import.meta.dir, '..', '..');
 
@@ -402,7 +402,10 @@ describe('XSS-02 — enforcing app CSP', () => {
 		const direct = new Set<string>();
 		const unprovable: string[] = [];
 		let filesWithLayers = 0;
-		for (const file of clientScriptFiles()) {
+		const scripts = clientScriptFiles();
+		// the walk itself floors: an empty corpus would prove nothing below
+		expect(scripts.length).toBeGreaterThan(100);
+		for (const file of scripts) {
 			const text = readFileSync(join(ROOT, file), 'utf8');
 			if (!LAYER_WORDS.test(text)) continue;
 			const found = layerAddresses(text);
@@ -513,18 +516,13 @@ const WMS_NAMES: ReadonlySet<string> = new Set(['wms', 'WMS']);
 /** A cheap text filter before the parse: a file that never names a layer constructor has none. */
 const LAYER_WORDS = /tileLayer|TileLayer|imageOverlay|ImageOverlay|videoOverlay|VideoOverlay/;
 
-/** The scripts the page or a tool loads: every .js of client/ and tools/ except libraries and the client's own tests. */
+/**
+ * The scripts the page or a tool loads: the browser corpus (the ONE lister that owns
+ * client/ + tools/ — vendored lib/vendor/node_modules and min builds out), minus the
+ * client's own test tree, which the page never loads.
+ */
 function clientScriptFiles(): string[] {
-	const found: string[] = [];
-	for (const pattern of ['client/**/*.js', 'tools/**/*.js']) {
-		for (const file of new Glob(pattern).scanSync({ cwd: ROOT })) {
-			const path = relative(ROOT, join(ROOT, file));
-			const skipped =
-				/(?:^|\/)(?:lib|node_modules)\//.test(path) || path.startsWith('client/dedalo/test/');
-			if (!skipped) found.push(path);
-		}
-	}
-	return found;
+	return browserSources().filter((path) => !path.startsWith('client/dedalo/test/'));
 }
 
 /** What one layer's address is: the proxy, a host, the page's own origin, or beyond proof. */

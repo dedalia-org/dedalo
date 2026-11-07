@@ -274,6 +274,8 @@ const CLOSED_SET_EXEMPTION_CAP = 5;
 const ENUMERATED_HAND_PATH_LISTS: Readonly<Record<string, string>> = {
 	// (2026-10-21) lint_scope_tripwire left this list: it now reads the daemon
 	// package census from test/helpers/daemon_package_corpus.ts, a registered lister.
+	'test/unit/no_install_surface_tripwire.test.ts':
+		"gate (c)'s four paths are a POSITIVE CONTROL, not a corpus: they prove the installer's derived static import closure (a Bun.Transpiler walk from scripts/install.ts + install_main.ts) actually reaches the plan, its validation and the public-reach chain, so the CONFIG_FREEZING scan over that closure cannot pass vacuously on an empty or truncated walk. The census itself is derived; these name the members it must contain.",
 };
 
 /**
