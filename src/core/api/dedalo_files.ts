@@ -303,6 +303,21 @@ export function clientCssVersion(): Promise<string> {
 }
 
 async function computeCssVersion(): Promise<string> {
+	const hash = createHash('sha256');
+	for (const [url, path] of versionedStylesheets()) {
+		hash.update(url).update('\0');
+		try {
+			hash.update(await Bun.file(path).bytes());
+		} catch {
+			hash.update('\0missing');
+		}
+		hash.update('\n');
+	}
+	return hash.digest('hex').slice(0, 16);
+}
+
+/** [url, disk path] of every stylesheet whose URL carries the css version. */
+function versionedStylesheets(): [url: string, path: string][] {
 	const files: [url: string, path: string][] = [
 		[`${CORE_URL}/page/css/main.css`, `${CLIENT_CORE_ROOT}/page/css/main.css`],
 	];
@@ -315,17 +330,7 @@ async function computeCssVersion(): Promise<string> {
 			if (rel.split('/')[2] === 'css') files.push([root.url + rel, root.path + rel]);
 		}
 	}
-	const hash = createHash('sha256');
-	for (const [url, path] of files) {
-		hash.update(url).update('\0');
-		try {
-			hash.update(await Bun.file(path).bytes());
-		} catch {
-			hash.update('\0missing');
-		}
-		hash.update('\n');
-	}
-	return hash.digest('hex').slice(0, 16);
+	return files;
 }
 
 /**

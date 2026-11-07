@@ -39,13 +39,7 @@ export async function handleLabelsRequest(
 	requestId: string = crypto.randomUUID(),
 ): Promise<Response> {
 	const requested = url.searchParams.get('lang');
-	if (requested === null || requested === 'all' || !isValidLang(requested)) {
-		const converted = toErrorEnvelope(new DedaloError('resource.not_found'), { requestId });
-		return new Response(JSON.stringify(converted.body), {
-			status: converted.status,
-			headers: { 'Content-Type': 'application/json', ...SECURITY_HEADERS },
-		});
-	}
+	if (!isServableLang(requested)) return notFound(requestId);
 
 	const lang = labelsServingLang(requested);
 	const version = await getLabelsVersion(lang);
@@ -61,9 +55,27 @@ export async function handleLabelsRequest(
 		return new Response(null, { status: 304, headers });
 	}
 
+	const body = await encodeBody(request, lang, headers);
+	return new Response(request.method === 'HEAD' ? null : body, { headers });
+}
+
+function isServableLang(requested: string | null): requested is string {
+	return requested !== null && requested !== 'all' && isValidLang(requested);
+}
+
+function notFound(requestId: string): Response {
+	const converted = toErrorEnvelope(new DedaloError('resource.not_found'), { requestId });
+	return new Response(JSON.stringify(converted.body), {
+		status: converted.status,
+		headers: { 'Content-Type': 'application/json', ...SECURITY_HEADERS },
+	});
+}
+
+/** The dictionary bytes, gzipped (and `headers` marked) when the client accepts it and it pays. */
+async function encodeBody(request: Request, lang: string, headers: Headers): Promise<BodyInit> {
 	const bytes = new TextEncoder().encode(JSON.stringify(await getLabels(lang)));
 	const acceptsGzip = (request.headers.get('accept-encoding') ?? '').includes('gzip');
-	const body = acceptsGzip && bytes.byteLength > MIN_GZIP_BYTES ? Bun.gzipSync(bytes) : bytes;
-	if (body !== bytes) headers.set('Content-Encoding', 'gzip');
-	return new Response(request.method === 'HEAD' ? null : (body as BodyInit), { headers });
+	if (!acceptsGzip || bytes.byteLength <= MIN_GZIP_BYTES) return bytes as BodyInit;
+	headers.set('Content-Encoding', 'gzip');
+	return Bun.gzipSync(bytes) as BodyInit;
 }

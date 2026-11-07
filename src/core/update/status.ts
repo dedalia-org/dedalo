@@ -486,17 +486,24 @@ function diskSpaceCheck(
 			PRESERVE_ROOT_ENTRIES,
 			seams.space,
 		);
-		if ('pending' in answer) return check('disk_space', 'unknown', 'measuring', backupRoot);
-		if (answer.available === null || answer.required === null) {
-			return check('disk_space', 'unknown', 'unmeasurable', backupRoot);
-		}
-		return check(
-			'disk_space',
-			answer.sufficient ? 'ok' : 'blocked',
-			`${answer.available}/${answer.required}`,
-			backupRoot,
-		);
+		return diskSpaceVerdict(answer, backupRoot);
 	});
+}
+
+function diskSpaceVerdict(
+	answer: Awaited<ReturnType<typeof checkUpdateSpaceWithin>>,
+	backupRoot: string,
+): StatusCheck {
+	if ('pending' in answer) return check('disk_space', 'unknown', 'measuring', backupRoot);
+	if (answer.available === null || answer.required === null) {
+		return check('disk_space', 'unknown', 'unmeasurable', backupRoot);
+	}
+	return check(
+		'disk_space',
+		answer.sufficient ? 'ok' : 'blocked',
+		`${answer.available}/${answer.required}`,
+		backupRoot,
+	);
 }
 
 /** A root entry the repo tracks but no release ships: only the SYMLINK a
@@ -696,7 +703,8 @@ export async function consumerStatus(
 			engine_version: DEDALO_ENGINE_VERSION,
 			release_kind: RELEASE_IDENTITY.kind,
 			build: DEDALO_BUILD,
-			date: DEDALO_BUILD ?? (git(seams.treeRoot ?? projectRoot, ['log', '-1', '--format=%cI']) || null),
+			date:
+				DEDALO_BUILD ?? (git(seams.treeRoot ?? projectRoot, ['log', '-1', '--format=%cI']) || null),
 			sha: DEDALO_BUILD_SHA,
 			posture: enginePosture(DEDALO_BUILD, INSTALLED_CHANNEL),
 			// WHICH ARCHIVE is live, and from which channel (install_stamp.ts).

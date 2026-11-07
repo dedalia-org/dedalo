@@ -155,10 +155,7 @@ export const PANEL_SPACE_TTL_MS = 10 * 60 * 1000;
  * on the measured tree + the preserved set; ONE `du` per key at a time, shared
  * by every asker. No request identity.
  */
-const panelStagedBytes = new Map<
-	string,
-	{ promise: Promise<number | null>; settledAt: number | null; bytes: number | null }
->();
+const panelStagedBytes = new Map<string, PanelEntry>();
 
 /**
  * The SAME verdict as `checkUpdateSpace`, for the readiness PANEL: the free
@@ -178,33 +175,11 @@ export async function checkUpdateSpaceWithin(
 ): Promise<UpdateSpaceVerdict | PendingSpace> {
 	const { available: availableOf, measure, exists } = resolveSeams(seams);
 	const key = [targetRoot, ...[...preserved].sort()].join('\0');
-	let entry = panelStagedBytes.get(key);
-	if (entry !== undefined && entry.settledAt !== null && Date.now() - entry.settledAt > PANEL_SPACE_TTL_MS) {
-		panelStagedBytes.delete(key);
-		entry = undefined;
-	}
-	if (entry === undefined) {
-		const fresh = {
-			promise: Promise.resolve(null as number | null),
-			settledAt: null as number | null,
-			bytes: null as number | null,
-		};
-		fresh.promise = stagedBytes(targetRoot, preserved, measure, exists).then(
-			(bytes) => {
-				fresh.bytes = bytes;
-				fresh.settledAt = Date.now();
-				return bytes;
-			},
-			(error: unknown) => {
-				// detached after a lost wait: logged, never an unhandled rejection
-				console.error(`[code update] panel tree measurement of '${targetRoot}' failed:`, error);
-				panelStagedBytes.delete(key);
-				return null;
-			},
-		);
-		panelStagedBytes.set(key, fresh);
-		entry = fresh;
-	}
+	const entry = panelEntry(
+		key,
+		() => stagedBytes(targetRoot, preserved, measure, exists),
+		targetRoot,
+	);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const lost = new Promise<'lost'>((resolveLost) => {
 		timer = setTimeout(() => resolveLost('lost'), maxWaitMs);
@@ -218,6 +193,39 @@ export async function checkUpdateSpaceWithin(
 	} finally {
 		clearTimeout(timer);
 	}
+}
+
+type PanelEntry = {
+	promise: Promise<number | null>;
+	settledAt: number | null;
+	bytes: number | null;
+};
+
+/** The shared measurement for `key`: the live one, or a fresh one started now (an expired one is dropped). */
+function panelEntry(
+	key: string,
+	measureTree: () => Promise<number | null>,
+	targetRoot: string,
+): PanelEntry {
+	const entry = panelStagedBytes.get(key);
+	const expired = entry?.settledAt != null && Date.now() - entry.settledAt > PANEL_SPACE_TTL_MS;
+	if (entry !== undefined && !expired) return entry;
+	const fresh: PanelEntry = { promise: Promise.resolve(null), settledAt: null, bytes: null };
+	fresh.promise = measureTree().then(
+		(bytes) => {
+			fresh.bytes = bytes;
+			fresh.settledAt = Date.now();
+			return bytes;
+		},
+		(error: unknown) => {
+			// detached after a lost wait: logged, never an unhandled rejection
+			console.error(`[code update] panel tree measurement of '${targetRoot}' failed:`, error);
+			panelStagedBytes.delete(key);
+			return null;
+		},
+	);
+	panelStagedBytes.set(key, fresh);
+	return fresh;
 }
 
 /** Forget the panel's measurements (test seam). */

@@ -33,9 +33,7 @@ import {
  * `code_server` is null on the development entity when it is not a code server:
  * the panel then says which key makes it one, and offers no build.
  */
-export const render_serve_code = function () {
-	return true;
-}; //end render_serve_code
+export const render_serve_code = () => true; //end render_serve_code
 
 /**
  * LIST
@@ -45,18 +43,16 @@ export const render_serve_code = function () {
  * @returns {Promise<HTMLElement>}
  */
 render_serve_code.prototype.list = async function (options) {
-	const self = this;
-
 	const render_level = options.render_level || 'full';
 
 	// content_data
-	const content_data = get_content_data_edit(self);
+	const content_data = get_content_data_edit(this);
 	if (render_level === 'content') {
 		return content_data;
 	}
 
 	// wrapper
-	const wrapper = ui.widget.build_wrapper_edit(self, {
+	const wrapper = ui.widget.build_wrapper_edit(this, {
 		content_data: content_data,
 	});
 	wrapper.content_data = content_data;
@@ -69,7 +65,7 @@ render_serve_code.prototype.list = async function (options) {
  * @param {Object} self - serve_code widget instance
  * @returns {HTMLElement} content_data
  */
-const get_content_data_edit = function (self) {
+const get_content_data_edit = (self) => {
 	const value = self.value || {};
 
 	const content_data = ui.create_dom_element({
@@ -164,7 +160,13 @@ const get_content_data_edit = function (self) {
  * @param {boolean} [details_open] - re-open Details (a post-build re-render)
  * @returns {HTMLElement|null}
  */
-const render_code_server_status = function (parent, code_server, mount_builder, build_mark, details_open) {
+const render_code_server_status = (
+	parent,
+	code_server,
+	mount_builder,
+	build_mark,
+	details_open,
+) => {
 	if (!code_server) return null;
 
 	const wrapper = ui.create_dom_element({
@@ -189,8 +191,9 @@ const render_code_server_status = function (parent, code_server, mount_builder, 
 		const key = release.channel === 'prerelease' ? release.identity : release.version;
 		return target === null || target === undefined || key === target;
 	};
-	const published = releases.find((release) => release.channel === 'master' && is_target(release))
-		|| releases.find((release) => release.channel === 'master');
+	const published =
+		releases.find((release) => release.channel === 'master' && is_target(release)) ||
+		releases.find((release) => release.channel === 'master');
 	const headline = ui.create_dom_element({
 		element_type: 'div',
 		class_name: 'status_block published_version',
@@ -301,7 +304,11 @@ const render_code_server_status = function (parent, code_server, mount_builder, 
 	});
 
 	// every check, with per-state counts on the closed fold
-	const all_checks = fold_section(details_body, 'serve_checks', get_label.update_code_all_checks || 'All checks');
+	const all_checks = fold_section(
+		details_body,
+		'serve_checks',
+		get_label.update_code_all_checks || 'All checks',
+	);
 	check_counts(all_checks.summary, checks);
 	checks.forEach((check) => {
 		check_row(all_checks.body, check);
@@ -314,10 +321,25 @@ const render_code_server_status = function (parent, code_server, mount_builder, 
 		get_label.serve_code_build_source || 'Build source',
 		{ hint: source.branch || '' },
 	).body;
-	fact_row(build_source, get_label.update_code_check_git_dir || 'Git source directory', source.git_dir, true);
+	fact_row(
+		build_source,
+		get_label.update_code_check_git_dir || 'Git source directory',
+		source.git_dir,
+		true,
+	);
 	fact_row(build_source, get_label.update_code_commit || 'Commit', source.head_sha, true);
-	fact_row(build_source, get_label.update_code_current_build || 'Current build', source.head_date, true);
-	fact_row(build_source, get_label.serve_code_head_branch || 'Checked-out branch', source.branch, true);
+	fact_row(
+		build_source,
+		get_label.update_code_current_build || 'Current build',
+		source.head_date,
+		true,
+	);
+	fact_row(
+		build_source,
+		get_label.serve_code_head_branch || 'Checked-out branch',
+		source.branch,
+		true,
+	);
 	fact_row(build_source, get_label.update_code_bun || 'Bun runtime', source.bun_pin, true);
 
 	// THE CHANNEL REFS — what each build is actually made from: a RELEASE is the
@@ -331,10 +353,20 @@ const render_code_server_status = function (parent, code_server, mount_builder, 
 	fact_row(refs, get_label.serve_code_release_ref || 'Release tag', source.release_ref, true);
 	fact_row(refs, get_label.serve_code_release_commit || 'Release commit', source.release_sha, true);
 	fact_row(refs, get_label.serve_code_release_date || 'Release date', source.release_date, true);
-	fact_row(refs, get_label.serve_code_prerelease_ref || 'Prerelease tag', source.prerelease_ref, true);
+	fact_row(
+		refs,
+		get_label.serve_code_prerelease_ref || 'Prerelease tag',
+		source.prerelease_ref,
+		true,
+	);
 	fact_row(refs, get_label.serve_code_dev_ref || 'Development branch', source.dev_ref, true);
 	fact_row(refs, get_label.serve_code_dev_commit || 'Development commit', source.dev_sha, true);
-	fact_row(refs, get_label.serve_code_dev_version || 'Development version', source.dev_version, true);
+	fact_row(
+		refs,
+		get_label.serve_code_dev_version || 'Development version',
+		source.dev_version,
+		true,
+	);
 	if (source.divergence) {
 		const behind_row = fact_row(
 			refs,
@@ -441,7 +473,7 @@ const render_code_server_status = function (parent, code_server, mount_builder, 
  * @returns {Function|null} (channel, node) => void, or null when this page
  *   provides no form builder
  */
-const make_builder_mounter = function (self, body_response, code_server, on_built) {
+const make_builder_mounter = (self, body_response, code_server, on_built) => {
 	if (!self.caller?.init_form) {
 		return null;
 	}
@@ -572,7 +604,7 @@ const make_builder_mounter = function (self, body_response, code_server, on_buil
 		},
 	};
 
-	return function (channel, node, artifact_cell, built_before) {
+	return (channel, node, artifact_cell, built_before) => {
 		const def = channels[channel];
 		if (!def) {
 			return;
