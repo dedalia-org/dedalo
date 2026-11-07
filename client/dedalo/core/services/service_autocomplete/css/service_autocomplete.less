@@ -262,25 +262,36 @@
 			}
 		}
 
+		// one row per searchable field. The rows used a FIXED 1.7rem height
+		// around a 2rem input: each input overlapped the next (borderless, so
+		// the rows read as thin white strips). Rows now take their input's
+		// height, separated by a gap, each input a bordered box.
 		>.inputs_list {
 			background-color: @color_grey_14;
-			padding: 0.5em;
+			padding: 0.5rem;
+			display: flex;
+			flex-direction: column;
+			gap: 0.25rem;
 
 			>.input_group {
 				position: relative;
-				height: 1.7rem;
 
 				>input {
-					margin: 0px;
-					margin-bottom: 2px;
+					display: block;
+					margin: 0;
+					height: 2rem;
+					border: 1px solid var(--border_default);
+					border-radius: var(--radius-sm);
 				}
 
 				// label showing the same that placeholder to allow to know what we are editing
 				>label {
 					position: absolute;
 					right: 1rem;
-					top: 0.5rem;
+					top: 50%;
+					transform: translateY(-50%);
 					color: var(--fg_muted);
+					pointer-events: none; // a click on it reaches the input
 					z-index: 2;
 				}
 			}
@@ -289,10 +300,25 @@
 		// search_operators_div
 		>.search_operators_div {
 			background-color: @color_grey_14;
-			padding: 0.25em;
-			padding-left: 0.5em;
+			padding: 0.25rem 0.5rem 0.5rem;
 			display: flex;
+			flex-wrap: wrap; // narrow panel: Max drops to its own line whole
+			align-items: center;
 			justify-content: space-between;
+			gap: 0.25rem 0.5rem;
+
+			// labels never break mid-phrase ("Search / operators")
+			.css_label,
+			.label_max {
+				white-space: nowrap;
+			}
+
+			// label + control on one line each
+			>.select_container,
+			>.max_container {
+				display: flex;
+				align-items: center;
+			}
 
 			// select_container
 			>.select_container {

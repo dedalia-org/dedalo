@@ -29,6 +29,7 @@ import {
 	expected_filter_paths,
 	relation_leaf_path
 } from './search_paths_fixture.js'
+import {open_css_frame} from './css_fixture_frame.js'
 
 
 
@@ -651,6 +652,237 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 			assert.strictEqual(rco.show.ddo_map[0].mode, 'edit', "the caller's own map keeps its edit column")
 		})
 	})//end describe build_rqo_search
+
+
+
+	// ───────────────────────────────────────────────────────────
+	// SEARCH CARD GEOMETRY — options panel (gear) + results list
+	// On the search canvas a portal card is ONE 16rem track of the group's
+	// auto-fill grid. With the options open the panel got ~190px, and the
+	// results overlay (fixed under the main input) painted over the whole
+	// panel — including the option input being typed in — and ran past the
+	// card's right edge. The option rows (fixed 1.7rem around a 2rem input)
+	// overlapped each other. This builds the search-page skeleton with the
+	// SHIPPED main.css and the render's own class names
+	// (view_default_autocomplete.js get_content_data / render_inputs_list /
+	// render_operator_selector) and measures the outcome, not a selector.
+	// ───────────────────────────────────────────────────────────
+	describe("search card: options panel and results list do not collide", function() {
+
+		const el = (tag, class_name, parent, text) => {
+			const node = parent.ownerDocument.createElement(tag)
+			if (class_name) node.className = class_name
+			if (text) node.textContent = text
+			parent.appendChild(node)
+			return node
+		}
+
+		/**
+		 * BUILD
+		 * The search page chain the group grid rule is scoped to
+		 * (search.less: .wrapper_search > .search_global_container >
+		 * .search_container_selection .search_group_container .search_group)
+		 * in its own frame: the suite frame is under the 1024px breakpoint,
+		 * where the compact tier collapses the group to ONE track.
+		 * @param {Object} [options]
+		 * @param {number} [options.frame_width=1200] - the viewport (breakpoint tier)
+		 * @param {number|null} [options.host_width=null] - the group's own room
+		 *   (side panels / nesting shrink it on a desktop window), null = the frame
+		 * @param {number} [options.rows=3] - results in the list
+		 * @param {boolean} [options.tooltip_shown=false] - the help tooltip in its
+		 *   HOVERED state (no hidden_tooltip; transition off: read at first layout)
+		 * @param {boolean} [options.open=false] - the options panel open (gear)
+		 */
+		const build = async ({frame_width = 1200, host_width = null, rows = 3, tooltip_shown = false, open = false} = {}) => {
+			const opened = await open_css_frame(frame_width, 'search_card_fixture')
+			try {
+				const host = opened.container
+				if (host_width) {
+					host.style.width = host_width + 'px'
+				}
+				const wrapper_search	= el('div', 'wrapper_search', host)
+				const global_container	= el('div', 'search_global_container', wrapper_search)
+				const selection			= el('div', 'search_container_selection', global_container)
+				const group_container	= el('div', 'search_group_container', selection)
+				const group				= el('div', 'search_group', group_container)
+
+				// the portal card + a sibling card (so the group has a row to share)
+				const card		= el('div', 'search_component', group)
+				const sibling	= el('div', 'search_component', group)
+				el('div', 'wrapper_component component_input_text search tooltip_toggle', sibling)
+
+				const component = el('div', 'wrapper_component component_portal search tooltip_toggle active', card)
+				el('div', 'label', component, 'portal')
+				// the real portal body carries the q_operator box
+				// (render_search_component_portal.js), which moves the overlay's
+				// left inset (--ac_inset_left)
+				const content_data = el('div', 'content_data', component)
+				el('input', 'q_operator', content_data)
+				const tooltip = el('div', tooltip_shown ? 'tooltip' : 'tooltip hidden_tooltip', component, 'Search options')
+				if (tooltip_shown) {
+					tooltip.style.transition = 'none'
+				}
+
+				const service = el('div', 'wrapper_service_autocomplete search active', component)
+				const options = el('div', open ? 'options_hidden visible' : 'options_hidden', service)
+				const source = el('div', 'source_selector', options)
+				el('label', 'css_label label', source, 'Source')
+				el('select', 'select_source_selector', source)
+				const filters = el('div', 'filters_container', options)
+				const filter_node = el('ul', 'filter_node', filters)
+				el('li', 'all_selector', filter_node, 'All sections')
+				el('li', '', filter_node, 'A section with a long name')
+				const inputs_list = el('div', 'inputs_list', options)
+				const input_groups = ['Name', 'Surname', 'Name'].map((label) => {
+					const group_node = el('div', 'input_group', inputs_list)
+					const input = el('input', '', group_node)
+					input.type = 'text'
+					el('label', '', group_node, label)
+					return group_node
+				})
+				const operators = el('div', 'search_operators_div', options)
+				const select_container = el('div', 'select_container', operators)
+				el('label', 'css_label label', select_container, 'Search operators')
+				const operator_select = el('select', 'operator_selector', select_container)
+				el('option', '', operator_select, 'or')
+				const max_container = el('div', 'max_container', operators)
+				el('label', 'css_label label_max', max_container, 'Max')
+				el('input', 'input_max', max_container)
+
+				const search_input = el('input', 'autocomplete_input', service)
+				search_input.type = 'text'
+				el('span', 'button_options button gear', service)
+				const datalist = el('ul', 'autocomplete_data', service)
+				for (let i = 0; i < rows; i++) {
+					el('li', 'autocomplete_data_li', datalist, 'Museu Nacional d’Art de Catalunya. Barcelona. ' + i)
+				}
+
+				return {
+					frame: opened.frame,
+					style: opened.win.getComputedStyle.bind(opened.win),
+					group, card, sibling, options, tooltip, input_groups, operators, select_container, datalist, search_input
+				}
+			} catch (error) {
+				opened.frame.remove()
+				throw error
+			}
+		}
+
+		const rect = (node) => node.getBoundingClientRect()
+		const tracks_of = (f) => f.style(f.group).gridTemplateColumns.split(' ').map(parseFloat)
+
+		// shared by every open-panel case: list under the panel and inside the
+		// card, option rows whole, operator label + select on one line
+		const assert_open_panel = (f, context) => {
+			assert.isAtLeast(rect(f.options).top, rect(f.search_input).bottom - 1, `${context}: the panel sits below the main input`)
+
+			const panel_rect	= rect(f.options)
+			const list_rect		= rect(f.datalist)
+			const card_rect		= rect(f.card)
+			assert.isAtLeast(list_rect.top, panel_rect.bottom - 1, `${context}: the results list starts below the options panel`)
+			assert.isAtLeast(list_rect.left, card_rect.left - 1, `${context}: the list does not leave the card on the left`)
+			assert.isAtMost(list_rect.right, card_rect.right + 1, `${context}: the list does not leave the card on the right`)
+			assert.isAtMost(card_rect.right, rect(f.group).right + 1, `${context}: the card does not leave its group`)
+
+			f.input_groups.forEach((group_node, i) => {
+				const input_rect = rect(group_node.querySelector('input'))
+				assert.isAtLeast(rect(group_node).height, input_rect.height - 1, `${context}: row ${i} is as tall as its input`)
+				if (i > 0) {
+					const previous = rect(f.input_groups[i - 1])
+					assert.isAtLeast(rect(group_node).top, previous.bottom - 1, `${context}: row ${i} does not overlap row ${i - 1}`)
+				}
+			})
+
+			const label_rect	= rect(f.select_container.querySelector('.css_label'))
+			const select_rect	= rect(f.select_container.querySelector('select'))
+			assert.isBelow(Math.abs(label_rect.top + label_rect.height / 2 - (select_rect.top + select_rect.height / 2)), 4, `${context}: the operator label and its select share a line`)
+			assert.isAtMost(rect(f.operators).right, panel_rect.right + 1, `${context}: the operators row stays inside the panel`)
+		}
+
+		it("desktop, roomy group: the open card takes exactly two tracks; the list hangs below the panel", async function() {
+			const f = await build()
+			try {
+				// precondition, measured: at least THREE tracks, or "two tracks,
+				// not the whole row" cannot be told apart
+				const track_sizes = tracks_of(f)
+				assert.isAtLeast(track_sizes.length, 3, 'the fixture group lays out at least three tracks')
+				const gap = parseFloat(f.style(f.group).columnGap) || 0
+				const sibling_closed_top = rect(f.sibling).top
+
+				f.options.classList.add('visible')
+
+				// `span 2`: wide enough for the panel, never the whole row —
+				// the sibling keeps its place in the same row (third track)
+				const two_tracks = track_sizes[0] + gap + track_sizes[1]
+				assert.isBelow(Math.abs(rect(f.card).width - two_tracks), 2, 'the open card is two tracks wide')
+				assert.isBelow(Math.abs(rect(f.sibling).top - sibling_closed_top), 1, 'the sibling stays in the same row')
+				assert.isAtLeast(rect(f.sibling).left, rect(f.card).right - 1, 'the sibling sits after the two-track card')
+
+				assert_open_panel(f, 'desktop')
+			} finally {
+				f.frame.remove()
+			}
+		})
+
+		it("desktop window, ONE-track group (side panels / nesting): the open card mints no implicit column", async function() {
+			// a desktop viewport (the media tier is desktop) but a group with
+			// room for one 16rem track only: what the window says is irrelevant
+			const f = await build({host_width: 420})
+			try {
+				assert.strictEqual(tracks_of(f).length, 1, 'precondition: the narrow group lays out one track')
+
+				f.options.classList.add('visible')
+
+				assert.strictEqual(tracks_of(f).length, 1, 'still one track with the panel open (no implicit column)')
+				assert.isBelow(Math.abs(rect(f.sibling).width - rect(f.card).width), 1, 'the sibling keeps the full track')
+				assert_open_panel(f, 'one-track group')
+			} finally {
+				f.frame.remove()
+			}
+		})
+
+		it("compact tier (800px window): the open card stays inside its one-track group", async function() {
+			const f = await build({frame_width: 800, open: true})
+			try {
+				assert.strictEqual(tracks_of(f).length, 1, 'the compact group lays out one track, open panel included')
+				assert_open_panel(f, 'compact')
+			} finally {
+				f.frame.remove()
+			}
+		})
+
+		it("options closed: the card keeps its track and the list stays inside it (positive control)", async function() {
+			const f = await build()
+			try {
+				const track = tracks_of(f)[0]
+				assert.isBelow(Math.abs(rect(f.card).width - track), 2, 'the closed card is one track wide')
+
+				const card_rect = rect(f.card)
+				const list_rect = rect(f.datalist)
+				assert.isAtLeast(list_rect.top, rect(f.search_input).bottom - 1, 'the list hangs under the main input')
+				assert.isAtMost(list_rect.right, card_rect.right + 1, 'the list does not leave the card on the right')
+			} finally {
+				f.frame.remove()
+			}
+		})
+
+		it("the search-options help (hovered) hides while the list has rows, and shows without them", async function() {
+			// the tooltip in its HOVERED state (general.less .tooltip_toggle:hover
+			// drops hidden_tooltip's visibility): only the results rule can hide it
+			const with_rows = await build({tooltip_shown: true, rows: 3})
+			try {
+				assert.strictEqual(with_rows.style(with_rows.tooltip).visibility, 'hidden', 'hidden while the results list has rows')
+			} finally {
+				with_rows.frame.remove()
+			}
+			const without_rows = await build({tooltip_shown: true, rows: 0})
+			try {
+				assert.strictEqual(without_rows.style(without_rows.tooltip).visibility, 'visible', 'control: visible with an empty list')
+			} finally {
+				without_rows.frame.remove()
+			}
+		})
+	})//end describe search card geometry
 
 })//end describe SERVICE_AUTOCOMPLETE
 

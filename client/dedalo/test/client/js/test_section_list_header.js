@@ -63,10 +63,7 @@
 
 import { ROW_WINDOW_MAX_ROWS } from '../../../core/common/js/row_window.js';
 import { create_record_window } from '../../../core/section_record/js/record_window.js';
-
-// the compiled stylesheet the suite frame must load, resolved from this module
-// (js/ → client/ → test/ → dedalo/ → core/page/css/main.css)
-const STYLESHEET_HREF = new URL('../../../core/page/css/main.css', import.meta.url).href;
+import { open_css_frame } from './css_fixture_frame.js';
 
 // The two content generations deliberately have DIFFERENT row heights — the
 // trigger condition for the WebKit track re-size.
@@ -92,27 +89,6 @@ let phone_win = null;
 let phone_container = null;
 // one REAL placeholder produced by create_record_window, cloned per fixture
 let placeholder_template = null;
-
-/**
- * WAIT_FOR
- * Poll a predicate until true or the timeout elapses. Used instead of the
- * link's `load` event: a stylesheet already served from cache can fire before
- * the listener is attached.
- * @param {Function} predicate
- * @param {number} [timeout_ms]
- * @returns {Promise<boolean>}
- */
-const wait_for = async (predicate, timeout_ms = 3000) => {
-	const start = Date.now();
-	while (Date.now() - start < timeout_ms) {
-		if (predicate()) {
-			return true;
-		}
-		await new Promise((resolve) => setTimeout(resolve, 25));
-	}
-
-	return predicate();
-}; //end wait_for
 
 /**
  * MAKE_HEADER_CELL
@@ -571,53 +547,6 @@ const hover_ring_sources = (win, element) => {
 }; //end hover_ring_sources
 
 /**
- * OPEN_FRAME
- * An off-screen iframe of the given width loading the REAL main.css. Off-screen,
- * NOT display:none: a hidden frame skips layout.
- * @param {number} width - px
- * @returns {Promise<{frame: HTMLIFrameElement, doc: Document, win: Window, container: HTMLElement}>}
- */
-const open_frame = async (width) => {
-	const new_frame = document.createElement('iframe');
-	new_frame.style.cssText =
-		`position:absolute;left:-10000px;top:0;width:${width}px;height:800px;border:0;`;
-	// listener BEFORE append: an about:blank load event can fire in the
-	// append itself, and a listener attached afterwards would never hear it
-	const frame_loaded = new Promise((resolve) =>
-		new_frame.addEventListener('load', resolve, { once: true }),
-	);
-	document.body.appendChild(new_frame);
-	if (new_frame.contentDocument?.readyState !== 'complete') {
-		await Promise.race([frame_loaded, new Promise((resolve) => setTimeout(resolve, 5000))]);
-	}
-
-	const doc = new_frame.contentDocument;
-	const win = new_frame.contentWindow;
-	doc.open();
-	doc.write(
-		'<!doctype html><html><head><meta charset="utf-8">' +
-			`<link rel="stylesheet" href="${STYLESHEET_HREF}">` +
-			'</head><body></body></html>',
-	);
-	doc.close();
-
-	const ready = await wait_for(() => {
-		try {
-			return doc.styleSheets.length > 0 && doc.styleSheets[0].cssRules.length > 0;
-		} catch (_error) {
-			return false;
-		}
-	}, 8000);
-	assert.equal(ready, true, `the ${width}px suite frame loaded main.css`);
-
-	const container = doc.createElement('div');
-	container.className = 'container section_list_header';
-	doc.body.appendChild(container);
-
-	return { frame: new_frame, doc, win, container };
-}; //end open_frame
-
-/**
  * IS_SUBGRID
  * A computed `grid-template-columns` that is a column subgrid. The resolved
  * value of a subgrid is the keyword `subgrid` (plus any line names), never the
@@ -721,14 +650,14 @@ describe('SECTION LIST HEADER — the overflow law and the row-box table', () =>
 		this.timeout(30000);
 
 		// wide enough that the desktop table path applies inside it
-		const desktop = await open_frame(1200);
+		const desktop = await open_css_frame(1200, 'container section_list_header');
 		frame = desktop.frame;
 		frame_doc = desktop.doc;
 		frame_win = desktop.win;
 		test_container = desktop.container;
 
 		// narrow enough that the phone card path applies inside it
-		const phone = await open_frame(360);
+		const phone = await open_css_frame(360, 'container section_list_header');
 		phone_frame = phone.frame;
 		phone_doc = phone.doc;
 		phone_win = phone.win;

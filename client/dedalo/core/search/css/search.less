@@ -21,6 +21,9 @@
 // because TWO blocks need it and they are not nested in each other: the compact
 // tier (its chips) and the coarse-pointer rows of the fields sheet.
 @phone_hit:  44px;
+// autocomplete options panel + its results list, on a full-row card: a
+// readable measure instead of the group's whole width
+@ac_options_max: 40rem;
 
 // search_component (shared at least by unit_test preview)
 	// A search field is ONE card: white surface on the grey group, one border,
@@ -56,6 +59,27 @@
 		}
 		&:focus-within {
 			border-color: @color_orange_dedalo;
+		}
+
+		// autocomplete options open (gear): one 16rem track left the panel
+		// ~190px wide — section checkboxes, field inputs and operators
+		// unusable. While the panel is open the card takes TWO tracks
+		// (`span 2`, from its own place: no start line, so it does not jump
+		// to the row start under the pointer; in a row's last track it wraps
+		// to the next row) and returns to its track when the gear closes.
+		// Only where the group HAS two tracks: a span of 2 over a
+		// one-track group mints an implicit column, every other item shrinks
+		// to 16rem and the `1 / -1` rows stop short of it. Two tracks = two
+		// 16rem minimums + the gap, asked of the group's OWN width (container
+		// query — a media query sees the window, and a desktop window still
+		// holds one-track groups: TYPE/FIELDS/PRESETS open, nested groups).
+		// Under that the card takes the (single-track) row.
+		&:has(>.wrapper_component >.wrapper_service_autocomplete.search >.options_hidden.visible) {
+			grid-column: 1 / -1;
+
+			@container search_group (min-width: (2 * 16rem + @space)) {
+				grid-column: span 2;
+			}
 		}
 
 		// an open autocomplete floats its result list over the cards below:
@@ -367,13 +391,45 @@
 						}
 					}
 				}
+				// results: an overlay under the input, inside the card's insets.
+				// min-width/max-width reset the base rule's `min-width: 100%`
+				// (of the WRAPPER), which pushed the list past the card's right
+				// edge by its left inset
 				>.autocomplete_data {
 					position: absolute;
 					top: calc(2rem + @space_s);
 					left: var(--ac_inset_left, @card_inset);
 					right: @card_inset;
 					width: auto;
+					min-width: 0;
+					max-width: none;
 				}
+
+				// options open: the user types in the panel's own inputs, so the
+				// list hangs BELOW the panel (the wrapper's bottom minus its
+				// padding) instead of painting over it — fields, operators and
+				// the very input being typed in stay visible.
+				// The cap is on the WRAPPER (input, panel and list together), not
+				// on the panel: a panel max-width under its 100% basis lets it fit
+				// on line 1 beside the input, and the panel must own its line.
+				&:has(>.options_hidden.visible) {
+					max-width: calc(@ac_options_max + var(--ac_inset_left, @card_inset) + @card_inset);
+					// a taller neighbour in the row stretches the card; stretched
+					// too, the wrapper's 100% (the list's anchor) would leave a gap
+					// between the panel and the list
+					align-self: start;
+
+					>.autocomplete_data {
+						top: calc(100% - @card_inset);
+					}
+				}
+			}
+
+			// the search-options help (ui.js tooltip) hangs where the results
+			// do: hidden while the list has rows, it would cover them
+			&:has(>.wrapper_service_autocomplete.search >.autocomplete_data >*) >.tooltip {
+				opacity: 0;
+				visibility: hidden;
 			}
 			// with an operator box, the overlay skips the operator column
 			&:has(>.content_data >input.q_operator) >.wrapper_service_autocomplete.search {
@@ -564,6 +620,10 @@
 						grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
 						gap: @space;
 						align-content: start;
+						// a QUERY CONTAINER: how many tracks fit is this box's own
+						// width (side panels, nesting), never the window's — the
+						// open-options card asks it before spanning two tracks
+						container: search_group / inline-size;
 						// every card in a row takes the row's height: the tallest
 						// field card, or the drop slot, sets it for all of them
 						align-items: stretch;
@@ -1578,6 +1638,13 @@
 				>.search_group {
 					grid-template-columns: minmax(0, 1fr);
 					min-width: 0;
+
+					// ONE track here whatever the group's width, so the
+					// open-options card's container query (which only sees
+					// width) must not span two: that would mint an implicit column
+					>.search_component:has(>.wrapper_component >.wrapper_service_autocomplete.search >.options_hidden.visible) {
+						grid-column: 1 / -1;
+					}
 				}
 
 				>.search_buttons_container {

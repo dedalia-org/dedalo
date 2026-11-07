@@ -8846,6 +8846,14 @@ body:has(.component_av.view_viewer) {
 .search_component:focus-within {
   border-color: var(--color_orange_dedalo);
 }
+.search_component:has(>.wrapper_component >.wrapper_service_autocomplete.search >.options_hidden.visible) {
+  grid-column: 1 / -1;
+}
+@container search_group (min-width: 32.5rem) {
+  .search_component:has(>.wrapper_component >.wrapper_service_autocomplete.search >.options_hidden.visible) {
+    grid-column: span 2;
+  }
+}
 .search_component:has(.wrapper_service_autocomplete.search),
 .search_component:has(.filter_picker.open) {
   z-index: 5;
@@ -9060,6 +9068,19 @@ body:has(.component_av.view_viewer) {
   left: var(--ac_inset_left, 0.75rem);
   right: 0.75rem;
   width: auto;
+  min-width: 0;
+  max-width: none;
+}
+.search_component > .wrapper_component.search > .wrapper_service_autocomplete.search:has(>.options_hidden.visible) {
+  max-width: calc(40rem + var(--ac_inset_left, 0.75rem) + 0.75rem);
+  align-self: start;
+}
+.search_component > .wrapper_component.search > .wrapper_service_autocomplete.search:has(>.options_hidden.visible) > .autocomplete_data {
+  top: calc(100% - 0.75rem);
+}
+.search_component > .wrapper_component.search:has(>.wrapper_service_autocomplete.search >.autocomplete_data >*) > .tooltip {
+  opacity: 0;
+  visibility: hidden;
 }
 .search_component > .wrapper_component.search:has(>.content_data >input.q_operator) > .wrapper_service_autocomplete.search {
   --ac_inset_left: calc(0.75rem + 2.5rem + 0.5rem);
@@ -9220,6 +9241,7 @@ body:has(.component_av.view_viewer) {
   grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
   gap: 0.5rem;
   align-content: start;
+  container: search_group / inline-size;
   align-items: stretch;
 }
 .wrapper_search > .search_global_container > .search_container_selection .search_group_container .search_group > .search_group {
@@ -9979,6 +10001,9 @@ body:has(.component_av.view_viewer) {
   .wrapper_search > .search_global_container > .search_container_selection > .search_group_container > .search_group {
     grid-template-columns: minmax(0, 1fr);
     min-width: 0;
+  }
+  .wrapper_search > .search_global_container > .search_container_selection > .search_group_container > .search_group > .search_component:has(>.wrapper_component >.wrapper_service_autocomplete.search >.options_hidden.visible) {
+    grid-column: 1 / -1;
   }
   .wrapper_search > .search_global_container > .search_container_selection > .search_group_container > .search_buttons_container {
     width: 100%;
@@ -11410,29 +11435,47 @@ dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_
 }
 .wrapper_service_autocomplete > .options_hidden > .inputs_list {
   background-color: var(--color_grey_14);
-  padding: 0.5em;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 .wrapper_service_autocomplete > .options_hidden > .inputs_list > .input_group {
   position: relative;
-  height: 1.7rem;
 }
 .wrapper_service_autocomplete > .options_hidden > .inputs_list > .input_group > input {
-  margin: 0px;
-  margin-bottom: 2px;
+  display: block;
+  margin: 0;
+  height: 2rem;
+  border: 1px solid var(--border_default);
+  border-radius: var(--radius-sm);
 }
 .wrapper_service_autocomplete > .options_hidden > .inputs_list > .input_group > label {
   position: absolute;
   right: 1rem;
-  top: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
   color: var(--fg_muted);
+  pointer-events: none;
   z-index: 2;
 }
 .wrapper_service_autocomplete > .options_hidden > .search_operators_div {
   background-color: var(--color_grey_14);
-  padding: 0.25em;
-  padding-left: 0.5em;
+  padding: 0.25rem 0.5rem 0.5rem;
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
+  gap: 0.25rem 0.5rem;
+}
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div .css_label,
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div .label_max {
+  white-space: nowrap;
+}
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div > .select_container,
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div > .max_container {
+  display: flex;
+  align-items: center;
 }
 .wrapper_service_autocomplete > .options_hidden > .search_operators_div > .select_container > .css_label,
 .wrapper_service_autocomplete > .options_hidden > .search_operators_div > .select_container > .operator_selector {
