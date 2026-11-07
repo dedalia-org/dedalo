@@ -703,6 +703,23 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **The code update panel is simpler — the installed version, what blocks an update and how to fix it, everything else folded away.**
+
+    **Maintenance → Update Code** used to show every readiness check, the database backup, provenance facts and restore points at once. It now shows:
+
+    - the **current version**, in large type, with its date, the kind of build and the code server it came from;
+    - **Ready to update** or **Update blocked** — and, when blocked, only the checks that block, each with why and a numbered **How to fix it** list;
+    - the code server and the **Check available updates** button (with the choice of which builds are offered, remembered by the browser);
+    - a closed **Details** section with every check, the installation's facts and the restore points.
+
+    Maintenance mode and the database backup are no longer panel checks: the version window handles both when you choose a release (it has the maintenance switch and the backup waiver).
+
+    Two checks that always read *unknown* now give a real answer. **Enough free disk space** applies the update's own rule in advance (for example *932 GB free · about 1.4 GB needed*; the first look may say *being measured*). **Only Dédalo files in the code folder** now works on every installation, including checkouts and copied trees, and names anything that does not belong — the update refuses to start while it is there.
+
+    **Maintenance → Serve Code** follows the same layout: the **published release** in large type, **Ready to publish** or **Cannot publish** with only the blocking checks (each with a fix list), the three Build rows, and a closed **Details** section with every check, the build source, the tags, other archives and what installations are offered.
+
+    Wire contract: `WC-2026-11-06-update-panel-verdicts`.
+
 - **A column defined with a level-two `section_tipo: "self"` is no longer shown; the new `ddo_self_depth` check lists every such definition.**
 
     `section_tipo: "self"` names the target sections of the element that owns a `ddo_map`, so it means something only for a first-level ddo. Until now a ddo below the first level that declared it was guessed and shown; from this version the read skips it and the page shows an `ontology.ddo_self_refused` notice naming the definition, its ddo, its parent and its depth. If an installed ontology still holds such a definition, the column it described is no longer shown. After updating, run the report-only check **Maintenance › Reconcile › `ddo_self_depth`**: it lists every installed definition that declares a deep `self`, with the element whose map holds it and every section or component that reads it. The fix is a definition edit (an explicit `section_tipo` or a source array) made on the master ontology and delivered by an ontology update; the check never rewrites a definition itself. See [Self-resolution](./core/request_config.md#self-resolution-and-dynamic-section_tipo-sources).
@@ -1214,7 +1231,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 62 entries"
+??? note "Wire contract — 63 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -1278,6 +1295,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-04-writer-chain-scoped-search`
     - `WC-2026-11-05-reconcile-apply-refused`
     - `WC-2026-11-06-css-version`
+    - `WC-2026-11-06-update-panel-verdicts`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

@@ -26,9 +26,11 @@ import {
 	backup_waiver_check,
 	image_update_command,
 	refresh_readiness,
+	panel_blocked,
 	render_consumer_status
 } from '../../../core/area_maintenance/widgets/update_code/js/render_update_status.js'
 import {update_code} from '../../../core/area_maintenance/widgets/update_code/js/update_code.js'
+import {serve_code} from '../../../core/area_maintenance/widgets/serve_code/js/serve_code.js'
 import {
 	apply_phase_frame,
 	init_phase_state,
@@ -102,6 +104,50 @@ describe('UPDATE_CODE WIDGET', function() {
 			assert.notInclude(content_data.textContent, 'dedalo_source_version_local_dir', 'no staging path line')
 
 			content_data.remove()
+		})
+
+		it('the offer is always in view, and the chosen one is remembered', async function() {
+
+			const CHANNEL_KEY	= 'dedalo.update_code.channel'
+			let saved = null
+			try { saved = localStorage.getItem(CHANNEL_KEY); localStorage.removeItem(CHANNEL_KEY) } catch (_error) { /* private mode */ }
+
+			const render = async () => {
+				const self = new update_code()
+				self.id				= 'test_update_code'
+				self.value			= {
+					servers				: [build_server('code server A', 'https://a.example.test/api')],
+					is_a_code_server	: false
+				}
+				self.caller			= null
+				self.events_tokens	= []
+				const content_data = await self.list({ render_level : 'content' })
+				container.appendChild(content_data)
+				return content_data
+			}
+			const checked = (cd) => cd.querySelector('.channel_row input.channel_radio:checked')?.value
+
+			try {
+				const first = await render()
+				const row = first.querySelector('.update_actions >.channel_row')
+				assert.ok(row, 'the offer row sits directly in the actions zone')
+				assert.strictEqual(row.closest('details'), null, 'never folded')
+				assert.strictEqual(checked(first), 'master', 'published releases until a choice is made')
+
+				const dev = row.querySelector('input.channel_radio[value="dev"]')
+				dev.checked = true
+				dev.dispatchEvent(new Event('change'))
+				first.remove()
+
+				const second = await render()
+				assert.strictEqual(checked(second), 'dev', 'the next render restores the choice')
+				assert.isNotEmpty(second.querySelector('.channel_note').textContent, 'and shows its note')
+				second.remove()
+			} finally {
+				try {
+					saved===null ? localStorage.removeItem(CHANNEL_KEY) : localStorage.setItem(CHANNEL_KEY, saved)
+				} catch (_error) { /* private mode */ }
+			}
 		})
 
 		it('before the value loads: only the readout, marked as the loader slot — no picker, no actions', async function() {
@@ -356,13 +402,12 @@ describe('UPDATE_CODE WIDGET', function() {
 	})
 
 
-	describe('readiness headline vs the request the button sends', function() {
+	describe('readiness headline (version, blocks only; backup is the modal’s)', function() {
 
-		// `ready` is `!checks.some(blocked)`, and the ONE waivable gate reports
-		// `warn`. So a stale backup is `ready:true` while the DEFAULT request
-		// (waive_backup:false) is still refused on exactly that account. A bare
-		// "Ready to update" there over-reports as loudly as the "Update blocked"
-		// it replaced — the headline has to name the waiver.
+		// 2026-11-06 simplification: the panel heads with the installed version
+		// and the verdict; only BLOCKED checks stay in view; warnings fold under
+		// Details; backup_fresh is not on the panel at all (the version modal
+		// offers its waiver).
 		const render = (consumer) => {
 			const wrapper = ui.create_dom_element({ element_type : 'div', parent : container })
 			render_consumer_status(wrapper, consumer)
@@ -380,77 +425,121 @@ describe('UPDATE_CODE WIDGET', function() {
 			}
 		}
 
-		it('a waivable warning is named in the headline, in the warning voice', function() {
+		it('a stale or unknown backup never reaches the panel', function() {
 
-			const wrapper = render(consumer_with('warn'))
+			for (const state of ['warn', 'unknown']) {
+				const wrapper = render(consumer_with(state))
+				try {
+					const headline = wrapper.querySelector('.status_verdict')
+					assert.ok(headline, 'the consumer half renders a headline verdict')
+					assert.include(headline.className, 'state_ok', 'the backup does not colour the headline')
+					assert.notInclude(wrapper.textContent, '73', 'no backup row anywhere, Details included')
+				} finally {
+					wrapper.remove()
+				}
+			}
+		})
+
+		it('the installed version heads the panel', function() {
+
+			const consumer = consumer_with('ok')
+			consumer.engine = { engine_version : '7.0.0-beta.9', date : '2026-10-02T09:22:10+02:00', posture : 'release', install_source : 'https://code.example.test/dedalo/install/code/7/7.0/7.0.0-beta.9.zip' }
+			const wrapper = render(consumer)
 			try {
-				const headline = wrapper.querySelector('.status_verdict')
-				assert.ok(headline, 'the consumer half renders a headline verdict')
-				assert.include(headline.className, 'state_warning', 'neither green nor red')
-				assert.notInclude(headline.className, 'state_ok', 'it must not read as plainly ready')
+				const hero = wrapper.querySelector('.installed_version_value')
+				assert.ok(hero, 'a version block')
+				assert.strictEqual(hero.textContent, '7.0.0-beta.9')
+				const when = wrapper.querySelector('.installed_version_date').textContent
+				assert.include(when, '2026', 'with its date')
+				assert.include(when, 'code.example.test', 'and the code server it came from')
+				assert.strictEqual(wrapper.firstElementChild.firstElementChild.classList.contains('installed_version'), true, 'first thing rendered')
 			} finally {
 				wrapper.remove()
 			}
 		})
 
-		it('with nothing waivable outstanding it is plainly ready', function() {
+		it('disk space reads free AND needed; a measuring line says so in words', function() {
 
-			const wrapper = render(consumer_with('ok'))
+			const GB = 1024 ** 3
+			const consumer = consumer_with('ok', [
+				{ id : 'disk_space', state : 'blocked', detail : `${GB}/${3 * GB}`, scope : '/x/backups/code' }
+			])
+			consumer.ready = false
+			const wrapper = render(consumer)
 			try {
-				const headline = wrapper.querySelector('.status_verdict')
-				assert.include(headline.className, 'state_ok', 'a clean install still headlines ready')
-				assert.notInclude(headline.className, 'state_warning')
+				const row = wrapper.querySelector('.attention_checks .check_row.state_blocked')
+				assert.ok(row, 'a shortfall blocks, in view')
+				const detail = row.querySelector('.check_detail').textContent
+				assert.include(detail, '·', 'free · needed')
+				assert.notInclude(detail, '/', 'never the raw pair')
+				assert.ok(row.querySelector('.check_fix'), 'with its fix steps')
+			} finally {
+				wrapper.remove()
+			}
+			const measuring = render(consumer_with('ok', [{ id : 'disk_space', state : 'unknown', detail : 'measuring' }]))
+			try {
+				const text = measuring.querySelector('.all_checks_block .check_row.state_unknown .check_detail').textContent
+				assert.notStrictEqual(text, 'measuring', 'a reason id is worded, never shown raw')
+			} finally {
+				measuring.remove()
+			}
+		})
+
+		it('a block carries its numbered fix steps; an ok row does not', function() {
+
+			const consumer = consumer_with('ok', [
+				{ id : 'runtime_data_outside_tree', state : 'blocked', detail : 'code_server_git_dir (DEDALO_CODE_SERVER_GIT_DIR): /x' }
+			])
+			consumer.ready = false
+			const wrapper = render(consumer)
+			try {
+				const fix = wrapper.querySelector('.attention_checks .check_fix')
+				assert.ok(fix, 'the blocked row explains how to fix it')
+				assert.isAbove(fix.querySelectorAll('ol.check_fix_steps > li').length, 1, 'as numbered steps')
+				assert.ok(wrapper.querySelector('.attention_checks .check_note'), 'with its why')
+				assert.isNull(wrapper.querySelector('.check_row.state_ok .check_fix'), 'never on an ok row')
 			} finally {
 				wrapper.remove()
 			}
 		})
 
-		it('a NON-waivable warning never makes the headline demand a waiver', function() {
+		it('warnings fold under a CLOSED Details; only blocks stay in view', function() {
 
-			// The consumer half has three warn-capable checks and only
-			// `backup_fresh` is waivable. A leftover `.code_staging` dir, or a
-			// bun-pin drift, over a FRESH backup used to headline "only with a
-			// waiver" while the modal offered no checkbox to give one — a waiver
-			// demanded, impossible to supply, and unnecessary anyway.
-			const wrapper = render(consumer_with('ok', [
+			const consumer = consumer_with('ok', [
 				{ id : 'staging_clean', state : 'warn' },
-				{ id : 'bun_pin', state : 'warn', detail : '1.4.3 != 1.4.2' }
-			]))
+				{ id : 'channel', state : 'blocked', detail : 'XBLOCK' }
+			])
+			consumer.ready = false
+			const wrapper = render(consumer)
 			try {
-				const headline = wrapper.querySelector('.status_verdict')
-				assert.include(headline.className, 'state_ok', 'a fresh backup still headlines plainly ready')
-				assert.notInclude(headline.className, 'state_warning', 'no waiver is pending')
+				const attention = wrapper.querySelector('.attention_checks')
+				assert.ok(attention, 'the block is in view')
+				assert.include(attention.textContent, 'XBLOCK')
+				assert.strictEqual(attention.querySelectorAll('.check_row').length, 1, 'the warning is not')
+				const details = wrapper.querySelector('details.update_details')
+				assert.ok(details, 'a Details fold')
+				assert.strictEqual(details.open, false, 'closed')
+				assert.ok(details.querySelector('.all_checks_block .state_warn'), 'the warning lives in Details')
 			} finally {
 				wrapper.remove()
 			}
 		})
 
-		it('an UNKNOWN backup check is treated as a pending waiver, like the modal', function() {
-
-			// `probe()` degrades a throwing check to `unknown`. The modal offers
-			// the waiver there (state!=='ok'), so the headline must warn about it
-			// too — the two read ONE predicate precisely so they cannot diverge.
-			const wrapper = render(consumer_with('unknown'))
-			try {
-				const headline = wrapper.querySelector('.status_verdict')
-				assert.include(headline.className, 'state_warning', 'an unmeasurable backup still needs the waiver')
-			} finally {
-				wrapper.remove()
-			}
-		})
-
-		it('a blocked check still headlines blocked, waiver or not', function() {
+		it('maintenance mode is no lock: the modal switches it on', function() {
 
 			const blocked = consumer_with('warn')
-			blocked.ready = false
+			blocked.ready = false // the server counts it…
 			blocked.checks.push({ id : 'maintenance_mode', state : 'blocked' })
 			const wrapper = render(blocked)
 			try {
 				const headline = wrapper.querySelector('.status_verdict')
-				assert.include(headline.className, 'state_danger', 'a hard gate outranks the waiver wording')
-				// maintenance mode is the version modal's gate (it carries the switch): the panel neither lists it nor offers one
+				assert.include(headline.className, 'state_ok', '…the panel does not')
+				assert.isFalse(panel_blocked(blocked), 'one predicate for verdict and hint')
 				assert.isNull(wrapper.querySelector('.maintenance_prereq'), 'no switch on the panel')
-				assert.notInclude(wrapper.querySelector('.attention_checks').textContent.toLowerCase(), 'maintenance', 'no attention row')
+				assert.isNull(wrapper.querySelector('.attention_checks'), 'no attention row')
+				assert.strictEqual(wrapper.querySelectorAll('.all_checks_block .check_row').length, 1, 'not listed in Details either (only superuser)')
+				blocked.checks.push({ id : 'superuser', state : 'blocked' })
+				assert.isTrue(panel_blocked(blocked), 'a real block still blocks')
 			} finally {
 				wrapper.remove()
 			}
@@ -661,8 +750,8 @@ describe('UPDATE_CODE WIDGET', function() {
 
 	describe('refresh_readiness (the panel re-stated in place)', function() {
 
-		const consumer = (backup) => ({ready:true, engine:{}, tree:{},
-			checks:[{id:'superuser',state:'ok'},{id:'backup_fresh',state:backup.state,detail:backup.detail}]})
+		const consumer = (gate) => ({ready:gate.state!=='blocked', engine:{}, tree:{},
+			checks:[{id:'superuser',state:'ok'},{id:'channel',state:gate.state,detail:gate.detail}]})
 
 		it('replaces exactly one block, in position, with the new verdict', function() {
 
@@ -679,12 +768,13 @@ describe('UPDATE_CODE WIDGET', function() {
 				assert.strictEqual(wrapper.querySelectorAll('.readiness_block').length, 1, 'one block to start with')
 				assert.include(wrapper.querySelector('.status_verdict').className, 'state_ok')
 
-				const answered = refresh_readiness(wrapper, consumer({state:'warn', detail:'73'}))
+				const answered = refresh_readiness(wrapper, consumer({state:'blocked', detail:'73'}))
 
 				assert.strictEqual(answered, true, 'it reports that it replaced a block')
 				assert.strictEqual(wrapper.querySelectorAll('.readiness_block').length, 1, 'still exactly one block — no duplicate')
 				assert.strictEqual([...wrapper.children].indexOf(wrapper.querySelector('.readiness_block')), before, 'in the same position')
-				assert.include(wrapper.querySelector('.status_verdict').className, 'state_warning', 'restated from the new value')
+				assert.include(wrapper.querySelector('.status_verdict').className, 'state_danger', 'restated from the new value')
+				assert.strictEqual(wrapper.querySelectorAll('.all_checks_block').length, 1, 'Details list restated, not duplicated')
 				assert.include(wrapper.textContent, '73', 'carrying the new age fact')
 			} finally {
 				wrapper.remove()
@@ -708,6 +798,8 @@ describe('UPDATE_CODE WIDGET', function() {
 		})
 
 		it('backup_waiver_check is the one predicate, and it is scoped', function() {
+
+			const consumer = (backup) => ({checks:[{id:'superuser',state:'ok'},{id:'backup_fresh',state:backup.state,detail:backup.detail}]})
 
 			assert.isNull(backup_waiver_check(consumer({state:'ok', detail:'2'})), 'a fresh backup needs no waiver')
 			assert.isNotNull(backup_waiver_check(consumer({state:'warn', detail:'73'})), 'a stale one does')
@@ -763,17 +855,12 @@ describe('UPDATE_CODE WIDGET', function() {
 
 			const wrapper = render(consumer('confirmed'))
 			try {
-				const attention = [...wrapper.querySelectorAll('.attention_checks .check_row')]
-				assert.deepEqual(
-					attention.map(row => row.className.match(/state_(\w+)/)[1]),
-					['warn', 'warn'],
-					'the two warnings, never the ok or the unknown row'
-				)
+				assert.isNull(wrapper.querySelector('.attention_checks'), 'nothing blocks: no row in view, warnings included')
 				const all = wrapper.querySelector('details.fold_checks')
 				assert.ok(all, 'the complete list is a fold')
 				assert.isFalse(all.open, 'folded by default')
-				assert.strictEqual(all.querySelectorAll('.check_row').length, 4, 'and it is complete')
-				assert.include(all.querySelector('summary').textContent, '2', 'its summary counts the states')
+				assert.strictEqual(all.querySelectorAll('.check_row').length, 3, 'complete, minus backup_fresh')
+				assert.include(all.querySelector('summary').textContent, '1', 'its summary counts the states')
 				// every other block folds too, on its one-line hint
 				assert.isFalse(wrapper.querySelector('details.fold_installation').open)
 				assert.include(wrapper.querySelector('details.fold_installation summary').textContent, '7.0.0')
@@ -932,7 +1019,7 @@ describe('UPDATE_CODE WIDGET', function() {
 				assert.isNull(wrapper.querySelector('.status_verdict'), 'no readiness verdict on an image install')
 				const folded = wrapper.querySelector('details.fold_tree_swap_readiness')
 				assert.ok(folded, 'the tree-swap checks are folded under their own title')
-				assert.ok(folded.classList.contains('readiness_block'), 'refresh_readiness can still find it')
+				assert.ok(folded.classList.contains('all_checks_block'), 'refresh_readiness can still find it')
 				// …and refresh_readiness re-states the folded variant in place
 				assert.isTrue(refresh_readiness(wrapper, consumer(image_block('alive'))))
 				assert.isNull(wrapper.querySelector('.status_verdict'))
@@ -1077,6 +1164,76 @@ describe('UPDATE_CODE WIDGET', function() {
 // forward is pinned here on the SHIPPED builder: declared → forwarded
 // unchanged (an empty list is a declaration too); absent → no key at all
 // (absent ≠ []: [] would record "declares none"). Backend-free.
+describe('SERVE_CODE panel (published release, blocks, builds; the rest under Details)', function() {
+
+	const container = document.getElementById('content');
+
+	const code_server = (checks, releases) => ({
+		ready	: !checks.some(check => check.state==='blocked'),
+		checks	: checks,
+		source	: { release_ref : 'v9.9.9', release_version : '9.9.9', dev_ref : 'master', dev_version : '9.9.10', branch : 'master' },
+		releases: releases,
+		advertises: { for_version : '9.9.9', files : [], rungs : [] }
+	})
+	const render = async (value) => {
+		const self = new serve_code()
+		self.id				= 'test_serve_code'
+		self.value			= value
+		self.caller			= null
+		self.events_tokens	= []
+		const content_data = await self.list({ render_level : 'content' })
+		container.appendChild(content_data)
+		return content_data
+	}
+
+	it('the published release heads the panel; only blocks stay in view, with their fix', async function() {
+		const content_data = await render({ is_a_code_server : true, code_server : code_server(
+			[
+				{ id : 'git_dir', state : 'ok', detail : '/srv/git' },
+				{ id : 'advertised_origin', state : 'blocked', detail : 'localhost' },
+				{ id : 'worktree_clean', state : 'warn' }
+			],
+			[{ channel : 'master', version : '9.9.9', file : '9.9.9.zip', bytes : 1024, stamp : Date.now() }]
+		)})
+		try {
+			const status = content_data.querySelector('.code_server_status')
+			assert.strictEqual(status.firstElementChild.classList.contains('published_version'), true, 'the version heads the panel')
+			assert.strictEqual(status.querySelector('.published_version_value').textContent, '9.9.9')
+
+			const attention = status.querySelectorAll('.readiness_block .attention_checks .check_row')
+			assert.strictEqual(attention.length, 1, 'only the blocked check is in view')
+			assert.ok(attention[0].querySelector('.check_fix_steps li'), 'with numbered fix steps')
+
+			assert.strictEqual(status.querySelectorAll('.build_row').length, 3, 'the three build rows stay in view')
+			assert.strictEqual(status.querySelector('.build_row').closest('details'), null, 'never folded')
+
+			const details = status.querySelector('details.serve_details')
+			assert.ok(details, 'one Details fold')
+			assert.strictEqual(details.open, false, 'closed')
+			assert.strictEqual(details.querySelectorAll('.fold_serve_checks .check_row').length, 3, 'every check inside')
+			assert.ok(details.querySelector('.fold_serve_source'), 'build source inside')
+			assert.ok(details.querySelector('.fold_serve_refs'), 'tags inside')
+			assert.ok(details.querySelector('.fold_serve_offered'), 'offer inside')
+		} finally {
+			content_data.remove()
+		}
+	})
+
+	it('nothing published says so, in words', async function() {
+		const content_data = await render({ is_a_code_server : true, code_server : code_server([{ id : 'git_dir', state : 'ok' }], []) })
+		try {
+			const value = content_data.querySelector('.published_version_value')
+			assert.isTrue(value.classList.contains('none'))
+			assert.notStrictEqual(value.textContent, '', 'a sentence, not blank')
+			assert.strictEqual(content_data.querySelector('.readiness_block .attention_checks'), null, 'nothing blocks: no attention list')
+		} finally {
+			content_data.remove()
+		}
+	})
+})//end SERVE_CODE panel
+
+
+
 describe('UPDATE_ONTOLOGY import file list (build_import_files)', function() {
 
 	const manifest = () => ({

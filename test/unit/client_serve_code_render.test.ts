@@ -60,8 +60,10 @@ describe('serve_code split', () => {
 		).toEqual([
 			'CHANNELS',
 			'channel_label',
+			'check_counts',
 			'check_row',
 			'fact_row',
+			'fold_section',
 			'release_facts',
 			'section',
 			'verdict',
@@ -306,7 +308,7 @@ describe('serve_code build feedback', () => {
 			'build_mark && build_mark.channel===channel',
 		).toBe(true);
 		expect(
-			has('render_code_server_status = function(parent, code_server, mount_builder, build_mark)'),
+			has('render_code_server_status = function(parent, code_server, mount_builder, build_mark, details_open)'),
 		).toBe(true);
 	});
 

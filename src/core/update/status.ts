@@ -84,7 +84,7 @@ import {
 	STAGING_KEEP_MARKER,
 	stagingHoldsParkedTree,
 } from './code_update.ts';
-import { availableBytesAt } from './disk_space.ts';
+import { checkUpdateSpaceWithin, type SpaceSeams } from './disk_space.ts';
 import {
 	type ImageChannelBlock,
 	type ImageChannelSeams,
@@ -93,6 +93,7 @@ import {
 import {
 	INSTALLED_CHANNEL,
 	INSTALLED_DIGEST,
+	INSTALLED_SOURCE_URL,
 	type InstallChannel,
 	installedRootEntriesOf,
 } from './install_stamp.ts';
@@ -235,12 +236,16 @@ export interface ConsumerStatus {
 		 */
 		release_kind: ReleaseKind;
 		build: string | null;
+		/** ISO date of the running code: the build stamp, else a checkout's HEAD commit date. */
+		date: string | null;
 		sha: string | null;
 		posture: 'release' | 'dev';
 		/** Which channel this tree was installed from — null on a dev checkout. */
 		install_channel: InstallChannel | null;
 		/** sha256 of the archive it was installed from — null on a dev checkout. */
 		install_digest: string | null;
+		/** The release URL the archive was downloaded from — null on a dev checkout. */
+		install_source: string | null;
 		bun: string;
 		bun_pin: string | null;
 	};
@@ -393,7 +398,11 @@ function runtimeDataCheck(): StatusCheck {
 			: check(
 					'runtime_data_outside_tree',
 					'blocked',
-					inside.map((entry) => `${entry.id}: ${entry.path}`).join('; '),
+					// the env key is the fact the operator's fix needs (the panel's
+					// "How to fix it" steps name "the setting in brackets")
+					inside
+						.map((entry) => `${entry.id}${entry.envKey ? ` (${entry.envKey})` : ''}: ${entry.path}`)
+						.join('; '),
 				);
 	});
 }
@@ -447,26 +456,46 @@ function stagingCheck(backupRoot: string): StatusCheck {
 }
 
 /**
- * FREE DISK SPACE where the update stages — an INPUT, never a verdict.
+ * FREE DISK SPACE where the update stages — the PIPELINE'S verdict, read early.
  *
- * The verdict is the pipeline's (`refuseOnInsufficientSpace` → disk_space.ts)
- * and needs a `du -skx` of the live tree: ~10^5 inodes, not something a
- * synchronous panel path may walk. So this line does what `root_entries` does —
- * report the fact and stay `unknown`.
- *
- * NO FLOOR. A hard-coded "under N GB is blocked" would be a SECOND RULE the
- * pipeline does not have, and this module's law is that it never re-implements
- * a refusal: the two would disagree in both directions (a big-`.git` install
- * with 2 GB free is fine for the panel and refused by the pipeline; a small
- * install with 900 MB free is the reverse). An honest `unknown` beats a verdict
- * the pipeline will not honour.
+ * The rule is `checkUpdateSpace` (disk_space.ts, the one the pipeline refuses
+ * on): the staged tree × margin against the bytes available where staging
+ * lives. The staged tree needs a `du` (~10^5 inodes), so the panel asks the
+ * shared background measurement (`checkUpdateSpaceWithin`) with a bounded wait:
+ *  - `ok` / `blocked`  — detail `<available>/<required>` (bytes);
+ *  - `unknown`         — `measuring` (the wait lost; the walk carries on and
+ *    the next look answers), `unmeasurable` (statfs/du cannot run here — the
+ *    pipeline then proceeds unchecked too), or `superuser_required` (only the
+ *    superuser's panel pays for a walk, like `backup_fresh`).
+ * The pipeline still measures FRESH when it spends disk; this line never
+ * stands in for that.
  */
-function diskSpaceCheck(backupRoot: string): StatusCheck {
-	return probe('disk_space', () => {
-		const available = availableBytesAt(backupRoot);
-		return available === null
-			? check('disk_space', 'unknown', 'statfs unsupported', backupRoot)
-			: check('disk_space', 'unknown', String(available), backupRoot);
+function diskSpaceCheck(
+	principal: Principal,
+	backupRoot: string,
+	seams: ConsumerStatusSeams,
+): Promise<StatusCheck> {
+	if (principal.userId !== SUPERUSER_ID) {
+		return Promise.resolve(check('disk_space', 'unknown', 'superuser_required', backupRoot));
+	}
+	return probeAsync('disk_space', async () => {
+		const answer = await checkUpdateSpaceWithin(
+			seams.waitMs ?? PANEL_WAIT_MS,
+			seams.treeRoot ?? projectRoot,
+			backupRoot,
+			PRESERVE_ROOT_ENTRIES,
+			seams.space,
+		);
+		if ('pending' in answer) return check('disk_space', 'unknown', 'measuring', backupRoot);
+		if (answer.available === null || answer.required === null) {
+			return check('disk_space', 'unknown', 'unmeasurable', backupRoot);
+		}
+		return check(
+			'disk_space',
+			answer.sufficient ? 'ok' : 'blocked',
+			`${answer.available}/${answer.required}`,
+			backupRoot,
+		);
 	});
 }
 
@@ -486,14 +515,16 @@ function isRepoOnlyRootAlias(
  * refuses. Derived from the pipeline's own PRESERVE_ROOT_ENTRIES + the census,
  * never a second copy of the rule.
  *
- * A tree whose install stamp records its release's root (install_stamp.ts,
- * 2026-10-07) subtracts those entries — the swap treats them as release-owned
- * too, retired or not — and so are the tree's own `export-ignore` roots
- * (code_update.ts releaseExcludedRootEntriesOf) — so the remainder is operator-added: `ok` when empty,
- * `warn` otherwise (no release ships an entry nobody committed). Without that
- * record the verdict needs the incoming release's file list, so the check
- * stays `unknown`. `treeRoot` is a seam for the unit gate; the panel reads the
- * live tree.
+ * The tree's record of its release's root (install_stamp.ts
+ * `installedRootEntriesOf`: the install stamp, else the release-root manifest
+ * every tree ships — so a checkout or a hand copy knows it too) is subtracted —
+ * the swap treats those as release-owned, retired or not — and so are the
+ * tree's own `export-ignore` roots (code_update.ts
+ * releaseExcludedRootEntriesOf). The remainder is operator-added and the swap
+ * REFUSES it (no release ships an entry nobody committed), so: `ok` when
+ * empty, `blocked` with the names otherwise. Only a tree with no record at all
+ * (older than both) stays `unknown`. `treeRoot` is a seam for the unit gate;
+ * the panel reads the live tree.
  */
 export function rootEntriesCheck(treeRoot: string = projectRoot): {
 	entries: string[];
@@ -522,7 +553,7 @@ export function rootEntriesCheck(treeRoot: string = projectRoot): {
 			entries,
 			check: check(
 				'root_entries',
-				entries.length === 0 ? 'ok' : 'warn',
+				entries.length === 0 ? 'ok' : 'blocked',
 				entries.length === 0 ? undefined : entries.join(', '),
 			),
 		};
@@ -627,6 +658,10 @@ export interface ConsumerStatusSeams {
 	channel?: DeploymentChannel;
 	/** The image block's own seams (image_channel.ts). */
 	image?: ImageChannelSeams;
+	/** The `disk_space` line's measurement seams (disk_space.ts). */
+	space?: SpaceSeams;
+	/** The tree `disk_space` measures (default: the live tree). */
+	treeRoot?: string;
 }
 
 /** The consumer half of the panel: readiness + provenance + rollback state. */
@@ -637,17 +672,22 @@ export async function consumerStatus(
 	const backupRoot = probeBackupRoot();
 	const livePin = readLiveBunPin();
 	const rootEntries = rootEntriesCheck();
+	// the two bounded waits run TOGETHER: the panel pays the longer, not the sum
+	const [backupFresh, diskSpace] = await Promise.all([
+		backupFreshnessCheck(principal, seams),
+		diskSpaceCheck(principal, backupRoot, seams),
+	]);
 	const checks: StatusCheck[] = [
 		supervisorCheck(),
 		channelCheck(seams),
 		...operatorChecks(principal),
-		await backupFreshnessCheck(principal, seams),
+		backupFresh,
 		backupLocationCheck(backupRoot),
 		runtimeDataCheck(),
 		toolchainCheck(),
 		bunPinCheck(livePin),
 		stagingCheck(backupRoot),
-		diskSpaceCheck(backupRoot),
+		diskSpace,
 		rootEntries.check,
 	];
 	return {
@@ -656,6 +696,7 @@ export async function consumerStatus(
 			engine_version: DEDALO_ENGINE_VERSION,
 			release_kind: RELEASE_IDENTITY.kind,
 			build: DEDALO_BUILD,
+			date: DEDALO_BUILD ?? (git(seams.treeRoot ?? projectRoot, ['log', '-1', '--format=%cI']) || null),
 			sha: DEDALO_BUILD_SHA,
 			posture: enginePosture(DEDALO_BUILD, INSTALLED_CHANNEL),
 			// WHICH ARCHIVE is live, and from which channel (install_stamp.ts).
@@ -663,6 +704,7 @@ export async function consumerStatus(
 			// meant to install when the version cannot tell them apart.
 			install_channel: INSTALLED_CHANNEL,
 			install_digest: INSTALLED_DIGEST,
+			install_source: INSTALLED_SOURCE_URL,
 			bun: Bun.version,
 			bun_pin: livePin,
 		},

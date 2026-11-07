@@ -84,7 +84,7 @@ const LANG_TO_BCP47 = {
  * locale, then 'en'. A tag Intl refuses is skipped, never thrown.
  * @returns {string}
  */
-const get_locale = () => {
+export const get_locale = () => {
 	const candidates = [];
 
 	const app_lang =

@@ -393,6 +393,10 @@ const ALLOWLISTED_MODULE_MAPSET = new Set<string>([
 	// verify options), deleted when the walk settles — the panel's bounded wait
 	// and the pipeline's settled ask share one walk. No request identity.
 	'core/area_maintenance/backup.ts:scanInFlight',
+	// The update PANEL's code-tree size measurements (`du`): in flight or settled
+	// for 10 min, keyed on the tree path + preserved set — one walk shared by every
+	// asker, the pipeline never reads it. No request identity.
+	'core/update/disk_space.ts:panelStagedBytes',
 	// The in-flight dump parts THIS process claimed (OPS-2 review): absolute paths
 	// added at the claim, removed when the dump job settles — so the orphan
 	// adoption never judges a live dump of ours. No request identity.

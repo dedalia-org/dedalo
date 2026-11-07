@@ -507,21 +507,65 @@
 			margin-bottom: 0.4rem;
 		}
 
-		// readiness: eyebrow, verdict, what needs attention, then the folded
-		// complete list nested in the same block
+		// the installed (update_code) / published (serve_code) version: the one
+		// fact always in view
+		.installed_version,
+		.published_version {
+			margin-bottom: 0.75rem;
+
+			.installed_version_value,
+			.published_version_value {
+				font-size: 1.6rem;
+				font-weight: 600;
+				line-height: 1.2;
+				overflow-wrap: anywhere;
+			}
+			.installed_version_date {
+				color: var(--fg_muted);
+			}
+		}
+
+		// readiness: the verdict, then only what blocks
 		.readiness_block {
 
-			// here the verdict HEADS its rows instead of closing them
 			>.status_verdict {
-				margin-top: 0.25rem;
+				margin-top: 0;
 				margin-bottom: 0.5rem;
 			}
 			>.attention_checks {
-				margin-bottom: 0.5rem;
+				margin-bottom: 0.75rem;
 			}
-			>.dd_fold {
-				margin-bottom: 0;
+		}
+
+		// a blocked check's fix: a short numbered procedure under its note
+		.check_fix {
+			flex-basis: 100%;
+			margin-top: 0.4rem;
+
+			.check_fix_title {
+				font-weight: 600;
 			}
+			.check_fix_steps {
+				margin: 0.25rem 0 0 0;
+				padding-left: 1.4rem;
+				list-style: decimal;
+
+				li {
+					display: list-item;
+					margin-bottom: 0.2rem;
+					overflow-wrap: anywhere;
+				}
+			}
+		}
+
+		// Details (below the actions) and the folded offer choice
+		&.details_slot {
+			margin-top: 1rem;
+		}
+		.update_details_body,
+		.serve_details_body {
+			padding-top: 0.5rem;
+			padding-left: 1rem;
 		}
 
 		// the headline verdict of a role, above its checks — colour and weight

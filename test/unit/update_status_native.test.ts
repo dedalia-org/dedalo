@@ -44,7 +44,11 @@ import {
 	loadImageRegistries,
 	provisionedRegistries,
 } from '../../src/core/update/image_registries.ts';
-import { INSTALL_STAMP_PATH } from '../../src/core/update/install_stamp.ts';
+import {
+	INSTALL_STAMP_PATH,
+	installedRootEntriesOf,
+	RELEASE_ROOT_MANIFEST_PATH,
+} from '../../src/core/update/install_stamp.ts';
 import { backupFreshness } from '../../src/core/update/preconditions.ts';
 import {
 	advertisedUrlReachableCheck,
@@ -91,7 +95,12 @@ afterAll(() => {
 
 /** The consumer panel, pinned to the scratch backup dir. */
 function panel(principal: never) {
-	return consumerStatus(principal, { backupDir: PANEL_BACKUP_DIR, waitMs: 60_000 });
+	// a FAKE tree measurement: a real `du` of this checkout is GBs of walking
+	return consumerStatus(principal, {
+		backupDir: PANEL_BACKUP_DIR,
+		waitMs: 60_000,
+		space: { measure: async () => 1024, available: () => 10 ** 12, exists: () => false },
+	});
 }
 
 function byId(checks: StatusCheck[], id: string): StatusCheck {
@@ -220,12 +229,119 @@ describe('consumer status', () => {
 		}
 	});
 
-	test('the root-entries line reports INPUTS, never a guessed verdict', async () => {
+	test('a tree with NO record of its release root stays unknown — never a guessed verdict', () => {
+		const tree = mkdtempSync(join(tmpdir(), 'dedalo_status_root_unrecorded_'));
+		try {
+			writeFileSync(join(tree, 'README.md'), '');
+			writeFileSync(join(tree, 'my_notes.txt'), '');
+			expect(rootEntriesCheck(tree)).toEqual({
+				entries: ['README.md', 'my_notes.txt'],
+				check: { id: 'root_entries', state: 'unknown', detail: '2' },
+			});
+		} finally {
+			rmSync(tree, { recursive: true, force: true });
+		}
+	});
+
+	test('an UNSTAMPED tree (a checkout, a hand copy) decides from its own release-root manifest', () => {
+		const tree = mkdtempSync(join(tmpdir(), 'dedalo_status_root_manifest_'));
+		try {
+			writeFileSync(join(tree, 'README.md'), '');
+			const manifest = join(tree, RELEASE_ROOT_MANIFEST_PATH);
+			mkdirSync(dirname(manifest), { recursive: true });
+			writeFileSync(manifest, JSON.stringify({ root_entries: ['README.md', 'engineering', 'src'] }));
+			expect(rootEntriesCheck(tree).check).toEqual({ id: 'root_entries', state: 'ok' });
+			writeFileSync(join(tree, 'my_notes.txt'), '');
+			expect(rootEntriesCheck(tree).check).toEqual({
+				id: 'root_entries',
+				state: 'blocked',
+				detail: 'my_notes.txt',
+			});
+		} finally {
+			rmSync(tree, { recursive: true, force: true });
+		}
+	});
+
+	test('the live panel reports the root-entries line with its inputs', async () => {
 		const status = await panel(superuser);
-		// The verdict needs the release's own file list (refuseUnaccountedLiveEntries
-		// runs against the extracted archive), so this check must never claim one.
-		expect(byId(status.checks, 'root_entries').state).toBe('unknown');
+		expect(STATES.has(byId(status.checks, 'root_entries').state)).toBe(true);
 		expect(Array.isArray(status.tree.unaccounted_root_entries)).toBe(true);
+	});
+
+	test('the running code carries a date (build stamp, or this checkout HEAD)', async () => {
+		const { date } = (await panel(superuser)).engine;
+		expect(date).not.toBeNull();
+		expect(Number.isNaN(Date.parse(date as string))).toBe(false);
+	});
+
+	describe('disk space: the pipeline rule, measured in the background', () => {
+		const spaceOf = async (seams: Record<string, unknown>, who: never = superuser) => {
+			const tree = mkdtempSync(join(tmpdir(), 'dedalo_status_space_'));
+			try {
+				return byId(
+					(await consumerStatus(who, { backupDir: PANEL_BACKUP_DIR, waitMs: 2_000, treeRoot: tree, ...seams })).checks,
+					'disk_space',
+				);
+			} finally {
+				rmSync(tree, { recursive: true, force: true });
+			}
+		};
+		const GB = 1024 ** 3;
+
+		test('enough room is ok, with both figures', async () => {
+			const line = await spaceOf({ space: { measure: async () => GB, available: () => 10 * GB, exists: () => false } });
+			expect(line.state).toBe('ok');
+			// required = staged × SPACE_MARGIN (1.15), the pipeline's own formula
+			expect(line.detail).toBe(`${10 * GB}/${Math.round(GB * 1.15)}`);
+		});
+
+		test('a measured shortfall is BLOCKED — the refusal the pipeline would answer', async () => {
+			const line = await spaceOf({ space: { measure: async () => 2 * GB, available: () => GB, exists: () => false } });
+			expect(line.state).toBe('blocked');
+			expect(line.detail).toBe(`${GB}/${Math.round(2 * GB * 1.15)}`);
+		});
+
+		test('a measurement that outlives the wait says measuring, never ok', async () => {
+			const line = await spaceOf({
+				waitMs: 20,
+				space: { measure: () => new Promise<number>((r) => setTimeout(() => r(GB), 300)), available: () => 10 * GB, exists: () => false },
+			});
+			expect(line).toMatchObject({ state: 'unknown', detail: 'measuring' });
+		});
+
+		test('an unmeasurable side is unknown (the pipeline proceeds unchecked too)', async () => {
+			const line = await spaceOf({ space: { measure: async () => null, available: () => 10 * GB, exists: () => false } });
+			expect(line).toMatchObject({ state: 'unknown', detail: 'unmeasurable' });
+		});
+
+		test('only the superuser panel pays for a walk', async () => {
+			let walked = 0;
+			const line = await spaceOf(
+				{ space: { measure: async () => { walked++; return GB }, available: () => 10 * GB, exists: () => false } },
+				mortal,
+			);
+			expect(line).toMatchObject({ state: 'unknown', detail: 'superuser_required' });
+			expect(walked).toBe(0);
+		});
+	});
+
+	test('the reader trusts the stamp first, the release-root list second; a malformed list proves nothing', () => {
+		const tree = mkdtempSync(join(tmpdir(), 'dedalo_release_root_'));
+		try {
+			expect(installedRootEntriesOf(tree)).toBeNull();
+			const list = join(tree, RELEASE_ROOT_MANIFEST_PATH);
+			mkdirSync(dirname(list), { recursive: true });
+			writeFileSync(list, JSON.stringify({ root_entries: ['a', 'b'] }));
+			expect([...(installedRootEntriesOf(tree) ?? [])]).toEqual(['a', 'b']);
+			writeFileSync(list, JSON.stringify({ root_entries: ['a', '../x'] }));
+			expect(installedRootEntriesOf(tree)).toBeNull();
+			const stamp = join(tree, INSTALL_STAMP_PATH);
+			mkdirSync(dirname(stamp), { recursive: true });
+			writeFileSync(stamp, JSON.stringify({ digest: 'e'.repeat(64), channel: 'master', root_entries: ['c'] }));
+			expect([...(installedRootEntriesOf(tree) ?? [])]).toEqual(['c']);
+		} finally {
+			rmSync(tree, { recursive: true, force: true });
+		}
 	});
 
 	test('a tree whose stamp records its release root reports a VERDICT — the same one the swap reaches', () => {
@@ -253,7 +369,7 @@ describe('consumer status', () => {
 			writeFileSync(join(tree, 'my_notes.txt'), '');
 			expect(rootEntriesCheck(tree)).toEqual({
 				entries: ['my_notes.txt'],
-				check: { id: 'root_entries', state: 'warn', detail: 'my_notes.txt' },
+				check: { id: 'root_entries', state: 'blocked', detail: 'my_notes.txt' },
 			});
 		} finally {
 			rmSync(tree, { recursive: true, force: true });

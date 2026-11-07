@@ -79,8 +79,9 @@ after the update.
 
 The update **refuses to start** — it does not merely warn — unless the operator
 is the superuser (`root`) and a **recent database backup** exists, proven
-restorable. The readiness panel also blocks the Update button until the server
-is in **maintenance mode**; the run then holds maintenance mode until it ends.
+restorable. The version window also keeps its Update button disabled until the
+server is in **maintenance mode**, with the switch beside it; the run then holds
+maintenance mode until it ends.
 The backup requirement is the one an operator can waive: when the backup is stale or missing, the version modal
 offers an **Update without a recent database backup** checkbox above the Update
 button, and every waiver is logged loudly in the server log with the requesting
@@ -173,50 +174,53 @@ and [the host updater](../../install/docker.md#the-host-updater-optional).
 
 ### What the panel tells you before you start
 
-Opening the panel shows the installation's own status, so the answer to "can
-this install take an update?" comes **before** the button, not from a failed
-run:
+Opening the panel answers "can this installation take an update?" **before**
+the button, not from a failed run. It shows only what you need, in this order:
 
-- **This installation** — the running version, whether it is a release build
-  or a development checkout, the release's build date and commit, the code
-  tree and the backup root.
-- **Update readiness** — one line per condition the update actually refuses
-  on, each marked *ok*, *warning* or *blocked*, with the reason: supervisor
-  declared (`DEDALO_SUPERVISED=true` in the process environment), deployment channel, maintenance mode, superuser identity, recent
-  database backup, backup root outside the code tree, runtime data outside the
-  code tree, the archive tools, the Bun version pin, a leftover staging
-  directory, and the free disk space where the update stages. The panel is
-  *ready* only when nothing is blocked. A stale or missing database backup is
-  a **warning**, not a block, because the update can be run with a waiver — so
-  the headline reads *Ready to update, but only with a waiver* rather than a
-  plain *Ready to update*, and the waiver checkbox waits in the version modal.
-  Other warnings (a Bun pin drift, a leftover staging directory) do not change
-  the headline: nothing has to be waived for them.
-- **Last code update** — which version replaced which, when, and whether the
-  new tree confirmed itself at boot. A status still reading *pending
-  confirmation* means the update did not complete its own health check.
-- **Restore points** — the code copies on disk, each with the release it
-  holds (`7.0.0-beta.5`, `7.0.0`, `7.0.1-dev`) and a **Restore** button that puts it back on the tree (see
-  [Restoring a previous code version](#restoring-a-previous-code-version)).
-  Each row is marked *bootable* or *incomplete* (a copy without its
-  dependencies cannot be started again). The Restore button is **disabled**,
-  with the reason written under the row, when the copy is incomplete, when it
-  declares no Dédalo version (its provenance cannot be read), or when it pins a
-  different Bun than the one this server runs — install that Bun first, as for
-  an update. In that last case the row also names **both** versions ("This copy
-  pins Bun 1.4.2; this server runs Bun 1.4.3. Install Bun 1.4.2 to restore
-  it."), so you can read which runtime to install off the row itself, and tell
-  apart several restore points cut on either side of a Bun change. A
-  development checkout gets no Restore button at all, for the same reason it
-  gets no Update button — nor a Delete button, for the same reason again. Every
-  other row carries one (see [Reclaiming disk](#reclaiming-disk)).
+1. **Current version** — the version installed now, in large type.
+2. **Ready to update** or **Update blocked**. When something blocks the update,
+   only those checks are listed, each with why it blocks and a numbered
+   **How to fix it** list (who to ask, which setting to change, what to restart).
+   Warnings and facts that block nothing are not listed here.
+3. **Source** and **Check available updates** — the code server to ask, and the
+   button. Which kind of build is offered (published releases, prereleases,
+   developer builds) is chosen right there; the browser remembers the choice.
+   Published releases is the default and the right choice for a production
+   installation.
+4. **Details**, closed — every readiness check with its state (*ok*, *warning*,
+   *blocked* or *unknown*), the installation's provenance (posture, build,
+   commit, installed archive, Bun, code tree, backup root) and the
+   **restore points**.
 
-Some readiness lines cannot be decided in advance and say so rather than
-guessing: the release's own root file list and its Bun pin are only known once
-the archive has been downloaded, and how much disk an update needs is measured
-when it starts (walking the whole tree is too slow for a panel). For those the
-panel reports the inputs — the count of root entries in the live tree, the
-running Bun and this tree's pin, and the bytes free where the update stages.
+Two conditions are **not** checks on the panel, because the version window
+handles them when you choose a release: **maintenance mode** (the window has
+the switch, so you can turn it on at that moment) and the **database backup**
+(the window offers the waiver when the newest backup is old or missing). A last
+code update that is still *pending confirmation* or was *rolled back* is shown
+open above Details, because it needs your attention.
+
+The checks the panel decides are the same ones the update refuses on:
+supervisor declared (`DEDALO_SUPERVISED=true` in the process environment),
+deployment channel, superuser identity, backup root outside the code tree,
+runtime data outside the code tree (the row names the setting that moves each
+item), the archive tools, the Bun version pin, a leftover staging directory,
+**enough free disk space**, and **only Dédalo files in the code folder**:
+
+- **Enough free disk space** applies the update's own rule — room for a second
+  copy of the code (the release and its dependencies) — so it reads, for
+  example, *932 GB free · about 1.4 GB needed*. Measuring the code folder walks
+  every file, so the panel does it in the background and reuses the result for
+  ten minutes; on the very first look it may say *being measured* — open the
+  panel again a moment later. The update measures once more when it starts.
+- **Only Dédalo files in the code folder** compares the folder's top level with
+  the list of entries Dédalo's own release ships (recorded by the update that
+  installed it, or the list the code itself carries — so a checkout or a copied
+  tree knows it too). Anything else is listed by name, and the update is
+  blocked until it is moved out: the swap would otherwise carry it into the
+  backup.
+
+The release's own Bun pin is only known once the archive is downloaded; for
+that line the panel shows the running Bun and this tree's pin.
 
 !!! warning "When a release changes the Bun version"
 
@@ -237,7 +241,7 @@ running Bun and this tree's pin, and the bytes free where the update stages.
 
 1. Close access to the work system.
 
-    Change the Dédalo status to maintenance — the readiness panel blocks the update otherwise. Follow [this guide](../maintenance_status.md) to change the Dédalo status and disable Dédalo access.
+    Change the Dédalo status to maintenance — the version window asks for it before the update starts, and has the switch. Follow [this guide](../maintenance_status.md) to change the Dédalo status and disable Dédalo access.
 
 2. Enter the maintenance panel.
 
@@ -412,31 +416,35 @@ or an institution's own mirror. Set in `../private/.env` (see the
 
 Publishing has its own maintenance panel, **Serve Code** (`serve_code` widget),
 next to Update Code. It is shown only on a code server (`IS_A_CODE_SERVER=true`)
-and on the `development` installation, and it answers whether this instance can
-publish at all:
+and on the `development` installation. It reads from top to bottom:
 
-- **Code server** — the role flag, the two directories, and whether the build
-  itself would be accepted, checked through the same planner the Build buttons
-  use. Also whether a release tag (`vX.Y.Z`) exists — only a tag build claims
-  the published release name —, whether the tag's own version file agrees
-  with its name, whether a `master` branch exists (the developer channel),
-  whether the worktree is clean, and whether an archive of the release
-  carries symbolic links.
-- **Build source** — the commit, its date and the branch currently checked
-  out, plus the checkout's Bun pin.
-- **Release tag** — the refs the two channels are actually built from: the
-  newest release tag (`vX.Y.Z`) with its commit and date, the `master` branch
-  with its commit and declared version, and how many commits `master` has
-  that the release does not. Every check in the first block reads one of
-  these refs, never the checked-out branch, and each says which.
-- **Published releases** — every archive already on disk with its size and
-  date, marked *published* or *developer*, and flagged when its `.sha256`
-  sidecar is missing (without it a remote install has no digest to verify).
-- **Offered to an installation at this version** — the release list a remote
-  install would actually receive. This is not the same as the archives on
-  disk: a version is offered only when it is the next step of the upgrade
-  path, so a perfectly good archive can be present and still not be offered.
-  The panel shows both so the difference is visible rather than inferred.
+1. **Published release** — the version installations are offered as a stable
+   release, or *Nothing published yet*.
+2. **Ready to publish** / **Cannot publish** — and, only when publishing is
+   blocked, each blocking check with what it means and numbered steps to fix
+   it.
+3. **Build and publish** — one row per channel: the Build button beside the
+   archive it writes (see [Building a release](#building-a-release)).
+4. **Details**, closed — the reference facts, each in its own fold:
+    - **All checks** — every check with its state: the role flag, the two
+      directories, whether the build itself would be accepted (the same
+      planner the Build buttons use), whether a release tag (`vX.Y.Z`) exists
+      and its version file agrees with its name, whether a `master` branch
+      exists (the developer channel), whether the worktree is clean, whether
+      an archive of the release carries symbolic links, and whether the
+      advertised address is public and answers.
+    - **Build source** — the commit, its date and the branch checked out,
+      plus the checkout's Bun pin.
+    - **Release tag** — the refs the channels are built from: the newest
+      release tag with its commit and date, the newest prerelease tag, the
+      `master` branch with its commit and declared version, and how many
+      commits `master` has that the release does not.
+    - **Other archives on disk** — archives of other versions, with size and
+      date (only when there are any).
+    - **Offered to an installation at this version** — the release list a
+      remote install would actually receive. A version is offered only when it
+      is the next step of the upgrade path, so a good archive can be on disk
+      and still not be offered.
 
 !!! warning "A dirty worktree does not stop a build"
     A build archives **committed** refs of the configured checkout (the

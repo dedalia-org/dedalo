@@ -16079,7 +16079,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   padding: 0.9rem 1.15rem 1.2rem;
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_context .ctx_body .map_ctx_lead {
-  max-width: 64ch;
+  max-width: 100ch;
   margin: 0 0 0.9rem;
   font-size: 14px;
   line-height: 1.55;
@@ -17873,15 +17873,54 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.serve_code > .content_data .update_status .dd_fold {
   margin-bottom: 0.4rem;
 }
+.wrapper_widget.serve_code > .content_data .update_status .installed_version,
+.wrapper_widget.serve_code > .content_data .update_status .published_version {
+  margin-bottom: 0.75rem;
+}
+.wrapper_widget.serve_code > .content_data .update_status .installed_version .installed_version_value,
+.wrapper_widget.serve_code > .content_data .update_status .published_version .installed_version_value,
+.wrapper_widget.serve_code > .content_data .update_status .installed_version .published_version_value,
+.wrapper_widget.serve_code > .content_data .update_status .published_version .published_version_value {
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.wrapper_widget.serve_code > .content_data .update_status .installed_version .installed_version_date,
+.wrapper_widget.serve_code > .content_data .update_status .published_version .installed_version_date {
+  color: var(--fg_muted);
+}
 .wrapper_widget.serve_code > .content_data .update_status .readiness_block > .status_verdict {
-  margin-top: 0.25rem;
+  margin-top: 0;
   margin-bottom: 0.5rem;
 }
 .wrapper_widget.serve_code > .content_data .update_status .readiness_block > .attention_checks {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
 }
-.wrapper_widget.serve_code > .content_data .update_status .readiness_block > .dd_fold {
-  margin-bottom: 0;
+.wrapper_widget.serve_code > .content_data .update_status .check_fix {
+  flex-basis: 100%;
+  margin-top: 0.4rem;
+}
+.wrapper_widget.serve_code > .content_data .update_status .check_fix .check_fix_title {
+  font-weight: 600;
+}
+.wrapper_widget.serve_code > .content_data .update_status .check_fix .check_fix_steps {
+  margin: 0.25rem 0 0 0;
+  padding-left: 1.4rem;
+  list-style: decimal;
+}
+.wrapper_widget.serve_code > .content_data .update_status .check_fix .check_fix_steps li {
+  display: list-item;
+  margin-bottom: 0.2rem;
+  overflow-wrap: anywhere;
+}
+.wrapper_widget.serve_code > .content_data .update_status.details_slot {
+  margin-top: 1rem;
+}
+.wrapper_widget.serve_code > .content_data .update_status .update_details_body,
+.wrapper_widget.serve_code > .content_data .update_status .serve_details_body {
+  padding-top: 0.5rem;
+  padding-left: 1rem;
 }
 .wrapper_widget.serve_code > .content_data .update_status .status_verdict {
   margin-top: 0.5rem;
@@ -17955,6 +17994,12 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 }
 .wrapper_widget.serve_code > .content_data > .serve_code_body > .update_status:first-child {
   margin-top: 0;
+}
+.wrapper_widget.serve_code > .content_data .published_version_value.none {
+  font-size: 1.1rem;
+  font-weight: normal;
+  font-style: italic;
+  color: var(--fg_muted);
 }
 .wrapper_widget.serve_code > .content_data .build_row > .dd_v {
   align-items: center;
@@ -18944,15 +18989,54 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.update_code > .content_data .update_status .dd_fold {
   margin-bottom: 0.4rem;
 }
+.wrapper_widget.update_code > .content_data .update_status .installed_version,
+.wrapper_widget.update_code > .content_data .update_status .published_version {
+  margin-bottom: 0.75rem;
+}
+.wrapper_widget.update_code > .content_data .update_status .installed_version .installed_version_value,
+.wrapper_widget.update_code > .content_data .update_status .published_version .installed_version_value,
+.wrapper_widget.update_code > .content_data .update_status .installed_version .published_version_value,
+.wrapper_widget.update_code > .content_data .update_status .published_version .published_version_value {
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.wrapper_widget.update_code > .content_data .update_status .installed_version .installed_version_date,
+.wrapper_widget.update_code > .content_data .update_status .published_version .installed_version_date {
+  color: var(--fg_muted);
+}
 .wrapper_widget.update_code > .content_data .update_status .readiness_block > .status_verdict {
-  margin-top: 0.25rem;
+  margin-top: 0;
   margin-bottom: 0.5rem;
 }
 .wrapper_widget.update_code > .content_data .update_status .readiness_block > .attention_checks {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
 }
-.wrapper_widget.update_code > .content_data .update_status .readiness_block > .dd_fold {
-  margin-bottom: 0;
+.wrapper_widget.update_code > .content_data .update_status .check_fix {
+  flex-basis: 100%;
+  margin-top: 0.4rem;
+}
+.wrapper_widget.update_code > .content_data .update_status .check_fix .check_fix_title {
+  font-weight: 600;
+}
+.wrapper_widget.update_code > .content_data .update_status .check_fix .check_fix_steps {
+  margin: 0.25rem 0 0 0;
+  padding-left: 1.4rem;
+  list-style: decimal;
+}
+.wrapper_widget.update_code > .content_data .update_status .check_fix .check_fix_steps li {
+  display: list-item;
+  margin-bottom: 0.2rem;
+  overflow-wrap: anywhere;
+}
+.wrapper_widget.update_code > .content_data .update_status.details_slot {
+  margin-top: 1rem;
+}
+.wrapper_widget.update_code > .content_data .update_status .update_details_body,
+.wrapper_widget.update_code > .content_data .update_status .serve_details_body {
+  padding-top: 0.5rem;
+  padding-left: 1rem;
 }
 .wrapper_widget.update_code > .content_data .update_status .status_verdict {
   margin-top: 0.5rem;
@@ -19567,15 +19651,54 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .wrapper_widget.publication_hosts .update_status .dd_fold {
   margin-bottom: 0.4rem;
 }
+.wrapper_widget.publication_hosts .update_status .installed_version,
+.wrapper_widget.publication_hosts .update_status .published_version {
+  margin-bottom: 0.75rem;
+}
+.wrapper_widget.publication_hosts .update_status .installed_version .installed_version_value,
+.wrapper_widget.publication_hosts .update_status .published_version .installed_version_value,
+.wrapper_widget.publication_hosts .update_status .installed_version .published_version_value,
+.wrapper_widget.publication_hosts .update_status .published_version .published_version_value {
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.wrapper_widget.publication_hosts .update_status .installed_version .installed_version_date,
+.wrapper_widget.publication_hosts .update_status .published_version .installed_version_date {
+  color: var(--fg_muted);
+}
 .wrapper_widget.publication_hosts .update_status .readiness_block > .status_verdict {
-  margin-top: 0.25rem;
+  margin-top: 0;
   margin-bottom: 0.5rem;
 }
 .wrapper_widget.publication_hosts .update_status .readiness_block > .attention_checks {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
 }
-.wrapper_widget.publication_hosts .update_status .readiness_block > .dd_fold {
-  margin-bottom: 0;
+.wrapper_widget.publication_hosts .update_status .check_fix {
+  flex-basis: 100%;
+  margin-top: 0.4rem;
+}
+.wrapper_widget.publication_hosts .update_status .check_fix .check_fix_title {
+  font-weight: 600;
+}
+.wrapper_widget.publication_hosts .update_status .check_fix .check_fix_steps {
+  margin: 0.25rem 0 0 0;
+  padding-left: 1.4rem;
+  list-style: decimal;
+}
+.wrapper_widget.publication_hosts .update_status .check_fix .check_fix_steps li {
+  display: list-item;
+  margin-bottom: 0.2rem;
+  overflow-wrap: anywhere;
+}
+.wrapper_widget.publication_hosts .update_status.details_slot {
+  margin-top: 1rem;
+}
+.wrapper_widget.publication_hosts .update_status .update_details_body,
+.wrapper_widget.publication_hosts .update_status .serve_details_body {
+  padding-top: 0.5rem;
+  padding-left: 1rem;
 }
 .wrapper_widget.publication_hosts .update_status .status_verdict {
   margin-top: 0.5rem;
