@@ -1584,7 +1584,8 @@ export const ui = {
 
 				// context css new way v6
 					if (instance.context && instance.context.css) {
-						const selector = `${section_tipo}_${tipo}.edit`
+						// scope by the wrapper's real mode: the menu opens areas in 'list'
+						const selector = `${section_tipo}_${tipo}.${mode}`
 						set_element_css(selector, instance.context.css)
 						// add_class
 							// sample
@@ -1604,7 +1605,7 @@ export const ui = {
 											: null
 
 									if (element) {
-										element.classList.add(values)
+										element.classList.add(...[].concat(values))
 									}else{
 										console.warn("Invalid css class selector was ignored:", selector);
 									}

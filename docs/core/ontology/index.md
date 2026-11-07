@@ -251,6 +251,9 @@ and the two halves of the job are separate:
   *writing* the ontology: the shape of a node, creating sections / components /
   groups / tools, the `properties` descriptor grammar, and how an edit becomes
   live.
+- **[Ontology CSS](ontology_css.md)** — how the CSS written in a node's
+  properties is scoped to that element and reaches the page, with worked
+  examples.
 - **[Overriding shared ontology nodes](local_ontology_overrides.md)** — the
   administrator guide to local overrides (`localontology`): relabel, restyle or
   adjust a shared node for one installation, with samples.

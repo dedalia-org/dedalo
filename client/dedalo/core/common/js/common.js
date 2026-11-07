@@ -3333,7 +3333,7 @@ export const load_data_debug = async function(self, load_data_promise, rqo_show_
 			const combi = {
 				'debug'					: response.debug,
 				'rqo_show_original'		: rqo_show_original,
-				'elements_css_object'	: get_inserted_rules()
+				'elements_css_object'	: Object.fromEntries(get_inserted_rules()) // a Map renders as {} in the tree
 			};
 			const response_debug_pre = ui.create_dom_element({
 				element_type	: 'pre',

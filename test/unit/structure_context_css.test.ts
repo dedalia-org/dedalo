@@ -66,6 +66,18 @@ describe('plain components (remove_edit_css, PHP :1823-1830)', () => {
 	});
 });
 
+describe('areas keep their css in list mode (WC-2026-11-07-area-css-list-mode, TS-only)', () => {
+	for (const model of ['area', 'area_thesaurus', 'area_maintenance']) {
+		test(`${model}+list emits its own css (one render for list and edit)`, () => {
+			expect(resolve({ model, mode: 'list' }).css).toEqual(EDIT_CSS);
+		});
+	}
+
+	test('a model merely containing "area" is still stripped', () => {
+		expect(resolve({ model: 'component_text_area', mode: 'list' }).css).toBeNull();
+	});
+});
+
 describe('section / component_portal list swap (PHP :1806-1822)', () => {
 	for (const model of ['section', 'component_portal']) {
 		test(`${model}+list with a section_list child emits the CHILD properties/css`, () => {

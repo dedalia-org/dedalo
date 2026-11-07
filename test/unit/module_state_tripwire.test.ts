@@ -172,6 +172,7 @@ const ALLOWLISTED_MODULE_LET = new Set<string>([
 	// request identity; the DATA it guards is the same ontology-scoped fact for
 	// every user, session and language.
 	'core/ontology/model_section.ts:pairingEpoch',
+	'core/ontology/cache_invalidation.ts:ontologyGeneration', // invalidation counter, not request state: build-then-set caches skip a set that spans a clear
 	// Ontology-update single-flight latch (UPDATE_PROCESS Phase 2, WC-023):
 	// two concurrent ontology imports must never interleave DELETEs — ops
 	// state, never request identity; set/cleared around one admin operation.

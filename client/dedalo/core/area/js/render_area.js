@@ -6,7 +6,6 @@
 
 // imports
 	import {ui} from '../../common/js/ui.js'
-	import {set_element_css} from '../../page/js/css.js'
 	import {build_dashboard} from '../../area_common/js/dashboard.js'
 
 
@@ -48,13 +47,8 @@ export const render_area = function() {
 * inner `content_data` node is returned (used by partial refreshes that
 * reuse an existing wrapper).
 *
-* CSS application order:
-*   1. `set_element_css` injects rules for the scoped selector
-*      `<section_tipo>_<tipo>.edit` into the shared dynamic stylesheet.
-*   2. `context.css.add_class` iterates its keys ('wrapper' | 'content_data')
-*      and pushes the corresponding class names onto the DOM element — this is
-*      handled here as well as inside `ui.area.build_wrapper_edit` (both paths
-*      coexist for historical reasons; neither causes harm when duplicated).
+* CSS: ontology `context.css` (rules scoped `<section_tipo>_<tipo>.<mode>`) and
+*   `context.css.add_class` are applied once, by `ui.area.build_wrapper_edit`.
 *
 * @param {Object} options
 * @param {string} [options.render_level='full'] - Depth of render:
@@ -82,44 +76,7 @@ render_area.prototype.edit = async function(options) {
 			content_data : content_data
 			// buttons 	 : current_buttons
 		})
-
-	// css v6
-		// Apply ontology-defined CSS when context.css is present.
-		// set_element_css handles stylesheet injection; the add_class block below
-		// handles class mutations on the actual DOM nodes (a different mechanism).
-		if (self.context.css) {
-			const selector = `${self.section_tipo}_${self.tipo}.edit`
-			set_element_css(selector, self.context.css)
-			// add_class
-				// Ontology may specify extra CSS classes to apply directly to
-				// named child elements. Supported targets: 'wrapper', 'content_data'.
-				// Any unknown key is logged as a warning and skipped.
-				// sample
-				// "add_class": {
-				// "wrapper": [
-				// 	"bg_warning"
-				// ]
-				// }
-				if (self.context.css.add_class) {
-
-					for(const selector in self.context.css.add_class) {
-						const values = self.context.css.add_class[selector]
-						// Resolve the logical selector name to the matching live DOM element.
-						const element = selector==='wrapper'
-							? wrapper
-							: selector==='content_data'
-								? content_data
-								: null
-
-						if (element) {
-							element.classList.add(values)
-						}else{
-							console.warn("Invalid css class selector was ignored:", selector);
-						}
-					}
-				}
-		}
-
+		// ontology css + add_class: applied by ui.area.build_wrapper_edit
 
 	return wrapper
 }//end edit

@@ -203,9 +203,9 @@ else {
 			area_maintenance: { prototype: {} },
 		}));
 		// render_update_ontology.js's remaining leaves: read only by code paths
-		// this gate never runs (the panel render; common.js's update_process_status is
-		// the background-job progress path, and its real import chain reaches
-		// instances.js, which needs `window`), so plain export stubs.
+		// this gate never runs (the panel render), so plain export stubs.
+		// common.js (update_process_status, the job progress bar since 9006322cbf)
+		// drags instances.js, which writes `window` at import.
 		for (const leaf of ['events.js', 'api_error.js', 'common.js']) {
 			mock.module(join(COMMON, leaf), () => exportStubs(join(COMMON, leaf)));
 		}

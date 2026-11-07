@@ -39,7 +39,10 @@ import { mapSourcePickerEntries, parseMapSourceDefaults } from '../geo/map_sourc
 import { directBuiltinIds } from '../geo/tile_proxy/direct_tiles.ts';
 import { resolveDataTipo } from '../ontology/alias.ts';
 import { createOntologyCache } from '../ontology/cache_factory.ts';
-import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
+import {
+	currentOntologyGeneration,
+	registerOntologyCacheClearer,
+} from '../ontology/cache_invalidation.ts';
 import { labelByTipo } from '../ontology/labels.ts';
 import { ONTOLOGY_TLD } from '../ontology/ontology_tipos.ts';
 import {
@@ -389,6 +392,7 @@ async function buildCore(
 	const cacheKey = `${currentApplicationLang()}_${tipo}_${sectionTipo}_${mode}`;
 	const cached = coreCache.get(cacheKey);
 	if (cached !== undefined) return cached;
+	const generation = currentOntologyGeneration();
 
 	const node = await getNode(tipo);
 	if (node === null) return null;
@@ -517,7 +521,9 @@ async function buildCore(
 		structuralView,
 		sectionListChildView,
 	};
-	coreCache.set(cacheKey, core);
+	// skip memoizing a core built across an ontology write (it may hold the
+	// pre-edit css/properties): the caller still gets it
+	if (generation === currentOntologyGeneration()) coreCache.set(cacheKey, core);
 	return core;
 }
 
@@ -533,7 +539,8 @@ async function buildCore(
  * - (section|component_portal) + list, NO child → own properties, css null
  *   (:1818-1822, remove_edit_css).
  * - every other model + list → own properties, css null (:1823-1830) — edit
- *   css add-ons NEVER leak into list mode.
+ *   css add-ons NEVER leak into list mode. EXCEPT areas (TS-only,
+ *   WC-2026-11-07-area-css-list-mode): one render for both modes, css kept.
  * - any other mode (edit/search/tm/list_thesaurus) → own properties, own css.
  * - `properties.css` is ALWAYS stripped from the emitted properties (:1834) —
  *   css travels only as the top-level context field.
@@ -623,7 +630,10 @@ export function resolveEmittedPropertiesAndCss(input: {
 		} else {
 			removeEditCss = true;
 		}
-	} else {
+	} else if (!isAreaModel(model)) {
+		// Areas are exempt (WC-2026-11-07-area-css-list-mode): an area has ONE
+		// render (client render_area.list === edit) and the menu opens it in
+		// 'list', so the strip made every area css dead.
 		removeEditCss = true;
 	}
 
@@ -1006,6 +1016,14 @@ async function contextRequestConfig(
 		propertiesOverride: options.propertiesOverride,
 	});
 }
+
+/**
+ * The cached, user-independent core of an element's context (the object every
+ * entry is stamped from). Exported for the generation-guard gate
+ * (test/unit/ontology_generation_guard_native.test.ts): the identity of the
+ * returned object tells a memoized core from a rebuilt one.
+ */
+export const buildStructureContextCore = buildCore;
 
 export async function buildStructureContext(options: {
 	tipo: string;
