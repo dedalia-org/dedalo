@@ -33,7 +33,11 @@ import {
  * `code_server` is null on the development entity when it is not a code server:
  * the panel then says which key makes it one, and offers no build.
  */
-export const render_serve_code = () => true; //end render_serve_code
+// a CONSTRUCTOR: its .prototype carries list(); an arrow function has none
+// biome-ignore lint/complexity/useArrowFunction: needs .prototype
+export const render_serve_code = function () {
+	return true;
+}; //end render_serve_code
 
 /**
  * LIST
