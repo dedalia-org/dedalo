@@ -116,6 +116,9 @@ type ActiveOntology = z.infer<typeof activeOntologySchema>;
 
 const TLD_RE = /^[a-z]{2,}$/;
 
+/** The export's data dump: TLD-shaped, never an ontology (doc of parseOntologyManifest). */
+const NOT_AN_ONTOLOGY: ReadonlySet<string> = new Set(['matrix']);
+
 /** info.active_ontologies by (lowercased) TLD. */
 function infoByTld(
 	info: { active_ontologies?: ActiveOntology[] } | null,
@@ -188,7 +191,7 @@ export function parseOntologyManifest(raw: unknown): ManifestResult {
 	const warnings: string[] = [];
 	const digests = info?.files_sha256;
 	const ontologies = files
-		.filter((file) => TLD_RE.test(file.tld))
+		.filter((file) => TLD_RE.test(file.tld) && !NOT_AN_ONTOLOGY.has(file.tld))
 		.map((file) => ({
 			...manifestOntology(file, metadata.get(file.tld), warnings),
 			...digestField(digests, file.tld),

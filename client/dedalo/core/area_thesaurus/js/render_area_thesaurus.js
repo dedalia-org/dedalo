@@ -725,8 +725,26 @@ const get_buttons = function(self) {
 				button_node.addEventListener('click', click_handler)
 		}//end for (let i = 0; i < ar_buttons_length; i++)
 
-	// tools
-		ui.add_tools(self, other_buttons_block)
+	// tools. A picker (attach_picker ran before render) is a selection surface:
+	// the area's own tools (e.g. Ontology parser) do not belong there. When a
+	// component pane hosts it, a Close button closes that pane instead.
+		if (self.picker) {
+			const pane_owner = self.picker.caller
+			if (typeof pane_owner?.toggle_thesaurus_pane==='function') {
+				const close_button = ui.create_dom_element({
+					element_type	: 'button',
+					class_name		: 'warning close',
+					inner_html		: get_label.close || 'Close',
+					parent			: other_buttons_block
+				})
+				close_button.addEventListener('click', (e) => {
+					e.stopPropagation()
+					pane_owner.toggle_thesaurus_pane() // open → closes it
+				})
+			}
+		}else{
+			ui.add_tools(self, other_buttons_block)
+		}
 
 
 	return fragment

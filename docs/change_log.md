@@ -27,6 +27,17 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Thesaurus indexation badges: white text in the light theme, a readable brown tint in the dark theme.**
+
+    The small badges after a thesaurus term (`U:N` indexation count, `IMG`, `M`, `NA`)
+    are back to white text on the Dédalo orange in the light theme, kept soft so they do
+    not compete with the term. In the dark theme they are now a brown tint with orange
+    text, which meets the WCAG AA contrast minimum.
+
+- **JSON fields save when you leave them, like every other field.**
+
+    Before, a change in a JSON field was not saved when you clicked out of it, but it was saved later, the next time you clicked into any field, which made saving look random. Now a JSON field saves when you leave it, like every other field; only content that is valid JSON is saved, and emptying the editor clears the value. Going back to the saved value also clears the unsaved state, so the Save button dims again.
+
 - **Field names cut short in the edit form show in full on hover.**
 
     A field name too long for its column ends in "…" in the edit form, and until now there was no way to read the rest of it. Pointing at a cut name now shows the whole name as a tooltip. Names that fit show no tooltip.
@@ -162,6 +173,15 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **Terms can be reordered while a thesaurus or ontology search is showing the tree.**
+
+    Before, the order number next to a term was hidden during a search, so moving a term
+    meant clearing the search first. It now shows in search results too (root terms still
+    have none). If the list of sibling terms on screen is out of date, the order is not
+    saved: Dédalo says so and asks you to reload the tree, instead of saving a wrong order.
+
+    Wire contract: `WC-2026-11-07-save-order-complete-list`.
+
 - **The active-field style list gains Background, the tinted-surface look Dédalo used before the styles existed (it is the default).**
 
     Choose it with the same switcher in Users → your own record: **Active field style** is now
@@ -196,6 +216,38 @@ Merged since the last release; these ship with the next one.
 - **In the search panel, a portal field's search options are wide enough to use, and the results no longer cover them.**
 
     Opening the options (gear) of a portal field in the search panel showed a narrow panel, and typing in one of its fields (for example Name) opened the result list on top of the panel, hiding the field being typed in. The field rows overlapped and looked like thin strips. Now, while the options are open, the field takes two columns of the search panel (one full row when there is room for only one), the results appear below the options, the field rows are full-height bordered inputs, and the search-options help no longer covers the results.
+
+- **A split search in a linking field finds records that match every part.**
+
+    When you type a search split by `|` in a linking field's search box (for example `hierarchy|20`), each part goes to its own search field, and the results now have to match all of them. Before, the operator selector could be set to match any one part, which returned unrelated records. Typing straight into a single search field still uses the operator you selected.
+
+- **URL fields take less room and no longer clip their buttons on phones.**
+
+    In a URL field, the remove and open-link buttons used to take a row of their own. They now sit over the end of the address, which fades out under them, so each link takes one line less. The linked-record selector next to it gives its label more room, and its edit and remove icons line up with the text. On narrow screens the selector spans the full width like the title and address, and the toolbar that appears when you select it is no longer cut off.
+
+- **The JSON editor toolbar fits narrow windows and shows when there is something to save.**
+
+    In JSON fields, the editor's toolbar now stays on one line: the Save button is part of the toolbar instead of floating over the undo and redo buttons, the buttons tighten on narrow windows and Save shows only its icon when space is short, so every button stays reachable. Save is dimmed while there is nothing to save and turns orange as soon as the value changes, with a tooltip like the other tool buttons. The editor also no longer leaves a double gap under its status bar, and inside the ontology tree it keeps a steady width while you scroll.
+
+- **Long lists (hundreds of records per page) scroll smoothly again.**
+
+    A list showing several hundred records per page (e.g. Time Machine at 500
+    rows) froze for up to a second or more at a time while scrolling, as rows
+    were swapped in and out. Scrolling now runs without those pauses, and the
+    column widths no longer jump while new rows appear. Lists also render a
+    little faster for administrators.
+
+- **The term picker opened from a field has a Close button instead of the area's tools.**
+
+    When you link a term from a field (the Link resource button), the floating thesaurus or ontology window no longer shows the area's own tools, such as Ontology parser, which do not belong in a selection window. It shows a Close button instead. The same picker inside the indexing tool also no longer shows those tools.
+
+- **Text editors, URL fields and record pickers fit better, especially on phones.**
+
+    The text editor's toolbar now sits flush at the top of the field across its full width, just under the line that shows unsaved and saved changes, for both plain and rich text. On phones, a selected long text no longer spills over the field below it; it scrolls inside its box. In a URL field, the linked-record selector and the title now share their line equally and are vertically aligned. On phones, the record picker opened from a field no longer gets cut off when a record has a long, unbroken label such as a web address.
+
+- **Thesaurus and ontology tree badges are easier to read, and the inline JSON editor keeps its width.**
+
+    In the thesaurus and ontology trees, the information badges are slightly smaller and share one compact style, their text can no longer be selected by accident, and in dark mode the badges and the expand arrow now use the same, softer orange. The ontology's v5 properties badge, which was barely visible on the light background, is now a clear yellow. The JSON editor opened inside the ontology tree no longer changes width while you scroll through it.
 
 - **Portal search results show each record as one line of text, with its columns aligned.**
 
@@ -266,11 +318,11 @@ Merged since the last release; these ship with the next one.
     nothing at all. The gutter is now reserved inside the list, so the whole handle
     is shown and a drag from it starts every time.
 
-- **A search field no longer jumps when you click it, and the date picker button stays on its field**
+- **A search field no longer jumps when you click it**
 
     In the search panel, clicking into a filter field used to shrink its name row and pull the whole field up by a line, so the row you aimed at moved under the pointer. The date fields' calendar button made it worse: it rode that shift and covered the field's own name.
 
-    Both are fixed. A search card keeps the same height whether or not it is in use, and the calendar button now sits at the end of the date field's own line, inside the card, where it covers neither the field name nor the value.
+    Both are fixed. A search card keeps the same height whether or not it is in use, and the date fields keep their calendar button on the field corner.
 
 - **The record's Id badge can be selected to show its information in the inspector.**
 
@@ -680,6 +732,18 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **The ontology update lists what a server offers by name, and several ontology servers can be used side by side.**
+
+    **Maintenance → Update ontology** used to offer a row of bare tld chips (`es`, `fr`, `oh`…) and a *Fetch list* button. Picking a server now lists everything it offers, grouped by typology, each with its name in your language and what ticking it does here: **New**, **Installed**, or **Installed · not tracked** — installed here but not in `ACTIVE_ONTOLOGY_TLDS`, possibly your own local ontology. The panel warns when one of those is ticked. A filter, **Selected only**, **Default selection** and **Clear** make a 200-ontology list manageable. The shared value lists (`matrix_dd`) are now a row you tick like any other.
+
+    **Several ontology servers now work.** The update takes the ticked ontologies from the server you picked — any ontology it offers, even outside `ACTIVE_ONTOLOGY_TLDS` — so an installation can take its shared ontologies from the official server, its own from an institution's server, or try a test server's version. Two servers on the same host under different paths are told apart. The automatic update that rides a code update takes from the first server in `ONTOLOGY_SERVERS`, unless entries declare a `tlds` list. Before, a second server without a `tlds` list made every update fail.
+
+    **Replace selected ontologies now opens a confirmation dialog**, like the code update: the version change, the ontologies that will be replaced and from which server, a warning for ticked *not tracked* ones, and — only when there is no recent database backup — the **Update without a recent database backup** box beside the button. The backup box is no longer in the panel.
+
+    **The update shows its progress.** It now runs in the background, like a code update, and the panel follows it with a progress bar naming the stage (downloading, importing, processing, finishing) and the ontology in work. A long update no longer depends on one browser request staying open.
+
+    Wire contract: `WC-2026-11-07-ontology-update-picked-source`.
+
 - **Map tiles now come through the server, which needs outbound HTTPS to the tile providers; an installation without a public address loads OpenStreetMap in the browser instead.** *(action needed)*
 
     **Action needed: check which machine reaches which tile provider.** The geolocation map no longer asks a source stored in a record, an ontology default or (on most installations) OpenStreetMap for its tiles from the browser. It asks the installation's own server (`/dedalo/core/api/v1/map_tile`), which checks that the person may read the field, finds the source the request names, fetches the tile and hands it on. So **the server** needs outbound HTTPS (port 443) to `www.ign.es`, to whatever host a stored source or an ontology default names (port 80 for an `http` one) and — on an installation with a public address (`DEDALO_HOST`) — to `tile.openstreetmap.org`. An installation **without** a public address does not relay OpenStreetMap (its policy forbids relaying it under the shared identity such an installation has, see below): there the server never asks OpenStreetMap, and **the viewers' browsers** still need to reach `tile.openstreetmap.org`, as before. An installation whose server has no outbound access (a firewalled network, a DMZ without egress) shows **blank** stored, default and IGN layers after this update, and a blank OpenStreetMap base map too if it has a public address, until the server is allowed to reach those hosts. Check it before updating.
@@ -707,6 +771,23 @@ Merged since the last release; these ship with the next one.
 - **An ontology master can promote chosen tlds from another provider.**
 
     An installation that serves ontology (`IS_AN_ONTOLOGY_SERVER=true`) can now list other providers in `ONTOLOGY_SERVERS` and update chosen tlds from them, with the same checks as any update: census, recovery snapshot, file digests and the data-model refusal. On such an installation only entries that list `tlds` are providers; an entry without them is code-only (it supplies an accepted access code and nothing is pulled from it), so a remote can never replace the whole authored ontology. Tlds no provider lists stay untouched. Without providers nothing changes. `bun run update plan <release>` now asks every configured code server for the release, instead of only the first.
+
+- **The code update panel is simpler — the installed version, what blocks an update and how to fix it, everything else folded away.**
+
+    **Maintenance → Update Code** used to show every readiness check, the database backup, provenance facts and restore points at once. It now shows:
+
+    - the **current version**, in large type, with its date, the kind of build and the code server it came from;
+    - **Ready to update** or **Update blocked** — and, when blocked, only the checks that block, each with why and a numbered **How to fix it** list;
+    - the code server and the **Check available updates** button (with the choice of which builds are offered, remembered by the browser);
+    - a closed **Details** section with every check, the installation's facts and the restore points.
+
+    Maintenance mode and the database backup are no longer panel checks: the version window handles both when you choose a release (it has the maintenance switch and the backup waiver).
+
+    Two checks that always read *unknown* now give a real answer. **Enough free disk space** applies the update's own rule in advance (for example *932 GB free · about 1.4 GB needed*; the first look may say *being measured*). **Only Dédalo files in the code folder** now works on every installation, including checkouts and copied trees, and names anything that does not belong — the update refuses to start while it is there.
+
+    **Maintenance → Serve Code** follows the same layout: the **published release** in large type, **Ready to publish** or **Cannot publish** with only the blocking checks (each with a fix list), the three Build rows, and a closed **Details** section with every check, the build source, the tags, other archives and what installations are offered.
+
+    Wire contract: `WC-2026-11-06-update-panel-verdicts`.
 
 - **A column defined with a level-two `section_tipo: "self"` is no longer shown; the new `ddo_self_depth` check lists every such definition.**
 
@@ -953,6 +1034,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Style changes reach browsers right after a code update, whatever the web server's cache headers.**
+
+    Before, a web server that sent no `Cache-Control` header for the client files let browsers keep the previous `main.css` and tool stylesheets for days after an update, so the interface looked broken or unchanged until a hard reload. Now the engine tells the page which stylesheet version is current at every start, and the page loads exactly that version before it draws anything. Nothing to configure. `Cache-Control: no-cache` on the client files (see [reverse proxy](./install/reverse_proxy.md)) is still recommended for the scripts.
+
+    Wire contract: `WC-2026-11-06-css-version`.
+
 - **The maintenance System Map follows the interface language.**
 
     The System Map of the Maintenance area showed its node names, status lines,
@@ -1142,6 +1229,12 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Interface labels are a separate, cacheable download — `get_environment` and `start` no longer carry `get_label`.**
+
+    The localized interface-label dictionary used to ride every `start` / `get_environment` response as `get_label`, so every page load downloaded it again. The environment now carries only `page_globals.labels_version`, and the client fetches the dictionary from the public `GET /api/v1/labels?lang=<lang>&v=<labels_version>`, which the browser keeps until the labels actually change (a code update). An API consumer that read `get_label` from the environment must fetch that URL instead; the body is the same dictionary. Pages load faster; nothing to configure.
+
+    Wire contract: `WC-2026-11-07-labels-separate-resource`.
+
 - **Tool-owned panels outside the tool window can wear the tool's colour**
 
     A tool can now stamp `data-tool="<tool>"` on an element that sits outside its
@@ -1258,7 +1351,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 64 entries"
+??? note "Wire contract — 69 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -1321,9 +1414,14 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-04-tree-picker-read-gate-retired`
     - `WC-2026-11-04-writer-chain-scoped-search`
     - `WC-2026-11-05-reconcile-apply-refused`
+    - `WC-2026-11-06-css-version`
     - `WC-2026-11-06-geolocation-map-sources-legend`
     - `WC-2026-11-06-map-tile-proxy`
     - `WC-2026-11-06-tool-reason-key`
+    - `WC-2026-11-06-update-panel-verdicts`
+    - `WC-2026-11-07-labels-separate-resource`
+    - `WC-2026-11-07-ontology-update-picked-source`
+    - `WC-2026-11-07-save-order-complete-list`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

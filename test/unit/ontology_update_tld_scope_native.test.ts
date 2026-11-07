@@ -139,6 +139,16 @@ describe('U-52 ontology update TLD scope (server-side)', () => {
 		expect(() => assertUpdateTldScope([{ tld: 'test' }], [...ACTIVE, 'test'])).toThrow(DedaloError);
 	});
 
+	test('an operator pick may replace ANY shared TLD — never localontology, never the fixture', () => {
+		expect(() =>
+			assertUpdateTldScope([{ tld: 'zzbad' }, { tld: 'matrix_dd' }], ACTIVE, true),
+		).not.toThrow();
+		expect(() => assertUpdateTldScope([{ tld: 'localontology' }], ACTIVE, true)).toThrow(
+			DedaloError,
+		);
+		expect(() => assertUpdateTldScope([{ tld: 'test' }], ACTIVE, true)).toThrow(DedaloError);
+	});
+
 	test('localontology is never admissible, even when configured as active', () => {
 		expect(admissibleUpdateTlds([...ACTIVE, 'localontology']).has('localontology')).toBe(false);
 		expect(() =>

@@ -354,15 +354,16 @@ It gets the tld from the [ACTIVE_ONTOLOGY_TLDS](#defining-active-ontology-tlds) 
 
 Every \`url\` must be \`https://\` (plain http only for a master on this same machine); an \`http://\` entry is ignored at startup with one log line.
 
-A master is identified by its \`url\`, not by its \`code\`: several masters may share one access
-code, and the update downloads only from the address of the master picked in the panel. List
-each master once.
+A master is identified by its full \`url\`, not by its \`code\`: several masters may share one
+access code, or one host under different paths (a test master beside the real one), and the
+update downloads only from the address of the master picked in the panel. List each master once.
 
-**Several masters: one source per TLD.** With two or more masters, each entry also lists the
-shared TLDs this installation takes from it, in \`tlds\` (include \`matrix_dd\`, the shared value
-lists, in exactly one of them). The update refuses a TLD that no master lists, that two masters
-list, or that the picked master does not list. One master needs no \`tlds\`: everything comes
-from it.
+**Several masters.** In the *Update ontology* panel you pick a master and tick what to take from
+it: any ontology it offers. The automatic update that rides a code update takes the shared TLDs
+from the **first** entry, unless entries declare \`tlds\` — the shared TLDs this installation
+takes from that master (include \`matrix_dd\`, the shared value lists, in exactly one). Then only
+the declaring masters feed the automatic update, each for its list, and a TLD that no declaring
+master lists, or that two list, is refused. Entries without \`tlds\` stay available in the panel.
 
 \`\`\`bash
 ONTOLOGY_SERVERS=[{"name":"Dédalo","url":"https://master7.dedalo.dev/dedalo/core/api/v1/json/","code":"x3a0B4Y020Eg9w","tlds":["dd","rsc","ontology","ontologytype","hierarchy","lg","oh","matrix_dd"]},{"name":"Museum master","url":"https://ontology.museum.example/dedalo/core/api/v1/json/","code":"…","tlds":["mus"]}]

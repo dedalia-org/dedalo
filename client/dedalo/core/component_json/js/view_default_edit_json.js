@@ -279,7 +279,7 @@ const inject_editor_css = (module) => {
 *
 * Side effects:
 *   - Sets `self.editors[key]` to the live JSONEditor instance after creation.
-*   - Appends a `button_save` element to `content_value`.
+*   - Adds a `button_save` item to the editor menu (onRenderMenu).
 *   - On error: replaces `content_value.textContent` with the error message
 *     and applies inline danger-color styling.
 *
@@ -349,11 +349,43 @@ const get_content_value = (key, current_value, self) => {
 						props	: {
 							content		: content,
 							mode		: 'text',
+							// Save lives IN the editor's menu (pushed right by a space item), not
+							// floated over it: an absolute button covered undo/redo on narrow widths
+							onRenderMenu : (items) => [
+								...items,
+								{ type : 'space' },
+								{
+									type		: 'button',
+									text		: get_label.save || 'Save',
+									title		: get_label.save || 'Save',
+									className	: 'warning save button_save',
+									onClick		: (e) => {
+										e?.stopPropagation?.()
+										self.save_sequence(editor)
+									}
+								}
+							],
 							onChange	: (updatedContent, previousContent, { contentErrors, patchResult }) => {
 								// debounced: parsing + cloning a large value on every keystroke lags typing
 								clearTimeout(self.change_timers[key])
-								if (typeof contentErrors === 'undefined') {
-									self.change_timers[key] = setTimeout(() => handle_json_change(self, updatedContent, key), CHANGE_DEBOUNCE_MS)
+								// typed while active and deactivated (click-out) before the debounce
+								// fired: deactivate found no change to save, so save it here, as it would have
+								const was_active = self.active===true
+								const apply_change = (content) => {
+									const changed = handle_json_change(self, content, key)
+									if (changed && was_active && self.active!==true && self.save_on_deactivate===true) {
+										self.change_value({
+											changed_data	: self.data.changed_data,
+											refresh			: false
+										})
+									}
+								}
+								// an emptied editor is a parse error, but it means "no value" (null)
+								if (updatedContent.text !== undefined && updatedContent.text.trim() === '') {
+									self.change_timers[key] = setTimeout(() => apply_change({ json : null }), CHANGE_DEBOUNCE_MS)
+								}
+								else if (typeof contentErrors === 'undefined') {
+									self.change_timers[key] = setTimeout(() => apply_change(updatedContent), CHANGE_DEBOUNCE_MS)
 								}
 							}
 						}
@@ -374,19 +406,15 @@ const get_content_value = (key, current_value, self) => {
 				// set pointer
 				self.editors[key] = editor;
 
-				// button_save
-				const button_save = ui.create_dom_element({
-					element_type	: 'button',
-					class_name		: 'warning save button_save',
-					inner_html		: get_label.save || 'Save',
-					parent			: content_value
-				});
-				// click event
-				const click_handler = (e) => {
-					e.stopPropagation();
-					self.save_sequence(editor);
-				};
-				button_save.addEventListener('click', click_handler);
+				// Save tooltip, same codex-tooltip as the pill tool buttons. Bound on
+				// first hover: the editor re-renders its menu (mode switch) and the
+				// button is a fresh node each time (activate_tooltips skips bound ones)
+				content_value.addEventListener('mouseover', (e) => {
+					const button_save = e.target.closest?.('.button_save')
+					if (button_save) {
+						ui.activate_tooltips(button_save, null)
+					}
+				})
 
 				// smooth appearance: fade the editor in now that it is mounted
 				reveal();

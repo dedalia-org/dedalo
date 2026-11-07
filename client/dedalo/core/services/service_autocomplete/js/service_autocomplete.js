@@ -569,8 +569,9 @@ service_autocomplete.prototype.rebuild_search_query_object = async function(opti
 			// Iterate current filter
 			for (let operator in filter_free) {
 
-				// set the operator with the user selection or the default operator defined in the config_sqo (it comes in the config_rqo)
-				const new_operator = self.operator || operator
+				// set the operator with the user selection or the default operator defined in the config_sqo (it comes in the config_rqo).
+				// A piped q ('hierarchy|20') is one value per search field, so it is always '$and'.
+				const new_operator = self.q_piped===true ? '$and' : (self.operator || operator)
 				// initialize once. When self.operator forces a single operator, several
 				// source groups collapse onto the same key — do NOT reset it here or the
 				// terms accumulated from a previous group would be lost.

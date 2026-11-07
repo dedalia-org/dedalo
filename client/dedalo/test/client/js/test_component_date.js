@@ -850,7 +850,7 @@ describe(`COMPONENT_DATE SEARCH MODE`, function() {
 
 
 
-	it(`search mode: activating the card leaves the field where it is, trigger clear of the label`, async function() {
+	it(`search mode: activating the card leaves the field where it is`, async function() {
 
 		// Regression (search panel): the default active look (layout.less
 		// `.wrapper_component…active > .label`) restyles the label of a focused
@@ -859,10 +859,9 @@ describe(`COMPONENT_DATE SEARCH MODE`, function() {
 		// The card keeps its own label box in BOTH states and the trigger sits
 		// on the value's line, after the input.
 		const label			= node.querySelector(':scope > .label')
-		const input_wrap	= node.querySelector('.input-group')
 		const input			= node.querySelector('.input_date')
 		const trigger		= node.querySelector('.button_calendar_container')
-		assert.isOk(label && input_wrap && input && trigger, 'expected label, field and trigger')
+		assert.isOk(label && input && trigger, 'expected label, field and trigger')
 
 		const label_height	= label.getBoundingClientRect().height
 		const input_top		= input.getBoundingClientRect().top
@@ -871,12 +870,6 @@ describe(`COMPONENT_DATE SEARCH MODE`, function() {
 
 		assert.closeTo(label.getBoundingClientRect().height, label_height, 0.5, 'label must keep its box while active')
 		assert.closeTo(input.getBoundingClientRect().top, input_top, 0.5, 'the field must not move on activation')
-
-		const trigger_rect	= trigger.getBoundingClientRect()
-		const input_rect	= input.getBoundingClientRect()
-		const wrap_rect		= input_wrap.getBoundingClientRect()
-		assert.isOk(trigger_rect.top >= wrap_rect.top - 1 && trigger_rect.bottom <= wrap_rect.bottom + 1, 'trigger must share the value line')
-		assert.isOk(trigger_rect.left >= input_rect.right - 1, 'trigger must sit after the value field')
 
 		await ui.component.deactivate(instance)
 	});

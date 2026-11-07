@@ -998,7 +998,10 @@
 				padding: 0.9rem 1.15rem 1.2rem;
 
 				.map_ctx_lead {
-					max-width: 64ch;
+					// a one- or two-sentence lead, not prose: wide enough to sit on
+					// one line beside the panel's content, capped so a full-HD
+					// panel (no width cap of its own) never stretches it past reading
+					max-width: 100ch;
 					margin: 0 0 0.9rem;
 					font-size: 14px;
 					line-height: 1.55;

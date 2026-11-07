@@ -23,6 +23,14 @@
 			margin-top: 0;
 		}
 
+		// nothing published: said in the muted voice, not as a big version
+		.published_version_value.none {
+			font-size: 1.1rem;
+			font-weight: normal;
+			font-style: italic;
+			color: var(--fg_muted);
+		}
+
 		// BUILD AND PUBLISH — one row per channel: the action button in the
 		// key cell, the archive it writes in the value cell. The key cell is
 		// the readout's label column, so its label styling (uppercase, small)

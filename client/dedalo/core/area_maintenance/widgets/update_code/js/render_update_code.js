@@ -18,7 +18,9 @@
 	import {
 		render_consumer_status,
 		refresh_readiness,
+		panel_blocked,
 		backup_waiver_check,
+		build_waive_backup_row,
 		image_update_command,
 		image_command_tag
 	} from './render_update_status.js'
@@ -267,9 +269,16 @@ const get_content_data_edit = async function(self) {
 		// a check the panel never shows.
 		let consumer_half = null
 		let actions_hint = null
+		// Details (.update_details, render_consumer_status) is moved HERE, below
+		// the actions: version → blocks → actions → the folded reference facts
+		const details_slot = ui.create_dom_element({
+			element_type	: 'div',
+			// `update_status`: the shared readout rules (.dd_update_status) style Details too
+			class_name		: 'details_slot update_status'
+		})
 		const sync_actions_hint = function(consumer) {
 			if (actions_hint) {
-				actions_hint.textContent = (consumer && consumer.ready===false)
+				actions_hint.textContent = (consumer && panel_blocked(consumer))
 					? (get_label.update_code_blocked_see_above || 'Update blocked: see the readiness checks above. You can still check what is available.')
 					: ''
 			}
@@ -304,6 +313,7 @@ const get_content_data_edit = async function(self) {
 					// block is not rendered at all elsewhere)
 					is_development ? null : { on_cancel : () => cancel_image_request(self, body_response) }
 				)
+				details_slot.replaceChildren(...holder.querySelectorAll('.update_details'))
 			} else {
 				// the status replaces this readout once loaded: widget_common.load's spinner goes here
 				holder.classList.add('widget_load_slot')
@@ -430,6 +440,8 @@ const get_content_data_edit = async function(self) {
 		actions.appendChild(servers_list)
 		consumer_body.appendChild(actions)
 
+		// the offer is always visible: the operator's choice is remembered per
+		// browser (CHANNEL_STORAGE_KEY), published releases until one is made
 		const channel_row = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'dd_options channel_row',
@@ -456,6 +468,7 @@ const get_content_data_edit = async function(self) {
 		})
 		// per-panel group name: two panels on one page never share a radio group
 		const channel_group = 'update_code_channel_' + (++modal_seq)
+		const remembered_channel = read_channel()
 		const channel_options = [
 			{
 				token	: 'master',
@@ -489,7 +502,7 @@ const get_content_data_edit = async function(self) {
 				name			: channel_group,
 				value			: option.token
 			})
-			input.checked = option.token==='master'
+			input.checked = option.token===remembered_channel
 			// the developer option's icon reads BEFORE the words: it is the only
 			// development-facing control on an otherwise production panel. Masked
 			// svg, same vocabulary the area map uses for its 'dev' category (bug.svg).
@@ -511,6 +524,7 @@ const get_content_data_edit = async function(self) {
 			}
 			input.addEventListener('change', () => {
 				channel_note.textContent = option.note || ''
+				store_channel(option.token)
 			})
 			return input
 		})
@@ -653,7 +667,7 @@ const get_content_data_edit = async function(self) {
 							// refresh_readiness answers false when there is no
 							// readiness block to replace — the FALLBACK painting —
 							// and then the whole half is rendered again.
-							if (refresh_readiness(consumer_half, fresh_value.consumer)!==true) {
+							if (refresh_readiness(content_data, fresh_value.consumer)!==true) {
 								render_consumer_half(fresh_value.consumer)
 							} else {
 								sync_actions_hint(fresh_value.consumer)
@@ -678,7 +692,8 @@ const get_content_data_edit = async function(self) {
 		}
 		button_submit.addEventListener('click', click_event)
 
-	// add at end body_response
+	// add at end Details + body_response
+		content_data.appendChild(details_slot)
 		content_data.appendChild(body_response)
 
 
@@ -1426,43 +1441,15 @@ export const render_info_modal = function( self, versions_info, body_response, a
 			if (waive_backup_input!==null) {
 				return waive_backup_input
 			}
-			const waive_backup_row = ui.create_dom_element({
-				element_type	: 'div',
-				class_name		: 'waive_backup_row',
-				parent			: footer
-			})
+			const waive = build_waive_backup_row(check, 'update_code_waive_backup')
 			// it must precede the Update button even when mounted LATE (the
 			// deadline-crossing path below): the caution is read, not stumbled on.
 			if (button_update && button_update.parentNode===footer) {
-				footer.insertBefore(waive_backup_row, button_update)
+				footer.insertBefore(waive.row, button_update)
+			} else {
+				footer.appendChild(waive.row)
 			}
-			// label WRAPS the input (the house pattern, same as channel_row):
-			// the click target is the whole row without an id/for pair to keep in sync.
-			const waive_backup_label = ui.create_dom_element({
-				element_type	: 'label',
-				class_name		: 'waive_backup_label',
-				text_content	: get_label.update_code_waive_backup || 'Update without a recent database backup',
-				parent			: waive_backup_row
-			})
-			waive_backup_input = ui.create_dom_element({
-				element_type	: 'input',
-				type			: 'checkbox',
-				class_name		: 'waive_backup_check',
-				name			: 'update_code_waive_backup'
-			})
-			waive_backup_label.prepend(waive_backup_input)
-			// the age FACT, when the server measured one ('none' means no backup
-			// was found at all). The server sends facts, the client the wording.
-			const backup_age = Number(check.detail)
-			const note_text = (get_label.update_code_waive_backup_note || 'The database will not be restorable if the update goes wrong. Make a backup first whenever you can; every waiver is recorded in the server log with your user.')
-			ui.create_dom_element({
-				element_type	: 'div',
-				class_name		: 'dd_note waive_backup_note state_warning',
-				text_content	: Number.isFinite(backup_age)
-					? ((get_label.update_code_check_backup_fresh || 'Recent database backup') + ': ' + String(backup_age) + ' h — ' + note_text)
-					: note_text,
-				parent			: waive_backup_row
-			})
+			waive_backup_input = waive.input
 
 			return waive_backup_input
 		}
@@ -2591,3 +2578,30 @@ export const render_restore_modal = function( self, point, body_response, engine
 
 
 // @license-end
+
+
+
+/**
+* CHANNEL_STORAGE_KEY
+* The operator's offer choice (master | prerelease | dev), remembered per browser
+* and origin like the server picker's `dedalo.update_code.server`. Anything
+* unreadable or unknown reads as 'master' (published releases): a private-mode
+* browser simply has no memory.
+*/
+const CHANNEL_STORAGE_KEY = 'dedalo.update_code.channel'
+
+const read_channel = function() {
+	try {
+		return channel_token(window.localStorage.getItem(CHANNEL_STORAGE_KEY))
+	} catch (_error) {
+		return 'master'
+	}
+}//end read_channel
+
+const store_channel = function(token) {
+	try {
+		window.localStorage.setItem(CHANNEL_STORAGE_KEY, channel_token(token))
+	} catch (_error) {
+		// no memory available — the choice still holds for this visit
+	}
+}//end store_channel

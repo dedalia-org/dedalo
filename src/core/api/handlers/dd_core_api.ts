@@ -1540,9 +1540,9 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		if (pagePermissions < 1) {
 			// THE ENVIRONMENT RIDES THE REFUSAL
 			// (WC-2026-08-12-authorization-denial-token). `start` is the client's
-			// FIRST call: without it there is no `get_label`, so the page could only
-			// render the refusal in the source language, whatever the operator's
-			// interface language is. It is the same block the success path builds,
+			// FIRST call: without it there is no `labels_version` to fetch labels by,
+			// so the page could only render the refusal in the source language,
+			// whatever the operator's interface language is. It is the same block the success path builds,
 			// for the same authenticated caller — no permission is implied by it and
 			// nothing about the refused element is in it.
 			throw new DedaloError('perm.denied', {
@@ -1609,7 +1609,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 						addRequestConfig: false,
 					})
 				: null,
-			// The FULL environment block (page_globals + plain_vars + get_label) —
+			// The FULL environment block (page_globals + plain_vars; labels ride their own resource) —
 			// the copied client injects it via set_environment() at boot
 			// (rewrite/client_seam.md seam item 1). Session is non-null on this
 			// branch (the anonymous path returned above).
@@ -1947,12 +1947,13 @@ export const coreApiActions: Record<string, ActionHandler> = {
 	},
 	get_environment: async (_rqo, context) => {
 		// The full client environment (PHP get_environment): page_globals +
-		// plain_vars + get_label — the payload set_environment() injects.
+		// plain_vars — the payload set_environment() injects (labels: page_globals.labels_version
+		// → /api/v1/labels, WC-2026-11-07-labels-separate-resource).
 		const { buildEnvironment } = await import('../../resolve/environment.ts');
 		// Seeded once by dispatchRqo; null for the unauthenticated environment read.
 		const principal = context.principal ?? null;
-		// buildEnvironment answers the `{result:{page_globals, plain_vars,
-		// get_label}, …}` block that ALSO rides `start` as its `environment`
+		// buildEnvironment answers the `{result:{page_globals, plain_vars}, …}`
+		// block that ALSO rides `start` as its `environment`
 		// extension key; here its `result` is the data.
 		const environment = await buildEnvironment(context.session, principal);
 		return { status: 200, body: ok(environment.result, { requestId: context.requestId }) };

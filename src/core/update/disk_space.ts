@@ -25,9 +25,9 @@
  * `PRESERVE_ROOT_ENTRIES` itself, never a second list that could drift.
  *
  * `du -sx` (one filesystem, no crossing into mounts) is the measure. It walks
- * ~10^5 inodes, so it belongs on the UPDATE path, which is slow and rare — the
- * readiness panel reports free bytes as a FACT instead (status.ts), the way it
- * reports every other input whose verdict needs the release.
+ * ~10^5 inodes, so the UPDATE path measures fresh (it is slow and rare), and
+ * the readiness panel reads the SAME verdict through a shared background
+ * measurement with a bounded wait (`checkUpdateSpaceWithin`, status.ts).
  */
 
 import { execFile } from 'node:child_process';
@@ -140,6 +140,97 @@ export async function checkUpdateSpace(
 	const staged = await stagedBytes(targetRoot, preserved, measure, exists);
 	const required = staged === null ? null : Math.round(staged * SPACE_MARGIN);
 	return { available, required, sufficient: isSufficient(available, required) };
+}
+
+/** A bounded wait that ran out while the tree was still being measured. */
+export interface PendingSpace {
+	pending: true;
+}
+
+/** How long a settled tree measurement answers the PANEL (never the pipeline). */
+export const PANEL_SPACE_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * The panel's tree measurements: in flight, or settled within the TTL. Keyed
+ * on the measured tree + the preserved set; ONE `du` per key at a time, shared
+ * by every asker. No request identity.
+ */
+const panelStagedBytes = new Map<string, PanelEntry>();
+
+/**
+ * The SAME verdict as `checkUpdateSpace`, for the readiness PANEL: the free
+ * bytes are read live (one statfs), the slow side — the staged tree size — is
+ * measured once in the background, shared, and reused for PANEL_SPACE_TTL_MS
+ * (a code tree's size moves by MB between updates, not by the GB a verdict
+ * turns on). A lost wait reports `pending` and the measurement carries on for
+ * the next asker. The pipeline never reads this: it measures fresh
+ * (`checkUpdateSpace`) at the moment it spends disk.
+ */
+export async function checkUpdateSpaceWithin(
+	maxWaitMs: number,
+	targetRoot: string,
+	stagingParent: string,
+	preserved: ReadonlySet<string>,
+	seams: SpaceSeams = {},
+): Promise<UpdateSpaceVerdict | PendingSpace> {
+	const { available: availableOf, measure, exists } = resolveSeams(seams);
+	const key = [targetRoot, ...[...preserved].sort()].join('\0');
+	const entry = panelEntry(
+		key,
+		() => stagedBytes(targetRoot, preserved, measure, exists),
+		targetRoot,
+	);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const lost = new Promise<'lost'>((resolveLost) => {
+		timer = setTimeout(() => resolveLost('lost'), maxWaitMs);
+	});
+	try {
+		const staged = await Promise.race([entry.promise, lost]);
+		if (staged === 'lost') return { pending: true };
+		const available = availableOf(stagingParent);
+		const required = staged === null ? null : Math.round(staged * SPACE_MARGIN);
+		return { available, required, sufficient: isSufficient(available, required) };
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+type PanelEntry = {
+	promise: Promise<number | null>;
+	settledAt: number | null;
+	bytes: number | null;
+};
+
+/** The shared measurement for `key`: the live one, or a fresh one started now (an expired one is dropped). */
+function panelEntry(
+	key: string,
+	measureTree: () => Promise<number | null>,
+	targetRoot: string,
+): PanelEntry {
+	const entry = panelStagedBytes.get(key);
+	const expired = entry?.settledAt != null && Date.now() - entry.settledAt > PANEL_SPACE_TTL_MS;
+	if (entry !== undefined && !expired) return entry;
+	const fresh: PanelEntry = { promise: Promise.resolve(null), settledAt: null, bytes: null };
+	fresh.promise = measureTree().then(
+		(bytes) => {
+			fresh.bytes = bytes;
+			fresh.settledAt = Date.now();
+			return bytes;
+		},
+		(error: unknown) => {
+			// detached after a lost wait: logged, never an unhandled rejection
+			console.error(`[code update] panel tree measurement of '${targetRoot}' failed:`, error);
+			panelStagedBytes.delete(key);
+			return null;
+		},
+	);
+	panelStagedBytes.set(key, fresh);
+	return fresh;
+}
+
+/** Forget the panel's measurements (test seam). */
+export function resetPanelSpaceMeasurements(): void {
+	panelStagedBytes.clear();
 }
 
 /** Production measures, unless a test injected its own. */

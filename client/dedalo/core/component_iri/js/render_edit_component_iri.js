@@ -391,11 +391,9 @@ const get_content_value = (i, current_value, self) => {
 					}
 					input_iri.addEventListener('keyup', input_iri_keyup_handler)
 
-			// actions cluster: active checkbox + remove/link icons live together
-			// in one flow element at the row end. As a flex item it wraps WITH the
-			// row (and right-aligns itself on its own line), instead of the old
-			// absolutely positioned icons that overlayed the inputs whenever the
-			// row wrapped.
+			// actions cluster: active checkbox + remove/link icons live together in one
+			// flow element right after the url input. component_iri.less gives it
+			// zero outer size, so it never wraps: it lies over the url input end.
 				const content_actions = ui.create_dom_element({
 					element_type	: 'div',
 					class_name		: 'content_actions',

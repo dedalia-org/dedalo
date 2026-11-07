@@ -230,28 +230,26 @@
 			cursor: pointer; // it IS a button (was 'default')
 		}
 
-		// THE TRIGGER IS IN THE FIELD'S OWN ROW, at its end (the edit view's
-		// phone placement). A floating one has no room here: the card hugs its
-		// label, so a raised disc (`top: -1.4rem`) painted over the field name
-		// the moment the field took focus — which is exactly when the base
-		// rule reveals it. In row it shares the value's line box, so the card
-		// keeps its one-line height and nothing covers the label. Its slot is
-		// reserved in BOTH states (`display`, not just the base `visibility`:
-		// the generic `.hidden_button` is `display: none` at rest), so the
-		// reveal never shifts the value field under the pointer.
+		// THE TRIGGER SITS ON THE FIELD'S TOP-LEFT CORNER (the proposed
+		// look): its centre on the field's left edge (`left: -0.9rem`, half
+		// its 1.8rem), raised so only its lower quarter overlaps the field's
+		// top border (`top: -1.4rem`). The value keeps the WHOLE field, so the
+		// input needs no icon slot and the text stays centred. Like the edit
+		// view it stays hidden until the field takes focus (the base
+		// `:focus-within` reveal; coarse pointers keep it always visible), so
+		// the card keeps the panel's one-line height and the raised trigger
+		// may cover the label line only while the field is in use.
 		>.content_data >.content_value >.input-group >.button_container.button_calendar_container {
-			position: relative;
-			inset: auto;
-			display: inline-block;
-			flex: 0 0 1.8rem;
-			width: 1.8rem;
+			left: -0.9rem;
+			right: auto;
+			top: -1.4rem;
 			height: 1.8rem;
-			margin: 0 0 2px 0.25rem;
+			width: 1.8rem;
 		}
 
-		// AND THE VALUE KEEPS ITS SLIM INSET: 0.2rem instead of the panel's
-		// 0.5rem field padding, so a full DD/MM/YYYY fits a half of a narrow
-		// range card at a readable size.
+		// AND THE VALUE GETS THE FULL WIDTH: a slim inset instead of the
+		// panel's 0.5rem field padding, so a full DD/MM/YYYY fits a half of a
+		// narrow range card at a readable size.
 		// (!) The `:has(…)` argument carries TWO classes on purpose: it lifts
 		// the selector to (0,7,1), the weight of the search panel's generic
 		// field padding (search.less `input:not(…)…`), so source order — this
@@ -275,17 +273,15 @@
 				width: auto;
 			}
 
-			// the date size follows the track so a full DD/MM/YYYY survives on a
-			// narrow card: the pair shares the row, and each half's TEXT box is
-			// its slot minus the trigger disc (1.8rem + its 0.25rem gap, see the
-			// `.search` trigger rule below), the input's slim insets and its 2px
-			// border. 6.3em is a date string plus a little air.
+			// the date size follows the track so a full DD/MM/YYYY survives
+			// on a narrow card (the pair shares the row: ~6.2em of text per
+			// half, plus the insets, borders and the gap).
 			// Wide cards keep the normal 1rem.
 			// (search.less floors a date input at 7.5rem: in a range that
 			// floor overflows each half and the two fields overlap)
 			>.input-group input {
 				min-width: 0;
-				font-size: clamp(0.75rem, calc(((100cqi - 0.5rem) / 2 - 2.6rem) / 6.3), 1rem);
+				font-size: clamp(0.75rem, calc((100cqi - 1.25rem) / 12.4), 1rem);
 			}
 
 			// centred on the gap: both halves flex equally, so the gap's

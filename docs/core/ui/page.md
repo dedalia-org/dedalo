@@ -87,7 +87,7 @@ The `page` instance consumes both.
 - **Dynamic CSS** — own the runtime CSS-rule registry (`js/css.js`): inject,
   deduplicate, batch and garbage-collect per-element rules into a single
   `<style id="elements_style_sheet">` sheet.
-- **Theme** — early flash-free theme application (`js/theme-init.js`) and the
+- **Theme** — early flash-free theme application (`js/head-init.js`) and the
   light/dark theme API (`js/theme.js`).
 - **File cache** — a Web Worker (`js/worker_cache.js`) that, on login, force-reloads
   the list of core/tool JS+CSS files so client caches refresh on version changes.
@@ -113,7 +113,8 @@ The two systemic pieces around the context:
   request_message, `csrf_token`), then enriched by `set_environment()` with the
   server environment (version, data_version, langs, `is_logged`, `recovery_mode`,
   `maintenance_mode`, `dedalo_notification`, `user_id`, …). Many `page` behaviours
-  branch on these flags.
+  branch on these flags. It does NOT carry the label dictionary: its
+  `labels_version` drives a separate `load_labels()` fetch of `get_label`.
 - **`self.ar_instances`** — the live child instances. On navigation, elements
   whose `model` is in the keep-list (`['menu']`) are flagged `destroyable=false`
   and reused; everything else is destroyed to free memory and events.
@@ -128,7 +129,7 @@ The two systemic pieces around the context:
 
 ```text
 client/dedalo/core/page/
-├── index.html              # application document: #main, theme-init, importmap, main.css, index.js
+├── index.html              # application document: #main, head-init, importmap, index.js (no static main.css link)
 ├── js/
 │   ├── index.js            # bootstrap: page_globals, get_instance('page'), build(true), render(), mount #main
 │   ├── page.js             # the `page` model: init/build/navigate/destroy, events, instantiate_page_element
@@ -136,7 +137,7 @@ client/dedalo/core/page/
 │   ├── css.js              # dynamic CSS-rule registry: set_element_css, process_rule, prune_rules, ...
 │   ├── job_tray.js         # the activity tray: the user's own running jobs (media + publication), mounted in #floating_dock
 │   ├── theme.js            # light/dark theme API (localStorage 'dedalo_theme'), publishes 'theme_changed'
-│   ├── theme-init.js       # synchronous head script: applies data-theme="dark" before paint
+│   ├── head-init.js       # synchronous head script: data-theme + versioned main.css before paint
 │   └── worker_cache.js     # Web Worker: on login, force-reload core/tool JS+CSS files (HTTP cache fallback)
 └── css/
     ├── main.less           # single LESS entrypoint — @imports every stylesheet in the app
@@ -197,9 +198,14 @@ Theming is CSS-custom-property driven, not a separate stylesheet:
   `main.less` imports `vars_tokens.less` — see `docs/core/ui/themes.md`.
 - `layout/theme_dark.less` overrides those same properties under
   `:root[data-theme="dark"]`.
-- `js/theme-init.js` runs synchronously in `<head>` and sets
+- `js/head-init.js` runs synchronously in `<head>` and sets
   `data-theme="dark"` from `localStorage.dedalo_theme` *before first paint* to
-  avoid a flash of the wrong theme.
+  avoid a flash of the wrong theme. It also writes the main stylesheet link,
+  `css/main.css?v=<css_version>`, using the version the server sent on the last
+  boot (`?v=init` when none is stored). After the `start` request, `index.js`
+  switches to the server's current `page_globals.css_version` before anything
+  renders, so a code update reaches the browser whatever cache headers the web
+  server sends. Tool stylesheets use the same version (`tool_css_url`).
 - `js/theme.js` is the runtime API (`get_theme` / `set_theme` / `toggle_theme`),
   persists to `localStorage.dedalo_theme`, and publishes `theme_changed`. The
   menu's theme switcher imports it (`client/dedalo/core/menu/js/view_default_edit_menu.js`).
@@ -249,7 +255,11 @@ Lifecycle stages, in order:
 2. **`build(autoload=true)`** — issue the `start` RQO
    (`{action:'start', options:{search_obj, menu}}`), validate
    `api_response.result` and `api_response.environment`, run `set_environment()`,
-   then set `self.context = api_response.result.context`. On the first start only.
+   then `await load_labels(page_globals.dedalo_application_lang,
+   page_globals.labels_version)` (`common/js/labels.js` — fetches the UI-label
+   dictionary from `/api/v1/labels` and sets the global `get_label`; a failure
+   stops the build through `set_page_error`), then set
+   `self.context = api_response.result.context`. On the first start only.
 3. **`render()` → `edit()`** — build the `.wrapper.page` node, the `content_data`
    container, and the `bubbles_notification_container`; `get_content_data()`
    instantiates/builds/renders each context element (with spinners) and publishes

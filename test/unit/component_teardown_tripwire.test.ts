@@ -391,8 +391,8 @@ describe('census: no observer is built unreachable', () => {
 		// Measured 2026-08-31 across the browser trees: `viewer.animate` is the ONLY
 		// requestAnimationFrame callback that re-arms itself unconditionally. Every
 		// other rAF in the tree is a one-shot or an event-driven coalescer that
-		// re-arms from a flag (page/index.js `scheduledAnimationFrame`,
-		// render_inspector `raf_id`), or is explicitly bounded (dashboard's
+		// re-arms from a flag (render_inspector
+		// `raf_id`), or is explicitly bounded (dashboard's
 		// `try_render`, 60 frames). Those are not loops and need no cancel path.
 		//
 		// SHRINK-ONLY. A new entry here is a new render loop that runs for the life

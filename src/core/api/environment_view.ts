@@ -38,7 +38,7 @@ function readSessionFromCookie(request: Request): Session | null {
 
 /**
  * Handle GET /…/environment. Returns the client environment payload
- * ({page_globals, plain_vars, get_label}) pretty-printed for a human diagnostic.
+ * ({page_globals, plain_vars}) pretty-printed for a human diagnostic.
  */
 export async function handleEnvironmentView(
 	request: Request,

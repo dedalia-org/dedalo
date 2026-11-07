@@ -341,6 +341,70 @@ describe('saveOrder', () => {
 		expect(await orderItemsOf(B)).toEqual(settledB as OrderItem[]);
 	});
 
+	// WC-2026-11-07-save-order-complete-list: sortChildren rewrites 1..n from the
+	// CLIENT list, so a list that is not exactly the parent's children is refused
+	// before any write — a missing sibling would keep a colliding number.
+	test.each([
+		['a missing sibling', [A, B]],
+		['a foreign entry', [A, B, C, P2]],
+		['a duplicated entry', [A, B, C, A]],
+	])('a sibling list with %s is refused as a conflict, nothing written', async (_label, ids) => {
+		await seedNode(P1);
+		await seedNode(P2);
+		await seedNode(A);
+		await seedNode(B);
+		await seedNode(C);
+		await link(A, P1);
+		await link(B, P1);
+		await link(C, P1);
+		const before = [await orderItemsOf(A), await orderItemsOf(B), await orderItemsOf(C)];
+
+		const error = await refusal(
+			saveOrder(
+				{
+					source: {
+						section_tipo: SECTION,
+						ar_locators: ids.map((id) => ({ section_tipo: SECTION, section_id: id })),
+						parent_section_tipo: SECTION,
+						parent_section_id: P1,
+					},
+				} as never,
+				SUPERUSER,
+			),
+		);
+		expect(error.code).toBe('resource.conflict');
+		expect(error.publicMessage).toBe(
+			'The order was not saved: the list of terms is out of date. Reload the tree and try again',
+		);
+		expect([await orderItemsOf(A), await orderItemsOf(B), await orderItemsOf(C)]).toEqual(before);
+	});
+
+	test('the complete sibling list in a new order is accepted', async () => {
+		await seedNode(P1);
+		await seedNode(A);
+		await seedNode(B);
+		await seedNode(C);
+		await link(A, P1);
+		await link(B, P1);
+		await link(C, P1);
+
+		const response = await saveOrder(
+			{
+				source: {
+					section_tipo: SECTION,
+					ar_locators: [C, A, B].map((id) => ({ section_tipo: SECTION, section_id: id })),
+					parent_section_tipo: SECTION,
+					parent_section_id: P1,
+				},
+			} as never,
+			SUPERUSER,
+		);
+		expect((response.data as unknown[]).length).toBeGreaterThan(0);
+		expect(await orderItemsOf(C)).toEqual([{ value: 1, id: 1 }]);
+		expect(await orderItemsOf(A)).toEqual([{ value: 2, id: 1 }]);
+		expect(await orderItemsOf(B)).toEqual([{ value: 3, id: 1 }]);
+	});
+
 	test('missing parent context is refused before any write', async () => {
 		await seedNode(P1);
 		await seedNode(A);

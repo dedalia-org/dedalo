@@ -167,8 +167,8 @@ nothing about what exists):
 
 The `start` action's refusal additionally carries the `environment` block (the
 same one the success path returns). `start` is the client's first call, so
-without it the page would have no `get_label` and could only render the refusal
-in the master source language. The client turns the token into the localized
+without it the page would have no `labels_version` to fetch its labels by and
+could only render the refusal in the master source language. The client turns the token into the localized
 "no permission" page (`get_label.no_access_page`); a component-level refusal
 inside a page the user CAN open keeps its own narrower label (`no_access`).
 Full rationale: `WC-2026-08-12-authorization-denial-token` in

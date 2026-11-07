@@ -67,8 +67,11 @@ export const component_json = function(){
 	this.editors			= []
 	this.change_timers		= {} // pending debounced onChange per editor key
 
-	// save_on_deactivate. Prevent to auto-save value when component is deactivated
-	this.save_on_deactivate	= false
+	// save_on_deactivate. Like every component, a pending (parse-valid) edit is
+	// saved when the component is deactivated. With false it was skipped on
+	// click-out but still saved by the page's unsaved sweep on the NEXT activation
+	// of any component, which made the save look random. The Save button saves now.
+	this.save_on_deactivate	= true
 
 	// search config
 	this.q_split = true
@@ -195,16 +198,18 @@ export const build_changed_data_item = function(value, id=null) {
 * HANDLE_JSON_CHANGE
 * Shared onChange handler wiring the JSONEditor instance to component state.
 * Called from the editor's onChange callback inside view_default_edit_json
-* whenever the editor content changes without parse errors.
+* whenever the editor content changes without parse errors (an emptied
+* editor is reported as {json: null}).
 *
 * Steps:
 *  1. Parses the raw editor content into a JS value via parse_editor_content.
 *  2. Deep-clones the value through JSON round-trip to produce an immutable
 *     snapshot (prevents aliasing between the editor's internal state and the
 *     component's changed_data queue).
-*  3. Resolves the entry id from data.entries[key] (optional chaining returns
-*     null for new/empty entries).
-*  4. Builds a frozen changed_data_item and records it via set_changed_data.
+*  3. Resolves the stored entry data.entries[key] (null for a new/empty field).
+*  4. Builds a frozen changed_data_item whose value has the stored entry shape
+*     ({id, value}; null when an empty field goes back to null) and records it
+*     via set_changed_data, which drops it again when it equals the db entry.
 *
 * Note: this function marks data as changed but does NOT trigger a save.
 * The user must click the Save button, which calls save_sequence explicitly.
@@ -226,11 +231,23 @@ export const handle_json_change = function(self, content, key=0) {
 			? structuredClone(json_value)
 			: json_value
 
-	// resolve id dynamically from self.data
-		const id = self.data.entries?.[key]?.id || null
+	// the stored entry this edit replaces (null for a field with no value yet)
+		const entry = self.data.entries?.[key] || null
 
-	// build changed_data_item
-		const changed_data_item = build_changed_data_item(immutable_value, id)
+	// build changed_data_item. Its value carries the STORED ENTRY shape
+	// ({id, value}), like every literal component: set_changed_data detects a
+	// revert by comparing it with the db entry, so a bare {value} never matched
+	// and the field stayed 'modified' forever. A field with no entry that is
+	// set back to null IS its original state (null), not a change.
+		const item_value = entry
+			? { ...entry, value : immutable_value }
+			: (immutable_value === null ? null : { value : immutable_value })
+		const changed_data_item = Object.freeze({
+			action	: 'update',
+			id		: entry?.id || null,
+			key		: key,
+			value	: item_value
+		})
 
 	// fix instance changed_data
 		return self.set_changed_data(changed_data_item)

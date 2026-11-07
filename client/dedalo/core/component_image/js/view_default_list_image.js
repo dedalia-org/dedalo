@@ -164,7 +164,7 @@ view_default_list_image.render = function(self, options) {
 		// access self.data, self.permissions, self.tools, and self.tipo.
 		// It either opens the full-screen viewer popup or triggers the upload tool
 		// when no uploadable file exists yet.
-		image.addEventListener('mousedown', handler_open_viewer.bind(self))
+		image.addEventListener('click', handler_open_viewer.bind(self))
 
 
 	return wrapper

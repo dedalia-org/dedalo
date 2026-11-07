@@ -23,7 +23,7 @@
 *                  download_file), formatting (bytes_format, printf,
 *                  time_unit_auto, get_font_fit_size), ontology helpers
 *                  (get_tld_from_tipo, get_section_id_from_tipo,
-*                  get_caller_by_model, tool_base_url), and miscellaneous
+*                  get_caller_by_model, tool_base_url, tool_css_url), and misc
 *                  helpers (clone, dd_console, JSON_parse_safely, pause,
 *                  wait_for_global, strip_tags, generate_hash, get_json_langs,
 *                  group_objects_by).

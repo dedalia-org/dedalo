@@ -144,10 +144,18 @@ ONTOLOGY_SERVERS=[{"name":"Dédalo Ontology server","url":"https://myserverdomai
 `code` is an access code **that** server lists in its own `ONTOLOGY_SERVERS`; a wrong or missing one makes
 the master answer as *Unreachable* in the picker. Add one object per master.
 
-A master is identified by its `url`, never by its `code`: several masters may share the same
-access code (the official one and a local copy of it, for example), and the update downloads
-only from the address of the master you picked. A file whose address is on any other host is
-refused before it is written.
+A master is identified by its full `url`, never by its `code`: several masters may share the same
+access code (the official one and a local copy of it, for example), and two masters may even share
+one host under different paths (a test master beside the real one). The update downloads only
+from the address of the master you picked. A file whose address is on any other host is refused
+before it is written.
+
+**Several masters.** List as many as you need — the official one, an institution's master for
+its own ontologies, a test master. In the panel you pick one and tick what to take from it; any
+ontology that master offers can be taken, and the next update can take the same ontology from
+another master (to try a test version, for example). The [automatic update](#update-process)
+that rides a code update needs no picking: it takes the shared ontologies from the **first**
+master in the list, unless entries declare a `tlds` list (below).
 
 The client's own engine must also allow the connection: the browser's Content-Security-Policy has to name the master in `connect-src`, or the fetch is refused before it leaves. The engine derives this automatically from the master URLs in [`ONTOLOGY_SERVERS`](../../config/config.md#ontology-servers) — there is no second setting — but the policy is built at **boot**, so a client that has just added or changed a master must be **restarted** before the panel can reach it.
 
@@ -168,7 +176,7 @@ same request in the server log.
 
 The ontology is updated in two ways, both as [update runs](index.md#the-update-run):
 
-* **With a code update.** The `ontology` phase is part of a release's default steps, so a code update run updates the shared ontology after the code swap, from every configured source. You do nothing extra.
+* **With a code update.** The `ontology` phase is part of a release's default steps, so a code update run updates the shared ontology after the code swap. Its source is this installation's own export when it is an ontology master; otherwise the first master in `ONTOLOGY_SERVERS`, or — when entries declare a `tlds` list — each declaring master for its declared tlds. You do nothing extra.
 * **On its own, from this panel.** **Update Dédalo Ontology** starts an *ontology-only* run: a run with one `ontology` phase, no code swap and no restart. It is journaled like any run: the superuser only, maintenance mode switched on for its duration and put back afterwards, the run's database backup (or the **Update without a recent database backup** waiver, recorded in the journal), the update lock, and resume on the next start if the server goes away mid-import. A failure ends in `FAILED_PRE_SWAP`: the code that runs is the code that ran.
 
 In both cases the phase fails when no ontology source is configured (no `ONTOLOGY_SERVERS` entry and this installation is not an ontology master), or when any source fails.
@@ -177,44 +185,51 @@ To update the shared ontology on its own, enter into the Maintenance panel in th
 
 ![Updating ontology control panel](assets/20230910_141614_updating_ontology_panel.png)
 
-The control panel shows the ontology configuration and the tlds to be updated. The server decides the set itself: every tld of `ACTIVE_ONTOLOGY_TLDS` plus the core pair below, never the installation's own local ontology (`localontology`), that the source's manifest lists — and, with several masters, that the source's `tlds` list names — plus `matrix_dd` (the shared value lists). The tlds in the input field can only **narrow** that set; a tld outside it is never added, and `matrix_dd` is never narrowed away.
+The control panel shows the installed ontology, the masters to pick from, and the ontologies the picked master offers. The update takes **exactly the ticked ontologies from the picked master** — any it offers, `matrix_dd` (the shared value lists) only when ticked — and never the installation's own local ontology overrides (`localontology`).
 
 ### Database backup
 
-An ontology update is refused without a recent, verified database backup (newer than `DEDALO_BACKUP_TIME_RANGE` hours, and proven restorable). The **Database backup** block above **Replace selected ontologies** tells you where you stand before you press it:
+An ontology update is refused without a recent, verified database backup (newer than `DEDALO_BACKUP_TIME_RANGE` hours, and proven restorable). The check happens in the confirmation dialog that **Replace selected ontologies** opens, the same dialog shape as a code update. The dialog shows the version change, the ontologies that will be replaced and the server they come from, then:
 
-* **A recent backup exists.** The block shows its age in hours. There is nothing to decide.
-* **No recent, verified backup.** The block says the update will be refused, and **Replace selected ontologies** stays disabled. Either make a backup in **Backups** and reload the panel, or tick **Update without a recent database backup**. With the box ticked the update runs without a restore point: if it goes wrong, the database cannot be restored from a backup. The waiver is recorded in the run's journal with your user.
-* **The newest backup is still being verified.** Reading a large backup to prove it restorable takes time. Reload the panel in a moment.
+* **A recent backup exists.** No backup line is shown. There is nothing to decide.
+* **No recent, verified backup.** The dialog shows **Update without a recent database backup** above its button, with the age of the newest backup when there is one. Either close it, make a backup in **Backups** and try again, or tick the box. With the box ticked the update runs without a restore point: if it goes wrong, the database cannot be restored from a backup. The waiver is recorded in the run's journal with your user, and the last confirmation restates it.
+* **The newest backup is still being verified.** Reading a large backup to prove it restorable takes time, and until it is proven the dialog offers the waiver. Close it and try again in a moment rather than waiving.
 
-Only the superuser's panel checks the backup. Only the superuser can run an update, so for any other administrator the block always reads as having no verified backup.
+If the backup ages past the limit while the dialog is open, pressing the button shows the waiver instead of sending an update that would be refused.
+
+Only the superuser's panel checks the backup. Only the superuser can run an update, so for any other administrator the dialog always reads as having no verified backup.
+
+### Progress
+
+Once confirmed, the update runs in the background and the panel follows it with a progress bar. The line above the bar names the stage and the ontology in work: **Downloading** each file from the master, **Importing** it, **Processing** it (rebuilding its ontology nodes), then **Finishing** (tables, caches and the schema changes file). The stages take very different times, so the bar moves unevenly. When the run ends the bar is replaced by the result: a status line, any import warnings and the import log. Leaving the page does not stop the update. If the panel loses contact with the update while it runs (a network drop, a closed laptop), it says so instead of reporting a result: the update may still be running, so reload the panel after a few minutes and read the installed version. An update that was stopped ends as failed, with the reason.
 
 ### Which tlds are updated
 
-The prefilled list is `ACTIVE_ONTOLOGY_TLDS` unioned with the core pair `ontology` / `ontologytype` (always imported, whatever the configuration says). When the key is not set in `../private/.env`, it falls back to the core ontologies every installation carries — exactly what the install database ships:
+Pick a master: everything it offers is listed under **Ontologies to update**, grouped by typology (Core, Toponymy, Thematic, …), one row per ontology with its tld, its name in your language and what ticking it does **here**:
+
+* **New** — not installed in this installation: the update adds it.
+* **Installed** — installed and tracked by this installation (`ACTIVE_ONTOLOGY_TLDS`, or the core pair `ontology` / `ontologytype`): the update replaces it.
+* **Installed · not tracked** — installed here but not tracked. It may be **your own local ontology** that happens to share a tld with one on the master: replacing it overwrites it. The panel warns under the list while one is ticked, and the confirmation dialog names them again before the update starts.
+
+A filter (by tld, name or typology) and **Selected only** narrow the list; the counter says how many are ticked. A tld in the selection that the picked master does not offer is named under the list and skipped; when the master offers none of the ticked ontologies, the update does not start.
+
+**Default selection** ticks `ACTIVE_ONTOLOGY_TLDS` unioned with the core pair, plus `matrix_dd`; **Clear** unticks everything. When `ACTIVE_ONTOLOGY_TLDS` is not set in `../private/.env` (an empty value counts as unset), the default falls back to the core ontologies every installation carries — exactly what the install database ships — and the note under the toolbar says so:
 
 ```
 dd, rsc, ontology, ontologytype, hierarchy, lg
 ```
 
-Domain tlds (`oh`, `ich`, `tch`, `numisdata`, `utoponymy`, `nexus`, …) are per-installation: the installer writes the ones it installed into `ACTIVE_ONTOLOGY_TLDS`; add any you import later so they are offered here on every update — that is the only place to change the default for everybody. They are never part of the fallback above.
+Domain tlds (`oh`, `ich`, `tch`, `numisdata`, `utoponymy`, `nexus`, …) are per-installation: the installer writes the ones it installed into `ACTIVE_ONTOLOGY_TLDS`; add any you import later so they are tracked — ticked by default, and taken by the automatic update. That is the only place to change the default for everybody.
 
 !!! note "Adding a domain ontology later does not add its dependencies"
-    The installer installs the dependencies an ontology server declares; this panel imports exactly the tlds in the line. When you add a domain ontology here, check the master's catalog (*Fetch list*) for what it requires and add those tlds too.
-
-The panel tells you which of the two you are looking at: when the key is set the reference list is headed **Configured in this installation**, and when it is not it reads **Engine fallback (not configured)** and the note says so. An empty value counts as unset.
+    The installer installs the dependencies an ontology server declares; this panel imports exactly the ticked tlds. When you add a domain ontology here, check what it requires and tick those tlds too.
 
 The master server you pick is also remembered in your browser (by URL) and restored the next
 time the panel renders — after a reload or after navigating away and back — so the update is one
 click when you come back to it. If that server later disappears from `ONTOLOGY_SERVERS` or is
 unreachable, nothing is restored and you simply pick again.
 
-**The input line is yours.** What you type there is remembered in your browser and is *never* rewritten when you select a master server, so you can prepare the list first and pick the server after. Two reference lists sit above it, and neither touches the input unless you click:
-
-* **Configured in this installation** — the prefilled list above. *Use this list* puts it back, which is how you undo an edit.
-* **Offered by the selected master** — the master's own manifest, fetched on demand with *Fetch list* (it costs one request, so it is not fetched just by selecting). It has no *Use this list* button on purpose: a master publishes the **whole** ontology, 200+ tlds including every language pack, and importing all of it is never what you mean.
-
-Clicking any tld chip adds it to the line, or removes it if it is already there. A chip is **highlighted while its tld is in the line**, in both lists — including when you type in the field by hand — so the reference lists double as a readout of what the update will import.
+**The selection is yours.** The ticks are the line under the list: you can also type tlds there, comma-separated, and the rows follow. It is remembered in your browser and is *never* rewritten when you pick another master, so you can keep one selection and compare masters.
 
 When ready, press the "Update Dédalo Ontology to the latest version" button, and the process will execute.
 
@@ -225,9 +240,9 @@ Before anything is downloaded, the server reads the master's ontology list itsel
 * the master's ontology was exported for a data model this installation is not on. A master on a newer line needs a code update here first.
 * this installation's database is not yet on the data model of its code. Run "Update data" first.
 * the master does not list a requested tld.
-* several ontology masters are configured and a tld is not assigned to exactly one of them (below).
+* a requested tld is the installation's own local ontology overrides (`localontology`).
 
-**Several ontology masters.** When `ONTOLOGY_SERVERS` lists more than one master, each entry names the tlds this installation takes from it in a `tlds` list (put `matrix_dd`, the shared value lists, in exactly one). A tld that no master lists, or that two masters list, is refused, and so is a tld requested from a master that does not list it. With a single master no `tlds` list is needed. Masters must be reached over `https://`.
+**Fixing the automatic update's sources (`tlds`).** The panel takes from whichever master you pick. The automatic update of a code update has no one to pick, so with several masters it needs to know where each shared tld comes from: by default everything from the first master. To split, give entries a `tlds` list — the tlds this installation takes from that master, `matrix_dd` (the shared value lists) in exactly one. Then only the declaring masters are sources of the automatic update, each for its list: a tld that no declaring master lists, or that two list, is refused. Entries without `tlds` stay available in the panel. Masters must be reached over `https://`.
 
 **Every file is checked against the master's digest.** When a master exports its ontologies it records the sha256 of each exported file (`<tld>.copy.gz`, `matrix_dd.copy.gz`) in its `ontology.json`, under `files_sha256`. Each file this installation downloads, or copies from its own export directory, must match that digest before it is decompressed: a file that does not match is deleted and the update stops with *Ontology file does not match the master manifest*. A master that has not re-exported since digests were introduced publishes none. An update run (*Update ontology*, or the ontology phase of a code update) refuses such a source and names the files with no digest. Re-export on the master to publish digests.
 
@@ -294,7 +309,7 @@ the panel's **Local files** source:
    panel. It also makes this installation serve the files in that directory
    to anyone who can reach it; set it back to `false` and restart after the
    import if you do not mean to serve.
-4. In the panel, pick **Local files**, put the tlds in the line, and update.
+4. In the panel, pick **Local files**, tick the tlds, and update.
 
 The files themselves are copied from that directory on disk; nothing is
 downloaded. Only the file list (the manifest) is fetched over the network: your

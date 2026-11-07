@@ -51,6 +51,10 @@ const EXEMPT_SUBMITTERS: ReadonlyMap<string, string> = new Map([
 		'Install-wide CODE update: it replaces the engine tree on disk and restarts the process — there is no record, section or component it could be attached to (the same class as the data-migration job above).',
 	],
 	[
+		'src/core/area_maintenance/widgets/update_ontology.ts',
+		'Install-wide ONTOLOGY update run: it replaces the shared ontology (dd_ontology + the TLD matrix slices) under maintenance — no record, section or component it could be attached to (the same class as the code update above).',
+	],
+	[
 		'src/core/relations/declared_order_reconcile.ts',
 		'The declared-order SWEEP after an ontology change (submitSweepJob): it re-sorts every stored record of the changed portal tipos across the install — the scope is a set of component definitions, not one record, so no section_id/component target exists (the same class as the move_* bulk transform above).',
 	],

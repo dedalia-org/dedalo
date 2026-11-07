@@ -91,7 +91,10 @@ sequenceDiagram
 4. `await get_instance({model:'page'})` — first call dynamically imports
    `page.js` and constructs the singleton.
 5. `await page_instance.build(true)` — fires the `start` API action that
-   authenticates the session and downloads the application context.
+   authenticates the session and downloads the application context, then
+   `load_labels(page_globals.dedalo_application_lang, page_globals.labels_version)`
+   fetches the UI-label dictionary from `GET /api/v1/labels` (browser-cached
+   immutably per version) and assigns `get_label`.
 6. `await page_instance.render()` — produces the full shell, then swaps the
    placeholder for the rendered node and removes the `hide` class.
 

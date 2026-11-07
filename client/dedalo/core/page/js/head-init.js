@@ -1,14 +1,23 @@
 /**
- * theme-init
+ * head-init
  *
- * Early-execution theme bootstrap to eliminate "flash of wrong theme" (FOWT).
+ * Early-execution head bootstrap: everything that must be right BEFORE the first
+ * frame — the theme ("flash of wrong theme"), the cached active-field style, and
+ * the main stylesheet (WC-2026-11-06-css-version).
+ *
+ * (!) Named head-init.js, formerly theme-init.js, ON PURPOSE: a browser may hold
+ * the old file under its old URL (the service worker's cache, or heuristic HTTP
+ * caching on a server without Cache-Control) and the old one wrote no stylesheet.
+ * A URL no browser has cached cannot come back stale. Its logic is stable: a
+ * stale copy of THIS file still writes a correct link.
  *
  * LOADING CONTRACT
  * ----------------
  * This file is intentionally NOT a JS module. It is loaded as a plain
- * synchronous <script src="js/theme-init.js"> in <head> — before the
+ * synchronous <script src="js/head-init.js"> in <head> — before the
  * deferred module bundle (index.js) and before any CSS paint — so the
- * correct `data-theme` attribute is on <html> before the first frame.
+ * correct `data-theme` attribute is on <html> before the first frame, and
+ * the stylesheet it writes is parser-inserted (render-blocking).
  *
  * IIFE PATTERN
  * ------------
@@ -49,4 +58,19 @@
 		const s = localStorage.getItem('dedalo_active_style');
 		if (s) document.documentElement.setAttribute('data-active_style', s);
 	} catch(_){}
+	// MAIN STYLESHEET at the last css_version the server sent ('dedalo_css_version'
+	// = MAIN_CSS_KEY in core/page/js/index.js, which swaps it after `start` if
+	// the server's differs). document.write, not appendChild: only a
+	// PARSER-INSERTED link blocks first paint in every browser, like the static
+	// <link> it replaces. Without a stored version (first visit, storage blocked,
+	// the first boot after this file shipped) it writes `?v=init`: a URL no browser
+	// cached before this change, so even an OLD index.js that never swaps paints
+	// with current styles. Written always — never zero sheets.
+	let v = null;
+	try {
+		v = localStorage.getItem('dedalo_css_version');
+	} catch(_){}
+	const version = v && /^[0-9a-f]{16}$/.test(v) ? v : 'init';
+	const href = new URL('../css/main.css?v=' + version, document.currentScript.src).href;
+	document.write('<link id="main_css" rel="stylesheet" data-version="' + version + '" href="' + href + '">');
 })();

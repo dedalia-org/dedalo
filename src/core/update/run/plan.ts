@@ -41,6 +41,8 @@ export type RunPlan =
 			releasePlans: Record<string, ReleasePlan>;
 			/** ontologyOnlyPlan: the operator's narrowing (RunJournal.ontology_scope). */
 			ontologyScope?: string[];
+			/** ontologyOnlyPlan: the operator's picked master (RunJournal.ontology_source). */
+			ontologySource?: string;
 	  }
 	| { ok: false; refusal: PlanRefusal; detail: string };
 
@@ -186,6 +188,7 @@ export function ontologyOnlyPlan(input: {
 	installedData: readonly number[];
 	plans?: Plans;
 	scope?: string[];
+	source?: string;
 }): RunPlan {
 	const here = endpoint(input.installedRelease, input.installedData, input.plans ?? RELEASE_PLANS);
 	if (here === null) {
@@ -197,5 +200,6 @@ export function ontologyOnlyPlan(input: {
 	}
 	const plan = [{ release: input.installedRelease, step: { kind: 'ontology' as const } }];
 	const scope = input.scope === undefined ? {} : { ontologyScope: input.scope };
-	return { ok: true, from: here, to: here, plan, releasePlans: {}, ...scope };
+	const source = input.source === undefined ? {} : { ontologySource: input.source };
+	return { ok: true, from: here, to: here, plan, releasePlans: {}, ...scope, ...source };
 }

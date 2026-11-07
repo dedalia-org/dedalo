@@ -19,18 +19,20 @@
 *      from `self.value.current_ontology` (the dd1 root-node properties).
 *   c. Master server — radio picker (`render_servers_list`) with a reachability
 *      pill; unreachable servers are disabled. The choice is REMEMBERED in this
-*      browser (by URL) and restored on the next render. Selecting one fires
-*      `ontology_server_select_change` so the TLD input auto-fills. Below it, a
-*      collapsed admin note: `build_client_info` (the ONTOLOGY_SERVERS key that
-*      populates the picker). Whether THIS install can SERVE its ontology is its
-*      own widget since 2026-09-28 (serve_ontology).
-*   d. Update form — a TLD reference block (where the default list comes from +
-*      the configured/master lists to copy from) over the TLD input, which is the
-*      OPERATOR's (persisted in localStorage, never overwritten by a server
-*      selection), + the destructive submit button. On
-*      submit: Phase 1 `get_ontology_update_info` (discover files) → show the
-*      installed→incoming version change → Phase 2 `update_ontology` (import) →
-*      one status line + a collapsible import log + a collapsed raw-JSON detail.
+*      browser (by URL) and restored on the next render. Several masters are
+*      usable side by side: the update takes the ticked TLDs from the picked one
+*      (the run's `source`). Below it, a collapsed admin note: `build_client_info`
+*      (the ONTOLOGY_SERVERS key that populates the picker). Whether THIS install
+*      can SERVE its ontology is its own widget since 2026-09-28 (serve_ontology).
+*   d. Update form — the picked master's catalog (`build_tld_catalog`: every
+*      ontology it offers, grouped by typology, named, marked new / installed /
+*      installed-but-not-tracked) over the TLD input, which is the OPERATOR's
+*      (persisted in localStorage, never overwritten by a server selection), +
+*      the destructive submit button. On submit: Phase 1
+*      `get_ontology_update_info` (discover files) → show the installed→incoming
+*      version change → the confirm modal → Phase 2 `update_ontology` (a
+*      background job, followed with a progress bar: track_update_job) → one
+*      status line + a collapsible import log + a collapsed raw-JSON detail.
 *
 * Removed at the v7 redesign (were dead or redundant): the STRUCTURE_FROM_SERVER
 * / ACTIVE_ONTOLOGY_TLDS config grid, the raw current-ontology JSON dump, the
@@ -44,16 +46,20 @@
 *                             update_ontology.js).
 *   render_servers_list     — exported for reuse by the server-picker.
 *   get_update_info         — exported for its executed wire gate.
+*   tld_catalog_rows        — exported for its client gate.
+*   update_progress_share   — exported for its client gate.
 */
 
 // imports
 	import {ui} from '../../../../common/js/ui.js'
 	import {dd_request_idle_callback} from '../../../../common/js/events.js'
 	import {data_manager} from '../../../../common/js/data_manager.js'
+	import {update_process_status} from '../../../../common/js/common.js'
 	import {event_manager} from '../../../../common/js/event_manager.js'
-	import {request_failed, response_data, response_extension} from '../../../../common/js/api_error.js'
+	import {normalize_stream_error, request_failed, response_data, response_extension} from '../../../../common/js/api_error.js'
 	import {error_text} from '../../../../common/js/render_api_error.js'
 	import {data_version_of} from '../../../../common/js/release_identity.js'
+	import {build_waive_backup_row} from '../../update_code/js/render_update_status.js'
 
 
 
@@ -262,7 +268,7 @@ export const build_failure = function (api_error) {
 /**
 * BUILD_IMPORT_FILES
 * Phase 2's file list from the master's manifest: `matrix_dd` first and once
-* (when the manifest names it), then the manifest files of the selected TLDs, in manifest
+* (when the manifest names it AND it is selected), then the manifest files of the selected TLDs, in manifest
 * order, each enriched from `info.active_ontologies` with its typology_id,
 * name_data and — ONLY when the master declares them — its `dependencies`
 * ({tld, main, mandatory} objects). Absent stays absent (≠ []: an empty list
@@ -282,7 +288,7 @@ export const build_import_files = function (manifest, ar_active_ontology_tlds) {
 	const active_ontologies	= Array.isArray(manifest?.info?.active_ontologies) ? manifest.info.active_ontologies : []
 
 	const files_filtered = files
-		// matrix_dd is placed first below, once, whatever the selection says
+		// matrix_dd is placed first below, once, when selected
 		.filter(el => el.tld!=='matrix_dd' && ar_active_ontology_tlds.includes(el.tld))
 		.map(el => {
 			const file_item	= {...el}
@@ -299,7 +305,7 @@ export const build_import_files = function (manifest, ar_active_ontology_tlds) {
 
 	const selected_files	= []
 	const matrix_dd			= files.find(el => el.tld==='matrix_dd')
-	if (matrix_dd) {
+	if (matrix_dd && ar_active_ontology_tlds.includes('matrix_dd')) {
 		selected_files.push({...matrix_dd})
 	}
 	selected_files.push(...files_filtered)
@@ -312,8 +318,8 @@ export const build_import_files = function (manifest, ar_active_ontology_tlds) {
 /**
 * GET_UPDATE_INFO
 * Phase 1 of the update: ask a master for its manifest (available files + the
-* version info). Called from TWO places — the reference block's "Fetch list"
-* button and the submit flow — so the request shape lives in ONE place.
+* version info). Called from TWO places — the catalog (when a master is picked)
+* and the submit flow — so the request shape lives in ONE place.
 * Exported so its wire shape (the DATA triple as `options.version`, never the
 * release identity) is gated by EXECUTING it:
 * test/unit/client_release_identity_wire.test.ts.
@@ -353,9 +359,14 @@ export const get_update_info = async function (server) {
 /**
 * TLDS_STORAGE_KEY
 * Per-ORIGIN key (localStorage is origin-scoped, so two installations served from
-* different hosts never share an edit).
+* different hosts never share an edit). The selection names `matrix_dd` (the
+* shared value lists) explicitly since 2026-11-07; the line remembered under the
+* older key never did — the lists were always added — so it is read once, with
+* `matrix_dd` appended, moved to the new key and dropped (a later Clear must
+* not bring it back).
 */
-const TLDS_STORAGE_KEY = 'dedalo.update_ontology.tlds'
+const TLDS_STORAGE_KEY			= 'dedalo.update_ontology.selection'
+const TLDS_STORAGE_KEY_BEFORE	= 'dedalo.update_ontology.tlds'
 
 /**
 * READ_STORED_TLDS / STORE_TLDS
@@ -367,7 +378,18 @@ const TLDS_STORAGE_KEY = 'dedalo.update_ontology.tlds'
 const read_stored_tlds = function () {
 	try {
 		const stored = window.localStorage.getItem(TLDS_STORAGE_KEY)
-		return (typeof stored==='string' && stored.trim().length>0) ? stored : null
+		if (typeof stored==='string' && stored.trim().length>0) {
+			return stored
+		}
+		const before = window.localStorage.getItem(TLDS_STORAGE_KEY_BEFORE)
+		if (typeof before!=='string' || before.trim().length===0) {
+			return null
+		}
+		// moved once: the older key is dropped, so a later Clear cannot resurrect it
+		const moved = before + ',matrix_dd'
+		window.localStorage.setItem(TLDS_STORAGE_KEY, moved)
+		window.localStorage.removeItem(TLDS_STORAGE_KEY_BEFORE)
+		return moved
 	} catch (_error) {
 		return null
 	}
@@ -418,351 +440,552 @@ const store_server = function (storage_key, url) {
 
 
 /**
-* BUILD_TLDS_REFERENCE
-* The block that sits ABOVE the TLD input: where the prefilled list comes from,
-* plus the two reference lists (what this installation is configured for, and
-* what the selected master actually offers).
+* TLD_NAME
+* An ontology's name in `lang` (else English, else the manifest's `name`),
+* without the ` | <tld>` suffix the master appends (the TLD is shown beside it).
+* `name_data` is the manifest's `[{lang, value}]` list; an older master sends a
+* `{lang: value}` map — both are read.
 *
-* Why it exists: the input used to be OVERWRITTEN every time a master was
-* selected, silently discarding the operator's edit. Now the input is the
-* operator's — remembered across reloads — and the lists are reference material
-* they copy from deliberately (whole list, or one TLD at a time by clicking it).
+* @param {Object} meta - an `info.active_ontologies` entry
+* @param {string} tld
+* @param {string} lang - e.g. 'lg-spa'
+* @returns {string|null}
+*/
+const tld_name = function (meta, tld, lang) {
+	const data = meta?.name_data
+	const pick = (code) => {
+		if (Array.isArray(data)) {
+			return data.find(el => el?.lang===code)?.value
+		}
+		const value = data?.[code]
+		return Array.isArray(value) ? value[0] : value
+	}
+	const raw = pick(lang) || pick('lg-eng') || meta?.name || null
+	if (typeof raw!=='string' || raw.length===0) {
+		return null
+	}
+	const suffix = ' | ' + tld
+	return raw.endsWith(suffix) ? raw.slice(0, -suffix.length) : raw
+}//end tld_name
+
+
+
+/**
+* TLD_CATALOG_ROWS
+* What a master offers, one row per TLD, in the words an operator reads: name,
+* typology (the group) and what selecting it does HERE —
+*   'new'       not installed: it will be added;
+*   'installed' installed and tracked (ACTIVE_ONTOLOGY_TLDS ∪ core): replaced;
+*   'untracked' installed but NOT tracked: possibly a local ontology of this
+*               installation — replacing it overwrites it, so it is flagged.
+* `matrix_dd` (the shared value lists) heads the list, in its own group.
+* Sorted by group, then TLD. Pure — exported for its client gate.
+*
+* @param {Object} manifest - `get_ontology_update_info` result ({info, files})
+* @param {string[]} installed - value.installed_tlds
+* @param {string[]} tracked - value.active_ontology_tlds
+* @param {string} lang
+* @returns {Array<{tld:string, name:string, group:string, state:string}>}
+*/
+export const tld_catalog_rows = function (manifest, installed, tracked, lang) {
+
+	const files			= Array.isArray(manifest?.files) ? manifest.files : []
+	const meta			= new Map((manifest?.info?.active_ontologies || []).map(el => [el?.tld, el]))
+	const installed_set	= new Set(installed || [])
+	const tracked_set	= new Set(tracked || [])
+	const lists_name	= get_label.update_ontology_matrix_dd_name || 'Shared value lists'
+	const other_group	= get_label.update_ontology_group_other || 'Other'
+
+	const rows = []
+	const seen = new Set()
+	for (const file of files) {
+		const tld = file?.tld
+		// `matrix` is the export's data dump, never an ontology
+		if (typeof tld!=='string' || tld==='matrix' || seen.has(tld)) {
+			continue
+		}
+		seen.add(tld)
+		if (tld==='matrix_dd') {
+			rows.push({ tld, name : lists_name, group : lists_name, state : 'installed', first : true })
+			continue
+		}
+		const entry = meta.get(tld)
+		rows.push({
+			tld,
+			name	: tld_name(entry, tld, lang) || tld,
+			group	: (typeof entry?.typology_name==='string' && entry.typology_name) || other_group,
+			state	: !installed_set.has(tld) ? 'new' : (tracked_set.has(tld) ? 'installed' : 'untracked')
+		})
+	}
+
+	rows.sort((a, b) => (b.first===true) - (a.first===true)
+		|| a.group.localeCompare(b.group)
+		|| a.tld.localeCompare(b.tld))
+	rows.forEach(row => { delete row.first })
+
+	return rows
+}//end tld_catalog_rows
+
+
+
+/**
+* BUILD_TLD_CATALOG
+* The selection block ABOVE the TLD input: every ontology the picked master
+* offers, grouped by typology, each with its name and what selecting it does
+* here (new / installed / installed but not tracked). Ticking a row adds its TLD
+* to the input; the input stays the single source of truth (typing works too,
+* and every checkbox is repainted from it), remembered in this browser.
+*
+* A server selection only (re)lists what THAT master offers — it never writes
+* the input. The list is read from the master's manifest when the master is
+* picked (one request, kept per master for the visit).
 *
 * @param {Object} options
-* @param {string[]} options.configured   - value.active_ontology_tlds
-* @param {boolean} options.configured_by_env - value.active_ontology_tlds_configured:
-*   false means ACTIVE_ONTOLOGY_TLDS is unset and the list is the engine fallback
-* @param {Function} options.get_value    - reads the live input value
-* @param {Function} options.set_value    - writes the input value (and persists it)
-* @param {Function} options.fetch_server_tlds - async (server) => string[]; the
-*   master's own list, read from its manifest when the operator asks for it
-* @returns {{node:HTMLElement, set_server:Function}}
-*   `set_server(server)` arms the master row for the newly selected master.
+* @param {Function} options.get_value - reads the live input value
+* @param {Function} options.set_value - writes the input value (and persists it)
+* @param {string[]} options.installed - value.installed_tlds
+* @param {string[]} options.tracked - value.active_ontology_tlds
+* @param {boolean} options.configured_by_env - value.active_ontology_tlds_configured
+* @param {Function} options.fetch_manifest - async (server) => manifest|null
+* @returns {{node:HTMLElement, sync:Function, set_server:Function, untracked_selected:Function}}
 */
-const build_tlds_reference = function (options) {
+const build_tld_catalog = function (options) {
 
-	const configured	= options.configured || []
-	const get_value		= options.get_value
-	const set_value		= options.set_value
+	const get_value	= options.get_value
+	const set_value	= options.set_value
+	const tracked	= options.tracked || []
+	const defaults	= [...new Set([...tracked, 'matrix_dd'])]
+	const lang		= page_globals.dedalo_application_lang || 'lg-eng'
 
 	const node = ui.create_dom_element({
 		element_type	: 'div',
-		class_name		: 'tlds_reference'
+		class_name		: 'tld_catalog'
 	})
-
 	ui.create_dom_element({
 		element_type	: 'span',
 		class_name		: 'dd_eyebrow',
 		inner_html		: (get_label.update_ontology_tlds_title || 'Ontologies to update'),
 		parent			: node
 	})
-	// Two different answers, and an administrator must not confuse them: either
-	// somebody configured this installation's TLDs, or nobody did and what is
-	// shown is the engine's built-in fallback.
-	const origin_html = options.configured_by_env===true
-		? (get_label.update_ontology_tlds_origin_env || 'It starts from <code>ACTIVE_ONTOLOGY_TLDS</code> in <code>../private/.env</code> — the shared TLDs this installation tracks — always unioned with the core pair <code>ontology</code> / <code>ontologytype</code>. Change it there to change the default for everyone.')
-		: (get_label.update_ontology_tlds_origin_fallback || '<b><code>ACTIVE_ONTOLOGY_TLDS</code> is not set in <code>../private/.env</code></b>, so it starts from the engine\u2019s built-in fallback (below), unioned with the core pair <code>ontology</code> / <code>ontologytype</code>. Domain TLDs (<code>oh</code>, <code>ich</code>, <code>tch</code>, <code>numisdata</code>, \u2026) are per-installation: set the key to make your own set the default for everyone.')
-
 	ui.create_dom_element({
 		element_type	: 'p',
 		class_name		: 'dd_note',
-		inner_html		: (get_label.update_ontology_tlds_note || 'The list below is yours to edit — it is remembered in this browser and is never overwritten when you pick a master.') + ' ' + origin_html,
+		inner_html		: (get_label.update_ontology_catalog_note || 'Pick a server above: every ontology it offers is listed here, with its name and whether it is installed. The ticked ones are replaced from that server. Your selection is remembered in this browser.'),
 		parent			: node
 	})
 
-	// every chip currently on screen, so the "is this TLD in the line?" state can
-	// be repainted from ONE place (the input is the single source of truth: chips
-	// only reflect it, and typing in the input must move them too)
-	const chip_nodes = []
-
-	/** Splits the input line into trimmed, non-empty TLDs. */
-	const current_list = function () {
-		return get_value().split(',').map(el => el.trim()).filter(el => el.length>0)
-	}
-
-	/** Repaints every chip's selected state from the input line. */
-	const sync_chips = function () {
-		const current = current_list()
-		chip_nodes.forEach(entry => {
-			const selected = current.indexOf(entry.tld)!==-1
-			entry.node.classList.toggle('on', selected)
-			entry.node.setAttribute('aria-pressed', selected ? 'true' : 'false')
-			entry.node.title = (selected
-				? (get_label.update_ontology_tld_remove || 'Remove “%s” from the list below')
-				: (get_label.update_ontology_tld_add || 'Add “%s” to the list below')
-			).replace('%s', entry.tld)
-		})
-	}
-
-	/** Writes the input and repaints the chips in one step. */
-	const apply_value = function (new_value) {
-		set_value(new_value)
-		sync_chips()
-	}
-
-	/**
-	* Adds a TLD to the input if missing, removes it if already there — so a chip
-	* is a toggle, not a one-way append.
-	*/
-	const toggle_tld = function (tld) {
-		const current = current_list()
-		const found = current.indexOf(tld)
-		if (found===-1) {
-			current.push(tld)
-		} else {
-			current.splice(found, 1)
-		}
-		apply_value(current.join(','))
-	}
-
-	/**
-	* One reference row: a label, the chips, and a "Use this list" button that
-	* replaces the input wholesale.
-	*/
-	const build_row = function (label, tlds, empty_text, with_use_list) {
-
-		const row = ui.create_dom_element({
-			element_type	: 'div',
-			class_name		: 'tlds_row',
-			parent			: node
-		})
-		const head = ui.create_dom_element({ element_type:'div', class_name:'hd', parent:row })
-		const label_node = ui.create_dom_element({
-			element_type	: 'span',
-			class_name		: 'lbl',
-			text_content	: label,
-			parent			: head
-		})
-		// "Use this list" REPLACES the whole input, so it only exists where that is
-		// a sane action: a master publishes its ENTIRE manifest (200+ TLDs, every
-		// language pack included) and importing all of it is never what an operator
-		// means — there, chips are added one by one.
-		const use_button = with_use_list===true
-			? ui.create_dom_element({
-				element_type	: 'button',
-				type			: 'button',
-				class_name		: 'light use_list',
-				inner_html		: (get_label.update_ontology_tlds_use_list || 'Use this list'),
-				parent			: head
-			})
-			: null
-		const chips = ui.create_dom_element({ element_type:'div', class_name:'chips', parent:row })
-
-		const paint = function (list, empty_override) {
-			const ar_tlds = (list || []).filter(Boolean)
-			while (chips.firstChild) {
-				chips.removeChild(chips.firstChild)
-			}
-			// drop this row's stale entries from the shared registry
-			for (let i = chip_nodes.length-1; i >= 0; i--) {
-				if (chip_nodes[i].row===chips) {
-					chip_nodes.splice(i, 1)
-				}
-			}
-			if (!ar_tlds.length) {
-				ui.create_dom_element({
-					element_type	: 'span',
-					class_name		: 'empty',
-					text_content	: empty_override || empty_text,
-					parent			: chips
-				})
-				if (use_button) {
-					use_button.disabled = true
-				}
-				return
-			}
-			if (use_button) {
-				use_button.disabled = false
-				use_button.onclick = () => apply_value(ar_tlds.join(','))
-			}
-			ar_tlds.forEach(tld => {
-				const chip = ui.create_dom_element({
-					element_type	: 'button',
-					type			: 'button',
-					class_name		: 'tld_chip',
-					text_content	: String(tld),
-					parent			: chips
-				})
-				chip.addEventListener('click', () => toggle_tld(String(tld)))
-				chip_nodes.push({ tld : String(tld), node : chip, row : chips })
-			})
-			sync_chips()
-		}
-		paint(tlds)
-
-		return {
-			paint		: paint,
-			head		: head,
-			set_label	: (text) => { label_node.textContent = text }
-		}
-	}//end build_row
-
-	// the configured row never changes after render; the master row is filled on
-	// demand — a master publishes its list only in its manifest, which costs a
-	// request, so it is fetched when the operator asks for it, not on selection
-	build_row(
-		options.configured_by_env===true
-			? (get_label.update_ontology_tlds_row_configured || 'Configured in this installation')
-			: (get_label.update_ontology_tlds_row_fallback || 'Engine fallback (not configured)'),
-		configured,
-		(get_label.update_ontology_tlds_empty_none || 'none'),
-		true
-	)
-	const server_row = build_row(
-		(get_label.update_ontology_tlds_row_master || 'Offered by the selected master'),
-		[],
-		(get_label.update_ontology_tlds_empty_select_master || 'select a master, then fetch its list'),
-		false
-	)
-
-	const fetch_button = ui.create_dom_element({
+	// toolbar: filter, selected-only, count, default, clear
+	const toolbar = ui.create_dom_element({ element_type:'div', class_name:'tld_toolbar', parent:node })
+	const filter_input = ui.create_dom_element({
+		element_type	: 'input',
+		type			: 'search',
+		class_name		: 'tld_filter',
+		placeholder		: (get_label.update_ontology_filter_placeholder || 'Filter by TLD, name or typology'),
+		parent			: toolbar
+	})
+	filter_input.setAttribute('aria-label', filter_input.placeholder)
+	const only_label = ui.create_dom_element({ element_type:'label', class_name:'tld_only', parent:toolbar })
+	const only_input = ui.create_dom_element({ element_type:'input', type:'checkbox', parent:only_label })
+	only_label.appendChild(document.createTextNode(' ' + (get_label.update_ontology_selected_only || 'Selected only')))
+	const count_node = ui.create_dom_element({ element_type:'span', class_name:'tld_count', parent:toolbar })
+	const default_button = ui.create_dom_element({
 		element_type	: 'button',
 		type			: 'button',
-		class_name		: 'light fetch_list',
-		inner_html		: (get_label.update_ontology_tlds_fetch_list || 'Fetch list'),
-		parent			: server_row.head
+		class_name		: 'light tld_default',
+		inner_html		: (get_label.update_ontology_use_default || 'Default selection'),
+		parent			: toolbar
 	})
-	fetch_button.disabled = true
-
-	let selected_server = null
-
-	fetch_button.addEventListener('click', async () => {
-		if (!selected_server) {
-			return
-		}
-		fetch_button.disabled = true
-		fetch_button.classList.add('button_spinner')
-		try {
-			const tlds = await options.fetch_server_tlds(selected_server)
-			server_row.paint(
-				tlds || [],
-				(get_label.update_ontology_tlds_empty_master_none || 'the master returned no list — check its access code')
-			)
-			server_row.set_label(
-				(get_label.update_ontology_tlds_row_master_count || 'Offered by %s (%s)')
-					.replace('%s', selected_server.name)
-					.replace('%s', String((tlds || []).length))
-			)
-		} finally {
-			fetch_button.classList.remove('button_spinner')
-			fetch_button.disabled = false
-		}
+	const clear_button = ui.create_dom_element({
+		element_type	: 'button',
+		type			: 'button',
+		class_name		: 'light tld_clear',
+		inner_html		: (get_label.update_ontology_clear || 'Clear'),
+		parent			: toolbar
+	})
+	// where the default comes from — an administrator must know which it is
+	ui.create_dom_element({
+		element_type	: 'p',
+		class_name		: 'dd_note tld_default_note',
+		inner_html		: options.configured_by_env===true
+			? (get_label.update_ontology_default_env || 'Default selection: <code>ACTIVE_ONTOLOGY_TLDS</code> from <code>../private/.env</code>, plus the core pair and the shared value lists.')
+			: (get_label.update_ontology_default_fallback || 'Default selection: the engine’s built-in list, because <code>ACTIVE_ONTOLOGY_TLDS</code> is not set in <code>../private/.env</code>. Set it to make your own set the default for everyone.'),
+		parent			: node
 	})
 
-	return {
-		node			: node,
-		// the input is editable by hand too: the panel calls this on every
-		// keystroke so the chips never lie about what is in the line
-		sync			: sync_chips,
-		set_server		: (server) => {
-			selected_server = server || null
-			fetch_button.disabled = !selected_server
-			server_row.paint([])
-			server_row.set_label(selected_server
-				? (get_label.update_ontology_tlds_row_master_named || 'Offered by %s').replace('%s', selected_server.name)
-				: (get_label.update_ontology_tlds_row_master || 'Offered by the selected master'))
+	const list_head = ui.create_dom_element({ element_type:'div', class_name:'tld_list_head', parent:node })
+	const list = ui.create_dom_element({ element_type:'div', class_name:'tld_list', parent:node })
+	const notes = ui.create_dom_element({ element_type:'div', class_name:'tld_notes', parent:node })
+
+	let rows		= []	// tld_catalog_rows of the listed master
+	let row_nodes	= []	// {row, node, input}
+	let server		= null
+	const manifests	= new Map() // per master url, for the visit
+
+	/** The input line as trimmed, non-empty TLDs. */
+	const current_list = () => get_value().split(',').map(el => el.trim()).filter(el => el.length>0)
+
+	const write = (list_value) => {
+		set_value(list_value.join(','))
+		sync()
+	}
+
+	const empty = (text) => {
+		while (list.firstChild) {
+			list.removeChild(list.firstChild)
+		}
+		row_nodes = []
+		ui.create_dom_element({ element_type:'div', class_name:'empty', text_content:text, parent:list })
+	}
+
+	/** Repaints checkboxes, filter, count and notes from the input line. */
+	const sync = function () {
+		const current	= new Set(current_list())
+		const needle	= filter_input.value.trim().toLowerCase()
+		for (const entry of row_nodes) {
+			const on = current.has(entry.row.tld)
+			entry.input.checked = on
+			entry.node.classList.toggle('on', on)
+			const matches = needle.length===0
+				|| entry.row.tld.includes(needle)
+				|| entry.row.name.toLowerCase().includes(needle)
+				|| entry.row.group.toLowerCase().includes(needle)
+			entry.node.hidden = !matches || (only_input.checked && !on)
+		}
+		// a group with every row hidden hides its heading too
+		list.querySelectorAll('.tld_group').forEach(group => {
+			group.hidden = !group.querySelector('.tld_row:not([hidden])')
+		})
+		count_node.textContent = (get_label.update_ontology_selected_count || '%s selected').replace('%s', String(current.size))
+
+		while (notes.firstChild) {
+			notes.removeChild(notes.firstChild)
+		}
+		const untracked = untracked_selected()
+		if (untracked.length>0) {
+			ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'dd_note state_warning',
+				text_content	: (get_label.update_ontology_untracked_warning || 'Will overwrite ontologies installed here that this installation does not track: %s. If one is a local ontology, untick it.').replace('%s', untracked.join(', ')),
+				parent			: notes
+			})
+		}
+		if (rows.length>0) {
+			const offered = new Set(rows.map(row => row.tld))
+			const missing = [...current].filter(tld => !offered.has(tld))
+			if (missing.length>0) {
+				ui.create_dom_element({
+					element_type	: 'div',
+					class_name		: 'dd_note',
+					text_content	: (get_label.update_ontology_not_offered || 'Not offered by this server, will be skipped: %s').replace('%s', missing.join(', ')),
+					parent			: notes
+				})
+			}
 		}
 	}
-}//end build_tlds_reference
+
+	/** The selected TLDs the listed master offers that are installed here but not tracked. */
+	const untracked_selected = function () {
+		const current = new Set(current_list())
+		return rows.filter(row => row.state==='untracked' && current.has(row.tld)).map(row => row.tld)
+	}
+
+	const state_badge = {
+		new			: { cls:'pill_ok',    text:() => get_label.update_ontology_state_new || 'New' },
+		installed	: { cls:'pill_neutral', text:() => get_label.update_ontology_state_installed || 'Installed' },
+		untracked	: { cls:'pill_warning', text:() => get_label.update_ontology_state_untracked || 'Installed · not tracked' }
+	}
+
+	/** Lists `rows` grouped (the row order is already by group). */
+	const paint = function () {
+		while (list.firstChild) {
+			list.removeChild(list.firstChild)
+		}
+		row_nodes = []
+		let group_node = null
+		let group_name = null
+		for (const row of rows) {
+			if (row.group!==group_name) {
+				group_name = row.group
+				group_node = ui.create_dom_element({ element_type:'div', class_name:'tld_group', parent:list })
+				ui.create_dom_element({ element_type:'div', class_name:'grp', text_content:group_name, parent:group_node })
+			}
+			const row_node = ui.create_dom_element({ element_type:'label', class_name:'tld_row', parent:group_node })
+			const input = ui.create_dom_element({ element_type:'input', type:'checkbox', value:row.tld, parent:row_node })
+			input.addEventListener('change', () => {
+				const current = current_list().filter(tld => tld!==row.tld)
+				if (input.checked) {
+					current.push(row.tld)
+				}
+				write(current)
+			})
+			ui.create_dom_element({ element_type:'code', class_name:'tld', text_content:row.tld, parent:row_node })
+			ui.create_dom_element({ element_type:'span', class_name:'nm', text_content:row.name, parent:row_node })
+			const badge = state_badge[row.state]
+			const pill = ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'dd_badge ' + badge.cls,
+				text_content	: badge.text(),
+				parent			: row_node
+			})
+			if (row.state==='untracked') {
+				pill.title = get_label.update_ontology_state_untracked_title || 'Installed here but not in this installation’s tracked set (ACTIVE_ONTOLOGY_TLDS). It may be a local ontology: replacing it overwrites it.'
+			}
+			row_nodes.push({ row, node:row_node, input })
+		}
+		sync()
+	}
+
+	filter_input.addEventListener('input', sync)
+	only_input.addEventListener('change', sync)
+	default_button.addEventListener('click', () => write(defaults))
+	clear_button.addEventListener('click', () => write([]))
+
+	/** Lists what `next` offers (null = no master picked). */
+	const set_server = async function (next) {
+		server = next || null
+		rows = []
+		list_head.textContent = server
+			? (get_label.update_ontology_tlds_row_master_named || 'Offered by %s').replace('%s', server.name)
+			: ''
+		if (!server) {
+			empty(get_label.update_ontology_catalog_pick_server || 'Pick a server to list its ontologies.')
+			sync()
+			return
+		}
+		empty(get_label.update_ontology_catalog_loading || 'Reading the server’s list…')
+		list.classList.add('loading')
+		const asked = server
+		let manifest = manifests.get(asked.url)
+		if (manifest===undefined) {
+			manifest = await options.fetch_manifest(asked)
+			if (manifest) {
+				manifests.set(asked.url, manifest)
+			}
+		}
+		list.classList.remove('loading')
+		// a newer pick won while this one was loading
+		if (server!==asked) {
+			return
+		}
+		rows = tld_catalog_rows(manifest, options.installed, tracked, lang)
+		if (rows.length===0) {
+			empty(get_label.update_ontology_tlds_empty_master_none || 'the master returned no list — check its access code')
+			sync()
+			return
+		}
+		list_head.textContent = (get_label.update_ontology_tlds_row_master_count || 'Offered by %s (%s)')
+			.replace('%s', server.name)
+			.replace('%s', String(rows.length))
+		paint()
+	}
+
+	empty(get_label.update_ontology_catalog_pick_server || 'Pick a server to list its ontologies.')
+
+	return {
+		node,
+		// the input is editable by hand too: the panel calls this on every
+		// keystroke so the checkboxes never lie about what is in the line
+		sync,
+		set_server,
+		untracked_selected
+	}
+}//end build_tld_catalog
 
 
 
 /**
-* BUILD_BACKUP_GATE
-* The update run's database-backup precondition, stated BEFORE the click. The
-* run (core/update/run/start.ts) refuses without a recent, proven-restorable
-* backup; `check` is the server's own `backup_fresh` line (the one the code
-* panel reads), so the panel and the refusal can never disagree.
-*  - ok: one quiet line with the backup's age; no waiver is offered.
-*  - anything else: an amber line saying WHY the update will be refused, the
-*    waiver checkbox (journaled with the operator's user) and its consequence,
-*    and the submit button stays disabled until the operator either makes a
-*    backup (and reloads) or ticks the waiver.
-* A server that sends no `backup` (older engine) gets the waiver with no
-* verdict and no disabled button — the server still decides.
+* OPEN_CONFIRM_MODAL
+* The update's last gate, in the SAME shape as the code update's version modal
+* (render_update_code.js render_info_modal): what will be replaced, from where,
+* and — only when the run would refuse without it — the backup waiver row
+* (render_update_status.js build_waive_backup_row, the one row both modals
+* mount) beside the action button, then `ui.confirm` restating the choice.
+* The update run (core/update/run/start.ts) REFUSES without a recent,
+* proven-restorable database backup; `value.backup` is the server's own
+* `backup_fresh` line, re-read on click (the backup can age while the modal is
+* open) so a waiver that became necessary is offered instead of a refusal.
+* Resolves `{waive_backup}` on accept, `null` when the operator closes it.
 *
-* @param {object|undefined} check - value.backup: {id, state, detail?, scope?}
-* @param {HTMLElement} form_container
-* @param {HTMLElement|null} button_submit
-* @returns {HTMLInputElement|null} the waiver checkbox (null when not offered)
+* @param {Object} self - the update_ontology widget instance
+* @param {Object} options
+* @param {Object} options.server - the picked master
+* @param {Object} options.result - Phase 1 manifest ({info, files})
+* @param {Array<Object>} options.selected_files - build_import_files output
+* @param {string[]} options.untracked - selected TLDs installed but not tracked
+* @param {string} options.confirm_text - the irreversibility warning
+* @returns {Promise<{waive_backup:boolean}|null>}
 */
-const build_backup_gate = function (check, form_container, button_submit) {
+const open_confirm_modal = function (self, options) {
 
-	const gate = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'backup_gate'
-	})
-	form_container.insertBefore(gate, button_submit)
+	const { server, result, selected_files, untracked, confirm_text } = options
+	const value	= self.value || {}
+	const lang	= page_globals.dedalo_application_lang || 'lg-eng'
+	const host	= result.info?.host || server.name || ''
+	const tlds	= selected_files.map(el => el.tld)
+	const submit_label = get_label.update_ontology_submit || 'Replace selected ontologies'
 
-	ui.create_dom_element({
-		element_type	: 'span',
-		class_name		: 'dd_eyebrow',
-		inner_html		: (get_label.update_ontology_backup_title || 'Database backup'),
-		parent			: gate
-	})
+	return new Promise((resolve) => {
 
-	// the age FACT when the server measured one ('none' / 'verifying' otherwise)
-	const hours = Number(check?.detail)
-	const age = Number.isFinite(hours) ? String(hours) : null
-
-	if (check?.state==='ok') {
-		ui.create_dom_element({
-			element_type	: 'div',
-			class_name		: 'dd_note backup_state state_ok',
-			text_content	: (get_label.update_code_check_backup_fresh || 'Recent database backup') + (age!==null ? ': ' + age + ' h' : ''),
-			parent			: gate
-		})
-		return null
-	}
-
-	if (check) {
-		const reason = check.detail==='verifying'
-			? (get_label.update_ontology_backup_verifying || 'The newest database backup is still being verified. Reload this panel in a moment.')
-			: (get_label.update_ontology_backup_missing || 'No recent, verified database backup. The update will be refused until you make one in Backups (then reload this panel), or tick the box below.')
-		ui.create_dom_element({
-			element_type	: 'div',
-			class_name		: 'dd_note backup_state state_warning',
-			text_content	: (age!==null ? reason + ' (' + age + ' h)' : reason),
-			parent			: gate
-		})
-	}
-
-	// label WRAPS the input (the house pattern): the whole line is the click target
-	const waive_label = ui.create_dom_element({
-		element_type	: 'label',
-		class_name		: 'waive_backup_label',
-		parent			: gate
-	})
-	const waive_input = ui.create_dom_element({
-		element_type	: 'input',
-		type			: 'checkbox',
-		class_name		: 'waive_backup_check',
-		name			: 'update_ontology_waive_backup',
-		parent			: waive_label
-	})
-	ui.create_dom_element({
-		element_type	: 'span',
-		text_content	: get_label.update_code_waive_backup || 'Update without a recent database backup',
-		parent			: waive_label
-	})
-	ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'dd_note waive_backup_note',
-		text_content	: get_label.update_code_waive_backup_note || 'The database will not be restorable if the update goes wrong. Make a backup first whenever you can; every waiver is recorded in the server log with your user.',
-		parent			: gate
-	})
-
-	// no verdict from the server: offer the waiver, but leave the decision to it
-	if (check && button_submit) {
-		const sync_submit = () => {
-			button_submit.disabled = waive_input.checked!==true
+		let settled = false
+		const settle = (decision) => {
+			if (!settled) {
+				settled = true
+				resolve(decision)
+			}
 		}
-		waive_input.addEventListener('change', sync_submit)
-		sync_submit()
-	}
 
-	return waive_input
-}//end build_backup_gate
+		// header. TEXT only: the master's name/host are remote data
+		const header = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'label',
+			text_content	: [server.name, result.info?.host].filter(Boolean).join(' · ') || submit_label
+		})
+
+		const body = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'body widget_update_ontology'
+		})
+		body.appendChild(build_version_change(value.current_ontology || {}, result.info))
+
+		// what will be replaced, named
+		ui.create_dom_element({ element_type:'span', class_name:'dd_eyebrow', inner_html:(get_label.update_ontology_tlds_title || 'Ontologies to update'), parent:body })
+		const list = ui.create_dom_element({ element_type:'div', class_name:'confirm_tlds', parent:body })
+		for (const file of selected_files) {
+			const row = ui.create_dom_element({ element_type:'div', class_name:'confirm_tld', parent:list })
+			ui.create_dom_element({ element_type:'code', class_name:'tld', text_content:file.tld, parent:row })
+			ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'nm',
+				text_content	: file.tld==='matrix_dd'
+					? (get_label.update_ontology_matrix_dd_name || 'Shared value lists')
+					: (tld_name(file, file.tld, lang) || ''),
+				parent			: row
+			})
+		}
+		if (untracked.length>0) {
+			ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'dd_note state_warning untracked_note',
+				text_content	: (get_label.update_ontology_untracked_warning || 'Will overwrite ontologies installed here that this installation does not track: %s. If one is a local ontology, untick it.').replace('%s', untracked.join(', ')),
+				parent			: body
+			})
+		}
+
+		const footer = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'content'
+		})
+		const button_update = ui.create_dom_element({
+			element_type	: 'button',
+			class_name		: 'danger',
+			inner_html		: submit_label,
+			parent			: footer
+		})
+		const response = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'response content',
+			parent			: footer
+		})
+
+		// the waiver: mounted only when the run would refuse without it, ABOVE
+		// the button (read, not stumbled on) — the code modal's row, alone
+		let waive_backup_input = null
+		const mount_waive_row = function (check) {
+			if (waive_backup_input!==null) {
+				return
+			}
+			const waive = build_waive_backup_row(check, 'update_ontology_waive_backup')
+			footer.appendChild(waive.row)
+			// everything mounted so far goes above the button
+			footer.appendChild(button_update)
+			footer.appendChild(response)
+			waive_backup_input = waive.input
+			// the run would refuse anyway: no Replace until the waiver is given
+			const sync_button = () => {
+				button_update.disabled = waive_backup_input.checked!==true
+			}
+			waive_backup_input.addEventListener('change', sync_button)
+			sync_button()
+		}
+		if (value.backup && value.backup.state!=='ok') {
+			mount_waive_row(value.backup)
+		}
+
+		// one click at a time: the re-check below reads the whole panel value (it
+		// probes every master), and a second click must not stack a second confirm
+		let busy = false
+		button_update.addEventListener('click', async (e) => {
+			e.stopPropagation()
+			if (busy) {
+				return
+			}
+			busy = true
+			try {
+				await on_update_click()
+			} finally {
+				busy = false
+			}
+		})
+		const on_update_click = async () => {
+
+			// the backup can age while the modal is open: re-ask, and offer the
+			// waiver instead of submitting a request the run would refuse
+			if (waive_backup_input===null) {
+				try {
+					const late_value = await self.get_value()
+					if (late_value?.backup && late_value.backup.state!=='ok') {
+						self.value = late_value
+						mount_waive_row(late_value.backup)
+						response.textContent = get_label.update_code_waive_backup_now_required
+							|| 'The database backup went stale while this dialog was open. Make a backup, or accept the waiver below, then press Update again.'
+						response.classList.add('error')
+						return
+					}
+				} catch (error) {
+					// never block on a failed re-ask: the server still refuses correctly
+					console.error('update_ontology: could not re-check backup freshness before submitting', error)
+				}
+			}
+
+			const waive_backup = waive_backup_input?.checked === true
+			// the TLDs + host are DATA → the `note` text slot; a waived backup is
+			// restated here, at the last gate
+			const accepted = await ui.confirm({
+				header			: submit_label,
+				note			: tlds.join(', ') + ' ← ' + host
+					+ (waive_backup
+						? ' — ' + (get_label.update_code_waive_backup_confirm || 'without a recent database backup')
+						: ''),
+				body			: confirm_text,
+				accept_label	: submit_label
+			})
+			if (accepted!==true) {
+				return
+			}
+			settle({ waive_backup })
+			if (typeof modal.close==='function') {
+				modal.close()
+			}
+		}
+
+		const modal = ui.attach_to_modal({
+			header		: header,
+			body		: body,
+			footer		: footer,
+			size		: 'normal',
+			on_close	: () => settle(null),
+			// same width as the code update's version modal
+			callback	: (dd_modal) => {
+				dd_modal.modal_content.style.width = '65rem'
+			}
+		})
+		modal.classList.add('widget_update_ontology_modal')
+
+		dd_request_idle_callback(() => {
+			button_update.focus()
+		})
+	})
+}//end open_confirm_modal
 
 
 
@@ -846,6 +1069,128 @@ const build_client_info = function (servers) {
 
 
 /**
+* UPDATE_PROGRESS_SHARE
+* Where a progress frame puts the bar, 0..1. The server reports facts per stage
+* (core/ontology/update_progress.ts: stage, done of total); the stages take
+* very different times, so each owns a fixed share of the bar.
+* shortcut: fixed shares, not measured durations — weigh them by file size if a
+* real install shows the bar crawling in one stage.
+* Exported for its client gate.
+*
+* @param {Object|null|undefined} progress - frame.data.progress
+* @returns {number|null} null = no usable frame yet (indeterminate)
+*/
+export const update_progress_share = function (progress) {
+
+	const shares = { download:[0, 0.25], import:[0.25, 0.6], derive:[0.6, 0.95], finish:[0.95, 1] }
+	const range = shares[progress?.stage]
+	if (!range) {
+		return null
+	}
+	const total	= Number(progress.total)
+	const done	= Number(progress.done)
+	const part	= (Number.isFinite(total) && total>0 && Number.isFinite(done))
+		? Math.min(Math.max(done / total, 0), 1)
+		: 0
+
+	return range[0] + (range[1] - range[0]) * part
+}//end update_progress_share
+
+
+
+/**
+* TRACK_UPDATE_JOB
+* Follows the update's background job (dd_utils_api:get_process_status, via the
+* shared common.js update_process_status) with a
+* progress bar (the widget kit's .dd_bar) and a caption naming the stage and the
+* ontology in work. Resolves the LAST frame — its `data` is the import's answer,
+* or its `error` the coded refusal/failure — once the job ends or the stream
+* cannot be opened (then a terminal frame carrying that error).
+*
+* @param {string|number} pid
+* @param {string} pfile
+* @param {HTMLElement} parent
+* @returns {Promise<Object|null>}
+*/
+const track_update_job = function (pid, pfile, parent) {
+
+	const node = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'update_progress',
+		parent			: parent
+	})
+	const caption = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'dd_bar_note update_progress_caption',
+		text_content	: get_label.update_ontology_progress_start || 'Starting the update…',
+		parent			: node
+	})
+	const bar = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'dd_bar indeterminate',
+		parent			: node
+	})
+	bar.setAttribute('role', 'progressbar')
+	bar.setAttribute('aria-valuemin', '0')
+	bar.setAttribute('aria-valuemax', '100')
+	const fill = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'dd_bar_fill',
+		parent			: bar
+	})
+	ui.reveal(node)
+
+	const stage_text = {
+		download	: get_label.update_ontology_progress_download || 'Downloading',
+		import		: get_label.update_ontology_progress_import || 'Importing',
+		derive		: get_label.update_ontology_progress_derive || 'Processing',
+		finish		: get_label.update_ontology_progress_finish || 'Finishing'
+	}
+	const paint = (progress) => {
+		const share = update_progress_share(progress)
+		if (share===null) {
+			return
+		}
+		const percent = Math.round(share * 100)
+		bar.classList.remove('indeterminate')
+		fill.style.width = percent + '%'
+		bar.setAttribute('aria-valuenow', String(percent))
+		// the ontology in work and its place in the stage, as TEXT (remote tld)
+		caption.textContent = [
+			stage_text[progress.stage],
+			progress.tld || null,
+			progress.stage==='finish' ? null : '(' + (Number(progress.done) + 1) + '/' + progress.total + ')'
+		].filter(Boolean).join(' ')
+	}
+
+	// the job's status stream, through the ONE shared tracker (no second
+	// stream opener under area_maintenance): its own status nodes are kept out
+	// of sight, the bar above is the operator surface
+	const stream_node = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'update_progress_stream',
+		parent			: node
+	})
+
+	return new Promise((resolve) => {
+		update_process_status(
+			'update_ontology_process',
+			pid,
+			pfile,
+			stream_node,
+			1000,
+			(last) => {
+				node.remove()
+				resolve(last)
+			},
+			(frame) => paint(frame?.data?.progress)
+		)
+	})
+}//end track_update_job
+
+
+
+/**
 * GET_CONTENT_DATA_EDIT
 * Builds the full inner content DOM for the update_ontology widget and wires the
 * two-phase submit flow.
@@ -902,7 +1247,7 @@ const get_content_data_edit = async function(self) {
 	// on_server_change: THIS caller's selection callback — the only place the
 	// panel-wide `ontology_server_select_change` event is published, so a
 	// co-mounted CODE picker (update_code, which passes no callback) can never
-	// reset this widget's reference row.
+	// reset this widget's TLD catalog.
 		const on_server_change = (server) => {
 			event_manager.publish('ontology_server_select_change', server ? (server.tld || null) : null)
 		}
@@ -917,17 +1262,26 @@ const get_content_data_edit = async function(self) {
 			class_name		: 'body_response'
 		})
 
-	// d. update form
-		// THE BACKUP WAIVER. The update runs as an ontology-only UPDATE RUN
-		// (core/update/run/start.ts): like a code update it REFUSES without a
-		// recent, proven-restorable database backup, and this checkbox is the
-		// operator's journaled escape hatch (the run records who waived it).
-		// It waives the DATABASE backup only.
-		let waive_backup_input = null
+	// d. update form. Confirmation (and the backup waiver) happen in
+	// open_confirm_modal, after the master's manifest is read — not in the
+	// form's native confirm()
+		let catalog = null
+		let submitting = false
+		const single_flight = async (run) => {
+			if (submitting) {
+				return
+			}
+			submitting = true
+			try {
+				return await run()
+			} finally {
+				submitting = false
+			}
+		}
 		if (self.caller?.init_form) {
 			self.caller.init_form({
 				submit_label	: (get_label.update_ontology_submit || 'Replace selected ontologies'),
-				confirm_text	: confirm_text,
+				confirm_text	: false,
 				body_info		: content_data,
 				body_response	: body_response,
 				inputs			: [{
@@ -935,18 +1289,12 @@ const get_content_data_edit = async function(self) {
 					name		: 'active_ontology_tlds',
 					label		: (get_label.update_ontology_tlds_title || 'Ontologies to update'),
 					mandatory	: true,
-					value		: active_ontology_tlds
+					// the default selection: the tracked TLDs + the shared value lists
+					value		: [...new Set([...active_ontology_tlds, 'matrix_dd'])].join(',')
 				}],
 				on_render : (nodes) => {
 					const input_nodes = nodes.input_nodes || []
 					const tlds_input = input_nodes.find(el => el.name === 'active_ontology_tlds')
-
-					// above the submit button: the backup state is read before the click
-					waive_backup_input = build_backup_gate(
-						value.backup,
-						nodes.form_container,
-						nodes.form_container.button_submit || null
-					)
 
 					// the operator's line wins over the configured default, and
 					// survives a reload
@@ -954,20 +1302,21 @@ const get_content_data_edit = async function(self) {
 					if (stored!==null) {
 						tlds_input.value = stored
 					}
-					// declared here, wired right after the reference block exists
-					let sync_reference = () => {}
+					// declared here, wired right after the catalog exists
+					let sync_catalog = () => {}
 					tlds_input.addEventListener('input', () => {
 						tlds_input.classList.remove('empty')
 						store_tlds(tlds_input.value)
-						sync_reference()
+						sync_catalog()
 					})
 
-					// reference lists ABOVE the input — nothing here writes the
-					// input unless the operator clicks
-					const reference = build_tlds_reference({
-						configured	: Array.isArray(active_ontology_tlds)
+					// the picked master's ontologies ABOVE the input — nothing here
+					// writes the input unless the operator ticks a row
+					catalog = build_tld_catalog({
+						tracked		: Array.isArray(active_ontology_tlds)
 							? active_ontology_tlds
 							: String(active_ontology_tlds).split(','),
+						installed	: value.installed_tlds || [],
 						configured_by_env : value.active_ontology_tlds_configured===true,
 						get_value	: () => tlds_input.value,
 						set_value	: (new_value) => {
@@ -975,33 +1324,29 @@ const get_content_data_edit = async function(self) {
 							tlds_input.classList.remove('empty')
 							store_tlds(new_value)
 						},
-						fetch_server_tlds : async (server) => {
+						fetch_manifest : async (server) => {
 							const api_response = await get_update_info(server)
 							const result = response_data(api_response)
-							if (request_failed(api_response) || !result) {
-								return []
-							}
-							// the manifest names one file per TLD
-							return [...new Set(
-								(result.files || []).map(el => el.tld).filter(Boolean)
-							)]
+							return (request_failed(api_response) || !result) ? null : result
 						}
 					})
-					sync_reference = reference.sync
-					nodes.form_container.insertBefore(reference.node, nodes.form_container.firstChild)
-					// first paint: the prefilled/remembered line lights its chips
-					reference.sync()
+					sync_catalog = catalog.sync
+					nodes.form_container.insertBefore(catalog.node, nodes.form_container.firstChild)
+					// first paint: the prefilled/remembered line ticks its rows
+					catalog.sync()
 
-					// selecting a master ARMS THE REFERENCE ROW ONLY (it used to
+					// selecting a master LISTS ITS ONTOLOGIES ONLY (it used to
 					// overwrite the input, discarding the operator's edit)
 					const render_handler = function(){
-						reference.set_server(servers.find(el => el.active === true) || null)
+						catalog.set_server(servers.find(el => el.active === true) || null)
 					}
 					self.events_tokens.push(
 						event_manager.subscribe('ontology_server_select_change', render_handler)
 					)
 				},
-				on_submit : async (e, values) => {
+				// SINGLE-FLIGHT: a submit lasts the whole job (minutes); Enter in the
+				// TLD input must not start a second one over the tracked first
+				on_submit : (e, values) => single_flight(async () => {
 
 					// parse the TLD list
 						const active_ontology_tlds_value	= values[0]?.value
@@ -1044,22 +1389,41 @@ const get_content_data_edit = async function(self) {
 							return
 						}
 
-					// show installed → incoming before the import completes
-						ui.reveal(body_response.appendChild(build_version_change(current_ontology, result.info)))
-
 					// build the file list: user-selected TLDs, enriched, with matrix_dd always first
 						const selected_files = build_import_files(result, ar_active_ontology_tlds)
+						// nothing ticked that this master offers: refuse here (the server would
+						// update nothing — never let the run look like it did something)
+						if (!selected_files.length) {
+							alert(get_label.update_ontology_select_tld_alert || 'Select at least one ontology to update.')
+							return
+						}
 
-					// Phase 2: import
+					// confirm in the modal (what, from where, the backup waiver)
+						const decision = await open_confirm_modal(self, {
+							server,
+							result,
+							selected_files,
+							untracked		: catalog ? catalog.untracked_selected() : [],
+							confirm_text
+						})
+						if (decision===null) {
+							return
+						}
+
+					// show installed → incoming while the import runs
+						ui.reveal(body_response.appendChild(build_version_change(current_ontology, result.info)))
+
+					// Phase 2: import — submitted as a background job, followed with
+					// a progress bar
 						const api_response = await self.update_ontology({
 							server		: server,
 							files		: selected_files,
 							info		: result.info,
-							waive_backup: waive_backup_input?.checked === true
+							waive_backup: decision.waive_backup
 						})
-
-					// fail case
-						if(request_failed(api_response) || !response_data(api_response)){
+						const pid	= response_extension(api_response, 'pid')
+						const pfile	= response_extension(api_response, 'pfile')
+						if(request_failed(api_response) || !pid || !pfile){
 							if (request_failed(api_response)) {
 								ui.reveal(body_response.appendChild(build_failure(api_response.error)))
 							} else {
@@ -1072,6 +1436,32 @@ const get_content_data_edit = async function(self) {
 							}
 							return
 						}
+						const final_frame = await track_update_job(pid, pfile, body_response)
+
+					// fail case. SUCCESS IS ONLY a finished job carrying the run's answer
+					// (ontologyAnswer always sets run_id): while running, the job's data
+					// is a PROGRESS frame, and a dropped stream, a stop or the lane
+					// deadline all end on one with no coded error
+						const job_error = normalize_stream_error(final_frame)
+						const job_result = final_frame?.data
+						const finished = final_frame?.is_running===false
+							&& job_result!==null && typeof job_result==='object'
+							&& typeof job_result.run_id==='string'
+						if (job_error || !finished) {
+							ui.reveal(job_error
+								? body_response.appendChild(build_failure(job_error))
+								: ui.create_dom_element({
+									element_type	: 'div',
+									class_name		: 'error',
+									// still running for all we know (the stream dropped), or ended
+									// without an answer (stopped / deadline: its lines say why)
+									text_content	: final_frame?.is_running===false
+										? [get_label.update_ontology_import_failed || 'The ontology import failed.', ...(Array.isArray(final_frame.errors) ? final_frame.errors : [])].join(' ')
+										: (get_label.update_ontology_job_lost || 'Lost contact with the update while it was running. It may still be running: reload this panel in a few minutes to see the installed version.'),
+									parent			: body_response
+								}))
+							return
+						}
 
 					// status line (revealed: the whole result reads down from it)
 						ui.reveal(ui.create_dom_element({
@@ -1082,7 +1472,7 @@ const get_content_data_edit = async function(self) {
 						}))
 
 					// version compatibility warning
-						const required_version = api_response.root_info?.properties?.version || null
+						const required_version = job_result.root_info?.properties?.version || null
 						if (required_version && !self.supported_code_version(required_version)) {
 							ui.create_dom_element({
 								element_type	: 'div',
@@ -1093,7 +1483,7 @@ const get_content_data_edit = async function(self) {
 						}
 
 					// non-fatal import errors
-						const errors = (response_extension(api_response, 'errors') || []).filter(Boolean)
+						const errors = (Array.isArray(job_result.errors) ? job_result.errors : []).filter(Boolean)
 						if (errors.length>0) {
 							body_response.appendChild(
 								build_details(
@@ -1105,21 +1495,17 @@ const get_content_data_edit = async function(self) {
 						}
 
 					// collapsible import log (the per-file messages)
-						const import_log = response_extension(api_response, 'msg')
-						if (import_log) {
+						if (typeof job_result.msg==='string' && job_result.msg.length>0) {
 							body_response.appendChild(
-								build_details((get_label.update_ontology_import_log || 'Import log'), import_log, { open:true, pre_class:'log' })
+								build_details((get_label.update_ontology_import_log || 'Import log'), job_result.msg, { open:true, pre_class:'log' })
 							)
 						}
 
-					// collapsed raw response for developers
-						if (api_response.debug && api_response.debug.rqo_string) {
-							delete api_response.debug.rqo_string
-						}
+					// collapsed raw job frame for developers
 						body_response.appendChild(
 							build_details(
 								(get_label.update_ontology_dev_response || 'Developer response (raw JSON)'),
-								JSON.stringify(api_response, null, 2),
+								JSON.stringify(final_frame, null, 2),
 								{ open:false, pre_class:'dev_json' }
 							)
 						)
@@ -1136,12 +1522,12 @@ const get_content_data_edit = async function(self) {
 								}
 							}
 						)
-				}
+				})
 			})
 		}
 
 	// the picker may have restored a remembered master: announce it now that the
-	// form (and its reference row) is listening
+	// form (and its TLD catalog) is listening
 		publish_active_server(servers, on_server_change)
 
 	// append the response surface last
@@ -1157,7 +1543,7 @@ const get_content_data_edit = async function(self) {
 * PUBLISH_ACTIVE_SERVER
 * Announces the server `render_servers_list` restored from storage, AFTER the
 * panel's subscribers exist. Without this the picker would show a selected
-* master while the reference row still said "select a master". Routed through
+* master while the TLD catalog still said "pick a server". Routed through
 * the SAME per-caller callback as a live selection — never a bare publish.
 *
 * @param {Array} servers - value.servers, already marked by the picker

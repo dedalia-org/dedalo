@@ -113,6 +113,14 @@ const CREATE_DOM_ELEMENT_OPTIONS = new Set([
 	'alt'
 ])
 
+/**
+* CARD_LABEL_TEXT
+* make_column_responsive's label → text, parsed once per distinct label: every
+* row's cell of a column asks with the same label (a <template> parse each).
+* Bounded by the ontology's column labels.
+*/
+const card_label_text = new Map()
+
 export const ui = {
 
 
@@ -2142,7 +2150,13 @@ export const ui = {
 		// otherwise append an empty <span> and break `:empty` CSS).
 			const has_text = (candidate) => candidate!==undefined && candidate!==null && candidate!==''
 			if(has_text(options.inner_html)) {
-				element.insertAdjacentHTML('afterbegin', options.inner_html)
+				if (typeof options.inner_html==='string' && !/[<&\r\0]/.test(options.inner_html)) {
+					// no markup, entity, CR or NUL: the parser would yield exactly this
+					// one text node, so skip the HTML parse (list cells are mostly plain)
+					element.prepend(document.createTextNode(options.inner_html))
+				}else{
+					element.insertAdjacentHTML('afterbegin', options.inner_html)
+				}
 			}else if (has_text(options.text_node)) {
 				// SEC-XSS-001: text_node is meant to be plain text, not HTML.
 				// The old path used insertAdjacentHTML which would parse and execute
@@ -4324,8 +4338,12 @@ export const ui = {
 			const selector	= options.selector // as '#column_id_rsc3652'
 			const label		= options.label
 
-		// strip label HTML tags
-			const label_text = strip_tags(label);
+		// strip label HTML tags (memoised per label, see card_label_text)
+			let label_text = card_label_text.get(label)
+			if (label_text===undefined) {
+				label_text = strip_tags(label)
+				card_label_text.set(label, label_text)
+			}
 
 		// const width  = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
 		// if (width<960) {

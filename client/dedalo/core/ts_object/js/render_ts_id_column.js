@@ -55,7 +55,11 @@
 *   2. Permission levels and node flags — each button is gated individually:
 *        - ADD and DRAG require `permissions_button_new >= 2` and `is_descriptor === true`.
 *        - DELETE requires `permissions_button_delete >= 2`.
-*        - ORDER requires the above ADD conditions plus `mode !== 'search'` and `!is_root_node`.
+*        - ORDER requires the above ADD conditions plus `!is_root_node` (a root's caller is the
+*          area, not a ts_object). It shows in search mode too; a sibling list that is not the
+*          parent's exact children is refused by the server and the local order restored
+*          (WC-2026-11-07-save-order-complete-list). Picker ('relation') trees never reach
+*          it — that branch returns before ORDER.
 *        - EDIT is always rendered.
 *
 * Expected DOM output (default mode, full permissions):
@@ -87,7 +91,6 @@ export const render_id_column = function(self) {
 		const section_tipo		= self.section_tipo
 		const section_id		= self.section_id
 		const is_descriptor		= self.is_descriptor
-		const mode				= self.mode
 		const virtual_order		= self.virtual_order
 		const is_root_node		= self.is_root_node
 		const thesaurus_mode	= self.thesaurus_mode
@@ -324,7 +327,7 @@ export const render_id_column = function(self) {
 				}//end if (self.permissions_button_delete>=2)
 
 			// ORDER number element
-				if (self.permissions_button_new>=2 && is_descriptor && mode!=='search' && !is_root_node) {
+				if (self.permissions_button_new>=2 && is_descriptor && !is_root_node) {
 					const order_number_link = ui.create_dom_element({
 						element_type	: 'a',
 						class_name		: 'id_column_link ts_object_order_number',
@@ -484,10 +487,16 @@ const render_order_form = function(options) {
 		// save order. Note that this function do not await the
 		// API request for performance. If the request fails,
 		// a error notification is displayed at top
-		await self.save_order( input.value )
+		const saved = await self.save_order( input.value )
 
 		wrapper.classList.remove('loading');
 		input.blur();
+
+		// not moved (same position) or not persisted (save_order restored the
+		// local order): the DOM already shows the truth
+		if (saved!==true) {
+			return
+		}
 
 		// Re-order the children_container nodes
 		// The nodes are ordered manually (avoiding use 'render_children') to

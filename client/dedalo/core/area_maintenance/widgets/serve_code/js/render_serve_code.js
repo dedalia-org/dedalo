@@ -7,8 +7,10 @@ import { ui } from '../../../../common/js/ui.js';
 import {
 	CHANNELS,
 	channel_label,
+	check_counts,
 	check_row,
 	fact_row,
+	fold_section,
 	release_facts,
 	section,
 	verdict,
@@ -19,16 +21,20 @@ import {
  * View layer of the serve_code widget: this installation as a CODE SERVER.
  * Split out of update_code (2026-09-28) — the same split as serve_ontology.
  *
- * Layout: a role note, then the code-server readout (publish readiness, build
- * source, one row per channel with its BUILD button beside the archive it
- * writes, and what a consumer at this version is offered), then the response
- * surface the build form reports into.
+ * Layout (2026-11-07, for non-technical operators — the update_code pattern):
+ * a role note, the published release, the verdict with ONLY what blocks (note +
+ * fix steps), the build rows (one per channel, its BUILD button beside the
+ * archive it writes), then ONE closed "Details" fold holding every other fact
+ * (all checks, build source, tags, other archives, what is offered), then the
+ * response surface the build form reports into.
  *
  * Widget value shape (serve_code.ts getValue):
  *   { is_a_code_server: boolean, code_server: Object|null }
  * `code_server` is null on the development entity when it is not a code server:
  * the panel then says which key makes it one, and offers no build.
  */
+// a CONSTRUCTOR: its .prototype carries list(); an arrow function has none
+// biome-ignore lint/complexity/useArrowFunction: needs .prototype
 export const render_serve_code = function () {
 	return true;
 }; //end render_serve_code
@@ -41,18 +47,16 @@ export const render_serve_code = function () {
  * @returns {Promise<HTMLElement>}
  */
 render_serve_code.prototype.list = async function (options) {
-	const self = this;
-
 	const render_level = options.render_level || 'full';
 
 	// content_data
-	const content_data = get_content_data_edit(self);
+	const content_data = get_content_data_edit(this);
 	if (render_level === 'content') {
 		return content_data;
 	}
 
 	// wrapper
-	const wrapper = ui.widget.build_wrapper_edit(self, {
+	const wrapper = ui.widget.build_wrapper_edit(this, {
 		content_data: content_data,
 	});
 	wrapper.content_data = content_data;
@@ -65,7 +69,7 @@ render_serve_code.prototype.list = async function (options) {
  * @param {Object} self - serve_code widget instance
  * @returns {HTMLElement} content_data
  */
-const get_content_data_edit = function (self) {
+const get_content_data_edit = (self) => {
 	const value = self.value || {};
 
 	const content_data = ui.create_dom_element({
@@ -108,6 +112,8 @@ const get_content_data_edit = function (self) {
 	// refresh, the refresh needs a mounter built from the FRESH value —
 	// and `refresh_code_server` is only ever read at call time.
 	const render_code_server_half = (code_server, build_mark) => {
+		// a build re-renders the half: Details stays as the operator left it
+		const details_open = content_data_body.querySelector('.serve_details')?.open === true;
 		while (content_data_body.firstChild) {
 			content_data_body.removeChild(content_data_body.firstChild);
 		}
@@ -116,6 +122,7 @@ const get_content_data_edit = function (self) {
 			code_server,
 			make_builder_mounter(self, body_response, code_server, refresh_code_server),
 			build_mark,
+			details_open,
 		);
 	};
 	// `build_mark` is {channel, previous} — the row whose button was just
@@ -147,13 +154,23 @@ const get_content_data_edit = function (self) {
 
 /**
  * RENDER_CODE_SERVER_STATUS
- * The master half: can this instance publish, from which commit, what is
- * already on disk, and what a consumer would actually be offered.
+ * The master half, in reading order: the published release, the verdict with
+ * only what BLOCKS a publish, the build rows, then every other fact under one
+ * closed "Details" fold.
  * @param {HTMLElement} parent
  * @param {Object|null} code_server - value.code_server, null on a plain install
+ * @param {Function|null} mount_builder
+ * @param {Object} [build_mark]
+ * @param {boolean} [details_open] - re-open Details (a post-build re-render)
  * @returns {HTMLElement|null}
  */
-const render_code_server_status = function (parent, code_server, mount_builder, build_mark) {
+const render_code_server_status = (
+	parent,
+	code_server,
+	mount_builder,
+	build_mark,
+	details_open,
+) => {
 	if (!code_server) return null;
 
 	const wrapper = ui.create_dom_element({
@@ -162,21 +179,152 @@ const render_code_server_status = function (parent, code_server, mount_builder, 
 		parent: parent,
 	});
 
-	// role + publish readiness
-	const role = section(wrapper, get_label.serve_code_server_role || 'Code server');
+	const source = code_server.source || {};
+	const releases = code_server.releases || [];
+
+	// THE PUBLISHED RELEASE — the one fact always in view: what installations
+	// are offered as a stable release. The pairing key is the version a build
+	// of each channel would produce (see is_target below).
+	const target_versions = {
+		master: source.release_version || null,
+		prerelease: source.prerelease_ref ? String(source.prerelease_ref).replace(/^v/, '') : null,
+		dev: source.dev_version || null,
+	};
+	const is_target = (release) => {
+		const target = target_versions[release.channel];
+		const key = release.channel === 'prerelease' ? release.identity : release.version;
+		return target === null || target === undefined || key === target;
+	};
+	const published =
+		releases.find((release) => release.channel === 'master' && is_target(release)) ||
+		releases.find((release) => release.channel === 'master');
+	const headline = ui.create_dom_element({
+		element_type: 'div',
+		class_name: 'status_block published_version',
+		parent: wrapper,
+	});
+	ui.create_dom_element({
+		element_type: 'div',
+		class_name: 'dd_eyebrow',
+		text_content: get_label.serve_code_published_release || 'Published release',
+		parent: headline,
+	});
+	ui.create_dom_element({
+		element_type: 'div',
+		class_name: 'published_version_value mono' + (published ? '' : ' none'),
+		text_content: published
+			? published.version
+			: get_label.serve_code_nothing_published || 'Nothing published yet',
+		parent: headline,
+	});
+
+	// VERDICT + what blocks it (note and fix steps), nothing else
+	const checks = code_server.checks || [];
+	const readiness = ui.create_dom_element({
+		element_type: 'div',
+		class_name: 'status_block readiness_block',
+		parent: wrapper,
+	});
 	verdict(
-		role.parentNode,
+		readiness,
 		code_server.ready === true,
 		get_label.serve_code_publish_ready || 'Ready to publish',
 		get_label.serve_code_publish_blocked || 'Cannot publish',
 	);
-	(code_server.checks || []).forEach((check) => {
-		check_row(role, check);
+	const blocking = checks.filter((check) => check.state === 'blocked');
+	if (blocking.length) {
+		const attention = ui.create_dom_element({
+			element_type: 'div',
+			class_name: 'dd_readout attention_checks',
+			parent: readiness,
+		});
+		blocking.forEach((check) => {
+			check_row(attention, check);
+		});
+	}
+
+	// BUILD AND PUBLISH — ONE ENTRY PER CHANNEL: the action, and the archive
+	// that action produces, on the same row. The row shows the artifact the
+	// button beside it would write (is_target); a prerelease pairs by its
+	// IDENTITY (several betas of one triple share a version).
+	const build = section(wrapper, get_label.serve_code_build_publish || 'Build and publish');
+	CHANNELS.forEach((channel) => {
+		const row = ui.create_dom_element({
+			element_type: 'div',
+			class_name: 'dd_row build_row',
+			parent: build,
+		});
+		const action = ui.create_dom_element({
+			element_type: 'div',
+			class_name: 'dd_k build_action',
+			parent: row,
+		});
+		// THE ARTIFACT CELL IS CREATED BEFORE THE BUTTON IS MOUNTED, and is
+		// handed to the mounter: while a build runs, the row that says what
+		// is on disk is the row that has to say it is being rewritten.
+		const value = ui.create_dom_element({
+			element_type: 'div',
+			class_name: 'dd_v build_file',
+			parent: row,
+		});
+		const built = releases.find((release) => release.channel === channel && is_target(release));
+		if (mount_builder) {
+			mount_builder(channel, action, value, built || null);
+		} else {
+			// no form builder on this page: name the channel anyway
+			action.textContent = channel_label(channel);
+		}
+		// the verdict belongs to the channel whose button was pressed
+		const mark = build_mark && build_mark.channel === channel ? build_mark : null;
+		if (!built) {
+			value.classList.add('none');
+			value.textContent = get_label.update_code_not_built || 'Not built yet';
+			return;
+		}
+		release_facts(value, built, mark);
+	});
+
+	// DETAILS — closed on every first render: the reference facts one click away
+	const details = ui.create_dom_element({
+		element_type: 'details',
+		class_name: 'status_block dd_fold serve_details',
+		parent: wrapper,
+	});
+	details.open = details_open === true;
+	const details_summary = ui.create_dom_element({
+		element_type: 'summary',
+		parent: details,
+	});
+	ui.create_dom_element({
+		element_type: 'span',
+		class_name: 'dd_eyebrow',
+		text_content: get_label.update_code_details || 'Details',
+		parent: details_summary,
+	});
+	const details_body = ui.create_dom_element({
+		element_type: 'div',
+		class_name: 'serve_details_body',
+		parent: details,
+	});
+
+	// every check, with per-state counts on the closed fold
+	const all_checks = fold_section(
+		details_body,
+		'serve_checks',
+		get_label.update_code_all_checks || 'All checks',
+	);
+	check_counts(all_checks.summary, checks);
+	checks.forEach((check) => {
+		check_row(all_checks.body, check);
 	});
 
 	// the tree releases are built FROM
-	const source = code_server.source || {};
-	const build_source = section(wrapper, get_label.serve_code_build_source || 'Build source');
+	const build_source = fold_section(
+		details_body,
+		'serve_source',
+		get_label.serve_code_build_source || 'Build source',
+		{ hint: source.branch || '' },
+	).body;
 	fact_row(
 		build_source,
 		get_label.update_code_check_git_dir || 'Git source directory',
@@ -198,37 +346,34 @@ const render_code_server_status = function (parent, code_server, mount_builder, 
 	);
 	fact_row(build_source, get_label.update_code_bun || 'Bun runtime', source.bun_pin, true);
 
-	// THE CHANNEL REFS — what each build is actually made from. Their own block
-	// because neither is the checked-out branch: a RELEASE is the newest
-	// `vX.Y.Z` tag, a DEVELOPER build the tip of `master` (policy 2026-09-29),
-	// and every publish check above reads one of them.
-	const release = section(wrapper, get_label.serve_code_release_ref || 'Release tag');
-	fact_row(release, get_label.serve_code_release_ref || 'Release tag', source.release_ref, true);
+	// THE CHANNEL REFS — what each build is actually made from: a RELEASE is the
+	// newest `vX.Y.Z` tag, a DEVELOPER build the tip of `master`.
+	const refs = fold_section(
+		details_body,
+		'serve_refs',
+		get_label.serve_code_release_ref || 'Release tag',
+		{ hint: source.release_ref || '' },
+	).body;
+	fact_row(refs, get_label.serve_code_release_ref || 'Release tag', source.release_ref, true);
+	fact_row(refs, get_label.serve_code_release_commit || 'Release commit', source.release_sha, true);
+	fact_row(refs, get_label.serve_code_release_date || 'Release date', source.release_date, true);
 	fact_row(
-		release,
-		get_label.serve_code_release_commit || 'Release commit',
-		source.release_sha,
-		true,
-	);
-	fact_row(release, get_label.serve_code_release_date || 'Release date', source.release_date, true);
-	// the prerelease a 'Build prerelease' would build (null: none above the release)
-	fact_row(
-		release,
+		refs,
 		get_label.serve_code_prerelease_ref || 'Prerelease tag',
 		source.prerelease_ref,
 		true,
 	);
-	fact_row(release, get_label.serve_code_dev_ref || 'Development branch', source.dev_ref, true);
-	fact_row(release, get_label.serve_code_dev_commit || 'Development commit', source.dev_sha, true);
+	fact_row(refs, get_label.serve_code_dev_ref || 'Development branch', source.dev_ref, true);
+	fact_row(refs, get_label.serve_code_dev_commit || 'Development commit', source.dev_sha, true);
 	fact_row(
-		release,
+		refs,
 		get_label.serve_code_dev_version || 'Development version',
 		source.dev_version,
 		true,
 	);
 	if (source.divergence) {
 		const behind_row = fact_row(
-			release,
+			refs,
 			get_label.serve_code_behind || "Commits on 'master' not in the release",
 			String(source.divergence.behind),
 		);
@@ -249,97 +394,29 @@ const render_code_server_status = function (parent, code_server, mount_builder, 
 		}
 	}
 
-	// BUILD AND PUBLISH — ONE ENTRY PER CHANNEL: the action, and the archive
-	// that action produces, on the same row.
-	//
-	// They were two blocks ('Code builders from GIT' below a 'Published
-	// releases' list) and nothing on screen said the first writes the second —
-	// nor which of two same-sized archives belonged to which button. The pairing
-	// key is the version a build of THAT channel would produce — the release
-	// tag's declared version, or master's (they differ once master is bumped
-	// ahead of the last tag) — so the row shows the artifact the button beside
-	// it would write. A prerelease pairs by its IDENTITY (the tag minus its
-	// 'v'): several betas of one triple share a version and differ only there.
-	const releases = code_server.releases || [];
-	const target_versions = {
-		master: source.release_version || null,
-		prerelease: source.prerelease_ref ? String(source.prerelease_ref).replace(/^v/, '') : null,
-		dev: source.dev_version || null,
-	};
-	const is_target = (release) => {
-		const target = target_versions[release.channel];
-		const key = release.channel === 'prerelease' ? release.identity : release.version;
-		return target === null || target === undefined || key === target;
-	};
-	const build = section(wrapper, get_label.serve_code_build_publish || 'Build and publish');
-	CHANNELS.forEach((channel) => {
-		const row = ui.create_dom_element({
-			element_type: 'div',
-			class_name: 'dd_row build_row',
-			parent: build,
-		});
-		const action = ui.create_dom_element({
-			element_type: 'div',
-			class_name: 'dd_k build_action',
-			parent: row,
-		});
-		// THE ARTIFACT CELL IS CREATED BEFORE THE BUTTON IS MOUNTED, and is
-		// handed to the mounter: while a build runs, the row that says what
-		// is on disk is the row that has to say it is being rewritten. The
-		// button's own spinner reports that the REQUEST is in flight; only
-		// this cell can report that THIS artifact is the one changing.
-		const value = ui.create_dom_element({
-			element_type: 'div',
-			class_name: 'dd_v build_file',
-			parent: row,
-		});
-		const built = releases.find((release) => release.channel === channel && is_target(release));
-		if (mount_builder) {
-			mount_builder(channel, action, value, built || null);
-		} else {
-			// no form builder on this page: name the channel anyway, so the
-			// artifact below is still attributable
-			action.textContent = channel_label(channel);
-		}
-		// the verdict belongs to the channel whose button was pressed
-		const mark = build_mark && build_mark.channel === channel ? build_mark : null;
-		if (!built) {
-			value.classList.add('none');
-			value.textContent = get_label.update_code_not_built || 'Not built yet';
-			return;
-		}
-		release_facts(value, built, mark);
-	});
-
-	// Archives on disk for OTHER versions. They have no builder (a build always
-	// produces its channel ref's version), but hiding them would leave an
-	// operator wondering where the disk space went — and a stale archive of a
-	// neighbouring version is exactly what a manifest may still advertise.
+	// Archives on disk for OTHER versions: no builder, but they take disk space
+	// and a manifest may still advertise one.
 	const others = releases.filter((release) => !is_target(release));
 	if (others.length) {
-		const other_block = section(
-			wrapper,
+		const other_block = fold_section(
+			details_body,
+			'serve_other',
 			get_label.serve_code_other_archives || 'Other archives on disk',
-		);
+			{ hint: String(others.length) },
+		).body;
 		others.forEach((release) => {
 			const row = fact_row(other_block, release.file, '', true);
 			release_facts(row.querySelector('.dd_v'), release);
 		});
 	}
 
-	// what a consumer is ACTUALLY offered — the gap operators cannot otherwise see
+	// what a consumer is ACTUALLY offered, one row per reachable consumer version
 	const advertises = code_server.advertises || { files: [], rungs: [] };
-	const offered = section(
-		wrapper,
+	const offered = fold_section(
+		details_body,
+		'serve_offered',
 		get_label.serve_code_advertised || 'Offered to an installation at this version',
-	);
-	// One row per REACHABLE consumer version. Asking only about the
-	// master's OWN version was the least useful question available: a
-	// master publishes releases AT its own version, so a correctly
-	// operating one that had just published <v>.zip rendered
-	// "No release is offered" — the panel reporting a fault in exactly the
-	// steady state it exists to confirm — while a real museum, one or more
-	// rungs behind, got an answer nobody could see.
+	).body;
 	const rungs =
 		advertises.rungs && advertises.rungs.length
 			? advertises.rungs
@@ -400,7 +477,7 @@ const render_code_server_status = function (parent, code_server, mount_builder, 
  * @returns {Function|null} (channel, node) => void, or null when this page
  *   provides no form builder
  */
-const make_builder_mounter = function (self, body_response, code_server, on_built) {
+const make_builder_mounter = (self, body_response, code_server, on_built) => {
 	if (!self.caller?.init_form) {
 		return null;
 	}
@@ -531,7 +608,7 @@ const make_builder_mounter = function (self, body_response, code_server, on_buil
 		},
 	};
 
-	return function (channel, node, artifact_cell, built_before) {
+	return (channel, node, artifact_cell, built_before) => {
 		const def = channels[channel];
 		if (!def) {
 			return;

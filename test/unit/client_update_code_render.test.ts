@@ -635,9 +635,12 @@ describe('update_code waive-backup control', () => {
 	test('the checkbox is a wrapping label, and its note carries the caution', () => {
 		// house pattern (dev_channel_row / move_lang): the <label> WRAPS the input,
 		// so there is no id/for pair to keep in sync.
-		expect(render_src).toContain('waive_backup_label.prepend(waive_backup_input)');
-		expect(render_src).toContain('update_code_waive_backup');
-		expect(render_src).toContain('dd_note waive_backup_note state_warning');
+		// the row is SHARED with the ontology modal (render_update_status.js)
+		const status_src = readFileSync(join(WIDGET_DIR, 'js/render_update_status.js'), 'utf8');
+		expect(status_src).toContain('export const build_waive_backup_row');
+		expect(status_src).toContain('label.prepend(input)');
+		expect(status_src).toContain('dd_note waive_backup_note state_warning');
+		expect(render_src).toContain("build_waive_backup_row(check, 'update_code_waive_backup')");
 	});
 
 	test('a waived backup is restated in the final confirm', () => {
@@ -655,34 +658,25 @@ describe('update_code waive-backup control', () => {
 		expect(render_src).toContain('self.value = fresh_value');
 	});
 
-	test('the headline never claims plain readiness over an outstanding waiver', () => {
-		// `ready` is `!checks.some(blocked)` and the waivable gate now reports
-		// `warn`, so `ready:true` no longer means "the DEFAULT request succeeds"
-		// — that request sends waive_backup:false and is still refused. A bare
-		// "Ready to update" there over-reports exactly as loudly as the "Update
-		// blocked" it replaced.
-		const status_src = readFileSync(join(WIDGET_DIR, 'js/render_update_status.js'), 'utf8');
-		expect(status_src).toContain('update_code_ready_with_waiver');
-		expect(typeof master_labels.update_code_ready_with_waiver).toBe('string');
-	});
-
-	test('the headline and the checkbox read ONE predicate, scoped to the waivable gate', () => {
-		// `bun_pin` and `staging_clean` also emit `warn` on the consumer half and
-		// neither is waivable, so a headline keyed on "any warn" demanded a waiver
-		// the modal offered no way to give. One exported predicate, both sites.
+	test('the backup is the MODAL’s concern: the panel never shows backup_fresh', () => {
+		// 2026-11-06 simplification: the panel shows version, blocks, actions;
+		// the backup freshness + waiver live in the version modal only, on ONE
+		// exported predicate.
 		const status_src = readFileSync(join(WIDGET_DIR, 'js/render_update_status.js'), 'utf8');
 		expect(status_src).toContain('export const backup_waiver_check');
 		expect(status_src).toContain("el.id==='backup_fresh'");
-		// neither site may re-derive the answer for itself
-		expect(status_src).not.toContain("some(check => check.state==='warn')");
+		// backup + maintenance mode are the modal's (waiver / switch), never the panel's
+		expect(status_src).toContain("const MODAL_CHECKS = ['backup_fresh', 'maintenance_mode']");
+		expect(render_src).toContain('panel_blocked(consumer)');
+		expect(render_src).not.toContain('consumer.ready===false');
+		expect(status_src).not.toContain('update_code_ready_with_waiver');
 		expect(render_src).toContain('backup_waiver_check(self.value?.consumer)');
-		expect(status_src).toContain('backup_waiver_check(consumer)');
 	});
 
 	test('the panel is re-stated from the value the modal reads', () => {
-		// otherwise the modal's waiver row ("25 h") sits over a readiness row
-		// still reading "23 h · ok": one fact, two states, both on screen.
-		expect(/refresh_readiness\(consumer_half/.test(render_src)).toBe(true);
+		// otherwise the modal and the panel behind it can show one fact in two
+		// states. The root is content_data: Details sits below the actions.
+		expect(/refresh_readiness\(content_data/.test(render_src)).toBe(true);
 		// …and when there is no readiness block to replace (the FALLBACK painting,
 		// a payload without `consumer`), the whole half is rendered again rather
 		// than left stranded on version+build. See the browser suite for the

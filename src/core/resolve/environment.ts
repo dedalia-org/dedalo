@@ -1,14 +1,14 @@
 /**
  * Client environment payload (PHP dd_core_api::get_environment) — the
- * {page_globals, plain_vars, get_label} object the copied client injects at
- * boot via set_environment() (see rewrite/client_seam.md):
+ * {page_globals, plain_vars} object the client injects at boot via
+ * set_environment():
  * - plain_vars   → window[key] = value (JS globals: urls, flags, DD_TIPOS);
  * - page_globals → Object.assign(page_globals, value) (auth state, langs,
- *   media defaults, feature flags);
- * - get_label    → the localized UI label dictionary.
+ *   media defaults, feature flags).
  *
- * Labels are repo-catalog-derived (src/core/labels/catalog.ts, WC-033) — the
- * dictionary wire shape is unchanged. The scalar values mirror the install configuration;
+ * The UI label dictionary is NOT here (WC-2026-11-07-labels-separate-resource):
+ * page_globals.labels_version names it and the client fetches it from the
+ * cacheable labels resource (src/core/api/labels_resource.ts). The scalar values mirror the install configuration;
  * anything marked [install] is configuration the PHP side reads from its
  * config files — mirrored here (env-overridable where it varies per deploy)
  * and kept honest by the differential gate.
@@ -16,8 +16,9 @@
 
 import { config } from '../../config/config.ts';
 import { readBool, readString } from '../../config/readers.ts';
+import { clientCssVersion } from '../api/dedalo_files.ts';
 import { sql } from '../db/postgres.ts';
-import { getLabels } from '../labels/catalog.ts';
+import { getLabelsVersion, labelsServingLang } from '../labels/catalog.ts';
 import { resolveMediaAccessMode } from '../media/protection.ts';
 import { createDataCache } from '../ontology/cache_factory.ts';
 import type { Principal } from '../security/permissions.ts';
@@ -244,6 +245,18 @@ export async function buildPageGlobals(
 		// never carries a constant of its own (client/dedalo/core/common/js/
 		// sqo_limit.js). Not session-gated: it is a shape of the API, not a secret.
 		dedalo_search_client_max_limit: config.features.searchClientMaxLimit,
+		// WC-2026-11-06-css-version: TS-ONLY key (PHP get_page_globals has no twin).
+		// Content hash of every client stylesheet (core/api/dedalo_files.ts
+		// clientCssVersion) — the client builds main.css / tool css URLs from it, so a
+		// code update reaches the browser whatever cache headers the web server sends.
+		// Not session-gated: the login page needs it, and it hashes public files.
+		css_version: await clientCssVersion(),
+		// WC-2026-11-07-labels-separate-resource: TS-ONLY key. Content version of the
+		// label dictionary SERVED for dedalo_application_lang (labelsServingLang — the
+		// route's own mapping, so a lang outside the list still answers 200) — the client fetches
+		// /api/v1/labels?lang=&v=<this> (immutable-cached while current). Not
+		// session-gated: the login page needs labels; they are repo data.
+		labels_version: await getLabelsVersion(labelsServingLang(currentApplicationLang())),
 		tag_id: null,
 		// PHP: media_protection::get_mode()!==false ? 1 : 0. Resolved through the media
 		// protection module, NOT read straight off the frozen catalog: the root user can
@@ -495,7 +508,6 @@ export async function buildEnvironment(
 		result: {
 			page_globals: await buildPageGlobals(session, principal),
 			plain_vars: buildPlainVars(session, principal),
-			get_label: await getLabels(currentApplicationLang()),
 		},
 		msg: 'OK. Request done successfully',
 		errors: [],

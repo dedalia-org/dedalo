@@ -5,9 +5,9 @@
 		"fingerprint": "07e7f372edfa05b80984be48e80768d0a67d77abd21d7c19bed828c9fe37786d"
 	},
 	"measured": {
-		"tier_files": 1358,
-		"tier_tests": 21147,
-		"tier_pass": 21099,
+		"tier_files": 1362,
+		"tier_tests": 21208,
+		"tier_pass": 21160,
 		"tier_skip": 48,
 		"failing_files": 0,
 		"failing_tests": 0
@@ -327,7 +327,7 @@
 		"test/unit/authorization_denial_native.test.ts": {
 			"tests": 9,
 			"skipped": 0,
-			"assertions": 31
+			"assertions": 32
 		},
 		"test/unit/authz_door_matrix_native.test.ts": {
 			"tests": 12,
@@ -539,6 +539,11 @@
 			"skipped": 0,
 			"assertions": 14
 		},
+		"test/unit/client_cache_header_docs.test.ts": {
+			"tests": 10,
+			"skipped": 0,
+			"assertions": 10
+		},
 		"test/unit/client_caller_chain_tripwire.test.ts": {
 			"tests": 4,
 			"skipped": 0,
@@ -619,6 +624,11 @@
 			"skipped": 0,
 			"assertions": 15
 		},
+		"test/unit/client_labels_load.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 13
+		},
 		"test/unit/client_lib_versions_doc_tripwire.test.ts": {
 			"tests": 9,
 			"skipped": 0,
@@ -695,9 +705,9 @@
 			"assertions": 17
 		},
 		"test/unit/client_record_window_native.test.ts": {
-			"tests": 94,
+			"tests": 95,
 			"skipped": 0,
-			"assertions": 1833669
+			"assertions": 1833672
 		},
 		"test/unit/client_relation_move_native.test.ts": {
 			"tests": 70,
@@ -740,14 +750,14 @@
 			"assertions": 82
 		},
 		"test/unit/client_section_record_multi_section_rows.test.ts": {
-			"tests": 2,
+			"tests": 5,
 			"skipped": 0,
-			"assertions": 7
+			"assertions": 16
 		},
 		"test/unit/client_serve_code_render.test.ts": {
-			"tests": 19,
+			"tests": 20,
 			"skipped": 0,
-			"assertions": 386
+			"assertions": 389
 		},
 		"test/unit/client_serve_ontology_render.test.ts": {
 			"tests": 5,
@@ -800,7 +810,7 @@
 			"assertions": 32
 		},
 		"test/unit/client_update_code_render.test.ts": {
-			"tests": 84,
+			"tests": 83,
 			"skipped": 0,
 			"assertions": 404
 		},
@@ -1104,6 +1114,11 @@
 			"skipped": 0,
 			"assertions": 15
 		},
+		"test/unit/css_version_native.test.ts": {
+			"tests": 19,
+			"skipped": 0,
+			"assertions": 65
+		},
 		"test/unit/csv_parser_conformance_native.test.ts": {
 			"tests": 52,
 			"skipped": 0,
@@ -1232,7 +1247,7 @@
 		"test/unit/dd128_write_census_tripwire.test.ts": {
 			"tests": 24,
 			"skipped": 0,
-			"assertions": 1230
+			"assertions": 1231
 		},
 		"test/unit/dd_mcp_api.test.ts": {
 			"tests": 10,
@@ -2789,10 +2804,15 @@
 			"skipped": 0,
 			"assertions": 10
 		},
+		"test/unit/labels_resource_native.test.ts": {
+			"tests": 13,
+			"skipped": 0,
+			"assertions": 83
+		},
 		"test/unit/labels_tripwire.test.ts": {
 			"tests": 9,
 			"skipped": 0,
-			"assertions": 44749
+			"assertions": 46117
 		},
 		"test/unit/lang_alias.test.ts": {
 			"tests": 10,
@@ -6590,9 +6610,9 @@
 			"assertions": 23
 		},
 		"test/unit/update_status_native.test.ts": {
-			"tests": 44,
+			"tests": 53,
 			"skipped": 0,
-			"assertions": 141
+			"assertions": 158
 		},
 		"test/unit/update_version.test.ts": {
 			"tests": 9,

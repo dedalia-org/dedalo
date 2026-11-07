@@ -21,7 +21,7 @@
 // literals, four `var(--x, #lit)` names declared nowhere (so the literal was
 // what painted, in every theme), and one `@media (prefers-color-scheme: dark)`
 // block. The app's theme axis is `data-theme` on `<html>`, set from storage by
-// `theme-init.js` — it is NOT the OS preference (see
+// `head-init.js` — it is NOT the OS preference (see
 // client/dedalo/test/client/css/unit_test.less:28). So that block did the
 // OPPOSITE of theme support: it left the panes white while the app was in DARK,
 // and it fired its dark tints while the app was in LIGHT.

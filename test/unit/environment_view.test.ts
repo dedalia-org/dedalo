@@ -87,9 +87,11 @@ describe('environment diagnostic view (dedicated GET, session-gated)', () => {
 		expect(rawText).toContain('\n  '); // pretty-printed (2-space indent)
 		const body = JSON.parse(rawText) as { result?: Record<string, unknown> };
 		expect(body.result).toBeDefined();
-		for (const key of ['page_globals', 'plain_vars', 'get_label']) {
+		for (const key of ['page_globals', 'plain_vars']) {
 			expect(body.result?.[key]).toBeDefined();
 		}
+		// WC-2026-11-07-labels-separate-resource: labels are their own resource.
+		expect(body.result).not.toHaveProperty('get_label');
 
 		// Same payload the boot-time get_environment returns to this user.
 		const session = getSession(token);

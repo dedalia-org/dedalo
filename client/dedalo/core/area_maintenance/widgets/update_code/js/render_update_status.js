@@ -217,7 +217,7 @@ export const fold_section = function(parent, key, title, options) {
 * @param {HTMLElement} parent
 * @param {Array} checks
 */
-const check_counts = function(parent, checks) {
+export const check_counts = function(parent, checks) {
 
 	const counts = {}
 	checks.forEach(check => { counts[check.state] = (counts[check.state] || 0) + 1 })
@@ -392,6 +392,28 @@ export const fact_row = function(parent, k, v, mono) {
 
 
 /**
+* DISK_SPACE_TEXT
+* The `disk_space` line's FACT, in words: `<available>/<required>` bytes
+* ("932 GB free · about 1.2 GB needed"), or a reason id (measuring /
+* unmeasurable / superuser_required), or — an older server — the bare
+* available byte count.
+* @param {string} detail
+* @returns {string}
+*/
+const disk_space_text = function(detail) {
+	const [available, required] = detail.split('/')
+	if (isFinite(Number(available)) && available!=='') {
+		const free = format_bytes(Number(available)) + ' ' + (get_label.update_code_free || 'free')
+		return (required!==undefined && isFinite(Number(required)))
+			? free + ' · ' + (get_label.update_code_space_needed || 'about %s needed').replace('%s', format_bytes(Number(required)))
+			: free
+	}
+	return get_label['update_code_space_' + detail] || detail
+}//end disk_space_text
+
+
+
+/**
 * CHECK_ROW
 * One readiness line: label (by check id), state chip, and the server's fact.
 * A `note` label — `<prefix>_note_<id>` — is rendered underneath, but ONLY
@@ -442,10 +464,8 @@ export const check_row = function(parent, check, label_prefix='update_code') {
 	}
 
 	if (check.detail!==undefined && check.detail!==null && check.detail!=='') {
-		// `disk_space` sends the raw available byte count (the server sends
-		// FACTS): read it like every other size on this panel.
-		const detail_text = check.id==='disk_space' && isFinite(Number(check.detail))
-			? (format_bytes(Number(check.detail)) + ' ' + (get_label.update_code_free || 'free'))
+		const detail_text = check.id==='disk_space'
+			? disk_space_text(String(check.detail))
 			: String(check.detail)
 		ui.create_dom_element({
 			element_type	: 'span',
@@ -455,14 +475,44 @@ export const check_row = function(parent, check, label_prefix='update_code') {
 		})
 	}
 
-	// the why, only where it helps
-	const note = get_label[label_prefix + '_note_' + check.id]
+	// the why, only where it helps (a state-specific note wins: one check id
+	// can block and warn for different reasons)
+	const note = get_label[label_prefix + '_note_' + check.id + '_' + check.state]
+		|| get_label[label_prefix + '_note_' + check.id]
 	if (note && check.state!=='ok') {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'check_note',
 			text_content	: note,
 			parent			: value
+		})
+	}
+
+	// …and what to DO, on a block: `<prefix>_fix_<id>`, one step per line
+	const fix = check.state==='blocked' ? get_label[label_prefix + '_fix_' + check.id] : null
+	if (fix) {
+		const fix_block = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'check_fix',
+			parent			: value
+		})
+		ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'check_fix_title',
+			text_content	: get_label.update_code_how_to_fix || 'How to fix it',
+			parent			: fix_block
+		})
+		const steps = ui.create_dom_element({
+			element_type	: 'ol',
+			class_name		: 'check_fix_steps',
+			parent			: fix_block
+		})
+		String(fix).split('\n').filter(Boolean).forEach(step => {
+			ui.create_dom_element({
+				element_type	: 'li',
+				text_content	: step,
+				parent			: steps
+			})
 		})
 	}
 
@@ -497,6 +547,57 @@ export const backup_waiver_check = function(consumer) {
 
 	return (check && check.state!=='ok') ? check : null
 }//end backup_waiver_check
+
+
+
+/**
+* BUILD_WAIVE_BACKUP_ROW
+* THE ONE waiver row of an update confirmation modal — the code modal
+* (render_update_code.js) and the ontology modal (render_update_ontology.js)
+* both mount it beside their action button, so the escape hatch reads, looks
+* and behaves the same wherever an update refuses without a recent backup.
+* It waives the DATABASE backup only; the server journals the waiver with the
+* operator's user.
+*
+* @param {Object} check - a non-ok `backup_fresh` check ({state, detail?})
+* @param {string} name - the checkbox `name`
+* @returns {{row:HTMLElement, input:HTMLInputElement}}
+*/
+export const build_waive_backup_row = function(check, name) {
+
+	const row = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'waive_backup_row'
+	})
+	// label WRAPS the input (the house pattern): the whole row is the click target
+	const label = ui.create_dom_element({
+		element_type	: 'label',
+		class_name		: 'waive_backup_label',
+		text_content	: get_label.update_code_waive_backup || 'Update without a recent database backup',
+		parent			: row
+	})
+	const input = ui.create_dom_element({
+		element_type	: 'input',
+		type			: 'checkbox',
+		class_name		: 'waive_backup_check',
+		name			: name
+	})
+	label.prepend(input)
+	// the age FACT, when the server measured one ('none' means no backup
+	// was found at all). The server sends facts, the client the wording.
+	const backup_age = Number(check?.detail)
+	const note_text = (get_label.update_code_waive_backup_note || 'The database will not be restorable if the update goes wrong. Make a backup first whenever you can; every waiver is recorded in the server log with your user.')
+	ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'dd_note waive_backup_note state_warning',
+		text_content	: Number.isFinite(backup_age)
+			? ((get_label.update_code_check_backup_fresh || 'Recent database backup') + ': ' + String(backup_age) + ' h — ' + note_text)
+			: note_text,
+		parent			: row
+	})
+
+	return { row, input }
+}//end build_waive_backup_row
 
 
 
@@ -539,25 +640,57 @@ export const verdict = function(parent, ready, ok_label, bad_label, waived_label
 
 
 /**
+* PANEL_CHECKS
+* The checks the PANEL shows (2026-11-06, simplification for non-technical
+* operators). Two are the version MODAL's concern and never appear here:
+* `backup_fresh` (the modal offers its waiver, on backup_waiver_check) and
+* `maintenance_mode` (the modal carries its switch, so it is no lock: the
+* operator turns it on there, at any time).
+* @param {Object} consumer
+* @returns {Array}
+*/
+const MODAL_CHECKS = ['backup_fresh', 'maintenance_mode']
+const panel_checks = function(consumer) {
+	return ((consumer || {}).checks || []).filter(check => !MODAL_CHECKS.includes(check.id))
+}//end panel_checks
+
+
+
+/**
+* PANEL_BLOCKED
+* Is the update blocked by something the operator must fix OUTSIDE the modal?
+* The panel's verdict and the actions hint read this, never `consumer.ready`
+* (which also counts maintenance mode).
+* @param {Object} consumer
+* @returns {boolean}
+*/
+export const panel_blocked = function(consumer) {
+	return panel_checks(consumer).some(check => check.state==='blocked')
+}//end panel_blocked
+
+
+
+/**
 * RENDER_READINESS
-* The consumer's readiness half — the headline verdict plus one row per check.
+* The consumer's readiness headline: the verdict, plus — only when the update
+* is BLOCKED — the checks that block it. Warnings and unknowns are not alarms
+* and live in the folded complete list (render_all_checks) under Details.
 * ONE writer, so the panel can be re-stated from a fresher value without a
 * second copy of the layout drifting from this one.
 *
+* A CONTAINER INSTALLATION gets no headline (null): it does not use the tree
+* swap at all (its code is the image, the "Image updates" block), and
+* headlining "Update blocked" over an installation whose update path is open
+* is the dead end that block replaced.
+*
 * @param {HTMLElement} parent - the consumer status wrapper
 * @param {Object} consumer - consumerStatus payload {ready, checks}
-* @returns {HTMLElement} the block, marked so refresh_readiness can find it
+* @returns {HTMLElement|null} the block, marked so refresh_readiness can find it
 */
 const render_readiness = function(parent, consumer) {
 
-	// A CONTAINER INSTALLATION does not use the tree swap at all: its code is
-	// the image, replaced on the Docker host (the "Image updates" block). Its
-	// readiness list is still true — and the `channel` line in it still says
-	// `blocked` — but headlining "Update blocked" over an installation whose
-	// update path is open is the dead end this block replaced. So the checks
-	// fold under their own title, with no verdict.
 	if (consumer.image) {
-		return render_folded_readiness(parent, consumer)
+		return null
 	}
 
 	const block = ui.create_dom_element({
@@ -565,52 +698,24 @@ const render_readiness = function(parent, consumer) {
 		class_name		: 'status_block readiness_block',
 		parent			: parent
 	})
-	ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'dd_eyebrow',
-		text_content	: get_label.update_code_readiness || 'Update readiness',
-		parent			: block
-	})
 
-	// a PENDING WAIVER is what stands between `ready:true` and the DEFAULT
-	// request actually succeeding — name it, never headline a plain "ready".
-	// The SAME predicate the modal draws its checkbox from, so the two can
-	// never disagree about whether a waiver is on the table.
-	const waiver_check = backup_waiver_check(consumer)
 	verdict(
 		block,
-		consumer.ready===true,
+		!panel_blocked(consumer),
 		get_label.update_code_ready || 'Ready to update',
-		get_label.update_code_blocked || 'Update blocked',
-		waiver_check!==null
-			? (get_label.update_code_ready_with_waiver || 'Ready to update, but only with a waiver')
-			: undefined
+		get_label.update_code_blocked || 'Update blocked'
 	)
 
-	// WHAT NEEDS ATTENTION stays in view: every check the pipeline would refuse
-	// or warn on, plus the waiver check whatever its state (an `unknown` backup
-	// also puts a waiver on the table). The headline names the condition; these
-	// rows name the cause, with their notes. `unknown` alone is information,
-	// not an alarm — it stays in the folded list below. Maintenance mode is
-	// left to the version modal's gate, which carries its switch.
-	const checks = consumer.checks || []
-	const attention = checks.filter(check =>
-		check.id!=='maintenance_mode'
-		&& (check.state==='blocked' || check.state==='warn' || check===waiver_check)
-	)
-	if (attention.length) {
+	// WHAT BLOCKS stays in view, with its note and fix
+	const blocking = panel_checks(consumer).filter(check => check.state==='blocked')
+	if (blocking.length) {
 		const attention_readout = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'dd_readout attention_checks',
 			parent			: block
 		})
-		attention.forEach(check => { check_row(attention_readout, check) })
+		blocking.forEach(check => { check_row(attention_readout, check) })
 	}
-
-	// …and the COMPLETE list, folded, with per-state counts on its summary
-	const all = fold_section(block, 'checks', get_label.update_code_all_checks || 'All checks')
-	check_counts(all.summary, checks)
-	checks.forEach(check => { check_row(all.body, check) })
 
 	return block
 }//end render_readiness
@@ -618,42 +723,36 @@ const render_readiness = function(parent, consumer) {
 
 
 /**
-* RENDER_FOLDED_READINESS
-* The tree-swap readiness on a CONTAINER installation: every check, folded
-* under a title that says what they are about, with the per-state counts on
-* the summary and no headline verdict. Marked `.readiness_block` so
-* refresh_readiness re-states it like the headline variant.
+* RENDER_ALL_CHECKS
+* The COMPLETE check list, folded, with per-state counts on its summary. On a
+* container installation it is titled for what it is (the in-place update it
+* does not use). Marked `.all_checks_block` for refresh_readiness.
 * @param {HTMLElement} parent
 * @param {Object} consumer
 * @returns {HTMLElement}
 */
-const render_folded_readiness = function(parent, consumer) {
+const render_all_checks = function(parent, consumer) {
 
-	const checks = consumer.checks || []
-	const fold = fold_section(
-		parent,
-		'tree_swap_readiness',
-		get_label.update_code_tree_swap_readiness || 'In-place code update (not used by this installation)'
-	)
-	fold.block.classList.add('readiness_block')
+	const checks = panel_checks(consumer)
+	const fold = consumer.image
+		? fold_section(parent, 'tree_swap_readiness', get_label.update_code_tree_swap_readiness || 'In-place code update (not used by this installation)')
+		: fold_section(parent, 'checks', get_label.update_code_all_checks || 'All checks')
+	fold.block.classList.add('all_checks_block')
 	check_counts(fold.summary, checks)
 	checks.forEach(check => { check_row(fold.body, check) })
 
 	return fold.block
-}//end render_folded_readiness
+}//end render_all_checks
 
 
 
 /**
 * REFRESH_READINESS
-* Re-state the readiness half from a FRESHER consumer payload, in place.
+* Re-state the readiness headline AND the folded check list from a FRESHER
+* consumer payload, in place — the version modal re-reads the value before it
+* opens, and the panel behind it must not show the same fact in another state.
 *
-* Why it exists: `backup_fresh` AGES. The panel is built once and the version
-* modal re-reads the value before it opens, so without this the operator can
-* see the modal's red waiver row and its "25 h" over a panel still showing
-* "Recent database backup · 23 h · ok" — one fact, two states, both on screen.
-*
-* @param {HTMLElement} root - the node render_consumer_status wrote into
+* @param {HTMLElement} root - a node holding the panel (headline + Details)
 * @param {Object} consumer - the fresh consumerStatus payload
 * @returns {boolean} true when a block was found and replaced
 */
@@ -662,15 +761,25 @@ export const refresh_readiness = function(root, consumer) {
 	if (!root || !consumer) {
 		return false
 	}
-	const current = root.querySelector('.readiness_block')
-	if (!current) {
-		return false
+	let replaced = false
+	const swap = (selector, render) => {
+		const current = root.querySelector(selector)
+		if (!current) {
+			return
+		}
+		const parent = current.parentNode
+		const rebuilt = render(parent, consumer)
+		if (rebuilt) {
+			parent.replaceChild(rebuilt, current)
+		} else {
+			current.remove()
+		}
+		replaced = true
 	}
-	const parent = current.parentNode
-	const rebuilt = render_readiness(parent, consumer)
-	parent.replaceChild(rebuilt, current)
+	swap('.readiness_block', render_readiness)
+	swap('.all_checks_block', render_all_checks)
 
-	return true
+	return replaced
 }//end refresh_readiness
 
 
@@ -1027,15 +1136,30 @@ export const render_consumer_status = function(parent, consumer, on_restore, on_
 		parent			: parent
 	})
 
-	// readiness FIRST on a tree-swap install: the verdict heads the panel
-	// (verdict → attention → facts → actions). A container install folds it
-	// under the image block instead.
-		if (!consumer.image) {
-			render_readiness(wrapper, consumer)
-		}
-
-	// what is running
+	// LAYOUT (2026-11-06, for non-technical operators): what is installed, then
+	// only what BLOCKS or went wrong, then the actions; every other fact folds
+	// under ONE closed "Details" block (.update_details — the panel render
+	// moves it below the actions).
 		const engine = consumer.engine || {}
+
+	// installed version — the one fact always in view
+		const installed = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'status_block installed_version',
+			parent			: wrapper
+		})
+		ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'dd_eyebrow',
+			text_content	: get_label.update_code_current_version || 'Current version',
+			parent			: installed
+		})
+		ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'installed_version_value mono',
+			text_content	: engine.engine_version || '—',
+			parent			: installed
+		})
 		// THREE postures, not two: 'dev' now covers a working checkout AND an
 		// installed developer build (a branch archive, same version as the
 		// release it replaced). Naming the second one a "checkout" would send an
@@ -1045,10 +1169,52 @@ export const render_consumer_status = function(parent, consumer, on_restore, on_
 			: engine.install_channel==='dev'
 				? (get_label.update_code_posture_dev_build || "Developer build (unreleased code from 'master')")
 				: (get_label.update_code_posture_dev || 'Development checkout')
+		// WHEN and WHERE FROM: the commit date (build stamp, or a checkout's HEAD),
+		// the kind of build, and the code server its archive came from
+		let source_host = null
+		try { source_host = engine.install_source ? new URL(engine.install_source).host : null } catch (_error) { /* not a URL */ }
+		ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'installed_version_date',
+			text_content	: [
+				engine.date, // the stamp verbatim (ISO with offset): exact, unambiguous
+				posture_text,
+				source_host
+			].filter(Boolean).join(' · '),
+			parent			: installed
+		})
+
+	// readiness headline (tree-swap install only) + blocking checks
+		render_readiness(wrapper, consumer)
+
+	// Details: closed on every render, the reference facts one click away
+		const details = ui.create_dom_element({
+			element_type	: 'details',
+			class_name		: 'status_block dd_fold update_details',
+			parent			: wrapper
+		})
+		const details_summary = ui.create_dom_element({
+			element_type	: 'summary',
+			parent			: details
+		})
+		ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'dd_eyebrow',
+			text_content	: get_label.update_code_details || 'Details',
+			parent			: details_summary
+		})
+		const details_body = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'update_details_body',
+			parent			: details
+		})
+
+	// what is running
 		// folded: version + posture ARE the summary; the provenance facts
 		// (commit, archive digest, paths) are one click away
+		render_all_checks(details_body, consumer)
 		const installation = fold_section(
-			wrapper,
+			details_body,
 			'installation',
 			get_label.update_code_installation || 'This installation',
 			{ hint : [engine.engine_version, posture_text].filter(Boolean).join(' · ') }
@@ -1068,14 +1234,11 @@ export const render_consumer_status = function(parent, consumer, on_restore, on_
 		fact_row(installation, get_label.update_code_tree_root || 'Code tree', tree.root, true)
 		fact_row(installation, get_label.update_code_backup_root || 'Backup root', tree.backup_root, true)
 
-	// image updates — a CONTAINER installation only (value.consumer.image)
+	// image updates — a CONTAINER installation only (value.consumer.image): its
+	// actual update path, so it stays in view, before Details
 		if (consumer.image) {
 			render_image_updates(wrapper, consumer.image, image_actions)
-		}
-
-	// readiness (container install: folded, after the image block)
-		if (consumer.image) {
-			render_readiness(wrapper, consumer)
+			wrapper.appendChild(details)
 		}
 
 	// last update — only when there has been one
@@ -1086,18 +1249,24 @@ export const render_consumer_status = function(parent, consumer, on_restore, on_
 				confirmed		: get_label.update_code_sentinel_confirmed || 'confirmed',
 				rolled_back		: get_label.update_code_sentinel_rolled_back || 'rolled back'
 			}
-			// folded on its one-line story ("7.0.0 → 7.0.1 · confirmed"), but
-			// OPEN while it is not confirmed: a pending or rolled-back update is
-			// the state an operator has to see without asking for it
-			const last = fold_section(
-				wrapper,
+			// folded on its one-line story ("7.0.0 → 7.0.1 · confirmed") under
+			// Details, but OPEN and IN VIEW (before Details) while it is not
+			// confirmed: a pending or rolled-back update is the state an
+			// operator has to see without asking for it
+			const unconfirmed = sentinel.status!=='confirmed'
+			const last_fold = fold_section(
+				unconfirmed ? wrapper : details_body,
 				'last_update',
 				get_label.update_code_last_update || 'Last code update',
 				{
 					hint		: `${sentinel.previousVersion || '—'} → ${sentinel.version || '—'} · ${status_words[sentinel.status] || String(sentinel.status)}`,
-					force_open	: sentinel.status!=='confirmed'
+					force_open	: unconfirmed
 				}
-			).body
+			)
+			if (unconfirmed) {
+				wrapper.insertBefore(last_fold.block, details)
+			}
+			const last = last_fold.body
 			fact_row(last, get_label.update_code_sentinel_from || 'Updated from', sentinel.previousVersion, true)
 			fact_row(last, get_label.update_code_sentinel_to || 'Updated to', sentinel.version, true)
 			fact_row(last, get_label.update_code_sentinel_when || 'When', sentinel.stamp)
@@ -1118,7 +1287,7 @@ export const render_consumer_status = function(parent, consumer, on_restore, on_
 		const points = consumer.restore_points || []
 		// folded on the count + the newest point (the server lists newest first)
 		const restore = fold_section(
-			wrapper,
+			details_body,
 			'restore_points',
 			get_label.update_code_restore_points || 'Restore points',
 			{

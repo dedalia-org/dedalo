@@ -137,14 +137,35 @@ function isPlainEntryName(name: unknown): name is string {
 }
 
 /**
- * The root entries recorded by the stamp of the tree at `treeRoot`, read from
- * THAT tree's own stamp (never this module's constant — the swap and the tests
- * target trees that are not this process's). Null when the tree has no stamp,
- * or a stamp written before the field existed.
+ * The release-root LIST every tree ships (`{ root_entries: [...] }`, held to
+ * `git archive`'s root EXACTLY by release_root_entries_tripwire): the same fact
+ * as the stamp's `root_entries`, for a tree no updater installed — a checkout,
+ * a hand copy (2026-11-06).
+ */
+export const RELEASE_ROOT_MANIFEST_PATH = 'engineering/release_root_entries.json';
+
+/**
+ * The root entries the release of the tree at `treeRoot` shipped, read from
+ * THAT tree (never this module's constant — the swap and the tests target
+ * trees that are not this process's): its install stamp's list (the archive it
+ * was actually installed from), else its own release-root manifest. Null when
+ * the tree has neither (a tree older than both — the whitelist then refuses as
+ * before, the safe direction).
  */
 export function installedRootEntriesOf(treeRoot: string): ReadonlySet<string> | null {
-	const entries = readInstallStampOf(treeRoot)?.root_entries;
+	const entries = readInstallStampOf(treeRoot)?.root_entries ?? readReleaseRootManifestOf(treeRoot);
 	return entries === undefined ? null : new Set(entries);
+}
+
+/** The tree's own release-root manifest; undefined when absent or malformed. */
+function readReleaseRootManifestOf(treeRoot: string): readonly string[] | undefined {
+	try {
+		const value: unknown = JSON.parse(readTreeFile(treeRoot, RELEASE_ROOT_MANIFEST_PATH) ?? 'null');
+		return optionalRootEntries((value as { root_entries?: unknown } | null)?.root_entries)
+			.root_entries;
+	} catch {
+		return undefined;
+	}
 }
 
 /**
@@ -154,7 +175,17 @@ export function installedRootEntriesOf(treeRoot: string): ReadonlySet<string> | 
  */
 export function readInstallStampOf(treeRoot: string): InstallStamp | null {
 	try {
-		return parseInstallStamp(readFileSync(join(treeRoot, INSTALL_STAMP_PATH), 'utf8'));
+		const text = readTreeFile(treeRoot, INSTALL_STAMP_PATH);
+		return text === null ? null : parseInstallStamp(text);
+	} catch {
+		return null;
+	}
+}
+
+/** The ONE file read of this module (a tree's stamp or its release-root manifest); null when unreadable. */
+function readTreeFile(treeRoot: string, rel: string): string | null {
+	try {
+		return readFileSync(join(treeRoot, rel), 'utf8');
 	} catch {
 		return null;
 	}
@@ -165,6 +196,9 @@ const STAMP = readInstallStampOf(join(import.meta.dir, '..', '..', '..'));
 
 /** sha256 of the archive this tree was installed from — null on a dev checkout. */
 export const INSTALLED_DIGEST: string | null = STAMP?.digest ?? null;
+
+/** The release URL this tree's archive was downloaded from — null on a dev checkout. */
+export const INSTALLED_SOURCE_URL: string | null = STAMP?.source_url ?? null;
 
 /** The channel this tree was installed from — null on a dev checkout. */
 export const INSTALLED_CHANNEL: InstallChannel | null = STAMP?.channel ?? null;

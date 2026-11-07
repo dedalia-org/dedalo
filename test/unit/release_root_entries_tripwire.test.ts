@@ -15,6 +15,11 @@
  *    EXACTLY. Adding an entry is then an edit in review, not a side effect.
  *    Removing one is safe for stamped installs (install_stamp.ts
  *    `root_entries`): the updater retires it into the backup.
+ *    The list is also READ at runtime (2026-11-06): an UNSTAMPED tree (a
+ *    checkout, a hand copy) takes it as its release-root record
+ *    (install_stamp.ts `installedRootEntriesOf`), so the update panel's
+ *    `root_entries` line and the swap decide there too — one more reason it
+ *    must equal what `git archive` ships.
  *  - Editor/OS config names never ship, whatever the list says.
  *
  * Reads the INDEX (`git ls-files`), not HEAD, so a staged root entry fails

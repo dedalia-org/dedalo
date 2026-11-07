@@ -90,7 +90,7 @@ describe('assertSourceAssignment', () => {
 		);
 	});
 
-	test('several masters and one without tlds: refused until assigned', () => {
+	test('several masters and one without tlds: the undeclared one is reachable by a pick only', () => {
 		const partial = {
 			servers: [
 				{ code: 'c', url: OURS, tlds: ['dd'] },
@@ -98,8 +98,37 @@ describe('assertSourceAssignment', () => {
 			],
 			isOntologyServer: false,
 		};
-		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(OURS), partial))).toBe(
+		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(OURS), partial))).toBe('passed');
+		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(MUSEUM), partial))).toBe(
 			'source_unassigned',
+		);
+		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(MUSEUM), partial, true))).toBe(
+			'passed',
+		);
+	});
+
+	test('several masters, none declared: the FIRST is the unattended source, the rest by pick', () => {
+		const undeclared = {
+			servers: [
+				{ code: 'c', url: OURS },
+				{ code: 'm', url: MUSEUM },
+			],
+			isOntologyServer: false,
+		};
+		expect(ruleOf(() => assertSourceAssignment(files('dd', 'mus'), target(OURS), undeclared))).toBe(
+			'passed',
+		);
+		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(MUSEUM), undeclared))).toBe(
+			'source_unassigned',
+		);
+		expect(
+			ruleOf(() => assertSourceAssignment(files('dd'), target(MUSEUM), undeclared, true)),
+		).toBe('passed');
+	});
+
+	test('an operator pick is not mapped: a TLD declared elsewhere may come from the picked master', () => {
+		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(MUSEUM), both, true))).toBe(
+			'passed',
 		);
 	});
 });
@@ -122,9 +151,10 @@ describe('an ontology SERVER pulling from a remote provider (promotion)', () => 
 
 	test('an entry without tlds (absent or empty) is CODE-ONLY: not refused, but never a source', () => {
 		for (const catalog of [promoting(), promoting([])]) {
-			// not a pull target: nothing is assignable to it (source_mismatch, never "everything")
+			// not a pull source: refused as the selected master of an unattended
+			// run (source_unassigned), never "everything from the first"
 			expect(ruleOf(() => assertSourceAssignment(files('dd'), target(MUSEUM), catalog))).toBe(
-				'source_mismatch',
+				'source_unassigned',
 			);
 			// …and it is not refused as a configuration: the local export still passes
 			expect(
@@ -147,9 +177,11 @@ describe('an ontology SERVER pulling from a remote provider (promotion)', () => 
 			'passed',
 		);
 		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(OURS), catalog))).toBe(
-			'source_mismatch',
+			'source_unassigned',
 		);
-		// the same shape on an ORDINARY install: both entries are masters, the tlds-less one undeclared
+		// the same shape on an ORDINARY install: both entries are masters; an
+		// unattended run takes from the DECLARING one (the tlds-less one is
+		// reachable only by an operator's pick — unattendedSources)
 		expect(
 			ruleOf(() =>
 				assertSourceAssignment(files('dd'), target(MUSEUM), {
@@ -157,7 +189,7 @@ describe('an ontology SERVER pulling from a remote provider (promotion)', () => 
 					isOntologyServer: false,
 				}),
 			),
-		).toBe('source_unassigned');
+		).toBe('passed');
 	});
 
 	test('two providers listing one TLD stay ambiguous', () => {
@@ -199,7 +231,11 @@ describe('pull targets on an ontology server', () => {
 	test('a code-only entry cannot be picked as the update target; the provider can', () => {
 		const pick = (url: string) => resolveUpdateTarget({ name: 'x', url, code: 'c' }, mixed);
 		expect(pick(OURS)).toHaveProperty('error');
-		expect(pick(MUSEUM)).toEqual({ isLocal: false, configuredOrigin: new URL(MUSEUM).origin });
+		expect(pick(MUSEUM)).toEqual({
+			isLocal: false,
+			configuredOrigin: new URL(MUSEUM).origin,
+			configuredUrl: MUSEUM,
+		});
 	});
 });
 

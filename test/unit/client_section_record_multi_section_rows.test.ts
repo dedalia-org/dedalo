@@ -140,4 +140,47 @@ else {
 			expect(first).not.toBe(second);
 		});
 	});
+
+	// get_component_data's identity match is an INDEXED lookup over datum.data
+	// (data_index_of). Pinned: the same answers the old full-array filter gave,
+	// and an index that follows datum.data's only mutations (splice / reassign).
+	describe('section_record get_component_data indexed lookup', () => {
+		const item = (tipo: string, section_id: unknown, extra: Record<string, unknown> = {}) => ({
+			tipo,
+			section_tipo: 'zzsr0',
+			section_id,
+			mode: 'list',
+			entries: [{ value: `${tipo}/${section_id}` }],
+			...extra,
+		});
+		const lookup = (data: unknown[], tipo: string, section_id: unknown, mode = 'list') =>
+			section_record.prototype.get_component_data.call(
+				{ datum: { data }, section_id, tipo: 'zzsr0', get_caller_chain: () => [] },
+				{ ddo: { tipo, model: 'component_input_text', mode }, section_tipo: 'zzsr0', section_id },
+			);
+
+		test('matches section_id as parseInt, first match wins, mode and tipo discriminate', () => {
+			const data = [item('a', '5'), item('a', 5, { entries: [{ value: 'second' }] }), item('b', 5)];
+			expect(lookup(data, 'a', 5).entries[0].value).toBe('a/5');
+			expect(lookup(data, 'a', '5').entries[0].value).toBe('a/5');
+			expect(lookup(data, 'b', 5).entries[0].value).toBe('b/5');
+			expect(lookup(data, 'a', 5, 'edit').info, 'another mode is not this datum').toBe(
+				'No data found for this component',
+			);
+			expect(lookup(data, 'c', 5).entries).toEqual([]);
+		});
+
+		test('a non-integer section_id never matches (NaN!==NaN, as the filter did)', () => {
+			const data = [item('a', 'tmp'), item('a', undefined)];
+			expect(lookup(data, 'a', 'tmp').entries).toEqual([]);
+			expect(lookup(data, 'a', undefined).entries).toEqual([]);
+		});
+
+		test('an item spliced in after the first lookup is found (the index follows the array)', () => {
+			const data = [item('a', 1)];
+			expect(lookup(data, 'a', 2).entries).toEqual([]);
+			data.splice(0, 0, item('a', 2));
+			expect(lookup(data, 'a', 2).entries[0].value).toBe('a/2');
+		});
+	});
 }

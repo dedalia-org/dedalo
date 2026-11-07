@@ -20,10 +20,15 @@
  *    should differ from the master's source string) that starts empty — the
  *    master remains its baseline, so nothing is ever duplicated.
  *
- * Serving contract (wire shape unchanged): get_environment's `get_label` is
- * the merged dictionary for the requested application lang, ALWAYS the full
- * master key set. Fallback criteria, in order (later overlays win; no
- * hardcoded language priority):
+ * Serving contract (WC-2026-11-07-labels-separate-resource): the merged
+ * dictionary for an application lang, ALWAYS the full master key set, is its
+ * OWN versioned HTTP resource — GET /api/v1/labels?lang=<lg>&v=<version>
+ * (src/core/api/labels_resource.ts), immutable-cached when `v` is current.
+ * The environment no longer carries it; page_globals.labels_version
+ * (getLabelsVersion) names the version the client asks for. Route and
+ * labels_version agree on the served lang through labelsServingLang (a lang
+ * outside DEDALO_APPLICATION_LANGS → the install default). Fallback
+ * criteria, in order (later overlays win; no hardcoded language priority):
  *
  *  1. master.json — the guaranteed-complete base (labels_tripwire);
  *  2. the INSTALL's default application lang (DEDALO_APPLICATION_LANGS_DEFAULT
@@ -38,6 +43,7 @@
  * malformed MASTER throws loudly — that is a broken deploy.
  */
 
+import { createHash } from 'node:crypto';
 import { config } from '../../config/config.ts';
 import { createOntologyCache } from '../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
@@ -59,9 +65,12 @@ export const MASTER_SOURCE_LANG = 'lg-eng';
  * re-reads the files.
  */
 const dictionaryCache = createOntologyCache<string, Record<string, string>>();
+/** getLabelsVersion answer per lang — same lifecycle as dictionaryCache. */
+const versionCache = createOntologyCache<string, string>();
 
 export function clearLabelsCache(): void {
 	dictionaryCache.clear();
+	versionCache.clear();
 }
 registerOntologyCacheClearer(clearLabelsCache);
 
@@ -123,4 +132,36 @@ export async function getLabels(lang: string): Promise<Record<string, string>> {
 
 	dictionaryCache.set(lang, labels);
 	return labels;
+}
+
+/**
+ * The lang whose dictionary is SERVED for `lang` — ONE allowlist shared by the
+ * labels route and page_globals.labels_version, so every lang the environment
+ * can emit (a session lang set outside DEDALO_APPLICATION_LANGS, DATA_LANG_SYNC,
+ * APPLICATION_LANG, a lang removed from the list) gets a 200, and the public
+ * route's cache keys stay bounded by config. A configured application lang
+ * serves itself; any other serves the install default.
+ * shortcut: a non-configured lang loses its linguistic alias (lg-vlca → Catalan); map through translationLangOf if one is ever needed.
+ */
+export function labelsServingLang(lang: string): string {
+	return Object.hasOwn(config.lang.applicationLangs, lang)
+		? lang
+		: config.lang.applicationLangsDefault;
+}
+
+/**
+ * Content version of getLabels(lang): 16 hex of sha256 over the MERGED
+ * dictionary (so install-config inputs — default lang, equivalences — are
+ * covered, not just the files). The labels URL is built from it, so a
+ * dictionary change is a new URL and the old one may stay immutable-cached.
+ */
+export async function getLabelsVersion(lang: string): Promise<string> {
+	const cached = versionCache.get(lang);
+	if (cached !== undefined) return cached;
+	const version = createHash('sha256')
+		.update(JSON.stringify(await getLabels(lang)))
+		.digest('hex')
+		.slice(0, 16);
+	versionCache.set(lang, version);
+	return version;
 }

@@ -130,6 +130,18 @@ function isRuntimeInfoRenameEntry(entry: ManifestEntry): boolean {
 	);
 }
 
+/** theme-init.js was RENAMED head-init.js (WC-2026-11-06-css-version): it now
+ * also writes the main stylesheet, and a browser may hold the old file under its
+ * old URL (service-worker cache, heuristic HTTP caching), so the new logic needs a
+ * URL nothing has cached. The frozen oracle still lists theme-init.js; the TS
+ * census serves head-init.js. Filtered from BOTH sides; the set test recovers
+ * that the old name is gone and the new one served. */
+const HEAD_INIT_OLD = '/dedalo/core/page/js/theme-init.js';
+const HEAD_INIT_NEW = '/dedalo/core/page/js/head-init.js';
+function isHeadInitRenameEntry(entry: ManifestEntry): boolean {
+	return entry.url === HEAD_INIT_OLD || entry.url === HEAD_INIT_NEW;
+}
+
 /** The generated JS lang files are GONE from the TS client tree (WC-035):
  * UI labels are repo catalogs under src/core/labels/catalog/, served only
  * through get_environment's `get_label` — the client never fetched these
@@ -394,6 +406,7 @@ describe.if(hasPhpCredentials())('get_dedalo_files differential (S1-19 gate)', (
 			!isToolAssistantEntry(entry) &&
 			!isTsOnlyEntry(entry) &&
 			!isRuntimeInfoRenameEntry(entry) &&
+			!isHeadInitRenameEntry(entry) &&
 			!isLangFileEntry(entry) &&
 			!isTsNativeCoreFileEntry(entry) &&
 			!isPhpUserRemovalEntry(entry) &&
@@ -407,6 +420,10 @@ describe.if(hasPhpCredentials())('get_dedalo_files differential (S1-19 gate)', (
 		const phpSet = phpBody.result.filter(keep).map(comparableLine).sort();
 		const tsSet = tsBody.data.filter(keep).map(comparableLine).sort();
 		expect(tsSet).toEqual(phpSet);
+
+		// The head-init rename, recovered: TS serves ONLY the new name, the oracle ONLY the old.
+		expect(tsBody.data.filter(isHeadInitRenameEntry).map((e) => e.url)).toEqual([HEAD_INIT_NEW]);
+		expect(phpBody.result.filter(isHeadInitRenameEntry).map((e) => e.url)).toEqual([HEAD_INIT_OLD]);
 
 		// Two-sided filtering is what keeps the frozen store honest (it records what
 		// PHP really served on 2026-07-11 and can never be re-harvested), but it

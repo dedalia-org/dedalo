@@ -20,7 +20,7 @@
 import { assert } from '../../../lib/chai/index.js'
 
 // early theme init — runs in <head> before the body paints to avoid a
-// theme flash. Mirrors Dédalo's core/page/js/theme-init.js convention:
+// theme flash. Mirrors Dédalo's core/page/js/head-init.js convention:
 // LIGHT is the default (no attribute); DARK is opt-in via data-theme="dark"
 // and localStorage 'dedalo_theme' === 'dark'. frame.html passes ?theme=...;
 // index.html falls back to the saved (app) preference.

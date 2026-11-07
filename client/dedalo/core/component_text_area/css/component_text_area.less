@@ -19,12 +19,6 @@
 			font-size: 0.75rem;
 			transform: translateY(-60%);
 		}
-		// keep the toolbar off the frame's edge
-		&.active:not(.view_line) > .content_data > .content_value > .toolbar_container {
-			margin-left: 4px;
-			margin-right: 4px;
-		}
-
 		// sticky toolbar: toolbar and editor share ONE grid cell per entry, so the
 		// toolbar overlays the label row as before (no text shift) yet sticks below
 		// the menu while a long text scrolls. overflow visible: hidden/clip would
@@ -56,9 +50,13 @@
 				>.toolbar_container {
 					position: sticky;
 					top: var(--menu_offset); // below the sticky page menu (z 4)
+					left: 0; // undo service_ckeditor's 6px inset
+					width: auto; // grid stretch = full field width
 					align-self: start;
-					// lift onto the label row; tool panes override it (.text_area_pane_header)
-					margin-top: var(--text_area_toolbar_lift, calc(6px - var(--component_label_height)));
+					// lift onto the label row, full width, glued just under the wrapper's
+					// 3px save-status line (layout.less .modified / .save_success, top 0–4px)
+					// so the line stays visible; tool panes override it (.text_area_pane_header)
+					margin-top: var(--text_area_toolbar_lift, calc(4px - var(--component_label_height)));
 				}
 			}
 		}
@@ -99,6 +97,21 @@
 		// still grow; upgrade if a bounded row ever hosts a multi-entry text_area.
 		.wrapper_component&:not(.view_line) > .content_data {
 			height: 100%;
+
+			// small screens: layout.less turns the wrapper into a block, so the
+			// 100% above is indefinite and the editor grew past the box (only a
+			// max-height bounds it) over the next component. A flex column makes
+			// the box's max-height bound the editor, which then scrolls inside.
+			@media screen and (max-width: @width_break_point_1) {
+				display: flex;
+				flex-direction: column;
+
+				>.content_value {
+					flex: 1 1 auto;
+					min-height: 0;
+					grid-template-rows: minmax(0, 1fr);
+				}
+			}
 		}
 
 		&.fullscreen {

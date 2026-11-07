@@ -18,7 +18,7 @@
 * Persistence: the user's dd1206 "User interface preferences" (component_json on
 * their own dd128 record, key `active_style`) is the truth, served as
 * `page_globals.ui_preferences` (WC-2026-11-02-ui-preferences). localStorage
-* ACTIVE_STYLE_KEY only caches it so theme-init.js paints the right style before
+* ACTIVE_STYLE_KEY only caches it so head-init.js paints the right style before
 * the first frame.
 */
 
@@ -37,7 +37,7 @@ export const ACTIVE_STYLES = Object.freeze([
 	{ id : 'margin',	label : 'active_style_margin' }
 ])
 
-// localStorage key; must stay in sync with theme-init.js
+// localStorage key; must stay in sync with head-init.js
 export const ACTIVE_STYLE_KEY = 'dedalo_active_style'
 
 // The users section and its "User interface preferences" component

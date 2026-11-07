@@ -32,7 +32,7 @@ Unauthenticated (`session === null`) `start` returns the **login element context
   "ok": true,
   "request_id": "c0ffeb00",
   "data": { "context": [ /* section/menu element contexts */ ], "data": [] },
-  "environment": { "page_globals": {}, "plain_vars": {}, "get_label": {} }
+  "environment": { "page_globals": {}, "plain_vars": {} }
 }
 ```
 

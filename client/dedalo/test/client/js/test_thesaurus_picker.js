@@ -227,7 +227,7 @@ describe('THESAURUS PICKER CLIENT TEST', function() {
 		/**
 		* The picker modules render NO English literal: a missing key shows as the key
 		* and is console.error'd. That makes the catalog part of the feature's wire, so
-		* it is gated here against the SERVED dictionary (get_environment → get_label),
+		* it is gated here against the SERVED dictionary (the labels resource → get_label),
 		* not against the repo files — which proves the definitions actually reach the
 		* browser.
 		*/

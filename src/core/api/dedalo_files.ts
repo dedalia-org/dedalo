@@ -25,6 +25,7 @@
  * sensitivity quirks and the tools-branch entries all being typed 'js').
  */
 
+import { createHash } from 'node:crypto';
 import { readdirSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { readEnv } from '../../config/env.ts';
@@ -159,9 +160,15 @@ export interface DedaloFilesManifest {
  * captured at module load) so the posture is the one the server is running
  * under, and never a value baked in at import time.
  */
-let manifestState: { manifest: DedaloFilesManifest | null; builds: number } = {
+let manifestState: {
+	manifest: DedaloFilesManifest | null;
+	builds: number;
+	/** The frozen clientCssVersion() answer (production posture only). */
+	cssVersion: Promise<string> | null;
+} = {
 	manifest: null,
 	builds: 0,
+	cssVersion: null,
 };
 
 /**
@@ -228,13 +235,13 @@ function walkDedaloFilesManifest(): DedaloFilesManifest {
 export function buildDedaloFilesResponse(): DedaloFilesManifest {
 	if (readEnv('DEDALO_DEV_MODE') === 'true') {
 		const manifest = walkDedaloFilesManifest();
-		manifestState = { manifest: null, builds: manifestState.builds + 1 };
+		manifestState = { ...manifestState, manifest: null, builds: manifestState.builds + 1 };
 		return manifest;
 	}
 	const cached = manifestState.manifest;
 	if (cached !== null) return cached;
 	const manifest = walkDedaloFilesManifest();
-	manifestState = { manifest, builds: manifestState.builds + 1 };
+	manifestState = { ...manifestState, manifest, builds: manifestState.builds + 1 };
 	return manifest;
 }
 
@@ -244,6 +251,7 @@ export function buildDedaloFilesResponse(): DedaloFilesManifest {
  */
 export function prewarmDedaloFilesManifest(): void {
 	if (manifestState.manifest === null) buildDedaloFilesResponse();
+	void clientCssVersion();
 }
 
 /**
@@ -257,7 +265,72 @@ export function dedaloFilesManifestBuilds(): number {
 
 /** Drop the frozen manifest (gates only — boot state is otherwise permanent). */
 export function resetDedaloFilesManifest(): void {
-	manifestState = { manifest: null, builds: 0 };
+	manifestState = { manifest: null, builds: 0, cssVersion: null };
+}
+
+/**
+ * THE CSS VERSION — the cache-busting key of every stylesheet the client loads
+ * (page_globals.css_version → `main.css?v=…`, `<tool>.css?v=…`).
+ *
+ * WHY THE ENGINE OWNS IT: the client tree is usually served by the institution's
+ * web server, whose cache headers we do not control — one without
+ * `Cache-Control: no-cache` lets browsers keep a stale main.css for days after a
+ * code update (heuristic freshness), and index.html itself can be stale the same
+ * way, so no URL written into a static file is a guarantee. The `start` response
+ * is the one channel that is fresh on EVERY install; a URL built from it changes
+ * exactly when the bytes do, whatever the web server says.
+ *
+ * A CONTENT hash (16 hex of sha256 over each stylesheet's URL + bytes), not an
+ * mtime signature: a rollback that restores older bytes returns the older
+ * version — whose URL the browser may still hold, correctly. Covers the sheets
+ * whose URLs are built from it: main.css, tools_common css and the css/ of every
+ * tool in EVERY tools root (the manifest walks only the primary one). NOT
+ * covered: vendored lib/ sheets and component-local ones (component_pdf's
+ * pdf.js css) — they are not versioned with it; and, as everywhere in this
+ * walk, a symlink inside a tools root (client_publish never publishes one).
+ *
+ * Posture as the manifest: frozen at boot (prewarm) — a deploy restarts the
+ * engine — and recomputed per call in dev mode, where css:build rewrites
+ * main.css under the running server. Never rejects: an unreadable file hashes
+ * as missing, so a broken stylesheet cannot fail every `start`.
+ */
+export function clientCssVersion(): Promise<string> {
+	if (readEnv('DEDALO_DEV_MODE') === 'true') return computeCssVersion();
+	if (manifestState.cssVersion === null) {
+		manifestState = { ...manifestState, cssVersion: computeCssVersion() };
+	}
+	return manifestState.cssVersion as Promise<string>;
+}
+
+async function computeCssVersion(): Promise<string> {
+	const hash = createHash('sha256');
+	for (const [url, path] of versionedStylesheets()) {
+		hash.update(url).update('\0');
+		try {
+			hash.update(await Bun.file(path).bytes());
+		} catch {
+			hash.update('\0missing');
+		}
+		hash.update('\n');
+	}
+	return hash.digest('hex').slice(0, 16);
+}
+
+/** [url, disk path] of every stylesheet whose URL carries the css version. */
+function versionedStylesheets(): [url: string, path: string][] {
+	const files: [url: string, path: string][] = [
+		[`${CORE_URL}/page/css/main.css`, `${CLIENT_CORE_ROOT}/page/css/main.css`],
+	];
+	for (const rel of walkDirFiles(TOOL_COMMON_CLIENT_DIR, ['css'])) {
+		files.push([TOOLS_COMMON_URL + rel, TOOL_COMMON_CLIENT_DIR + rel]);
+	}
+	for (const root of getRoots()) {
+		for (const rel of walkDirFiles(root.path, ['css'])) {
+			// '/<tool>/css/…' — the only css a tool page loads
+			if (rel.split('/')[2] === 'css') files.push([root.url + rel, root.path + rel]);
+		}
+	}
+	return files;
 }
 
 /**

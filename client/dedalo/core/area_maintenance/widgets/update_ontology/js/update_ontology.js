@@ -157,10 +157,10 @@ update_ontology.prototype.supported_code_version = (required_version) => {
 * (src/core/area_maintenance/widgets/update_ontology.ts → the staged import in
 * src/core/ontology/ontology_update.ts).
 *
-* The request runs inside a web worker (`use_worker: true`) and uses a 1-hour
-* timeout because the server pipeline (staged download + `\copy` import +
-* dd_ontology rebuild + cache purge) can legitimately take tens of minutes on
-* large deployments.
+* The server answers AT ONCE: the import runs as a background job (like the
+* code update) whose `{pid, pfile}` handle the panel follows through
+* dd_utils_api:get_process_status — progress frames while it runs, the import's
+* answer on the final frame (render_update_ontology.js track_update_job).
 *
 * `retries: 1` means exactly one attempt — retrying an ontology import
 * automatically could leave tables in a partially-imported state.
@@ -177,17 +177,13 @@ update_ontology.prototype.supported_code_version = (required_version) => {
 *     the prior `get_ontology_update_info` call; forwarded so the server can
 *     record provenance.
 * @returns {Promise<Object>} Resolves to the envelope v2 response
-*   (ERRORS_SPEC §3): `{ ok: true, request_id, data: true, msg?, errors?,
-*   root_info?, missing_dependencies? }` on success, `{ ok: false, request_id,
-*   error: {code, …}, msg?, errors? }` on a refusal (test it with
-*   `request_failed`). `msg`, `errors`, `root_info` and `missing_dependencies`
-*   are EXTENSION keys beside `data` — read them with `response_extension`, as
-*   render_update_ontology.js does; there is no `result` key.
-*   `missing_dependencies` lists the declared dependencies this server lacks
-*   (report only; the mandatory ones also arrive as `errors` lines, the
-*   optional ones as `msg` log notes). `root_info.properties.version` is used
-*   by the caller to run the version compatibility check via
-*   `supported_code_version`.
+*   (ERRORS_SPEC §3): `{ ok: true, request_id, data: true, pid, pfile }` (the
+*   job handle; `pid`/`pfile` are EXTENSION keys — read them with
+*   `response_extension`), or `{ ok: false, request_id, error: {code, …} }` when
+*   the job could not be submitted (test it with `request_failed`). The job's
+*   RESULT, on its final frame's `data`: `{ msg, errors?, run_id, root_info,
+*   census? }` (`root_info.properties.version` feeds `supported_code_version`);
+*   a refused / failed run ends with a coded `error` instead.
 */
 update_ontology.prototype.update_ontology = async (options) => {
 
@@ -205,8 +201,7 @@ update_ontology.prototype.update_ontology = async (options) => {
 			},
 			options : options
 		},
-		retries : 1, // one try only
-		timeout : 3600 * 1000 // 1 hour waiting response
+		retries : 1 // one try only: the submit is not idempotent
 	})
 	if(SHOW_DEBUG===true) {
 		console.log('))) update_ontology api_response:', api_response);

@@ -172,7 +172,7 @@ The API class method to execute. The core action set (`ACTION_REGISTRY['dd_core_
 | `get_element_context` | Structure context for one element, **no data**. `simple:true` → lightweight context. | `result: object` (context) |
 | `get_section_elements_context` | Component contexts for one/more sections (filter panel, export columns). | `result: array` of component contexts |
 | `get_indexation_grid` | Thesaurus indexation grid for a component in a record. | `result: object` (grid) |
-| `get_environment` | Bootstrap payload (`page_globals`, `plain_vars`, labels). No-arg; also called inside `start`. | `result: {page_globals, plain_vars, get_label}` |
+| `get_environment` | Bootstrap payload (`page_globals`, `plain_vars`). No-arg; also called inside `start`. Labels: `GET /api/v1/labels?lang=&v=<page_globals.labels_version>`. | `result: {page_globals, plain_vars}` |
 | `get_section_terms` | Batch-resolves authoritative section_map term labels for locators (graph node labels). Silent skip on unreadable. | `result: object` keyed `"{section_tipo}_{section_id}" => term` |
 
 `get_matrix_ontology_locator` and `test` are not registered.
@@ -576,7 +576,7 @@ The envelope is always `{ok, request_id, data | error, notices?, csrf_token}`; o
 | `save` | `{context, data}` of the refreshed element, or `false` |
 | `get_element_context` | a single context `object` |
 | `get_section_elements_context` | `array` of component contexts |
-| `get_environment` | `{page_globals, plain_vars, get_label}` |
+| `get_environment` | `{page_globals, plain_vars}` |
 | `get_section_terms` | `{ "<tipo>_<id>": "<term>", ... }` |
 
 On failure the body is the envelope v2 failure shape (`engineering/ERRORS_SPEC.md`

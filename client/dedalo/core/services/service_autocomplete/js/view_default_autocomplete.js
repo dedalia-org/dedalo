@@ -521,7 +521,9 @@ const render_search_input = function(self) {
 					// split_q. ar q split iterate
 						const split_q	= self.split_q(q)
 						const ar_q		= split_q.ar_q
-						if (split_q.divisor!==false) {
+						// a piped q is one value per field: the fields must ALL match
+						self.q_piped = split_q.divisor!==false
+						if (self.q_piped) {
 							// propagate to filter fields
 							const filter_free_nodes_len	= self.filter_free_nodes.length
 							for (let j = 0; j < filter_free_nodes_len; j++) {
@@ -1360,6 +1362,8 @@ const render_inputs_list = function(self) {
 				self.search_cache = new Map()
 				// update filter_item q value from input
 				filter_item.q = component_input.value
+				// per-field typing follows the operator selector, not the last piped q
+				self.q_piped = false
 				// force search (sequenced to avoid out-of-order renders)
 				await run_search(self)
 			}

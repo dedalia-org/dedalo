@@ -60,8 +60,10 @@ describe('serve_code split', () => {
 		).toEqual([
 			'CHANNELS',
 			'channel_label',
+			'check_counts',
 			'check_row',
 			'fact_row',
+			'fold_section',
 			'release_facts',
 			'section',
 			'verdict',
@@ -289,8 +291,8 @@ describe('serve_code build feedback', () => {
 		// already reports the request; only the row can report that ITS file is
 		// the one being rewritten.
 		expect(
-			has('function(channel, node, artifact_cell, built_before)'),
-			'function(channel, node, artifact_cell, built_before)',
+			has('(channel, node, artifact_cell, built_before) =>'),
+			'(channel, node, artifact_cell, built_before) =>',
 		).toBe(true);
 	});
 
@@ -306,7 +308,9 @@ describe('serve_code build feedback', () => {
 			'build_mark && build_mark.channel===channel',
 		).toBe(true);
 		expect(
-			has('render_code_server_status = function(parent, code_server, mount_builder, build_mark)'),
+			has(
+				'render_code_server_status = (parent, code_server, mount_builder, build_mark, details_open) =>',
+			),
 		).toBe(true);
 	});
 
@@ -396,5 +400,26 @@ describe('serve_code prerelease channel (RELEASE_IDENTITY_DESIGN §2.8 item 1)',
 			}
 			expect(`${where}: ${sentence.split('%s').length - 1}`).toBe(`${where}: 0`);
 		}
+	});
+});
+
+describe('client constructors keep their prototype', () => {
+	test('no client file assigns X.prototype.* where X is an arrow function', () => {
+		// 2026-11-07: a biome useArrowFunction pass turned `render_serve_code = function ()`
+		// into `() => true`; an arrow has no .prototype, so the module threw on load
+		// and the Serve Code panel never rendered. Whole-client scan, not one file.
+		const client = join(import.meta.dir, '..', '..', 'client/dedalo');
+		const offenders: string[] = [];
+		for (const rel of readdirSync(client, { recursive: true }) as string[]) {
+			if (!rel.endsWith('.js') || rel.includes('node_modules') || rel.includes('/lib/')) continue;
+			const src = readFileSync(join(client, rel), 'utf8');
+			for (const [, name = ''] of src.matchAll(
+				/^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/gm,
+			)) {
+				if (new RegExp(`^${name.replace(/\$/g, '\\$')}\\.prototype\\.`, 'm').test(src))
+					offenders.push(`${rel}: ${name}`);
+			}
+		}
+		expect(offenders).toEqual([]);
 	});
 });

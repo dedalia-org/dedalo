@@ -36,7 +36,7 @@ import {
 import { getMatrixTableFromTipo } from '../ontology/resolver.ts';
 import { getSectionMap } from '../ontology/section_map.ts';
 import { getSectionIdFromTipo, requiredOntologyTld } from '../ontology/tld.ts';
-import { getParentTipo } from '../relations/children.ts';
+import { getChildren, getParentTipo } from '../relations/children.ts';
 import {
 	addParent,
 	isAncestor,
@@ -728,6 +728,45 @@ export async function updateParentData(rqo: Rqo, principal: Principal): Promise<
 // ===========================================================================
 // SAVE_ORDER (PHP :841).
 // ===========================================================================
+
+/**
+ * save_order rewrites the order 1..n FROM THE CLIENT LIST (sortChildren never
+ * re-reads the sibling set), so the list must be EXACTLY the parent's current
+ * children: a missing sibling would keep a stale, colliding number, a foreign
+ * entry would take a slot. Read under the parent's node lock, so the set cannot
+ * move between this check and the write. A parent with no children relation at
+ * all is left to sortChildren (it answers `false` → the section-map refusal).
+ * WC-2026-11-07-save-order-complete-list.
+ */
+async function assertCompleteSiblingList(
+	arLocators: { section_tipo: string; section_id: number }[],
+	parentSectionTipo: string,
+	parentSectionId: number,
+	sectionTipo: string,
+): Promise<void> {
+	const current = await getChildren(parentSectionId, parentSectionTipo);
+	if (current.length === 0) return;
+	const key = (locator: { section_tipo: string; section_id: unknown }) =>
+		`${locator.section_tipo}_${Number(locator.section_id)}`;
+	const expected = new Set(current.map(key));
+	const sent = new Set(arLocators.map(key));
+	const complete =
+		arLocators.length === expected.size &&
+		sent.size === expected.size &&
+		[...sent].every((entry) => expected.has(entry));
+	if (complete) return;
+	throw new DedaloError('resource.conflict', {
+		publicMessage:
+			'The order was not saved: the list of terms is out of date. Reload the tree and try again',
+		coordinates: {
+			section_tipo: sectionTipo,
+			parent_section_tipo: parentSectionTipo,
+			parent_section_id: parentSectionId,
+			action: 'save_order',
+		},
+	});
+}
+
 export async function saveOrder(rqo: Rqo, principal: Principal): Promise<TsApiOutcome> {
 	const source = (rqo.source ?? {}) as Record<string, unknown>;
 	const sectionTipo = source.section_tipo as string;
@@ -766,6 +805,7 @@ export async function saveOrder(rqo: Rqo, principal: Principal): Promise<TsApiOu
 	try {
 		result = await withTreeTransaction(async () => {
 			await acquireNodeLock(parentSectionTipo, parentSectionId);
+			await assertCompleteSiblingList(arLocators, parentSectionTipo, parentSectionId, sectionTipo);
 			return sortChildren(
 				sectionTipo,
 				arLocators,

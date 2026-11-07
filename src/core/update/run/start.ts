@@ -283,12 +283,13 @@ async function planFromManifest(
  */
 export async function startOntologyUpdateRun(
 	principal: Principal,
-	options: { waiveBackup: boolean; scope?: string[] },
+	options: { waiveBackup: boolean; scope?: string[]; source?: string },
 ): Promise<DriveOutcome> {
 	const plan = ontologyOnlyPlan({
 		installedRelease: DEDALO_ENGINE_VERSION,
 		installedData: await getCurrentDataVersion(),
 		...(options.scope === undefined ? {} : { scope: options.scope }),
+		...(options.source === undefined ? {} : { source: options.source }),
 	});
 	const effects = productionRunEffects({
 		principal,

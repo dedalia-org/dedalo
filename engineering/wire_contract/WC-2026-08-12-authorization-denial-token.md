@@ -170,3 +170,7 @@ HTTP 403
   special case: `api_transport.js` parses the body on ANY status
   (`WC-2026-08-15-error-status-is-a-channel`), so the exemption list that this
   entry and WC-051 each extended by one status no longer exists.
+
+## Addendum 2026-11-07 — the refusal's environment carries `labels_version`, not `get_label` (WC-2026-11-07-labels-separate-resource)
+
+A refused `start` still carries the environment block. The localization contract now comes from `page_globals.labels_version`: `page.js` calls `load_labels` on the `perm.denied` path, and if that fetch fails the panel renders with empty labels instead of breaking the page. The gate `authorization_denial_native` asserts `labels_version`.

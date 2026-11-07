@@ -5,28 +5,79 @@
 */
 .component_json {
 
-	// shared button save
-	// button save
-	.button_save {
-		position: absolute;
-		right: 0px;
-		top: 1px;
-		z-index: 1;
-		height: 30px;
-		margin: 0;
-		background-color: transparent;
-		border-color: transparent;
-		color: var(--color_white);
+	// editor menu: ONE line at any width, every button reachable. Save is a
+	// menu item (onRenderMenu) pinned to the right edge. As the menu narrows it
+	// COMPACTS first (container queries below: tighter icon buttons, then an
+	// icon-only Save); only past that does it scroll sideways, with a visible
+	// thin scrollbar so the hidden buttons are discoverable.
+	.jse-main .jse-menu {
+		container-type: inline-size;
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		overflow-y: hidden;
+		scrollbar-width: thin;
 
-		&:hover{
-			background-color: @color_grey_5;
-			border-color: @color_grey_5;
+		>.jse-button {
+			flex: 0 0 auto;
 		}
-	}//end .button_save
+
+		>.jse-button.button_save {
+			position: sticky;
+			right: 0;
+			z-index: 1;
+			width: auto;
+			padding: 0 0.75rem;
+			margin: 0;
+			background-color: inherit; // the menu's own surface, both themes
+			border-color: transparent;
+			color: var(--color_white);
+
+			&:hover {
+				background-color: @color_grey_5;
+			}
+		}
+
+		@container (max-width: 600px) {
+			>.jse-button:not(.jse-group-button):not(.button_save) {
+				width: 1.75rem;
+			}
+			>.jse-separator {
+				margin-left: 2px;
+				margin-right: 2px;
+			}
+		}
+		@container (max-width: 480px) {
+			// icon-only Save: the label stays as the title tooltip
+			>.jse-button.button_save {
+				font-size: 0;
+				padding: 0 0.6rem;
+				&::before {
+					width: 1rem;
+					height: 1rem;
+					margin-right: 0;
+				}
+			}
+		}
+	}//end .jse-menu
+
+	// Save state follows the wrapper's `.modified` (component_common
+	// set_changed_data adds it on edit, drops it on revert/save):
+	// nothing to save → dimmed; unsaved changes → Dédalo orange
+	&:not(.modified) .jse-main .jse-menu > .jse-button.button_save {
+		opacity: 0.45;
+	}
+	&.modified .jse-main .jse-menu > .jse-button.button_save {
+		opacity: 1;
+		background-color: @color_orange_dedalo;
+		color: var(--fg_on_brand); // brand orange is FILL ONLY: white ink was 2.44:1
+
+		&:hover {
+			filter: brightness(1.08);
+		}
+	}
 
 	//.edit
 	&.edit {
-		padding-bottom: 1.5rem;
 
 		>.content_data {
 			// Note that height is always the media min height (392px)
@@ -190,8 +241,8 @@
 
 	.component_json {
 
-		// save button
-		.button_save {
+		// save button (resting; the .modified highlight keeps its brand ink)
+		&:not(.modified) .jse-main .jse-menu > .jse-button.button_save {
 			color: var(--fg_default);
 		}
 

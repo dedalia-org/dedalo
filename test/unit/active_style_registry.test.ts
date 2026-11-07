@@ -4,7 +4,7 @@
  * `client/dedalo/core/page/js/active_style.js` ACTIVE_STYLES is the registry.
  * Every non-default id needs exactly one stylesheet `core/page/css/active_styles/<id>.less`,
  * scoped under its own `:root[data-active_style="<id>"]` and imported by main.less;
- * every label key is a defined label; theme-init.js caches under the same key.
+ * every label key is a defined label; head-init.js caches under the same key.
  * And the server side: `pickUiPreferences` ships only a small plain object.
  */
 import { describe, expect, test } from 'bun:test';
@@ -58,10 +58,10 @@ describe('active style registry', () => {
 		for (const { label } of registry) expect(typeof master[label]).toBe('string');
 	});
 
-	test('theme-init.js caches under ACTIVE_STYLE_KEY', () => {
+	test('head-init.js caches under ACTIVE_STYLE_KEY', () => {
 		const key = registrySource.match(/ACTIVE_STYLE_KEY = '([a-z_]+)'/)?.[1];
 		expect(key).toBeDefined();
-		expect(readFileSync(join(PAGE, 'js/theme-init.js'), 'utf8')).toContain(`'${key}'`);
+		expect(readFileSync(join(PAGE, 'js/head-init.js'), 'utf8')).toContain(`'${key}'`);
 	});
 });
 

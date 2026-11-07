@@ -792,9 +792,9 @@ input::placeholder {
 	&:not(.active)>.label {
 		color: var(--field_label_fg); // edit labels were color_grey_8
 		font-size: 1rem;
-		// 300, not 100: system-ui on macOS has a true Ultralight 100 (hairline
-		// strokes, too thin to read at 1rem); Windows had no 100 and showed 300 anyway
-		font-weight: 300;
+		// 200, not 100: system-ui on macOS has a true Ultralight 100 (hairline
+		// strokes, too thin to read at 1rem); Windows had no 100 and showed 200 anyway
+		font-weight: 200;
 		// letter-spacing: 0.015em;
 	}
 
@@ -1354,7 +1354,6 @@ dd-modal.dd_presets {
 	overflow: auto;
 
 	.jse-menu {
-		padding-right: 3.617rem;
 
 		>button.svelte-3erbu0 {
 			width: 2.25rem;

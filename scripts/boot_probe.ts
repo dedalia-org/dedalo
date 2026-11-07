@@ -265,7 +265,7 @@ async function discoverBootAssets(origin: string, maxFiles: number): Promise<str
 	const found: string[] = [
 		`${pagePath}index.html`,
 		`${pagePath}css/main.css`,
-		`${pagePath}js/theme-init.js`,
+		`${pagePath}js/head-init.js`,
 	];
 	const resolveRelative = (baseDir: string, relative: string): string => {
 		const url = new URL(relative, `${origin}${baseDir}`);

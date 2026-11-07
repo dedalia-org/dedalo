@@ -32,7 +32,12 @@ import {
 	readLocalOntologyManifest,
 } from '../../ontology/ontology_manifest.ts';
 import { admissibleUpdateTlds, updateOntology } from '../../ontology/ontology_update.ts';
-import { type OntologyUpdateCatalog, pullServers } from '../../ontology/ontology_update_target.ts';
+import { unattendedSources } from '../../ontology/ontology_update_source.ts';
+import {
+	findConfiguredServer,
+	type OntologyUpdateCatalog,
+	pullServers,
+} from '../../ontology/ontology_update_target.ts';
 import type { ReleaseStep } from '../catalog_file.ts';
 import {
 	compareVersionArrays,
@@ -59,8 +64,18 @@ export interface OntologyPhaseDeps {
 	 * panel's ontology-only run, still fails without a source.
 	 */
 	sourceOptional?: boolean;
-	/** The run's narrowing (RunJournal.ontology_scope); matrix_dd is never narrowed away. */
+	/**
+	 * The run's narrowing (RunJournal.ontology_scope). Unattended, matrix_dd is
+	 * never narrowed away; with a `source` (the panel's pick) it IS the selection.
+	 */
 	scope?: readonly string[];
+	/**
+	 * The master the OPERATOR picked (RunJournal.ontology_source): its configured
+	 * url, or `localhost` (this master's own export). The run then takes the
+	 * scope's TLDs from that one source — any TLD it lists, no D-8 map, no
+	 * ACTIVE_ONTOLOGY_TLDS boundary (ontology_update.ts assertUpdateTldScope).
+	 */
+	source?: string;
 	activeTlds?: readonly string[];
 	readManifest?: (
 		source: OntologySource,
@@ -69,6 +84,7 @@ export interface OntologyPhaseDeps {
 	update?: (
 		options: unknown,
 		userId: number,
+		doorDeps?: { operatorPicked?: boolean },
 	) => Promise<{
 		ok: boolean;
 		msg: string;
@@ -98,10 +114,22 @@ function sourcesOf(catalog: OntologyUpdateCatalog): OntologySource[] {
 			},
 		];
 	}
-	return providers.map((entry) => ({
+	// unattended: the declaring providers, else the first (an ordinary install)
+	return unattendedSources(providers).map((entry) => ({
 		server: { name: entry.url, url: entry.url, code: entry.code },
 		tlds: entry.tlds,
 	}));
+}
+
+/** The operator's pick as a source; null = no longer configured. */
+function pickedSource(source: string, catalog: OntologyUpdateCatalog): OntologySource | null {
+	if (source === 'localhost')
+		return catalog.isOntologyServer ? (sourcesOf(catalog)[0] ?? null) : null;
+	// a pick is a pull source: an ontology server's code-only entries are not
+	const entry = findConfiguredServer({ ...catalog, servers: pullServers(catalog) }, source);
+	return entry === undefined
+		? null
+		: { server: { name: entry.url, url: entry.url, code: entry.code }, tlds: undefined };
 }
 
 async function defaultReadManifest(
@@ -181,14 +209,12 @@ async function updateFrom(
 	const manifest = await deps.readManifest(source, deps.catalog);
 	if (!manifest.ok)
 		return { source: source.server.url, succeeded: false, problems: [manifest.reason] };
-	const files = filesFor(source, manifest, deps.activeTlds).filter(
-		(file) => deps.scope === undefined || file.tld === 'matrix_dd' || deps.scope.includes(file.tld),
-	);
+	const files = selectedFiles(source, manifest, deps);
 	const problem = beforeTheDoor(step, manifest, files);
 	if (problem !== null) return { source: source.server.url, succeeded: false, problems: [problem] };
 	if (files.length === 0)
 		return { source: source.server.url, succeeded: true, skipped: 'nothing to update' };
-	const response = await deps.update({ server: source.server, files }, userId);
+	const response = await deps.update({ server: source.server, files }, userId, doorDepsOf(deps));
 	return {
 		source: source.server.url,
 		version: manifest.version,
@@ -202,18 +228,57 @@ async function updateFrom(
 	};
 }
 
+/**
+ * The files to take from this source. A pick: exactly the scope's TLDs the
+ * manifest lists (matrix_dd only when selected). Unattended: {@link filesFor},
+ * narrowed by the scope, matrix_dd never narrowed away.
+ */
+function selectedFiles(
+	source: OntologySource,
+	manifest: Extract<ManifestResult, { ok: true }>,
+	deps: ResolvedDeps,
+): { tld: string; url: string }[] {
+	const scope = deps.scope;
+	if (deps.source !== undefined && scope !== undefined) {
+		const ontologies = manifest.ontologies
+			.filter((entry) => scope.includes(entry.tld))
+			.map((entry) => ({ tld: entry.tld, url: entry.url }));
+		const lists =
+			manifest.matrixDdUrl !== null && scope.includes('matrix_dd')
+				? [{ tld: 'matrix_dd', url: manifest.matrixDdUrl }]
+				: [];
+		return [...lists, ...ontologies];
+	}
+	return filesFor(source, manifest, deps.activeTlds).filter(
+		(file) => scope === undefined || file.tld === 'matrix_dd' || scope.includes(file.tld),
+	);
+}
+
+/** The door's mode: an operator's pick, or the unattended run. */
+function doorDepsOf(deps: ResolvedDeps): { operatorPicked?: boolean } {
+	return deps.source === undefined ? {} : { operatorPicked: true };
+}
+
 /** One failed source, for the run's note: where, and the door's own sentences. */
 function failureLine(line: Record<string, unknown>): string {
 	const problems = Array.isArray(line.problems) ? line.problems.map(String) : [];
 	return `${String(line.source)}: ${[line.msg, ...problems].filter(Boolean).join(' — ')}`;
 }
 
-type ResolvedDeps = Required<Omit<OntologyPhaseDeps, 'scope' | 'sourceOptional'>> &
-	Pick<OntologyPhaseDeps, 'scope'>;
+type ResolvedDeps = Required<Omit<OntologyPhaseDeps, 'scope' | 'source' | 'sourceOptional'>> &
+	Pick<OntologyPhaseDeps, 'scope' | 'source'>;
+
+/** The run's scope and pick, each only when set (absent ≠ undefined). */
+function narrowingOf(deps: OntologyPhaseDeps): Pick<OntologyPhaseDeps, 'scope' | 'source'> {
+	return {
+		...(deps.scope === undefined ? {} : { scope: deps.scope }),
+		...(deps.source === undefined ? {} : { source: deps.source }),
+	};
+}
 
 function resolvedDeps(deps: OntologyPhaseDeps): ResolvedDeps {
 	return {
-		...(deps.scope === undefined ? {} : { scope: deps.scope }),
+		...narrowingOf(deps),
 		catalog: deps.catalog ?? config.ontologyIo,
 		activeTlds: deps.activeTlds ?? config.ontologyIo.activeOntologyTlds,
 		readManifest: deps.readManifest ?? defaultReadManifest,
@@ -221,7 +286,27 @@ function resolvedDeps(deps: OntologyPhaseDeps): ResolvedDeps {
 	};
 }
 
-/** The phase: every source, in catalog order; failed when any source failed. */
+/** The operator's pick: that one master, or a failed phase when it is no longer configured. */
+async function runPickedPhase(
+	source: string,
+	step: ReleaseStep,
+	userId: number,
+	resolved: ResolvedDeps,
+): Promise<PhaseResult> {
+	const picked = pickedSource(source, resolved.catalog);
+	if (picked === null) {
+		return {
+			outcome: 'failed',
+			evidence: { summary: 'the picked ontology master is no longer configured on this instance' },
+		};
+	}
+	const line = await updateFrom(picked, step, userId, resolved);
+	return line.succeeded === true
+		? { outcome: 'ok', evidence: { sources: [line] } }
+		: { outcome: 'failed', evidence: { sources: [line], summary: failureLine(line) } };
+}
+
+/** The phase: the operator's pick, else every unattended source in catalog order; failed when any failed. */
 export async function runOntologyPhase(
 	step: ReleaseStep,
 	userId: number,
@@ -229,6 +314,7 @@ export async function runOntologyPhase(
 ): Promise<PhaseResult> {
 	const resolved = resolvedDeps(deps);
 	const sources: Record<string, unknown>[] = [];
+	if (resolved.source !== undefined) return runPickedPhase(resolved.source, step, userId, resolved);
 	for (const source of sourcesOf(resolved.catalog)) {
 		sources.push(await updateFrom(source, step, userId, resolved));
 	}

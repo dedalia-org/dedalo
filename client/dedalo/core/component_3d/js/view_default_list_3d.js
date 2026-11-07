@@ -191,7 +191,7 @@ export const get_content_data = function(self) {
 			image.src = url
 
 		// open viewer. Media common handler for 3d, av, image, pdf, svg
-			image.addEventListener('mousedown', handler_open_viewer.bind(self))
+			image.addEventListener('click', handler_open_viewer.bind(self))
 
 
 	return content_data
