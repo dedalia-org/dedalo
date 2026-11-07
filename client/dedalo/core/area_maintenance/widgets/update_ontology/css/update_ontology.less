@@ -77,6 +77,73 @@
 	}
 }
 
+// installed → incoming transition cards: the panel's result and the confirm modal
+.dd_version_change() {
+	.version_change {
+		display: grid;
+		grid-template-columns: 1fr auto 1fr;
+		gap: 0.7rem;
+		align-items: stretch;
+		margin-bottom: 0.6rem;
+
+		.vcard {
+			border: 1px solid var(--border_default);
+			border-radius: 8px;
+			padding: 0.65rem 0.8rem;
+			background-color: var(--bg_surface_alt);
+
+			&.incoming {
+				border-color: color-mix(in srgb, var(--color_danger) 40%, var(--border_default));
+				background-color: color-mix(in srgb, var(--color_danger) 6%, var(--bg_surface_alt));
+			}
+
+			.lbl {
+				font-size: 0.66rem;
+				font-weight: 600;
+				letter-spacing: 0.05em;
+				text-transform: uppercase;
+				color: var(--fg_muted);
+			}
+			.num {
+				font-family: @dd_mono;
+				font-size: 1.2rem;
+				font-weight: 600;
+				font-variant-numeric: tabular-nums;
+				margin: 0.15rem 0 0.1rem;
+				color: var(--fg_default);
+			}
+			.src {
+				font-size: 0.78rem;
+				color: var(--fg_muted);
+				word-break: break-word;
+			}
+		}
+
+		.arrow {
+			align-self: center;
+			color: var(--color_danger);
+			font-size: 1.35rem;
+			line-height: 1;
+		}
+	}
+
+	// Was a private `520px` literal — one author's guess at "narrow", on no
+	// scale. Snapped to the phone tier (600px, vars.less). The only band that
+	// changes is 520-600px, where the three-part `1fr auto 1fr` version row was
+	// already down to ~250px per card; stacking it there is the same reflow one
+	// step earlier, not a different design.
+	@media screen and (max-width: @width_break_point_phone) {
+		.version_change {
+			grid-template-columns: 1fr;
+
+			.arrow {
+				justify-self: center;
+				transform: rotate(90deg);
+			}
+		}
+	}
+}
+
 .wrapper_widget.update_ontology {
 
 	// vertical rhythm between the note / sections / form / response
@@ -163,80 +230,20 @@
 		}
 	}
 
-	// ---- installed → incoming transition -----------------------------------
-	.version_change {
-		display: grid;
-		grid-template-columns: 1fr auto 1fr;
-		gap: 0.7rem;
-		align-items: stretch;
-		margin-bottom: 0.6rem;
+	// ---- installed → incoming transition (shared with the confirm modal)
+	.dd_version_change();
 
-		.vcard {
-			border: 1px solid var(--border_default);
-			border-radius: 8px;
-			padding: 0.65rem 0.8rem;
-			background-color: var(--bg_surface_alt);
-
-			&.incoming {
-				border-color: color-mix(in srgb, var(--color_danger) 40%, var(--border_default));
-				background-color: color-mix(in srgb, var(--color_danger) 6%, var(--bg_surface_alt));
-			}
-
-			.lbl {
-				font-size: 0.66rem;
-				font-weight: 600;
-				letter-spacing: 0.05em;
-				text-transform: uppercase;
-				color: var(--fg_muted);
-			}
-			.num {
-				font-family: @dd_mono;
-				font-size: 1.2rem;
-				font-weight: 600;
-				font-variant-numeric: tabular-nums;
-				margin: 0.15rem 0 0.1rem;
-				color: var(--fg_default);
-			}
-			.src {
-				font-size: 0.78rem;
-				color: var(--fg_muted);
-				word-break: break-word;
-			}
-		}
-
-		.arrow {
-			align-self: center;
-			color: var(--color_danger);
-			font-size: 1.35rem;
-			line-height: 1;
-		}
-	}
-
-	// Was a private `520px` literal — one author's guess at "narrow", on no
-	// scale. Snapped to the phone tier (600px, vars.less). The only band that
-	// changes is 520-600px, where the three-part `1fr auto 1fr` version row was
-	// already down to ~250px per card; stacking it there is the same reflow one
-	// step earlier, not a different design.
-	@media screen and (max-width: @width_break_point_phone) {
-		.version_change {
-			grid-template-columns: 1fr;
-
-			.arrow {
-				justify-self: center;
-				transform: rotate(90deg);
-			}
-		}
-	}
-
-	// ---- TLD reference block (sits above the TLD input, inside the form) ----
-	.tlds_reference {
+	// ---- TLD catalog (sits above the TLD input, inside the form) ----------
+	// The picked master's offer: one row per ontology — checkbox · TLD · name ·
+	// what selecting it does here — grouped by typology, scrolled in place.
+	.tld_catalog {
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
 		margin-bottom: 0.9rem;
 
 		// same inline-code chip as the admin notes above
-		code {
+		.dd_note code {
 			display: inline !important;
 			width: auto !important;
 			margin: 0 !important;
@@ -257,87 +264,161 @@
 			margin: 0;
 			line-height: 1.6;
 		}
+		.tld_default_note {
+			font-size: 0.8rem;
+		}
 
-		.tlds_row {
+		.tld_toolbar {
 			display: flex;
-			flex-direction: column;
-			gap: 0.35rem;
+			flex-wrap: wrap;
+			align-items: center;
+			gap: 0.5rem 0.75rem;
 
-			.hd {
-				display: flex;
+			.tld_filter {
+				flex: 1 1 14rem;
+				min-width: 0;
+				margin: 0;
+			}
+			.tld_only {
+				display: inline-flex;
 				align-items: center;
-				gap: 0.6rem;
+				gap: 0.3rem;
+				font-size: 0.82rem;
+				white-space: nowrap;
+				cursor: pointer;
+			}
+			.tld_count {
+				font-size: 0.82rem;
+				color: var(--fg_muted);
+				font-variant-numeric: tabular-nums;
+				white-space: nowrap;
+			}
+			.tld_default,
+			.tld_clear {
+				flex: 0 0 auto;
+				font-size: 0.74rem;
+				padding: 0.15rem 0.5rem;
+			}
+		}
 
-				.lbl {
+		.tld_list_head {
+			font-size: 0.72rem;
+			font-weight: 600;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+			color: var(--fg_muted);
+
+			&:empty {
+				display: none;
+			}
+		}
+
+		// 200+ ontologies: scroll in place instead of pushing the submit off the card
+		.tld_list {
+			max-height: 24rem;
+			overflow-y: auto;
+			border: 1px solid var(--border_default);
+			border-radius: 6px;
+			background-color: var(--bg_surface);
+
+			&.loading {
+				opacity: 0.6;
+			}
+
+			> .empty {
+				padding: 0.75rem;
+				font-size: 0.85rem;
+				font-style: italic;
+				color: var(--fg_muted);
+			}
+
+			.tld_group {
+				.grp {
+					position: sticky;
+					top: 0;
+					z-index: 1;
+					padding: 0.3rem 0.6rem;
+					border-bottom: 1px solid var(--border_default);
+					background-color: var(--bg_surface_alt);
 					font-size: 0.72rem;
 					font-weight: 600;
 					letter-spacing: 0.04em;
 					text-transform: uppercase;
 					color: var(--fg_muted);
-					flex: 1 1 auto;
-					min-width: 0;
-				}
-				.use_list,
-				.fetch_list {
-					flex: 0 0 auto;
-					font-size: 0.74rem;
-					padding: 0.15rem 0.5rem;
-
-					&:disabled {
-						opacity: 0.45;
-						cursor: not-allowed;
-					}
 				}
 			}
 
-			// a master's manifest is long (200+ TLDs): scroll it in place instead
-			// of pushing the submit button off the card
-			.chips {
-				display: flex;
-				flex-wrap: wrap;
-				gap: 0.3rem;
-				max-height: 7.5rem;
-				overflow-y: auto;
-
-				.empty {
-					font-size: 0.8rem;
-					font-style: italic;
-					color: var(--fg_muted);
-				}
-			}
-
-			// one TLD, click to add it to (or remove it from) the input. `.on` = this
-			// TLD is IN the line right now — the state is repainted from the input on
-			// every change, including hand typing, so a chip never lies.
-			.tld_chip {
-				padding: 0.1rem 0.45rem;
-				border: 1px solid var(--border_default);
-				border-radius: 999px;
-				background-color: var(--bg_surface_alt);
-				color: var(--fg_muted);
-				font-family: @dd_mono;
-				font-size: 0.76rem;
-				line-height: 1.5;
+			.tld_row {
+				display: grid;
+				grid-template-columns: auto 8.5rem minmax(0, 1fr) auto;
+				align-items: center;
+				gap: 0.6rem;
+				padding: 0.3rem 0.6rem;
+				border-bottom: 1px solid color-mix(in srgb, var(--border_default) 50%, transparent);
 				cursor: pointer;
-				transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+
+				// `display: grid` would beat the [hidden] the filter sets
+				&[hidden] {
+					display: none;
+				}
 
 				&:hover {
-					border-color: color-mix(in srgb, var(--color_primary) 45%, var(--border_default));
-					background-color: color-mix(in srgb, var(--color_primary) 10%, transparent);
-					color: var(--fg_default);
+					background-color: color-mix(in srgb, var(--color_primary) 6%, transparent);
+				}
+				&.on {
+					background-color: color-mix(in srgb, var(--color_primary) 12%, transparent);
 				}
 
-				&.on {
-					border-color: color-mix(in srgb, var(--color_primary) 55%, var(--border_default));
-					background-color: color-mix(in srgb, var(--color_primary) 18%, transparent);
-					color: var(--fg_default);
+				input {
+					margin: 0;
+				}
+				// a plain mono label: the maintenance area styles bare `code` as a block
+				.tld {
+					display: inline !important;
+					width: auto !important;
+					margin: 0 !important;
+					padding: 0 !important;
+					border: 0 !important;
+					background: none !important;
+					color: var(--fg_default) !important;
+					font-family: @dd_mono;
+					font-size: 0.8rem;
 					font-weight: 600;
+					line-height: 1.4;
+					overflow-wrap: anywhere;
+				}
+				.nm {
+					font-size: 0.86rem;
+					min-width: 0;
+					overflow-wrap: anywhere;
+				}
+				.dd_badge {
+					justify-self: end;
+					white-space: nowrap;
+				}
 
-					&:hover {
-						border-color: color-mix(in srgb, var(--color_danger) 45%, var(--border_default));
-						background-color: color-mix(in srgb, var(--color_danger) 12%, transparent);
+				// phone: name under the TLD, badge on the TLD line
+				@media screen and (max-width: @width_break_point_phone) {
+					grid-template-columns: auto minmax(0, 1fr) auto;
+
+					.nm {
+						grid-column: 2 / -1;
+						grid-row: 2;
 					}
 				}
+			}
+		}
+
+		.tld_notes {
+			display: flex;
+			flex-direction: column;
+			gap: 0.35rem;
+
+			&:empty {
+				display: none;
+			}
+			.dd_note {
+				margin: 0;
 			}
 		}
 	}
@@ -345,47 +426,6 @@
 	// ---- form: the single destructive submit -------------------------------
 	.form_container {
 		padding-top: 0;
-
-		// the run's backup precondition (build_backup_gate), between the TLD
-		// input and the submit: verdict line → waiver → its consequence
-		.backup_gate {
-			display: flex;
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 0.45rem;
-			margin: 1.1rem 0;
-
-			> .dd_note {
-				margin: 0;
-			}
-			> .backup_state.state_ok {
-				color: var(--fg_default);
-				padding-left: 0.7rem;
-				border-left: 3px solid var(--color_success);
-			}
-
-			> .waive_backup_label {
-				display: inline-flex;
-				align-items: center;
-				gap: 0.5rem;
-				cursor: pointer;
-				font-weight: 600;
-				color: var(--color_danger);
-
-				// the form's blanket `input { width:100% }` would stretch it
-				> .waive_backup_check {
-					width: auto;
-					height: auto;
-					margin: 0;
-					flex: 0 0 auto;
-					accent-color: var(--color_danger);
-					cursor: pointer;
-				}
-			}
-			> .waive_backup_note {
-				padding-left: 1.6rem;
-			}
-		}
 
 		.button_submit:disabled {
 			opacity: 0.45;
@@ -406,6 +446,24 @@
 
 	// ---- collapsible result details ----------------------------------------
 	.body_response {
+
+		// the running update's job (track_update_job): caption over the kit bar
+		.update_progress {
+			display: flex;
+			flex-direction: column;
+			gap: 0.4rem;
+			margin: 0.75rem 0;
+
+			> .update_progress_caption {
+				font-size: 0.85rem;
+				color: var(--fg_default);
+			}
+			// the shared tracker's own status nodes (spinner, msg, raw frame):
+			// the bar is the surface
+			> .update_progress_stream {
+				display: none;
+			}
+		}
 
 		.response_detail {
 			.dd_surface();
@@ -436,3 +494,95 @@
 	}
 
 }//end update_ontology
+
+
+
+// the confirm modal (render_update_ontology.js open_confirm_modal): the code
+// update's version-modal shape — what, from where, then the waiver beside the
+// action button
+.widget_update_ontology_modal {
+
+	.body {
+		padding: 0.75rem 1rem 0;
+
+		.dd_version_change();
+
+		.confirm_tlds {
+			display: grid;
+			grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+			gap: 0.25rem 1.5rem;
+			margin: 0.4rem 0 0;
+			max-height: 16rem;
+			overflow: auto;
+
+			> .confirm_tld {
+				display: flex;
+				gap: 0.6rem;
+				align-items: baseline;
+				min-width: 0;
+
+				// a plain mono label: the maintenance area styles bare `code` as a block
+				> .tld {
+					display: inline !important;
+					width: auto !important;
+					margin: 0 !important;
+					padding: 0 !important;
+					border: 0 !important;
+					background: none !important;
+					color: var(--fg_default) !important;
+					font-family: @dd_mono;
+					font-size: 0.85rem;
+					font-weight: 600;
+					line-height: 1.4;
+					flex: 0 0 auto;
+				}
+				> .nm {
+					font-size: 0.9rem;
+					color: var(--fg_muted);
+					overflow-wrap: anywhere;
+				}
+			}
+		}
+
+		.untracked_note {
+			margin-top: 0.8rem;
+			max-width: none;
+		}
+	}
+
+	// the slotted footer node IS `.content.footer`: inset like the body
+	.footer {
+		text-align: left;
+		margin-top: 0.5rem;
+		padding: 0 1rem 1rem;
+
+		.waive_backup_row {
+			.dd_waive_backup_row();
+			max-width: none;
+			margin: 0 0 1.25rem;
+			padding: 0;
+
+			> .dd_note.waive_backup_note {
+				width: auto;
+			}
+		}
+		button.danger {
+			display: block;
+			margin: 0 auto;
+
+			// locked until the waiver is ticked: it must READ as unavailable
+			&:disabled {
+				opacity: 0.4;
+				filter: grayscale(0.6);
+				cursor: not-allowed;
+				box-shadow: none;
+				pointer-events: none;
+			}
+		}
+		.response.error {
+			margin-top: 0.75rem;
+			text-align: center;
+			color: var(--color_danger);
+		}
+	}
+}

@@ -306,6 +306,18 @@ describe('readLocalOntologyManifest / parseOntologyManifest — the offline sour
 		expect(failure(result)).toMatch(/^the ontology directory cannot be read/);
 	});
 
+	test('the export data dump `matrix` is never offered as an ontology (a pick cannot import it)', () => {
+		const result = parseOntologyManifest({
+			info: null,
+			files: [
+				{ tld: 'matrix', section_tipo: 'matrix', url: 'https://zz.invalid/matrix.copy.gz' },
+				{ tld: 'zzmd', section_tipo: 'zzmd0', url: 'https://zz.invalid/zzmd.copy.gz' },
+			],
+		});
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.ontologies.map((entry) => entry.tld)).toEqual(['zzmd']);
+	});
+
 	test('info null → every file under its bare TLD, warned; a bad shape is a reason', () => {
 		const result = parseOntologyManifest({
 			info: null,

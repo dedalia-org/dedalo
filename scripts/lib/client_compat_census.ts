@@ -178,6 +178,18 @@ export const NON_ENVELOPE_READS: readonly NonEnvelopeRead[] = [
 			"One row of the widget payload's `servers[]`: the probe writes `msg`/`errors`/`response_code`/`result` per server (src/core/area_maintenance/widgets/update_ontology.ts).",
 	},
 	{
+		file: 'client/dedalo/core/area_maintenance/widgets/update_ontology/js/render_update_ontology.js',
+		pattern: /\bjob_result\.(?:msg|errors)\b/g,
+		reason:
+			"`job_result` is the update_ontology JOB's RESULT payload — the final status frame's `data` (src/core/area_maintenance/widgets/update_ontology.ts ontologyAnswer: {msg, errors?, run_id, root_info, census?}), not an envelope: `msg` is the import log, `errors` the non-fatal import lines.",
+	},
+	{
+		file: 'client/dedalo/core/area_maintenance/widgets/update_ontology/js/render_update_ontology.js',
+		pattern: /\bfinal_frame\.errors\b/g,
+		reason:
+			"`final_frame` is the update_ontology job's server-owned STATUS FRAME {pid, pfile, is_running, data, errors, total_time} (src/core/media/jobs.ts JobStatusFrame), not an envelope: `errors` there is the job's collected lines (a stop / the lane deadline say why there).",
+	},
+	{
 		file: 'client/dedalo/core/area_maintenance/widgets/update_code/js/update_code_phases.js',
 		pattern: /\bframe\.errors\b/g,
 		reason:

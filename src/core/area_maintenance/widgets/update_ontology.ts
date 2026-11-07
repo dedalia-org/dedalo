@@ -114,14 +114,18 @@ async function updateOntologyGetValue(
 
 	const servers = await probeOntologyServers();
 	const currentOntology = await readInstalledOntologyMetadata();
+	// What is installed here, so the panel can say "new" / "installed" per offered TLD.
+	const { getActiveTlds } = await import('../../db/dd_ontology.ts');
+	const installedTlds = [...(await getActiveTlds())].sort();
 
 	// TLD list: the configured active TLDs, always unioned with the core pair.
 	// `..._configured` tells the panel whether ACTIVE_ONTOLOGY_TLDS was set at all
 	// or the list below is the engine's fallback — an administrator needs to know
 	// which of the two they are looking at before editing anything.
-	// The core pair is the update door's own constant: the server refuses any
-	// TLD outside this list ∪ matrix_dd (U-52, ontology_update.ts
-	// assertUpdateTldScope), so the panel offers exactly what will be accepted.
+	// The core pair is the update door's own constant. This list is the panel's
+	// DEFAULT selection and what the unattended run takes (U-52, ontology_update.ts
+	// assertUpdateTldScope); an operator's pick may take any TLD the picked master
+	// offers (never localontology).
 	const { CORE_UPDATE_TLDS } = await import('../../ontology/ontology_update.ts');
 	const activeOntologyTlds = [
 		...new Set([...config.ontologyIo.activeOntologyTlds, ...CORE_UPDATE_TLDS]),
@@ -135,44 +139,67 @@ async function updateOntologyGetValue(
 			current_ontology: currentOntology,
 			active_ontology_tlds: activeOntologyTlds,
 			active_ontology_tlds_configured: config.ontologyIo.activeOntologyTldsConfigured,
+			installed_tlds: installedTlds,
 			// The run's backup gate, as the code panel reads it (`backup_fresh`):
 			// the update is REFUSED unless this is `ok` or the operator waives it,
-			// so the panel states it before the click instead of after the refusal.
+			// so the confirm modal states it (and offers the waiver) before the
+			// update is sent, instead of after the refusal.
 			backup: await backupFreshnessCheck(principal),
 			body: `${labels.update_ontology ?? 'Update ontology'} is disabled for ${config.entity}`,
-			// Localized confirmation copy (WARNING label), served in the request's
-			// application language; the English literal is a fallback only.
+			// Localized irreversibility warning (the body of the confirm modal's
+			// last `ui.confirm`), served in the request's application language;
+			// the English literal is a fallback only.
 			confirm_text:
 				labels.update_ontology_confirm_text ??
-				'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! WARNING !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n' +
-					'OVERWRITING THE COMMON ONTOLOGIES\n' +
-					'The ontology of every selected TLD (the common/shared ontologies) will be replaced\n' +
-					"by the master's server version and re-processed. This cannot be undone.\n" +
-					'Your local ontology is NOT overwritten: custom TLDs and localontology overrides\n' +
-					'are kept — the server refuses any TLD outside the active ontology list.\n' +
+				'The ontology of every selected TLD will be replaced by the selected server\u2019s version and re-processed. This cannot be undone.\n' +
+					'localontology overrides are never part of an update and are kept; any other selected TLD replaces the installed one of the same name.\n' +
 					'Are you sure you want to continue?',
 		},
 	};
 }
 
-/** The operator's selection, as the run's narrowing: the TLDs named by the request's files. */
-function requestedScope(files: unknown): { scope?: string[] } {
-	if (!Array.isArray(files)) return {};
-	const tlds = files
-		.map((file) => (file as { tld?: unknown } | null)?.tld)
-		.filter((tld): tld is string => typeof tld === 'string' && tld !== 'matrix_dd');
-	return tlds.length === 0 ? {} : { scope: [...new Set(tlds)] };
+/**
+ * The request as the run's source + scope. A named server is the operator's
+ * PICK: its url (or `localhost` for this master's own export) and EXACTLY the
+ * files' TLDs — matrix_dd only when sent; an empty list stays an empty scope
+ * (nothing to update), it never falls through to the unattended set. No
+ * server: the unattended set, narrowed by the files' TLDs when there are any.
+ */
+function requestedPick(server: unknown, files: unknown): { source?: string; scope?: string[] } {
+	const picked = server as { url?: unknown; code?: unknown } | null | undefined;
+	const source =
+		picked?.code === 'localhost'
+			? 'localhost'
+			: typeof picked?.url === 'string'
+				? picked.url
+				: null;
+	const tlds = [
+		...new Set(
+			(Array.isArray(files) ? files : [])
+				.map((file) => (file as { tld?: unknown } | null)?.tld)
+				.filter((tld): tld is string => typeof tld === 'string'),
+		),
+	];
+	if (source !== null) return { source, scope: tlds };
+	return tlds.length === 0 ? {} : { scope: tlds };
 }
 
 /**
  * The OPEN (owned) branch: an ONTOLOGY-ONLY UPDATE RUN (update audit
  * 2026-10-29, Phase 2.4; core/update/run/start.ts startOntologyUpdateRun) —
  * journaled, under maintenance, behind the run's backup and lock, and resumed
- * by the next boot if the process dies mid-import. The TLD set is the
- * server's (every active shared TLD from its one source, D-6/D-8); the TLDs of
- * the request's file list only NARROW it (never add to it). `waive_backup:
+ * by the next boot if the process dies mid-import. A request naming a
+ * `server` is an operator's PICK: that one master, exactly the TLDs of the
+ * request's files (an empty list updates nothing); without one the set is the
+ * unattended one (D-6/D-8), only narrowed by the files' TLDs. `waive_backup:
  * true` waives the run's database backup, journaled. The staged/recoverable import itself (WC-023) is
  * core/ontology/ontology_update.ts, gated by ontology_update_shell_native.
+ *
+ * A BACKGROUND mediaJobs job, like the code update: the immediate answer is the
+ * {pid, pfile} poll handle (dd_utils_api:get_process_status), the import's
+ * progress frames (core/ontology/update_progress.ts) ride the job's `data`
+ * while it runs, and the job's RESULT is the answer the panel renders
+ * (`ontologyAnswer`). A refusal / failure is the job's coded error.
  *
  * COVERAGE-EXEMPT (coverage plan §5.2; reason registered in
  * engineering/crap_coverage_exempt.json): a thin shell over the run, whose
@@ -184,23 +211,44 @@ async function updateOntologyOwned(
 	principal: Principal,
 ): Promise<WidgetResponse> {
 	const { startOntologyUpdateRun } = await import('../../update/run/start.ts');
-	const { ontologyRunAnswer } = await import('../../update/run/ontology_phase.ts');
-	const outcome = await startOntologyUpdateRun(principal, {
-		waiveBackup: options.waive_backup === true,
-		...requestedScope(options.files),
-	});
-	// The client reads msg/errors and root_info at the TOP LEVEL of the response
-	// (render_update_ontology.js), so root_info rides as an extension key.
-	const answer = ontologyRunAnswer(outcome.journal);
+	const { withOntologyProgress } = await import('../../ontology/update_progress.ts');
+	const { mediaJobs } = await import('../../media/jobs.ts');
+	const record = mediaJobs.submit(
+		'update_ontology',
+		async ({ onData }) => {
+			const outcome = await withOntologyProgress(onData, () =>
+				startOntologyUpdateRun(principal, {
+					waiveBackup: options.waive_backup === true,
+					...requestedPick(options.server, options.files),
+				}),
+			);
+			return ontologyAnswer(outcome.journal);
+		},
+		// an operator's update never queues behind a transcode backlog (PERF-11)
+		{ lane: 'maintenance', userId: principal.userId },
+	);
 	return {
 		data: true,
+		msg: `OK. Ontology job running in process ${process.pid}`,
+		extend: { pid: process.pid, pfile: `${record.id}.json` },
+	};
+}
+
+/**
+ * The finished run as the panel reads it (render_update_ontology.js
+ * render_update_result): msg + errors + root_info (+ census), and the run id.
+ */
+async function ontologyAnswer(
+	journal: Parameters<typeof import('../../update/run/ontology_phase.ts').ontologyRunAnswer>[0],
+): Promise<Record<string, unknown>> {
+	const { ontologyRunAnswer } = await import('../../update/run/ontology_phase.ts');
+	const answer = ontologyRunAnswer(journal);
+	return {
 		msg: answer.msg,
 		...(answer.errors.length === 0 ? {} : { errors: answer.errors }),
-		extend: {
-			run_id: outcome.journal.run_id,
-			root_info: answer.rootInfo,
-			...(answer.census === null ? {} : { census: answer.census }),
-		},
+		run_id: journal.run_id,
+		root_info: answer.rootInfo,
+		...(answer.census === null ? {} : { census: answer.census }),
 	};
 }
 

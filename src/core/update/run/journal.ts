@@ -92,6 +92,12 @@ export interface RunJournal {
 	 * outside that set is never added. Absent = every TLD of the set.
 	 */
 	ontology_scope?: string[];
+	/**
+	 * An ontology-only run's SOURCE: the master the operator picked in the panel
+	 * (its configured url, or `localhost`). Set, the scope is taken from that one
+	 * master as selected (run/ontology_phase.ts). Absent = the unattended sources.
+	 */
+	ontology_source?: string;
 	state: RunState;
 	phases: PhaseRecord[];
 	backup: RunBackup | null;
@@ -130,6 +136,7 @@ export function createRunJournal(input: {
 	plan: RunJournal['plan'];
 	releasePlans?: Record<string, ReleasePlan>;
 	ontologyScope?: string[];
+	ontologySource?: string;
 	now?: Date;
 }): RunJournal {
 	const now = (input.now ?? new Date()).toISOString();
@@ -143,6 +150,7 @@ export function createRunJournal(input: {
 		plan: input.plan,
 		release_plans: input.releasePlans ?? {},
 		...(input.ontologyScope === undefined ? {} : { ontology_scope: input.ontologyScope }),
+		...(input.ontologySource === undefined ? {} : { ontology_source: input.ontologySource }),
 		state: 'PLANNED',
 		phases: [],
 		backup: null,

@@ -113,10 +113,41 @@ describe('resolveUpdateTarget', () => {
 
 	test('the configured origin keeps a non-default port and drops the path', () => {
 		const out = resolveUpdateTarget(
+			{ name: 'o', url: 'https://other.example:8443/x', code: 'other' },
+			catalog,
+		);
+		expect(out).toEqual({
+			isLocal: false,
+			configuredOrigin: 'https://other.example:8443',
+			configuredUrl: 'https://other.example:8443/x',
+		});
+	});
+
+	test('the selection is the EXACT url: another path on a configured origin is refused', () => {
+		const out = resolveUpdateTarget(
 			{ name: 'o', url: 'https://other.example:8443/y/z', code: 'other' },
 			catalog,
 		);
-		expect(out).toEqual({ isLocal: false, configuredOrigin: 'https://other.example:8443' });
+		expect('error' in out).toBe(true);
+	});
+
+	test('two masters on ONE origin (different paths) resolve to the selected one', () => {
+		const sameHost = {
+			servers: [
+				{ code: 'c', url: 'https://master.example/dedalo/core/api/v1/json/' },
+				{ code: 'c', url: 'https://master.example/dedalo_test/core/api/v1/json/' },
+			],
+			isOntologyServer: false,
+		};
+		const out = resolveUpdateTarget(
+			{ name: 't', url: 'https://master.example/dedalo_test/core/api/v1/json/', code: 'c' },
+			sameHost,
+		);
+		expect(out).toEqual({
+			isLocal: false,
+			configuredOrigin: 'https://master.example',
+			configuredUrl: 'https://master.example/dedalo_test/core/api/v1/json/',
+		});
 	});
 
 	test('masters SHARING one code resolve to the SELECTED one, not the first listed', () => {
@@ -131,7 +162,11 @@ describe('resolveUpdateTarget', () => {
 			{ name: 'local', url: 'http://192.0.2.10:4000/dedalo/core/api/v1/json/', code: 'shared' },
 			shared,
 		);
-		expect(second).toEqual({ isLocal: false, configuredOrigin: 'http://192.0.2.10:4000' });
+		expect(second).toEqual({
+			isLocal: false,
+			configuredOrigin: 'http://192.0.2.10:4000',
+			configuredUrl: 'http://192.0.2.10:4000/dedalo/core/api/v1/json/',
+		});
 		const first = resolveUpdateTarget(
 			{
 				name: 'official',
@@ -140,7 +175,11 @@ describe('resolveUpdateTarget', () => {
 			},
 			shared,
 		);
-		expect(first).toEqual({ isLocal: false, configuredOrigin: 'https://official.example' });
+		expect(first).toEqual({
+			isLocal: false,
+			configuredOrigin: 'https://official.example',
+			configuredUrl: 'https://official.example/dedalo/core/api/v1/json/',
+		});
 	});
 
 	test("'localhost' + isOntologyServer true resolves LOCAL (no origin)", () => {

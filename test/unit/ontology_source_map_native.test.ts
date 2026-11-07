@@ -86,7 +86,7 @@ describe('assertSourceAssignment', () => {
 		);
 	});
 
-	test('several masters and one without tlds: refused until assigned', () => {
+	test('several masters and one without tlds: the undeclared one is reachable by a pick only', () => {
 		const partial = {
 			servers: [
 				{ code: 'c', url: OURS, tlds: ['dd'] },
@@ -94,8 +94,37 @@ describe('assertSourceAssignment', () => {
 			],
 			isOntologyServer: false,
 		};
-		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(OURS), partial))).toBe(
+		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(OURS), partial))).toBe('passed');
+		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(MUSEUM), partial))).toBe(
 			'source_unassigned',
+		);
+		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(MUSEUM), partial, true))).toBe(
+			'passed',
+		);
+	});
+
+	test('several masters, none declared: the FIRST is the unattended source, the rest by pick', () => {
+		const undeclared = {
+			servers: [
+				{ code: 'c', url: OURS },
+				{ code: 'm', url: MUSEUM },
+			],
+			isOntologyServer: false,
+		};
+		expect(ruleOf(() => assertSourceAssignment(files('dd', 'mus'), target(OURS), undeclared))).toBe(
+			'passed',
+		);
+		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(MUSEUM), undeclared))).toBe(
+			'source_unassigned',
+		);
+		expect(
+			ruleOf(() => assertSourceAssignment(files('dd'), target(MUSEUM), undeclared, true)),
+		).toBe('passed');
+	});
+
+	test('an operator pick is not mapped: a TLD declared elsewhere may come from the picked master', () => {
+		expect(ruleOf(() => assertSourceAssignment(files('dd'), target(MUSEUM), both, true))).toBe(
+			'passed',
 		);
 	});
 });

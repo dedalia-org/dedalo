@@ -222,6 +222,33 @@
 
 
 // modal styles
+// the backup-waiver row (render_update_status.js build_waive_backup_row):
+// ONE look in both confirmation modals, code and ontology
+.dd_waive_backup_row() {
+	text-align: left;
+	max-width: 60rem;
+	margin: 0 auto 1.5rem auto;
+
+	>.waive_backup_label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		font-weight: bold;
+		padding-bottom: 0px;
+		color: var(--color_danger);
+
+		>.waive_backup_check {
+			height: initial;
+		}
+	}
+
+	>.dd_note.waive_backup_note {
+		margin: 0.25rem 0 0 1.6rem;
+		max-width: 60rem;
+	}
+}
+
 .widget_update_code_modal {
 
 	.modal_content {
@@ -359,28 +386,7 @@
 		}
 
 		.waive_backup_row {
-			text-align: left;
-			max-width: 60rem;
-			margin: 0 auto 1.5rem auto;
-
-			>.waive_backup_label {
-				display: flex;
-				align-items: center;
-				gap: 0.5rem;
-				cursor: pointer;
-				font-weight: bold;
-				padding-bottom: 0px;
-				color: var(--color_danger);
-
-				>.waive_backup_check {
-					height: initial;
-				}
-			}
-
-			>.dd_note.waive_backup_note {
-				margin: 0.25rem 0 0 1.6rem;
-				max-width: 60rem;
-			}
+			.dd_waive_backup_row();
 		}
 
 		// a CONTAINER installation's footer (render_image_command_panel): the

@@ -264,6 +264,7 @@ export function productionRunEffects(
 			ontology: (entry, journal) =>
 				runOntologyPhase(entry.step, principal.userId, {
 					...(journal.ontology_scope === undefined ? {} : { scope: journal.ontology_scope }),
+					...(journal.ontology_source === undefined ? {} : { source: journal.ontology_source }),
 					sourceOptional: isDefaultOntologyStep(entry, journal),
 				}),
 			schema: schemaPhase,

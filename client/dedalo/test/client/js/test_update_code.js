@@ -41,9 +41,12 @@ import {
 } from '../../../core/area_maintenance/widgets/update_code/js/update_code_phases.js';
 import {
 	build_import_files,
+	tld_catalog_rows,
+	update_progress_share,
 	render_servers_list,
 	render_update_ontology,
 } from '../../../core/area_maintenance/widgets/update_ontology/js/render_update_ontology.js';
+import { data_manager } from '../../../core/common/js/data_manager.js';
 import { event_manager } from '../../../core/common/js/event_manager.js';
 import { ui } from '../../../core/common/js/ui.js';
 
@@ -1624,19 +1627,24 @@ describe('UPDATE_ONTOLOGY import file list (build_import_files)', () => {
 		},
 	});
 
-	it('matrix_dd first, then exactly the selected TLDs, enriched from the manifest info', () => {
-		const files = build_import_files(manifest(), ['zza', 'zzb', 'zzc']);
+	it('matrix_dd first when selected, then exactly the selected TLDs, enriched from the manifest info', () => {
+		const files = build_import_files(manifest(), ['matrix_dd', 'zza', 'zzb', 'zzc']);
 		assert.deepEqual(
 			files.map((file) => file.tld),
 			['matrix_dd', 'zzb', 'zza', 'zzc'],
+		);
+		// the shared value lists are a selection like any other (2026-11-07)
+		assert.deepEqual(
+			build_import_files(manifest(), ['zza']).map((file) => file.tld),
+			['zza'],
 		);
 		const zza = files.find((file) => file.tld === 'zza');
 		assert.strictEqual(zza.typology_id, 1);
 		assert.deepEqual(zza.name_data, { 'lg-eng': 'A' });
 		assert.strictEqual(zza.url, 'zza.copy.gz');
-		// matrix_dd is imported once, first, even when the operator also typed it
+		// matrix_dd is imported once, first, wherever the operator typed it
 		assert.deepEqual(
-			build_import_files(manifest(), ['matrix_dd', 'zza']).map((file) => file.tld),
+			build_import_files(manifest(), ['zza', 'matrix_dd']).map((file) => file.tld),
 			['matrix_dd', 'zza'],
 		);
 	});
@@ -1659,7 +1667,7 @@ describe('UPDATE_ONTOLOGY import file list (build_import_files)', () => {
 		);
 		assert.isFalse(
 			Object.hasOwn(
-				files.find((file) => file.tld === 'matrix_dd'),
+				build_import_files(manifest(), ['matrix_dd']).find((file) => file.tld === 'matrix_dd'),
 				'dependencies',
 			),
 		);
@@ -1672,20 +1680,97 @@ describe('UPDATE_ONTOLOGY import file list (build_import_files)', () => {
 	});
 });
 
-// The ontology update is an UPDATE RUN that refuses without a recent backup;
-// the panel's waive-backup checkbox is the operator's journaled escape hatch.
-// A box the server never hears about is decoration: this drives the REAL
-// rendered form (area_maintenance init_form) through a real submit and reads
-// the options bag the widget's update_ontology receives. Backend-free: the
-// manifest fetch is answered at the transport, the import itself is stubbed.
+describe('UPDATE_ONTOLOGY TLD catalog rows (tld_catalog_rows)', () => {
+	const manifest = {
+		files: [
+			{ tld: 'zzb', url: 'zzb.copy.gz' },
+			{ tld: 'matrix', url: 'matrix.copy.gz' },
+			{ tld: 'matrix_dd', url: 'matrix_dd.copy.gz' },
+			{ tld: 'zza', url: 'zza.copy.gz' },
+			{ tld: 'zzc', url: 'zzc.copy.gz' },
+			{ tld: 'zzbare', url: 'zzbare.copy.gz' },
+		],
+		info: {
+			active_ontologies: [
+				{
+					tld: 'zza',
+					typology_name: 'Toponymy',
+					name_data: [
+						{ lang: 'lg-spa', value: 'Ayuda | zza' },
+						{ lang: 'lg-eng', value: 'Alpha | zza' },
+					],
+				},
+				{ tld: 'zzb', typology_name: 'Core', name_data: [{ lang: 'lg-eng', value: 'Beta | zzb' }] },
+				{ tld: 'zzc', typology_name: 'Toponymy', name_data: { 'lg-eng': 'Gamma' } },
+			],
+		},
+	};
+	const rows = tld_catalog_rows(manifest, ['zza', 'zzc', 'matrix_dd'], ['zza'], 'lg-spa');
+
+	it('one row per TLD, the value lists first, then by group and TLD; `matrix` is not an ontology', () => {
+		const tlds = rows.map((row) => row.tld);
+		assert.strictEqual(tlds[0], 'matrix_dd');
+		assert.sameMembers(tlds, ['matrix_dd', 'zzb', 'zza', 'zzc', 'zzbare']);
+		// one group is contiguous and ordered by TLD (group names are labels: language-bound)
+		assert.strictEqual(tlds.indexOf('zzc'), tlds.indexOf('zza') + 1);
+		const groups = rows.slice(1).map((row) => row.group);
+		assert.deepEqual(groups, [...groups].sort((a, b) => a.localeCompare(b)));
+	});
+
+	it('names in the asked language (else English), without the master’s “ | tld” suffix', () => {
+		const by = Object.fromEntries(rows.map((row) => [row.tld, row]));
+		assert.strictEqual(by.zza.name, 'Ayuda');
+		assert.strictEqual(by.zzb.name, 'Beta');
+		assert.strictEqual(by.zzc.name, 'Gamma', 'an older {lang: value} map is read too');
+		assert.strictEqual(by.zzbare.name, 'zzbare', 'no metadata: the TLD itself');
+		assert.strictEqual(by.zza.group, 'Toponymy');
+	});
+
+	it('what a tick does here: new, installed (tracked), installed but not tracked', () => {
+		const by = Object.fromEntries(rows.map((row) => [row.tld, row.state]));
+		assert.strictEqual(by.zzb, 'new');
+		assert.strictEqual(by.zza, 'installed');
+		assert.strictEqual(by.zzc, 'untracked', 'installed here, outside ACTIVE_ONTOLOGY_TLDS');
+	});
+
+	it('no manifest: no rows', () => {
+		assert.deepEqual(tld_catalog_rows(null, [], [], 'lg-eng'), []);
+	});
+});
+
+describe('UPDATE_ONTOLOGY progress share (update_progress_share)', () => {
+	it('each stage owns its share of the bar, filled by done/total', () => {
+		assert.strictEqual(update_progress_share({ stage: 'download', done: 0, total: 4 }), 0);
+		assert.strictEqual(update_progress_share({ stage: 'download', done: 2, total: 4 }), 0.125);
+		assert.strictEqual(update_progress_share({ stage: 'import', done: 0, total: 3 }), 0.25);
+		assert.closeTo(update_progress_share({ stage: 'derive', done: 1, total: 1 }), 0.95, 1e-9);
+		assert.strictEqual(update_progress_share({ stage: 'finish', done: 0, total: 1 }), 0.95);
+	});
+	it('no usable frame is indeterminate, a bad count never overflows', () => {
+		assert.isNull(update_progress_share(null));
+		assert.isNull(update_progress_share({ stage: 'unknown', done: 1, total: 1 }));
+		assert.strictEqual(update_progress_share({ stage: 'import', done: 9, total: 3 }), 0.6);
+		assert.strictEqual(update_progress_share({ stage: 'import', done: 1, total: 0 }), 0.25);
+	});
+});
+
+// The ontology update is an UPDATE RUN that refuses without a recent backup.
+// Like the code update, the decision is taken in a CONFIRMATION MODAL: what
+// will be replaced, from where, and — only when the run would refuse — the
+// shared waiver row beside the action button. A box the server never hears
+// about is decoration: this drives the REAL rendered form (area_maintenance
+// init_form) through a real submit into the modal and reads the options bag the
+// widget's update_ontology receives. Backend-free: the manifest fetch is
+// answered at the transport, the import itself is stubbed.
 describe('UPDATE_ONTOLOGY waive-backup control', () => {
-	const build_self = () => {
+	const build_self = (backup_state) => {
 		const self = {
 			id: 'update_ontology',
 			events_tokens: [],
 			value: {
 				current_ontology: {},
 				active_ontology_tlds: ['zza'],
+				backup: { id: 'backup_fresh', state: backup_state, detail: '73' },
 				servers: [
 					{
 						name: 'master',
@@ -1699,25 +1784,80 @@ describe('UPDATE_ONTOLOGY waive-backup control', () => {
 			sent: [],
 			form: null,
 		};
+		self.get_value = async () => self.value;
 		self.caller = {
 			init_form: (widget_object) => {
 				self.form = area_maintenance.prototype.init_form(widget_object);
 				return self.form;
 			},
 		};
+		// the import is a background job: the submit answers its handle
 		self.update_ontology = async (options) => {
 			self.sent.push(options);
 			self.answered?.();
-			return { ok: true, data: true, msg: 'OK' };
+			return { ok: true, data: true, pid: 1, pfile: 'update_ontology_job.json' };
 		};
 		return self;
 	};
 
-	const submit_once = async (self) => {
+	// the job's status stream: one progress frame, then the final frame carrying
+	// the import's answer. `seen` records the bar as the progress frame left it.
+	const job_frames = (self) => ({
+		request_stream: async () => ({}),
+		read_stream: (_stream, on_read, on_done) => {
+			on_read({
+				is_running: true,
+				data: { progress: { stage: 'import', done: 1, total: 2, tld: 'zza' } },
+			});
+			const content = self.form.closest('.update_ontology_content');
+			self.seen = {
+				width: content.querySelector('.update_progress .dd_bar_fill')?.style.width,
+				caption: content.querySelector('.update_progress_caption')?.textContent,
+			};
+			// a dropped stream ends on the progress frame (no final frame at all)
+			if (self.drop_stream !== true) {
+				on_read({ is_running: false, data: { msg: 'OK. import log', run_id: 'r1', root_info: null } });
+			}
+			on_done();
+		},
+	});
+
+	const manifest_fetch = async () =>
+		new Response(
+			JSON.stringify({
+				ok: true,
+				data: {
+					files: [
+						{ tld: 'matrix_dd', url: 'matrix_dd.copy.gz' },
+						{ tld: 'zza', url: 'zza.copy.gz' },
+					],
+					info: { version: '7.0.0', host: 'm.example', active_ontologies: [] },
+				},
+			}),
+			{ headers: { 'Content-Type': 'application/json' } },
+		);
+
+	const wait_for = async (find, what) => {
+		for (let i = 0; i < 100; i++) {
+			const found = find();
+			if (found) return found;
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
+		throw new Error(what + ' never appeared');
+	};
+
+	// submit the panel form → the confirm modal opens; `act` runs on it
+	const submit_into_modal = async (self, act) => {
 		const answered = new Promise((resolve) => {
 			self.answered = resolve;
 		});
 		self.form.dispatchEvent(new Event('submit', { cancelable: true }));
+		const modal = await wait_for(
+			() => document.querySelector('.widget_update_ontology_modal'),
+			'the confirm modal',
+		);
+		await act(modal);
+		modal.querySelector('.footer button.danger').click();
 		await Promise.race([
 			answered,
 			new Promise((_, reject) =>
@@ -1726,55 +1866,181 @@ describe('UPDATE_ONTOLOGY waive-backup control', () => {
 		]);
 	};
 
-	it('the checkbox state travels as waive_backup (ticked → true, untouched → false)', async () => {
-		const self = build_self();
+	const with_panel = async (backup_state, run) => {
+		const self = build_self(backup_state);
 		const original_fetch = window.fetch;
-		const original_confirm = window.confirm;
-		window.fetch = async () =>
-			new Response(
+		const original_native_confirm = window.confirm;
+		const original_confirm = ui.confirm;
+		const native_confirms = [];
+		const confirms = [];
+		window.fetch = manifest_fetch;
+		window.confirm = (text) => {
+			native_confirms.push(text);
+			return true;
+		};
+		ui.confirm = async (options) => {
+			confirms.push(options);
+			return true;
+		};
+		const original_stream = {
+			request_stream: data_manager.request_stream,
+			read_stream: data_manager.read_stream,
+		};
+		Object.assign(data_manager, job_frames(self));
+		try {
+			await render_update_ontology.prototype.list.call(self, { render_level: 'content' });
+			assert.ok(self.form, 'the real form rendered');
+			const tlds_input = self.form.querySelector('input[name="active_ontology_tlds"]');
+			tlds_input.value = 'matrix_dd,zza';
+			self.value.servers[0].active = true;
+			await run(self, confirms);
+			assert.deepEqual(native_confirms, [], 'no native confirm(): the modal is the gate');
+		} finally {
+			window.fetch = original_fetch;
+			window.confirm = original_native_confirm;
+			ui.confirm = original_confirm;
+			Object.assign(data_manager, original_stream);
+			for (const token of self.events_tokens) event_manager.unsubscribe(token);
+			document.querySelectorAll('.widget_update_ontology_modal').forEach((node) => node.remove());
+		}
+	};
+
+	it('a stale backup: the waiver is in the MODAL, and its state travels as waive_backup', async () => {
+		await with_panel('warn', async (self, confirms) => {
+			assert.isNull(
+				self.form.querySelector('.waive_backup_check'),
+				'the panel form carries no waiver: it moved to the modal',
+			);
+			await submit_into_modal(self, async (modal) => {
+				const row = modal.querySelector('.footer .waive_backup_row');
+				assert.ok(row, 'a stale backup renders the shared waive row');
+				assert.include(row.querySelector('.waive_backup_note').textContent, '73', 'with the age fact');
+				assert.deepEqual(
+					[...modal.querySelectorAll('.confirm_tld .tld')].map((node) => node.textContent),
+					['matrix_dd', 'zza'],
+					'the modal names what will be replaced',
+				);
+				const button = modal.querySelector('.footer button.danger');
+				assert.isTrue(button.disabled, 'Replace is disabled until the waiver is ticked');
+				const check = row.querySelector('input.waive_backup_check');
+				check.checked = true;
+				check.dispatchEvent(new Event('change'));
+				assert.isFalse(button.disabled, 'the tick enables Replace');
+			});
+
+			assert.strictEqual(self.sent.length, 1, 'the submit reached update_ontology');
+			assert.strictEqual(self.sent[0].waive_backup, true, 'a ticked box travels as true');
+			assert.deepEqual(
+				self.sent[0].files.map((file) => file.tld),
+				['matrix_dd', 'zza'],
+				'the selection travels with it',
+			);
+			assert.include(confirms[0].note, get_label.update_code_waive_backup_confirm || 'without a recent database backup', 'the waiver is restated at the last gate');
+		});
+	});
+
+	it('a fresh backup: the modal offers no waiver', async () => {
+		await with_panel('ok', async (self, confirms) => {
+			await submit_into_modal(self, async (modal) => {
+				assert.isNull(modal.querySelector('.waive_backup_row'), 'nothing to waive');
+				assert.isFalse(modal.querySelector('.footer button.danger').disabled, 'Replace is live');
+			});
+			assert.strictEqual(self.sent[0].waive_backup, false, 'no waiver travels as false, never absent');
+			assert.notInclude(confirms[0].note, get_label.update_code_waive_backup_confirm || 'without a recent database backup', 'no waiver, nothing restated');
+		});
+	});
+
+	it('the import job is followed with a progress bar, and its result renders', async () => {
+		await with_panel('ok', async (self) => {
+			await submit_into_modal(self, async () => {});
+			const content = self.form.closest('.update_ontology_content');
+			await wait_for(() => content.querySelector('.body_response .ok'), 'the result status line');
+			// import share 0.25..0.6, 1 of 2 done → 42.5% → 43%
+			assert.strictEqual(self.seen.width, '43%', 'the bar fills from the stage facts');
+			assert.include(self.seen.caption, 'zza', 'the caption names the ontology in work');
+			assert.include(self.seen.caption, '(2/2)', 'and its place in the stage');
+			assert.isNull(content.querySelector('.update_progress'), 'the bar leaves when the job ends');
+			assert.include(
+				content.querySelector('.body_response').textContent,
+				'OK. import log',
+				'the job result is the import log',
+			);
+		});
+	});
+
+	it('a stream that drops mid-job is never reported as a success', async () => {
+		await with_panel('ok', async (self) => {
+			self.drop_stream = true;
+			await submit_into_modal(self, async () => {});
+			const content = self.form.closest('.update_ontology_content');
+			const error = await wait_for(() => content.querySelector('.body_response .error'), 'the failure line');
+			assert.isNull(content.querySelector('.body_response .ok'), 'no "Ontology updated."');
+			assert.include(
+				error.textContent,
+				get_label.update_ontology_job_lost || 'Lost contact with the update',
+				'it says the update may still be running',
+			);
+		});
+	});
+
+	it('the picked master’s ontologies are listed, named, and a tick writes the input', async () => {
+		const self = build_self();
+		self.value.installed_tlds = ['zza'];
+		self.value.servers[0].active = true;
+		const original_fetch = window.fetch;
+		let asked = 0;
+		window.fetch = async () => {
+			asked++;
+			return new Response(
 				JSON.stringify({
 					ok: true,
 					data: {
 						files: [
 							{ tld: 'matrix_dd', url: 'matrix_dd.copy.gz' },
 							{ tld: 'zza', url: 'zza.copy.gz' },
+							{ tld: 'zzn', url: 'zzn.copy.gz' },
 						],
-						info: { version: '7.0.0', active_ontologies: [] },
+						info: {
+							version: '7.0.0',
+							active_ontologies: [
+								{ tld: 'zzn', typology_name: 'Toponymy', name_data: [{ lang: 'lg-eng', value: 'Newland | zzn' }] },
+							],
+						},
 					},
 				}),
 				{ headers: { 'Content-Type': 'application/json' } },
 			);
-		window.confirm = () => true;
+		};
 		try {
 			await render_update_ontology.prototype.list.call(self, { render_level: 'content' });
-			assert.ok(self.form, 'the real form rendered');
-			const check = self.form.querySelector('input[type="checkbox"].waive_backup_check');
-			assert.ok(check, 'the waive-backup checkbox is in the form');
-			assert.strictEqual(check.checked, false, 'unticked by default');
+			const list = self.form.querySelector('.tld_catalog .tld_list');
+			for (let i = 0; i < 50 && !list.querySelector('.tld_row'); i++) {
+				await new Promise((resolve) => setTimeout(resolve, 20));
+			}
+			const rows = [...list.querySelectorAll('.tld_row')];
+			assert.deepEqual(
+				rows.map((row) => row.querySelector('.tld').textContent),
+				['matrix_dd', 'zza', 'zzn'],
+				'every offered ontology, value lists first, listed on pick (no extra button)',
+			);
+			const zzn = rows[2];
+			assert.strictEqual(zzn.querySelector('.nm').textContent, 'Newland');
+			assert.ok(zzn.querySelector('.dd_badge.pill_ok'), 'not installed here: new');
+			assert.strictEqual(asked, 1, 'one manifest request per master');
+
 			const tlds_input = self.form.querySelector('input[name="active_ontology_tlds"]');
 			tlds_input.value = 'zza';
-			self.value.servers[0].active = true;
-
-			check.checked = true;
-			await submit_once(self);
-			check.checked = false;
-			await submit_once(self);
-
-			assert.strictEqual(self.sent.length, 2, 'both submits reached update_ontology');
-			assert.strictEqual(self.sent[0].waive_backup, true, 'a ticked box travels as true');
-			assert.strictEqual(
-				self.sent[1].waive_backup,
-				false,
-				'an untouched box travels as false, never absent',
-			);
-			assert.deepEqual(
-				self.sent[0].files.map((file) => file.tld),
-				['matrix_dd', 'zza'],
-				'the selection travels with it',
-			);
+			tlds_input.dispatchEvent(new Event('input'));
+			assert.isFalse(zzn.querySelector('input').checked);
+			// the panel is not attached to the document here, and a detached checkbox
+			// fires no change on click(): tick it and send the event the browser would
+			const box = zzn.querySelector('input');
+			box.checked = true;
+			box.dispatchEvent(new Event('change'));
+			assert.strictEqual(tlds_input.value, 'zza,zzn', 'the tick is written to the input');
+			assert.isTrue(rows[1].querySelector('input').checked, 'the typed line ticks its rows');
 		} finally {
 			window.fetch = original_fetch;
-			window.confirm = original_confirm;
 			for (const token of self.events_tokens) event_manager.unsubscribe(token);
 		}
 	});

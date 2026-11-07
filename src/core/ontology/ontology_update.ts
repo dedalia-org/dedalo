@@ -108,6 +108,7 @@ import {
 import { getTermIdFromLocator } from './parser.ts';
 import { getOrderedSubtree } from './resolver.ts';
 import { LOCAL_ONTOLOGY_SECTION } from './tld.ts';
+import { reportOntologyProgress } from './update_progress.ts';
 
 const DEDALO_ROOT_TIPO = 'dd1';
 
@@ -258,7 +259,9 @@ export async function deriveOntologyPackages(
 	// ONE portal-order backfill after every tld and the model pass, never one per
 	// tld against a half-applied ontology (ontology_state.ts withOrderReconcileBatch).
 	await withOrderReconcileBatch(async () => {
-		for (const file of staged.filter(derivesNodes)) {
+		const deriving = staged.filter(derivesNodes);
+		for (const [index, file] of deriving.entries()) {
+			reportOntologyProgress('derive', index, deriving.length, file.tld);
 			outcomes.set(file.tld, await rebuildOntology(file.tld, userId, { mainNode: 'existing' }));
 		}
 		if (outcomes.size > 1) await rederiveStaleModels(outcomes, userId);
@@ -388,21 +391,30 @@ export function admissibleUpdateTlds(activeTlds: readonly string[]): Set<string>
 
 /**
  * Refuse the WHOLE update (`update.refused`, nothing staged) when any requested
- * file names a TLD outside {@link admissibleUpdateTlds}: a crafted request must
- * not replace an inactive or local TLD. Names every offending TLD. Sits on the
- * UPDATE door only — the installer drives the shared lower layer
+ * file names a TLD the update may not replace. UNATTENDED: outside
+ * {@link admissibleUpdateTlds} — a run nobody watches replaces only what this
+ * installation tracks. OPERATOR-PICKED (`picked`, the panel: the operator chose
+ * a master and its TLDs, confirmed): any shared TLD, so a TLD outside
+ * ACTIVE_ONTOLOGY_TLDS can be pulled on purpose — never the installation's own
+ * local ontology, never the suite's fixture TLD. Names every offending TLD.
+ * Sits on the UPDATE door only — the installer drives the shared lower layer
  * (`importStagedOntologyFiles`) with its own resolved plan.
  */
 export function assertUpdateTldScope(
 	files: readonly { readonly tld: string }[],
 	activeTlds: readonly string[],
+	picked = false,
 ): void {
 	const admissible = admissibleUpdateTlds(activeTlds);
-	const offending = [...new Set(files.map((file) => file.tld))].filter(
-		(tld) => !admissible.has(tld),
-	);
+	const allowed = (tld: string) =>
+		picked
+			? tld === 'matrix_dd' || (!NEVER_UPDATED_TLDS.has(tld) && !isTestFixtureTld(tld))
+			: admissible.has(tld);
+	const offending = [...new Set(files.map((file) => file.tld))].filter((tld) => !allowed(tld));
 	if (offending.length === 0) return;
-	const sentence = `Error. Ontology update refused: TLD(s) outside the active ontology set (ACTIVE_ONTOLOGY_TLDS): ${offending.join(', ')}`;
+	const sentence = picked
+		? `Error. Ontology update refused: TLD(s) an update never replaces (the local ontology overrides, or the test suite's fixture): ${offending.join(', ')}`
+		: `Error. Ontology update refused: TLD(s) outside the active ontology set (ACTIVE_ONTOLOGY_TLDS): ${offending.join(', ')}`;
 	throw new DedaloError('update.refused', {
 		message: sentence,
 		publicMessage: sentence,
@@ -619,7 +631,7 @@ export async function updateOntology(
 
 	// U-52: the TLD scope is decided HERE, server-side — before the latch, the
 	// io dir and any staging. Throws `update.refused` naming the offenders.
-	assertUpdateTldScope(options.files, activeTlds);
+	assertUpdateTldScope(options.files, activeTlds, deps.operatorPicked === true);
 	// U-08 / U-41: the server reads the master's manifest itself, refuses an
 	// ontology on another data model, and takes each file from the MANIFEST
 	// (URL, names, dependencies) — the browser only relays which TLDs.
@@ -693,6 +705,7 @@ export async function updateOntology(
 			return response;
 		}
 		landed = true;
+		reportOntologyProgress('finish', 0, 1);
 
 		// Declared dependencies this server lacks: REPORT ONLY, never installed
 		// (WC-2026-10-10-ontology-dependencies-hierarchy60). Here, not in the
@@ -973,7 +986,8 @@ export async function importStagedOntologyFiles(
 		// ------------------------------------------------------------------
 		// Phase C — import (destructive; per-file txn; auto-restore on failure)
 		// ------------------------------------------------------------------
-		for (const file of staged) {
+		for (const [index, file] of staged.entries()) {
+			reportOntologyProgress('import', index, staged.length, file.tld);
 			if (!(await importStagedFile(file, ctx, result))) return result;
 		}
 		// THE IMPORT LANDED (cross-write:r3): every slice is the update's, committed.

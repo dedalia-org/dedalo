@@ -8,19 +8,21 @@
  * was always the installation default. Editing the list first and picking the
  * server second was unusable.
  *
- * The rule now: the input is written in exactly three places — the initial
- * prefill, the operator's own typing, and an EXPLICIT click on a reference chip
- * or "Use this list". A server selection only repaints the reference row.
+ * The rule now: the input is written in exactly four places — the initial
+ * prefill, the operator's own typing, an EXPLICIT tick in the TLD catalog, and
+ * the catalog's "Default selection" / "Clear" buttons. A server selection only
+ * lists what that master offers (build_tld_catalog set_server).
  *
- * THREE ASSERTIONS:
+ * ASSERTIONS:
  *   1. the `ontology_server_select_change` subscriber does not assign the input;
  *   2. the value survives a reload — it is read from and written to
- *      localStorage under the documented key;
- *   3. the master's own list is never applied wholesale: `build_row` is called
- *      with the "Use this list" button OFF for the master row (a manifest is
- *      200+ TLDs, every language pack included);
- *   4. the chips' selected state is DERIVED from the input, and the input's own
- *      keystrokes repaint it — a chip that says "in the list" while the line says
+ *      localStorage under the documented key (the pre-2026-11-07 line is read
+ *      once with matrix_dd appended: it was implicit then);
+ *   3. the master's own list is never applied wholesale: the catalog offers no
+ *      "select every offered TLD" (a manifest is 200+ TLDs, every language pack
+ *      included) — its only bulk writers are the configured default and clear;
+ *   4. the rows' ticked state is DERIVED from the input, and the input's own
+ *      keystrokes repaint it — a row that says "selected" while the line says
  *      otherwise is a worse lie than no highlight at all.
  *
  * Honest limit: this reads the source, so it proves the shape of the wiring, not
@@ -58,8 +60,8 @@ describe('update_ontology admin notes', () => {
 		// The panel's first screen is the update itself; the summary pill already
 		// reports state ("None configured"), so the note may not open itself — the
 		// empty-picker case used to. (The serving note left for serve_ontology,
-		// 2026-09-28.) The slice must be non-empty: build_tlds_reference is declared
-		// BEFORE build_client_info, so bounding by it yielded '' and the gate was
+		// 2026-09-28.) The slice must be non-empty: build_tld_catalog is declared
+		// BEFORE build_client_info, so bounding by it yields '' and the gate goes
 		// vacuous — bounded by the next function below instead.
 		const start = src.indexOf('const build_client_info');
 		const end = src.indexOf('const get_content_data_edit', start);
@@ -95,8 +97,8 @@ describe('update_ontology master-server selection', () => {
 		);
 
 		// The picker is built before the form subscribes, so the restored choice is
-		// announced afterwards — otherwise the reference row would still say
-		// "select a master" next to a checked radio.
+		// announced afterwards — otherwise the TLD catalog would still say
+		// "pick a server" next to a checked radio.
 		expect(src).toContain('publish_active_server(servers, on_server_change)');
 
 		// A radio group is document-wide by name and this panel renders twice (Map
@@ -126,13 +128,16 @@ describe('update_ontology TLD input ownership', () => {
 		expect(
 			/tlds_input\s*\.\s*value\s*=/.test(body),
 			'the ontology_server_select_change handler must not assign tlds_input.value — ' +
-				'a server selection repaints the reference row, it never discards the ' +
+				"a server selection lists that master's ontologies, it never discards the " +
 				"operator's list",
 		).toBe(false);
 	});
 
 	test('the operator line survives a reload (localStorage, one documented key)', () => {
-		expect(src).toContain("const TLDS_STORAGE_KEY = 'dedalo.update_ontology.tlds'");
+		expect(src).toContain("const TLDS_STORAGE_KEY			= 'dedalo.update_ontology.selection'");
+		expect(src).toContain("const TLDS_STORAGE_KEY_BEFORE	= 'dedalo.update_ontology.tlds'");
+		// the older line never named the shared value lists (they were implicit)
+		expect(src).toContain("before + ',matrix_dd'");
 		// read on render, written on every edit
 		expect(src).toMatch(/getItem\(TLDS_STORAGE_KEY\)/);
 		expect(src).toMatch(/setItem\(TLDS_STORAGE_KEY,/);
@@ -142,39 +147,33 @@ describe('update_ontology TLD input ownership', () => {
 		expect(src.match(/catch \(_error\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
 	});
 
-	test('the chips reflect the input line, typing included', () => {
+	test('the catalog rows reflect the input line, typing included', () => {
 		// ONE painter, reading the input — not a second copy of the state.
-		expect(src).toMatch(/const sync_chips = function \(\) \{/);
-		expect(src).toMatch(/const current = current_list\(\)/);
-		expect(src).toMatch(/classList\.toggle\('on', selected\)/);
-
-		// every writer goes through apply_value (write + repaint), and hand typing
-		// repaints too
+		expect(src).toMatch(/const sync = function \(\) \{/);
+		expect(src).toMatch(/const current\t= new Set\(current_list\(\)\)/);
+		expect(src).toMatch(/entry\.input\.checked = on/);
+		// every writer goes through write (set + repaint), and hand typing repaints too
 		expect(src).toMatch(
-			/const apply_value = function \(new_value\) \{\n\t\tset_value\(new_value\)\n\t\tsync_chips\(\)/,
+			/const write = \(list_value\) => \{\n\t\tset_value\(list_value\.join\(','\)\)\n\t\tsync\(\)/,
 		);
 		const input_listener = src.slice(
 			src.indexOf("tlds_input.addEventListener('input'"),
-			src.indexOf('// reference lists ABOVE the input'),
+			src.indexOf("// the picked master's ontologies ABOVE the input"),
 		);
 		expect(
-			input_listener.includes('sync_reference()'),
-			'typing in the TLD input must repaint the chips — otherwise a chip keeps ' +
+			input_listener.includes('sync_catalog()'),
+			'typing in the TLD input must repaint the catalog — otherwise a row keeps ' +
 				'claiming a TLD is in a line the operator has just emptied',
 		).toBe(true);
 	});
 
 	test('the master manifest is never applied wholesale', () => {
-		// build_row(label, tlds, empty_text, with_use_list) — the call spans several
-		// lines and nests get_label parentheses, so slice it, don't regex it
-		const start = src.indexOf('const server_row = build_row(');
-		expect(start, 'the master reference row must still be built by build_row').toBeGreaterThan(-1);
-		const server_row = src.slice(start, src.indexOf('\n\t)', start));
-		expect(
-			server_row.trimEnd().endsWith('false'),
-			'the master row must NOT offer "Use this list": its manifest is the whole ' +
-				'ontology (200+ TLDs) and importing all of it is never what an operator means',
-		).toBe(true);
+		const start = src.indexOf('const build_tld_catalog');
+		const catalog = src.slice(start, src.indexOf('}//end build_tld_catalog', start));
+		expect(start).toBeGreaterThan(-1);
+		// the bulk writers are exactly the configured default and clear
+		expect(catalog.match(/write\((?!current\))[^)]*\)/g)).toEqual(['write(defaults)', 'write([])']);
+		expect(catalog).toContain("const defaults	= [...new Set([...tracked, 'matrix_dd'])]");
 	});
 });
 

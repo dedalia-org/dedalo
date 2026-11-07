@@ -53,20 +53,26 @@ function phase(options: {
 	min?: string;
 	fail?: string;
 	scope?: string[];
+	source?: string;
 }) {
-	const calls: { url: string; tlds: string[] }[] = [];
+	const calls: { url: string; tlds: string[]; picked?: boolean }[] = [];
 	const run = runOntologyPhase(
 		{ kind: 'ontology', ...(options.min ? { min: options.min } : {}) },
 		-1,
 		{
 			catalog: { servers: options.servers, isOntologyServer: false },
 			...(options.scope === undefined ? {} : { scope: options.scope }),
+			...(options.source === undefined ? {} : { source: options.source }),
 			activeTlds: options.active ?? ['zzupopa', 'zzupopb', 'localontology'],
 			readManifest: async (source) =>
 				options.manifests[source.server.url] ?? { ok: false, reason: 'unreachable (HTTP 404)' },
-			update: async (raw) => {
+			update: async (raw, _userId, doorDeps) => {
 				const request = raw as { server: { url: string }; files: { tld: string }[] };
-				calls.push({ url: request.server.url, tlds: request.files.map((file) => file.tld) });
+				calls.push({
+					url: request.server.url,
+					tlds: request.files.map((file) => file.tld),
+					...(doorDeps?.operatorPicked === true ? { picked: true } : {}),
+				});
 				const ok = options.fail !== request.server.url;
 				return {
 					ok,
@@ -252,5 +258,47 @@ describe('the operator’s narrowing (an ontology-only run’s scope)', () => {
 		});
 		await widened.run;
 		expect(widened.calls).toEqual([{ url: `${ORIGIN_A}/api/`, tlds: ['matrix_dd'] }]);
+	});
+});
+
+describe('the operator’s pick (an ontology-only run’s source)', () => {
+	const A = `${ORIGIN_A}/api/`;
+	const B = `${ORIGIN_A}/api_test/`;
+	const manifests = {
+		[A]: manifestOf(ORIGIN_A, ['zzupopa', 'zzupopb']),
+		[B]: manifestOf(ORIGIN_A, ['zzupopa', 'zzupopx']),
+	};
+	const servers = [
+		{ url: A, code: 'k' },
+		{ url: B, code: 'k' },
+	];
+
+	test('only the picked master, exactly the selected TLDs — any it lists, matrix_dd only when selected', async () => {
+		const picked = phase({ servers, manifests, source: B, scope: ['zzupopx', 'zzupopb'] });
+		expect((await picked.run).outcome).toBe('ok');
+		expect(picked.calls).toEqual([{ url: B, tlds: ['zzupopx'], picked: true }]);
+		const withLists = phase({ servers, manifests, source: B, scope: ['matrix_dd', 'zzupopa'] });
+		await withLists.run;
+		expect(withLists.calls).toEqual([{ url: B, tlds: ['matrix_dd', 'zzupopa'], picked: true }]);
+	});
+
+	test('a pick with an EMPTY scope updates nothing — never the unattended set', async () => {
+		const none = phase({ servers, manifests, source: B, scope: [] });
+		const result = await none.run;
+		expect(result.outcome).toBe('ok');
+		expect(none.calls).toEqual([]);
+	});
+
+	test('a pick no longer configured fails the phase without touching any master', async () => {
+		const gone = phase({ servers, manifests, source: `${ORIGIN_B}/api/`, scope: ['zzupopa'] });
+		const result = await gone.run;
+		expect(result.outcome).toBe('failed');
+		expect(gone.calls).toEqual([]);
+	});
+
+	test('unattended, several undeclared masters: only the FIRST is a source', async () => {
+		const unattended = phase({ servers, manifests });
+		await unattended.run;
+		expect(unattended.calls.map((call) => call.url)).toEqual([A]);
 	});
 });

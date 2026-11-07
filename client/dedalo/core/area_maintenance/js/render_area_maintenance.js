@@ -692,7 +692,7 @@ const build_list_view = async function(self, widgets) {
 		publication_hosts           : get_label.publication_hosts_lead || 'Separate publication machines: pairing, media rules and API releases. Hosts are paired on the command line.',
 		media_control               : get_label.maintenance_desc_media_control || 'Sets the media access-protection mode and rebuilds the gate rules.',
 		ai_models                   : get_label.maintenance_desc_ai_models || 'Local AI model store: which speech models are installed and usable.',
-		update_ontology             : get_label.update_ontology_lead || 'Replaces the ontologies of the selected TLDs with a snapshot from a master server and re-processes them. Your local ontology is kept. Irreversible.',
+		update_ontology             : get_label.update_ontology_lead || 'Replaces the ontologies of the selected TLDs with a snapshot from the selected server and re-processes them. localontology overrides are kept. Irreversible.',
 		serve_ontology              : get_label.maintenance_desc_serve_ontology || 'Whether other installations can pull their ontology from this one: the three .env keys that decide it and the endpoint they register.',
 		move_tld                    : get_label.maintenance_desc_move_tld || 'Rewrites the ontology tipo across every matrix table. Irreversible.',
 		move_locator                : get_label.maintenance_desc_move_locator || 'Bulk-moves locators from a source section to a target. Irreversible.',
@@ -1806,7 +1806,8 @@ export const print_response = (container, api_response) => {
 *   body_info    {HTMLElement}  — Container where the form element is appended.
 *   body_response {HTMLElement} — Container where `print_response()` renders results.
 *   confirm_text  {string}      — Confirmation dialog message. Defaults to
-*                                 `get_label.sure || 'Sure?'`.
+*                                 `get_label.sure || 'Sure?'`. `false` skips the native
+*                                 confirm() (the widget confirms in its own modal).
 *   inputs        {Array}       — Array of input descriptor objects (see below).
 *   submit_label  {string}      — Button label. Defaults to `'OK'`.
 *   trigger       {Object}      — API dispatch descriptor:
@@ -1871,7 +1872,8 @@ export const build_form = function(widget_object) {
 	// widget_object
 		const body_info		= widget_object.body_info
 		const body_response	= widget_object.body_response
-		const confirm_text	= widget_object.confirm_text || get_label.sure || 'Sure?'
+		// false: the widget runs its own confirmation (e.g. a modal) — no native confirm()
+		const confirm_text	= widget_object.confirm_text===false ? null : (widget_object.confirm_text || get_label.sure || 'Sure?')
 		const inputs		= widget_object.inputs || []
 		const submit_label	= widget_object.submit_label || 'OK'
 		const trigger		= widget_object.trigger || {}
@@ -1900,7 +1902,7 @@ export const build_form = function(widget_object) {
 					}
 				})
 
-			if ( confirm(confirm_text) ) {
+			if ( confirm_text===null || confirm(confirm_text) ) {
 
 				// check mandatory values
 					for (let i = 0; i < input_nodes.length; i++) {

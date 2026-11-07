@@ -28,6 +28,7 @@ import {
 	gunzipWithCaps,
 } from './data_io_import.ts';
 import { normalizeOntologyDependencies, type OntologyDependency } from './ontology_dependencies.ts';
+import { reportOntologyProgress } from './update_progress.ts';
 
 /** One manifest entry as the client sends it (updateOntologyOptionsSchema shape). */
 export interface OntologyUpdateFile {
@@ -80,22 +81,27 @@ export interface OntologyUpdateCatalog {
 
 export interface UpdateTarget {
 	isLocal: boolean;
+	/** The download pin: every file must come from this origin. */
 	configuredOrigin: string | null;
+	/**
+	 * The configured entry's exact URL — WHICH master, when several share one
+	 * origin (`/dedalo/…` beside `/dedalo_test/…`). Absent = by origin (installer).
+	 */
+	configuredUrl?: string;
 }
 
 /**
- * Match the client-selected server against the configured catalog by the
- * ORIGIN of its url, or accept the `localhost` pseudo-server when this
- * instance is itself an ontology master. Returns the resolved target, or the
- * refusal (`error` + the operator-facing `msg`).
+ * Match the selected server against the configured catalog by its EXACT URL
+ * (normalized), or accept the `localhost` pseudo-server when this instance is
+ * itself an ontology master. Returns the resolved target, or the refusal
+ * (`error` + the operator-facing `msg`).
  *
- * Never by code: masters routinely share one access code, and `find` by code
- * handed the FIRST such entry's origin to a panel that had picked another —
- * every file then refused with an "origin mismatch". The origin is exactly
- * what the target yields (the download pin), so origin identity is both
- * unambiguous and sufficient. The client url only SELECTS among configured
- * entries; the returned origin is the catalog's, so an unlisted host is
- * refused, never reached (D5).
+ * Never by code: masters routinely share one access code. Never by origin
+ * alone: two masters may share a host under different paths (a test master
+ * beside the real one), and the origin match handed the FIRST to a panel that
+ * had picked the second. The selected url only SELECTS among configured
+ * entries; the returned url and origin are the catalog's, so an unlisted host
+ * is refused, never reached (D5).
  */
 export function resolveUpdateTarget(
 	server: { name: string; url: string; code: string },
@@ -104,18 +110,37 @@ export function resolveUpdateTarget(
 	if (server.code === 'localhost' && catalog.isOntologyServer) {
 		return { isLocal: true, configuredOrigin: null };
 	}
-	const selected = originOf(server.url);
-	const configured =
-		selected === null
-			? undefined
-			: catalog.servers.find((entry) => originOf(entry.url) === selected);
+	const configured = findConfiguredServer(catalog, server.url);
 	if (configured === undefined) {
 		return {
-			error: `unknown ontology server: ${selected ?? server.url}`,
+			error: `unknown ontology server: ${originOf(server.url) ?? server.url}`,
 			msg: 'Error. The selected server is not configured on this instance',
 		};
 	}
-	return { isLocal: false, configuredOrigin: selected };
+	return {
+		isLocal: false,
+		configuredOrigin: originOf(configured.url),
+		configuredUrl: configured.url,
+	};
+}
+
+/** The configured entry whose url is `url` (normalized); undefined = not configured. */
+export function findConfiguredServer(
+	catalog: OntologyUpdateCatalog,
+	url: string,
+): OntologyUpdateCatalog['servers'][number] | undefined {
+	const wanted = hrefOf(url);
+	return wanted === null
+		? undefined
+		: catalog.servers.find((entry) => hrefOf(entry.url) === wanted);
+}
+
+function hrefOf(url: string): string | null {
+	try {
+		return new URL(url).href;
+	} catch {
+		return null;
+	}
 }
 
 function originOf(url: string): string | null {
@@ -142,7 +167,8 @@ export async function stageOntologyFiles(
 	const messages: string[] = [];
 	const staged: StagedFile[] = [];
 	const seenTlds = new Set<string>();
-	for (const file of files) {
+	for (const [index, file] of files.entries()) {
+		reportOntologyProgress('download', index, files.length, file.tld);
 		if (seenTlds.has(file.tld)) {
 			return { errors: [`duplicate tld in file list: ${file.tld}`] };
 		}

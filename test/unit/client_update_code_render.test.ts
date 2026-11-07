@@ -635,9 +635,12 @@ describe('update_code waive-backup control', () => {
 	test('the checkbox is a wrapping label, and its note carries the caution', () => {
 		// house pattern (dev_channel_row / move_lang): the <label> WRAPS the input,
 		// so there is no id/for pair to keep in sync.
-		expect(render_src).toContain('waive_backup_label.prepend(waive_backup_input)');
-		expect(render_src).toContain('update_code_waive_backup');
-		expect(render_src).toContain('dd_note waive_backup_note state_warning');
+		// the row is SHARED with the ontology modal (render_update_status.js)
+		const status_src = readFileSync(join(WIDGET_DIR, 'js/render_update_status.js'), 'utf8');
+		expect(status_src).toContain('export const build_waive_backup_row');
+		expect(status_src).toContain('label.prepend(input)');
+		expect(status_src).toContain('dd_note waive_backup_note state_warning');
+		expect(render_src).toContain("build_waive_backup_row(check, 'update_code_waive_backup')");
 	});
 
 	test('a waived backup is restated in the final confirm', () => {

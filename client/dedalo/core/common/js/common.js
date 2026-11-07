@@ -4209,9 +4209,12 @@ const render_process_status_failure = function (api_error) {
 *   non-2xx, no body), with a terminal frame `{is_running:false, error:ApiError}`
 *   (read it with normalize_stream_error); the failure is then also stated in
 *   `container`, panel-local (never page_globals.page_error).
+* @param {Function} [on_frame] - Called with EVERY frame read, before it is
+*   rendered — for a caller that draws its own progress from the job's `data`
+*   (update_ontology's progress bar) without opening a second stream.
 * @returns {void}
 */
-export const update_process_status = function (id, pid, pfile, container, update_rate=1000, callback) {
+export const update_process_status = function (id, pid, pfile, container, update_rate=1000, callback, on_frame) {
 
 	// Validate essential parameters
 	if (!container || !(container instanceof HTMLElement)) {
@@ -4296,6 +4299,9 @@ export const update_process_status = function (id, pid, pfile, container, update
 		// on_read event (called on every chunk from stream reader)
 		const on_read = (sse_response) => {
 			last_response = sse_response
+			if (typeof on_frame==='function') {
+				on_frame(sse_response)
+			}
 			// fire update_info_node on every reader read chunk
 			render_stream_response.update_info_node(sse_response)
 		}

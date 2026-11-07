@@ -20,6 +20,7 @@
 		refresh_readiness,
 		panel_blocked,
 		backup_waiver_check,
+		build_waive_backup_row,
 		image_update_command,
 		image_command_tag
 	} from './render_update_status.js'
@@ -1440,43 +1441,15 @@ export const render_info_modal = function( self, versions_info, body_response, a
 			if (waive_backup_input!==null) {
 				return waive_backup_input
 			}
-			const waive_backup_row = ui.create_dom_element({
-				element_type	: 'div',
-				class_name		: 'waive_backup_row',
-				parent			: footer
-			})
+			const waive = build_waive_backup_row(check, 'update_code_waive_backup')
 			// it must precede the Update button even when mounted LATE (the
 			// deadline-crossing path below): the caution is read, not stumbled on.
 			if (button_update && button_update.parentNode===footer) {
-				footer.insertBefore(waive_backup_row, button_update)
+				footer.insertBefore(waive.row, button_update)
+			} else {
+				footer.appendChild(waive.row)
 			}
-			// label WRAPS the input (the house pattern, same as channel_row):
-			// the click target is the whole row without an id/for pair to keep in sync.
-			const waive_backup_label = ui.create_dom_element({
-				element_type	: 'label',
-				class_name		: 'waive_backup_label',
-				text_content	: get_label.update_code_waive_backup || 'Update without a recent database backup',
-				parent			: waive_backup_row
-			})
-			waive_backup_input = ui.create_dom_element({
-				element_type	: 'input',
-				type			: 'checkbox',
-				class_name		: 'waive_backup_check',
-				name			: 'update_code_waive_backup'
-			})
-			waive_backup_label.prepend(waive_backup_input)
-			// the age FACT, when the server measured one ('none' means no backup
-			// was found at all). The server sends facts, the client the wording.
-			const backup_age = Number(check.detail)
-			const note_text = (get_label.update_code_waive_backup_note || 'The database will not be restorable if the update goes wrong. Make a backup first whenever you can; every waiver is recorded in the server log with your user.')
-			ui.create_dom_element({
-				element_type	: 'div',
-				class_name		: 'dd_note waive_backup_note state_warning',
-				text_content	: Number.isFinite(backup_age)
-					? ((get_label.update_code_check_backup_fresh || 'Recent database backup') + ': ' + String(backup_age) + ' h — ' + note_text)
-					: note_text,
-				parent			: waive_backup_row
-			})
+			waive_backup_input = waive.input
 
 			return waive_backup_input
 		}

@@ -35,10 +35,11 @@ import {
 	type ManifestResult,
 	readLocalOntologyManifest,
 } from './ontology_manifest.ts';
-import type {
-	OntologyUpdateCatalog,
-	OntologyUpdateFile,
-	UpdateTarget,
+import {
+	findConfiguredServer,
+	type OntologyUpdateCatalog,
+	type OntologyUpdateFile,
+	type UpdateTarget,
 } from './ontology_update_target.ts';
 
 /** The seams of the source check; production passes none. */
@@ -49,6 +50,13 @@ export interface OntologySourceDeps {
 	installedDataVersion?: () => Promise<number[]>;
 	/** Base of this master's own export dir (a local target). */
 	ioBaseDir?: string;
+	/**
+	 * Not a seam — the run's MODE: the operator picked this master and these
+	 * TLDs in the panel. Any TLD the picked master lists may come from it, so
+	 * the one-source-per-TLD map (D-8) is not applied; it binds the unattended
+	 * run only (see assertSourceAssignment).
+	 */
+	operatorPicked?: boolean;
 }
 
 function refuse(rule: string, sentence: string): never {
@@ -69,13 +77,23 @@ function defaultManifestReader(
 			const base = ioBaseDir ?? config.ops.ontologyDataIoDir;
 			return readLocalOntologyManifest(join(base, DEDALO_VERSION_MAJOR_MINOR));
 		}
-		const server = catalog.servers.find((entry) => originOf(entry.url) === target.configuredOrigin);
+		const server = selectedServer(catalog, target);
 		if (server === undefined) return { ok: false, reason: 'the selected server is not configured' };
 		return fetchOntologyManifest(
 			{ name: server.url, url: server.url, code: server.code },
 			catalog.servers,
 		);
 	};
+}
+
+/** The configured entry the target names: by exact url, else (an installer target) by origin. */
+function selectedServer(
+	catalog: OntologyUpdateCatalog,
+	target: UpdateTarget,
+): OntologyUpdateCatalog['servers'][number] | undefined {
+	if (target.configuredUrl !== undefined)
+		return findConfiguredServer(catalog, target.configuredUrl);
+	return catalog.servers.find((entry) => originOf(entry.url) === target.configuredOrigin);
 }
 
 function originOf(url: string): string | null {
@@ -155,35 +173,54 @@ function warnUnverified(files: readonly OntologyUpdateFile[], target: UpdateTarg
 }
 
 /**
- * D-8 — EACH SHARED TLD COMES FROM EXACTLY ONE SOURCE. With one configured
- * master and no `tlds`, everything comes from it. Otherwise every requested
- * TLD must be listed by exactly one master — the selected one. A local target
- * (this install is the master) exports its own TLDs and is not sourced.
+ * The masters an UNATTENDED run takes from (D-8): those that declare `tlds`,
+ * each for its declared TLDs; when none declares, the FIRST configured master
+ * serves everything (the installer's primary). The other masters are reachable
+ * only by an operator's pick in the panel.
+ */
+export function unattendedSources(
+	servers: OntologyUpdateCatalog['servers'],
+): OntologyUpdateCatalog['servers'] {
+	const declared = servers.filter((entry) => entry.tlds !== undefined);
+	return declared.length > 0 ? declared : servers.slice(0, 1);
+}
+
+/**
+ * D-8 — in an UNATTENDED run each shared TLD comes from exactly one source:
+ * the selected master must be one of {@link unattendedSources}, and every
+ * requested TLD must be declared by it alone (an undeclared single primary
+ * serves them all). An operator's pick (`picked`) is not mapped: any TLD the
+ * picked master lists may come from it. A local target (this install is the
+ * master) exports its own TLDs and is not sourced.
  */
 export function assertSourceAssignment(
 	files: readonly { readonly tld: string }[],
 	target: UpdateTarget,
 	catalog: OntologyUpdateCatalog,
+	picked = false,
 ): void {
-	if (target.isLocal) return;
-	const servers = catalog.servers;
-	const selected = servers.find((entry) => originOf(entry.url) === target.configuredOrigin);
-	if (servers.length === 1 && selected?.tlds === undefined) return;
-	requireDeclaredSources(servers);
+	if (target.isLocal || picked) return;
+	const sources = unattendedSources(catalog.servers);
+	const selected = unattendedSelected(sources, catalog, target);
+	if (selected.tlds === undefined) return;
 	for (const { tld } of files) {
-		const owners = servers.filter((entry) => entry.tlds?.includes(tld)).map((entry) => entry.url);
-		const refusal = sourceRefusal(tld, owners, selected?.url);
+		const owners = sources.filter((entry) => entry.tlds?.includes(tld)).map((entry) => entry.url);
+		const refusal = sourceRefusal(tld, owners, selected.url);
 		if (refusal !== null) refuse(refusal.rule, refusal.sentence);
 	}
 }
 
-/** With several masters, every one declares its tlds. */
-function requireDeclaredSources(servers: OntologyUpdateCatalog['servers']): void {
-	const undeclared = servers.filter((entry) => entry.tlds === undefined).map((entry) => entry.url);
-	if (undeclared.length === 0) return;
-	refuse(
+/** The selected master among the unattended sources; refused when it is not one. */
+function unattendedSelected(
+	sources: OntologyUpdateCatalog['servers'],
+	catalog: OntologyUpdateCatalog,
+	target: UpdateTarget,
+): OntologyUpdateCatalog['servers'][number] {
+	const selected = selectedServer({ ...catalog, servers: sources }, target);
+	if (selected !== undefined) return selected;
+	return refuse(
 		'source_unassigned',
-		`several ontology masters are configured: each needs its tlds in ONTOLOGY_SERVERS (missing for ${undeclared.join(', ')})`,
+		'the selected master is not a source of the unattended update (declare its tlds in ONTOLOGY_SERVERS, or pick it in the panel)',
 	);
 }
 
@@ -220,7 +257,7 @@ export async function resolveOntologySource(
 	catalog: OntologyUpdateCatalog,
 	deps: OntologySourceDeps = {},
 ): Promise<OntologyUpdateFile[]> {
-	assertSourceAssignment(files, target, catalog);
+	assertSourceAssignment(files, target, catalog, deps.operatorPicked === true);
 	const read = deps.readManifest ?? defaultManifestReader(catalog, deps.ioBaseDir);
 	const manifest = await read(target);
 	if (!manifest.ok)
