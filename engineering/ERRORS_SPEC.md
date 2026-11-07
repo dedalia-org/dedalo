@@ -57,7 +57,7 @@ only category whose message never varies per throw.
 | `severity` | `info` / `warn` → console.info/warn, `error` / `fatal` → console.error (`logError`) |
 | `disclosure` | `public`: a vetted `publicMessage` may replace `message` on the wire; `operator`: never |
 | `retryable` | may a later attempt plausibly succeed (client retry policy; `Retry-After` for limit/unavailable) |
-| `details_keys?` | the ONLY `details` keys the converter puts on the wire — scalars only |
+| `details_keys?` | the ONLY `details` keys the converter puts on the wire — scalars only (`reason_key` is the one key that names no label placeholder: §9.1) |
 | `hint?` | model-facing next move (MCP structured errors) |
 | `reason?` | named exemption: why the code exists although no engine path throws it |
 
@@ -77,6 +77,9 @@ replaces `instanceof TypeError` at the section_id catch sites.
    operator-authored refusals, `request.invalid_options`, …).
 2. `error.details` = the throw's `details` filtered to `spec.details_keys`,
    scalars only (a non-scalar under a declared key is dropped, not stringified).
+   `details.reason_key` additionally has to spell a key (`REASON_KEY_PATTERN`,
+   `^[a-z][a-z0-9_]{0,47}$`) or it is dropped too — it is the one detail a client
+   turns into a label NAME (§9.1).
 3. `coordinates` (tipo / section_id / job) are LOG-ONLY; `cause` is never
    serialized. `internal.*` never echoes the wrapped exception.
 4. `DEDALO_DEBUG_API_ERRORS=true` (existing key, no new one) adds
@@ -97,7 +100,7 @@ not only the dispatch catch.
 says the same thing (`no_access_page`, the `external_source_*` family,
 `fail_to_save`, `search_failed`, `external_search_failed`). A shared label key
 must be a reused pre-existing key and its codes must agree on category. Label
-`${param}` placeholders ≡ `details_keys`, both ways — always with the `$` (the client's `format_label` fills `${param}` only; a bare `{param}` in any error label, master or catalog, is refused by `error_registry_native`). Labels ship in
+`${param}` placeholders ≡ `details_keys` minus `reason_key`, both ways — always with the `$` (the client's `format_label` fills `${param}` only; a bare `{param}` in any error label, master or catalog, is refused by `error_registry_native`). Labels ship in
 `src/core/labels/master.json` in the same commit as the code (labels_tripwire).
 Client-side transport codes have their own keys (`error_client_network|timeout|
 aborted|bad_response|http_status|worker|offline|render_failed`; the slow-server
@@ -429,6 +432,7 @@ tripwired or deleted"). Rows in `engineering/TRIPWIRES.md` + `scripts/verify.ts`
 | `test/parity/error_envelope_transform.test.ts` | the fixture-side transform: total over the 8 frozen `result:false` bodies, and it REFUSES a TS-shaped body (`ok` present) — fixture-side only |
 | `test/unit/authorization_denial_native.test.ts`, `session_not_logged_contract.test.ts`, `csrf_handshake.test.ts`, `security_fail_closed.test.ts`, `no_install_surface_tripwire.test.ts` | the named refusals (`perm.denied` + environment extension on `start`, `auth.not_logged`, `auth.csrf_failed` + fresh token; no session-less action outside the frozen pre-auth list, the removed install actions `request.unknown_action`) — and response.ts's export set (`streamResult` only) |
 | `test/unit/labels_tripwire.test.ts` | every `label_key` ships in `master.json` (the code and its label land in one commit) |
+| `test/unit/tool_reason_keys_tripwire.test.ts` | the TOOL refusal map (§9.1): per tool, every `reason_key` literal is declared, every declared key has a `reason_<key>` label in every language the tool is translated into (and `lg-eng`), no dead `reason_*` label, the declaration is valid (the loader's own check: an object, key grammar, a vetted fallback sentence per key), a tool that declares keys names none of the converter's body builders (`toErrorBody` / `toErrorEnvelope` / `toStructuredErr` / `toFailureRecord` / `toStreamFrame` — call, import, alias, namespace member, destructure, computed access; the list is pinned complete against `errors/convert.ts`; `toolErrorBody` is the embedder), a `reason_*` label's `${param}` is a detail an opted-in code declares and never `%s`; on a scratch fixture tool through the loader's own door, an undeclared key / a code that does not carry the key / a sentence other than the declared one is `internal.invariant` (handlers, `admit` hooks, routes, and a failure envelope a handler RETURNS), a valid refusal gets the declared sentence with every other field intact, an echoed offending key is sanitised and bounded (no log forging), `toolErrorBody` LOGS the refusal it replaces, a malformed declaration (shape, key, empty / over-long sentence, control / line-separator / bidi / zero-width character) refuses the tool at load; and on the REAL registry, every served handler, `admit` hook and route of every loaded tool is the guard around the raw function the tool exports (`unguarded`). `error_taxonomy_tripwire` A7 keeps `reason_key` writes inside `tools/<tool>/server/`. The opt-in set is pinned in `error_registry_native` (`REASON_KEY_CODES`); the client half (`details.reason_key` → the tool label → `message`, the `tool` stamp on a request and on a frame, an unfillable placeholder) is `test_render_api_error` / `test_api_error` in the browser suite and `client_error_contract_tripwire` rule 5 / 5b |
 | `test/unit/tools_dispatch.test.ts`, `dd_mcp_api.test.ts`, `agent_stream_protocol.test.ts`, `diffusion_queue_stream_tripwire.test.ts`, `external_search_action_native.test.ts` | the non-envelope surfaces (§5) — tool responses ARE the envelope, MCP structured errors, SSE frames, external degradation as notices |
 
 Nothing is left for a later phase: `ZERO_TIER_ENFORCED` flipped at P3 exit
@@ -497,3 +501,113 @@ does move them).
    test/unit/error_taxonomy_tripwire.test.ts test/unit/labels_tripwire.test.ts`
    — an orphan, a missing label, a mismatched placeholder or an unresolved
    client string is red.
+
+### 9.1 Add-a-reason-key checklist (a tool refusal the browser can translate)
+
+A tool that must say WHY it refused — in the user's language, from its own
+`register.json` — does not mint a code. It throws an **existing public code**
+carrying `details.reason_key`, one key of a **closed map the tool declares** (key → the
+English fallback sentence).
+
+Wire (additive, `WC-2026-11-06-tool-reason-key`): `error.details.reason_key`
+on the codes the registry opts in — `REASON_KEY_CODES`: `request.invalid_options`
+(bad parameter), `resource.not_found` (unknown or forbidden id — one identical
+refusal), `tool.unsupported_target`, `tool.source_unavailable`,
+`media.too_large`. All are `disclosure: 'public'` (the checker refuses a
+non-public code that lists the key): the sentence the tool DECLARED for the key is the
+English fallback that rides the wire as `error.message` (the guard supplies it; the
+throw carries none). No new code, no envelope change.
+
+1. Declare the closed map on the tool's server module: `reasonKeys: { bad_bbox: 'The
+   bounding box is not numeric.', … }` (`ToolServerModule.reasonKeys`: key → the English
+   fallback sentence; each key `REASON_KEY_PATTERN`, each sentence a non-empty string of at
+   most `PUBLIC_MESSAGE_MAX` = 200 characters with no control, line-separator or
+   invisible-formatting character — `\p{Cc}`, `\p{Cf}`, `\p{Zl}`, `\p{Zp}`, so a bidi
+   override and a zero-width space are refused with the newline). It is NOT an action. The
+   loader refuses a tool whose declaration is malformed (the retired array form included),
+   and serves it through `admitToolModule` → `guardReasonKeys`
+   (`src/core/tools/reason_keys.ts`), which wraps every handler, `admit` hook and route of
+   the loaded module: a `reason_key` outside the map, on a code that does not carry it, or
+   beside a sentence other than the declared one (step 2) is re-thrown as
+   `internal.invariant` (loud; the converter alone would drop the detail silently, and the
+   refusal is logged by the chokepoint like any throw). The wrapper keeps the raw function
+   reachable (`unguarded(fn)`), so a gate that reads what a served handler does
+   (`action_scope_binding_tripwire`) reads the handler and not the wrapper. What the guard
+   covers, precisely:
+   - a refusal THROWN out of a handler, an `admit` hook or a route handler;
+   - a failure envelope a handler RETURNS (`{ ok: false, error: { details: { reason_key }
+     } }`, which `ToolResponse` permits): same rule, its `message` must be the declared
+     sentence;
+   - a refusal the tool EMBEDS in a payload (a batch's per-item `{ uri, error: <wire body> }`)
+     never reaches a wrapper, so it is built with `toolErrorBody(tool, action, error)` —
+     the same check, then the converter, and a refusal it replaces is LOGGED (nothing
+     downstream catches an embedded one). A tool that declares `reasonKeys` names none of
+     the converter's body builders (gated: `toErrorBody`, `toErrorEnvelope`,
+     `toStructuredErr`, `toFailureRecord`, `toStreamFrame`; the list is pinned complete
+     against `errors/convert.ts`);
+   - NOT covered, and stated: the `Response` a route returns is not parsed (a route refuses
+     by throwing), and an error body a tool hand-assembles and nests in a payload with no
+     builder at all is seen only by the static scan of literal `reason_key:` writes
+     (`error_taxonomy_tripwire` B1 blocks the `ok: false` literal that would usually carry
+     it).
+2. Throw it: `throw new DedaloError('request.invalid_options', { details:
+   { reason_key: 'bad_bbox' } })` — `coordinates` for log-only identifiers, as always, and
+   **no `publicMessage`**. The sentence belongs to the declaration, never to the throw: it is
+   the one field the client prints verbatim, so it is the one string a keyed refusal must
+   not be able to carry at runtime. The guard puts the declared sentence on a valid
+   refusal (a clone with the same code, details, coordinates, cause, retry hint, `extend`
+   and stack), accepts a throw that restates it exactly, and refuses any other
+   (`internal.invariant`): an upstream's text, a driver message or a URL cannot reach
+   `error.message` however the tool builds its error, so a helper of the tool's own is
+   fine. The key may be a literal or a computed member of the map (the runtime guard
+   checks the value; the static scan reads literals). A sentence that varies goes in the
+   tool's label, filled from the code's declared details. An offending key is echoed into
+   the (log-only) `internal.invariant` message and coordinates reduced to
+   `[A-Za-z0-9_.-]` and at most 80 characters, because the log line prints coordinates
+   raw: a newline or an escape sequence in a request-derived key cannot forge a second
+   line.
+3. Ship the sentence in the tool's `register.json` labels as
+   `{lang, name: 'reason_<key>', value}` — one per language the tool carries and
+   always `lg-eng`. `${param}` in the value fills from `error.details`, which holds
+   only `reason_key` and the code's own declared keys (`${site}` on
+   `tool.source_unavailable`); a fixed ceiling goes into the text. The gate
+   refuses any other `${name}` and any `%s` in a `reason_*` label, and the
+   browser never shows a label whose placeholder it cannot fill — the `message`
+   stands in.
+4. The browser does the rest: `data_manager` stamps `ApiError.tool` from the
+   `tool_request` body before it publishes `api_error`; `tool_common.build`
+   registers the tool's `reason_*` labels (`register_tool_error_labels`);
+   `error_text` resolves, for a `details.reason_key` error with a known tool:
+   **tool label `reason_<key>` → wire `message` (the declared sentence) → the
+   core `label_key` label → the code**. So one refusal shows ONE notice, in the
+   user's language when the tool is translated into it. `context.labels` is
+   served only in the request's application language and is an empty array when
+   there is none, so the `message` fallback is the normal case for an
+   untranslated language, not an edge case. A refusal that reaches the browser
+   as a stream or job FRAME (a `backgroundRunnable` action that throws: the
+   job's terminal frame carries the same `error` body, `reason_key` included)
+   does not say whose it is, so the site that renders the tool's job names the
+   tool: `render_stream({container, id, tool: self.model})`, or
+   `normalize_stream_error(frame, {tool: self.model})` where the tool normalises
+   a frame itself. The name is the CALLER's argument and becomes `ApiError.tool`
+   through the constructor — a `tool` key inside a frame is never read. The
+   page's job tray lists jobs of every kind and names no tool, so a tray row
+   shows the core code's label.
+5. Gate: `bun test test/unit/tool_reason_keys_tripwire.test.ts
+   test/unit/error_registry_native.test.ts
+   test/unit/error_taxonomy_tripwire.test.ts` — an undeclared literal, a missing
+   or dead label, an unfillable label placeholder, an invalid declaration,
+   any of the converter's body builders named by a keyed tool, a registry that serves an unguarded
+   handler, a stray `reason_key` write outside a tool's server tree, or a
+   code added to the opt-in set without the pin is red. Adding a code to
+   `REASON_KEY_CODES` is a deliberate registry edit (list `reason_key` in its
+   `details_keys`, keep it public) and a wire-contract entry.
+6. Pitfall — `tool.source_unavailable` is retryable (`retryable: true`, the only one of the
+   five). The browser transport resends a retryable error, `tool_request` is `mutating`
+   unless the action declares `readOnly` (`api/dispatch.ts`), and a mutating handler that
+   throws leaves its idempotency reservation `ambiguous`: the resend is answered
+   `idempotency.outcome_unknown`, the answer the user is left with, and your key and
+   sentence are never shown. Refuse an unreachable source with it from a `readOnly` action
+   called with the literal `retries: 1` (see the "A read-only action is never replayed"
+   admonition in `docs/development/tools/server_contract.md`), or pass `retries: 1` on that
+   `tool_request(`; an action that cannot be read-only picks a code that is not retryable.

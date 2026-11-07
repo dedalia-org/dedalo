@@ -20,7 +20,9 @@
  *  7. the action's declarative permission gate must pass — BEFORE any background
  *     fork (PHP invariant);
  *  8. execute: direct, or (background_running) via the background executor,
- *     which additionally enforces the BACKGROUND_RUNNABLE allowlist.
+ *     which additionally enforces the BACKGROUND_RUNNABLE allowlist. An action
+ *     that declares `readOnly` runs its handler inside the read-only request
+ *     scope (security/read_only_scope.ts).
  *
  * The tool response REPLACES the API envelope wholesale — so it IS the API
  * envelope (envelope v2, engineering/ERRORS_SPEC.md §4): every gate here
@@ -33,6 +35,7 @@
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { LEGACY_TOKEN_MAP } from '../errors/registry.ts';
 import { type Principal, SUPERUSER_ID } from '../security/permissions.ts';
+import { runReadOnly } from '../security/read_only_scope.ts';
 import { runAdmission, scheduleBackground } from './background.ts';
 import {
 	BACKGROUND_JOB_STATUS_ACTION,
@@ -41,7 +44,7 @@ import {
 	backgroundJobsResponse,
 } from './job_status.ts';
 import { getLoadedTool } from './loader.ts';
-import type { ToolResponse } from './module.ts';
+import type { ToolActionContext, ToolActionSpec, ToolResponse } from './module.ts';
 import { assertActionPermission, isToolGranted, resolveAction } from './security.ts';
 
 const TOOL_NAME_PATTERN = /^tool_[a-z0-9_]+$/;
@@ -75,6 +78,93 @@ function permissionRefusal(
 		publicMessage: permission.msg,
 		coordinates: { tool: toolName, method: toolMethod },
 	});
+}
+
+/**
+ * THE ONE PREDICATE for "this request runs read-only", asked twice by design:
+ * by Gate 4 of the API dispatcher BEFORE the handler (to skip the idempotency
+ * ledger, {@link isReadOnlyToolRequest}) and by the executor below (to open the
+ * read-only request scope). One function means the two cannot disagree: a MODULE
+ * action the ledger waved through is always one the scope then polices. The one
+ * exception is not a module action: the two reserved framework job actions
+ * (`isJobFrameworkAction`, status / list) classify read-only without a module and
+ * are answered before `runForeground`, so they never run under `runReadOnly` —
+ * harmless, because their code (job_status.ts) only reads the job registry.
+ *
+ * A background request is never read-only — scheduling a job is a write, and
+ * the loader refuses a readOnly action that is also backgroundRunnable, so
+ * `scheduleBackground` refuses it anyway.
+ */
+function runsReadOnly(spec: ToolActionSpec, options: Record<string, unknown>): boolean {
+	return spec.readOnly === true && options.background_running !== true;
+}
+
+/**
+ * Is this tool_request RQO a READ-ONLY action, resolved from the LOADED module's
+ * own declaration — the answer the API idempotency gate (Gate 4, api/dispatch.ts)
+ * needs BEFORE the tool grant, action lookup and permission gates below have run.
+ *
+ * Classification only ever REMOVES a request from the ledger, so the direction of
+ * every doubt is `false` (mutating, ledgered): an options value that is not an
+ * object, a name outside the tool grammar, an unloaded tool, an unknown action,
+ * a background request, a lookup that throws — and a caller the tool is not
+ * granted to. It never consults the client's own claim — the answer is the
+ * module's `readOnly` flag for exactly this (tool, action) pair, never the
+ * action NAME alone (the same name exists in many tools).
+ *
+ * THE GRANT IS ASKED FIRST (the same decision as Gates 3+4, isToolGranted),
+ * because classification runs before those gates and its answer is observable:
+ * a read-only request is not ledgered, so a caller who sends the same keyed
+ * request twice sees a different second answer for a read-only pair
+ * (`tool.not_authorized` again) than for any other (`idempotency.outcome_unknown`).
+ * Answered for a caller who is not granted the tool, that difference would tell
+ * them which tools and actions exist and which declare readOnly — the existence
+ * leak `unknownTool` exists to prevent. With the grant asked first, an ungranted
+ * caller gets ONE sequence whatever they name.
+ *
+ * The two reserved framework job actions (status / list) read the job registry
+ * and nothing else, so they classify read-only without a module (still behind
+ * the grant).
+ */
+export async function isReadOnlyToolRequest(
+	userId: number,
+	source: { model?: unknown; action?: unknown } | undefined,
+	options: unknown,
+): Promise<boolean> {
+	try {
+		const candidate = readOnlyCandidate(source, options);
+		if (candidate === null) return false;
+		if (!(await isToolGranted(userId, candidate.tool))) return false;
+		if (isJobFrameworkAction(candidate.method)) return true;
+		const loaded = await getLoadedTool(candidate.tool);
+		const spec = loaded === undefined ? null : resolveAction(loaded.module, candidate.method);
+		return spec !== null && runsReadOnly(spec, candidate.options);
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Gates 1-2 of the dispatch chain, and the background exclusion, as a pure step
+ * of the classifier: the (tool, method, options) a request names, or null when
+ * it cannot be a read-only request (options not an object, a name outside the
+ * tool grammar, a background request).
+ */
+function readOnlyCandidate(
+	source: { model?: unknown; action?: unknown } | undefined,
+	options: unknown,
+): { tool: string; method: string; options: Record<string, unknown> } | null {
+	if (options !== undefined && (typeof options !== 'object' || options === null)) return null;
+	const tool = typeof source?.model === 'string' ? source.model : '';
+	const method = typeof source?.action === 'string' ? source.action : '';
+	const optionRecord = (options ?? {}) as Record<string, unknown>;
+	if (!TOOL_NAME_PATTERN.test(tool) || optionRecord.background_running === true) return null;
+	return { tool, method, options: optionRecord };
+}
+
+/** The two reserved framework actions (job status / list): they read the job registry only. */
+function isJobFrameworkAction(method: string): boolean {
+	return method === BACKGROUND_JOB_STATUS_ACTION || method === BACKGROUND_JOBS_ACTION;
 }
 
 /**
@@ -162,5 +252,25 @@ export async function dispatchToolRequest(
 		return scheduleBackground(loaded, toolMethod, spec, optionRecord, principal, userId, clientIp);
 	}
 	runAdmission(spec, principal, userId, optionRecord, { tool: toolName, method: toolMethod });
-	return spec.handler({ principal, userId, options: optionRecord, background: false, clientIp });
+	return runForeground(spec, {
+		principal,
+		userId,
+		options: optionRecord,
+		background: false,
+		clientIp,
+	});
+}
+
+/**
+ * Foreground execution of a gated, admitted action. A read-only action's handler
+ * runs inside the read-only request scope: every record / history / activity /
+ * job write door refuses there (security/read_only_scope.ts), so a wrong
+ * `readOnly` declaration fails loudly instead of skipping the ledger for a
+ * writer (the activity row's emitter swallows its refusal: dropped and logged,
+ * and caught by the static walk instead). runsReadOnly is the predicate Gate 4
+ * classified the request with.
+ */
+function runForeground(spec: ToolActionSpec, context: ToolActionContext): Promise<ToolResponse> {
+	if (runsReadOnly(spec, context.options)) return runReadOnly(() => spec.handler(context));
+	return spec.handler(context);
 }

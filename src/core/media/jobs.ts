@@ -70,6 +70,7 @@ import {
 	type RequestLangs,
 	runWithRequestLangs,
 } from '../resolve/request_lang.ts';
+import { assertNotReadOnlyRequest } from '../security/read_only_scope.ts';
 import {
 	currentRequestContext,
 	type RequestContext,
@@ -1075,6 +1076,7 @@ export class MediaJobManager {
 	 * silently spends another kind of work's budget.
 	 */
 	submit(kind: string, worker: JobWorker, meta: JobSubmitMeta): JobRecord {
+		assertNotReadOnlyRequest('MediaJobManager.submit');
 		const id = this.nextId(kind);
 		// The worker's identity, read NOW — the request's synchronous flow is the
 		// only moment it is the submitter's (JobRunScope).

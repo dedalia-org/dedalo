@@ -40,6 +40,7 @@ export type HarvestRefusalReason =
 	| 'requires_https'
 	| 'downgrade'
 	| 'host_not_allowed'
+	| 'port_not_allowed'
 	| 'bad_location'
 	| 'too_many_redirects'
 	| 'robots_too_complex'
@@ -54,6 +55,7 @@ const REFUSAL_SENTENCES: Readonly<Record<HarvestRefusalReason, string>> = {
 	requires_https: 'This request accepts only https addresses',
 	downgrade: 'The site redirected from https to http, which is refused',
 	host_not_allowed: 'This request may not visit that host',
+	port_not_allowed: 'This request may only use the standard web ports',
 	bad_location: 'The site redirected to an address that is not a valid URL',
 	too_many_redirects: 'The site redirected too many times',
 	robots_too_complex: "The site's robots.txt is larger or more complex than can be applied safely",

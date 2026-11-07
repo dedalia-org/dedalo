@@ -46,12 +46,47 @@
  * Residual (accepted) blind spot: mutation via an aliased reference or from
  * ANOTHER file (`import { x } …; x.y = 1`) — cross-file mutation of an
  * imported binding's properties is rare and reviewable.
+ *
+ * LIMITER GATE (2026-11-06): a per-key limiter (`core/harvest/origin_limiter.ts`) keeps
+ * its keys in a Map that is a PRIVATE FIELD of the class, which the Map/Set scan above
+ * cannot see — yet one that lives for the process is queue-and-count state that outlives
+ * every request, exactly what that scan exists to list. A text pattern for "a module-scope
+ * `const x = createOriginLimiter(`" is spelling-shaped: it misses a table of limiters, a
+ * `fromEntries(…map(…))`, an array, `export default`, a class's static field, an aliased
+ * import and a wrapper function — and the geo services' natural shape (one limiter per
+ * service id) is exactly the table. So this gate follows BINDINGS (Babel AST) and counts
+ * EVERY site that can mint a limiter, over-inclusively:
+ *
+ *   - every reference to `createOriginLimiter` / `OriginLimiter` outside origin_limiter.ts
+ *     (a call, a `new`, a `extends`, an alias, a value handed on) and every namespace
+ *     member that reads them, wherever it sits — module scope, a table, a class field, a
+ *     function that builds one per call;
+ *   - each keyed `<file>:<top-level declaration it sits in>` and listed in
+ *     ALLOWLISTED_LIMITER_SITE with its LIFECYCLE (who empties it, when; or "built per
+ *     call, dies with it"), and a listed site that stops existing fails;
+ *   - a RE-EXPORT of either name (a barrel hides the next holder from a census by name) and
+ *     a DYNAMIC load of origin_limiter are refused outright, never allowlisted.
+ *
+ * The detector is driven on synthetic text below for every shape above. Stated blind spots:
+ * a limiter minted by code that does not name the factory or the class (none exists: the
+ * constructor is not reachable otherwise), and a second class that re-implements the
+ * primitive (outside this gate's subject: the Map/Set scan covers a plain module Map).
  */
 
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { parse } from '@babel/parser';
 import { Glob } from 'bun';
+import {
+	type AstNode,
+	isNameOnly,
+	literalSpecifier,
+	nameOf,
+	patternNames,
+	readsProperty,
+	walkAst,
+} from '../helpers/ast_walk.ts';
 
 const SRC_DIR = join(import.meta.dir, '..', '..', 'src');
 
@@ -620,6 +655,84 @@ const ALLOWLISTED_MODULE_MAPSET = new Set<string>([
 	// this one on purpose: a search is user-typed and high-cardinality, so its
 	// results are deliberately NOT cached (src/external/search.ts header).
 	'external/search.ts:inFlightSearches',
+	// The geo services' calls in the air (src/core/geo_services/flights.ts), keyed by service id
+	// + the address the engine built for it: public data, no user/session/lang in the key. A
+	// serialization primitive, not a cache: the first caller starts the call (limiter wait,
+	// fetch, slot) and an identical call that arrives while it flies JOINS it instead of taking
+	// a second slot — the browser transport's re-send of an abandoned attempt. Lifecycle:
+	// SELF-DRAINING — an entry is deleted the moment its call settles (the `finally` of the very
+	// promise it shares) or when its last caller leaves (which also cancels what is left of the
+	// call); the flights keep nothing after an answer (a provider that asks for its results to be
+	// kept has them in the answer memory below); `clearGeoFlightsForTests` empties it for gate
+	// isolation.
+	'core/geo_services/flights.ts:FLIGHTS',
+	// The geo services' answer memory (src/core/geo_services/answer_memory.ts): the body text of a
+	// good answer — or of a provider's "nothing there" — keyed by service id + the address the
+	// engine built for it, for the services whose provider asks for its results to be cached
+	// (Nominatim's usage policy; the table's `keepAnswerMs`). A courtesy to a provider, never a
+	// source of truth. NOT factory-built: an ontology write or a record save says nothing about a
+	// geocoder's answer, and the factory's clearers would only drop it for no reason. Public
+	// provider data, no user/session/principal/lang in the key; permission is the CALLER's, checked
+	// before `callGeoService` is entered. Lifecycle: TIME-CLEARED (an entry past its table lifetime
+	// is dropped when it is asked for and on every admission) and SIZE-BOUNDED BY BYTES (2 MiB,
+	// counting each entry's body, its key and a fixed overhead; an entry over 64 KiB is not
+	// kept; the OLDEST are evicted first when a new one does not fit);
+	// `clearAnswerMemoryForTests` empties it for gate isolation.
+	'core/geo_services/answer_memory.ts:KEPT',
+	// The map tile proxy's memory (src/core/geo/tile_proxy/tile_cache.ts): the bytes and media
+	// type of a SUCCESSFUL, byte-verified image answer, keyed by the UPSTREAM ADDRESS the server
+	// built — public provider data, no user/session/principal/lang/record in the key (the address
+	// may carry a provider token: memory only, never logged or listed). Shared by every viewer on
+	// purpose, and safe because of an ORDER the route owns: session, component grant, record scope
+	// and source resolution all run BEFORE the address is built and so before this is read (gated by
+	// map_tile_proxy_native: a denied caller is refused with the entry sitting here). NOT
+	// factory-built: neither an ontology write nor a record save says anything about a provider's
+	// tile (a changed source changes the address, hence the key), and the factory's clearers would
+	// only drop it for no reason. It holds successful images ONLY (the maintainers' decision for
+	// this cache: no refusal, no "there is no such tile", is remembered here). Lifecycle:
+	// TIME-CLEARED (the provider's own freshness, clamped to a week; a stale entry is dropped when it
+	// is asked for and when eviction reaches it — except a stale tile that came with a validator,
+	// which waits at most a week more to be revalidated and is the same Map slot, so no second
+	// bound) and
+	// SIZE-BOUNDED BY BYTES AND BY COUNT (32 MiB, counting each entry's bytes, key and a fixed
+	// overhead, no entry costing less than 1 KiB; at most 16 384 entries; an entry over 512 KiB is
+	// served but not kept; the OLDEST are evicted first, one at a time, when a new one does not
+	// fit — admission does no scan of what is held); `clearTileCacheForTests` empties it for gate
+	// isolation.
+	'core/geo/tile_proxy/tile_cache.ts:TILES',
+	// The map tile proxy's per-person upstream budget (src/core/geo/tile_proxy/principal_budget.ts):
+	// a token bucket per USER ID (a number the session established, never anything the client sent)
+	// that a request spends only when it must go to the provider and starts a call of its own, so one
+	// person cannot scrape a provider through the installation or use up the others' share. The key
+	// IS identity, deliberately: it is the whole point (a bucket per person), and nothing in the value
+	// is shared between people. NOT factory-built: no ontology write or record save changes anyone's
+	// allowance. Lifecycle: SELF-DRAINING (a bucket that has refilled to its burst is the same as no
+	// bucket, so the oldest ones are dropped as soon as they are full again) and SIZE-BOUNDED (2 048
+	// buckets, the oldest first); `clearPrincipalBudgetsForTests` empties it for gate isolation.
+	'core/geo/tile_proxy/principal_budget.ts:BUCKETS',
+	// The map tile proxy's calls in the air (src/core/geo/tile_proxy/tile_flights.ts), keyed by the
+	// UPSTREAM ADDRESS the engine built: public provider data, no user/session/principal/lang in the
+	// key (it may carry a provider token: memory only, never logged). A serialization primitive, not
+	// a cache (the geo services' flights.ts precedent above): the first request for an address starts
+	// the call and an identical one that arrives while it flies JOINS it instead of going to the
+	// provider again; joined only AFTER the route's gates, like the memory beside it. Lifecycle:
+	// SELF-DRAINING — an entry is deleted the moment its call settles (the `finally` of the very
+	// promise it shares) or when its last holder leaves (which also stops what is left of the call);
+	// nothing is kept after an answer; bounded by what the harvesting door lets be in the air (a
+	// person's own line at an origin of 512, an origin's queue of 256, 512 across them) and, before
+	// the door, by each person's budget (a flight starts only on a token);
+	// `clearTileFlightsForTests` empties it for gate isolation.
+	'core/geo/tile_proxy/tile_flights.ts:FLIGHTS',
+	// The map tile proxy's log ledger (src/core/geo/tile_proxy/tile_log.ts): the disclosure-safe log
+	// line WITHOUT its request id → epoch ms it was written, so a provider failing every tile of
+	// every viewer writes ONE line per distinct line per minute and COUNTS the rest
+	// (map_tile_log_suppressed) — the external subsystem's loggedLines precedent above, for the same
+	// reason. NOT factory-built: an ontology write says nothing about what the log already said.
+	// Lifecycle: TIME-CLEARED (keys older than the minute are dropped on every admission, oldest
+	// first) and SIZE-BOUNDED (256 lines, oldest first); `clearTileLogForTests` empties it for gate
+	// isolation. Keys name tipos, ids and the door's code — never a session, user address, language
+	// or URL.
+	'core/geo/tile_proxy/tile_log.ts:LOGGED',
 	// Log dedup ledger of the external subsystem's ONE logging door
 	// (logExternalError): distinct failure line → epoch ms it was logged, so a
 	// per-record failure repeated by every render/export row is COUNTED
@@ -661,6 +774,203 @@ const ALLOWLISTED_MODULE_MAPSET = new Set<string>([
 	'core/api/dispatch.ts:idempotencyLedger',
 ]);
 
+/**
+ * Every reviewed site that can mint a per-key limiter (`createOriginLimiter` /
+ * `OriginLimiter` outside origin_limiter.ts). Keyed `<path-relative-to-src>:<top-level
+ * declaration>`. Each needs the LIFECYCLE sentence: who empties it, when, and that its keys
+ * carry no request identity — or, for a site that builds one per call, that it dies with
+ * the call.
+ */
+const ALLOWLISTED_LIMITER_SITE = new Set<string>([
+	// The interactive harvesting profile's five limiters (OUTBOUND_SPEC.md §3.1). Not caches:
+	// slot, queue and spacing accounting at the one outbound door for a request a person is
+	// waiting for. Lifecycle: SELF-DRAINING — a key is deleted the moment nobody holds or
+	// awaits it and the spacing it owes has passed (an unref'd drain timer re-arms itself
+	// while the spacing runs); a queued caller leaves on its ceiling or its job's stop, so
+	// nothing waits without bound; `clearInteractiveForTests` empties all five for gate
+	// isolation. Keys are origins (`siteKey`) and two constants for the shared counts (the
+	// global budget, and the stored-address budget inside it) — and, for `perHolder` and
+	// `perHolderAtOrigin` ONLY, the opaque holder name the route established (`user:<id>`,
+	// never anything the client sent), alone for the first and after the origin for the second
+	// (`<origin> <holder>`): the key IS identity, deliberately, because the point is a cap per
+	// person — on the stored-address slots, and on the places in one registry origin's queue so
+	// that one person's view cannot be everyone's line. A holder's key exists only while that
+	// person holds or awaits a slot (the same self-drain), so the key set is bounded by the
+	// slots and queues, not by the number of people who ever asked; nothing in the value is
+	// shared between people.
+	'core/harvest/interactive_limits.ts:perOrigin',
+	'core/harvest/interactive_limits.ts:acrossOrigins',
+	'core/harvest/interactive_limits.ts:acrossStored',
+	'core/harvest/interactive_limits.ts:perHolder',
+	'core/harvest/interactive_limits.ts:perHolderAtOrigin',
+	// The geo services' per-provider limiters (OUTBOUND_SPEC.md §2): pacing for the closed table
+	// of Nominatim, DARE, Catastro, IGN and open-elevation, one limiter per origin id built from
+	// that origin's row (calls in flight, spacing between starts, queue, wait ceiling). Not a
+	// cache: slot, queue and spacing accounting. Lifecycle: SELF-DRAINING — a key is deleted the
+	// moment nobody holds or awaits it and the spacing it owes has passed (ONE unref'd drain
+	// timer per key, however many newcomers a back-off refuses; it re-arms itself while the
+	// spacing runs), a queued caller leaves on its ceiling or its job's stop, and
+	// `clearGeoServicesForTests` empties all five for gate isolation. The
+	// table is closed, so the set of limiters is fixed at load and each holds at most ONE key —
+	// its origin id — never session/user/principal/lang/URL.
+	'core/geo_services/limiters.ts:GEO_LIMITERS',
+]);
+
+/** The one module that defines the limiter; every other file that names it is a site. */
+const LIMITER_MODULE_FILE = 'core/harvest/origin_limiter.ts';
+/** A specifier that names it (`./origin_limiter.ts`, `../harvest/origin_limiter`). */
+const LIMITER_SPECIFIER = /(?:^|\/)origin_limiter(?:\.ts|\.js)?$/;
+/** The two names that mint a limiter. */
+const LIMITER_MAKERS: ReadonlySet<string> = new Set(['createOriginLimiter', 'OriginLimiter']);
+/** Sites that are refused outright rather than listed: they hide the next holder. */
+const LIMITER_RE_EXPORT = '(re-export)';
+const LIMITER_DYNAMIC_LOAD = '(dynamic load)';
+/** Where an identifier is a TYPE, not a value: `let x: OriginLimiter`, `Map<string, OriginLimiter>`. */
+const TYPE_POSITION: ReadonlySet<string> = new Set([
+	'TSTypeReference',
+	'TSTypeAnnotation',
+	'TSTypeParameterInstantiation',
+	'TSTypeParameterDeclaration',
+	'TSTypeQuery',
+	'TSTypeAliasDeclaration',
+	'TSInterfaceDeclaration',
+	'TSExpressionWithTypeArguments',
+	'TSClassImplements',
+	'TSInterfaceHeritage',
+	'TSTypeLiteral',
+]);
+
+/** The top-level declaration a site sits in — the key's second half. */
+function limiterContainer(chain: readonly AstNode[]): string {
+	const statement = chain[0];
+	if (statement === undefined) return '(module)';
+	switch (statement.type) {
+		case 'VariableDeclaration': {
+			const declarator = chain[1];
+			return declarator?.type === 'VariableDeclarator'
+				? patternNames(declarator.id).join(',')
+				: '(declaration)';
+		}
+		case 'ExportNamedDeclaration':
+			return statement.declaration ? limiterContainer(chain.slice(1)) : LIMITER_RE_EXPORT;
+		case 'ExportDefaultDeclaration':
+			return 'default';
+		case 'FunctionDeclaration':
+		case 'ClassDeclaration':
+			return nameOf(statement.id) || '(anonymous)';
+		case 'ExpressionStatement':
+			return '(statement)';
+		default:
+			return statement.type;
+	}
+}
+
+/** The local names a program binds to the limiter module's makers and namespace; re-exports into `sites`. */
+function limiterBindings(
+	program: AstNode,
+	names: Set<string>,
+	spaces: Set<string>,
+	sites: Set<string>,
+): void {
+	const namesLimiter = (statement: AstNode): boolean =>
+		LIMITER_SPECIFIER.test(
+			((statement.source as AstNode | null | undefined)?.value as string) ?? '',
+		);
+	for (const statement of program.body as AstNode[]) {
+		if (statement.exportKind === 'type' || statement.importKind === 'type') continue;
+		if (statement.type === 'ImportDeclaration' && namesLimiter(statement)) {
+			for (const binding of statement.specifiers as AstNode[]) {
+				if (binding.importKind === 'type') continue;
+				if (binding.type === 'ImportNamespaceSpecifier') spaces.add(nameOf(binding.local));
+				else if (
+					binding.type === 'ImportSpecifier' &&
+					LIMITER_MAKERS.has(nameOf(binding.imported))
+				) {
+					names.add(nameOf(binding.local));
+				}
+			}
+		} else if (statement.type === 'TSImportEqualsDeclaration') {
+			const reference = statement.moduleReference as AstNode;
+			if (LIMITER_SPECIFIER.test(literalSpecifier(reference.expression) ?? '')) {
+				spaces.add(nameOf(statement.id));
+			}
+		} else if (statement.type === 'ExportAllDeclaration' && namesLimiter(statement)) {
+			sites.add(LIMITER_RE_EXPORT);
+		} else if (statement.type === 'ExportNamedDeclaration' && namesLimiter(statement)) {
+			for (const binding of (statement.specifiers ?? []) as AstNode[]) {
+				const hands =
+					binding.type === 'ExportNamespaceSpecifier' || LIMITER_MAKERS.has(nameOf(binding.local));
+				if (binding.exportKind !== 'type' && hands) sites.add(LIMITER_RE_EXPORT);
+			}
+		}
+	}
+}
+
+/**
+ * Does this use of the namespace `ns` reach a maker: `ns.createOriginLimiter`,
+ * `ns['OriginLimiter']`, `ns[key]` (could be either) or `ns` handed on whole? Reading any
+ * other member (`ns.LimiterDeps`) mints nothing.
+ */
+function namespaceReachesMaker(node: AstNode, parent: AstNode | undefined): boolean {
+	if (parent?.type !== 'MemberExpression' || parent.object !== node) return true;
+	if (parent.computed === true) return true;
+	return [...LIMITER_MAKERS].some((maker) => readsProperty(parent, maker));
+}
+
+/** Is this node a load (`import()` / `require()`) that could reach the limiter module? */
+function loadsLimiter(node: AstNode): boolean {
+	const callee = node.callee as AstNode | undefined;
+	const isLoad =
+		node.type === 'ImportExpression' ||
+		(node.type === 'CallExpression' &&
+			(callee?.type === 'Import' || (callee?.type === 'Identifier' && callee.name === 'require')));
+	if (!isLoad) return false;
+	const argument =
+		node.type === 'ImportExpression' ? node.source : (node.arguments as unknown[])[0];
+	const specifier = literalSpecifier(argument);
+	// A load whose specifier cannot be read is reported too: it could be this module.
+	return specifier === null || LIMITER_SPECIFIER.test(specifier);
+}
+
+/**
+ * The sites in `source` (a file's text) that can mint a per-key limiter, as the key's second
+ * half: `<top-level declaration>`, or LIMITER_RE_EXPORT / LIMITER_DYNAMIC_LOAD. Empty for a
+ * file that does not mention the limiter module at all.
+ */
+function limiterSites(file: string, source: string): string[] {
+	if (!source.includes('origin_limiter')) return [];
+	let program: AstNode;
+	try {
+		program = parse(source, { sourceType: 'module', plugins: ['typescript', 'decorators-legacy'] })
+			.program as unknown as AstNode;
+	} catch (error) {
+		// A file that names the limiter and cannot be read is not a clean one.
+		throw new Error(`limiter census: cannot parse ${file}: ${String(error)}`);
+	}
+	const names = new Set<string>();
+	const spaces = new Set<string>();
+	const sites = new Set<string>();
+	limiterBindings(program, names, spaces, sites);
+	// The import statements are read above (`limiterBindings`); what remains is code.
+	const body = (program.body as AstNode[]).filter(
+		(statement) =>
+			statement.type !== 'ImportDeclaration' &&
+			statement.type !== 'TSImportEqualsDeclaration' &&
+			!statement.source,
+	);
+	walkAst(body, [], (node, ancestors) => {
+		if (loadsLimiter(node)) sites.add(LIMITER_DYNAMIC_LOAD);
+		if (node.type !== 'Identifier') return;
+		const parent = ancestors[ancestors.length - 1];
+		if (isNameOnly(node, parent) || ancestors.some((entry) => TYPE_POSITION.has(entry.type)))
+			return;
+		const name = node.name as string;
+		const mints = names.has(name) || (spaces.has(name) && namespaceReachesMaker(node, parent));
+		if (mints) sites.add(limiterContainer(ancestors));
+	});
+	return [...sites].sort();
+}
+
 /** Mutation shapes for a named binding: assignment, ++/--, mutating methods. */
 /**
  * Known, reviewed module-level `const` OBJECT/ARRAY literals that the owning
@@ -687,6 +997,17 @@ const ALLOWLISTED_MODULE_CONST = new Set<string>([
 	// plus the FIFO of background exports waiting for a slot — pooled-connection
 	// budget (ops state, max(1, floor(DB_POOL_MAX/4))), never request identity.
 	'diffusion/export/selection_cursor.ts:selectionAdmission',
+	// The tile memory's running byte total (src/core/geo/tile_proxy/tile_cache.ts): a number kept in
+	// step with the TILES map beside it by the only two functions that add to or take from it, so an
+	// admission never has to rescan the map to add the bytes up. It is derived from TILES and has
+	// exactly its lifecycle (see the TILES row: public provider data, no identity of any request);
+	// `clearTileCacheForTests` zeroes it with the map.
+	'core/geo/tile_proxy/tile_cache.ts:RUNNING',
+	// The geo answer memory's running byte total (src/core/geo_services/answer_memory.ts): the same
+	// derived number as the tile memory's, kept in step with KEPT by `rememberAnswer` and `forget`
+	// alone, with exactly its lifecycle (public provider data, no request identity);
+	// `clearAnswerMemoryForTests` zeroes it with the map.
+	'core/geo_services/answer_memory.ts:RUNNING',
 ]);
 
 /** Mutation shapes for a named binding: assignment, ++/--, mutating methods. */
@@ -713,6 +1034,7 @@ function scanSrc(): {
 	configLangCapture: string[];
 	moduleMapSet: string[];
 	moduleConstMutated: string[];
+	limiterSite: string[];
 	/** Files the walk actually read — floored below so an emptied walk cannot pass. */
 	scannedFiles: number;
 } {
@@ -723,6 +1045,7 @@ function scanSrc(): {
 	const configLangCapture: string[] = [];
 	const moduleMapSet: string[] = [];
 	const moduleConstMutated: string[] = [];
+	const limiterSite: string[] = [];
 	// Column-0 declarations only = module scope (anything inside a function/block
 	// is indented with tabs in this codebase's style).
 	const letRe = /^(?:export )?(?:let|var) (\w+)/;
@@ -755,6 +1078,9 @@ function scanSrc(): {
 			const rel = `${prefix}${relRaw}`;
 			scannedFiles++;
 			const content = readFileSync(join(root, relRaw), 'utf8');
+			if (rel !== LIMITER_MODULE_FILE) {
+				for (const site of limiterSites(rel, content)) limiterSite.push(`${rel}:${site}`);
+			}
 			const lines = content.split('\n');
 			for (const line of lines) {
 				const m = line.match(letRe);
@@ -775,6 +1101,7 @@ function scanSrc(): {
 		configLangCapture,
 		moduleMapSet,
 		moduleConstMutated,
+		limiterSite,
 		scannedFiles,
 	};
 }
@@ -786,6 +1113,7 @@ describe('module-state tripwire (§4 request isolation)', () => {
 		configLangCapture,
 		moduleMapSet,
 		moduleConstMutated,
+		limiterSite,
 		scannedFiles,
 	} = scanSrc();
 
@@ -854,6 +1182,180 @@ describe('module-state tripwire (§4 request isolation)', () => {
 		const present = new Set(moduleConstMutated);
 		const stale = [...ALLOWLISTED_MODULE_CONST].filter((entry) => !present.has(entry));
 		expect(stale).toEqual([]);
+	});
+
+	test('no per-key limiter site without a listed lifecycle (the Map is a private field)', () => {
+		const unlisted = limiterSite.filter(
+			(entry) =>
+				!ALLOWLISTED_LIMITER_SITE.has(entry) &&
+				!entry.endsWith(`:${LIMITER_RE_EXPORT}`) &&
+				!entry.endsWith(`:${LIMITER_DYNAMIC_LOAD}`),
+		);
+		if (unlisted.length > 0) {
+			throw new Error(
+				`Per-key limiter site(s) with no lifecycle entry:\n  ${unlisted.join('\n  ')}\nA limiter is queue-and-count state, and its Map is a private field the Map/Set scan cannot see. Add the site to ALLOWLISTED_LIMITER_SITE with who empties it and when (and that its keys carry no session/user/lang), or that it is built per call and dies with it.`,
+			);
+		}
+		expect(unlisted).toEqual([]);
+	});
+
+	test('nothing re-exports or dynamically loads the limiter: that hides the next holder', () => {
+		const hiding = limiterSite.filter(
+			(entry) =>
+				entry.endsWith(`:${LIMITER_RE_EXPORT}`) || entry.endsWith(`:${LIMITER_DYNAMIC_LOAD}`),
+		);
+		expect(
+			hiding,
+			'a barrel or a dynamic import of origin_limiter.ts lets a holder escape the site census; import it directly',
+		).toEqual([]);
+	});
+
+	test('limiter allowlist stays honest — no stale entries, and the census saw the real ones', () => {
+		const present = new Set(limiterSite);
+		const stale = [...ALLOWLISTED_LIMITER_SITE].filter((entry) => !present.has(entry));
+		expect(stale).toEqual([]);
+		// Anti-vacuity: it reads the profile's own five, and only those.
+		expect(
+			limiterSite.filter((entry) => entry.startsWith('core/harvest/interactive_limits.ts:')),
+		).toEqual([
+			'core/harvest/interactive_limits.ts:acrossOrigins',
+			'core/harvest/interactive_limits.ts:acrossStored',
+			'core/harvest/interactive_limits.ts:perHolder',
+			'core/harvest/interactive_limits.ts:perHolderAtOrigin',
+			'core/harvest/interactive_limits.ts:perOrigin',
+		]);
+		expect(limiterSite.length).toBeGreaterThanOrEqual(ALLOWLISTED_LIMITER_SITE.size);
+	});
+
+	test('the limiter detector sees every shape that mints one — and only those', () => {
+		const sees = (code: string): string[] => limiterSites('core/x.ts', code);
+		const fromBase = "import { createOriginLimiter, OriginLimiter } from './origin_limiter.ts';\n";
+
+		// The shape the first draft's regex saw: a module-scope binding.
+		expect(sees(`${fromBase}const perHost = createOriginLimiter({ maxConcurrent: 1 });`)).toEqual([
+			'perHost',
+		]);
+		expect(
+			sees(`${fromBase}export const geo: OriginLimiter = new OriginLimiter(options);`),
+		).toEqual(['geo']);
+		expect(
+			sees(`${fromBase}let late =\n\tcreateOriginLimiter(\n\t\t{ maxConcurrent: 1 },\n\t);`),
+		).toEqual(['late']);
+		// The shapes it did not: a table of limiters (the geo services' natural form), a
+		// fromEntries over a map, an array, a default export, a class's static field, a wrapper.
+		expect(
+			sees(
+				`${fromBase}export const LIMITERS = { nominatim: createOriginLimiter({}), dare: createOriginLimiter({}) };`,
+			),
+		).toEqual(['LIMITERS']);
+		expect(
+			sees(
+				`${fromBase}const BY_SERVICE = Object.fromEntries(IDS.map((id) => [id, createOriginLimiter({})]));`,
+			),
+		).toEqual(['BY_SERVICE']);
+		expect(
+			sees(`${fromBase}const POOL = [createOriginLimiter({}), new OriginLimiter({})];`),
+		).toEqual(['POOL']);
+		expect(sees(`${fromBase}export default createOriginLimiter({});`)).toEqual(['default']);
+		expect(
+			sees(`${fromBase}export class Geo { static readonly limiter = createOriginLimiter({}); }`),
+		).toEqual(['Geo']);
+		expect(
+			sees(
+				`${fromBase}function build() { return createOriginLimiter({}); }\nconst limiter = build();`,
+			),
+		).toEqual(['build']);
+		// A limiter built per call is a site too: it is a decision a human states.
+		expect(
+			sees(`${fromBase}export function handle() { const l = createOriginLimiter({}); }`),
+		).toEqual(['handle']);
+		// An alias, a namespace member, a subclass, a value handed on, the class used as a value.
+		expect(
+			sees(
+				"import { createOriginLimiter as mk } from '../harvest/origin_limiter.ts';\nconst x = mk({});",
+			),
+		).toEqual(['x']);
+		expect(
+			sees(
+				"import * as L from '../harvest/origin_limiter.ts';\nconst a = new L.OriginLimiter({});",
+			),
+		).toEqual(['a']);
+		expect(
+			sees("import * as L from './origin_limiter.ts';\nconst b = L['createOriginLimiter']({});"),
+		).toEqual(['b']);
+		expect(sees("import * as L from './origin_limiter.ts';\nconst c = pick(L, key);")).toEqual([
+			'c',
+		]);
+		expect(sees("import * as L from './origin_limiter.ts';\nconst d = L[which]({});")).toEqual([
+			'd',
+		]);
+		expect(sees(`${fromBase}class Mine extends OriginLimiter {}`)).toEqual(['Mine']);
+		expect(sees(`${fromBase}const make = createOriginLimiter;\nconst a = make({});`)).toEqual([
+			'make',
+		]);
+		expect(sees(`${fromBase}const all = [createOriginLimiter].map((f) => f({}));`)).toEqual([
+			'all',
+		]);
+		expect(
+			sees("import x = require('./origin_limiter');\nconst e = x.createOriginLimiter({});"),
+		).toEqual(['e']);
+
+		// Re-exporting and loading it dynamically are refused outright, whatever the spelling.
+		const hidden = [LIMITER_RE_EXPORT];
+		expect(sees("export { createOriginLimiter } from './origin_limiter.ts';")).toEqual(hidden);
+		expect(sees("export { createOriginLimiter as mk } from './origin_limiter.ts';")).toEqual(
+			hidden,
+		);
+		expect(sees("export * from './origin_limiter.ts';")).toEqual(hidden);
+		expect(sees("export * as limiters from './origin_limiter.ts';")).toEqual(hidden);
+		expect(sees(`${fromBase}export { createOriginLimiter };`)).toEqual(hidden);
+		expect(sees("const m = await import('./origin_limiter.ts');")).toEqual([LIMITER_DYNAMIC_LOAD]);
+		expect(sees("const m = require('./origin_limiter');")).toEqual([LIMITER_DYNAMIC_LOAD]);
+		expect(sees('const m = await import(path);\n// origin_limiter')).toEqual([
+			LIMITER_DYNAMIC_LOAD,
+		]);
+
+		// Not a site: a type, a type-only import, a comment, a string, another module's binding,
+		// a namespace member that mints nothing, a module that never names the limiter.
+		expect(
+			sees(
+				"import type { LimiterDeps, OriginLimiter } from './origin_limiter.ts';\nlet a: OriginLimiter;",
+			),
+		).toEqual([]);
+		expect(
+			sees(
+				"import { type OriginLimiter } from './origin_limiter.ts';\nlet a: OriginLimiter | undefined;",
+			),
+		).toEqual([]);
+		expect(
+			sees(
+				`${fromBase}const m = new Map<string, OriginLimiter>();\nfunction f(l: OriginLimiter): void {}`,
+			),
+		).toEqual([]);
+		expect(sees("export type { LimiterDeps } from './origin_limiter.ts';")).toEqual([]);
+		expect(
+			sees(
+				"import * as L from './origin_limiter.ts';\nlet d: L.LimiterDeps;\nconst k = L.somethingElse;",
+			),
+		).toEqual([]);
+		expect(
+			sees(
+				"// const note = createOriginLimiter(1); see origin_limiter\nconst s = 'new OriginLimiter()';",
+			),
+		).toEqual([]);
+		expect(
+			sees(
+				"import { createOriginLimiter } from './elsewhere.ts';\nconst a = createOriginLimiter();\nvoid 'origin_limiter';",
+			),
+		).toEqual([]);
+		expect(sees('const limiters = new Map();\nconst a = createOriginLimiter();')).toEqual([]);
+		const stray = sees(`${fromBase}const stray = createOriginLimiter({});`).map(
+			(name) => `core/x.ts:${name}`,
+		);
+		// And a site the allowlist does not name is what the gate above refuses.
+		expect(stray.filter((entry) => !ALLOWLISTED_LIMITER_SITE.has(entry))).toEqual([
+			'core/x.ts:stray',
+		]);
 	});
 });
 

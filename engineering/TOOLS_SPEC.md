@@ -50,6 +50,7 @@ interface ToolActionSpec {
   minLevel?: number;                            // dd774 level (1 read / 2 write / 3 admin), default 2
   sectionTipos?: (options) => unknown[];        // REQUIRED for 'section_list': the batch's targets
   targets?: (options) => WriteTarget[];         // REQUIRED for 'targets': the action's WRITE targets
+  readOnly?: true;                              // the action writes nothing — see "Read-only actions"
   handler: (context: ToolActionContext) => Promise<ToolResponse>;
 }
 interface WriteTarget { section_tipo: unknown; tipo?: unknown; section_id?: unknown }
@@ -143,6 +144,52 @@ source (this paragraph and the code block are checked, not trusted).
    code, `tool.background_lane_undeclared`, because reusing
    `tool.background_not_allowed` would name the wrong cause. Census gate:
    `test/unit/job_lane_census_tripwire.test.ts`.
+
+**Read-only actions (`readOnly: true`).** An action that writes nothing declares it
+on its spec. The claim: executing it twice leaves the same end state; it MAY call an
+external service. That is the AUTHOR'S attestation. The framework polices the doors
+it can name: no matrix write (records, the item-id counters, the activity and
+update rows), no Time Machine row, no job — refused at runtime and proven
+statically. It does NOT police media files, a directly spawned psql child, DML on
+other stores (stats, locks, queues, the ontology, the derived search tables) or a
+streamed body. Three consequences, one predicate (`runsReadOnly` in
+`src/core/tools/dispatch.ts`, asked by both):
+
+- **Gate 4 of the API dispatcher skips the idempotency ledger** for a `tool_request`
+  whose nested (tool, action) declares it (`isReadOnlyToolRequest`, resolved from the
+  LOADED module — never from the client, and any doubt answers "mutating": an unknown
+  tool or action, a classifier whose lookup throws, and a caller the tool is not
+  granted to, so the ledger's behaviour on a resend is no existence oracle). The static
+  `ACTION_IDEMPOTENCY` row of `tool_request` stays `mutating`. A stamped resend then
+  re-executes and surfaces the action's real outcome; ledgered, a handler that threw
+  an upstream `external.http_status` would leave an ambiguous reservation and the
+  transport's own retry would be answered `idempotency.outcome_unknown`. The two
+  reserved framework job actions (status / list) classify read-only. A background
+  request never does.
+- **The handler runs inside the read-only request scope**
+  (`src/core/security/read_only_scope.ts`): every matrix DML primitive, the item-id
+  counter writers, the activity and update-row writers, the Time Machine writers and
+  the job manager's `submit` refuse there as `internal.invariant` (the activity row's
+  only emitter, `logActivity`, swallows the refusal by design: the row is dropped and
+  the refusal logged, and the static walk is what names a caller). The scope has no
+  exit: a job never inherits it, since `submit` refuses inside it and a queued job
+  resumes in the context its own submit captured.
+- **The loader refuses a bad declaration**: only the literal `true`; never together
+  with `backgroundRunnable`; a level-gated kind must spell exactly `minLevel: 1` (0, a
+  negative or NaN pass the gates' `level < required` comparison for everyone).
+
+The client side is `this.tool_request({..., retries: 1})` (`timeout`, `busy_notice`
+are forwarded the same way, only when given): a read-only action is never replayed,
+so the transport's own resend of a stalled call would re-execute it (up to five
+upstream calls per click). A tool that declares a read-only action therefore reaches
+the server only through `tool_request(`, and its call of a read-only action passes the
+literal `retries: 1` — derived from the loaded modules and gated, on source text, by
+`client_idempotency_tripwire` block C: the call's own depth-0 properties are read, a
+hand-built `dd_tools_api` body, a `create_source` of a read-only action and
+`tool_request` used as a value are refused in such a tool. Not covered: a read-only
+action requested from another tool's code or from `client/` by an inline source. Gate:
+`test/unit/tool_read_only_action_tripwire.test.ts` (declaration, static walk, runtime
+scope) with `test/unit/client_idempotency_tripwire.test.ts` block H (the dispatcher).
 
 **Every gate is tripwired.** `test/unit/tools_dispatch.test.ts` carries one case
 per gate, each written so that DELETING that gate makes it fail — the messages are
@@ -852,7 +899,7 @@ where the hierarchy `ensure` converges a fixed shape.
 
 ## Files
 
-- Machinery: `src/core/tools/{module,types,ontology_map,registry,paths,loader,security,dispatch,config,cache,background,job_status,register,register_schema,section_tool_context,import_wire}.ts` + `client/`.
+- Machinery: `src/core/tools/{module,types,ontology_map,registry,paths,loader,security,dispatch,config,cache,background,job_status,register,register_schema,section_tool_context,import_wire}.ts` + `src/core/security/read_only_scope.ts` + `client/`.
 - Serving: `src/core/tools/serving.ts`, wired in `src/server.ts`.
 - Dispatch entry: `src/core/api/dispatch.ts` (`dd_tools_api` + the get_element_context tool branch).
 - Widget: `src/core/area_maintenance/widgets/register_tools.ts`, dispatched by
@@ -867,6 +914,7 @@ where the hierarchy `ensure` converges a fixed shape.
   `tools_cache_invalidation` (a TRIPWIRE), `tools_config`, `tools_background`,
   `tools_register_validate`, `tools_register_write`, `tool_request`,
   `tool_job_status`, `tool_dev_template` (the exemplar's contract),
+  `tool_read_only_action_tripwire` (the read-only claim),
   `tool_context_labels_lang`, `section_tool_context`, `user_tools_nonadmin`,
   `register_tools_widget`, `register_tools_panel`, `dd_tools_api_stream_headers`,
   `local_db_stores_tripwire`.

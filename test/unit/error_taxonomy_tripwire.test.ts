@@ -194,6 +194,23 @@ const DEBUG_KEY = /(?<![\w$.])debug\s*[:}]/g;
 const countDebugKeys = (tokens: string): number => (tokens.match(DEBUG_KEY) ?? []).length;
 const DEBUG_KEY_OWNERS = ['src/core/errors/convert.ts', 'src/core/errors/schema.ts'];
 
+/**
+ * A7 — the tool refusal key written as an object key. `details.reason_key` is the
+ * one detail a client turns into a LABEL NAME (the tool's `reason_<key>`), so its
+ * values are a closed enum the tool declares and tripwire `tool_reason_keys`
+ * checks — and only a tool's own server tree may write it. Bare form on the
+ * string-BLANKED view (a sentence that says "reason_key:" is not a write), quoted
+ * form on the string-KEPT view; a property read (`.reason_key`) and the
+ * `details_keys` entry are neither.
+ */
+const REASON_KEY_BARE = /(?<![\w$.])reason_key\s*[:},]/g;
+const REASON_KEY_QUOTED = /['"`]reason_key['"`]\s*:/g;
+const countReasonKeyWrites = (file: Pick<SourceFile, 'code' | 'tokens'>): number =>
+	(file.tokens.match(REASON_KEY_BARE) ?? []).length +
+	(file.code.match(REASON_KEY_QUOTED) ?? []).length;
+/** The one tree allowed to write it: a tool's server module. */
+const REASON_KEY_HOME = /^tools\/tool_[a-z0-9_]+\/server\//;
+
 /** A4 — a builtin-class check where a registry domain belongs. */
 const BUILTIN_INSTANCEOF = /instanceof\s+(TypeError|RangeError|ReferenceError)\b/g;
 const countBuiltinInstanceof = (tokens: string): number =>
@@ -671,6 +688,22 @@ describe('A. source laws (zero)', () => {
 		expect(owners['src/core/errors/schema.ts']).toBeGreaterThan(0);
 	});
 
+	test('A7 — `reason_key` is written only under tools/<tool>/server/ (core never puts free text under the label-name key)', () => {
+		const offenders: Record<string, number> = {};
+		for (const file of CORPUS) {
+			if (REASON_KEY_HOME.test(file.path)) continue;
+			const count = countReasonKeyWrites(file);
+			if (count > 0) offenders[file.path] = count;
+		}
+		expect(offenders).toEqual({});
+		// non-vacuous: the key IS declared in the registry (string view), so the scan does see the token
+		const registry = CORPUS.find((file) => file.path === 'src/core/errors/registry.ts');
+		expect(registry?.code).toContain("REASON_KEY = 'reason_key'");
+		// …and the converter holds the shape guard for it
+		const convert = CORPUS.find((file) => file.path === 'src/core/errors/convert.ts');
+		expect(convert?.tokens).toContain('REASON_KEY_PATTERN');
+	});
+
 	test('A4 — no builtin-class instanceof outside convert.ts + process_health.ts (section_id catches use isErrorInDomain)', () => {
 		const offenders: Record<string, number> = {};
 		for (const file of CORPUS) {
@@ -982,6 +1015,24 @@ describe('E. anti-vacuity — every matcher fires on a synthetic offender', () =
 		expect(countDebugKeys('const body = { debug: { stack } };')).toBe(1);
 		expect(countDebugKeys('return { code, ...(debug === undefined ? {} : { debug }) };')).toBe(1);
 		expect(countDebugKeys('const x = env.debug; obj.debug: 1; const debug = 1;')).toBe(0);
+	});
+	test('A7 reason_key key write', () => {
+		const view = (raw: string) => ({
+			code: stripComments(raw),
+			tokens: stripComments(raw, { blankStrings: true }),
+		});
+		expect(countReasonKeyWrites(view("throw x({ details: { reason_key: 'a' } });"))).toBe(1);
+		expect(countReasonKeyWrites(view("const d = { 'reason_key': 'a' };"))).toBe(1);
+		expect(countReasonKeyWrites(view('const reason_key = 1; return { reason_key };'))).toBe(1);
+		// not writes: a property read, the details_keys entry, a sentence that mentions the key, a comment
+		expect(countReasonKeyWrites(view('return error.details.reason_key;'))).toBe(0);
+		expect(countReasonKeyWrites(view("details_keys: ['reason_key'],"))).toBe(0);
+		expect(countReasonKeyWrites(view("const why = 'bad reason_key: x';"))).toBe(0);
+		expect(countReasonKeyWrites(view('// reason_key: documented here\nconst a = 1;'))).toBe(0);
+		// the legal home
+		expect(REASON_KEY_HOME.test('tools/tool_uca_maps/server/index.ts')).toBe(true);
+		expect(REASON_KEY_HOME.test('tools/tool_uca_maps/js/tool_uca_maps.ts')).toBe(false);
+		expect(REASON_KEY_HOME.test('src/core/tools/dispatch.ts')).toBe(false);
 	});
 	test('A4 builtin instanceof', () => {
 		expect(countBuiltinInstanceof('if (error instanceof TypeError) return null;')).toBe(1);

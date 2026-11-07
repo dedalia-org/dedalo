@@ -199,12 +199,37 @@ export function buildEmbedDirectives(embedSource: string): {
 
 const EMBED_DIRECTIVES = buildEmbedDirectives(MEDIA_CSP_EMBED_SOURCE);
 
+/**
+ * The tile hosts the PAGE still loads from directly — the part of `img-src` that is not
+ * `'self'`, media or `data:`.
+ *
+ * Map tiles go through the server: the same-origin tile proxy (`api/map_tile.ts`) relays
+ * OpenStreetMap, the sources stored in a record and the ontology's defaults, so the page asks
+ * for them from itself and `'self'` already admits them. The OpenStreetMap hosts
+ * (`*.tile.openstreetmap.org`, `*.tile.osm.org`) and Carto's (`*.basemaps.cartocdn.com`, which
+ * nothing in the client used) left this list when the last page that loaded them directly
+ * moved to the proxy.
+ *
+ * What is LEFT is exactly what the client still draws straight from a provider because the
+ * core may not relay it — a provider's terms decide that, not convenience:
+ *   - `server.arcgisonline.com`  the ARCGIS / VARIOUS / NUMISDATA base layers (Esri imagery;
+ *     a commercial service whose terms do not allow a relay)
+ *   - `dh.gu.se`                 the NUMISDATA provider's DARE overlay (the atlas's author
+ *     has not confirmed that a tile may be relayed)
+ * A host leaves this list in the change that moves its last direct use to the proxy, and the
+ * gate (xss_csp_tripwire) pins the list exactly, so neither a new host nor a stale one slips by.
+ */
+export const DIRECT_TILE_HOSTS: readonly string[] = Object.freeze([
+	'server.arcgisonline.com',
+	'dh.gu.se',
+]);
+
 export const APP_CSP = [
 	"default-src 'self'",
 	"script-src 'self' 'unsafe-eval' blob: 'sha256-YeRfUXP7gY4V7v/uefS4JIBm3BthshUSvAd69Hmer+U='",
 	"worker-src 'self' blob:",
 	"style-src 'self' 'unsafe-inline'",
-	`img-src ${withMedia("'self' data: blob:")} *.tile.openstreetmap.org *.tile.osm.org *.basemaps.cartocdn.com server.arcgisonline.com dh.gu.se`,
+	`img-src ${withMedia("'self' data: blob:")} ${DIRECT_TILE_HOSTS.join(' ')}`,
 	`media-src ${withMedia("'self' blob:")}`,
 	"font-src 'self' data:",
 	`connect-src ${CONNECT_SRC}`,

@@ -7,6 +7,7 @@
 // imports
 	import {lazy_in_viewport, fade_in_on_reveal, dd_request_idle_callback} from '../../common/js/events.js'
 	import {ui} from '../../common/js/ui.js'
+	import {clone} from '../../common/js/utils/index.js'
 
 
 
@@ -363,7 +364,11 @@ export const get_content_value = (i, stored_entry, self) =>{
 					)
 
 				// Update current_value — restore the stored entry verbatim, including lib_data
-					self.current_value[i] = Object.assign({}, entry)
+				// (!) a deep CLONE, never a shallow copy: the stored entry's `sources`,
+				// `legend` and `lib_data` are arrays/objects, and sharing them with
+				// data.entries would let an edit of the buffer rewrite the baseline the
+				// unchanged-guard compares against
+					self.current_value[i] = clone(entry)
 
 				// Reset changed flag
 				// (!) must come AFTER update_input_values, which marks the component dirty

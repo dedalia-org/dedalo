@@ -4,7 +4,7 @@
  * output, SSE/stream frames, logs).
  *
  * This file is a DATA TABLE. It imports nothing and computes nothing beyond
- * two derived constants (`ERROR_CODES`, `CATEGORY_STATUS` is authored). Every
+ * two derived constants (`ERROR_CODES`, `REASON_KEY_CODES`; `CATEGORY_STATUS` is authored). Every
  * behaviour is a lookup: category → HTTP status, code → label key, code →
  * English message, code → severity/disclosure/retryable. Anything that needs
  * a branch lives in convert.ts, not here.
@@ -47,7 +47,11 @@ export interface ErrorSpec {
 	readonly severity: ErrorSeverity;
 	readonly disclosure: ErrorDisclosure;
 	readonly retryable: boolean;
-	/** The ONLY `details` keys the converter lets onto the wire (scalars only). Label placeholders ≡ this list. */
+	/**
+	 * The ONLY `details` keys the converter lets onto the wire (scalars only). Label
+	 * placeholders ≡ this list — except `reason_key` (REASON_KEY), which names no
+	 * placeholder: it selects a TOOL's own label, never fills the core one.
+	 */
 	readonly details_keys?: readonly string[];
 	/** Model-facing next move (MCP structured errors). */
 	readonly hint?: string;
@@ -71,6 +75,23 @@ export const CATEGORY_STATUS: Readonly<Record<ErrorCategory, number>> = {
 export const STATUS_EXEMPTIONS: readonly string[] = [];
 
 export const ERROR_CODE_PATTERN = /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/;
+
+/**
+ * REASON_KEY — the one `details` key that carries a TOOL's closed refusal enum.
+ *
+ * A tool refuses with an EXISTING public code and `details.reason_key` set to one
+ * of the keys its server module declares (`ToolServerModule.reasonKeys`); the
+ * browser resolves the sentence from the tool's own `register.json` label
+ * `reason_<key>` (client `error_text`), falling back to the wire `message`. Only
+ * the codes in REASON_KEY_CODES list it in `details_keys`, so only they can carry
+ * it, and every one of them is `disclosure: 'public'` — the fallback sentence is
+ * the throw's vetted `publicMessage`, which a non-public code would never put on
+ * the wire. The value's grammar is REASON_KEY_PATTERN, enforced by the converter
+ * (a key outside it is dropped) and by the tool loader (its declared enum).
+ * Canon: engineering/ERRORS_SPEC.md §9.1; gate: test/unit/tool_reason_keys_tripwire.test.ts.
+ */
+export const REASON_KEY = 'reason_key';
+export const REASON_KEY_PATTERN = /^[a-z][a-z0-9_]{0,47}$/;
 
 /** The label-key convention: `error_` + code with `.` → `_`. */
 export function defaultLabelKey(code: string): string {
@@ -243,6 +264,7 @@ export const ERROR_REGISTRY = {
 		severity: 'warn',
 		disclosure: 'public',
 		retryable: false,
+		details_keys: ['reason_key'],
 	},
 
 	// ── idempotency (CLI-01 / P0-10, WC-2026-08-28-idempotency-key) ─────────
@@ -334,6 +356,7 @@ export const ERROR_REGISTRY = {
 		disclosure: 'public',
 		retryable: false,
 		hint: 'Nothing matches. Verify the tipo/id via discovery tools before retrying.',
+		details_keys: ['reason_key'],
 	},
 
 	// ── generic conflict ────────────────────────────────────────────────────
@@ -2488,6 +2511,7 @@ export const ERROR_REGISTRY = {
 		severity: 'warn',
 		disclosure: 'public',
 		retryable: false,
+		details_keys: ['reason_key'],
 	},
 	// A request carries more items than the action processes in one call (an
 	// interactive action bounded by its caller's wait: tool_import_rdf dereferences
@@ -2568,7 +2592,7 @@ export const ERROR_REGISTRY = {
 		severity: 'warn',
 		disclosure: 'public',
 		retryable: true,
-		details_keys: ['site'],
+		details_keys: ['site', 'reason_key'],
 	},
 	'tool.target_not_found': {
 		category: 'not_found',
@@ -3020,6 +3044,7 @@ export const ERROR_REGISTRY = {
 		severity: 'warn',
 		disclosure: 'public',
 		retryable: false,
+		details_keys: ['reason_key'],
 	},
 	// The file the caller named is not on this box (no master to build from, no
 	// staged parts for this upload, no source to cut a fragment out of).
@@ -3243,6 +3268,15 @@ export type ErrorCode = keyof typeof ERROR_REGISTRY;
 
 /** Every registered code, in table order. */
 export const ERROR_CODES = Object.keys(ERROR_REGISTRY) as readonly ErrorCode[];
+
+/**
+ * The codes that may carry `details.reason_key` (those listing REASON_KEY in
+ * `details_keys`) — the opt-in set a tool throws from. Derived, and PINNED by
+ * error_registry_native: adding a code is a deliberate edit, not a side effect.
+ */
+export const REASON_KEY_CODES: readonly ErrorCode[] = ERROR_CODES.filter((code) =>
+	(ERROR_REGISTRY[code] as ErrorSpec).details_keys?.includes(REASON_KEY),
+);
 
 export function isErrorCode(value: unknown): value is ErrorCode {
 	return typeof value === 'string' && Object.hasOwn(ERROR_REGISTRY, value);

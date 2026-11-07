@@ -56,6 +56,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { discoverFiles } from '../../scripts/lib/throw_census.ts';
 import { loadToolModules } from '../../src/core/tools/loader.ts';
+import { unguarded } from '../../src/core/tools/reason_keys.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
@@ -383,9 +384,17 @@ function transitiveSource(roots: string[], symbols: Map<string, string>): string
 	return parts.join('\n');
 }
 
-/** The handler's own source: by its function name in the table, else its toString. */
+/**
+ * The handler's own source: by its function name in the table, else its toString.
+ * The registry SERVES each handler behind the reason-key guard (reason_keys.ts), a
+ * three-line wrapper that names no write door — so the census reads the RAW
+ * function behind it (`unguarded`), or every rule below would judge the wrapper
+ * and go dark (the anti-vacuity test on update_cache's `saveComponentData(` is what
+ * catches a census that stopped unwrapping).
+ */
 function handlerRoot(handler: (...args: never[]) => unknown, symbols: Map<string, string>): string {
-	return symbols.get(handler.name) ?? stripComments(handler.toString());
+	const raw = unguarded(handler);
+	return symbols.get(raw.name) ?? stripComments(raw.toString());
 }
 
 // ── the census ───────────────────────────────────────────────────────────────

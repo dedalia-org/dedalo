@@ -111,6 +111,17 @@ describe('tool_dev_template exemplar — contract coverage', () => {
 		}
 	});
 
+	test('the exemplar demonstrates the read-only declaration: literal true, explicit minLevel 1, never background', () => {
+		// `readOnly` is a claim the dispatcher acts on (no idempotency ledger, the
+		// read-only request scope — tool_read_only_action_tripwire proves it holds), so
+		// the exemplar every scaffolded tool is copied from must show its full shape.
+		const declared = Object.entries(tool.apiActions).filter(([, spec]) => spec.readOnly === true);
+		expect(declared.map(([name]) => name)).toEqual(['read_demo']);
+		const [, spec] = declared[0] as [string, (typeof tool.apiActions)[string]];
+		expect(spec.minLevel).toBe(1);
+		expect(tool.backgroundRunnable ?? []).not.toContain('read_demo');
+	});
+
 	test('backgroundRunnable is a non-empty subset of apiActions', () => {
 		const background = tool.backgroundRunnable ?? [];
 		expect(background.length).toBeGreaterThan(0);

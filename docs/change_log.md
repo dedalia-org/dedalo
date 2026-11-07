@@ -17,7 +17,9 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - Map tiles now come through the server, which needs outbound HTTPS to the tile providers, and the page loads no tile from another site.
     - The official servers moved to master7.dedalo.dev; beta7.dedalo.dev is an opt-in beta provider
+    - An ontology server accepts the access codes listed in ONTOLOGY_SERVERS; ONTOLOGY_SERVER_CODE is retired.
     - Dédalo now runs on Bun 1.4.4, the latest stable release.
     - Irreversible maintenance actions now require the superuser, maintenance mode and a recent backup.
 
@@ -674,6 +676,22 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Map tiles now come through the server, which needs outbound HTTPS to the tile providers, and the page loads no tile from another site.** *(action needed)*
+
+    **Action needed: the server now has to reach the tile providers.** The geolocation map no longer asks OpenStreetMap, or a source stored in a record, for its tiles from the browser. It asks the installation's own server (`/dedalo/core/api/v1/map_tile`), which checks that the person may read the field, finds the source the request names, fetches the tile and hands it on. So the browser needs no access to the providers any more, but **the server does**: outbound HTTPS (port 443) to `tile.openstreetmap.org` and `www.ign.es` for the two built-in sources, and to whatever host a stored source or an ontology default names (port 80 for an `http` one). An installation whose server has no outbound access (a firewalled network, a DMZ without egress) shows **blank maps** after this update until the server is allowed to reach them. Check it before updating, and give such a server an egress rule for those hosts.
+
+    A request names a source (a built-in one, one stored in the record or one of the field's ontology defaults) and never carries an address, so an editor can no longer make a page load an image from wherever they typed, and a map drawn from these tiles can be exported to an image without the browser refusing it. Only the people who can read a geolocation field get its tiles, and only the record's scope; the tile is a private, `nosniff` image served under a sandbox policy. A tile of a stored source or an ontology default is kept by a browser for at most five minutes (an edit of the source keeps its address, so a longer time would show the old tile after the edit); a built-in's for at most a day.
+
+    The server fetches politely: at most four requests at a time to one provider, the provider's own caching headers followed (a small memory, bounded in bytes and in entries, answers repeats), no robots.txt and no prefetching because a person is looking at the tile, and the same tile asked by several people at once is fetched once. One person cannot use a provider up: past a burst of 400 provider calls (a 4K display with two layers asks for 320 tiles at once) they are held to five a second, and a tile already in the memory costs nothing; a tile abandoned while it waited for its place (the viewer zoomed or panned on) was never sent and is not counted. One person's view cannot be everyone's line either: at a provider everybody shares (OpenStreetMap) they hold four places in its queue and the rest of their tiles wait in a line of their own, so another person's tile is served after one turnover; their slow stored hosts hold three of the eight places that stored sources share, never all of them. When the server cannot take a tile in time the tile is refused as busy (`429` with a `Retry-After`, counted in `map_tile_busy`, not a provider failure) and the page asks again, twice. OpenStreetMap's tile policy generally does not recommend a caching proxy, and permits one that identifies the service: the server's `User-Agent` names Dédalo and **this installation's public address** when it has one an outside machine could reach, and the same address is sent as `Referer`, as the policy asks. An installation reachable only from its own network sends neither (an internal name published to a third party is a map of the network); OpenStreetMap may refuse such an installation's tiles, in which case set a public `DEDALO_HOST` or store another base map as a source. A tile that came with an `ETag` or `Last-Modified` is, once expired, asked about with `If-None-Match` / `If-Modified-Since` (a `304` costs the provider a header), as the policy asks of a cache.
+
+    Anything the provider answers that is not a png, jpeg, gif or webp image of the right kind (an error page, an SVG), or whose header declares an enormous size (an image that decodes to gigapixels), is refused, and a failure is one "the external source could not be reached" refusal that names no host. A provider that simply has no tile for a place (a 404, an empty answer) is not an error: it is a blank tile, the browser is told it may remember that for two minutes (the server keeps nothing of it, and the call is charged like any other), and nothing is logged for it. When a provider is down the log says so once a minute per source, not once per tile. Two built-in sources exist: `osm` (OpenStreetMap) and `ign_admin_units` (the IGN's administrative units, CC BY 4.0).
+
+    A map source must now use the standard web port of its scheme (80 or 443): the server reaches no other, and a source on `:8080` used to save and then never draw. A WMS source whose CRS is geographic (`EPSG:4326`, `EPSG:4258`) is drawn from zoom 8 up: the picture such a service returns is only registered with the map to under a pixel from there. An ontology default now shows its attribution on the map and keeps to its own zoom bounds, and its label is plain text (a label with `<` or `>` is rejected).
+
+    The page's `img-src` policy no longer names `*.tile.openstreetmap.org`, `*.tile.osm.org` or `*.basemaps.cartocdn.com`. The ArcGIS, DARE and Google base maps of the `ARCGIS`, `NUMISDATA`, `VARIOUS` and `GOOGLE` geolocation providers are not relayed (their terms do not allow it, or are not confirmed) and still load directly, so `server.arcgisonline.com` and `dh.gu.se` stay. Stored and default sources appear in the map's layer control, switched off until the viewer turns them on. See [the tile proxy](./core/system/map_tile_proxy.md).
+
+    Wire contract: `WC-2026-11-06-map-tile-proxy`.
+
 - **The official servers moved to master7.dedalo.dev; beta7.dedalo.dev is an opt-in beta provider** *(action needed)*
 
     The official Dédalo update servers now live at `https://master7.dedalo.dev` (releases and the shared ontology). The previous address, `v7.master.dedalo.dev`, is retired with no alias. New installations are written with the new address.
@@ -1114,6 +1132,17 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Tool-owned panels outside the tool window can wear the tool's colour**
+
+    A tool can now stamp `data-tool="<tool>"` on an element that sits outside its
+    window (a floating panel, a map overlay) and that element receives the tool's
+    colour tokens, the same ones the header and the action buttons use; checkboxes
+    and radio buttons inside it follow the tool fill too. Only the tokens are
+    provided: the header tint, the edge bar and the button styling stay inside the
+    tool window, and a button in such a panel takes the tool colour through
+    `.tool_action_button()`. The test suite now checks the scope exists for every
+    tool in both themes and cannot outrank the header.
+
 - **Nested reads carry a verified caller chain; the client's `show` and search query are checked; a level-two `self` in a client map is refused with a notice.**
 
     A request that targets a nested element directly (the next page of a nested portal, the autocomplete inside its cell) may send `rqo.source.callers`, the chain of elements it is nested under; the server verifies every link against the ontology and the user's grants and ignores a chain that does not verify. The `show`/`search` a client sends is checked against the user's grants and its search query is cleaned before use. In a `ddo_map` a client sends, `section_tipo: "self"` is accepted only on a first-level ddo; below that the ddo is skipped with an `ontology.ddo_self_refused` notice in the response, and a ddo `section_tipo` may now be a source array (what this means for installed definitions is in the administrator entry on the same rule). A nested element's own permission level, as stamped on its context, is the user's level on that component, no longer the level read from whichever record came first; the remaining differences from the previous engine's per-component permission cases are recorded in the wire contract. See [Self-resolution](./core/request_config.md#self-resolution-and-dynamic-section_tipo-sources).
@@ -1135,6 +1164,30 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-10-28-parity-definition-drift`.
 
 #### Added
+
+- **Tools can look up places, parcels and elevations through one checked door.**
+
+    The engine gains a closed table of public geographic lookups a tool can ask for: place names and reverse geocoding (Nominatim), the Digital Atlas of the Roman Empire (DARE), Spanish cadastral parcels (Catastro), Spanish administrative units (IGN) and elevations (open-elevation). A tool names a service and passes its parameters; it never passes an address, and each parameter is checked against that service's grammar before anything is sent. Each provider is called at the pace it asks for (Nominatim at most once a second for the whole installation), identical simultaneous questions are one call, Nominatim's answers are kept for an hour, and every failure is a typed error that names no address. No tool of this release uses it yet, so nothing changes for a user.
+
+    Two things for administrators. The server needs outbound HTTPS to `nominatim.openstreetmap.org`, `imperium.ahlfeldt.se`, `ovc.catastro.meh.es`, `www.ign.es` and `api.open-elevation.com` for a tool that uses it. And what a cataloguer asks leaves the server: Nominatim and open-elevation receive the place name or the coordinates, so the position of a site that must stay private should not be sent to them. The page [geo_services](./core/system/geo_services.md) lists what each provider receives and which of their terms were checked.
+
+- **A geolocation value can now carry its map sources and a legend.**
+
+    A geolocation entry accepts two optional keys beside its drawn layers: `sources`, the tile services the map is drawn over (`xyz` templates and `wms` endpoints), and `legend`, a title with named groups of symbols whose icons are small embedded png, jpeg or webp images. Both are saved with the field like the rest of its value, so they follow the record's permissions, history, duplication and export; the drawn layers stay plain GeoJSON. The server checks every new or edited source when it is saved: only `http` and `https`, no credentials in the address, no private or loopback address, and no placeholder other than `{z}`, `{x}` and `{y}` in a tile template; a source that does not pass is refused and nothing is stored (the server log names the source and the rule, and an import reports it per cell; a browser only receives the generic "invalid data" message). The server numbers the sources itself: a number is never given out twice in a field, and a source sent back with a number that was deleted receives a new one. A source without a number that equals one the field already stores takes that source's number, so importing an unchanged file again changes nothing. A number is a per-record number: a source copied from another record that names a number the field holds edits that source. Saving a value without the keys removes them. A CSV or JSON import keeps them, and a map definition needs no coordinate; a CSV append still adds layers only. A value saved into many records at once (a propagation) is settled per record, exactly as if each had received its own copy, whatever numbers the earlier records issued. An icon's size is bounded as well as its bytes (at most 256 × 256 pixels, one megapixel per legend), because a few kilobytes of png can declare a gigabyte of bitmap, and one value carries at most 96 sources, four legends, 1 MiB of icons and 832,800 characters of legend text across its items. Everyone who can read the field reads a stored source's address, so a private provider key belongs in an ontology default, not in a record; the legend and each source's attribution are checked again whenever they are sent out (an icon that is no longer a valid image is left out, an attribution that is no longer plain text is sent blank), and a list view carries neither key. Publication leaves both keys out, so the upstream addresses and icons never reach a published site. A field's ontology node may also list default sources in `properties.map_sources`; the browser is told their names and types, never their addresses. See [the geolocation data model](./core/data_model/geolocation.md).
+
+    Wire contract: `WC-2026-11-06-geolocation-map-sources-legend`.
+
+- **A tool action that only reads can declare itself read-only, so a failed lookup shows its real error.**
+
+    A tool action that only reads, such as a place-name search against an outside service, can now declare itself read-only. The server does not remember a read-only action in its duplicate-request protection, so when it fails (the outside service answers with an error) a resend of the same request shows the real error again, instead of the message that the outcome of the first attempt is unknown. That message is meant for actions that write: it stops a resend from creating a second record. A read-only action cannot create one, and the server refuses it a write to a record, an item-id counter, a record's history or a background job; its activity-log entries are dropped and noted in the server log, and writes to media files or to other stores are the tool developer's responsibility, which nothing checks. Because nothing remembers a read-only action, the browser's own automatic retry of a stalled call would repeat the call to the outside service, so the tool's browser code calls it once (`retries: 1`). A test reads the browser code of every tool that declares a read-only action and checks this, and it refuses such a tool building the request by hand instead of through `tool_request`.
+
+    No shipped tool declares it yet except the developer template, which shows how; the existing tools keep their current behaviour until they do. Tool developers declare it next to the action's permission, see the [tools server contract](./development/tools/server_contract.md#read-only-actions-readonly-true).
+
+- **Tools can now explain a refusal in the user's own language.**
+
+    A tool that refuses a request can now say why, in a sentence it ships with its own translations, instead of a generic message. The tool declares a closed list of reasons in its server module, each with its English fallback sentence, and throws an existing error code with one of them (`details.reason_key`); the browser shows the tool's label for that reason in the user's language, and the declared English sentence when it has no translation, so a refusal always reads as one notice. The sentence is declared once, beside the key, and the server supplies it: a reason the tool did not declare, a refusal that brings any other sentence (an upstream's text), and a refusal a tool embeds in its answer without the same check are rejected, and a tool that declares reasons does not build error bodies by hand. A test checks that every declared reason has a label in each language the tool carries, that no label asks for a value the error cannot supply, and that the server really serves every tool behind that check. A tool's own progress panel (`render_stream({tool})`) shows the reason when a background run is refused. One code is retryable, `tool.source_unavailable`; a tool refuses with it from a read-only action so the browser's automatic resend does not hide the reason. See [error handling](./core/system/errors.md).
+
+    Wire contract: `WC-2026-11-06-tool-reason-key`.
 
 - **Section lists, portals and the tool mosaics place their rows through one client module, the record window, with a fixed row DOM contract.**
 
@@ -1180,6 +1233,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **A write sent with an unusable retry count is no longer resent without its duplicate-protection key.**
+
+    The browser's request layer decided whether to stamp a request with the idempotency key that stops a retry from creating a second record from one value, and how many times to send it from another. A request sent with a missing or invalid retry count (for example `undefined` or `null` passed explicitly, which overrides the default) was therefore sent up to five times without the key, and a write resent that way could create a second record. The count is now read once, an unusable value means the default of five attempts, and every resend of a write carries the key. A caller that wants a single attempt still passes `retries: 1`.
+
 - **The test ontology's "Countermark descriptions" section tool now opens its target section.**
 
     The test ontology's copy of the "Countermark descriptions" section tool (test6402) used an old setting name that the engine does not read, so it could not open. It now uses the current name, matching the fix on the master ontology. Tests that need a section tool without a target build their own.
@@ -1191,7 +1248,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 61 entries"
+??? note "Wire contract — 64 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -1254,6 +1311,9 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-04-tree-picker-read-gate-retired`
     - `WC-2026-11-04-writer-chain-scoped-search`
     - `WC-2026-11-05-reconcile-apply-refused`
+    - `WC-2026-11-06-geolocation-map-sources-legend`
+    - `WC-2026-11-06-map-tile-proxy`
+    - `WC-2026-11-06-tool-reason-key`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

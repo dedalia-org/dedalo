@@ -288,7 +288,9 @@ HERMETIC_TRIPWIRES=(
 	#     no database it is 100% skip, i.e. vacuous -- it runs on the DB tier.
 	test/unit/shard_partition_tripwire.test.ts
 	test/unit/tool_permission_census_tripwire.test.ts
+	test/unit/tool_read_only_action_tripwire.test.ts
 	test/unit/client_error_contract_tripwire.test.ts
+	test/unit/tool_reason_keys_tripwire.test.ts
 	test/unit/sw_tombstone_tripwire.test.ts
 	test/unit/date_flat_value_single_source_tripwire.test.ts
 	test/unit/error_throw_ratchet.test.ts

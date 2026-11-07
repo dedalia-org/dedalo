@@ -59,6 +59,7 @@ export type EmitHookId =
 	| 'filter_records'
 	| 'security_access'
 	| 'external'
+	| 'geo'
 	| 'inverse'
 	| 'lang_versions';
 
@@ -234,6 +235,20 @@ export type ImportAppendPolicy =
 	| { readonly refuse: string };
 
 /**
+ * The ITEM-GATE IDs a descriptor may name in `itemGate`: a model whose saved
+ * items carry keys the generic write engine cannot judge on its own, so the save
+ * path runs a model-specific gate over the FINAL items (with the stored ones
+ * beside them) before writing. Same DATA shape as `emitHook` / `importConform`:
+ * the ID resolves to its implementation in section/record/item_gates.ts, so a
+ * descriptor imports no engine module. Adding a gate = add the ID here + its
+ * case in item_gates.ts.
+ *
+ * - 'geo_entry': component_geolocation's sibling keys `sources` and `legend`
+ *   (geo/entry_gate.ts — validation, normal form, server-issued source ids).
+ */
+export type ItemGateId = 'geo_entry';
+
+/**
  * One component model's declarative descriptor. Only the fields the engines
  * actually READ live here; heavier per-model behavior is linked out via file
  * comments (see the DISCIPLINE note above).
@@ -403,6 +418,13 @@ export interface ComponentModel {
 	 * single-choice model, a guessed refusal would hide a capability).
 	 */
 	readonly importAppend?: ImportAppendPolicy;
+	/**
+	 * The model's ITEM GATE (see ItemGateId): run by saveComponentData over the
+	 * final items of every save of this model, whatever door sent them. Omitted =
+	 * the generic value gates are the whole story. Pinned by
+	 * test/unit/geo_entry_gate_native.test.ts (placement: only a `geo`-column model).
+	 */
+	readonly itemGate?: ItemGateId;
 	/**
 	 * DERIVED: the component OWNS NO STORED VALUE — what a read serves is
 	 * computed (an inverse question: who declares me as parent / who points at

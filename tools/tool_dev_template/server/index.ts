@@ -7,6 +7,13 @@
  *    ('section', 'section_list' + its required sectionTipos extractor,
  *    'targets' + its required targets extractor, 'tipo', 'record',
  *    'record_tipo', 'developer') plus a null-spec (handler-gated) action;
+ *  - `readOnly: true` (read_demo): the declaration of an action that writes
+ *    nothing — it is not ledgered by the idempotency gate, runs inside the
+ *    read-only request scope, and tool_read_only_action_tripwire proves it
+ *    cannot reach a matrix / item-counter / Time Machine / activity / job write
+ *    door. Media files, other stores and a psql child are NOT policed: they
+ *    are the author's attestation (see its note on the action below). Its
+ *    client call passes `retries: 1` (gated by client_idempotency_tripwire);
  *  - backgroundRunnable (the second allowlist for async execution) and the
  *    background-only context seams `publishProgress` / `signal`;
  *  - isAvailable (toolbar availability hook);
@@ -161,7 +168,15 @@ export const tool: ToolServerModule = {
 				"UNGATED — the exemplar's demonstration of the null exemption: status() returns a constant literal, addresses no record and writes nothing, so any authenticated user granted tool_dev_template may call it. A tool author copying this file must replace this string with what THEIR handler actually does — or choose a declarative kind.",
 			handler: status,
 		},
-		read_demo: { permission: 'tipo', minLevel: 1, handler: readDemo },
+		// READ-ONLY: the handler echoes its options and touches no record, history
+		// row, activity row, job or file. `readOnly: true` is a CLAIM the dispatcher
+		// acts on (a stamped resend re-executes instead of being ledgered; the
+		// handler runs where the matrix / counter / history / activity / job write
+		// doors refuse — files and other stores are on YOU), so it needs
+		// `minLevel: 1` spelled out (the gated default is 2, write), no
+		// backgroundRunnable entry, and a literal key here: the tripwire reads this
+		// unit's reachable code. Its client call passes `retries: 1`.
+		read_demo: { permission: 'tipo', minLevel: 1, readOnly: true, handler: readDemo },
 		write_demo: { permission: 'record', minLevel: 2, handler: writeDemo },
 		component_write_demo: {
 			permission: 'record_tipo',

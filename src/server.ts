@@ -47,6 +47,7 @@ import { handleCountersRequest } from './core/api/counters.ts';
 import { type ApiRequestContext, dispatchRqo } from './core/api/dispatch.ts';
 import { handleEnvironmentView } from './core/api/environment_view.ts';
 import { anonymousHealthView, buildHealthPayload } from './core/api/health_payload.ts';
+import { handleMapTile } from './core/api/map_tile.ts';
 import { getProcessPoison } from './core/api/process_health.ts';
 import { handleRawView } from './core/api/raw_view.ts';
 import { MIN_GZIP_BYTES, SECURITY_HEADERS, staticAssetResponse } from './core/api/static_asset.ts';
@@ -779,6 +780,15 @@ const ENVIRONMENT_VIEW_PATHS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The map tile proxy — a dedicated, session-gated GET that relays ONE tile of a source
+ * the request NAMES (a stored source, an ontology default or a built-in id), never a URL.
+ * The client-relative path only: the page that asks is the app's own. A READ DOOR
+ * (security/read_door.ts READ_DOOR_EXTRA_DOORS classifies this exact path). See
+ * core/api/map_tile.ts for the gates.
+ */
+const MAP_TILE_PATH = '/dedalo/core/api/v1/map_tile';
+
+/**
  * DB reachability for /health (audit S3-48): a liveness-only probe reported
  * green during a total DB outage. Cached for 5 s so a tight watchdog cadence
  * never turns the health check itself into DB load; bounded by a 2 s race so
@@ -1173,6 +1183,13 @@ export async function handleRequest(request: Request, context: RequestContext): 
 	// Environment diagnostic view (developer tool). Same ordering reason as above.
 	if (request.method === 'GET' && ENVIRONMENT_VIEW_PATHS.has(url.pathname)) {
 		return handleEnvironmentView(request);
+	}
+
+	// Map tile proxy (same-origin, session-gated relay of a named source's tile). Same
+	// ordering reason as the raw view: its path lives under /dedalo/, so it MUST run
+	// before the generic static handler and the tool routes.
+	if (request.method === 'GET' && url.pathname === MAP_TILE_PATH) {
+		return handleMapTile(request, url, context.requestId);
 	}
 
 	// component_text_area inline-tag image factory (PHP core/component_text_area/tag/).

@@ -35,6 +35,7 @@ import {
 	isGrouperModel,
 	logSectionColumnIsSortable,
 } from '../concepts/section.ts';
+import { mapSourcePickerEntries, parseMapSourceDefaults } from '../geo/map_source_defaults.ts';
 import { resolveDataTipo } from '../ontology/alias.ts';
 import { createOntologyCache } from '../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
@@ -546,7 +547,8 @@ async function buildCore(
  * keys, so all current data emits byte-identically to PHP.
  */
 /**
- * THE SECOND PUBLICATION PATH of `api_config`.
+ * THE SECOND PUBLICATION PATH of `api_config`, and the only door of
+ * `map_sources`.
  *
  * The emitted `properties` of a context entry are a near-verbatim ontology
  * echo, and for the external SECTIONS (zenon1, test3 — and rsc205, whose copy
@@ -563,14 +565,30 @@ async function buildCore(
  * `context.properties.api_config` (measured over client/**), so no render
  * depends on it either way.
  *
+ * `map_sources` (a geolocation node's ontology DEFAULT map sources,
+ * WC-2026-11-06-geolocation-map-sources-legend) is shaped here for a stronger
+ * reason: each default carries a full upstream `url` and `params`, which may
+ * hold a provider token the administrator chose to keep SERVER-SIDE (that is the
+ * point of an ontology default; a template stored in a record is readable by
+ * everyone who reads the record). The browser is told what a picker needs — id,
+ * label, type — and never an address: the key is REPLACED by
+ * `mapSourcePickerEntries` of the valid defaults (a rejected entry is not
+ * offered, so not echoed either). A node without the key is left alone. Gate:
+ * test/unit/geo_map_source_lookup_native.test.ts ("the structure context").
+ *
  * Returns the SAME object when there is nothing to shape (the overwhelming
  * case — one section in a hundred is external), a rebuilt one when the key has
- * to go, so the caller never has to wonder which it got.
+ * to go, so the caller never has to wonder which it got. The caller owns the
+ * object (both callers deep-clone first), so `map_sources` is replaced in place
+ * exactly as `api_config` is.
  */
 export function sanitizeEmittedProperties(
 	properties: Record<string, unknown>,
 	tipo: string,
 ): Record<string, unknown> {
+	if ('map_sources' in properties) {
+		properties.map_sources = mapSourcePickerEntries(parseMapSourceDefaults(properties).defaults);
+	}
 	if (!('api_config' in properties)) return properties;
 	const published = publishApiConfig(properties.api_config, { sectionTipo: tipo });
 	if (published === null) {

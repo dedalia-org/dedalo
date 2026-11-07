@@ -3864,6 +3864,11 @@
 			"skipped": 0,
 			"assertions": 9
 		},
+		"test/unit/origin_limiter_native.test.ts": {
+			"tests": 47,
+			"skipped": 0,
+			"assertions": 179
+		},
 		"test/unit/original_lang.test.ts": {
 			"tests": 13,
 			"skipped": 0,
@@ -6158,6 +6163,11 @@
 			"tests": 9,
 			"skipped": 0,
 			"assertions": 69
+		},
+		"test/unit/tool_read_only_action_tripwire.test.ts": {
+			"tests": 25,
+			"skipped": 0,
+			"assertions": 285
 		},
 		"test/unit/tool_request.test.ts": {
 			"tests": 6,

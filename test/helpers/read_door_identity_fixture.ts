@@ -20,12 +20,13 @@
  *                                     test3.test101=1 (the projects filter),
  *                                     test3.test126=2 (button_new),
  *                                     test3.test91=0, test3.test99=0,
- *                                     test3.test80=0, test3.test96=0 (button_delete)
+ *                                     test3.test80=0, test3.test96=0 (button_delete),
+ *                                     test3.test100=0 (geolocation)
  *                                     — NO test2 grant at all.
  *   937012 matrix_profiles  CONTROL — the same, PLUS test3.test91=1,
  *                                     test3.test99=1, test3.test80=1,
  *                                     test3.test96=2, test2=1, test2.test52=1,
- *                                     test2.test99=1
+ *                                     test2.test99=1, test3.test100=1 (geolocation)
  *   937013 matrix_profiles  MEDIA-ONLY — test2.test52=1, test2.test99=1 and
  *                                     NOTHING else (components without their section)
  *   937001 matrix_users     READER  — dd244 No, dd515 No, dd1725 → 937011,
@@ -85,6 +86,8 @@ export const DOOR_IMAGE = 'test99';
 export const DOOR_FILTER = 'test101';
 export const DOOR_BUTTON_NEW = 'test126';
 export const DOOR_BUTTON_DELETE = 'test96';
+/** component_geolocation: the tile proxy's component key (reader 0, control 1). */
+export const DOOR_GEO = 'test100';
 
 const USERS_SECTION = 'dd128';
 const PROFILES_SECTION = 'dd234';
@@ -145,6 +148,7 @@ function readerOnlyGrants() {
 		grant(11, DOOR_SECTION, DOOR_IMAGE, 0),
 		grant(12, DOOR_SECTION, DOOR_PORTAL, 0),
 		grant(13, DOOR_SECTION, DOOR_BUTTON_DELETE, 0),
+		grant(17, DOOR_SECTION, DOOR_GEO, 0),
 	];
 }
 
@@ -157,6 +161,7 @@ function controlOnlyGrants() {
 		grant(14, DOOR_SIBLING_SECTION, DOOR_SIBLING_SECTION, 1),
 		grant(15, DOOR_SIBLING_SECTION, DOOR_TEXT, 1),
 		grant(16, DOOR_SIBLING_SECTION, DOOR_IMAGE, 1),
+		grant(18, DOOR_SECTION, DOOR_GEO, 1),
 	];
 }
 

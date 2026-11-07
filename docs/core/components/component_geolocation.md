@@ -66,7 +66,7 @@ It exists because a single pair of coordinates is rarely enough for cultural-her
 
 **Data:** `array` of coordinate items (one item in practice), or `null`.
 
-**Value:** `array` of objects `{lat, lon, zoom, alt, lib_data?}`, or `null`.
+**Value:** `array` of objects `{lat, lon, zoom, alt, lib_data?, sources?, legend?}`, or `null`.
 
 **Storage:** the data is stored in the **`geo` column** of the matrix table. The component is **non‑translatable**: its language slot is always `DEDALO_DATA_NOLAN`, so there are no per-language rows.
 
@@ -79,6 +79,8 @@ Each item carries:
 | `zoom` | int | Leaflet zoom level (default `16`) |
 | `alt` | int | altitude / elevation (default `0`) |
 | `lib_data` | array | optional drawn shapes as GeoJSON layers (the rendering-library data) |
+| `sources` | array | optional map sources (tile templates and WMS endpoints) the map is drawn over; the server numbers them — see [Map sources and legend](../data_model/geolocation.md#map-sources-and-legend) |
+| `legend` | object | optional legend (title, groups, symbols with small raster icons) — same section |
 | `id` | int | item id assigned by the component counter |
 
 A stored item with drawn shapes:
@@ -207,6 +209,26 @@ The override is **all or nothing**: each of `lat`, `lon` and `zoom` must resolve
 }
 ```
 
+`map_sources`
+
+options: array of source objects `{id, label?, type, url, params, attribution}`
+
+default: none.
+
+Default map sources offered to **every record** of the field: tile templates (`xyz`) and WMS endpoints (`wms`) the map can be switched onto, chosen by the administrators in the ontology rather than by each cataloguer. `id` is a short name (lowercase letters, digits and `_`), unique in the list; `label` is the plain text the layer control shows. An entry that fails the same checks as a source stored in a record is rejected with its position and reason and never offered. The browser is told each default's name, label, type and attribution (plus an `xyz` source's zoom bounds or a `wms` source's CRS) and **never its address**: the tiles are asked of the server's [map tile proxy](../system/map_tile_proxy.md) by `default_id`, so a provider key written in the `url` stays on the server. Use it, rather than a source stored in a record, for an address that carries a key, or when the installation (and not each editor) carries the provider's licence. The shape of a source, its checks and the difference with a stored source are in [Map sources and legend](../data_model/geolocation.md#map-sources-and-legend); no node of this install carries the key today (shape only), so the example is generic:
+
+```json
+{
+    "map_sources": [
+        {"id": "regional_ortho", "label": "Regional orthophoto", "type": "wms",
+         "url": "https://wms.example.org/service",
+         "params": {"version": "1.3.0", "layers": "ortho", "styles": "", "format": "image/png",
+                    "transparent": false, "crs": "EPSG:3857"},
+         "attribution": "Example Org"}
+    ]
+}
+```
+
 `observe`
 
 options: array of observer rules `{client:{event, perform:{function}}, component_tipo}`
@@ -284,7 +306,7 @@ See the full geolocation import definition in [Importing data](../importing_data
 - **Storage column & language.** Data lives in the matrix `geo` column, pinned to `DEDALO_DATA_NOLAN` (language‑neutral). The component reads/saves only through its section.
 - **Coordinate accessors.** The center is resolved as floats from `lat`/`lon` when both parse to a finite number (`0` included); `null`, `""` and unparseable text resolve to no coordinate, and a missing axis is never completed with a zero. A cache-rebuild reload-then-resave path (used by cache-update tooling) has not been verified for this pass.
 - **Diffusion.** The stored item can convert to a GeoJSON `Point` object `{type, coordinates:[lon, lat]}` (Socrata-style) or to an encoded `FeatureCollection` (layer wrapper, 16‑decimal `[lon, lat]` coordinates). Precedence is the same on every path: drawn geometry publishes as the location (and on the standalone path the stored center is dropped from the published value), otherwise a usable coordinate publishes as the point, otherwise nothing is published at all. See [Diffusion parsers](../../diffusion/parsers.md).
-- **Observers / observables (client).** Configured via the `observe` property. The flagship pattern is `map_update_coordinates`: a related component (e.g. a toponymy portal) is the *observable*; on its `update_value` it fires the observer geolocation, which copies the coordinates of the referenced record (the geolocation identified by `role: "target_geolocation_tipo"` in the observable's `request_config` `hide`) and re-centers the map, recording the change like any save. Only the coordinate travels: the borrowed item's own id is dropped, so the copy replaces **this** record's item instead of appending a second one beside it.
+- **Observers / observables (client).** Configured via the `observe` property. The flagship pattern is `map_update_coordinates`: a related component (e.g. a toponymy portal) is the *observable*; on its `update_value` it fires the observer geolocation, which copies the coordinates of the referenced record (the geolocation identified by `role: "target_geolocation_tipo"` in the observable's `request_config` `hide`) and re-centers the map, recording the change like any save. Only the coordinate travels: the borrowed item's own id is dropped, so the copy replaces **this** record's item instead of appending a second one beside it, and the other record's map `sources` and `legend` are not copied — this record keeps its own, because saving replaces the whole item.
 - **Text-area integration.** `lib_data` layers pair with `geo` tags in a [component_text_area](component_text_area.md) transcription; inserting/removing a tag loads/unloads the matching layer (`layer_data_change`, `load_tag_into_geo_editor`, `get_data_tag`). See the `geo` tag in [Importing data](../importing_data.md#geo).
 - **Default tools.** `tool_leaflet_special_tools`, `tool_propagate_component_data`, `tool_time_machine`, `tool_dev_template` (per the ontology node; exact set is ontology-driven).
 - **Client libraries.** Leaflet, Leaflet-Geoman, Turf (measurements) and iro (color picker) are lazy-loaded on first map build (`load_libs`). The map never auto-saves on pan/zoom — saving is always explicit via the save button, and navigating a record that holds no value writes nothing at all.

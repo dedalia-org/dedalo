@@ -261,6 +261,85 @@ job-owned context the job manager pins at submit), and `''` only for a direct ca
 any scope — never a crash, never the dead request's id. `tools/` is a zero-tier
 directory — an untyped throw there fails the ratchet outright.
 
+### Recipe: refuse with a translated reason from a tool
+
+**Goal.** A tool refusal the cataloguer reads in their own language, in the tool's words.
+**When.** The refusal is specific to the tool (a bad bounding box, a source that is down)
+and the generic core label would hide the reason.
+
+```ts
+// tools/<tool>/server/index.ts
+export const tool: ToolServerModule = {
+	name: 'tool_example_maps',
+	reasonKeys: {
+		// the closed map — not an action: each key with its English fallback sentence
+		bad_bbox: 'The bounding box is not numeric.',
+		source_down: 'The map server is not answering.',
+	},
+	apiActions: { /* … */ },
+};
+
+// the handler — the key only; the guard puts the declared sentence on the refusal
+throw new DedaloError('request.invalid_options', {
+	details: { reason_key: 'bad_bbox' },
+});
+```
+
+And in the tool's `register.json`, one label per key and language the tool carries
+(always `lg-eng`):
+
+```json
+{ "lang": "lg-eng", "name": "reason_bad_bbox", "value": "The bounding box is not numeric." }
+```
+
+*Source: `src/core/tools/reason_keys.ts`; the scratch fixture tool in
+`test/unit/tool_reason_keys_tripwire.test.ts`.*
+
+**What you get.** One notice: the tool's label `reason_bad_bbox` in the user's language,
+else the sentence declared for the key, else the core code's label. `${site}` in a label fills from the
+code's own declared detail (`tool.source_unavailable` carries `site`); nothing else is
+available, so put fixed limits in the text. Choose the code from the five that carry the key
+(`request.invalid_options`, `resource.not_found`, `tool.unsupported_target`,
+`tool.source_unavailable`, `media.too_large`).
+
+**Pitfalls.**
+
+- The loader turns a `reason_key` outside `reasonKeys` (thrown, or in a failure envelope the
+  handler returns), on any other code, or beside a sentence other than the declared one,
+  into `internal.invariant`; the tripwire fails a declared key without a label in every
+  language, a dead `reason_*` label and a literal that is not declared.
+- The English fallback is declared once, beside the key, and is not a `publicMessage` you
+  write at the throw: leave `publicMessage` off a keyed refusal. The loader refuses a
+  declaration whose sentence is empty, over 200 characters, or holds a control, line-separator
+  or invisible formatting character (a bidi override, a zero-width space), and a throw that
+  brings a sentence of its own is `internal.invariant` — so an upstream's text, a driver
+  message or a URL can never ride the one field the browser prints as it arrives. Put the
+  variable part in the label's `${site}`. Because the declaration owns the sentence, you
+  may build the error in a helper of your own.
+- `tool.source_unavailable` is retryable. The browser transport resends a retryable error,
+  and a mutating action's first attempt leaves an ambiguous reservation under its
+  idempotency key, so the resend is answered `idempotency.outcome_unknown` and the user
+  never sees your reason. Refuse an unreachable source from a [read-only
+  action](tools/server_contract.md#read-only-actions-readonly-true) called with the literal
+  `retries: 1` (the `source_down` key above is that case), or pass `retries: 1` on the
+  `tool_request(` call; from an action that cannot be read-only, choose a code that is not
+  retryable.
+- A label may use only the `${param}` the code declares (`${site}`), never `%s`; the
+  tripwire refuses the rest, and the browser would show the declared sentence instead of a
+  label it cannot fill.
+- A refusal you put inside an answer rather than throw (a batch's per-item `error`) is built
+  with `toolErrorBody(tool, 'action', error)` from `src/core/tools/reason_keys.ts`; the same
+  check then applies and a refusal it replaces is logged. A tool that declares `reasonKeys`
+  names none of the converter's body builders (`toErrorBody`, `toErrorEnvelope`,
+  `toStructuredErr`, `toFailureRecord`, `toStreamFrame`) anywhere in its server tree — not
+  as a call, not in an import, aliased or not.
+- A refusal that reaches the browser through a job frame is not stamped with the tool by the
+  frame itself. Name the tool where you render the job: `render_stream({container, id, tool:
+  self.model, …})`, or `normalize_stream_error(frame, {tool: self.model})`. The job tray does
+  not know the tool and shows the core label.
+- Adding a sixth code to the set is a registry edit, a pinned list and a wire-contract entry,
+  not a tool change.
+
 ### Recipe: refuse an MCP tool with a model-facing hint
 
 **Goal.** Steer the agent loop instead of dead-ending it.
@@ -509,6 +588,7 @@ assert.throws(() => register_error_policy({'auth.not_logged': {action: 'silent'}
 | `throw new Error(` in a zero-tier directory | the refusal has no code, no status, no label | `error_throw_ratchet` (`ZERO_TIER_ENFORCED`) |
 | A `debug` key written outside the converter | leaks the debug block past the `DEDALO_DEBUG_API_ERRORS` door | `error_taxonomy_tripwire` A3 |
 | A code with no label, or a label whose `{params}` differ from `details_keys` | the browser renders raw English, or an empty placeholder | `error_registry_native` + `labels_tripwire` |
+| A tool `reason_key` that is not declared, has no label in a language the tool carries, brings a sentence other than the declared one, or is written outside the tool's server tree | the refusal falls back to English in a translated UI, or free text reaches the one key a client turns into a label name and the one sentence it prints verbatim | the loader's guard (`internal.invariant`) + `tool_reason_keys_tripwire` + `error_taxonomy_tripwire` A7 |
 
 Run the fast trio after any registry edit — they catch an orphan code, a missing label and
 a mismatched placeholder in one pass:

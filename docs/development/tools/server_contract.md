@@ -14,6 +14,7 @@ interface ToolServerModule {
   name: string;                                // must equal the directory name, ^tool_[a-z0-9_]+$
   apiActions: Record<string, ToolActionSpec>;   // the remote surface
   backgroundRunnable?: readonly string[];       // second allowlist for async execution
+  reasonKeys?: Readonly<Record<string, string>>; // closed map: refusal reason key → its English fallback sentence — NOT an action
   isAvailable?: (context) => boolean | Promise<boolean>;  // toolbar availability
   onRegister?: () => Promise<void>;             // lifecycle hook — NEVER inside apiActions
   onRemove?: () => Promise<void>;               // lifecycle hook — NEVER inside apiActions
@@ -23,6 +24,7 @@ interface ToolServerModule {
 ```
 
 - The loader validates this contract at scan time (`loader.ts::validateToolModule`): `tool.name` must equal the directory name and match the tool-name pattern; `apiActions` must be an object; none of the reserved lifecycle keys (`isAvailable`/`onRegister`/`onRemove`/`onBoot`/`httpRoutes`) may appear inside it; every action's `handler` must be a function; `onBoot` must be a function and every `httpRoutes` entry must pass the route rules below. A tool that fails validation logs a warning and is simply absent from the registry — it never aborts the whole scan.
+- `reasonKeys` declares the closed set of reasons the tool may put on a refusal (`details.reason_key`), each with the English fallback sentence it rides with: `{ bad_bbox: 'The bounding box is not numeric.' }`. Each key matches `^[a-z][a-z0-9_]{0,47}$` and each sentence is a non-empty string of at most 200 characters with no control, line-separator or invisible formatting character (a bidi override, a zero-width space), or the tool is refused at load. The loader serves the tool through `admitToolModule`, which wraps every action handler, `admit` hook and route: a key outside the map, a code that does not carry the key, or a sentence other than the declared one becomes `internal.invariant`, whether the refusal is thrown or is a failure envelope the handler returns. A refusal throws the key **without** a `publicMessage`; the wrapper puts the declared sentence on it, so nothing a request or an upstream produced can reach the field the browser prints as it arrives. The wrapper keeps the function you wrote reachable (`unguarded(fn)` in `src/core/tools/reason_keys.ts`) for gates that read a served handler. A refusal you embed in an answer instead of throwing it is built with `toolErrorBody(tool, action, error)` (which also logs a refusal it replaces), and a tool that declares `reasonKeys` names none of the converter's body builders (`toErrorBody`, `toErrorEnvelope`, `toStructuredErr`, `toFailureRecord`, `toStreamFrame`). The translated sentence for each key is the tool's `register.json` label `reason_<key>` — see [A tool's refusal reason](../../core/system/errors.md#a-tools-refusal-reason). One code is retryable, `tool.source_unavailable`: refuse with it from a [read-only action](#read-only-actions-readonly-true), because the transport resends a retryable error from a mutating one and the resend is answered `idempotency.outcome_unknown`, hiding your reason.
 - Server logic imports `src/core/**` via relative paths. The dependency points tool → core: everything a tool offers the engine (actions, lanes, routes, boot timers) is registered through this module, and new engine code must not import a tool or name one. This is a ratchet, not yet an absolute rule: `test/unit/core_tool_edge_tripwire.test.ts` derives every `src/` → `tools/tool_*` import (static, re-export or dynamic) and every tool name that appears in `src/` code or string literals, and holds both to shrink-only ledgers. One import edge remains today: `src/core/tools/transcription_asr.ts` uses the transcription tool's shared paragraph builder. A small number of files also still name a specific tool, for example the export grid's gate coordinates. A new edge, or a new name occurrence, fails the gate.
 
 ## Remotely callable methods (API actions)
@@ -35,6 +37,7 @@ interface ToolActionSpec {
   minLevel?: number;   // dd774 level: 1=read, 2=write (default), 3=admin
   sectionTipos?: (options) => unknown[];   // REQUIRED for 'section_list'
   targets?: (options) => WriteTarget[];    // REQUIRED for 'targets'
+  readOnly?: true;     // the action writes nothing — see "Read-only actions"
   handler: (context: ToolActionContext) => Promise<ToolResponse>;
 }
 interface WriteTarget { section_tipo: unknown; tipo?: unknown; section_id?: unknown }
@@ -121,6 +124,35 @@ The declarative permission gate already ran (step 7 above) **before** the backgr
 
 !!! note "Ledgered (engineering/TOOLS_SPEC.md)"
     Background jobs die on server restart — the in-process job table does not survive a Bun restart — and a CPU-bound handler currently shares the event loop with every other request. A Bun `Worker`-based executor is a drop-in follow-up behind the same `scheduleBackground` signature.
+
+## Read-only actions (`readOnly: true`)
+
+An action that writes nothing declares it, next to its permission:
+
+```ts
+lookup: {
+  permission: 'section',
+  minLevel: 1,            // required: the gated default is 2 (write)
+  readOnly: true,
+  handler: lookupPlace,
+},
+```
+
+`readOnly: true` is a **claim** the framework acts on, so it is narrow: executing the action twice leaves the same end state. It **may** call an external service — that is the usual reason to declare it. Absent means mutating, which is the safe default.
+
+The claim is your attestation. The framework checks the doors it can name — no record write (including the per-component item-id counters), no Time Machine row, no activity row, no job — and nothing else. It does **not** check media files, a directly spawned `psql` child, writes to other stores (user stats, locks, queues, the ontology, the derived search tables) or a streamed response body: a read-only action must not touch them, and nothing refuses it if it does.
+
+What the declaration changes:
+
+- **No idempotency ledger.** The browser transport stamps every request it may resend with an idempotency key, and the server executes a stamped request once and replays its answer. For a mutating action that is the protection against a duplicate record. For an action that cannot have written anything it only does harm: a handler that throws (an upstream `external.http_status`) leaves an *ambiguous* reservation, the transport retries the retryable error under the same key, and the retry is answered `idempotency.outcome_unknown` — hiding the real error. A read-only action is never ledgered, so every attempt re-executes and answers its own outcome. The server decides this from the **loaded module's** declaration, never from the client, and any doubt (unknown tool or action, a background request, a caller the tool is not granted to) keeps the request ledgered.
+- **A read-only request scope.** The handler runs inside `runReadOnly` (`src/core/security/read_only_scope.ts`). Every door that writes a record, an item-id counter, a history row, an activity row or a job (`matrix_write.ts`, `time_machine.ts`, the job manager's `submit`) refuses there with `internal.invariant` — a wrong declaration fails loudly instead of skipping the ledger for a writer. One refusal is quiet: the activity log's writer (`logActivity`) never throws, by design (an audit write must not fail the user's action), so inside the scope the row is dropped and the refusal is a line in the server log. A read-only action that logs activity is therefore not failed at runtime; the static check below is what names it.
+
+What the loader enforces (`validateToolModule`; a violation keeps the tool out of the registry, like any contract breach): only the literal `true` is accepted; the action may not be in `backgroundRunnable` (a job is a write, and a request that asks for background execution is never classified read-only); and a level-gated action must declare `minLevel: 1` explicitly — exactly 1: `0`, a negative number or `NaN` would pass the level comparison for every caller and leave the action with no level gate at all.
+
+`test/unit/tool_read_only_action_tripwire.test.ts` proves the claim statically: the action's own entry in `tool.apiActions` — **declare it as a literal key**, the walk cannot see an action built elsewhere — must not reach a raw matrix write, an off-home psql writer, the activity (including `logActivity`), item-counter or Time Machine writers or the job manager through any import-resolved path.
+
+!!! warning "A read-only action is never replayed"
+    A stalled call can reach the provider more than once, and the transport's own resend would re-execute the action up to five times. The tool's browser code therefore calls a read-only action through `this.tool_request()` with the literal `retries: 1` (and a longer `timeout` if the provider is slow): with `retries: 1` the transport sends once, stamps no key and never resends. `test/unit/client_idempotency_tripwire.test.ts` checks this in the source of every tool that declares a read-only action. It reads each `tool_request(` call's own properties (a `retries` nested inside `options` does not count, and a spread after the properties could replace them); a call of a read-only action must spell `retries: 1`; a call whose `action` is not a string literal must spell it too; and such a tool may not build the `dd_tools_api` request by hand (the older `create_source` plus `data_manager.request` shape) nor use `tool_request` as a value (`.call`, `.bind`, an alias), because the check cannot follow where those end up. It is a check of source text: a read-only action requested by another tool's code, or by the core client, is not covered. Pacing a third-party service (a minimum interval, a concurrency cap) belongs to the service module the action calls, not to the transport's retry loop.
 
 ## Fetching from other sites (`src/core/harvest/harvest.ts`)
 
@@ -239,6 +271,8 @@ try {
   results.push({ url, error: toErrorBody(toDedaloError(error)) });
 }
 ```
+
+A tool that declares [`reasonKeys`](#the-module) builds that body with `toolErrorBody(tool, 'action', error)` instead, so a `reason_key` in it passes the same check as a thrown one.
 
 ## Configuration (`src/core/tools/config.ts`)
 

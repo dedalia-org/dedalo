@@ -10,7 +10,8 @@
  *   - http(s) only, no credentials in the URL (a user name alone included), and
  *     never https → http (a downgrade hands the rest of the exchange to anyone on
  *     the path); https only, when the caller asked for `requireHttps`;
- *   - the caller's HOST policy (a public-only policy, or an allowlist);
+ *   - the caller's HOST policy (a public-only policy, or an allowlist) and, when it
+ *     asked for `defaultPortsOnly`, the scheme's own port;
  *   - a URL no longer than `MAX_URL_LENGTH` (every per-hop check is linear in
  *     it, and a hostile redirect can mint any length it likes — robots matching,
  *     whose cost is ALSO the rule count, weighs its own work: `robots.ts`);
@@ -53,6 +54,12 @@ export interface HopPolicy {
 	readonly hosts: HarvestHosts;
 	/** Refuse any hop that is not https, the first one included. */
 	readonly requireHttps?: boolean;
+	/**
+	 * Refuse any hop that names a port other than its scheme's own (80, 443), the first
+	 * one included. An allowlist names a HOST, so without this a stored address may
+	 * still reach any service on it — and a redirect any other port of it.
+	 */
+	readonly defaultPortsOnly?: boolean;
 }
 
 /** One request as the loop sends it; `method`/`body` change on a 301/302/303. */
@@ -103,8 +110,8 @@ export interface FollowResult {
 	response: PinnedHopResponse;
 }
 
-/** A host as compared: no IPv6 brackets, lower-case, no trailing dot. */
-function bareHost(host: string): string {
+/** A host as compared: no IPv6 brackets, lower-case, no trailing dot. Also the tile proxy's terms key. */
+export function bareHost(host: string): string {
 	return host
 		.trim()
 		.replace(/^\[|\]$/g, '')
@@ -152,7 +159,10 @@ export function assertHopAllowed(
 	site: string = siteOf(url),
 ): void {
 	const refusal =
-		shapeRefusal(url) ?? transportRefusal(url, previous, policy) ?? hostRefusal(url, policy.hosts);
+		shapeRefusal(url) ??
+		transportRefusal(url, previous, policy) ??
+		hostRefusal(url, policy.hosts) ??
+		portRefusal(url, policy);
 	if (refusal !== null) throw harvestRefused(refusal, site, url.host);
 }
 
@@ -177,6 +187,15 @@ function transportRefusal(
 
 function hostRefusal(url: URL, hosts: HarvestHosts): HarvestRefusalReason | null {
 	return hosts === 'public' || hostMatches(url.hostname, hosts) ? null : 'host_not_allowed';
+}
+
+/**
+ * `url.port` is empty exactly when the port is the scheme's own (the WHATWG parser drops
+ * `:443` on https and `:80` on http), so a non-empty one is another port. Judged after
+ * the host: a host the policy does not admit is refused as that, whatever its port.
+ */
+function portRefusal(url: URL, policy: HopPolicy): HarvestRefusalReason | null {
+	return policy.defaultPortsOnly === true && url.port !== '' ? 'port_not_allowed' : null;
 }
 
 /**

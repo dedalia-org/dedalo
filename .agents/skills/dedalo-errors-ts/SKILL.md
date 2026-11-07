@@ -32,6 +32,7 @@ model, the workflows and the traps.
 | `client/dedalo/core/common/js/error_policy.js` | `CORE_POLICY` (code → action), `resolve_error_policy` (exact → `<domain>.*` → `*`), `register_error_policy` (additive; core keys cannot be overridden). |
 | `client/dedalo/core/common/js/error_dispatch.js` | `handle_api_error(api_error, ctx) → {recovered}`, the ONE relogin-then-retry recovery, and the NOTICE half (`handle_api_notice(s)`). |
 | `client/dedalo/core/common/js/render_api_error.js` | `error_text` (label → message → code) and the four surfaces. NEVER an HTML-parsing sink. |
+| `src/core/tools/reason_keys.ts` | The server half of a tool's `details.reason_key`: `guardReasonKeys` (wired by the loader's `admitToolModule`) wraps every handler / `admit` / route of a loaded tool and turns an undeclared key, a non-opted code or a sentence other than the DECLARED one into `internal.invariant` (thrown, or in a failure envelope the handler returns), and supplies the declared sentence to a valid refusal. `unguarded(fn)` returns the raw function behind a wrapper (a gate that reads a served handler needs it); `toolErrorBody` builds an EMBEDDED refusal body with the same check and LOGS the refusal it replaces. |
 | `src/core/labels/master.json` | Every code's `label_key` ships here, in the same commit. |
 | `engineering/error_throw_baseline.json` | The shrink-only untyped-throw census (never hand-edit). |
 | `docs/core/system/errors.md` | The developer manual page. |
@@ -39,7 +40,8 @@ model, the workflows and the traps.
 **Wire-contract entries** (`engineering/wire_contract/`): `WC-2026-08-15-error-envelope-v2`,
 `-error-status-is-a-channel`, `-http-layer-error-envelope`, `-tool-response-envelope-v2`,
 `-stream-error-frames`, `-mcp-error-code-alignment`, `-external-degradation-is-a-notice`,
-`WC-2026-08-16-error-envelope-compat-removal`, `WC-2026-08-12-authorization-denial-token`.
+`WC-2026-08-16-error-envelope-compat-removal`, `WC-2026-08-12-authorization-denial-token`,
+`WC-2026-11-06-tool-reason-key`.
 
 ## The laws
 
@@ -69,7 +71,7 @@ outside `debug`.
 Everywhere else the per-file count is shrink-only.
 
 **5. Labels ride the code.** Every `label_key` must exist in `src/core/labels/master.json`,
-and the label's `${param}` placeholders must equal the code's `details_keys`, both ways. Always with the `$`: the client fills `${param}` only, so a bare `{param}` reaches the user verbatim (gated). The
+and the label's `${param}` placeholders must equal the code's `details_keys` (minus `reason_key`, which names no placeholder), both ways. Always with the `$`: the client fills `${param}` only, so a bare `{param}` reaches the user verbatim (gated). The
 code and its label land in ONE commit (`labels_tripwire` + `error_registry_native`). Deeper:
 the **`dedalo-labels-ts`** skill.
 
@@ -101,6 +103,46 @@ named tool failures), never converter-made — do not reintroduce them as an err
 
 Nothing in `dispatch.ts` or `server.ts` changes when you add a code. That is the point.
 
+### Add a tool refusal reason (`details.reason_key`)
+
+A tool that must explain a refusal in the user's language does NOT add a code: it throws one
+of the five public codes that carry the key (`REASON_KEY_CODES`: `request.invalid_options`,
+`resource.not_found`, `tool.unsupported_target`, `tool.source_unavailable`,
+`media.too_large`) with `details: {reason_key}`. The English fallback sentence belongs to the
+tool's DECLARATION, not to the throw.
+
+1. Declare the closed map on the tool's server module: `reasonKeys: { bad_bbox: 'The bounding
+   box is not numeric.', … }` — key grammar `REASON_KEY_PATTERN`, sentence a non-empty string of
+   200 characters at most with no control, line-separator or invisible formatting character (a
+   bidi override, a zero-width space); not an action. The loader refuses the tool otherwise.
+2. Throw `new DedaloError('request.invalid_options', {details: {reason_key: 'bad_bbox'}})` —
+   NO `publicMessage`: the guard puts the declared sentence on the refusal, so nothing a
+   request or an upstream wrote reaches the field the browser prints verbatim. The loader's
+   guard turns an undeclared key, a code that does not carry it, or any other sentence into
+   `internal.invariant` (the same for a failure envelope the handler returns). A refusal you
+   EMBED in an answer (a batch's per-item error) is built with `toolErrorBody(tool, action,
+   error)` — it is logged when it is refused — and the tool names none of the converter's body
+   builders (`toErrorBody`, `toErrorEnvelope`, `toStructuredErr`, `toFailureRecord`,
+   `toStreamFrame`), imported or called. PITFALL: `tool.source_unavailable` is retryable, so
+   from a mutating action the transport resends it and the twin is answered
+   `idempotency.outcome_unknown`; use it from a `readOnly` action called with `retries: 1`,
+   or choose a non-retryable code.
+3. Add `{lang, name: 'reason_bad_bbox', value}` to the tool's `register.json` labels — every
+   language the tool carries, and `lg-eng`. `${site}` is the only parameter available on
+   `tool.source_unavailable`; fixed limits go into the text.
+4. Client: nothing per tool for a request. `data_manager` stamps `ApiError.tool`,
+   `tool_common.build` registers the `reason_*` labels, `error_text` resolves tool label →
+   wire `message` → core label → code (a label it cannot fill completely, `${x}` outside the
+   code's details or `%s`, is skipped for the `message`; the gate refuses it). A refusal
+   reported through a job frame is named by the tool's own panel:
+   `render_stream({container, id, tool: self.model})` or
+   `normalize_stream_error(frame, {tool: self.model})`; the job tray names no tool and shows
+   the core label.
+5. Gate: `bun test test/unit/tool_reason_keys_tripwire.test.ts test/unit/error_registry_native.test.ts
+   test/unit/error_taxonomy_tripwire.test.ts`. Adding a sixth code to the set is a registry
+   edit (list `reason_key` in `details_keys`, keep it `public`), the pinned list in
+   `error_registry_native` and a wire-contract entry. Spec: ERRORS_SPEC §9.1.
+
 ### Convert an untyped throw
 
 Classify first, then type:
@@ -129,7 +171,10 @@ JSON with the change. Never hand-edit it; never raise a number to get green.
 - **"My `publicMessage` is not on the wire."** The code's `disclosure` is `operator`. Either
   the sentence belongs in `details` under a declared key, or the code genuinely is public
   and the registry row is wrong.
-- **"My `details` value vanished."** It is not in `details_keys`, or it is not a scalar.
+- **"My `details` value vanished."** It is not in `details_keys`, or it is not a scalar. For
+  `reason_key`: the code is not one of `REASON_KEY_CODES`, or the value is outside
+  `REASON_KEY_PATTERN` (the loader's guard catches both on a tool throw as `internal.invariant`).
+  A keyed refusal's `message` is always the sentence its tool DECLARED for the key.
 - **Want everything?** Run with `DEDALO_DEBUG_API_ERRORS=true` and read `error.debug`
   (`exception`, `stack`, `coordinates`, `cause_chain`). Development only — it puts stack
   traces and record coordinates on the wire.

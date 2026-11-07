@@ -32,6 +32,11 @@ import type { ImportConformId } from '../components/types.ts';
 import { hasCoordinate, isCoordinateInRange, toCoordinate } from '../concepts/geo_coordinate.ts';
 import { canonicalizeStoredSectionId, classifyWireSectionId } from '../concepts/section_id.ts';
 import { isErrorInDomain } from '../errors/dedalo_error.ts';
+import {
+	type EntrySiblings,
+	hasEntrySiblings,
+	validateEntrySiblings,
+} from '../geo/entry_siblings.ts';
 import { PHP_NUMERIC } from '../section/record/value_shape.ts';
 import type { ConformFailure, ConformResult } from './import_data.ts';
 
@@ -439,13 +444,16 @@ const conformEmail: ImportConformFn = async (value, json, ctx) => {
 // component_geolocation (PHP core/component_geolocation :495-702)
 // ---------------------------------------------------------------------------
 
-interface GeoItem {
+interface GeoItem extends EntrySiblings {
 	/** Absent when the source carried NO coordinate — absence is structural. */
 	lat?: number;
 	lon?: number;
 	zoom?: number;
 	alt?: number;
 	lib_data?: unknown[];
+	// `sources` / `legend` (EntrySiblings) ride beside lib_data, validated by the
+	// SAME validators the save gate runs (src/core/geo/). lib_data itself stays
+	// pure GeoJSON: conformGeoLibData below never sees them.
 }
 
 /**
@@ -526,7 +534,12 @@ function conformGeoLibData(source: Record<string, unknown>): {
  *
  * Absence is structural: the import NEVER fabricates a coordinate (no magic
  * centre, no default framing). A source with neither lat nor lon stores no
- * coordinate; it survives only to carry drawn geometry.
+ * coordinate; it survives only to carry content — drawn geometry and/or the
+ * `sources` / `legend` siblings (WC-2026-11-06-geolocation-map-sources-legend),
+ * which are validated here by the same validators the save gate runs, so a bad
+ * source is a reported import failure and not a late exception. A source id the
+ * file names is kept when it is a valid integer; the save gate decides whether
+ * the record stores it (and mints a fresh one when it does not).
  * ONE coordinate without the other is a malformed pair and is refused.
  *
  * The three outcomes, and the line between the last two is the whole point:
@@ -548,14 +561,19 @@ function conformGeoItem(source: Record<string, unknown>): { item: GeoItem | null
 
 	const { lib_data, error: libError } = conformGeoLibData(source);
 	if (libError !== '') return { item: null, error: libError };
+	const siblings = validateEntrySiblings(source);
+	if (!siblings.ok) return { item: null, error: siblings.reason };
 
 	if (isAbsentCoordinate(lat) && isAbsentCoordinate(lon)) {
-		if (hasDrawnGeometry(lib_data)) {
-			const geometryOnly: GeoItem = { lib_data: lib_data as unknown[] };
+		// Content without a view: drawn geometry and/or sources/legend. Each is a
+		// value in its own right (a map definition needs no coordinate).
+		if (hasDrawnGeometry(lib_data) || hasEntrySiblings(siblings.value)) {
+			const contentOnly: GeoItem = { ...siblings.value };
+			if (hasDrawnGeometry(lib_data)) contentOnly.lib_data = lib_data as unknown[];
 			// Framing is view-only; keep it only when the source stated it.
-			if (isNumericFraming(source.zoom)) geometryOnly.zoom = Math.trunc(Number(source.zoom));
-			if (isNumericFraming(source.alt)) geometryOnly.alt = Math.trunc(Number(source.alt));
-			return { item: geometryOnly, error: '' };
+			if (isNumericFraming(source.zoom)) contentOnly.zoom = Math.trunc(Number(source.zoom));
+			if (isNumericFraming(source.alt)) contentOnly.alt = Math.trunc(Number(source.alt));
+			return { item: contentOnly, error: '' };
 		}
 		// No coordinate and no feature: a layer list with no features is not
 		// content, so an empty lib_data is not stored as a coordinate-less husk.
@@ -579,7 +597,7 @@ function conformGeoItem(source: Record<string, unknown>): { item: GeoItem | null
 		alt: isNumericFraming(source.alt) ? Math.trunc(Number(source.alt)) : 0,
 	};
 	if (lib_data !== null) item.lib_data = lib_data;
-	return { item, error: '' };
+	return { item: { ...item, ...siblings.value }, error: '' };
 }
 
 const conformGeolocation: ImportConformFn = async (value, json, ctx) => {

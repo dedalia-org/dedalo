@@ -17,6 +17,11 @@
  *   --tool_on_fill  the ink for that fill: white or --fg_on_brand's near-black,
  *                   whichever needs the smaller lightness move
  *
+ * Each entry is scoped to three selectors: `.tool_header.<tool>`,
+ * `.wrapper_tool.<tool>` and the box-free `[data-tool="<tool>"]` (a tool-owned
+ * element outside the wrapper/header, e.g. a floating panel; it gets the four
+ * tokens only — buttons there apply `.tool_action_button()` themselves).
+ *
  * The hue is `--<tool>` — ONE name, no variants: a sheet that names it
  * otherwise gets no generated entry (tool_header_contract_tripwire assertion 1).
  *
@@ -267,7 +272,17 @@ export const render = (hues: ToolHues[]): string => {
 	for (const { tool, name, light, dark } of hues) {
 		const l = deriveFill(light);
 		const d = deriveFill(dark);
-		const sel = `.tool_header.${tool}, .wrapper_tool.${tool}`;
+		// Third member: the BOX-FREE scope. A tool-owned element outside any
+		// .wrapper_tool / .tool_header (a map overlay, a floating panel) stamps
+		// `data-tool="<tool>"` and receives the four tokens — nothing else (no
+		// wash, no edge bar, no button styling: that stays `.tool_action_button()`).
+		// SAME block, never a separate one: :is() takes the MAX specificity of its
+		// arguments, so the dark twin stays (0,4,0) and [data-tool] (0,1,0) never
+		// outranks .tool_header.<tool> (0,2,0). Core also stamps data-tool on the
+		// section/component tool LAUNCHERS (ui.js); harmless — no core rule reads
+		// --tool_fill/--tool_edge on a launcher. `.tool_header.${tool},` stays first
+		// (tool_header_contract_tripwire greps for it).
+		const sel = `.tool_header.${tool}, .wrapper_tool.${tool}, [data-tool="${tool}"]`;
 		lines.push(
 			`${sel} {`,
 			// the hue token WITH its resolved value as fallback: the token lives in

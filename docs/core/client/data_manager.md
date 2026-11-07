@@ -91,7 +91,9 @@ A `request` call runs this sequence:
    already retried, resend it once with the fresh token (the `_csrf_retried`
    flag guards against an infinite loop).
 9. **Failure** — attach the `ApiError` under `envelope.error` (or synthesise
-   `{ok:false, error}` when no JSON arrived), publish the `api_error` event on
+   `{ok:false, error}` when no JSON arrived), stamp `ApiError.tool` with the tool
+   a `tool_request` addressed (so `error_text` can find that tool's refusal
+   labels; see [errors](../system/errors.md#a-tools-refusal-reason)), publish the `api_error` event on
    the [event bus](../ui/index.md), toast transport failures (network,
    timeout, foreign status page), and return the envelope.
 10. **Success / cache write** — return the envelope; when cached, write it back
@@ -139,7 +141,9 @@ allowlist) is enforced server-side — see the
 it runs in the cache Worker and the Service Worker too). It defines:
 
 - `ApiError` — `{code, status, message, label_key, details, request_id,
-  retryable, transport, severity, source, raw}`; extends `Error` so legacy
+  retryable, transport, severity, source, tool, raw}` (`tool` is the tool a
+  `tool_request` addressed, set by `data_manager`, or the tool a stream frame's caller names
+  to `normalize_stream_error(frame, {tool})`; never read from the server's body); extends `Error` so legacy
   `.message` readers keep working, and carries `is_api_error:true` so it
   survives a `postMessage` clone.
 - `CLIENT_ERROR` — the codes the client itself produces when no envelope

@@ -235,8 +235,12 @@ tool_dev_template.prototype.get_some_data_from_server = async function() {
 
 	const self = this
 
+	// read_demo is declared `readOnly` on the server, so it is never replayed by the
+	// idempotency ledger: pass `retries: 1` (a LITERAL — client_idempotency_tripwire
+	// reads it) so a stalled call is sent once, not re-executed by the transport.
 	const response = await self.tool_request({
 		action	: 'read_demo',
+		retries	: 1,
 		options	: {
 			tipo			: self.main_element.tipo,
 			section_id		: self.main_element.section_id,

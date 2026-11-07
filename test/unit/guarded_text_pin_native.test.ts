@@ -18,7 +18,9 @@
  * from it); a resolver that stalls or a socket that fails is a typed
  * `security.outbound_failed` with `reason` and `stage`, not a raw Bun error; a POST
  * is never re-sent to the next vetted address unless the failure proves nothing was
- * sent (RFC 9110 §9.2.2 — a re-sent `transcribe` starts a second, billed job).
+ * sent (RFC 9110 §9.2.2 — a re-sent `transcribe` starts a second, billed job), and a GET
+ * from a caller whose provider counts requests (`resendOnlyUnsent`, the geo services) gets
+ * the same rule.
  *
  * THE BYTE CEILING and THE ERROR PAGE, on BOTH text doors (`fetchGuardedText` through
  * the seam, `fetchBoundedText` against a loopback peer — it has no seam): a caller's
@@ -403,6 +405,66 @@ describe('fetchGuardedText: a failed attempt is re-sent only when that is safe',
 		);
 		expect(outcome.body).toBe('second address');
 		expect(socket.calls.length).toBe(2);
+	});
+
+	// A caller whose provider COUNTS requests (the geo services: Nominatim allows one a second for
+	// the whole installation, and the caller's slot is one request) asks for the POST rule on a GET:
+	// a reset that arrives after the request left must not become a second request at the provider.
+	test('a GET with resendOnlyUnsent is NOT re-sent after a reset: one fetch, typed — the POST rule', async () => {
+		const socket = firstCallFails('ECONNRESET');
+		const outcome = await settle(
+			fetchGuardedText(
+				TARGET,
+				{ resendOnlyUnsent: true },
+				{ lookup: TWO_ADDRESSES, fetch: socket.fetch },
+			),
+		);
+		expect(socket.calls.length, 'the second address was never tried').toBe(1);
+		expect((outcome.error as DedaloError).code).toBe('security.outbound_failed');
+		expect((outcome.error as DedaloError).coordinates).toMatchObject({
+			reason: 'transport',
+			stage: 'connect',
+		});
+	});
+
+	test('a GET with resendOnlyUnsent still moves on when the connection was REFUSED (nothing sent), for every code that proves it', async () => {
+		for (const code of [
+			'ConnectionRefused',
+			'FailedToOpenSocket',
+			'ECONNREFUSED',
+			'EHOSTUNREACH',
+			'ENETUNREACH',
+			'EADDRNOTAVAIL',
+		]) {
+			const socket = firstCallFails(code);
+			const outcome = await settle(
+				fetchGuardedText(
+					TARGET,
+					{ resendOnlyUnsent: true },
+					{ lookup: TWO_ADDRESSES, fetch: socket.fetch },
+				),
+			);
+			expect(outcome.body, code).toBe('second address');
+			expect(socket.calls.length, code).toBe(2);
+		}
+	});
+
+	test('a failure with no code at all proves nothing was sent, so resendOnlyUnsent does not move on', async () => {
+		let calls = 0;
+		const socket = recordingFetch(() => {
+			calls += 1;
+			if (calls === 1) throw new TypeError('socket failed');
+			return new Response('second address');
+		});
+		const outcome = await settle(
+			fetchGuardedText(
+				TARGET,
+				{ resendOnlyUnsent: true },
+				{ lookup: TWO_ADDRESSES, fetch: socket.fetch },
+			),
+		);
+		expect(socket.calls.length).toBe(1);
+		expect(outcome.error).toBeInstanceOf(DedaloError);
 	});
 });
 

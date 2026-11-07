@@ -20,6 +20,7 @@
 
 import {
 	error_text,
+	register_tool_error_labels,
 	error_debug_suffix,
 	render_error_toast,
 	render_error_inline,
@@ -28,6 +29,7 @@ import {
 } from '../../../core/common/js/render_api_error.js'
 import {ApiError, CLIENT_ERROR} from '../../../core/common/js/api_error.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
+import {render_stream} from '../../../core/common/js/render_common.js'
 
 
 
@@ -98,6 +100,145 @@ describe('RENDER_API_ERROR — error_text', function() {
 		await with_debug(true, async () => {
 			assert.equal(error_debug_suffix(api_error), ' [perm.denied · rq-42]')
 			assert.equal(error_debug_suffix(new ApiError({code: 'perm.denied'})), ' [perm.denied]')
+		})
+	})
+})
+
+
+
+describe('RENDER_API_ERROR — error_text for a tool refusal (details.reason_key)', function() {
+
+	// A scratch tool name no real tool can take; its labels are forgotten again in
+	// `finally` so no test leaks a registration into the next.
+	const TOOL = 'tool_zz_reason_probe'
+	const with_tool_labels = async (labels, fn) => {
+		register_tool_error_labels(TOOL, labels)
+		try {
+			await fn()
+		} finally {
+			register_tool_error_labels(TOOL, null)
+		}
+	}
+	const refusal = (fields = {}) => new ApiError({
+		code		: 'request.invalid_options',
+		label_key	: 'error_request_invalid_options',
+		message		: 'The bbox is not numeric',
+		details		: {reason_key: 'bad_bbox'},
+		tool		: TOOL,
+		...fields
+	})
+
+	it('the tool label reason_<key> wins over the core label and the wire message', async function() {
+		await with_label('error_request_invalid_options', 'Core generic label', async () => {
+			await with_tool_labels([{name: 'reason_bad_bbox', value: 'El recuadro no es numérico'}], async () => {
+				assert.equal(error_text(refusal()), 'El recuadro no es numérico')
+			})
+		})
+	})
+
+	it('${param} in the tool label is filled from the declared details', async function() {
+		await with_tool_labels([{name: 'reason_down', value: 'Cannot reach ${site}'}], async () => {
+			const api_error = refusal({code: 'tool.source_unavailable', details: {reason_key: 'down', site: 'https://tiles.example.org'}})
+			assert.equal(error_text(api_error), 'Cannot reach https://tiles.example.org')
+		})
+	})
+
+	it('no label for the key (or none registered) → the wire message, i.e. the sentence the tool declared for the key — not the core label', async function() {
+		await with_label('error_request_invalid_options', 'Core generic label', async () => {
+			assert.equal(error_text(refusal()), 'The bbox is not numeric', 'tool without registered labels')
+			await with_tool_labels([{name: 'reason_other', value: 'Other'}], async () => {
+				assert.equal(error_text(refusal()), 'The bbox is not numeric', 'a label for a different key')
+			})
+			await with_tool_labels([], async () => {
+				assert.equal(error_text(refusal()), 'The bbox is not numeric', 'the empty array the server serves for an untranslated language')
+			})
+		})
+	})
+
+	it('only reason_* entries are kept; a UI label of the same name as the key is not a refusal sentence', async function() {
+		await with_tool_labels([{name: 'bad_bbox', value: 'A UI label'}], async () => {
+			assert.equal(error_text(refusal()), 'The bbox is not numeric')
+		})
+	})
+
+	it('a reason_key without a known tool, or a tool refusal without reason_key, takes the unchanged core chain', async function() {
+		await with_label('error_request_invalid_options', 'Core generic label', async () => {
+			await with_tool_labels([{name: 'reason_bad_bbox', value: 'Tool sentence'}], async () => {
+				assert.equal(error_text(refusal({tool: null})), 'Core generic label', 'no tool → core label first, as before')
+				assert.equal(error_text(refusal({tool: 'tool_zz_other'})), 'The bbox is not numeric', 'another tool: its labels are not this one\'s')
+				assert.equal(error_text(refusal({details: {}})), 'Core generic label', 'no reason_key → the core chain')
+			})
+		})
+	})
+
+	it('a non-string / empty reason_key is ignored (no label name is built from it)', async function() {
+		await with_tool_labels([{name: 'reason_', value: 'Empty key'}, {name: 'reason_1', value: 'Numeric'}], async () => {
+			await with_label('error_request_invalid_options', 'Core generic label', async () => {
+				assert.equal(error_text(refusal({details: {reason_key: ''}})), 'Core generic label')
+				assert.equal(error_text(refusal({details: {reason_key: 1}})), 'Core generic label')
+			})
+		})
+	})
+
+	it('register_tool_error_labels: replaces, forgets on a non-array, rejects a nameless tool', function() {
+		assert.isFalse(register_tool_error_labels('', []))
+		assert.isFalse(register_tool_error_labels(null, []))
+		assert.isTrue(register_tool_error_labels(TOOL, [{name: 'reason_a', value: 'A'}]))
+		assert.equal(error_text(refusal({details: {reason_key: 'a'}})), 'A')
+		assert.isTrue(register_tool_error_labels(TOOL, [{name: 'reason_b', value: 'B'}]))
+		assert.equal(error_text(refusal({details: {reason_key: 'a'}})), 'The bbox is not numeric', 'a re-registration replaces')
+		assert.isFalse(register_tool_error_labels(TOOL, null))
+		assert.equal(error_text(refusal({details: {reason_key: 'b'}})), 'The bbox is not numeric', 'null forgets the tool')
+	})
+
+	it('a label with a ${param} the error does not carry, or a %s, is not shown as written: the wire message stands in', async function() {
+		for (const value of ['At most ${max} items', 'Bad value %s', 'Cannot reach ${site} (${port})']) {
+			await with_tool_labels([{name: 'reason_down', value}], async () => {
+				const api_error = refusal({code: 'tool.source_unavailable', message: 'Fallback sentence', details: {reason_key: 'down', site: 'tiles.example.org'}})
+				assert.equal(error_text(api_error), 'Fallback sentence', value)
+			})
+		}
+		// …and with no wire message either (a plain object: ApiError defaults its message to the code), the core chain takes over — never the raw placeholder
+		await with_label('error_request_invalid_options', 'Core generic label', async () => {
+			await with_tool_labels([{name: 'reason_bad_bbox', value: 'At most ${max} items'}], async () => {
+				const plain = {code: 'request.invalid_options', label_key: 'error_request_invalid_options', details: {reason_key: 'bad_bbox'}, tool: TOOL}
+				assert.equal(error_text(plain), 'Core generic label')
+			})
+		})
+		// control: every placeholder filled → the label as written
+		await with_tool_labels([{name: 'reason_down', value: 'Cannot reach ${site}'}], async () => {
+			const api_error = refusal({code: 'tool.source_unavailable', details: {reason_key: 'down', site: 'tiles.example.org'}})
+			assert.equal(error_text(api_error), 'Cannot reach tiles.example.org')
+		})
+	})
+
+	it('a refusal that arrives as a job frame reads in the tool\'s words once the frame site names the tool (render_stream {tool})', async function() {
+		const frame = {
+			is_running	: false,
+			total_time	: '1 ms',
+			error		: {code: 'request.invalid_options', message: 'The bbox is not numeric', label_key: 'error_request_invalid_options', details: {reason_key: 'bad_bbox'}}
+		}
+		const panel_text = (options) => {
+			const container = document.createElement('div')
+			const stream = render_stream({container, id: 'test_render_api_error_stream', display_json: false, ...options})
+			stream.update_info_node(frame)
+			return container.textContent
+		}
+		await with_label('error_request_invalid_options', 'Core generic label', async () => {
+			await with_tool_labels([{name: 'reason_bad_bbox', value: 'El recuadro no es numérico'}], async () => {
+				assert.include(panel_text({tool: TOOL}), 'El recuadro no es numérico', 'the tool named → its sentence')
+				assert.notInclude(panel_text({tool: TOOL}), 'Core generic label')
+				assert.include(panel_text({}), 'Core generic label', 'no tool named → the core label, as before')
+				assert.include(panel_text({tool: 'tool_zz_other'}), 'The bbox is not numeric', 'another tool: its labels are not this one\'s → the wire message')
+			})
+		})
+	})
+
+	it('the tool sentence reaches the DOM as TEXT, never HTML', async function() {
+		await with_tool_labels([{name: 'reason_bad_bbox', value: XSS}], async () => {
+			const heading = render_error_panel(refusal()).querySelector('h1.server_response_error')
+			assert.isNull(heading.querySelector('img'), 'no element was parsed out of the label')
+			assert.equal(heading.textContent, XSS)
 		})
 	})
 })

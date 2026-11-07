@@ -32,6 +32,7 @@ import {
 	isLoopbackHost,
 	isPrivateIp,
 	isTunnelIpv6,
+	isUnresolvedRefusal,
 	nat64DiscoveryState,
 	nextNat64Discovery,
 	packBlocks,
@@ -664,6 +665,46 @@ describe('assertPublicUrl — reasons, through the lookup seam', () => {
 		expect(
 			isAddressRefusal(
 				new DedaloError('security.outbound_failed', { coordinates: { reason: 'private_literal' } }),
+			),
+		).toBe(false);
+	});
+
+	test('isUnresolvedRefusal is true for a name that did not resolve and for nothing else the guard says', async () => {
+		const lookup = fakeLookup({
+			localhost: ['127.0.0.1'],
+			'empty.test': [],
+		});
+		const caught = async (url: string): Promise<unknown> =>
+			assertPublicUrl(url, { lookup }).then(
+				() => undefined,
+				(error: unknown) => error,
+			);
+		expect(isUnresolvedRefusal(await caught('http://missing.test/')), 'dns_failed').toBe(true);
+		expect(isUnresolvedRefusal(await caught('http://empty.test/')), 'no_addresses').toBe(true);
+		for (const url of [
+			'http://localhost/',
+			'http://10.0.0.1/',
+			'ftp://example.org/',
+			'not a url',
+		]) {
+			expect(isUnresolvedRefusal(await caught(url)), url).toBe(false);
+		}
+		// By the guard's one reason table: only the two resolution reasons, and both are address refusals.
+		for (const reason of Object.keys(SSRF_REFUSAL_KINDS)) {
+			const refusal = new DedaloError('security.ssrf_blocked', { coordinates: { reason } });
+			expect(isUnresolvedRefusal(refusal), reason).toBe(
+				reason === 'dns_failed' || reason === 'no_addresses',
+			);
+			if (isUnresolvedRefusal(refusal)) expect(isAddressRefusal(refusal), reason).toBe(true);
+		}
+		for (const reason of ['constructor', 'toString', 'mystery']) {
+			const refusal = new DedaloError('security.ssrf_blocked', { coordinates: { reason } });
+			expect(isUnresolvedRefusal(refusal), reason).toBe(false);
+		}
+		expect(isUnresolvedRefusal(new Error('dns_failed'))).toBe(false);
+		expect(
+			isUnresolvedRefusal(
+				new DedaloError('security.outbound_failed', { coordinates: { reason: 'dns_failed' } }),
 			),
 		).toBe(false);
 	});

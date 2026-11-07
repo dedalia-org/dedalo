@@ -12103,507 +12103,546 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 * Included from main.less file
 */
 .tool_header.tool_assistant,
-.wrapper_tool.tool_assistant {
+.wrapper_tool.tool_assistant,
+[data-tool="tool_assistant"] {
   --tool_edge: var(--tool_assistant, #6366f1);
   --tool_fill: #6265f0;
   --tool_fill_hover: #5352db;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_assistant, .wrapper_tool.tool_assistant) {
+:root[data-theme="dark"] :is(.tool_header.tool_assistant, .wrapper_tool.tool_assistant, [data-tool="tool_assistant"]) {
   --tool_edge: var(--tool_assistant, #6366f1);
   --tool_fill: #6265f0;
   --tool_fill_hover: #5352db;
   --tool_on_fill: #ffffff;
 }
 .tool_header.tool_bibliography_acquisition,
-.wrapper_tool.tool_bibliography_acquisition {
+.wrapper_tool.tool_bibliography_acquisition,
+[data-tool="tool_bibliography_acquisition"] {
   --tool_edge: var(--tool_bibliography_acquisition, #f78a1c);
   --tool_fill: #f78a1c;
   --tool_fill_hover: #ffa55d;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_bibliography_acquisition, .wrapper_tool.tool_bibliography_acquisition) {
+:root[data-theme="dark"] :is(.tool_header.tool_bibliography_acquisition, .wrapper_tool.tool_bibliography_acquisition, [data-tool="tool_bibliography_acquisition"]) {
   --tool_edge: var(--tool_bibliography_acquisition, #ffa040);
   --tool_fill: #ffa040;
   --tool_fill_hover: #ffbd84;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_cataloging,
-.wrapper_tool.tool_cataloging {
+.wrapper_tool.tool_cataloging,
+[data-tool="tool_cataloging"] {
   --tool_edge: var(--tool_cataloging, #f78a1c);
   --tool_fill: #f78a1c;
   --tool_fill_hover: #ffa55d;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_cataloging, .wrapper_tool.tool_cataloging) {
+:root[data-theme="dark"] :is(.tool_header.tool_cataloging, .wrapper_tool.tool_cataloging, [data-tool="tool_cataloging"]) {
   --tool_edge: var(--tool_cataloging, #ffa54a);
   --tool_fill: #ffa54a;
   --tool_fill_hover: #fec28b;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_dd_label,
-.wrapper_tool.tool_dd_label {
+.wrapper_tool.tool_dd_label,
+[data-tool="tool_dd_label"] {
   --tool_edge: var(--tool_dd_label, #818181);
   --tool_fill: #818181;
   --tool_fill_hover: #939393;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_dd_label, .wrapper_tool.tool_dd_label) {
+:root[data-theme="dark"] :is(.tool_header.tool_dd_label, .wrapper_tool.tool_dd_label, [data-tool="tool_dd_label"]) {
   --tool_edge: var(--tool_dd_label, #b0b0b0);
   --tool_fill: #b0b0b0;
   --tool_fill_hover: #c3c3c3;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_dev_template,
-.wrapper_tool.tool_dev_template {
+.wrapper_tool.tool_dev_template,
+[data-tool="tool_dev_template"] {
   --tool_edge: var(--tool_dev_template, #f78a1c);
   --tool_fill: #f78a1c;
   --tool_fill_hover: #ffa55d;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_dev_template, .wrapper_tool.tool_dev_template) {
+:root[data-theme="dark"] :is(.tool_header.tool_dev_template, .wrapper_tool.tool_dev_template, [data-tool="tool_dev_template"]) {
   --tool_edge: var(--tool_dev_template, #ffa040);
   --tool_fill: #ffa040;
   --tool_fill_hover: #ffbd84;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_diffusion,
-.wrapper_tool.tool_diffusion {
+.wrapper_tool.tool_diffusion,
+[data-tool="tool_diffusion"] {
   --tool_edge: var(--tool_diffusion, #567528);
   --tool_fill: #567528;
   --tool_fill_hover: #466313;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_diffusion, .wrapper_tool.tool_diffusion) {
+:root[data-theme="dark"] :is(.tool_header.tool_diffusion, .wrapper_tool.tool_diffusion, [data-tool="tool_diffusion"]) {
   --tool_edge: var(--tool_diffusion, #567528);
   --tool_fill: #567528;
   --tool_fill_hover: #466313;
   --tool_on_fill: #ffffff;
 }
 .tool_header.tool_error_report,
-.wrapper_tool.tool_error_report {
+.wrapper_tool.tool_error_report,
+[data-tool="tool_error_report"] {
   --tool_edge: var(--tool_error_report, #7152a5);
   --tool_fill: #7152a5;
   --tool_fill_hover: #604192;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_error_report, .wrapper_tool.tool_error_report) {
+:root[data-theme="dark"] :is(.tool_header.tool_error_report, .wrapper_tool.tool_error_report, [data-tool="tool_error_report"]) {
   --tool_edge: var(--tool_error_report, #9070c8);
   --tool_fill: #9070c8;
   --tool_fill_hover: #a282dc;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_export,
-.wrapper_tool.tool_export {
+.wrapper_tool.tool_export,
+[data-tool="tool_export"] {
   --tool_edge: var(--tool_export, #7152a5);
   --tool_fill: #7152a5;
   --tool_fill_hover: #604192;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_export, .wrapper_tool.tool_export) {
+:root[data-theme="dark"] :is(.tool_header.tool_export, .wrapper_tool.tool_export, [data-tool="tool_export"]) {
   --tool_edge: var(--tool_export, #9070c8);
   --tool_fill: #9070c8;
   --tool_fill_hover: #a282dc;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_hierarchy,
-.wrapper_tool.tool_hierarchy {
+.wrapper_tool.tool_hierarchy,
+[data-tool="tool_hierarchy"] {
   --tool_edge: var(--tool_hierarchy, #c80000);
   --tool_fill: #c80000;
   --tool_fill_hover: #a90302;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_hierarchy, .wrapper_tool.tool_hierarchy) {
+:root[data-theme="dark"] :is(.tool_header.tool_hierarchy, .wrapper_tool.tool_hierarchy, [data-tool="tool_hierarchy"]) {
   --tool_edge: var(--tool_hierarchy, #ff3030);
   --tool_fill: #ff3030;
   --tool_fill_hover: #ff695e;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_identify,
-.wrapper_tool.tool_identify {
+.wrapper_tool.tool_identify,
+[data-tool="tool_identify"] {
   --tool_edge: var(--tool_identify, #3f7f8c);
   --tool_fill: #3f7f8c;
   --tool_fill_hover: #2c6d7a;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_identify, .wrapper_tool.tool_identify) {
+:root[data-theme="dark"] :is(.tool_header.tool_identify, .wrapper_tool.tool_identify, [data-tool="tool_identify"]) {
   --tool_edge: var(--tool_identify, #5aa6b5);
   --tool_fill: #5aa6b5;
   --tool_fill_hover: #6db9c8;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_image_rotation,
-.wrapper_tool.tool_image_rotation {
+.wrapper_tool.tool_image_rotation,
+[data-tool="tool_image_rotation"] {
   --tool_edge: var(--tool_image_rotation, #587d8f);
   --tool_fill: #567b8d;
   --tool_fill_hover: #456a7b;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_image_rotation, .wrapper_tool.tool_image_rotation) {
+:root[data-theme="dark"] :is(.tool_header.tool_image_rotation, .wrapper_tool.tool_image_rotation, [data-tool="tool_image_rotation"]) {
   --tool_edge: var(--tool_image_rotation, #7a9db0);
   --tool_fill: #7a9db0;
   --tool_fill_hover: #8cb0c3;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_import_dedalo_csv,
-.wrapper_tool.tool_import_dedalo_csv {
+.wrapper_tool.tool_import_dedalo_csv,
+[data-tool="tool_import_dedalo_csv"] {
   --tool_edge: var(--tool_import_dedalo_csv, #17a2b8);
   --tool_fill: #17a2b8;
   --tool_fill_hover: #37b5cb;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_import_dedalo_csv, .wrapper_tool.tool_import_dedalo_csv) {
+:root[data-theme="dark"] :is(.tool_header.tool_import_dedalo_csv, .wrapper_tool.tool_import_dedalo_csv, [data-tool="tool_import_dedalo_csv"]) {
   --tool_edge: var(--tool_import_dedalo_csv, #30c8e0);
   --tool_fill: #30c8e0;
   --tool_fill_hover: #4cdcf4;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_import_files,
-.wrapper_tool.tool_import_files {
+.wrapper_tool.tool_import_files,
+[data-tool="tool_import_files"] {
   --tool_edge: var(--tool_import_files, #2b77c7);
   --tool_fill: #2b77c7;
   --tool_fill_hover: #1465b3;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_import_files, .wrapper_tool.tool_import_files) {
+:root[data-theme="dark"] :is(.tool_header.tool_import_files, .wrapper_tool.tool_import_files, [data-tool="tool_import_files"]) {
   --tool_edge: var(--tool_import_files, #4a9eff);
   --tool_fill: #4a9eff;
   --tool_fill_hover: #73b2ff;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_import_marc21,
-.wrapper_tool.tool_import_marc21 {
+.wrapper_tool.tool_import_marc21,
+[data-tool="tool_import_marc21"] {
   --tool_edge: var(--tool_import_marc21, #63adf8);
   --tool_fill: #63adf8;
   --tool_fill_hover: #85c0fe;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_import_marc21, .wrapper_tool.tool_import_marc21) {
+:root[data-theme="dark"] :is(.tool_header.tool_import_marc21, .wrapper_tool.tool_import_marc21, [data-tool="tool_import_marc21"]) {
   --tool_edge: var(--tool_import_marc21, #80c0ff);
   --tool_fill: #80c0ff;
   --tool_fill_hover: #a6d2ff;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_import_rdf,
-.wrapper_tool.tool_import_rdf {
+.wrapper_tool.tool_import_rdf,
+[data-tool="tool_import_rdf"] {
   --tool_edge: var(--tool_import_rdf, #5e77b3);
   --tool_fill: #5c75b1;
   --tool_fill_hover: #4c649e;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_import_rdf, .wrapper_tool.tool_import_rdf) {
+:root[data-theme="dark"] :is(.tool_header.tool_import_rdf, .wrapper_tool.tool_import_rdf, [data-tool="tool_import_rdf"]) {
   --tool_edge: var(--tool_import_rdf, #7a98d0);
   --tool_fill: #7a98d0;
   --tool_fill_hover: #8cabe4;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_import_zotero,
-.wrapper_tool.tool_import_zotero {
+.wrapper_tool.tool_import_zotero,
+[data-tool="tool_import_zotero"] {
   --tool_edge: var(--tool_import_zotero, #cc2936);
   --tool_fill: #cc2936;
   --tool_fill_hover: #b70324;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_import_zotero, .wrapper_tool.tool_import_zotero) {
+:root[data-theme="dark"] :is(.tool_header.tool_import_zotero, .wrapper_tool.tool_import_zotero, [data-tool="tool_import_zotero"]) {
   --tool_edge: var(--tool_import_zotero, #e04050);
   --tool_fill: #e64655;
   --tool_fill_hover: #fc5b66;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_indexation,
-.wrapper_tool.tool_indexation {
+.wrapper_tool.tool_indexation,
+[data-tool="tool_indexation"] {
   --tool_edge: var(--tool_indexation, #23bcc7);
   --tool_fill: #23bcc7;
   --tool_fill_hover: #42d0db;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_indexation, .wrapper_tool.tool_indexation) {
+:root[data-theme="dark"] :is(.tool_header.tool_indexation, .wrapper_tool.tool_indexation, [data-tool="tool_indexation"]) {
   --tool_edge: var(--tool_indexation, #30d8e0);
   --tool_fill: #30d8e0;
   --tool_fill_hover: #4eecf4;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_lang,
-.wrapper_tool.tool_lang {
+.wrapper_tool.tool_lang,
+[data-tool="tool_lang"] {
   --tool_edge: var(--tool_lang, #7f75e0);
   --tool_fill: #7f75e0;
   --tool_fill_hover: #9088f5;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_lang, .wrapper_tool.tool_lang) {
+:root[data-theme="dark"] :is(.tool_header.tool_lang, .wrapper_tool.tool_lang, [data-tool="tool_lang"]) {
   --tool_edge: var(--tool_lang, #a098f0);
   --tool_fill: #a098f0;
   --tool_fill_hover: #b3acff;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_lang_multi,
-.wrapper_tool.tool_lang_multi {
+.wrapper_tool.tool_lang_multi,
+[data-tool="tool_lang_multi"] {
   --tool_edge: var(--tool_lang_multi, #7859ae);
   --tool_fill: #7859ae;
   --tool_fill_hover: #67479b;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_lang_multi, .wrapper_tool.tool_lang_multi) {
+:root[data-theme="dark"] :is(.tool_header.tool_lang_multi, .wrapper_tool.tool_lang_multi, [data-tool="tool_lang_multi"]) {
   --tool_edge: var(--tool_lang_multi, #9878d0);
   --tool_fill: #9878d0;
   --tool_fill_hover: #aa8ae4;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_media_versions,
-.wrapper_tool.tool_media_versions {
+.wrapper_tool.tool_media_versions,
+[data-tool="tool_media_versions"] {
   --tool_edge: var(--tool_media_versions, #a24540);
   --tool_fill: #a24540;
   --tool_fill_hover: #8e3330;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_media_versions, .wrapper_tool.tool_media_versions) {
+:root[data-theme="dark"] :is(.tool_header.tool_media_versions, .wrapper_tool.tool_media_versions, [data-tool="tool_media_versions"]) {
   --tool_edge: var(--tool_media_versions, #c06060);
   --tool_fill: #c46463;
   --tool_fill_hover: #d87675;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_numisdata_acquisition,
-.wrapper_tool.tool_numisdata_acquisition {
+.wrapper_tool.tool_numisdata_acquisition,
+[data-tool="tool_numisdata_acquisition"] {
   --tool_edge: var(--tool_numisdata_acquisition, #f78a1c);
   --tool_fill: #f78a1c;
   --tool_fill_hover: #ffa55d;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_numisdata_acquisition, .wrapper_tool.tool_numisdata_acquisition) {
+:root[data-theme="dark"] :is(.tool_header.tool_numisdata_acquisition, .wrapper_tool.tool_numisdata_acquisition, [data-tool="tool_numisdata_acquisition"]) {
   --tool_edge: var(--tool_numisdata_acquisition, #ffa040);
   --tool_fill: #ffa040;
   --tool_fill_hover: #ffbd84;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_numisdata_epigraphy,
-.wrapper_tool.tool_numisdata_epigraphy {
+.wrapper_tool.tool_numisdata_epigraphy,
+[data-tool="tool_numisdata_epigraphy"] {
   --tool_edge: var(--tool_numisdata_epigraphy, #e37d4b);
   --tool_fill: #e37d4b;
   --tool_fill_hover: #f8905e;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_numisdata_epigraphy, .wrapper_tool.tool_numisdata_epigraphy) {
+:root[data-theme="dark"] :is(.tool_header.tool_numisdata_epigraphy, .wrapper_tool.tool_numisdata_epigraphy, [data-tool="tool_numisdata_epigraphy"]) {
   --tool_edge: var(--tool_numisdata_epigraphy, #f09060);
   --tool_fill: #f09060;
   --tool_fill_hover: #fea77c;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_numisdata_order_coins,
-.wrapper_tool.tool_numisdata_order_coins {
+.wrapper_tool.tool_numisdata_order_coins,
+[data-tool="tool_numisdata_order_coins"] {
   --tool_edge: var(--tool_numisdata_order_coins, #9b8962);
   --tool_fill: #9b8962;
   --tool_fill_hover: #ae9b74;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_numisdata_order_coins, .wrapper_tool.tool_numisdata_order_coins) {
+:root[data-theme="dark"] :is(.tool_header.tool_numisdata_order_coins, .wrapper_tool.tool_numisdata_order_coins, [data-tool="tool_numisdata_order_coins"]) {
   --tool_edge: var(--tool_numisdata_order_coins, #b8a078);
   --tool_fill: #b8a078;
   --tool_fill_hover: #cbb38a;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_ontology,
-.wrapper_tool.tool_ontology {
+.wrapper_tool.tool_ontology,
+[data-tool="tool_ontology"] {
   --tool_edge: var(--tool_ontology, #276f67);
   --tool_fill: #276f67;
   --tool_fill_hover: #0f5e56;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_ontology, .wrapper_tool.tool_ontology) {
+:root[data-theme="dark"] :is(.tool_header.tool_ontology, .wrapper_tool.tool_ontology, [data-tool="tool_ontology"]) {
   --tool_edge: var(--tool_ontology, #3a6d65);
   --tool_fill: #3a6d65;
   --tool_fill_hover: #285c54;
   --tool_on_fill: #ffffff;
 }
 .tool_header.tool_ontology_parser,
-.wrapper_tool.tool_ontology_parser {
+.wrapper_tool.tool_ontology_parser,
+[data-tool="tool_ontology_parser"] {
   --tool_edge: var(--tool_ontology_parser, #276f67);
   --tool_fill: #276f67;
   --tool_fill_hover: #0f5e56;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_ontology_parser, .wrapper_tool.tool_ontology_parser) {
+:root[data-theme="dark"] :is(.tool_header.tool_ontology_parser, .wrapper_tool.tool_ontology_parser, [data-tool="tool_ontology_parser"]) {
   --tool_edge: var(--tool_ontology_parser, #409890);
   --tool_fill: #409890;
   --tool_fill_hover: #54aba2;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_pdf_extractor,
-.wrapper_tool.tool_pdf_extractor {
+.wrapper_tool.tool_pdf_extractor,
+[data-tool="tool_pdf_extractor"] {
   --tool_edge: var(--tool_pdf_extractor, #794960);
   --tool_fill: #794960;
   --tool_fill_hover: #67394f;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_pdf_extractor, .wrapper_tool.tool_pdf_extractor) {
+:root[data-theme="dark"] :is(.tool_header.tool_pdf_extractor, .wrapper_tool.tool_pdf_extractor, [data-tool="tool_pdf_extractor"]) {
   --tool_edge: var(--tool_pdf_extractor, #986080);
   --tool_fill: #986080;
   --tool_fill_hover: #854f6e;
   --tool_on_fill: #ffffff;
 }
 .tool_header.tool_posterframe,
-.wrapper_tool.tool_posterframe {
+.wrapper_tool.tool_posterframe,
+[data-tool="tool_posterframe"] {
   --tool_edge: var(--tool_posterframe, #779a32);
   --tool_fill: #779a32;
   --tool_fill_hover: #89ad46;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_posterframe, .wrapper_tool.tool_posterframe) {
+:root[data-theme="dark"] :is(.tool_header.tool_posterframe, .wrapper_tool.tool_posterframe, [data-tool="tool_posterframe"]) {
   --tool_edge: var(--tool_posterframe, #90b848);
   --tool_fill: #90b848;
   --tool_fill_hover: #a2cb5c;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_print,
-.wrapper_tool.tool_print {
+.wrapper_tool.tool_print,
+[data-tool="tool_print"] {
   --tool_edge: var(--tool_print, #2a7d6f);
   --tool_fill: #2a7d6f;
   --tool_fill_hover: #106b5e;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_print, .wrapper_tool.tool_print) {
+:root[data-theme="dark"] :is(.tool_header.tool_print, .wrapper_tool.tool_print, [data-tool="tool_print"]) {
   --tool_edge: var(--tool_print, #3da89a);
   --tool_fill: #3da89a;
   --tool_fill_hover: #53bbad;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_propagate_component_data,
-.wrapper_tool.tool_propagate_component_data {
+.wrapper_tool.tool_propagate_component_data,
+[data-tool="tool_propagate_component_data"] {
   --tool_edge: var(--tool_propagate_component_data, #be0f1d);
   --tool_fill: #be0f1d;
   --tool_fill_hover: #a20013;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_propagate_component_data, .wrapper_tool.tool_propagate_component_data) {
+:root[data-theme="dark"] :is(.tool_header.tool_propagate_component_data, .wrapper_tool.tool_propagate_component_data, [data-tool="tool_propagate_component_data"]) {
   --tool_edge: var(--tool_propagate_component_data, #e03040);
   --tool_fill: #e03040;
   --tool_fill_hover: #ca0e2e;
   --tool_on_fill: #ffffff;
 }
 .tool_header.tool_qr,
-.wrapper_tool.tool_qr {
+.wrapper_tool.tool_qr,
+[data-tool="tool_qr"] {
   --tool_edge: var(--tool_qr, #6fa7cd);
   --tool_fill: #6fa7cd;
   --tool_fill_hover: #81bae1;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_qr, .wrapper_tool.tool_qr) {
+:root[data-theme="dark"] :is(.tool_header.tool_qr, .wrapper_tool.tool_qr, [data-tool="tool_qr"]) {
   --tool_edge: var(--tool_qr, #90c0e0);
   --tool_fill: #90c0e0;
   --tool_fill_hover: #a3d3f4;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_sitebuilder,
-.wrapper_tool.tool_sitebuilder {
+.wrapper_tool.tool_sitebuilder,
+[data-tool="tool_sitebuilder"] {
   --tool_edge: var(--tool_sitebuilder, #0e7490);
   --tool_fill: #0e7490;
   --tool_fill_hover: #01627b;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_sitebuilder, .wrapper_tool.tool_sitebuilder) {
+:root[data-theme="dark"] :is(.tool_header.tool_sitebuilder, .wrapper_tool.tool_sitebuilder, [data-tool="tool_sitebuilder"]) {
   --tool_edge: var(--tool_sitebuilder, #1590b0);
   --tool_fill: #1590b0;
   --tool_fill_hover: #33a3c3;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_subtitles,
-.wrapper_tool.tool_subtitles {
+.wrapper_tool.tool_subtitles,
+[data-tool="tool_subtitles"] {
   --tool_edge: var(--tool_subtitles, #fd7f26);
   --tool_fill: #fd7f26;
   --tool_fill_hover: #ff9f67;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_subtitles, .wrapper_tool.tool_subtitles) {
+:root[data-theme="dark"] :is(.tool_header.tool_subtitles, .wrapper_tool.tool_subtitles, [data-tool="tool_subtitles"]) {
   --tool_edge: var(--tool_subtitles, #ff9040);
   --tool_fill: #ff9040;
   --tool_fill_hover: #feaf7d;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_tc,
-.wrapper_tool.tool_tc {
+.wrapper_tool.tool_tc,
+[data-tool="tool_tc"] {
   --tool_edge: var(--tool_tc, #000000);
   --tool_fill: #000000;
   --tool_fill_hover: #000000;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_tc, .wrapper_tool.tool_tc) {
+:root[data-theme="dark"] :is(.tool_header.tool_tc, .wrapper_tool.tool_tc, [data-tool="tool_tc"]) {
   --tool_edge: var(--tool_tc, #ffffff);
   --tool_fill: #ffffff;
   --tool_fill_hover: #ffffff;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_time_machine,
-.wrapper_tool.tool_time_machine {
+.wrapper_tool.tool_time_machine,
+[data-tool="tool_time_machine"] {
   --tool_edge: var(--tool_time_machine, #f78a1c);
   --tool_fill: #f78a1c;
   --tool_fill_hover: #ffa55d;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_time_machine, .wrapper_tool.tool_time_machine) {
+:root[data-theme="dark"] :is(.tool_header.tool_time_machine, .wrapper_tool.tool_time_machine, [data-tool="tool_time_machine"]) {
   --tool_edge: var(--tool_time_machine, #ffa040);
   --tool_fill: #ffa040;
   --tool_fill_hover: #ffbd84;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_tr_print,
-.wrapper_tool.tool_tr_print {
+.wrapper_tool.tool_tr_print,
+[data-tool="tool_tr_print"] {
   --tool_edge: var(--tool_tr_print, #9d535e);
   --tool_fill: #9d535e;
   --tool_fill_hover: #8a424d;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_tr_print, .wrapper_tool.tool_tr_print) {
+:root[data-theme="dark"] :is(.tool_header.tool_tr_print, .wrapper_tool.tool_tr_print, [data-tool="tool_tr_print"]) {
   --tool_edge: var(--tool_tr_print, #c07080);
   --tool_fill: #c07080;
   --tool_fill_hover: #d48292;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_transcription,
-.wrapper_tool.tool_transcription {
+.wrapper_tool.tool_transcription,
+[data-tool="tool_transcription"] {
   --tool_edge: var(--tool_transcription, #fd7f26);
   --tool_fill: #fd7f26;
   --tool_fill_hover: #ff9f67;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_transcription, .wrapper_tool.tool_transcription) {
+:root[data-theme="dark"] :is(.tool_header.tool_transcription, .wrapper_tool.tool_transcription, [data-tool="tool_transcription"]) {
   --tool_edge: var(--tool_transcription, #ff9040);
   --tool_fill: #ff9040;
   --tool_fill_hover: #feaf7d;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_update_cache,
-.wrapper_tool.tool_update_cache {
+.wrapper_tool.tool_update_cache,
+[data-tool="tool_update_cache"] {
   --tool_edge: var(--tool_update_cache, #5f8367);
   --tool_fill: #5b7f63;
   --tool_fill_hover: #4a6d52;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_update_cache, .wrapper_tool.tool_update_cache) {
+:root[data-theme="dark"] :is(.tool_header.tool_update_cache, .wrapper_tool.tool_update_cache, [data-tool="tool_update_cache"]) {
   --tool_edge: var(--tool_update_cache, #80a888);
   --tool_fill: #80a888;
   --tool_fill_hover: #92bb9a;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_upload,
-.wrapper_tool.tool_upload {
+.wrapper_tool.tool_upload,
+[data-tool="tool_upload"] {
   --tool_edge: var(--tool_upload, #f78a1c);
   --tool_fill: #f78a1c;
   --tool_fill_hover: #ffa55d;
   --tool_on_fill: #16181b;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_upload, .wrapper_tool.tool_upload) {
+:root[data-theme="dark"] :is(.tool_header.tool_upload, .wrapper_tool.tool_upload, [data-tool="tool_upload"]) {
   --tool_edge: var(--tool_upload, #ffa040);
   --tool_fill: #ffa040;
   --tool_fill_hover: #ffbd84;
   --tool_on_fill: #16181b;
 }
 .tool_header.tool_user_admin,
-.wrapper_tool.tool_user_admin {
+.wrapper_tool.tool_user_admin,
+[data-tool="tool_user_admin"] {
   --tool_edge: var(--tool_user_admin, #a22b29);
   --tool_fill: #a22b29;
   --tool_fill_hover: #8e1317;
   --tool_on_fill: #ffffff;
 }
-:root[data-theme="dark"] :is(.tool_header.tool_user_admin, .wrapper_tool.tool_user_admin) {
+:root[data-theme="dark"] :is(.tool_header.tool_user_admin, .wrapper_tool.tool_user_admin, [data-tool="tool_user_admin"]) {
   --tool_edge: var(--tool_user_admin, #d04050);
   --tool_fill: #d04050;
   --tool_fill_hover: #bb2a3f;
@@ -12649,8 +12688,10 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 }
 .wrapper_tool input[type="checkbox"],
 .tool_header input[type="checkbox"],
+[data-tool] input[type="checkbox"],
 .wrapper_tool input[type="radio"],
-.tool_header input[type="radio"] {
+.tool_header input[type="radio"],
+[data-tool] input[type="radio"] {
   accent-color: var(--tool_fill, var(--checkbox_checked_bg));
 }
 .tool_header {

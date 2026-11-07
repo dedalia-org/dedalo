@@ -35,6 +35,8 @@
  *   mcp:dedalo_read_record             (the section grant the human read's Gate B
  *                                       applies, at the tool door)
  *   GET /dedalo/core/api/v1/raw        (the admin's profile projects the row)
+ *   GET /dedalo/core/api/v1/map_tile   (the component key on the geolocation, with the tile
+ *                                       already in the memory: the denied reader is refused)
  *
  *   ai/rag/retrieval.ts aclGate     (the chokepoint under identify_by_image /
  *                                    similar_objects / search_by_text_image:
@@ -63,6 +65,7 @@ import type { Rqo } from '../../src/core/concepts/rqo.ts';
 import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
+import { clearTileCacheForTests, rememberTile } from '../../src/core/geo/tile_proxy/tile_cache.ts';
 import { parseProfile } from '../../src/core/identify/profile.ts';
 import {
 	getPermissions,
@@ -82,6 +85,7 @@ import {
 	DOOR_BUTTON_NEW,
 	DOOR_CONTROL_USER_ID,
 	DOOR_FILTER,
+	DOOR_GEO,
 	DOOR_IMAGE,
 	DOOR_MEDIA_ONLY_USER_ID,
 	DOOR_PUBLICATION,
@@ -123,6 +127,22 @@ const PUBLICATION_VALUE = {
 	section_id: 1,
 	section_tipo: 'dd64',
 	from_component_tipo: DOOR_PUBLICATION,
+};
+/** A geolocation entry holding one stored xyz source (id 1) — the tile proxy's door. */
+const GEO_VALUE = {
+	id: 1,
+	lat: 39.47,
+	lon: -0.37,
+	zoom: 5,
+	sources: [
+		{
+			id: 1,
+			type: 'xyz',
+			url: 'https://tiles.example.org/{z}/{x}/{y}.png',
+			params: {},
+			attribution: '',
+		},
+	],
 };
 const IMAGE_FILE_PATH = `/image/original/0/${DOOR_IMAGE}_${DOOR_SECTION}_${RECORD_ID}.jpg`;
 const SIBLING_IMAGE_FILE_PATH = `/image/original/0/${DOOR_IMAGE}_${DOOR_SIBLING_SECTION}_${SIBLING_RECORD_ID}.jpg`;
@@ -242,6 +262,7 @@ describe.if(DB_READY)('read door ACL — every component door, paired', () => {
 					},
 				],
 			},
+			geo: { [DOOR_GEO]: [GEO_VALUE] },
 		});
 		await insertScratch(
 			SIBLING_RECORD_ID,
@@ -811,6 +832,57 @@ describe.if(DB_READY)('read door ACL — every component door, paired', () => {
 				expect(wholeBody.data[0]?.string).toEqual({
 					[DOOR_TEXT]: [{ id: 1, lang: 'lg-eng', value: TEXT_VALUE }],
 				});
+			},
+		);
+	});
+
+	/* ──────────────────────── GET /dedalo/core/api/v1/map_tile ────────────── */
+
+	describe('GET /dedalo/core/api/v1/map_tile (api/map_tile.ts)', () => {
+		const TILE_URL = '/dedalo/core/api/v1/map_tile';
+		/** The address the server builds for tile 3/4/2 of the stored source — the memory's key. */
+		const UPSTREAM = 'https://tiles.example.org/3/4/2.png';
+		const PNG = Uint8Array.from(
+			Buffer.from(
+				'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+				'base64',
+			),
+		);
+		function tileRequest(token: string): Request {
+			return new Request(
+				`http://localhost${TILE_URL}?section_tipo=${DOOR_SECTION}&section_id=${RECORD_ID}&component_tipo=${DOOR_GEO}&source_id=1&z=3&x=4&y=2`,
+				{ headers: { Cookie: `dedalo_ts_session=${token}` } },
+			);
+		}
+		const serverContext = { requestId: 'read-door-tile', startedAt: 0 };
+
+		leg(
+			'http:GET /dedalo/core/api/v1/map_tile',
+			'the component key: the reader (test100 = 0) is refused with the tile SITTING IN THE MEMORY, the control (test100 = 1) on the identical call is served it; no network is touched',
+			async () => {
+				expect(await getPermissions(reader, DOOR_SECTION, DOOR_GEO)).toBe(0);
+				expect(await getPermissions(control, DOOR_SECTION, DOOR_GEO)).toBe(1);
+				const now = Date.now();
+				clearTileCacheForTests();
+				try {
+					expect(
+						rememberTile(UPSTREAM, { bytes: PNG, contentType: 'image/png' }, 60_000, now),
+					).toBe(true);
+					const readerToken = createSession(DOOR_READER_USER_ID, 'zzdoor_reader', false);
+					const denied = await handleRequest(tileRequest(readerToken), serverContext);
+					expect(denied.status).toBe(404);
+					expect(((await denied.json()) as { error: { code: string } }).error.code).toBe(
+						'resource.not_found',
+					);
+
+					const controlToken = createSession(DOOR_CONTROL_USER_ID, 'zzdoor_control', false);
+					const served = await handleRequest(tileRequest(controlToken), serverContext);
+					expect(served.status).toBe(200);
+					expect(served.headers.get('content-type')).toBe('image/png');
+					expect(new Uint8Array(await served.arrayBuffer())).toEqual(PNG);
+				} finally {
+					clearTileCacheForTests();
+				}
 			},
 		);
 	});

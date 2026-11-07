@@ -87,6 +87,19 @@ describe('API_ERROR — the one client error model', function() {
 		assert.isFalse(is_api_error(null))
 	})
 
+	it('ApiError.tool: null unless given, kept by toJSON (the cache worker / postMessage clone carry it)', function() {
+		assert.isNull(new ApiError({code: 'perm.denied'}).tool)
+		assert.isNull(new ApiError({code: 'perm.denied', tool: ''}).tool)
+		assert.isNull(new ApiError({code: 'perm.denied', tool: 7}).tool)
+		const api_error = new ApiError({code: 'request.invalid_options', tool: 'tool_zz_probe', details: {reason_key: 'bad_bbox'}})
+		assert.equal(api_error.tool, 'tool_zz_probe')
+		assert.equal(JSON.parse(JSON.stringify(api_error)).tool, 'tool_zz_probe')
+		// the server never sets it: an envelope body's own `tool` key is not read
+		const normalized = normalize_api_error(fake_response(false, 400), {ok: false, tool: 'tool_zz_probe', error: {code: 'request.invalid_options', tool: 'tool_zz_probe'}})
+		assert.isNull(normalized.tool)
+		assert.deepEqual(new ApiError({code: 'request.invalid_options', details: {reason_key: 'bad_bbox'}}).details, {reason_key: 'bad_bbox'}, 'details.reason_key survives as a plain detail')
+	})
+
 	it('client codes default retryable/transport/label from the code alone', function() {
 		assert.isTrue(new ApiError({code: CLIENT_ERROR.NETWORK}).retryable)
 		assert.isTrue(new ApiError({code: CLIENT_ERROR.TIMEOUT}).retryable)
@@ -162,6 +175,29 @@ describe('API_ERROR — the one client error model', function() {
 		assert.strictEqual(normalize_stream_error({error: already}), already)
 		assert.isNull(normalize_stream_error({data: {msg: 'running'}, is_running: true}))
 		assert.isNull(normalize_stream_error(null))
+	})
+
+	it('normalize_stream_error: {tool} names the tool a frame belongs to (v2 and BARE); a frame never names its own', function() {
+		const frame = {is_running: false, error: {code: 'request.invalid_options', details: {reason_key: 'bad_bbox'}}, request_id: 'rq'}
+		const stamped = normalize_stream_error(frame, {tool: 'tool_zz_probe'})
+		assert.equal(stamped.tool, 'tool_zz_probe')
+		assert.equal(stamped.details.reason_key, 'bad_bbox', 'the key rides through to error_text')
+		assert.equal(stamped.source, 'stream')
+		// the BARE terminal body gets the same stamp
+		const bare = {code: 'tool.source_unavailable', details: {reason_key: 'down', site: 'tiles.example.org'}}
+		assert.equal(normalize_stream_error(bare, {tool: 'tool_zz_probe'}).tool, 'tool_zz_probe')
+		// no tool given, or a value that is not a tool name: null (the core label, as before)
+		for (const ctx of [undefined, {}, null, {tool: ''}, {tool: 7}, {tool: null}]) {
+			assert.isNull(normalize_stream_error(frame, ctx).tool, JSON.stringify(ctx))
+		}
+		// the server's body is never trusted for it
+		assert.isNull(normalize_stream_error({is_running: false, tool: 'tool_evil', error: {code: 'x.y', tool: 'tool_evil'}}).tool)
+		// an already-normalised error comes back as it is, unmodified
+		const already = new ApiError({code: CLIENT_ERROR.BAD_RESPONSE, source: 'stream'})
+		assert.strictEqual(normalize_stream_error({error: already}, {tool: 'tool_zz_probe'}), already)
+		assert.isNull(already.tool)
+		// a clean frame stays clean
+		assert.isNull(normalize_stream_error({is_running: true, data: {msg: 'running'}}, {tool: 'tool_zz_probe'}))
 	})
 
 	it('request_failed / response_data are the two accessors callers migrate onto', function() {
@@ -298,6 +334,28 @@ describe('DATA_MANAGER.request — the envelope it resolves', function() {
 		} finally {
 			events.release()
 		}
+	})
+
+	it('a tool_request failure is stamped with the tool BEFORE api_error is published; any other request stays null', async function() {
+		const refusal = {ok: false, request_id: 'rq-tool', error: {code: 'request.invalid_options', message: 'Fallback sentence', label_key: 'error_request_invalid_options', retryable: false, details: {reason_key: 'bad_bbox'}}}
+		const at_publish = []
+		const token = event_manager.subscribe('api_error', (api_error) => { at_publish.push(api_error.tool) })
+		try {
+			await with_stubbed_fetch(async () => json_response(refusal, 400), async () => {
+				const tool_body = {dd_api: 'dd_tools_api', action: 'tool_request', source: {model: 'tool_zz_probe', action: 'save_source'}, options: {}}
+				const api_response = await data_manager.request({body: tool_body, retries: 1})
+				assert.equal(api_response.error.tool, 'tool_zz_probe')
+				assert.equal(api_response.error.details.reason_key, 'bad_bbox')
+
+				await data_manager.request({body: {dd_api: 'dd_core_api', action: 'read', source: {model: 'tool_zz_probe'}}, retries: 1})
+				await data_manager.request({body: {dd_api: 'dd_tools_api', action: 'get_element_context', source: {model: 'tool_zz_probe'}}, retries: 1})
+				await data_manager.request({body: {dd_api: 'dd_tools_api', action: 'tool_request', source: {}}, retries: 1})
+				await data_manager.request({body: JSON.stringify(tool_body), retries: 1})
+			})
+		} finally {
+			event_manager.unsubscribe(token)
+		}
+		assert.deepEqual(at_publish, ['tool_zz_probe', null, null, null, null], 'stamped before the page subscriber could toast; only a tool_request body names a tool')
 	})
 
 	it('a network failure resolves (never rejects) with a synthesised envelope + client.network', async function() {

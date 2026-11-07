@@ -108,6 +108,11 @@ export const SERVER_UNSPECIFIED = 'server.unspecified';
  *   transport   boolean  true when the failure is ours (no envelope): client.* codes
  *   severity    'error'|'warning'|'info'
  *   source      'envelope'|'transport'|'stream'|'client'
+ *   tool        string|null   the tool a `tool_request` addressed; with `details.reason_key` it
+ *               selects the tool's own label (render_api_error.error_text). Never read from the
+ *               server's body. Two writers, both on the CLIENT's side of the call: data_manager
+ *               stamps it from the request before publishing 'api_error', and a stream/job frame
+ *               site that KNOWS its tool names it through `normalize_stream_error(frame, {tool})`.
  *   raw         the original body / frame / Error, for debugging only
  *   is_api_error true — survives structured clone (postMessage), unlike instanceof
  */
@@ -149,6 +154,7 @@ export class ApiError extends Error {
 		this.raw = fields.raw === undefined ? null : fields.raw;
 		this.category = typeof fields.category === 'string' ? fields.category : null;
 		this.debug = fields.debug ?? null;
+		this.tool = typeof fields.tool === 'string' && fields.tool.length ? fields.tool : null;
 	}
 
 	/**
@@ -170,6 +176,7 @@ export class ApiError extends Error {
 			severity: this.severity,
 			source: this.source,
 			category: this.category,
+			tool: this.tool,
 		};
 	}
 } //end class ApiError
@@ -206,7 +213,9 @@ export const is_api_error = (value) => {
  *
  * @param {Response|{ok,status,statusText}|null} response - the fetch Response (or a lookalike); null when none
  * @param {*} body - the parsed JSON body; null/undefined when unparseable
- * @param {Object} [ctx] - {source:'envelope'|'stream'} (default 'envelope')
+ * @param {Object} [ctx] - {source:'envelope'|'stream', tool:string} (source defaults to 'envelope').
+ *   `tool` is the CALLER's knowledge of which tool the call was for (the body never says), stamped
+ *   on a v2 failure only — see ApiError.tool.
  * @return ApiError|null
  */
 export const normalize_api_error = (response, body, ctx = {}) => {
@@ -241,6 +250,7 @@ export const normalize_api_error = (response, body, ctx = {}) => {
 			category: error.category,
 			debug: error.debug,
 			source: source,
+			tool: ctx.tool,
 			raw: body,
 		});
 	}
@@ -337,13 +347,22 @@ export const normalize_transport_error = (error, flags = {}) => {
  * It is recognised LAST, and only when there is a string `code` and neither an
  * `error` key nor `is_running`, so a wrapped frame can never fall into it.
  *
+ * A frame does not say which tool it belongs to, and the tool's own refusal sentence
+ * (`details.reason_key` → the tool's `reason_<key>` label, render_api_error.error_text)
+ * needs it. The site that follows a tool's job knows (its `self.model`), so it passes
+ * `{tool}` here — the same stamp data_manager gives a `tool_request` failure. Without it
+ * the refusal reads in the core code's label, as it always did. A frame site that does not
+ * know its tool (the page's job tray lists jobs of every kind) simply omits it.
+ *
  * @param {*} frame - one parsed stream message
+ * @param {Object} [ctx] - {tool:string} the tool the frame's job belongs to
  * @return ApiError|null
  */
-export const normalize_stream_error = (frame) => {
+export const normalize_stream_error = (frame, ctx = {}) => {
 	if (!frame || typeof frame !== 'object') {
 		return null;
 	}
+	const tool = ctx?.tool;
 
 	// already normalised (read_stream synthesises these for unparseable frames)
 	if (is_api_error(frame.error)) {
@@ -355,7 +374,7 @@ export const normalize_stream_error = (frame) => {
 		return normalize_api_error(
 			null,
 			{ ok: false, error: frame.error, request_id: frame.request_id },
-			{ source: 'stream' },
+			{ source: 'stream', tool: tool },
 		);
 	}
 
@@ -371,7 +390,7 @@ export const normalize_stream_error = (frame) => {
 		return normalize_api_error(
 			null,
 			{ ok: false, error: frame, request_id: frame.request_id },
-			{ source: 'stream' },
+			{ source: 'stream', tool: tool },
 		);
 	}
 

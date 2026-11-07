@@ -98,6 +98,7 @@ import {
 import type { Principal } from '../../security/permissions.ts';
 import type { AppendMergeResult, RelationAppendValidator } from './append_merge.ts';
 import { beginSaveHistory, finishSaveHistory } from './bulk_capture.ts';
+import { applyItemGate } from './item_gates.ts';
 import { valueShapeRefusal } from './value_shape.ts';
 
 /** One change from the client (PHP changed_data item). */
@@ -2100,6 +2101,21 @@ async function applySaveComponentData(
 		}
 		items = applyUpdate(items, effectiveChange, langSliced ? effectiveLang : null, monovalue);
 	}
+
+	// The model's ITEM GATE over the FINAL items (`itemGate` facet; item_gates.ts) —
+	// component_geolocation's sources/legend: validation, normal form and the
+	// server-issued source ids, judged against the items read under the lock above.
+	// Every door that reaches this engine passes it; a model with no gate returns
+	// `items` at once. Sits after the loop (all branches settled `items`) and before
+	// the id stamp and the write. The gate WRITES NOTHING IT IS GIVEN — `items` may
+	// hold the caller's own value objects, which a bulk door shares across records —
+	// so the save continues with the array it RETURNS.
+	items = await applyItemGate(model, items, storedValue, {
+		table,
+		sectionTipo,
+		sectionId,
+		componentTipo,
+	});
 
 	// component_date SAVE override (PHP component_date::save → add_time): the
 	// generic write path has no per-model date hook, so (re)compute the

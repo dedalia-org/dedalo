@@ -11,6 +11,10 @@
  *   - item has features and its VIEW is the studio default → FIT THE VIEW TO
  *     THE GEOMETRY: rewrite lat/lon to the bbox centre of the item's own
  *     features. Features, zoom, alt, id and every other key are untouched.
+ *   - item carries a MAP DEFINITION (a `sources` or a `legend` that is PRESENT —
+ *     anything but the gate's own "none": absent, null, `[]`, an empty legend —
+ *     whatever its type; geo/geo_entry_keys.ts carriesMapDefinition) → UNTOUCHED,
+ *     whatever its view: it is content somebody wrote, never a fabrication.
  *   - anything else → UNTOUCHED. `alt` is real data some installs use; it is
  *     removed only as part of removing a default-only item.
  *
@@ -141,6 +145,7 @@ import { MATRIX_TABLE_ALLOWLIST } from '../src/core/db/matrix.ts';
 import { readMatrixKeyForUpdate, updateMatrixKeysData } from '../src/core/db/matrix_write.ts';
 import { sql, withTransaction } from '../src/core/db/postgres.ts';
 import { recordTimeMachine } from '../src/core/db/time_machine.ts';
+import { carriesMapDefinition } from '../src/core/geo/geo_entry_keys.ts';
 
 /**
  * The ex-factory client map position. Defined HERE, not imported from the core
@@ -395,8 +400,8 @@ export interface Outcome {
 
 /**
  * Adjudicate ONE component's item array. Item classes: BARE (studio-default
- * view, no features), GEO (studio-default view + features), OTHER (anything
- * else).
+ * view, no features, no map definition), GEO (studio-default view + features),
+ * OTHER (anything else — an item carrying `sources` / `legend` included).
  *
  *  - null     : no studio-default view at all — not our business.
  *  - CLEAR    : every item is BARE ⇒ remove the whole key.
@@ -424,6 +429,16 @@ export function adjudicate(items: unknown[]): Outcome | null {
 		}
 		const item = raw as Record<string, unknown>;
 		if (!isStudioDefaultView(item)) {
+			other++;
+			value.push(item);
+			continue;
+		}
+		// A map definition (`sources` / `legend`) is content the operator WROTE, never a
+		// fabrication (WC-2026-11-06-geolocation-map-sources-legend): an item that
+		// carries one is not default-only, so CLEAR can never delete it. It is left
+		// exactly as it is (its fabricated view, if any, stays a human decision —
+		// publication still refuses the pair).
+		if (carriesMapDefinition(item)) {
 			other++;
 			value.push(item);
 			continue;

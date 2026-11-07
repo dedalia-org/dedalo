@@ -251,6 +251,8 @@ Stored map layers (`lib_data`) that already carry features pass through as-is; o
 
 **One pair is refused: the studio default `39.462571, -0.376295`.** Those are the Dédalo facilities' own coordinates, shipped as the client's factory map position and written into the record by the v6 client on save, so an item holding exactly that pair is a fabricated view and never reaches a consumer. The refusal lives at the publication doors only — `isStudioDefault()`, `src/core/concepts/geo_coordinate.ts` — and everywhere else in the engine the pair is an ordinary coordinate (see [Geolocation values](../core/data_model/geolocation.md#the-studio-default--the-one-pair-publication-refuses)).
 
+**A geolocation's `sources` and `legend` never publish.** They sit beside `lib_data` in the stored item, and no publication path publishes them. This parser and the point fallback read `lib_data` and `lat`/`lon` by name and never see them; the standalone geolocation atom publishes the stored item **minus its `id`, `sources` and `legend`** — a withhold list, not an allowlist, so any other key an item carries goes out with it. The upstream addresses of a map source (which may carry a provider token) and the legend icons therefore never reach a published site. An item whose only content is `sources` and `legend` publishes nothing (see [Map sources and legend](../core/data_model/geolocation.md#map-sources-and-legend)).
+
 ### Publish IRIs as one flat string
 
 ``` json

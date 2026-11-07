@@ -56,6 +56,8 @@ For **out-of-repo roots** (`config.tools.additionalRoots` / `DEDALO_ADDITIONAL_T
 
 8. **Validate your inputs.** The framework guarantees `options` is an object from an authorized user who cleared the declared permission — not that its fields are sane. Check types and ranges before acting.
 
+9. **Declare `readOnly: true` only on an action that writes nothing, and say so with `minLevel: 1`.** The declaration takes the action off the idempotency ledger, so a resend of it re-executes — safe for a lookup, a duplicate record for a writer. The handler runs where every record, item-counter, history, activity and job write door refuses (`internal.invariant`; the activity log's writer swallows its refusal, so that write is dropped and logged rather than failed), and `test/unit/tool_read_only_action_tripwire.test.ts` walks the action's code for a path to those doors. Those are the only writes the framework checks: media files, a directly spawned `psql` child and writes to other stores (stats, locks, queues, the ontology, the derived search tables) are your attestation, and nothing refuses them. A read-only action must be called through `this.tool_request()` with the literal `retries: 1` from the client (gated; a tool with a read-only action may not build the request by hand), and the service module it calls paces itself. See [Read-only actions](server_contract.md#read-only-actions-readonly-true).
+
 ## Note on the development template
 
 `tools/tool_dev_template/server/index.ts` carries no fail-closed guard against production registration — it is a normal module, gated the same way as any production tool (registry + per-user authorization). Treat it as a copy-and-rename starting point, not as something to register on a production install.

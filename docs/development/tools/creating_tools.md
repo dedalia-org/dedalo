@@ -233,6 +233,7 @@ Three rules keep every tool readable and consistent:
     ```
 
     A plain `button.primary` inside the tool gets the same treatment automatically. A `background-color: @tool_color` on a `button` is refused by the test suite.
+- **A tool-owned box outside the tool window** (a floating panel, a map overlay) can carry the tool colour too: give the element `data-tool="tool_numisdata_import"` and it receives the four tokens (`--tool_edge`, `--tool_fill`, `--tool_fill_hover`, `--tool_on_fill`), and its checkboxes and radio buttons take the tool fill. It gets nothing else: no header tint, no edge bar and no button styling, so apply `.tool_action_button();` to its buttons yourself, as above. The scope exists only for a tool that declares its `--<tool>` colour.
 - **Keep the raw colour for decoration** — small accents, a hover tint on an icon, a selection outline — never under text.
 
 ## 7. Register the tool

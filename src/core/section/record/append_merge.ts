@@ -29,6 +29,19 @@
  *   are added to the FIRST stored item's `lib_data` with fresh layer ids;
  *   stored layers and the stored centre stay untouched. A layer equal to a
  *   stored layer OR to a stored item's centre (as a Point) is a duplicate.
+ *   The entry's SIBLING keys `sources` and `legend`
+ *   (WC-2026-11-06-geolocation-map-sources-legend) are not layers, and append
+ *   is LAYERS-ONLY: it never reads, merges or rewrites them. Onto a stored host
+ *   they stay as stored (the host is spread, so by reference) and an incoming
+ *   item's are DROPPED; onto nothing, the first incoming item is the host as it
+ *   is, so ITS sources/legend are stored (the save gate validates and numbers
+ *   them) and every later item's are dropped. An incoming item that carries
+ *   only siblings has no layer to add and is reported as an `empty` skip.
+ *   A sources merge would need new ids, a url+params identity and the entry's
+ *   caps re-judged — a different operation, not an append.
+ *   Gates: test/unit/geo_sources_legend_import_native.test.ts (the pure merge,
+ *   mergeGeoLayers) and test/unit/geo_sources_legend_save_native.test.ts ("CSV
+ *   append is layers-only": the same merge through the engine on scratch records).
  * - 'text_paragraphs': per lang, `stored + <p>imported</p>`; a value carrying
  *   any Dédalo tag is REFUSED (tags pair with relation_index `tag_id`, which an
  *   append cannot re-key); a fragment already present is skipped.

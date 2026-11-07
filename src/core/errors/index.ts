@@ -47,6 +47,9 @@ export {
 	isErrorCode,
 	LEGACY_TOKEN_MAP,
 	MCP_HINT_CODES,
+	REASON_KEY,
+	REASON_KEY_CODES,
+	REASON_KEY_PATTERN,
 	STATUS_EXEMPTIONS,
 	specOf,
 } from './registry.ts';

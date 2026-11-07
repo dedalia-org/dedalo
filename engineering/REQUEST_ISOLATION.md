@@ -14,6 +14,7 @@ REWRITE_SPEC §4 and per-file comments).
 | Effective languages | **request-lang ALS** (`currentApplicationLang()`/`currentDataLang()`), opened beside the identity scope | `core/resolve/request_lang.ts` |
 | DB transaction handle | ALS (`withTransaction`) | `core/db/postgres.ts` |
 | Matrix rows within ONE read | **read-scoped memo ALS**, opened by `readSection` only; a nested read JOINS it. Bounded (8000 rows) and dies with the read, so it needs no invalidation — it can only serve a row the same read already saw. NEVER opened around a write: save/delete legitimately re-read a row they just modified | `core/db/record_memo.ts`; opened in `core/section/read.ts` |
+| Read-only tool action | **read-only scope ALS** (`runReadOnly` / `assertNotReadOnlyRequest`), opened by `dispatchToolRequest` around the handler of an action that declares `readOnly`; every record / item-id counter / history / activity / job write door refuses inside it (the activity row's emitter `logActivity` swallows the refusal: dropped and logged; media files and other stores are NOT policed — the author's attestation). There is NO exit: a job worker never inherits the scope (`submit` refuses inside it, and a queued job resumes in the context its own submit captured — driven by a job whose lane slot is freed from inside the scope) | `core/security/read_only_scope.ts`; `core/tools/dispatch.ts`; gate `test/unit/tool_read_only_action_tripwire.test.ts` |
 | **Detached background work** | `runDetachedFromTransaction` EXITS the transaction, deferred-action and commit-action stores (the ONE legal caller is `MediaJobManager.submit`); the request lang + context are **not inherited** — the job manager PINS the submit-time langs and a job-owned request context (`JobRunScope`) and enters them around the worker | `core/db/postgres.ts`; `core/media/jobs.ts` |
 | Per-user data at module scope | caches **keyed by `userId`** with explicit invalidation | `core/security/permissions.ts` |
 | Localized caches | key **bakes the lang** in | e.g. `core/ontology/labels.ts`, `core/resolve/structure_context.ts` |
@@ -115,3 +116,30 @@ reach for.
   user dimension if `tools`/`buttons` ever become user/permission-dependent (they
   are ontology-derived today; permissions are applied on the per-call stamp,
   never cached).
+- `core/geo/tile_proxy/tile_cache.ts` `TILES` (the map tile proxy's memory) is keyed by
+  the UPSTREAM ADDRESS the server built — no user, session, language or record — and is
+  shared between viewers. That is safe ONLY because `api/map_tile.ts` consults it after
+  the session, the component grant, the record scope and the source resolution: reordering
+  those, or putting anything user-dependent into the key, turns it into a cross-user leak
+  (a denied caller served a tile). Gate: `map_tile_proxy_native` ("a denied caller is
+  refused with the tile SITTING IN THE MEMORY"). Time-cleared by the provider's freshness
+  and bounded by bytes AND by count (every entry costs at least 1 KiB, and admission does no
+  scan of what is held), so it needs no invalidation listener (a changed source builds
+  another address, hence another key). Its siblings carry the same discipline:
+  `tile_flights.ts` `FLIGHTS` (one provider call per upstream address, keyed by the address,
+  joined only after the same gates, deleted when the call settles or its last holder leaves)
+  and `tile_log.ts` `LOGGED` (log lines without their request id, time-cleared and bounded).
+  `principal_budget.ts` `BUCKETS` is the one map here that IS keyed by identity, on purpose:
+  a token bucket per user id (a number the session established) is the whole point of a
+  per-person share, nothing in a value is shared between people, and a full bucket is dropped
+  as if it never existed. So are the interactive harvesting profile's two per-holder limiters
+  (`harvest/interactive_limits.ts`): `perHolder`, the cap on how many stored-address slots ONE person
+  holds, keyed by the holder name the route built from the session (`user:<id>`), and
+  `perHolderAtOrigin`, the cap on how many places ONE person takes in a registry origin's queue,
+  keyed by that origin and the holder name (`<origin> user:<id>`); a key exists only while that
+  person holds or awaits a place. The tile memory keeps successful images only: the provider's
+  "no such tile" is not remembered, and a tile that has run out of freshness but came with a
+  validator stays in the SAME map for at most a week more, to be revalidated — no second store, no
+  second bound. The BROWSER's copy of a tile is not covered by any of this: a tile of a source that
+  is data (stored, default) is told to a browser for five minutes at most, because an edit of the
+  source does not change its proxy URL.

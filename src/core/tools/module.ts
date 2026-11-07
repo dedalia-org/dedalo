@@ -183,6 +183,47 @@ export interface GatedToolActionSpec {
 	 * refusal would arrive after the job was already queued.
 	 */
 	admit?: (context: ToolAdmissionContext) => void;
+	/**
+	 * READ-ONLY DECLARATION. `true` is a CLAIM about the action, and the
+	 * dispatcher acts on it: (1) `dd_tools_api.tool_request` skips the idempotency
+	 * ledger for it (api/dispatch.ts Gate 4), so a stamped RESEND of the request
+	 * re-executes the handler and surfaces its real outcome — with the default a
+	 * handler that throws leaves an `ambiguous` reservation and the resend is
+	 * answered `idempotency.outcome_unknown`, which for an action that cannot
+	 * have written anything only hides the error that matters (an upstream
+	 * `external.http_status`); (2) the handler runs inside the read-only request
+	 * scope (security/read_only_scope.ts), where every record, item-counter,
+	 * history, activity and job write door refuses (loudly as `internal.invariant`,
+	 * except the activity row: its emitter `logActivity` swallows the refusal, so
+	 * that write is dropped and logged, and only the static walk names the caller).
+	 *
+	 * THE CLAIM: executing the action twice leaves the same end state. That is
+	 * the AUTHOR'S attestation; the framework polices only the doors it can name:
+	 * no matrix write (records, the item-id counters, the activity and update
+	 * rows), no Time Machine row and no job — refused at runtime by the scope and
+	 * proven by the static walk. It does NOT police media files, a directly spawned
+	 * psql child, DML on other stores (stats, locks, queues, the ontology, the
+	 * derived search tables) or a streamed body: a read-only action must not touch
+	 * them, and nothing refuses it if it does. It MAY call an external service
+	 * (that is the point of the geo lookups) — and a read-only action is never
+	 * replayed, so a stalled call can reach the provider more than once. Hence the
+	 * tool's browser code MUST call it through `this.tool_request({ ... })` with
+	 * `retries: 1` among the call's own properties, and must not build the request
+	 * by hand; client_idempotency_tripwire block C reads the source of every tool
+	 * that declares a read-only action for exactly that (a source-text check: a
+	 * request for the action from another tool's code is not covered). The service
+	 * owns its own pacing.
+	 *
+	 * ABSENT means mutating, the fail-safe direction (it costs a ledger entry).
+	 * Only the literal `true` is accepted. The loader (loader.ts) refuses it on a
+	 * `backgroundRunnable` action and on a gated action whose `minLevel` is not
+	 * exactly 1 (it must be spelled — the default is 2, and 0, a negative or NaN
+	 * would disable the level gate); the tripwire
+	 * `tool_read_only_action_tripwire` proves the handler cannot reach one of the
+	 * enumerated write doors (the writer closure). Declare it as a LITERAL key of
+	 * `tool.apiActions` — the closure cannot see an action built elsewhere.
+	 */
+	readOnly?: true;
 	handler: (context: ToolActionContext) => Promise<ToolResponse>;
 }
 
@@ -247,6 +288,8 @@ export interface ExemptToolActionSpec {
 	targets?: never;
 	/** See GatedToolActionSpec.admit (synchronous by contract). */
 	admit?: (context: ToolAdmissionContext) => void;
+	/** See GatedToolActionSpec.readOnly (the claim, what it changes, what refuses it). */
+	readOnly?: true;
 	handler: (context: ToolActionContext) => Promise<ToolResponse>;
 }
 
@@ -280,6 +323,31 @@ export interface ToolServerModule {
 	 * fork even if the client requests one; absent means no background actions.
 	 */
 	backgroundRunnable?: readonly string[];
+	/**
+	 * The CLOSED ENUM of refusal reasons this tool may put on the wire as
+	 * `details.reason_key`, each with the English FALLBACK SENTENCE it rides with:
+	 * `{ bad_bbox: 'The bounding box is not numeric.' }`. A key matches
+	 * REASON_KEY_PATTERN (it names the label `reason_<key>`); a sentence is a
+	 * non-empty string of at most `PUBLIC_MESSAGE_MAX` characters with no control,
+	 * line-separator or invisible-formatting character (the loader refuses the tool
+	 * otherwise). A tool refuses with an EXISTING public code the registry lists
+	 * REASON_KEY under (`REASON_KEY_CODES`) plus one key of this map, and NO
+	 * `publicMessage`: the sentence belongs to the declaration, and the guard puts
+	 * it on the wire. The browser resolves the sentence from the tool's
+	 * `register.json` label `reason_<key>` (client error_text) and falls back to the
+	 * declared one, so one refusal shows ONE notice. `guardReasonKeys`
+	 * (reason_keys.ts) wraps every handler, `admit` hook and route at load: a refusal
+	 * THROWN or RETURNED with a key outside this map, on a code that does not carry
+	 * it, or with a `publicMessage` other than the declared sentence becomes
+	 * `internal.invariant` (loud), never a silently dropped detail and never a string
+	 * an upstream wrote. A refusal the tool EMBEDS in a payload (a batch's per-item
+	 * error) is not thrown, so it is built with `toolErrorBody(tool, action, error)`
+	 * — never a body builder directly. Absent = the tool declares none. Gate:
+	 * test/unit/tool_reason_keys_tripwire.test.ts (literals, labels, dead labels,
+	 * declaration, embedder, placeholders, and the real registry). Canon:
+	 * engineering/ERRORS_SPEC.md §9.1.
+	 */
+	reasonKeys?: Readonly<Record<string, string>>;
 	/**
 	 * The JOB LANE each backgroundRunnable action spends its slot from (PERF-11).
 	 *

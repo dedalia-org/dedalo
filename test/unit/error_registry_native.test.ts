@@ -28,6 +28,9 @@ import {
 	isErrorCode,
 	LEGACY_TOKEN_MAP,
 	MCP_HINT_CODES,
+	REASON_KEY,
+	REASON_KEY_CODES,
+	REASON_KEY_PATTERN,
 	STATUS_EXEMPTIONS,
 } from '../../src/core/errors/registry.ts';
 import type { ExternalErrorKind } from '../../src/external/errors.ts';
@@ -79,7 +82,15 @@ function specViolations(code: string, spec: ErrorSpec, master: Record<string, st
 		out.push(`status ${spec.status} ≠ ${expected} for category ${spec.category}: ${code}`);
 	}
 	if (spec.message.trim() === '') out.push(`empty message: ${code}`);
-	const keys = [...(spec.details_keys ?? [])].sort();
+	// `reason_key` is the one detail that names no placeholder: it selects a TOOL's
+	// label (client error_text), it never fills the core one — so it is exempt from
+	// the placeholders ≡ details_keys equality, and a code that carries it must be
+	// public (its publicMessage is the fallback sentence; an operator code would
+	// never put it on the wire).
+	const keys = [...(spec.details_keys ?? [])].filter((key) => key !== REASON_KEY).sort();
+	if (spec.details_keys?.includes(REASON_KEY) && spec.disclosure !== 'public') {
+		out.push(`reason_key requires disclosure 'public' (the fallback sentence): ${code}`);
+	}
 	const labelParams = placeholders(master[spec.label_key] ?? '');
 	if (JSON.stringify(keys) !== JSON.stringify(labelParams)) {
 		out.push(
@@ -127,6 +138,84 @@ describe('error registry — totality', () => {
 		expect(specViolations('probe.x', spec, master).some((v) => v.startsWith('placeholders'))).toBe(
 			true,
 		);
+	});
+
+	test('reason_key: exempt from placeholders ≡ details_keys, but only on a public code — and the checker still bites around it', () => {
+		const base: ErrorSpec = {
+			category: 'caller',
+			status: 400,
+			label_key: 'error_probe_reason',
+			message: 'm',
+			severity: 'warn',
+			disclosure: 'public',
+			retryable: false,
+			details_keys: ['reason_key'],
+		};
+		const master = { ...MASTER, error_probe_reason: 'Plain sentence' };
+		// control: public + a placeholder-free label is clean
+		expect(specViolations('probe.reason', base, master)).toEqual([]);
+		// an operator code may not carry it
+		expect(
+			specViolations('probe.reason', { ...base, disclosure: 'operator' }, master).some((v) =>
+				v.startsWith('reason_key requires'),
+			),
+		).toBe(true);
+		// the exemption covers ONLY reason_key: another declared key without a placeholder is still red
+		expect(
+			specViolations(
+				'probe.reason',
+				{ ...base, details_keys: ['reason_key', 'site'] },
+				master,
+			).some((v) => v.startsWith('placeholders')),
+		).toBe(true);
+		// …and a label that fills ${reason_key} is red (it would show the key, not a sentence)
+		const filled = { ...master, error_probe_reason: 'Because ${reason_key}' };
+		expect(
+			specViolations('probe.reason', base, filled).some((v) => v.startsWith('placeholders')),
+		).toBe(true);
+		// a declared placeholder next to it still has to match
+		const withSite = { ...master, error_probe_reason: 'At ${site}' };
+		expect(
+			specViolations('probe.reason', { ...base, details_keys: ['site', 'reason_key'] }, withSite),
+		).toEqual([]);
+	});
+
+	test('REASON_KEY_CODES is the pinned opt-in set (adding a code that may carry reason_key is deliberate)', () => {
+		expect([...REASON_KEY_CODES].sort()).toEqual([
+			'media.too_large',
+			'request.invalid_options',
+			'resource.not_found',
+			'tool.source_unavailable',
+			'tool.unsupported_target',
+		]);
+		// derived from the table, not a second list: every code listing the key is in it and vice versa
+		const listing = ERROR_CODES.filter((code) =>
+			(TABLE[code] as ErrorSpec).details_keys?.includes(REASON_KEY),
+		);
+		expect([...listing].sort()).toEqual([...REASON_KEY_CODES].sort());
+		for (const code of REASON_KEY_CODES) {
+			expect((TABLE[code] as ErrorSpec).disclosure, code).toBe('public');
+		}
+	});
+
+	test('REASON_KEY_PATTERN is the label-name grammar: lowercase word, ≤48 chars, no punctuation', () => {
+		for (const ok of ['bad_bbox', 'a', 'wms_layer_missing_2', `a${'b'.repeat(47)}`]) {
+			expect(REASON_KEY_PATTERN.test(ok), ok).toBe(true);
+		}
+		for (const bad of [
+			'',
+			'Bad',
+			'1x',
+			'_x',
+			'a-b',
+			'a b',
+			'a.b',
+			'a;b',
+			`a${'b'.repeat(48)}`,
+			'x\ny',
+		]) {
+			expect(REASON_KEY_PATTERN.test(bad), JSON.stringify(bad)).toBe(false);
+		}
 	});
 
 	test('every error label spells its placeholders ${key} — the only form the client fills', () => {

@@ -29,6 +29,7 @@
  */
 
 import { DedaloError } from '../errors/dedalo_error.ts';
+import { assertNotReadOnlyRequest } from '../security/read_only_scope.ts';
 import { asRawJsonText, encodeForJsonb, type RawJsonText } from './json_codec.ts';
 import { assertMatrixTable, MATRIX_JSONB_COLUMNS, type MatrixJsonbColumn } from './matrix.ts';
 import { isInTransaction, sql } from './postgres.ts';
@@ -111,6 +112,7 @@ export async function updateMatrixRecord(
 	values: MatrixWriteValues,
 	options: MatrixWriteOptions = {},
 ): Promise<'updated' | 'inserted'> {
+	assertNotReadOnlyRequest('updateMatrixRecord');
 	assertMatrixTable(tableName);
 
 	const columnNames = Object.keys(values) as MatrixJsonbColumn[];
@@ -196,6 +198,7 @@ export async function updateMatrixKeyData(
 	key: string,
 	value: unknown,
 ): Promise<void> {
+	assertNotReadOnlyRequest('updateMatrixKeyData');
 	await updateMatrixKeysData(tableName, sectionTipo, sectionId, [
 		{ column: columnName as MatrixJsonbColumn, key, value },
 	]);
@@ -232,6 +235,7 @@ export async function updateMatrixKeysData(
 	sectionId: number,
 	writes: readonly MatrixKeyWrite[],
 ): Promise<number> {
+	assertNotReadOnlyRequest('updateMatrixKeysData');
 	assertMatrixTable(tableName);
 	if (writes.length === 0) {
 		throw new DedaloError('internal.invariant', {
@@ -501,6 +505,9 @@ export async function allocateComponentItemId(
 	sectionId: number,
 	componentTipo: string,
 ): Promise<number> {
+	// The counter is a real UPDATE of `meta`: a resend of a read-only action would bump it
+	// again, so it is a write door like the value primitives (security/read_only_scope.ts).
+	assertNotReadOnlyRequest('allocateComponentItemId');
 	assertMatrixTable(tableName);
 	if (!/^[a-z]+[0-9]+$/.test(componentTipo)) {
 		throw new DedaloError('internal.invariant', {
@@ -573,6 +580,8 @@ export async function absorbComponentItemIds(
 	componentTipo: string,
 	items: readonly unknown[],
 ): Promise<void> {
+	// Raises the same `meta` counter (an UPDATE): a write door under the read-only scope.
+	assertNotReadOnlyRequest('absorbComponentItemIds');
 	assertMatrixTable(tableName);
 	if (!/^[a-z]+[0-9]+$/.test(componentTipo)) {
 		throw new DedaloError('internal.invariant', {
@@ -672,6 +681,7 @@ export async function insertMatrixRecordWithCounter(
 	jsonbColumns: Partial<Record<MatrixJsonbColumn, unknown>>,
 	depth = 0,
 ): Promise<number> {
+	assertNotReadOnlyRequest('insertMatrixRecordWithCounter');
 	assertMatrixTable(tableName);
 	// '_dd' ontology tables use the master-managed counter (PHP DB-01).
 	const counterTable = counterTableFor(tableName);
@@ -855,6 +865,7 @@ export async function insertMatrixRecordIfAbsent(
 	sectionId: number,
 	jsonbColumns: Partial<Record<MatrixJsonbColumn, unknown>>,
 ): Promise<boolean> {
+	assertNotReadOnlyRequest('insertMatrixRecordIfAbsent');
 	return (
 		(await insertExplicitIdRow(tableName, sectionTipo, sectionId, jsonbColumns, true)) !== undefined
 	);
@@ -881,6 +892,7 @@ export async function insertMatrixRecordWithExplicitId(
 	jsonbColumns: Partial<Record<MatrixJsonbColumn, unknown>>,
 	options: { onConflict?: 'throw' | 'ignore' } = {},
 ): Promise<number> {
+	assertNotReadOnlyRequest('insertMatrixRecordWithExplicitId');
 	const tolerateConflict = options.onConflict === 'ignore';
 	const inserted = await insertExplicitIdRow(
 		tableName,
@@ -932,6 +944,7 @@ export async function appendMatrixKeyItems(
 	key: string,
 	items: readonly unknown[],
 ): Promise<number> {
+	assertNotReadOnlyRequest('appendMatrixKeyItems');
 	assertMatrixTable(tableName);
 	if (!MATRIX_JSONB_COLUMNS.includes(column)) {
 		throw new DedaloError('internal.invariant', {
@@ -982,6 +995,7 @@ export async function insertMatrixRowSequenceId(
 	sectionTipo: string,
 	values: MatrixWriteValues,
 ): Promise<number> {
+	assertNotReadOnlyRequest('insertMatrixRowSequenceId');
 	assertMatrixTable(tableName);
 	if (!SEQUENCE_ID_MATRIX_TABLES.includes(tableName)) {
 		throw new DedaloError('internal.invariant', {
@@ -1024,6 +1038,7 @@ export async function insertMatrixRowSequenceId(
  * used by the update engine's version row and a migration's marker row.
  */
 export async function appendMatrixUpdateRow(data: Record<string, unknown>): Promise<void> {
+	assertNotReadOnlyRequest('appendMatrixUpdateRow');
 	await sql.unsafe('INSERT INTO "matrix_updates" ("data") VALUES ($1::text::jsonb)', [
 		encodeForJsonb(data),
 	]);
@@ -1051,6 +1066,7 @@ export async function pruneMatrixEventRowsByAge(
 	cutoffIso: string,
 	options: { apply: boolean },
 ): Promise<{ candidates: number; deleted: number }> {
+	assertNotReadOnlyRequest('pruneMatrixEventRowsByAge');
 	assertMatrixTable(tableName);
 	if (!AGE_PRUNABLE_MATRIX_TABLES.includes(tableName)) {
 		throw new DedaloError('internal.invariant', {
@@ -1077,6 +1093,7 @@ export async function deleteMatrixRecord(
 	sectionTipo: string,
 	sectionId: number,
 ): Promise<number> {
+	assertNotReadOnlyRequest('deleteMatrixRecord');
 	assertMatrixTable(tableName);
 	const deleted = (await sql.unsafe(
 		`DELETE FROM "${tableName}" WHERE section_tipo = $1 AND section_id = $2 RETURNING id`,

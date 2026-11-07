@@ -361,9 +361,13 @@ function summarizeRqo(rqo: Rqo): string {
 // (there is no principal to scope a bound to, so an anonymous caller would be
 // bookkeeping the process-wide backstop for free — the pre-auth actions are
 // login/change_lang/the two password-reset doors, none of which touches the
-// catalogue), and every action classified `idempotent` below (reads are the
+// catalogue), every action classified `idempotent` below (reads are the
 // volume and the large answers; retrying one is lawful and must stay lawful —
-// CLI-01 is about stopping DUPLICATE EXECUTION, not retrying).
+// CLI-01 is about stopping DUPLICATE EXECUTION, not retrying), and a
+// `tool_request` whose nested tool action DECLARES `readOnly` (the one
+// per-request refinement, in withIdempotency: a read-only action's resend
+// re-executes and answers its real outcome — a throw must not become an
+// `ambiguous` reservation that masks the next attempt's error).
 //
 // NOT REACHED BY THIS GATE, enumerated so it is not mistaken for coverage: the
 // MULTIPART upload branch in `src/server.ts` answers before dispatchRqo and
@@ -390,7 +394,11 @@ export type ActionIdempotency = 'idempotent' | 'mutating';
  * ever costs a ledger entry, while a wrong `idempotent` costs a duplicate
  * record. So POLYMORPHIC doors (`tool_request`, `widget_request`,
  * `get_widget_value`, `mcp_proxy`) are `mutating` whatever today's nested action
- * happens to do, and so is anything whose handler was not read.
+ * happens to do, and so is anything whose handler was not read. The ONE
+ * refinement is `tool_request`: a tool action that DECLARES itself `readOnly`
+ * (tools/module.ts) is taken off the ledger per request by withIdempotency —
+ * the static row stays `mutating`, so the ceiling below and the totality gate
+ * are untouched, and an action that declares nothing is ledgered as ever.
  *
  * It is NOT keyed on `source.action` or on `changed_data[].action`, and it does
  * not need to be: `save` is polymorphic (its `insert` on a LITERAL column
@@ -430,8 +438,10 @@ export const ACTION_IDEMPOTENCY: ReadonlyMap<string, ActionIdempotency> = new Ma
 	['dd_core_api:get_environment', 'idempotent'],
 	// ── dd_tools_api ───────────────────────────────────────────────────────
 	// The generic tool door: it carries whatever action the tool named, and the
-	// client passes it no retries of its own, so ~30 tools reach the server
-	// through it at the transport default. Polymorphic ⇒ mutating.
+	// client passes it no retries of its own unless the caller asks, so ~30 tools
+	// reach the server through it at the transport default. Polymorphic ⇒
+	// mutating — except an action that declares `readOnly`, which Gate 4 takes
+	// off the ledger per request (withIdempotency, isReadOnlyToolRequest).
 	['dd_tools_api:tool_request', 'mutating'],
 	['dd_tools_api:user_tools', 'idempotent'],
 	// ── dd_area_maintenance_api ────────────────────────────────────────────
@@ -992,7 +1002,42 @@ async function runIdempotentLeader(
 	}
 }
 
-/** Gate 4 itself: run once under this key, or answer with what the once produced. */
+/** The one polymorphic door Gate 4 can refine by the NESTED action (see ACTION_IDEMPOTENCY). */
+const TOOL_REQUEST_ACTION_KEY = 'dd_tools_api:tool_request';
+
+/**
+ * Does this tool_request name a tool action that DECLARES itself read-only, for
+ * a caller the tool is granted to? Resolved from the loaded module, never from
+ * the client (tools/dispatch.ts isReadOnlyToolRequest: any doubt answers false,
+ * i.e. ledgered — an ungranted caller included, so the ledger cannot be used to
+ * probe which tools and actions exist).
+ */
+async function nestedToolActionIsReadOnly(rqo: Rqo, userId: number): Promise<boolean> {
+	// CONVENTIONS §2 rationale 3 (tool-scale lazy load): same posture as
+	// handlers/dd_tools_api.ts, which loads the tool dispatcher on first use.
+	const { isReadOnlyToolRequest } = await import('../tools/dispatch.ts');
+	return isReadOnlyToolRequest(
+		userId,
+		(rqo.source ?? {}) as { model?: unknown; action?: unknown },
+		rqo.options,
+	);
+}
+
+/**
+ * Gate 4 itself: run once under this key, or answer with what the once produced.
+ *
+ * A READ-ONLY TOOL ACTION IS NOT LEDGERED (`tool_request` only). Its resend is
+ * lawful — it writes nothing, and the claim is policed at runtime
+ * (security/read_only_scope.ts) and statically
+ * (tool_read_only_action_tripwire) — and the ledger would do it harm: a handler
+ * that throws (an upstream `external.http_status`) would leave an `ambiguous`
+ * reservation, and the transport's own retry of that retryable error would be
+ * answered `idempotency.outcome_unknown` instead of the real outcome. The check
+ * runs only for a request that WOULD be ledgered (keyed, authenticated), so an
+ * unkeyed call pays nothing. It is made WITH the caller's identity: a caller the
+ * tool is not granted to is always ledgered, so what the ledger does on a resend
+ * never tells them which tools or actions exist or declare readOnly.
+ */
 async function withIdempotency(
 	rqo: Rqo,
 	context: ApiRequestContext,
@@ -1002,7 +1047,12 @@ async function withIdempotency(
 	const ledgerKey = idempotencyLedgerKey(rqo, context, actionKey);
 	if (ledgerKey === null) return run();
 	const principalKey = idempotencyPrincipalKey(context);
-	if (principalKey === null) return run();
+	if (principalKey === null || context.session === null) return run();
+	if (
+		actionKey === TOOL_REQUEST_ACTION_KEY &&
+		(await nestedToolActionIsReadOnly(rqo, context.session.userId))
+	)
+		return run();
 	const fingerprint = requestFingerprint(rqo);
 	if (fingerprint === null) return run();
 	// THE TTL IS ENFORCED HERE, on the path requests actually take. Sweeping only

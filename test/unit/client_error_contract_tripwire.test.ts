@@ -25,6 +25,17 @@
  *     `{result,msg,errors}`, a client-only diagnostics list) is re-checked
  *     here: every entry must name a measured file and still MATCH a code line
  *     in it. An exemption that stops matching is a blanket waiting to happen.
+ *  5. A TOOL REFUSAL IS RESOLVED IN ONE PLACE (2026-11-06, ERRORS_SPEC §9.1) —
+ *     `details.reason_key` (the closed per-tool enum a tool refuses with) is
+ *     read by exactly ONE client file, `render_api_error.js` (`error_text`: tool
+ *     label → wire message → core label → code), and `ApiError.tool` is
+ *     ASSIGNED by exactly ONE, `data_manager.js` (from the `tool_request` body,
+ *     before it publishes `api_error`). The one other source is the `{tool}` a
+ *     stream/job FRAME site names to `normalize_stream_error` (a frame does not
+ *     say whose it is; `render_stream({tool})` passes it) — pinned by OUTCOME
+ *     below: it stamps only what the caller named and never trusts the body.
+ *     A second reader forks the fallback chain — two surfaces would then show
+ *     two different sentences for one refusal.
  *  3. THE COMPAT-READ CENSUS — client reads of the compat mirror keys
  *     `.msg` / `.errors` / `.result` (ERRORS_SPEC §3.1) are counted by
  *     scripts/lib/client_compat_census.ts and frozen SHRINK-ONLY in
@@ -564,5 +575,155 @@ describe('client error contract — rule 4: NON_ENVELOPE_READS is named, live an
 				'client/dedalo/core/common/js/data_manager.js',
 			).reads,
 		).toBe(1);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Rule 5 — a tool refusal's key has ONE reader, and ApiError.tool ONE writer.
+// ---------------------------------------------------------------------------
+
+const REASON_KEY_READER = 'client/dedalo/core/common/js/render_api_error.js';
+const API_ERROR_TOOL_WRITER = DATA_MANAGER;
+/** `details.reason_key`, `details?.reason_key`, `details['reason_key']` — a read of the refusal enum off an error's details. */
+const REASON_KEY_READ =
+	/\bdetails\s*(?:\?\.|\.)\s*reason_key\b|\bdetails\s*\??\.?\[\s*['"]reason_key['"]\s*\]/g;
+/**
+ * `<receiver>.tool = …` on anything but `this` (an assignment, not a comparison) —
+ * whatever the error variable is called (`api_error`, `error`, `err`, a call
+ * result). `this.tool = …` is the ApiError constructor's own field (and an
+ * unrelated class's); the receiver is what the stamp must not be spelled on.
+ */
+const API_ERROR_TOOL_WRITE = /(?:\b(?!this\b)[\w$]+|[)\]])\s*\.\s*tool\s*=(?!=)/g;
+
+const countMatches = (matcher: RegExp, code: string): number => (code.match(matcher) ?? []).length;
+/** Comments stripped, string contents KEPT (the bracket spelling quotes the key). */
+const sourceOf = (file: string): string => stripComments(read(file));
+
+describe('client error contract — rule 5: a tool refusal is resolved in one place', () => {
+	const files = clientJsFiles();
+
+	test('the scan saw the client tree', () => {
+		expect(files.length).toBeGreaterThan(CORPUS_FLOOR);
+		expect(files).toContain(REASON_KEY_READER);
+		expect(files).toContain(API_ERROR_TOOL_WRITER);
+	});
+
+	test('`details.reason_key` is read by render_api_error.js alone (everyone else goes through error_text)', () => {
+		const readers = files.filter((file) => countMatches(REASON_KEY_READ, sourceOf(file)) > 0);
+		expect(
+			readers,
+			"a second reader of details.reason_key forks error_text's fallback chain — call error_text(api_error) instead",
+		).toEqual([REASON_KEY_READER]);
+	});
+
+	test('`<error>.tool = …` is written by data_manager.js alone', () => {
+		const writers = files.filter((file) => countMatches(API_ERROR_TOOL_WRITE, sourceOf(file)) > 0);
+		expect(
+			writers,
+			'ApiError.tool is stamped from the tool_request body in ONE place, before api_error is published',
+		).toEqual([API_ERROR_TOOL_WRITER]);
+	});
+
+	test('anti-vacuity: both matchers fire on every spelling and ignore the near-misses', () => {
+		for (const read of [
+			'const k = api_error.details.reason_key',
+			'const k = details.reason_key',
+			'const k = details?.reason_key',
+			"const k = details['reason_key']",
+			'const k = api_error.details?.["reason_key"]',
+		]) {
+			expect(countMatches(REASON_KEY_READ, read), read).toBe(1);
+		}
+		// the picker's OWN result field (a label key it returns, not an API detail), a comparison, a comment
+		expect(countMatches(REASON_KEY_READ, "return {status: 'refused', reason_key: blocked}")).toBe(
+			0,
+		);
+		expect(countMatches(REASON_KEY_READ, 'assert.equal(result.reason_key, x)')).toBe(0);
+		expect(countMatches(API_ERROR_TOOL_WRITE, 'api_error.tool = request_tool(body)')).toBe(1);
+		expect(countMatches(API_ERROR_TOOL_WRITE, 'api_error.tool  =  null')).toBe(1);
+		// …whatever the error variable is called, and through a call or an index
+		for (const write of [
+			'error.tool = name',
+			'err.tool=name',
+			'envelope.error.tool = name',
+			'make_error().tool = name',
+			'errors[0].tool = name',
+			'api_error\n\t.tool = name',
+		]) {
+			expect(countMatches(API_ERROR_TOOL_WRITE, write), write).toBe(1);
+		}
+		expect(countMatches(API_ERROR_TOOL_WRITE, "if (api_error.tool === 'x') {}")).toBe(0);
+		expect(countMatches(API_ERROR_TOOL_WRITE, "if (error.tool == 'x') {}")).toBe(0);
+		expect(countMatches(API_ERROR_TOOL_WRITE, 'this.tool = fields.tool')).toBe(0);
+		expect(countMatches(API_ERROR_TOOL_WRITE, 'x.toolbar = 1; x.tool_name = 2')).toBe(0);
+	});
+});
+
+describe("client error contract — rule 5b: a frame is stamped with the tool its caller names, never the body's", () => {
+	// api_error.js imports nothing, so the shipped module loads in bun as it is
+	interface ClientApiError {
+		tool: string | null;
+		details?: unknown;
+		source: string;
+	}
+	const loadApiError = async () =>
+		(await import(join(REPO_ROOT, 'client/dedalo/core/common/js/api_error.js'))) as {
+			normalize_stream_error: (frame: unknown, ctx?: unknown) => ClientApiError | null;
+			ApiError: new (fields: Record<string, unknown>) => ClientApiError;
+		};
+	const refusal = {
+		is_running: false,
+		error: { code: 'request.invalid_options', details: { reason_key: 'bad_bbox' } },
+		request_id: 'rq-frame',
+	};
+
+	test('the v2 frame and the BARE terminal body carry the tool the caller names', async () => {
+		const { normalize_stream_error } = await loadApiError();
+		const stamped = normalize_stream_error(refusal, { tool: 'tool_zz_probe' });
+		expect(stamped?.tool).toBe('tool_zz_probe');
+		expect(stamped?.details).toEqual({ reason_key: 'bad_bbox' });
+		expect(stamped?.source).toBe('stream');
+		const bare = { code: 'tool.source_unavailable', details: { reason_key: 'down', site: 'x' } };
+		expect(normalize_stream_error(bare, { tool: 'tool_zz_probe' })?.tool).toBe('tool_zz_probe');
+	});
+
+	test('no tool named, or a value that is not a tool name: null (the core label, as before)', async () => {
+		const { normalize_stream_error } = await loadApiError();
+		for (const ctx of [
+			undefined,
+			null,
+			{},
+			{ tool: '' },
+			{ tool: 7 },
+			{ tool: null },
+			{ tool: {} },
+		]) {
+			expect(normalize_stream_error(refusal, ctx)?.tool, JSON.stringify(ctx)).toBeNull();
+		}
+	});
+
+	test('a tool name inside the frame or its error body is never read', async () => {
+		const { normalize_stream_error } = await loadApiError();
+		const lying = {
+			is_running: false,
+			tool: 'tool_evil',
+			error: {
+				code: 'request.invalid_options',
+				tool: 'tool_evil',
+				details: { reason_key: 'bad_bbox' },
+			},
+		};
+		expect(normalize_stream_error(lying)?.tool).toBeNull();
+		expect(normalize_stream_error({ ...lying.error, is_running: undefined }, {})?.tool).toBeNull();
+	});
+
+	test('an already-normalised error comes back untouched, and a clean frame stays clean', async () => {
+		const { normalize_stream_error, ApiError } = await loadApiError();
+		const already = new ApiError({ code: 'client.bad_response', source: 'stream' });
+		expect(normalize_stream_error({ error: already }, { tool: 'tool_zz_probe' })).toBe(already);
+		expect(already.tool).toBeNull();
+		expect(
+			normalize_stream_error({ is_running: true, data: { msg: 'x' } }, { tool: 'tool_zz_probe' }),
+		).toBeNull();
 	});
 });

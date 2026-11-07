@@ -41,6 +41,7 @@ import { config } from '../../config/config.ts';
 import { mediaTypeOf } from '../../core/concepts/media.ts';
 import type { MatrixRecord } from '../../core/db/matrix.ts';
 import { DedaloError } from '../../core/errors/index.ts';
+import { withoutUnpublishedGeoKeys } from '../../core/geo/geo_entry_keys.ts';
 import { readComponentItems } from '../../core/resolve/component_data.ts';
 import { phpTrim } from '../parsers/php_string.ts';
 import type { MetaValueIR, ValueMeta } from '../parsers/types.ts';
@@ -351,7 +352,14 @@ export function defaultPublicationValue(
 				const raw = item.value ?? item;
 				if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) continue;
 				const stored = raw as Record<string, unknown>;
-				const { id: _stripped, ...value } = stored;
+				// `sources` (upstream URLs, possibly with a provider token in the
+				// template) and `legend` (embedded icons) are WITHHELD from
+				// publication — the decision is data, geo/geo_entry_keys.ts, and this
+				// is the one door that copies the stored entry whole
+				// (WC-2026-11-06-geolocation-map-sources-legend). The other publication
+				// paths read lat/lon/lib_data by name and never see them.
+				const { id: _stripped, ...entry } = stored;
+				const value = withoutUnpublishedGeoKeys(entry);
 				const fabricated =
 					hasPoint(stored) && isStudioDefault(toCoordinate(stored.lat), toCoordinate(stored.lon));
 				if (fabricated) {

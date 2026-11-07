@@ -87,9 +87,11 @@
 // with no hue falls back to the app default. Scope covers the wrapper AND the
 // header because in a modal the header is slotted OUT of the wrapper (the two
 // are siblings under dd-modal), and a status component can carry a box on the
-// header band.
+// header band. `[data-tool]` (bare, any tool) covers a tool-owned box outside
+// both; (0,2,1) = the wrapper rule, so it never outranks it.
 .wrapper_tool,
-.tool_header {
+.tool_header,
+[data-tool] {
 	input[type="checkbox"],
 	input[type="radio"] {
 		accent-color: var(--tool_fill, var(--checkbox_checked_bg));

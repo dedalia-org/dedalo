@@ -22,10 +22,12 @@ import { DedaloError } from '../errors/index.ts';
 import {
 	LIFECYCLE_KEYS,
 	TOOL_ROUTE_RESERVED_SEGMENTS,
+	type ToolActionSpec,
 	type ToolHttpRoute,
 	type ToolServerModule,
 } from './module.ts';
 import { getRoots } from './paths.ts';
+import { guardReasonKeys, reasonKeysDeclarationProblem } from './reason_keys.ts';
 
 /** A successfully loaded tool: its module plus provenance for confinement/reporting. */
 export interface LoadedTool {
@@ -66,8 +68,28 @@ export function validateToolModule(imported: unknown, expectedName: string): Too
 	const module = tool as ToolServerModule;
 	validateModuleName(module, expectedName);
 	validateApiActions(module);
+	validateReasonKeys(module);
 	validateBootAndRoutes(module);
 	return module;
+}
+
+/**
+ * The module the registry SERVES for an imported tool: contract-validated, then
+ * with every wire-producing entry guarded so a malformed `details.reason_key`
+ * refusal is `internal.invariant` (reason_keys.ts). THE per-tool admission of the
+ * scan — a tool reaches `registry.set` only through it, so no handler runs
+ * unguarded. Each guard keeps the raw function reachable (`unguarded`,
+ * reason_keys.ts). Pinned by OUTCOME: test/unit/tool_reason_keys_tripwire.test.ts
+ * compares the registry `loadToolModules()` fills against the raw imports.
+ */
+export function admitToolModule(imported: unknown, expectedName: string): ToolServerModule {
+	return guardReasonKeys(validateToolModule(imported, expectedName));
+}
+
+/** The optional `reasonKeys` declaration: keys in the label-name grammar, each with a vetted fallback sentence. */
+function validateReasonKeys(module: ToolServerModule): void {
+	const problem = reasonKeysDeclarationProblem(module);
+	if (problem !== null) throw invalidToolModule(problem);
 }
 
 /** `tool.name` equals the directory and matches the tool-name grammar. */
@@ -95,6 +117,47 @@ function validateApiActions(module: ToolServerModule): void {
 		if (typeof spec?.handler !== 'function') {
 			throw invalidToolModule(`apiActions.${method}.handler must be a function`);
 		}
+		validateReadOnlyDeclaration(module, method, spec);
+	}
+}
+
+/**
+ * The permission kinds that do NOT consult `minLevel`: 'developer' asserts a flag
+ * and `null` is the in-handler exemption. Every other kind — and any kind added
+ * later — reads the level, so the closed list is the one that cannot go stale in
+ * the unsafe direction.
+ */
+const LEVEL_FREE_KINDS: readonly string[] = ['developer', 'null'];
+
+/**
+ * `readOnly` (module.ts GatedToolActionSpec.readOnly) is a claim the dispatcher
+ * acts on, so its declaration is checked at load: only the literal `true` (an
+ * absent flag is the mutating default; `false` would be a second spelling of it);
+ * never on a background action (a job is a write); and a level-gated action must
+ * ask for read level EXPLICITLY — the default is 2 (write), which would make a
+ * read-only action demand a right it never uses. EXACTLY 1, not "at most 1": the
+ * gates ask `level < required` (tools/security.ts, security/write_door.ts), which
+ * is never true for 0, a negative or NaN — such a spelling would leave the action
+ * with NO level gate at all, while still reading as a declared read level.
+ */
+function validateReadOnlyDeclaration(
+	module: ToolServerModule,
+	method: string,
+	spec: ToolActionSpec,
+): void {
+	if (spec.readOnly === undefined) return;
+	if (spec.readOnly !== true) {
+		throw invalidToolModule(`apiActions.${method}.readOnly must be the literal true or absent`);
+	}
+	if (module.backgroundRunnable?.includes(method) === true) {
+		throw invalidToolModule(
+			`apiActions.${method}.readOnly cannot also be in backgroundRunnable (a background job is a write)`,
+		);
+	}
+	if (!LEVEL_FREE_KINDS.includes(String(spec.permission)) && spec.minLevel !== 1) {
+		throw invalidToolModule(
+			`apiActions.${method}.readOnly needs an explicit minLevel: 1 — exactly 1 (the gated default is 2, write; 0, a negative or NaN would disable the level gate)`,
+		);
 	}
 }
 
@@ -255,7 +318,7 @@ async function scanRoots(): Promise<Map<string, LoadedTool>> {
 			}
 			try {
 				const imported = await import(canonical);
-				const module = validateToolModule(imported, name);
+				const module = admitToolModule(imported, name);
 				assertNoRouteOverlap(module, registry);
 				registry.set(name, {
 					module,

@@ -123,6 +123,28 @@ export function isAddressRefusal(error: unknown): boolean {
 }
 
 /**
+ * The address refusals that say the NAME did not resolve (the resolver failed or answered
+ * nothing), as opposed to an address that WAS judged non-public. Both are tagged `address`
+ * above — the harvesting door must keep them operator-only — but they are not a policy
+ * verdict: a resolver outage or a provider's DNS blip passes, and a caller that tells a
+ * transient lookup failure from a block (the geo services, which answer one as a
+ * retryable `external.transport` and the other as `external.blocked_host`) asks here
+ * instead of copying the reason strings. Typed on `SsrfRefusalReason`, so a reason that
+ * is renamed or dropped does not compile.
+ */
+const UNRESOLVED_REFUSAL_REASONS: ReadonlySet<string> = new Set<SsrfRefusalReason>([
+	'dns_failed',
+	'no_addresses',
+]);
+
+/** True when an error is this guard reporting that a host name did not resolve. */
+export function isUnresolvedRefusal(error: unknown): boolean {
+	if (!isSsrfRefusal(error)) return false;
+	const reason = (error as DedaloError).coordinates?.reason;
+	return typeof reason === 'string' && UNRESOLVED_REFUSAL_REASONS.has(reason);
+}
+
+/**
  * Pack a constant CIDR table ONCE, at module load, frozen. A literal that does not
  * parse is a defect in the calling file, so it fails the import loudly rather than
  * becoming a block that silently matches nothing. Exported so every address table
@@ -1202,6 +1224,13 @@ export interface GuardedFetchOptions {
 	 * else is refused (`request.invalid_data`), never silently dropped.
 	 */
 	init?: RequestInit;
+	/**
+	 * Fail over to the next vetted address only when the failure PROVES nothing was sent —
+	 * the rule a POST always gets (`mayResend`) — for a GET too. For a caller whose provider
+	 * counts requests (the geo services' one-a-second terms): a GET reset after it left would
+	 * otherwise reach the provider a second time inside the caller's single slot.
+	 */
+	resendOnlyUnsent?: boolean;
 }
 
 const TEXT_MAX_BYTES = 25 * 1024 * 1024;
@@ -1295,6 +1324,12 @@ export interface PinnedHopRequest {
 	 * without paying for its bytes.
 	 */
 	acceptBody?: (status: number, headers: Headers) => boolean;
+	/**
+	 * Move on to the next vetted address only when the failure proves nothing was sent, for a
+	 * GET as for a POST (see `GuardedFetchOptions.resendOnlyUnsent`). Default: a GET moves on
+	 * after any connect-level failure.
+	 */
+	resendOnlyUnsent?: boolean;
 }
 
 /**
@@ -1395,12 +1430,16 @@ const NOTHING_SENT_CODES: ReadonlySet<string> = new Set([
 
 /**
  * May a failed attempt be sent AGAIN to the next vetted address? A GET always may
- * (idempotent). A POST only when the failure proves nothing was sent — RFC 9110
- * §9.2.2: a client must not automatically retry a non-idempotent request, and a
- * re-sent `transcribe` POST starts a second (billed) job.
+ * (idempotent) — unless the caller asked for `resendOnlyUnsent`, because its provider
+ * counts requests and a second one is not free. A POST only when the failure proves
+ * nothing was sent — RFC 9110 §9.2.2: a client must not automatically retry a
+ * non-idempotent request, and a re-sent `transcribe` POST starts a second (billed) job.
  */
-function mayResend(method: PinnedHopRequest['method'], error: unknown): boolean {
-	if (method === 'GET') return true;
+function mayResend(
+	request: Pick<PinnedHopRequest, 'method' | 'resendOnlyUnsent'>,
+	error: unknown,
+): boolean {
+	if (request.method === 'GET' && request.resendOnlyUnsent !== true) return true;
 	const code = (error as { code?: unknown } | null)?.code;
 	return typeof code === 'string' && NOTHING_SENT_CODES.has(code);
 }
@@ -1409,7 +1448,8 @@ function mayResend(method: PinnedHopRequest['method'], error: unknown): boolean 
  * Connect to the first vetted address that answers. A CONNECT-level failure (the
  * fetch rejected before any response) moves on to the next vetted address — a
  * dual-stack name whose AAAA is unreachable from this host must not fail when its A
- * works — but a POST only when nothing was sent (`mayResend`). Never after an HTTP
+ * works — but a POST (or a GET that asked for `resendOnlyUnsent`) only when nothing was
+ * sent (`mayResend`). Never after an HTTP
  * answer: a 500 is the server speaking, not a dead route. Never after our own signal
  * fired: a deadline or a stopped job ends the hop.
  */
@@ -1425,7 +1465,7 @@ async function connectPinned(
 		try {
 			return await untilAborted(fetchImpl(attempt.url, attempt.init), budget.signal);
 		} catch (error) {
-			if (budget.signal.aborted || !mayResend(request.method, error)) {
+			if (budget.signal.aborted || !mayResend(request, error)) {
 				throw budget.failure('connect', error);
 			}
 			lastError = error;
@@ -1615,6 +1655,7 @@ function guardedTextRequest(uri: string, options: GuardedFetchOptions): PinnedHo
 		timeoutMs: options.timeoutMs ?? TEXT_TIMEOUT_MS,
 		acceptBody: successBodyOnly,
 	};
+	if (options.resendOnlyUnsent === true) request.resendOnlyUnsent = true;
 	const body = textBody(init.body);
 	if (body !== undefined) request.body = body;
 	return request;

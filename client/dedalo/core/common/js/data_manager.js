@@ -230,7 +230,9 @@ const client_failure = (api_error) => ({
 * @param {string} [options.referrer='no-referrer'] - Fetch referrer
 * @param {Object|string|null} [options.body=null] - Request payload; objects are JSON-stringified
 * @param {AbortSignal} [options.signal] - Caller abort (→ `client.aborted`, never retried)
-* @param {number} [options.retries=5] - Maximum retry attempts
+* @param {number} [options.retries=5] - Maximum attempts, an integer >= 1 (1 = send once, no
+*   idempotency key). Anything else - undefined, null, NaN, a string - falls back to the
+*   default (see normalize_retries): the stamp and the resend count are decided from ONE value
 * @param {number} [options.base_delay=500] - Base exponential-backoff delay in ms
 * @param {number} [options.timeout=5000] - Per-attempt timeout in ms
 * @param {Object} [options.cache_handler] - IndexedDB cache descriptor `{handler:'localdb', id:string}`
@@ -496,6 +498,48 @@ const page_identity_error = (body) => new ApiError({
 
 
 /**
+* REQUEST_TOOL
+* The tool a request addressed: the `source.model` of a `dd_tools_api` /
+* `tool_request` body, else null. A tool refusal carries `details.reason_key`, and
+* the label that key names lives in THAT tool's register.json — error_text can only
+* find it if the ApiError says which tool was asked. Read off the request, never
+* off the response (the server does not echo it).
+* @param {*} body - the request body (an object, a pre-serialized string, or null)
+* @returns {string|null}
+*/
+const request_tool = (body) => {
+	if (!body || typeof body!=='object' || body.dd_api!=='dd_tools_api' || body.action!=='tool_request') {
+		return null
+	}
+	const model = body.source?.model
+	return (typeof model==='string' && model.length) ? model : null
+}//end request_tool
+
+
+
+/**
+* NORMALIZE_RETRIES
+* The attempt count of one request, decided ONCE. `{...default_options, ...options}`
+* lets a key present with the value `undefined` (or `null`) OVERRIDE the default, and
+* the two consumers of the count disagreed about such a value: the idempotency stamp
+* asks `retries > 1` (false for undefined / null: NO key) while fetch_api clamps with
+* `Math.max(1, retries ?? 5)` (5 attempts) - five byte-identical, UNSTAMPED resends of
+* a write, i.e. the CLI-01 duplicate record. A NaN gave zero attempts. Here every
+* consumer reads the same normalised number: a finite number is floored and clamped to
+* >= 1, anything else is the default.
+* @param {*} value - the caller's `retries` (may be undefined, null, NaN, a string...)
+* @param {number} fallback - the default attempt count
+* @returns {number} an integer >= 1
+*/
+const normalize_retries = (value, fallback) => {
+	return (typeof value==='number' && Number.isFinite(value))
+		? Math.max(1, Math.floor(value))
+		: fallback
+}//end normalize_retries
+
+
+
+/**
 * EXECUTE_REQUEST
 * The single-request execution body behind `data_manager.request` (steps 1-10 of
 * the algorithm documented there). Module-private: every caller goes through
@@ -529,7 +573,9 @@ const execute_request = async function(options) {
 	const merged_options = { ...default_options, ...options };
 
 	// vars from options applying defaults
-	const { url, method, mode, cache, credentials, headers, redirect, referrer, body, signal, retries, base_delay, timeout, notices, busy_notice } = merged_options;
+	const { url, method, mode, cache, credentials, headers, redirect, referrer, body, signal, base_delay, timeout, notices, busy_notice } = merged_options;
+	// ONE attempt count for both the stamp below and the retry loop (normalize_retries)
+	const retries = normalize_retries(merged_options.retries, default_options.retries)
 
 	// CLI-01 / P0-10 — THE IDEMPOTENCY STAMP (WC-2026-08-28-idempotency-key).
 	// A request this layer may RESEND must be one the server can recognise as the
@@ -788,6 +834,12 @@ const execute_request = async function(options) {
 			: {ok:false}
 		envelope.ok		= false
 		envelope.error	= api_error
+
+		// the tool the request addressed — BEFORE the 'api_error' publish below, whose
+		// page subscriber toasts synchronously (error_text needs it for reason_key)
+		if (api_error.tool===null || api_error.tool===undefined) {
+			api_error.tool = request_tool(body)
+		}
 
 		// debug console message. Lock-state chatter is not worth a red line.
 		if (body?.action !== 'update_lock_components_state') {

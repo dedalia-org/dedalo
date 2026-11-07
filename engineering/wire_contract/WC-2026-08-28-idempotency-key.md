@@ -358,3 +358,94 @@ deliberately waiting out the real twin-wait bound on a stuck leader (the only wa
 to prove the wiring rather than the helper). `db_tier.sh` runs with
 `--timeout=30000`; the case declares its own 60 s timeout, so no tier-level
 timeout change is needed.
+
+## Addendum 2026-11-06 — a `tool_request` twin of a read-only action re-executes and is never replayed
+
+**Shape after, for one polymorphic door.** `dd_tools_api:tool_request` stays
+`mutating` in `ACTION_IDEMPOTENCY` (block A of the gate is untouched, and so is the
+`idempotent` ceiling). Gate 4 now refines it **per request** by the NESTED action: a
+tool action whose spec declares `readOnly: true`
+(`src/core/tools/module.ts`) is not ledgered. A keyed `tool_request` to such an
+action therefore carries the key on the wire as before, and the server simply
+does not reserve it:
+
+- two requests under one key execute **twice** — a twin is never held, never
+  answered with `idempotent_replay: true`, never refused with
+  `idempotency.key_reused`;
+- a handler that throws leaves **no** `ambiguous` reservation, so any stamped
+  resend of a retryable error (`external.http_status`, `external.timeout`, 503
+  and 504) receives the action's **real** outcome on every attempt, never
+  `idempotency.outcome_unknown`. That masking was the measured defect on the
+  acquisition tools, whose `tool_request` actions throw `external.http_status`.
+  (The first-party tool client calls a read-only action with `retries: 1` — see
+  **Client** below — so the browser transport itself does not resend it; this is
+  what every OTHER resender gets.)
+
+The classification is read from the **loaded module's own declaration** for the
+exact `(tool, action)` pair; the client cannot claim it (a `read_only` field in
+`options` or `source` changes nothing) and the same action name on another tool
+does not inherit it. Every doubt stays ledgered: an unknown tool or action, an
+`options` that is not an object, a request with `background_running: true` (a job
+is a write; the loader also refuses `readOnly` on a `backgroundRunnable` action).
+The two reserved framework actions `get_background_job_status` and
+`get_background_jobs` classify read-only. Classification precedes the tool-grant
+gate and grants nothing — and it is made WITH the caller's identity: it asks the
+same grant decision as gates 3+4 (`isToolGranted`) first, and a caller the tool is
+not granted to is always ledgered. Without that, the ledger's behaviour on a
+resend was an oracle: the second send of one keyed request gave an ungranted caller
+`tool.not_authorized` again for a read-only pair, and `idempotency.outcome_unknown`
+for any other (an unknown tool or action, a mutating action) — telling them which
+tools and actions exist and which declare `readOnly`, the existence leak
+`unknownTool` (`tools/dispatch.ts`) refuses. Now an ungranted caller sees one
+sequence whatever they name (block H). A classification lookup that throws also
+stays ledgered (fail-safe, exercised by block H).
+
+**What makes the claim safe, and what it does not cover.** The dispatcher runs a
+read-only handler inside the read-only request scope
+(`src/core/security/read_only_scope.ts`): every matrix DML primitive, the item-id
+counter writers (`allocateComponentItemId` / `absorbComponentItemIds`, real UPDATEs
+of `meta` that a resend would bump again), the activity and update-row writers, the
+Time Machine writers and the job manager's `submit` refuse there with
+`internal.invariant`, so a wrong declaration fails loudly instead of re-admitting
+CLI-01 (one exception: the activity log's only emitter, `logActivity`, swallows every
+failure by design, so there the row is dropped and the refusal logged, and the static
+walk names the caller). The scope has no exit — a job never inherits it. That is the
+ENUMERATED set; the rest of "executing it twice leaves the same
+end state" is the tool author's attestation — media files (no single write door),
+a directly spawned `psql` child, DML on other stores (stats, locks, queues, the
+ontology, the derived search tables) and a streamed response body are NOT policed
+by any leg, and every statement of the claim says so. Gates:
+`test/unit/tool_read_only_action_tripwire.test.ts` (declaration, static write-door
+walk, runtime scope, a queued job freed from inside the scope) and
+`test/unit/client_idempotency_tripwire.test.ts` block H (the dispatcher, through the
+real `dispatchRqo`).
+
+**Client.** `tool_common.prototype.tool_request` accepts and forwards `retries`,
+`timeout` and `busy_notice` to `data_manager.request` — only when the caller gives a
+usable one (`retries`: an integer >= 1). A read-only action is never ledgered, so the
+transport's own resend of a stalled call re-executes it (up to five upstream calls
+per click, where the ledger used to make it one): a tool that declares a read-only
+action calls it through `tool_request(` with the literal `retries: 1`, so the
+transport sends once and stamps no key. No wire field is added; the client census
+(block C) gained the forwarder pin, a `tool_request(` call-site rule (every `retries`
+a literal) and the read-only call-site rule, derived from the loaded modules. What
+that rule checks is source text, in the tools that declare a read-only action: each
+`tool_request(` call is read at depth 0 (its own `action` and `retries`; a nested
+option, a shorthand or a spread does not count as a literal), a call of a read-only
+action must spell `retries: 1`, an unreadable action must too, and the other
+spellings of the door — a hand-built `dd_tools_api` body, `create_source` of a
+read-only action, `tool_request` used as a value — are refused in such a tool because
+the census cannot follow where they end up. A read-only action requested from another
+tool's code or from `client/` by an inline source is not covered.
+
+**Transport fix (same change).** `data_manager.execute_request` decided the
+idempotency stamp from the raw `retries > 1` while `fetch_api` clamped
+`Math.max(1, retries ?? 5)`: a `retries` of `undefined` or `null` (a key present in
+the options overrides the default) was FIVE UNSTAMPED attempts — a write resent blind,
+CLI-01 — and `NaN` was none. The count is now normalised once (a finite number is
+floored and clamped to >= 1, anything else is the default 5) and both the stamp and
+the retry loop read that value. Behaviour for a valid `retries` is unchanged
+(block D).
+
+**Gate reconciliation.** No parity gate: the divergence is within the TS engine's own
+ledger and adds no response field, no error code and no label.

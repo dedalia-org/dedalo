@@ -56,6 +56,7 @@
 	import {common, create_source} from '../../../core/common/js/common.js'
 	import {ui} from '../../../core/common/js/ui.js'
 	import {response_data} from '../../../core/common/js/api_error.js'
+	import {register_tool_error_labels} from '../../../core/common/js/render_api_error.js'
 	import {
 		clone,
 		dd_console,
@@ -554,6 +555,11 @@ tool_common.prototype.build = async function(autoload=false, options={}) {
 			}
 		}//end if (autoload===true && !self.context)
 
+	// refusal sentences. A tool refuses with a core code + `details.reason_key`; the
+	// sentence for that key is this tool's own label `reason_<key>` (register.json),
+	// which render_api_error.error_text can only reach through this registry
+		register_tool_error_labels(self.model, self.context?.labels)
+
 	// status update
 		self.status = 'built'
 
@@ -599,34 +605,48 @@ tool_common.prototype.render = async function(options={}) {
 /**
 * TOOL_REQUEST
 * Convenience wrapper that builds and dispatches the standard `dd_tools_api /
-* tool_request` RQO that every tool previously assembled by hand.  Routes the
-* call to the static PHP method `{this.model}::{action}(object $options)` on
-* the server.
+* tool_request` RQO that every tool previously assembled by hand. The server runs
+* the tool's `apiActions[action]` handler (`tools/<tool>/server/index.ts`) behind
+* the dispatcher's gates (granted tool, declared action, permission gate).
 *
-* Security contract: the target PHP method MUST be listed in the tool class's
-* `API_ACTIONS` constant (an associative map of action → handler).  Unlisted
-* methods are rejected server-side by `tool_security`.
+* Security contract: the action MUST be a key of the tool server module's
+* `apiActions`. Anything else is refused server-side (`tool.method_not_allowed`).
 *
 * Background mode: when `options.background = true`, the flag
 * `background_running: true` is injected into the options object forwarded to
-* the PHP method.  The PHP side must also list the method in
-* `BACKGROUND_RUNNABLE`; the server queues the job via the CLI runner and
-* returns immediately with a job handle.
+* the action. The server module must also list the action in `backgroundRunnable`;
+* the server then queues the job and returns immediately with a job handle.
 *
-* `prevent_lock` (default true) releases the PHP session write-lock before the
-* request body is processed.  Set to false only when the action needs to write
-* session data (rare).
+* Retries and idempotency: the transport (`data_manager.request`) resends a
+* request whose attempt timed out, up to 5 attempts, and stamps every resendable
+* request with an idempotency key the server's ledger de-duplicates by. That is
+* right for a write and wrong for a lookup that calls a third-party service, which
+* wants ONE attempt: pass `retries: 1` (no resend, so no key and no ledger entry)
+* and, if the upstream is slow, a longer per-attempt `timeout`. An action that
+* declares itself `readOnly` on the server is never ledgered, so a resend of it
+* re-executes and answers its real outcome - which is why every call site of such
+* an action passes the literal `retries: 1` (gated). The three transport options
+* are forwarded ONLY when given and usable: an explicit `undefined` would override
+* the transport's default.
+*
+* `prevent_lock` is accepted for call-site compatibility and has no effect (the
+* server holds no session lock).
 *
 * @param {Object} options - Request options
-* @param {string} options.action - PHP static method name to invoke, e.g. 'my_action'
-* @param {Object} [options.options={}] - Options object forwarded verbatim to the PHP method
+* @param {string} options.action - Action key in the tool server module's `apiActions`, e.g. 'my_action'
+* @param {Object} [options.options={}] - Options object forwarded verbatim to the action
 * @param {boolean} [options.background=false] - When true, queues the action on the
 *   server background runner; caller receives a job handle, not a direct result
 * @param {string|null} [options.url=null] - Optional API endpoint URL override; when
 *   null, uses the default data_manager endpoint
-* @param {boolean} [options.prevent_lock=true] - When true, releases the PHP session
-*   write-lock before handling the request (recommended for read-heavy actions)
-* @returns {Promise<Object>} API response object `{ result, msg, errors }`
+* @param {boolean} [options.prevent_lock=true] - Compatibility field, inert
+* @param {number} [options.retries] - Transport attempts, an integer >= 1 (data_manager default 5); 1 = send once.
+*   REQUIRED, as the literal `1`, at the call site of an action the server declares `readOnly`
+*   (client_idempotency_tripwire): a read-only action is not ledgered, so a resend re-executes it
+* @param {number} [options.timeout] - Per-attempt deadline in ms (data_manager default 5000)
+* @param {boolean|null} [options.busy_notice] - Whether the slow-call "busy" notice is shown
+*   (data_manager default: on, except for background actions and long timeouts)
+* @returns {Promise<Object>} API envelope v2 `{ ok, request_id, data, error, ... }`
 */
 tool_common.prototype.tool_request = async function(options) {
 
@@ -647,7 +667,7 @@ tool_common.prototype.tool_request = async function(options) {
 	// rqo
 	// `create_source` builds the source descriptor the server uses to identify
 	// which tool and which record the request targets.  `action` is embedded
-	// inside source so the PHP dispatcher can route to the correct method.
+	// inside source so the server dispatcher can route to the correct action.
 		const rqo = {
 			dd_api			: 'dd_tools_api',
 			action			: 'tool_request',
@@ -658,10 +678,22 @@ tool_common.prototype.tool_request = async function(options) {
 				: fn_options
 		}
 
+	// transport options. data_manager merges `{...defaults, ...options}`, so a key
+	// present with the value `undefined` OVERRIDES its default — each is added only
+	// when the caller gave a usable one. `retries` is the dangerous one: it decides
+	// BOTH the idempotency stamp and the resend count, so only an integer >= 1 is
+	// forwarded (data_manager normalises anything else to the default as well; a
+	// caller bug must not depend on that last line of defence alone).
+		const transport_options = {}
+		if (Number.isInteger(options.retries) && options.retries>=1)	transport_options.retries	= options.retries
+		if (options.timeout!==undefined)		transport_options.timeout		= options.timeout
+		if (options.busy_notice!==undefined)	transport_options.busy_notice	= options.busy_notice
+
 	// request
 		const api_response = await data_manager.request({
 			body : rqo,
-			...(url ? {url} : {})
+			...(url ? {url} : {}),
+			...transport_options
 		})
 
 

@@ -1,11 +1,11 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global it, describe, assert, page_globals, L */
+/*global it, describe, assert, page_globals, L, DEDALO_CORE_URL */
 /*eslint no-undef: "error"*/
 
 import { elements } from './elements.js'
 import {get_instance} from '../../../core/common/js/instances.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
-import {is_empty} from '../../../core/component_common/js/component_common.js'
+import {is_empty, component_common} from '../../../core/component_common/js/component_common.js'
 import {ui} from '../../../core/common/js/ui.js'
 
 
@@ -1780,6 +1780,833 @@ describe(`COMPONENT_GEOLOCATION MAP NOT BUILT — the entry points refuse instea
 
 		spy.restore()
 		await instance.destroy(true)
+		while (component_container.firstChild) {
+			component_container.removeChild(component_container.firstChild)
+		}
+	});
+});
+
+
+// THE MAP DEFINITION (sources / legend) IS NEVER DROPPED, BORROWED OR LEFT UN-NUMBERED
+// WC-2026-11-06-geolocation-map-sources-legend. The server REPLACES the entry on a save,
+// so a buffer that was built without `sources`/`legend` deletes them, and one that
+// carried another record's would store it. One case per path that writes into
+// current_value, then the save-echo learning:
+//   handle_coord_change · update_input_values · update_draw_data · layer_data_change
+//   (insert and remove) · map_update_coordinates · fn_refresh · save().
+describe(`COMPONENT_GEOLOCATION MAP DEFINITION IS PRESERVED`, function() {
+
+	this.timeout(20000);
+
+	/** The stored entry: view, one drawn layer, one numbered source, a legend. */
+	const stored_entry = () => ({
+		id			: 5,
+		lat			: 41.38,
+		lon			: 2.17,
+		zoom		: 12,
+		alt			: 16,
+		lib_data	: [{
+			layer_id	: 1,
+			layer_data	: { type:'FeatureCollection', features:[{
+				type		: 'Feature',
+				properties	: { layer_id : 1 },
+				geometry	: { type:'Point', coordinates:[2.17, 41.38] }
+			}]},
+			user_layer_name : 'layer_1'
+		}],
+		sources		: [{
+			id			: 2,
+			type		: 'xyz',
+			url			: 'https://tiles.example.org/{z}/{x}/{y}.png',
+			params		: { max_zoom : 18 },
+			attribution	: 'Example Org'
+		}],
+		legend		: { title : 'Roman roads', groups : [{ name : 'Surface', symbols : [{ label : 'Paved' }] }] }
+	})
+
+	/** A foreign record's entry: its OWN sources (same small number, other address) and legend. */
+	const foreign_entry = () => ({
+		id			: 9,
+		lat			: 40.1,
+		lon			: -3.7,
+		zoom		: 9,
+		alt			: 0,
+		sources		: [{
+			id			: 2,
+			type		: 'xyz',
+			url			: 'https://FOREIGN.example.org/{z}/{x}/{y}.png?key=TOKEN',
+			params		: {},
+			attribution	: 'Foreign'
+		}],
+		legend		: { title : 'FOREIGN legend', groups : [] }
+	})
+
+	/**
+	* Builds a rendered instance whose STORED entry is `entry`, WITHOUT building the map.
+	* The node is not attached to the page unless asked: an attached node can trigger the
+	* component's own lazy map build mid-test, which seeds the buffer and hides the first touch.
+	*/
+	const build_unmapped_instance = async function(id_variant, entry, attach=false) {
+
+		const instance = await build_empty_instance(id_variant)
+		instance.data.entries	= entry ? [entry] : []
+		instance.db_data		= JSON.parse(JSON.stringify(instance.data))
+
+		const node = await instance.render()
+		if (attach) {
+			component_container.appendChild(node)
+		}
+
+		// the precondition of every first-touch case: nothing has seeded the buffer yet
+		instance.current_value = []
+
+		return { instance, node, map_container : node.content_data[0].map_container }
+	}
+
+	/** Same, with a live map; the buffer is then emptied again to exercise the first touch. */
+	const build_mapped_stored_instance = async function(id_variant, entry) {
+
+		const built = await build_unmapped_instance(id_variant, entry, true)
+		await built.instance.get_map(built.map_container, 0)
+		assert.isOk(built.instance.map, 'Leaflet map expected')
+		assert.deepEqual(built.instance.current_value[0], entry, 'get_map expected to seed the buffer from the stored entry')
+		built.instance.current_value = []
+
+		return built
+	}
+
+	const teardown = async function(instance) {
+		await instance.destroy(true)
+		while (component_container.firstChild) {
+			component_container.removeChild(component_container.firstChild)
+		}
+	}
+
+	/** The buffer holds the WHOLE stored entry: nothing the save would replace was left out. */
+	const assert_whole_entry = function(instance, expected, where) {
+		const buffer = instance.current_value[0]
+		assert.isOk(buffer, `${where}: current_value[0] expected`)
+		assert.deepEqual(buffer.sources, expected.sources, `${where}: sources expected kept`)
+		assert.deepEqual(buffer.legend, expected.legend, `${where}: legend expected kept`)
+		assert.deepEqual(buffer.lib_data, expected.lib_data, `${where}: the drawn layers expected kept`)
+		assert.strictEqual(buffer.zoom, expected.zoom, `${where}: the rest of the view expected kept`)
+		// the buffer is a CLONE: editing it never rewrites the baseline the guards compare against
+		assert.notStrictEqual(buffer.sources, instance.data.entries[0].sources, `${where}: sources expected cloned`)
+		assert.notStrictEqual(buffer.legend, instance.data.entries[0].legend, `${where}: legend expected cloned`)
+	}
+
+
+
+	it(`get_entry_buffer seeds from the stored entry (a clone) and from {} on an empty record`, async function() {
+
+		const stored = stored_entry()
+		const { instance } = await build_unmapped_instance('map_def_buffer', stored)
+
+		const buffer = instance.get_entry_buffer(0)
+		assert.deepEqual(buffer, stored, 'the buffer expected equal to the stored entry')
+		assert.notStrictEqual(buffer, instance.data.entries[0], 'the buffer expected a clone')
+		assert.strictEqual(instance.get_entry_buffer(0), buffer, 'a second call expected to return the SAME live buffer')
+		await teardown(instance)
+
+		const { instance : empty } = await build_unmapped_instance('map_def_buffer_empty', null)
+		assert.deepEqual(empty.get_entry_buffer(0), {}, 'a record that stores nothing expected to start from {}')
+		await teardown(empty)
+	});
+
+
+
+	it(`handle_coord_change before the map exists keeps the stored sources, legend and layers`, async function() {
+
+		const stored = stored_entry()
+		const { instance } = await build_unmapped_instance('map_def_coord', stored)
+
+		instance.handle_coord_change(0, 'lat', 40.5)
+
+		assert.strictEqual(instance.current_value[0].lat, 40.5, 'the typed value expected written')
+		assert.strictEqual(instance.current_value[0].lon, stored.lon, 'the other half of the view expected kept')
+		assert_whole_entry(instance, stored, 'handle_coord_change')
+		assert.strictEqual(instance.data.entries[0].lat, stored.lat, 'the stored entry expected untouched')
+
+		const item = instance.build_changed_data_item(0)
+		assert.deepEqual(item.value.sources, stored.sources, 'the SENT value expected to carry the sources')
+		assert.strictEqual(item.id, stored.id, 'the SENT item expected to target the stored id')
+
+		await teardown(instance)
+	});
+
+
+
+	it(`update_input_values (a pan or zoom) before the map exists keeps the stored sources, legend and layers`, async function() {
+
+		const stored = stored_entry()
+		const { instance, map_container } = await build_unmapped_instance('map_def_view', stored)
+
+		instance.update_input_values(0, {lat:41.5, lon:2.2, zoom:13}, map_container)
+
+		assert.strictEqual(instance.current_value[0].zoom, 13, 'the view expected written')
+		assert_whole_entry(instance, { ...stored, zoom : 13 }, 'update_input_values')
+
+		await teardown(instance)
+	});
+
+
+
+	it(`drawing (update_draw_data) keeps the stored sources and legend`, async function() {
+
+		const stored = stored_entry()
+		const { instance } = await build_mapped_stored_instance('map_def_draw', stored)
+
+		instance.ar_layer_loaded = [{ layer_id : instance.active_layer_id, layer_data : [] }]
+		instance.FeatureGroup[instance.active_layer_id] = new L.FeatureGroup().addTo(instance.map)
+		instance.create_point({ lat: 41.7665, lng: -2.4790 })
+
+		assert.isOk(instance.current_value[0].lib_data.length > 0, 'the drawn layers expected written')
+		assert.deepEqual(instance.current_value[0].sources, stored.sources, 'sources expected kept by a drawing')
+		assert.deepEqual(instance.current_value[0].legend, stored.legend, 'legend expected kept by a drawing')
+		assert.strictEqual(instance.current_value[0].zoom, stored.zoom, 'the view expected kept by a drawing')
+
+		await teardown(instance)
+	});
+
+
+
+	it(`geo-tag insert and remove (layer_data_change) keep the stored sources and legend`, async function() {
+
+		const stored = stored_entry()
+		const { instance } = await build_mapped_stored_instance('map_def_tag', stored)
+
+		instance.ar_layer_loaded	= []
+		instance.layer_control		= instance.layer_control || L.control.layers({}).addTo(instance.map)
+		const spy = stub_change_value(instance)
+
+		// insert
+		instance.layer_data_change({ action:'insert', tag_id:7, type:'geo' })
+		await tick()
+		assert.deepEqual(instance.current_value[0].sources, stored.sources, 'sources expected kept by a tag insert')
+		assert.deepEqual(instance.current_value[0].legend, stored.legend, 'legend expected kept by a tag insert')
+		assert.strictEqual(spy.calls[0].changed_data[0].value.zoom, stored.zoom, 'the SENT value expected whole')
+
+		// remove, from an emptied buffer (a remove can be the first touch too)
+		instance.current_value = []
+		instance.layer_data_change({ action:'remove', tag_id:7, type:'geo' })
+		await tick()
+		assert.deepEqual(instance.current_value[0].sources, stored.sources, 'sources expected kept by a tag remove')
+		assert.deepEqual(instance.current_value[0].legend, stored.legend, 'legend expected kept by a tag remove')
+
+		spy.restore()
+		await teardown(instance)
+	});
+
+
+
+	it(`map_update_coordinates borrows the VIEW only: the host keeps its own sources and legend, the observed record's never arrive`, async function() {
+
+		const stored = stored_entry()
+		const { instance } = await build_mapped_stored_instance('map_def_observer', stored)
+		const spy = stub_change_value(instance)
+
+		const caller = {
+			data					: { entries : [ { section_tipo: 'test3', section_id: 2 } ] },
+			datum					: { data : [ {
+				tipo		: 'hierarchy31',
+				section_id	: 2,
+				entries		: [ foreign_entry() ]
+			} ] },
+			request_config_object	: {}
+		}
+		const caller_before = JSON.stringify(caller.datum)
+
+		await instance.map_update_coordinates({ caller : caller })
+
+		const buffer = instance.current_value[0]
+		assert.strictEqual(buffer.lat, 40.1, 'the borrowed coordinate expected written')
+		assert.strictEqual(buffer.zoom, 9, 'the borrowed zoom expected written')
+		assert.deepEqual(buffer.sources, stored.sources, 'THIS record\'s sources expected kept')
+		assert.deepEqual(buffer.legend, stored.legend, 'THIS record\'s legend expected kept')
+		assert.notInclude(JSON.stringify(buffer), 'FOREIGN', 'nothing of the observed definition expected in the buffer')
+		assert.notInclude(JSON.stringify(buffer), 'TOKEN', 'no foreign token expected in the buffer')
+
+		assert.equal(spy.calls.length, 1, 'expected one change_value call')
+		const sent = spy.calls[0].changed_data[0].value
+		assert.deepEqual(sent.sources, stored.sources, 'the SENT value expected to carry THIS record\'s sources')
+		assert.notInclude(JSON.stringify(sent), 'FOREIGN', 'the SENT value expected free of the observed definition')
+
+		assert.equal(JSON.stringify(caller.datum), caller_before, 'the observed record\'s datum expected untouched')
+
+		spy.restore()
+		await teardown(instance)
+	});
+
+
+
+	it(`map_update_coordinates onto a record WITHOUT a definition stores none (the observed one is not copied)`, async function() {
+
+		const { instance } = await build_mapped_stored_instance('map_def_observer_bare', {
+			id : 5, lat : 41, lon : 2, zoom : 7, alt : null
+		})
+		const spy = stub_change_value(instance)
+
+		await instance.map_update_coordinates({ caller : {
+			data					: { entries : [ { section_tipo: 'test3', section_id: 2 } ] },
+			datum					: { data : [ { tipo : 'hierarchy31', section_id : 2, entries : [ foreign_entry() ] } ] },
+			request_config_object	: {}
+		} })
+
+		const buffer = instance.current_value[0]
+		assert.strictEqual(buffer.lat, 40.1, 'the borrowed coordinate expected written')
+		assert.notProperty(buffer, 'sources', 'the observed sources expected NOT copied')
+		assert.notProperty(buffer, 'legend', 'the observed legend expected NOT copied')
+
+		spy.restore()
+		await teardown(instance)
+	});
+
+
+
+	it(`the refresh button restores a CLONE of the stored entry, sources and legend included`, async function() {
+
+		const stored = stored_entry()
+		const { instance, node } = await build_mapped_stored_instance('map_def_refresh', stored)
+
+		node.querySelector('.map_reload').click()
+		await tick()
+
+		assert_whole_entry(instance, stored, 'refresh')
+		assert.isNotTrue(instance.is_data_changed, 'refresh expected to leave the component clean')
+
+		// editing the restored buffer must not rewrite the baseline
+		instance.current_value[0].sources[0].attribution = 'edited'
+		assert.strictEqual(instance.data.entries[0].sources[0].attribution, 'Example Org', 'data.entries expected untouched')
+		assert.strictEqual(instance.db_data.entries[0].sources[0].attribution, 'Example Org', 'db_data expected untouched')
+
+		await teardown(instance)
+	});
+
+
+
+	describe(`save learns what the server owns`, function() {
+
+		/** Replaces component_common.save for one call: the "server" answers with `echo` as the stored entries. */
+		const with_saved_echo = async function(instance, echo_entries, api_response, work) {
+
+			const original = component_common.prototype.save
+			component_common.prototype.save = async function() {
+				if (echo_entries) {
+					this.data = { ...this.data, entries : echo_entries }
+				}
+				return api_response
+			}
+			try {
+				return await work()
+			} finally {
+				component_common.prototype.save = original
+			}
+		}
+
+		it(`a confirmed save takes the server's source numbers and normalized legend into the buffer`, async function() {
+
+			const { instance } = await build_unmapped_instance('map_def_learn', null)
+
+			// what the editor holds: a source with no number yet, a legend as typed
+			instance.current_value[0] = {
+				lat		: 41, lon : 2, zoom : 7, alt : 0,
+				sources	: [{ type:'xyz', url:'https://t.example.org/{z}/{x}/{y}', params:{}, attribution:'' }],
+				legend	: { title : '  T  ', groups : [] }
+			}
+			const echo = [{
+				id		: 6, lat : 41, lon : 2, zoom : 7, alt : 0,
+				sources	: [{ id : 3, type:'xyz', url:'https://t.example.org/{z}/{x}/{y}', params:{}, attribution:'' }],
+				legend	: { title : 'T', groups : [] }
+			}]
+
+			await with_saved_echo(instance, echo, { ok : true, result : {} }, () => instance.save([{ action:'update', key:0, id:null, value:instance.current_value[0] }]))
+
+			assert.strictEqual(instance.current_value[0].sources[0].id, 3, 'the server-issued source number expected learned')
+			assert.strictEqual(instance.current_value[0].legend.title, 'T', 'the normalized legend expected learned')
+			assert.strictEqual(instance.current_value[0].zoom, 7, 'the view expected untouched by learning')
+			assert.notStrictEqual(instance.current_value[0].sources, echo[0].sources, 'the learned sources expected a clone')
+
+			await teardown(instance)
+		});
+
+
+
+		it(`an echo without the keys deletes them from the buffer (the save removed them)`, async function() {
+
+			const stored = stored_entry()
+			const { instance } = await build_unmapped_instance('map_def_learn_removed', stored)
+			instance.current_value[0] = stored_entry()
+			delete instance.current_value[0].legend
+
+			const echo = [{ id : 5, lat : 41.38, lon : 2.17, zoom : 12, alt : 16 }]
+			await with_saved_echo(instance, echo, { ok : true, result : {} }, () => instance.save([{ action:'update', key:0, id:5, value:{} }]))
+
+			assert.notProperty(instance.current_value[0], 'sources', 'sources expected removed from the buffer')
+			assert.notProperty(instance.current_value[0], 'legend', 'legend expected absent')
+
+			await teardown(instance)
+		});
+
+
+
+		it(`a FAILED save learns nothing: the unsaved edit is not overwritten by the previous model`, async function() {
+
+			const stored = stored_entry()
+			const { instance } = await build_unmapped_instance('map_def_learn_failed', stored)
+			instance.current_value[0] = stored_entry()
+			instance.current_value[0].sources[0].attribution = 'unsaved edit'
+
+			const failure = { ok : false, error : { is_api_error : true, code : 'request.invalid_data', message : 'x' } }
+			await with_saved_echo(instance, null, failure, () => instance.save([{ action:'update', key:0, id:5, value:{} }]))
+			assert.strictEqual(instance.current_value[0].sources[0].attribution, 'unsaved edit', 'a failed save expected to leave the buffer alone')
+
+			// a skipped save (concurrency guard, no change) answers false: nothing learned either
+			await with_saved_echo(instance, null, false, () => instance.save([{ action:'update', key:0, id:5, value:{} }]))
+			assert.strictEqual(instance.current_value[0].sources[0].attribution, 'unsaved edit', 'a skipped save expected to leave the buffer alone')
+
+			await teardown(instance)
+		});
+
+
+
+		it(`learn_saved_map_definition leaves a record with no buffer alone`, async function() {
+
+			const { instance } = await build_unmapped_instance('map_def_learn_nobuffer', stored_entry())
+
+			assert.isFalse(instance.learn_saved_map_definition(0), 'no buffer expected: nothing to learn into')
+			assert.isUndefined(instance.current_value[0], 'learning expected not to CREATE a buffer (an untouched record stores nothing)')
+
+			await teardown(instance)
+		});
+	});
+});
+
+
+// TILES COME FROM THE SERVER, NEVER FROM A PROVIDER
+// The component asks the same-origin tile proxy (`<DEDALO_CORE_URL>/api/v1/map_tile`) for every
+// tile it can proxy: the built-in OpenStreetMap, the sources stored in the entry and the
+// ontology's default sources. A request names a source and never carries an address, which
+// is what keeps the page's CSP free of tile hosts and a canvas export of the map untainted
+// (same-origin images can be read back). ArcGIS / DARE / Google are not proxied (the core
+// relays only providers whose terms allow it) and stay direct.
+describe(`COMPONENT_GEOLOCATION TILES GO THROUGH THE TILE PROXY`, function() {
+
+	this.timeout(20000);
+
+	const PROXY_PATH = '/api/v1/map_tile'
+
+	/** A stored entry with two numbered sources and one that was never saved (no id). */
+	const entry_with_sources = () => ({
+		id			: 5,
+		lat			: 41.38,
+		lon			: 2.17,
+		zoom		: 12,
+		alt			: 16,
+		lib_data	: [],
+		sources		: [
+			{ id : 2, type : 'xyz', url : 'https://tiles.example.org/{z}/{x}/{y}.png?key=TOKEN_SECRET', params : { min_zoom : 3, max_zoom : 14 }, attribution : 'Example <b>Org</b>' },
+			{ id : 3, type : 'wms', url : 'https://wms.example.org/service', params : { version:'1.3.0', layers:'roads', styles:'', format:'image/png', transparent:true, crs:'EPSG:3857' }, attribution : '' },
+			{ type : 'xyz', url : 'https://unsaved.example.org/{z}/{x}/{y}.png', params : {}, attribution : 'never saved' }
+		]
+	})
+
+	/** Builds an instance on `geo_provider`, with the ontology defaults the server would send, and its map. */
+	const build_mapped = async function(id_variant, geo_provider, entry, defaults=[{ id : 'regional', label : 'Regional base', type : 'xyz' }]) {
+
+		const instance = await build_empty_instance(id_variant)
+		instance.data.entries	= entry ? [entry] : []
+		instance.db_data		= JSON.parse(JSON.stringify(instance.data))
+		instance.context.features	= { ...(instance.context.features || {}), geo_provider : geo_provider }
+		// what the server sends: id, label, type and what the page needs to draw the layer
+		// (attribution, an xyz source's zoom bounds, a wms source's crs) — never an address
+		instance.context.properties	= {
+			...(instance.context.properties || {}),
+			map_sources : defaults
+		}
+
+		const node = await instance.render()
+		component_container.appendChild(node)
+		await instance.get_map(node.content_data[0].map_container, 0)
+		assert.isOk(instance.map, 'Leaflet map expected')
+
+		return instance
+	}
+
+	const teardown = async function(instance) {
+		await instance.destroy(true)
+		while (component_container.firstChild) {
+			component_container.removeChild(component_container.firstChild)
+		}
+	}
+
+	/** The address Leaflet would request for tile (z=3, x=4, y=2) of `layer`, resolved against the page. */
+	const tile_address = (layer) => new URL(layer.getTileUrl({ x : 4, y : 2, z : 3 }), window.location.href)
+
+
+
+	it(`get_tile_url names a source and never carries an address; {z}, {x}, {y} stay literal for Leaflet`, async function() {
+
+		const instance = await build_empty_instance('tiles_url')
+
+		const builtin = instance.get_tile_url({ builtin : 'osm' })
+		const stored = instance.get_tile_url({ source_id : 7 })
+		const named = instance.get_tile_url({ default_id : 'regional' })
+
+		for (const url of [builtin, stored, named]) {
+			assert.isTrue(url.startsWith(DEDALO_CORE_URL + PROXY_PATH + '?'), 'expected the proxy under DEDALO_CORE_URL: ' + url)
+			assert.notMatch(url, /^[a-z]+:\/\//i, 'expected no scheme: the page asks itself')
+			assert.include(url, 'section_tipo=' + encodeURIComponent(instance.section_tipo))
+			assert.include(url, 'component_tipo=' + encodeURIComponent(instance.tipo))
+			assert.isTrue(url.endsWith('&z={z}&x={x}&y={y}'), 'expected the placeholders literal: ' + url)
+		}
+		assert.include(builtin, 'builtin=osm')
+		assert.notInclude(builtin, 'section_id', 'a built-in expected to name no record')
+		assert.include(stored, 'section_id=' + encodeURIComponent(instance.section_id))
+		assert.include(stored, 'source_id=7')
+		assert.include(named, 'default_id=regional')
+		assert.notInclude(named, 'source_id')
+	});
+
+
+
+	it(`the OSM base layer of every provider that has one comes from the proxy, not from openstreetmap.org`, async function() {
+
+		for (const provider of ['OSM', 'VARIOUS', 'NUMISDATA']) {
+
+			const instance = await build_mapped('tiles_osm_' + provider, provider, null)
+
+			// the OSM layer: tile_layer for OSM, a base layer of the control for the others
+			const osm_layers = []
+			instance.map.eachLayer(layer => {
+				if (layer instanceof L.TileLayer) osm_layers.push(layer)
+			})
+			assert.isOk(osm_layers.length>0, provider + ': a tile layer expected on the map')
+			for (const layer of osm_layers) {
+				const address = tile_address(layer)
+				assert.strictEqual(address.origin, window.location.origin, provider + ': expected a same-origin tile: ' + address.href)
+				assert.strictEqual(address.pathname, DEDALO_CORE_URL + PROXY_PATH)
+				assert.strictEqual(address.searchParams.get('builtin'), 'osm')
+				// Leaflet fills {z} from the layer's own zoom (the map's), {x} and {y} from the tile
+				assert.strictEqual(address.searchParams.get('z'), String(instance.map.getZoom()))
+				assert.strictEqual(address.searchParams.get('x'), '4')
+				assert.strictEqual(address.searchParams.get('y'), '2')
+				assert.notInclude(address.href, 'openstreetmap.org')
+			}
+			assert.include(osm_layers[0].options.attribution, 'OpenStreetMap', provider + ': the attribution expected shown')
+
+			await teardown(instance)
+		}
+	});
+
+
+
+	it(`stored and default sources are offered as switchable overlays through the proxy — by id, never by address`, async function() {
+
+		const instance = await build_mapped('tiles_sources', 'OSM', entry_with_sources())
+
+		assert.deepEqual(Object.keys(instance.source_layers).sort(), ['default:regional', 'stored:2', 'stored:3'], 'expected the numbered stored sources and the default — not the unsaved one')
+
+		const stored = tile_address(instance.source_layers['stored:2'].layer)
+		assert.strictEqual(stored.origin, window.location.origin)
+		assert.strictEqual(stored.searchParams.get('source_id'), '2')
+		assert.strictEqual(stored.searchParams.get('section_id'), String(instance.section_id))
+		assert.strictEqual(tile_address(instance.source_layers['stored:3'].layer).searchParams.get('source_id'), '3', 'a wms source is a tile layer too: the server computes the bbox')
+		assert.strictEqual(tile_address(instance.source_layers['default:regional'].layer).searchParams.get('default_id'), 'regional')
+
+		// nothing the page holds about a source's address reaches a tile request
+		for (const item of Object.values(instance.source_layers)) {
+			const href = tile_address(item.layer).href
+			for (const secret of ['tiles.example.org', 'wms.example.org', 'TOKEN_SECRET', 'unsaved.example.org', 'service']) {
+				assert.notInclude(href, secret)
+			}
+		}
+
+		// the xyz source's own zoom bounds: nothing is asked for BELOW its first zoom (minZoom — a
+		// minNativeZoom would scale that zoom's tiles down and ask for four times as many per level),
+		// and Leaflet scales the last zoom's tiles UP beyond it (maxNativeZoom)
+		const options = instance.source_layers['stored:2'].layer.options
+		assert.strictEqual(options.minZoom, 3)
+		assert.isUndefined(options.minNativeZoom, 'minNativeZoom expected unset: it multiplies the tiles asked for')
+		assert.strictEqual(options.maxNativeZoom, 14)
+
+		// the attribution is data: markup in it is escaped before Leaflet's HTML sink
+		assert.strictEqual(options.attribution, 'Example &lt;b&gt;Org&lt;/b&gt;')
+
+		// offered, not switched on: opening a map loads no tile from a source nobody asked to see
+		for (const item of Object.values(instance.source_layers)) {
+			assert.isFalse(instance.map.hasLayer(item.layer), 'a source expected OFF until the viewer switches it on')
+		}
+		const offered = instance.layer_control._layers.filter(item => item.overlay && item.layer.options.dedalo_source)
+		assert.strictEqual(offered.length, 3, 'expected the three sources in the layer control as overlays')
+
+		await teardown(instance)
+	});
+
+
+
+	it(`an ontology default is drawn with what the server tells the picker: its zoom bounds and its attribution`, async function() {
+
+		const defaults = [
+			{ id : 'bounded', label : 'Bounded base', type : 'xyz', attribution : 'Bounded <i>Org</i>', min_zoom : 4, max_zoom : 12 },
+			{ id : 'plain', label : 'Plain base', type : 'xyz' }
+		]
+		const instance = await build_mapped('tiles_default_params', 'OSM', null, defaults)
+
+		const bounded = instance.source_layers['default:bounded'].layer.options
+		assert.strictEqual(bounded.minZoom, 4, 'a default xyz source expected to ask for nothing below its first zoom')
+		assert.isUndefined(bounded.minNativeZoom)
+		assert.strictEqual(bounded.maxNativeZoom, 12, 'and to scale up beyond its last zoom, not be asked for tiles the provider has not')
+		assert.strictEqual(bounded.attribution, 'Bounded &lt;i&gt;Org&lt;/i&gt;', 'the licence’s attribution expected shown, escaped before the HTML sink')
+		assert.strictEqual(instance.source_layers['default:bounded'].name, 'Bounded base')
+
+		const plain = instance.source_layers['default:plain'].layer.options
+		assert.strictEqual(plain.minZoom, 0)
+		assert.isUndefined(plain.minNativeZoom)
+		assert.strictEqual(plain.maxNativeZoom, 22)
+		assert.strictEqual(plain.attribution, '')
+
+		await teardown(instance)
+	});
+
+
+
+	it(`the layer control never turns a source's name into markup: a hostile default label and a hostile attribution are text`, async function() {
+
+		// The server refuses `<` and `>` in both (save time for a stored source, read time for an ontology
+		// default). The page does not rely on it: Leaflet's layer control writes the name as HTML.
+		const hostile = '<img src=x onerror="window.dedalo_label_xss=1">'
+		window.dedalo_label_xss = 0
+		const entry = entry_with_sources()
+		entry.sources[0].attribution = hostile
+		const defaults = [{ id : 'hostile', label : hostile, type : 'xyz', attribution : '' }]
+		const instance = await build_mapped('tiles_label_markup', 'VARIOUS', entry, defaults)
+		await tick()
+
+		const container = instance.layer_control.getContainer()
+		assert.isNull(container.querySelector('img'), 'a label expected to be text, never an element')
+		assert.isNull(container.querySelector('[onerror]'), 'no element with an event handler expected in the control')
+		assert.include(container.textContent, hostile, 'expected the label shown as the text it is')
+		assert.strictEqual(window.dedalo_label_xss, 0, 'nothing expected to have run')
+		// the raw name stays what the data said: only the sink gets the escaped one
+		assert.strictEqual(instance.source_layers['default:hostile'].name, hostile)
+
+		await teardown(instance)
+	});
+
+
+
+	it(`a tile the proxy refused is asked for again, twice at most, and never once it has left the page`, async function() {
+
+		const instance = await build_mapped('tiles_retry', 'OSM', null)
+		instance.tile_retry_delays = [5, 5]
+		const layer = instance.source_layers['default:regional'].layer
+
+		// an <img> that records every time its src is set; a data URI so nothing leaves the page
+		const make_tile = () => {
+			const tile = document.createElement('img')
+			const state = { value : 'data:image/gif;base64,R0lGODlhAQABAAAAACw=', sets : 0 }
+			Object.defineProperty(tile, 'src', {
+				configurable : true,
+				get : () => state.value,
+				set : (value) => { state.sets++; state.value = value }
+			})
+			component_container.appendChild(tile)
+			return { tile, state }
+		}
+		const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+		const kept = make_tile()
+		for (let failure = 0; failure<4; failure++) {
+			layer.fire('tileerror', { tile : kept.tile, coords : { x : 1, y : 1, z : 3 }, error : new Event('error') })
+			await wait(40)
+		}
+		assert.strictEqual(kept.state.sets, 2, 'expected two retries and then the tile left alone')
+
+		const gone = make_tile()
+		layer.fire('tileerror', { tile : gone.tile, coords : { x : 2, y : 1, z : 3 }, error : new Event('error') })
+		gone.tile.remove()
+		await wait(40)
+		assert.strictEqual(gone.state.sets, 0, 'a tile that left the page expected not to be asked for again')
+
+		// the built-in layers retry as well
+		const osm = instance.get_osm_layer()
+		const builtin = make_tile()
+		osm.fire('tileerror', { tile : builtin.tile, coords : { x : 3, y : 1, z : 3 }, error : new Event('error') })
+		await wait(40)
+		assert.strictEqual(builtin.state.sets, 1)
+
+		await teardown(instance)
+	});
+
+
+
+	it(`a WMS source in a geographic CRS is not asked for below zoom 8; in the map's own CRS it is asked for at every zoom`, async function() {
+
+		const wms = (id, crs) => ({ id : id, type : 'wms', url : 'https://wms.example.org/service', params : { version:'1.3.0', layers:'roads', styles:'', format:'image/png', transparent:true, crs:crs }, attribution : '' })
+		const entry = entry_with_sources()
+		entry.sources = [wms(2, 'EPSG:4258'), wms(3, 'EPSG:3857'), wms(4, 'EPSG:4326')]
+		const defaults = [
+			{ id : 'geographic', label : 'Geographic', type : 'wms', attribution : 'WMS', crs : 'EPSG:4326' },
+			{ id : 'mercator', label : 'Mercator', type : 'wms', attribution : 'WMS', crs : 'EPSG:3857' }
+		]
+		const instance = await build_mapped('tiles_geographic', 'OSM', entry, defaults)
+
+		for (const key of ['stored:2', 'stored:4', 'default:geographic']) {
+			assert.strictEqual(instance.source_layers[key].layer.options.minZoom, 8, key + ': a geographic-CRS tile is relayed from zoom 8 up')
+		}
+		for (const key of ['stored:3', 'default:mercator']) {
+			assert.strictEqual(instance.source_layers[key].layer.options.minZoom, 0, key + ': a mercator WMS source expected at every zoom')
+		}
+
+		await teardown(instance)
+	});
+
+
+
+	it(`a source that starts at zoom 8 asks for NO tile at zoom 2 — not the tens of thousands that scaling its zoom-8 tiles down would`, async function() {
+
+		const instance = await build_mapped('tiles_min_zoom', 'OSM', entry_with_sources(), [
+			{ id : 'regional', label : 'Regional', type : 'xyz', attribution : '', min_zoom : 8, max_zoom : 14 }
+		])
+		instance.move_camera(20, 0, 2)
+		await tick()
+
+		const layer = instance.source_layers['default:regional'].layer
+		layer.addTo(instance.map)
+		// a layer built on `minZoom` loads a tile only inside its range: at zoom 2 it is outside
+		assert.strictEqual(layer.getContainer().querySelectorAll('img').length, 0, 'no tile expected below the source’s first zoom')
+		assert.strictEqual(Object.keys(layer._tiles).length, 0)
+
+		// …and from its first zoom on it asks, as a layer should (the base layer shows the cost of a viewport)
+		instance.move_camera(20, 0, 8)
+		await tick()
+		assert.isAbove(Object.keys(layer._tiles).length, 0, 'tiles expected once the zoom is inside the source’s range')
+		assert.isBelow(Object.keys(layer._tiles).length, 200, 'a viewport of tiles expected, never a multiple of it')
+
+		// the layer control greys the checkbox of a source out of its range instead of letting it be switched on
+		instance.move_camera(20, 0, 2)
+		await tick()
+		assert.strictEqual(Object.keys(layer._tiles).length, 0, 'zooming back out expected to release the tiles')
+
+		await teardown(instance)
+	});
+
+
+
+	it(`a source stays OVER the base map: toggling the theme (which re-adds the OSM base) does not cover it, and the control numbers every base below every source`, async function() {
+
+		const stacking = (layer) => Number(window.getComputedStyle(layer.getContainer()).zIndex)
+
+		// the OSM provider rebuilds its base layer — which is not in the layer control — when the page theme changes.
+		// The control numbers the sources 1, 2, 3 … so a base left at Leaflet's default 1 covers the first of them
+		const instance = await build_mapped('tiles_stacking', 'OSM', entry_with_sources())
+		const first = instance.source_layers['stored:2'].layer
+		const second = instance.source_layers['stored:3'].layer
+		first.addTo(instance.map)
+		second.addTo(instance.map)
+		const root = document.documentElement
+		const theme_before = root.getAttribute('data-theme')
+
+		const base_before = instance.tile_layer
+		root.setAttribute('data-theme', theme_before==='dark' ? 'light' : 'dark')
+		await tick()
+		await new Promise(resolve => setTimeout(resolve, 20))
+		if (theme_before===null) root.removeAttribute('data-theme')
+		else root.setAttribute('data-theme', theme_before)
+
+		assert.notStrictEqual(instance.tile_layer, base_before, 'the theme toggle expected to have rebuilt the base layer')
+		assert.isTrue(instance.map.hasLayer(first) && instance.map.hasLayer(second), 'the sources expected still on the map')
+		for (const source of [first, second]) {
+			assert.isAbove(stacking(source), stacking(instance.tile_layer), 'a source expected stacked over the base that was added after it (source ' + stacking(source) + ', base ' + stacking(instance.tile_layer) + ')')
+		}
+		// …and the first source, which the control numbers 1, is the one a default-numbered base used to cover
+		assert.strictEqual(stacking(first), 1)
+		assert.strictEqual(stacking(instance.tile_layer), 0)
+
+		await teardown(instance)
+
+		// the bases in the control (VARIOUS, NUMISDATA) are numbered by the control before any source,
+		// so a base picked later — Leaflet's control keeps those numbers — is under every source too
+		const various = await build_mapped('tiles_stacking_base', 'VARIOUS', entry_with_sources())
+		const entries = various.layer_control._layers
+		const bases = entries.filter(item => !item.overlay).map(item => item.layer.options.zIndex)
+		const sources = entries.filter(item => item.overlay && item.layer.options.dedalo_source).map(item => item.layer.options.zIndex)
+		assert.isAbove(bases.length, 0, 'base maps expected in the control')
+		assert.isAbove(sources.length, 0, 'sources expected in the control')
+		assert.isAbove(Math.min(...sources), Math.max(...bases), 'every source expected numbered above every base map of the control')
+
+		await teardown(various)
+	});
+
+
+
+	it(`a source overlay is not a drawing layer: it never becomes the active layer and 'full' never switches it on`, async function() {
+
+		const instance = await build_mapped('tiles_hazards', 'VARIOUS', entry_with_sources())
+		const source_layer = instance.source_layers['stored:2'].layer
+
+		instance.active_layer_id = 7
+		instance.map.fire('overlayadd', { layer : source_layer, name : 'Example' })
+		assert.strictEqual(instance.active_layer_id, 7, 'a source switched on expected NOT to take over the active drawing layer')
+		// …while a drawing layer still does
+		instance.map.fire('overlayadd', { layer : new L.FeatureGroup(), name : 9 })
+		assert.strictEqual(instance.active_layer_id, 9, 'a drawing layer expected to become active')
+
+		instance.layers_loader({ load : 'full' })
+		for (const item of Object.values(instance.source_layers)) {
+			assert.isFalse(instance.map.hasLayer(item.layer), "layers_loader('full') expected to leave tile sources off")
+		}
+
+		await teardown(instance)
+	});
+
+
+
+	it(`the layer control always exists when a layer is loaded: the OSM provider no longer meets \`false.addOverlay\``, async function() {
+
+		// the OSM provider builds no control with its base layer; the map's first drawing layer
+		// (loaded when the map is ready) used to call addOverlay on `false`
+		const instance = await build_mapped('tiles_control', 'OSM', null, [])
+		await tick()
+
+		assert.isOk(instance.layer_control, 'loading the first drawing layer expected to create the control it adds to')
+		assert.isOk(instance.FeatureGroup[instance.active_layer_id], 'the drawing layer expected loaded')
+		assert.strictEqual(Object.keys(instance.source_layers).length, 0, 'no sources expected to be offered when there are none')
+
+		await teardown(instance)
+	});
+
+
+
+	it(`build_source_layers is idempotent: a second call replaces the layers, and a stored entry without sources offers only the defaults`, async function() {
+
+		const instance = await build_mapped('tiles_rebuild', 'VARIOUS', entry_with_sources())
+		const first = instance.source_layers['stored:2'].layer
+
+		assert.deepEqual(instance.build_source_layers(0).sort(), ['default:regional', 'stored:2', 'stored:3'])
+		assert.notStrictEqual(instance.source_layers['stored:2'].layer, first, 'expected a fresh layer')
+		const in_control = instance.layer_control._layers.filter(item => item.layer.options.dedalo_source)
+		assert.strictEqual(in_control.length, 3, 'expected no duplicate in the control after a rebuild')
+
+		// the saved sources changed (a save echo): the layers follow
+		instance.data.entries[0].sources = [instance.data.entries[0].sources[1]]
+		assert.deepEqual(instance.build_source_layers(0).sort(), ['default:regional', 'stored:3'])
+		assert.strictEqual(instance.layer_control._layers.filter(item => item.layer.options.dedalo_source).length, 2)
+
+		await teardown(instance)
+	});
+
+
+
+	it(`destroy releases the source layers with the map`, async function() {
+
+		const instance = await build_mapped('tiles_destroy', 'OSM', entry_with_sources())
+		assert.isOk(Object.keys(instance.source_layers).length>0)
+
+		await instance.destroy(true)
+
+		assert.deepEqual(instance.source_layers, {}, 'expected the source layers forgotten')
+		assert.isNull(instance.map)
 		while (component_container.firstChild) {
 			component_container.removeChild(component_container.firstChild)
 		}

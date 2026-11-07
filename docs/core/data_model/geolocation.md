@@ -70,6 +70,8 @@ The item fields:
 | `zoom` | int | the **view**'s Leaflet zoom level (default `16`) |
 | `alt` | int | altitude / elevation — real data on the installs that use it (default `0`) |
 | `lib_data` | array | the **features**: drawn shapes as GeoJSON layers (the rendering-library data) |
+| `sources` | array | optional: the **map sources** the map is drawn over — see [Map sources and legend](#map-sources-and-legend) |
+| `legend` | object | optional: the **legend** that explains the drawing — see [Map sources and legend](#map-sources-and-legend) |
 | `id` | int | per-item counter id (from the component `meta` counter) |
 
 !!! warning "Coordinate order — read this twice"
@@ -113,6 +115,121 @@ carry extra `properties`:
 Layers exist so a transcription [`component_text_area`](../components/component_text_area.md)
 can pair each drawn shape with a `geo` tag in the text — the layer is
 loaded/removed as the tag is inserted/removed.
+
+### Map sources and legend
+
+Two optional keys sit **beside** `lib_data`, never inside it — `lib_data` stays pure
+GeoJSON. They are saved with the field like the rest of the value, so they follow the
+record's permissions, history, duplication and export.
+
+```json
+{
+  "lat": 41.38, "lon": 2.17, "zoom": 12, "alt": 16,
+  "lib_data": [],
+  "sources": [
+    {"id": 4, "type": "xyz", "url": "https://tiles.example.org/{z}/{x}/{y}.png",
+     "params": {"max_zoom": 18}, "attribution": "Example Org"},
+    {"id": 5, "type": "wms", "url": "https://wms.example.org/service",
+     "params": {"version": "1.3.0", "layers": "base", "styles": "", "format": "image/png",
+                "transparent": false, "crs": "EPSG:3857"},
+     "attribution": "Example WMS"}
+  ],
+  "legend": {"title": "Roman roads",
+             "groups": [{"name": "Surface",
+                         "symbols": [{"label": "Paved", "icon": "data:image/png;base64,…"},
+                                     {"label": "Track"}]}]}
+}
+```
+
+A **source** is data the server reads, never an address the browser fetches. `type` is
+`xyz` (a tile template carrying `{z}`, `{x}` and `{y}`, and no other placeholder) or
+`wms` (a plain endpoint; the server asks it for map images of each tile). `params` is
+closed per type — an unknown key is refused, not dropped:
+
+- `xyz`: `{}` or `min_zoom` / `max_zoom` (integers 0–22);
+- `wms`: `version` (`1.1.1` or `1.3.0`), `layers`, `styles`, `format` (png, jpeg, gif
+  or webp), `transparent`, `crs` (`EPSG:3857`, `EPSG:4326` or `EPSG:4258`). Nothing else
+  is stored: the server fixes the request itself.
+
+`attribution` is plain text (up to 300 characters; `<` and `>` are refused).
+
+The address of a source must use `http` or `https`, carry no credentials and no
+fragment, use the **standard web port of its scheme** (80 or 443, written or implied: the
+server reaches no other, so a source on `:8080` would save and never draw), and name a public
+host: a private or loopback address literal, a loopback name or a single-label name is refused,
+in whatever spelling. A stored template is checked when it is saved and again whenever it is
+used.
+
+A `wms` source whose `crs` is geographic (`EPSG:4326`, `EPSG:4258`) is drawn from zoom 8 up.
+The server asks such a service for each tile's longitude and latitude corners and gets a
+plate carrée picture, which the map draws as a Web Mercator tile; the two agree to under a
+pixel from zoom 8 and are visibly misregistered below it (about 12 pixels at zoom 4). A
+service that offers `EPSG:3857` should be stored with it, and is drawn at every zoom. See
+[the tile proxy](../system/map_tile_proxy.md).
+
+**Source numbers are issued by the server.** `id` comes from the field's own item
+counter, so it is unique among the field's sources and is never given out twice. A number is
+a per-record number — "this record's source 4" — and is settled on every save:
+
+- a source that names a number the field **holds** keeps it (the first source to name it
+  holds it);
+- a source with **no** number, or a number the field does not hold, that equals a source the
+  field already stores (apart from the number) **takes that source's number** — so saving an
+  unchanged file again changes nothing: the same bytes, the same numbers, and no new history
+  from an import run;
+- anything else is **new** and receives a new number; the save response carries the final
+  numbers. A deleted source's number is never handed out again: a source sent back with it
+  (an undo, a copy, a re-imported export) is new.
+
+The same number twice in one value is not an error: the second source is a copy and is
+numbered. Two sources that name the **same** stored number are therefore resolved by
+**position** — the one listed first keeps the number, so a source you need to keep under its
+number goes first. (An explicit number outranks a match by content wherever the two sit; only
+this tie depends on the order.) A source that comes from **another record** (a propagated
+value, a file written from another record's export) carries *that* record's numbers, and
+small numbers coincide often: a foreign source naming a number this field holds is an **edit
+of that source** — its content is replaced — and any other foreign number is replaced by a
+new one. A value is settled **per record**: the same value saved into many records (a
+propagation) numbers each one as if it were saved alone, whatever numbers the others
+received. At most 24 sources per item, and at most 96 across all the items of one value.
+
+The **legend** is a title and named groups of symbols; a symbol has a `label` and, if you
+want one, an `icon`. An icon is a base64 `data:` URI of a **png, jpeg or webp** image (an
+svg is refused, and so is any address), the image's own header must match the declared
+type, and it is shown only as an image. An icon is at most 64 KiB and one legend carries
+at most 256 KiB of icons. The size the image *declares* is bounded too, because a few
+kilobytes of png can declare a bitmap of a gigabyte: an icon is at most 256 × 256 pixels
+and the icons of one legend together at most one megapixel. All the items of one value
+together carry at most four legends, 1 MiB of icons and 832,800 characters of legend text
+(four legends' worth). Text that reads as the start of a tag is refused
+(which keeps it inert as page text; a label is always shown as text, never built into
+markup).
+
+Saving a value **replaces** the item: a value sent without `sources` or `legend` stores
+without them. An empty list or an empty legend is stored as no key at all. A save that is
+refused stores nothing; the failing source and rule are written to the server log (the
+response to a browser carries only the generic "invalid data" message) and an import
+reports them per cell.
+
+**Who sees what.** A stored source's address is part of the record, so **everyone who can
+read the field reads it** — the edit view, the raw export and the Time Machine carry it as
+stored. Put a provider key that must stay private in an ontology default (below), never in a
+record's source. The list view carries the view and the drawn layers only: a grid row never
+holds `sources` or `legend`. The map definition is checked again as it is sent out, because
+a restore from history writes the record back without the save checks: an icon that is no
+longer a valid png, jpeg or webp image of an allowed size is left out, a legend whose text
+opens a tag is not sent, and a source whose attribution is no longer plain text is sent with
+a blank attribution (the source itself stays).
+
+An ontology node may offer **default sources** to every record of the field in
+`properties.map_sources`: a list of the same objects, each with a short name as `id`
+(lowercase letters, digits and `_`) and an optional `label` for the picker (plain text, like the
+attribution: a label with `<` or `>` is rejected). An entry that
+does not pass the checks above is rejected with its position and reason, and is never
+offered. The browser is told each default's name, label, type and attribution, plus an `xyz`
+source's `min_zoom` / `max_zoom` or a `wms` source's `crs` (what it needs to show the licence's
+attribution and to ask only for tiles worth asking for) — never its address, its layer list or
+any other parameter, so a key kept in a default stays on the server.
 
 ### Absence is structural — there is no magic coordinate
 
@@ -172,9 +289,13 @@ Everywhere else — storage, editing, search, import, migration — the pair is 
 
     | the item | what the repair does |
     | --- | --- |
-    | the studio-default view and **no** features | the whole item is **removed**, `alt` included — it is fabricated in its entirety and the record ends with no geolocation at all |
-    | the studio-default view **with** features | the view is **fitted to the geometry**: `lat`/`lon` become the bounding-box centre of every feature across the item's `lib_data` layers. Features, `zoom`, `alt`, `id` and every other key are untouched. For a single drawn Point the fitted view *is* that point, verbatim |
+    | the studio-default view and **no** features and no map definition | the whole item is **removed**, `alt` included — it is fabricated in its entirety and the record ends with no geolocation at all |
+    | the studio-default view **with** features (and no map definition) | the view is **fitted to the geometry**: `lat`/`lon` become the bounding-box centre of every feature across the item's `lib_data` layers. Features, `zoom`, `alt`, `id` and every other key are untouched. For a single drawn Point the fitted view *is* that point, verbatim |
+    | an item that carries a **map definition** — a non-empty `sources` list, or a `legend` with a title or a group — whatever its view | **untouched**: it is content somebody wrote, never a fabrication, so it is neither removed nor fitted (its view stays a human decision; publication still refuses the pair) |
     | anything else | **untouched** |
+
+    An empty `sources` list or an empty legend is "none" (it is stored as no key at all), so an
+    item that carries only those is still a bare default and is repaired like one.
 
     Fitting a view to the features is not authoring a location — it is what a
     view is for.
@@ -299,6 +420,10 @@ That atom publishes what is stored, per item:
    carries features they publish without `lat`/`lon`; if it carries none, there
    is **no atom**;
 3. an item with **neither** a usable view nor features produces **no atom**.
+
+`sources` and `legend` are **never published**: a source is an upstream address that may
+carry a provider token, and a legend carries embedded icons. An item whose only content
+is `sources` and `legend` produces no atom.
 
 The other two emission paths — `parser_geo::geojson`
 (`src/diffusion/parsers/parser_misc.ts`) and `buildGeojsonLayers`

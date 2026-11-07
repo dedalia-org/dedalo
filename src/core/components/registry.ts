@@ -79,7 +79,7 @@ import { component_select_lang } from './component_select_lang/descriptor.ts';
 import { component_state } from './component_state/descriptor.ts';
 import { component_svg } from './component_svg/descriptor.ts';
 import { component_text_area } from './component_text_area/descriptor.ts';
-import type { ComponentModel, ImportAppendPolicy, RenderClass } from './types.ts';
+import type { ComponentModel, ImportAppendPolicy, ItemGateId, RenderClass } from './types.ts';
 
 /** Every registered descriptor. One entry per `component_<model>/descriptor.ts`. */
 const ALL_DESCRIPTORS: readonly ComponentModel[] = [
@@ -198,6 +198,15 @@ export function getFlatValueFamily(model: string): ComponentModel['flatValue'] {
  */
 export function isMonovalueModel(model: string): boolean {
 	return resolveCanonical(model)?.monovalue === true;
+}
+
+/**
+ * The model's ITEM GATE (`itemGate` facet, alias-following): the id of the
+ * model-specific gate saveComponentData runs over the final items of a save, or
+ * undefined for a model with none. Read by section/record/item_gates.ts.
+ */
+export function getItemGate(model: string): ItemGateId | undefined {
+	return resolveCanonical(model)?.itemGate;
 }
 
 /**

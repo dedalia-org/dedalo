@@ -28,6 +28,7 @@
 import { readEnv } from '../../config/env.ts';
 import { isModulePoisonError, markProcessPoisoned } from '../api/process_health.ts';
 import { DedaloError, type ErrorDetailScalar, isDedaloError } from './dedalo_error.ts';
+import { REASON_KEY, REASON_KEY_PATTERN } from './registry.ts';
 import type { ApiErrorBody, ApiNotice, ErrEnvelope, OkEnvelope } from './schema.ts';
 
 export type ErrorSurface = 'http' | 'tool' | 'mcp' | 'stream';
@@ -93,6 +94,18 @@ function isDetailScalar(value: unknown): value is ErrorDetailScalar {
 	return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
 }
 
+/**
+ * One declared detail's value as the wire may carry it: a scalar — and, for the
+ * tool refusal enum (`reason_key`), a scalar that also spells a key
+ * (REASON_KEY_PATTERN). The pattern keeps free text off the wire under the one
+ * key a client turns into a LABEL NAME; the tool loader checks the set, this
+ * checks the shape for a throw that bypassed it.
+ */
+function isWireDetail(key: string, value: unknown): value is ErrorDetailScalar {
+	if (key === REASON_KEY) return typeof value === 'string' && REASON_KEY_PATTERN.test(value);
+	return isDetailScalar(value);
+}
+
 /** `details` filtered to the code's closed key set, scalars only. */
 function wireDetails(error: DedaloError): Record<string, ErrorDetailScalar> | undefined {
 	const keys = error.spec.details_keys;
@@ -101,7 +114,7 @@ function wireDetails(error: DedaloError): Record<string, ErrorDetailScalar> | un
 	const out: Record<string, ErrorDetailScalar> = {};
 	for (const key of keys) {
 		const value = details[key];
-		if (isDetailScalar(value)) out[key] = value;
+		if (isWireDetail(key, value)) out[key] = value;
 	}
 	return Object.keys(out).length === 0 ? undefined : out;
 }

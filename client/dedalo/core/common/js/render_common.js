@@ -448,6 +448,11 @@ const toggle_section_group_label_siblings = function (e) {
 *   Defaults to the value of `SHOW_DEBUG`.
 * @param {boolean} [options.delete_local_db_data=true] - When true, removes the
 *   local DB status entry once `is_running` becomes false.
+* @param {string|null} [options.tool] - The tool whose job this is (its `self.model`).
+*   A failed run ends with a frame that does not say which tool it belongs to; with this
+*   the frame's `details.reason_key` resolves to THAT tool's own `reason_<key>` label
+*   (render_api_error.error_text) instead of the core code's generic one. Omit it for a
+*   run that is not a tool's.
 * @returns {Object} response - Handle object with:
 *   - `{HTMLElement} process_status_node` — root panel node.
 *   - `{Function} update_info_node(sse_response, [callback])` — call on each SSE chunk.
@@ -464,6 +469,7 @@ export const render_stream = function(options) {
 		const on_stop				= options.on_stop
 		const display_json			= options.display_json ?? (SHOW_DEBUG===true)
 		const delete_local_db_data	= options.delete_local_db_data ?? true
+		const tool					= options.tool
 
 	// response. Object to fill and return
 		const response = {
@@ -633,8 +639,9 @@ export const render_stream = function(options) {
 
 						// A failed run ends with a coded frame; normalize_stream_error
 						// reads the v2 `{is_running:false, error:{code,…}}` shape (and the
-						// BARE agent-SSE error body).
-						const api_error = normalize_stream_error(sse_response)
+						// BARE agent-SSE error body). The tool (when the caller named one)
+						// is what lets a `reason_key` refusal read in the tool's own words.
+						const api_error = normalize_stream_error(sse_response, {tool})
 
 						info_node.msg_node.textContent = api_error
 							? `${get_label?.proceso || 'Process'} ${sse_response.total_time ?? ''}`

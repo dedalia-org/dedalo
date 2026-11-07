@@ -56,10 +56,105 @@ const fill_positional = (text, details) => {
 
 
 /**
+* TOOL_ERROR_LABELS
+* tool name → the `reason_*` entries of that tool's context labels (register.json
+* `labels`, single language: the server serves only the application language, and
+* an empty list when the tool has none). Filled by tool_common.build; read by
+* error_text to turn `details.reason_key` into the tool's own sentence. Bounded by
+* the number of tools.
+*/
+const tool_error_labels = new Map()
+
+/**
+* TOOL_REASON_PREFIX
+* A refusal reason `x` is the tool label named `reason_x` (the prefix keeps the
+* refusal sentences apart from the tool's UI labels).
+*/
+const TOOL_REASON_PREFIX = 'reason_'
+
+
+
+/**
+* REGISTER_TOOL_ERROR_LABELS
+* Remembers a tool's refusal sentences for error_text. Replaces what was stored
+* for `tool`; a non-array (the tool has no context) forgets it.
+* @param {string} tool - tool name, e.g. 'tool_uca_maps'
+* @param {Array|null} labels - the tool context's labels ({name, value}[])
+* @return bool true when something was stored
+*/
+export const register_tool_error_labels = (tool, labels) => {
+
+	if (typeof tool!=='string' || !tool.length) {
+		return false
+	}
+	if (!Array.isArray(labels)) {
+		tool_error_labels.delete(tool)
+		return false
+	}
+	tool_error_labels.set(tool, labels.filter((label) =>
+		label && typeof label.name==='string' && label.name.startsWith(TOOL_REASON_PREFIX) && typeof label.value==='string' && label.value.length
+	))
+
+	return true
+}//end register_tool_error_labels
+
+
+
+/**
+* UNRESOLVED_PLACEHOLDER
+* What is left in a tool sentence the wire could not fill: a `${param}` the details do
+* not carry, or a positional `%s` (a tool refusal label is filled by name only).
+*/
+const UNRESOLVED_PLACEHOLDER = /\$\{\w+\}|%s/
+
+/**
+* TOOL_REASON_TEXT
+* The sentence for a tool refusal (`details.reason_key` on an ApiError whose `tool`
+* is known): the tool's label `reason_<key>` (placeholders `${param}` = the code's
+* declared details), else the wire `message` — the English sentence the tool declared
+* for the key, which the server guarantees for a reason_key refusal. null when the error is not a
+* tool refusal or has neither, so error_text carries on with the core chain.
+*
+* A label whose placeholder the wire cannot fill (`${max}` on a code that declares no
+* such detail, or a `%s`) would reach the user as literal text — a cataloguer cannot act
+* on `Max ${max} items` — so the vetted `message` stands in for it. The authoring that
+* causes it is refused at build time (tool_reason_keys_tripwire, placeholder leg); this
+* is the reader's side of the same rule, and under SHOW_DEBUG it says which label.
+* @param {ApiError|Object} api_error
+* @param {Object} details
+* @return string|null
+*/
+const tool_reason_text = (api_error, details) => {
+
+	const reason_key = details.reason_key
+	if (typeof reason_key!=='string' || !reason_key.length || typeof api_error.tool!=='string') {
+		return null
+	}
+	const found = tool_error_labels.get(api_error.tool)?.find((label) => label.name===TOOL_REASON_PREFIX + reason_key)
+	if (found) {
+		const text = format_label(found.value, details)
+		if (!UNRESOLVED_PLACEHOLDER.test(text)) {
+			return text
+		}
+		if (typeof SHOW_DEBUG!=='undefined' && SHOW_DEBUG===true) {
+			console.warn(`tool label ${TOOL_REASON_PREFIX}${reason_key} of ${api_error.tool} has a placeholder the error does not carry:`, found.value)
+		}
+	}
+
+	return (typeof api_error.message==='string' && api_error.message.length) ? api_error.message : null
+}//end tool_reason_text
+
+
+
+/**
 * ERROR_TEXT
 * The sentence to show for an ApiError, in the user's language when the label
 * exists: get_label[label_key] → format_label(template, details) (`${param}` and
 * `%s`) → English `message` → `code`.
+* A TOOL refusal (`details.reason_key` + `api_error.tool`) goes first through the
+* tool's own label `reason_<key>` and then the wire `message`, so the user reads ONE
+* translated (or, failing a translation, the tool's declared English) sentence instead of the core
+* code's generic label.
 * @param {ApiError|Object} api_error
 * @return string
 */
@@ -71,6 +166,11 @@ export const error_text = (api_error) => {
 
 	const labels	= get_labels()
 	const details	= (api_error.details && typeof api_error.details==='object') ? api_error.details : {}
+
+	const reason_text = tool_reason_text(api_error, details)
+	if (reason_text!==null) {
+		return reason_text
+	}
 
 	if (api_error.label_key && typeof labels[api_error.label_key]==='string' && labels[api_error.label_key].length) {
 		return fill_positional(format_label(labels[api_error.label_key], details), details)

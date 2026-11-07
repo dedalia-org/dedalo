@@ -73,15 +73,33 @@
 *       "layer_data"      : { "type": "FeatureCollection", "features": [...] },
 *       "user_layer_name" : "layer_1"
 *     }
-*   ]
+*   ],
+*   "sources"  : [ { "id": 4, "type": "xyz", "url": "…", "params": {}, "attribution": "…" } ],
+*   "legend"   : { "title": "…", "groups": [ { "name": "…", "symbols": [ { "label": "…", "icon": "data:image/png;base64,…" } ] } ] }
 * }
 * ```
+* `sources` and `legend` are OPTIONAL and server-owned in two ways: the server numbers
+* the sources (`id`) and normalizes the legend, and a save REPLACES the entry. So the
+* client must always send the whole entry it loaded — `get_entry_buffer` seeds the
+* editable copy from the stored entry on every first touch, `map_update_coordinates`
+* never borrows another record's definition, and `learn_saved_map_definition` takes
+* the server's numbers back after a save (WC-2026-11-06-geolocation-map-sources-legend).
 *
 * Provider switch: controlled by `context.features.geo_provider` (OSM | GOOGLE |
 * ARCGIS | NUMISDATA | VARIOUS). For OSM, dark mode keeps the standard OSM tiles
 * and darkens them with a CSS filter on `.leaflet-layer` (see the dark mode block
 * in component_geolocation.less); a MutationObserver on
 * `document.documentElement[data-theme]` rebuilds the tile layer on theme changes.
+*
+* TILES COME FROM THE SERVER, NEVER FROM A PROVIDER. Every tile this component can
+* proxy is requested from the same-origin tile proxy (`get_tile_url`): OpenStreetMap
+* (the built-in `osm`), the sources stored in the entry (`sources`) and the ontology's
+* default sources (`context.properties.map_sources`). The request names a source by
+* id and never carries a URL: the server finds the source, checks the permission and
+* builds the provider's address itself. That is why a canvas export of the map (DOM to
+* image) is not tainted and the page's CSP admits no tile host for them. ArcGIS, the
+* DARE atlas and Google are not proxied (the core relays only the providers whose
+* terms allow it), so those provider branches still load directly.
 *
 * Main exports: `component_geolocation` constructor.
 */
@@ -90,37 +108,91 @@
 	import {common} from '../../common/js/common.js'
 	import {clone, get_json_langs, load_style, load_script} from '../../common/js/utils/index.js'
 	import {component_common} from '../../component_common/js/component_common.js'
+	import {escape_html} from '../../common/js/utils/render_escape.js'
+	import {request_failed} from '../../common/js/api_error.js'
 	import {event_manager} from '../../common/js/event_manager.js'
 	import {render_edit_component_geolocation, render_popup_text, render_color_picker} from '../../component_geolocation/js/render_edit_component_geolocation.js'
 	import {render_list_component_geolocation} from '../../component_geolocation/js/render_list_component_geolocation.js'
 
 
 
-// OSM tile URLs per theme
-// Dark mode keeps the standard OSM tiles; the visual darkening is done purely with
-// a CSS filter on `.leaflet-layer` (see the dark mode block in component_geolocation.less).
-// Both themes therefore point to the same OSM tile source.
+// TILE PROXY
+// Every proxied tile is requested from `<DEDALO_CORE_URL>/api/v1/map_tile`, a same-origin,
+// authenticated route that relays ONE tile of a source the request NAMES (a built-in id, a
+// stored source id or an ontology default id) — see core/api/map_tile.ts on the server.
+// Dark mode keeps the standard OSM tiles; the visual darkening is done purely with a CSS
+// filter on `.leaflet-layer` (see the dark mode block in component_geolocation.less).
 
-/** @type {Object} Leaflet tile URL templates indexed by UI theme name. */
-const TILE_URLS = {
-	light : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-	dark  : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
-}
-
-/** @type {Object} Attribution HTML strings to display below the map per theme. */
-const TILE_ATTR = {
-	light : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-	dark  : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-}
+/** @type {string} The tile proxy's path under DEDALO_CORE_URL. */
+const TILE_PROXY_PATH = '/api/v1/map_tile'
 
 /**
-* FN_IS_DARK
-* Returns true when the page is currently rendered in dark mode.
-* Detection relies on the `data-theme` attribute set by the Dédalo theme system
-* on `document.documentElement`.
-* @returns {boolean}
+* The attribution of the CORE'S built-in sources (code of this file, not data): the one
+* place the page holds markup for Leaflet's attribution control. The attribution of a
+* stored or default source is data and is plain text (the server refuses `<` and `>`).
+* @type {Object<string, string>}
 */
-const fn_is_dark   = () => document.documentElement.dataset.theme === 'dark'
+const BUILTIN_ATTR = {
+	osm				: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+	ign_admin_units	: 'CC BY 4.0 ign.es'
+}
+
+/** @type {number} Zoom ceiling of the engine (the server refuses a tile above it). */
+const TILE_MAX_ZOOM = 22
+
+/**
+* ESCAPE_MARKUP
+* Plain text made safe for Leaflet's HTML sinks (the layer control and the attribution
+* control both write `innerHTML`), through the canonical `escape_html`. The text of a stored or
+* default source is data: the server refuses `<` and `>` in it (save time for a stored source, read time for an
+* ontology default), and this is the second hold — whatever a restored row, an old value
+* or a hostile ontology update carries, the page never turns it into markup.
+* @param {*} text
+* @returns {string}
+*/
+const escape_markup = function(text) {
+
+	return escape_html(String(text ?? ''))
+}//end escape_markup
+
+/**
+* @type {Array<number>} How long (ms, before a little jitter) a refused tile waits before it
+* is asked for again, once per entry. The proxy refuses a tile when the installation's
+* queue or the person's share of the provider is used up (`rate.limited`, 429) or the
+* provider is failing (503): an <img> cannot read the status or the Retry-After, and Leaflet
+* never retries a failed tile on its own, so a busy moment would leave a blank patch until
+* the viewer pans. Two bounded retries; a tile the provider does not have (404) is cached by
+* the browser for a couple of minutes (the proxy says so in its Cache-Control), so asking again
+* for it is answered from the browser's own cache and costs the server nothing.
+* Kept on the prototype (`tile_retry_delays`) so a client test can shorten it.
+*/
+const TILE_RETRY_DELAYS_MS = [2000, 5000]
+
+/**
+ * @type {number} First zoom at which the server relays a tile of a WMS source whose CRS is
+ * geographic (EPSG:4326, EPSG:4258). The service answers such a tile with a plate carrée crop,
+ * which the map draws as a mercator tile: the two are within a pixel from zoom 8 and visibly
+ * misregistered below it, so the server refuses those zooms and the layer does not ask for
+ * them. Mirrors GEOGRAPHIC_TILE_MIN_ZOOM (src/core/geo/tile_proxy/tile_geometry.ts); a server
+ * gate (map_tile_geometry_native) fails if the two differ.
+ */
+const GEOGRAPHIC_WMS_MIN_ZOOM = 8
+
+/** @type {Array<string>} The CRSs of a WMS source that are geographic (see GEOGRAPHIC_WMS_MIN_ZOOM). */
+const GEOGRAPHIC_CRS = ['EPSG:4326', 'EPSG:4258']
+
+/**
+ * @type {number} The stacking order of the OSM provider's base layer, which is NOT in the layer
+ * control. Leaflet gives every tile layer z-index 1, and layers of an equal z-index stack in DOM
+ * order: the one added LAST is on top. The layer control numbers the layers it holds 1, 2, 3 … in
+ * the order they were added (`autoZIndex`, so their order survives switching them on and off), and
+ * the sources are added to it, so the first source of an entry is numbered 1 — the base's own number.
+ * That base is added again whenever the viewer toggles the theme, appended after the source in the
+ * DOM, and covered it. Below every number the control hands out, the base can never be on top of
+ * a source, however often it is re-added. (The VARIOUS and NUMISDATA bases are in the control, which
+ * numbers them before any source: they need nothing.)
+ */
+const BASE_LAYER_Z_INDEX = 0
 
 /**
 * DEFAULT_VIEW_FALLBACK
@@ -135,6 +207,16 @@ const DEFAULT_VIEW_FALLBACK = {
 	lon		: 0,
 	zoom	: 2
 }
+
+/**
+* MAP_DEFINITION_KEYS
+* The entry keys that describe the MAP (which tile services it is drawn over and what
+* its symbols mean) rather than the VIEW or the FEATURES. They belong to the record
+* that holds them: they are never borrowed from another record (map_update_coordinates),
+* and their numbers are issued by the server (learn_saved_map_definition).
+* @type {string[]}
+*/
+const MAP_DEFINITION_KEYS = ['sources', 'legend']
 
 /**
 * FN_FINITE_NUMBER
@@ -295,22 +377,26 @@ const fn_bounds_centre = function(bounds) {
 }//end fn_bounds_centre
 
 /**
-* FN_OSM_LAYER
-* Builds a Leaflet tile layer pre-configured for the current light/dark theme.
-* Automatically picks the correct TILE_URLS and TILE_ATTR entries.
-* Called both at map creation time and again each time the MutationObserver
-* detects a theme change (the old tile layer is removed before calling this).
-* @param {Object} options - Extra Leaflet tileLayer options merged with defaults.
-* @returns {Object} Leaflet TileLayer instance ready to be added to a map.
+* FN_TILE_QUERY
+* Builds the query a tile request carries: the key=value pairs of the request's source
+* (built-in id, stored source or default) with each value percent-encoded, followed by
+* Leaflet's own `{z}`, `{x}`, `{y}` placeholders LITERALLY — Leaflet fills them per tile,
+* and a URLSearchParams would have encoded the braces away.
+* @param {Array<Array<string|number>>} pairs - [name, value] pairs.
+* @returns {string}
 */
-const fn_osm_layer = (options = {}) => {
-	const dark = fn_is_dark()
-	return L.tileLayer(dark ? TILE_URLS.dark : TILE_URLS.light, {
-		attribution : dark ? TILE_ATTR.dark : TILE_ATTR.light,
-		maxZoom     : 19,
-		...options
-	})
+const fn_tile_query = (pairs) => {
+	const query = pairs.map(([name, value]) => name + '=' + encodeURIComponent(value))
+	query.push('z={z}', 'x={x}', 'y={y}')
+	return query.join('&')
 }
+
+/**
+* FN_CORE_URL
+* The base of the core's URLs (`/dedalo/core`), from the page global when it exists.
+* @returns {string}
+*/
+const fn_core_url = () => (typeof DEDALO_CORE_URL!=='undefined' ? DEDALO_CORE_URL : '/dedalo/core')
 
 
 
@@ -400,12 +486,28 @@ export const component_geolocation = function(){
 			}
 			self.map = null
 			self.tile_layer = null
+			self.source_layers = {}
 			self.FeatureGroup = {}
 		}
 		return common.prototype.destroy.call(self, delete_self, delete_dependencies, remove_dom)
 	}
 	component_geolocation.prototype.refresh				= common.prototype.refresh
-	component_geolocation.prototype.save				= component_common.prototype.save
+	// save — component_common's, then take the server's numbers back (see learn_saved_map_definition)
+	component_geolocation.prototype.save				= async function(new_changed_data) {
+		const self = this
+		const api_response = await component_common.prototype.save.call(self, new_changed_data)
+		// only a CONFIRMED save: a failed or degraded one leaves self.data on the previous model,
+		// and learning from it would overwrite the unsaved edit it failed to store
+		if (api_response && !request_failed(api_response) && self.data_degraded!==true) {
+			self.learn_saved_map_definition(0)
+			// the saved sources (and the numbers the server gave them) are what the tile proxy
+			// serves: a map that is open shows them now, keeping which ones were switched on
+			if (self.map) {
+				self.build_source_layers(0)
+			}
+		}
+		return api_response
+	}
 	component_geolocation.prototype.load_data			= component_common.prototype.load_data
 	component_geolocation.prototype.get_value			= component_common.prototype.get_value
 	component_geolocation.prototype.set_value			= component_common.prototype.set_value
@@ -458,6 +560,8 @@ component_geolocation.prototype.init = async function(options) {
 		self.tile_layer			= null  // active Leaflet TileLayer (OSM provider only)
 		self.theme_observer		= null  // MutationObserver watching data-theme for dark mode tile swap
 		self.layer_control		= false // Leaflet layer-control widget; false = not yet created
+		self.source_layers		= {}    // proxied source layers by '<kind>:<id>' -> {layer, name}; see build_source_layers
+		self.tile_retry_delays	= TILE_RETRY_DELAYS_MS // ms before each retry of a refused tile; see retry_refused_tiles
 		self.camera_is_moving	= false // true while move_camera drives the map; see move_camera
 
 	// temporary data_value: component_geolocation does not save the values when the inputs change their value.
@@ -585,6 +689,84 @@ component_geolocation.prototype.get_stored_entry = function(key) {
 		? entry
 		: null
 }//end get_stored_entry
+
+
+
+/**
+* GET_ENTRY_BUFFER
+* The EDITABLE copy of the entry at `key` (`current_value[key]`), created on first
+* touch. Every edit path goes through here — a pan or zoom (update_input_values), a
+* typed coordinate (handle_coord_change), a drawing (update_draw_data), a geo-tag
+* insert or remove (layer_data_change).
+*
+* (!) THE FIRST TOUCH SEEDS FROM THE STORED ENTRY, never from `{}` when the record
+* stores one. A save REPLACES the entry (monovalue update, server side), so a buffer
+* built from nothing silently deletes everything it did not carry: the other half of
+* the view, the drawn layers, and the entry's `sources` and `legend`. get_map seeds the
+* buffer too, but only after its libraries load and the map is built; an input typed
+* before that, or a caller that never builds a map, would otherwise save a stripped
+* value. A record that stores nothing still starts from `{}`: opening and editing are
+* different things, and an untouched record has nothing to save.
+*
+* @param {number} key - Index into `current_value` (and `data.entries`).
+* @returns {Object} The live buffer (mutable, owned by this instance).
+*/
+component_geolocation.prototype.get_entry_buffer = function(key) {
+
+	const self = this
+
+	if (self.current_value[key]===undefined || self.current_value[key]===null) {
+		const stored_entry = self.get_stored_entry(key)
+		self.current_value[key] = stored_entry
+			? clone(stored_entry)
+			: {}
+	}
+
+	return self.current_value[key]
+}//end get_entry_buffer
+
+
+
+/**
+* LEARN_SAVED_MAP_DEFINITION
+* After a CONFIRMED save, takes the server-owned map definition (`sources`, `legend`)
+* of the stored entry back into the edit buffer. The stored entry is the save echo
+* (component_common.save replaced `self.data` with it).
+*
+* Why: the server NUMBERS the sources it receives and normalizes the legend. The
+* buffer was sent without those numbers, so without this the next save would send the
+* sources id-less again — which the server recognises by content when they are
+* unchanged, but renumbers when the editor changed them, breaking the one identity a
+* tile request names (`{section_tipo, section_id, component_tipo, source_id}`). The
+* view and the features are NOT touched: they are what the editor holds, and an edit
+* made while the save was on the wire is not the echo's to overwrite.
+*
+* A buffer that does not exist is left alone (nothing was edited); an echo without the
+* keys deletes them from the buffer (the save removed them).
+*
+* @param {number} key - Index into `current_value` (and `data.entries`).
+* @returns {boolean} True when the buffer exists and was synchronised.
+*/
+component_geolocation.prototype.learn_saved_map_definition = function(key) {
+
+	const self = this
+
+	const buffer = self.current_value[key]
+	if (buffer===undefined || buffer===null) {
+		return false
+	}
+
+	const stored_entry = self.get_stored_entry(key)
+	for (const name of MAP_DEFINITION_KEYS) {
+		if (stored_entry && stored_entry[name]!==undefined) {
+			buffer[name] = clone(stored_entry[name])
+		} else {
+			delete buffer[name]
+		}
+	}
+
+	return true
+}//end learn_saved_map_definition
 
 
 
@@ -825,6 +1007,341 @@ component_geolocation.prototype.load_libs = async function () {
 
 
 /**
+* GET_TILE_URL
+* The Leaflet URL template of the tile proxy for ONE source. It names the source and never
+* carries an address: exactly one of
+*   { builtin   : 'osm' }       a source of the core's closed registry
+*   { source_id : 4 }           a source stored in THIS record's value (needs section_id)
+*   { default_id: 'regional' }  an ontology default (`properties.map_sources`)
+* plus the component's own section/component tipos, which are what the server checks the
+* permission against. `{z}`, `{x}`, `{y}` stay literal for Leaflet to fill; for a WMS source
+* the SERVER turns the tile into the GetMap bbox, so the browser never computes one.
+*
+* Every tile this component proxies is requested through here — the one place the page
+* forms a tile address.
+*
+* @param {Object} source - One of the three shapes above.
+* @returns {string} A same-origin URL template.
+*/
+component_geolocation.prototype.get_tile_url = function(source) {
+
+	const self = this
+
+	const pairs = [
+		['section_tipo',	self.section_tipo],
+		['component_tipo',	self.tipo]
+	]
+	if (source.source_id!==undefined) {
+		pairs.push(['section_id', self.section_id], ['source_id', source.source_id])
+	} else if (source.default_id!==undefined) {
+		pairs.push(['default_id', source.default_id])
+	} else {
+		pairs.push(['builtin', source.builtin])
+	}
+
+	return fn_core_url() + TILE_PROXY_PATH + '?' + fn_tile_query(pairs)
+}//end get_tile_url
+
+
+
+/**
+* GET_BUILTIN_LAYER
+* A Leaflet tile layer of one of the core's built-in sources, through the tile proxy.
+* @param {string} id - Built-in id ('osm', 'ign_admin_units').
+* @param {Object} [options] - Leaflet tileLayer options merged over the defaults.
+* @returns {Object} Leaflet TileLayer.
+*/
+component_geolocation.prototype.get_builtin_layer = function(id, options={}) {
+
+	const self = this
+
+	return self.retry_refused_tiles(
+		L.tileLayer(self.get_tile_url({builtin:id}), {
+			attribution	: BUILTIN_ATTR[id] || '',
+			maxZoom		: TILE_MAX_ZOOM,
+			...options
+		})
+	)
+}//end get_builtin_layer
+
+
+/**
+* RETRY_REFUSED_TILES
+* Makes a tile layer ask again, a bounded number of times, for a tile that failed to load.
+* The proxy answers `rate.limited` (429) when the installation's queue is full or the
+* person's share of the provider is used up, and 503 when the provider fails: those are
+* moments, not verdicts, and Leaflet does not retry on its own. The delays are
+* `self.tile_retry_delays` (default TILE_RETRY_DELAYS_MS), with jitter so the tiles of a
+* viewport do not all come back at the same instant. A tile that has left the page by then
+* (the viewer panned, the layer was removed) is not asked for again.
+* @param {Object} layer - Leaflet TileLayer.
+* @returns {Object} The same layer.
+*/
+component_geolocation.prototype.retry_refused_tiles = function(layer) {
+
+	const self = this
+
+	layer.on('tileerror', (event) => {
+
+		const tile = event.tile
+		if (!tile || typeof tile.src!=='string' || tile.src==='') {
+			return
+		}
+
+		const delays	= self.tile_retry_delays || TILE_RETRY_DELAYS_MS
+		const attempts	= tile.dedalo_tile_retries || 0
+		if (attempts>=delays.length) {
+			return
+		}
+		tile.dedalo_tile_retries = attempts + 1
+
+		const address = tile.src
+		setTimeout(() => {
+			if (tile.isConnected) {
+				tile.src = address
+			}
+		}, delays[attempts] * (1 + Math.random() * 0.5))
+	})
+
+	return layer
+}//end retry_refused_tiles
+
+
+
+/**
+* GET_OSM_LAYER
+* The OpenStreetMap base layer, through the tile proxy. Called at map creation time and
+* again each time the MutationObserver detects a theme change (the old layer is removed
+* before calling this). Both themes use the same tiles: dark mode is a CSS filter.
+* @param {Object} [options] - Extra Leaflet tileLayer options merged with defaults.
+* @returns {Object} Leaflet TileLayer ready to be added to a map.
+*/
+component_geolocation.prototype.get_osm_layer = function(options={}) {
+
+	const self = this
+
+	return self.get_builtin_layer('osm', {maxZoom:19, ...options})
+}//end get_osm_layer
+
+
+
+/**
+* GET_SOURCE_LAYER
+* A Leaflet tile layer for a STORED source or an ontology DEFAULT, through the tile proxy. An
+* xyz and a wms source are drawn the same way — as a tile layer over the proxy: the server
+* builds the provider's address, and for a wms source computes each tile's bbox itself.
+*
+* The layer is tagged (`options.dedalo_source`) so the layer-control code that treats every
+* overlay as a drawing layer (layers_loader 'full', the overlayadd handler) can tell it
+* apart. The attribution is data: it is escaped here as well, because Leaflet's attribution
+* control writes HTML.
+*
+* @param {Object} source
+* @param {string} source.kind - 'stored' | 'default'
+* @param {number|string} source.id - Source id (stored) or default name.
+* @param {string} [source.type] - 'xyz' | 'wms'.
+* @param {Object} [source.params] - min_zoom / max_zoom for xyz (tiles are asked for from min_zoom
+*   up, and scaled up beyond max_zoom); crs for wms (a geographic CRS is only asked for from
+*   GEOGRAPHIC_WMS_MIN_ZOOM up).
+* @param {string} [source.attribution] - Plain text.
+* @param {Object} [options] - Leaflet tileLayer options merged over the defaults.
+* @returns {Object} Leaflet TileLayer.
+*/
+component_geolocation.prototype.get_source_layer = function(source, options={}) {
+
+	const self = this
+
+	const params = source.params || {}
+	const url = source.kind==='default'
+		? self.get_tile_url({default_id:source.id})
+		: self.get_tile_url({source_id:source.id})
+
+	// below the source's own first zoom the layer asks for NOTHING: not `minNativeZoom`, which
+	// would make Leaflet load that zoom's tiles and scale them DOWN, so the tiles asked for
+	// grow by 4 per zoom level of difference (a 1000x600 map at zoom 2 over a source that
+	// starts at zoom 8 is 37,901 tiles, and a world view of one that starts at 12 is millions).
+	// A WMS source in a geographic CRS is not relayed below GEOGRAPHIC_WMS_MIN_ZOOM either.
+	// Above the source's last zoom, scaling UP (`maxNativeZoom`) is cheap: the same tiles, bigger.
+		const geographic = source.type==='wms' && GEOGRAPHIC_CRS.includes(params.crs)
+		const min_zoom = Math.max(
+			Number.isInteger(params.min_zoom) ? params.min_zoom : 0,
+			geographic ? GEOGRAPHIC_WMS_MIN_ZOOM : 0
+		)
+
+	return self.retry_refused_tiles(
+		L.tileLayer(url, {
+			attribution		: escape_markup(source.attribution),
+			minZoom			: min_zoom,
+			maxNativeZoom	: Number.isInteger(params.max_zoom) ? params.max_zoom : TILE_MAX_ZOOM,
+			maxZoom			: TILE_MAX_ZOOM,
+			dedalo_source	: true,
+			...options
+		})
+	)
+}//end get_source_layer
+
+
+
+/**
+* ENSURE_LAYER_CONTROL
+* The Leaflet layer-control widget, created on first need. The NUMISDATA and VARIOUS providers
+* build theirs with their base maps; every other path (drawing layers, source layers) gets
+* one here, so `layer_control.addOverlay` can never meet `false`.
+* @returns {Object} Leaflet Control.Layers.
+*/
+component_geolocation.prototype.ensure_layer_control = function() {
+
+	const self = this
+
+	if (self.layer_control===false) {
+		self.layer_control = L.control.layers({}).addTo(self.map)
+	}
+
+	return self.layer_control
+}//end ensure_layer_control
+
+
+
+/**
+* GET_DEFAULT_PARAMS
+* The `params` of a layer descriptor for an ontology DEFAULT, from the flat keys the server
+* sends in the picker entry (it never sends a `params` object: the layer list and the
+* address stay on the server). Only the numbers and the CRS that decide which tiles are worth
+* asking for.
+* @param {Object} source - The picker entry.
+* @returns {Object} {min_zoom?, max_zoom?, crs?}
+*/
+const get_default_params = function(source) {
+
+	const params = {}
+	if (Number.isInteger(source.min_zoom)) {
+		params.min_zoom = source.min_zoom
+	}
+	if (Number.isInteger(source.max_zoom)) {
+		params.max_zoom = source.max_zoom
+	}
+	if (typeof source.crs==='string') {
+		params.crs = source.crs
+	}
+
+	return params
+}//end get_default_params
+
+
+
+/**
+* GET_SOURCE_ENTRIES
+* The sources the map can offer for `key`, as plain descriptors: the sources STORED in the
+* entry (only the numbered ones — an unsaved source has no id the server could resolve) and
+* the ontology's defaults (`context.properties.map_sources`, which the server sends as
+* id/label/type plus what the page needs to DRAW the layer — the attribution, an xyz source's
+* min_zoom/max_zoom and a wms source's crs — and never an address or a layer list).
+* @param {number} key - Index into data.entries.
+* @returns {Array<Object>} [{kind, id, type, params, attribution, name}]
+*/
+component_geolocation.prototype.get_source_entries = function(key) {
+
+	const self = this
+
+	const stored_entry	= self.get_stored_entry(key)
+	const stored_list	= stored_entry && Array.isArray(stored_entry.sources) ? stored_entry.sources : []
+	const defaults_list	= self.context && self.context.properties && Array.isArray(self.context.properties.map_sources)
+		? self.context.properties.map_sources
+		: []
+
+	const entries = []
+	for (const source of stored_list) {
+		if (source && Number.isInteger(source.id) && source.id>0) {
+			const attribution = typeof source.attribution==='string' ? source.attribution.trim() : ''
+			entries.push({
+				kind		: 'stored',
+				id			: source.id,
+				type		: source.type,
+				params		: source.params || {},
+				attribution	: attribution,
+				name		: attribution!=='' ? attribution : '#' + source.id
+			})
+		}
+	}
+	for (const source of defaults_list) {
+		if (source && typeof source.id==='string' && source.id!=='') {
+			const attribution = typeof source.attribution==='string' ? source.attribution.trim() : ''
+			entries.push({
+				kind		: 'default',
+				id			: source.id,
+				type		: source.type,
+				params		: get_default_params(source),
+				attribution	: attribution,
+				name		: typeof source.label==='string' && source.label!=='' ? source.label : source.id
+			})
+		}
+	}
+
+	return entries
+}//end get_source_entries
+
+
+
+/**
+* BUILD_SOURCE_LAYERS
+* Offers every source of the entry (stored and default) in the layer control as a switchable
+* OVERLAY, through the tile proxy. None is switched on by itself: opening a map loads no
+* tile from a source its editor did not ask to see. (An opaque source above the base map
+* hides it until it is switched off — that is what the checkbox is for.)
+*
+* Idempotent: calling it again removes the layers it built and builds them anew from the
+* current stored entry, keeping the ones the viewer had switched on (the same kind and id).
+* Called by get_map, and after a confirmed save, which is when the server may have numbered
+* new sources or removed old ones.
+*
+* @param {number} key - Index into data.entries.
+* @returns {Array<string>} The keys ('<kind>:<id>') of the layers now offered.
+*/
+component_geolocation.prototype.build_source_layers = function(key) {
+
+	const self = this
+
+	if (!self.map) {
+		return []
+	}
+
+	// forget the previous ones, remembering which were on the map
+		const was_on = new Set()
+		for (const [source_key, item] of Object.entries(self.source_layers)) {
+			if (self.map.hasLayer(item.layer)) {
+				was_on.add(source_key)
+			}
+			self.map.removeLayer(item.layer)
+			if (self.layer_control) {
+				self.layer_control.removeLayer(item.layer)
+			}
+		}
+		self.source_layers = {}
+
+	// offer the current ones
+		const entries = self.get_source_entries(key)
+		if (entries.length<1) {
+			return []
+		}
+		const control = self.ensure_layer_control()
+		for (const entry of entries) {
+			const source_key = entry.kind + ':' + entry.id
+			const layer = self.get_source_layer(entry)
+			// the name is data (a default's label, a stored source's attribution) and Leaflet's layer
+			// control writes it as HTML: escaped here, whatever the server let through
+			control.addOverlay(layer, escape_markup(entry.name))
+			self.source_layers[source_key] = {layer: layer, name: entry.name}
+			if (was_on.has(source_key)) {
+				layer.addTo(self.map)
+			}
+		}
+
+	return Object.keys(self.source_layers)
+}//end build_source_layers
+
+
+
+/**
 * GET_MAP
 * Creates and fully initialises a Leaflet map inside `map_container` for the
 * entry at index `key` within `data.entries`. This is the main entry point
@@ -879,7 +1396,7 @@ component_geolocation.prototype.get_map = async function(map_container, key) {
 	// (!) ONLY when something is stored. Opening a map is not editing: on a record
 	// with no value current_value[key] stays undefined so build_changed_data_item
 	// returns null and the save button sends nothing. Every edit path creates the
-	// entry on first touch (`current_value[key] = current_value[key] || {}`).
+	// entry on first touch (get_entry_buffer).
 		if (stored_entry) {
 			self.current_value[key] = clone(stored_entry)
 		}
@@ -902,12 +1419,12 @@ component_geolocation.prototype.get_map = async function(map_container, key) {
 
 			case 'OSM':
 				self.map = new L.Map(map_container, {center: new L.LatLng(map_data.lat, map_data.lon), zoom: map_data.zoom})
-				self.tile_layer = fn_osm_layer().addTo(self.map)
+				self.tile_layer = self.get_osm_layer({zIndex:BASE_LAYER_Z_INDEX}).addTo(self.map)
 
-				// swap tile layer when the user toggles dark/light mode
+				// swap tile layer when the user toggles dark/light mode — under every source (BASE_LAYER_Z_INDEX)
 				self.theme_observer = new MutationObserver(() => {
 					self.map.removeLayer(self.tile_layer)
-					self.tile_layer = fn_osm_layer().addTo(self.map)
+					self.tile_layer = self.get_osm_layer({zIndex:BASE_LAYER_Z_INDEX}).addTo(self.map)
 				})
 				self.theme_observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
 				break;
@@ -921,7 +1438,7 @@ component_geolocation.prototype.get_map = async function(map_container, key) {
 
 			case 'ARCGIS':
 				self.map = new L.Map(map_container, {center: new L.LatLng(map_data.lat, map_data.lon), zoom: map_data.zoom});
-				L.tileLayer('http://server.arcgisonline.com/ArcGIS/' + 'rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+				L.tileLayer('https://server.arcgisonline.com/ArcGIS/' + 'rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
 				maxZoom: 18,
 				attribution: 'Tiles &copy; Esri — '
 					+ 'Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, '
@@ -940,9 +1457,9 @@ component_geolocation.prototype.get_map = async function(map_container, key) {
 				});
 
 
-				arcgis = new L.tileLayer('//server.arcgisonline.com/ArcGIS/' + 'rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+				arcgis = new L.tileLayer('https://server.arcgisonline.com/ArcGIS/' + 'rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
 
-				osm = fn_osm_layer({ maxNativeZoom: 19 });
+				osm = self.get_osm_layer({ maxNativeZoom: 19 });
 
 				// MAP
 				self.map = new L.map(map_container, {layers: [osm], center: new L.LatLng(map_data.lat, map_data.lon), zoom: map_data.zoom});
@@ -965,8 +1482,8 @@ component_geolocation.prototype.get_map = async function(map_container, key) {
 				// stays undefined and the next line throws — the same blank-map
 				// symptom as an unhandled empty entries array.
 				// LAYER
-				arcgis = new L.tileLayer('//server.arcgisonline.com/ArcGIS/' + 'rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
-				osm = fn_osm_layer();
+				arcgis = new L.tileLayer('https://server.arcgisonline.com/ArcGIS/' + 'rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+				osm = self.get_osm_layer();
 				// MAP
 				self.map = new L.map(map_container, {layers: [osm], center: new L.LatLng(map_data.lat, map_data.lon), zoom: map_data.zoom});
 
@@ -981,6 +1498,9 @@ component_geolocation.prototype.get_map = async function(map_container, key) {
 				break;
 		}//end switch(self.context.features.geo_provider)
 
+	// the sources of the entry (stored and ontology defaults), offered through the tile proxy
+		self.build_source_layers(key)
+
 	// geometry framing — a record whose value is a drawn shape and no coordinate
 	// opens ON its work, not on the world view. get_view already centred the map;
 	// this fits the zoom to the same extent. Camera only, nothing is stored, and
@@ -989,6 +1509,10 @@ component_geolocation.prototype.get_map = async function(map_container, key) {
 
 	// set active layer — when the user checks an overlay in the layer control, track it
 		self.map.on('overlayadd', function(e) {
+			// a tile SOURCE switched on is not a drawing layer: it must not become the active one
+			if (e.layer && e.layer.options && e.layer.options.dedalo_source) {
+				return
+			}
 			self.active_layer_id = e.name
 		})
 		// self.map.pm.setGlobalOptions({ measurements: { measurement: true, displayFormat: 'metric' } })
@@ -1142,13 +1666,15 @@ component_geolocation.prototype.update_input_values = function(key, data, map_co
 	// current_value[key] until the user acts. A pan or zoom IS the user acting,
 	// so it creates the entry here — that is how the view of a record that had
 	// none gets its first value.
-		self.current_value[key] = self.current_value[key] || {}
-		self.current_value[key].lat		= data.lat
-		self.current_value[key].lon		= data.lon
-		self.current_value[key].zoom	= data.zoom
+		// (!) get_entry_buffer, not `|| {}`: the first touch seeds from the STORED
+		// entry, so the view write cannot drop the layers, sources and legend.
+		const entry_buffer = self.get_entry_buffer(key)
+		entry_buffer.lat	= data.lat
+		entry_buffer.lon	= data.lon
+		entry_buffer.zoom	= data.zoom
 		// use != null so a valid altitude of 0 is stored and an explicit null clears it
 		// (the previous truthiness check silently dropped both 0 and null).
-		self.current_value[key].alt		= (data.alt != null) ? data.alt : null
+		entry_buffer.alt	= (data.alt != null) ? data.alt : null
 
 	// mark dirty — the save button READS this flag (view_default_edit_geolocation
 	// fn_save). Setting the view is real user work whether or not the record also
@@ -1275,9 +1801,9 @@ component_geolocation.prototype.handle_coord_change = function(key, name, val) {
 
 	const self = this
 
-	// ensure current_value[key] exists — may not yet be set if map hasn't loaded
-	self.current_value[key] = self.current_value[key] || {}
-	self.current_value[key][name] = val
+	// ensure current_value[key] exists — may not yet be set if map hasn't loaded;
+	// seeded from the stored entry so the typed field cannot drop the rest of it
+	self.get_entry_buffer(key)[name] = val
 
 	// mark as changed
 	self.is_data_changed = true
@@ -1394,7 +1920,8 @@ component_geolocation.prototype.layers_loader = function(options) {
 					const control_layers_len = self.layer_control._layers.length
 					for (let i = 0; i < control_layers_len; i++) {
 						const layer = self.layer_control._layers[i]
-						if(layer.overlay){
+						// (a tile SOURCE is an overlay too — switched on by the viewer only)
+						if(layer.overlay && !(layer.layer && layer.layer.options && layer.layer.options.dedalo_source)){
 							const input = self.layer_control._layerControlInputs[i]
 							if(input && !input.checked){
 								input.click()
@@ -1496,7 +2023,7 @@ component_geolocation.prototype.load_layer = function(layer) {
 			// set the FeatureGroup to the map
 			self.FeatureGroup[layer_id].addTo(self.map);
 			// add to the layer control with checkbox and the name of the user
-			self.layer_control.addOverlay(self.FeatureGroup[layer_id], layer_id);
+			self.ensure_layer_control().addOverlay(self.FeatureGroup[layer_id], layer_id);
 		}else{
 			// FeatureGroup exist and it's loaded
 			// remove the checkbox for all FeatureGroup into the control panel (remove the visualization)
@@ -2108,8 +2635,7 @@ component_geolocation.prototype.update_draw_data = function(layer_id) {
 
 		// create on first touch — drawing on a record with no stored value is the
 		// action that CREATES the value; current_value[key] is undefined until now
-		self.current_value[key] = self.current_value[key] || {}
-		self.current_value[key].lib_data = self.ar_layer_loaded
+		self.get_entry_buffer(key).lib_data = self.ar_layer_loaded
 
 
 	// track changes in self.data.changed_data — enqueue for the next save
@@ -2239,6 +2765,26 @@ component_geolocation.prototype.map_update_coordinates = async function(options)
 				}
 			})
 
+		// (!) THE MAP DEFINITION IS NOT BORROWED EITHER. The observed record's `sources`
+		// and `legend` describe ITS map: copying them would put another record's tile
+		// services (their numbers mean nothing here, and a number this record holds
+		// would overwrite that source on save) into this record, and replacing the
+		// buffer wholesale would delete this record's own. The borrowed entry keeps
+		// none of the observed definition and carries THIS record's own — from the
+		// edit buffer, else from the stored entry (the map may not be built yet).
+			const host_entry = self.current_value[key] ?? self.get_stored_entry(key)
+			borrowed_entries.forEach((entry, index) => {
+				if (!entry || typeof entry!=='object') {
+					return
+				}
+				for (const name of MAP_DEFINITION_KEYS) {
+					delete entry[name]
+					if (index===key && host_entry && host_entry[name]!==undefined) {
+						entry[name] = clone(host_entry[name])
+					}
+				}
+			})
+
 		self.current_value = borrowed_entries
 
 		// move the map to the borrowed point. move_camera is the single door: it
@@ -2347,8 +2893,7 @@ component_geolocation.prototype.layer_data_change = function(change) {
 
 				// create on first touch — inserting a geo-tag on a record with no
 				// stored value is the action that CREATES the value
-				self.current_value[key] = self.current_value[key] || {}
-				self.current_value[key].lib_data = self.ar_layer_loaded
+				self.get_entry_buffer(key).lib_data = self.ar_layer_loaded
 
 				const recover_changed_data = [self.build_changed_data_item(key)]
 				// (!) NO db_data SYNC HERE. save() already advances the baseline
@@ -2381,7 +2926,9 @@ component_geolocation.prototype.layer_data_change = function(change) {
 				}
 				self.FeatureGroup[layer_id].remove();
 				self.FeatureGroup[layer_id].clearLayers();
-				self.layer_control.removeLayer(self.FeatureGroup[layer_id]);
+				if (self.layer_control) {
+					self.layer_control.removeLayer(self.FeatureGroup[layer_id]);
+				}
 				delete self.FeatureGroup[layer_id];
 
 				// remove the layer
@@ -2390,8 +2937,7 @@ component_geolocation.prototype.layer_data_change = function(change) {
 
 				// create on first touch — removing a tag can arrive before any other
 				// edit, so the entry may still be absent here too
-				self.current_value[key] = self.current_value[key] || {}
-				self.current_value[key].lib_data = self.ar_layer_loaded
+				self.get_entry_buffer(key).lib_data = self.ar_layer_loaded
 
 				const changed_data = [self.build_changed_data_item(key)]
 				self.change_value({

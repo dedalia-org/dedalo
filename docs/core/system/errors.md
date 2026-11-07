@@ -54,7 +54,7 @@ explicitly, none is derived at runtime.
 | `severity` | `info` / `warn` log through `console.info` / `console.warn`; `error` / `fatal` through `console.error`. An expected refusal (an expired session) is `info` — traffic, not a fault. |
 | `disclosure` | `public` means a vetted `publicMessage` from the throw site may replace `message` on the wire; `operator` means it never can. |
 | `retryable` | whether a later attempt could plausibly succeed. The client's retry policy and the `Retry-After` header for `limit` / `unavailable` read it. |
-| `details_keys` | the ONLY `details` keys the converter lets onto the wire, scalars only. The label's `${param}` placeholders equal this list, both ways — written with the `$`: the client fills `${param}` only, so a bare `{param}` would reach the user verbatim (`error_registry_native`). |
+| `details_keys` | the ONLY `details` keys the converter lets onto the wire, scalars only. The label's `${param}` placeholders equal this list, both ways — written with the `$`: the client fills `${param}` only, so a bare `{param}` would reach the user verbatim (`error_registry_native`). The one exception is `reason_key`, which names no placeholder (see [A tool's refusal reason](#a-tools-refusal-reason)). |
 | `hint` | the model-facing next move, used by the assistant bridge's structured errors. |
 | `reason` | a named exemption: why the code exists although no engine path throws it (a client-minted or reserved code). |
 
@@ -162,7 +162,8 @@ What reaches the wire is decided in one place, `toErrorBody`, and only these fou
    *for* the caller: `request.invalid_options` naming the offending option, the assistant
    tool refusals echoing the model's own input back at it.
 2. **`details`** is the throw's `details` filtered to the code's `details_keys`, scalars
-   only. A non-scalar under a declared key is dropped, never stringified.
+   only. A non-scalar under a declared key is dropped, never stringified. `reason_key`
+   must also look like a key (`^[a-z][a-z0-9_]{0,47}$`), or it is dropped too.
 3. **`coordinates`** (tipo, section_id, job id) and `cause` are **log-only** and never
    serialized. An `internal.*` failure never echoes the exception it wrapped.
 4. **`debug`** — `{exception, stack, coordinates, cause_chain}` — appears only when the
@@ -199,7 +200,10 @@ described in full on the [data_manager](../client/data_manager.md) page.
 - **`error_text(api_error)` (`render_api_error.js`)** resolves the sentence to show: the
   `label_key` in the user's language first, then the registry `message`, then the code.
   Because the label carries the translation, a failure is localized like everything else.
-  The renderer never uses an HTML-parsing sink — a message can contain user-typed text.
+  A tool's refusal (`details.reason_key` on a request that named a tool) goes first
+  through the tool's own `reason_<key>` label and then the wire `message`; see
+  [A tool's refusal reason](#a-tools-refusal-reason). The renderer never uses an
+  HTML-parsing sink — a message can contain user-typed text.
 - **`handle_api_error(api_error, ctx)` (`error_dispatch.js`)** executes the policy and
   resolves `{recovered}`; a caller that can retry just awaits it. The policy table
   (`error_policy.js`) maps a code to one action, resolved exact code → `<domain>.*` → `*`:
@@ -268,6 +272,83 @@ HTTP API *are* the envelope: see the [tool server contract](../../development/to
 Nothing in the dispatcher or the HTTP layer changes when you add a code. That is the point
 of the registry.
 
+## A tool's refusal reason
+
+A tool that must say *why* it refused, in the user's language and in its own words, does
+not mint a code. It throws an **existing public code** with `details.reason_key`, one key
+of a **closed list the tool declares**. Five codes carry the key — `request.invalid_options`
+(a bad parameter), `resource.not_found` (an unknown or forbidden id, one identical
+refusal), `tool.unsupported_target`, `tool.source_unavailable` and `media.too_large` — and
+all five are public, so the English sentence the tool declared for the key rides the wire as
+`message`.
+
+```ts
+// server/index.ts — the closed map: each key with its English fallback sentence (not an action)
+export const tool: ToolServerModule = {
+	name: 'tool_example_maps',
+	reasonKeys: {
+		bad_bbox: 'The bounding box is not numeric.',
+		source_down: 'The map server is not answering.',
+	},
+	apiActions: { /* … */ },
+};
+
+// the throw site — the key only; the sentence is the declaration's
+throw new DedaloError('request.invalid_options', {
+	details: { reason_key: 'bad_bbox' },
+});
+```
+
+The translated sentence lives in the tool's `register.json` labels as `{lang, name:
+'reason_bad_bbox', value}` — one per language the tool carries, always `lg-eng`. The
+English fallback is declared once, beside the key, and the loader vets it when it admits
+the tool: a non-empty string of 200 characters at most, with no control character, line or
+paragraph separator, or invisible formatting character (a bidi override, a zero-width
+space). The throw carries no `publicMessage`: the guard puts the declared sentence on it,
+so nothing a request or an upstream produced can reach the one field the browser prints
+as it arrives. A throw that brings a *different* sentence is refused, not printed.
+
+The loader wraps every handler, `admit` hook and route of the tool. A key outside the
+list, a code that does not carry the key, or a sentence other than the declared one
+becomes `internal.invariant`, so a mistake is loud instead of a detail silently dropped.
+This holds for a refusal the handler throws and for a failure envelope it returns. A
+refusal the tool *embeds* in its answer instead (the per-item errors of a batch) goes
+through `toolErrorBody(tool, action, error)`, which makes the same check and logs the
+refusal it replaces — a tool that declares reasons names none of the converter's body
+builders (`toErrorBody`, `toErrorEnvelope`, `toStructuredErr`, `toFailureRecord`,
+`toStreamFrame`) at all.
+
+!!! warning "`tool.source_unavailable` is retryable"
+    The browser transport resends a retryable error, and a mutating action's first
+    attempt leaves an *ambiguous* reservation under its idempotency key, so the resend is
+    answered `idempotency.outcome_unknown` and the user never sees your reason. Refuse
+    with `tool.source_unavailable` from a [read-only action](../../development/tools/server_contract.md#read-only-actions-readonly-true)
+    called with the literal `retries: 1`; from any other action pick a code that is not
+    retryable (`tool.unsupported_target`, `request.invalid_options`), or pass `retries: 1`
+    on that `tool_request(` call.
+
+In the browser, `data_manager` stamps `ApiError.tool` from the `tool_request` it sent, the
+tool registers its `reason_*` labels when it builds, and `error_text` resolves **tool label
+→ wire `message` → the core label → the code**. The user reads one notice, translated when
+the tool is. The language of `context.labels` is the application language; a tool with no
+labels in it serves an empty list, and the fallback is the declared sentence. A label may use
+only the `${param}` the code declares (`${site}` on `tool.source_unavailable`) and never
+`%s`; the browser does not show a label it cannot fill completely.
+
+A refusal that arrives as a stream or job frame (a background action that throws) does not
+say which tool it belongs to, so the tool's own panel names it:
+`render_stream({container, id, tool: self.model})`, or
+`normalize_stream_error(frame, {tool: self.model})` where the tool reads a frame itself. The
+page's job tray lists jobs of every kind and names no tool, so it shows the core label.
+
+`tool_reason_keys_tripwire` holds the rest: every literal key is declared, every declared
+key has its label in every language of the tool, no label is dead or unfillable, the
+declaration is valid, no body builder is named by a tool that declares reasons, and the
+registry serves a guard around every handler, hook and route a tool exports; `error_taxonomy_tripwire` keeps the key from being written outside a
+tool's server tree. The full checklist is in the specification
+(`engineering/ERRORS_SPEC.md` §9.1) and a worked recipe in the
+[cookbook](../../development/errors_cookbook.md#recipe-refuse-with-a-translated-reason-from-a-tool).
+
 ## The gates
 
 Every rule on this page is mechanically enforced; a rule without a gate is treated as
@@ -282,6 +363,7 @@ already rotting. The tests that hold this subsystem:
 | `error_throw_ratchet` | untyped throws may only shrink, and the zero-tier directories stay at zero. |
 | `client_error_contract_tripwire` | the client half — one transport, no second fetch wrapper, no reader of the retired keys. |
 | `labels_tripwire` | every `label_key` ships in the label catalog. |
+| `tool_reason_keys_tripwire` | a tool's refusal reasons are a closed, labelled, loudly validated set: declared literals, a label per language, no dead or unfillable label, a valid declared sentence, the embedder for payload errors, and the guard the real registry serves around every handler, hook and route. |
 | `authorization_denial_native`, `session_not_logged_contract`, `csrf_handshake` | the named refusals and their exact shapes. |
 
 Run the first, the taxonomy tripwire and the labels tripwire together after any registry

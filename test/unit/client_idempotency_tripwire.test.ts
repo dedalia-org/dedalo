@@ -15,7 +15,7 @@
  * health probe kept extending the deadline — so the busy-server probe is not a
  * mitigation, it is a window widener.
  *
- * WHAT IS PINNED, in seven blocks:
+ * WHAT IS PINNED, in eight blocks:
  *
  *  A. THE SERVER MAP IS TOTAL. `ACTION_IDEMPOTENCY` classifies every registered
  *     `(class, action)` pair — a newly registered action is red until it is
@@ -69,6 +69,37 @@
  *     really stuck leader, refused at the real production bound with
  *     `idempotency.in_progress` while the leader itself finishes untouched.
  *
+ *  H. `tool_request` IS CLASSIFIED BY THE NESTED ACTION. The static row stays
+ *     `mutating` (block A), but a tool action that DECLARES `readOnly`
+ *     (src/core/tools/module.ts) is taken off the ledger per request: the same
+ *     key twice executes twice, the ledger stays empty, a throwing handler (an
+ *     upstream `external.http_status`) surfaces its REAL error on the resend
+ *     instead of `idempotency.outcome_unknown`, and the handler runs inside the
+ *     read-only request scope. The default (no flag) is unchanged — executes once,
+ *     replays — and so is every doubt: an unknown tool or action, a background
+ *     request, a flag the client merely CLAIMS, an identically named action of
+ *     another tool, a classifier whose lookup THROWS, and a caller the tool is not
+ *     GRANTED to (the ledger's behaviour on a resend must not tell an ungranted
+ *     caller which tools or actions exist or declare readOnly: one sequence
+ *     whatever they name). Block C carries the client half: the one `tool_request`
+ *     forwarder passes `retries`/`timeout`/`busy_notice` ONLY when the caller gave
+ *     a usable one, and every `tool_request(` call site passes a literal `retries`.
+ *     A read-only action is not ledgered, so a default-retries caller would re-run
+ *     a third-party lookup up to five times; hence, for a TOOL THAT DECLARES a
+ *     `readOnly` action (derived from the loaded modules): its `tool_request(`
+ *     calls are read at depth 0 (the call's own `action` / `retries`, a later
+ *     property or spread overriding as at runtime); a call of a read-only action
+ *     passes the literal `retries: 1`; a call whose action is not a literal passes
+ *     it too (a call that is `retries: 1` is safe whatever it names); and the
+ *     other spellings of the door are refused outright — a hand-built request body
+ *     (`dd_api: 'dd_tools_api'` / `action: 'tool_request'`, the v6 shape),
+ *     `create_source(x, '<read-only action>')`, and `x.tool_request` used as a value
+ *     (`.call` / `.bind` / an alias) — because the census cannot follow where they
+ *     end up. NOT COVERED: a read-only action requested from another tool's code or
+ *     from `client/` by an inline `source: { model: 'tool_x', action }`.
+ *     Block D carries the transport half: `retries` is normalised ONCE, so an
+ *     `undefined` / `null` / `NaN` cannot split the stamp from the resend count.
+ *
  * HONEST LIMITS. (1) The residual window is real and is not gated because it
  * cannot be: the ledger is in-process, so a process restart between the commit
  * and the retry, or a multi-process deployment, re-admits one duplicate. The
@@ -83,7 +114,9 @@
  * the exemption names what bounds it instead (`transfer_id`, minted once per
  * transfer). (4) The client census reads `retries` as a literal; a site passing a
  * variable must be enumerated below (none since 2026-10-12, when the installer
- * helper that did left with the browser wizard). (5) The census
+ * helper that did left with the browser wizard); the one forwarder that passes a
+ * CALLER's value (tool_common.js `tool_request`) is pinned by behaviour in block C
+ * instead, because its own call site spells no literal. (5) The census
  * scope is client code BY DIRECTORY — browser JS served from outside `client/`
  * and `tools/**\/js` would escape it, the same gap
  * `client_error_contract_tripwire` names in its own header.
@@ -113,10 +146,21 @@ import type { ApiRequestContext } from '../../src/core/api/handler_context.ts';
 import type { ApiResult } from '../../src/core/api/response.ts';
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
 import { rqoSchema } from '../../src/core/concepts/rqo.ts';
+import { insertMatrixRecordWithCounter } from '../../src/core/db/matrix_write.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { ok } from '../../src/core/errors/convert.ts';
+import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
+import { inReadOnlyScope } from '../../src/core/security/read_only_scope.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
+import { isReadOnlyToolRequest } from '../../src/core/tools/dispatch.ts';
+import {
+	BACKGROUND_JOB_STATUS_ACTION,
+	BACKGROUND_JOBS_ACTION,
+} from '../../src/core/tools/job_status.ts';
+import { getLoadedTool, loadToolModules } from '../../src/core/tools/loader.ts';
+import type { ToolActionSpec } from '../../src/core/tools/module.ts';
+import { isToolGranted } from '../../src/core/tools/security.ts';
 import { registerSessionCleanup } from '../helpers/session_cleanup.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 
@@ -351,18 +395,89 @@ function clientJsFiles(): string[] {
 		.sort();
 }
 
-/** The argument-object text of a call whose `(` is at `open`. */
-function callArgument(source: string, open: number): string | null {
+/**
+ * Index just past the string or template literal that OPENS at `start`, or the
+ * text length when it never closes. A template's `${ ... }` is skipped as a
+ * bracketed span, so a quote inside an interpolation does not end the literal.
+ */
+function skipQuoted(text: string, start: number): number {
+	const quote = text[start] as string;
+	let index = start + 1;
+	while (index < text.length) {
+		const char = text[index] as string;
+		if (char === '\\') {
+			index += 2;
+		} else if (char === quote) {
+			return index + 1;
+		} else if (quote === '`' && char === '$' && text[index + 1] === '{') {
+			const after = skipBracketed(text, index + 1);
+			index = after === -1 ? text.length : after;
+		} else {
+			index += 1;
+		}
+	}
+	return text.length;
+}
+
+/**
+ * Index just past the bracket that CLOSES the one opening at `start`, string- and
+ * template-aware (a `}` inside a quoted value does not close an object), or -1
+ * when it never closes.
+ */
+function skipBracketed(text: string, start: number): number {
 	let depth = 0;
-	for (let index = open; index < source.length; index++) {
-		const char = source[index] as string;
+	let index = start;
+	while (index < text.length) {
+		const char = text[index] as string;
+		if (char === '"' || char === "'" || char === '`') {
+			index = skipQuoted(text, index);
+			continue;
+		}
 		if (char === '(' || char === '{' || char === '[') depth++;
 		else if (char === ')' || char === '}' || char === ']') {
 			depth--;
-			if (depth === 0) return source.slice(open + 1, index);
+			if (depth === 0) return index + 1;
+		}
+		index += 1;
+	}
+	return -1;
+}
+
+/** `text` split at its depth-0 commas (string-, template- and bracket-aware), trimmed, empties dropped. */
+function splitTopLevel(text: string): string[] {
+	const parts: string[] = [];
+	let from = 0;
+	let index = 0;
+	while (index < text.length) {
+		const char = text[index] as string;
+		if (char === '"' || char === "'" || char === '`') {
+			index = skipQuoted(text, index);
+		} else if (char === '(' || char === '{' || char === '[') {
+			const after = skipBracketed(text, index);
+			index = after === -1 ? text.length : after;
+		} else if (char === ',') {
+			parts.push(text.slice(from, index));
+			index += 1;
+			from = index;
+		} else {
+			index += 1;
 		}
 	}
-	return null;
+	parts.push(text.slice(from));
+	return parts.map((part) => part.trim()).filter((part) => part !== '');
+}
+
+/**
+ * The argument text of a call whose `(` is at `open`: the bytes between the
+ * parentheses, or null when they never close. STRING-AWARE — a `}` or `)` inside
+ * a quoted value or a template does not end the call (the first draft counted
+ * brackets inside strings too: a lookup's `'{'` in an option made the argument
+ * unreadable). Over the 398 `data_manager.request` / `tool_request` /
+ * `create_source` sites of 2026-11-06 the two readers agreed on every one.
+ */
+function callArgument(source: string, open: number): string | null {
+	const end = skipBracketed(source, open);
+	return end === -1 ? null : source.slice(open + 1, end - 1);
 }
 
 interface CallSite {
@@ -404,6 +519,267 @@ function censusCallSites(): CallSite[] {
 		}
 	}
 	return sites;
+}
+
+/**
+ * A `tool_request(` call: the tool convenience wrapper (tool_common.js) that
+ * forwards `retries`/`timeout`/`busy_notice` to data_manager.request. Whitespace
+ * is allowed before the `(` so a formatter-split chain still reads; the
+ * definition (`tool_request = async function(`) and the label strings
+ * ('tool_request: missing action') have no `(` after the name.
+ */
+const TOOL_REQUEST_SITE_PATTERN = /\btool_request\s*\(/g;
+
+/** The one file that defines the wrapper and forwards its transport options. */
+const TOOL_REQUEST_FORWARDER = 'client/dedalo/core/tools_common/js/tool_common.js';
+
+interface ToolRequestSite {
+	file: string;
+	line: number;
+	/**
+	 * The text of the call's OWN `retries:` property, or null when it spells none.
+	 * A spread or a computed key in the argument (`{ ...x }`) reads as `'...'`: it
+	 * may carry a `retries` of its own, so nothing before it counts.
+	 */
+	retries: string | null;
+	/** The call's OWN action when it is a string LITERAL, else null (a variable, a shorthand, a spread...). */
+	action: string | null;
+}
+
+/** The marker a spread / computed key leaves in a site's `retries` (never a digit, so never "literal"). */
+const SPREAD_MARK = '...';
+
+/**
+ * The depth-0 properties of an object-literal argument, in source order, or null
+ * when the argument is not an object literal (a variable, a call...). A key is
+ * null for a spread and for anything this reader cannot name (a computed key, a
+ * method): such a property may carry ANY key, so the reader treats it as one that
+ * overrides every earlier one. A shorthand `{ action }` reads as key `action`,
+ * value `action` (the identifier, never a literal).
+ */
+function objectLiteralProperties(
+	argument: string,
+): Array<{ key: string | null; value: string }> | null {
+	const text = argument.trim();
+	if (!text.startsWith('{')) return null;
+	const close = skipBracketed(text, 0);
+	const body = close === -1 ? text.slice(1) : text.slice(1, close - 1);
+	return splitTopLevel(body).map((segment) => {
+		if (segment.startsWith('...')) return { key: null, value: segment.slice(3).trim() };
+		const named = /^(?:([A-Za-z_$][\w$]*)|(['"`])([A-Za-z0-9_$]+)\2)\s*(?::([\s\S]*))?$/.exec(
+			segment,
+		);
+		if (named === null) return { key: null, value: segment };
+		const key = (named[1] ?? named[3]) as string;
+		return { key, value: named[4] === undefined ? key : named[4].trim() };
+	});
+}
+
+/**
+ * What a `tool_request(` argument says about its action and its retries, read at
+ * DEPTH 0 only and in order, so a later property overrides an earlier one exactly
+ * as the object does: a nested `options: { retries: 1 }` is the action's own
+ * option and not a transport count, a nested `options: { action: 'x' }` is not
+ * the call's action, and a spread after the keys could replace either.
+ */
+function readToolRequestArgument(argument: string): Pick<ToolRequestSite, 'action' | 'retries'> {
+	const properties = objectLiteralProperties(argument);
+	// not an object literal (`tool_request(options)`): nothing about it is readable
+	if (properties === null) return { action: null, retries: SPREAD_MARK };
+	let action: string | null = null;
+	let retries: string | null = null;
+	for (const { key, value } of properties) {
+		if (key === null) {
+			action = null;
+			retries = SPREAD_MARK;
+		} else if (key === 'action') {
+			action = /^(['"`])([A-Za-z0-9_]+)\1$/.exec(value)?.[2] ?? null;
+		} else if (key === 'retries') {
+			retries = value;
+		}
+	}
+	return { action, retries };
+}
+
+/**
+ * Every `tool_request(` call site in a source text, with the `retries` and the
+ * literal `action` its argument spells at depth 0 (readToolRequestArgument).
+ */
+function toolRequestSitesIn(file: string, raw: string): ToolRequestSite[] {
+	const source = stripComments(raw);
+	const pattern = new RegExp(TOOL_REQUEST_SITE_PATTERN.source, 'g');
+	const sites: ToolRequestSite[] = [];
+	let match: RegExpExecArray | null = pattern.exec(source);
+	while (match !== null) {
+		const open = match.index + match[0].length - 1;
+		const argument = callArgument(source, open) ?? '';
+		sites.push({
+			file,
+			line: source.slice(0, match.index).split('\n').length,
+			...readToolRequestArgument(argument),
+		});
+		match = pattern.exec(source);
+	}
+	return sites;
+}
+
+/** The census of {@link toolRequestSitesIn} over every client/tool browser file. */
+function censusToolRequestSites(): ToolRequestSite[] {
+	return clientJsFiles().flatMap((file) =>
+		toolRequestSitesIn(file, readFileSync(join(REPO_ROOT, file), 'utf8')),
+	);
+}
+
+/**
+ * The OTHER ways a tool's browser code reaches `dd_tools_api / tool_request`
+ * than a `tool_request(` call. None of them can be read the way a call can, so
+ * a tool that declares a read-only action is not allowed to use them:
+ *
+ *  - `hand_built_body`    — it spells the request body itself (`dd_api:
+ *                           'dd_tools_api'` or `action: 'tool_request'`, the v6
+ *                           shape: `create_source(self, 'name')` into a `rqo`
+ *                           handed to `data_manager.request`). The transport
+ *                           default (5 attempts, stamped) applies unless that
+ *                           call spells `retries: 1`, and which request a body
+ *                           reaches is a data flow the census does not follow.
+ *  - `create_source`      — `create_source(x, '<action>')`, the source of such a
+ *                           body, naming the action as a literal. Only an offender
+ *                           when the action IS one the server declares read-only.
+ *  - `forwarder_reference`— `x.tool_request` used as a VALUE (`.call`, `.apply`,
+ *                           `.bind`, an alias in a variable): the argument of the
+ *                           eventual call is not where the census looks. The
+ *                           prototype alias every tool declares
+ *                           (`tool_x.prototype.tool_request = tool_common.prototype.
+ *                           tool_request`) is wiring, not a use, and is not a hit.
+ */
+interface ToolRequestSpelling {
+	file: string;
+	line: number;
+	kind: 'hand_built_body' | 'create_source' | 'forwarder_reference';
+	/** The literal action of a `create_source` hit, else null. */
+	action: string | null;
+}
+
+/** `dd_api: 'dd_tools_api'` or `action: 'tool_request'`: a request body written out by hand. */
+const HAND_BUILT_BODY_PATTERN =
+	/\b(?:dd_api\s*:\s*['"`]dd_tools_api['"`]|action\s*:\s*['"`]tool_request['"`])/g;
+
+/**
+ * A property access to `tool_request` that is not an immediate call. The dot sits
+ * against the name (a formatter breaks the line BEFORE the dot, never after it),
+ * so a sentence in a message string ("Error. tool_request: missing") is not one.
+ */
+const FORWARDER_REFERENCE_PATTERN = /\.tool_request\b(?!\s*\()/g;
+
+/** The wiring line every tool carries; it names the forwarder without using it. */
+const FORWARDER_ALIAS_PATTERN =
+	/^[ \t]*[\w$.]+\.prototype\.tool_request\s*=\s*tool_common\.prototype\.tool_request[ \t]*;?[ \t]*$/gm;
+
+/** Every hand-built / indirect spelling of the tool_request door in a source text. */
+function toolRequestSpellingsIn(file: string, raw: string): ToolRequestSpelling[] {
+	const source = stripComments(raw);
+	const lineOf = (index: number): number => source.slice(0, index).split('\n').length;
+	const spellings: ToolRequestSpelling[] = [];
+	for (const match of source.matchAll(HAND_BUILT_BODY_PATTERN)) {
+		spellings.push({ file, line: lineOf(match.index), kind: 'hand_built_body', action: null });
+	}
+	// the alias statements are wiring: blank them (offsets kept) before looking for references
+	const unwired = source.replace(FORWARDER_ALIAS_PATTERN, (line) => line.replace(/[^\n]/g, ' '));
+	for (const match of unwired.matchAll(FORWARDER_REFERENCE_PATTERN)) {
+		spellings.push({ file, line: lineOf(match.index), kind: 'forwarder_reference', action: null });
+	}
+	for (const match of source.matchAll(/\bcreate_source\s*\(/g)) {
+		const open = match.index + match[0].length - 1;
+		const second = splitTopLevel(callArgument(source, open) ?? '')[1] ?? '';
+		const action = /^(['"`])([A-Za-z0-9_]+)\1$/.exec(second)?.[2] ?? null;
+		spellings.push({ file, line: lineOf(match.index), kind: 'create_source', action });
+	}
+	return spellings;
+}
+
+/** The census of {@link toolRequestSpellingsIn} over every client/tool browser file. */
+function censusToolRequestSpellings(): ToolRequestSpelling[] {
+	return clientJsFiles().flatMap((file) =>
+		toolRequestSpellingsIn(file, readFileSync(join(REPO_ROOT, file), 'utf8')),
+	);
+}
+
+/**
+ * The browser code of a tool that declares readOnly actions which breaks the
+ * "a read-only action is called once" rule, as sentences. THE judge: the real
+ * census and the injected controls both go through it.
+ *
+ * A read-only action is never ledgered, so the transport's resend of a stalled
+ * call RE-EXECUTES it: for a third-party lookup that is up to five upstream calls
+ * per click, where the ledger used to make it one. The tool's client therefore
+ * reaches the server ONLY through `self.tool_request({ ... })`, and a call of a
+ * read-only action passes the literal `retries: 1` (no resend, no key):
+ *
+ *  - a `tool_request(` call whose own `retries` is the literal 1 is safe whatever
+ *    its action is — no key, no resend (a generic `tool_request({ action,
+ *    options, retries: 1 })` helper is legitimate);
+ *  - any other call must spell its action as a literal, and then `retries: 1`
+ *    only if the action is one the server declares read-only. A call that spells
+ *    neither is unreadable, and an unreadable call is no proof;
+ *  - a hand-built request body, `create_source` naming a read-only action, or a
+ *    use of the forwarder as a value (ToolRequestSpelling) is an offender in
+ *    such a tool: the census cannot read where it ends up.
+ *
+ * A site belongs to the tool its file lives in (`tools/<tool>/js/...`), because
+ * `tool_request` addresses the instance's own model. NOT COVERED (stated, not
+ * gated): a read-only action requested from ANOTHER tool's code or from `client/`
+ * by an inline `source: { model: 'tool_x', action }`; its declared tool is not
+ * the file's tool, and the census would have to follow the model through data.
+ */
+function readOnlyCallSiteOffenders(
+	sites: readonly ToolRequestSite[],
+	readOnlyActions: ReadonlyMap<string, ReadonlySet<string>>,
+	spellings: readonly ToolRequestSpelling[] = [],
+): string[] {
+	const offenders: string[] = [];
+	const declaredOf = (file: string): { tool: string; declared: ReadonlySet<string> } | null => {
+		const tool = /^tools\/([^/]+)\//.exec(file)?.[1];
+		const declared = tool === undefined ? undefined : readOnlyActions.get(tool);
+		return tool === undefined || declared === undefined || declared.size === 0
+			? null
+			: { tool, declared };
+	};
+	for (const site of sites) {
+		const owner = declaredOf(site.file);
+		if (owner === null || site.retries === '1') continue;
+		const where = `${site.file}:${site.line}`;
+		if (site.action === null) {
+			offenders.push(
+				`${where}: ${owner.tool} declares readOnly actions, but this tool_request call spells neither a literal \`action: 'name'\` nor the literal \`retries: 1\` — the census cannot tell whether it calls one (found retries: ${site.retries ?? 'none'})`,
+			);
+		} else if (owner.declared.has(site.action)) {
+			offenders.push(
+				`${where}: \`${site.action}\` is readOnly on the server (never ledgered) — pass the literal \`retries: 1\` (found: ${site.retries ?? 'none'})`,
+			);
+		}
+	}
+	for (const spelling of spellings) {
+		const owner = declaredOf(spelling.file);
+		if (owner === null) continue;
+		const where = `${spelling.file}:${spelling.line}`;
+		const actions = [...owner.declared].join(', ');
+		if (spelling.kind === 'create_source') {
+			if (spelling.action !== null && owner.declared.has(spelling.action)) {
+				offenders.push(
+					`${where}: \`${spelling.action}\` is readOnly on the server, but this code builds its request source by hand (create_source) — send it through \`self.tool_request({ action: '${spelling.action}', options, retries: 1 })\``,
+				);
+			}
+		} else {
+			const what =
+				spelling.kind === 'hand_built_body'
+					? 'writes a dd_tools_api / tool_request body by hand'
+					: 'uses tool_request as a value (.call / .apply / .bind / an alias)';
+			offenders.push(
+				`${where}: ${owner.tool} declares readOnly actions (${actions}), but this code ${what} — the census cannot read which action it reaches or its retries, and the transport default (5 stamped attempts) would re-execute a read-only action up to five times. Send every request of this tool through \`self.tool_request({ action, options, retries })\`.`,
+			);
+		}
+	}
+	return offenders;
 }
 
 /**
@@ -678,6 +1054,402 @@ describe('C — the client census (TOTAL over client/ and tools/**/js)', () => {
 			dynamic,
 			'A call site whose retries value the census cannot read. Enumerate it here with a reason, or make it a literal.',
 		).toEqual([]);
+	});
+
+	/**
+	 * THE ONE FORWARDER. `tool_common.prototype.tool_request` hands the CALLER's
+	 * `retries` to data_manager.request, so its own `data_manager.request` site
+	 * carries no literal for the census above to read (the options ride in a
+	 * spread). That is safe only while every property below holds, and they are
+	 * asserted, not trusted:
+	 *  - the wrapper is DEFINED exactly once, in tool_common.js (every other tool
+	 *    file only aliases it), so no second forwarder escapes this block;
+	 *  - it adds each transport option ONLY when the caller gave a usable one. An
+	 *    explicit `retries: undefined` would OVERRIDE the transport's default of 5
+	 *    (`{...default_options, ...options}`); before data_manager normalised the
+	 *    count that was FIVE UNSTAMPED attempts (the stamp asked `retries > 1`, the
+	 *    retry loop clamped `retries ?? 5`) — a write resent blind, CLI-01 — and a
+	 *    NaN was zero attempts. The bare spelling `retries: options.retries` is
+	 *    exactly that. The transport half is block D; the forwarder passes only an
+	 *    integer >= 1 so a caller bug does not rest on that line alone;
+	 *  - every `tool_request(` call site passes a LITERAL `retries` or none;
+	 *  - in a tool that declares a `readOnly` action (derived from the loaded tool
+	 *    modules), the read-only call-site rule below: calls are read at depth 0, a
+	 *    call of a read-only action passes the literal `retries: 1`, and the other
+	 *    spellings of the door (hand-built body, `create_source` of a read-only
+	 *    action, the forwarder used as a value) are refused.
+	 */
+	describe('the tool_request forwarder and its callers', () => {
+		const forwarderSource = readFileSync(join(REPO_ROOT, TOOL_REQUEST_FORWARDER), 'utf8');
+		const DEFINITION = 'tool_common.prototype.tool_request = async function(options) {';
+
+		/** The wrapper's own bytes as a callable, with its two collaborators injected. */
+		function forwarder(): (
+			this: { model: string },
+			options: Record<string, unknown>,
+		) => Promise<unknown> {
+			const start = forwarderSource.indexOf(DEFINITION);
+			const end = forwarderSource.indexOf('}//end tool_request');
+			if (start === -1 || end === -1) throw new Error('the tool_request definition moved');
+			const expression = forwarderSource.slice(
+				start + 'tool_common.prototype.tool_request = '.length,
+				end + 1,
+			);
+			return new Function('data_manager', 'create_source', `return (${expression})`)(
+				{
+					request: async (requestOptions: Record<string, unknown>) => {
+						sent.push(requestOptions);
+						return { ok: true };
+					},
+				},
+				(self: { model: string }, action: string) => ({ model: self.model, action }),
+			);
+		}
+		const sent: Array<Record<string, unknown>> = [];
+
+		test('the wrapper is defined once, in tool_common.js; every other file aliases it', () => {
+			const defining = clientJsFiles().filter((file) =>
+				/\btool_request\s*=\s*(?:async\s+)?function\b/.test(
+					stripComments(readFileSync(join(REPO_ROOT, file), 'utf8')),
+				),
+			);
+			expect(defining).toEqual([TOOL_REQUEST_FORWARDER]);
+		});
+
+		test('a call that gives no transport option sends NONE — not even a key set to undefined', async () => {
+			sent.length = 0;
+			await forwarder().call({ model: 'tool_probe' }, { action: 'a', options: {} });
+			await forwarder().call(
+				{ model: 'tool_probe' },
+				{ action: 'a', options: {}, retries: undefined, timeout: undefined },
+			);
+			expect(sent.length).toBe(2);
+			for (const requestOptions of sent) {
+				expect(
+					Object.keys(requestOptions).sort(),
+					'`retries: undefined` in the options would override the transport default of 5',
+				).toEqual(['body']);
+			}
+		});
+
+		test('an UNUSABLE retries (null, NaN, 0, a string, a fraction) is not forwarded either', async () => {
+			for (const retries of [null, Number.NaN, 0, -1, '1', 1.5, Number.POSITIVE_INFINITY]) {
+				sent.length = 0;
+				await forwarder().call({ model: 'tool_probe' }, { action: 'a', options: {}, retries });
+				expect(sent.length, String(retries)).toBe(1);
+				expect(Object.keys(sent[0] as object).sort(), String(retries)).toEqual(['body']);
+			}
+		});
+
+		test('a call that gives retries / timeout / busy_notice forwards exactly those', async () => {
+			sent.length = 0;
+			await forwarder().call(
+				{ model: 'tool_probe' },
+				{ action: 'lookup', options: { q: 1 }, retries: 1, timeout: 20000, busy_notice: false },
+			);
+			expect(sent.length).toBe(1);
+			expect(sent[0]).toMatchObject({ retries: 1, timeout: 20000, busy_notice: false });
+			expect(
+				(sent[0] as { body: { source: unknown } }).body.source,
+				'the source names the tool and the action the server resolves',
+			).toEqual({ model: 'tool_probe', action: 'lookup' });
+		});
+
+		test('the detector reads a spelled-out retries, a non-literal one and a formatter-split call', () => {
+			const spelled = toolRequestSitesIn('x.js', 'self.tool_request({ action: "a", retries: 1 })');
+			const dynamic = toolRequestSitesIn('x.js', 'self.tool_request({ action: "a", retries: n })');
+			const split = toolRequestSitesIn('x.js', 'self\n\t.tool_request({ action: "a" })');
+			expect(spelled.map((site) => site.retries)).toEqual(['1']);
+			expect(dynamic.map((site) => site.retries)).toEqual(['n']);
+			expect(split.map((site) => site.retries)).toEqual([null]);
+		});
+
+		test('the detector reads a literal action, and none for a variable or a spread', () => {
+			const literal = toolRequestSitesIn(
+				'x.js',
+				"self.tool_request({ action: 'lookup', retries: 1, options: { action: 'inner' } })",
+			);
+			const variable = toolRequestSitesIn('x.js', 'self.tool_request({ action: name })');
+			const spread = toolRequestSitesIn('x.js', 'self.tool_request({ ...request })');
+			expect(literal.map((site) => site.action)).toEqual(['lookup']);
+			expect(variable.map((site) => site.action)).toEqual([null]);
+			expect(spread.map((site) => site.action)).toEqual([null]);
+		});
+
+		/**
+		 * DEPTH 0, IN ORDER. The first draft took the first `retries:` / `action:`
+		 * ANYWHERE in the argument text, nested objects included, so a spelling the
+		 * transport does not honour satisfied the rule and another call's keys could be
+		 * judged instead. The call's own keys are the depth-0 keys of its argument
+		 * object, and a later property overrides an earlier one as it does at runtime.
+		 */
+		test('the detector reads the call’s OWN depth-0 keys: a nested retries or action is not the call’s', () => {
+			const read = (argument: string) => {
+				const [site] = toolRequestSitesIn('x.js', `self.tool_request(${argument})`);
+				return { action: site?.action, retries: site?.retries };
+			};
+			// a nested `retries` is the action's own option, not a transport count
+			expect(read("{ action: 'read_demo', options: { retries: 1 } }")).toEqual({
+				action: 'read_demo',
+				retries: null,
+			});
+			// a nested `action` before the call's own is not the call's action
+			expect(read("{ options: { action: 'x' }, action: 'read_demo', retries: 1 }")).toEqual({
+				action: 'read_demo',
+				retries: '1',
+			});
+			// shorthand: the key is read, the value is an identifier, never a literal
+			expect(read('{ action, options, retries: 1 }')).toEqual({ action: null, retries: '1' });
+			expect(read("{ action: 'read_demo', retries }")).toEqual({
+				action: 'read_demo',
+				retries: 'retries',
+			});
+			// quoted keys, and a string value that holds commas, braces and a fake key
+			expect(read("{ 'action': 'read_demo', \"retries\": 1 }")).toEqual({
+				action: 'read_demo',
+				retries: '1',
+			});
+			expect(
+				read("{ options: { q: 'a, {b', note: \"retries: 9\" }, action: 'read_demo', retries: 1 }"),
+			).toEqual({ action: 'read_demo', retries: '1' });
+			// a spread AFTER the keys may replace either; BEFORE them, the explicit keys win
+			expect(read("{ action: 'read_demo', retries: 1, ...extra }")).toEqual({
+				action: null,
+				retries: '...',
+			});
+			expect(read("{ ...extra, action: 'read_demo', retries: 1 }")).toEqual({
+				action: 'read_demo',
+				retries: '1',
+			});
+			// a computed key or a method may be any key at all
+			expect(read("{ action: 'read_demo', [name]: 1 }")).toEqual({ action: null, retries: '...' });
+			// not an object literal: nothing is readable
+			expect(read('options')).toEqual({ action: null, retries: '...' });
+			// the last duplicate wins, as in the object
+			expect(read("{ action: 'a', retries: 5, action: 'read_demo', retries: 1 }")).toEqual({
+				action: 'read_demo',
+				retries: '1',
+			});
+		});
+
+		test('the spelling detector finds a hand-built body, a create_source of an action and a forwarder used as a value', () => {
+			const kinds = (source: string) =>
+				toolRequestSpellingsIn('x.js', source).map((hit) => [hit.kind, hit.action]);
+			// the v6 shape: create_source into a hand-written rqo
+			expect(
+				kinds(
+					"const rqo = { dd_api: 'dd_tools_api', action: 'tool_request', source: create_source(self, 'read_demo') }",
+				),
+			).toEqual([
+				['hand_built_body', null],
+				['hand_built_body', null],
+				['create_source', 'read_demo'],
+			]);
+			// a variable action is a create_source with no literal
+			expect(kinds('const source = create_source(self, name)')).toEqual([['create_source', null]]);
+			// the forwarder as a value, in every spelling
+			for (const used of [
+				'self.tool_request.call(self, { action: "a" })',
+				'self.tool_request.bind(self)',
+				'self.tool_request.apply(self, [o])',
+				'const send = self.tool_request',
+				'self\n\t.tool_request\n\t.call(self, o)',
+			]) {
+				expect(kinds(used), used).toEqual([['forwarder_reference', null]]);
+			}
+			// NOT a use: a direct call, the prototype alias every tool carries, a comment, a label string
+			expect(kinds('self.tool_request({ action: "a", retries: 1 })')).toEqual([]);
+			expect(
+				kinds('tool_x.prototype.tool_request\t\t= tool_common.prototype.tool_request'),
+			).toEqual([]);
+			expect(kinds('// self.tool_request.call(self)\n/* dd_api: "dd_tools_api" */')).toEqual([]);
+			expect(kinds("console.error('tool_request: missing action')")).toEqual([]);
+		});
+
+		test('every tool_request( call site passes a literal retries, or none', () => {
+			const sitesFound = censusToolRequestSites();
+			// 13 on 2026-11-06 (the acquisition tools, tool_dev_template, tool_export,
+			// tool_identify, tool_error_report, tool_sitebuilder). A census that found
+			// fewer has gone blind, not found a smaller client.
+			expect(sitesFound.length).toBeGreaterThanOrEqual(12);
+			const dynamic = sitesFound
+				.filter((site) => site.retries !== null && !/^\d+$/.test(site.retries))
+				.map((site) => `${site.file}:${site.line} retries: ${site.retries}`);
+			expect(
+				dynamic,
+				'A tool_request caller passing a computed retries. A lookup that calls a third-party service passes `retries: 1` literally; the count is part of the call site, not data.',
+			).toEqual([]);
+		});
+
+		/**
+		 * THE READ-ONLY CALL-SITE RULE (module.ts GatedToolActionSpec.readOnly). The
+		 * set of read-only actions is DERIVED from the loaded tool modules, never
+		 * listed here. What it checks is stated in readOnlyCallSiteOffenders and in
+		 * this file's header (block H): the `tool_request(` calls of a tool that
+		 * declares a read-only action, and the spellings of the door it refuses there.
+		 * It is a census of source text, not of runtime calls.
+		 */
+		describe('a readOnly action is called with retries: 1', () => {
+			const real = async (): Promise<Map<string, Set<string>>> => {
+				const registry = await loadToolModules();
+				const declared = new Map<string, Set<string>>();
+				for (const [tool, loaded] of registry) {
+					const actions = Object.entries(loaded.module.apiActions)
+						.filter(([, spec]) => spec.readOnly === true)
+						.map(([name]) => name);
+					declared.set(tool, new Set(actions));
+				}
+				return declared;
+			};
+
+			test('every call site of a readOnly action of the real corpus passes the literal retries: 1', async () => {
+				const declared = await real();
+				// the population: the exemplar's read_demo is a real declaration with a real
+				// call site, so the rule below is EXECUTED on the real corpus
+				expect([...(declared.get('tool_dev_template') ?? [])]).toContain('read_demo');
+				const sites = censusToolRequestSites().filter(
+					(site) => site.file.startsWith('tools/tool_dev_template/') && site.action === 'read_demo',
+				);
+				expect(sites.length, 'the exemplar calls read_demo').toBeGreaterThanOrEqual(1);
+				expect(
+					readOnlyCallSiteOffenders(
+						censusToolRequestSites(),
+						declared,
+						censusToolRequestSpellings(),
+					),
+				).toEqual([]);
+			});
+
+			test('the spelling census is not blind: it sees the hand-built bodies the shipped tools carry', () => {
+				// ~20 tools build the body by hand (v6 shape). If the detector stops finding
+				// them, the rule below it would pass for the wrong reason.
+				const handBuilt = new Set(
+					censusToolRequestSpellings()
+						.filter((hit) => hit.kind === 'hand_built_body')
+						.map((hit) => hit.file),
+				);
+				expect(handBuilt.size).toBeGreaterThanOrEqual(15);
+				for (const file of [
+					'tools/tool_lang/js/tool_lang.js',
+					'tools/tool_export/js/tool_export.js',
+					'tools/tool_time_machine/js/tool_time_machine.js',
+				]) {
+					expect(handBuilt, `${file} builds its request by hand`).toContain(file);
+				}
+				// and the wiring alias every tool carries is NOT a hit
+				expect(
+					censusToolRequestSpellings().filter(
+						(hit) => hit.kind === 'forwarder_reference' && hit.file.startsWith('tools/'),
+					),
+				).toEqual([]);
+			});
+
+			test('the judge (positive controls): a default-retries call, a computed one and an unreadable action are offenders', () => {
+				const declared = new Map([['tool_zz', new Set(['lookup'])]]);
+				const site = (over: Partial<ToolRequestSite>): ToolRequestSite => ({
+					file: 'tools/tool_zz/js/tool_zz.js',
+					line: 10,
+					retries: '1',
+					action: 'lookup',
+					...over,
+				});
+				// accepted: the read-only action with the literal 1; another action of the tool; another tool
+				expect(readOnlyCallSiteOffenders([site({})], declared)).toEqual([]);
+				expect(
+					readOnlyCallSiteOffenders([site({ action: 'save', retries: null })], declared),
+				).toEqual([]);
+				expect(
+					readOnlyCallSiteOffenders(
+						[site({ file: 'tools/tool_other/js/x.js', retries: null })],
+						declared,
+					),
+				).toEqual([]);
+				// a call whose own retries is the literal 1 is safe WHATEVER its action is (no key, no
+				// resend): the generic `tool_request({ action, options, retries: 1 })` helper shape
+				expect(readOnlyCallSiteOffenders([site({ action: null, retries: '1' })], declared)).toEqual(
+					[],
+				);
+				// refused
+				expect(readOnlyCallSiteOffenders([site({ retries: null })], declared)).toHaveLength(1);
+				expect(readOnlyCallSiteOffenders([site({ retries: '5' })], declared)).toHaveLength(1);
+				expect(readOnlyCallSiteOffenders([site({ retries: 'n' })], declared)).toHaveLength(1);
+				expect(readOnlyCallSiteOffenders([site({ retries: '...' })], declared)).toHaveLength(1);
+				// an unreadable action is an offender unless the retries is the literal 1
+				expect(
+					readOnlyCallSiteOffenders([site({ action: null, retries: null })], declared),
+				).toHaveLength(1);
+				expect(
+					readOnlyCallSiteOffenders([site({ action: null, retries: '5' })], declared),
+				).toHaveLength(1);
+				expect(
+					readOnlyCallSiteOffenders([site({ action: null, retries: '...' })], declared),
+				).toHaveLength(1);
+			});
+
+			test('the judge (positive controls): a hand-built body or a forwarder used as a value in a tool with a read-only action is an offender', () => {
+				const declared = new Map([
+					['tool_zz', new Set(['lookup'])],
+					['tool_plain', new Set<string>()],
+				]);
+				const spelling = (over: Partial<ToolRequestSpelling>): ToolRequestSpelling => ({
+					file: 'tools/tool_zz/js/tool_zz.js',
+					line: 7,
+					kind: 'hand_built_body',
+					action: null,
+					...over,
+				});
+				const judge = (hit: ToolRequestSpelling) => readOnlyCallSiteOffenders([], declared, [hit]);
+				// refused in a tool that declares a read-only action
+				expect(judge(spelling({}))).toHaveLength(1);
+				expect(judge(spelling({ kind: 'forwarder_reference' }))).toHaveLength(1);
+				expect(judge(spelling({ kind: 'create_source', action: 'lookup' }))).toHaveLength(1);
+				// the offender names the file, the line and the tool's read-only actions
+				expect(judge(spelling({}))[0]).toContain('tools/tool_zz/js/tool_zz.js:7');
+				expect(judge(spelling({}))[0]).toContain('lookup');
+				// a create_source for an action that is NOT read-only is another action's business
+				expect(judge(spelling({ kind: 'create_source', action: 'save' }))).toEqual([]);
+				expect(judge(spelling({ kind: 'create_source', action: null }))).toEqual([]);
+				// a tool that declares nothing read-only may build its bodies however it likes
+				expect(judge(spelling({ file: 'tools/tool_plain/js/x.js' }))).toEqual([]);
+				expect(judge(spelling({ file: 'tools/tool_unknown/js/x.js' }))).toEqual([]);
+				expect(judge(spelling({ file: 'client/dedalo/core/x.js' }))).toEqual([]);
+			});
+
+			test('end to end on source text: the v6 spelling of a read-only action is caught, the forwarder spelling is not', () => {
+				const declared = new Map([['tool_zz', new Set(['lookup'])]]);
+				const file = 'tools/tool_zz/js/tool_zz.js';
+				const judge = (source: string) =>
+					readOnlyCallSiteOffenders(
+						toolRequestSitesIn(file, source),
+						declared,
+						toolRequestSpellingsIn(file, source),
+					);
+				const v6 = [
+					"const source = create_source(self, 'lookup')",
+					"const rqo = { dd_api: 'dd_tools_api', action: 'tool_request', source, options: {} }",
+					'return data_manager.request({ body: rqo })',
+				].join('\n');
+				// three hits: the body (two spellings of it) and the create_source of the read-only action
+				expect(judge(v6).length).toBeGreaterThanOrEqual(2);
+				// even with retries: 1 on the request, the body is hand-built: unreadable, refused
+				expect(
+					judge(v6.replace('{ body: rqo }', '{ body: rqo, retries: 1 }')).length,
+				).toBeGreaterThan(0);
+				expect(
+					judge("self.tool_request.call(self, { action: 'lookup', retries: 1 })"),
+				).toHaveLength(1);
+				// the accepted spellings
+				expect(judge("self.tool_request({ action: 'lookup', options: {}, retries: 1 })")).toEqual(
+					[],
+				);
+				expect(judge('self.tool_request({ action, options, retries: 1 })')).toEqual([]);
+				expect(judge("self.tool_request({ action: 'save', options: {} })")).toEqual([]);
+				// a nested retries does not satisfy the rule
+				expect(
+					judge("self.tool_request({ action: 'lookup', options: { retries: 1 } })"),
+				).toHaveLength(1);
+			});
+		});
 	});
 
 	test('the transports that bypass data_manager.request are exactly the enumerated ones', () => {
@@ -961,6 +1733,56 @@ describe('D — the shipped transport stamps every request it may resend', () =>
 		expect(JSON.parse(posted[0]?.body as string).idempotency_key).toBeUndefined();
 	}, 20000);
 
+	/**
+	 * THE STAMP AND THE RESEND COUNT READ ONE VALUE. `{...defaults, ...options}` lets
+	 * a key present with the value `undefined` / `null` override the default, and the
+	 * stamp (`retries > 1`) and the retry loop (`Math.max(1, retries ?? 5)`) used to
+	 * read it differently: five byte-identical attempts, NO key — a write resent
+	 * blind (CLI-01). A NaN was zero attempts. Each unusable value is now the
+	 * DEFAULT: five attempts, one key.
+	 */
+	test('an UNUSABLE retries (undefined, null, NaN, a string, Infinity) is the default: five attempts, ONE key', async () => {
+		for (const retries of [undefined, null, Number.NaN, 'x', Number.POSITIVE_INFINITY]) {
+			posted = [];
+			await dataManager.request({
+				body: { action: 'create', dd_api: 'dd_core_api' },
+				retries,
+				timeout: 20,
+				base_delay: 1,
+			});
+			expect(posted.length, `retries: ${String(retries)} must not skip the retry loop`).toBe(5);
+			expect(new Set(posted.map((entry) => entry.body)).size, String(retries)).toBe(1);
+			const key = JSON.parse(posted[0]?.body as string).idempotency_key as string;
+			expect(key, `retries: ${String(retries)} — five attempts WITHOUT a key is CLI-01`).toMatch(
+				/^[A-Za-z0-9_-]{16,128}$/,
+			);
+		}
+	}, 30000);
+
+	test('a retries of 0 or a fraction is clamped: 0 sends once with no key, 2.9 sends twice with one', async () => {
+		posted = [];
+		await dataManager.request({
+			body: { action: 'save', dd_api: 'dd_core_api' },
+			retries: 0,
+			timeout: 20,
+			base_delay: 1,
+		});
+		expect(posted.length).toBe(1);
+		expect(JSON.parse(posted[0]?.body as string).idempotency_key).toBeUndefined();
+
+		posted = [];
+		await dataManager.request({
+			body: { action: 'save', dd_api: 'dd_core_api' },
+			retries: 2.9,
+			timeout: 20,
+			base_delay: 1,
+		});
+		expect(posted.length).toBe(2);
+		const keys = posted.map((entry) => JSON.parse(entry.body as string).idempotency_key);
+		expect(new Set(keys).size).toBe(1);
+		expect(keys[0]).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
+	}, 30000);
+
 	test('two calls are two operations: never the same key', async () => {
 		posted = [];
 		const body = { action: 'create', dd_api: 'dd_core_api' };
@@ -1017,6 +1839,18 @@ const preexisting = new Set<number>();
 
 function context(): ApiRequestContext {
 	const token = createSession(USER_ID, 'root', true);
+	const session = getSession(token);
+	return {
+		requestId: `idem-${crypto.randomUUID()}`,
+		clientIp: '127.0.0.1',
+		session,
+		csrfCandidate: session?.csrfToken ?? null,
+	} as ApiRequestContext;
+}
+
+/** A context for an authenticated session of `userId` (not a global admin). */
+function contextOf(userId: number): ApiRequestContext {
+	const token = createSession(userId, `zz_idem_${userId}`, false);
 	const session = getSession(token);
 	return {
 		requestId: `idem-${crypto.randomUUID()}`,
@@ -1326,6 +2160,386 @@ async function recordCount(): Promise<number> {
 	)) as { n: number }[];
 	return Number(rows[0]?.n ?? 0);
 }
+
+// ---------------------------------------------------------------------------
+// H — tool_request is classified by the NESTED action
+// ---------------------------------------------------------------------------
+
+/**
+ * Scratch actions on two REAL loaded tool modules (the pattern of
+ * tool_request.test.ts: gates 3-6 pass for real, the scratch keys are removed in
+ * afterAll). Each probe counts its runs and records whether it ran inside the
+ * read-only request scope, so every case below asserts what the HANDLER saw —
+ * not only what the ledger holds.
+ */
+describe('H — a tool action that declares readOnly is not ledgered', () => {
+	const TOOL_A = 'tool_export';
+	const TOOL_B = 'tool_time_machine';
+	const READ = 'zz_idem_read';
+	const DEFAULT_ACTION = 'zz_idem_default';
+	const THROW_READ = 'zz_idem_throw_read';
+	const THROW_DEFAULT = 'zz_idem_throw_default';
+	const TRY_WRITE = 'zz_idem_try_write';
+	const LOOKUP_THROWS = 'zz_idem_lookup_throws';
+	const SCRATCH_A = [READ, DEFAULT_ACTION, THROW_READ, THROW_DEFAULT, TRY_WRITE, LOOKUP_THROWS];
+	/** A user that exists nowhere: its profile grants no tool (asserted below, not assumed). */
+	const UNGRANTED_USER = 2_147_000_001;
+
+	let runs: Record<string, number> = {};
+	let scope: Record<string, boolean> = {};
+	const actionsOf: Record<string, Record<string, ToolActionSpec>> = {};
+
+	const UNGATED = 'UNGATED — a scratch probe of the idempotency gate, never shipped';
+
+	/** A scratch action. `permission: null` is the named exemption: no gate stands in the way of the probe. */
+	function probe(
+		name: string,
+		readOnly: boolean,
+		body: () => Promise<ReturnType<typeof ok>>,
+	): ToolActionSpec {
+		const handler = async () => {
+			runs[name] = (runs[name] ?? 0) + 1;
+			scope[name] = inReadOnlyScope();
+			return body();
+		};
+		return readOnly
+			? { permission: null, gatedInHandler: UNGATED, readOnly: true, handler }
+			: { permission: null, gatedInHandler: UNGATED, handler };
+	}
+
+	const answer = async () => ok({ probe: true }, { requestId: 'zz-idem-h' });
+	const upstreamFailure = async (): Promise<ReturnType<typeof ok>> => {
+		throw new DedaloError('external.http_status', { message: 'upstream answered 503' });
+	};
+
+	beforeAll(async () => {
+		const toolA = await getLoadedTool(TOOL_A);
+		const toolB = await getLoadedTool(TOOL_B);
+		if (toolA === undefined || toolB === undefined) throw new Error('probe tools are not loaded');
+		actionsOf[TOOL_A] = toolA.module.apiActions;
+		actionsOf[TOOL_B] = toolB.module.apiActions;
+		const a = actionsOf[TOOL_A] as Record<string, ToolActionSpec>;
+		a[READ] = probe(READ, true, answer);
+		a[DEFAULT_ACTION] = probe(DEFAULT_ACTION, false, answer);
+		a[THROW_READ] = probe(THROW_READ, true, upstreamFailure);
+		a[THROW_DEFAULT] = probe(THROW_DEFAULT, false, upstreamFailure);
+		a[TRY_WRITE] = probe(TRY_WRITE, true, async () => {
+			// A declared-read action that reaches a record write door. Were the scope
+			// not in force this would INSERT a record on the suite table.
+			const created = await insertMatrixRecordWithCounter(TABLE, SECTION, {});
+			minted.push(created);
+			return ok({ created }, { requestId: 'zz-idem-h' });
+		});
+		// the SAME name as the read-only probe, on a DIFFERENT tool, declaring nothing
+		(actionsOf[TOOL_B] as Record<string, ToolActionSpec>)[READ] = probe(READ, false, answer);
+		// the action whose readOnly LOOKUP the fail-safe test makes throw
+		a[LOOKUP_THROWS] = probe(LOOKUP_THROWS, false, answer);
+	});
+
+	afterAll(() => {
+		for (const name of SCRATCH_A) Reflect.deleteProperty(actionsOf[TOOL_A] ?? {}, name);
+		Reflect.deleteProperty(actionsOf[TOOL_B] ?? {}, READ);
+		resetIdempotencyLedgerForTests();
+	});
+
+	function reset(): void {
+		resetIdempotencyLedgerForTests();
+		runs = {};
+		scope = {};
+	}
+
+	/** A tool_request through the REAL parse door and the REAL dispatcher, as root (or as `asUser`). */
+	async function dispatchTool(
+		tool: string,
+		action: string,
+		key: string | null,
+		options: Record<string, unknown> = {},
+		ctx?: ApiRequestContext,
+		asUser: number = USER_ID,
+	): Promise<ApiResult> {
+		const rqo: Record<string, unknown> = {
+			dd_api: 'dd_tools_api',
+			action: 'tool_request',
+			source: { model: tool, action },
+			options,
+		};
+		if (key !== null) rqo.idempotency_key = key;
+		const context_ = ctx ?? (asUser === USER_ID ? context() : contextOf(asUser));
+		context_.principal = await resolvePrincipal(asUser);
+		return dispatchRqo(rqoSchema.parse(JSON.parse(JSON.stringify(rqo))), context_);
+	}
+
+	const codeOf = (result: ApiResult): string | undefined =>
+		(result.body as { error?: { code?: string } }).error?.code;
+	const okOf = (result: ApiResult): unknown => (result.body as { ok?: unknown }).ok;
+
+	test('the static row stays `mutating` — the refinement is per request, not a map entry', () => {
+		expect(ACTION_IDEMPOTENCY.get('dd_tools_api:tool_request')).toBe('mutating');
+		// and the sync seam still ledgers a keyed tool_request: the nested check is
+		// the async step in withIdempotency, not a change to the key derivation
+		const ctx = context();
+		expect(
+			idempotencyLedgerKey(
+				{ dd_api: 'dd_tools_api', action: 'tool_request', idempotency_key: KEY_A } as Rqo,
+				ctx,
+				'dd_tools_api:tool_request',
+			),
+		).not.toBeNull();
+	});
+
+	test('a readOnly action: the same key twice EXECUTES TWICE and the ledger stays empty', async () => {
+		reset();
+		const first = await dispatchTool(TOOL_A, READ, KEY_A);
+		const second = await dispatchTool(TOOL_A, READ, KEY_A);
+		expect(okOf(first)).toBe(true);
+		expect(okOf(second)).toBe(true);
+		expect(runs[READ], 'a resend of a read-only action re-executes').toBe(2);
+		expect(idempotencyLedgerStats().entries).toBe(0);
+		expect((second.body as Record<string, unknown>).idempotent_replay).toBeUndefined();
+	}, 60000);
+
+	test('POSITIVE CONTROL: the same action WITHOUT the declaration executes once and replays', async () => {
+		reset();
+		const first = await dispatchTool(TOOL_A, DEFAULT_ACTION, KEY_A);
+		const second = await dispatchTool(TOOL_A, DEFAULT_ACTION, KEY_A);
+		expect(okOf(first)).toBe(true);
+		expect(runs[DEFAULT_ACTION], 'the undeclared default is the ledgered one').toBe(1);
+		expect(idempotencyLedgerStats().entries).toBe(1);
+		expect((second.body as Record<string, unknown>).idempotent_replay).toBe(true);
+	}, 60000);
+
+	test('the handler runs inside the read-only scope iff it declares readOnly', async () => {
+		reset();
+		await dispatchTool(TOOL_A, READ, KEY_A);
+		await dispatchTool(TOOL_A, DEFAULT_ACTION, KEY_B);
+		expect(scope[READ], 'the declared-read handler must run where every write door refuses').toBe(
+			true,
+		);
+		expect(scope[DEFAULT_ACTION], 'an ordinary action must not run under the read-only scope').toBe(
+			false,
+		);
+		// and the scope is LEFT behind: this test body is outside it
+		expect(inReadOnlyScope()).toBe(false);
+	}, 60000);
+
+	/**
+	 * THE REGRESSION THIS WAS BUILT FOR. The acquisition tools throw
+	 * `external.http_status` (retryable, 503) from tool_request. With the action
+	 * ledgered, the leader's throw leaves an `ambiguous` reservation, the browser
+	 * transport retries the retryable 503 under the SAME key, and the resend is
+	 * answered `idempotency.outcome_unknown` (409) — the real upstream error is
+	 * gone from the screen. A declared read-only action must surface the real
+	 * error on every attempt.
+	 */
+	test('REGRESSION: a read-only action that throws external.http_status surfaces the REAL error on the resend', async () => {
+		reset();
+		const first = await dispatchTool(TOOL_A, THROW_READ, KEY_A);
+		const second = await dispatchTool(TOOL_A, THROW_READ, KEY_A);
+		expect(codeOf(first)).toBe('external.http_status');
+		expect(codeOf(second), 'the resend must see the real error, not an ambiguity').toBe(
+			'external.http_status',
+		);
+		expect(second.status).toBe(503);
+		expect(runs[THROW_READ]).toBe(2);
+		expect(idempotencyLedgerStats().entries, 'a throw leaves NO ambiguous reservation').toBe(0);
+	}, 60000);
+
+	test('CONTROL: the same throw from an undeclared action IS masked by idempotency.outcome_unknown', async () => {
+		reset();
+		const first = await dispatchTool(TOOL_A, THROW_DEFAULT, KEY_A);
+		const second = await dispatchTool(TOOL_A, THROW_DEFAULT, KEY_A);
+		expect(codeOf(first)).toBe('external.http_status');
+		expect(codeOf(second)).toBe('idempotency.outcome_unknown');
+		expect(second.status).toBe(409);
+		expect(
+			(second.body as { error?: { details?: Record<string, unknown> } }).error?.details
+				?.original_error_code,
+		).toBe('external.http_status');
+		expect(runs[THROW_DEFAULT], 'and the resend was never executed').toBe(1);
+		expect(idempotencyLedgerStats().entries).toBe(1);
+	}, 60000);
+
+	test('a read-only action cannot write: the door refuses it as internal.invariant and nothing lands', async () => {
+		reset();
+		const before = await recordCount();
+		const result = await dispatchTool(TOOL_A, TRY_WRITE, KEY_A);
+		expect(okOf(result)).toBe(false);
+		expect(codeOf(result)).toBe('internal.invariant');
+		expect(await recordCount(), 'the refused write must not have inserted a record').toBe(before);
+		expect(runs[TRY_WRITE]).toBe(1);
+		expect(idempotencyLedgerStats().entries).toBe(0);
+	}, 60000);
+
+	test('a flag the CLIENT merely claims changes nothing: classification comes from the module', async () => {
+		reset();
+		const claim = { read_only: true, readOnly: true, idempotent: true };
+		await dispatchTool(TOOL_A, DEFAULT_ACTION, KEY_A, claim);
+		const again = await dispatchTool(TOOL_A, DEFAULT_ACTION, KEY_A, claim);
+		expect(runs[DEFAULT_ACTION]).toBe(1);
+		expect((again.body as Record<string, unknown>).idempotent_replay).toBe(true);
+		expect(idempotencyLedgerStats().entries).toBe(1);
+	}, 60000);
+
+	test('the classification is per (tool, action): the same action NAME on another tool is ledgered', async () => {
+		reset();
+		await dispatchTool(TOOL_A, READ, KEY_A);
+		expect(idempotencyLedgerStats().entries, 'tool A declares it read-only').toBe(0);
+		await dispatchTool(TOOL_B, READ, KEY_B);
+		await dispatchTool(TOOL_B, READ, KEY_B);
+		expect(idempotencyLedgerStats().entries, 'tool B, same name, declares nothing').toBe(1);
+		expect(runs[READ], 'one run on A and one on B — B replayed').toBe(2);
+	}, 60000);
+
+	test('every doubt is ledgered: unknown tool, unknown action, a background request', async () => {
+		reset();
+		const unknownTool = await dispatchTool('tool_zz_not_a_tool', READ, KEY_A);
+		expect(codeOf(unknownTool)).toBe('tool.invalid_name');
+		expect(idempotencyLedgerStats().entries).toBe(1);
+
+		const unknownAction = await dispatchTool(TOOL_A, 'zz_idem_no_such_action', KEY_B);
+		expect(codeOf(unknownAction)).toBe('tool.method_not_allowed');
+		expect(idempotencyLedgerStats().entries).toBe(2);
+
+		// scheduling a job is a write: a readOnly action asked to run in the background
+		// is ledgered AND refused (the loader also refuses readOnly + backgroundRunnable)
+		const background = await dispatchTool(TOOL_A, READ, KEY_C, { background_running: true });
+		expect(codeOf(background)).toBe('tool.background_not_allowed');
+		expect(idempotencyLedgerStats().entries).toBe(3);
+		expect(runs[READ], 'the refused background request never reached the handler').toBeUndefined();
+	}, 60000);
+
+	test('the reserved job-status / jobs framework actions are read-only: never ledgered', async () => {
+		reset();
+		for (const action of [BACKGROUND_JOB_STATUS_ACTION, BACKGROUND_JOBS_ACTION]) {
+			await dispatchTool(TOOL_A, action, KEY_A, { job_id: 'zz_no_such_job' });
+			await dispatchTool(TOOL_A, action, KEY_A, { job_id: 'zz_no_such_job' });
+		}
+		expect(idempotencyLedgerStats().entries).toBe(0);
+	}, 60000);
+
+	test('the classifier fails SAFE on malformed input (every doubt answers false)', async () => {
+		for (const [source, options] of [
+			[{ model: TOOL_A, action: READ }, 'not-an-object'],
+			[{ model: TOOL_A, action: READ }, null],
+			[{ model: 'not a tool name', action: READ }, {}],
+			[{ model: 42, action: READ }, {}],
+			[{ model: TOOL_A, action: 42 }, {}],
+			[{ model: TOOL_A, action: 'constructor' }, {}],
+			[{ model: TOOL_A, action: '__proto__' }, {}],
+			[undefined, {}],
+		] as Array<[{ model?: unknown; action?: unknown } | undefined, unknown]>) {
+			expect(
+				await isReadOnlyToolRequest(USER_ID, source, options),
+				JSON.stringify([source, options]),
+			).toBe(false);
+		}
+		// and the positive: the declared pair, with options absent or an object
+		expect(await isReadOnlyToolRequest(USER_ID, { model: TOOL_A, action: READ }, undefined)).toBe(
+			true,
+		);
+		expect(await isReadOnlyToolRequest(USER_ID, { model: TOOL_A, action: READ }, {})).toBe(true);
+		expect(
+			await isReadOnlyToolRequest(
+				USER_ID,
+				{ model: TOOL_A, action: READ },
+				{ background_running: true },
+			),
+		).toBe(false);
+	});
+
+	/**
+	 * THE FAIL-SAFE CATCH, REACHED. `isReadOnlyToolRequest` answers false when its
+	 * lookup throws ("every doubt answers false": classification only ever REMOVES
+	 * a request from the ledger). The malformed-input cases above never reach the
+	 * catch — they return before the try body can throw — so this one makes the
+	 * lookup itself throw: the action's `readOnly` getter, read by the classifier,
+	 * throws once. Fail-OPEN (`catch { return true }`) un-ledgers a doubt: the
+	 * handler would run twice here.
+	 */
+	test('a classifier whose lookup THROWS fails SAFE: false, and the request stays ledgered', async () => {
+		reset();
+		const spec = (actionsOf[TOOL_A] as Record<string, ToolActionSpec>)[LOOKUP_THROWS] as object;
+		let armed = true;
+		Object.defineProperty(spec, 'readOnly', {
+			configurable: true,
+			get() {
+				if (!armed) return undefined;
+				armed = false; // only the classification throws; the handler path reads a normal spec
+				throw new Error('zz: the readOnly lookup throws');
+			},
+		});
+		try {
+			const source = { model: TOOL_A, action: LOOKUP_THROWS };
+			expect(await isReadOnlyToolRequest(USER_ID, source, {})).toBe(false);
+			expect(armed, 'the lookup really threw (the getter was consumed)').toBe(false);
+
+			armed = true;
+			const first = await dispatchTool(TOOL_A, LOOKUP_THROWS, KEY_A);
+			const second = await dispatchTool(TOOL_A, LOOKUP_THROWS, KEY_A);
+			expect(armed, 'the dispatch classification consumed the throwing getter').toBe(false);
+			expect(okOf(first)).toBe(true);
+			expect(runs[LOOKUP_THROWS], 'a doubt is ledgered: the resend is a replay').toBe(1);
+			expect(idempotencyLedgerStats().entries).toBe(1);
+			expect((second.body as Record<string, unknown>).idempotent_replay).toBe(true);
+		} finally {
+			Reflect.deleteProperty(spec, 'readOnly');
+		}
+	}, 60000);
+
+	/**
+	 * NO EXISTENCE ORACLE. Classification runs BEFORE the tool-grant gate, and its
+	 * answer is observable: a read-only request is not ledgered, so the second send
+	 * of a keyed request gives `tool.not_authorized` again, while a ledgered one
+	 * gives `idempotency.outcome_unknown` (the leader's throw left an ambiguous
+	 * reservation). Answered without the caller, that told a user the tool is NOT
+	 * granted to which tools and actions exist and which declare readOnly. The
+	 * grant is asked first now: an ungranted caller sees ONE sequence whatever they
+	 * name.
+	 */
+	test('an UNGRANTED caller sees one sequence whatever they name: no readOnly / existence oracle', async () => {
+		// the premise, measured: the stand-in user holds none of these tools, root holds them
+		expect(await isToolGranted(UNGRANTED_USER, TOOL_A)).toBe(false);
+		expect(await isToolGranted(USER_ID, TOOL_A)).toBe(true);
+
+		const pairs: Array<[string, string]> = [
+			[TOOL_A, READ], // declares readOnly
+			[TOOL_A, DEFAULT_ACTION], // a real mutating action
+			[TOOL_A, 'zz_idem_no_such_action'], // an unknown action of a real tool
+			['tool_zz_not_a_tool', READ], // an unknown tool
+			[TOOL_A, BACKGROUND_JOB_STATUS_ACTION], // a framework job action (read-only for a granted caller)
+		];
+		const sequences: string[] = [];
+		for (const [tool, action] of pairs) {
+			reset();
+			const first = await dispatchTool(tool, action, KEY_A, {}, undefined, UNGRANTED_USER);
+			const second = await dispatchTool(tool, action, KEY_A, {}, undefined, UNGRANTED_USER);
+			expect(
+				Object.keys(runs),
+				`${tool}.${action}: no handler may run for an ungranted caller`,
+			).toEqual([]);
+			sequences.push(JSON.stringify([codeOf(first), first.status, codeOf(second), second.status]));
+			// the classifier itself, for this very caller: never read-only
+			expect(
+				await isReadOnlyToolRequest(UNGRANTED_USER, { model: tool, action }, {}),
+				`${tool}.${action}`,
+			).toBe(false);
+		}
+		expect(new Set(sequences).size, `the sequences differ: ${sequences.join(' | ')}`).toBe(1);
+		expect(JSON.parse(sequences[0] as string)[0]).toBe('tool.not_authorized');
+
+		// and the contrast that makes it a measurement: the GRANTED caller does get read-only
+		expect(await isReadOnlyToolRequest(USER_ID, { model: TOOL_A, action: READ }, {})).toBe(true);
+	}, 60000);
+
+	test('an UNAUTHENTICATED tool_request is refused and never ledgered', async () => {
+		reset();
+		const anon = { ...context(), session: null } as ApiRequestContext;
+		const result = await dispatchTool(TOOL_A, DEFAULT_ACTION, KEY_A, {}, anon);
+		expect(codeOf(result)).toBe('auth.not_logged');
+		expect(idempotencyLedgerStats().entries).toBe(0);
+		expect(runs[DEFAULT_ACTION]).toBeUndefined();
+	}, 60000);
+});
 
 // ---------------------------------------------------------------------------
 // F — the ledger is BOUNDED, and every bound is tripped here

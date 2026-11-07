@@ -13,7 +13,11 @@
  * has exactly one production importer (the harvest redirect loop), that loop
  * (`followVetted`) exactly two (`harvestFetch` and the robots.txt fetch), and a tool
  * reaches a raw door only by a written, reasoned exemption — a tool harvests
- * through `harvestFetch`. Before this census both rules were prose.
+ * through `harvestFetch`. Before this census both rules were prose. The harvesting
+ * door's second, INTERACTIVE profile (`interactiveFetch`: no robots.txt, a cap
+ * instead of the serial pace — OUTBOUND_SPEC.md §3.1) is censused as a door of its
+ * own: no tool holds it, and a core module holds it only by a reasoned row
+ * (`INTERACTIVE_IMPORTERS`, exact both ways).
  *
  * Two doors carried private four-string blocklists — `localhost`, `127.0.0.1`,
  * `::1`, `169.254.169.254`, plus a private-range regex — and the transcriber's
@@ -44,6 +48,7 @@ import { basename, dirname, join as joinPosix, normalize as normalizePosix } fro
 import { parse } from '@babel/parser';
 import { Glob } from 'bun';
 import type { DedaloError } from '../../src/core/errors/index.ts';
+import * as harvestModule from '../../src/core/harvest/harvest.ts';
 import { extractRfc6052Ipv4, packCidr } from '../../src/core/security/ip_address.ts';
 import {
 	type AddressLookup,
@@ -61,6 +66,7 @@ import { isSafeLocalAsrUrl } from '../../src/core/tools/transcription_local_asr.
 // String-literal aware. The regex version this replaced ate 71 lines of
 // dd_mcp_api.ts, because the literal 'image/*' opens a block comment that runs
 // to the next `*/` — and a marker planted in that window scanned as absent.
+import { isNameOnly, patternNames, readsProperty, walkAst } from '../helpers/ast_walk.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 
 /**
@@ -317,6 +323,16 @@ const FOLLOW = 'src/core/harvest/follow.ts';
 const FOLLOW_DOOR = 'followVetted';
 
 /**
+ * The harvesting door's second, INTERACTIVE profile (engineering/OUTBOUND_SPEC.md §3.1):
+ * the same per-hop vetting with NO robots.txt and a per-origin cap in place of the
+ * serial pace. It exists for a request a person is waiting for that a CORE route
+ * relays (a map tile), so it is a door of its own — a tool holding it would skip
+ * robots.txt and the default pace silently, the exact thing `harvestFetch` is for.
+ * A profile is a module-private value, so the entry point is the whole surface.
+ */
+const INTERACTIVE_DOOR = 'interactiveFetch';
+
+/**
  * The agent channel's two doors. `agentRequest` reads the host's TLS material itself and is
  * what production dials through; `dialAgent` takes the material from its caller and exists
  * for the door's own native gate — no production module may hold it.
@@ -338,6 +354,7 @@ const DOOR_SEEDS: Record<string, readonly string[]> = {
 	[GUARD]: RAW_DOORS,
 	[FOLLOW]: [FOLLOW_DOOR],
 	[AGENT_CHANNEL]: AGENT_CHANNEL_DOORS,
+	[HARVEST_DOOR]: [INTERACTIVE_DOOR],
 };
 
 /**
@@ -373,6 +390,84 @@ const FOLLOW_VETTED_IMPORTERS: Record<string, string> = {
 		'The robots.txt fetch itself, under one fixed policy: it IS the robots check (so its ' +
 		'beforeHop is a no-op) and is not paced — RFC 9309 §2.3.1.2 asks redirects followed.',
 };
+
+/**
+ * A core route's row. Not a free-text excuse: each field is something a gate below CHECKS
+ * (`interactiveRouteProblems`), because a row that only had to exist would admit any text,
+ * including none.
+ */
+interface InteractiveRoute {
+	/** What the route does for the duties below, in prose (at least a sentence's worth). */
+	readonly reason: string;
+	/** The route's OWN gate — `test/unit/<route>_native.test.ts` — which drives those duties. */
+	readonly gate: string;
+	/** The route module's runtime exports, ALL of them: route handlers, never a function that takes a URL. */
+	readonly handlers: readonly string[];
+}
+
+/**
+ * The ONLY production holder of `interactiveFetch`. Exact in both directions, like
+ * `AGENT_CHANNEL_IMPORTERS`: the holder relays a request a person is waiting for and
+ * owes the rest of the contract itself (engineering/OUTBOUND_SPEC.md §3.1) — its request
+ * names a stored source, never a URL a client wrote; it names truthfully who chose the
+ * host (`addressFrom`: an editor's address is `'stored'`, so it cannot take the whole
+ * global budget); it checks the session and the read permission BEFORE it fetches or
+ * answers from a cache; it maps EVERY failure of the door to ONE typed refusal for its
+ * reader (the public `harvest.*` details name a site and a media type, which would make
+ * the route an oracle for which port or service answered); it passes the origin's spacing
+ * on every request to that origin (a start owes its spacing to the ones after it — built by
+ * `relayRequest`, which carries its own gate because the route's registry owes none yet); and it
+ * exports a route handler, never a function that takes a URL (the census does not follow
+ * wrappers, so a URL-taking export would hand the door to anyone who imports THAT). The
+ * door itself enforces what it can: the scheme's own port on every hop, and a job signal
+ * in scope (`harvest_door_native`).
+ *
+ * A row is `{ reason, gate, handlers }` and is CHECKED, not read: the route module's
+ * runtime exports must be exactly `handlers`, and `gate` must exist, import the route,
+ * name every handler and carry a real number of tests (`interactiveRouteProblems`, driven
+ * on a synthetic tree below, since this table is empty today). At most ONE row.
+ *
+ * ONE row: the core route that relays map tiles (`api/map_tile.ts`), with its own gate. A
+ * row whose module stops holding the door is stale, and fails below.
+ */
+const INTERACTIVE_IMPORTERS: Record<string, InteractiveRoute> = {
+	'src/core/api/map_tile.ts': {
+		reason:
+			'THE map tile proxy. The request names a stored source, an ontology default or a ' +
+			'closed built-in id and never a URL; the session, the component grant and the record ' +
+			'scope are checked BEFORE the address is built and before the tile memory is read; ' +
+			'`addressFrom` is truthful (an editor-written address is `stored`); the hosts allowlist ' +
+			'is the template’s host; the origin’s spacing is put on every request by `relayRequest` ' +
+			'(geo/tile_proxy/relay_request.ts), whose own gate drives it through the real door with a ' +
+			'synthetic non-zero spacing because no registry row owes one today; the call runs under ' +
+			'the signal of its flight, stopped when the last viewer waiting on it has gone; a person ' +
+			'is held to a budget of provider calls before the door sees them; the answer must be a ' +
+			'2xx of the exact image type whose bytes begin like it; EVERY failure of the door is one ' +
+			'`external.transport` refusal; the module exports its handler and nothing that takes a URL.',
+		gate: 'test/unit/map_tile_proxy_native.test.ts',
+		handlers: ['handleMapTile'],
+	},
+};
+
+/** The spec says ONE core route (§3.1): a second relay is a change to the spec, not a row. */
+const MAX_INTERACTIVE_ROUTES = 1;
+/** A `reason` shorter than this says nothing about the route's duties. */
+const MIN_ROUTE_REASON_LENGTH = 40;
+/**
+ * A route gate carries at least this many tests. The route's contract has more than ten
+ * clauses (§3.1), so a gate with fewer cannot be driving each; `gate_vacuity_tripwire` is
+ * what asks whether a test asserts anything.
+ */
+const MIN_ROUTE_GATE_TESTS = 10;
+/** The shape of a route's own gate: a native gate of its own, in the unit tier. */
+const ROUTE_GATE_PATH = /^test\/unit\/[a-z0-9_]+_native\.test\.ts$/;
+/** Gates of the harvesting door itself — the census's, never a route's. */
+const HARVEST_DOOR_GATES: ReadonlySet<string> = new Set([
+	'test/unit/ssrf_one_guard_tripwire.test.ts',
+	'test/unit/harvest_door_native.test.ts',
+	'test/unit/origin_limiter_native.test.ts',
+	'test/unit/module_state_tripwire.test.ts',
+]);
 
 /**
  * Tools hold NO raw door. This was a SHRINK-ONLY list of reasoned rows; its last
@@ -556,6 +651,19 @@ function collectLoads(node: unknown, links: ModuleLinks): void {
 	}
 }
 
+/** A module's program. A parse failure THROWS: a module the census cannot read is not a clean one. */
+function parseProgram(file: string, source: string): AstNode {
+	try {
+		const ast = parse(source, {
+			sourceType: 'module',
+			plugins: ['typescript', 'decorators-legacy'],
+		});
+		return ast.program as unknown as AstNode;
+	} catch (error) {
+		throw new Error(`door census: cannot parse ${file}: ${String(error)}`);
+	}
+}
+
 function parseLinks(file: string, source: string): ModuleLinks {
 	const links: ModuleLinks = {
 		imports: [],
@@ -564,17 +672,7 @@ function parseLinks(file: string, source: string): ModuleLinks {
 		aliases: new Map(),
 		opaque: false,
 	};
-	let program: AstNode;
-	try {
-		// A parse failure THROWS: a module the census cannot read is not a clean one.
-		const ast = parse(source, {
-			sourceType: 'module',
-			plugins: ['typescript', 'decorators-legacy'],
-		});
-		program = ast.program as unknown as AstNode;
-	} catch (error) {
-		throw new Error(`door census: cannot parse ${file}: ${String(error)}`);
-	}
+	const program = parseProgram(file, source);
 	for (const statement of program.body as AstNode[]) collectStatement(statement, links);
 	collectLoads(program.body, links);
 	return links;
@@ -720,6 +818,19 @@ function doorCensus(
 	return census;
 }
 
+function interactiveViolations(
+	file: string,
+	doors: Set<string>,
+	importers: Readonly<Record<string, InteractiveRoute>>,
+): string[] {
+	if (!doors.has(INTERACTIVE_DOOR) || importers[file] !== undefined) return [];
+	return [
+		`${file}: holds ${INTERACTIVE_DOOR} — only the core route that relays a stored source may ` +
+			'(it skips robots.txt and the default pace on purpose, and owes the permission check ' +
+			`itself). Harvest through harvestFetch (${HARVEST_DOOR}).`,
+	];
+}
+
 function toolViolations(file: string, doors: Set<string>): string[] {
 	return [...doors]
 		.filter((door) => door !== OPAQUE)
@@ -748,7 +859,10 @@ function agentChannelViolations(file: string, doors: Set<string>): string[] {
 }
 
 /** Every rule the census enforces, as messages; empty when the tree is clean. */
-function doorViolations(census: Map<string, Set<string>>): string[] {
+function doorViolations(
+	census: Map<string, Set<string>>,
+	interactiveImporters: Readonly<Record<string, InteractiveRoute>> = INTERACTIVE_IMPORTERS,
+): string[] {
 	const found: string[] = [];
 	for (const [file, doors] of census) {
 		if (doors.has(OPAQUE)) {
@@ -769,9 +883,216 @@ function doorViolations(census: Map<string, Set<string>>): string[] {
 			);
 		}
 		found.push(...agentChannelViolations(file, doors));
+		found.push(...interactiveViolations(file, doors, interactiveImporters));
 		if (file.startsWith('tools/')) found.push(...toolViolations(file, doors));
 	}
 	return found.sort();
+}
+
+// ---------------------------------------------------------------------------
+// What the census cannot see by NAME: a module's runtime export surface, how many times it
+// uses a door, and whether a route's row is backed by a gate. Each reader is driven on
+// synthetic text below, so it is known to see what it claims to.
+// ---------------------------------------------------------------------------
+
+/** The runtime names an `export <declaration>` introduces: an interface and a type alias are erased. */
+function declaredRuntimeNames(declaration: AstNode | null | undefined): string[] {
+	if (declaration === null || declaration === undefined || declaration.declare === true) return [];
+	switch (declaration.type) {
+		case 'VariableDeclaration':
+			return (declaration.declarations as AstNode[]).flatMap((entry) => patternNames(entry.id));
+		case 'FunctionDeclaration':
+		case 'ClassDeclaration':
+		case 'TSEnumDeclaration':
+		case 'TSModuleDeclaration':
+			return [nameOf(declaration.id)];
+		default:
+			return [];
+	}
+}
+
+/**
+ * The names a module exports AT RUN TIME, sorted: declarations, specifiers (renames and
+ * `export … from` included), `default`, `export * as ns`. A bare `export * from` hands out
+ * names this reader cannot list, so it is reported as `*` — a surface nobody can pin.
+ * Type-only exports are erased, so they are not in the list.
+ */
+function runtimeExportNames(file: string, source: string): string[] {
+	const names = new Set<string>();
+	for (const statement of parseProgram(file, source).body as AstNode[]) {
+		if (statement.type === 'ExportDefaultDeclaration') names.add('default');
+		else if (statement.type === 'TSExportAssignment') names.add('export=');
+		else if (statement.type === 'ExportAllDeclaration' && statement.exportKind !== 'type') {
+			names.add('*');
+		} else if (statement.type === 'ExportNamedDeclaration' && statement.exportKind !== 'type') {
+			for (const binding of (statement.specifiers ?? []) as AstNode[]) {
+				if (binding.exportKind !== 'type') names.add(nameOf(binding.exported));
+			}
+			for (const name of declaredRuntimeNames(
+				statement.declaration as AstNode | null | undefined,
+			)) {
+				names.add(name);
+			}
+		}
+	}
+	return [...names].sort();
+}
+
+interface DoorUses {
+	/** Every reference to the door's binding (a re-export, an alias, a namespace member). */
+	references: number;
+	/** The references that ARE the callee of a call. */
+	calls: number;
+}
+
+/**
+ * How `file` uses `door` of `from`: every reference to the binding — imported under any
+ * name, through the module's namespace, or re-exported — and which of them are a direct
+ * call. Over-inclusive on purpose (a shadowing parameter counts): a module that is legal
+ * has exactly the uses it is meant to have, so anything else is for a human to read.
+ */
+function doorUses(file: string, source: string, from: string, door: string): DoorUses {
+	const program = parseProgram(file, source);
+	const known = new Map([[from, '']]);
+	const reaches = (statement: AstNode): boolean =>
+		resolveSpecifier(file, (statement.source as AstNode).value as string, known) === from;
+	const direct = new Set<string>();
+	const spaces = new Set<string>();
+	const uses: DoorUses = { references: 0, calls: 0 };
+	for (const statement of program.body as AstNode[]) {
+		if (statement.type === 'ImportDeclaration' && statement.importKind !== 'type') {
+			if (!reaches(statement)) continue;
+			for (const binding of statement.specifiers as AstNode[]) {
+				if (binding.importKind === 'type') continue;
+				if (binding.type === 'ImportNamespaceSpecifier') spaces.add(nameOf(binding.local));
+				else if (binding.type === 'ImportSpecifier' && nameOf(binding.imported) === door) {
+					direct.add(nameOf(binding.local));
+				}
+			}
+		} else if (statement.type === 'ExportAllDeclaration' && statement.exportKind !== 'type') {
+			if (reaches(statement)) uses.references++;
+		} else if (
+			statement.type === 'ExportNamedDeclaration' &&
+			statement.exportKind !== 'type' &&
+			statement.source !== null &&
+			statement.source !== undefined &&
+			reaches(statement)
+		) {
+			for (const binding of statement.specifiers as AstNode[]) {
+				const named = binding.type === 'ExportNamespaceSpecifier' || nameOf(binding.local) === door;
+				if (binding.exportKind !== 'type' && named) uses.references++;
+			}
+		}
+	}
+	const body = (program.body as AstNode[]).filter(
+		(statement) =>
+			statement.type !== 'ImportDeclaration' && !('source' in statement && statement.source),
+	);
+	walkAst(body, [], (node, ancestors) => {
+		if (node.type !== 'Identifier') return;
+		const parent = ancestors[ancestors.length - 1];
+		if (isNameOnly(node, parent)) return;
+		if (direct.has(node.name as string)) {
+			uses.references++;
+			if (parent?.type === 'CallExpression' && parent.callee === node) uses.calls++;
+		} else if (spaces.has(node.name as string)) {
+			uses.references++;
+			const reachesDoor =
+				parent?.type === 'MemberExpression' &&
+				parent.object === node &&
+				readsProperty(parent, door);
+			const outer = ancestors[ancestors.length - 2];
+			if (reachesDoor && outer?.type === 'CallExpression' && outer.callee === parent) uses.calls++;
+		}
+	});
+	return uses;
+}
+
+/** What is wrong with one route row, as messages. `sources` holds the route's and its gate's text. */
+function routeRowProblems(
+	file: string,
+	row: InteractiveRoute,
+	sources: ReadonlyMap<string, string>,
+): string[] {
+	const problems: string[] = [];
+	const say = (what: string) => problems.push(`${file}: ${what}`);
+	if (!file.startsWith('src/core/')) say('the relay is a CORE module, never a tool');
+	if (row.reason.trim().length < MIN_ROUTE_REASON_LENGTH) {
+		say(`reason is shorter than ${MIN_ROUTE_REASON_LENGTH} characters — say what the route does`);
+	}
+	const handlers = [...row.handlers];
+	if (
+		handlers.length === 0 ||
+		new Set(handlers).size !== handlers.length ||
+		handlers.includes('')
+	) {
+		say('handlers must be a non-empty list of distinct export names');
+	}
+	const routeSource = sources.get(file);
+	if (routeSource === undefined) say('the route module could not be read');
+	else {
+		const exports = runtimeExportNames(file, routeSource);
+		if (exports.join() !== [...handlers].sort().join()) {
+			say(
+				`runtime exports [${exports.join(', ')}] are not exactly the handlers [${[...handlers].sort().join(', ')}] — ` +
+					'a route exports route handlers and nothing a caller could hand a URL to',
+			);
+		}
+	}
+	problems.push(...routeGateProblems(file, row, handlers, sources));
+	return problems;
+}
+
+/** What is wrong with a route's gate: its shape, that it exists, and that it is about THIS route. */
+function routeGateProblems(
+	file: string,
+	row: InteractiveRoute,
+	handlers: readonly string[],
+	sources: ReadonlyMap<string, string>,
+): string[] {
+	const say = (what: string) => [`${file}: gate ${row.gate} ${what}`];
+	if (!ROUTE_GATE_PATH.test(row.gate)) return say('is not test/unit/<route>_native.test.ts');
+	if (HARVEST_DOOR_GATES.has(row.gate))
+		return say('is one of the door’s own gates, not the route’s');
+	const gateSource = sources.get(row.gate);
+	if (gateSource === undefined) return say('does not exist');
+	const problems: string[] = [];
+	const code = stripComments(gateSource);
+	const importsRoute = parseLinks(row.gate, gateSource).imports.some(
+		(link) => resolveSpecifier(row.gate, link.specifier, new Map([[file, '']])) === file,
+	);
+	if (!importsRoute) problems.push(...say('does not import the route module'));
+	for (const handler of handlers) {
+		if (!new RegExp(`(?<![\\w$])${handler}(?![\\w$])`).test(code)) {
+			problems.push(...say(`never names the handler ${handler}`));
+		}
+	}
+	const tests = (code.match(/(?<![\w$.])(?:test|it)(?:\.\w+)?\s*\(/g) ?? []).length;
+	if (tests < MIN_ROUTE_GATE_TESTS) {
+		problems.push(
+			...say(`has ${tests} tests; a route's contract needs at least ${MIN_ROUTE_GATE_TESTS}`),
+		);
+	}
+	if (!/(?<![\w$.])expect\s*\(/.test(code)) problems.push(...say('asserts nothing'));
+	return problems;
+}
+
+/** Every problem with the table of routes that may hold the interactive door; empty when sound. */
+function interactiveRouteProblems(
+	rows: Readonly<Record<string, InteractiveRoute>>,
+	sources: ReadonlyMap<string, string>,
+): string[] {
+	const files = Object.keys(rows);
+	const problems: string[] = [];
+	if (files.length > MAX_INTERACTIVE_ROUTES) {
+		problems.push(
+			`${files.length} routes hold ${INTERACTIVE_DOOR} (${files.join(', ')}): the spec allows ONE ` +
+				'(engineering/OUTBOUND_SPEC.md §3.1) — a second relay is a change to the spec first',
+		);
+	}
+	for (const file of files)
+		problems.push(...routeRowProblems(file, rows[file] as InteractiveRoute, sources));
+	return problems;
 }
 
 describe('who holds which door (import-graph census)', () => {
@@ -796,6 +1117,18 @@ describe('who holds which door (import-graph census)', () => {
 		);
 		expect([...(withHarvest.get(rdf) ?? [])]).toEqual(['harvestFetch']);
 		expect(census.has(rdf)).toBe(false);
+		// The interactive door's seed names a function the module really exports — a seed
+		// for a name that no longer exists would census nothing and pass every rule below —
+		// and the harvesting tools hold the default door only, not this one.
+		const harvestCode = scanned.find((entry) => entry.file === HARVEST_DOOR)?.code ?? '';
+		expect(harvestCode).toMatch(new RegExp(`export async function ${INTERACTIVE_DOOR}\\b`));
+		for (const tool of [
+			rdf,
+			'tools/tool_numisdata_acquisition/server/index.ts',
+			'tools/tool_bibliography_acquisition/server/index.ts',
+		]) {
+			expect([...(withHarvest.get(tool) ?? [])], tool).toEqual(['harvestFetch']);
+		}
 	});
 
 	test('the pinned hop has one holder, and no tool holds a raw door', () => {
@@ -819,6 +1152,10 @@ describe('who holds which door (import-graph census)', () => {
 		for (const file of Object.keys(AGENT_CHANNEL_IMPORTERS)) {
 			if (census.get(file)?.has('agentRequest') !== true)
 				stale.push(`${file}: no longer holds agentRequest`);
+		}
+		for (const file of Object.keys(INTERACTIVE_IMPORTERS)) {
+			if (census.get(file)?.has(INTERACTIVE_DOOR) !== true)
+				stale.push(`${file}: no longer holds ${INTERACTIVE_DOOR}`);
 		}
 		expect(stale, 'a row for a debt already paid hides that it was paid').toEqual([]);
 	});
@@ -864,6 +1201,85 @@ describe('who holds which door (import-graph census)', () => {
 		expect(flagged('src/core/publication_host/seam_user.ts', 'dialAgent')).toBe(true);
 		expect(flagged('tools/tool_pub/server/index.ts', 'dialAgent')).toBe(true);
 		expect(flagged(client, 'agentRequest')).toBe(AGENT_CHANNEL_IMPORTERS[client] === undefined);
+	});
+
+	test('the interactive profile is censused like the other doors (synthetic tree)', () => {
+		// A tool must never reach it — directly, through a barrel, renamed, by namespace —
+		// and a core module only by a reasoned row. The legal shapes must NOT be flagged:
+		// the default door in a tool, and the one row'd route.
+		const up = '../../../src/core';
+		const route = 'src/core/map_route/relay.ts';
+		const synthetic = new Map<string, string>([
+			[
+				HARVEST_DOOR,
+				'export async function harvestFetch() {}\nexport async function interactiveFetch() {}',
+			],
+			[
+				route,
+				"import { interactiveFetch } from '../harvest/harvest.ts';\nexport const handle = () => interactiveFetch;",
+			],
+			[
+				'src/core/other/barrel.ts',
+				"export { interactiveFetch as relay } from '../harvest/harvest.ts';",
+			],
+			[
+				'src/core/other/second_route.ts',
+				"import { relay } from './barrel.ts';\nexport const again = () => relay;",
+			],
+			[
+				'tools/tool_direct/server/index.ts',
+				`import { interactiveFetch } from '${up}/harvest/harvest.ts';\nvoid interactiveFetch;`,
+			],
+			[
+				'tools/tool_barrel/server/index.ts',
+				`import { relay as r } from '${up}/other/barrel.ts';\nvoid r;`,
+			],
+			[
+				'tools/tool_namespace/server/index.ts',
+				`import * as door from '${up}/harvest/harvest.ts';\nvoid door.interactiveFetch;`,
+			],
+			[
+				'tools/tool_default_only/server/index.ts',
+				`import { harvestFetch } from '${up}/harvest/harvest.ts';\nvoid harvestFetch;`,
+			],
+		]);
+		const synth = doorCensus(synthetic);
+		const doorsOf = (file: string): string[] => [...(synth.get(file) ?? [])].sort();
+		expect(doorsOf(route)).toEqual([INTERACTIVE_DOOR]);
+		expect(doorsOf('src/core/other/second_route.ts')).toEqual([INTERACTIVE_DOOR]);
+		expect(doorsOf('tools/tool_direct/server/index.ts')).toEqual([INTERACTIVE_DOOR]);
+		expect(doorsOf('tools/tool_barrel/server/index.ts')).toEqual([INTERACTIVE_DOOR]);
+		expect(doorsOf('tools/tool_namespace/server/index.ts')).toEqual([INTERACTIVE_DOOR]);
+		// The default door is not a door of this census, so a harvesting tool stays clean.
+		expect(doorsOf('tools/tool_default_only/server/index.ts')).toEqual([]);
+
+		const row = (module: string): InteractiveRoute => ({
+			reason: `the one relay (${module}): a synthetic row, long enough to say something`,
+			gate: 'test/unit/map_route_native.test.ts',
+			handlers: ['handle'],
+		});
+		const holders = (importers: Record<string, InteractiveRoute>) =>
+			[...new Set(doorViolations(synth, importers).map((line) => line.split(':')[0]))].sort();
+		// (A barrel re-exporting the door holds it, like the follow-loop's barrel above.)
+		const everyone = [
+			route,
+			'src/core/other/barrel.ts',
+			'src/core/other/second_route.ts',
+			'tools/tool_barrel/server/index.ts',
+			'tools/tool_direct/server/index.ts',
+			'tools/tool_namespace/server/index.ts',
+		].sort();
+		// No row: every holder is refused, the route included.
+		expect(holders({})).toEqual(everyone);
+		// The route's row excuses the route and ONLY the route — never a tool, never a second module.
+		expect(holders({ [route]: row(route) })).toEqual(everyone.filter((file) => file !== route));
+		// A tool is refused even WITH a row: the row table is for core modules.
+		const tool = 'tools/tool_direct/server/index.ts';
+		expect(
+			doorViolations(synth, { [tool]: row(tool) }).some((v) =>
+				v.startsWith(`${tool}: a tool holds`),
+			),
+		).toBe(true);
 	});
 
 	test('the census sees through every binding form (synthetic tree)', () => {
@@ -1003,10 +1419,246 @@ describe('who holds which door (import-graph census)', () => {
 // the day the guard learns a new reason.
 // ---------------------------------------------------------------------------
 
+/**
+ * `harvest.ts`'s RUNTIME export surface, exactly. `interactiveFetch`'s profile and the
+ * pipeline both profiles run (`harvestWith`) are module-private BY DESIGN: a profile is
+ * chosen by which function a caller imported, never by a value it can pass. The door census
+ * above sees a holder of a NAMED door (`harvestFetch`, `interactiveFetch`), so exporting the
+ * pipeline or a profile builder would hand a tool the choice and pass every census. Adding
+ * an export here is therefore a decision: this list is the review.
+ */
+const HARVEST_DOOR_EXPORTS: readonly string[] = [
+	// The two doors.
+	'harvestFetch',
+	'interactiveFetch',
+	// Read by tools and the engine around the door.
+	'decodeBody',
+	'retryAfterMs',
+	'HARVEST_USER_AGENT',
+	// The default profile's documented limits (a tool may read them to size a request).
+	'HARVEST_DEFAULT_IDLE_TIMEOUT_MS',
+	'HARVEST_DEFAULT_MAX_BYTES',
+	'HARVEST_DEFAULT_TIMEOUT_MS',
+	'HARVEST_MAX_BYTES',
+	'HARVEST_MAX_TIMEOUT_MS',
+];
+
+describe('the harvesting door keeps its profiles private (outcome, not census)', () => {
+	const harvestSource = readFileSync(join(REPO_ROOT, HARVEST_DOOR), 'utf8');
+
+	test('harvest.ts exports exactly the listed names: no profile, no pipeline, no builder', () => {
+		const expected = [...HARVEST_DOOR_EXPORTS].sort();
+		expect(runtimeExportNames(HARVEST_DOOR, harvestSource)).toEqual(expected);
+		// And the reader agrees with the module as it really loads — a reader that saw nothing
+		// would pass an empty list, and a list the module does not match would pass a stale reader.
+		expect(Object.keys(harvestModule).sort()).toEqual(expected);
+	});
+
+	test('the pipeline of both profiles is entered at exactly ONE place per module', () => {
+		// harvest.ts calls the redirect loop once (`harvestWith`, which both profiles run) and
+		// robots.ts once (the robots.txt fetch). A second call site in harvest.ts is a second
+		// pipeline with a `beforeHop` of its own — the way a profile could be chosen by a value.
+		for (const file of Object.keys(FOLLOW_VETTED_IMPORTERS)) {
+			const source = readFileSync(join(REPO_ROOT, file), 'utf8');
+			expect(doorUses(file, source, FOLLOW, FOLLOW_DOOR), file).toEqual({
+				references: 1,
+				calls: 1,
+			});
+		}
+		// Anti-vacuity: the loop is really bound under that name in each.
+		expect(harvestSource).toContain('followVetted(');
+	});
+
+	test('the readers see what they claim (synthetic text)', () => {
+		const names = (code: string) => runtimeExportNames('src/x.ts', code);
+		expect(
+			names(
+				[
+					'export const a = 1, { b, c: [d] } = o;',
+					'export function f() {}',
+					'export class K {}',
+					'export enum E { X }',
+					'export { g as h } from "./g.ts";',
+					'export * as ns from "./n.ts";',
+					'export default function () {}',
+					'export type T = string;',
+					'export interface I {}',
+					'export declare const ambient: number;',
+					'export type { Z } from "./z.ts";',
+					'const local = 1; export { local as renamed };',
+				].join('\n'),
+			),
+		).toEqual(['E', 'K', 'a', 'b', 'd', 'default', 'f', 'h', 'ns', 'renamed']);
+		// A star export hands out names nobody can list: reported, so it can be refused.
+		expect(names('export * from "./all.ts";')).toEqual(['*']);
+
+		const uses = (code: string) => doorUses('src/core/harvest/m.ts', code, FOLLOW, FOLLOW_DOOR);
+		const imp = "import { followVetted } from './follow.ts';\n";
+		expect(uses(`${imp}await followVetted(plan, options);`)).toEqual({ references: 1, calls: 1 });
+		// A second call with another gate, an alias, a namespace member, a re-export, a value
+		// handed on, a rename: each is seen, and none is a clean single call.
+		expect(uses(`${imp}followVetted(a); followVetted(b);`)).toEqual({ references: 2, calls: 2 });
+		expect(uses(`${imp}const f = followVetted; f(a); f(b);`)).toEqual({ references: 1, calls: 0 });
+		expect(uses(`${imp}run(followVetted);`)).toEqual({ references: 1, calls: 0 });
+		expect(uses(`${imp}export const door = { followVetted };`)).toEqual({
+			references: 1,
+			calls: 0,
+		});
+		expect(uses("import { followVetted as go } from './follow.ts';\ngo(a); go(b);")).toEqual({
+			references: 2,
+			calls: 2,
+		});
+		expect(
+			uses("import * as loop from './follow.ts';\nloop.followVetted(a); loop['followVetted'](b);"),
+		).toEqual({ references: 2, calls: 2 });
+		expect(uses("import * as loop from './follow.ts';\nrun(loop);")).toEqual({
+			references: 1,
+			calls: 0,
+		});
+		expect(uses("export { followVetted } from './follow.ts';")).toEqual({
+			references: 1,
+			calls: 0,
+		});
+		expect(uses("export * from './follow.ts';")).toEqual({ references: 1, calls: 0 });
+		// Not the door: a property of that name, another module's binding, a type-only import.
+		expect(uses(`${imp}const x = { followVetted: 1 }; o.followVetted;`)).toEqual({
+			references: 0,
+			calls: 0,
+		});
+		expect(uses("import { followVetted } from './elsewhere.ts';\nfollowVetted(a);")).toEqual({
+			references: 0,
+			calls: 0,
+		});
+		expect(
+			uses("import type { followVetted } from './follow.ts';\ntype T = typeof followVetted;"),
+		).toEqual({ references: 0, calls: 0 });
+	});
+});
+
+describe('the interactive door’s route row is backed by a gate (synthetic rows; the real row is checked above)', () => {
+	const route = 'src/core/map_route/relay.ts';
+	const gate = 'test/unit/map_route_native.test.ts';
+	const goodRoute =
+		'export async function handleTile() {}\nexport async function handleLegend() {}\n';
+	const goodGate = (tests = MIN_ROUTE_GATE_TESTS): string =>
+		[
+			"import { handleLegend, handleTile } from '../../src/core/map_route/relay.ts';",
+			...Array.from(
+				{ length: tests },
+				(_, i) =>
+					`test('clause ${i}', () => { expect(handleTile).toBeDefined(); void handleLegend; });`,
+			),
+		].join('\n');
+	const row: InteractiveRoute = {
+		reason:
+			'resolves a stored source, checks the permission first, maps every failure to one refusal',
+		gate,
+		handlers: ['handleTile', 'handleLegend'],
+	};
+	const sources = (over: Record<string, string | null> = {}): Map<string, string> => {
+		const all: Record<string, string | null> = { [route]: goodRoute, [gate]: goodGate(), ...over };
+		return new Map(
+			Object.entries(all).filter((entry): entry is [string, string] => entry[1] !== null),
+		);
+	};
+	const problems = (
+		rows: Record<string, InteractiveRoute>,
+		over: Record<string, string | null> = {},
+	): string[] => interactiveRouteProblems(rows, sources(over));
+
+	test('the real table is sound, and is the one tile route', () => {
+		const files = new Map<string, string>();
+		for (const [file, entry] of Object.entries(INTERACTIVE_IMPORTERS)) {
+			for (const needed of [file, entry.gate]) {
+				try {
+					files.set(needed, readFileSync(join(REPO_ROOT, needed), 'utf8'));
+				} catch {
+					/* absent: reported by the checker as a missing module or gate */
+				}
+			}
+		}
+		expect(interactiveRouteProblems(INTERACTIVE_IMPORTERS, files)).toEqual([]);
+		expect(Object.keys(INTERACTIVE_IMPORTERS).length).toBeLessThanOrEqual(MAX_INTERACTIVE_ROUTES);
+		// Anti-vacuity: the table is not empty again by accident — the tile proxy is the row, and
+		// its module (read above) and gate (exists, imports it) were really checked.
+		expect(Object.keys(INTERACTIVE_IMPORTERS)).toEqual(['src/core/api/map_tile.ts']);
+		expect([...files.keys()].sort()).toEqual([
+			'src/core/api/map_tile.ts',
+			'test/unit/map_tile_proxy_native.test.ts',
+		]);
+	});
+
+	test('a sound row passes', () => {
+		expect(problems({ [route]: row })).toEqual([]);
+	});
+
+	test('a row that only had to exist is refused: empty reason, no gate, a gate that is not about the route', () => {
+		const flagged = (
+			rows: Record<string, InteractiveRoute>,
+			over?: Record<string, string | null>,
+		) => problems(rows, over).length > 0;
+		expect(flagged({ [route]: { ...row, reason: '' } })).toBe(true);
+		expect(flagged({ [route]: { ...row, reason: 'ok' } })).toBe(true);
+		expect(flagged({ [route]: { ...row, gate: '' } })).toBe(true);
+		expect(flagged({ [route]: { ...row, gate: 'test/unit/anything.test.ts' } })).toBe(true);
+		expect(flagged({ [route]: { ...row, gate: 'test/unit/harvest_door_native.test.ts' } })).toBe(
+			true,
+		);
+		expect(flagged({ [route]: row }, { [gate]: null })).toBe(true); // the gate file does not exist
+		expect(flagged({ [route]: row }, { [route]: null })).toBe(true); // nor the route
+		expect(
+			flagged(
+				{ 'tools/tool_x/server/index.ts': row },
+				{ 'tools/tool_x/server/index.ts': goodRoute },
+			),
+		).toBe(true);
+		// A gate of the right name that is about something else, or says too little.
+		expect(
+			flagged({ [route]: row }, { [gate]: goodGate().replace('map_route/relay', 'other/thing') }),
+		).toBe(true);
+		expect(flagged({ [route]: row }, { [gate]: goodGate(MIN_ROUTE_GATE_TESTS - 1) })).toBe(true);
+		expect(flagged({ [route]: row }, { [gate]: goodGate().replace(/expect\(/g, 'check(') })).toBe(
+			true,
+		);
+		expect(flagged({ [route]: row }, { [gate]: goodGate().replace(/handleLegend/g, 'x') })).toBe(
+			true,
+		);
+		expect(flagged({ [route]: { ...row, handlers: [] } })).toBe(true);
+		expect(flagged({ [route]: { ...row, handlers: ['handleTile', 'handleTile'] } })).toBe(true);
+	});
+
+	test('the route exports its handlers and nothing a caller could hand a URL to', () => {
+		const extra = `${goodRoute}export async function fetchTile(url: string) {}\n`;
+		expect(problems({ [route]: row }, { [route]: extra }).join('\n')).toContain('fetchTile');
+		expect(
+			problems({ [route]: row }, { [route]: `${goodRoute}export * from './helpers.ts';\n` }),
+		).not.toEqual([]);
+		expect(
+			problems({ [route]: row }, { [route]: `${goodRoute}export const LIMIT = 1;\n` }),
+		).not.toEqual([]);
+		// A declared handler the module does not export is as wrong as an undeclared export.
+		expect(
+			problems({ [route]: row }, { [route]: 'export async function handleTile() {}\n' }),
+		).not.toEqual([]);
+		// Types are erased: they widen nothing.
+		expect(
+			problems({ [route]: row }, { [route]: `${goodRoute}export type Tile = string;\n` }),
+		).toEqual([]);
+	});
+
+	test('ONE route: a second row is refused', () => {
+		const other = 'src/core/other_route/relay.ts';
+		const rows = { [route]: row, [other]: { ...row } };
+		expect(problems(rows, { [other]: goodRoute }).join('\n')).toContain('ONE');
+	});
+});
+
 /** Every door a tool may hold, the harvesting door included. */
 const OUTBOUND_DOOR_SEEDS: Record<string, readonly string[]> = {
 	...DOOR_SEEDS,
-	[HARVEST_DOOR]: ['harvestFetch'],
+	// Spread order matters: this key REPLACES `DOOR_SEEDS`'s, so `interactiveFetch` is
+	// named here too or the disclosure census below would stop seeing its holders.
+	[HARVEST_DOOR]: ['harvestFetch', INTERACTIVE_DOOR],
 };
 
 /**
@@ -1055,7 +1707,10 @@ describe('a door holder discloses no address, and reads no reason of its own', (
 		const up = '../../../src/core';
 		const synthetic = new Map<string, string>([
 			[GUARD, 'export async function fetchGuardedText() {}'],
-			[HARVEST_DOOR, 'export async function harvestFetch() {}'],
+			[
+				HARVEST_DOOR,
+				'export async function harvestFetch() {}\nexport async function interactiveFetch() {}',
+			],
 			[
 				'tools/tool_a/server/index.ts',
 				`import { fetchGuardedText } from '${up}/security/ssrf_guard.ts';\ntry { await fetchGuardedText(u) } catch (e) { out.push((e as Error).message) }`,
@@ -1076,10 +1731,17 @@ describe('a door holder discloses no address, and reads no reason of its own', (
 				'tools/tool_d/server/index.ts',
 				`import { harvestFetch } from '${up}/harvest/harvest.ts';\ntry { await harvestFetch(u) } catch (e) { out.push(toErrorBody(toDedaloError(e))) }`,
 			],
+			[
+				// The interactive profile's holders are censused for disclosure too — the seed
+				// list above REPLACES the key's, so this row fails if it forgets the name.
+				'tools/tool_e/server/index.ts',
+				`import { interactiveFetch } from '${up}/harvest/harvest.ts';\ntry { await interactiveFetch(u) } catch (e) { out.push(e.message) }`,
+			],
 		]);
 		expect(messageDisclosures(synthetic)).toEqual([
 			'tools/tool_a/server/index.ts',
 			'tools/tool_b/server/index.ts',
+			'tools/tool_e/server/index.ts',
 		]);
 	});
 
@@ -2107,4 +2769,393 @@ describe('every OUTBOUND address judge equals the guard on the truth table (exem
 			expect(allowed > 0 && allowed < TRUTH_ROWS.length, 'both verdicts occurred').toBe(true);
 		});
 	}
+});
+
+// ---------------------------------------------------------------------------
+// THE GEO SERVICES MODULE — a `fetchGuardedText` CALLER with a closed table, not a door.
+//
+// `src/core/geo_services/` asks five providers a handful of fixed questions (a place name, a
+// parcel, an elevation): `callGeoService(id, params)` takes an id from a closed table and
+// parameters from a closed grammar, builds the address itself and dials through the public
+// single-call door (engineering/OUTBOUND_SPEC.md §2). It is WRAPPER, and this census
+// deliberately does not follow a wrapper: a tool that imports `callGeoService` reaches
+// `fetchGuardedText` without holding it, which is exactly the point — it can ask the table's
+// questions and no other. So what is pinned here is the wrapper's own shape, exact both ways:
+//   - ONE module of the directory holds a raw door, and the door it holds is `fetchGuardedText`
+//     alone (not the pinned hop, not the unpinned text door, not the redirect loop, neither
+//     harvest profile, not the agent channel);
+//   - that module's runtime exports are exactly the entry point — never a function a caller
+//     could hand a URL to (the same reading a route is held to) — and the entry point takes
+//     the id and the parameters and NOTHING ELSE: the text door's seams (the resolver and the
+//     socket, which ARE the SSRF guard's pin and address vetting) are not a parameter;
+//   - those seams ride a scope (`geo_seams.ts`: `runWithGeoServiceSeams`) that NO module of
+//     src/ or tools/ may bind, by any route. That is read as a DOOR of the import-graph
+//     census, so a named or renamed import, a namespace, `export … from`, a barrel inside
+//     the module, a literal `import()` or `require()`, a re-exported `const` and a non-literal
+//     `import()` in a file that names the module are all followed — not as a count of
+//     arguments at the call sites of one spelling, which a dynamic import, a barrel or a
+//     forwarder never trips;
+//   - its gate exists, imports it, names the entry point and carries a real number of tests.
+// Behaviour (the closed table, the request grammar, the typed failures, the pacing, the shared
+// calls) is the gate's: test/unit/geo_services_native.test.ts.
+// ---------------------------------------------------------------------------
+
+const GEO_SERVICES_DIR = 'src/core/geo_services/';
+/** The ONE geo services module that dials, and the ONE door it holds. */
+const GEO_SERVICES_CALLER = `${GEO_SERVICES_DIR}call.ts`;
+const GEO_SERVICES_DOOR = 'fetchGuardedText';
+const GEO_SERVICES_ENTRY: readonly string[] = ['callGeoService'];
+/** The module that carries the text door's seams, and the one name that opens their scope. */
+const GEO_SEAMS_FILE = `${GEO_SERVICES_DIR}geo_seams.ts`;
+const GEO_SEAM_DOOR = 'runWithGeoServiceSeams';
+/** The seams scope, as a door-carrying module for the census. Its reader (`geoServiceSeams`) is not one. */
+const GEO_SEAM_SEEDS: Record<string, readonly string[]> = { [GEO_SEAMS_FILE]: [GEO_SEAM_DOOR] };
+const GEO_SERVICES_ROW: InteractiveRoute = {
+	reason:
+		'asks a provider from a closed table (id and parameter grammar, never an address), through ' +
+		'the public single-call door, inside the provider’s own pacing, with typed failures',
+	gate: 'test/unit/geo_services_native.test.ts',
+	handlers: GEO_SERVICES_ENTRY,
+};
+
+/** Every problem with the geo services module's door use; empty when it is the shape above. */
+function geoServicesProblems(
+	census: ReadonlyMap<string, ReadonlySet<string>>,
+	sources: ReadonlyMap<string, string>,
+	row: InteractiveRoute = GEO_SERVICES_ROW,
+	caller: string = GEO_SERVICES_CALLER,
+): string[] {
+	const problems: string[] = [];
+	for (const [file, doors] of census) {
+		if (!file.startsWith(GEO_SERVICES_DIR)) continue;
+		const held = [...doors].sort().join(', ');
+		if (file !== caller) {
+			problems.push(
+				`${file}: holds ${held} — only ${caller} may dial: one module is the one place the ` +
+					'table’s requests become sockets',
+			);
+		} else if (held !== GEO_SERVICES_DOOR) {
+			problems.push(
+				`${file}: holds ${held} — the geo services use ${GEO_SERVICES_DOOR} and no other door`,
+			);
+		}
+	}
+	if (census.get(caller)?.has(GEO_SERVICES_DOOR) !== true) {
+		problems.push(
+			`${caller}: no longer holds ${GEO_SERVICES_DOOR} — a row for a debt already paid hides that it was paid`,
+		);
+	}
+	problems.push(...entryParameterProblems(caller, sources.get(caller)));
+	return [...problems, ...routeRowProblems(caller, row, sources)];
+}
+
+/** The parameter names `callGeoService` declares, or null when the caller has no such function. */
+function entryParameters(file: string, source: string): string[] | null {
+	let found: string[] | null = null;
+	walkAst(parseProgram(file, source).body, [], (node) => {
+		if (node.type !== 'FunctionDeclaration' || nameOf(node.id) !== GEO_SERVICES_ENTRY[0]) return;
+		found = (node.params as AstNode[]).map((param) => {
+			const target = param.type === 'AssignmentPattern' ? (param.left as AstNode) : param;
+			return `${param.type === 'RestElement' ? '...' : ''}${nameOf(target)}`;
+		});
+	});
+	return found;
+}
+
+/**
+ * "The entry point takes no seam": `callGeoService(id, params)` — a third parameter, a rest
+ * parameter or a destructured one would put a transport (the resolver, the socket) in a
+ * caller's hands, and with it the SSRF guard's pin and address vetting.
+ */
+function entryParameterProblems(file: string, source: string | undefined): string[] {
+	if (source === undefined) return [];
+	const declared = entryParameters(file, source);
+	if (declared === null) return [`${file}: declares no function ${GEO_SERVICES_ENTRY[0]}`];
+	if (declared.join() === 'id,params') return [];
+	return [
+		`${file}: ${GEO_SERVICES_ENTRY[0]}(${declared.join(', ')}) — the entry point takes exactly ` +
+			'(id, params): the text door’s seams are not a parameter (they ride geo_seams.ts)',
+	];
+}
+
+/**
+ * "Production supplies no seam": the text door's test seams (a resolver, a socket, the
+ * limiter's clock) are what a gate drives the REAL guard through, and they are exactly what a
+ * caller must never choose — whoever replaces the resolver or the socket replaces the SSRF
+ * guard's pin and address vetting. They ride a scope (`geo_seams.ts`), opened by
+ * `runWithGeoServiceSeams`, which is a door of the census below: the census follows every
+ * binding to it, wherever the binding is written, so NO file of src/ or tools/ may hold it
+ * (the module's one reader, `geoServiceSeams`, sets nothing and is not a door). A non-literal
+ * `import()` in a file that names the seams module could be loading it and is refused too, and
+ * so is a file that spells the opener's name without binding it (a computed property, say).
+ */
+function geoSeamProblems(
+	sources: ReadonlyMap<string, string>,
+	seams: string = GEO_SEAMS_FILE,
+): string[] {
+	const problems: string[] = [];
+	const census = doorCensus(sources, { [seams]: [GEO_SEAM_DOOR] });
+	for (const [file, doors] of census) {
+		if (doors.has(GEO_SEAM_DOOR)) {
+			problems.push(
+				`${file}: binds ${GEO_SEAM_DOOR} — no production module may open the geo services’ test seams (an import, a re-export, a barrel, a load): they are the SSRF guard’s pin and address vetting`,
+			);
+		}
+		if (doors.has(OPAQUE)) {
+			problems.push(
+				`${file}: names ${seams} but loads a non-literal import() — the census cannot see what it reaches`,
+			);
+		}
+	}
+	for (const [file, source] of sources) {
+		if (file !== seams && source.includes(GEO_SEAM_DOOR) && !census.get(file)?.has(GEO_SEAM_DOOR)) {
+			problems.push(`${file}: spells ${GEO_SEAM_DOOR} without binding it — read it as a bypass`);
+		}
+	}
+	return problems.sort();
+}
+
+describe('the geo services module is a fetchGuardedText caller with a closed table, not a door', () => {
+	const scanned = sourceFiles();
+	const code = new Map(scanned.map((entry) => [entry.file, entry.code]));
+	const gateText = readFileSync(join(REPO_ROOT, GEO_SERVICES_ROW.gate), 'utf8');
+
+	test('the real module is exactly that shape (and the census saw it: anti-vacuity)', () => {
+		const census = doorCensus(code, OUTBOUND_DOOR_SEEDS);
+		const holders = [...census.keys()].filter((file) => file.startsWith(GEO_SERVICES_DIR));
+		expect(holders, 'the one module that dials').toEqual([GEO_SERVICES_CALLER]);
+		expect([...(census.get(GEO_SERVICES_CALLER) ?? [])]).toEqual([GEO_SERVICES_DOOR]);
+		expect(code.get(GEO_SERVICES_CALLER) ?? '', 'the door is CALLED, not merely imported').toMatch(
+			/fetchGuardedText\(/,
+		);
+		const sources = new Map(code);
+		sources.set(GEO_SERVICES_ROW.gate, gateText);
+		expect(geoServicesProblems(census, sources)).toEqual([]);
+	});
+
+	test('a wrapper is not a door: a tool that imports the entry point holds no raw door by binding', () => {
+		// The census's stated limit, made a decision: the closed table is what the tool gets.
+		const synthetic = new Map<string, string>([
+			[GUARD, 'export async function fetchGuardedText() {}'],
+			[
+				GEO_SERVICES_CALLER,
+				"import { fetchGuardedText } from '../security/ssrf_guard.ts';\nexport async function callGeoService(id, params) { await fetchGuardedText(u) }",
+			],
+			[
+				'tools/tool_x/server/index.ts',
+				"import { callGeoService } from '../../../src/core/geo_services/call.ts';\nawait callGeoService('nominatim_search', {});",
+			],
+		]);
+		const census = doorCensus(synthetic, OUTBOUND_DOOR_SEEDS);
+		expect(census.has('tools/tool_x/server/index.ts')).toBe(false);
+		expect(doorViolations(census)).toEqual([]);
+	});
+
+	test('a second holder, a second door, a URL-taking export, a stale row and a hollow gate are each refused (synthetic tree)', () => {
+		const guard =
+			'export async function fetchGuardedText() {}\nexport async function fetchBoundedText() {}';
+		const harvest =
+			'export async function harvestFetch() {}\nexport async function interactiveFetch() {}';
+		const caller = (extra = '', imports = 'fetchGuardedText', parameters = 'id, params'): string =>
+			`import { ${imports} } from '../security/ssrf_guard.ts';\n${extra}export async function callGeoService(${parameters}) { await fetchGuardedText(u) }`;
+		const gate = (tests = MIN_ROUTE_GATE_TESTS): string =>
+			[
+				"import { callGeoService } from '../../src/core/geo_services/call.ts';",
+				...Array.from(
+					{ length: tests },
+					(_, i) => `test('clause ${i}', () => { expect(callGeoService).toBeDefined(); });`,
+				),
+			].join('\n');
+		const problems = (over: Record<string, string | null> = {}): string[] => {
+			const all: Record<string, string | null> = {
+				[GUARD]: guard,
+				[HARVEST_DOOR]: harvest,
+				[GEO_SERVICES_CALLER]: caller(),
+				[GEO_SERVICES_ROW.gate]: gate(),
+				...over,
+			};
+			const sources = new Map(
+				Object.entries(all).filter((entry): entry is [string, string] => entry[1] !== null),
+			);
+			return geoServicesProblems(doorCensus(sources, OUTBOUND_DOOR_SEEDS), sources);
+		};
+
+		expect(problems(), 'the sound shape passes').toEqual([]);
+		// A second module of the directory that dials.
+		expect(
+			problems({
+				[`${GEO_SERVICES_DIR}extra.ts`]:
+					"import { fetchGuardedText as get } from '../security/ssrf_guard.ts';\nexport const x = get;",
+			}).join('\n'),
+		).toContain('extra.ts');
+		// A second raw door in the caller, and the harvesting door's two profiles.
+		expect(
+			problems({ [GEO_SERVICES_CALLER]: caller('', 'fetchGuardedText, fetchBoundedText') }).join(
+				'\n',
+			),
+		).toContain('no other door');
+		for (const door of ['harvestFetch', 'interactiveFetch']) {
+			expect(
+				problems({
+					[GEO_SERVICES_CALLER]: `${caller()}\nimport { ${door} } from '../harvest/harvest.ts';\nvoid ${door};`,
+				}).join('\n'),
+				door,
+			).toContain('no other door');
+		}
+		// An export a caller could hand a URL to, a wildcard that hides the surface, a missing entry.
+		expect(
+			problems({
+				[GEO_SERVICES_CALLER]: caller('export async function fetchUrl(url: string) {}\n'),
+			}).join('\n'),
+		).toContain('fetchUrl');
+		expect(
+			problems({ [GEO_SERVICES_CALLER]: caller("export * from './answers.ts';\n") }),
+		).not.toEqual([]);
+		expect(problems({ [GEO_SERVICES_CALLER]: caller('export const LIMIT = 1;\n') })).not.toEqual(
+			[],
+		);
+		// Types are erased: they widen nothing.
+		expect(problems({ [GEO_SERVICES_CALLER]: caller('export type R = string;\n') })).toEqual([]);
+		// The entry point grew a parameter: a transport could be handed through it.
+		expect(
+			problems({
+				[GEO_SERVICES_CALLER]: caller('', 'fetchGuardedText', 'id, params, deps = {}'),
+			}).join('\n'),
+		).toContain('takes exactly');
+		// The caller stopped dialling: the census entry is stale.
+		expect(
+			problems({
+				[GEO_SERVICES_CALLER]: 'export async function callGeoService(id, params) {}',
+			}).join('\n'),
+		).toContain('no longer holds');
+		// A gate that is missing, thin, about something else, or asserts nothing.
+		expect(problems({ [GEO_SERVICES_ROW.gate]: null })).not.toEqual([]);
+		expect(problems({ [GEO_SERVICES_ROW.gate]: gate(MIN_ROUTE_GATE_TESTS - 1) })).not.toEqual([]);
+		expect(
+			problems({ [GEO_SERVICES_ROW.gate]: gate().replace('geo_services/call', 'other/thing') }),
+		).not.toEqual([]);
+		expect(
+			problems({ [GEO_SERVICES_ROW.gate]: gate().replace(/expect\(/g, 'check(') }),
+		).not.toEqual([]);
+	});
+	test('no production module can open the text door’s seams: the entry point takes none and the scope that carries them is bound by nobody (the real tree)', () => {
+		expect(geoSeamProblems(code), 'src/ and tools/').toEqual([]);
+		// Anti-vacuity: the census SAW the module that reads the scope, and the opener is a door of it.
+		const seamCensus = doorCensus(code, GEO_SEAM_SEEDS);
+		expect(seamCensus.has(GEO_SERVICES_CALLER), 'call.ts names the seams module').toBe(false);
+		expect(code.get(GEO_SERVICES_CALLER) ?? '').toContain('geo_seams.ts');
+		expect(code.get(GEO_SEAMS_FILE) ?? '').toContain(`export function ${GEO_SEAM_DOOR}`);
+		expect(entryParameters(GEO_SERVICES_CALLER, code.get(GEO_SERVICES_CALLER) ?? '')).toEqual([
+			'id',
+			'params',
+		]);
+	});
+
+	test('every route to the seams scope is followed — import, rename, namespace, re-export, barrel, literal load, require, re-exported const, non-literal load (synthetic)', () => {
+		const module = `${GEO_SERVICES_DIR}geo_seams.ts`;
+		const base = `export function ${GEO_SEAM_DOOR}(deps, work) { return work(); }\nexport function geoServiceSeams() { return {}; }\nexport type GeoServiceDeps = object;`;
+		const toSeams = "'../../../src/core/geo_services/geo_seams.ts'";
+		const tool = 'tools/tool_x/server/index.ts';
+		const problems = (files: Record<string, string>): string[] =>
+			geoSeamProblems(new Map([[module, base], ...Object.entries(files)]));
+
+		// The sound shapes: the module's reader; a type; a tool that only calls the entry point.
+		expect(problems({})).toEqual([]);
+		expect(
+			problems({
+				[GEO_SERVICES_CALLER]:
+					"import { geoServiceSeams } from './geo_seams.ts';\ngeoServiceSeams();",
+			}),
+		).toEqual([]);
+		expect(
+			problems({
+				[`${GEO_SERVICES_DIR}t.ts`]: "import type { GeoServiceDeps } from './geo_seams.ts';",
+			}),
+		).toEqual([]);
+		expect(
+			problems({
+				[tool]: `import { callGeoService } from '../../../src/core/geo_services/call.ts';\nawait callGeoService('dare_place', {});`,
+			}),
+		).toEqual([]);
+		// A file that never names the seams module may load what it likes (the tool loader's case).
+		expect(problems({ [tool]: 'const which = pick(); await import(which);' })).toEqual([]);
+
+		const refused: Record<string, Record<string, string>> = {
+			'a named import': {
+				[tool]: `import { ${GEO_SEAM_DOOR} } from ${toSeams};\n${GEO_SEAM_DOOR}({}, () => 1);`,
+			},
+			'a renamed import': {
+				[tool]: `import { ${GEO_SEAM_DOOR} as withSeams } from ${toSeams};\nwithSeams({}, () => 1);`,
+			},
+			'a namespace import (it can reach the opener)': {
+				[tool]: `import * as seams from ${toSeams};\nseams.${GEO_SEAM_DOOR}({}, () => 1);`,
+			},
+			'a namespace used through a computed key': {
+				[tool]: `import * as seams from ${toSeams};\nseams[pick()]({}, () => 1);`,
+			},
+			'a re-export': {
+				[`${GEO_SERVICES_DIR}other.ts`]: `export { ${GEO_SEAM_DOOR} as withSeams } from './geo_seams.ts';`,
+			},
+			'a star re-export (a barrel inside the module)': {
+				[`${GEO_SERVICES_DIR}index.ts`]: "export * from './geo_seams.ts';",
+			},
+			'a namespace re-export': {
+				[`${GEO_SERVICES_DIR}other.ts`]: "export * as seams from './geo_seams.ts';",
+			},
+			'a tool importing that barrel': {
+				[`${GEO_SERVICES_DIR}index.ts`]: "export * from './geo_seams.ts';",
+				[tool]: `import { ${GEO_SEAM_DOOR} } from '../../../src/core/geo_services/index.ts';\n${GEO_SEAM_DOOR}({}, () => 1);`,
+			},
+			'a literal dynamic import': {
+				[tool]: `export async function go() { return (await import(${toSeams})).${GEO_SEAM_DOOR}({}, () => 1); }`,
+			},
+			'a destructured dynamic import': {
+				[tool]: `export async function go() { const { ${GEO_SEAM_DOOR}: run } = await import(${toSeams}); return run({}, () => 1); }`,
+			},
+			'require()': {
+				[tool]: `const m = require(${toSeams});\nm.${GEO_SEAM_DOOR}({}, () => 1);`,
+			},
+			'import = require()': {
+				[tool]: `import m = require(${toSeams});\nm.${GEO_SEAM_DOOR}({}, () => 1);`,
+			},
+			'a forwarder in the module that hands the opener on': {
+				[`${GEO_SERVICES_DIR}other.ts`]: `import { ${GEO_SEAM_DOOR} } from './geo_seams.ts';\nexport function ask(deps, work) { return ${GEO_SEAM_DOOR}(deps, work); }`,
+			},
+			'a re-exported const alias': {
+				[`${GEO_SERVICES_DIR}other.ts`]: `import { ${GEO_SEAM_DOOR} } from './geo_seams.ts';\nexport const withSeams = ${GEO_SEAM_DOOR};`,
+			},
+			'a non-literal load in a file that names the module': {
+				[tool]: "const which = 'geo_seams';\nexport const go = () => import(`./${which}.ts`);",
+			},
+			'the opener’s name spelled with no binding': {
+				[tool]: `const f = globalThis['${GEO_SEAM_DOOR}'];\nf({}, () => 1);`,
+			},
+		};
+		for (const [what, files] of Object.entries(refused)) {
+			expect(problems(files), what).not.toEqual([]);
+		}
+	});
+
+	test('the entry point takes exactly (id, params): a third parameter, a rest, a destructured one or a missing one is refused (synthetic)', () => {
+		const withParams = (declaration: string): string[] =>
+			entryParameterProblems(
+				GEO_SERVICES_CALLER,
+				`export async function callGeoService${declaration} { return null; }`,
+			);
+		expect(withParams('(id: string, params: unknown = {})')).toEqual([]);
+		expect(withParams('(id, params)')).toEqual([]);
+		for (const bad of [
+			'(id: string, params: unknown, deps: object = {})',
+			'(id: string, params: unknown, ...rest: unknown[])',
+			'(id: string, ...rest: unknown[])',
+			'(id: string)',
+			'()',
+			'(id: string, { fetch }: { fetch: unknown })',
+			'(params: unknown, id: string)',
+		]) {
+			expect(withParams(bad), bad).not.toEqual([]);
+		}
+		expect(entryParameterProblems(GEO_SERVICES_CALLER, 'export const x = 1;')).not.toEqual([]);
+		expect(entryParameterProblems(GEO_SERVICES_CALLER, undefined)).toEqual([]);
+	});
 });

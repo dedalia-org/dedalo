@@ -65,8 +65,8 @@
  *
  * {@link READ_DOOR_POSTURE} classifies EVERY registered HTTP action
  * (`core/api/dispatch.ts` listRegisteredActions) and EVERY MCP tool
- * (`ai/mcp/registry.ts` TOOL_REGISTRY), plus the one door outside both
- * registries (`api/raw_view.ts`, a GET). `test/unit/read_door_acl_tripwire`
+ * (`ai/mcp/registry.ts` TOOL_REGISTRY), plus the GET doors outside both
+ * registries (`api/raw_view.ts`, `api/map_tile.ts`). `test/unit/read_door_acl_tripwire`
  * derives the census from the registries and fails on any door the map does
  * not classify — a new door cannot ship unclassified — and pins the OPEN set
  * shrink-only. `test/unit/read_door_acl_native` probes every door whose
@@ -112,6 +112,27 @@ export interface ReadDoorStep {
 }
 
 /**
+ * THE PREDICATE of {@link doorComponentAllowed} and nothing else: the pair of grants, with
+ * NO side effect — no log line, no request notice. For the one kind of door whose refusal is
+ * not "a narrowed answer" but the uniform not-found of a route anyone with a session can
+ * call at will for any (section, component) it can spell (the map tile proxy: a viewport asks
+ * dozens of times, so a refusal per call would let a session holder write the log as fast as
+ * they can click). Such a door reports its refusals itself, COUNTED and at most once a window
+ * (geo/tile_proxy/tile_source.ts). Every other door uses `doorComponentAllowed`, whose
+ * refusal is always loud (AGENTS.md: never narrow silently). An absent principal gates
+ * nothing; an unresolvable section fails closed.
+ */
+export async function doorComponentGranted(
+	scope: ReadDoorScope,
+	step: ReadDoorStep,
+): Promise<boolean> {
+	if (scope.principal === undefined) return true; // internal read
+	const sectionTipo = resolveDeclaredTipo(step.sectionTipo);
+	if (sectionTipo === null) return false; // unresolvable section: fail closed (SEC-01)
+	return pairGranted(scope, scope.principal, sectionTipo, step.componentTipo);
+}
+
+/**
  * THE COMPONENT KEY of the door surface: may this principal read THIS component
  * of THIS section? TWO grants, both required, exactly what the human read
  * demands before it shows a component: the SECTION read grant
@@ -129,13 +150,8 @@ export async function doorComponentAllowed(
 	scope: ReadDoorScope,
 	step: ReadDoorStep,
 ): Promise<boolean> {
-	if (scope.principal === undefined) return true; // internal read
-	const sectionTipo = resolveDeclaredTipo(step.sectionTipo);
-	const allowed =
-		sectionTipo === null
-			? false // unresolvable section: fail closed (SEC-01)
-			: await pairGranted(scope, scope.principal, sectionTipo, step.componentTipo);
-	if (!allowed) {
+	const allowed = await doorComponentGranted(scope, step);
+	if (scope.principal !== undefined && !allowed) {
 		noteFrontierRefusal(
 			{ principal: scope.principal, surface: 'door', door: scope.door },
 			{
@@ -760,6 +776,15 @@ export const READ_DOOR_POSTURE: ReadonlyMap<string, ReadDoorPosture> = new Map<
 				'api/raw_view.ts — a fixed server-built read_raw (type section) for global admins, so the projection above applies; keeps its dd128 denylist as defense in depth.',
 		},
 	],
+	[
+		'http:GET /dedalo/core/api/v1/map_tile',
+		{
+			posture: 'component',
+			gate: READ_DOOR_GATE,
+			reason:
+				'api/map_tile.ts — relays a tile of a source stored in a geolocation component (or its ontology default / a built-in): the section grant AND the component grant of the section as addressed (doorComponentGranted — the quiet predicate of doorComponentAllowed, without its per-refusal line), the ontology tie of component to section, and the record scope, all BEFORE the source is read and before the tile memory is consulted; unknown and forbidden are one refusal.',
+		},
+	],
 ]);
 
 /**
@@ -772,4 +797,5 @@ export const READ_DOOR_POSTURE: ReadonlyMap<string, ReadDoorPosture> = new Map<
  */
 export const READ_DOOR_EXTRA_DOORS: readonly { key: string; file: string }[] = [
 	{ key: 'http:GET /dedalo/core/api/v1/raw', file: 'src/core/api/raw_view.ts' },
+	{ key: 'http:GET /dedalo/core/api/v1/map_tile', file: 'src/core/api/map_tile.ts' },
 ];

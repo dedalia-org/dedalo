@@ -22,16 +22,34 @@
  *     also pinned on SYNTHETIC entries, because a master is configured on a
  *     CLIENT box and not on a MASTER box — i.e. the config-derived half goes
  *     vacuous exactly where this engine is developed.
+ * (5) TILES COME FROM THE SERVER (map tile proxy): `img-src` admits no OpenStreetMap or
+ *     Carto host and is pinned as an EXACT list (`'self'`, `data:`, `blob:`, the media origin,
+ *     `DIRECT_TILE_HOSTS`: a scheme-wide `https:`, a wildcard or any other host fails, and the
+ *     check that says so is itself driven on synthetic lists), and the tile hosts it still
+ *     names (`DIRECT_TILE_HOSTS`) are EXACTLY the
+ *     hosts the client still draws from directly — so a host leaves the policy in the
+ *     change that moves its last direct use, and a direct use cannot appear without a
+ *     host the policy was never given. Read from the client source, not from a list, and
+ *     from EVERY non-library script of `client/` and `tools/` (a tool lands its own client
+ *     code under `tools/<tool>/js`): the AST of each file that builds a Leaflet tile, WMS or
+ *     image layer, whatever the quote style, template literal, concatenation or variable
+ *     that spells the address. The scope is the constructor, not the file: an address a layer
+ *     is handed that the scan cannot read — a call, a member, a variable it cannot resolve — is
+ *     a failure, because the policy cannot be proved for it, and a layer built on the proxy
+ *     (`get_tile_url`) is the one form that needs no host.
  */
 
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
+import { parse } from '@babel/parser';
+import { Glob } from 'bun';
 import { config } from '../../src/config/config.ts';
 import {
 	APP_CSP,
 	buildEmbedDirectives,
+	DIRECT_TILE_HOSTS,
 	deriveUpdateMasterOrigins,
 	MEDIA_CSP_EMBED_SOURCE,
 	MEDIA_CSP_ORIGIN,
@@ -39,12 +57,45 @@ import {
 	UPDATE_MASTER_CSP_ORIGINS,
 } from '../../src/core/api/static_asset.ts';
 
+import { type AstNode, nameOf, walkAst } from '../helpers/ast_walk.ts';
+
 const ROOT = join(import.meta.dir, '..', '..');
 
 /** The one directive's source list, e.g. script-src → ["'self'", "blob:", …]. */
 function directive(csp: string, name: string): string[] {
 	const seg = csp.split(';').find((s) => s.trim().startsWith(`${name} `));
 	return seg ? seg.trim().slice(name.length).trim().split(/\s+/) : [];
+}
+
+/**
+ * What is wrong with an `img-src` source list: every source that is not one the policy is
+ * BUILT from, and every tile host it lacks. The allowed set is closed — `'self'` (which admits
+ * the same-origin tile proxy), `data:`, `blob:`, the configured media origin and the direct
+ * tile hosts — and a scheme-wide source (`https:`, `http:`), a wildcard or any other host is a
+ * problem wherever it sits. A source repeated beyond its single place is reported too.
+ */
+function imgSrcProblems(
+	sources: readonly string[],
+	mediaOrigin: string,
+	tileHosts: readonly string[],
+): string[] {
+	const allowed = new Set<string>([
+		"'self'",
+		'data:',
+		'blob:',
+		...(mediaOrigin === '' ? [] : [mediaOrigin]),
+		...tileHosts,
+	]);
+	const seen = new Set<string>();
+	const problems: string[] = [];
+	for (const source of sources) {
+		if (!allowed.has(source) || seen.has(source)) problems.push(source);
+		seen.add(source);
+	}
+	for (const host of tileHosts) {
+		if (!seen.has(host)) problems.push(`missing ${host}`);
+	}
+	return problems;
 }
 
 describe('XSS-02 — enforcing app CSP', () => {
@@ -268,4 +319,305 @@ describe('XSS-02 — enforcing app CSP', () => {
 	test('the CSP is actually served', () => {
 		expect(SECURITY_HEADERS['Content-Security-Policy']).toBe(APP_CSP);
 	});
+
+	test('img-src admits no OpenStreetMap or Carto host: those tiles come through the same-origin proxy', () => {
+		const imgSrc = directive(APP_CSP, 'img-src');
+		for (const migrated of [
+			'*.tile.openstreetmap.org',
+			'*.tile.osm.org',
+			'tile.openstreetmap.org',
+			'*.basemaps.cartocdn.com',
+		]) {
+			expect(imgSrc, migrated).not.toContain(migrated);
+		}
+		expect(imgSrc.some((src) => /openstreetmap|osm\.org|cartocdn/.test(src))).toBe(false);
+		expect(imgSrc, "'self' is what admits the proxy's same-origin tiles").toContain("'self'");
+	});
+
+	test('img-src is EXACTLY self, data:, blob:, the media origin and DIRECT_TILE_HOSTS — no scheme-wide source, wildcard or other host rides along', () => {
+		const imgSrc = directive(APP_CSP, 'img-src');
+		expect(imgSrcProblems(imgSrc, MEDIA_CSP_ORIGIN, DIRECT_TILE_HOSTS)).toEqual([]);
+		expect(imgSrc).toEqual([
+			"'self'",
+			'data:',
+			'blob:',
+			...(MEDIA_CSP_ORIGIN === '' ? [] : [MEDIA_CSP_ORIGIN]),
+			...DIRECT_TILE_HOSTS,
+		]);
+		expect([...DIRECT_TILE_HOSTS]).toEqual(['server.arcgisonline.com', 'dh.gu.se']);
+		for (const host of DIRECT_TILE_HOSTS) expect(host.includes('*'), host).toBe(false);
+		expect(Object.isFrozen(DIRECT_TILE_HOSTS)).toBe(true);
+		// …and none of them reaches a directive that runs code
+		for (const name of ['script-src', 'worker-src', 'connect-src', 'frame-src', 'object-src']) {
+			for (const host of DIRECT_TILE_HOSTS)
+				expect(directive(APP_CSP, name), name).not.toContain(host);
+		}
+	});
+
+	test('the img-src check refuses what the proxy removed: a scheme-wide source, a wildcard, a scheme-qualified or stray host', () => {
+		const sound = ["'self'", 'data:', 'blob:', ...DIRECT_TILE_HOSTS];
+		expect(imgSrcProblems(sound, '', DIRECT_TILE_HOSTS)).toEqual([]);
+		// the page loading images from anywhere: the exact thing the proxy took out of the policy
+		for (const wide of ['https:', 'http:', 'ws:', '*', '*.example.org', 'https://example.org']) {
+			const widened = [...sound, wide];
+			expect(imgSrcProblems(widened, '', DIRECT_TILE_HOSTS), wide).toEqual([wide]);
+			// …wherever in the list it sits
+			expect(imgSrcProblems([wide, ...sound], '', DIRECT_TILE_HOSTS), `${wide} first`).toEqual([
+				wide,
+			]);
+		}
+		// a host the client no longer draws from, a missing one, and a repeated one
+		expect(imgSrcProblems([...sound, 'tile.openstreetmap.org'], '', DIRECT_TILE_HOSTS)).toEqual([
+			'tile.openstreetmap.org',
+		]);
+		expect(imgSrcProblems(sound.slice(0, -1), '', DIRECT_TILE_HOSTS)).toEqual(['missing dh.gu.se']);
+		expect(imgSrcProblems([...sound, 'dh.gu.se'], '', DIRECT_TILE_HOSTS)).toEqual(['dh.gu.se']);
+		// the media origin is admitted only where it is configured
+		expect(
+			imgSrcProblems(
+				["'self'", 'data:', 'blob:', 'https://media.example.org', ...DIRECT_TILE_HOSTS],
+				'https://media.example.org',
+				DIRECT_TILE_HOSTS,
+			),
+		).toEqual([]);
+		expect(
+			imgSrcProblems(
+				["'self'", 'data:', 'blob:', 'https://media.example.org', ...DIRECT_TILE_HOSTS],
+				'',
+				DIRECT_TILE_HOSTS,
+			),
+		).toEqual(['https://media.example.org']);
+	});
+
+	test('the hosts EVERY client script draws map layers from directly are exactly DIRECT_TILE_HOSTS, and no layer’s address is beyond proof', () => {
+		const direct = new Set<string>();
+		const unprovable: string[] = [];
+		let filesWithLayers = 0;
+		for (const file of clientScriptFiles()) {
+			const text = readFileSync(join(ROOT, file), 'utf8');
+			if (!LAYER_WORDS.test(text)) continue;
+			const found = layerAddresses(text);
+			if (found.layers > 0) filesWithLayers++;
+			for (const host of found.hosts) direct.add(host);
+			for (const where of found.unprovable) unprovable.push(`${file}:${where}`);
+		}
+		expect(unprovable, 'an address a layer is built on that this gate cannot read').toEqual([]);
+		expect([...direct].sort()).toEqual([...DIRECT_TILE_HOSTS].sort());
+		// Anti-vacuity: the scan does find the layers it is about…
+		expect(filesWithLayers).toBeGreaterThan(0);
+		expect(direct.size).toBeGreaterThan(0);
+		// …and a proxied layer is not a literal address at all: the OSM hosts appear nowhere in
+		// the geolocation client but as the attribution LINK, which is an <a href>, not an image.
+		const source = readFileSync(
+			join(ROOT, 'client/dedalo/core/component_geolocation/js/component_geolocation.js'),
+			'utf8',
+		)
+			.split('\n')
+			.filter((line) => !/^\s*(?:\/\/|\*|\/\*)/.test(line))
+			.join('\n');
+		expect(source).not.toMatch(/\{s\}\.tile|tile\.openstreetmap\.org|tile\.osm\.org|cartocdn/);
+		expect(source).toContain("'/api/v1/map_tile'");
+	});
+
+	test('the layer scan reads every spelling of an address, and refuses the ones it cannot prove', () => {
+		const hostsOf = (code: string) => layerAddresses(code).hosts.sort();
+		// any quote style, a template literal, a concatenation, a protocol-relative address
+		expect(hostsOf('L.tileLayer("https://a.example.org/{z}/{x}/{y}.png")')).toEqual([
+			'a.example.org',
+		]);
+		expect(hostsOf('L.tileLayer(`https://b.example.org/${z}/{x}/{y}.png`)')).toEqual([
+			'b.example.org',
+		]);
+		expect(hostsOf("new L.TileLayer.WMS('https://c.example.org/wms', {})")).toEqual([
+			'c.example.org',
+		]);
+		expect(hostsOf('L.tileLayer.wms("//d.example.org/wms")')).toEqual(['d.example.org']);
+		expect(hostsOf("L.imageOverlay('https://e.example.org/i.png', bounds)")).toEqual([
+			'e.example.org',
+		]);
+		expect(hostsOf("new L.tileLayer('https://f.example.org/' + 'x/{z}')")).toEqual([
+			'f.example.org',
+		]);
+		// a variable, a conditional, and a variable declared later than its use
+		expect(
+			hostsOf(
+				"const u = ready ? 'https://g.example.org/{z}' : self.get_tile_url({builtin:'osm'}); L.tileLayer(u)",
+			),
+		).toEqual(['g.example.org']);
+		expect(hostsOf("L.tileLayer(late); const late = 'https://h.example.org/{z}'")).toEqual([
+			'h.example.org',
+		]);
+		// the proxy is the one form that needs no host, and neither does a comment, a string
+		// that merely mentions a layer, or something that is not a layer
+		expect(layerAddresses("L.tileLayer(self.get_tile_url({builtin:'osm'}))")).toEqual({
+			layers: 1,
+			hosts: [],
+			unprovable: [],
+		});
+		expect(
+			layerAddresses(
+				"// L.tileLayer('https://i.example.org/{z}')\nfoo.wms('https://j.example.org')",
+			),
+		).toEqual({
+			layers: 0,
+			hosts: [],
+			unprovable: [],
+		});
+		// an address the scan cannot read is a failure, not a pass
+		for (const code of [
+			'L.tileLayer(someUrl)',
+			'L.tileLayer(config.url)',
+			'L.tileLayer(buildUrl())',
+			'L.tileLayer(`${base}/{z}/{x}/{y}.png`)',
+			"L.tileLayer(flag ? 'https://k.example.org/{z}' : other)",
+			'L.imageOverlay(url_of(record), bounds)',
+		]) {
+			expect(layerAddresses(code).unprovable.length, code).toBe(1);
+		}
+	});
 });
+
+// ---------------------------------------------------------------------------
+// The layer scan
+// ---------------------------------------------------------------------------
+
+/** The Leaflet constructors that load an image from an address they are handed. */
+const LAYER_CONSTRUCTORS: ReadonlySet<string> = new Set([
+	'tileLayer',
+	'TileLayer',
+	'imageOverlay',
+	'ImageOverlay',
+	'videoOverlay',
+	'VideoOverlay',
+]);
+
+/** `tileLayer.wms` / `TileLayer.WMS`: the last name alone says nothing, the chain must include a tile layer. */
+const WMS_NAMES: ReadonlySet<string> = new Set(['wms', 'WMS']);
+
+/** A cheap text filter before the parse: a file that never names a layer constructor has none. */
+const LAYER_WORDS = /tileLayer|TileLayer|imageOverlay|ImageOverlay|videoOverlay|VideoOverlay/;
+
+/** The scripts the page or a tool loads: every .js of client/ and tools/ except libraries and the client's own tests. */
+function clientScriptFiles(): string[] {
+	const found: string[] = [];
+	for (const pattern of ['client/**/*.js', 'tools/**/*.js']) {
+		for (const file of new Glob(pattern).scanSync({ cwd: ROOT })) {
+			const path = relative(ROOT, join(ROOT, file));
+			const skipped =
+				/(?:^|\/)(?:lib|node_modules)\//.test(path) || path.startsWith('client/dedalo/test/');
+			if (!skipped) found.push(path);
+		}
+	}
+	return found;
+}
+
+/** What one layer's address is: the proxy, a host, the page's own origin, or beyond proof. */
+type AddressKind =
+	| { readonly kind: 'proxy' }
+	| { readonly kind: 'self' }
+	| { readonly kind: 'host'; readonly host: string }
+	| { readonly kind: 'unprovable' };
+
+const PROVEN_PROXY: AddressKind = { kind: 'proxy' };
+const UNPROVABLE: AddressKind = { kind: 'unprovable' };
+
+/** The names along a callee: `L.tileLayer.wms` → ['L', 'tileLayer', 'wms']. */
+function calleeNames(callee: AstNode): string[] {
+	if (callee.type === 'Identifier') return [nameOf(callee)];
+	if (callee.type === 'MemberExpression' || callee.type === 'OptionalMemberExpression') {
+		return [...calleeNames(callee.object as AstNode), nameOf(callee.property)];
+	}
+	return [];
+}
+
+/** True when `callee` builds a Leaflet layer from an address. */
+function isLayerConstructor(callee: AstNode): boolean {
+	const names = calleeNames(callee);
+	const last = names.at(-1) ?? '';
+	if (LAYER_CONSTRUCTORS.has(last)) return true;
+	return WMS_NAMES.has(last) && names.some((name) => name === 'tileLayer' || name === 'TileLayer');
+}
+
+/** The host a literal address starts with, 'self' for a same-origin path, or null for text with no address. */
+function literalAddress(text: string): AddressKind {
+	if (/^(?:https?:)?\/\//i.test(text)) {
+		const host = URL.parse(text.startsWith('//') ? `https:${text}` : text)?.hostname;
+		return host === undefined ? UNPROVABLE : { kind: 'host', host };
+	}
+	return /^[/A-Za-z0-9._-]/.test(text) ? { kind: 'self' } : UNPROVABLE;
+}
+
+/** Every `VariableDeclarator` init of `name` in the program. */
+function initsOf(program: AstNode, name: string): AstNode[] {
+	const inits: AstNode[] = [];
+	walkAst(program, [], (node) => {
+		const id = node.id as AstNode | undefined;
+		if (node.type === 'VariableDeclarator' && id?.type === 'Identifier' && nameOf(id) === name) {
+			if (node.init) inits.push(node.init as AstNode);
+		}
+	});
+	return inits;
+}
+
+/** What the address expression `node` is: every branch it can take, none of them beyond proof. */
+function classifyAddress(node: AstNode, program: AstNode, seen: Set<string>): AddressKind[] {
+	switch (node.type) {
+		case 'StringLiteral':
+			return [literalAddress(node.value as string)];
+		case 'TemplateLiteral': {
+			const head = (node.quasis as { value: { cooked: string } }[])[0]?.value.cooked ?? '';
+			return [head === '' ? UNPROVABLE : literalAddress(head)];
+		}
+		case 'BinaryExpression':
+			return node.operator === '+'
+				? classifyAddress(node.left as AstNode, program, seen)
+				: [UNPROVABLE];
+		case 'ConditionalExpression':
+			return [
+				...classifyAddress(node.consequent as AstNode, program, seen),
+				...classifyAddress(node.alternate as AstNode, program, seen),
+			];
+		case 'LogicalExpression':
+			return [
+				...classifyAddress(node.left as AstNode, program, seen),
+				...classifyAddress(node.right as AstNode, program, seen),
+			];
+		case 'CallExpression':
+			return calleeNames(node.callee as AstNode).at(-1) === 'get_tile_url'
+				? [PROVEN_PROXY]
+				: [UNPROVABLE];
+		case 'Identifier':
+			return classifyIdentifier(nameOf(node), program, seen);
+		default:
+			return [UNPROVABLE];
+	}
+}
+
+/** An identifier is what every declaration of it in the file says; none found is beyond proof. */
+function classifyIdentifier(name: string, program: AstNode, seen: Set<string>): AddressKind[] {
+	if (seen.has(name)) return [UNPROVABLE];
+	const inits = initsOf(program, name);
+	if (inits.length === 0) return [UNPROVABLE];
+	const next = new Set(seen).add(name);
+	return inits.flatMap((init) => classifyAddress(init, program, next));
+}
+
+/** The layers `code` builds: how many, the hosts it draws from directly, and where an address is beyond proof. */
+function layerAddresses(code: string): { layers: number; hosts: string[]; unprovable: string[] } {
+	const program = parse(code, { sourceType: 'module', errorRecovery: false })
+		.program as unknown as AstNode;
+	const out = { layers: 0, hosts: new Set<string>(), unprovable: [] as string[] };
+	walkAst(program, [], (node) => {
+		if (node.type !== 'CallExpression' && node.type !== 'NewExpression') return;
+		if (!isLayerConstructor(node.callee as AstNode)) return;
+		out.layers++;
+		const first = (node.arguments as AstNode[])[0];
+		const kinds = first === undefined ? [UNPROVABLE] : classifyAddress(first, program, new Set());
+		const line = (node.loc as { start: { line: number } } | undefined)?.start.line ?? 0;
+		for (const kind of kinds) {
+			if (kind.kind === 'host') out.hosts.add(kind.host);
+			if (kind.kind === 'unprovable') out.unprovable.push(String(line));
+		}
+	});
+	return { layers: out.layers, hosts: [...out.hosts], unprovable: out.unprovable };
+}

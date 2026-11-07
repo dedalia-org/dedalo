@@ -164,6 +164,60 @@ describe('toErrorEnvelope — disclosure', () => {
 		expect(toErrorEnvelope(nonScalar, CTX).body.error.details).toBeUndefined();
 	});
 
+	test('details.reason_key: carried by an opted-in code (a key-shaped string only), dropped from every other', () => {
+		const refusal = (code: 'request.invalid_options' | 'perm.denied', reason: unknown) =>
+			withDebugFlag(
+				'false',
+				() =>
+					toErrorEnvelope(
+						new DedaloError(code, {
+							// biome-ignore lint/suspicious/noExplicitAny: deliberately non-scalar probe
+							details: { reason_key: reason as any },
+							publicMessage: 'Fallback sentence.',
+						}),
+						CTX,
+					).body,
+			);
+		// an opted-in public code carries it, with the fallback sentence beside it
+		const carried = refusal('request.invalid_options', 'bad_bbox');
+		expect(carried.error.details).toEqual({ reason_key: 'bad_bbox' });
+		expect(carried.error.message).toBe('Fallback sentence.');
+		// a code that did not opt in drops it (and keeps the registry sentence)
+		const dropped = refusal('perm.denied', 'bad_bbox');
+		expect(dropped.error.details).toBeUndefined();
+		expect(dropped.error.message).toBe('Insufficient permissions');
+		// the shape guard: free text, a number, an object, an empty string never reach the wire
+		for (const bad of [
+			'Not a key',
+			'with-dash',
+			'UPPER',
+			'',
+			'x'.repeat(49),
+			7,
+			true,
+			{ a: 1 },
+			null,
+		]) {
+			expect(
+				refusal('request.invalid_options', bad).error.details,
+				JSON.stringify(bad),
+			).toBeUndefined();
+		}
+		// it rides beside the code's own declared details
+		const both = withDebugFlag(
+			'false',
+			() =>
+				toErrorEnvelope(
+					new DedaloError('tool.source_unavailable', {
+						details: { site: 'https://tiles.example.org', reason_key: 'down', extra: 'no' },
+						publicMessage: 'The tile server is down.',
+					}),
+					CTX,
+				).body,
+		);
+		expect(both.error.details).toEqual({ site: 'https://tiles.example.org', reason_key: 'down' });
+	});
+
 	test('MCP structured error also filters details and never carries the cause', () => {
 		const structured = withDebugFlag('false', () =>
 			toStructuredErr(new Error('engine prose with /paths')),

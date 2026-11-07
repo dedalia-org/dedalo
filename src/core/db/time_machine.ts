@@ -54,6 +54,7 @@
 
 import { canonicalJson } from '../concepts/canonical_json.ts';
 import { keyImage } from '../concepts/lang_region.ts';
+import { assertNotReadOnlyRequest } from '../security/read_only_scope.ts';
 import { dbTimestamp } from './db_timestamp.ts';
 import { encodeForJsonb } from './json_codec.ts';
 import { sql, withTransaction } from './postgres.ts';
@@ -183,6 +184,7 @@ export const TM_EXCLUDED_SECTIONS: ReadonlySet<string> = new Set([TIME_MACHINE_S
  * unrevertable shape the undo log retired.
  */
 export async function recordTimeMachine(entry: TimeMachineEntry, timestamp: string): Promise<void> {
+	assertNotReadOnlyRequest('recordTimeMachine');
 	if (!isAuditedAddress(entry.sectionTipo, entry.sectionId)) return;
 	await sql.unsafe(
 		`INSERT INTO matrix_time_machine
@@ -750,6 +752,7 @@ interface UndoRow {
 
 /** One bulk-run row. `$8` is SQL NULL for an absent image, else `::text::jsonb`. */
 async function insertUndoRow(row: UndoRow): Promise<number> {
+	assertNotReadOnlyRequest('insertUndoRow');
 	await ensureTmRoleColumn();
 	const rows = (await sql.unsafe(
 		`INSERT INTO matrix_time_machine
