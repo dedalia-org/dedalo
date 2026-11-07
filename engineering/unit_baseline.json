@@ -2069,10 +2069,50 @@
 			"skipped": 0,
 			"assertions": 88
 		},
+		"test/unit/geo_contract_guards_native.test.ts": {
+			"tests": 32,
+			"skipped": 0,
+			"assertions": 252
+		},
 		"test/unit/geo_coordinate.test.ts": {
 			"tests": 45,
 			"skipped": 0,
 			"assertions": 88
+		},
+		"test/unit/geo_entry_gate_native.test.ts": {
+			"tests": 58,
+			"skipped": 0,
+			"assertions": 193
+		},
+		"test/unit/geo_map_source_lookup_native.test.ts": {
+			"tests": 15,
+			"skipped": 0,
+			"assertions": 116
+		},
+		"test/unit/geo_map_source_native.test.ts": {
+			"tests": 46,
+			"skipped": 0,
+			"assertions": 892
+		},
+		"test/unit/geo_services_native.test.ts": {
+			"tests": 112,
+			"skipped": 0,
+			"assertions": 3430
+		},
+		"test/unit/geo_sources_legend_diffusion_native.test.ts": {
+			"tests": 14,
+			"skipped": 0,
+			"assertions": 57
+		},
+		"test/unit/geo_sources_legend_import_native.test.ts": {
+			"tests": 13,
+			"skipped": 0,
+			"assertions": 39
+		},
+		"test/unit/geo_sources_legend_save_native.test.ts": {
+			"tests": 29,
+			"skipped": 0,
+			"assertions": 171
 		},
 		"test/unit/geoip_download_native.test.ts": {
 			"tests": 32,
@@ -2644,6 +2684,11 @@
 			"skipped": 0,
 			"assertions": 110
 		},
+		"test/unit/install_public_host_native.test.ts": {
+			"tests": 82,
+			"skipped": 0,
+			"assertions": 770
+		},
 		"test/unit/install_restart_supervisor_tripwire.test.ts": {
 			"tests": 34,
 			"skipped": 0,
@@ -2983,6 +3028,16 @@
 			"tests": 7,
 			"skipped": 0,
 			"assertions": 19
+		},
+		"test/unit/map_tile_geometry_native.test.ts": {
+			"tests": 83,
+			"skipped": 0,
+			"assertions": 2544
+		},
+		"test/unit/map_tile_proxy_native.test.ts": {
+			"tests": 74,
+			"skipped": 0,
+			"assertions": 3252
 		},
 		"test/unit/marc21.test.ts": {
 			"tests": 3,
@@ -4864,6 +4919,11 @@
 			"skipped": 0,
 			"assertions": 47
 		},
+		"test/unit/retired_update_host_native.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 21
+		},
 		"test/unit/rich_text_image_reconcile.test.ts": {
 			"tests": 22,
 			"skipped": 0,
@@ -6188,6 +6248,11 @@
 			"tests": 25,
 			"skipped": 0,
 			"assertions": 285
+		},
+		"test/unit/tool_reason_keys_tripwire.test.ts": {
+			"tests": 42,
+			"skipped": 0,
+			"assertions": 275
 		},
 		"test/unit/tool_request.test.ts": {
 			"tests": 6,
