@@ -76,7 +76,6 @@
 	import { set_context_vars, create_source, same_occurrence_on_merge, root_caller_chains } from '../../common/js/common.js'
 	import { events_subscription } from './events_subscription.js'
 	import { ui } from '../../common/js/ui.js'
-	import { set_element_css } from '../../page/js/css.js'
 	import {request_failed, normalize_transport_error, response_data} from '../../common/js/api_error.js'
 	import { handle_api_error, is_page_identity_revoked } from '../../common/js/error_dispatch.js'
 
@@ -2610,8 +2609,8 @@ component_common.prototype.update_node_contents = async (current_node, new_node)
 * swap; destroy() is called with remove_dom=true so the old shadow subtree is also
 * cleaned up after the swap.
 *
-* CSS: if context.css is defined, set_element_css() injects a scoped rule so the
-* new node immediately picks up any component-specific styles.
+* CSS: ontology context.css is injected by the wrapper builders
+* (ui.component.build_wrapper_edit / build_wrapper_list) during render.
 *
 * Mode fallback logic (when options.mode is omitted):
 *   list → edit (toggle to edit)
@@ -2705,11 +2704,6 @@ component_common.prototype.change_mode = async function(options) {
 		const new_node = await new_instance.render({
 			render_level : 'full'
 		})
-
-		if (new_instance.context.css) {
-			const selector = `${new_instance.section_tipo}_${new_instance.tipo}.${new_instance.tipo}.${new_instance.mode}`
-			set_element_css(selector, new_instance.context.css)
-		}
 
 	// replace the node with the new render
 		old_node.replaceWith(new_node);

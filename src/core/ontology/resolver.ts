@@ -26,7 +26,7 @@ import { isValidTipo } from '../concepts/ontology.ts';
 import { isInTransaction, sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { createOntologyCache } from './cache_factory.ts';
-import { registerOntologyCacheClearer } from './cache_invalidation.ts';
+import { currentOntologyGeneration, registerOntologyCacheClearer } from './cache_invalidation.ts';
 import { refuseLabelNode } from './label_node_guard.ts';
 import { nameOrLabelOf, resolveLabel } from './labels.ts';
 import { retiredKeysOf } from './property_census.ts';
@@ -156,6 +156,7 @@ export async function getNode(tipo: string): Promise<ResolvedNode | null> {
 	if (cached !== undefined) {
 		return cached;
 	}
+	const generation = currentOntologyGeneration();
 	const rows = (await sql`
 		SELECT tipo, model, parent, is_translatable, properties, relations
 		FROM dd_ontology
@@ -182,7 +183,9 @@ export async function getNode(tipo: string): Promise<ResolvedNode | null> {
 					relations: row.relations,
 				};
 	if (node !== null && !isInTransaction()) reportRetiredProperties(node);
-	cacheSet(tipo, node);
+	// an ontology write cleared the caches while this SELECT was in flight:
+	// the row may be pre-write — serve it, never memoize it
+	if (generation === currentOntologyGeneration()) cacheSet(tipo, node);
 	return node;
 }
 

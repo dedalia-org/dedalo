@@ -93,7 +93,25 @@ export function isOntologyCacheClearerRegistered(clearer: CacheClearer): boolean
 	return registeredClearers.has(clearer);
 }
 
+/**
+ * Bumped by EVERY fire of the clearers. A cache filled after an await (SELECT,
+ * then set) may capture it before the await and skip the set when it moved: a
+ * build that read the pre-write row must not re-seed a just-cleared cache with
+ * it (stale-after-edit until the next ontology write). Same shape as
+ * model_section.ts pairingEpoch; single-threaded, compared for equality only.
+ * OPT-IN, adopted today by resolver getNode and structure_context buildCore
+ * only (TODO-080, gate: test/unit/ontology_generation_guard_native.test.ts);
+ * other build-then-set caches still have the race.
+ */
+let ontologyGeneration = 0;
+
+/** The current invalidation generation (see ontologyGeneration). */
+export function currentOntologyGeneration(): number {
+	return ontologyGeneration;
+}
+
 function fireRegisteredClearers(): void {
+	ontologyGeneration++;
 	for (const clearer of registeredClearers) {
 		try {
 			clearer();

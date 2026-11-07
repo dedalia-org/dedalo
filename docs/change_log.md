@@ -210,6 +210,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **"Ontology CSS: responsive rules no longer overwrite each other, area styles apply, edits show at once."**
+
+    CSS written in an ontology node's properties is applied more reliably. When several fields used the same `@media` query, only the last one drawn kept its responsive layout. Now each keeps its own. Selector lists such as `.a, .b` are limited to the element on every branch, not only the first. Number values (`"order": 2`) are accepted. CSS set on an area (thesaurus, maintenance…) now applies; before, it was discarded. An edit to a node's CSS shows on the next page load, with no stale copy left in the server's cache. The old v5 `style`/`mixin` sub-blocks, which never had any effect, are skipped explicitly. How it all works: [Ontology CSS](./core/ontology/ontology_css.md).
+
+    Wire contract: `WC-2026-11-07-area-css-list-mode`.
+
 - **A split search in a linking field finds records that match every part.**
 
     When you type a search split by `|` in a linking field's search box (for example `hierarchy|20`), each part goes to its own search field, and the results now have to match all of them. Before, the operator selector could be set to match any one part, which returned unrelated records. Typing straight into a single search field still uses the operator you selected.
@@ -1265,7 +1271,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 66 entries"
+??? note "Wire contract — 67 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -1330,6 +1336,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-05-reconcile-apply-refused`
     - `WC-2026-11-06-css-version`
     - `WC-2026-11-06-update-panel-verdicts`
+    - `WC-2026-11-07-area-css-list-mode`
     - `WC-2026-11-07-labels-separate-resource`
     - `WC-2026-11-07-ontology-update-picked-source`
     - `WC-2026-11-07-save-order-complete-list`

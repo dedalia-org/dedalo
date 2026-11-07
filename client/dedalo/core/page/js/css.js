@@ -43,14 +43,18 @@
  * }
  *
  * (!) Absolute indices are deliberately NOT cached. insertRule/deleteRule shift
- * every later index, so any stored index goes stale after another rule is deleted
- * (by safe_insert_rule's replace path or by prune_rules) and deleteRule(index)
- * would then remove the wrong rule. Rules are instead located live by their
- * selector at delete time (see find_rule_index).
+ * every later index, so any stored index goes stale after another rule is deleted.
+ * Nor are rules located by comparing selector strings: the browser re-serializes
+ * selectorText (':before' -> '::before', spaces around combinators, quoted
+ * attribute values…), so a string match silently misses. Instead each key keeps
+ * the live CSSRule OBJECT (rule_of_key) and its index is found by identity at
+ * delete time; key_of_rule maps back so prune_rules evicts the right entry.
  *
  * @var {Map<string, {rule_text: string}>} inserted_rules
  */
-const inserted_rules = new Map();
+const inserted_rules	= new Map();
+const rule_of_key		= new Map();		// key -> CSSRule (kept apart: inserted_rules is JSON-dumped by the debug panel)
+const key_of_rule		= new WeakMap();	// CSSRule -> key
 
 
 
@@ -60,35 +64,26 @@ const inserted_rules = new Map();
  * and queue them for insertion into the shared stylesheet.
  *
  * The `value` parameter is a map from logical selector fragments to either:
- *   - a plain CSS-properties object: { width: '12%', height: '150px' }
+ *   - a CSS-properties object: { width: '12%', 'grid-column': 'span 2' }
+ *     (nested '@media …' / '@supports …' / '&:hover' blocks allowed, see process_rule)
  *   - a callback function that returns { selector, value } for custom/responsive rules
  *     (see ui.make_column_responsive)
  *
- * The special key 'add_class' is silently skipped — it is handled elsewhere in the
- * component lifecycle (class list mutation, not stylesheet injection).
+ * The special key 'add_class' is skipped — it is handled by the wrapper builders
+ * (class list mutation, not stylesheet injection).
  *
- * Selector construction for non-callback entries:
- *   - If the fragment starts with '.wrapper', the component key is prepended
- *     directly: `.${key}${selector}` → e.g. `.oh1_rsc75.wrapper_component`
- *   - Otherwise the component key scopes the fragment as a child:
- *     `.${key} > ${selector}` (or without '>' when the fragment already starts with '>')
+ * Selector construction for non-callback entries (each top-level comma branch
+ * is scoped on its own, so 'a, b' never leaks 'b' globally):
+ *   - fragment starts with '.wrapper' -> compound: `.${key}${fragment}`
+ *     e.g. `.oh1_rsc75.edit.wrapper_component`
+ *   - otherwise -> direct child: `.${key} > ${fragment}` (no extra '>' when the
+ *     fragment already leads with one) e.g. `.oh1_rsc75.edit > .content_data`
  *
- * (!) This function is declared async but contains no await expression. It returns
- * a resolved Promise<boolean>. Callers that do not await the return value receive
- * the resolved value directly via the microtask queue, which is functionally
- * equivalent in practice but callers should be aware of the async boundary.
+ * Declared async for historical call sites that await it; it does no async work.
  *
- * (!) The original doc-block described a `replace` parameter that does not exist
- * in the actual function signature. No replace logic is implemented here; all
- * deduplication is handled inside safe_insert_rule via the inserted_rules cache.
- *
- * @param {string} key - Unique component identifier used as the CSS scope class
- *   (e.g. 'oh1_rsc75'). Becomes the leading class selector for all rules.
- * @param {Object} value - Style descriptor map. Keys are selector fragments;
- *   values are either a CSS-properties object or a callback returning
- *   { selector: string, value: Object }.
- * @returns {Promise<boolean>} Resolves to true when at least one rule was queued,
- *   false when `value` is empty, not a plain object, or null.
+ * @param {string} key - Scope class(es) without the leading dot, e.g. 'oh1_rsc75.oh62.edit'
+ * @param {Object} value - Style descriptor map (see above)
+ * @returns {Promise<boolean>} true when processed, false when `value` is empty or not a plain object
  */
 export const set_element_css = async function(key, value) {
 
@@ -105,43 +100,34 @@ export const set_element_css = async function(key, value) {
 				continue;
 			}
 
-			// style values like {"width": "12%", height : "150px"}
-				const json_css_values = value[selector] || null
-				if (!json_css_values) {
-					console.log("Ignored invalid style:", key, value[selector]);
-					continue;
-				}
+			const json_css_values = value[selector] || null
 
 			if (typeof json_css_values==='function') {
 
 				// make_column_responsive and all custom case
 				// see ui.make_column_responsive
-
-				// get custom selector and values from callback function
-					const data			= json_css_values()
-					const full_selector	= data.selector
-					const json_values	= data.value
+					const data = json_css_values()
 
 				// process and insert rule
-				process_rule(full_selector, json_values, false)
-
-			}else{
-
-				// components case
-
-				// direct children operator
-				// Omit '>' when the fragment already leads with '>' to avoid '> >' duplication
-					const operator = selector.indexOf('>')===0
-						? ''
-						: '>'
-
-				const full_selector = selector.indexOf('.wrapper')===0
-					? `.${key}${selector}` // like .oh1_rsc75.wrap_component
-					: `.${key} ${operator} ${selector}`	// like .oh1_rsc75 > .content_data
-
-				// process and insert rule
-				process_rule(full_selector, json_css_values, false)
+				process_rule(data.selector, data.value)
+				continue
 			}
+
+			// style values like {"width": "12%", height : "150px"}
+			if (!json_css_values || typeof json_css_values!=='object' || Array.isArray(json_css_values)) {
+				if(SHOW_DEBUG===true) {
+					console.warn('set_element_css: ignored non-object style:', key, selector, json_css_values);
+				}
+				continue;
+			}
+
+			// components case
+			const full_selector = split_top_level_commas(selector)
+				.map(fragment => scope_fragment(key, fragment))
+				.join(', ')
+
+			// process and insert rule
+			process_rule(full_selector, json_css_values)
 		}
 
 
@@ -151,39 +137,125 @@ export const set_element_css = async function(key, value) {
 
 
 /**
- * PROCESS_RULE
- * Recursively flatten a CSS-properties descriptor into rule text and hand it to
- * the update queue.
- *
- * For flat string values, each property is serialised as `property:value` (with
- * single quotes around the value for the `content` CSS property so that the
- * generated text is syntactically valid: `content:'Id'`).
- *
- * For nested object values, the function recurses with skip_insert=true, collects
- * the child declarations, and calls queue_style_update with the parent key used
- * as a wrapping selector (typically a @media query or pseudo-selector nesting
- * context). This handles the case where `json_css_values` contains entries like:
- *   { '@media (max-width: 768px)': { width: '100%' } }
- *
- * The skip_insert flag controls whether collected rules are only returned (for
- * the recursive caller to assemble) or also flushed to the queue. Top-level calls
- * always pass false; recursive calls always pass true to prevent premature insertion
- * of partial rule fragments.
- *
- * Author-supplied colour declarations additionally yield a `dark_rules` list —
- * the same declarations remapped for the dark theme (see adapt_color_for_dark).
- * They are queued as a separate `:root[data-theme="dark"] <selector>` rule so
- * both themes are served by static CSS and a theme toggle needs no re-injection.
- *
- * @param {string} selector - Full CSS selector for the rule (e.g. '.rsc170_rsc20.wrapper_component')
- * @param {Object} json_css_values - Flat or nested CSS-property object
- * @param {boolean} skip_insert - When true, collected declarations are returned to
- *   the caller without queuing; used during recursion to build nested rule bodies
- * @returns {{rules: Array<string>, dark_rules: Array<string>}} Serialised CSS
- *   declarations for this level (e.g. ['width:12%', 'height:150px']) and their
- *   dark-theme counterparts. Both empty when all entries are nested objects.
+ * SCOPE_FRAGMENT
+ * Prefix one selector fragment with the element scope class.
+ * @param {string} key - scope class(es) without the leading dot
+ * @param {string} fragment - e.g. '.wrapper_component' | '.content_data' | '> .label'
+ * @returns {string}
  */
-const process_rule = function(selector, json_css_values, skip_insert) {
+const scope_fragment = function(key, fragment) {
+
+	const clean = fragment.trim()
+
+	if (clean.indexOf('.wrapper')===0) {
+		return `.${key}${clean}` // like .oh1_rsc75.edit.wrapper_component
+	}
+
+	// direct children operator. Omit '>' when the fragment already leads with it
+	const operator = clean.indexOf('>')===0 ? '' : '> '
+
+	return `.${key} ${operator}${clean}` // like .oh1_rsc75.edit > .content_data
+}//end scope_fragment
+
+
+
+/**
+ * SPLIT_TOP_LEVEL_COMMAS
+ * Split a selector list on the commas that separate branches, ignoring commas
+ * inside (), [] or quotes — ':is(.a, .b)' stays one branch.
+ * @param {string} selector
+ * @returns {Array<string>}
+ */
+const split_top_level_commas = function(selector) {
+
+	const parts	= []
+	let depth	= 0
+	let quote	= null
+	let start	= 0
+	for (let i = 0; i < selector.length; i++) {
+		const c = selector[i]
+		if (quote) {
+			if (c===quote && selector[i-1]!=='\\') quote = null
+		}else if (c==='"' || c==="'") {
+			quote = c
+		}else if (c==='(' || c==='[') {
+			depth++
+		}else if (c===')' || c===']') {
+			depth--
+		}else if (c===',' && depth===0) {
+			parts.push(selector.slice(start, i))
+			start = i + 1
+		}
+	}
+	parts.push(selector.slice(start))
+
+	return parts.filter(el => el.trim()!=='')
+}//end split_top_level_commas
+
+
+
+/**
+ * PROCESS_RULE
+ * Serialize a CSS-properties descriptor into ONE style rule for `selector` (plus
+ * its dark-theme counterpart) and hand it to the update queue.
+ *
+ * Nested blocks use NATIVE CSS NESTING inside the owner rule, so the owner
+ * selector stays the single queue / cache key:
+ *   { width:'50%', '@media (max-width: 768px)': { width:'100%' } }
+ *   -> `.X { width:50%; @media (max-width: 768px) { width:100% } }`
+ *   { '&:hover': {...} } or { ':hover': {...} } -> `.X { &:hover { … } }`
+ * (!) Before 2026-11 nested blocks were queued under their bare prelude, so every
+ * component sharing a media query overwrote the others (only the last kept its
+ * responsive css) and deep nesting lost its outer at-rule.
+ *
+ * Legacy shapes kept as they always rendered:
+ *   - v5 `style` / `mixin` sub-keys: skipped (they never matched anything in v6/v7;
+ *     switching them on would restyle live layouts unreviewed).
+ *   - any other nested selector key (no '&'): ancestor semantics `.anc &`, which
+ *     is what the old wrapper `anc { selector {…} }` meant under CSS nesting.
+ *
+ * Values: strings and numbers. `content` values are single-quoted.
+ * Author-supplied literal colours additionally yield a dark-theme counterpart
+ * (see adapt_color_for_dark), queued as `:root[data-theme="dark"] <selector>`.
+ *
+ * @param {string} selector - Full CSS selector (e.g. '.rsc170_rsc20.edit.wrapper_component')
+ * @param {Object} json_css_values - CSS-property object, may contain nested blocks
+ * @returns {{body: string, dark_body: string}} the serialized rule bodies
+ */
+const process_rule = function(selector, json_css_values) {
+
+	const { body, dark_body } = build_body(selector, json_css_values)
+
+	if (body.length > 0) {
+		queue_style_update(selector, body)
+	}
+
+	// Dark counterpart as its own rule. `:root[data-theme="dark"]` adds
+	// (0,2,0) of specificity on top of the base selector, so it always wins
+	// without needing !important, and both rules coexist: toggling the theme
+	// needs no re-injection.
+	if (dark_body.length > 0) {
+		// prefix every comma branch, or branches 2+ would get the dark value in light theme
+		const dark_selector = split_top_level_commas(selector)
+			.map(branch => `${DARK_ROOT} ${branch.trim()}`)
+			.join(', ')
+		queue_style_update(dark_selector, dark_body)
+	}
+
+
+	return { body, dark_body }
+}//end process_rule
+
+
+
+/**
+ * BUILD_BODY
+ * Recursive serializer behind process_rule.
+ * @param {string} selector - owner selector, only used for debug messages
+ * @param {Object} json_css_values
+ * @returns {{body: string, dark_body: string}}
+ */
+const build_body = function(selector, json_css_values) {
 
 	const rules			= []
 	const dark_rules	= []
@@ -192,81 +264,58 @@ const process_rule = function(selector, json_css_values, skip_insert) {
 
 		const value = json_css_values[key];
 
-		if (typeof value==='string') {
+		if (typeof value==='string' || typeof value==='number') {
 			// Handle content property with quotes, others without
-			const propText = key === 'content'
+			rules.push(key === 'content'
 				? `${key}:'${value}'`
 				: `${key}:${value}`
-
-			rules.push(propText)
+			)
 
 			// dark theme counterpart for author-supplied literal colours
 			const dark_value = adapt_color_for_dark(key, value)
 			if (dark_value!==null) {
 				dark_rules.push(`${key}:${dark_value}`)
 			}
+			continue
 		}
-		else if(
-			typeof value==='object'
-			&& !Array.isArray(value)
-			&& value!==null)
-			{
 
-			// recursion
-			const deep = process_rule(
-				selector,
-				value,
-				true // skip_insert
-			)
+		if (typeof value!=='object' || value===null || Array.isArray(value)) {
+			if (key!=='mixin' && SHOW_DEBUG===true) {
+				console.warn('set_element_css: ignored unsupported css value:', selector, key, value);
+			}
+			continue
+		}
 
-			const joined = deep.rules.join('; ');
+		if (key==='style') {
+			// legacy v5 {mixin, style} shape: never rendered, see header
+			if(SHOW_DEBUG===true) {
+				console.warn('set_element_css: ignored legacy v5 "style" block:', selector, value);
+			}
+			continue
+		}
 
-			// Create nested rule (assuming key is a media query or pseudo-selector)
-			// const rule = `
-			// ${key} {
-			// 	${selector} {
-			// 		${joined};
-			// 	}
-			// }`;
+		// nested block prelude
+		const prelude = key.charAt(0)==='@' || key.indexOf('&')!==-1
+			? key					// '@media …' / '&:hover' / '.parent &'
+			: key.charAt(0)===':'
+				? `&${key}`			// ':hover' -> '&:hover'
+				: `${key} &`		// legacy ancestor key
 
-			// The dark counterpart rides inside the same at-rule body as a second
-			// nested rule, so one queue entry still holds everything for `key`.
-			const dark_body = deep.dark_rules.length > 0
-				? ` ${DARK_ROOT} ${selector} { ${deep.dark_rules.join('; ')} }`
-				: ''
-
-			const rule_body = `${selector} { ${joined} }${dark_body}`
-			queue_style_update(key, rule_body)
+		const deep = build_body(selector, value)
+		if (deep.body.length > 0) {
+			rules.push(`${prelude} { ${deep.body} }`)
+		}
+		if (deep.dark_body.length > 0) {
+			dark_rules.push(`${prelude} { ${deep.dark_body} }`)
 		}
 	}
 
-	// resolving deep_rules cases
-		if (skip_insert) {
-			return { rules, dark_rules }
-		}
 
-	 // Combine all rules for the main selector
-		if (rules.length > 0) {
-
-			const rule_body = rules.join('; ');
-			queue_style_update(selector, rule_body)
-		}
-
-	// Dark counterpart as its own rule. `:root[data-theme="dark"]` adds
-	// (0,2,0) of specificity on top of the base selector, so it always wins
-	// without needing !important, and both rules coexist: toggling the theme
-	// needs no re-injection.
-		if (dark_rules.length > 0) {
-
-			queue_style_update(
-				`${DARK_ROOT} ${selector}`,
-				dark_rules.join('; ')
-			)
-		}
-
-
-	return { rules, dark_rules }
-}//end process_rule
+	return {
+		body		: rules.join('; '),
+		dark_body	: dark_rules.join('; ')
+	}
+}//end build_body
 
 
 
@@ -404,8 +453,7 @@ const flush_style_updates = function() {
 
 /**
  * NORMALIZE_SELECTOR
- * Collapse whitespace so a constructed selector and the browser-normalized
- * CSSRule.selectorText can be compared reliably.
+ * Collapse whitespace so equivalent constructed selectors share one cache key.
  *
  * @param {string} selector
  * @returns {string}
@@ -418,63 +466,13 @@ const normalize_selector = function(selector) {
 
 
 /**
- * FIND_RULE_INDEX
- * Locate the live index of a rule in the sheet by its (normalized) selector.
- *
- * (!) Cached absolute indices are never trusted: insertRule/deleteRule shift every
- * later index, so the only reliable way to delete a rule is to locate it live at
- * delete time. Style rules are matched by selectorText; at-rules (@media /
- * @supports / @keyframes), which have no selectorText, are matched by their
- * prelude so they get replaced instead of duplicated on a body change.
- *
- * @param {CSSStyleSheet} sheet
- * @param {string} normalized_selector
- * @returns {number} index, or -1 if not found
- */
-const find_rule_index = function(sheet, normalized_selector) {
-
-	const rules = sheet.cssRules
-
-	// whitespace-insensitive form, used only to match at-rule preludes. Removing
-	// all whitespace is safe for a prelude (no descendant-vs-compound ambiguity)
-	// and is never applied to element selectors.
-	const compact_key = normalized_selector.replace(/\s+/g, '')
-
-	for (let i = 0; i < rules.length; i++) {
-
-		const rule = rules[i]
-
-		// style rules: match by normalized selectorText
-		const selector_text = rule.selectorText
-		if (selector_text) {
-			if (normalize_selector(selector_text)===normalized_selector) {
-				return i
-			}
-			continue
-		}
-
-		// at-rules (no selectorText): match by the prelude before the first '{'
-		const css_text	= rule.cssText || ''
-		const brace		= css_text.indexOf('{')
-		const head		= (brace===-1 ? css_text : css_text.slice(0, brace)).replace(/\s+/g, '')
-		if (head!=='' && head===compact_key) {
-			return i
-		}
-	}
-
-	return -1
-}//end find_rule_index
-
-
-
-/**
  * SAFE_INSERT_RULE
  * Insert or replace a single CSS rule in the dynamic stylesheet, maintaining
  * the inserted_rules cache as a source of truth.
  *
- * If the selector already exists in inserted_rules the old rule is located live
- * (never by a cached index, which would be stale after any other insert/delete or
- * prune) and removed, then the new rule is re-inserted at the end of cssRules.
+ * Unchanged rule text is a no-op. A changed body replaces the previous rule:
+ * the old CSSRule is located by IDENTITY (rule_of_key) — never by a cached
+ * index nor by selector text — and removed, then the new one is appended.
  *
  * Errors from both deleteRule and insertRule are caught and warned so that a
  * single malformed rule (e.g. invalid selector from a callback) does not abort
@@ -490,8 +488,7 @@ const safe_insert_rule = function(selector, rule_body) {
 	// sheet
 	const sheet = get_elements_style_sheet()
 
-	// normalized map key. Used to compare against the browser-normalized
-	// selectorText when locating / pruning the rule later.
+	// map key
 	const key = normalize_selector(selector)
 
 	// rule_text
@@ -502,30 +499,23 @@ const safe_insert_rule = function(selector, rule_body) {
 	if (cached) {
 
 		if (cached.rule_text === rule_text) {
-			// if(SHOW_DEBUG===true) {
-			// 	console.log('Ignored already existing rule:', selector, rule_text);
-			// }
 			return false; // No change needed
 		}
 
-		// replace: locate the rule live (cached index would be stale after any
-		// other insert/delete or prune) and remove exactly that one
-		const index = find_rule_index(sheet, key);
-		if (index !== -1) {
-			try {
-				sheet.deleteRule(index);
-			} catch (e) {
-				console.warn('Failed to delete rule', e);
-			}
-		}
+		// replace: remove exactly the rule this key inserted
+		delete_key_rule(sheet, key)
 	}
 
 	try {
-		sheet.insertRule(rule_text, sheet.cssRules.length);
+		const index	= sheet.insertRule(rule_text, sheet.cssRules.length);
+		const rule	= sheet.cssRules[index]
 		inserted_rules.set(key, { rule_text });
+		rule_of_key.set(key, rule)
+		key_of_rule.set(rule, key)
 	} catch (e) {
 		console.warn('Failed to insert rule', rule_text, e);
 		inserted_rules.delete(key);
+		rule_of_key.delete(key);
 		return false;
 	}
 
@@ -536,23 +526,47 @@ const safe_insert_rule = function(selector, rule_body) {
 
 
 /**
+ * DELETE_KEY_RULE
+ * Remove from the sheet the CSSRule previously inserted for key (by identity).
+ * @param {CSSStyleSheet} sheet
+ * @param {string} key
+ * @returns {void}
+ */
+const delete_key_rule = function(sheet, key) {
+
+	const rule = rule_of_key.get(key)
+	if (!rule) {
+		return
+	}
+	rule_of_key.delete(key)
+
+	const index = Array.prototype.indexOf.call(sheet.cssRules, rule)
+	if (index !== -1) {
+		try {
+			sheet.deleteRule(index);
+		} catch (e) {
+			console.warn('Failed to delete rule', e);
+		}
+	}
+}//end delete_key_rule
+
+
+
+/**
  * PRUNE_RULES
  * Remove all rules from the dynamic stylesheet that satisfy a caller-supplied
  * predicate, and evict the corresponding entries from inserted_rules.
  *
- * The predicate receives the raw CSSStyleRule object (not just the selector) so
+ * The predicate receives the raw CSSRule object (not just the selector) so
  * callers can match on any property, e.g.:
  *   prune_rules(rule => rule.selectorText.startsWith('.oh1_rsc75'))
  *
  * Iteration is performed in reverse index order (high → low) so that deleteRule()
  * does not invalidate the indices of remaining rules ahead of the cursor.
+ * The cache entry is found through key_of_rule (rule identity), so it is evicted
+ * even when the browser serialized the selector differently from the key.
  *
- * The cache is kept in sync by the normalized selectorText, matching the key that
- * safe_insert_rule stores. safe_insert_rule never relies on a cached index (it
- * relocates rules live), so prune-induced index shifts can no longer cause a
- * wrong-delete.
- *
- * @param {Function} condition_fn - Predicate receiving a CSSStyleRule; return true
+ * @param {Function} condition_fn - Predicate receiving a CSSRule; return true
  *   to delete the rule, false to keep it
  * @returns {void}
  */
@@ -562,10 +576,7 @@ export const prune_rules = function(condition_fn) {
 
 	for (let i = sheet.cssRules.length - 1; i >= 0; i--) {
 
-		const rule			= sheet.cssRules[i];
-		const rule_selector	= rule.selectorText // e.g. '.oh1_oh62.edit.wrapper_component'
-			? normalize_selector(rule.selectorText)
-			: null;
+		const rule = sheet.cssRules[i];
 
 		if (condition_fn(rule)) {
 
@@ -573,8 +584,10 @@ export const prune_rules = function(condition_fn) {
 			sheet.deleteRule(i);
 
 			// inserted_rules delete to keep the cache in sync
-			if (rule_selector) {
-				inserted_rules.delete(rule_selector);
+			const key = key_of_rule.get(rule)
+			if (key!==undefined) {
+				inserted_rules.delete(key);
+				rule_of_key.delete(key);
 			}
 		}
 	}

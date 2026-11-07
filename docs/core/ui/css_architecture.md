@@ -2,6 +2,8 @@
 
 This document summarizes how styles flow from `core/page/css/main.less` through layout, components and widgets, and defines conventions to keep behavior predictable without changing the current visual design.
 
+> **Styling one ontology node?** CSS written in a node's properties (not LESS) is covered in [Ontology CSS](../ontology/ontology_css.md).
+
 > **Editing styles?** Start at [Building the CSS](#building-the-css) — the LESS is the source, the `.css` is a build artifact, and both are committed. If you edit a `.less` and do not rebuild, CI goes red.
 
 ---

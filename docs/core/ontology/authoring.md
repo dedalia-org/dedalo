@@ -282,35 +282,30 @@ Authoring touch-points (verified against
 ### `css`
 
 `properties.css` (authored in `ontology16`) is a map of **selector fragments →
-CSS-property objects**. The client (`client/dedalo/core/page/js/css.js`,
-`set_element_css()`) scopes each rule to the element's runtime key
-(`<section_tipo>_<tipo>`):
+CSS-property objects**, scoped by the client to the element
+(`.<section_tipo>_<tipo>.<tipo>.<mode>` for a component):
 
-```jsonc
+```json
 {
     "css": {
-        ".wrapper_component": { "grid-column": "span 2" },  // → .oh1_oh25.wrapper_component { grid-column: span 2 }
-        "> .content_data":    { "width": "50%" },           // → .oh1_oh25 > .content_data { width: 50% }
-        "@media (max-width: 768px)": { ".wrapper_component": { "grid-column": "span 1" } }
+        ".wrapper_component": {
+            "grid-column": "span 5",
+            "@media screen and (max-width: 1024px)": { "grid-column": "span 10" }
+        },
+        ".wrapper_component >.content_data": { "min-height": "40vh" }
     }
 }
 ```
 
-- A fragment starting with `.wrapper` is appended to the key class directly
-  (`.${key}${selector}`); any other fragment is scoped as a descendant
-  (`.${key} > ${selector}`).
-- In `list` mode the edit-only css is dropped unless the node has a
-  `section_list` child carrying its own css (see
-  `src/core/resolve/structure_context.ts`).
-- A **virtual/section-level override** is possible: a `component_*` node's css can
-  be set from the *section's* `properties.css->{component_tipo}` (used by virtual
-  sections, e.g. `rsc170`).
+(the CSS of `ontology16` itself). Scoping per element type, the list-mode rules,
+nested blocks, the dark-theme counterpart, debugging and worked examples are in
+[Ontology CSS](ontology_css.md).
 
 !!! note "v7 `css` vs v5 `propiedades`"
     The v7 shape above (selector → property object) is **not** the legacy v5
     `propiedades` shape (`{".wrap_component": {"mixin": [".vertical"], "style":
-    {"width": "25%"}}}`). Author css in `properties.css`; leave `propiedades`
-    alone.
+    {"width": "25%"}}}`). Author css in `properties.css`; `style`/`mixin`
+    sub-blocks are ignored.
 
 ### `observe` and `observers`
 
