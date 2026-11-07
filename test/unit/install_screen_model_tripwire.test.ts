@@ -169,9 +169,12 @@ function maximalRaws(route: InstallRoute): Record<string, unknown>[] {
 			{ ...base, tls_mode: 'files', image_source: 'custom' },
 			{ ...base, tls_mode: 'local_ca' },
 		];
-	if (route === 'trial') return [base, { ...base, image_source: 'custom' }];
+	// The public address's protocol is asked once a host is given, its keep-or-none
+	// follow-up only for a well-formed host no outside machine reaches (an intranet name).
+	const intranetHost = { ...base, public_host: 'dedalo.lan' };
+	if (route === 'trial') return [base, { ...base, image_source: 'custom' }, intranetHost];
 	// The developer listener's own certificate files are asked under `tls_mode files` only.
-	return [base, { ...base, tls_mode: 'files' }];
+	return [base, { ...base, tls_mode: 'files' }, intranetHost];
 }
 
 /** The keys the maximal walks of `route` ask, together. */
@@ -362,6 +365,11 @@ const DEFAULT_EXEMPTIONS: Readonly<Record<string, string>> = {
 		"developer only: the prior .env's pair kept (''), else local_ca (D1); every other route the plain read-back",
 	unix_socket:
 		"developer only: the prior .env's SERVER_UNIX_SOCKET, else the entity's /tmp/dedalo_ts_<entity>.sock; every other route the plain read-back",
+	// The public address (developer, trial): a suggestion that becomes the answer once accepted.
+	public_host: "the prior .env's DEDALO_HOST, else none (the plan's '' writes nothing either)",
+	public_protocol: "the prior .env's DEDALO_PROTOCOL beside its DEDALO_HOST, else https://",
+	public_host_keep_private:
+		"the unreachable host's follow-up offers the safe answer, none (keep it is chosen)",
 };
 
 describe('screen model — every default is the plan’s (c)', () => {
@@ -415,12 +423,27 @@ describe('screen model — every default is the plan’s (c)', () => {
 				'dev_port',
 				'langs',
 				'locale',
+				'public_host',
+				'public_host_keep_private',
+				'public_protocol',
 				'route',
 				'timezone',
 				'tls_mode',
 				'unix_socket',
 			].sort(),
 		);
+		// The public address: none / https:// on a fresh machine, the prior .env's on a re-run,
+		// and the unreachable host's follow-up offers none.
+		expect(questionFor(input, 'public_host')?.default).toBe('none');
+		const priorPublic = modelInput(
+			{ route: 'developer', public_host: 'museum.example.org' },
+			{ priorEnv: { DEDALO_HOST: 'museum.example.org', DEDALO_PROTOCOL: 'http://' } },
+		);
+		expect(questionFor(priorPublic, 'public_host')?.default).toBe('museum.example.org');
+		expect(questionFor(priorPublic, 'public_protocol')?.default).toBe('http://');
+		const intranet = modelInput({ route: 'developer', public_host: 'dedalo.lan' });
+		expect(questionFor(intranet, 'public_protocol')?.default).toBe('https://');
+		expect(questionFor(intranet, 'public_host_keep_private')?.default).toBe('none');
 		// The developer listener: the route defaults on a fresh machine (D1, D3) …
 		expect(questionFor(input, 'dev_port')?.default).toBe('3500');
 		expect(questionFor(input, 'dev_host')?.default).toBe('127.0.0.1');

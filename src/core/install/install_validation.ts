@@ -23,7 +23,12 @@
  * refusal both run — core/security/password_policy.ts wraps the same function
  * but pulls in the error registry, so it is not imported here) — plus the
  * installer's release identity (installer_identity.ts: a process constant read
- * once from this tree's build stamp), which decides the image answers.
+ * once from this tree's build stamp), which decides the image answers — and
+ * the engine's own public-reach rule (src/core/resolve/public_reach_rule.ts,
+ * over the guard's CONFIG-FREE half, security/address_verdict.ts — never
+ * ssrf_guard.ts itself, whose config readers would freeze the run at import:
+ * no_install_surface_tripwire (c)), so the public address the installer
+ * accepts is the one the engine will use.
  *
  * TAGGED (phase 2, 2026-10-12): every refusal is a {@link FieldError} — the
  * sentence AND the answer key it is about. The plan's `errors` carry the
@@ -36,9 +41,11 @@
 import { isIP } from 'node:net';
 import { dirname, isAbsolute } from 'node:path';
 import { check_password } from '../../../client/dedalo/core/component_password/js/password_policy.js';
+import { PATHS_KEYS } from '../../config/catalog/paths.ts';
 import { liveProcessEnv } from '../../config/env.ts';
 import { connFieldProblem, pgSocketProblem } from '../../config/pg_transport.ts';
 import { unixSocketLengthProblem } from '../../config/unix_socket.ts';
+import { identifiableOrigin, isBareOrigin } from '../resolve/public_reach_rule.ts';
 import { DEV_TLS_MODES, type DevListenerPlan } from './dev_listener.ts';
 import { ENTITY_PATTERN } from './entity_name.ts';
 import {
@@ -919,6 +926,132 @@ function devTlsErrors(a: InstallAnswers, problems: Problems): void {
 	if (a.tls_mode === 'files') tlsFileErrors(a, problems);
 }
 
+// ── the public address (DEDALO_HOST + DEDALO_PROTOCOL, 2026-11-07) ──────────
+
+/**
+ * The public-address answer that means "this installation has none" (a private
+ * or intranet install): nothing is written, and the engine identifies itself to
+ * providers with the shared identity. '' (not given) writes nothing either.
+ */
+export const NO_PUBLIC_HOST = 'none';
+
+/** The default protocol of a public address (DEDALO_PROTOCOL beside DEDALO_HOST): HTTPS. */
+export const DEFAULT_PUBLIC_PROTOCOL = 'https://';
+
+/**
+ * The protocol the ENGINE reads when DEDALO_PROTOCOL is unset — the catalog's own
+ * default (read from the entry, never restated): a prior .env holding DEDALO_HOST
+ * and no DEDALO_PROTOCOL is served as this, so a re-run must neither offer nor
+ * silently write another one.
+ */
+export const ENGINE_DEFAULT_PROTOCOL: string = PATHS_KEYS.DEDALO_PROTOCOL.default;
+
+/** The protocols a public address takes (DEDALO_PROTOCOL's spelling: scheme + `://`). */
+export const PUBLIC_PROTOCOLS: readonly string[] = Object.freeze([
+	DEFAULT_PUBLIC_PROTOCOL,
+	'http://',
+]);
+
+/**
+ * A public-host ANSWER's own character shape: a host name or IPv4 (letters, digits,
+ * `.`, `-`, `_`), or a bracketed IPv6 literal, then an optional numeric port —
+ * lowercase (the plan lowercases it). URL parsing reads more as an origin (`host:` with
+ * an empty port, a non-ASCII host, a `$`); this pattern refuses those, and
+ * {@link canonicalHostOf} then refuses every spelling URL parsing would REWRITE
+ * (`134744072`, `127.1`, `:0443`, a default port) — the value goes into the .env as
+ * typed, so it must already be the canonical host the engine reads.
+ */
+const PUBLIC_HOST_ANSWER = /^(?:[a-z0-9._-]+|\[[0-9a-f:.]+\])(?::[0-9]{1,5})?$/;
+
+/** A public-host answer, canonical: trimmed and lowercased ('' when absent). */
+export function canonicalPublicHost(value: unknown): string {
+	return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+/**
+ * The canonical host (`URL.host`: host + a non-default port) `protocol` + `host`
+ * parses to — what the engine reads that address as; null when it does not parse.
+ * A trailing dot is kept by URL parsing but names the same host, so it is dropped
+ * here (the canonical spelling to type has none).
+ */
+export function canonicalHostOf(protocol: string, host: string): string | null {
+	const url = URL.parse(`${protocol}${host}`);
+	if (url === null) return null;
+	return url.hostname.endsWith('.') ? url.host.replace(/\.(?=:|$)/, '') : url.host;
+}
+
+/**
+ * What a public-host answer is, in the ENGINE's terms (`public_reach_rule.ts`):
+ * `none` ('' or 'none'), `malformed` (not a bare http(s) origin the engine could
+ * send), `non_canonical` (an origin, but not spelled as the engine reads it — e.g.
+ * `127.1`, `example.org:443` over https), `unreachable` (canonical, but no outside
+ * machine reaches it — the engine would fall back to the shared identity) or
+ * `reachable` (the engine uses it).
+ */
+export type PublicHostVerdict =
+	| 'none'
+	| 'malformed'
+	| 'non_canonical'
+	| 'unreachable'
+	| 'reachable';
+
+export function publicHostVerdict(host: string, protocol: string): PublicHostVerdict {
+	if (host === '' || host === NO_PUBLIC_HOST) return 'none';
+	const candidate = `${protocol}${host}`;
+	if (!PUBLIC_HOST_ANSWER.test(host) || !isBareOrigin(candidate)) return 'malformed';
+	return givenHostVerdict(host, protocol, candidate);
+}
+
+/** A well-formed host's verdict: spelled as the engine reads it, then reachable or not. */
+function givenHostVerdict(host: string, protocol: string, candidate: string): PublicHostVerdict {
+	if (canonicalHostOf(protocol, host) !== host) return 'non_canonical';
+	return identifiableOrigin(candidate) === null ? 'unreachable' : 'reachable';
+}
+
+/** The refusal of each verdict that refuses (an unreachable one only when not kept). */
+const PUBLIC_HOST_REFUSALS: Readonly<
+	Partial<Record<PublicHostVerdict, (a: InstallAnswers) => string | null>>
+> = Object.freeze({
+	malformed: (a: InstallAnswers) =>
+		`public_host ${JSON.stringify(a.public_host)} must be a bare host name or address with an optional port (e.g. museum.example.org or museum.example.org:8443 — no scheme, credentials, path, query or spaces), or none`,
+	non_canonical: (a: InstallAnswers) =>
+		`public_host ${JSON.stringify(a.public_host)} is not written the way the engine reads it: type ${JSON.stringify(canonicalHostOf(a.public_protocol, a.public_host))} (no default port, no leading zeros, a dotted IPv4, no trailing dot)`,
+	unreachable: (a: InstallAnswers) =>
+		a.public_host_keep_private
+			? null
+			: `public_host ${JSON.stringify(a.public_host)} is not reachable from outside (a loopback or private address, or an intranet name): with it the engine would identify itself to map and geo providers with the shared identity, exactly as with none — answer none, or keep it anyway (--public-host-keep-private)`,
+});
+
+/**
+ * The verdicts a route refuses. Developer and trial: every refusing one. Production
+ * and docker DERIVE the address (the plan refuses an explicit one that differs); what
+ * reaches here there is either that derived value or — the delegated engine child,
+ * which has no server_name — the host's derived answer AS GIVEN, so its SHAPE is held
+ * again (a hand-run `--engine-only --public-host 'evil\'` writes nothing), while an
+ * unreachable one is the derived intranet address and is written (waived).
+ */
+function refusedVerdicts(a: InstallAnswers): readonly PublicHostVerdict[] {
+	const derived = a.route === 'production' || a.route === 'docker';
+	return derived ? ['malformed', 'non_canonical'] : ['malformed', 'non_canonical', 'unreachable'];
+}
+
+/** The public address. The protocol first: without a valid one the address cannot be judged. */
+function publicAddressErrors(a: InstallAnswers, problems: Problems): void {
+	if (!PUBLIC_PROTOCOLS.includes(a.public_protocol)) {
+		problems.push(
+			problem(
+				'public_protocol',
+				`public_protocol ${JSON.stringify(a.public_protocol)} must be ${PUBLIC_PROTOCOLS.join(' or ')}`,
+			),
+		);
+		return;
+	}
+	const verdict = publicHostVerdict(a.public_host, a.public_protocol);
+	if (!refusedVerdicts(a).includes(verdict)) return;
+	const message = PUBLIC_HOST_REFUSALS[verdict]?.(a);
+	if (message !== null && message !== undefined) problems.push(problem('public_host', message));
+}
+
 /** The answers that make the host steps (production, docker) — skipped for the engine child (A14). */
 function hostErrors(a: InstallAnswers, problems: Problems): void {
 	if (a.engine_only || a.route === 'developer') return;
@@ -947,6 +1080,7 @@ export function answerProblems(a: InstallAnswers): FieldError[] {
 	fingerprintErrors(a, problems);
 	devListenerErrors(a, problems);
 	hostErrors(a, problems);
+	publicAddressErrors(a, problems);
 	return problems;
 }
 

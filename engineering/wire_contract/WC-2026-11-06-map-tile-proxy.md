@@ -135,10 +135,22 @@ the browser needs nothing but the server. An installation whose server has no eg
 network, a DMZ) shows blank maps after the update until it is given some. The changelog fragment is
 `breaking: true`, audience `admin`, for this reason.
 
-**Identity toward the provider.** The interactive harvesting profile's `User-Agent` is the door's
-(`dedalo/<release> (+https://dedalo.dev; heritage cataloguing)`) plus the installation's PUBLIC ORIGIN
-when an outside machine could reach it (`…; https://museum.example.org)`), the same rule that decides the
-`Referer`; an installation reachable only from its own network sends the plain identity and no `Referer`
+**Identity toward the provider.** The interactive harvesting profile's `User-Agent` names the
+INSTALLATION as contact: `dedalo/<release> (+https://museum.example.org)` (amended 2026-11-07, owner
+decision: the installation, not only the software, is identified). Its origin, the tile `Referer`'s and
+the geo services' are ONE derivation (`resolve/public_reach.ts` `reachablePublicOrigin`), so the three are
+byte-equal whenever present and present or absent together. The configured `DEDALO_PROTOCOL` +
+`DEDALO_HOST` is parsed once (WHATWG URL) and judged: http(s); a bare origin (no credentials, path but
+`/`, query or fragment); no control character or whitespace; a well-formed host reachable from outside
+(`.arpa` and `.alt` added to the unreachable suffixes, malformed labels refused); canonical origin ≤100
+characters, ASCII (an IDN host is sent as punycode; scheme case, `https:` without slashes and a default
+port are canonicalized). An installation with no such origin — unset, loopback, private, an intranet name,
+a malformed host, OR a configured value carrying credentials/a path/a query/a fragment, which is not
+repaired — sends the shared `dedalo/<release> (+https://dedalo.dev; heritage cataloguing)` and no
+`Referer`. Same-day amendment 2026-11-07 (deliberate, gated in `map_tile_geometry_native`,
+`map_tile_proxy_native`, `geo_services_native`): the `Referer` and the geo services' origin used to
+canonicalize a value with credentials or a path into its bare origin; they now follow the single rule
+and send none, so the contact identity and the `Referer` can never disagree
 (OpenStreetMap's policy generally does not recommend a caching proxy, requires one to identify the
 service and not to tunnel every client behind one anonymous identity, and may block traffic that does
 not; documented in `docs/core/system/map_tile_proxy.md`; the open question of this entry, item 1).

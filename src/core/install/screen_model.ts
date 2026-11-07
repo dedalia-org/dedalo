@@ -13,9 +13,11 @@
  *    normalization of the answers without that key, read back — never restated
  *    here. Accepting a shown default leaves the key ABSENT, so a default derived
  *    from another answer (entity_label from entity, the production names from
- *    the instance) follows it. The ONE exception: the time zone and locale the
- *    HOST reports are offered as the suggestion and become answers once accepted
- *    (the plan stays deterministic).
+ *    the instance) follows it. The exceptions: the time zone and locale the
+ *    HOST reports, and the public address the PRIOR .env holds (DEDALO_HOST /
+ *    DEDALO_PROTOCOL, else `none`), are offered as the suggestion and become
+ *    answers once accepted (the plan stays deterministic: it never reads the
+ *    host or the prior .env for an answer).
  *  - ONE RULE SET. A question's `errors` are the plan's `fieldErrors` for its
  *    key (install_validation.ts — the sentences every front end refuses
  *    with); nothing here validates.
@@ -34,6 +36,7 @@
 
 import { check_password } from '../../../client/dedalo/core/component_password/js/password_policy.js';
 import masterLabels from '../labels/master.json';
+import { identifiableOrigin } from '../resolve/public_reach_rule.ts';
 import { devTrustReviewText } from './dev_certificate.ts';
 import {
 	DEV_HOST_DEFAULT,
@@ -59,7 +62,13 @@ import {
 	toponymyMissing,
 } from './install_plan.ts';
 import {
+	canonicalPublicHost,
+	DEFAULT_PUBLIC_PROTOCOL,
+	ENGINE_DEFAULT_PROTOCOL,
 	MEDIA_ACCESS_MODE_OPTIONS,
+	NO_PUBLIC_HOST,
+	PUBLIC_PROTOCOLS,
+	publicHostVerdict,
 	rootPasswordErrors,
 	SMTP_SECURE_MODES,
 	validLocale,
@@ -234,6 +243,15 @@ const DEV_LISTENER_FIXED: Readonly<Record<string, string>> = Object.freeze({
 	dev_host: NO_DEV_LISTENER,
 });
 
+/** The public address a route with a web site derives (install_plan.ts derivedPublicHost). */
+const PUBLIC_ADDRESS_DERIVED =
+	'derived from server_name (plus https_port when it is not 443) over https:// — the address the web site serves';
+const PUBLIC_ADDRESS_FIXED: Readonly<Record<string, string>> = Object.freeze({
+	public_host: PUBLIC_ADDRESS_DERIVED,
+	public_protocol: PUBLIC_ADDRESS_DERIVED,
+	public_host_keep_private: PUBLIC_ADDRESS_DERIVED,
+});
+
 /** The production identity answers no other route asks. */
 const IDENTITY_FIXED: Readonly<Record<string, string>> = Object.freeze({
 	install_dir: NO_INSTANCE_DIR,
@@ -275,6 +293,7 @@ export const ROUTE_FIXED: Readonly<Record<InstallRoute, Readonly<Record<string, 
 			image_repository: NOT_STACK,
 			image_version: NOT_STACK,
 			...DEV_LISTENER_FIXED,
+			...PUBLIC_ADDRESS_FIXED,
 		}),
 		developer: Object.freeze({
 			instance: NO_INSTANCE,
@@ -297,6 +316,7 @@ export const ROUTE_FIXED: Readonly<Record<InstallRoute, Readonly<Record<string, 
 			...STACK_PRODUCTION_KEYS,
 			...IDENTITY_FIXED,
 			...DEV_LISTENER_FIXED,
+			...PUBLIC_ADDRESS_FIXED,
 		}),
 		trial: Object.freeze({
 			instance: NO_INSTANCE,
@@ -468,7 +488,13 @@ interface Ctx {
 	readonly visible: ReadonlySet<string>;
 }
 
-const HOST_SUGGESTED: ReadonlySet<string> = new Set(['timezone', 'locale']);
+/** The answers whose shown suggestion becomes the answer once accepted (see the header). */
+const HOST_SUGGESTED: ReadonlySet<string> = new Set([
+	'timezone',
+	'locale',
+	'public_host',
+	'public_protocol',
+]);
 const SECRET_KEY_SET: ReadonlySet<string> = new Set([
 	'db_password',
 	'mysql_password',
@@ -522,6 +548,25 @@ function tlsModeOf(raw: Readonly<Record<string, unknown>>, route: InstallRoute |
 	return route === 'trial' ? 'none' : 'letsencrypt';
 }
 const onDeveloper = (_raw: unknown, route: InstallRoute | null): boolean => route === 'developer';
+/** The routes that ASK the public address (production and docker derive it). */
+const publicAsked = (_raw: unknown, route: InstallRoute | null): boolean =>
+	route === 'developer' || route === 'trial';
+/** What the public-address answer so far is, in the engine's terms (install_validation.ts). */
+function publicVerdictOf(raw: Readonly<Record<string, unknown>>) {
+	const protocol = typeof raw.public_protocol === 'string' ? raw.public_protocol : '';
+	return publicHostVerdict(
+		canonicalPublicHost(raw.public_host),
+		protocol || DEFAULT_PUBLIC_PROTOCOL,
+	);
+}
+/** A host is given (not '' / none): its protocol is asked. */
+const publicHostGiven = (raw: Readonly<Record<string, unknown>>, route: InstallRoute | null) =>
+	publicAsked(raw, route) && publicVerdictOf(raw) !== 'none';
+/** A well-formed host no outside machine reaches: the keep-or-none follow-up is asked. */
+const publicHostUnreachable = (
+	raw: Readonly<Record<string, unknown>>,
+	route: InstallRoute | null,
+): boolean => publicAsked(raw, route) && publicVerdictOf(raw) === 'unreachable';
 const diffusionOn = (raw: Readonly<Record<string, unknown>>): boolean => raw.diffusion === true;
 const mailerOn = (raw: Readonly<Record<string, unknown>>): boolean => raw.mailer === true;
 
@@ -596,6 +641,10 @@ const VISIBILITY: readonly VisibilityRule[] = Object.freeze<VisibilityRule[]>([
 		when: (raw, route) => onStack(raw, route) && raw.image_source === 'custom',
 	},
 	{ keys: ['ontology_source'], when: (raw) => raw.update_servers === 'none' },
+	// The public address (DEDALO_HOST): asked where no web site derives it.
+	{ keys: ['public_host'], when: publicAsked },
+	{ keys: ['public_protocol'], when: publicHostGiven },
+	{ keys: ['public_host_keep_private'], when: publicHostUnreachable },
 	{
 		keys: ['mysql_hostname', 'mysql_port', 'mysql_socket', 'mysql_database', 'mysql_username'],
 		when: diffusionOn,
@@ -683,6 +732,27 @@ function tlsModeDefault(ctx: Ctx): unknown {
 		: (listener?.tlsSource ?? planDefault(ctx, 'tls_mode'));
 }
 
+/**
+ * The public address an unanswered question offers: the prior .env's
+ * DEDALO_HOST, else `none` (the plan's own '' writes nothing either — the
+ * suggestion makes the choice explicit, see the header).
+ */
+function publicHostDefault(ctx: Ctx): string {
+	const prior = canonicalPublicHost(ctx.input.priorEnv.DEDALO_HOST);
+	return prior === '' ? NO_PUBLIC_HOST : prior;
+}
+
+/**
+ * Its protocol: beside a prior DEDALO_HOST, the protocol that install is SERVED as —
+ * its DEDALO_PROTOCOL literal, or the engine's default (http://, the catalog's) when
+ * it has none, so accepting the default never flips it; else https://.
+ */
+function publicProtocolDefault(ctx: Ctx): string {
+	if (canonicalPublicHost(ctx.input.priorEnv.DEDALO_HOST) === '') return DEFAULT_PUBLIC_PROTOCOL;
+	const prior = ctx.input.priorEnv.DEDALO_PROTOCOL ?? ENGINE_DEFAULT_PROTOCOL;
+	return PUBLIC_PROTOCOLS.includes(prior) ? prior : DEFAULT_PUBLIC_PROTOCOL;
+}
+
 /** The keys whose default is not the plain read-back (see the header). */
 const SPECIAL_DEFAULTS: Readonly<Partial<Record<keyof InstallAnswers, (ctx: Ctx) => unknown>>> =
 	Object.freeze({
@@ -700,6 +770,11 @@ const SPECIAL_DEFAULTS: Readonly<Partial<Record<keyof InstallAnswers, (ctx: Ctx)
 		dev_port: (ctx: Ctx) => devListenerDefault(ctx, 'dev_port')?.port ?? '',
 		dev_host: (ctx: Ctx) => devListenerDefault(ctx, 'dev_host')?.host ?? '',
 		tls_mode: tlsModeDefault,
+		// The public address: the prior .env's (DEDALO_HOST / DEDALO_PROTOCOL), else none / https://.
+		public_host: publicHostDefault,
+		public_protocol: publicProtocolDefault,
+		// The unreachable host's follow-up: the safe answer (none) — keep it is typed.
+		public_host_keep_private: () => NO_PUBLIC_HOST,
 		// The developer socket: the value a re-run keeps, else the entity's (dev_listener.ts).
 		unix_socket: (ctx: Ctx) =>
 			ctx.route === 'developer'
@@ -1063,9 +1138,44 @@ function identityScreen(ctx: Ctx, frame: Frame): Screen {
 			ask(ctx, 'identity', 'info_key', 'text'),
 			ask(ctx, 'identity', 'timezone', 'text'),
 			ask(ctx, 'identity', 'locale', 'text'),
+			...publicAddressQuestions(ctx),
 		]),
 		...(production ? productionIdentityParts(ctx) : {}),
 	});
+}
+
+/** A suggested-answer question: until answered, its VALUE is the suggestion (askDevListener's rule). */
+function askSuggested(
+	ctx: Ctx,
+	key: 'public_host' | 'public_protocol',
+	kind: Question['kind'],
+	extra: Partial<Question> = {},
+): Question {
+	const question = ask(ctx, 'identity', key, kind, extra);
+	if (!question.answered) question.value = question.default;
+	return question;
+}
+
+/**
+ * The public address (developer, trial): the host, its protocol once one is
+ * given, and — for a well-formed host no outside machine reaches — keep it or
+ * answer none. The unreachable refusal sits on the FOLLOW-UP (it is that
+ * question's to settle), so the walker moves on from the host to it instead of
+ * re-asking the host.
+ */
+function publicAddressQuestions(ctx: Ctx): Question[] {
+	const followUp = ctx.visible.has('public_host_keep_private');
+	const host = askSuggested(ctx, 'public_host', 'text', followUp ? { errors: [] } : {});
+	const protocol = askSuggested(ctx, 'public_protocol', 'choice', {
+		options: vocabularyOptions(PUBLIC_PROTOCOLS, OPTION_TEXT.public_protocol),
+	});
+	const keep = ask(ctx, 'identity', 'public_host_keep_private', 'choice', {
+		sets: ['public_host'],
+		options: vocabularyOptions(['keep', NO_PUBLIC_HOST], OPTION_TEXT.public_host_keep_private),
+		value: ctx.answers.public_host_keep_private ? 'keep' : null,
+	});
+	keep.errors = errorsFor(ctx, ['public_host']);
+	return [host, protocol, keep];
 }
 
 /** The production identity screen's probe, notices and help. */
@@ -1934,6 +2044,34 @@ function applyLangs(raw: Record<string, unknown>, question: Question, ticks: str
 	}
 }
 
+/**
+ * The unreachable host's follow-up: `keep` keeps it (public_host_keep_private);
+ * anything else answers none — the host becomes `none` and the follow-up, now
+ * hidden, holds no answer.
+ */
+function applyKeepPrivate(raw: Record<string, unknown>, choice: unknown): void {
+	if (choice === 'keep') {
+		raw.public_host_keep_private = true;
+		return;
+	}
+	raw.public_host = NO_PUBLIC_HOST;
+	Reflect.deleteProperty(raw, 'public_host_keep_private');
+}
+
+/** The choices whose answer writes more than their own key. */
+const CHOICE_APPLIERS: Readonly<
+	Partial<Record<keyof InstallAnswers, (raw: Record<string, unknown>, choice: unknown) => void>>
+> = Object.freeze({ public_host_keep_private: applyKeepPrivate });
+
+/**
+ * The answers a (re)answered key VOIDS: consent given to one value never carries to
+ * another — keeping an unreachable public host is about THAT host, so answering the
+ * host again (an edit, a Shift-Tab) asks the follow-up again.
+ */
+const VOIDED_BY: Readonly<Partial<Record<keyof InstallAnswers, readonly string[]>>> = Object.freeze(
+	{ public_host: ['public_host_keep_private'] },
+);
+
 /** The multi-selects whose ticks map to more than their own key. */
 const SELECTION_APPLIERS: Readonly<
 	Partial<
@@ -1972,8 +2110,11 @@ export function applyAnswer(
 	if (!writesAnswer(question)) return next;
 	const key = question.key as keyof InstallAnswers;
 	const value = answerValueOf(question, response);
+	const choice = CHOICE_APPLIERS[key];
 	const special = SELECTION_APPLIERS[key];
-	if (special === undefined) setOrDefault(next, question, key, value);
+	for (const voided of VOIDED_BY[key] ?? []) Reflect.deleteProperty(next, voided);
+	if (choice !== undefined) choice(next, value);
+	else if (special === undefined) setOrDefault(next, question, key, value);
 	else special(next, question, value as string[]);
 	return prune(next);
 }
@@ -2117,6 +2258,24 @@ function hostLines(a: InstallAnswers, input: ScreenModelInput): ReviewLine[] {
 	];
 }
 
+/**
+ * The public address's outcome, in what the ENGINE will do with it
+ * (`identifiableOrigin` — the senders' own rule): the origin it tells providers
+ * as the contact identity; a host it writes but cannot use (unreachable: the
+ * shared identity); none (nothing written — a prior DEDALO_HOST then survives
+ * untouched, and is what the engine reads).
+ */
+function publicAddressValue(a: InstallAnswers, input: ScreenModelInput): string {
+	if (a.public_host === '' || a.public_host === NO_PUBLIC_HOST) {
+		const prior = canonicalPublicHost(input.priorEnv.DEDALO_HOST);
+		return prior === '' ? REVIEW_TEXT.publicNone : REVIEW_TEXT.publicKeptPrior;
+	}
+	const configured = `${a.public_protocol}${a.public_host}`;
+	const origin = identifiableOrigin(configured);
+	if (origin !== null) return REVIEW_TEXT.publicContact(origin);
+	return REVIEW_TEXT.publicUnreachable(configured, a.public_host_keep_private);
+}
+
 /** The developer listener's Review lines: where `bun run dev` serves, over what, and what is kept. */
 function devListenerLines(plan: InstallPlan): ReviewLine[] {
 	const listener = plan.devListener;
@@ -2180,6 +2339,7 @@ export function reviewLines(plan: InstallPlan, input: ScreenModelInput): ReviewL
 		// The developer route's socket is the listener plan's (answered, kept or the entity's).
 		{ label: REVIEW_TEXT.socket, value: pathValue(plan.devListener?.socket ?? a.unix_socket) },
 		...hostLines(a, input),
+		{ label: REVIEW_TEXT.publicAddress, value: publicAddressValue(a, input) },
 		...devListenerLines(plan),
 		...adminLines(input),
 		{ label: REVIEW_TEXT.steps, value: plan.steps.join(', ') },

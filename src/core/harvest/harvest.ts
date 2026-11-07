@@ -43,9 +43,10 @@
  * (`InteractiveRequest.addressFrom`), of which one person (`InteractiveRequest.holder`)
  * holds at most a few slots; for an address an administrator chose, no person is more than
  * a few places deep in an origin's queue, so one person's hundreds of tiles are not the whole
- * of the line everyone shares. Its `User-Agent` carries the installation's public origin when
- * an outside machine could reach it (`installation_identity.ts`): a provider that sees this
- * profile's requests sees one installation per origin, not one anonymous Dédalo. Its limits are shorter,
+ * of the line everyone shares. Its `User-Agent` names the INSTALLATION as contact
+ * (`dedalo/<version> (+<public origin>)`) when it has a validated public origin, else the
+ * shared identity (`installation_identity.ts`): a provider that sees this profile's requests
+ * sees one installation per origin, not one anonymous Dédalo. Its limits are shorter,
  * its allowlist is required and only the scheme's own port is reachable on any hop,
  * its media types are matched exactly, a request names no method, body or header but
  * Accept, Referer and the two validators of a revalidation (`If-None-Match`,

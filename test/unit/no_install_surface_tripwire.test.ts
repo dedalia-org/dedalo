@@ -32,6 +32,18 @@
  *      the 4 keys) is misconfigured, not unconfigured: it exits non-zero and neither 75
  *      nor 78 (the precise missing-key error).
  *
+ *  (c) THE INSTALLER'S CLOSURE FREEZES NO CONFIGURATION. The terminal installer builds
+ *      its plan BEFORE it seeds the install's environment (scripts/install_main.ts
+ *      seedProcessEnv), and src/config/install_state.ts computes UNCONFIGURED at
+ *      IMPORT — so a static import of the config readers (or the config itself, or the
+ *      error converter/logger, which read it) on that closure froze the whole run to
+ *      the unconfigured sentinels (2026-11-07: install_validation → public_reach_rule →
+ *      ssrf_guard → readers; the thesauri were then imported but not activated). Held
+ *      two ways: the STATIC closure of the two CLI entry points (Bun's own import scan,
+ *      type-only imports excluded) holds none of them; and the REPRO — a child with an
+ *      empty environment imports the plan, builds one, seeds cliBootEnv and imports
+ *      config.ts — reads the seeded database, not the placeholder.
+ *
  * Hermetic: no database (the dispatcher refuses at the auth gate, before any handler; the
  * spawned server refuses before any import that could connect).
  */
@@ -322,5 +334,100 @@ describe('a box that is not installed refuses to start (b)', () => {
 		expect(outcome.exitCode).not.toBe(RESTART_EXIT_CODE);
 		expect(outcome.exitCode).not.toBe(NOT_INSTALLED_EXIT_CODE);
 		expect(outcome.stderr).toMatch(/Missing required config key '[A-Z_]+'/);
+	}, 30000);
+});
+
+// ── (c) the installer's closure freezes no configuration ────────────────────
+
+/** The CLI entry points whose STATIC closure runs before the environment is seeded. */
+const INSTALLER_ENTRIES: readonly string[] = Object.freeze([
+	'scripts/install.ts',
+	'scripts/install_main.ts',
+]);
+
+/**
+ * What must never be statically reachable from them: the config readers and the frozen
+ * config (both compute from the environment at import — install_state.ts's UNCONFIGURED
+ * flag), and every error module but the pure class + its code registry (the converter
+ * reads DEDALO_DEBUG_API_ERRORS, the logger/counters pull the API layer).
+ */
+const CONFIG_FREEZING =
+	/^src\/config\/(readers|install_state|config)\.ts$|^src\/core\/errors\/(?!dedalo_error\.ts$|registry\.ts$)/;
+
+/** The static closure (relative imports, Bun's scan — no type-only, no dynamic import) of `roots`. */
+function staticClosure(roots: readonly string[]): Map<string, string> {
+	const scanner = new Bun.Transpiler({ loader: 'ts' });
+	const parentOf = new Map<string, string>();
+	const queue: [string, string][] = roots.map((root) => [join(REPO_ROOT, root), '(entry)']);
+	while (queue.length > 0) {
+		const [file, parent] = queue.pop() as [string, string];
+		if (parentOf.has(file) || !existsSync(file)) continue;
+		parentOf.set(file, parent);
+		if (!/\.[jt]s$/.test(file)) continue;
+		for (const item of scanner.scanImports(readFileSync(file, 'utf8'))) {
+			if (item.kind === 'dynamic-import' || !item.path.startsWith('.')) continue;
+			queue.push([join(file, '..', item.path), file]);
+		}
+	}
+	return parentOf;
+}
+
+const repoRelative = (file: string): string => file.slice(REPO_ROOT.length + 1);
+
+describe("the installer's static closure freezes no configuration (c)", () => {
+	test('scripts/install.ts + install_main.ts reach no config reader, no frozen config, no error converter', () => {
+		const closure = staticClosure(INSTALLER_ENTRIES);
+		const reached = [...closure.keys()].map(repoRelative);
+		// Anti-vacuity: the plan, its validation and the engine's public-reach rule ARE on it.
+		for (const file of [
+			'src/core/install/install_plan.ts',
+			'src/core/install/install_validation.ts',
+			'src/core/resolve/public_reach_rule.ts',
+			'src/core/security/address_verdict.ts',
+		]) {
+			expect(reached, file).toContain(file);
+		}
+		const offenders = reached
+			.filter((file) => CONFIG_FREEZING.test(file))
+			.map((file) => `${file} <- ${repoRelative(closure.get(join(REPO_ROOT, file)) ?? '')}`);
+		expect(offenders).toEqual([]);
+	});
+
+	test('the pattern bites: the SSRF guard (the 2026-11-07 edge) reaches the readers', () => {
+		const reached = [...staticClosure(['src/core/security/ssrf_guard.ts']).keys()].map(
+			repoRelative,
+		);
+		expect(reached.filter((file) => CONFIG_FREEZING.test(file))).toContain('src/config/readers.ts');
+	});
+
+	test('REPRO: plan built, cliBootEnv seeded, config.ts imported → the seeded database, not the sentinel', async () => {
+		const privateDir = scratchDir('zznis_closure_');
+		try {
+			const script = [
+				`const plan = await import(${JSON.stringify(join(REPO_ROOT, 'src/core/install/install_plan.ts'))});`,
+				"const built = plan.buildInstallPlan({ route: 'developer', entity: 'zznis', db_database: 'zznis_seeded', db_username: 'zznis', db_hostname: 'localhost', public_host: 'museum.example.org' });",
+				`const { seedProcessEnv } = await import(${JSON.stringify(join(REPO_ROOT, 'src/config/env.ts'))});`,
+				'seedProcessEnv(plan.cliBootEnv(built));',
+				`const state = await import(${JSON.stringify(join(REPO_ROOT, 'src/config/install_state.ts'))});`,
+				`const { config } = await import(${JSON.stringify(join(REPO_ROOT, 'src/config/config.ts'))});`,
+				'console.log(JSON.stringify({ errors: built.errors, unconfigured: state.UNCONFIGURED, database: config.db.database }));',
+			].join('\n');
+			const proc = Bun.spawn([process.execPath, '-e', script], {
+				cwd: privateDir,
+				env: { PATH: process.env.PATH ?? '', HOME: privateDir, DEDALO_PRIVATE_DIR: privateDir },
+				stdout: 'pipe',
+				stderr: 'pipe',
+			});
+			const [stdout, stderr, exitCode] = await Promise.all([
+				new Response(proc.stdout).text(),
+				new Response(proc.stderr).text(),
+				proc.exited,
+			]);
+			expect(exitCode, stderr).toBe(0);
+			const outcome = JSON.parse(stdout.trim().split('\n').at(-1) ?? '{}');
+			expect(outcome).toEqual({ errors: [], unconfigured: false, database: 'zznis_seeded' });
+		} finally {
+			removeScratchDir(privateDir);
+		}
 	}, 30000);
 });

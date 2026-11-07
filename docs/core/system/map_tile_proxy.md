@@ -262,28 +262,62 @@ single, anonymous identity (it may block such traffic without notice). So the bu
 on those. The proxy meets all of them on an installation that has a public origin, and two of them
 (the identity and the `Referer`) are the ones an installation without one cannot meet:
 
-* **Identity.** The interactive profile's `User-Agent` is the harvesting door's
-  (`dedalo/<release> (+https://dedalo.dev; heritage cataloguing)`) **plus the installation's public
-  origin** when an outside machine could reach it (`dedalo/<release> (+https://dedalo.dev; heritage
-  cataloguing; https://museum.example.org)`), so OpenStreetMap sees one installation per origin and can
-  rate-limit or block one abusive installation without taking down the others. The origin is the same
-  one the geo services' `User-Agent` and the `Referer` carry (one rule).
-* **Referer.** The installation's public origin, sent only to providers whose terms ask for one and
-  only when that origin is one an outside machine could reach.
+* **Identity.** On every request the proxy relays (every built-in and every stored source), the
+  `User-Agent` names **this installation** as the party to contact:
+  `dedalo/<release> (+https://museum.example.org)`, where the origin is the installation's public
+  origin (`DEDALO_PROTOCOL` + `DEDALO_HOST`) — the same one the `Referer` carries, read from the
+  configuration, never from a browser's request. So OpenStreetMap sees one installation per origin and
+  can contact, rate-limit or block one abusive installation without taking down the others. The
+  configured value is used only when it is a clean `http://` or `https://` origin, `host[:port]` with
+  nothing else (no credentials, path, query, fragment, space or control character), whose host an
+  outside machine could reach and whose canonical form is at most 100 characters. Spellings that name
+  the same origin are accepted: the host's case, `HTTPS://`, a default port, a trailing `/`, and an
+  international name (`museú.example.org` is sent as its ASCII form `xn--muse-tra.example.org`).
+* **Referer.** The installation's public origin followed by `/` (`Referer: <origin>/`), sent only to
+  providers whose terms ask for one. It is the SAME origin as the identity's, by one rule: the two are
+  always sent together, naming byte for byte the same origin, or not at all.
 * **Caching.** The provider's own freshness, or a week when it states none, and a **conditional
   request** for an expired tile that came with a validator (see above).
 * **No prefetch.** The proxy fetches the tile a person is looking at and no other.
 
-An installation reachable only from its own network (`DEDALO_HOST` unset, `localhost`, a private
-address, a `.local` name or a single label) **cannot** meet the identity and Referer terms: an
-internal origin published to a third party is a map of the network for nothing, so the proxy sends no
-Referer and the door's plain `User-Agent`, which is also what every other such installation sends.
+An installation with no such origin **cannot** meet the identity and Referer terms. That is one
+reachable only from its own network (`DEDALO_HOST` unset, `localhost`, a private address, a `.local`,
+`.lan`, `.arpa` or `.alt` name, a single label), one whose `DEDALO_HOST` is not a well-formed host name
+(`.museum.org`, `foo..org`, `-.org`, an underscore), and one whose configured value is not a clean origin
+(credentials, a path, a query or a fragment in `DEDALO_HOST`, or a protocol other than `http://` /
+`https://`) — such a value is not repaired into an address the operator never wrote. An internal origin
+published to a third party is a map of the network for nothing, so in every one of these cases the proxy
+sends no Referer and the shared, less identifying `User-Agent`
+(`dedalo/<release> (+https://dedalo.dev; heritage cataloguing)`), which is also what every other such
+installation sends. The map still works: nothing is refused.
 That is **not compliant** with the policy as written, and the policy allows OpenStreetMap to block
 that traffic without notice; whether such an installation should relay `osm` at all is an open
 decision of the maintainers, not one this page makes for them. How OpenStreetMap treats it was not
 confirmed against the live service; if an installation behind a private address finds its OpenStreetMap base layer
-refused, give it a public `DEDALO_HOST` (or store another base map as a source of the record, or as an
+refused, give it a public `DEDALO_HOST` (see *What the operator sets* below) (or store another base map as a source of the record, or as an
 ontology default, whose licence the installation then carries).
+
+**What the operator sets.** The identity comes from two existing keys of `../private/.env`; there is
+no key of its own.
+
+* `DEDALO_HOST` is **optional**, and the **installer sets it**
+  ([The public address](../../install/installer_reference.md#the-public-address)): production and docker
+  derive it from the server name (and the HTTPS port, when it is not `443`); developer and trial ask it,
+  where `none` — a private or intranet installation — leaves it unset, and that installation stays in the
+  shared-identity fallback above, with no `Referer`. The installer refuses a malformed value, and a name
+  no outside machine could reach unless it is kept explicitly, by the same rule as above — and, stricter,
+  any spelling but the canonical one, since it writes the host as typed (an international name as its
+  `xn--` form, no trailing dot, no default port). Set by hand, it is the public name (and
+  port, when it is not the default) at which people outside reach the installation, and nothing else:
+  `DEDALO_HOST=museum.example.org`, never `https://…`, a path such as `/dedalo` or `user@`.
+* `DEDALO_PROTOCOL` defaults to `http://`; beside a newly given host the installer writes `https://`
+  (production and docker always; developer and trial unless `http://` is chosen), and only when it differs
+  from what the engine already reads. An installation served over TLS
+  that leaves it at the default advertises `http://museum.example.org` to the providers (and everywhere
+  else the public origin is used): set `DEDALO_PROTOCOL=https://`.
+* Restart the server after changing `.env` (the configuration is read at start). The geo services'
+  `User-Agent` carries the same origin by the same rule, and the update manifests this installation
+  serves are built from the same two keys.
 
 What the table above rests on, and what it does not. The `ign_admin_units` row is recorded in the
 registry's header as read from the service's own `GetCapabilities` on 2026-11-06 (licence CC BY 4.0, the
@@ -348,7 +382,7 @@ page's `img-src`.
   real door), the budget, the flights, the log, the one rule for the origin the installation tells a
   provider, and the built-in registry.
 * `test/unit/harvest_door_native.test.ts` drives the door's interactive profile itself: its numbers,
-  the required `holder` and `addressFrom`, the `User-Agent` with the installation's origin, the two
+  the required `holder` and `addressFrom`, the `User-Agent` naming the installation (and the shared one for no origin or a hostile configured value), the two
   validators a revalidation sends, one person's cap on the stored slots and one person's places at a
   registry origin (the cap, the queue of their own that holds nothing, the ceiling, the bound, a
   stopped request).

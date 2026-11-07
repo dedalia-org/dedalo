@@ -57,11 +57,11 @@
 
 import { existsSync, readdirSync, rmdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { processEnvValue, readEnv } from '../../config/env.ts';
+import { processEnvValue } from '../../config/env.ts';
 import { isDedaloError } from '../errors/index.ts';
 import { DirectoryBarrier, removeFileDurably } from '../files/durable.ts';
 import { divertRetiredPropertyNotices } from '../ontology/retired_property_notice.ts';
-import { getServerState, statePath } from '../resolve/server_state.ts';
+import { getServerState } from '../resolve/server_state.ts';
 import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import type { InstallLockHandle, TargetDatabaseState } from './db_restore.ts';
 import type { DevCertificatePlan } from './dev_certificate.ts';
@@ -108,6 +108,8 @@ import {
 	writePlanFile,
 	writeStateFile,
 } from './run_files.ts';
+// B14 — one private dir for .env and the state file (the same guard persistConfig runs).
+import { statePathOutsidePrivateDir } from './state_path_guard.ts';
 import {
 	ABORT_AND_START_AGAIN,
 	ALREADY_COMPLETE_LINE,
@@ -293,16 +295,6 @@ function againWith(plan: PlanFile, flags: string): string {
 }
 
 // ── the real host ────────────────────────────────────────────────────────────
-
-/**
- * B14: an operator who sets only DEDALO_INSTALL_PRIVATE_DIR would write the
- * .env to one directory and ts_state.json to another — possibly a live one.
- */
-function statePathOutsidePrivateDir(): string | null {
-	if (readEnv('DEDALO_TS_STATE_PATH') !== undefined) return null;
-	if (resolve(dirname(statePath())) === resolve(installPrivateDir())) return null;
-	return `the server state file (${statePath()}) is not in the install's private dir (${installPrivateDir()}) — set DEDALO_PRIVATE_DIR (or DEDALO_TS_STATE_PATH) so both point at the same place`;
-}
 
 /** The machine as the CLI sees it (config is frozen to the install's database by now). */
 export function engineHost(appName: string): ExecutorHost {

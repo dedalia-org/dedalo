@@ -2679,7 +2679,7 @@ describe('who the geo services say they are', () => {
 		expect(geoUserAgent()).toBe(SITE_ONLY);
 	});
 
-	test('a public origin joins the header; canonical, so the case and a default port do not matter', () => {
+	test('a public origin joins the header; canonical, so the case and a default port do not matter, and a value that is not a clean origin is not repaired', () => {
 		expect(configure('museum.example.org')).toBe(withOrigin('https://museum.example.org'));
 		expect(configure('MUSEUM.Example.ORG')).toBe(withOrigin('https://museum.example.org'));
 		expect(configure('museum.example.org:443')).toBe(withOrigin('https://museum.example.org'));
@@ -2693,11 +2693,10 @@ describe('who the geo services say they are', () => {
 		expect(configure('93.184.216.34')).toBe(withOrigin('https://93.184.216.34'));
 		expect(configure('[2001:4860:4860::8888]')).toBe(withOrigin('https://[2001:4860:4860::8888]'));
 		expect(configure('museú.example.org')).toBe(withOrigin('https://xn--muse-tra.example.org'));
-		// A path or credentials typed into the host are not part of an origin and are never sent.
-		expect(configure('museum.example.org/dedalo')).toBe(withOrigin('https://museum.example.org'));
-		expect(configure('curator:secret@museum.example.org')).toBe(
-			withOrigin('https://museum.example.org'),
-		);
+		// A path or credentials typed into the host make the value not a clean origin: it is not
+		// repaired into one, so no origin is sent (the one rule the Referer and the contact follow too).
+		expect(configure('museum.example.org/dedalo')).toBe(SITE_ONLY);
+		expect(configure('curator:secret@museum.example.org')).toBe(SITE_ONLY);
 	});
 
 	test('the mail From address is NEVER sent: it configures the mailer, it is not a contact anyone agreed to publish', () => {
@@ -2744,6 +2743,8 @@ describe('who the geo services say they are', () => {
 			'museo.lan',
 			'museo.localdomain',
 			'museo.home.arpa',
+			'1.0.0.10.in-addr.arpa',
+			'foo.alt',
 			'museo.test',
 			'museo.example',
 			'museo.invalid',
@@ -2754,6 +2755,10 @@ describe('who the geo services say they are', () => {
 			'museo.LAN',
 			// the suffix ITSELF is under it
 			'local',
+			// a malformed host name is no origin at all
+			'.museum.org',
+			'foo..org',
+			'-.org',
 		];
 		for (const host of unreachable) {
 			expect(configure(host), `DEDALO_HOST=${JSON.stringify(host)}`).toBe(SITE_ONLY);

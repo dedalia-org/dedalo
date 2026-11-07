@@ -114,9 +114,11 @@ dedalo/<release> (+https://dedalo.dev; https://museum.example.org)
 the product and release, the project's site, and the installation's **public origin** (`DEDALO_PROTOCOL`
 and `DEDALO_HOST`), so that a provider can tell one installation from another and write to it if it
 misbehaves. The origin is left out when the host is unset, `localhost`, a private or reserved address, a
-single-label name or a name under a suffix no outside resolver answers (`.local`, `.internal`, `.lan`,
-`.home.arpa`, `.test`): an address that only means something inside the network is not published to
-third parties. No person's address (the mailer's `From`, an administrator's email) is ever sent.
+single-label or malformed name, or a name under a suffix no outside resolver answers (`.local`,
+`.internal`, `.lan`, `.arpa`, `.alt`, `.test`): an address that only means something inside the network
+is not published to third parties. It is also left out when the configured value is not a clean origin
+(credentials, a path, a query or a fragment typed into `DEDALO_HOST`): it is not repaired into one. The
+origin is the same one the map tile proxy sends ([Map tile proxy](map_tile_proxy.md)). No person's address (the mailer's `From`, an administrator's email) is ever sent.
 
 !!! warning "Privacy: what the providers learn"
     The question leaves **the server**, not the browser, and the provider receives the text or numbers of

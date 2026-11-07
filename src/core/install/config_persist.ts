@@ -20,6 +20,7 @@ import { installPrivateDir, SAMPLE_ENV_PATH } from './paths.ts';
 import { readPriorEnv } from './prior_env.ts';
 import { refuseInstall } from './refuse.ts';
 import { generateSecret } from './secret.ts';
+import { statePathOutsidePrivateDir } from './state_path_guard.ts';
 
 /**
  * The existing .env's assignment lines, VERBATIM and in file order.
@@ -39,7 +40,10 @@ function existingEnvAssignments(): { key: string; line: string }[] {
 			if (line.length === 0 || line.startsWith('#')) continue;
 			const eq = line.indexOf('=');
 			if (eq <= 0) continue;
-			assignments.push({ key: line.slice(0, eq), line });
+			// The key TRIMMED, exactly as parseEnvFile reads it: an operator's `DEDALO_HOST =x`
+			// is the key DEDALO_HOST, so it is owned (dropped) like any other spelling —
+			// untrimmed it survived beside the plan's new line, and the later line won.
+			assignments.push({ key: line.slice(0, eq).trim(), line });
 		}
 		return assignments;
 	} catch {
@@ -159,6 +163,11 @@ export async function persistConfig(
 	o: Record<string, unknown>,
 	options: { ontologyCatalog?: OntologyCatalog } = {},
 ): Promise<PersistConfigResult> {
+	// B14 at the DOOR, before any write: .env goes to installPrivateDir(), the
+	// install status to statePath(). Redirecting only the first would mark the
+	// LIVE installation unfinished (state_path_guard.ts).
+	const statePathProblem = statePathOutsidePrivateDir();
+	if (statePathProblem !== null) refuseInstall('install.invalid_input', statePathProblem);
 	const prior = await readPriorEnv();
 	const generated: Record<string, string> = {};
 

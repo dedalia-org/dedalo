@@ -67,7 +67,10 @@
  *
  * PURE AND CONFIG-FREE: imports only lang_catalog.ts, hierarchy_meta.ts,
  * ontology_choice.ts and install_validation.ts (each config-free; the
- * vendored files they read are the only I/O). The
+ * vendored files they read are the only I/O; the validation's public-address
+ * rule is the engine's own, src/core/resolve/public_reach_rule.ts, over the
+ * SSRF guard's config-free verdict security/address_verdict.ts — gated by
+ * no_install_surface_tripwire (c): this closure reaches no config reader). The
  * CLI builds the plan BEFORE it seeds the process environment that
  * src/config/config.ts freezes at import, so importing config (or the error
  * registry, or the db) from here would freeze the wrong configuration.
@@ -86,10 +89,15 @@ import {
 } from './hierarchy_meta.ts';
 import {
 	answerProblems,
+	canonicalHostOf,
+	canonicalPublicHost,
+	DEFAULT_PUBLIC_PROTOCOL,
+	ENGINE_DEFAULT_PROTOCOL,
 	type FieldError,
 	hostLocaleDefaults,
 	INSTANCE_PATTERN,
 	keptDevListenerProblems,
+	NO_PUBLIC_HOST,
 	rootPasswordErrors,
 } from './install_validation.ts';
 import { defaultImageSource } from './installer_identity.ts';
@@ -378,6 +386,26 @@ export interface InstallAnswers {
 	 * which the production route passes to its engine child from the OS row.
 	 */
 	pg_bin_path: string;
+	// ── the public address (2026-11-07) ──
+	/**
+	 * DEDALO_HOST: how this installation names itself to other machines — the map
+	 * tile proxy and the geo services identify it to OpenStreetMap as
+	 * `dedalo/<v> (+<DEDALO_PROTOCOL><DEDALO_HOST>)` when an outside machine could
+	 * reach it (resolve/public_reach.ts). `host[:port]`, trimmed and lowercased;
+	 * '' = not given and 'none' = a private/intranet install (neither writes
+	 * anything: a prior line survives). Asked on developer and trial; DERIVED on
+	 * production and docker (server_name, plus `:<https_port>` when not 443), where
+	 * an explicit value that differs is refused (one source of truth).
+	 */
+	public_host: string;
+	/** DEDALO_PROTOCOL beside a public host: 'https://' (default) | 'http://'. */
+	public_protocol: string;
+	/**
+	 * Keep a well-formed public host no outside machine reaches (an intranet
+	 * name): written, but the engine still sends the shared identity. Without
+	 * it such a host is refused (install_validation.ts).
+	 */
+	public_host_keep_private: boolean;
 }
 
 /**
@@ -454,6 +482,9 @@ const ANSWER_CLASS: Readonly<Record<keyof InstallAnswers, 'secret' | 'plain'>> =
 	image_version: 'plain',
 	engine_only: 'plain',
 	pg_bin_path: 'plain',
+	public_host: 'plain',
+	public_protocol: 'plain',
+	public_host_keep_private: 'plain',
 });
 
 /**
@@ -1013,6 +1044,91 @@ function hostAnswers(raw: RawAnswers, d: RouteDefaults) {
 	};
 }
 
+/** The routes whose public address is DERIVED from their web site (server_name), never asked. */
+export function publicAddressDerived(route: InstallRoute): boolean {
+	return route === 'production' || route === 'docker';
+}
+
+/**
+ * The address a production or docker install serves: `server_name`, plus
+ * `:<https_port>` when it is not 443 ('' while server_name is '' — the delegated
+ * engine child is not given it, and takes the host's derived answer as given).
+ */
+export function derivedPublicHost(a: Pick<InstallAnswers, 'server_name' | 'https_port'>): string {
+	if (a.server_name === '') return '';
+	// CANONICAL, as the engine reads it: `0443` is 443 (no port), `08443` is 8443.
+	const spelled = `${a.server_name}:${a.https_port}`;
+	return canonicalHostOf(DEFAULT_PUBLIC_PROTOCOL, spelled) ?? spelled;
+}
+
+/** The public-address answers as given (the host canonical, the protocol defaulted). */
+function givenPublicAddress(raw: RawAnswers) {
+	return {
+		public_host: canonicalPublicHost(raw.public_host),
+		public_protocol: textOr(raw, 'public_protocol', DEFAULT_PUBLIC_PROTOCOL).trim(),
+		public_host_keep_private: flag(raw, 'public_host_keep_private'),
+	};
+}
+
+/**
+ * Does an EXPLICIT host name the derived address? Compared as the engine reads both
+ * (canonical, over https://), so `server:443` IS `server`.
+ */
+function namesDerivedHost(given: string, derived: string): boolean {
+	return given === '' || canonicalHostOf(DEFAULT_PUBLIC_PROTOCOL, given) === derived;
+}
+
+/** The refusal of an explicit host on a deriving route ('' and the derived one are fine). */
+function derivedHostConflict(given: string, derived: string, route: InstallRoute): string | null {
+	if (given === NO_PUBLIC_HOST) {
+		return `public_host none is not an answer on the ${route} route: its public address is the site's own (server_name and https_port: ${derived}) — leave public_host out`;
+	}
+	if (namesDerivedHost(given, derived)) return null;
+	return `public_host ${JSON.stringify(given)} differs from the address the ${route} route derives from server_name and https_port (${derived}): leave it out — it is derived — or change server_name / https_port`;
+}
+
+/**
+ * The refusals of an EXPLICIT public address on a route that derives it: `none`,
+ * a host other than the derived one, a protocol other than https://.
+ */
+function derivedAddressConflicts(
+	given: ReturnType<typeof givenPublicAddress>,
+	derived: string,
+	route: InstallRoute,
+): FieldError[] {
+	const conflicts: FieldError[] = [];
+	const hostConflict = derivedHostConflict(given.public_host, derived, route);
+	if (hostConflict !== null) conflicts.push({ key: 'public_host', message: hostConflict });
+	if (given.public_protocol !== DEFAULT_PUBLIC_PROTOCOL) {
+		conflicts.push({
+			key: 'public_protocol',
+			message: `public_protocol ${JSON.stringify(given.public_protocol)} differs from the ${route} route's ${DEFAULT_PUBLIC_PROTOCOL} (its web site serves HTTPS): leave it out — it is derived`,
+		});
+	}
+	return conflicts;
+}
+
+/**
+ * The public-address answers: as given on developer and trial (validated by
+ * install_validation.ts); on production and docker the address their web site
+ * serves (derivedPublicHost, over https://), an explicit differing one pushed to
+ * `problems`. The derived value is written even when no outside machine
+ * reaches it (a local-CA intranet): the Review says the engine then sends the
+ * shared identity.
+ */
+function publicAddressAnswers(
+	raw: RawAnswers,
+	route: InstallRoute,
+	hosting: Pick<InstallAnswers, 'server_name' | 'https_port'>,
+	problems: FieldError[],
+) {
+	const given = givenPublicAddress(raw);
+	const derived = publicAddressDerived(route) ? derivedPublicHost(hosting) : '';
+	if (derived === '') return given;
+	problems.push(...derivedAddressConflicts(given, derived, route));
+	return { ...given, public_host: derived, public_protocol: DEFAULT_PUBLIC_PROTOCOL };
+}
+
 /**
  * Raw answers (screens, CLI flags or an answers file) → normalized answers + notes + errors
  * (+ the same refusals tagged by answer key, `fieldErrors`).
@@ -1039,6 +1155,8 @@ export function normalizeInstallAnswers(raw: RawAnswers): {
 	const serversErrors: string[] = [];
 	const update_servers = parseUpdateServers(raw.update_servers, serversErrors);
 	for (const message of serversErrors) problems.push({ key: 'update_servers', message });
+	const hosting = hostAnswers(raw, defaults);
+	const publicAddress = publicAddressAnswers(raw, route, hosting, problems);
 	errors.push(...problems.map((item) => item.message));
 	const answers: InstallAnswers = {
 		route,
@@ -1051,7 +1169,8 @@ export function normalizeInstallAnswers(raw: RawAnswers): {
 		ontologies: ontologyChoice.ontologies,
 		declined_dependencies: declinedChoice.declined,
 		ontology_source: text(raw, 'ontology_source'),
-		...hostAnswers(raw, defaults),
+		...hosting,
+		...publicAddress,
 	};
 	// Every answer-only refusal (install_validation.ts): raised HERE, before any
 	// front end writes anything — the CLI argv, an answers file and the screens
@@ -1330,6 +1449,50 @@ function devSection(listener: DevListenerPlan | null): EnvSection {
 	};
 }
 
+/**
+ * THE PUBLIC ADDRESS (DEDALO_HOST + DEDALO_PROTOCOL): written when the answers
+ * give a host (developer/trial) or derive one (production/docker); '' and
+ * 'none' write NOTHING, so a prior line survives untouched (config_persist
+ * carries every key the plan does not emit). PRESERVE RULE, per key: a prior
+ * value EQUAL to the answer is not re-emitted, so the operator's line
+ * round-trips byte for byte (its quoting included) — the protocol compared
+ * with the prior literal, so a prior .env with no DEDALO_PROTOCOL (engine
+ * default http://) gets the answer's written beside its kept DEDALO_HOST.
+ * Nothing here ever writes a fallback: a host is written only as answered or
+ * derived (never the `localhost` publicOrigin falls back to).
+ */
+function publicHostSection(a: InstallAnswers, prior: Readonly<Record<string, string>>): EnvSection {
+	if (a.public_host === '' || a.public_host === NO_PUBLIC_HOST) return { comment: '', entries: [] };
+	const entries = [
+		...onlyIf(prior.DEDALO_HOST !== a.public_host, entry('DEDALO_HOST', a.public_host)),
+		...onlyIf(
+			effectivePriorProtocol(prior) !== a.public_protocol,
+			entry('DEDALO_PROTOCOL', a.public_protocol),
+		),
+	];
+	return {
+		comment:
+			'# --- Public address (how this installation names itself to other machines and to map/geo providers) ---',
+		entries,
+	};
+}
+
+/**
+ * The protocol a prior .env already serves: its DEDALO_PROTOCOL literal; beside a
+ * prior DEDALO_HOST with none, the ENGINE's default (the catalog's http://), which is
+ * what that install runs on — so keeping it writes nothing; with no prior host at all,
+ * undefined (a fresh public address always writes its protocol, explicit).
+ */
+function effectivePriorProtocol(prior: Readonly<Record<string, string>>): string | undefined {
+	if (prior.DEDALO_PROTOCOL !== undefined) return prior.DEDALO_PROTOCOL;
+	return prior.DEDALO_HOST === undefined ? undefined : ENGINE_DEFAULT_PROTOCOL;
+}
+
+/** `[item]` when `condition` holds, else `[]` (a conditional list entry). */
+function onlyIf<T>(condition: boolean, item: T): T[] {
+	return condition ? [item] : [];
+}
+
 /** The .env body sections in file order; an empty section is omitted. */
 function envSections(
 	a: InstallAnswers,
@@ -1347,6 +1510,7 @@ function envSections(
 		updateServersSection(a, prior),
 		ontologiesSection(activeOntologyTlds),
 		servingSection(a, listener),
+		publicHostSection(a, prior),
 		diffusionSection(a),
 		mailerSection(a),
 		devSection(listener),
@@ -1773,6 +1937,9 @@ export const INSTALL_CLI_FLAGS: readonly {
 	{ flag: '--letsencrypt-email', key: 'letsencrypt_email', kind: 'value' },
 	{ flag: '--tls-cert', key: 'tls_cert_path', kind: 'value' },
 	{ flag: '--tls-key', key: 'tls_key_path', kind: 'value' },
+	// The public address (DEDALO_HOST + DEDALO_PROTOCOL): developer and trial; derived elsewhere.
+	{ flag: '--public-host', key: 'public_host', kind: 'value' },
+	{ flag: '--public-protocol', key: 'public_protocol', kind: 'value' },
 	// The developer route's development listener (DEV_ROUTE_SERVE §1.1).
 	{ flag: '--dev-port', key: 'dev_port', kind: 'value' },
 	{ flag: '--dev-host', key: 'dev_host', kind: 'value' },
@@ -1793,6 +1960,7 @@ export const INSTALL_CLI_FLAGS: readonly {
 	{ flag: '--letsencrypt-staging', key: 'letsencrypt_staging', kind: 'bool' },
 	{ flag: '--backup-site-builder', key: 'backup_site_builder', kind: 'bool' },
 	{ flag: '--engine-only', key: 'engine_only', kind: 'bool' },
+	{ flag: '--public-host-keep-private', key: 'public_host_keep_private', kind: 'bool' },
 	{ flag: '--plan', key: null, kind: 'bool' },
 	{ flag: '--list-ontologies', key: null, kind: 'bool' },
 	{ flag: '--list-hierarchies', key: null, kind: 'bool' },
@@ -2264,9 +2432,20 @@ export function cliArgsOf(answers: InstallAnswers): string[] {
 	for (const key of PLAIN_ANSWER_KEYS) {
 		const value = answers[key];
 		if (value === undefined || sameValue(value, baselineOf(answers, key)[key])) continue;
+		if (derivedAnswer(answers, key)) continue;
 		argv.push(...argvOfAnswer(key, value));
 	}
 	return argv;
+}
+
+/**
+ * An answer the plan DERIVES on this route, so no flag restates it: the public
+ * address of a production or docker install (server_name + https_port).
+ */
+function derivedAnswer(answers: InstallAnswers, key: keyof InstallAnswers): boolean {
+	return (
+		key.startsWith('public_') && publicAddressDerived(answers.route) && answers.server_name !== ''
+	);
 }
 
 /** The answers OTHER defaults derive from, by level (see baselineOf). */

@@ -818,3 +818,71 @@ describe('--engine-only: the backup dir the engine checks is the one the .env re
 		).toBe('Backups /b/db (missing), Media /m (not writable)');
 	});
 });
+
+/**
+ * B14 AT THE DOOR (2026-11-07). persistConfig writes `.env` into installPrivateDir() and the
+ * install status into statePath(). A script that redirected ONLY the first (a review probe
+ * run with plain `bun`, outside the test preload that sets DEDALO_TS_STATE_PATH) marked the
+ * LIVE installation `terminal_installing` and its server refused to boot. Driven in a CHILD
+ * whose engine private dir is a scratch dir too, so a regression writes there, never live.
+ */
+describe('persist_config refuses a state file outside its private dir (B14)', () => {
+	const root = mkdtempSync(join(tmpdir(), 'dedalo_install_b14_'));
+	afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+	/** The install_status a private dir's state file records (undefined: none, or no file). */
+	function installStatusIn(dir: string): string | undefined {
+		const path = join(dir, 'ts_state.json');
+		if (!existsSync(path)) return undefined;
+		return (JSON.parse(readFileSync(path, 'utf8')) as { install_status?: string }).install_status;
+	}
+
+	/** Run persistConfig in a child with the two private dirs given and NO state-path override. */
+	function persistInChild(
+		enginePrivate: string,
+		installPrivate: string,
+	): { refused: string | null } {
+		// A MINIMAL environment: what an operator's shell gives a fresh box, never this test
+		// process's suite keys (DB_NAME and friends would make config demand the rest).
+		const env: Record<string, string> = {
+			PATH: process.env.PATH ?? '',
+			HOME: process.env.HOME ?? '',
+			TMPDIR: process.env.TMPDIR ?? tmpdir(),
+			DEDALO_PRIVATE_DIR: enginePrivate,
+			DEDALO_INSTALL_PRIVATE_DIR: installPrivate,
+		};
+		const script = `
+			const { persistConfig } = await import(${JSON.stringify(resolve('src/core/install/config_persist.ts'))});
+			try { await persistConfig(${JSON.stringify(BASE_CFG)}); console.log(JSON.stringify({ refused: null })); }
+			catch (error) { console.log(JSON.stringify({ refused: String(error?.message ?? error) })); }`;
+		const child = Bun.spawnSync(['bun', '-e', script], { env, cwd: resolve('.') });
+		const out = child.stdout.toString().trim().split('\n').at(-1) ?? '';
+		expect({
+			exit: child.exitCode,
+			stderr: child.exitCode === 0 ? '' : child.stderr.toString(),
+		}).toEqual({
+			exit: 0,
+			stderr: '',
+		});
+		return JSON.parse(out) as { refused: string | null };
+	}
+
+	test('install dir redirected alone → refused, and NOTHING is written in either dir', () => {
+		const engine = mkdtempSync(join(root, 'engine_'));
+		const install = mkdtempSync(join(root, 'install_'));
+		const { refused } = persistInChild(engine, install);
+		expect(refused).toContain('is not in the install');
+		// Importing the engine may record its path census there (legacy_dir_fallback); the
+		// install status is what must NOT appear.
+		expect(installStatusIn(engine)).toBeUndefined();
+		expect(existsSync(join(install, '.env'))).toBe(false);
+	});
+
+	test('control: one private dir for both → .env and the terminal_installing state land there', () => {
+		const both = mkdtempSync(join(root, 'both_'));
+		const { refused } = persistInChild(both, both);
+		expect(refused).toBeNull();
+		expect(existsSync(join(both, '.env'))).toBe(true);
+		expect(installStatusIn(both)).toBe('terminal_installing');
+	});
+});

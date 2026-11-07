@@ -32,6 +32,20 @@ itself. So: if this install serves ontology or code to any other machine, set it
 Where Dédalo merely reports its own hostname (the ontology manifest's \`host\` field), an
 unset value is reported honestly as empty rather than as a false \`localhost\`.
 
+It is also how this installation identifies itself to third parties: the map tile proxy
+sends \`User-Agent: dedalo/<version> (+<origin>)\` and \`Referer: <origin>/\` to
+OpenStreetMap, whose tile policy asks a relay for a clear, contactable identity, and the
+geo services' \`User-Agent\` carries the same origin. The origin is used only when it is a
+bare \`http(s)://host[:port]\` an outside machine could reach; unset, private (loopback,
+a private address, a single-label or \`.local\` / \`.lan\` name) or malformed, the shared
+\`User-Agent\` is sent with no \`Referer\` — maps still work, but every such installation
+looks identical to the provider.
+
+The installer sets it (with \`DEDALO_PROTOCOL\`): production and docker derive it from the
+server name (plus the HTTPS port when it is not 443); developer and trial ask it, and the
+answer \`none\` — a private or intranet installation — writes nothing, so an existing value
+survives; a different answer (on production and docker, the derived address) replaces it.
+
 \`\`\`bash
 DEDALO_HOST="dedalo.example.org"
 \`\`\``,
@@ -45,7 +59,10 @@ DEDALO_HOST="dedalo.example.org"
 		doc: `This parameter defines the internet protocol used to build absolute URLs. It is
 recommended to use the HTTPS protocol for an installation with SSL certification —
 it is not mandatory, but it ensures the connection is protected with encryption.
-Defaults to \`"http://"\` when unset.
+Defaults to \`"http://"\` when unset — also beside a \`DEDALO_HOST\` that has no
+\`DEDALO_PROTOCOL\`. The installer writes it beside a public \`DEDALO_HOST\` only when the
+answer differs from what the engine already reads: \`https://\` on production and docker,
+and for a newly typed host on developer and trial unless \`http://\` is chosen.
 
 \`\`\`bash
 DEDALO_PROTOCOL="https://"

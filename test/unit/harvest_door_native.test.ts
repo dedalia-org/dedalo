@@ -2428,13 +2428,41 @@ describe('interactiveFetch — the request it sends', () => {
 		const site = fakeSite({ 'https://tiles.test/t/1.png': PNG });
 		process.env.DEDALO_HOST = 'museum.example.org';
 		await interactive(site, { url: 'https://tiles.test/t/1.png' });
+		// the installation is the contact: `dedalo/<release identity> (+<its public origin>)`
 		expect(site.sent[0]?.headers.get('user-agent')).toBe(
-			HARVEST_USER_AGENT.replace(/\)$/, '; https://museum.example.org)'),
+			`dedalo/${RELEASE_IDENTITY.version} (+https://museum.example.org)`,
 		);
 		// an internal name is not published to a provider: the plain identity, byte for byte
 		process.env.DEDALO_HOST = 'intranet-srv01';
 		await interactive(site, { url: 'https://tiles.test/t/1.png' });
 		expect(site.sent[1]?.headers.get('user-agent')).toBe(HARVEST_USER_AGENT);
+		// a hostile configured address never reaches the wire: the shared identity, and the request still goes
+		for (const host of [
+			'museum.example.org\r\nX-Injected: 1',
+			'curator:secret@museum.example.org',
+			'museum.example.org/dedalo',
+			'museum.example.org?x=1',
+			'foo..org',
+			`${'a'.repeat(120)}.example.org`,
+		]) {
+			process.env.DEDALO_HOST = host;
+			const before = site.sent.length;
+			await interactive(site, { url: 'https://tiles.test/t/1.png' });
+			const wire = site.sent[before]?.headers;
+			expect(wire?.get('user-agent'), JSON.stringify(host)).toBe(HARVEST_USER_AGENT);
+			expect(wire?.get('x-injected')).toBeNull();
+		}
+		// an IDN host is the same origin, sent as its punycode: a contact, in ASCII
+		process.env.DEDALO_HOST = 'museú.example.org';
+		await interactive(site, { url: 'https://tiles.test/t/1.png' });
+		expect(site.sent.at(-1)?.headers.get('user-agent')).toBe(
+			`dedalo/${RELEASE_IDENTITY.version} (+https://xn--muse-tra.example.org)`,
+		);
+		process.env.DEDALO_PROTOCOL = 'ftp://';
+		process.env.DEDALO_HOST = 'museum.example.org';
+		await interactive(site, { url: 'https://tiles.test/t/1.png' });
+		expect(site.sent.at(-1)?.headers.get('user-agent')).toBe(HARVEST_USER_AGENT);
+		process.env.DEDALO_PROTOCOL = 'https://';
 		// the DEFAULT profile's identity is unchanged by the installation's address: one string for a crawler
 		process.env.DEDALO_HOST = 'museum.example.org';
 		const crawl = fakeSite({

@@ -170,6 +170,20 @@ export const QUESTION_TEXT: Readonly<Record<string, { label: string; description
 		},
 		timezone: { label: 'Time zone', description: 'An IANA time zone (e.g. Europe/Madrid).' },
 		locale: { label: 'Locale', description: 'A BCP 47 locale tag (e.g. es-ES).' },
+		public_host: {
+			label: 'Public address',
+			description:
+				"The host name other machines use to reach this installation, with a port if it is not the protocol's default (e.g. museum.example.org). Map and geo providers (OpenStreetMap) are told it as this installation's contact identity. none = a private or intranet installation: nothing is written, and the shared Dédalo identity is used.",
+		},
+		public_protocol: {
+			label: 'Public protocol',
+			description: 'How other machines reach the public address.',
+		},
+		public_host_keep_private: {
+			label: 'Address not reachable from outside',
+			description:
+				'No outside machine can reach this address (a loopback or private address, or an intranet name), so the engine would still identify itself with the shared identity.',
+		},
 		media_path: {
 			label: 'Media directory',
 			description:
@@ -423,6 +437,22 @@ export const ROUTE_TEXT = Object.freeze({
 
 /** The choice options' own words. */
 export const OPTION_TEXT = Object.freeze({
+	public_protocol: {
+		'https://': { label: 'https://', description: 'The address serves HTTPS.' },
+		'http://': { label: 'http://', description: 'The address serves plain HTTP.' },
+	} as Record<string, { label: string; description: string }>,
+	/** The follow-up of an unreachable public address. */
+	public_host_keep_private: {
+		keep: {
+			label: 'Keep it anyway',
+			description:
+				'Write it as DEDALO_HOST (other uses of the address still read it); providers get the shared identity.',
+		},
+		none: {
+			label: 'Answer none',
+			description: 'A private installation: nothing is written; providers get the shared identity.',
+		},
+	} as Record<string, { label: string; description: string }>,
 	update_servers: {
 		official: (url: string) => ({
 			label: 'Official Dédalo servers',
@@ -658,6 +688,13 @@ export const REVIEW_TEXT = Object.freeze({
 	devNames: 'certificate names',
 	devTrust: 'trust store',
 	kept: 'kept from .env',
+	publicAddress: 'public address',
+	/** The public address's outcome: what DEDALO_HOST makes the engine tell providers. */
+	publicContact: (origin: string): string => `${origin} (contact identity)`,
+	publicNone: 'none — shared identity',
+	publicKeptPrior: 'kept from existing .env',
+	publicUnreachable: (origin: string, kept: boolean): string =>
+		`${origin} — ${kept ? 'kept' : 'written'}, shared identity (not reachable from outside)`,
 	devCertificate: (source: string, cert: string): string => {
 		if (source === 'none') return 'none (plain HTTP)';
 		if (source === 'kept') return `kept · ${cert}`;

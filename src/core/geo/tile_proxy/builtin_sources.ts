@@ -33,12 +33,15 @@
  *                    that meets what it asks of it. What it asks, and what this row delivers:
  *                      - a clear, contactable User-Agent identifying the service, never every
  *                        client behind one anonymous identity. MET WHERE THE INSTALLATION HAS A
- *                        PUBLIC ORIGIN: the interactive door's User-Agent is Dédalo's PLUS that
- *                        origin (harvest/installation_identity.ts), so OSM sees one installation
- *                        per origin. NOT MET WHERE IT HAS NONE (an installation reachable only
- *                        from its own network has no origin it can give): it sends the plain
- *                        Dédalo identity, shared by every such installation, which the policy
- *                        lets OSM block. Whether such an installation may relay this row at
+ *                        PUBLIC ORIGIN: the interactive door sends
+ *                        `dedalo/<release> (+<that origin>)`, naming the INSTALLATION as the
+ *                        contact (harvest/installation_identity.ts; the same validated origin
+ *                        as the Referer), so OSM sees one contactable installation per origin.
+ *                        NOT MET WHERE IT HAS NONE (an installation reachable only from its own
+ *                        network, or a malformed DEDALO_HOST): it sends the shared, less
+ *                        identifying `dedalo/<release> (+https://dedalo.dev; heritage
+ *                        cataloguing)`, the same for every such installation, which the policy
+ *                        lets OSM block; the row is still relayed, never refused. Whether such an installation may relay this row at
  *                        all is the maintainer's decision and is OPEN
  *                        (engineering/wire_contract/WC-2026-11-06-map-tile-proxy.md); today it
  *                        does, and docs/core/system/map_tile_proxy.md says so to its operator;

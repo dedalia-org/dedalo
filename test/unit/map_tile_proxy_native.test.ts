@@ -858,16 +858,50 @@ describe.if(DB_READY)('map tile proxy — gates, door and memory, end to end', (
 		const [request] = peer.received;
 		expect(request?.host).toBe('tile.openstreetmap.org');
 		expect(request?.pathname).toBe('/3/4/2.png');
-		// the door's identity PLUS this installation's own origin: a provider whose policy forbids
-		// tunnelling every client behind one anonymous identity sees one installation per origin
+		// THIS INSTALLATION as the contact (`+<its public origin>`), the same origin as the Referer:
+		// a provider whose policy forbids tunnelling every client behind one anonymous identity sees
+		// one installation per origin
+		const product = HARVEST_USER_AGENT.slice(0, HARVEST_USER_AGENT.indexOf(' '));
 		expect(request?.headers.get('user-agent')).toBe(
-			HARVEST_USER_AGENT.replace(/\)$/, '; https://maps.museum-example.org)'),
+			`${product} (+https://maps.museum-example.org)`,
 		);
 		expect(request?.headers.get('referer')).toBe('https://maps.museum-example.org/');
 		for (const name of ['cookie', 'authorization', 'x-forwarded-for', 'origin']) {
 			expect(request?.headers.get(name), name).toBeNull();
 		}
 		expect(request?.headers.get('accept')).toBe('image/png,image/jpeg,image/gif,image/webp');
+	});
+
+	test('the identity is not part of the cache key, and the Referer and the contact identity follow ONE rule for a malformed and an IDN address', async () => {
+		process.env.DEDALO_PROTOCOL = 'https://';
+		process.env.DEDALO_HOST = 'maps.museum-example.org';
+		expect((await ask(builtin('osm'))).status).toBe(200);
+		expect(peer.received).toHaveLength(1);
+		// another identity (an intranet name: the shared one) asks for the same tile: served from the one entry
+		process.env.DEDALO_HOST = 'intranet-srv01';
+		expect((await ask(builtin('osm'))).status).toBe(200);
+		expect(peer.received).toHaveLength(1);
+		// a configured address with credentials and a path is not a clean origin and is not repaired:
+		// ONE rule for both headers — no Referer AND the shared identity; the tile is still served
+		clearTileCacheForTests();
+		peer.received = [];
+		process.env.DEDALO_HOST = 'curator:secret@maps.museum-example.org/dedalo';
+		expect((await ask(builtin('osm'))).status).toBe(200);
+		const [request] = peer.received;
+		expect(request?.headers.get('referer')).toBeNull();
+		expect(request?.headers.get('user-agent')).toBe(HARVEST_USER_AGENT);
+		expect(JSON.stringify([...(request?.headers.entries() ?? [])])).not.toContain('secret');
+		// an IDN host IS a clean origin: the Referer and the contact say the same punycode origin
+		clearTileCacheForTests();
+		peer.received = [];
+		process.env.DEDALO_HOST = 'mapas.museú-example.org';
+		expect((await ask(builtin('osm'))).status).toBe(200);
+		const [idn] = peer.received;
+		const product = HARVEST_USER_AGENT.slice(0, HARVEST_USER_AGENT.indexOf(' '));
+		expect(idn?.headers.get('referer')).toBe('https://mapas.xn--muse-example-pkb.org/');
+		expect(idn?.headers.get('user-agent')).toBe(
+			`${product} (+https://mapas.xn--muse-example-pkb.org)`,
+		);
 	});
 
 	test('the Referer is sent only where a provider’s terms ask for it, and only an origin an outside machine could reach', async () => {

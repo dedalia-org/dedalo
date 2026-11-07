@@ -75,6 +75,7 @@ bun run scripts/install.ts \
   [--media-path <dir>] [--socket <path>] [--media-access-mode publication] \
   [--diffusion --mysql-name web_dedalo --mysql-user d] \
   [--mailer --smtp-host smtp.example.org --smtp-user dedalo@example.org] \
+  [--public-host <host[:port]|none>] [--public-protocol https://|http://] [--public-host-keep-private] \
   [--no-update-servers] [--skip-tools] [--plan | --list-ontologies | --list-hierarchies]
 
 bun run scripts/install.ts --resume                              # finish an interrupted install (developer route)
@@ -116,6 +117,9 @@ meaning.)
 | `--media-access-mode` | no | *(unset = `publication`, fail-closed)* | persisted as `DEDALO_MEDIA_ACCESS_MODE` — `private`, `publication`, or `false` to deliberately serve an open media tree |
 | `--diffusion` | no | off | writes the MariaDB keys; pair with `--mysql-host/-port/-socket/-name/-user/-password`. `--mysql-user` is required; `--mysql-name` defaults to `web_dedalo` (`web_<instance>` on production). The MariaDB connection is probed; a failure warns but does not stop the install |
 | `--mailer` | no | off | writes the outbound-email (SMTP) keys, enabling [password recovery](../management/password_recovery.md); requires `--smtp-host`, pair with `--smtp-port` (587), `--smtp-secure` (`tls`\|`ssl`\|`none`), `--smtp-user`, `--smtp-password`, `--smtp-from`, `--smtp-from-name`. The relay is probed (connection + auth, no email sent); a failure warns but does not stop the install |
+| `--public-host` | no | developer / trial: not given = nothing written (the screens suggest the `DEDALO_HOST` your `.env` already names, else `none`); production / docker: derived (see Notes) | the installation's [public address](#the-public-address) — the host (and port, when it is not the protocol's default) other machines reach it at, written as `DEDALO_HOST`: `host[:port]` in its canonical ASCII spelling, or `none` for a private or intranet installation (nothing is written). Production and docker do not ask it: they derive `https://<server name>`, with `:<https port>` when that is not `443`, and refuse a `--public-host` that names another origin — and `none`, since the address is the site's server name; a spelling of the same origin (`<server name>:443`) is accepted. A name no outside machine can reach is refused unless `--public-host-keep-private` is given |
+| `--public-protocol` | no | `https://` for a newly given host; beside a host your `.env` already names, its `DEDALO_PROTOCOL`, else `http://` (what the engine reads when the key is unset) | `https://` or `http://`, written as `DEDALO_PROTOCOL` beside a public host, and only when it differs from what the engine already reads. Production and docker refuse anything but `https://` (the site serves HTTPS). On trial, which serves plain HTTP itself, a typed host still defaults to `https://` — a trial behind a TLS proxy |
+| `--public-host-keep-private` | no | off | keep a `--public-host` that is well formed but that no outside machine can reach (loopback, a private address, a single-label name, `.local`, `.lan`…). It is written as given; the engine still identifies itself with the shared identity (see [The public address](#the-public-address)) |
 | `--no-update-servers` | no | off | air-gapped install: writes `ONTOLOGY_SERVERS=[]` and `CODE_SERVERS=[]`, so no ontology or code update is ever offered. Without it, both name the official Dédalo master (see below) |
 | `--skip-tools` | no | off | skips tool registration (register them later from the Development Area) |
 | `--plan` | no | off | dry run: prints ONE JSON line — `env_keys`, `steps`, `hierarchies`, `hierarchy_dependencies`, `suggestions`, `ontologies`, `declined_dependencies`, `ontology_source`, `ontology_install`, `active_ontology_tlds`, `notes`, `warnings`, `errors` — and exits `0` (valid) or `1`. It touches no database and no file and needs no root password. A choice beyond `oh` reads the source's catalog (one request to the update server, or the `--ontology-source` files). On `--route production` it also runs the System check's read-only refusals on this host — the system, the install folder, the service account, the instance's names — each one an `errors` entry; run without root, the root refusal is a `warnings` entry instead |
@@ -181,6 +185,7 @@ give falls back to. It never changes the steps, and a flag you give always wins.
 | backups | — | `<install folder>/backups` | the `backups` volume |
 | certificate (`--tls`) | `local_ca` (the development listener's) | `letsencrypt` | `letsencrypt` (`trial`: none) |
 | development listener (`--dev-port`, `--dev-host`) | `3500` on `127.0.0.1` | — | — |
+| public address (`--public-host`, written as `DEDALO_HOST` / `DEDALO_PROTOCOL`) | the `.env`'s `DEDALO_HOST`, else `none` (asked) | `https://<server name>[:<https port>]` (derived, not asked) | docker: as production; `trial`: as developer (asked) |
 | HTTPS port (`--https-port`) | — | `443` | `443` (`trial`: none — the trial publishes plain HTTP only and does not ask it) |
 | server socket (`SERVER_UNIX_SOCKET`) | `/tmp/dedalo_ts_<entity>.sock` | `/run/dedalo-<i>/dedalo_ts.sock` | `/run/dedalo/dedalo_ts.sock` |
 | publication database (`--mysql-name`) | `web_dedalo` | `web_<i>` | `web_dedalo` |
@@ -725,6 +730,19 @@ What the screens do for you:
   typing your country's code (e.g. `np`); after the install, toponymies are added
   from **Maintenance › Install hierarchies** — the interactive installer never
   points you to a command-line flag for it.
+- **The public address** — the host other machines reach this installation at
+  ([The public address](#the-public-address)) — is asked on the developer and
+  trial routes: a host (with `:port` when it is not the default), its protocol,
+  or `none` for a private or intranet installation. The default offered is the
+  `DEDALO_HOST` your `.env` already names, else `none`. The protocol offered
+  beside a host your `.env` already names is its `DEDALO_PROTOCOL` as written,
+  else `http://` — what the engine reads when the key is unset; a newly typed
+  host gets `https://` (on trial too: a trial behind a TLS proxy). A name no
+  outside machine can reach (`localhost`, a private address, a single-label
+  name, `.local`, `.lan`, `.test`…) is refused with the reason, and offered
+  **keep anyway** — the same as `--public-host-keep-private`; editing the host
+  clears that consent, and it is asked again. Production and docker do not ask
+  it: it is the server name and HTTPS port you gave on the TLS screen.
 - **Passwords** are never shown and are typed twice; the root password is
   checked rule by rule after the first entry. A password already given through
   `DEDALO_INSTALL_*` or `--secrets-stdin` is kept, not asked (the root password
@@ -967,6 +985,7 @@ The keys it accepts are exactly the plain answers: `route`, `instance`, `db_host
 `mysql_socket`, `mysql_database`, `mysql_username`, `mailer`, `smtp_host`,
 `smtp_port`, `smtp_secure`, `smtp_user`, `smtp_from`, `smtp_from_name`,
 `media_path`, `unix_socket`, `media_access_mode`, `update_servers`,
+`public_host`, `public_protocol`, `public_host_keep_private`,
 `hierarchies`, `register_tools`, `ontologies`, `declined_dependencies`,
 `ontology_source`, and the host answers `web_server`, `server_name`,
 `http_port`, `https_port`, `tls_mode`, `tls_extra_names`, `letsencrypt_email`,
@@ -1068,6 +1087,8 @@ come from flags, an answers file or the interactive screens:
 | `langs`, `app_lang_default`, `data_lang_default` | at least one language; the defaults are members of the set | `languages: …` |
 | `information`, `info_key` | no line break or NUL | `information contains an illegal control character` |
 | `dev_port`, `dev_host` (developer) | a port 1–65535; `127.0.0.1`, `0.0.0.0`, `localhost` or one IP address; refused on any other route | `dev_port '<v>' must be an integer 1-65535`, `dev_host '<v>' must be 127.0.0.1 (this machine), 0.0.0.0 (the local network) or one IP address of this machine`, `dev_port is only meaningful on the developer route (route is <r>)` |
+| `public_host` | empty (not given), `none`, or a host with an optional `:port` that is a bare `http(s)` origin by the engine's rule for `DEDALO_HOST` (no credentials, path, query, whitespace or control character, at most 100 characters with its protocol) — and, stricter than the engine, typed in its **canonical** spelling, because it is written as typed: ASCII (an international name as its `xn--` form), no trailing dot, no default port (`:443` with `https://`, `:80` with `http://`), no leading zero in the port, an IP address in canonical form; and reachable from outside (not loopback, a private or reserved address, a single-label name or a name under `.local`, `.internal`, `.lan`, `.test`, `.home.arpa`…) unless `public_host_keep_private` is set. On production and docker, when given: the same origin as the derived `<server name>[:<https port>]` — `none` is refused there | `public_host "<v>" must be a bare host name or address with an optional port (…), or none`; a non-canonical spelling is refused naming the canonical one; `public_host "<v>" is not reachable from outside (…) — answer none, or keep it anyway (--public-host-keep-private)`; production and docker: `public_host "<v>" differs from the address the <route> route derives from server_name and https_port (<derived>): leave it out — it is derived …` |
+| `public_protocol` | `https://` or `http://`; production and docker: `https://` only | `public_protocol "<v>" must be https:// or http://`; production and docker: `public_protocol "<v>" differs from the <route> route's https:// (its web site serves HTTPS): leave it out — it is derived` |
 | `tls_mode` (developer) | `local_ca`, `none` or `files` (with `--tls-cert` and `--tls-key`, absolute) | `tls_mode must be local_ca\|none\|files on the developer route` |
 | root password | supplied (for an install), and passes the password policy | `root password is required (…)`, `root password does not meet the password policy (<rule>)` |
 
@@ -1249,6 +1270,17 @@ steps. Its record lives in `/var/lib/dedalo-install/<instance>/` (`0700`, root's
 the engine steps run in ONE child, **as the instance user**, with their own
 record in `<install folder>/private/install/`.
 
+The [public address](#the-public-address) is not asked on this route: it is
+derived from the web answers, `DEDALO_PROTOCOL=https://` and
+`DEDALO_HOST=<server name>`, with `:<https port>` when that is not `443`. It is
+written even when the name is one only the institution's network resolves (a
+local CA for `dedalo.museo.lan`): the engine then identifies itself with the
+shared identity, as for any private address. A `--public-host` naming another
+origin, `--public-host none` and a `--public-protocol` other than `https://` are
+refused — the server name is the one source; a spelling of the same origin
+(`<server name>:443`) is accepted. The derived value replaces a different
+`DEDALO_HOST` the `.env` already names.
+
 Before anything runs, the **Review lists every command each host step will run**,
 exactly as it will run — the same list the run executes (a resume refuses a step
 whose commands changed since). Read it: it is the whole change to the host. The same
@@ -1359,6 +1391,14 @@ installer tells you how when they are not, and never installs them.
 | `stack_up` | starts the engine, waits for `/health`, then the rest — and waits up to 30 s for nginx to run with a stable restart count and a configuration `nginx -t` accepts (a refused one quotes nginx's `[emerg]` line and is not recorded done) |
 | `stack_health` | `/health` on the engine's socket inside its container, then through the published address (nginx); docker: the media gate answers 404 to an anonymous visitor; trial: Done says there is no media protection and that a browser opens `http://<this machine's address>/dedalo/` |
 
+The [public address](#the-public-address) follows the route: **docker** derives
+it as production does — `https://<server name>`, with `:<https port>` when that
+is not `443`, written even for an intranet-only name, with a `--public-host`
+naming another origin, `none` and a non-`https://` protocol refused — while
+**trial**, which has no server name, asks it as the developer route does (`none`
+by default when no `.env` names one). Trial serves plain HTTP itself, yet a
+typed host defaults to `https://`: a trial reached through a TLS proxy.
+
 Every compose command carries `-f <stack> -f compose.override.yaml --env-file
 .dedalo.env` — the same files `deploy/dedalo-image-lib.sh` hands compose, so the
 image updater and your own commands drive the stack the installer built. Its
@@ -1440,6 +1480,7 @@ owns are these:
 | Serving / media *(each only when it has a value: on production, docker and trial the [route defaults](#route-defaults) give `MEDIA_PATH` and `SERVER_UNIX_SOCKET` one; on developer only `--media-path` / `--socket` do)* | `MEDIA_PATH`, `SERVER_UNIX_SOCKET`, `DEDALO_MEDIA_ACCESS_MODE`, `DEDALO_PG_BIN_PATH`, `DEDALO_BACKUP_DIR` (production: `<backup dir>/db`, the directory the backup units write) |
 | Diffusion *(only with `--diffusion`)* | `DEDALO_DIFFUSION_NATIVE`, `DEDALO_DIFFUSION_DB_*` |
 | Outbound email *(only with `--mailer`, or the installer's optional *Mail* screen)* | `DEDALO_SMTP_HOST`, `DEDALO_SMTP_PORT`, `DEDALO_SMTP_SECURE`, `DEDALO_SMTP_USER`, `DEDALO_SMTP_PASS`, `DEDALO_SMTP_FROM`, `DEDALO_SMTP_FROM_NAME` |
+| Public address *(only when a host is given or derived — see [The public address](#the-public-address))* | `DEDALO_HOST`, `DEDALO_PROTOCOL` |
 | Development only *(the developer route only — no other route writes any of these)* | `SERVER_TCP_PORT`, `SERVER_TCP_HOST`, `SERVER_TCP_TLS_CERT_FILE`, `SERVER_TCP_TLS_KEY_FILE` (none with `--tls none`), `SESSION_COOKIE_SECURE` (`true` over HTTPS, `false` over plain HTTP — always rewritten to match the listener), `DEDALO_DEV_MODE=true`, `DEDALO_DEBUG_API_ERRORS=true`. A re-run that does not answer them keeps the port, address, certificate pair and modes the file already has; `--tls none` over a kept pair writes both certificate keys empty |
 
 ### The update servers
@@ -1465,6 +1506,56 @@ directory (an unfinished install, or a fresh install into a reused private
 directory), keeping the official default does not overwrite a key whose value is
 a non-empty list — mirrors you added survive — and a key holding `[]` is replaced
 by the official server. Choosing the air-gapped option always writes `[]`.
+
+### The public address
+
+`DEDALO_HOST` (with `DEDALO_PROTOCOL`) is the address **other machines** reach
+this installation at. Dédalo serves you without it; it needs it to tell a third
+party who it is and where it lives:
+
+- **Map tiles.** The [map tile proxy](../core/system/map_tile_proxy.md) relays
+  OpenStreetMap's tiles with `User-Agent: dedalo/<version> (+<origin>)` and
+  `Referer: <origin>/`. OpenStreetMap's tile policy asks a relay for a clear,
+  contactable identity, so it can contact or block one installation without
+  blocking the others.
+- **Geo services.** The [geo services](../core/system/geo_services.md)' `User-Agent`
+  carries the same origin.
+- **Updates served to others.** The ontology and code update manifests this
+  installation serves to other installations, and the update panel's *Local
+  files* entry, are built from it.
+
+The origin is used only when it is a bare `http(s)://host[:port]` an outside
+machine could reach. Unset, private (loopback, a private address, `.local`, a
+single label…) or malformed, the engine sends the **shared** `User-Agent` and no
+`Referer`: maps and lookups still work, but every such installation looks
+identical to OpenStreetMap, which its policy allows it to block.
+
+How it is set:
+
+| Route | How | `none` / not given |
+| --- | --- | --- |
+| developer, trial | asked (`--public-host`, `--public-protocol`); the screens suggest the `.env`'s `DEDALO_HOST`, else `none`; flags and the answers file: not given = nothing | nothing is written |
+| production, docker | derived: `https://<server name>[:<https port> when not 443]` | `none` is refused (always derived) |
+
+The value is checked **before anything is written** ([Validation](#validation-before-anything-is-written)):
+by the engine's own rule — a malformed one is refused, and a well-formed name no
+outside machine can reach is refused unless you keep it
+(`--public-host-keep-private`, or **keep anyway** on the screen; kept, it is
+written, and the engine still uses the shared identity) — and, stricter than the
+engine, in its canonical spelling, since it is written as typed: ASCII (an
+international name as its `xn--` form), no trailing dot, no default port, no
+leading-zero port, an IP address in canonical form. A non-canonical spelling is
+refused with the canonical one named.
+
+What the `.env` gets: `none` or no answer writes nothing, so a `DEDALO_HOST`
+line already in the file survives; a different answer — on production and
+docker, the derived address — replaces it; an equal one is left byte for byte.
+`DEDALO_PROTOCOL` is written only when the answer differs from what the engine
+already reads: beside a `DEDALO_HOST` with no `DEDALO_PROTOCOL` the engine reads
+`http://` (the key's default), which is also the protocol the screens offer
+there. To set or change it after the install, edit `DEDALO_HOST` (and
+`DEDALO_PROTOCOL`) in `.env` and restart the server; see the
+[configuration reference](../config/config.md).
 
 !!! note "The installer never writes `DEDALO_SUPERVISED`"
     Whether the server runs under a supervisor is a property of how it is

@@ -20,7 +20,8 @@
  *     something only inside its own network must not publish it: the header would be
  *     a map of that network, and a provider can do nothing with it. The rule is
  *     `resolve/public_reach.ts`'s, shared with the tile proxy's Referer
- *     (`geo/tile_proxy/referer.ts`) so the two senders cannot disagree about it.
+ *     (`geo/tile_proxy/referer.ts`) and the interactive door's User-Agent
+ *     (`harvest/installation_identity.ts`) so the three senders cannot disagree about it.
  *
  * NO PERSON'S ADDRESS IS EVER SENT. An earlier draft added the From address of the
  * installation's outgoing mail (`DEDALO_SMTP_FROM`) as a contact. That key configures the
@@ -30,8 +31,9 @@
  * would be a key of its own, opt-in and empty by default (a catalog change for the
  * maintainer); until one exists the header carries the origin alone.
  *
- * A part is checked, not repaired: it joins the header only if the whole of it is in a
- * conservative character set and at most 100 characters; otherwise it is left out whole.
+ * A part is checked, not repaired: it joins the header only if the configured value is a
+ * clean origin (no credentials, path, query, fragment or control character) whose canonical
+ * form is at most 100 characters; otherwise it is left out whole.
  * Stripping would publish a different host than the one configured, and cutting a long
  * one a prefix that names someone else. Nothing configured can carry a delimiter, a
  * control character or a non-ASCII byte into the header.

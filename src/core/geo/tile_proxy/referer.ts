@@ -15,12 +15,14 @@
  * is reachable only from its own network (DEDALO_HOST unset, `localhost`, a private IP, a
  * `.local` name, a single label) used to send that origin to OpenStreetMap as the Referer.
  * The proxy does not: this is the rule the geo services' User-Agent follows too
- * (`resolve/public_reach.ts`, ONE rule for both), because an internal origin published to a
+ * (`resolve/public_reach.ts`, ONE rule for all three senders), because an internal origin published to a
  * third party is a map of the network for nothing, and a request that now comes from the
  * SERVER is one decision for the whole installation, not one browser's habit. Such an
- * installation still identifies itself to OpenStreetMap by the door's `User-Agent`
- * (Dédalo, its release and its site; it names the installation's own origin only when an
- * outside machine could reach it: harvest/installation_identity.ts). OpenStreetMap's policy
+ * installation still identifies itself to OpenStreetMap by the door's shared `User-Agent`
+ * (`dedalo/<release> (+https://dedalo.dev; heritage cataloguing)`); an installation that
+ * HAS a public origin is named as the contact instead (`dedalo/<release> (+<origin>)`,
+ * harvest/installation_identity.ts) — the very origin this Referer carries, one derivation,
+ * so the two are present together, absent together and byte-equal. OpenStreetMap's policy
  * asks a proxy for the Referer and for an identity of the service and may block traffic that
  * carries neither; what it does with a request from such an installation was NOT confirmed
  * against the live service: if an installation behind a private address finds its
@@ -34,8 +36,8 @@ import { reachablePublicOrigin } from '../../resolve/public_reach.ts';
 
 /**
  * The Referer value (`<origin>/`), or null when the installation has no origin a provider
- * could use. Checked, never repaired: a configured value outside the character set or
- * over the length is left out whole.
+ * could use. Checked, never repaired: a configured value that is not a clean origin
+ * (credentials, a path, a query, a control character, over the length) is left out whole.
  */
 export function tileReferer(): string | null {
 	const origin = reachablePublicOrigin();

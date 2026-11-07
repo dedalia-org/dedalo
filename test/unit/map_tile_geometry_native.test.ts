@@ -1631,70 +1631,155 @@ describe('public_reach — ONE rule for the origin the installation tells a prov
 		}
 	});
 
-	const REACHABLE: [string, string][] = [
-		['museum.example.org', 'https://museum.example.org'],
-		['MUSEUM.Example.ORG', 'https://museum.example.org'],
-		['museum.example.org:443', 'https://museum.example.org'],
-		['museum.example.org:8443', 'https://museum.example.org:8443'],
-		['93.184.216.34', 'https://93.184.216.34'],
-		['[2001:4860:4860::8888]', 'https://[2001:4860:4860::8888]'],
-		['museú.example.org', 'https://xn--muse-tra.example.org'],
-		['localhost.museum.org', 'https://localhost.museum.org'],
-		['lan.museum.org', 'https://lan.museum.org'],
-		['my_host.museum.org', 'https://my_host.museum.org'],
-	];
-	const UNREACHABLE = [
-		'',
-		'localhost',
-		'localhost:3500',
-		'dedalo.localhost',
-		'127.0.0.1',
-		'[::1]',
-		'192.168.1.5',
-		'10.1.2.3:8443',
-		'172.16.0.9',
-		'100.64.0.1',
-		'169.254.169.254',
-		'[fd00::1]',
-		'[::ffff:10.0.0.1]',
-		'[2001:db8::1]',
-		'intranet-srv01',
-		'museo.local',
-		'museo.local.',
-		'MUSEO.LAN',
-		'museo.home.arpa',
-		'museo.test',
-		'museo.example',
-		'abcdefghijklmnop.onion',
-		'local',
-		`${'a'.repeat(120)}.example.org`,
+	/** `dedalo/<release identity>`: the product part every identity shares. */
+	const PRODUCT = HARVEST_USER_AGENT.slice(0, HARVEST_USER_AGENT.indexOf(' '));
+
+	/** A well-formed host name (labels under 64) of exactly `length` characters once `https://` is in front of it. */
+	const originOf = (length: number) =>
+		`${'a'.repeat(60)}.${'b'.repeat(length - 'https://'.length - 61 - '.org'.length)}.org`;
+
+	/** [DEDALO_PROTOCOL, DEDALO_HOST, the ONE origin every sender says — or null: none says any]. */
+	const TABLE: [protocol: string, host: string, origin: string | null][] = [
+		// a public origin, and what URL parsing canonicalizes into the SAME origin
+		['https://', 'museum.example.org', 'https://museum.example.org'],
+		['http://', 'museum.example.org', 'http://museum.example.org'],
+		['https://', 'MUSEUM.Example.ORG', 'https://museum.example.org'],
+		['https://', 'museum.example.org:443', 'https://museum.example.org'],
+		['https://', 'museum.example.org:8443', 'https://museum.example.org:8443'],
+		['https://', 'museum.example.org/', 'https://museum.example.org'],
+		['https://', 'museum.example.org.', 'https://museum.example.org.'],
+		['HTTPS://', 'museum.example.org', 'https://museum.example.org'],
+		['https:', 'museum.example.org', 'https://museum.example.org'],
+		['https:/', 'museum.example.org', 'https://museum.example.org'],
+		['https://', 'museú.example.org', 'https://xn--muse-tra.example.org'],
+		['https://', '93.184.216.34', 'https://93.184.216.34'],
+		['https://', '[2001:4860:4860::8888]', 'https://[2001:4860:4860::8888]'],
+		['https://', 'localhost.museum.org', 'https://localhost.museum.org'],
+		['https://', 'lan.museum.org', 'https://lan.museum.org'],
+		['https://', 'arpa.museum.org', 'https://arpa.museum.org'],
+		// the bound is on the CANONICAL origin, the one sent: 100 characters is an origin, 101 is not…
+		['https://', originOf(100), `https://${originOf(100)}`],
+		['https://', originOf(101), null],
+		// …and a long configured value that canonicalizes to a short origin is that origin, not cut
+		['https://', `museum.example.org:${'0'.repeat(100)}443`, 'https://museum.example.org'],
+		// unset, loopback, private and reserved addresses, names no outside resolver answers
+		['https://', '', null],
+		['https://', 'localhost', null],
+		['https://', 'localhost:3500', null],
+		['https://', 'dedalo.localhost', null],
+		['https://', '127.0.0.1', null],
+		['https://', '[::1]', null],
+		['https://', '192.168.1.5', null],
+		['https://', '10.1.2.3:8443', null],
+		['https://', '172.16.0.9', null],
+		['https://', '100.64.0.1', null],
+		['https://', '169.254.169.254', null],
+		['https://', '[fd00::1]', null],
+		['https://', '[::ffff:10.0.0.1]', null],
+		['https://', '[2001:db8::1]', null],
+		['https://', 'intranet-srv01', null],
+		['https://', 'museo.local', null],
+		['https://', 'museo.local.', null],
+		['https://', 'MUSEO.LAN', null],
+		['https://', 'museo.home.arpa', null],
+		['https://', '1.0.0.10.in-addr.arpa', null],
+		['https://', '8.8.8.8.in-addr.arpa', null],
+		['https://', 'b.a.9.8.ip6.arpa', null],
+		['https://', 'foo.alt', null],
+		['https://', 'museo.test', null],
+		['https://', 'museo.example', null],
+		['https://', 'abcdefghijklmnop.onion', null],
+		['https://', 'local', null],
+		['https://', `${'a'.repeat(120)}.example.org`, null],
+		// a malformed host name: no shared identity disguised as a contact
+		['https://', '.museum.org', null],
+		['https://', 'foo..org', null],
+		['https://', '-.org', null],
+		['https://', 'museum-.example.org', null],
+		['https://', 'museum.example.org..', null],
+		['https://', 'my_host.museum.org', null],
+		['https://', `${'a'.repeat(64)}.org`, null],
+		// a value that is not a clean origin is NOT repaired: no contact, no Referer, no geo origin
+		['https://', 'curator:secret@museum.example.org', null],
+		['https://', 'curator@museum.example.org', null],
+		['https://', 'museum.example.org/dedalo', null],
+		['https://', 'museum.example.org?x=1', null],
+		['https://', 'museum.example.org?', null],
+		['https://', 'museum.example.org#frag', null],
+		['https://', 'museum.example.org#', null],
+		// a control character or whitespace URL parsing would silently drop or trim
+		['https://', 'museum.example.org\r\nX-Injected: 1', null],
+		['https://', 'museum.example.org\nX-Injected: 1', null],
+		['https://', 'museum.example.org\u0000', null],
+		['https://', 'museum.example.org\t', null],
+		['https://', 'museum.example.org ', null],
+		['https://', 'muse\tum.example.org', null],
+		['https://\r\n', 'museum.example.org', null],
+		// not a web scheme
+		['ftp://', 'museum.example.org', null],
+		['javascript://', 'museum.example.org', null],
+		['', 'museum.example.org', null],
+		// the ONE scheme check: a special scheme with a tuple origin (`ftp:` parses as a bare
+		// origin with a host) is refused by the scheme alone — the header character set judges
+		// the host part only, so removing the scheme check turns the ftp row red
+		['ftp://', 'museum.example.org:21', null],
+		['ws://', 'museum.example.org', null],
+		['wss://', 'museum.example.org', null],
+		// port 0 is no port: nothing listens there, so nothing is published
+		['https://', 'museum.example.org:0', null],
+		['https://', 'museum.example.org:000', null],
+		['http://', '93.184.216.34:0', null],
+		// an UNSET host names nothing: `publicOrigin`'s `localhost` fallback builds update URLs,
+		// it is no identity — glued onto a protocol that carries a host it would name
+		// `museum.example.orglocalhost`, a host nobody configured
+		['https://museum.example.org', '', null],
+		['https://museum.example.org/', '', null],
+		['http://93.184.216.34', '', null],
+		// …and the normal pair beside it is unchanged
+		['https://', 'museum.example.org:1', 'https://museum.example.org:1'],
 	];
 
-	function configure(host: string): void {
-		process.env.DEDALO_PROTOCOL = 'https://';
-		process.env.DEDALO_HOST = host;
-	}
+	/** The origin a `User-Agent` names after `marker`, or null when it names none. */
+	const namedIn = (agent: string, marker: string): string | null => {
+		const at = agent.indexOf(marker);
+		return at === -1 ? null : agent.slice(at + marker.length, -1);
+	};
 
-	test('the Referer of the tile proxy and the User-Agents of the geo services and of the interactive door say the same origin, or neither says any — over one table', () => {
-		for (const [host, origin] of REACHABLE) {
-			configure(host);
-			expect(reachablePublicOrigin(), host).toBe(origin);
-			expect(tileReferer(), host).toBe(`${origin}/`);
-			expect(geoUserAgent(), host).toContain(`; ${origin})`);
-			expect(installationUserAgent(), host).toBe(HARVEST_USER_AGENT.replace(/\)$/, `; ${origin})`));
-		}
-		for (const host of UNREACHABLE) {
-			configure(host);
-			expect(reachablePublicOrigin(), `"${host}"`).toBeNull();
-			expect(tileReferer(), `"${host}"`).toBeNull();
-			expect(geoUserAgent(), `"${host}"`).not.toContain('; ');
-			// the door's plain identity, byte for byte: an internal name is never published to a provider
-			expect(installationUserAgent(), `"${host}"`).toBe(HARVEST_USER_AGENT);
+	test('the Referer of the tile proxy and the User-Agents of the geo services and of the interactive door: one derivation — byte-equal origins, present or absent together — over one table', () => {
+		for (const [protocol, host, origin] of TABLE) {
+			process.env.DEDALO_PROTOCOL = protocol;
+			process.env.DEDALO_HOST = host;
+			const label = JSON.stringify([protocol, host]);
+			expect(reachablePublicOrigin(), label).toBe(origin);
+			const referer = tileReferer();
+			const contact = installationUserAgent();
+			const geo = geoUserAgent();
+			// the exact bytes each sender puts on the wire
+			expect(referer, label).toBe(origin === null ? null : `${origin}/`);
+			expect(contact, label).toBe(origin === null ? HARVEST_USER_AGENT : `${PRODUCT} (+${origin})`);
+			// the three agree by OUTCOME: the origin read back out of each header is the same, or absent from all
+			const fromReferer = referer === null ? null : referer.slice(0, -1);
+			const fromContact = contact === HARVEST_USER_AGENT ? null : namedIn(contact, ' (+');
+			expect(fromContact, label).toBe(fromReferer);
+			expect(namedIn(geo, '+https://dedalo.dev; '), label).toBe(fromReferer);
+			// every header is printable ASCII: nothing configured reaches the wire as a delimiter or a control
+			for (const header of [referer ?? '', contact, geo]) {
+				expect(/^[ -~]*$/.test(header), label).toBe(true);
+				expect(header, label).not.toContain('secret');
+				expect(header, label).not.toContain('curator');
+			}
 		}
 	});
 
-	test('isReachableFromOutside judges a bare host the same way: whole labels at the end, the suffix itself included', () => {
-		for (const host of ['museum.org', 'lan.museum.org', 'internal.example.org', '8.8.8.8']) {
+	test('isReachableFromOutside judges a bare host the same way: whole well-formed labels, the suffix itself included', () => {
+		for (const host of [
+			'museum.org',
+			'lan.museum.org',
+			'internal.example.org',
+			'xn--muse-tra.example.org',
+			'8.8.8.8',
+			'MUSEUM.ORG.',
+		]) {
 			expect(isReachableFromOutside(host), host).toBe(true);
 		}
 		for (const host of [
@@ -1705,15 +1790,18 @@ describe('public_reach — ONE rule for the origin the installation tells a prov
 			'10.0.0.1',
 			'::1',
 			'[::1]',
+			'arpa',
+			'alt',
+			'home.arpa',
+			'.museum.org',
+			'foo..org',
+			'-.org',
+			'museum.org-',
+			'museum..',
+			'',
 		]) {
 			expect(isReachableFromOutside(host), host).toBe(false);
 		}
-	});
-
-	test('a host that carries credentials or a path sends the canonical origin alone', () => {
-		configure('curator:secret@museum.example.org/dedalo');
-		expect(tileReferer()).toBe('https://museum.example.org/');
-		expect(geoUserAgent()).not.toContain('curator');
 	});
 });
 
