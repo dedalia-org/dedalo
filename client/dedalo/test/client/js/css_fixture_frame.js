@@ -46,8 +46,7 @@ export const wait_for = async (predicate, timeout_ms = 3000) => {
  */
 export const open_css_frame = async (width, container_class) => {
 	const new_frame = document.createElement('iframe');
-	new_frame.style.cssText =
-		`position:absolute;left:-10000px;top:0;width:${width}px;height:800px;border:0;`;
+	new_frame.style.cssText = `position:absolute;left:-10000px;top:0;width:${width}px;height:800px;border:0;`;
 	// listener BEFORE append: an about:blank load event can fire in the
 	// append itself, and a listener attached afterwards would never hear it
 	const frame_loaded = new Promise((resolve) =>

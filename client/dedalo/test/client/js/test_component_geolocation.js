@@ -2135,8 +2135,9 @@ describe(`COMPONENT_GEOLOCATION MAP DEFINITION IS PRESERVED`, function() {
 
 			const stored = stored_entry()
 			const { instance } = await build_unmapped_instance('map_def_learn_removed', stored)
-			instance.current_value[0] = stored_entry()
-			delete instance.current_value[0].legend
+			// the buffer entry WITHOUT a legend key (absent, not undefined)
+			const { legend: _legend, ...without_legend } = stored_entry()
+			instance.current_value[0] = without_legend
 
 			const echo = [{ id : 5, lat : 41.38, lon : 2.17, zoom : 12, alt : 16 }]
 			await with_saved_echo(instance, echo, { ok : true, result : {} }, () => instance.save([{ action:'update', key:0, id:5, value:{} }]))
