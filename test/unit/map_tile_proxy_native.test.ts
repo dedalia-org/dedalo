@@ -134,6 +134,7 @@ import { assertTestDatabase } from '../../src/core/test_data/test_database_marke
 import { handleRequest } from '../../src/server.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
 import { gifHeader, jpegHeader, pngHeader, webpHeader } from '../helpers/image_headers.ts';
+import { PUBLIC_ORIGIN_TABLE } from '../helpers/public_origin_table.ts';
 import { registerSessionCleanup } from '../helpers/session_cleanup.ts';
 
 registerSessionCleanup();
@@ -217,6 +218,9 @@ const STORED_SOURCES = [
 	// the same registry host spelled with its root dot, and a name under it
 	{ id: 15, ...xyz('https://TILE.openstreetmap.org./{z}/{x}/{y}.png') },
 	{ id: 16, ...xyz('https://a.tile.openstreetmap.org/{z}/{x}/{y}.png') },
+	// the same provider under its other names: the same tile servers answer there
+	{ id: 17, ...xyz('https://tile.osm.org/{z}/{x}/{y}.png') },
+	{ id: 18, ...xyz('https://TILE.openstreetmap.com./{z}/{x}/{y}.png') },
 ];
 
 const geoValue = (sources: unknown[]) => ({
@@ -515,8 +519,21 @@ function depsOf(withClock = false): GeoServiceDeps {
 	return { lookup, fetch: socketSeam, ...(withClock ? { limiter: { now: () => clock.now } } : {}) };
 }
 
+/**
+ * The public origin every test runs under unless it says otherwise. OpenStreetMap is relayed
+ * ONLY by an installation that has one (geo/tile_proxy/direct_tiles.ts), so the posture the
+ * relay is exercised in is the identified one; a test about the other posture clears it.
+ */
+const IDENTIFIED_HOST = 'maps.museum-example.org';
+
+function identifyAs(host: string, protocol = 'https://'): void {
+	process.env.DEDALO_PROTOCOL = protocol;
+	process.env.DEDALO_HOST = host;
+}
+
 beforeEach(() => {
 	for (const key of PINNED_SETTINGS) process.env[key] = '';
+	identifyAs(IDENTIFIED_HOST);
 	setNat64DiscoveryForTests({ prefixes: [], expiresAt: Date.now() + 10 * 60_000 });
 	peer.received = [];
 	peer.pinned = [];
@@ -872,29 +889,18 @@ describe.if(DB_READY)('map tile proxy — gates, door and memory, end to end', (
 		expect(request?.headers.get('accept')).toBe('image/png,image/jpeg,image/gif,image/webp');
 	});
 
-	test('the identity is not part of the cache key, and the Referer and the contact identity follow ONE rule for a malformed and an IDN address', async () => {
-		process.env.DEDALO_PROTOCOL = 'https://';
-		process.env.DEDALO_HOST = 'maps.museum-example.org';
+	test('the identity is not part of the cache key, and the Referer and the contact identity follow ONE rule for an IDN address', async () => {
+		identifyAs('maps.museum-example.org');
 		expect((await ask(builtin('osm'))).status).toBe(200);
 		expect(peer.received).toHaveLength(1);
-		// another identity (an intranet name: the shared one) asks for the same tile: served from the one entry
-		process.env.DEDALO_HOST = 'intranet-srv01';
+		// another PUBLIC identity asks for the same tile: served from the one entry
+		identifyAs('other.museum-example.org');
 		expect((await ask(builtin('osm'))).status).toBe(200);
 		expect(peer.received).toHaveLength(1);
-		// a configured address with credentials and a path is not a clean origin and is not repaired:
-		// ONE rule for both headers — no Referer AND the shared identity; the tile is still served
-		clearTileCacheForTests();
-		peer.received = [];
-		process.env.DEDALO_HOST = 'curator:secret@maps.museum-example.org/dedalo';
-		expect((await ask(builtin('osm'))).status).toBe(200);
-		const [request] = peer.received;
-		expect(request?.headers.get('referer')).toBeNull();
-		expect(request?.headers.get('user-agent')).toBe(HARVEST_USER_AGENT);
-		expect(JSON.stringify([...(request?.headers.entries() ?? [])])).not.toContain('secret');
 		// an IDN host IS a clean origin: the Referer and the contact say the same punycode origin
 		clearTileCacheForTests();
 		peer.received = [];
-		process.env.DEDALO_HOST = 'mapas.museú-example.org';
+		identifyAs('mapas.museú-example.org');
 		expect((await ask(builtin('osm'))).status).toBe(200);
 		const [idn] = peer.received;
 		const product = HARVEST_USER_AGENT.slice(0, HARVEST_USER_AGENT.indexOf(' '));
@@ -904,17 +910,15 @@ describe.if(DB_READY)('map tile proxy — gates, door and memory, end to end', (
 		);
 	});
 
-	test('the Referer is sent only where a provider’s terms ask for it, and only an origin an outside machine could reach', async () => {
-		process.env.DEDALO_PROTOCOL = 'https://';
+	test('the Referer is sent only where a provider’s terms ask for it; an installation nobody outside can reach does not relay OpenStreetMap at all, and still relays IGN under the shared identity', async () => {
 		// a stored source never receives the installation’s address…
-		process.env.DEDALO_HOST = 'maps.museum-example.org';
+		identifyAs('maps.museum-example.org');
 		expect((await ask(stored(1))).status).toBe(200);
 		expect(peer.received[0]?.headers.get('referer')).toBeNull();
 		// (its User-Agent names the installation all the same: a stored host is a provider too)
 		expect(peer.received[0]?.headers.get('user-agent')).toContain(
 			'https://maps.museum-example.org',
 		);
-		// …and OSM gets none from an installation nobody outside can reach
 		for (const host of [
 			'',
 			'localhost',
@@ -922,17 +926,102 @@ describe.if(DB_READY)('map tile proxy — gates, door and memory, end to end', (
 			'intranet.local',
 			'museum',
 			'10.1.2.3:8443',
+			'curator:secret@maps.museum-example.org/dedalo',
 		]) {
-			process.env.DEDALO_HOST = host;
+			identifyAs(host);
 			clearTileCacheForTests();
 			peer.received = [];
-			expect((await ask(builtin('osm'))).status, host).toBe(200);
+			// OpenStreetMap: refused before any socket — its policy forbids the shared identity
+			await expectOneRefusal(await ask(builtin('osm')), 'external.disabled', 503);
+			expect(peer.received, `host "${host}"`).toEqual([]);
+			// IGN asks no identity of the relay: relayed, the door's plain identity, no Referer —
+			// an internal name is not published to a third party
+			expect((await ask(builtin('ign_admin_units'))).status, host).toBe(200);
 			expect(peer.received[0]?.headers.get('referer'), `host "${host}"`).toBeNull();
-			// an internal name is not published to a third party in the User-Agent either: the door's plain identity
 			expect(peer.received[0]?.headers.get('user-agent'), `host "${host}"`).toBe(
 				HARVEST_USER_AGENT,
 			);
+			expect(JSON.stringify([...(peer.received[0]?.headers.entries() ?? [])])).not.toContain(
+				'secret',
+			);
 		}
+	});
+
+	test('IDENTITY: over the one table of configured origins, OpenStreetMap is relayed under the installation’s contact identity or refused — never relayed under the shared one', async () => {
+		const product = HARVEST_USER_AGENT.slice(0, HARVEST_USER_AGENT.indexOf(' '));
+		let refused = 0;
+		let relayed = 0;
+		for (const [protocol, host, origin] of PUBLIC_ORIGIN_TABLE) {
+			identifyAs(host, protocol);
+			clearTileCacheForTests();
+			clearPrincipalBudgetsForTests();
+			clearInteractiveForTests();
+			peer.received = [];
+			const label = JSON.stringify([protocol, host]);
+			const response = await ask(builtin('osm'));
+			if (origin === null) {
+				expect(response.status, label).toBe(503);
+				expect(await errorCode(response), label).toBe('external.disabled');
+				expect(peer.received, label).toEqual([]);
+				refused++;
+			} else {
+				expect(response.status, label).toBe(200);
+				expect(peer.received[0]?.headers.get('user-agent'), label).toBe(`${product} (+${origin})`);
+				expect(peer.received[0]?.headers.get('referer'), label).toBe(`${origin}/`);
+				relayed++;
+			}
+		}
+		expect(refused).toBeGreaterThan(10);
+		expect(relayed).toBeGreaterThan(10);
+	});
+
+	test('IDENTITY: a tile kept while the installation had an identity is NOT served once it has none — the decision comes before the memory — and it is counted', async () => {
+		expect((await ask(builtin('osm'))).status).toBe(200);
+		expect(tilesKept()).toBe(1);
+		expect(peer.received).toHaveLength(1);
+		const before = getCounters().map_tile_identity_withheld ?? 0;
+		identifyAs('intranet-srv01');
+		await expectOneRefusal(await ask(builtin('osm')), 'external.disabled', 503);
+		expect(tilesKept(), 'the entry stays; it is simply not this installation’s to serve').toBe(1);
+		expect(peer.received).toHaveLength(1);
+		expect((getCounters().map_tile_identity_withheld ?? 0) - before).toBe(1);
+		// identified again, the very same entry answers: no second provider request
+		identifyAs(IDENTIFIED_HOST);
+		expect((await ask(builtin('osm'))).status).toBe(200);
+		expect(peer.received).toHaveLength(1);
+	});
+
+	test('IDENTITY: the refusal follows the PROVIDER — an editor’s source on OpenStreetMap’s host, any spelling, a name under it or one of its other domains (osm.org, openstreetmap.com), is refused too; another stored host is not', async () => {
+		identifyAs('');
+		for (const id of [14, 15, 16, 17, 18]) {
+			await expectOneRefusal(await ask(stored(id)), 'external.disabled', 503);
+		}
+		expect(peer.received).toEqual([]);
+		expect((await ask(stored(1))).status).toBe(200);
+		expect(peer.received.map((r) => r.host)).toEqual(['tiles.example.org']);
+		// identified, the alias domains are relayed like any OpenStreetMap host (anti-vacuity: the
+		// refusal above is the identity rule, not a source that fails to resolve)
+		identifyAs(IDENTIFIED_HOST);
+		peer.received = [];
+		for (const id of [17, 18]) expect((await ask(stored(id))).status, String(id)).toBe(200);
+		expect(peer.received.map((r) => r.host.toLowerCase().replace(/\.$/, ''))).toEqual([
+			'tile.osm.org',
+			'tile.openstreetmap.com',
+		]);
+	});
+
+	test('IDENTITY: permission comes first — a caller who may not read the map gets the uniform no, not the identity refusal, with the tile sitting in the memory', async () => {
+		expect((await ask(builtin('osm'))).status).toBe(200);
+		identifyAs('');
+		const reference = await shown(await ask(stored(1), { who: null }));
+		for (const who of ['noComponent', 'noSection', null] as const) {
+			expect(await shown(await ask(builtin('osm'), { who })), String(who)).toEqual(reference);
+		}
+		expect(await shown(await ask(stored(14), { who: 'noComponent' }))).toEqual(reference);
+		expect(await shown(await ask(stored(14, TILE, OUT_OF_PROJECT_RECORD)))).toEqual(reference);
+		// …and a view the source does not take is the uniform no as well, before the origin
+		expect(await shown(await ask(builtin('osm', 'z=21&x=0&y=0')))).toEqual(reference);
+		expect(peer.received).toHaveLength(1);
 	});
 
 	test('the registry is closed: DARE, Catastro, Carto, ArcGIS and Google are not built-ins, nor is anything by its prototype', async () => {

@@ -29,7 +29,10 @@
  *      window per person, not a `[frontier]` line per request), the ontology's word that it
  *      is a geolocation of that section (virtual sections resolve to their real one), the
  *      record scope — and only then the source itself, re-validated at fetch time
- *   4. the upstream address, built
+ *   4. the upstream address, built — and, for a provider that lets a relay through only under
+ *      the INSTALLATION's own identity (OpenStreetMap), the installation's public origin: an
+ *      installation without one does not relay it (503 `external.disabled`; its browsers load
+ *      that provider directly, geo/tile_proxy/direct_tiles.ts). After the gates, before the memory
  *   5. THE MEMORY, keyed by that address — consulted only AFTER 1-4, so a hit can never
  *      answer a caller who failed a gate (geo/tile_proxy/tile_cache.ts): a successful, verified
  *      image held for the provider's own freshness (no provider call, no token). A tile that has
@@ -124,6 +127,7 @@ import { toErrorEnvelope } from '../errors/convert.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { formatErrorLine } from '../errors/log.ts';
 import { termsFor } from '../geo/tile_proxy/builtin_sources.ts';
+import { relayWithheld } from '../geo/tile_proxy/direct_tiles.ts';
 import {
 	absentCacheControl,
 	browserCacheControl,
@@ -147,7 +151,7 @@ import {
 	type RelayedTile,
 	type TileOutcome,
 } from '../geo/tile_proxy/tile_outcome.ts';
-import { parseTileRequest, type TileRef } from '../geo/tile_proxy/tile_request.ts';
+import { parseTileRequest, type TileRef, type TileView } from '../geo/tile_proxy/tile_request.ts';
 import { type ResolvedTileSource, resolveTileSource } from '../geo/tile_proxy/tile_source.ts';
 import { buildUpstream, type UpstreamRequest } from '../geo/tile_proxy/upstream_url.ts';
 import { geoServiceSeams } from '../geo_services/geo_seams.ts';
@@ -478,18 +482,59 @@ export async function handleMapTile(
 	const { ref, view } = parsed.value;
 	const resolved = await resolveTileSource(caller.principal, ref);
 	if (resolved === null) return refuseNotFound(requestId);
-	const upstream = buildUpstream(resolved.source, view);
-	if (!upstream.ok) {
-		// A view the source does not take, a zoom outside it: the caller's to cause at will, so counted, never logged.
-		incrementCounter('map_tile_no_address');
-		return refuseNotFound(requestId);
-	}
+	const upstream = addressOrRefusal(resolved, view, ref, requestId);
+	if (upstream instanceof Response) return upstream;
 	return relay({
 		request,
 		requestId,
 		userId: caller.principal.userId,
 		ref,
 		resolved,
-		upstream: upstream.value,
+		upstream,
 	});
+}
+
+/**
+ * Step 4, and the one refusal that depends on the ORIGIN rather than the caller: the upstream
+ * address, or why it is not asked.
+ *
+ *   - a view the source does not take, a zoom outside it: the caller's to cause at will, so
+ *     counted, never logged — the uniform not-found;
+ *   - a provider that lets a relay through only under the installation's own identity, from an
+ *     installation that has none (`relayWithheld`, geo/tile_proxy/direct_tiles.ts): the closed
+ *     `external.disabled`, one operator line per source a window. It comes AFTER every gate
+ *     (a caller who may not read the map learns nothing of the provider) and BEFORE the memory,
+ *     so a tile kept while the installation still had an identity is not served once it has
+ *     none: the decision does not depend on the cache key at all. The client never asks for a
+ *     built-in it was told to load directly (`features.tile_direct`); what reaches this is a
+ *     stored source or a default on that provider's host, or a client older than the field.
+ */
+function addressOrRefusal(
+	resolved: ResolvedTileSource,
+	view: TileView,
+	ref: TileRef,
+	requestId: string,
+): UpstreamRequest | Response {
+	const upstream = buildUpstream(resolved.source, view);
+	if (!upstream.ok) {
+		incrementCounter('map_tile_no_address');
+		return refuseNotFound(requestId);
+	}
+	if (relayWithheld(upstream.value.host)) return refuseWithheld(ref, requestId);
+	return upstream.value;
+}
+
+/** The refusal of a provider this installation may not relay (see `addressOrRefusal`). */
+function refuseWithheld(ref: TileRef, requestId: string): Response {
+	incrementCounter('map_tile_identity_withheld');
+	const error = new DedaloError('external.disabled', {
+		message:
+			'map tile provider requires the installation’s own identity: set a public DEDALO_HOST to relay it',
+		coordinates: { why: 'installation_identity_required', source: sourceLabel(ref) },
+	});
+	const key = formatErrorLine(error, { subsystem: 'map_tile' });
+	reportOncePerWindow(key, clockNow(), () =>
+		console.warn(formatErrorLine(error, { subsystem: 'map_tile', requestId })),
+	);
+	return refuse(error, requestId);
 }

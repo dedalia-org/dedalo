@@ -32,10 +32,13 @@
  *   budget/flight  the per-person token bucket and the one-call-per-address board (their pure
  *                  halves; the route drives them end to end)
  *   log            what the operator is told, once per distinct line per window
- *   public_reach   ONE rule for the origin the installation tells a provider, over both senders
+ *   public_reach   ONE rule for the origin the installation tells a provider, over the senders —
+ *                  and, over the same table (test/helpers/public_origin_table.ts), who loads an
+ *                  identity-bound provider: the proxy, or the browser (direct_tiles.ts)
  *   image_bytes    the signature of each of the four types; markup and SVG are none of them
  *   builtin        the registry is CLOSED to the providers whose terms were verified, its rows
- *                  pass the stored-source validator, and the terms follow the ORIGIN
+ *                  pass the stored-source validator, and the terms (and the identity
+ *                  requirement, with every name under its host) follow the ORIGIN
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
@@ -51,8 +54,10 @@ import {
 	builtinProblems,
 	DEFAULT_TERMS,
 	findBuiltinSource,
+	identityRequiredFor,
 	termsFor,
 } from '../../src/core/geo/tile_proxy/builtin_sources.ts';
+import { directBuiltinIds, relayWithheld } from '../../src/core/geo/tile_proxy/direct_tiles.ts';
 import {
 	ABSENT_BROWSER_LIFETIME_MS,
 	absentCacheControl,
@@ -150,6 +155,7 @@ import {
 } from '../../src/core/resolve/public_reach.ts';
 import type { PinnedHopRequest, PinnedHopResponse } from '../../src/core/security/ssrf_guard.ts';
 import { gifHeader, jpegHeader, pngHeader, webpHeader } from '../helpers/image_headers.ts';
+import { PUBLIC_ORIGIN_TABLE } from '../helpers/public_origin_table.ts';
 
 const SECONDS = 1000;
 const NOW = 1_700_000_000_000;
@@ -1634,111 +1640,6 @@ describe('public_reach — ONE rule for the origin the installation tells a prov
 	/** `dedalo/<release identity>`: the product part every identity shares. */
 	const PRODUCT = HARVEST_USER_AGENT.slice(0, HARVEST_USER_AGENT.indexOf(' '));
 
-	/** A well-formed host name (labels under 64) of exactly `length` characters once `https://` is in front of it. */
-	const originOf = (length: number) =>
-		`${'a'.repeat(60)}.${'b'.repeat(length - 'https://'.length - 61 - '.org'.length)}.org`;
-
-	/** [DEDALO_PROTOCOL, DEDALO_HOST, the ONE origin every sender says — or null: none says any]. */
-	const TABLE: [protocol: string, host: string, origin: string | null][] = [
-		// a public origin, and what URL parsing canonicalizes into the SAME origin
-		['https://', 'museum.example.org', 'https://museum.example.org'],
-		['http://', 'museum.example.org', 'http://museum.example.org'],
-		['https://', 'MUSEUM.Example.ORG', 'https://museum.example.org'],
-		['https://', 'museum.example.org:443', 'https://museum.example.org'],
-		['https://', 'museum.example.org:8443', 'https://museum.example.org:8443'],
-		['https://', 'museum.example.org/', 'https://museum.example.org'],
-		['https://', 'museum.example.org.', 'https://museum.example.org.'],
-		['HTTPS://', 'museum.example.org', 'https://museum.example.org'],
-		['https:', 'museum.example.org', 'https://museum.example.org'],
-		['https:/', 'museum.example.org', 'https://museum.example.org'],
-		['https://', 'museú.example.org', 'https://xn--muse-tra.example.org'],
-		['https://', '93.184.216.34', 'https://93.184.216.34'],
-		['https://', '[2001:4860:4860::8888]', 'https://[2001:4860:4860::8888]'],
-		['https://', 'localhost.museum.org', 'https://localhost.museum.org'],
-		['https://', 'lan.museum.org', 'https://lan.museum.org'],
-		['https://', 'arpa.museum.org', 'https://arpa.museum.org'],
-		// the bound is on the CANONICAL origin, the one sent: 100 characters is an origin, 101 is not…
-		['https://', originOf(100), `https://${originOf(100)}`],
-		['https://', originOf(101), null],
-		// …and a long configured value that canonicalizes to a short origin is that origin, not cut
-		['https://', `museum.example.org:${'0'.repeat(100)}443`, 'https://museum.example.org'],
-		// unset, loopback, private and reserved addresses, names no outside resolver answers
-		['https://', '', null],
-		['https://', 'localhost', null],
-		['https://', 'localhost:3500', null],
-		['https://', 'dedalo.localhost', null],
-		['https://', '127.0.0.1', null],
-		['https://', '[::1]', null],
-		['https://', '192.168.1.5', null],
-		['https://', '10.1.2.3:8443', null],
-		['https://', '172.16.0.9', null],
-		['https://', '100.64.0.1', null],
-		['https://', '169.254.169.254', null],
-		['https://', '[fd00::1]', null],
-		['https://', '[::ffff:10.0.0.1]', null],
-		['https://', '[2001:db8::1]', null],
-		['https://', 'intranet-srv01', null],
-		['https://', 'museo.local', null],
-		['https://', 'museo.local.', null],
-		['https://', 'MUSEO.LAN', null],
-		['https://', 'museo.home.arpa', null],
-		['https://', '1.0.0.10.in-addr.arpa', null],
-		['https://', '8.8.8.8.in-addr.arpa', null],
-		['https://', 'b.a.9.8.ip6.arpa', null],
-		['https://', 'foo.alt', null],
-		['https://', 'museo.test', null],
-		['https://', 'museo.example', null],
-		['https://', 'abcdefghijklmnop.onion', null],
-		['https://', 'local', null],
-		['https://', `${'a'.repeat(120)}.example.org`, null],
-		// a malformed host name: no shared identity disguised as a contact
-		['https://', '.museum.org', null],
-		['https://', 'foo..org', null],
-		['https://', '-.org', null],
-		['https://', 'museum-.example.org', null],
-		['https://', 'museum.example.org..', null],
-		['https://', 'my_host.museum.org', null],
-		['https://', `${'a'.repeat(64)}.org`, null],
-		// a value that is not a clean origin is NOT repaired: no contact, no Referer, no geo origin
-		['https://', 'curator:secret@museum.example.org', null],
-		['https://', 'curator@museum.example.org', null],
-		['https://', 'museum.example.org/dedalo', null],
-		['https://', 'museum.example.org?x=1', null],
-		['https://', 'museum.example.org?', null],
-		['https://', 'museum.example.org#frag', null],
-		['https://', 'museum.example.org#', null],
-		// a control character or whitespace URL parsing would silently drop or trim
-		['https://', 'museum.example.org\r\nX-Injected: 1', null],
-		['https://', 'museum.example.org\nX-Injected: 1', null],
-		['https://', 'museum.example.org\u0000', null],
-		['https://', 'museum.example.org\t', null],
-		['https://', 'museum.example.org ', null],
-		['https://', 'muse\tum.example.org', null],
-		['https://\r\n', 'museum.example.org', null],
-		// not a web scheme
-		['ftp://', 'museum.example.org', null],
-		['javascript://', 'museum.example.org', null],
-		['', 'museum.example.org', null],
-		// the ONE scheme check: a special scheme with a tuple origin (`ftp:` parses as a bare
-		// origin with a host) is refused by the scheme alone — the header character set judges
-		// the host part only, so removing the scheme check turns the ftp row red
-		['ftp://', 'museum.example.org:21', null],
-		['ws://', 'museum.example.org', null],
-		['wss://', 'museum.example.org', null],
-		// port 0 is no port: nothing listens there, so nothing is published
-		['https://', 'museum.example.org:0', null],
-		['https://', 'museum.example.org:000', null],
-		['http://', '93.184.216.34:0', null],
-		// an UNSET host names nothing: `publicOrigin`'s `localhost` fallback builds update URLs,
-		// it is no identity — glued onto a protocol that carries a host it would name
-		// `museum.example.orglocalhost`, a host nobody configured
-		['https://museum.example.org', '', null],
-		['https://museum.example.org/', '', null],
-		['http://93.184.216.34', '', null],
-		// …and the normal pair beside it is unchanged
-		['https://', 'museum.example.org:1', 'https://museum.example.org:1'],
-	];
-
 	/** The origin a `User-Agent` names after `marker`, or null when it names none. */
 	const namedIn = (agent: string, marker: string): string | null => {
 		const at = agent.indexOf(marker);
@@ -1746,7 +1647,7 @@ describe('public_reach — ONE rule for the origin the installation tells a prov
 	};
 
 	test('the Referer of the tile proxy and the User-Agents of the geo services and of the interactive door: one derivation — byte-equal origins, present or absent together — over one table', () => {
-		for (const [protocol, host, origin] of TABLE) {
+		for (const [protocol, host, origin] of PUBLIC_ORIGIN_TABLE) {
 			process.env.DEDALO_PROTOCOL = protocol;
 			process.env.DEDALO_HOST = host;
 			const label = JSON.stringify([protocol, host]);
@@ -1769,6 +1670,34 @@ describe('public_reach — ONE rule for the origin the installation tells a prov
 				expect(header, label).not.toContain('curator');
 			}
 		}
+	});
+
+	test('the SAME table decides who loads OpenStreetMap: relayed only under the installation’s own identity, else listed for the browser — never relayed under the shared one', () => {
+		const osmHost = new URL(findBuiltinSource('osm')?.source.url ?? '').hostname;
+		const ignHost = new URL(findBuiltinSource('ign_admin_units')?.source.url ?? '').hostname;
+		let withheld = 0;
+		let relayed = 0;
+		for (const [protocol, host, origin] of PUBLIC_ORIGIN_TABLE) {
+			process.env.DEDALO_PROTOCOL = protocol;
+			process.env.DEDALO_HOST = host;
+			const label = JSON.stringify([protocol, host]);
+			const withholdsOsm = relayWithheld(osmHost);
+			// the route's refusal and the client's signal are one rule: present or absent together
+			expect(withholdsOsm, label).toBe(origin === null);
+			expect(directBuiltinIds(), label).toEqual(withholdsOsm ? ['osm'] : []);
+			// the outcome the policy asks for: OSM is relayed ONLY with the contact identity
+			if (!withholdsOsm) {
+				expect(installationUserAgent(), label).not.toBe(HARVEST_USER_AGENT);
+				expect(tileReferer(), label).not.toBeNull();
+			}
+			// a provider that asks no identity of the relay is relayed either way (shared identity)
+			expect(relayWithheld(ignHost), label).toBe(false);
+			if (withholdsOsm) withheld++;
+			else relayed++;
+		}
+		// anti-vacuity: the table holds both kinds
+		expect(withheld).toBeGreaterThan(10);
+		expect(relayed).toBeGreaterThan(10);
 	});
 
 	test('isReachableFromOutside judges a bare host the same way: whole well-formed labels, the suffix itself included', () => {
@@ -2057,5 +1986,40 @@ describe('builtin_sources — a closed registry of verified providers', () => {
 			DEFAULT_TERMS.sendReferer,
 			'a stored host never receives the installation’s address',
 		).toBe(false);
+	});
+
+	test('the identity requirement follows the PROVIDER — every host under each of its domains, any root dots or case — not only its template host', () => {
+		expect(findBuiltinSource('osm')?.requiresInstallationIdentity).toBe(true);
+		expect(findBuiltinSource('ign_admin_units')?.requiresInstallationIdentity).toBe(false);
+		expect(findBuiltinSource('ign_admin_units')?.identityDomains).toEqual([]);
+		for (const host of [
+			'tile.openstreetmap.org',
+			'TILE.OpenStreetMap.org.',
+			'tile.openstreetmap.org..',
+			' tile.openstreetmap.org ',
+			'a.tile.openstreetmap.org',
+			'evil.tile.openstreetmap.org',
+			'openstreetmap.org',
+			// the same tile servers under the foundation's other names
+			'tile.osm.org',
+			'a.tile.osm.org',
+			'osm.org.',
+			'tile.openstreetmap.com',
+			'TILE.OPENSTREETMAP.COM..',
+		]) {
+			expect(identityRequiredFor(host), host).toBe(true);
+		}
+		for (const host of [
+			'www.ign.es',
+			'tiles.example.org',
+			'tile.openstreetmap.org.evil.test',
+			'osm.org.evil.test',
+			'notosm.org',
+			'myopenstreetmap.com',
+			'tile.openstreetmap.de',
+			'',
+		]) {
+			expect(identityRequiredFor(host), host).toBe(false);
+		}
 	});
 });

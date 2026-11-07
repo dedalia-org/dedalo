@@ -185,7 +185,7 @@ options: `OSM` | `GOOGLE` | `ARCGIS` | `NUMISDATA` | `VARIOUS`
 
 default: the `DEDALO_GEO_PROVIDER` env var, read into the TS config catalog as `config.geoProvider` (`src/config/config.ts`, `readEnv('DEDALO_GEO_PROVIDER', 'VARIOUS')`).
 
-Selects the base tile layer(s) of the Leaflet map. The server stamps the resolved value into `context.features.geo_provider` (`properties.geo_provider ?? config.geoProvider`) and the client switches on it: `src/core/resolve/structure_context.ts` appends `entry.features = {geo_provider}` for `component_geolocation` in the FULL (non-`simple`) context — without it the client's Leaflet widget cannot pick a tile backend and the map renders as an empty box (fixed 2026-07-04; gated by `component_geolocation_features_differential.test.ts`).
+Selects the base tile layer(s) of the Leaflet map. The server stamps the resolved value into `context.features.geo_provider` (`properties.geo_provider ?? config.geoProvider`) and the client switches on it: `src/core/resolve/structure_context.ts` appends `entry.features = {geo_provider}` for `component_geolocation` in the FULL (non-`simple`) context — without it the client's Leaflet widget cannot pick a tile backend and the map renders as an empty box (fixed 2026-07-04; gated by `component_geolocation_features_differential.test.ts`). The same `features` carries `tile_direct`, the built-ins the browser loads straight from their provider instead of through the [map tile proxy](../system/map_tile_proxy.md#built-in-sources): `["osm"]` on an installation without a public `DEDALO_HOST`, `[]` otherwise.
 
 - `OSM` — OpenStreetMap tiles, with automatic dark/light tile swap on theme change.
 - `GOOGLE` — Google `ROADMAP` layer (requires the Google plugin to be available).

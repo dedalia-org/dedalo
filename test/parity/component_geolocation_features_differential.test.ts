@@ -18,11 +18,18 @@
  * toEqual against the PHP/fixture response. A subset match is NOT used — a
  * second additive key, a dropped or renamed geo_provider, or any value drift
  * still fails here.
+ *
+ * A SECOND ledgered TS-only key (WC-2026-11-06-map-tile-proxy, 2026-11-07):
+ * `features.tile_direct`, the built-ins the browser loads directly because the
+ * tile proxy may not relay them without the installation's own identity. PHP
+ * had no proxy, so no counterpart; lifted by name the same way and asserted
+ * strictly (the rule's own answer for this configuration).
  */
 
 import { beforeAll, describe, expect, test } from 'bun:test';
 import { config } from '../../src/config/config.ts';
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
+import { directBuiltinIds } from '../../src/core/geo/tile_proxy/direct_tiles.ts';
 import { readSection } from '../../src/core/section/read.ts';
 import { hasPhpCredentials, PhpApiClient } from './php_client.ts';
 
@@ -72,13 +79,16 @@ describe.if(hasPhpCredentials())('component_geolocation features (edit context)'
 		expect(phpFeatures).toBeDefined(); // PHP always appends it (full context)
 		// Lift ONLY the ledgered divergence off the TS side, by name; everything
 		// else stays a strict byte comparison against PHP.
-		const { default_view, ...tsFeaturesRest } = tsFeatures as {
+		const { default_view, tile_direct, ...tsFeaturesRest } = tsFeatures as {
 			default_view?: unknown;
+			tile_direct?: unknown;
 			[key: string]: unknown;
 		};
 		// The lift is honest only while PHP has no counterpart key: if the fossil
 		// ever carried one, this must go back to a plain strict comparison.
 		expect((phpFeatures as { default_view?: unknown }).default_view).toBeUndefined();
+		expect((phpFeatures as { tile_direct?: unknown }).tile_direct).toBeUndefined();
+		expect(tile_direct).toEqual(directBuiltinIds());
 		expect(tsFeaturesRest).toEqual(phpFeatures as Record<string, unknown>);
 		expect((tsFeatures as { geo_provider?: unknown })?.geo_provider).toBeDefined();
 		// The lifted key is asserted TS-side, strictly: exact shape, exact values.

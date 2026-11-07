@@ -37,14 +37,22 @@
  *                        `dedalo/<release> (+<that origin>)`, naming the INSTALLATION as the
  *                        contact (harvest/installation_identity.ts; the same validated origin
  *                        as the Referer), so OSM sees one contactable installation per origin.
- *                        NOT MET WHERE IT HAS NONE (an installation reachable only from its own
- *                        network, or a malformed DEDALO_HOST): it sends the shared, less
- *                        identifying `dedalo/<release> (+https://dedalo.dev; heritage
- *                        cataloguing)`, the same for every such installation, which the policy
- *                        lets OSM block; the row is still relayed, never refused. Whether such an installation may relay this row at
- *                        all is the maintainer's decision and is OPEN
- *                        (engineering/wire_contract/WC-2026-11-06-map-tile-proxy.md); today it
- *                        does, and docs/core/system/map_tile_proxy.md says so to its operator;
+ *                        WHERE IT HAS NONE (an installation reachable only from its own network,
+ *                        or a malformed DEDALO_HOST) the condition cannot be met, so the proxy
+ *                        does NOT relay this provider at all (`requiresInstallationIdentity`):
+ *                        the shared door identity would be exactly the generic proxy identity
+ *                        the policy forbids, and one block of it would take the base map of
+ *                        every such installation down together. The VIEWER'S BROWSER loads the
+ *                        tiles directly instead (its own User-Agent and Referer — the policy's
+ *                        preferred path): the geolocation context lists the row in
+ *                        `features.tile_direct` (direct_tiles.ts), the page's CSP admits this
+ *                        one host, and a proxy request for it is refused
+ *                        (engineering/wire_contract/WC-2026-11-06-map-tile-proxy.md, decided
+ *                        2026-11-07). The requirement covers the provider's every name, not
+ *                        only the template's: `openstreetmap.org`, `osm.org`,
+ *                        `openstreetmap.com` and every host below them (`tile.osm.org`,
+ *                        `tile.openstreetmap.com` and `a.tile.openstreetmap.org` serve the same
+ *                        tiles) — `identityDomains`;
  *                      - the server's caching headers honoured, or a tile kept 7 days when
  *                        they cannot be read. MET (`defaultLifetimeMs` below);
  *                      - conditional requests on expired tiles. MET: a tile that came with an
@@ -61,11 +69,22 @@
  *                    (Orden FOM/2807/2015, art. 4): free reuse naming the origin; for a
  *                    service used unmodified the attribution is the one in the service's
  *                    own AccessConstraints — "CC BY 4.0 ign.es", read from its
- *                    GetCapabilities 2026-11-06, with WMS 1.3.0 and EPSG:3857 listed.
+ *                    GetCapabilities 2026-11-06, with WMS 1.3.0 and EPSG:3857 listed. Asks for
+ *                    no identity of the relay: relayed with the shared identity where the
+ *                    installation has no public origin.
  *
  * THE TERMS ARE A PROPERTY OF THE ORIGIN, not of the way a request found it. A stored
  * source whose host is a registry host gets the same terms (`termsFor`): the provider
- * cannot tell, and does not care, whose record the request came from.
+ * cannot tell, and does not care, whose record the request came from. The same holds for
+ * the identity requirement (`identityRequiredFor`), with one difference of direction: the
+ * terms are claimed for the EXACT host only (a claim of a longer lifetime or a Referer is
+ * owed to the reviewed service alone), while the requirement covers every host under the
+ * provider's listed domains (`identityDomains`: `a.tile.openstreetmap.org`, `tile.osm.org`,
+ * `tile.openstreetmap.com`), whatever its root dots: withholding the relay is the safe side, and
+ * an editor's spelling of one of the provider's names must not be a way round it. A stored source
+ * or an ontology default on such a host is refused where the installation has no public
+ * origin; it has no direct path (the CSP admits the built-in's exact host only, and the
+ * built-in is the way to show that map).
  */
 
 import { bareHost } from '../../harvest/follow.ts';
@@ -99,6 +118,21 @@ export interface BuiltinSource {
 	/** The source as the stored shape (geo/map_source.ts), so ONE builder serves every kind. */
 	readonly source: MapSourceBody;
 	readonly terms: ProviderTerms;
+	/**
+	 * The provider's terms let a relay through only under an identity of the INSTALLATION
+	 * (a contactable, per-installation User-Agent): where the installation has no public
+	 * origin the proxy does not relay this provider, and the browser loads it directly
+	 * (direct_tiles.ts). Only an `xyz` row may set it — the client's direct path is a slippy
+	 * template (`builtinProblems` checks it).
+	 */
+	readonly requiresInstallationIdentity: boolean;
+	/**
+	 * The DOMAINS the provider serves the same tiles under, each with every name below it — what
+	 * the identity requirement covers (`identityRequiredFor`), so an editor's spelling of one of
+	 * the provider's other names is not a way round it. Empty where nothing is required; a row
+	 * that requires an identity must list the domain of its own template (`builtinProblems`).
+	 */
+	readonly identityDomains: readonly string[];
 }
 
 /** The registry's rows, as written. Frozen to the leaves by `freezeDeep` below. */
@@ -114,6 +148,11 @@ const ROWS: readonly BuiltinSource[] = [
 		},
 		// The policy's own number: a tile whose freshness cannot be read is kept 7 days.
 		terms: { minIntervalMs: 0, sendReferer: true, defaultLifetimeMs: 7 * DAY_MS },
+		// "a clear, contactable User-Agent identifying the service": never the shared one
+		requiresInstallationIdentity: true,
+		// the same tile servers answer under the foundation's other names (tile.osm.org,
+		// tile.openstreetmap.com; confirmed by review 2026-11-07), and a.b.c.tile.openstreetmap.org are aliases
+		identityDomains: ['openstreetmap.org', 'osm.org', 'openstreetmap.com'],
 	},
 	{
 		id: 'ign_admin_units',
@@ -132,6 +171,8 @@ const ROWS: readonly BuiltinSource[] = [
 			attribution: 'CC BY 4.0 ign.es',
 		},
 		terms: { minIntervalMs: 0, sendReferer: false, defaultLifetimeMs: DAY_MS },
+		requiresInstallationIdentity: false,
+		identityDomains: [],
 	},
 ];
 
@@ -191,6 +232,51 @@ export function termsFor(hostname: string): ProviderTerms {
 	return TERMS_BY_HOST.get(bareHost(hostname)) ?? DEFAULT_TERMS;
 }
 
+/** A host as the identity rule compares it: `bareHost`, and EVERY trailing root dot gone. */
+function identityName(hostname: string): string {
+	return bareHost(hostname).replace(/\.+$/, '');
+}
+
+/** The domains of the rows whose provider asks for the installation's own identity, as compared. */
+const IDENTITY_DOMAINS: readonly string[] = Object.freeze(
+	ROWS.flatMap((row) =>
+		row.requiresInstallationIdentity ? row.identityDomains.map(identityName) : [],
+	),
+);
+
+/** `name` is `domain` or a name below it. */
+function isUnder(name: string, domain: string): boolean {
+	return name === domain || name.endsWith(`.${domain}`);
+}
+
+/**
+ * Does the provider at `hostname` let a relay through only under the installation's own
+ * identity? Any host under a domain its row lists (`identityDomains`: the template's own and the
+ * provider's other names), in any spelling of root dots or case — see the header: the safe
+ * direction, so an editor's `a.tile.openstreetmap.org` or `tile.osm.org` is not a way round it.
+ */
+export function identityRequiredFor(hostname: string): boolean {
+	const name = identityName(hostname);
+	return IDENTITY_DOMAINS.some((domain) => isUnder(name, domain));
+}
+
+/** A row that requires an identity is xyz and lists its own template's domain; one that does not lists none. */
+function identityProblems(row: BuiltinSource): string[] {
+	if (!row.requiresInstallationIdentity) {
+		return row.identityDomains.length === 0
+			? []
+			: [`builtin ${row.id}: identityDomains without requiresInstallationIdentity`];
+	}
+	const host = identityName(hostOfTemplate(row.source.url) ?? '');
+	const problems: string[] = [];
+	if (row.source.type !== 'xyz')
+		problems.push(`builtin ${row.id}: requiresInstallationIdentity needs an xyz source`);
+	if (!row.identityDomains.some((domain) => isUnder(host, identityName(domain)))) {
+		problems.push(`builtin ${row.id}: identityDomains do not cover its own template host`);
+	}
+	return problems;
+}
+
 /**
  * Every row passes the validator the stored sources pass. Called by the gate (and cheap
  * enough to run anywhere): a row that stops conforming is a defect in this file, found
@@ -201,6 +287,7 @@ export function builtinProblems(): string[] {
 	for (const row of ROWS) {
 		const checked = validateMapSource(row.source, `builtin ${row.id}`);
 		if (!checked.ok) problems.push(checked.reason);
+		problems.push(...identityProblems(row));
 	}
 	return problems;
 }

@@ -2211,12 +2211,15 @@ describe(`COMPONENT_GEOLOCATION TILES GO THROUGH THE TILE PROXY`, function() {
 	})
 
 	/** Builds an instance on `geo_provider`, with the ontology defaults the server would send, and its map. */
-	const build_mapped = async function(id_variant, geo_provider, entry, defaults=[{ id : 'regional', label : 'Regional base', type : 'xyz' }]) {
+	// `tile_direct` is pinned (default: none — the proxy posture), never borrowed from the suite
+	// server's configured origin: which built-ins the browser loads itself is the server's call
+	// per installation (core/geo/tile_proxy/direct_tiles.ts), and each test names the one it is about
+	const build_mapped = async function(id_variant, geo_provider, entry, defaults=[{ id : 'regional', label : 'Regional base', type : 'xyz' }], tile_direct=[]) {
 
 		const instance = await build_empty_instance(id_variant)
 		instance.data.entries	= entry ? [entry] : []
 		instance.db_data		= JSON.parse(JSON.stringify(instance.data))
-		instance.context.features	= { ...(instance.context.features || {}), geo_provider : geo_provider }
+		instance.context.features	= { ...(instance.context.features || {}), geo_provider : geo_provider, tile_direct : tile_direct }
 		// what the server sends: id, label, type and what the page needs to draw the layer
 		// (attribution, an xyz source's zoom bounds, a wms source's crs) — never an address
 		instance.context.properties	= {
@@ -2296,6 +2299,63 @@ describe(`COMPONENT_GEOLOCATION TILES GO THROUGH THE TILE PROXY`, function() {
 
 			await teardown(instance)
 		}
+	});
+
+
+
+	it(`an installation the server lists OSM as direct for: the browser loads OpenStreetMap itself — the registry template, its attribution, zoom 19 — and nothing else leaves the proxy`, async function() {
+
+		for (const provider of ['OSM', 'VARIOUS', 'NUMISDATA']) {
+
+			const instance = await build_mapped('tiles_direct_' + provider, provider, entry_with_sources(), undefined, ['osm'])
+
+			const tile_layers = []
+			instance.map.eachLayer(layer => {
+				if (layer instanceof L.TileLayer) tile_layers.push(layer)
+			})
+			const direct = tile_layers.filter(layer => tile_address(layer).origin==='https://tile.openstreetmap.org')
+			assert.isOk(direct.length>0, provider + ': the OpenStreetMap layer expected direct')
+			for (const layer of direct) {
+				// the exact registry template, filled by Leaflet: no subdomain, no proxy query
+				assert.strictEqual(tile_address(layer).href, `https://tile.openstreetmap.org/${instance.map.getZoom()}/4/2.png`)
+				assert.strictEqual(layer.options.maxZoom, 19, provider + ': OpenStreetMap serves zoom 19 at most')
+				assert.include(layer.options.attribution, 'OpenStreetMap', provider + ': the attribution expected shown')
+			}
+			// no layer asks the proxy for the built-in it was told to load directly
+			for (const layer of tile_layers) {
+				assert.notStrictEqual(tile_address(layer).searchParams.get('builtin'), 'osm', provider)
+			}
+			// the stored and default sources still go through the proxy, by id
+			for (const item of Object.values(instance.source_layers)) {
+				assert.strictEqual(tile_address(item.layer).origin, window.location.origin, provider)
+			}
+
+			await teardown(instance)
+		}
+	});
+
+
+
+	it(`is_direct_builtin reads only a list of ids: absent or malformed is the proxy path`, async function() {
+
+		const instance = await build_empty_instance('tiles_direct_shape')
+		await instance.load_libs() // Leaflet, for the layers built below without a map
+
+		for (const tile_direct of [undefined, null, 'osm', { osm : true }, [], ['ign_admin_units'], [['osm']]]) {
+			instance.context.features = { ...(instance.context.features || {}), tile_direct : tile_direct }
+			assert.isFalse(instance.is_direct_builtin('osm'), JSON.stringify(tile_direct) + ': expected the proxy')
+			const address = new URL(instance.get_builtin_layer('osm').getTileUrl({ x : 4, y : 2, z : 3 }), window.location.href)
+			assert.strictEqual(address.origin, window.location.origin)
+			assert.strictEqual(address.searchParams.get('builtin'), 'osm')
+		}
+		instance.context.features = { ...(instance.context.features || {}), tile_direct : ['osm'] }
+		assert.isTrue(instance.is_direct_builtin('osm'))
+		// only OpenStreetMap has a direct path: another id listed is still asked of the proxy
+		instance.context.features = { ...(instance.context.features || {}), tile_direct : ['ign_admin_units'] }
+		const ign = new URL(instance.get_builtin_layer('ign_admin_units').getTileUrl({ x : 4, y : 2, z : 3 }), window.location.href)
+		assert.strictEqual(ign.origin, window.location.origin)
+
+		await instance.destroy(true)
 	});
 
 
@@ -2395,45 +2455,126 @@ describe(`COMPONENT_GEOLOCATION TILES GO THROUGH THE TILE PROXY`, function() {
 
 
 
+	/**
+	* An <img> that records every time its src is set, starting at `address`. The property is
+	* replaced, so setting it loads nothing: no tile leaves the page.
+	*/
+	const make_recording_tile = (address) => {
+		const tile = document.createElement('img')
+		const state = { value : address, sets : 0 }
+		Object.defineProperty(tile, 'src', {
+			configurable : true,
+			get : () => state.value,
+			set : (value) => { state.sets++; state.value = value }
+		})
+		component_container.appendChild(tile)
+		return { tile, state }
+	}
+
+	/** Run `body` with `fetch` answering every TILE request with the proxy refusal `code` (`status`). */
+	const with_refusal = async (code, status, body) => {
+		const real_fetch = window.fetch
+		const asked = []
+		window.fetch = async (address, init) => {
+			// the page's own API traffic goes on as usual: only a tile question is answered here
+			if (!String(address).includes(PROXY_PATH)) {
+				return real_fetch(address, init)
+			}
+			asked.push(String(address))
+			return new Response(JSON.stringify({ ok : false, request_id : 'x', error : { code : code, retryable : code!=='external.disabled' } }), { status : status, headers : { 'Content-Type' : 'application/json' } })
+		}
+		try {
+			await body(asked)
+		} finally {
+			window.fetch = real_fetch
+		}
+	}
+
+	const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+	/** A proxy tile address of `instance` (what Leaflet would set as the <img> src). */
+	const proxy_tile = (instance, x) => instance.get_tile_url({ default_id : 'regional' }).replace('{z}', '3').replace('{x}', String(x)).replace('{y}', '1')
+
+
+
 	it(`a tile the proxy refused is asked for again, twice at most, and never once it has left the page`, async function() {
 
 		const instance = await build_mapped('tiles_retry', 'OSM', null)
 		instance.tile_retry_delays = [5, 5]
 		const layer = instance.source_layers['default:regional'].layer
 
-		// an <img> that records every time its src is set; a data URI so nothing leaves the page
-		const make_tile = () => {
-			const tile = document.createElement('img')
-			const state = { value : 'data:image/gif;base64,R0lGODlhAQABAAAAACw=', sets : 0 }
-			Object.defineProperty(tile, 'src', {
-				configurable : true,
-				get : () => state.value,
-				set : (value) => { state.sets++; state.value = value }
-			})
-			component_container.appendChild(tile)
-			return { tile, state }
-		}
-		const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+		await with_refusal('rate.limited', 429, async (asked) => {
 
-		const kept = make_tile()
-		for (let failure = 0; failure<4; failure++) {
-			layer.fire('tileerror', { tile : kept.tile, coords : { x : 1, y : 1, z : 3 }, error : new Event('error') })
+			const kept = make_recording_tile(proxy_tile(instance, 1))
+			for (let failure = 0; failure<4; failure++) {
+				layer.fire('tileerror', { tile : kept.tile, coords : { x : 1, y : 1, z : 3 }, error : new Event('error') })
+				await wait(40)
+			}
+			assert.strictEqual(kept.state.sets, 2, 'expected two retries and then the tile left alone')
+			// (the map's own base layer may ask about ITS tiles meanwhile: only this layer's count)
+			assert.strictEqual(asked.filter(address => address.includes('default_id=regional')).length, 1, 'the refusal of a layer expected asked about ONCE')
+
+			const gone = make_recording_tile(proxy_tile(instance, 2))
+			layer.fire('tileerror', { tile : gone.tile, coords : { x : 2, y : 1, z : 3 }, error : new Event('error') })
+			gone.tile.remove()
 			await wait(40)
-		}
-		assert.strictEqual(kept.state.sets, 2, 'expected two retries and then the tile left alone')
+			assert.strictEqual(gone.state.sets, 0, 'a tile that left the page expected not to be asked for again')
 
-		const gone = make_tile()
-		layer.fire('tileerror', { tile : gone.tile, coords : { x : 2, y : 1, z : 3 }, error : new Event('error') })
-		gone.tile.remove()
-		await wait(40)
-		assert.strictEqual(gone.state.sets, 0, 'a tile that left the page expected not to be asked for again')
+			// the built-in layers on the proxy retry as well
+			const osm = instance.get_osm_layer()
+			const builtin = make_recording_tile(new URL(instance.get_tile_url({ builtin : 'osm' }).replace('{z}', '3').replace('{x}', '3').replace('{y}', '1'), window.location.href).href)
+			osm.fire('tileerror', { tile : builtin.tile, coords : { x : 3, y : 1, z : 3 }, error : new Event('error') })
+			await wait(40)
+			assert.strictEqual(builtin.state.sets, 1)
+		})
 
-		// the built-in layers retry as well
-		const osm = instance.get_osm_layer()
-		const builtin = make_tile()
-		osm.fire('tileerror', { tile : builtin.tile, coords : { x : 3, y : 1, z : 3 }, error : new Event('error') })
-		await wait(40)
-		assert.strictEqual(builtin.state.sets, 1)
+		await teardown(instance)
+	});
+
+
+
+	it(`a layer the proxy refuses FOR GOOD (external.disabled) is not retried; a provider's own address is never retried`, async function() {
+
+		const instance = await build_mapped('tiles_retry_final', 'OSM', null)
+		instance.tile_retry_delays = [5, 5]
+		const layer = instance.source_layers['default:regional'].layer
+
+		await with_refusal('external.disabled', 503, async (asked) => {
+			const tiles = [make_recording_tile(proxy_tile(instance, 1)), make_recording_tile(proxy_tile(instance, 2))]
+			for (let failure = 0; failure<3; failure++) {
+				for (const [index, item] of tiles.entries()) {
+					layer.fire('tileerror', { tile : item.tile, coords : { x : index, y : 1, z : 3 }, error : new Event('error') })
+				}
+				await wait(40)
+			}
+			for (const item of tiles) {
+				assert.strictEqual(item.state.sets, 0, 'a configuration refusal expected never retried')
+			}
+			assert.strictEqual(asked.filter(address => address.includes('default_id=regional')).length, 1, 'asked about once for the whole layer')
+		})
+
+		// the DIRECT OpenStreetMap layer: a failure is OpenStreetMap's answer to the browser — no
+		// retry, and no question asked of anyone
+		instance.context.features = { ...(instance.context.features || {}), tile_direct : ['osm'] }
+		const direct = instance.get_osm_layer()
+		await with_refusal('rate.limited', 429, async (asked) => {
+			const item = make_recording_tile('https://tile.openstreetmap.org/3/4/2.png')
+			for (let failure = 0; failure<3; failure++) {
+				direct.fire('tileerror', { tile : item.tile, coords : { x : 4, y : 2, z : 3 }, error : new Event('error') })
+				await wait(40)
+			}
+			assert.strictEqual(item.state.sets, 0, 'a direct OpenStreetMap tile expected never retried')
+			assert.deepEqual(asked.filter(address => !address.includes('builtin=osm')), [])
+			// nor is another provider's address on a proxied layer (a data URI, an ArcGIS tile)
+			for (const address of ['data:image/gif;base64,R0lGODlhAQABAAAAACw=', 'https://server.arcgisonline.com/x/3/2/4']) {
+				const other = make_recording_tile(address)
+				layer.fire('tileerror', { tile : other.tile, coords : { x : 9, y : 1, z : 3 }, error : new Event('error') })
+				await wait(40)
+				assert.strictEqual(other.state.sets, 0, address)
+			}
+			// nothing but the map's own proxied base layer (its real tiles) asked anything
+			assert.deepEqual(asked.filter(address => !address.includes('builtin=osm')), [])
+		})
 
 		await teardown(instance)
 	});

@@ -190,3 +190,67 @@ contract is held by the native gates named above: the route end to end against a
 single flight, noise), its pure half (grammar, geometry and the measured misregistration, upstream
 address, freshness, the bounded memory, the request handed the door), the CSP scan over every client
 script, and the read-door census. No oracle fixture is affected.
+
+## Addendum 2026-11-07 — an installation with no public origin does not relay OpenStreetMap; the browser loads it directly
+
+**Decision (maintainer, 2026-11-07).** This closes *Open* item 1 above. OpenStreetMap's tile policy
+asks a relay for a clear, contactable `User-Agent` identifying the service and forbids tunnelling every
+client behind one generic identity. An installation without a public origin an outside machine could
+reach (`reachablePublicOrigin() === null`) has only the shared Dédalo identity, which is exactly that
+generic identity, and a block of it would take every such installation's base map down at once. So
+that installation does NOT relay OpenStreetMap: the viewer's BROWSER loads it directly, with its own
+`User-Agent` and `Referer`, which is the path the policy prefers. Every other provider is relayed
+under the shared identity, as before. One rule covers both sides
+(`src/core/geo/tile_proxy/direct_tiles.ts`): the route's refusal and the client signal below.
+
+**The route.** A new refusal row, added to the *Responses* table above:
+
+| Status | Body | When |
+|---|---|---|
+| `503` `external.disabled` | envelope, `Cache-Control: no-store`; names no host | a provider that lets a relay through only under the installation's own identity (`requiresInstallationIdentity`), asked of an installation with no public origin. It applies to the provider's every name: any host under `openstreetmap.org`, `osm.org` or `openstreetmap.com` (`identityDomains`), in any case or root-dot spelling, whoever's source names it — the built-in, a stored source, an ontology default. It comes AFTER every permission gate and the view check (a caller who fails one sees the uniform 404) and BEFORE the memory, so a tile kept while the installation had an origin is not served. Not retryable: it changes only with the configuration. Counted (`map_tile_identity_withheld`); one operator line per source a minute |
+
+**The structure context.** Every `component_geolocation` context entry's `features` now carries
+`tile_direct`: an array of built-in ids that the browser loads straight from the provider —
+`["osm"]` without a public origin, `[]` otherwise.
+- It is present in the FULL context and also in the SIMPLE one (`addRequestConfig:false`), which until
+  now carried no `features` at all and now carries `tile_direct` alone. The search panel builds its
+  components simple and still draws a map.
+- It is computed per build from the configuration and stamped on the fresh entry, never on the cached
+  core.
+
+PHP had no such key, because it had no proxy. `component_geolocation_features_differential` lifts the
+key by name and asserts it strictly; `structure_context_geolocation_features` drives both contexts
+over one table of configured origins (`test/helpers/public_origin_table.ts`).
+
+**The client.**
+- When `osm` is listed, the page loads `https://tile.openstreetmap.org/{z}/{x}/{y}.png`. That is the
+  registry template; `xss_csp_tripwire` checks that the client's literal equals it.
+- An absent or malformed field takes the proxy path.
+- A direct tile is never retried.
+- A proxied layer's first failure is asked about once (fetch, reading the envelope code), and
+  `external.disabled` stops every retry of that layer.
+- What the direct path costs: the canvas export of that map is tainted, and OpenStreetMap sees each
+  viewer's address — and, under the app's `Referrer-Policy: strict-origin-when-cross-origin`, the
+  page's ORIGIN as `Referer`, even an intranet name the server itself would never publish.
+
+**The page's CSP.** The exact host `tile.openstreetmap.org` is back in `DIRECT_TILE_HOSTS`, beside
+`server.arcgisonline.com` and `dh.gu.se`. No wildcard, `img-src` only. The policy is static, so an
+installation that does relay OpenStreetMap admits that one host too; this was preferred over a
+per-request CSP that would vary with the configuration.
+
+**What this supersedes above.** Read the following as amended by this section:
+- the title's "`img-src` loses the OpenStreetMap … hosts": it lost the wildcards, and one exact host
+  is admitted for the direct path;
+- *The page's CSP* list of remaining hosts;
+- the *Identity toward the provider* sentence on the shared-identity fallback, which now relays every
+  provider BUT OpenStreetMap;
+- *Reason*'s "a CSP with no tile host for what the proxy relays": still true of what the proxy relays;
+  OpenStreetMap on such an installation is not relayed;
+- *Gate reconciliation*'s "No PHP differential exists": the context key is reconciled in
+  `test/parity/component_geolocation_features_differential.test.ts` (key lifted by name, strict TS-side
+  assertion) and natively in `test/unit/structure_context_geolocation_features.test.ts`.
+
+The route side is gated in `map_tile_proxy_native` (the whole table, the kept tile, stored sources on
+the provider's host and its other names, permission first) and `map_tile_geometry_native` (the rule,
+the provider's domains). No oracle fixture is affected: the differential transforms the TS side before
+diffing.

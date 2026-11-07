@@ -4,8 +4,10 @@
 
 The map tile proxy is the one door through which a map in the browser gets its tiles. The page asks
 **its own server** for a tile; the server checks who is asking, finds the source the request
-names, builds the provider's address itself, fetches the tile and hands it on. The page never
-holds, builds or loads a provider's address.
+names, builds the provider's address itself, fetches the tile and hands it on. For everything the
+proxy relays, the page never holds, builds or loads a provider's address. The one exception is
+OpenStreetMap on an installation without a public address, which the page loads directly from
+OpenStreetMap's own template (see [Built-in sources](#built-in-sources)).
 
 ```
 GET /dedalo/core/api/v1/map_tile?<source>&<view>
@@ -26,6 +28,9 @@ under `src/core/geo/tile_proxy/`.
 * **The permission is the record's.** A source stored in a record is served to those who may read
   that record's geolocation field, and to nobody else.
 
+These hold for every tile the proxy relays. OpenStreetMap on an installation without a public address
+is not relayed, and none of them applies to it (see [Built-in sources](#built-in-sources)).
+
 !!! warning "The server now needs outbound access to the providers"
     The browser used to fetch tiles from `tile.openstreetmap.org` and the other providers
     itself; now **the server** does, and the browser needs nothing but the server. An installation
@@ -35,7 +40,9 @@ under `src/core/geo/tile_proxy/`.
     to reach them. The hosts are `tile.openstreetmap.org` and `www.ign.es` for the built-in sources,
     plus whatever host a stored source or an ontology default names (`http` sources use port 80).
     The browser itself no longer needs those hosts, so a client network that blocked them is
-    no longer a problem.
+    no longer a problem — with one exception: an installation **without a public address**
+    does not relay OpenStreetMap, and its viewers' browsers load it from `tile.openstreetmap.org`
+    directly (see [Built-in sources](#built-in-sources)).
 
 ## The request
 
@@ -259,8 +266,9 @@ identifies the organisation or service, must honour the server's caching headers
 least seven days when it cannot read them), must use conditional requests (`If-None-Match`,
 `If-Modified-Since`) on expired tiles, must keep the `Referer`, and must not tunnel all clients behind a
 single, anonymous identity (it may block such traffic without notice). So the built-in is conditional
-on those. The proxy meets all of them on an installation that has a public origin, and two of them
-(the identity and the `Referer`) are the ones an installation without one cannot meet:
+on those. The proxy meets all of them on an installation that has a public origin; two of them
+(the identity and the `Referer`) are the ones an installation without one cannot meet, so such an
+installation **does not relay OpenStreetMap at all** (below):
 
 * **Identity.** On every request the proxy relays (every built-in and every stored source), the
   `User-Agent` names **this installation** as the party to contact:
@@ -286,16 +294,35 @@ reachable only from its own network (`DEDALO_HOST` unset, `localhost`, a private
 (`.museum.org`, `foo..org`, `-.org`, an underscore), and one whose configured value is not a clean origin
 (credentials, a path, a query or a fragment in `DEDALO_HOST`, or a protocol other than `http://` /
 `https://`) — such a value is not repaired into an address the operator never wrote. An internal origin
-published to a third party is a map of the network for nothing, so in every one of these cases the proxy
-sends no Referer and the shared, less identifying `User-Agent`
-(`dedalo/<release> (+https://dedalo.dev; heritage cataloguing)`), which is also what every other such
-installation sends. The map still works: nothing is refused.
-That is **not compliant** with the policy as written, and the policy allows OpenStreetMap to block
-that traffic without notice; whether such an installation should relay `osm` at all is an open
-decision of the maintainers, not one this page makes for them. How OpenStreetMap treats it was not
-confirmed against the live service; if an installation behind a private address finds its OpenStreetMap base layer
-refused, give it a public `DEDALO_HOST` (see *What the operator sets* below) (or store another base map as a source of the record, or as an
-ontology default, whose licence the installation then carries).
+published to a third party is a map of the network for nothing, so such an installation has only the
+shared, less identifying `User-Agent` (`dedalo/<release> (+https://dedalo.dev; heritage cataloguing)`),
+the same for every such installation: exactly the generic proxy identity OpenStreetMap's policy forbids,
+and one block of it would take the base map of all of them down together. So:
+
+* **OpenStreetMap is not relayed.** The geolocation context tells the page so
+  (`context.features.tile_direct`, a list of built-in ids, here `["osm"]`), and **the viewer's browser
+  loads the OpenStreetMap tiles directly** from `https://tile.openstreetmap.org/{z}/{x}/{y}.png`, with
+  its own `User-Agent` and `Referer` — the path OpenStreetMap prefers, and the one the page took before
+  the proxy existed. The page's `img-src` admits that one exact host for it. What is lost on that path:
+  the map's canvas export is tainted (a cross-origin image cannot be read back), and OpenStreetMap sees
+  each viewer's address. It also sees the page's origin, which the browser sends as `Referer: <origin>/`
+  under the app's `Referrer-Policy: strict-origin-when-cross-origin`. That origin can be the intranet
+  name the server itself never publishes. A failed direct tile is not asked for again.
+  The search panel's map follows the same rule (its context carries `tile_direct` as well).
+* **A proxy request for it is refused**: `503` `external.disabled`, never cacheable, after every
+  permission gate (a caller who may not read the map gets the uniform not-found) and **before** the
+  memory, so a tile kept while the installation still had a public origin is not served once it has
+  none. This applies to the provider whoever's source names it, under any of its names: a stored source
+  or an ontology default on any host under `openstreetmap.org`, `osm.org` or `openstreetmap.com`
+  (`tile.osm.org` and `tile.openstreetmap.com` serve the same tiles) is refused too, and has no direct
+  path. Use the built-in `osm` for that map. The page asks once per layer whether a refusal is this
+  one, and does not retry such a layer. Counted (`map_tile_identity_withheld`); one operator line per
+  source a minute.
+* **The IGN overlay is still relayed**, under the shared identity and with no `Referer`: its licence
+  asks nothing of the relay's identity.
+
+To have OpenStreetMap relayed (same-origin tiles, an untainted export, the viewers' addresses kept
+from the provider), give the installation a public `DEDALO_HOST` (see *What the operator sets* below).
 
 **What the operator sets.** The identity comes from two existing keys of `../private/.env`; there is
 no key of its own.
@@ -304,7 +331,7 @@ no key of its own.
   ([The public address](../../install/installer_reference.md#the-public-address)): production and docker
   derive it from the server name (and the HTTPS port, when it is not `443`); developer and trial ask it,
   where `none` — a private or intranet installation — leaves it unset, and that installation stays in the
-  shared-identity fallback above, with no `Referer`. The installer refuses a malformed value, and a name
+  shared-identity fallback above, with no `Referer` and with OpenStreetMap loaded by the browser directly. The installer refuses a malformed value, and a name
   no outside machine could reach unless it is kept explicitly, by the same rule as above — and, stricter,
   any spelling but the canonical one, since it writes the host as typed (an international name as its
   `xn--` form, no trailing dot, no default port). Set by hand, it is the public name (and
@@ -334,9 +361,12 @@ by the administrators).
 
 ## In the browser
 
-`component_geolocation` forms every tile address through `get_tile_url`, the one place the page
-builds one: the OpenStreetMap base layer (`builtin=osm`), the sources stored in the entry and the
-ontology's defaults are all requested from the proxy. Stored and default sources appear in the
+`component_geolocation` forms every proxied tile address through `get_tile_url`, the one place the
+page builds one: the OpenStreetMap base layer (`builtin=osm`), the sources stored in the entry and the
+ontology's defaults are all requested from the proxy. The one exception is the OpenStreetMap base layer
+on an installation without a public origin: the context lists it in `features.tile_direct` and the page
+loads OpenStreetMap's own template instead (`get_builtin_layer`). An absent or malformed field is the
+proxy path. Stored and default sources appear in the
 layer control as switchable overlays, off until the viewer switches them on. The name shown in the
 layer control (a default's label, a stored source's attribution) is plain text: the server refuses
 `<` and `>` in both (when a stored source is saved, and when an ontology default is read), and the page
@@ -348,7 +378,9 @@ not retry a failed tile on its own, and a busy moment would otherwise leave a bl
 viewer pans. An `<img>` cannot read the status or the `Retry-After`, so the retry is blind; a tile the
 provider does not have is remembered by the browser for two minutes (the proxy says so in the `404`'s
 `Cache-Control`), so asking again for it is answered by the browser's own cache and costs the server
-nothing. A tile that has left the page by then is not asked for. An ontology default is
+nothing. A tile that has left the page by then is not asked for. Only a tile of the proxy is retried, and
+never one of a layer the proxy refuses `external.disabled`: the first failure of a layer is asked about
+once, with a request that can read the refusal's code. An ontology default is
 told to the page as its name, label, type and attribution, plus the numbers that decide which tiles
 are worth asking for (an xyz source's zoom bounds, a WMS source's CRS) and never its address or layer
 list, so a default shows the attribution its licence asks for and is not asked for tiles outside its
@@ -362,7 +394,9 @@ and would otherwise cover it).
 The ArcGIS, DARE and Google base maps of the `ARCGIS`, `NUMISDATA`, `VARIOUS` and `GOOGLE`
 `geo_provider` values are not relayed (the core relays only the providers above) and still load
 straight from their providers, which is why `server.arcgisonline.com` and `dh.gu.se` remain in the
-page's `img-src`.
+page's `img-src`, beside `tile.openstreetmap.org` for the direct OpenStreetMap layer above. The policy is
+static, so an installation that does relay OpenStreetMap admits that one exact host too (no wildcard,
+images only).
 
 ## Gates
 
@@ -374,13 +408,19 @@ page's `img-src`.
   `200` replaces, a `404` drops), WMS parameter injection, the door's budgets, each person's share
   (two people, the refill, the memory and a joined call costing nothing, an abandoned call refunded),
   one person's storm not being everyone's line, one call for identical concurrent misses (and a
-  gate-failing caller never joining one), and the log: counted, not written, and one line a minute.
+  gate-failing caller never joining one), the log: counted, not written, and one line a minute — and
+  the identity rule: over one table of configured origins (`test/helpers/public_origin_table.ts`)
+  OpenStreetMap is relayed under the installation's contact identity or refused, never under the
+  shared one; a kept tile is not served once the identity is gone; a stored source on its host is
+  refused too; the permission refusal still comes first.
 * `test/unit/map_tile_geometry_native.test.ts` drives the pure parts: the request grammar, the tile
   geometry and axis order (and the misregistration of a geographic-CRS tile, measured), the upstream
   address, the freshness rules, the memory's bounds and the flat cost of an admission (and that it
   can remember no refusal), the validators of a revalidation, what a provider's answer means, the request handed the door (with a synthetic non-zero spacing, through the
   real door), the budget, the flights, the log, the one rule for the origin the installation tells a
-  provider, and the built-in registry.
+  provider (and, over the same table, which built-ins the proxy withholds and the browser loads), and
+  the built-in registry. `structure_context_geolocation_features` drives `features.tile_direct` over the
+  same table, per build.
 * `test/unit/harvest_door_native.test.ts` drives the door's interactive profile itself: its numbers,
   the required `holder` and `addressFrom`, the `User-Agent` naming the installation (and the shared one for no origin or a hostile configured value), the two
   validators a revalidation sends, one person's cap on the stored slots and one person's places at a

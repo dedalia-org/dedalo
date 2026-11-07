@@ -36,6 +36,7 @@ import {
 	logSectionColumnIsSortable,
 } from '../concepts/section.ts';
 import { mapSourcePickerEntries, parseMapSourceDefaults } from '../geo/map_source_defaults.ts';
+import { directBuiltinIds } from '../geo/tile_proxy/direct_tiles.ts';
 import { resolveDataTipo } from '../ontology/alias.ts';
 import { createOntologyCache } from '../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
@@ -1535,53 +1536,10 @@ export async function buildStructureContext(options: {
 	const uploadFeatures = buildUploadFeatures(core.model, options.tipo, options.sectionTipo);
 	if (uploadFeatures !== null) entry.features = uploadFeatures;
 
-	// component_geolocation: the FULL context carries features.geo_provider so the
-	// client map widget knows which Leaflet tile backend to initialise (PHP
-	// component_geolocation_json.php:106-115). Without it the map cannot pick a
-	// tile layer and renders as an empty (blank) map. An instance
-	// properties.geo_provider overrides the DEDALO_GEO_PROVIDER default; the
-	// 'simple' context (addRequestConfig:false) omits features (list/portal views
-	// render no interactive map).
-	// features.default_view is the map's opening CAMERA when the record stores no
-	// coordinate (DEDALO_GEO_DEFAULT_LAT/LON/ZOOM, world view 20/0/2). A view,
-	// never data: the client never seeds current_value from it, so an untouched
-	// record saves nothing. Instance properties.default_view ({lat,lon,zoom})
-	// overrides it, all-or-nothing — same precedence idiom as geo_provider.
-	// Numbers AND numeric strings are accepted: dd_ontology property JSON quotes
-	// numbers routinely, and the client's own predicate (fn_finite_number,
-	// component_geolocation.js) coerces — a server that took only unquoted
-	// numbers would call invalid what the client calls valid. Range-checked, so
-	// a typo cannot open the map off-planet; anything non-finite or out of range
-	// resolves to null and the whole override falls back to the config camera.
-	// Cache-safe: per-tipo, record-independent → stamped on the FRESH entry, never
-	// on the cached core (a leak there bleeds across requests).
-	if (core.model === 'component_geolocation' && options.addRequestConfig !== false) {
-		const props = entry.properties as
-			| { geo_provider?: unknown; default_view?: unknown }
-			| undefined;
-		const geoProvider = props?.geo_provider;
-		const propView = props?.default_view as
-			| { lat?: unknown; lon?: unknown; zoom?: unknown }
-			| undefined;
-		const num = (v: unknown, min: number, max: number): number | null => {
-			const n =
-				typeof v === 'number'
-					? v
-					: typeof v === 'string' && v.trim() !== ''
-						? Number(v)
-						: Number.NaN;
-			return Number.isFinite(n) && n >= min && n <= max ? n : null;
-		};
-		const lat = num(propView?.lat, -90, 90);
-		const lon = num(propView?.lon, -180, 180);
-		const zoom = num(propView?.zoom, 0, 22);
-		entry.features = {
-			geo_provider: typeof geoProvider === 'string' ? geoProvider : config.geoProvider,
-			default_view:
-				lat !== null && lon !== null && zoom !== null
-					? { lat, lon, zoom }
-					: { ...config.geoDefaultView },
-		};
+	// component_geolocation: the FULL context carries geo_provider + default_view, EVERY
+	// context carries tile_direct (geolocationFeatures, at the end of this file, says why).
+	if (core.model === 'component_geolocation') {
+		entry.features = geolocationFeatures(entry.properties, options.addRequestConfig !== false);
 	}
 
 	// component_text_area: the EDIT-mode context carries the notes/references/
@@ -1729,4 +1687,63 @@ export async function buildStructureContext(options: {
 /** PHP common::context_key — dedup identity for merged context arrays. */
 export function contextKey(entry: { tipo: string; section_tipo: string; mode: string }): string {
 	return `${entry.tipo}_${entry.section_tipo}_${entry.mode}`;
+}
+
+/** A number (or numeric string) within [min, max], else null — the client's fn_finite_number agrees. */
+function boundedNumber(value: unknown, min: number, max: number): number | null {
+	const n =
+		typeof value === 'number'
+			? value
+			: typeof value === 'string' && value.trim() !== ''
+				? Number(value)
+				: Number.NaN;
+	return Number.isFinite(n) && n >= min && n <= max ? n : null;
+}
+
+/** The map's opening camera: the instance `properties.default_view`, all-or-nothing, else the config's. */
+function resolveMapCamera(propView: { lat?: unknown; lon?: unknown; zoom?: unknown } | undefined): {
+	lat: number;
+	lon: number;
+	zoom: number;
+} {
+	const lat = boundedNumber(propView?.lat, -90, 90);
+	const lon = boundedNumber(propView?.lon, -180, 180);
+	const zoom = boundedNumber(propView?.zoom, 0, 22);
+	return lat !== null && lon !== null && zoom !== null
+		? { lat, lon, zoom }
+		: { ...config.geoDefaultView };
+}
+
+/**
+ * `features` of a component_geolocation context entry. Cache-safe: per-tipo and
+ * record-independent, stamped on the FRESH entry, never on the cached core.
+ *
+ *   - tile_direct (EVERY context): the built-ins this installation's BROWSERS load directly,
+ *     because the tile proxy may not relay them without the installation's own identity (no
+ *     public origin: geo/tile_proxy/direct_tiles.ts, the ONE rule the route refuses by). Read per
+ *     call from the configuration, so a DEDALO_HOST change is seen by the next context. Always
+ *     an array (usually empty). The SIMPLE context carries it too: the search panel builds its
+ *     components without request config and still draws a map, whose base layer must not ask
+ *     the proxy for a tile the route will refuse.
+ *   - geo_provider + default_view (FULL context only): the Leaflet tile backend the client
+ *     initialises (PHP component_geolocation_json.php:106-115; without it the map renders
+ *     blank) — `properties.geo_provider` over DEDALO_GEO_PROVIDER — and the opening CAMERA when
+ *     the record stores no coordinate (DEDALO_GEO_DEFAULT_LAT/LON/ZOOM; a view, never data: the
+ *     client never seeds current_value from it). Instance `properties.default_view`
+ *     ({lat,lon,zoom}) overrides it all-or-nothing; numbers AND numeric strings are accepted
+ *     (dd_ontology property JSON quotes numbers routinely), range-checked so a typo cannot open
+ *     the map off-planet.
+ */
+function geolocationFeatures(properties: unknown, full: boolean): Record<string, unknown> {
+	const tileDirect = directBuiltinIds();
+	if (!full) return { tile_direct: tileDirect };
+	const props = properties as
+		| { geo_provider?: unknown; default_view?: { lat?: unknown; lon?: unknown; zoom?: unknown } }
+		| undefined;
+	const geoProvider = props?.geo_provider;
+	return {
+		geo_provider: typeof geoProvider === 'string' ? geoProvider : config.geoProvider,
+		default_view: resolveMapCamera(props?.default_view),
+		tile_direct: tileDirect,
+	};
 }

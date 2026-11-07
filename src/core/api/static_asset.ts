@@ -205,7 +205,7 @@ const EMBED_DIRECTIVES = buildEmbedDirectives(MEDIA_CSP_EMBED_SOURCE);
  *
  * Map tiles go through the server: the same-origin tile proxy (`api/map_tile.ts`) relays
  * OpenStreetMap, the sources stored in a record and the ontology's defaults, so the page asks
- * for them from itself and `'self'` already admits them. The OpenStreetMap hosts
+ * for them from itself and `'self'` already admits them. The OpenStreetMap wildcards
  * (`*.tile.openstreetmap.org`, `*.tile.osm.org`) and Carto's (`*.basemaps.cartocdn.com`, which
  * nothing in the client used) left this list when the last page that loaded them directly
  * moved to the proxy.
@@ -216,12 +216,20 @@ const EMBED_DIRECTIVES = buildEmbedDirectives(MEDIA_CSP_EMBED_SOURCE);
  *     a commercial service whose terms do not allow a relay)
  *   - `dh.gu.se`                 the NUMISDATA provider's DARE overlay (the atlas's author
  *     has not confirmed that a tile may be relayed)
+ *   - `tile.openstreetmap.org`   the ONE exact OpenStreetMap host, for an installation with
+ *     no public origin: OpenStreetMap's policy forbids relaying it under the shared identity,
+ *     so such an installation's browsers load it directly (`features.tile_direct`,
+ *     geo/tile_proxy/direct_tiles.ts). The policy is STATIC, so an installation that does
+ *     relay it admits the host too — one exact host, no wildcard, `img-src` only (an image
+ *     runs no code); the trade-off is taken over a per-request CSP that would vary with the
+ *     configured origin
  * A host leaves this list in the change that moves its last direct use to the proxy, and the
  * gate (xss_csp_tripwire) pins the list exactly, so neither a new host nor a stale one slips by.
  */
 export const DIRECT_TILE_HOSTS: readonly string[] = Object.freeze([
 	'server.arcgisonline.com',
 	'dh.gu.se',
+	'tile.openstreetmap.org',
 ]);
 
 export const APP_CSP = [

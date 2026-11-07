@@ -22,8 +22,9 @@
  *     also pinned on SYNTHETIC entries, because a master is configured on a
  *     CLIENT box and not on a MASTER box — i.e. the config-derived half goes
  *     vacuous exactly where this engine is developed.
- * (5) TILES COME FROM THE SERVER (map tile proxy): `img-src` admits no OpenStreetMap or
- *     Carto host and is pinned as an EXACT list (`'self'`, `data:`, `blob:`, the media origin,
+ * (5) TILES COME FROM THE SERVER (map tile proxy): `img-src` admits no OpenStreetMap
+ *     wildcard or Carto host (only the ONE exact `tile.openstreetmap.org`, which the browser of
+ *     an installation without a public origin loads directly) and is pinned as an EXACT list (`'self'`, `data:`, `blob:`, the media origin,
  *     `DIRECT_TILE_HOSTS`: a scheme-wide `https:`, a wildcard or any other host fails, and the
  *     check that says so is itself driven on synthetic lists), and the tile hosts it still
  *     names (`DIRECT_TILE_HOSTS`) are EXACTLY the
@@ -56,6 +57,7 @@ import {
 	SECURITY_HEADERS,
 	UPDATE_MASTER_CSP_ORIGINS,
 } from '../../src/core/api/static_asset.ts';
+import { findBuiltinSource } from '../../src/core/geo/tile_proxy/builtin_sources.ts';
 
 import { type AstNode, nameOf, walkAst } from '../helpers/ast_walk.ts';
 
@@ -320,17 +322,18 @@ describe('XSS-02 — enforcing app CSP', () => {
 		expect(SECURITY_HEADERS['Content-Security-Policy']).toBe(APP_CSP);
 	});
 
-	test('img-src admits no OpenStreetMap or Carto host: those tiles come through the same-origin proxy', () => {
+	test('img-src admits no OpenStreetMap wildcard or Carto host — only the ONE exact OSM host an unidentified installation’s browsers load directly', () => {
 		const imgSrc = directive(APP_CSP, 'img-src');
 		for (const migrated of [
 			'*.tile.openstreetmap.org',
 			'*.tile.osm.org',
-			'tile.openstreetmap.org',
 			'*.basemaps.cartocdn.com',
 		]) {
 			expect(imgSrc, migrated).not.toContain(migrated);
 		}
-		expect(imgSrc.some((src) => /openstreetmap|osm\.org|cartocdn/.test(src))).toBe(false);
+		expect(imgSrc.filter((src) => /openstreetmap|osm\.org|cartocdn/.test(src))).toEqual([
+			'tile.openstreetmap.org',
+		]);
 		expect(imgSrc, "'self' is what admits the proxy's same-origin tiles").toContain("'self'");
 	});
 
@@ -344,7 +347,11 @@ describe('XSS-02 — enforcing app CSP', () => {
 			...(MEDIA_CSP_ORIGIN === '' ? [] : [MEDIA_CSP_ORIGIN]),
 			...DIRECT_TILE_HOSTS,
 		]);
-		expect([...DIRECT_TILE_HOSTS]).toEqual(['server.arcgisonline.com', 'dh.gu.se']);
+		expect([...DIRECT_TILE_HOSTS]).toEqual([
+			'server.arcgisonline.com',
+			'dh.gu.se',
+			'tile.openstreetmap.org',
+		]);
 		for (const host of DIRECT_TILE_HOSTS) expect(host.includes('*'), host).toBe(false);
 		expect(Object.isFrozen(DIRECT_TILE_HOSTS)).toBe(true);
 		// …and none of them reaches a directive that runs code
@@ -367,10 +374,12 @@ describe('XSS-02 — enforcing app CSP', () => {
 			]);
 		}
 		// a host the client no longer draws from, a missing one, and a repeated one
-		expect(imgSrcProblems([...sound, 'tile.openstreetmap.org'], '', DIRECT_TILE_HOSTS)).toEqual([
-			'tile.openstreetmap.org',
+		expect(imgSrcProblems([...sound, 'a.tile.openstreetmap.org'], '', DIRECT_TILE_HOSTS)).toEqual([
+			'a.tile.openstreetmap.org',
 		]);
-		expect(imgSrcProblems(sound.slice(0, -1), '', DIRECT_TILE_HOSTS)).toEqual(['missing dh.gu.se']);
+		expect(imgSrcProblems(sound.slice(0, -1), '', DIRECT_TILE_HOSTS)).toEqual([
+			'missing tile.openstreetmap.org',
+		]);
 		expect(imgSrcProblems([...sound, 'dh.gu.se'], '', DIRECT_TILE_HOSTS)).toEqual(['dh.gu.se']);
 		// the media origin is admitted only where it is configured
 		expect(
@@ -406,8 +415,10 @@ describe('XSS-02 — enforcing app CSP', () => {
 		// Anti-vacuity: the scan does find the layers it is about…
 		expect(filesWithLayers).toBeGreaterThan(0);
 		expect(direct.size).toBeGreaterThan(0);
-		// …and a proxied layer is not a literal address at all: the OSM hosts appear nowhere in
-		// the geolocation client but as the attribution LINK, which is an <a href>, not an image.
+		// …and a proxied layer is not a literal address at all. OpenStreetMap is drawn directly from
+		// ONE place only: the server registry's exact template, once — the direct path of an
+		// installation the proxy may not relay it for (geo/tile_proxy/direct_tiles.ts) — so the two
+		// copies are equal by outcome, and no subdomain, `{s}` mirror or other OSM spelling exists.
 		const source = readFileSync(
 			join(ROOT, 'client/dedalo/core/component_geolocation/js/component_geolocation.js'),
 			'utf8',
@@ -415,7 +426,12 @@ describe('XSS-02 — enforcing app CSP', () => {
 			.split('\n')
 			.filter((line) => !/^\s*(?:\/\/|\*|\/\*)/.test(line))
 			.join('\n');
-		expect(source).not.toMatch(/\{s\}\.tile|tile\.openstreetmap\.org|tile\.osm\.org|cartocdn/);
+		const osmTemplate = findBuiltinSource('osm')?.source.url ?? '';
+		expect(osmTemplate.startsWith('https://tile.openstreetmap.org/')).toBe(true);
+		expect(source.split(`'${osmTemplate}'`).length - 1, 'the registry template, once').toBe(1);
+		expect(source.replace(`'${osmTemplate}'`, '')).not.toMatch(
+			/\{s\}\.tile|tile\.openstreetmap\.org|tile\.osm\.org|cartocdn/,
+		);
 		expect(source).toContain("'/api/v1/map_tile'");
 	});
 

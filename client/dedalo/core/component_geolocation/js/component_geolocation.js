@@ -94,7 +94,10 @@
 * TILES COME FROM THE SERVER, NEVER FROM A PROVIDER. Every tile this component can
 * proxy is requested from the same-origin tile proxy (`get_tile_url`): OpenStreetMap
 * (the built-in `osm`), the sources stored in the entry (`sources`) and the ontology's
-* default sources (`context.properties.map_sources`). The request names a source by
+* default sources (`context.properties.map_sources`). ONE exception: on an installation
+* with no public origin the server may not relay OpenStreetMap (its policy forbids a
+* shared proxy identity) and lists it in `context.features.tile_direct`; the browser then
+* loads OpenStreetMap directly (`get_builtin_layer`). The request names a source by
 * id and never carries a URL: the server finds the source, checks the permission and
 * builds the provider's address itself. That is why a canvas export of the map (DOM to
 * image) is not tainted and the page's CSP admits no tile host for them. ArcGIS, the
@@ -139,6 +142,17 @@ const BUILTIN_ATTR = {
 
 /** @type {number} Zoom ceiling of the engine (the server refuses a tile above it). */
 const TILE_MAX_ZOOM = 22
+
+/**
+* OpenStreetMap's own tile template, for an installation whose BROWSERS load it directly: the
+* server lists `osm` in `context.features.tile_direct` when the tile proxy may not relay it (the
+* installation has no public origin, and OpenStreetMap's policy forbids relaying it under the
+* shared identity — core/geo/tile_proxy/direct_tiles.ts). It is the server registry's template
+* (builtin_sources.ts), spelled here as a literal because the page's CSP admits exactly this host
+* and the CSP gate proves every directly loaded host from a literal; a gate keeps the two equal.
+* @type {string}
+*/
+const OSM_DIRECT_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
 /**
 * ESCAPE_MARKUP
@@ -397,6 +411,46 @@ const fn_tile_query = (pairs) => {
 * @returns {string}
 */
 const fn_core_url = () => (typeof DEDALO_CORE_URL!=='undefined' ? DEDALO_CORE_URL : '/dedalo/core')
+
+/**
+* Whether `address` is a tile of THIS page's tile proxy (same origin, the proxy's path): the only
+* tiles `retry_refused_tiles` asks for again. A provider's own address (the direct OpenStreetMap
+* layer, the ArcGIS and DARE layers) is never retried: a failure there is that provider's answer
+* to the viewer's browser, and asking again would only hammer it.
+* @param {string} address
+* @returns {boolean}
+*/
+const fn_is_proxy_tile = (address) => {
+	try {
+		const tile	= new URL(address, window.location.href)
+		const proxy	= new URL(fn_core_url() + TILE_PROXY_PATH, window.location.href)
+		return tile.origin===proxy.origin && tile.pathname===proxy.pathname
+	} catch (error) {
+		return false
+	}
+}
+
+/**
+* Whether the proxy's refusal of `address` is a VERDICT for the whole layer rather than a moment:
+* `external.disabled`, the provider this installation may not relay (core/geo/tile_proxy/
+* direct_tiles.ts) — it changes only with the server's configuration. An <img> cannot read the
+* status, so this asks ONCE per layer with fetch and reads the envelope's code; anything else
+* (a busy proxy, a failing provider, "no such tile", a network error) is not a verdict.
+* @param {string} address - A proxy tile address.
+* @returns {Promise<boolean>}
+*/
+const fn_tile_refusal_is_final = async (address) => {
+	try {
+		const response = await fetch(address, { credentials : 'same-origin' })
+		if (response.ok) {
+			return false
+		}
+		const body = await response.json()
+		return body?.error?.code==='external.disabled'
+	} catch (error) {
+		return false
+	}
+}
 
 
 
@@ -1045,8 +1099,30 @@ component_geolocation.prototype.get_tile_url = function(source) {
 
 
 /**
+* IS_DIRECT_BUILTIN
+* Whether the server told this component to load the built-in `id` straight from its provider
+* instead of through the tile proxy (`context.features.tile_direct`, a list of built-in ids).
+* An absent or malformed field is the proxy path.
+* @param {string} id - Built-in id.
+* @returns {boolean}
+*/
+component_geolocation.prototype.is_direct_builtin = function(id) {
+
+	const self = this
+
+	const direct = self.context?.features?.tile_direct
+
+	return Array.isArray(direct) && direct.includes(id)
+}//end is_direct_builtin
+
+
+
+/**
 * GET_BUILTIN_LAYER
-* A Leaflet tile layer of one of the core's built-in sources, through the tile proxy.
+* A Leaflet tile layer of one of the core's built-in sources, through the tile proxy — or, for
+* OpenStreetMap on an installation the server lists it as direct for (`is_direct_builtin`),
+* straight from OpenStreetMap (`OSM_DIRECT_TILE_URL`). A direct layer is cross-origin, so a
+* canvas export of that map is tainted: the price of not relaying it under a shared identity.
 * @param {string} id - Built-in id ('osm', 'ign_admin_units').
 * @param {Object} [options] - Leaflet tileLayer options merged over the defaults.
 * @returns {Object} Leaflet TileLayer.
@@ -1055,13 +1131,19 @@ component_geolocation.prototype.get_builtin_layer = function(id, options={}) {
 
 	const self = this
 
-	return self.retry_refused_tiles(
-		L.tileLayer(self.get_tile_url({builtin:id}), {
-			attribution	: BUILTIN_ATTR[id] || '',
-			maxZoom		: TILE_MAX_ZOOM,
-			...options
-		})
-	)
+	const direct = id==='osm' && self.is_direct_builtin(id)
+	const builtin_tile_address = direct
+		? OSM_DIRECT_TILE_URL
+		: self.get_tile_url({builtin:id})
+
+	const layer = L.tileLayer(builtin_tile_address, {
+		attribution	: BUILTIN_ATTR[id] || '',
+		maxZoom		: TILE_MAX_ZOOM,
+		...options
+	})
+
+	// a direct layer is never retried: a failure there is OpenStreetMap's answer to the browser
+	return direct ? layer : self.retry_refused_tiles(layer)
 }//end get_builtin_layer
 
 
@@ -1074,6 +1156,10 @@ component_geolocation.prototype.get_builtin_layer = function(id, options={}) {
 * `self.tile_retry_delays` (default TILE_RETRY_DELAYS_MS), with jitter so the tiles of a
 * viewport do not all come back at the same instant. A tile that has left the page by then
 * (the viewer panned, the layer was removed) is not asked for again.
+* Only a PROXY tile is retried (`fn_is_proxy_tile`), and not one of a layer the proxy refuses
+* for good: the first failure of a layer is asked about once (`fn_tile_refusal_is_final`), and
+* an `external.disabled` (the server may not relay that provider from this installation) stops
+* every retry of the layer — it is the configuration's answer, and no retry changes it.
 * @param {Object} layer - Leaflet TileLayer.
 * @returns {Object} The same layer.
 */
@@ -1081,10 +1167,10 @@ component_geolocation.prototype.retry_refused_tiles = function(layer) {
 
 	const self = this
 
-	layer.on('tileerror', (event) => {
+	layer.on('tileerror', async (event) => {
 
 		const tile = event.tile
-		if (!tile || typeof tile.src!=='string' || tile.src==='') {
+		if (!tile || typeof tile.src!=='string' || !fn_is_proxy_tile(tile.src)) {
 			return
 		}
 
@@ -1096,6 +1182,11 @@ component_geolocation.prototype.retry_refused_tiles = function(layer) {
 		tile.dedalo_tile_retries = attempts + 1
 
 		const address = tile.src
+		// one question per layer, shared by every tile that fails while it is pending
+		layer.dedalo_refusal_final = layer.dedalo_refusal_final || fn_tile_refusal_is_final(address)
+		if (await layer.dedalo_refusal_final) {
+			return
+		}
 		setTimeout(() => {
 			if (tile.isConnected) {
 				tile.src = address
@@ -1110,7 +1201,7 @@ component_geolocation.prototype.retry_refused_tiles = function(layer) {
 
 /**
 * GET_OSM_LAYER
-* The OpenStreetMap base layer, through the tile proxy. Called at map creation time and
+* The OpenStreetMap base layer, through the tile proxy (or directly: `get_builtin_layer`). Called at map creation time and
 * again each time the MutationObserver detects a theme change (the old layer is removed
 * before calling this). Both themes use the same tiles: dark mode is a CSS filter.
 * @param {Object} [options] - Extra Leaflet tileLayer options merged with defaults.
