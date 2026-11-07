@@ -166,7 +166,7 @@ CREATE TABLE public.dd_ontology (
     term jsonb,
     model text,
     machine_name text,
-    use_machine_name boolean
+    use_machine_name boolean,
     order_number numeric(4,0),
     relations jsonb,
     tld character varying(32),
