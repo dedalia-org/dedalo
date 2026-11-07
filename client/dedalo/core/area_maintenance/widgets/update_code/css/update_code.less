@@ -224,10 +224,10 @@
 // modal styles
 // the backup-waiver row (render_update_status.js build_waive_backup_row):
 // ONE look in both confirmation modals, code and ontology
-.dd_waive_backup_row() {
+.dd_waive_backup_row(@max_width: 60rem; @margin: 0 auto 1.5rem auto) {
 	text-align: left;
-	max-width: 60rem;
-	margin: 0 auto 1.5rem auto;
+	max-width: @max_width;
+	margin: @margin;
 
 	>.waive_backup_label {
 		display: flex;

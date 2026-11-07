@@ -41,10 +41,10 @@ import {
 } from '../../../core/area_maintenance/widgets/update_code/js/update_code_phases.js';
 import {
 	build_import_files,
-	tld_catalog_rows,
-	update_progress_share,
 	render_servers_list,
 	render_update_ontology,
+	tld_catalog_rows,
+	update_progress_share,
 } from '../../../core/area_maintenance/widgets/update_ontology/js/render_update_ontology.js';
 import { data_manager } from '../../../core/common/js/data_manager.js';
 import { event_manager } from '../../../core/common/js/event_manager.js';
@@ -1714,7 +1714,10 @@ describe('UPDATE_ONTOLOGY TLD catalog rows (tld_catalog_rows)', () => {
 		// one group is contiguous and ordered by TLD (group names are labels: language-bound)
 		assert.strictEqual(tlds.indexOf('zzc'), tlds.indexOf('zza') + 1);
 		const groups = rows.slice(1).map((row) => row.group);
-		assert.deepEqual(groups, [...groups].sort((a, b) => a.localeCompare(b)));
+		assert.deepEqual(
+			groups,
+			[...groups].sort((a, b) => a.localeCompare(b)),
+		);
 	});
 
 	it('names in the asked language (else English), without the master’s “ | tld” suffix', () => {
@@ -1816,7 +1819,10 @@ describe('UPDATE_ONTOLOGY waive-backup control', () => {
 			};
 			// a dropped stream ends on the progress frame (no final frame at all)
 			if (self.drop_stream !== true) {
-				on_read({ is_running: false, data: { msg: 'OK. import log', run_id: 'r1', root_info: null } });
+				on_read({
+					is_running: false,
+					data: { msg: 'OK. import log', run_id: 'r1', root_info: null },
+				});
 			}
 			on_done();
 		},
@@ -1901,7 +1907,9 @@ describe('UPDATE_ONTOLOGY waive-backup control', () => {
 			ui.confirm = original_confirm;
 			Object.assign(data_manager, original_stream);
 			for (const token of self.events_tokens) event_manager.unsubscribe(token);
-			document.querySelectorAll('.widget_update_ontology_modal').forEach((node) => node.remove());
+			document.querySelectorAll('.widget_update_ontology_modal').forEach((node) => {
+				node.remove();
+			});
 		}
 	};
 
@@ -1914,7 +1922,11 @@ describe('UPDATE_ONTOLOGY waive-backup control', () => {
 			await submit_into_modal(self, async (modal) => {
 				const row = modal.querySelector('.footer .waive_backup_row');
 				assert.ok(row, 'a stale backup renders the shared waive row');
-				assert.include(row.querySelector('.waive_backup_note').textContent, '73', 'with the age fact');
+				assert.include(
+					row.querySelector('.waive_backup_note').textContent,
+					'73',
+					'with the age fact',
+				);
 				assert.deepEqual(
 					[...modal.querySelectorAll('.confirm_tld .tld')].map((node) => node.textContent),
 					['matrix_dd', 'zza'],
@@ -1935,7 +1947,11 @@ describe('UPDATE_ONTOLOGY waive-backup control', () => {
 				['matrix_dd', 'zza'],
 				'the selection travels with it',
 			);
-			assert.include(confirms[0].note, get_label.update_code_waive_backup_confirm || 'without a recent database backup', 'the waiver is restated at the last gate');
+			assert.include(
+				confirms[0].note,
+				get_label.update_code_waive_backup_confirm || 'without a recent database backup',
+				'the waiver is restated at the last gate',
+			);
 		});
 	});
 
@@ -1945,8 +1961,16 @@ describe('UPDATE_ONTOLOGY waive-backup control', () => {
 				assert.isNull(modal.querySelector('.waive_backup_row'), 'nothing to waive');
 				assert.isFalse(modal.querySelector('.footer button.danger').disabled, 'Replace is live');
 			});
-			assert.strictEqual(self.sent[0].waive_backup, false, 'no waiver travels as false, never absent');
-			assert.notInclude(confirms[0].note, get_label.update_code_waive_backup_confirm || 'without a recent database backup', 'no waiver, nothing restated');
+			assert.strictEqual(
+				self.sent[0].waive_backup,
+				false,
+				'no waiver travels as false, never absent',
+			);
+			assert.notInclude(
+				confirms[0].note,
+				get_label.update_code_waive_backup_confirm || 'without a recent database backup',
+				'no waiver, nothing restated',
+			);
 		});
 	});
 
@@ -1973,7 +1997,10 @@ describe('UPDATE_ONTOLOGY waive-backup control', () => {
 			self.drop_stream = true;
 			await submit_into_modal(self, async () => {});
 			const content = self.form.closest('.update_ontology_content');
-			const error = await wait_for(() => content.querySelector('.body_response .error'), 'the failure line');
+			const error = await wait_for(
+				() => content.querySelector('.body_response .error'),
+				'the failure line',
+			);
 			assert.isNull(content.querySelector('.body_response .ok'), 'no "Ontology updated."');
 			assert.include(
 				error.textContent,
@@ -2003,7 +2030,11 @@ describe('UPDATE_ONTOLOGY waive-backup control', () => {
 						info: {
 							version: '7.0.0',
 							active_ontologies: [
-								{ tld: 'zzn', typology_name: 'Toponymy', name_data: [{ lang: 'lg-eng', value: 'Newland | zzn' }] },
+								{
+									tld: 'zzn',
+									typology_name: 'Toponymy',
+									name_data: [{ lang: 'lg-eng', value: 'Newland | zzn' }],
+								},
 							],
 						},
 					},

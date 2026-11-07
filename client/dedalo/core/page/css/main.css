@@ -19002,8 +19002,6 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 }
 .widget_update_ontology_modal .footer .waive_backup_row {
   text-align: left;
-  max-width: 60rem;
-  margin: 0 auto 1.5rem auto;
   max-width: none;
   margin: 0 0 1.25rem;
   padding: 0;
