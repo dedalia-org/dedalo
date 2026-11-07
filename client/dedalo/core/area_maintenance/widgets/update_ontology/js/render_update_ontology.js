@@ -56,7 +56,7 @@
 	import {data_manager} from '../../../../common/js/data_manager.js'
 	import {update_process_status} from '../../../../common/js/common.js'
 	import {event_manager} from '../../../../common/js/event_manager.js'
-	import {normalize_stream_error, request_failed, response_data, response_extension} from '../../../../common/js/api_error.js'
+	import {is_api_error, normalize_stream_error, request_failed, response_data, response_extension} from '../../../../common/js/api_error.js'
 	import {error_text} from '../../../../common/js/render_api_error.js'
 	import {data_version_of} from '../../../../common/js/release_identity.js'
 	import {build_waive_backup_row} from '../../update_code/js/render_update_status.js'
@@ -546,7 +546,7 @@ export const tld_catalog_rows = function (manifest, installed, tracked, lang) {
 * @param {string[]} options.installed - value.installed_tlds
 * @param {string[]} options.tracked - value.active_ontology_tlds
 * @param {boolean} options.configured_by_env - value.active_ontology_tlds_configured
-* @param {Function} options.fetch_manifest - async (server) => manifest|null
+* @param {Function} options.fetch_manifest - async (server) => manifest | ApiError (the master refused) | null
 * @returns {{node:HTMLElement, sync:Function, set_server:Function, untracked_selected:Function}}
 */
 const build_tld_catalog = function (options) {
@@ -758,13 +758,20 @@ const build_tld_catalog = function (options) {
 		let manifest = manifests.get(asked.url)
 		if (manifest===undefined) {
 			manifest = await options.fetch_manifest(asked)
-			if (manifest) {
+			if (manifest && !is_api_error(manifest)) {
 				manifests.set(asked.url, manifest)
 			}
 		}
 		list.classList.remove('loading')
 		// a newer pick won while this one was loading
 		if (server!==asked) {
+			return
+		}
+		// the master's own reason (e.g. no export for this version): never cached, a re-pick retries
+		if (is_api_error(manifest)) {
+			empty('')
+			list.replaceChildren(build_failure(manifest))
+			sync()
 			return
 		}
 		rows = tld_catalog_rows(manifest, options.installed, tracked, lang)
@@ -1327,7 +1334,7 @@ const get_content_data_edit = async function(self) {
 						fetch_manifest : async (server) => {
 							const api_response = await get_update_info(server)
 							const result = response_data(api_response)
-							return (request_failed(api_response) || !result) ? null : result
+							return request_failed(api_response) ? api_response.error : (result || null)
 						}
 					})
 					sync_catalog = catalog.sync

@@ -1955,6 +1955,34 @@ describe('UPDATE_ONTOLOGY waive-backup control', () => {
 		});
 	});
 
+	it('a refusing master: the catalog shows its reason, not "no list"', async () => {
+		await with_panel('ok', async (self) => {
+			// with_panel restores window.fetch afterwards
+			window.fetch = async () =>
+				new Response(
+					JSON.stringify({
+						ok: false,
+						request_id: 'rq1',
+						error: {
+							code: 'update_server.refused',
+							category: 'forbidden',
+							message:
+								'Error. Invalid version number. This version does not contain ontology files.',
+							label_key: null,
+						},
+					}),
+					{ status: 403, headers: { 'Content-Type': 'application/json' } },
+				);
+			event_manager.publish('ontology_server_select_change', null);
+			const failure = await wait_for(
+				() => self.form.closest('.update_ontology_content').querySelector('.tld_catalog .error'),
+				'the refusal in the catalog',
+			);
+			assert.include(failure.textContent, 'does not contain ontology files');
+			assert.include(failure.textContent, 'rq1', 'the request_id joins the server log');
+		});
+	});
+
 	it('a fresh backup: the modal offers no waiver', async () => {
 		await with_panel('ok', async (self, confirms) => {
 			await submit_into_modal(self, async (modal) => {
