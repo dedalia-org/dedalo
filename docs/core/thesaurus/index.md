@@ -187,7 +187,7 @@ Key behaviors:
 - **Request dedup** — rapid double-clicks on the arrow join the in-flight `get_children_data` request instead of firing a second one.
 - **Rendering** — `render_children` builds child nodes into `DocumentFragment`s and attaches them synchronously before resolving; callers can rely on the DOM being real when the promise settles. Children render into `children_container` (descriptors) or `nd_container` (non-descriptors).
 - **Instance lifecycle** — children register in their parent's `ar_instances`, so the standard `destroy(delete_dependencies)` cascade reclaims whole subtrees: area rebuilds, clean re-renders and term deletion free their instances, events and DOM. Collapsing does *not* destroy (instant re-open). After a drag-and-drop move, `rekey()` re-registers the moved instance under its new key.
-- **Search** — `parse_search_result` receives full root-to-match paths from the server, hierarchizes them as plain data, and opens the branches top-down with explicit recursion: a child is always rendered by its parent before its own branch opens. Results are highlighted and the page scrolls to the first match; results whose ancestors are missing are reported, never silently dropped.
+- **Search** — `parse_search_result` receives full root-to-match paths from the server, hierarchizes them as plain data, and opens the branches top-down with explicit recursion: a child is always rendered by its parent before its own branch opens. Results are highlighted and the page scrolls to the first match; results whose ancestors are missing are reported, never silently dropped. Each opened branch's children are REPLACED by the server's sibling list (never merged into a list loaded before the search), and the order number stays available in search results — only root terms have none, since a root's order is the hierarchy's main order.
 
 ## Tree mutations
 
@@ -295,7 +295,7 @@ sequenceDiagram
 
 - **`add_child`** (`addChild`, `ts_api.ts`) validates everything (section map flags, parent component resolution) *before* creating the record; creation, default `is_descriptor`/`is_indexable` values, ontology TLD inheritance and the parent link are one atomic unit. The record is created via `createSectionRecord` (`src/core/section/record/create_record.ts`). The new child's order is assigned under the parent lock.
 - **`update_parent_data`** (`updateParentData`) rejects moving a node under itself or under its own descendant with `tree.cycle`. An unlocked pre-check (`isAncestor`) answers the ordinary case before the transaction opens; the authoritative check is the locked walk inside `moveParent()` (`src/core/relations/parent.ts`), which also catches a racing move (see *The lock law* above).
-- **`save_order`** (`saveOrder`) rewrites sibling order values per parent context in one transaction; unchanged values are skipped (no time-machine noise). Repeating the same order is a no-op. Backed by `sortChildren`/`recalculateSiblingOrders` (`src/core/relations/parent.ts`).
+- **`save_order`** (`saveOrder`) rewrites sibling order values per parent context in one transaction; unchanged values are skipped (no time-machine noise). Repeating the same order is a no-op. Backed by `sortChildren`/`recalculateSiblingOrders` (`src/core/relations/parent.ts`). The order is rewritten 1..n from the list the client sends, so under the parent lock that list must be exactly the parent's current children — no sibling missing, none foreign, none repeated — or the call answers `409 resource.conflict` ("the list of terms is out of date") and writes nothing; the client then restores its local order. A node with more than one page of children is reordered only once all its pages are loaded. See `WC-2026-11-07-save-order-complete-list`.
 - **Delete** is only allowed for terms without children (the delete dialog lists existing relations first); it removes the record, updates the parent's children data and destroys the client instance. It is **not** one of the five tree actions — term delete goes through the generic section-record delete path, which enforces the same children-exist refusal (see [`sections`](../sections/sections.md#bulk-delete--the-delete-api-action)).
 
 ## Indexations (the "U" button)
@@ -333,6 +333,8 @@ bun test test/unit/ts_tree_semantics.test.ts test/unit/ts_tree_db_semantics.test
   node, a move against a curator's save in both orders, two moves that together
   close a loop, opposite-order reorders, loop repair, the deadlock retry), and
   drive every door that writes a parent key with a cycle-forming payload.
+- `ts_api_mutations_native.test.ts` refuses a `save_order` list with a missing,
+  foreign or repeated sibling (nothing written) and accepts the complete list.
 - `tree_obligations_native.test.ts` checks that a move, `add_child` and
   `save_order` leave the Time Machine rows and modified stamps a record write
   leaves; `tree_door_retry_native.test.ts` that `add_child` and `save_order`
@@ -340,4 +342,4 @@ bun test test/unit/ts_tree_semantics.test.ts test/unit/ts_tree_db_semantics.test
 - `ts_search_differential.test.ts` is the byte-parity gate for
   `searchThesaurus` / `getHierarchyTermsSqo`.
 
-The client widget has no unit tests; verify changes manually: expand/collapse with reload restore, rapid double-click (one network request), `Alt`-click force reload, drag-and-drop including a drop onto the node's own descendant (clean cycle error), search with deep matches, the U indexation grid toggle, and `Ctrl+M` model visibility persistence.
+The client gate `client/dedalo/test/client/js/test_ts_object.js` (`bun run test:client`) covers build/render/destroy, the model badge, the order number in search mode (absent on a root term) and a refused `save_order` restoring the local order. Verify the rest manually: expand/collapse with reload restore, rapid double-click (one network request), `Alt`-click force reload, drag-and-drop including a drop onto the node's own descendant (clean cycle error), search with deep matches, the U indexation grid toggle, and `Ctrl+M` model visibility persistence.

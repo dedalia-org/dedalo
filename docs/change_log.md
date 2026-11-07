@@ -170,6 +170,15 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **Terms can be reordered while a thesaurus or ontology search is showing the tree.**
+
+    Before, the order number next to a term was hidden during a search, so moving a term
+    meant clearing the search first. It now shows in search results too (root terms still
+    have none). If the list of sibling terms on screen is out of date, the order is not
+    saved: Dédalo says so and asks you to reload the tree, instead of saving a wrong order.
+
+    Wire contract: `WC-2026-11-07-save-order-complete-list`.
+
 - **The active-field style list gains Background, the tinted-surface look Dédalo used before the styles existed (it is the default).**
 
     Choose it with the same switcher in Users → your own record: **Active field style** is now
@@ -1244,7 +1253,7 @@ Merged since the last release; these ship with the next one.
     Before: the `read` request example set only `source.section_tipo` and no `source.tipo`, which a section read refuses with `request.invalid_source`.
     Now: the example sets `source.tipo` to the section's own tipo and `sqo.section_tipo` to the list of sections to read, and the field list states both as required for a section read: `source.tipo`, and `sqo.section_tipo` in every `sqo`.
 
-??? note "Wire contract — 64 entries"
+??? note "Wire contract — 65 entries"
 
     - `WC-2026-10-26-rich-text-image-legacy-reconcile`
     - `WC-2026-10-26-rich-text-image-record-keyed`
@@ -1310,6 +1319,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-06-css-version`
     - `WC-2026-11-06-update-panel-verdicts`
     - `WC-2026-11-07-labels-separate-resource`
+    - `WC-2026-11-07-save-order-complete-list`
 
 ## 7.0.0-beta.7 — 2026-10-25
 

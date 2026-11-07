@@ -2494,7 +2494,7 @@ const build_search_instances = async function(self, data) {
 					order				: data_item.order,
 					area_model			: root_caller.model,
 					is_ontology			: root_caller.model === 'area_ontology',
-					mode				: 'search', // hide some elements like 'order'
+					mode				: 'search', // inherited by children (render_child); root order is hidden by is_root_node
 					data				: data_item  // inject row as data itself
 				})
 				if(SHOW_DEBUG===true) {
@@ -2609,19 +2609,16 @@ const open_search_branches = async function(node_info, to_open) {
 			console.log('Opening hierarchized branch:', ts_id, instance);
 		}
 
-		// merge the hierarchized children into the instance children_data
-		// (preserves children already visible when the node was open before
-		// the search, exactly like the previous add_children_item flow)
-		instance.children_data = instance.children_data || {
-			ar_children_data	: [],
+		// REPLACE the instance children_data with the hierarchized children: the
+		// server sends each opened ancestor's unpaged, position-ordered sibling list
+		// (src/core/ts_object/search.ts expandAncestorLevel). Merging into a
+		// pre-search list (possibly paged or stale) would feed save_order a wrong
+		// array — the order control is live in search mode. The list is NOT always
+		// complete (a polyhierarchy ancestor path); the server refuses any list that
+		// is not the parent's exact children (WC-2026-11-07-save-order-complete-list).
+		instance.children_data = {
+			ar_children_data	: [...info.children],
 			pagination			: null
-		}
-		instance.children_data.ar_children_data = instance.children_data.ar_children_data || []
-		for (const child_data of info.children) {
-			const exists = instance.children_data.ar_children_data.some(el => el.ts_id === child_data.ts_id)
-			if (!exists) {
-				instance.children_data.ar_children_data.push(child_data)
-			}
 		}
 
 		// Render and attach children nodes (synchronous attach: when this
@@ -2918,8 +2915,8 @@ const scroll_to_node = (node_to_scroll) => {
 * (!) The @param annotation listed 'mixed new_value' which is a leftover from
 * an earlier signature; only value is accepted. Flagged; not changed.
 * @param {number|string} value - Target 1-based position for this node.
-* @returns {Promise<boolean>} false on validation failure; true on success
-*   (even if the server call throws — error is caught and notified).
+* @returns {Promise<boolean>} true when persisted; false on validation failure or
+*   when the server call fails (error notified, local order restored).
 */
 ts_object.prototype.save_order = async function( value ) {
 
@@ -3007,7 +3004,12 @@ ts_object.prototype.save_order = async function( value ) {
 		if (SHOW_DEBUG) console.log("[ts_object.save_order] api_response", api_response)
 
 		if (!response_data(api_response)) {
-			throw new Error(request_failed(api_response) ? error_text(api_response.error) : 'Error on save order response')
+			// a refused sibling list (resource.conflict) carries its own public
+			// sentence ("reload the tree"); the code's generic label would hide it
+			const api_error = api_response?.error
+			throw new Error(request_failed(api_response)
+				? ((api_error?.code==='resource.conflict' && api_error.message) || error_text(api_error))
+				: 'Error on save order response')
 		}
 
 		// Success notification
@@ -3024,6 +3026,24 @@ ts_object.prototype.save_order = async function( value ) {
 			type		: 'error',
 			remove_time	: 10000
 		})
+		// nothing was persisted (e.g. the server refused an out-of-date sibling
+		// list): put the local order back so the tree keeps showing the truth
+		// by identity, not by the pre-await index: another reorder may have
+		// spliced this shared array while the request was in flight
+		const moved_index = ar_children_data.indexOf(moved_item)
+		if (moved_index !== -1) {
+			ar_children_data.splice(moved_index, 1)
+			ar_children_data.splice(Math.min(current_data_index, ar_children_data.length), 0, moved_item)
+		}
+		ar_children_data.forEach((item, i) => {
+			const found = instances_pool.find(inst =>
+				inst.section_tipo === item.section_tipo && same_section_id(inst.section_id, item.section_id)
+			)
+			if (found) {
+				found.virtual_order = i + 1
+			}
+		})
+		return false
 	}
 
 	return true
