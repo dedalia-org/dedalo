@@ -369,6 +369,29 @@ async function isMarked(conn: DbConnDescriptor, database: string): Promise<boole
 	return rows[0] === 't';
 }
 
+/**
+ * isMarked for a database a LISTING named: null when it no longer exists (dropped between
+ * the listing and the probe — by its own run's teardown, an operator), which is what a
+ * sweep wants anyway. Any other probe failure still fails, loudly.
+ */
+async function isMarkedIfPresent(
+	conn: DbConnDescriptor,
+	database: string,
+): Promise<boolean | null> {
+	try {
+		return await isMarked(conn, database);
+	} catch (error) {
+		const still = await psqlColumn(
+			conn,
+			'postgres',
+			`SELECT 1 FROM pg_database WHERE datname = '${database}'`,
+			`re-list '${database}'`,
+		);
+		if (still.length === 0) return null;
+		throw error;
+	}
+}
+
 /** A scratch database this run created: its name and the oid captured at CREATE. */
 export interface Scratch {
 	name: string;
@@ -436,7 +459,9 @@ async function sweepOrphans(conn: DbConnDescriptor, findings: string[]): Promise
 		'list orphaned scratch databases',
 	);
 	for (const name of names.filter((candidate) => IDENTIFIER.test(candidate))) {
-		if (await isMarked(conn, name)) {
+		const marked = await isMarkedIfPresent(conn, name);
+		if (marked === null) continue; // dropped between the listing and the probe: already gone
+		if (marked) {
 			await psqlSqlOk(
 				conn,
 				'postgres',

@@ -378,6 +378,16 @@ describe('UPDATE_RUN lock on a dead session', () => {
 			);
 			expect(await lock?.held?.()).toBe(false);
 			await lock?.release(); // resolves
+			// pg_terminate_backend only SIGNALS: the backend frees its advisory lock when it
+			// has exited. Wait for that (bounded) — under load the immediate re-acquire raced
+			// it — so the leg measures "the lock is free", not the scheduler.
+			for (let attempt = 0; attempt < 100; attempt++) {
+				const alive = (await sql.unsafe('SELECT 1 FROM pg_stat_activity WHERE pid = $1', [
+					lock?.pid,
+				])) as unknown[];
+				if (alive.length === 0) break;
+				await Bun.sleep(50);
+			}
 			next = await tryAcquireUpdateRunLock();
 			expect(next).not.toBeNull();
 		} finally {

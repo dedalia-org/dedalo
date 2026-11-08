@@ -147,6 +147,15 @@ describe('legacy machine-name rungs ratchet (G6)', () => {
 		// Armed: a node CAN state its flag, so a derived one is legacy debt, banked like (2).
 		expect(armed, 'the suite release defines ontology43/44').toBe(true);
 		expect(tldsUsing('derived_flag')).toEqual([...DERIVED_FLAG_TLDS]);
+		// Per tld: a banked one derives on at least one node, never on more than it parses;
+		// an unbanked one derives on none.
+		for (const [tld, state] of states) {
+			const derived = state.machineNameLegacyRungs.derived_flag;
+			if (DERIVED_FLAG_TLDS.includes(tld)) {
+				expect(derived, tld).toBeGreaterThan(0);
+				expect(derived, tld).toBeLessThanOrEqual(state.matrixNodes);
+			} else expect(derived, tld).toBe(0);
+		}
 	});
 
 	test('the reader bridges are idle: no un-derived row, no machine-name defect', async () => {
