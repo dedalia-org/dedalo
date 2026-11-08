@@ -2484,6 +2484,11 @@
 			"skipped": 0,
 			"assertions": 147
 		},
+		"test/unit/install_choice_refusal_drawn_native.test.ts": {
+			"tests": 4,
+			"skipped": 0,
+			"assertions": 6
+		},
 		"test/unit/install_core_hierarchy_native.test.ts": {
 			"tests": 2,
 			"skipped": 0,
@@ -2633,6 +2638,11 @@
 			"tests": 8,
 			"skipped": 0,
 			"assertions": 106
+		},
+		"test/unit/install_ontology_source_access_native.test.ts": {
+			"tests": 13,
+			"skipped": 0,
+			"assertions": 22
 		},
 		"test/unit/install_ontology_staging_durability.test.ts": {
 			"tests": 1,
