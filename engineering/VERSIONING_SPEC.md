@@ -48,9 +48,13 @@ Nothing ever moves to a lower identity, on any install type or channel.
 | **Docker** | Its own release or beta image, and any higher release or beta image. | Any `-dev` image, on any channel. Any lower identity. |
 | **Tree, master channel** | Releases above its own. Never a nightly (A1). | Nightlies. Betas. Lower identities. |
 | **Tree, prerelease channel** | Betas and releases above its own. Never a nightly (A1). | Nightlies. Lower identities. |
-| **Tree, dev channel** | Nightlies and releases above its own. A nightly moves forward to the release it names. | Lower identities. |
+| **Tree, dev channel** | Nightlies, betas and releases above its own (the channel ladder: dev also sees what the prerelease channel sees). A nightly moves forward to the release it names. | Lower identities. |
 
-A dev install of `7.0.0-dev` moves to `7.0.0`, then to `7.0.1-dev` or `7.0.1`, whichever is next. It never moves back to a beta of the same triple.
+Each rung also needs the code server's own opt-in: betas are offered only when it sets `DEDALO_CODE_SERVER_PRERELEASE_CHANNEL`, nightlies only with `DEDALO_CODE_SERVER_DEV_CHANNEL`.
+
+A dev install of `7.0.0-dev` moves to `7.0.0`, then to `7.0.1-beta.N`, `7.0.1-dev` or `7.0.1`, whichever is next. It never moves back to a beta of the same triple.
+
+**The post-tag gap (expected, not a fault).** The order ranks every `-dev` above every beta of its triple, whatever the build date. So a nightly built *before* a beta is cut is older code than that beta, yet the beta is never offered to it (it would be a downgrade by identity). And while the `master` tip is the tagged commit itself, *Build developer release* cannot build a new nightly (D3: it refuses "'master' is the tagged commit …"). The gap closes with the next commit on `master`: its nightly, still `7.0.0-dev`, carries the beta's code and more; the dev channel offers a same-identity nightly as a reinstall (the one equal case), so the dev install takes it. Ordering by commit ancestry instead would close the gap at once, but needs the asker's commit on the wire and a git-ancestry check on the code server, for a window that one commit ends.
 
 ---
 
@@ -119,6 +123,8 @@ Each scenario is a test the gates must pass once this spec is signed off.
 | S8 | A patch `7.0.1` declares data steps | Refused by the catalog validator. |
 | S9 | A commit tagged `v7.0.1` is built as a nightly | Refused (per D3, default). |
 | S10 | Nightly `7.0.0-dev` installed, then `7.0.0` released | Dev install moves to `7.0.0`. Nothing moves back. |
+| S11 | Nightly `7.0.0-dev` (built before the tag) installed, then `v7.0.0-beta.8` published | The beta is NOT offered on any channel (lower identity). Until a new commit lands on `master`, *Build developer release* refuses (D3); the next nightly (same identity) is offered as a reinstall. Gates: `code_manifest.test.ts` (a DEVELOPER build is offered … never the prereleases below it; a dev build reinstalled over ITSELF … the one equal case), `code_build_native.test.ts` (the tagged-commit refusal). |
+| S12 | Tree dev channel `7.0.0` is offered `7.0.1-beta.1` | Offered (higher identity; the dev channel includes the prerelease rung). Gate: `code_manifest.test.ts` (THE LADDER). |
 
 ---
 

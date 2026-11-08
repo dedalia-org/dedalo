@@ -62,7 +62,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {widget_common} from '../../widgets/widget_common/js/widget_common.js'
 	import {request_failed, response_data, response_extension} from '../../common/js/api_error.js'
-	import {error_text} from '../../common/js/render_api_error.js'
+	import {error_text, error_lines} from '../../common/js/render_api_error.js'
 	import {OPEN_WIDGET_EVENT} from './maintenance_events.js'
 	import {add_palette_provider, open_command_palette} from '../../common/js/command_palette.js'
 
@@ -1674,7 +1674,11 @@ const render_widget = async (item, self) => {
 *      on mouseup, allowing the admin to dismiss the result without re-running the action.
 *   2. FAILURE block — on `ok:false` the coded `error` is resolved by the ONE
 *      text resolver (`error_text`: label in the admin's language → the
-*      registry's English message → the code) and nothing else is printed.
+*      registry's English message → the code), followed by the server's own
+*      sentence when it says more (`error_lines`: a state refusal's
+*      `publicMessage` — "'master' is the tagged commit …" — is the only
+*      actionable part, and the generic label alone hid it in the console).
+*      Nothing else is printed.
 *   3. Error block (SUCCESS only) — rendered when the widget's `errors`
 *      EXTENSION KEY (read through response_extension) is a non-empty array: a
 *      PARTIAL refusal the action reports beside its result (skipped rows,
@@ -1731,7 +1735,10 @@ export const print_response = (container, api_response) => {
 				class_name		: 'api_response error',
 				parent			: container
 			})
-			append_text_lines(error_node, String(error_text(api_response.error)).split(/\\n|\n/))
+			append_text_lines(
+				error_node,
+				error_lines(api_response.error).flatMap((line) => line.split(/\\n|\n/))
+			)
 
 		}else{
 

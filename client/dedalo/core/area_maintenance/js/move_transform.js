@@ -49,7 +49,7 @@ import { update_process_status } from '../../common/js/common.js';
 import { data_manager } from '../../common/js/data_manager.js';
 import { outcome_unknown } from '../../common/js/error_dispatch.js';
 // imports
-import { error_text } from '../../common/js/render_api_error.js';
+import { error_lines } from '../../common/js/render_api_error.js';
 import { ui } from '../../common/js/ui.js';
 
 /**
@@ -165,8 +165,8 @@ const render_outcome_unknown = function (api_error) {
 
 /**
  * RENDER_ERROR_LINES
- * One panel node: the given lead lines, then the error label-first (error_text),
- * the server's own sentence when it says more, and the request_id (the join key
+ * One panel node: the given lead lines, then the error label-first plus the
+ * server's own sentence when it says more (error_lines), and the request_id (the join key
  * with the server log). Text nodes only — server text never reaches an HTML sink.
  * @param {string} class_name
  * @param {Array<string>} lead_lines
@@ -178,12 +178,7 @@ const render_error_lines = function (class_name, lead_lines, api_error) {
 		element_type: 'div',
 		class_name: class_name,
 	});
-	const headline = String(error_text(api_error));
-	const message = typeof api_error?.message === 'string' ? api_error.message : '';
-	const lines = [...lead_lines, headline];
-	if (message.length && message !== headline) {
-		lines.push(message);
-	}
+	const lines = [...lead_lines, ...error_lines(api_error)];
 	if (typeof api_error?.request_id === 'string' && api_error.request_id.length) {
 		lines.push(`request_id: ${api_error.request_id}`);
 	}

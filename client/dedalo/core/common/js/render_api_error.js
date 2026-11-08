@@ -186,6 +186,45 @@ export const error_text = (api_error) => {
 
 
 /**
+* ERROR_LINES
+* The label-first headline (error_text), then the server's own sentence when it
+* says more. A public-disclosure code carries the throw's `publicMessage` as its
+* `message` — for a STATE refusal (`update.refused`: "'master' is the tagged
+* commit v7.0.0-beta.8 … build an untagged commit") that sentence is the only
+* actionable part, and the generic label alone ("The update was refused in the
+* current state") left the operator to find it in the console. The message is
+* added only when it says more: it differs from the headline, it is not the bare
+* code (ApiError falls back to the code when the wire message is empty), and the
+* error is not a tool `reason_key` refusal (its message is the declared English
+* of the very reason the headline already states, error_text).
+* KNOWN LIMIT: on a non-English page EVERY failure whose message is the registry
+* English (an unspecialised throw) shows it under the translated label — the
+* client cannot tell the registry sentence from a `publicMessage` (the wire
+* carries one `message`).
+* @param {ApiError|Object} api_error
+* @return Array<string>
+*/
+export const error_lines = (api_error) => {
+
+	const headline = String(error_text(api_error))
+	if (!api_error || typeof api_error!=='object') {
+		return [headline]
+	}
+	const message		= typeof api_error.message==='string' ? api_error.message : ''
+	const reason_key	= api_error.details && typeof api_error.details==='object'
+		? api_error.details.reason_key
+		: undefined
+	const says_more = message.length>0
+		&& message!==headline
+		&& message!==api_error.code
+		&& !(typeof reason_key==='string' && reason_key.length>0)
+
+	return says_more ? [headline, message] : [headline]
+}//end error_lines
+
+
+
+/**
 * ERROR_DEBUG_SUFFIX
 * Under SHOW_DEBUG, the code and request_id ride along so a screenshot joins the
 * server log. Empty string in production.

@@ -20,6 +20,7 @@
 
 import {
 	error_text,
+	error_lines,
 	register_tool_error_labels,
 	error_debug_suffix,
 	render_error_toast,
@@ -86,6 +87,53 @@ describe('RENDER_API_ERROR — error_text', function() {
 		})
 		assert.equal(error_text(null), '')
 		assert.equal(error_text('plain'), 'plain')
+	})
+
+	it('error_lines: the label, then the server sentence only when it says more', async function() {
+		const refusal = "Error. 'master' is the tagged commit v7.0.0-beta.8: build an untagged commit."
+		await with_label('error_test_client_gate', 'The update was refused in the current state', async () => {
+			assert.deepEqual(
+				error_lines(new ApiError({code: 'update.refused', label_key: 'error_test_client_gate', message: refusal})),
+				['The update was refused in the current state', refusal],
+				'a specific publicMessage rides under the generic label'
+			)
+			assert.deepEqual(
+				error_lines(new ApiError({code: 'update.refused', label_key: 'error_test_client_gate', message: 'The update was refused in the current state'})),
+				['The update was refused in the current state'],
+				'the registry English equal to the label prints ONE line'
+			)
+			assert.deepEqual(
+				error_lines(new ApiError({code: 'update.refused', label_key: 'error_test_client_gate', message: ''})),
+				['The update was refused in the current state'],
+				'an empty wire message (ApiError falls back to the code) adds no raw-code line'
+			)
+			assert.deepEqual(
+				error_lines(new ApiError({code: 'request.invalid_options', label_key: 'error_test_client_gate', message: 'The bounding box is not numeric.', details: {reason_key: 'bad_bbox'}})),
+				[error_text(new ApiError({code: 'request.invalid_options', label_key: 'error_test_client_gate', message: 'The bounding box is not numeric.', details: {reason_key: 'bad_bbox'}}))],
+				'a tool reason_key refusal is ONE line: its message is the English of the same reason'
+			)
+		})
+		// no label in the catalog: the headline already IS the message
+		assert.deepEqual(error_lines(new ApiError({code: 'some.code', label_key: 'no_such_label_in_catalog_xyz', message: refusal})), [refusal])
+		assert.deepEqual(error_lines(new ApiError({code: 'some.code', message: ''})), ['some.code'])
+		assert.deepEqual(error_lines(null), [''])
+	})
+
+	it('print_response: a failure shows the label AND the server refusal, as text', async function() {
+		const {print_response} = await import('../../../core/area_maintenance/js/render_area_maintenance.js')
+		const refusal = `Error. 'master' is the tagged commit v7.0.0-beta.8 ${XSS}`
+		await with_label('error_test_client_gate', 'The update was refused in the current state', async () => {
+			const container = document.createElement('div')
+			print_response(container, {
+				ok		: false,
+				error	: new ApiError({code: 'update.refused', label_key: 'error_test_client_gate', message: refusal, request_id: 'rq-print'})
+			})
+			const node = container.querySelector('.api_response.error')
+			assert.ok(node, 'the failure block renders')
+			assert.include(node.textContent, 'The update was refused in the current state')
+			assert.include(node.textContent, refusal, 'the actionable sentence is IN the panel, not only the console')
+			assert.equal(node.querySelector('img'), null, 'server text is never parsed as HTML')
+		})
 	})
 
 	it('client codes resolve their error_client_* label when the catalog has it', async function() {
