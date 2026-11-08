@@ -11,7 +11,9 @@
  *    the accounts whose PRIMARY group it is (a local `getent passwd` scan), the
  *    same-named group of a new user (a leftover the installer never reuses by
  *    default), and the user's other groups (`id -G` / `id -Gn`: systemd's User=
- *    and runuser both call initgroups, so the service holds every one of them);
+ *    calls initgroups, so the RUNNING service holds every one of them — the
+ *    install-time steps do not: `runuser -g <service group>` sets that one
+ *    group only, see identity_rules.ts searchable);
  *  - /etc/login.defs' regular uid/gid ranges;
  *  - the install folder (lstat: never followed; owner, mode, entries) and each
  *    of its ancestors up to `/` (and the backup dir's: it may lie outside).

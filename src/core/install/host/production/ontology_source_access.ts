@@ -22,9 +22,12 @@ import type { HostCtx, HostPlanCtx } from '../contract.ts';
 import type { HostStat } from '../fs.ts';
 import type { AccountFacts } from './account_facts.ts';
 
+/** What a mode check reads of a path (a HostStat, or an account fact's PathFact). */
+type ModeFacts = Pick<HostStat, 'mode' | 'owner' | 'group'>;
+
 /** The permission bits one access needs, at the owner position (r=4, x=1). */
-const READ = 4;
-const TRAVERSE = 1;
+export const READ = 4;
+export const TRAVERSE = 1;
 
 /**
  * Who reads, for a mode check: the service user and its ONE group. The engine
@@ -34,7 +37,7 @@ const TRAVERSE = 1;
  * lists one group). Ids are kept beside the names: a stat names an owner from
  * the LOCAL passwd/group files only, so an LDAP/sssd owner reads as its number.
  */
-interface Reader {
+export interface Reader {
 	user: string;
 	uid: string | null;
 	group: string;
@@ -42,7 +45,11 @@ interface Reader {
 }
 
 /** The service user as the host will have it (an existing account's ids, or a new one's names). */
-function readerOf(user: string, group: string, account: AccountFacts | null | undefined): Reader {
+export function readerOf(
+	user: string,
+	group: string,
+	account: Pick<AccountFacts, 'user' | 'group'> | null | undefined,
+): Reader {
 	const existing = account?.user ?? null;
 	const groupEntry = account?.group ?? null;
 	return {
@@ -54,17 +61,17 @@ function readerOf(user: string, group: string, account: AccountFacts | null | un
 }
 
 /** May `reader` use `bits` (READ|TRAVERSE at the owner position) on `stat`? Exactly one class of bits applies. */
-export function grants(stat: HostStat, reader: Reader, bits: number): boolean {
+export function grants(stat: ModeFacts, reader: Reader, bits: number): boolean {
 	return ((stat.mode >> classShift(stat, reader)) & bits) === bits;
 }
 
 /** A stat's owner/group (a name, or a number for a non-local account) is `name` or `id`. */
-function names(statValue: string, name: string, id: string | null): boolean {
+export function names(statValue: string, name: string, id: string | null): boolean {
 	return statValue === name || (id !== null && statValue === id);
 }
 
 /** The bit position of the class that applies to `reader`: owner 6, group 3, others 0. */
-function classShift(stat: HostStat, reader: Reader): number {
+function classShift(stat: ModeFacts, reader: Reader): number {
 	if (names(stat.owner, reader.user, reader.uid)) return 6;
 	return names(stat.group, reader.group, reader.gid) ? 3 : 0;
 }

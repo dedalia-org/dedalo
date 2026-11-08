@@ -10,8 +10,8 @@
  *    server's — PACKAGE_ACCOUNTS: one absent now appears at host_packages); an
  *    existing account is used as it is only when it
  *    is a REGULAR one (login.defs' UID range) and holds no privileged group
- *    (systemd's User= and runuser call initgroups: every group of the account
- *    is the service's); a new one is created only under useradd's default
+ *    (systemd's User= calls initgroups: every group of the account is the
+ *    running service's); a new one is created only under useradd's default
  *    NAME_REGEX (no dot).
  *  - GROUP: never gid 0, never a system group (the web server joins it),
  *    never the web server's own nor a package's; a defaulted group named like
@@ -28,7 +28,8 @@
  *    or /media (owner and mode restored on --abort; never an OS directory such
  *    as /var/mail), else refused; it never holds an install's remains; every existing parent is
  *    root's or the user's, not group/other-writable, and searchable by the
- *    user. A missing folder is created by ROOT only under root-owned parents,
+ *    user WITH THE SERVICE GROUP ALONE (the install steps run `runuser -g`,
+ *    which sets that one group — see searchable). A missing folder is created by ROOT only under root-owned parents,
  *    else by the user itself (root never works by path in a tree another
  *    account controls — critique B1).
  *  - WEB: no folder inside a directory a web site serves.
@@ -40,6 +41,7 @@ import { pathsOverlap, sameOrInside } from '../../install_validation.ts';
 import type { SiteTuple } from '../web/clash.ts';
 import type { AccountFacts, PathFact } from './account_facts.ts';
 import type { OtherInstance } from './instances.ts';
+import { grants, names, readerOf, TRAVERSE } from './ontology_source_access.ts';
 
 /** How the install folder comes to be the service user's. */
 export type FolderPlan =
@@ -328,8 +330,8 @@ function clashRules(input: IdentityInput, other: OtherInstance): Clash[] {
 
 /**
  * The existing account HOLDS another instance's group (a supplementary or
- * primary membership: systemd's User= and runuser call initgroups) — the
- * service would read that instance's tree, media and backups.
+ * primary membership: systemd's User= calls initgroups) — the running service
+ * would read that instance's tree, media and backups.
  */
 function memberClash(input: IdentityInput, other: OtherInstance): Clash[] {
 	const { account, answers } = input;
@@ -443,16 +445,18 @@ function webRules(input: IdentityInput): string[] {
 
 // ── the folder ───────────────────────────────────────────────────────────────
 
-/** The groups the user will hold (its memberships, and the service group). */
-function userGroups(account: AccountFacts): Set<string> {
-	return new Set([...account.memberOf.map((group) => group.name), account.groupName]);
-}
-
-/** Can the user traverse `fact`? */
-function searchable(fact: PathFact, user: string, groups: Set<string>): boolean {
-	if ((fact.mode & 0o001) !== 0) return true;
-	if (fact.owner === user) return (fact.mode & 0o100) !== 0;
-	return groups.has(fact.group) && (fact.mode & 0o010) !== 0;
+/**
+ * Can the user traverse `fact` WITH THE SERVICE GROUP ALONE? Every install-time
+ * step of the instance runs as `runuser -u <user> -g <service group>` (execute.ts),
+ * and with -g runuser sets exactly that group and skips initgroups (measured on
+ * Ubuntu 26.04, 2026-11-08 — campaign C4): the account's other groups do not
+ * reach its folder then. ONE rule with the ontology-source check (grants: one
+ * class of bits, owner/group matched by name or by id — a non-local account's
+ * owner reads as its number).
+ */
+function searchable(fact: PathFact, input: IdentityInput): boolean {
+	const reader = readerOf(input.answers.service_user, input.account.groupName, input.account);
+	return grants(fact, reader, TRAVERSE);
 }
 
 /** One existing ancestor's refusals. */
@@ -463,13 +467,15 @@ function ancestorRule(fact: PathFact, input: IdentityInput): string[] {
 			`install folder path ${input.answers.install_dir} passes through the symbolic link ${fact.path} — give the real path`,
 		];
 	}
-	const foreign = !['root', u].includes(fact.owner) || (fact.mode & 0o022) !== 0;
+	const uid = input.account.user === null ? null : String(input.account.user.uid);
+	const foreign =
+		!(fact.owner === 'root' || names(fact.owner, u, uid)) || (fact.mode & 0o022) !== 0;
 	if (foreign) {
 		return [
 			`${fact.path} (a parent of the install folder) is writable by an account other than root or ${u} — it could replace the install folder; fix its owner or mode first`,
 		];
 	}
-	return searchable(fact, u, userGroups(input.account))
+	return searchable(fact, input)
 		? []
 		: [`${fact.path} is not searchable by ${u} — the service could not reach its own folder`];
 }

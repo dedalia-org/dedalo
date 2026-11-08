@@ -1645,3 +1645,53 @@ test('the scratch base is this gate’s own mkdtemp root', () => {
 	expect(scratchBase.startsWith(tmpdir())).toBe(true);
 	expect(REPO_ROOT.length).toBeGreaterThan(1);
 });
+
+describe('C4: the install folder must be reachable WITH THE SERVICE GROUP ALONE (runuser -g)', () => {
+	// The install-time steps run `runuser -u <user> -g <service group>`: with -g runuser
+	// sets that ONE group (measured on Ubuntu 26.04, 2026-11-08). A parent reachable only
+	// through the account's OTHER group passed this check, then the engine could not enter.
+	const searchProblem =
+		'/home/site is not searchable by site — the service could not reach its own folder';
+	const siteAccount = (parent: PathFact, memberOf: { name: string; gid: number }[]) =>
+		input(SITE, {
+			user: user('site', 1600, 1600),
+			group: SITE_GROUP,
+			groupName: 'site',
+			memberOf,
+			ancestors: [parent, fact('/home'), fact('/')],
+		});
+	const verdictOf = (parent: PathFact, memberOf: { name: string; gid: number }[] = []) =>
+		identityVerdict(siteAccount(parent, memberOf)).problems;
+
+	test("a parent open only to the account's OTHER group (staff, 0750) is refused", () => {
+		const parent = fact('/home/site', { group: 'staff', mode: 0o750 });
+		expect(
+			verdictOf(parent, [
+				{ name: 'site', gid: 1600 },
+				{ name: 'staff', gid: 1700 },
+			]),
+		).toContain(searchProblem);
+	});
+
+	test('CONTROL: the same parent owned by the SERVICE group is reachable', () => {
+		const parent = fact('/home/site', { group: 'site', mode: 0o750 });
+		expect(verdictOf(parent)).not.toContain(searchProblem);
+	});
+
+	test("the owner's bits rule for the owner (0601: others may enter, the owner may not)", () => {
+		const parent = fact('/home/site', { owner: 'site', group: 'site', mode: 0o601 });
+		expect(verdictOf(parent)).toContain(searchProblem);
+	});
+
+	test('the GROUP class beats others (root:site 0705: the service group may not enter)', () => {
+		const parent = fact('/home/site', { group: 'site', mode: 0o705 });
+		expect(verdictOf(parent)).toContain(searchProblem);
+	});
+
+	test('a non-local (LDAP) owner reads as its number: the user-owned parent is matched by uid', () => {
+		const parent = fact('/home/site', { owner: '1600', group: '1600', mode: 0o700 });
+		const problems = verdictOf(parent);
+		expect(problems).not.toContain(searchProblem);
+		expect(problems.join('\n')).not.toContain('writable by an account other than root');
+	});
+});
