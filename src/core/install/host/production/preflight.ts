@@ -26,7 +26,9 @@
  *  - the institution's certificate files (address, expiry, key) — and that
  *    this host trusts their chain (host_public_probe verifies it with this
  *    host's curl: campaign 3 C3-13); a local CA's directory holding an
- *    authority made for other addresses.
+ *    authority made for other addresses;
+ *  - a local `--ontology-source` the service user cannot read (the engine
+ *    steps stage it as that user — ontology_source_access.ts).
  *
  * Then FREEZES the facts and the digest of every step's commands in the state
  * file (state_types.ts): what the rest of the run, and any resume, executes.
@@ -60,6 +62,7 @@ import { claimProblems } from './address_claims.ts';
 import { ran, sitePath, webFlavor } from './common.ts';
 import { identityOf, instanceDirs, ownedDirs } from './identity.ts';
 import { instanceTakenSentence } from './identity_rules.ts';
+import { ontologySourceAccessProblems } from './ontology_source_access.ts';
 import { foreignAuthority, institutionCertVerdict } from './tls.ts';
 
 /** Refuse with every problem, joined (the operator fixes them all in one pass). */
@@ -347,6 +350,7 @@ async function evaluate(ctx: HostCtx): Promise<PreflightVerdict> {
 		...hostProblems(planCtx),
 		...webServerClash(planCtx, ctx.fs),
 		...dirProblems({ ...ctx, ...planCtx }),
+		...ontologySourceAccessProblems({ ...ctx, ...planCtx }),
 		...tls.problems,
 	];
 	return { facts, planCtx, problems: [...new Set(problems)], warnings: tls.warnings };

@@ -1168,7 +1168,9 @@ export function normalizeInstallAnswers(raw: RawAnswers): {
 		register_tools: raw.register_tools !== false,
 		ontologies: ontologyChoice.ontologies,
 		declined_dependencies: declinedChoice.declined,
-		ontology_source: text(raw, 'ontology_source'),
+		// Absolute HERE, against the operator's cwd: the production engine child runs in the
+		// instance's tree and would resolve a relative path elsewhere (campaign C4 review).
+		ontology_source: absoluteOrEmpty(text(raw, 'ontology_source')),
 		...hosting,
 		...publicAddress,
 	};
@@ -1333,6 +1335,11 @@ export function ontologyServersFor(
 	if (answers.update_servers === 'none') return [];
 	const custom = serverEntries(priorEnv.ONTOLOGY_SERVERS);
 	return custom.length > 0 ? custom : [OFFICIAL_ONTOLOGY_SERVER];
+}
+
+/** A path answer made absolute against the current directory ('' stays '': not given). */
+function absoluteOrEmpty(value: string): string {
+	return value === '' ? '' : resolve(value);
 }
 
 /**

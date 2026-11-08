@@ -57,6 +57,7 @@
 import { afterAll, describe, expect, spyOn, test } from 'bun:test';
 import { X509Certificate } from 'node:crypto';
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -116,6 +117,7 @@ import {
 	normalizeInstallAnswers,
 } from '../../src/core/install/install_plan.ts';
 import { MEDIA_DIR_MODE } from '../../src/core/install/media_tree.ts';
+import { resolveOntologyCatalog } from '../../src/core/install/ontology_catalog.ts';
 import type { RunEnding } from '../../src/core/install/run_events.ts';
 import {
 	readPlanFile,
@@ -194,6 +196,8 @@ interface PlantOptions {
 	responses?: readonly RecordedResponse[];
 	/** Replace the os-release. */
 	osRelease?: string;
+	/** Modes to set on planted host paths, after planting (owner stays root). */
+	modes?: readonly [string, number][];
 }
 
 /** A planted scratch host of `variant`. */
@@ -207,6 +211,7 @@ function scratchHost(variant: HostVariant, options: PlantOptions = {}): ScratchH
 	if (options.osRelease !== undefined)
 		plant(root, new Map([['/etc/os-release', options.osRelease]]));
 	plant(root, options.files ?? new Map());
+	for (const [path, mode] of options.modes ?? []) chmodSync(join(root, path), mode);
 	mkdirSync(join(root, SCRATCH_DIR), { recursive: true });
 	writeFileSync(
 		join(root, SCRATCH_DIR, 'responses.json'),
@@ -2015,6 +2020,44 @@ describe('the Review refuses Apache beside a running nginx BEFORE `yes` (campaig
 		);
 		expect(nginx.errors.join('\n')).not.toContain('is held by');
 		expect(nginx.errors.join('\n')).not.toContain('beside it');
+	});
+});
+
+describe('a local ontology source the service user cannot read is refused before `yes` (campaign C4 RHEL10 F1)', () => {
+	// The plan reads the catalog for real (as root would); the System check judges the
+	// SCRATCH host's copy of the same absolute path — planted, its home moded per case.
+	const release = join(REPO_ROOT, 'install/import/ontology/7.0');
+	const realHome = join(mkdtempSync(join(tmpdir(), 'dedalo_onto_src_')), 'home', 'op');
+	const source = join(realHome, '7.0');
+	mkdirSync(source, { recursive: true });
+	const manifest = readFileSync(join(release, 'ontology.json'), 'utf8');
+	writeFileSync(join(source, 'ontology.json'), manifest);
+	const files = new Map([
+		[`${source}/ontology.json`, manifest],
+		[`${source}/oh.copy.gz`, ''],
+	]);
+	const refusals = async (homeMode: number) =>
+		(
+			await hostPlanRefusals(
+				productionPlan(
+					UBUNTU_NGINX_LE,
+					{ ontology_source: source },
+					(
+						await resolveOntologyCatalog({ kind: 'local', path: source }, { allowedServers: [] })
+					).catalog,
+				).planFile,
+				hostOptions(scratchHost(UBUNTU_NGINX_LE, { files, modes: [[realHome, homeMode]] })),
+			)
+		).errors.join('\n');
+
+	test('behind a 0700 home (root-owned here): the System check names the directory and the service user', async () => {
+		expect(await refusals(0o700)).toContain(
+			`--ontology-source ${source}: ${realHome} (root:root, mode 700) is not traversable by ded_${INSTANCE}`,
+		);
+	});
+
+	test('positive control: the same tree with a traversable home is not refused', async () => {
+		expect(await refusals(0o711)).not.toContain('--ontology-source');
 	});
 });
 

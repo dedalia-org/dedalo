@@ -15,7 +15,15 @@ import type { Option, Question } from '../../screen_model.ts';
 import { type Line, seg } from '../styled.ts';
 import { cursorDelta, moveCursor } from '../view_state.ts';
 import type { DrawContext, KeyHint, Widget } from '../widget.ts';
-import { badgedRow, descriptionLines, labelSeg, onRole, pointer, wrapped } from './field_parts.ts';
+import {
+	badgedRow,
+	descriptionLines,
+	errorLines,
+	labelSeg,
+	onRole,
+	pointer,
+	wrapped,
+} from './field_parts.ts';
 
 const CHOICE_KEYS: readonly KeyHint[] = [
 	['↑↓', 'move'],
@@ -79,9 +87,13 @@ export function choiceField(question: Question, done: (answer: string | Nav) => 
 		label: question.label,
 		description: question.description,
 		lines: (ctx: DrawContext) => {
+			// The model's refusal of the answer just given, under the label: without it a
+			// refused option re-asks with the cursor back on the default and NO word why
+			// (campaign C4: Build on a development checkout snapped back to Custom).
 			const head = [
 				...descriptionLines(question, ctx.width, ctx.layout.descLines),
 				[labelSeg(question.label, 'accent')],
+				...errorLines(question, ctx.width),
 			];
 			const rows: Line[] = [];
 			let focus = head.length;

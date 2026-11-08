@@ -19,7 +19,7 @@
  */
 
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isTestFixtureTld } from '../ontology/core_tlds.ts';
@@ -116,8 +116,16 @@ async function localDirectory(path: string): Promise<{ dir: string; cleanup: () 
 	let isDirectory: boolean;
 	try {
 		isDirectory = statSync(path).isDirectory();
-	} catch {
-		refuseInstall('install.invalid_input', `--ontology-source ${path}: no such file or directory`);
+	} catch (error) {
+		// EACCES is not ENOENT (campaign C4 RHEL10 F1): a source behind a 0700 home
+		// exists for root and not for the service user the engine steps run as.
+		const code = (error as NodeJS.ErrnoException).code;
+		refuseInstall(
+			'install.invalid_input',
+			code === 'EACCES' || code === 'EPERM'
+				? `--ontology-source ${path}: permission denied for ${userInfo().username} — the engine steps read the source as that user: open the directories on the way to others (chmod o+x), or copy the source where every user can read it and pass that path`
+				: `--ontology-source ${path}: no such file or directory`,
+		);
 	}
 	if (isDirectory) return { dir: path, cleanup: NO_CLEANUP };
 	const scratch = mkdtempSync(join(tmpdir(), 'dedalo_ontology_source_'));

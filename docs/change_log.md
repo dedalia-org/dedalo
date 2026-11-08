@@ -1043,6 +1043,14 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The terminal installer says why it refuses a choice.**
+
+    When a choice was refused — for example *Build* on the *Image* screen of a development checkout, which has no Docker image — the cursor went back to the default with no explanation. The reason is now shown under the question.
+
+- **The installer checks that a local ontology source is readable before it changes anything.**
+
+    On the production route, an offline ontology source (`--ontology-source`) in your home directory used to pass the plan, then stop the install halfway with "no such file or directory": the engine steps read the source as the instance's service user, who cannot enter a home directory closed to other users. The System check now refuses such a source before anything is installed and names the directory or file in the way, and a permission error is reported as one. See [Offline installs](./install/installer_reference.md#offline-installs-ontology-source).
+
 - **Style changes reach browsers right after a code update, whatever the web server's cache headers.**
 
     Before, a web server that sent no `Cache-Control` header for the client files let browsers keep the previous `main.css` and tool stylesheets for days after an update, so the interface looked broken or unchanged until a hard reload. Now the engine tells the page which stylesheet version is current at every start, and the page loads exactly that version before it draws anything. Nothing to configure. `Cache-Control: no-cache` on the client files (see [reverse proxy](./install/reverse_proxy.md)) is still recommended for the scripts.

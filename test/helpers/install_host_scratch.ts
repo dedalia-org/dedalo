@@ -57,6 +57,7 @@ import { IMAGE_BUILDER } from '../../src/core/install/host/stack/image.ts';
 import { stackPlanFacts } from '../../src/core/install/host/stack/preflight.ts';
 import { ROOT_RUN_SCRIPTS } from '../../src/core/install/host/systemd/render.ts';
 import { buildInstallPlan, type InstallPlan } from '../../src/core/install/install_plan.ts';
+import type { OntologyCatalog } from '../../src/core/install/ontology_choice.ts';
 import type { RunIo } from '../../src/core/install/run_events.ts';
 import { buildPlanFile, type PlanFile, type Secrets } from '../../src/core/install/run_files.ts';
 
@@ -256,10 +257,12 @@ export function productionRaw(
 export function productionPlan(
 	variant: HostVariant,
 	extra: Record<string, unknown> = {},
+	ontologyCatalog?: OntologyCatalog,
 ): { plan: InstallPlan; planFile: PlanFile } {
 	const plan = buildInstallPlan(productionRaw(variant, extra), {
 		rootPassword: ROOT_PASSWORD,
 		requireRootPassword: true,
+		...(ontologyCatalog === undefined ? {} : { ontologyCatalog }),
 	});
 	if (plan.errors.length > 0) throw new Error(`scratch plan refused: ${plan.errors.join('; ')}`);
 	return { plan, planFile: buildPlanFile(plan, SECRETS) };

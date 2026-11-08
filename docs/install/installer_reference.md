@@ -639,6 +639,12 @@ names) is ignored and does not count against any limit. An archive with absolute
 paths, `..` segments or links, more than 4096 ontology files, more than 50 000
 entries in all, or more than 512 MB is refused.
 
+On the **production** route the engine steps read the source as the instance's
+service user, never as root. Put it where every user can read it — `/srv` or
+`/tmp`, not your home directory, which is usually closed to other users. The
+System check refuses a source the service user cannot read, before anything is
+changed, and names the directory or file in the way.
+
 ### When something fails
 
 The ontology files are fetched and verified by `stage_ontologies`, **before the
