@@ -55,10 +55,18 @@ function readerOf(user: string, group: string, account: AccountFacts | null | un
 
 /** May `reader` use `bits` (READ|TRAVERSE at the owner position) on `stat`? Exactly one class of bits applies. */
 export function grants(stat: HostStat, reader: Reader, bits: number): boolean {
-	const owns = stat.owner === reader.user || (reader.uid !== null && stat.owner === reader.uid);
-	const inGroup = stat.group === reader.group || (reader.gid !== null && stat.group === reader.gid);
-	const shift = owns ? 6 : inGroup ? 3 : 0;
-	return ((stat.mode >> shift) & bits) === bits;
+	return ((stat.mode >> classShift(stat, reader)) & bits) === bits;
+}
+
+/** A stat's owner/group (a name, or a number for a non-local account) is `name` or `id`. */
+function names(statValue: string, name: string, id: string | null): boolean {
+	return statValue === name || (id !== null && statValue === id);
+}
+
+/** The bit position of the class that applies to `reader`: owner 6, group 3, others 0. */
+function classShift(stat: HostStat, reader: Reader): number {
+	if (names(stat.owner, reader.user, reader.uid)) return 6;
+	return names(stat.group, reader.group, reader.gid) ? 3 : 0;
 }
 
 /** The directories from `/` down to `path`'s parent. */
@@ -81,26 +89,64 @@ function packageFiles(ctx: Pick<HostCtx, 'fs'>, dir: string): string[] {
 	);
 }
 
-/** The first path the reader cannot use as the engine needs it, with why; null = readable (or not judged). */
-function firstBlocker(ctx: Pick<HostCtx, 'fs'>, source: string, reader: Reader): string | null {
-	const describe = (path: string, stat: HostStat, need: string): string =>
-		`${path} (${stat.owner}:${stat.group}, mode ${(stat.mode & 0o777).toString(8).padStart(3, '0')}) is not ${need} by ${reader.user}`;
+/** `path`'s blocker sentence: who owns it, its mode, and what `reader` cannot do. */
+function describeBlocker(path: string, stat: HostStat, need: string, reader: Reader): string {
+	const mode = (stat.mode & 0o777).toString(8).padStart(3, '0');
+	return `${path} (${stat.owner}:${stat.group}, mode ${mode}) is not ${need} by ${reader.user}`;
+}
+
+/** The stat of a path the check judges: null when missing or a symlink (the walk stops there). */
+function judgedStat(ctx: Pick<HostCtx, 'fs'>, path: string): HostStat | null {
+	const stat = ctx.fs.stat(path);
+	return stat === null || stat.isSymlink ? null : stat;
+}
+
+/**
+ * The first directory on the way to `source` the reader cannot traverse; null = all
+ * traversable; undefined = a missing or symlinked component (nothing below is judged).
+ */
+function ancestorBlocker(
+	ctx: Pick<HostCtx, 'fs'>,
+	source: string,
+	reader: Reader,
+): string | null | undefined {
 	for (const dir of ancestorsOf(source)) {
-		const stat = ctx.fs.stat(dir);
-		if (stat === null || stat.isSymlink) return null;
-		if (!grants(stat, reader, TRAVERSE)) return describe(dir, stat, 'traversable');
-	}
-	const stat = ctx.fs.stat(source);
-	if (stat === null || stat.isSymlink) return null;
-	if (!stat.isDirectory)
-		return grants(stat, reader, READ) ? null : describe(source, stat, 'readable');
-	if (!grants(stat, reader, READ | TRAVERSE)) return describe(source, stat, 'listable');
-	for (const file of packageFiles(ctx, source)) {
-		const fileStat = ctx.fs.stat(file);
-		if (fileStat === null || fileStat.isSymlink) continue;
-		if (!grants(fileStat, reader, READ)) return describe(file, fileStat, 'readable');
+		const stat = judgedStat(ctx, dir);
+		if (stat === null) return undefined;
+		if (!grants(stat, reader, TRAVERSE)) return describeBlocker(dir, stat, 'traversable', reader);
 	}
 	return null;
+}
+
+/** The first package file of a source directory the reader cannot read, or null. */
+function packageBlocker(ctx: Pick<HostCtx, 'fs'>, dir: string, reader: Reader): string | null {
+	for (const file of packageFiles(ctx, dir)) {
+		const stat = judgedStat(ctx, file);
+		if (stat !== null && !grants(stat, reader, READ)) {
+			return describeBlocker(file, stat, 'readable', reader);
+		}
+	}
+	return null;
+}
+
+/** The source itself: a file must be readable, a directory listable and its packages readable. */
+function sourceBlocker(ctx: Pick<HostCtx, 'fs'>, source: string, reader: Reader): string | null {
+	const stat = judgedStat(ctx, source);
+	if (stat === null) return null;
+	if (!stat.isDirectory) {
+		return grants(stat, reader, READ) ? null : describeBlocker(source, stat, 'readable', reader);
+	}
+	if (!grants(stat, reader, READ | TRAVERSE)) {
+		return describeBlocker(source, stat, 'listable', reader);
+	}
+	return packageBlocker(ctx, source, reader);
+}
+
+/** The first path the reader cannot use as the engine needs it, with why; null = readable (or not judged). */
+function firstBlocker(ctx: Pick<HostCtx, 'fs'>, source: string, reader: Reader): string | null {
+	const above = ancestorBlocker(ctx, source, reader);
+	if (above === undefined) return null;
+	return above ?? sourceBlocker(ctx, source, reader);
 }
 
 /**
