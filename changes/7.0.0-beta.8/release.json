@@ -1,0 +1,1110 @@
+{
+	"version": "7.0.0-beta.8",
+	"date": "2026-11-08",
+	"from": "v7.0.0-beta.7",
+	"to": "v7.0.0-beta.8",
+	"commits": 402,
+	"wire_contract": [
+		"WC-2026-10-26-rich-text-image-legacy-reconcile",
+		"WC-2026-10-26-rich-text-image-record-keyed",
+		"WC-2026-10-27-relation-list-grant-stamp",
+		"WC-2026-10-27-start-deep-link-record-scope",
+		"WC-2026-10-28-count-pending-deletions",
+		"WC-2026-10-28-menu-orphans",
+		"WC-2026-10-28-menu-role-areas-need-grant",
+		"WC-2026-10-28-own-account-read",
+		"WC-2026-10-28-own-user-record-read-floor",
+		"WC-2026-10-28-parity-definition-drift",
+		"WC-2026-10-28-related-host-record-scope",
+		"WC-2026-10-28-section-definition-defects",
+		"WC-2026-10-28-section-tool-test6402-config",
+		"WC-2026-10-28-start-component-deep-link-record-scope",
+		"WC-2026-10-28-tool-open-defects",
+		"WC-2026-10-29-ai-capabilities-page-globals",
+		"WC-2026-10-29-area-declared-hierarchy-types",
+		"WC-2026-10-29-posterframe-url-version",
+		"WC-2026-10-29-start-user-default-section",
+		"WC-2026-10-30-health-boot-facts",
+		"WC-2026-10-30-maintenance-door-classes",
+		"WC-2026-10-30-observer-external-value-laws",
+		"WC-2026-10-30-observer-law-derived-edges",
+		"WC-2026-10-30-observer-target-not-host",
+		"WC-2026-10-30-observer-target-resolvers",
+		"WC-2026-10-30-ontology-file-digests",
+		"WC-2026-10-30-ontology-import-census-restore",
+		"WC-2026-10-30-portal-get-data-external-refresh",
+		"WC-2026-10-30-request-config-default-page-size",
+		"WC-2026-10-30-restore-point-release-identity",
+		"WC-2026-10-30-search-referenced-by-leaf",
+		"WC-2026-10-30-section-record-row-box",
+		"WC-2026-10-30-sort-data-key-range",
+		"WC-2026-10-30-tools-registry-import-switch-retired",
+		"WC-2026-10-30-update-door-refusals",
+		"WC-2026-10-30-update-ontology-backup-gate",
+		"WC-2026-10-30-update-run",
+		"WC-2026-10-30-update-sources-server-held",
+		"WC-2026-10-31-portal-order-model",
+		"WC-2026-10-31-transliterate-value-emitted",
+		"WC-2026-10-31-update-rung-above-code",
+		"WC-2026-11-01-menu-dead-area",
+		"WC-2026-11-01-update-plan-declared",
+		"WC-2026-11-02-ui-preferences",
+		"WC-2026-11-04-caller-chain-per-occurrence",
+		"WC-2026-11-04-config-less-element-adopts-caller-children",
+		"WC-2026-11-04-context-traversal-order",
+		"WC-2026-11-04-ddinfo-gates-kept",
+		"WC-2026-11-04-ddo-self-first-level-only",
+		"WC-2026-11-04-governing-limit-sqo-limit-only",
+		"WC-2026-11-04-login-user-image",
+		"WC-2026-11-04-nested-list-payload-growth",
+		"WC-2026-11-04-nested-paging-add-show",
+		"WC-2026-11-04-ontology-machine-names",
+		"WC-2026-11-04-record-cycle-stop",
+		"WC-2026-11-04-rqo-source-callers",
+		"WC-2026-11-04-stage1-authorized-sqo-scrub",
+		"WC-2026-11-04-subdatum-own-level-residual-divergences",
+		"WC-2026-11-04-tree-picker-read-gate-retired",
+		"WC-2026-11-04-writer-chain-scoped-search",
+		"WC-2026-11-05-reconcile-apply-refused",
+		"WC-2026-11-06-css-version",
+		"WC-2026-11-06-geolocation-map-sources-legend",
+		"WC-2026-11-06-map-tile-proxy",
+		"WC-2026-11-06-tool-reason-key",
+		"WC-2026-11-06-update-panel-verdicts",
+		"WC-2026-11-07-area-css-list-mode",
+		"WC-2026-11-07-labels-separate-resource",
+		"WC-2026-11-07-ontology-update-picked-source",
+		"WC-2026-11-07-save-order-complete-list"
+	],
+	"notes": {
+		"action_needed": [
+			"Map tiles now come through the server, which needs outbound HTTPS to the tile providers; an installation without a public address loads OpenStreetMap in the browser instead.",
+			"The official servers moved to master7.dedalo.dev; beta7.dedalo.dev is an opt-in beta provider",
+			"An ontology server accepts the access codes listed in ONTOLOGY_SERVERS; ONTOLOGY_SERVER_CODE is retired.",
+			"Dédalo now runs on Bun 1.4.4, the latest stable release.",
+			"Irreversible maintenance actions now require the superuser, maintenance mode and a recent backup."
+		],
+		"entries": [
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Thesaurus indexation badges: white text in the light theme, a readable brown tint in the dark theme."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "JSON fields save when you leave them, like every other field."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Field names cut short in the edit form show in full on hover."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Field labels in the edit form are easier to read on Mac."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "An empty list no longer looks like a warning."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Required fields that are still empty no longer look like errors."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Portal rows no longer glow on hover; only section list rows do."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Background is now the default active-field style; Frame becomes one of the choices."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Sorting a portal by a column header is now a temporary view; **Save** makes it the stored order."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "On a phone, portal tables now show as labelled cards like section lists, with the drag handle always visible."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "The field you are editing is now outlined by an orange frame instead of a light orange background."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "A portal whose ontology declares an order now stores its records in that order."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Section lists and portals now place their rows with the row box. Long lists stay fast, scrolling never loses an edit, and screen readers announce each list as a table or a list."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "JSON fields are lighter and faster"
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Geolocation maps load faster"
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "The text editor toolbar stays in view while you scroll a long text."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Audiovisual records load faster and reuse cached media."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Pages open noticeably faster for returning users on slow connections."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "AI entry points are hidden when the installation has no model."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Link fields show their hints only on hover or when selected."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Images, PDFs, SVGs and 3D models load faster and reuse cached files."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "The search panel opens in one smooth step instead of stuttering in."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Tools that open in a dialog appear about half a second sooner on slow connections."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "The Transcription and Translation tools' text panes now look like the Indexation tool's."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Tree-picker portals show their linked records like Parent and Children."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "An empty date field is now blank until you hover or select it."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "The inspector's Relations, Latest changes and Component history panels now page the same way."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Developer builds are named for the next version, for example 7.0.1-dev."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "Terms can be reordered while a thesaurus or ontology search is showing the tree."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "The active-field style list gains Background, the tinted-surface look Dédalo used before the styles existed (it is the default)."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "Each user can now choose how the field being edited is highlighted: Frame, Lift or Margin."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "Press ⌘K (Ctrl+K) to jump to any section or open a tool."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "Indexation, transcription and translation tools — time machine button on the text"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "\"Ontology CSS: responsive rules no longer overwrite each other, area styles apply, edits show at once.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "In the search panel, a portal field's search options are wide enough to use, and the results no longer cover them."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A split search in a linking field finds records that match every part."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "URL fields take less room and no longer clip their buttons on phones."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The JSON editor toolbar fits narrow windows and shows when there is something to save."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Long lists (hundreds of records per page) scroll smoothly again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The term picker opened from a field has a Close button instead of the area's tools."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Text editors, URL fields and record pickers fit better, especially on phones."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Thesaurus and ontology tree badges are easier to read, and the inline JSON editor keeps its width."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Portal search results show each record as one line of text, with its columns aligned."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Typing a search in a portal's search box no longer counts as an unsaved change."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The interface is now fully translated into every supported language."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Clicking a value in a list cell opens it for editing in a window, portals included, without activating the table around it."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The id cell's hover text is now readable on its orange, green and red fills."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Lists separate multiple values again instead of gluing them together."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "PDF and SVG fields show the placeholder when their file is missing."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Portals inside a portal table use the space of their column and no longer cover neighbouring rows."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Portal tables, their search box and full-screen view are tidier and use space better."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The user activity statistics are now translated."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The filter_records search field scrolls inside its card instead of spilling over the next one."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The login screen shows your own user image while it loads."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Columns declared for a nested portal now show everywhere it appears, in every mode and on every page."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A portal row’s reorder handle is fully visible and grabbable again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A search field no longer jumps when you click it"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The record's Id badge can be selected to show its information in the inspector."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Uploading a very large file no longer reports an error while the server is still joining it."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The Projects checklist in edit mode fills its whole field instead of stopping halfway."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Wide portal tables in edit mode scroll sideways instead of sliding under the inspector."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A long text area stays inside its field — idle or active — and no longer widens itself on load."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "An activated text area no longer spills its text past the field and over the component below it."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Tool panes: the editor fills its frame, the toolbar lines up with it, and Lift/Margin keep their mark inside tools."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A term duplicated in the thesaurus/ontology tree can be reordered right away."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Thesaurus/ontology tree — a term dropped onto a closed term no longer hides that term's other children, and reordering works after showing non-descriptors."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Screen readers now announce the list delete and edit buttons."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Screen readers now announce the language and dashboard selectors."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The menu no longer offers the retired Graphs area."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Area dashboards, the thesaurus and ontology toolbars, the Maintenance map and the edit inspector fit a phone screen."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A field whose save failed is no longer forgotten — it stays marked unsaved and is saved again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Dragging a related record on the second page of a portal now moves it where it is dropped."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Components with language versions show the other version beside the value, and offer the translation tool"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Records open when a portal's list layout names a field from an uninstalled ontology."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Catalog terms show the coins of their type again, and legend symbols follow their legend."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Portals without a configured page size show their paginator again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Open relationships now follows every found record, with exact counts per related section."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Search panel no longer forced tall by the fields list"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Reordering a related record to an invalid position no longer removes it."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The export now writes the data language you select in the tool, not always the main one."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Indexation — the text pane's header now matches the selected field."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Indexation shows the orange unsaved-changes bar on its text boxes."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The side panel of a record that does not exist no longer offers record actions."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The search panel's side lists now always end level with the search fields."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A list could show the previous search's record total."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The thesaurus search Type list no longer grows taller than the Fields list."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Clicking inside a tall field no longer scrolls the page."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "An active text field keeps its label visible above the editor toolbar."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A Time Machine note can be written again on every change in Component history."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The cataloguing tool shows only its own thesauri, marks used types, and shows every configured coin again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Translation tool — full screen works again, and the read-only source has no save button."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Tool save notices are readable again and no longer cover the close button."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The menu no longer offers Maintenance or Development to users whose profile does not grant them."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A saved search whose field no longer exists in the ontology no longer breaks the search panel."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Three sections with ontology defects now open, or say clearly why they cannot."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Four tools that failed to open, or did more than asked, are fixed."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Your user settings show your profile, and selection lists no longer show another user's labels."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Opening a record you cannot access shows the no-access page, and the Relations panel appears only when you may read it."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The inspector's Component history keeps all its rows after you add a note, and pages through long histories."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Uploading an image from the text editor toolbar works again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Paging to the last records of a large section is fast for users limited to their projects."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "User profile editor opens for ordinary users"
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "A user who may write a relation field can now search and pick its target records without a read grant on the target section."
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "Ontology updates now check every downloaded file against the master's digest before importing it."
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "The relations of a record are only shown to users who can open that record."
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "A link to a single field of a record outside your projects is refused like a link to the record."
+			},
+			{
+				"type": "removed",
+				"audience": "admin",
+				"title": "An ontology server accepts the access codes listed in ONTOLOGY_SERVERS; ONTOLOGY_SERVER_CODE is retired."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The Ontologies screen offers domain ontologies only, with English group names everywhere."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The running install step shows its time counting up."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The ontology update lists what a server offers by name, and several ontology servers can be used side by side."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Map tiles now come through the server, which needs outbound HTTPS to the tile providers; an installation without a public address loads OpenStreetMap in the browser instead."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The official servers moved to master7.dedalo.dev; beta7.dedalo.dev is an opt-in beta provider"
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "An ontology master can promote chosen tlds from another provider."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The code update panel is simpler — the installed version, what blocks an update and how to fix it, everything else folded away."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "A column defined with a level-two `section_tipo: \"self\"` is no longer shown; the new `ddo_self_depth` check lists every such definition."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The ontology now stores model, table and column names as language-free machine names."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Dédalo now runs on Bun 1.4.4, the latest stable release."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "/health shows only the state of an update run and of the data version, not their identifiers."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Irreversible maintenance actions now require the superuser, maintenance mode and a recent backup."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The ontology update lists the nodes it will remove or re-model, and a failed update says exactly what it restored."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The section-id repair script now checks for a recent backup before it writes."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The TOOLS_ENABLE_REGISTRY_IMPORT setting is retired; a code update now always re-registers tools and keeps each one's Active choice."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Update ontology says whether a database backup is in place before you press the button."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "An ontology update only touches the shared ontologies."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "A code update is now one journaled update run that also applies the ontology, schema, data and tool steps, and confirms only after verifying them."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Update runs refuse ontology sources without file digests and resume more safely."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "After an update that needs a database restore, no new update starts until the run is closed."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Updates check what the master offers, and masters must use https."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "AI tools are hidden when no AI model is configured."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The Update code panel shows its options only once loaded, and maintenance mode is switched on from the update dialog only."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The publication tool asks for the number of pending deletions without using the retry action."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The code update panel tells you about maintenance mode up front and lets you switch it on there."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The Docker install guide says the Official image comes from GitHub Container Registry only, and that the Docker Hub mirror is reached through a custom image."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The Docker install's System checks show cosign, and the Image version help names only the tags the installer accepts."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The installer shows that the image pull is alive, and says when docker has gone silent."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Resuming an interrupted Docker install asks for the root password once, not twice."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The Docker install guide lists the curl, unzip, sha256sum and cosign prerequisites, and documents the updater's --check dry run."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The installer Review lists the cosign verify command for an official image, and the registry check reports success."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "Production, Docker and Trial installs keep a log of the run."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "The installer sets the installation's public address (`DEDALO_HOST`), which map tiles and geo services identify it with."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "The Publication server API panel can open the v2 API documentation."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "Profile permissions can be discarded before saving."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "The permissions tree filter can show the siblings of a found item."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "Older images in rich text can be made visible on published pages, from Maintenance."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "The container updater gains a --check dry run that reports whether an update would be accepted, without changing anything."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Install guides: Debian without sudo, PostgreSQL 18 on older Ubuntu, Docker on RHEL, boot-time 502."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "An air-gapped install makes no GeoIP download."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The terminal installer says why it refuses a choice."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The developer install's final screen lists only addresses its certificate covers."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The Docker host record reports the generated salt like the engine's record."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The firewall verdict stays visible after a passing System check."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The interactive installer asks for a local ontology package under either update-server answer."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The installer checks that a local ontology source is readable before it changes anything."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The bootstrap run as root leaves nothing in `/root/.bun`."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A default exactly as wide as a text field is shown whole."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "An unpublished image is no longer reported as an unverified deletion on a copy publication host."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Style changes reach browsers right after a code update, whatever the web server's cache headers."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The maintenance System Map follows the interface language."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A reconcile apply that is refused now says why, and the Reconcile panel can narrow a run."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The Bun-runtime procedure finds an instance whose name contains dots."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The root user can now open their own account panel by clicking their name in the header."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The newest update run is always the one shown as newest."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A code update on an installation without an ontology server no longer stops in \"needs a database restore\"."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The data update refuses a step meant for a newer version than the running code."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "An interrupted Docker image update now rolls back instead of leaving the stack pinned to an unverified version."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Restoring a code copy asks for confirmation whenever the code changes, also between betas."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A code update whose database migration fails is no longer confirmed."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Older development builds are offered the nightly again"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Patch releases are offered when the data version did not change."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The test ontology is no longer shipped or offered to installations."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "After login, users open on the default section set in their user record."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Menu entries a user may open no longer disappear when their parent area is hidden from that user."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The root user's \"My profile\" tool opens again."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The host `--status --json` on the Docker and trial routes reports the install record the run wrote."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A commit with a release tag is never built as a development build, and Docker says plainly that it has no nightly images."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The reconcile panel no longer reports \"OK\" when it found images it cannot fix."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The permissions tree filter no longer freezes after several searches."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Setting permissions on a large area is faster, and a failed change no longer locks the permissions tree."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The container updater reports a refused re-install of the pinned release as its own outcome, same_version, instead of downgrade_refused."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The installer's --plain mode refuses answer flags before it asks any question, and names the flags it refused."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Ontology update and export now say why the ontology directory cannot be created."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The Reconcile panel's table is readable: each reconcile's name sits above its description, headers read as headers, and Check / Apply stay on one line."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Images inserted into rich text are visible on published pages."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Profile permissions search: a matched section or area now shows its permission radios and can be opened."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The updater's same-version refusal suggests the skip flag only for a stack pinned at a bare version."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Installing or updating no longer leaves a hidden `.<hash>-<pid>.node-gyp` folder in the Dédalo folder."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The official Docker image now carries its signature in every registry that publishes it"
+			},
+			{
+				"type": "changed",
+				"audience": "developer",
+				"title": "Interface labels are a separate, cacheable download — `get_environment` and `start` no longer carry `get_label`."
+			},
+			{
+				"type": "changed",
+				"audience": "developer",
+				"title": "Tool-owned panels outside the tool window can wear the tool's colour"
+			},
+			{
+				"type": "changed",
+				"audience": "developer",
+				"title": "Nested reads carry a verified caller chain; the client's `show` and search query are checked; a level-two `self` in a client map is refused with a notice."
+			},
+			{
+				"type": "changed",
+				"audience": "developer",
+				"title": "Database migrations are frozen by content hash."
+			},
+			{
+				"type": "changed",
+				"audience": "developer",
+				"title": "A release tag needs its catalog entry and its seed."
+			},
+			{
+				"type": "changed",
+				"audience": "developer",
+				"title": "Four read-path comparison tests now expect the current ontology definitions."
+			},
+			{
+				"type": "added",
+				"audience": "developer",
+				"title": "Tools can look up places, parcels and elevations through one checked door."
+			},
+			{
+				"type": "added",
+				"audience": "developer",
+				"title": "A geolocation value can now carry its map sources and a legend."
+			},
+			{
+				"type": "added",
+				"audience": "developer",
+				"title": "A tool action that only reads can declare itself read-only, so a failed lookup shows its real error."
+			},
+			{
+				"type": "added",
+				"audience": "developer",
+				"title": "Tools can now explain a refusal in the user's own language."
+			},
+			{
+				"type": "added",
+				"audience": "developer",
+				"title": "Section lists, portals and the tool mosaics place their rows through one client module, the record window, with a fixed row DOM contract."
+			},
+			{
+				"type": "added",
+				"audience": "developer",
+				"title": "The parity test baseline can be re-recorded in the CI image."
+			},
+			{
+				"type": "added",
+				"audience": "developer",
+				"title": "The test suites refuse to run at the same time on one test database."
+			},
+			{
+				"type": "added",
+				"audience": "developer",
+				"title": "`bun run test:crawl` checks every feature as an administrator and as a project-scoped editor."
+			},
+			{
+				"type": "fixed",
+				"audience": "developer",
+				"title": "A write sent with an unusable retry count is no longer resent without its duplicate-protection key."
+			},
+			{
+				"type": "fixed",
+				"audience": "developer",
+				"title": "The test ontology's \"Countermark descriptions\" section tool now opens its target section."
+			},
+			{
+				"type": "fixed",
+				"audience": "developer",
+				"title": "The section read example in the API field mapping names the section in source.tipo and lists it in sqo.section_tipo."
+			}
+		]
+	}
+}

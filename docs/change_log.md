@@ -13,7 +13,11 @@ shape by the id under which the source tree records each one
 
 ## Unreleased
 
-Merged since the last release; these ship with the next one.
+Nothing yet — no change note has been recorded since the last release.
+
+## 7.0.0-beta.8 — 2026-11-08
+
+402 commits: `git log --no-merges v7.0.0-beta.7..v7.0.0-beta.8`
 
 !!! warning "Action needed when you update"
 
