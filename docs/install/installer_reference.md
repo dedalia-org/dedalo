@@ -120,7 +120,7 @@ meaning.)
 | `--public-host` | no | developer / trial: not given = nothing written (the screens suggest the `DEDALO_HOST` your `.env` already names, else `none`); production / docker: derived (see Notes) | the installation's [public address](#the-public-address) — the host (and port, when it is not the protocol's default) other machines reach it at, written as `DEDALO_HOST`: `host[:port]` in its canonical ASCII spelling, or `none` for a private or intranet installation (nothing is written). Production and docker do not ask it: they derive `https://<server name>`, with `:<https port>` when that is not `443`, and refuse a `--public-host` that names another origin — and `none`, since the address is the site's server name; a spelling of the same origin (`<server name>:443`) is accepted. A name no outside machine can reach is refused unless `--public-host-keep-private` is given |
 | `--public-protocol` | no | `https://` for a newly given host; beside a host your `.env` already names, its `DEDALO_PROTOCOL`, else `http://` (what the engine reads when the key is unset) | `https://` or `http://`, written as `DEDALO_PROTOCOL` beside a public host, and only when it differs from what the engine already reads. Production and docker refuse anything but `https://` (the site serves HTTPS). On trial, which serves plain HTTP itself, a typed host still defaults to `https://` — a trial behind a TLS proxy |
 | `--public-host-keep-private` | no | off | keep a `--public-host` that is well formed but that no outside machine can reach (loopback, a private address, a single-label name, `.local`, `.lan`…). It is written as given; the engine still identifies itself with the shared identity (see [The public address](#the-public-address)) |
-| `--no-update-servers` | no | off | air-gapped install: writes `ONTOLOGY_SERVERS=[]` and `CODE_SERVERS=[]`, so no ontology or code update is ever offered. Without it, both name the official Dédalo master (see below) |
+| `--no-update-servers` | no | off | air-gapped install: writes `ONTOLOGY_SERVERS=[]` and `CODE_SERVERS=[]`, so no ontology or code update is ever offered, and `DEDALO_GEOIP_AUTO_UPDATE=false`, so the server downloads no GeoIP country database. Without it, both name the official Dédalo master (see below) |
 | `--skip-tools` | no | off | skips tool registration (register them later from the Development Area) |
 | `--plan` | no | off | dry run: prints ONE JSON line — `env_keys`, `steps`, `hierarchies`, `hierarchy_dependencies`, `suggestions`, `ontologies`, `declined_dependencies`, `ontology_source`, `ontology_install`, `active_ontology_tlds`, `notes`, `warnings`, `errors` — and exits `0` (valid) or `1`. It touches no database and no file and needs no root password. A choice beyond `oh` reads the source's catalog (one request to the update server, or the `--ontology-source` files). On `--route production` it also runs the System check's read-only refusals on this host — the system, the install folder, the service account, the instance's names — each one an `errors` entry; run without root, the root refusal is a `warnings` entry instead |
 | `--list-ontologies` | no | off | prints ONE JSON line — the ontology catalog of the selected source, exactly what the interactive installer's *Ontologies* screen shows — and exits. It needs no other answer. See [Listing the catalog](#listing-the-catalog) |
@@ -726,7 +726,8 @@ What the screens do for you:
   mail check can also send a real test message to an address you give (it is
   not kept).
 - **Ontologies and thesauri** are offered from the update server's catalog (or
-  your offline package when the install is air-gapped), grouped, with what each
+  your local package when you give one — it replaces the server catalog for
+  that install, under either update-server answer), grouped, with what each
   one declares pre-ticked; unticking a declared dependency declines it, exactly
   as `--decline-dependencies` does. A mandatory ontology dependency cannot be
   unticked; a thesaurus never is forced. The groups are the catalog's typologies,
@@ -1119,7 +1120,11 @@ A run that passed validation and the database check records itself under
 | `install.lock` | while a run is active | which process holds the install (released when it ends; a lock whose process is gone is taken over with a warning) |
 
 The host routes keep a record of their own, with the same two files and the same
-schemas, in a directory the engine child never writes:
+schemas, in a directory the engine child never writes — plus `install.log`
+(`0600`): every line the run showed, warnings and the engine steps' output
+included, appended run after run and redacted (passwords and the salt never
+reach it). It is where Docker's own error messages end up. A completed
+`--abort` removes it with the record:
 
 | Route | Host record | Engine record |
 | --- | --- | --- |
@@ -1506,6 +1511,17 @@ offered an update. To change your mind later, replace the `[]` values of
 `ONTOLOGY_SERVERS` and `CODE_SERVERS` in `.env` with a server list, then restart
 the server: the list, and the browser's `connect-src` that lets the update panels
 reach a master, are built at boot.
+
+The server makes one other request to the internet on its own: on its first
+start, and monthly after that, it downloads the free DB-IP country database
+(`https://download.db-ip.com`) into `<private>/geoip/`, which the Activity
+section uses to show a country flag beside an IP address. Offline, it starts
+anyway and shows no flags. The air-gapped answer also writes
+`DEDALO_GEOIP_AUTO_UPDATE=false`, so an air-gapped install never tries (a later run that answers the official servers over that `.env` writes it back to `true`); to have
+flags there, copy a `dbip-country-lite-*.mmdb` file into `<private>/geoip/`
+yourself ([`DEDALO_GEOIP_*`](../config/config.md#enable-local-ip-to-country-resolution)). With the
+official servers, set `DEDALO_GEOIP_AUTO_UPDATE=false` yourself to make no
+download.
 
 When the installer writes `.env` over an existing one in the same private
 directory (an unfinished install, or a fresh install into a reused private

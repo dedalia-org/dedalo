@@ -30,7 +30,7 @@
  * plan module — never config.ts, pg_exec or server_state.
  */
 
-import { existsSync, readdirSync, rmdirSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, rmdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Subprocess } from 'bun';
 import { isDedaloError } from '../../errors/dedalo_error.ts';
@@ -49,6 +49,7 @@ import {
 	ensureRunDir,
 	type InstallPreflight,
 	type InstallState,
+	LOG_FILE,
 	newInstallState,
 	PLAN_FILE,
 	type PlanFile,
@@ -136,6 +137,8 @@ export interface HostExecutorOptions {
 /** One host run's context (never module state). */
 interface HostRunContext extends LoopContext {
 	readonly request: HostExecutorRequest;
+	/** The run's install.log (campaign C4 S4: the output lived only in the TUI's `l` view). */
+	readonly transcript: RunTranscript;
 	readonly runner: CommandRunner;
 	readonly fs: HostFs;
 	readonly source: string;
@@ -217,7 +220,7 @@ function hostHint(ctx: HostRunContext): string[] {
 	if (plan === null || ctx.state === null || ctx.request.mode === 'abort') return [];
 	const prefix = `${hostCommandPrefix(plan.answers)} ${recordFlags(plan.answers)}`;
 	return [
-		`  Progress saved: ${join(ctx.runDir, STATE_FILE)} (plan: ${PLAN_FILE})`,
+		`  Progress saved: ${join(ctx.runDir, STATE_FILE)} (plan: ${PLAN_FILE}, log: ${LOG_FILE})`,
 		`  Fix the cause, then resume:  ${prefix} --resume`,
 		undoHint(ctx, prefix),
 		...stepHintLines(ctx, plan),
@@ -721,7 +724,92 @@ async function abortRun(ctx: HostRunContext): Promise<void> {
 	(ctx.state as InstallState).outcome = 'aborted';
 	rmSync(join(ctx.runDir, PLAN_FILE), { force: true });
 	rmSync(join(ctx.runDir, STATE_FILE), { force: true });
+	// A completed --abort leaves no record: its transcript goes with it.
+	ctx.transcript.close();
+	rmSync(join(ctx.runDir, LOG_FILE), { force: true });
 	ctx.state = null;
+}
+
+// ── the transcript ───────────────────────────────────────────────────────────
+
+/** The run's install.log: what the screen said, appended, redacted again. */
+export interface RunTranscript {
+	tee(io: RunIo): RunIo;
+	/** Lines the front end draws itself (the failure block): to the file only. */
+	note(lines: readonly string[]): void;
+	/** No more lines (a completed --abort removes the file). */
+	close(): void;
+}
+
+/**
+ * Every log and warning line of the run, appended to `file` (0600 on creation)
+ * once `dir` exists — lines said before it was created (the preflight) are held
+ * and written then. The salt never reaches it: the host routes show it only
+ * through `showOnce`, which is not teed, and every line is redacted once more
+ * against the run's secrets. Writing it never fails the run.
+ */
+export function runTranscript(
+	file: string,
+	dir: string,
+	redactions: () => readonly string[],
+): RunTranscript {
+	let pending: string[] = [`--- install run ${new Date().toISOString()} ---`];
+	let closed = false;
+	const write = (line: string): void => {
+		if (closed) return;
+		const clean = redactions().reduce(
+			(text, secret) => (secret === '' ? text : text.split(secret).join('[redacted]')),
+			line,
+		);
+		pending.push(clean);
+		if (!existsSync(dir)) return;
+		try {
+			appendFileSync(file, `${pending.join('\n')}\n`, { mode: 0o600 });
+			pending = [];
+		} catch {
+			// The transcript is a convenience: a full disk or a read-only dir never stops the install.
+		}
+	};
+	return {
+		note: (lines) => {
+			for (const line of lines) write(line);
+		},
+		tee: (io) => ({
+			...io,
+			log: (line) => {
+				write(line);
+				io.log(line);
+			},
+			warn: (line) => {
+				write(line);
+				io.warn(line);
+			},
+		}),
+		close: () => {
+			closed = true;
+		},
+	};
+}
+
+/** No transcript (a probe context). */
+const NO_TRANSCRIPT: RunTranscript = { tee: (io) => io, note: () => {}, close: () => {} };
+
+/**
+ * The outcome, its failure block also written to install.log: the reporter
+ * draws the ✖ line and the hint itself, so without this a failed run's log
+ * ended at its last step line with no reason (adversarial review, C4 S4).
+ */
+function transcribedOutcome(
+	ctx: HostRunContext,
+	outcome: HostExecutorOutcome,
+): HostExecutorOutcome {
+	if (outcome.exitCode !== 0) {
+		ctx.transcript.note([
+			`✖ install ${outcome.result}${outcome.failedStep === null ? '' : ` at step [${outcome.failedStep}]`}: ${outcome.message ?? ''}`,
+			...outcome.hint,
+		]);
+	}
+	return outcome;
 }
 
 // ── the run ──────────────────────────────────────────────────────────────────
@@ -840,6 +928,7 @@ function newContext(
 	request: HostExecutorRequest,
 	io: RunIo,
 	options: HostExecutorOptions,
+	transcribed = false,
 ): HostRunContext {
 	const source = options.source ?? sourceTreeRoot();
 	const children = new Set<Subprocess>();
@@ -850,8 +939,14 @@ function newContext(
 	const inflight = new Set<Promise<unknown>>();
 	const answers = request.planFile?.answers ?? request.givenAnswers ?? {};
 	const runDir = seams.fs.real(hostRunDirOf(answers, source));
+	// Only the real run writes install.log: a --plan, a Review's preflight or a
+	// resume's secrets probe is no run (its probe lines would fake one).
+	const transcript = transcribed
+		? runTranscript(join(runDir, LOG_FILE), runDir, () => redactions)
+		: NO_TRANSCRIPT;
 	const ctx: HostRunContext = {
-		io,
+		io: transcript.tee(io),
+		transcript,
 		children,
 		plan: null,
 		state: null,
@@ -972,7 +1067,7 @@ export async function executeHostInstall(
 	io: RunIo,
 	options: HostExecutorOptions = {},
 ): Promise<HostExecutorOutcome> {
-	const ctx = newContext(request, io, options);
+	const ctx = newContext(request, io, options, true);
 	const restore = redactConsole(ctx);
 	const sigint = () => void interruptOnce(ctx, () => interrupted(ctx, 'SIGINT', restore));
 	const sigterm = () => void interruptOnce(ctx, () => interrupted(ctx, 'SIGTERM', restore));
@@ -980,13 +1075,13 @@ export async function executeHostInstall(
 	process.on('SIGTERM', sigterm);
 	io.signals?.(true);
 	try {
-		return await runMode(ctx, options);
+		return transcribedOutcome(ctx, await runMode(ctx, options));
 	} catch (error) {
 		// The engine child (or any step's child) that died of the operator's Ctrl-C:
 		// the run ends as that ONE interruption — exit 130, recorded interrupted (N12).
 		if (ctx.interruption !== null) return await ctx.interruption;
 		await settleServedQuietly(ctx);
-		return failedOutcome(ctx, error);
+		return transcribedOutcome(ctx, failedOutcome(ctx, error));
 	} finally {
 		process.off('SIGINT', sigint);
 		process.off('SIGTERM', sigterm);

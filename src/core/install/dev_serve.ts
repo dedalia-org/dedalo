@@ -57,7 +57,9 @@
  * Gate: test/unit/install_dev_serve_native.test.ts.
  */
 
+import { X509Certificate } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { isIP } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { Subprocess } from 'bun';
@@ -864,17 +866,65 @@ export async function devServedView(
 	if ('refusal' in resolved) return null;
 	const { listener } = resolved;
 	const wildcard = listener.hostname === '0.0.0.0' || listener.hostname === '::';
+	const bound = devListenerUrls(
+		listener.hostname,
+		listener.port,
+		listener.tls !== null,
+		wildcard ? lan() : [],
+	);
 	return {
 		start: devStartCommand(privateDir),
-		urls: devListenerUrls(
-			listener.hostname,
-			listener.port,
-			listener.tls !== null,
-			wildcard ? lan() : [],
-		),
+		urls: openableUrls(bound, listener, written),
 		network: listener.networkReachable,
 		tls: await tlsView(listener),
 	};
+}
+
+/** The leaf certificate of a PEM file (its first block), or null when unreadable. */
+function leafOf(certFile: string): X509Certificate | null {
+	try {
+		const pem = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/.exec(
+			readFileSync(certFile, 'utf8'),
+		)?.[0];
+		return pem === undefined ? null : new X509Certificate(pem);
+	} catch {
+		return null;
+	}
+}
+
+/** Does `leaf` answer the host of `url` (a DNS name or an IP literal)? */
+function certifies(leaf: X509Certificate, url: string): boolean {
+	const host = new URL(url).hostname.replace(/^\[|\]$/g, '');
+	return isIP(host) === 0 ? leaf.checkHost(host) !== undefined : leaf.checkIP(host) !== undefined;
+}
+
+/**
+ * The addresses the final screen offers (campaign C4 S4: with the operator's
+ * own certificate for `museo.example.org`, it listed 127.0.0.1, localhost and
+ * the LAN IP — none of which that certificate names — and not the public
+ * address). The public address (DEDALO_HOST) first when written; then each
+ * bound address the certificate names (all of them when it names none).
+ * Plain HTTP names every one. A
+ * certificate that cannot be read leaves the bound list as it is (the boot
+ * refuses it anyway).
+ */
+export function openableUrls(
+	bound: readonly string[],
+	listener: DevTcpListener,
+	written: Readonly<Record<string, string>>,
+): string[] {
+	const host = written.DEDALO_HOST ?? '';
+	// No DEDALO_PROTOCOL: the engine's own default (config catalog: `http://`).
+	const publicUrl =
+		host === '' ? [] : [`${written.DEDALO_PROTOCOL || 'http://'}${host}/dedalo/core/page/`];
+	const all = [...new Set([...publicUrl, ...bound])];
+	if (listener.tls === null) return all;
+	const leaf = leafOf(listener.tls.certFile);
+	if (leaf === null) return all;
+	const certified = [...new Set([...publicUrl, ...bound.filter((url) => certifies(leaf, url))])];
+	// A certificate naming none of them and no public address: the bound list,
+	// never an empty "open" line (the browser then names the mismatch itself).
+	return certified.length > 0 ? certified : all;
 }
 
 async function tlsView(listener: DevTcpListener): Promise<DevServedView['tls']> {

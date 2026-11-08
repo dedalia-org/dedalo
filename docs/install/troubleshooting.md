@@ -169,7 +169,7 @@ A green socket and a red site means the web server cannot reach the socket (its 
 | `only <n> GiB free under <docker root>` | free space (`docker system prune -af`) or move Docker's root to a bigger disk |
 | `this machine already has a Dédalo instance (volume dedalo_private)` | keep that instance, or destroy it first (`… down -v` — it deletes its data) |
 | `.dedalo.env` or `compose.override.yaml` already exists | files of an earlier install: remove them if that install is gone |
-| `image version <v> is not this installer's` | leave **Image version** empty (or give the installer's own `-dev` tag), or use the installer of the matching release. The Image screen refuses the value itself |
+| `image version <v> is not this installer's` | leave **Image version** empty, or use the installer of the matching release (a development build has no image at all: build one, or use a registry of your own). The Image screen refuses the value itself |
 | `port <n> is already in use by <program>` | stop that program, or choose another HTTP / HTTPS port (Containers screen, `--http-port` / `--https-port`). Measured with `ss`; where `ss` is missing (macOS) `stack_up` names the port instead: `failed to bind host port … address already in use` |
 | `cosign is not installed` | install `cosign`, or build the image here (`--image-source build`) |
 | `<repository> is not an official Dédalo registry` | the official source accepts only the official registries; for a registry of your own use `--image-source custom` |
@@ -254,7 +254,7 @@ sudo -u postgres psql -c 'SHOW server_version;'
 Any failure after the install recorded its plan prints how to continue:
 
 ```text
-  Progress saved: …/install.state.json (plan: install.plan.json)
+  Progress saved: …/install.state.json (plan: install.plan.json, log: install.log)
   Fix the cause, then resume:  sudo sh install.sh --route production --instance <i> --resume
   Or undo this install:        sudo sh install.sh --route production --instance <i> --abort --confirm-database dedalo_<i>  (deletes the database this install created)
 ```
@@ -512,6 +512,8 @@ report it.
 **Fix.** An instance serves an IP address only when it was installed with it in **Other addresses** (`--tls-extra-names`, with a local certificate authority): see [Reaching an instance by IP address](reverse_proxy.md#reaching-an-instance-by-ip-address). Check which addresses it claims in `/opt/dedalo/instances/<i>/tls/dedalo-local-ca.names`. An installed instance cannot change its addresses: give staff a name (the intranet's DNS, or each computer's `hosts` file), or install again with the address listed.
 
 ### Every request is a `502`
+
+**First, wait for the boot.** Right after a start or a restart (`systemctl restart dedalo-ts@<i>`, a reboot), the engine is still booting: it runs its migrations and warms its caches before it opens the socket, and until then every request is a `502`. That takes seconds on a server, and a minute or two on a small or emulated machine. The unit reads *active (running)* from the start (the engine does not report its readiness to systemd), so watch `journalctl -u dedalo-ts@<i> -f` instead, or `sudo curl --fail --unix-socket /run/dedalo-<i>/dedalo_ts.sock http://localhost/health`, which answers once the boot has ended; the `502` goes away by itself then. A `502` that stays is one of the causes below.
 
 **Cause.** The web server cannot connect to the unix socket. Connecting to a
 unix socket needs **write** permission on the socket file. The server makes the

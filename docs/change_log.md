@@ -738,6 +738,14 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **The Ontologies screen offers domain ontologies only, with English group names everywhere.**
+
+    Thesaurus definitions — the country toponymies, fauna, special and the other thesauri built on the generic thesaurus section — are no longer listed as domain ontologies: the Thesauri screen installs them. `--list-ontologies` now names each typology in English, as the screen does, and warns about an ontology the source lists without a package (such as `mht`). The `test` fixture an official server exports is dropped without the Review warning about it.
+
+- **The running install step shows its time counting up.**
+
+    On a slow host a step such as `host_packages` can take ten minutes; its time now counts up while it runs, so progress can be told from a hang.
+
 - **The ontology update lists what a server offers by name, and several ontology servers can be used side by side.**
 
     **Maintenance → Update ontology** used to offer a row of bare tld chips (`es`, `fr`, `oh`…) and a *Fetch list* button. Picking a server now lists everything it offers, grouped by typology, each with its name in your language and what ticking it does here: **New**, **Installed**, or **Installed · not tracked** — installed here but not in `ACTIVE_ONTOLOGY_TLDS`, possibly your own local ontology. The panel warns when one of those is ticked. A filter, **Selected only**, **Default selection** and **Clear** make a 200-ontology list manageable. The shared value lists (`matrix_dd`) are now a row you tick like any other.
@@ -999,6 +1007,10 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **Production, Docker and Trial installs keep a log of the run.**
+
+    Every line the run shows, the engine steps' output included, is appended to `install.log` (`0600`) beside the install record: `/var/lib/dedalo-install/<instance>/` on Production, `<checkout>/.dedalo-install/` on Docker and Trial. Passwords and the salt never reach it. A completed `--abort` removes it with the record.
+
 - **The installer sets the installation's public address (`DEDALO_HOST`), which map tiles and geo services identify it with.**
 
     The terminal installer now sets the address other machines reach the installation at — `DEDALO_HOST` and `DEDALO_PROTOCOL` in `../private/.env`. Production and docker derive it from the server name (`https://<server name>`, with the HTTPS port when it is not 443) and refuse a `--public-host` naming another origin, `--public-host none` and a `--public-protocol` other than `https://` (a spelling of the same origin, such as `<server name>:443`, is accepted); developer and trial ask it (`--public-host <host|none>`, `--public-protocol`), the screens offering the value `.env` already names, else `none` for a private or intranet installation, which writes nothing. The value is checked before anything is written: by the engine's own rule, a malformed address is refused, and a name no outside machine can reach (`localhost`, a private address, `.local`, `.lan`, a single label…) is refused unless you keep it (`--public-host-keep-private`, or *keep anyway* on the screen); and, stricter than the engine because it is written as typed, a spelling other than the canonical one (an international name not in its `xn--` form, a trailing dot, a default port) is refused with the canonical one named. `none` or no answer leaves an existing `DEDALO_HOST` as it is; a different answer (or, on production and docker, the derived address) replaces it.
@@ -1043,13 +1055,45 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Install guides: Debian without sudo, PostgreSQL 18 on older Ubuntu, Docker on RHEL, boot-time 502.**
+
+    The guides say how to add `sudo` on a Debian installed with a root password, how to add the PostgreSQL project's repository on an Ubuntu older than 26.04 for a development checkout, that Docker's RHEL procedure leaves `buildah` installed, that Docker Engine runs the containers unconfined by SELinux (`spc_t`), that the Docker *Ontologies* screen asks for the update servers, that `/health` reports only the state of the data version, and that every request is a `502` until the engine has finished booting.
+
+- **An air-gapped install makes no GeoIP download.**
+
+    The server downloads the free DB-IP country database on its first start and monthly after that. The air-gapped answer (`--no-update-servers`) now also writes `DEDALO_GEOIP_AUTO_UPDATE=false`, so an air-gapped install makes no request to the internet. The download is now documented in the installer reference.
+
 - **The terminal installer says why it refuses a choice.**
 
     When a choice was refused — for example *Build* on the *Image* screen of a development checkout, which has no Docker image — the cursor went back to the default with no explanation. The reason is now shown under the question.
 
+- **The developer install's final screen lists only addresses its certificate covers.**
+
+    With your own certificate, the *Open:* list offered `127.0.0.1`, `localhost` and the machine's IP, which the certificate did not name. It now lists the public address first, then only the addresses the certificate names.
+
+- **The Docker host record reports the generated salt like the engine's record.**
+
+    `sh install.sh --route docker --status --json` said `salt_generated: false` while the container's own record said `true`; the host record now says what the container's says.
+
+- **The firewall verdict stays visible after a passing System check.**
+
+    A passing System check moves on by itself, so on Production its *Firewall* row was never seen. It is now carried onto the next screen, like a warning.
+
+- **The interactive installer asks for a local ontology package under either update-server answer.**
+
+    The *Local ontology package* question appeared only after choosing *None (air-gapped)*, and switching back to the official servers dropped the package without a word. It is now asked under both answers, and a package you give replaces the server's catalog for that install.
+
 - **The installer checks that a local ontology source is readable before it changes anything.**
 
     On the production route, an offline ontology source (`--ontology-source`) in your home directory used to pass the plan, then stop the install halfway with "no such file or directory": the engine steps read the source as the instance's service user, who cannot enter a home directory closed to other users. The System check now refuses such a source before anything is installed and names the directory or file in the way, and a permission error is reported as one. See [Offline installs](./install/installer_reference.md#offline-installs-ontology-source).
+
+- **The bootstrap run as root leaves nothing in `/root/.bun`.**
+
+    Run with `sudo`, the installer's Bun kept a 4 MB runtime cache in root's home. Root's installer now runs with that cache off.
+
+- **A default exactly as wide as a text field is shown whole.**
+
+    The field scrolled one character too far, so a 32-character default such as `/run/dedalo-museo/dedalo_ts.sock` showed without its leading `/`.
 
 - **An unpublished image is no longer reported as an unverified deletion on a copy publication host.**
 

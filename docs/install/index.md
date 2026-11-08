@@ -51,6 +51,8 @@ sudo apt-get install curl unzip coreutils git     # Debian, Ubuntu
 sudo dnf install curl unzip coreutils git         # RHEL, Rocky Linux, AlmaLinux
 ```
 
+A Debian installed with a root password has no `sudo`, and these pages assume it. As root (`su -`), run `apt install sudo` and `usermod -aG sudo <your user>`, then log out and in again — or run the commands as root without `sudo`.
+
 ## One command
 
 Every install starts the same way, from the release (or the checkout) of Dédalo:
@@ -119,7 +121,7 @@ Storage is the number you must actually think about. A project of a few thousand
 | Trial | Docker Engine (or Docker Desktop) and the Compose plugin 2.24.4 or newer ([how, per distribution](quickstart.md#what-you-need); Podman is not supported), your user in the `docker` group, about 8 GiB free, port 80 free; `curl`, `unzip`, `sha256sum` and `git`; `cosign` to verify an official image (or build the image locally instead) |
 | Developer | a git checkout (`git`, `curl`, `unzip`), Bun at the pinned version, a local PostgreSQL 18 with its `psql`, an **empty** database, the media tools — the full list, per system, is in the [Developer quickstart](dev_quickstart.md) |
 
-The installer never installs Docker and never changes the firewall: it checks Docker and tells you what is missing. On Production the System check shows a **Firewall** row, and the Review and the closing *To do on this host* list give the exact command when ports 80 and 443 are closed (RHEL's firewalld closes them by default) — see [Troubleshooting › The firewall](troubleshooting.md#the-firewall-closes-the-sites-ports). On Docker and Trial the firewall is **not checked**, because the published ports bypass it: Docker writes its own rules ahead of firewalld and ufw, so restrict them in Docker's `DOCKER-USER` chain ([Docker](docker.md)).
+The installer never installs Docker and never changes the firewall: it checks Docker and tells you what is missing. On Production the System check shows a **Firewall** row (carried onto the next screen even when every check passes, since a passed check moves on by itself), and the Review and the closing *To do on this host* list give the exact command when ports 80 and 443 are closed (RHEL's firewalld closes them by default) — see [Troubleshooting › The firewall](troubleshooting.md#the-firewall-closes-the-sites-ports). On Docker and Trial the firewall is **not checked**, because the published ports bypass it: Docker writes its own rules ahead of firewalld and ufw, so restrict them in Docker's `DOCKER-USER` chain ([Docker](docker.md)).
 
 ## The pages
 

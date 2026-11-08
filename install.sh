@@ -435,6 +435,17 @@ install_deps() {
 		|| die 'bun install failed — see its output above (this host needs to reach the npm registry once)'
 }
 
+# root_bun_env <uid> <cache>: as root, the installer's own Bun keeps nothing in /root/.bun —
+# its runtime transpiler cache (Bun's default is ~/.bun/install/cache/@t@: campaign C4 left
+# 4.4 MB there) is off, and a package cache, were one ever needed, sits under <cache>. The
+# children the installer starts get a fixed environment (host/runner.ts): this reaches only it.
+root_bun_env() {
+	[ "$1" = 0 ] || return 0
+	BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+	BUN_INSTALL_CACHE_DIR="$2/bun-install-cache"
+	export BUN_RUNTIME_TRANSPILER_CACHE_PATH BUN_INSTALL_CACHE_DIR
+}
+
 # plain_output [installer args…]: will the installer run in its plain line mode (--plain, TERM
 # unset or dumb, stdout not a terminal)?
 plain_output() {
@@ -577,6 +588,7 @@ main() {
 	plain_colours "$@"
 	install_deps "$BUN" "$SRC" "$_uid" "$CACHE" "$KERNEL" "$PIN"
 	CONFIG=$(bun_config "$SRC" "$CACHE") || exit 3
+	root_bun_env "$_uid" "$CACHE"
 }
 
 parse_args "$@"

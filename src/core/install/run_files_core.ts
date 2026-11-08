@@ -45,6 +45,8 @@ import type { OntologyInstallRequest, OntologySourceView } from './ontology_choi
 export const PLAN_FILE = 'install.plan.json';
 export const STATE_FILE = 'install.state.json';
 export const LOCK_FILE = 'install.lock';
+/** The run's transcript (host routes): every line the screen showed, redacted, appended per run. */
+export const LOG_FILE = 'install.log';
 export const PLAN_SCHEMA = 'dedalo.install.plan/1';
 export const STATE_SCHEMA = 'dedalo.install.state/1';
 

@@ -16,7 +16,26 @@ A working Dédalo on your laptop in about ten minutes. This is a **development**
 
 Bun comes in step 3, inside the checkout, because the version it installs is the one the checkout pins.
 
-Debian 13 and RHEL-family 10 do not ship PostgreSQL 18 themselves, and RHEL-family 10 needs extra repositories for FFmpeg and ImageMagick. Add them first, exactly as the [manual install](manual_install.md) does: the PostgreSQL project's repository (PGDG) on Debian, and EPEL, CodeReady Builder, RPM Fusion free and PGDG on RHEL, Rocky and Alma. On RHEL-family, PGDG's server also needs its data directory created and the service started:
+!!! note "Debian has no `sudo` by default"
+    A Debian 13 installed with a root password has no `sudo`, and every command on this page assumes it (the installer also uses it once, to trust its certificate authority). As root, add it and put your account in the `sudo` group, then log out and in again:
+
+    ```shell
+    su -
+    apt install sudo
+    usermod -aG sudo <your user>
+    ```
+
+Debian 13 and RHEL-family 10 do not ship PostgreSQL 18 themselves, and RHEL-family 10 needs extra repositories for FFmpeg and ImageMagick. Add them first, exactly as the [manual install](manual_install.md) does: the PostgreSQL project's repository (PGDG) on Debian, and EPEL, CodeReady Builder, RPM Fusion free and PGDG on RHEL, Rocky and Alma. On Debian, PGDG's own setup script adds it:
+
+```shell
+sudo apt install postgresql-common
+sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+sudo apt update
+```
+
+The same script adds PGDG on an Ubuntu older than 26.04 — Ubuntu 24.04 ships PostgreSQL 16, so `apt install postgresql-18` fails there with *Unable to locate package*. A development checkout runs on it; the production route does not (it installs on the newest releases only).
+
+On RHEL-family, PGDG's server also needs its data directory created and the service started:
 
 ```shell
 sudo /usr/pgsql-18/bin/postgresql-18-setup initdb

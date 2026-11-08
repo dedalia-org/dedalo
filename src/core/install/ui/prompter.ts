@@ -19,7 +19,7 @@ import type {
 	SecretOptions,
 } from '../prompter_contract.ts';
 import { QUIT } from '../prompter_contract.ts';
-import type { Question, Screen } from '../screen_model.ts';
+import { ALWAYS_CARRIED_ROWS, type Question, type Screen } from '../screen_model.ts';
 import type { PendingView } from '../tui_loader.ts';
 import type { App } from './app.ts';
 import { probePage, resumePage, welcomePage } from './screens/pages.ts';
@@ -53,6 +53,11 @@ export const CARRIED_WHOLE = 7;
 /** A said line that needs the operator's attention (a warning or a failure). */
 const NEEDS_ATTENTION = /^\s*(warn|error)\b/;
 
+/** A passed row that is carried anyway (screen_model ALWAYS_CARRIED_ROWS): `ok  <label>  …`. */
+function alwaysCarried(line: string): boolean {
+	return ALWAYS_CARRIED_ROWS.some((label) => line.trimStart().startsWith(`ok  ${label}  `));
+}
+
 /**
  * What was said on the PREVIOUS screen and is still shown on the next one (a
  * passed check's verdict: a screen without questions — the System check —
@@ -70,7 +75,9 @@ export function carriedOver(said: string[], previous: Screen | undefined, next: 
 	// left only "System ready." on the next screen, where the docs promise those rows).
 	if (said.length <= CARRIED_WHOLE) return [`${previous.title}:`, ...said];
 	const last = said.length - 1;
-	const kept = said.filter((line, index) => index === last || NEEDS_ATTENTION.test(line));
+	const kept = said.filter(
+		(line, index) => index === last || NEEDS_ATTENTION.test(line) || alwaysCarried(line),
+	);
 	return [`${previous.title}:`, ...kept];
 }
 

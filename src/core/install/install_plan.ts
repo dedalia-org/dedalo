@@ -1287,7 +1287,7 @@ function isCustomServerList(value: string | undefined): boolean {
 
 /**
  * UPDATE SERVERS (A3). Official by default; `none` (air-gapped) always writes
- * `[]` — an explicit answer the plan owns. PRESERVE RULE: with `official`, a key
+ * `[]` (and DEDALO_GEOIP_AUTO_UPDATE=false) — an explicit answer the plan owns. PRESERVE RULE: with `official`, a key
  * whose prior .env value is a NON-EMPTY list is not re-emitted, so persist_config
  * carries the operator's line verbatim (mirrors they added survive a re-run). A
  * prior `[]` is NOT preserved: it is an earlier air-gapped answer, and keeping it
@@ -1306,10 +1306,26 @@ function updateServersSection(
 	return {
 		comment:
 			'# --- Update servers (ontology + code masters; [] = air-gapped, no updates offered) ---',
-		entries: servers
-			.filter(([key]) => !(official && isCustomServerList(prior[key])))
-			.map(([key, server]) => entry(key, JSON.stringify(official ? [server] : []), true)),
+		entries: [
+			...servers
+				.filter(([key]) => !(official && isCustomServerList(prior[key])))
+				.map(([key, server]) => entry(key, JSON.stringify(official ? [server] : []), true)),
+			// Air-gapped means NO outbound fetch: the engine's monthly DB-IP country
+			// database download is off too (campaign C4 S4: the first boot fetched it
+			// on an air-gapped install). Official: not written (the engine default, on)
+			// — except over a prior `false`, an earlier air-gapped answer the preserve
+			// block would otherwise carry on, exactly as a prior `[]` is not kept.
+			...geoipEntries(official, prior),
+		],
 	};
+}
+
+/** DEDALO_GEOIP_AUTO_UPDATE for the update-server answer (see updateServersSection). */
+function geoipEntries(official: boolean, prior: Readonly<Record<string, string>>): EnvEntry[] {
+	if (!official) return [entry('DEDALO_GEOIP_AUTO_UPDATE', 'false')];
+	return prior.DEDALO_GEOIP_AUTO_UPDATE?.trim() === 'false'
+		? [entry('DEDALO_GEOIP_AUTO_UPDATE', 'true')]
+		: [];
 }
 
 /** A JSON server list → its well-formed {name,url,code} entries ([] when it is not one). */

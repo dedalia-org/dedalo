@@ -297,6 +297,9 @@ async function showStackSalt(ctx: HostCtx): Promise<string[] | undefined> {
 	if (!ctx.created.salt_shown) {
 		const status = await stackEngineStatus(ctx);
 		if (status?.salt_generated !== true) return undefined;
+		// The host record says what the container's says (campaign C4 S4: the host's
+		// `--status --json` reported salt_generated:false beside the engine's true).
+		ctx.created.salt_generated = true;
 		const read = composeProbe(
 			ctx,
 			['exec', '-T', 'dedalo', 'grep', '-m', '1', '^DEDALO_SALT_STRING=', '/private/.env'],

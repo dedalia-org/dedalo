@@ -67,6 +67,7 @@ import {
 	devServeEnv,
 	devStartCommand,
 	exitCause,
+	openableUrls,
 	setCookies,
 	verifyDevServe,
 } from '../../src/core/install/dev_serve.ts';
@@ -705,6 +706,44 @@ describe('E. the final screen — from the written keys, one text source, derive
 		mkdirSync(other);
 		writeFileSync(join(other, '.env'), 'DB_NAME=x\n');
 		expect(await devServedView(other)).toBeNull();
+	});
+
+	test('C4 S4: the Open list is the public address, then only what the certificate names', () => {
+		const tls = {
+			hostname: '0.0.0.0',
+			port: 3500,
+			url: '',
+			networkReachable: true,
+			tls: { certFile: join(CA_DIR, 'fullchain.pem'), keyFile: join(CA_DIR, 'privkey.pem') },
+		} as unknown as Parameters<typeof openableUrls>[1];
+		const bound = [
+			'https://127.0.0.1:3500/dedalo/core/page/',
+			'https://localhost:3500/dedalo/core/page/',
+			'https://192.0.2.7:3500/dedalo/core/page/',
+		];
+		// The scratch leaf names localhost and 127.0.0.1 only: the LAN address is not offered.
+		expect(
+			openableUrls(bound, tls, {
+				DEDALO_HOST: 'museo.example.org:3500',
+				DEDALO_PROTOCOL: 'https://',
+			}),
+		).toEqual([
+			'https://museo.example.org:3500/dedalo/core/page/',
+			bound[0] as string,
+			bound[1] as string,
+		]);
+		// Plain HTTP: every bound address, the public one first (its own protocol).
+		const plain = { ...tls, tls: null } as Parameters<typeof openableUrls>[1];
+		expect(
+			openableUrls(bound, plain, { DEDALO_HOST: 'h:3500', DEDALO_PROTOCOL: 'http://' }),
+		).toEqual(['http://h:3500/dedalo/core/page/', ...bound]);
+		// No DEDALO_PROTOCOL: the engine default, http://.
+		expect(openableUrls(bound, plain, { DEDALO_HOST: 'h:3500' })[0]).toBe(
+			'http://h:3500/dedalo/core/page/',
+		);
+		// A certificate naming none of the bound hosts, no public address: never an empty list.
+		const lan = ['https://192.0.2.7:3500/dedalo/core/page/'];
+		expect(openableUrls(lan, tls, {})).toEqual(lan);
 	});
 
 	test('the plain CLI and the full screen tell the SAME lines (DONE_TEXT.served)', async () => {

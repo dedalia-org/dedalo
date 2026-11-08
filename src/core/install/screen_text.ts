@@ -203,9 +203,9 @@ export const QUESTION_TEXT: Readonly<Record<string, { label: string; description
 			description: 'Where ontology and code updates come from. Nothing installs by itself.',
 		},
 		ontology_source: {
-			label: 'Offline ontology package',
+			label: 'Local ontology package',
 			description:
-				'A directory or .tar.gz in the ontology server export layout; empty = built-in oh only.',
+				"A directory or .tar.gz in the ontology server export layout; it replaces the update server's catalog for this install. Empty = the update server's catalog (built-in oh only when air-gapped).",
 		},
 		ontologies: {
 			label: 'Ontologies',
@@ -461,7 +461,7 @@ export const OPTION_TEXT = Object.freeze({
 		none: {
 			label: 'None (air-gapped)',
 			description:
-				'No update server is configured (ONTOLOGY_SERVERS and CODE_SERVERS are written empty): no update is ever offered, and only the built-in oh ontology can be installed unless an offline package is given.',
+				'No update server is configured (ONTOLOGY_SERVERS and CODE_SERVERS are written empty): no update is ever offered, the GeoIP country database is not downloaded, and only the built-in oh ontology can be installed unless a local package is given.',
 		},
 	},
 	media_access_mode: {
@@ -584,8 +584,8 @@ export const NOTICE_TEXT = Object.freeze({
 	coreOntologies: (tlds: readonly string[]) => `Always installed: ${tlds.join(', ')} (core).`,
 	coreThesauri: (labels: readonly string[]) => `Always installed: ${labels.join(', ')}.`,
 	airGapped:
-		'Air-gapped: ONTOLOGY_SERVERS and CODE_SERVERS are written empty — no update is ever offered. Only oh is offered unless an offline package is given.',
-	onlyOh: 'Air-gapped without an offline package: only oh is offered.',
+		'Air-gapped: ONTOLOGY_SERVERS and CODE_SERVERS are written empty — no update is ever offered. Only oh is offered unless a local package is given.',
+	onlyOh: 'Air-gapped without a local package: only oh is offered.',
 	catalogUnreachable: (msg: string) =>
 		`The ontology catalog could not be read (${msg}) — only the built-in ontologies are offered.`,
 	catalogSource: (label: string) => `Ontologies offered by ${label}.`,

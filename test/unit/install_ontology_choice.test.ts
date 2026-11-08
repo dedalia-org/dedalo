@@ -95,7 +95,10 @@ function entry(
 		tld,
 		name: `${tld} name`,
 		name_data: null,
-		typology_id: 8,
+		// The id names the group (the release manifest's typology, in English): only
+		// the Catalog fixture carries one; another name stands for a typology the
+		// manifest does not list, kept as the catalog's own name.
+		typology_id: typologyName === 'Catalog' ? 8 : null,
 		typology_name: typologyName,
 		// declared ONTOLOGY dependencies (main ontology35, mandatory)
 		dependencies:

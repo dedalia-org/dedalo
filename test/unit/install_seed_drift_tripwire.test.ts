@@ -384,6 +384,7 @@ describe('the vendored ontology release carries no suite fixture', () => {
 			'local',
 		);
 		expect(catalog.entries.map((entry) => entry.tld)).toEqual(['oh', 'mdcat']);
-		expect(catalog.warnings.join(' ')).toContain('never installed): test');
+		// Dropped WITHOUT a warning (campaign C4 S4: the Review told every operator about it).
+		expect(catalog.warnings).toEqual([]);
 	});
 });

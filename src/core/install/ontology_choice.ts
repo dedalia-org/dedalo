@@ -61,7 +61,13 @@ import {
 	ONTOLOGY_DEPENDENCY_MAINS,
 	type OntologyDependency,
 } from '../ontology/ontology_dependencies.ts';
-import { isCoreHierarchyTld, offeredHierarchyTlds } from './hierarchy_meta.ts';
+import {
+	type HierarchyMeta,
+	hierarchyChoiceView,
+	isCoreHierarchyTld,
+	offeredHierarchies,
+	offeredHierarchyTlds,
+} from './hierarchy_meta.ts';
 import { VENDORED_ONTOLOGY_DIR } from './paths.ts';
 
 /** The domain ontologies an install gets when the answer is absent or `default`. */
@@ -960,12 +966,18 @@ function viewEntry(
 	entry: OntologyCatalogEntry,
 	catalog: OntologyCatalog,
 	lang: string,
+	typologies: ReadonlyMap<string, string>,
 ): OntologyCatalogViewEntry {
 	return {
 		tld: entry.tld,
 		name: nameIn(entry, lang),
 		typology_id: entry.typology_id,
-		typology_name: entry.typology_name,
+		// The typology named in `lang` from the release's manifest, as the screen
+		// groups it (campaign C4 S4: --list-ontologies said `Catálogo`, the screen
+		// `Catalog`); the catalog's own name only for a typology the manifest lacks.
+		typology_name:
+			(entry.typology_id === null ? undefined : typologies.get(String(entry.typology_id))) ??
+			entry.typology_name,
 		origin: entry.origin,
 		is_default: DEFAULT_DOMAIN_ONTOLOGIES.includes(entry.tld),
 		note_key: ONTOLOGY_NOTE_LABELS[entry.tld] ?? null,
@@ -984,9 +996,54 @@ function compareViewEntries(a: OntologyCatalogViewEntry, b: OntologyCatalogViewE
 	return byTypology !== 0 ? byTypology : a.tld.localeCompare(b.tld);
 }
 
-/** Is the entry a domain ontology a collection may choose (not core, not a typology grouper)? */
-function offeredDomain(entry: OntologyCatalogEntry): boolean {
-	return !isCoreOntologyTld(entry.tld) && !NOT_OFFERED_ONTOLOGY_TLDS.includes(entry.tld);
+/**
+ * The generic thesaurus section (ontology_tipos.ts THESAURUS_SECTION —
+ * restated: that module imports config; gated equal by install_ontology_choice).
+ */
+export const GENERIC_THESAURUS_SECTION = 'hierarchy20';
+
+/** hierarchy13/8 — the Catalog typology: a collection's catalog, a domain by definition. */
+export const CATALOG_TYPOLOGY_ID = 8;
+
+/**
+ * The TLDs a catalog lists that are only a THESAURUS's own definition, never a
+ * collection's domain (campaign C4 S4: ~150 toponymies, fauna, special…
+ * offered as domain ontologies). One is when the release's hierarchy manifest
+ * offers it as a thesaurus built on the generic thesaurus section (its
+ * definition is the three nodes the Thesauri screen installs with it) and the
+ * catalog does not class the ontology as a Catalog. A thesaurus with a section
+ * of its own (tch → tch7, tchi → tchi1, actv → actv1) and a Catalog ontology
+ * that also names a thesaurus (isad) stay domains. Still accepted by name from
+ * the flags.
+ */
+function thesaurusDefinitionTlds(
+	catalog: OntologyCatalog,
+	hierarchies: readonly HierarchyMeta[],
+): ReadonlySet<string> {
+	const generic = new Set(
+		hierarchies
+			.filter(
+				(meta) =>
+					(meta.real_section_tipo ?? GENERIC_THESAURUS_SECTION) === GENERIC_THESAURUS_SECTION,
+			)
+			.map((meta) => meta.tld),
+	);
+	return new Set(
+		catalog.entries
+			.filter(
+				(entry) => generic.has(entry.tld) && Number(entry.typology_id) !== CATALOG_TYPOLOGY_ID,
+			)
+			.map((entry) => entry.tld),
+	);
+}
+
+/** Is the entry a domain ontology a collection may choose (not core, not a grouper, not a thesaurus)? */
+function offeredDomain(entry: OntologyCatalogEntry, thesauri: ReadonlySet<string>): boolean {
+	return (
+		!isCoreOntologyTld(entry.tld) &&
+		!NOT_OFFERED_ONTOLOGY_TLDS.includes(entry.tld) &&
+		!thesauri.has(entry.tld)
+	);
 }
 
 /**
@@ -998,13 +1055,29 @@ export function describeOntologyCatalog(
 	catalog: OntologyCatalog,
 	lang: string = INSTALLER_LANG,
 ): OntologyCatalogView {
+	// The release's hierarchy manifest refines the offer (thesaurus definitions out,
+	// typologies named in `lang`). A broken manifest is the Thesauri screen's
+	// refusal to make: here the catalog is offered as it stands, never a crash.
+	let hierarchies: HierarchyMeta[] = [];
+	let typologies = new Map<string, string>();
+	try {
+		hierarchies = offeredHierarchies();
+		typologies = new Map(
+			hierarchyChoiceView(lang).hierarchy_typologies.map(
+				(item) => [String(item.typology), item.label] as const,
+			),
+		);
+	} catch {
+		// install.manifest_invalid: reported where the thesauri are read.
+	}
+	const thesauri = thesaurusDefinitionTlds(catalog, hierarchies);
 	return {
 		source: ontologySourceView(catalog.source),
 		default: [...DEFAULT_DOMAIN_ONTOLOGIES],
 		core: [...CORE_ONTOLOGY_TLDS],
 		entries: catalog.entries
-			.filter(offeredDomain)
-			.map((entry) => viewEntry(entry, catalog, lang))
+			.filter((entry) => offeredDomain(entry, thesauri))
+			.map((entry) => viewEntry(entry, catalog, lang, typologies))
 			.sort(compareViewEntries),
 		warnings: [...catalog.warnings],
 	};

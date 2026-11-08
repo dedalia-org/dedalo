@@ -25,6 +25,8 @@ export interface StepRow {
 	label: string;
 	status: StepStatus;
 	elapsedMs: number | null;
+	/** When the RUNNING step started (ms epoch): its time counts up live (campaign C4 S4). */
+	startedAt?: number;
 	warnings: string[];
 	message: string | null;
 }
@@ -66,7 +68,7 @@ const PHASE_STATUS: Readonly<Record<StepEvent['phase'], StepStatus>> = Object.fr
 });
 
 /** One event applied (an unknown step — an abort's undo — joins the list). */
-export function applyStepEvent(run: RunView, event: StepEvent): void {
+export function applyStepEvent(run: RunView, event: StepEvent, now: number = Date.now()): void {
 	run.preparing = false;
 	let row = run.steps.find((item) => item.id === event.step);
 	if (row === undefined) {
@@ -81,6 +83,7 @@ export function applyStepEvent(run: RunView, event: StepEvent): void {
 		run.steps.push(row);
 	}
 	row.status = PHASE_STATUS[event.phase];
+	row.startedAt = row.status === 'running' ? now : undefined;
 	row.elapsedMs = event.elapsedMs ?? row.elapsedMs;
 	row.warnings = [...(event.warnings ?? row.warnings)].map(sanitizeLine);
 	row.message = event.message === undefined ? row.message : sanitizeLine(event.message);
@@ -106,8 +109,19 @@ export function elapsedText(ms: number | null): string {
 	return text.padStart(7);
 }
 
+/**
+ * The time a row shows: a running step's counts up from its start (campaign
+ * C4 S4: ten minutes of `host_packages` on a slow host read as a hang), a
+ * finished one's is the executor's measure.
+ */
+function shownElapsed(row: StepRow, now: number): number | null {
+	return row.status === 'running' && row.startedAt !== undefined
+		? Math.max(0, now - row.startedAt)
+		: row.elapsedMs;
+}
+
 /** A step row and what hangs under it. */
-function stepLines(row: StepRow, lastLog: string | null, width: number): Line[] {
+function stepLines(row: StepRow, lastLog: string | null, width: number, now: number): Line[] {
 	const [glyph, role] = MARK[row.status];
 	const labelRole: Role = row.status === 'pending' ? 'faint' : 'text';
 	const line = spread(
@@ -115,7 +129,7 @@ function stepLines(row: StepRow, lastLog: string | null, width: number): Line[] 
 			seg(`${glyph} `, role),
 			seg(sanitizeLine(row.label), labelRole, { bold: row.status === 'running' }),
 		],
-		[seg(elapsedText(row.elapsedMs), 'muted')],
+		[seg(elapsedText(shownElapsed(row, now)), 'muted')],
 		width,
 	);
 	const running =
@@ -165,12 +179,17 @@ function logPane(log: readonly string[], width: number): PaneModel {
 }
 
 /** The step rows, and the row to keep in view (the running or failed one). */
-function stepRows(run: RunView, width: number, offset: number): { lines: Line[]; focus: number } {
+function stepRows(
+	run: RunView,
+	width: number,
+	offset: number,
+	now: number,
+): { lines: Line[]; focus: number } {
 	const lines: Line[] = [];
 	let focus = offset;
 	for (const row of run.steps) {
 		if (row.status === 'running' || row.status === 'failed') focus = offset + lines.length;
-		lines.push(...stepLines(row, run.lastLog, width));
+		lines.push(...stepLines(row, run.lastLog, width, now));
 	}
 	return { lines, focus };
 }
@@ -178,13 +197,18 @@ function stepRows(run: RunView, width: number, offset: number): { lines: Line[];
 const PREPARING: Line = [seg('◐ preparing the install (catalog, environment)…', 'accent')];
 
 /** The Install pane (or the whole log, `l`). */
-export function installPane(run: RunView, log: readonly string[], width: number): PaneModel {
+export function installPane(
+	run: RunView,
+	log: readonly string[],
+	width: number,
+	now: number = Date.now(),
+): PaneModel {
 	if (run.showLog) return logPane(log, width);
 	const head = [
 		...announcementLines(run.announcement, width),
 		...(run.preparing ? [PREPARING] : []),
 	];
-	const rows = stepRows(run, width, head.length);
+	const rows = stepRows(run, width, head.length, now);
 	const tail = [...failureLines(run.outcome, width), ...shownOnceLines(run.shownOnce, width)];
 	const lines = [...head, ...rows.lines, ...tail];
 	// A failure or a shown-once secret is what must be read: keep the end in view.

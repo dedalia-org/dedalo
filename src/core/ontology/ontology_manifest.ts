@@ -46,6 +46,7 @@ import { z } from 'zod';
 import { DedaloError } from '../errors/index.ts';
 import { fetchBoundedText } from '../security/ssrf_guard.ts';
 import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
+import { isTestFixtureTld } from './core_tlds.ts';
 import {
 	assertTlsVerificationOn,
 	buildOntologyUpdateInfo,
@@ -196,6 +197,17 @@ export function parseOntologyManifest(raw: unknown): ManifestResult {
 			...manifestOntology(file, metadata.get(file.tld), warnings),
 			...digestField(digests, file.tld),
 		}));
+	// Listed by ontology.json, no package beside it (campaign C4 S4: `mht` vanished
+	// from the offer without a word). The suite's `test` fixture is no offer at all.
+	const packaged = new Set(files.map((file) => file.tld));
+	const unpackaged = [...metadata.keys()].filter(
+		(tld) => !packaged.has(tld) && !isTestFixtureTld(tld),
+	);
+	if (unpackaged.length > 0) {
+		warnings.push(
+			`listed by the source's ontology.json without a package (<tld>.copy.gz), not offered: ${unpackaged.join(', ')}`,
+		);
+	}
 	const matrixDd = digestField(digests, 'matrix_dd').sha256;
 	return {
 		ok: true,

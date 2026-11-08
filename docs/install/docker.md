@@ -37,7 +37,7 @@ You need **Docker Engine** and the **Compose v2 plugin, 2.24.4 or newer** (the `
 sudo apt install docker.io docker-compose-v2 docker-buildx
 ```
 
-**Debian, RHEL, AlmaLinux, Rocky:** install from Docker's own repository, following [docs.docker.com/engine/install](https://docs.docker.com/engine/install/) for your distribution. On the RHEL family that procedure first removes the `podman`, `buildah` and `runc` packages the system ships — expected, see the note below.
+**Debian, RHEL, AlmaLinux, Rocky:** install from Docker's own repository, following [docs.docker.com/engine/install](https://docs.docker.com/engine/install/) for your distribution. On the RHEL family that procedure first removes the `podman` and `runc` packages the system ships — expected, see the note below; `buildah` stays installed, and the stack never uses it.
 
 **macOS:** install Docker Desktop.
 
@@ -82,6 +82,8 @@ Membership of `docker` is root-equivalent — exactly what `sudo docker` already
 sudo apt install git curl unzip coreutils    # Debian, Ubuntu
 sudo dnf install git curl unzip coreutils    # RHEL, AlmaLinux, Rocky
 ```
+
+No `sudo` on Debian? See [Get Dédalo](index.md#get-dedalo): a Debian installed with a root password has none until you add it.
 
 **`cosign`**, to verify the signature of an official image. Without it, choose a local build on the *Image* screen. Install it from the release binary of [sigstore/cosign](https://github.com/sigstore/cosign/releases), checked against that release's `cosign_checksums.txt` (`v3.1.4` is only an example: use the latest release). The same commands serve Debian, Ubuntu and the RHEL family, on `amd64` (use `arm64` for ARM hosts):
 
@@ -142,6 +144,9 @@ The certificate is asked after the *System check*, so that screen cannot see it:
 !!! warning "Published ports bypass the host firewall"
     Docker writes its own packet-filter rules (nftables or iptables) for every published port, ahead of the host firewall's: a port the stack publishes is reachable from the network even when `firewalld` or `ufw` does not allow it. To restrict who reaches the stack, either publish on one address only — in `docker-compose.yml`, `"127.0.0.1:${DEDALO_HTTPS_PORT:-443}:443"` instead of `"${DEDALO_HTTPS_PORT:-443}:443"` (behind a proxy on the same host, for instance) — or filter in Docker's `DOCKER-USER` chain, which it consults before its own rules ([Docker and the firewall](https://docs.docker.com/engine/network/packet-filtering-firewalls/)).
 
+!!! note "SELinux does not confine the containers"
+    With Docker Engine's default configuration (no `"selinux-enabled": true` in `/etc/docker/daemon.json`) every container runs as the unconfined `spc_t` type on the RHEL family: `ps -eZ | grep spc_t` lists them, and SELinux denies them nothing. The production route's `dedalo_engine` policy module is a production-route piece and is not installed for the stack. What isolates the stack is Docker itself — its namespaces, its volumes, and a daemon only the `docker` group reaches.
+
 ## Run the installer
 
 From the checkout of Dédalo ([Get Dédalo](index.md#get-dedalo)), as yourself:
@@ -160,7 +165,8 @@ Choose **Docker** on the first screen (`--plain` asks the same questions one per
 | **TLS & address** | the public address, and the certificate: **Let's Encrypt** (with its email), a **local certificate authority** (with the other addresses staff type), or your institution's **files** |
 | **Containers** | the published HTTP and HTTPS ports (`80` and `443`) |
 | **Identity** | the institution's short code and full name, the install fingerprint (**Information** and **Info key** — keep the defaults unless you are moving a v6 installation), the locale and the time zone |
-| **Ontologies**, **Thesauri**, **Languages** | the domain ontologies (Oral history, `oh`, built in), the declared thesauri (created empty: only `lg` and the country toponymies carry terms), the languages |
+| **Ontologies** | the update servers (the official Dédalo servers, or none for an air-gapped install), an optional local ontology package, and the domain ontologies (Oral history, `oh`, built in) |
+| **Thesauri**, **Languages** | the declared thesauri (created empty: only `lg` and the country toponymies carry terms), the languages |
 | **Publication**, **Mail** | optional MariaDB publication target and SMTP relay — tested inside the container during the install |
 | **Administrator** | the `root` password |
 | **Review plan** | everything that will happen, and every command |
@@ -303,7 +309,7 @@ The installer knows which release it is from the git tag of the checkout or rele
 
 A local build is tagged and labelled with the same tag, `.dedalo.env` pins it as `DEDALO_VERSION`, and the engine's `/health` reports the release itself (`7.0.0-beta.7`, or `7.0.0-dev` for a development build).
 
-The Review asks the registry before you type `yes` (`docker manifest inspect`, then `docker buildx imagetools inspect`, as you — nothing is pulled). When the official image of this release is not published — a prerelease whose image is not out yet, for example — the Review says so and does not offer to install: your answers are kept — go back to the Image screen, choose **Build** (`--image-source build`; a first build takes about 2 to 6 minutes on 2 CPUs, longer on a slow network or disk) or a registry of your own that holds an image of this release (`--image-source custom`), and review again. While it asks, the screen shows `checking the official image <image>…`; it asks once each time the Review is built, and each question waits at most 15 seconds — a registry that does not answer by then counts as not reachable, never as "not published". When the registry cannot be reached (no network, a proxy, a firewall that drops the connection), the Review says it could not be checked, in plain words — `the registry did not answer within 15 s` or `could not reach ghcr.io` — and lets you install: `stack_image` then reports what the pull found. Docker's own error message is written to the install log of the run, not shown on the Review.
+The Review asks the registry before you type `yes` (`docker manifest inspect`, then `docker buildx imagetools inspect`, as you — nothing is pulled). When the official image of this release is not published — a prerelease whose image is not out yet, for example — the Review says so and does not offer to install: your answers are kept — go back to the Image screen, choose **Build** (`--image-source build`; a first build takes about 2 to 6 minutes on 2 CPUs, longer on a slow network or disk) or a registry of your own that holds an image of this release (`--image-source custom`), and review again. While it asks, the screen shows `checking the official image <image>…`; it asks once each time the Review is built, and each question waits at most 15 seconds — a registry that does not answer by then counts as not reachable, never as "not published". When the registry cannot be reached (no network, a proxy, a firewall that drops the connection), the Review says it could not be checked, in plain words — `the registry did not answer within 15 s` or `could not reach ghcr.io` — and lets you install: `stack_image` then reports what the pull found. Docker's own error message is written to the run's log, `<checkout>/.dedalo-install/install.log`, not shown on the Review.
 
 ### Dédalo's registries
 

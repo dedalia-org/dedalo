@@ -18,7 +18,7 @@ The Trial route installs a complete Dédalo in containers on one machine, for an
         sudo apt install docker.io docker-compose-v2 docker-buildx
         ```
 
-    - **Debian and the RHEL family** (RHEL, AlmaLinux, Rocky): Docker's own repository, as [docs.docker.com/engine/install](https://docs.docker.com/engine/install/) describes for each distribution. On the RHEL family that procedure first removes the `podman`, `buildah` and `runc` packages the system ships.
+    - **Debian and the RHEL family** (RHEL, AlmaLinux, Rocky): Docker's own repository, as [docs.docker.com/engine/install](https://docs.docker.com/engine/install/) describes for each distribution. On the RHEL family that procedure first removes the `podman` and `runc` packages the system ships (`buildah` stays installed, unused).
 
     - **macOS:** Docker Desktop.
 
@@ -45,6 +45,8 @@ The Trial route installs a complete Dédalo in containers on one machine, for an
     ```shell
     sudo apt install curl unzip git
     ```
+
+    (A Debian installed with a root password has no `sudo` yet: see [Get Dédalo](index.md#get-dedalo).)
 
     on the RHEL family (`sha256sum` comes with the system),
 

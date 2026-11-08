@@ -19,8 +19,26 @@ import { applyStepEvent } from './screens/install.ts';
 
 type ShowDone = (model: DoneModel, code: number, lines: readonly string[]) => Promise<never>;
 
+/** How often the Install screen redraws while a step runs (its time counts up). */
+export const RUN_TICK_MS = 1000;
+
 export function tuiReporter(app: App, showDone: ShowDone): RunReporter {
 	let interrupted = false;
+	// The live clock of the running step (campaign C4 S4): a redraw a second until the run ends.
+	let ticker: ReturnType<typeof setInterval> | null = null;
+	const tick = (): void => {
+		if (ticker !== null) return;
+		ticker = setInterval(() => {
+			// Only a running step's clock moves: nothing to redraw otherwise.
+			if (app.run.outcome === null && app.run.steps.some((row) => row.status === 'running'))
+				app.draw();
+		}, RUN_TICK_MS);
+		ticker.unref?.();
+	};
+	const stopTick = (): void => {
+		if (ticker !== null) clearInterval(ticker);
+		ticker = null;
+	};
 	const line = (text: string): void => {
 		app.log.push(text);
 		const last = sanitizeLine(text).trim();
@@ -32,6 +50,7 @@ export function tuiReporter(app: App, showDone: ShowDone): RunReporter {
 		app.widget = null;
 		app.cancel = null;
 		app.life.phase('run');
+		tick();
 	};
 	return {
 		io: {
@@ -50,6 +69,7 @@ export function tuiReporter(app: App, showDone: ShowDone): RunReporter {
 			signals: (armed) => app.life.armed(armed),
 			interrupted: () => {
 				interrupted = true;
+				stopTick();
 			},
 		},
 		prepare: () => {
@@ -77,6 +97,7 @@ export function tuiReporter(app: App, showDone: ShowDone): RunReporter {
 			app.draw();
 		},
 		finish: async (outcome, context) => {
+			stopTick();
 			app.run.outcome = outcome;
 			app.run.preparing = false;
 			await showDone(

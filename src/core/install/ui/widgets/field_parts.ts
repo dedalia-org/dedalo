@@ -31,8 +31,12 @@ export function labelSeg(label: string, role: Role = 'muted'): Line[number] {
  */
 export function valueBox(text: string, caret: number, width: number, role: Role = 'text'): Line {
 	const chars = Array.from(text);
+	// The box is ` ` + `room` cells of text + the caret cell. With the caret at
+	// the END, `room` characters fit before it (campaign C4 S4: one fewer dropped
+	// the leading `/` of a 32-character default that fitted exactly); with text
+	// after it, one cell stays for that text's `…`, or the row overflows.
 	const room = width - 2;
-	const start = Math.max(0, caret - room + 1);
+	const start = Math.max(0, caret - (caret < chars.length ? room - 1 : room));
 	const before = chars.slice(start, caret).join('');
 	const after = cutText(chars.slice(caret).join(''), Math.max(0, room - widthOf(before)));
 	const fill = Math.max(0, room - widthOf(before) - widthOf(after));

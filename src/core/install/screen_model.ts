@@ -347,6 +347,14 @@ export const ROUTE_FIXED: Readonly<Record<InstallRoute, Readonly<Record<string, 
 /** The probes a front end runs (each in the probe child — install_probe_client.ts). */
 export type ProbeId = 'system' | 'identity' | 'db' | 'media' | 'diffusion' | 'mailer';
 
+/**
+ * The System check rows a TUI carries to the next screen even when they pass
+ * (campaign C4 S4: a passed check advances on its own, and the firewall's
+ * verdict — "ufw is installed but inactive" — was never seen).
+ */
+export const FIREWALL_ROW_LABEL = 'Firewall';
+export const ALWAYS_CARRIED_ROWS: readonly string[] = Object.freeze([FIREWALL_ROW_LABEL]);
+
 /** One System-check row (words, never glyphs). */
 export interface SystemCheckRow {
 	state: 'ok' | 'warn' | 'fail';
@@ -640,7 +648,9 @@ const VISIBILITY: readonly VisibilityRule[] = Object.freeze<VisibilityRule[]>([
 		keys: ['image_repository'],
 		when: (raw, route) => onStack(raw, route) && raw.image_source === 'custom',
 	},
-	{ keys: ['ontology_source'], when: (raw) => raw.update_servers === 'none' },
+	// A local package is a source of its own, whatever the update servers say
+	// (campaign C4 S3: offered only when air-gapped, switching back dropped it).
+	{ keys: ['ontology_source'], when: () => true },
 	// The public address (DEDALO_HOST): asked where no web site derives it.
 	{ keys: ['public_host'], when: publicAsked },
 	{ keys: ['public_protocol'], when: publicHostGiven },

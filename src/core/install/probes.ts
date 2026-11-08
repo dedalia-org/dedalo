@@ -35,7 +35,7 @@ import { probeFailureSentence } from './install_probe_failure.ts';
 import { INSTANCE_PATTERN } from './install_validation.ts';
 import type { OntologyCatalog } from './ontology_choice.ts';
 import type { PsqlProbe } from './pg_bin.ts';
-import type { ProbeOutcome, SystemCheckRow } from './screen_model.ts';
+import { FIREWALL_ROW_LABEL, type ProbeOutcome, type SystemCheckRow } from './screen_model.ts';
 import type { InstallServerInfo } from './server_info.ts';
 
 type Answers = Readonly<Record<string, unknown>>;
@@ -102,7 +102,7 @@ function osRow(osRelease: string): SystemCheckRow {
 export function firewallRow(facts: FirewallFacts): SystemCheckRow {
 	const verdict = firewallVerdict(facts, ['80', '443']);
 	const warn = verdict.state === 'closed' || verdict.state === 'unknown';
-	return { state: warn ? 'warn' : 'ok', label: 'Firewall', detail: verdict.line };
+	return { state: warn ? 'warn' : 'ok', label: FIREWALL_ROW_LABEL, detail: verdict.line };
 }
 
 /** The production route's own rows: a supported OS, root (the sudo form when not), the firewall. */

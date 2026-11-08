@@ -479,12 +479,27 @@ describe('install plan — the written .env (c, d)', () => {
 		expect(JSON.parse(env.CODE_SERVERS as string)).toEqual([OFFICIAL_CODE_SERVER]);
 	});
 
-	test('air-gapped writes [] for both lists', () => {
+	test('air-gapped writes [] for both lists, and no GeoIP download', () => {
 		const env = parseEnvFile(
 			persistInChild({ ...BASE_RECORD, update_servers: false }, scratchDir('airgapped')),
 		);
 		expect(JSON.parse(env.ONTOLOGY_SERVERS as string)).toEqual([]);
 		expect(JSON.parse(env.CODE_SERVERS as string)).toEqual([]);
+		// No outbound fetch either: the GeoIP country database is not downloaded (campaign C4 S4).
+		expect(env.DEDALO_GEOIP_AUTO_UPDATE).toBe('false');
+		// Official: not written (the engine default applies).
+		const official = parseEnvFile(persistInChild(BASE_RECORD, scratchDir('official_geoip')));
+		expect(official.DEDALO_GEOIP_AUTO_UPDATE).toBeUndefined();
+		// Back to official over an earlier air-gapped .env: the download is on again.
+		const dir = scratchDir('geoip_back_online');
+		writeFileSync(
+			join(dir, '.env'),
+			'DEDALO_SALT_STRING=deadbeef\nDEDALO_GEOIP_AUTO_UPDATE=false\n',
+		);
+		const body = persistInChild(BASE_RECORD, dir);
+		expect(body.split('\n').filter((line) => line.startsWith('DEDALO_GEOIP_AUTO_UPDATE='))).toEqual(
+			['DEDALO_GEOIP_AUTO_UPDATE=true'],
+		);
 	});
 
 	test('a prior custom server list survives a non-air-gapped re-run verbatim', () => {

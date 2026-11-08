@@ -61,7 +61,11 @@ import { runInteractiveInstall } from '../../src/core/install/install_session.ts
 import { passedDetail, systemCheckRows } from '../../src/core/install/probes.ts';
 import type { ProbeView, ReviewView } from '../../src/core/install/prompter_contract.ts';
 import { BACK, QUIT } from '../../src/core/install/prompter_contract.ts';
-import { buildScreens, type Screen } from '../../src/core/install/screen_model.ts';
+import {
+	buildScreens,
+	FIREWALL_ROW_LABEL,
+	type Screen,
+} from '../../src/core/install/screen_model.ts';
 import { DONE_TEXT, NOTICE_TEXT } from '../../src/core/install/screen_text.ts';
 import type { App } from '../../src/core/install/ui/app.ts';
 import { carriedOver, isProgressLine, tuiPrompter } from '../../src/core/install/ui/prompter.ts';
@@ -266,6 +270,40 @@ describe('D3: every completing host run names the salt’s read command', () => 
 	});
 });
 
+describe('C4 S4: the docker host record says the engine generated the salt', () => {
+	test("the container's status salt_generated:true reaches the host's created record", async () => {
+		const argvs: string[][] = [];
+		const ctx = {
+			answers: buildInstallPlan({ route: 'docker', entity: 'museo', server_name: 'x.example.org' })
+				.answers,
+			facts: {},
+			paths: {},
+			secrets: {},
+			created: { salt_shown: false },
+			io: { showOnce: () => true },
+			say: () => undefined,
+			runner: {
+				run: async (request: { argv: string[] }) => {
+					argvs.push(request.argv);
+					const status = request.argv.includes('--status');
+					return {
+						exitCode: 0,
+						timedOut: false,
+						stdout: status
+							? '{"outcome":"complete","salt_generated":true}\n'
+							: 'DEDALO_SALT_STRING=abc\n',
+						stderr: '',
+					};
+				},
+			},
+		} as unknown as HostCtx;
+		await stack_engine.afterComplete?.(ctx);
+		expect(argvs.some((argv) => argv.includes('--status'))).toBe(true);
+		expect(ctx.created.salt_generated).toBe(true);
+		expect(ctx.created.salt_shown).toBe(true);
+	});
+});
+
 describe('D4: a gate made stale by a later answer is re-checked right after that screen', () => {
 	test('the Identity re-check comes before the Services screen, not after the Administrator', async () => {
 		const { script } = walked('route production + instance (derived names as shown)', ['quit']);
@@ -405,6 +443,22 @@ describe('the words (D10, D11, D19, D20, D22, D23)', () => {
 			'warn: Firewall  x',
 			'System ready (1 warning).',
 		]);
+	});
+
+	test('C4 S4: a PASSED firewall row is carried too (a passed check advances on its own)', () => {
+		const previous = { id: 'system', title: 'System check' } as Parameters<typeof carriedOver>[1];
+		const next = { id: 'identity', title: 'Identity' } as Parameters<typeof carriedOver>[2];
+		const long = [
+			...Array.from({ length: 12 }, (_, i) => `ok  row ${i}`),
+			'ok  Firewall  ufw is installed but inactive (nothing filtered)',
+			'System ready.',
+		];
+		expect(carriedOver(long, previous, next)).toEqual([
+			'System check:',
+			'ok  Firewall  ufw is installed but inactive (nothing filtered)',
+			'System ready.',
+		]);
+		expect(FIREWALL_ROW_LABEL).toBe('Firewall');
 	});
 
 	test('D10: the Review’s [stack_image] line of a local build says how long', () => {

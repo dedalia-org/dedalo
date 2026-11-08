@@ -414,7 +414,10 @@ function appOn(renderer: CliRenderer, options: OpenOptions, log: LogRing): App {
 		unfinished: false,
 		cancel: null,
 		dismiss: null,
-		draw: () => drawModel(renderer, app.palette, app.layout(), modelOf(app)),
+		// A destroyed renderer draws nothing (a timer's redraw may land after the UI closed).
+		draw: () => {
+			if (!renderer.isDestroyed) drawModel(renderer, app.palette, app.layout(), modelOf(app));
+		},
 		layout: () => layoutFor(renderer.width, renderer.height),
 		life: lifecycle(options.port, {
 			isDestroyed: () => renderer.isDestroyed,

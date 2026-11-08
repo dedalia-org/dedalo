@@ -341,7 +341,8 @@ describe('the Install screen and a failed Done card at 80 columns (d)', () => {
 			const stepRows = rowsOf(frame)
 				.map((row) => row.replace(/\s*│\s*$/, ''))
 				.filter((row) => /[✓◐✗·] \S/.test(row) && /\d+(\.\d)?s$/.test(row));
-			expect(stepRows.length).toBe(2);
+			// The two finished rows AND the running one (its time counts up — campaign C4 S4).
+			expect(stepRows.length).toBe(3);
 			expect(stepRows.some((row) => row.endsWith('12.3s'))).toBe(true);
 			expect(stepRows.some((row) => row.endsWith('0.8s'))).toBe(true);
 			expectFramed(frame, 80, 'compact');

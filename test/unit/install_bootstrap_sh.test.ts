@@ -755,6 +755,17 @@ describe('under sudo: the production OS gate, and the dependencies as the checko
 		);
 	});
 
+	test("root's installer Bun keeps no cache in /root/.bun (campaign C4 S4: the transpiler cache)", () => {
+		const cache = dir('rootcache');
+		const probe =
+			'echo "${BUN_RUNTIME_TRANSPILER_CACHE_PATH-unset}|${BUN_INSTALL_CACHE_DIR-unset}"';
+		expect(lib(`root_bun_env 0 "${cache}"; ${probe}`).stdout).toBe(
+			`0|${cache}/bun-install-cache\n`,
+		);
+		// Not root: its own HOME's Bun caches are its business — nothing set.
+		expect(lib(`root_bun_env 1000 "${cache}"; ${probe}`).stdout).toBe('unset|unset\n');
+	});
+
 	test('plain mode: the dependency install runs uncoloured (NO_COLOR, FORCE_COLOR=0 — campaign 3 C3-58)', () => {
 		const work = dir('plain');
 		const tree = join(work, 'checkout');

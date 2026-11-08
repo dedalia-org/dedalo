@@ -81,23 +81,19 @@ export function manifestCatalog(
 	origin: 'local' | 'server',
 ): OntologyCatalog {
 	const matrixDdUrl = manifest.matrixDdUrl;
-	const offered = manifest.ontologies.filter((ontology) => ontology.tld !== 'matrix');
 	// An installation receives no test fixture: a source that exports the suite's
-	// `test` TLD (a master with it registered) has it dropped here, said once.
-	const fixtures = offered.filter((ontology) => isTestFixtureTld(ontology.tld));
+	// `test` TLD (a master with it registered) has it dropped here — WITHOUT a
+	// warning (campaign C4 S4: the Review told every operator about a TLD that
+	// was never theirs to choose). It is the master's export, not the operator's
+	// answer, that carries it; --list-ontologies does not list it either.
+	const offered = manifest.ontologies.filter(
+		(ontology) => ontology.tld !== 'matrix' && !isTestFixtureTld(ontology.tld),
+	);
 	return {
 		source,
-		entries: offered
-			.filter((ontology) => !isTestFixtureTld(ontology.tld))
-			.map((ontology) => catalogEntry(ontology, origin)),
+		entries: offered.map((ontology) => catalogEntry(ontology, origin)),
 		matrixDd: matrixDdUrl === null ? null : { origin, file: fileOf(matrixDdUrl, origin) },
-		warnings:
-			fixtures.length === 0
-				? manifest.warnings
-				: [
-						...manifest.warnings,
-						`not offered (test-suite fixtures, never installed): ${fixtures.map((ontology) => ontology.tld).join(', ')}`,
-					],
+		warnings: manifest.warnings,
 	};
 }
 
