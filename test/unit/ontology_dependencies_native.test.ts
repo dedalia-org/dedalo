@@ -247,7 +247,10 @@ describe('the export census (getActiveOntologies → activeOntologiesInfo → ma
 			expect(served.find((item) => item.tld === 'zzka')?.dependencies).toEqual(ZZKA_DECLARED);
 			const parsed = parseOntologyManifest(manifest.data);
 			if (!parsed.ok) throw new Error(parsed.reason);
-			expect(parsed.warnings).toEqual([]);
+			// zzke is listed with no package beside it: named, never dropped silently (C4 S4)
+			expect(parsed.warnings).toEqual([
+				"listed by the source's ontology.json without a package (<tld>.copy.gz), not offered: zzke",
+			]);
 			expect(parsed.ontologies.map((item) => [item.tld, item.dependencies])).toEqual([
 				['zzka', ZZKA_DECLARED],
 				['zzkb', []],
