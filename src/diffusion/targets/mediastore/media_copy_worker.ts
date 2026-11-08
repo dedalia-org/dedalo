@@ -11,6 +11,10 @@
  *    withdraws again); (3) into the queued sync (withdraw-only pass first, then the plan
  *    deletes the files and verifies). Publish is debounced (PUBLISH_DEBOUNCE_MS): one
  *    planning walk.
+ *  - (1) BEFORE (3): no lane unit starts while an immediate withdrawal begun before it is
+ *    in flight on its host (settledWithdrawals). (1) records its marker pending only once
+ *    the agent's status answers; a round that verified meanwhile would leave that record
+ *    behind every verify — a pending deletion nothing settles until some later round.
  *  - THE LATENCY BOUND of a withdrawal (M2) is path (1)'s, independent of any transfer:
  *    after the flip, one status read (hostTakesCopy; AGENT_TIMEOUTS_MS.read, plus the
  *    pairing proof's AGENT_TIMEOUTS_MS.health when not yet proved) and one runtime write,
@@ -89,6 +93,11 @@ interface HostLane {
 	queued: QueuedRun | null;
 	/** Keys withdrawn since the running unit began: drained by it between its units. */
 	preempt: Set<string>;
+	/**
+	 * This host's immediate withdrawals in flight. Every lane unit starts only after the
+	 * ones begun before it settled (see settledWithdrawals) — never the reverse.
+	 */
+	withdrawing: Set<Promise<void>>;
 }
 
 /** What a lane unit drains to pre-empt itself with the keys withdrawn meanwhile. */
@@ -140,8 +149,9 @@ export class MediaCopyWorker {
 	 */
 	exclusive<T>(host: string, work: (takeWithdrawn: TakeWithdrawn) => Promise<T>): Promise<T> {
 		const lane = this.lane(host);
+		const before = settledWithdrawals(lane);
 		// Detached: a caller inside a transaction must not lend it to the lane's units.
-		const done = lane.tail.then(() =>
+		const done = Promise.all([lane.tail, before]).then(() =>
 			runDetachedFromTransaction(() => work(() => this.drain(lane))),
 		);
 		this.advance(host, lane, done);
@@ -190,8 +200,9 @@ export class MediaCopyWorker {
 		this.withdrawn.clear();
 		if (this.stopped) return;
 		for (const host of this.hostsOrNone()) {
-			for (const key of keys) this.lane(host).preempt.add(key);
-			this.withdrawAtOnce(host, keys);
+			const lane = this.lane(host);
+			for (const key of keys) lane.preempt.add(key);
+			this.withdrawAtOnce(host, lane, keys);
 			this.enqueue(host, keys).catch((error) => {
 				console.error(
 					`[media_copy] ${host}: sync failed (the media_copy reconcile retries):`,
@@ -202,7 +213,7 @@ export class MediaCopyWorker {
 	}
 
 	/** The out-of-lane withdrawal (deps.withdrawNow), detached, logged, never thrown. */
-	private withdrawAtOnce(host: string, keys: readonly string[]): void {
+	private withdrawAtOnce(host: string, lane: HostLane, keys: readonly string[]): void {
 		const withdrawNow = this.deps.withdrawNow;
 		if (withdrawNow === undefined || keys.length === 0) return;
 		const sent: Promise<void> = runDetachedFromTransaction(() => withdrawNow(host, keys))
@@ -212,8 +223,12 @@ export class MediaCopyWorker {
 					error,
 				);
 			})
-			.finally(() => this.withdrawals.delete(sent));
+			.finally(() => {
+				this.withdrawals.delete(sent);
+				lane.withdrawing.delete(sent);
+			});
 		this.withdrawals.add(sent);
+		lane.withdrawing.add(sent);
 	}
 
 	private hostsOrNone(): string[] {
@@ -231,7 +246,12 @@ export class MediaCopyWorker {
 	private lane(host: string): HostLane {
 		const existing = this.lanes.get(host);
 		if (existing !== undefined) return existing;
-		const created: HostLane = { tail: Promise.resolve(), queued: null, preempt: new Set() };
+		const created: HostLane = {
+			tail: Promise.resolve(),
+			queued: null,
+			preempt: new Set(),
+			withdrawing: new Set(),
+		};
 		this.lanes.set(host, created);
 		return created;
 	}
@@ -255,7 +275,8 @@ export class MediaCopyWorker {
 			return lane.queued.done;
 		}
 		const run: QueuedRun = { keys: new Set(keys), done: Promise.resolve(null) };
-		run.done = lane.tail.then(() =>
+		const before = settledWithdrawals(lane);
+		run.done = Promise.all([lane.tail, before]).then(() =>
 			runDetachedFromTransaction(() => this.runQueued(host, lane, run)),
 		);
 		lane.queued = run;
@@ -290,6 +311,18 @@ export class MediaCopyWorker {
 			console.error(`[media_copy] ${host}: afterSync listener failed:`, error);
 		}
 	}
+}
+
+/**
+ * Resolves once every immediate withdrawal ALREADY in flight on the lane's host has
+ * settled (each is caught and logged in withdrawAtOnce, so this never rejects). A lane unit
+ * waits for it: a withdrawal records its marker pending only after the agent's status
+ * answers, so a round that ran meanwhile could verify the marker gone BEFORE that record —
+ * which then outlived every verify (the stale pending deletion the drill caught). The
+ * withdrawal never waits for the lane (its latency bound, M2, is unchanged).
+ */
+function settledWithdrawals(lane: HostLane): Promise<unknown> {
+	return Promise.all([...lane.withdrawing]);
 }
 
 /** How long a runner waits, at exit, for its relay's withdrawals (the reconcile catches the rest). */

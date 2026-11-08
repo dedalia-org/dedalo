@@ -379,6 +379,101 @@ describe('MediaCopyWorker', () => {
 		expect(world.runtime.get('pub1')).toMatchObject({ state: 'ok', pending_deletions: [] });
 	});
 
+	test('a late immediate withdrawal never outlives the round that verifies it (the lane waits for it)', async () => {
+		// The race the publication-host drill caught on a hosted runner (2026-11-08): the
+		// immediate withdrawal asks the agent's status first; when that is slow, the queued
+		// round (withdraw-only pass, plan, verify) used to finish FIRST and verify the marker
+		// gone — then the late withdrawal re-recorded it pending, after every verify. The
+		// runtime then listed a deletion nothing would verify until some later round (the
+		// panel turns it overdue). The lane now starts no unit before the host's in-flight
+		// immediate withdrawals settle; the withdrawal itself still waits for nothing.
+		const world = newWorld();
+		const K = 'test3_1';
+		const path = mediaPath(K);
+		world.local.set(path, { bytes: 'jpeg', mtimeMs: 1 });
+		world.published.add(K);
+		const d = worldDeps(world);
+		const slowStatus = gated();
+		const order: string[] = [];
+		const created = new MediaCopyWorker({
+			listHosts: () => ['pub1'],
+			publishDebounceMs: 0,
+			syncHost: (host, keys, takeWithdrawn) => {
+				order.push(`sync:${keys.join(',')}`);
+				return syncHostWith(
+					{
+						takesCopy: async () => true,
+						plan: async () => planFrom(world),
+						apply: (h, plan, options) => applyCopyWith(d, h, plan, options),
+						recordFailure: (h, error) => recordRoundFailure(d, h, error),
+					},
+					host,
+					keys,
+					takeWithdrawn,
+				);
+			},
+			withdrawNow: (host, keys) =>
+				withdrawNowWith(
+					{
+						...d,
+						takesCopy: async () => {
+							await slowStatus.gate;
+							order.push('withdrawNow:status answered');
+							return true;
+						},
+					},
+					host,
+					keys,
+				),
+		});
+		stops.push(() => created.stop());
+		await created.sync('pub1');
+		expect(world.agentMarkers.has(K)).toBe(true);
+		expect(world.agentFiles.has(path)).toBe(true);
+		order.length = 0;
+
+		world.published.delete(K);
+		created.notify(K, false);
+		// Give an unordered lane every chance to run its round before the status answers.
+		await Bun.sleep(20);
+		slowStatus.release();
+		await created.idle();
+
+		expect(order).toEqual(['withdrawNow:status answered', `sync:${K}`]);
+		expect(world.agentMarkers.has(K)).toBe(false);
+		expect(world.agentFiles.has(path)).toBe(false);
+		expect(world.runtime.get('pub1')).toMatchObject({ state: 'ok', pending_deletions: [] });
+	});
+
+	test('exclusive work also starts only after the host’s in-flight immediate withdrawals', async () => {
+		const slow = gated();
+		const order: string[] = [];
+		const created = new MediaCopyWorker({
+			listHosts: () => ['pub1'],
+			publishDebounceMs: 60_000,
+			syncHost: async (_host, keys) => {
+				order.push(`sync:${keys.join(',')}`);
+				return null;
+			},
+			withdrawNow: async () => {
+				await slow.gate;
+				order.push('withdrawNow');
+			},
+		});
+		stops.push(() => created.stop());
+		created.notify('test3_7', false);
+		await Bun.sleep(1);
+		const work = created.exclusive('pub1', async () => {
+			order.push('exclusive');
+			return 1;
+		});
+		await Bun.sleep(10);
+		slow.release();
+		await work;
+		await created.idle();
+		expect(order).toEqual(['withdrawNow', 'sync:test3_7', 'exclusive']);
+	});
+
 	test('exclusive work receives the lane pre-empt drain; a queued run starting clears it', async () => {
 		const drained: string[][] = [];
 		const { gate, release } = gated();

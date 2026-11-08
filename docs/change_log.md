@@ -1051,6 +1051,13 @@ Merged since the last release; these ship with the next one.
 
     On the production route, an offline ontology source (`--ontology-source`) in your home directory used to pass the plan, then stop the install halfway with "no such file or directory": the engine steps read the source as the instance's service user, who cannot enter a home directory closed to other users. The System check now refuses such a source before anything is installed and names the directory or file in the way, and a permission error is reported as one. See [Offline installs](./install/installer_reference.md#offline-installs-ontology-source).
 
+- **An unpublished image is no longer reported as an unverified deletion on a copy publication host.**
+
+    On a publication host that receives media copies, unpublishing an image right after it
+    was published could leave a stale "unverified deletion" entry on the host panel until a
+    later synchronisation round. The engine now finishes an immediate withdrawal before the
+    host's next round checks it, so the panel shows the deletion as verified at once.
+
 - **Style changes reach browsers right after a code update, whatever the web server's cache headers.**
 
     Before, a web server that sent no `Cache-Control` header for the client files let browsers keep the previous `main.css` and tool stylesheets for days after an update, so the interface looked broken or unchanged until a hard reload. Now the engine tells the page which stylesheet version is current at every start, and the page loads exactly that version before it draws anything. Nothing to configure. `Cache-Control: no-cache` on the client files (see [reverse proxy](./install/reverse_proxy.md)) is still recommended for the scripts.

@@ -563,7 +563,10 @@ truth, the `media_index` law.
   main-pool connection per copy host, never for a transfer's duration; a busy lock is
   waited for holding no connection. A withdrawal (`mark false`) is sent at once, outside
   every lane and lock — the agent's per-key lock and the grant's post-`mark` re-check make
-  that order-safe (`media_copy_apply.ts` header).
+  that order-safe (`media_copy_apply.ts` header). The reverse wait holds: a host's lane
+  starts no unit while an immediate withdrawal begun before it is in flight, so the round
+  that verifies a withdrawn marker always runs after its pending record
+  (`media_copy_worker.ts`, gate `media_copy_worker_native`).
 - **Never through a link** (built, phase 5): a file is opened only when no link lies
   between the media root's realpath and it. A public quality folder reached through a link
   (itself or a directory above it, e.g. `av/` on another volume) stays desired — its keys
