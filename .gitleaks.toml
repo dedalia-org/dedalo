@@ -42,6 +42,13 @@ regexes = [
   '''Zz-ProbeSecret-9931''',
 ]
 
+[[allowlists]]
+description = "Geo/map gates' SENTINEL tokens and a config KEY NAME (2026-11-08, first hosted scan of the maps work): `tok_SECRET_<n>` are made-up literals the tests plant to prove a URL token never reaches a reason or a log line; `DEDALO_NAT64_PREFIXES` is a setting's NAME in a pinned-settings list, read as a value because the line above it names DEDALO_DEBUG_API_ERRORS. Scoped to the exact values only (no path — see the installer block above)."
+regexes = [
+  '''^tok_SECRET_(4711|0815|9f3a)$''',
+  '''^DEDALO_NAT64_PREFIXES$''',
+]
+
 # ---------------------------------------------------------------------------
 # HISTORY ONLY (the weekly full-history scan; none of this exists in the tree).
 #
