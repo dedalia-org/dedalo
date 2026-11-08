@@ -2714,6 +2714,16 @@
 			"skipped": 0,
 			"assertions": 96
 		},
+		"test/unit/install_run_transcript_native.test.ts": {
+			"tests": 2,
+			"skipped": 0,
+			"assertions": 10
+		},
+		"test/unit/install_running_clock_native.test.ts": {
+			"tests": 2,
+			"skipped": 0,
+			"assertions": 5
+		},
 		"test/unit/install_sanitizer_twin_native.test.ts": {
 			"tests": 3,
 			"skipped": 0,
@@ -2813,6 +2823,11 @@
 			"tests": 106,
 			"skipped": 0,
 			"assertions": 520
+		},
+		"test/unit/install_value_box_native.test.ts": {
+			"tests": 4,
+			"skipped": 0,
+			"assertions": 49
 		},
 		"test/unit/installed_tld_native.test.ts": {
 			"tests": 10,
