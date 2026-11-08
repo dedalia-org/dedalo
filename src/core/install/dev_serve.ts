@@ -908,15 +908,20 @@ function certifies(leaf: X509Certificate, url: string): boolean {
  * certificate that cannot be read leaves the bound list as it is (the boot
  * refuses it anyway).
  */
+/** The public address (DEDALO_HOST) as an open line, or none when unwritten. */
+function publicUrlOf(written: Readonly<Record<string, string>>): string[] {
+	const host = written.DEDALO_HOST ?? '';
+	if (host === '') return [];
+	// No DEDALO_PROTOCOL: the engine's own default (config catalog: `http://`).
+	return [`${written.DEDALO_PROTOCOL || 'http://'}${host}/dedalo/core/page/`];
+}
+
 export function openableUrls(
 	bound: readonly string[],
 	listener: DevTcpListener,
 	written: Readonly<Record<string, string>>,
 ): string[] {
-	const host = written.DEDALO_HOST ?? '';
-	// No DEDALO_PROTOCOL: the engine's own default (config catalog: `http://`).
-	const publicUrl =
-		host === '' ? [] : [`${written.DEDALO_PROTOCOL || 'http://'}${host}/dedalo/core/page/`];
+	const publicUrl = publicUrlOf(written);
 	const all = [...new Set([...publicUrl, ...bound])];
 	if (listener.tls === null) return all;
 	const leaf = leafOf(listener.tls.certFile);

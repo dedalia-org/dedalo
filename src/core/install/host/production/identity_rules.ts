@@ -459,6 +459,13 @@ function searchable(fact: PathFact, input: IdentityInput): boolean {
 	return grants(fact, reader, TRAVERSE);
 }
 
+/** Can an account other than root or the service user write `fact` (owner or group/other bits)? */
+function foreignWritable(fact: PathFact, input: IdentityInput): boolean {
+	const uid = input.account.user === null ? null : String(input.account.user.uid);
+	const owned = fact.owner === 'root' || names(fact.owner, input.answers.service_user, uid);
+	return !owned || (fact.mode & 0o022) !== 0;
+}
+
 /** One existing ancestor's refusals. */
 function ancestorRule(fact: PathFact, input: IdentityInput): string[] {
 	const u = input.answers.service_user;
@@ -467,10 +474,7 @@ function ancestorRule(fact: PathFact, input: IdentityInput): string[] {
 			`install folder path ${input.answers.install_dir} passes through the symbolic link ${fact.path} — give the real path`,
 		];
 	}
-	const uid = input.account.user === null ? null : String(input.account.user.uid);
-	const foreign =
-		!(fact.owner === 'root' || names(fact.owner, u, uid)) || (fact.mode & 0o022) !== 0;
-	if (foreign) {
+	if (foreignWritable(fact, input)) {
 		return [
 			`${fact.path} (a parent of the install folder) is writable by an account other than root or ${u} — it could replace the install folder; fix its owner or mode first`,
 		];

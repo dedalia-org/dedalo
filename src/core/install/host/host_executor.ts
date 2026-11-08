@@ -924,6 +924,23 @@ function machine(
 	return { runner: systemRunner({ children, redactions }), fs: hostFs('') };
 }
 
+/** The run's answers: the plan file's, else the given ones. */
+function runAnswersOf(request: HostExecutorRequest): Partial<InstallAnswers> {
+	return request.planFile?.answers ?? request.givenAnswers ?? {};
+}
+
+/**
+ * Only the real run writes install.log: a --plan, a Review's preflight or a
+ * resume's secrets probe is no run (its probe lines would fake one).
+ */
+function transcriptOf(
+	transcribed: boolean,
+	runDir: string,
+	redactions: () => readonly string[],
+): RunTranscript {
+	return transcribed ? runTranscript(join(runDir, LOG_FILE), runDir, redactions) : NO_TRANSCRIPT;
+}
+
 function newContext(
 	request: HostExecutorRequest,
 	io: RunIo,
@@ -937,13 +954,8 @@ function newContext(
 	);
 	const seams = machine(options, children, () => redactions);
 	const inflight = new Set<Promise<unknown>>();
-	const answers = request.planFile?.answers ?? request.givenAnswers ?? {};
-	const runDir = seams.fs.real(hostRunDirOf(answers, source));
-	// Only the real run writes install.log: a --plan, a Review's preflight or a
-	// resume's secrets probe is no run (its probe lines would fake one).
-	const transcript = transcribed
-		? runTranscript(join(runDir, LOG_FILE), runDir, () => redactions)
-		: NO_TRANSCRIPT;
+	const runDir = seams.fs.real(hostRunDirOf(runAnswersOf(request), source));
+	const transcript = transcriptOf(transcribed, runDir, () => redactions);
 	const ctx: HostRunContext = {
 		io: transcript.tee(io),
 		transcript,
