@@ -2558,28 +2558,40 @@ export function openArtifactStore(options: ArtifactStoreOptions = {}): ArtifactS
 
 export const EXPORT_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 
+/** One sweep pass, logged when it removed anything; never throws. */
+async function runPass(given: ArtifactStore | undefined): Promise<SweepReport | null> {
+	try {
+		const store = given ?? openArtifactStore();
+		const report = await store.sweep();
+		if (report.deleted > 0 || report.interrupted > 0 || report.temps > 0) {
+			console.log(
+				`[export_artifacts] sweep: ${report.deleted} expired, ${report.interrupted} interrupted, ${report.temps} temp file(s) removed`,
+			);
+		}
+		return report;
+	} catch (error) {
+		console.warn('[export_artifacts] sweep failed', error);
+		return null;
+	}
+}
+
 /**
  * Start the TTL sweep: one pass right away (boot), then every hour. The handle
  * is the caller's — no module state here; timers are unref'd so they never
  * hold the process, and `stop()` is for SIGTERM. Never throws, never fatal.
+ * ONE pass at a time: a call while a pass runs (the boot timer and an explicit
+ * `runOnce`, or an hour tick over a slow pass) joins that pass and gets ITS
+ * report — two overlapping passes would split one job's verdict between them.
  */
 export function startExportArtifactSweeper(
 	options: { store?: ArtifactStore; intervalMs?: number } = {},
 ): { stop(): void; runOnce(): Promise<SweepReport | null> } {
-	const runOnce = async (): Promise<SweepReport | null> => {
-		try {
-			const store = options.store ?? openArtifactStore();
-			const report = await store.sweep();
-			if (report.deleted > 0 || report.interrupted > 0 || report.temps > 0) {
-				console.log(
-					`[export_artifacts] sweep: ${report.deleted} expired, ${report.interrupted} interrupted, ${report.temps} temp file(s) removed`,
-				);
-			}
-			return report;
-		} catch (error) {
-			console.warn('[export_artifacts] sweep failed', error);
-			return null;
-		}
+	let inFlight: Promise<SweepReport | null> | null = null;
+	const runOnce = (): Promise<SweepReport | null> => {
+		inFlight ??= runPass(options.store).finally(() => {
+			inFlight = null;
+		});
+		return inFlight;
 	};
 	const first = setTimeout(() => void runOnce(), 0);
 	first.unref?.();

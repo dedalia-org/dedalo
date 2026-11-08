@@ -1627,6 +1627,27 @@ describe('E. the TTL sweep', () => {
 		expect(report?.deleted).toBe(1);
 		expect(existsSync(job.dir)).toBe(false);
 	});
+
+	test('one pass at a time: the boot pass and an explicit runOnce share ONE report', async () => {
+		// The boot timer (setTimeout 0) used to start a second pass beside an
+		// explicit runOnce; whichever deleted the job first took the count, so
+		// the caller read deleted 0 (GitHub db run 42460566815).
+		const store = markedStore({ ttlHours: 1 });
+		const { job } = await store.createJob(INIT);
+		await store.updateManifest(job, {
+			status: 'ended',
+			ended_at: new Date(Date.now() - 5 * 3600_000).toISOString(),
+		});
+		const sweeper = startExportArtifactSweeper({ store, intervalMs: 3600_000 });
+		const first = sweeper.runOnce();
+		const joined = sweeper.runOnce();
+		expect(joined).toBe(first);
+		await new Promise((done) => setTimeout(done, 5)); // the boot timer fires mid-pass
+		const report = await first;
+		sweeper.stop();
+		expect(report?.deleted).toBe(1);
+		expect(existsSync(job.dir)).toBe(false);
+	});
 });
 
 describe('F. the writer path', () => {
