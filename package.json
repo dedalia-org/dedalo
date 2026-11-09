@@ -112,7 +112,7 @@
 	},
 	"devDependencies": {
 		"@babel/parser": "8.1.0",
-		"@biomejs/biome": "2.6.4",
+		"@biomejs/biome": "2.6.6",
 		"@types/bun": "^1.4.4",
 		"@types/less": "3.0.8",
 		"axe-core": "^4.14.0",
@@ -120,7 +120,7 @@
 		"htmlparser2": "12.0.0",
 		"less": "4.9.1",
 		"mocha": "12.0.3",
-		"parse5": "8.0.1",
+		"parse5": "8.1.0",
 		"puppeteer": "^25.16.0"
 	},
 	"peerDependencies": {
