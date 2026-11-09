@@ -1851,7 +1851,7 @@ const DATA_CONTAINER_ANIMATION_MS = 180
 * have one height animation in flight; a new one cancels the previous so rapid
 * clicking does not stack conflicting animations.
 *
-* overflow is forced to hidden for the duration so shrinking does not spill the
+* overflow is forced to clip for the duration so shrinking does not spill the
 * outgoing content outside the container. This does not alter the measured
 * height (the container already contains its floated .wrapper_component child).
 *
@@ -1881,7 +1881,10 @@ const animate_data_container_height = function(container, from_height) {
 			container.height_animation.cancel()
 		}
 
-	container.style.overflow = 'hidden'
+	// (!) 'clip', never 'hidden': hidden makes the container a scroll container,
+	// so the component activation (focus) mid-animation scrolls it to reveal the
+	// input and the content bounces up and back down as the height grows.
+	container.style.overflow = 'clip'
 
 	const animation = container.animate(
 		[
