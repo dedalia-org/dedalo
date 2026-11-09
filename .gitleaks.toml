@@ -71,6 +71,20 @@ paths = [
   '''^vendor/''',
   '''^lib/''',
   '''^core/component_geolocation/js/component_geolocation\.js$''',
+  # HuggingFace transformers.js, vendored minified (2026-06-08 … 2026-07-11): `unk_token,`
+  # reads as a key. Third-party bytes, removed from the tree by 27f727cb91.
+  '''^tools/tool_lang/translators/browser_transformer/lib/transformers\.js$''',
+]
+
+[[allowlists]]
+description = "History-only test literals (2026-11-09 weekly full-history scan, 9 hits, 0 in the tree): made-up values in EARLIER revisions of test files, since rewritten — a scratch TLD tipo, an installer root sentinel, base64 of 'KEY_BODY_LINE'/'SEC1_KEY_BODY' PEM filler, a hex-counting fake service token, a no-such media key_dir. Exact values only (no path — see the installer block)."
+regexes = [
+  '''^zzrefbyorphan1$''',
+  '''^Zz-Root-Secret-49q$''',
+  '''^S0VZX0JPRFlfTElORQ$''',
+  '''^U0VDMV9LRVlfQk9EWQ$''',
+  '''^0123456789abcdef0123456789abcdef$''',
+  '''^crap222_no_such_key$''',
 ]
 
 [[allowlists]]
