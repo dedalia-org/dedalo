@@ -34,6 +34,7 @@
 import { legacyAwareDefaultDir } from './catalog/media.ts';
 import { declaredDataLangs, resolveCurrentDataLang } from './data_langs.ts';
 import { RETIRED_ENV_KEYS, readEnv } from './env.ts';
+import { resolveInstanceColor } from './instance_color.ts';
 import { UNCONFIGURED } from './install_state.ts';
 import { isDiffusionLangCode } from './lang_code.ts';
 import {
@@ -510,6 +511,11 @@ export interface IdentityConfig {
 	 * defaults to the entity name). Shown on the login form and About panels.
 	 */
 	readonly entityLabel: string;
+	/**
+	 * The installation colour `#rrggbb` (DEDALO_INSTANCE_COLOR), or null when unset
+	 * or invalid (feature off) — tells installations apart in the client. instance_color.ts.
+	 */
+	readonly instanceColor: string | null;
 	/** Entity id from the Dédalo registry (PHP DEDALO_ENTITY_ID, default 0). */
 	readonly entityId: number;
 	/** UI locale, e.g. 'es-ES' (PHP DEDALO_LOCALE). */
@@ -1237,6 +1243,7 @@ export const config: DedaloConfig = Object.freeze({
 	identity: Object.freeze({
 		// PHP derives the label from the entity name when unset — same here.
 		entityLabel: readString('DEDALO_ENTITY_LABEL'),
+		instanceColor: resolveInstanceColor(readOptionalString('DEDALO_INSTANCE_COLOR')),
 		entityId: readNumber('DEDALO_ENTITY_ID'),
 		locale: readString('DEDALO_LOCALE'),
 		dateOrder: readString('DEDALO_DATE_ORDER'),

@@ -65,14 +65,23 @@ Merged since the last release; these ship with the next one.
 
 ### For administrators
 
+#### Added
+
+- **An installation can now be given its own colour, so several installations open side by side can be told apart.**
+
+    Set `DEDALO_INSTANCE_COLOR="#rrggbb"` in the installation's configuration to turn it on. The colour tints the Dédalo logo in the menu, draws a thin line under the menu bar and colours the developer information bar. The browser tab shows an icon in that colour with two letters of the installation's name, and the tab title starts with `[DEDALO_ENTITY_LABEL]`. Nothing is added to the menu. Without the setting, nothing changes; a value that is not a valid hex colour is reported in the server log and the colour stays off.
+
+    Wire contract: `WC-2026-11-09-instance-identity`.
+
 #### Fixed
 
 - **A refused maintenance action now shows the server's reason in the panel, not only a generic sentence.**
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 1 entry"
+??? note "Wire contract — 2 entries"
 
+    - `WC-2026-11-09-instance-identity`
     - `WC-2026-11-09-security-access-save-echo-no-datalist`
 
 ## 7.0.0-beta.8 — 2026-11-08

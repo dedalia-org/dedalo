@@ -7199,6 +7199,38 @@ body.is_ontology_server .menu > .content_data {
   background-color: var(--ontology_server_bg);
 }
 /**
+* instance_identity
+*
+* An opt-in colour per installation, so people working with several installations
+* tell them apart at a glance. The server emits page_globals.dedalo_instance_color
+* (DEDALO_INSTANCE_COLOR when set and valid, else null — WC-2026-11-09-instance-identity)
+* and page.js sets `--instance_color` + `body.has_instance_color` only when present.
+*
+* Nothing is ADDED to the menu (it has no room): existing elements are recoloured.
+*   - the Dédalo logo is tinted (mask keeps its shape)
+*   - a 3px inset line under the menu bar (box-shadow: no extra height)
+*   - the developer info bar (dev/debug only) takes the colour; entity in bold
+* Included from main.less.
+*/
+body.has_instance_color {
+  --debug_info_bar_bg: color-mix(in oklab, var(--instance_color) 60%, #1b1c1d);
+  --debug_info_bar_text: #ffffff;
+}
+body.has_instance_color .menu > .content_data {
+  box-shadow: inset 0 -3px 0 var(--instance_color);
+}
+body.has_instance_color .menu > .content_data > .dedalo_icon_top {
+  background-image: none;
+  background-color: color-mix(in oklab, var(--instance_color) 55%, #ffffff);
+  mask: url('../../themes/default/dedalo_logo.svg') center / contain no-repeat;
+}
+body.has_instance_color .menu > .debug_info_bar {
+  background-color: var(--debug_info_bar_bg);
+}
+body.has_instance_color .menu > .debug_info_bar > .dedalo_entity {
+  font-weight: bold;
+}
+/**
 * floating_dock
 *
 * The ONE bottom-right corner where global floating buttons live. Its tenants

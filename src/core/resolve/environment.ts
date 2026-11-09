@@ -210,6 +210,13 @@ export async function buildPageGlobals(
 		// UNCONDITIONALLY (like maintenance_mode / DEVELOPMENT_SERVER) so the login form
 		// is marked too; it is not reconnaissance-sensitive (no DB name / version leak).
 		is_ontology_server: config.ontologyIo.isOntologyServer,
+		// WC-2026-11-09-instance-identity: TS-ONLY keys — the installation colour (null
+		// unless DEDALO_INSTANCE_COLOR is set and valid) and label the client paints into
+		// the menu, tab title and favicon so installs are told apart. Keys UNCONDITIONAL
+		// like is_ontology_server (the login form is marked too); the label is already
+		// public on the login form (login_context.ts).
+		dedalo_instance_color: config.identity.instanceColor,
+		dedalo_entity_label: config.identity.entityLabel,
 		// WC-051: TS-ONLY page_globals keys (PHP get_page_globals has no twin) — the
 		// session-expiry warning contract. NULL for anonymous callers: the login form
 		// has no session to warn about, and the policy is not advertised pre-auth.

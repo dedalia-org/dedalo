@@ -792,6 +792,16 @@ page.prototype.build = async function(autoload=false) {
 					document.body.classList.add('is_ontology_server')
 				}
 
+				// installation identity (WC-2026-11-09-instance-identity): opt-in colour per
+				// install (null unless DEDALO_INSTANCE_COLOR is set and valid), painted by page/css/layout/instance_identity.less (menu logo,
+				// menu underline, developer bar) + the tab favicon and title prefix.
+				if (page_globals.dedalo_instance_color) {
+					document.body.style.setProperty('--instance_color', page_globals.dedalo_instance_color)
+					document.body.classList.add('has_instance_color')
+					set_instance_favicon(page_globals.dedalo_instance_color, page_globals.dedalo_entity_label || page_globals.dedalo_entity || '')
+				}
+				self.set_document_title(document.title)
+
 				// check environment (var DEDALO_ENVIRONMENT is set from API environment result plain_vars. Expected bool true)
 				if (typeof DEDALO_ENVIRONMENT==='undefined') {
 					// environment vars are not set correctly
@@ -1724,10 +1734,46 @@ const set_custom_css = function () {
 */
 page.prototype.set_document_title = function (title) {
 
-	document.title = title
+	// installation label prefix, so tabs of different installs are told apart
+	// (only when the installation colour is configured: DEDALO_INSTANCE_COLOR)
+	const label = page_globals?.dedalo_instance_color ? page_globals.dedalo_entity_label : null
+	const prefix = label ? '[' + label + '] ' : ''
+
+	document.title = title.startsWith(prefix) ? title : prefix + title
 
 	return true
 }//end set_document_title
+
+
+
+/**
+* SET_INSTANCE_FAVICON
+* Replaces the tab favicon with a rounded square in the installation colour
+* carrying two letters of its label (a leading 'dedalo7_' is skipped, so
+* 'dedalo7mdcat' → 'Md'). Inline SVG data URI: no file, no request.
+* @param {string} color - '#rrggbb' (validated server-side, instance_color.ts)
+* @param {string} label - installation label
+* @returns {void}
+*/
+export const set_instance_favicon = function (color, label) {
+
+	const name		= label.replace(/^dedalo\d*[_-]?/i, '') || label
+	const letters	= (name.charAt(0).toUpperCase() + name.charAt(1))
+		.replace(/[^\p{L}\p{N}]/gu, '')
+	const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+		+ '<rect width="32" height="32" rx="7" fill="' + color + '"/>'
+		+ '<text x="16" y="22" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="700" fill="#fff">' + letters + '</text>'
+		+ '</svg>'
+
+	let link = document.querySelector('link[rel~="icon"]')
+	if (!link) {
+		link = document.createElement('link')
+		link.rel = 'icon'
+		document.head.appendChild(link)
+	}
+	link.type	= 'image/svg+xml'
+	link.href	= 'data:image/svg+xml,' + encodeURIComponent(svg)
+}//end set_instance_favicon
 
 
 
