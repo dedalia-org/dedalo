@@ -7221,7 +7221,7 @@ body.has_instance_color .menu > .content_data {
 }
 body.has_instance_color .menu > .content_data > .dedalo_icon_top {
   background-image: none;
-  background-color: color-mix(in oklab, var(--instance_color) 55%, #ffffff);
+  background-color: color-mix(in oklab, var(--instance_color) 55%, var(--fg_inverse));
   mask: url('../../themes/default/dedalo_logo.svg') center / contain no-repeat;
 }
 body.has_instance_color .menu > .debug_info_bar {

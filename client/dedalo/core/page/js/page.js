@@ -1760,9 +1760,11 @@ export const set_instance_favicon = function (color, label) {
 	const name		= label.replace(/^dedalo\d*[_-]?/i, '') || label
 	const letters	= (name.charAt(0).toUpperCase() + name.charAt(1))
 		.replace(/[^\p{L}\p{N}]/gu, '')
+	// a data-URI favicon cannot read CSS vars: resolve the token (white in both themes) here
+	const ink = getComputedStyle(document.documentElement).getPropertyValue('--fg_inverse').trim()
 	const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
 		+ '<rect width="32" height="32" rx="7" fill="' + color + '"/>'
-		+ '<text x="16" y="22" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="700" fill="#fff">' + letters + '</text>'
+		+ '<text x="16" y="22" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="700" fill="' + ink + '">' + letters + '</text>'
 		+ '</svg>'
 
 	let link = document.querySelector('link[rel~="icon"]')
