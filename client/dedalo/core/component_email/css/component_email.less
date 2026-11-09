@@ -16,12 +16,14 @@
 					top: 0.5em;
 					z-index: 1;
 
-					&.remove {
+					&.remove,
+					&.email {
 						right: 0.55rem;
 					}
-					&.email {
-						right: 2rem;
-					}
+				}
+				// make room for the trash only on rows that have one (not the first)
+				.button.remove ~ .button.email {
+					right: 2rem;
 				}
 			}
 		}

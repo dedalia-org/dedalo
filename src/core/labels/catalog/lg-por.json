@@ -860,6 +860,7 @@
 	"semantic_results_pinned": "resultados fixados pela pesquisa por significado",
 	"semantic_unavailable": "Pesquisa semântica indisponível",
 	"send_code": "Enviar código de recuperação",
+	"send_email_to_all": "Enviar um e-mail a todos os registos encontrados (Bcc)",
 	"sequence": "Sequência",
 	"serve_code": "Servir Código",
 	"serve_code_advertised": "Oferecida a uma instalação nesta versão",

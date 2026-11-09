@@ -860,6 +860,7 @@
 	"semantic_results_pinned": "ফলাফল অর্থ-অনুসন্ধানে স্থির করা হয়েছে",
 	"semantic_unavailable": "শব্দার্থিক অনুসন্ধান উপলব্ধ নয়",
 	"send_code": "পুনরুদ্ধার কোড পাঠান",
+	"send_email_to_all": "পাওয়া সমস্ত রেকর্ডে একটি ই-মেইল পাঠান (Bcc)",
 	"sequence": "ক্রম",
 	"serve_code": "কোড সরবরাহ করুন",
 	"serve_code_advertised": "এই সংস্করণের ইনস্টলেশনকে দেওয়া হয়",

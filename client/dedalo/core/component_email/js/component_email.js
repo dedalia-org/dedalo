@@ -259,11 +259,14 @@ component_email.prototype.get_ar_emails = async function() {
 	// set some vars
 		const separator = ';';
 		const emails = []
-		const is_windows = /(Mac)/i.test(navigator.platform); //(Mac|iPhone|iPod|iPad)
-		const max_characters = 30 ; //1900 max characters, in win are 2000
+		const is_windows = /Win/i.test(navigator.platform)
+		const max_characters = 1900 // Windows caps mailto: URIs at ~2000 chars
 		// check the data and remove the empty values
 		for (let i = len - 1; i >= 0; i--) {
-			const current_data = data[i].entries
+			// entries are { id, value, lang } objects: keep the non-empty address strings
+			const current_data = (data[i].entries ?? [])
+				.map(el => el?.value?.trim())
+				.filter(Boolean)
 			if(current_data.length<=0) {
 				continue
 			}

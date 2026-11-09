@@ -860,6 +860,7 @@
 	"semantic_results_pinned": "件が意味検索により固定されました",
 	"semantic_unavailable": "セマンティック検索は利用できません",
 	"send_code": "回復コードを送信",
+	"send_email_to_all": "見つかったすべてのレコードにメールを送信（BCC）",
 	"sequence": "シーケンス",
 	"serve_code": "コードを提供",
 	"serve_code_advertised": "このバージョンのインストールに提供されます",

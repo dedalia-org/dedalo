@@ -860,6 +860,7 @@
 	"semantic_results_pinned": "条结果由含义搜索置顶",
 	"semantic_unavailable": "语义搜索不可用",
 	"send_code": "发送恢复代码",
+	"send_email_to_all": "向找到的所有记录发送电子邮件（密送）",
 	"sequence": "序列",
 	"serve_code": "提供代码",
 	"serve_code_advertised": "向此版本的安装提供",

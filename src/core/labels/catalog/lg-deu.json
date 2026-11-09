@@ -860,6 +860,7 @@
 	"semantic_results_pinned": "durch die Bedeutungssuche angeheftete Ergebnisse",
 	"semantic_unavailable": "Semantische Suche nicht verfügbar",
 	"send_code": "Wiederherstellungscode senden",
+	"send_email_to_all": "E-Mail an alle gefundenen Datensätze senden (Bcc)",
 	"sequence": "Sequenz",
 	"serve_code": "Code bereitstellen",
 	"serve_code_advertised": "Angeboten für eine Installation mit dieser Version",

@@ -860,6 +860,7 @@
 	"semantic_results_pinned": "نتيجة مثبّتة بالبحث بالمعنى",
 	"semantic_unavailable": "البحث الدلالي غير متاح",
 	"send_code": "إرسال رمز الاسترداد",
+	"send_email_to_all": "إرسال بريد إلكتروني إلى جميع السجلات التي تم العثور عليها (نسخة مخفية)",
 	"sequence": "تسلسل",
 	"serve_code": "تقديم الكود",
 	"serve_code_advertised": "تُعرض على تثبيت بهذا الإصدار",

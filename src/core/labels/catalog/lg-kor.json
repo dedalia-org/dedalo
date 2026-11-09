@@ -860,6 +860,7 @@
 	"semantic_results_pinned": "개 결과가 의미 검색으로 고정됨",
 	"semantic_unavailable": "의미 검색을 사용할 수 없습니다",
 	"send_code": "복구 코드 보내기",
+	"send_email_to_all": "찾은 모든 레코드에 이메일 보내기(숨은 참조)",
 	"sequence": "시퀀스",
 	"serve_code": "코드 제공",
 	"serve_code_advertised": "이 버전의 설치본에 제공됨",

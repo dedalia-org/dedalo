@@ -860,6 +860,7 @@
 	"semantic_results_pinned": "résultats épinglés par la recherche par sens",
 	"semantic_unavailable": "Recherche sémantique indisponible",
 	"send_code": "Envoyer le code de récupération",
+	"send_email_to_all": "Envoyer un e-mail à tous les enregistrements trouvés (Cci)",
 	"sequence": "Séquence",
 	"serve_code": "Servir le Code",
 	"serve_code_advertised": "Proposé à une installation dans cette version",

@@ -860,6 +860,7 @@
 	"semantic_results_pinned": "नतिजा अर्थ खोजले पिन गरेका",
 	"semantic_unavailable": "अर्थगत खोज उपलब्ध छैन",
 	"send_code": "रिकभरी कोड पठाउनुहोस्",
+	"send_email_to_all": "फेला परेका सबै रेकर्डहरूमा इमेल पठाउनुहोस् (Bcc)",
 	"sequence": "अनुक्रम",
 	"serve_code": "कोड उपलब्ध गराउनुहोस्",
 	"serve_code_advertised": "यही संस्करण भएको स्थापनालाई प्रस्ताव गरिन्छ",

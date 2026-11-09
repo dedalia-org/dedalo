@@ -1469,23 +1469,29 @@ select:focus,
 .wrapper_component.component_input_text.edit input:not(:focus),
 .wrapper_component.component_number.edit input:not(:focus),
 .wrapper_component.component_date.edit input:not(:focus),
+.wrapper_component.component_email.edit input:not(:focus),
 .wrapper_component.component_input_text.edit .contenteditable:not(:focus),
 .wrapper_component.component_number.edit .contenteditable:not(:focus),
-.wrapper_component.component_date.edit .contenteditable:not(:focus) {
+.wrapper_component.component_date.edit .contenteditable:not(:focus),
+.wrapper_component.component_email.edit .contenteditable:not(:focus) {
   outline-color: transparent;
 }
 .wrapper_component.component_input_text.edit:hover input:not(:focus),
 .wrapper_component.component_number.edit:hover input:not(:focus),
 .wrapper_component.component_date.edit:hover input:not(:focus),
+.wrapper_component.component_email.edit:hover input:not(:focus),
 .wrapper_component.component_input_text.edit.active input:not(:focus),
 .wrapper_component.component_number.edit.active input:not(:focus),
 .wrapper_component.component_date.edit.active input:not(:focus),
+.wrapper_component.component_email.edit.active input:not(:focus),
 .wrapper_component.component_input_text.edit:hover .contenteditable:not(:focus),
 .wrapper_component.component_number.edit:hover .contenteditable:not(:focus),
 .wrapper_component.component_date.edit:hover .contenteditable:not(:focus),
+.wrapper_component.component_email.edit:hover .contenteditable:not(:focus),
 .wrapper_component.component_input_text.edit.active .contenteditable:not(:focus),
 .wrapper_component.component_number.edit.active .contenteditable:not(:focus),
-.wrapper_component.component_date.edit.active .contenteditable:not(:focus) {
+.wrapper_component.component_date.edit.active .contenteditable:not(:focus),
+.wrapper_component.component_email.edit.active .contenteditable:not(:focus) {
   outline-color: var(--color_grey_14);
 }
 .section_record.edit .wrapper_component.edit input[type='text'],
@@ -23878,10 +23884,11 @@ body.inspector_resizing {
   top: 0.5em;
   z-index: 1;
 }
-.component_email.view_default > .content_data > .content_value .button.remove {
+.component_email.view_default > .content_data > .content_value .button.remove,
+.component_email.view_default > .content_data > .content_value .button.email {
   right: 0.55rem;
 }
-.component_email.view_default > .content_data > .content_value .button.email {
+.component_email.view_default > .content_data > .content_value .button.remove ~ .button.email {
   right: 2rem;
 }
 .component_email.view_line.edit {

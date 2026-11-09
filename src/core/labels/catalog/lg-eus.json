@@ -860,6 +860,7 @@
 	"semantic_results_pinned": "emaitza finkatu ditu esanahi-bilaketak",
 	"semantic_unavailable": "Bilaketa semantikoa ez dago erabilgarri",
 	"send_code": "Bidali berreskuratze-kodea",
+	"send_email_to_all": "Bidali e-mail bat aurkitutako erregistro guztiei (Bcc)",
 	"sequence": "Sekuentzia",
 	"serve_code": "Zerbitzatu Kodea",
 	"serve_code_advertised": "Bertsio honetan dagoen instalazio bati eskaintzen zaio",
