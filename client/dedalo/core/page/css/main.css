@@ -28150,7 +28150,7 @@ body.inspector_resizing {
   }
 }
 .component_security_access.edit > .content_data > .save_buttons {
-  top: 5rem;
+  top: 5.6rem;
   position: sticky;
   float: right;
   flex: none;
