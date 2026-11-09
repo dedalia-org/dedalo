@@ -71,6 +71,7 @@ type FetchApi = (
 const globals = globalThis as unknown as Record<string, unknown>;
 let saved_fetch: unknown;
 let fetch_api: FetchApi;
+let upload_floor_ms: (body: unknown) => number;
 
 /** when false the `/health` probe gets no answer (server reads as DEAD) */
 let health_alive = true;
@@ -112,13 +113,14 @@ const stub_fetch = (url: string | URL, init: RequestInit = {}): Promise<Response
 const timed_call = async (
 	options: Record<string, unknown>,
 	hang_after_ms = 5000,
+	body?: string,
 ): Promise<{ ms: number; result: FetchApiResult } | null> => {
 	const started = performance.now();
 	const hung = Symbol('hung');
 	const result = await Promise.race([
 		fetch_api(
 			'https://stub.invalid/api/v1/json/',
-			{ method: 'POST' },
+			{ method: 'POST', body },
 			{ on_wait: on_wait_spy, ...options },
 		),
 		new Promise<typeof hung>((resolve) => setTimeout(() => resolve(hung), hang_after_ms)),
@@ -134,7 +136,12 @@ const on_wait_spy = (attempt: number, ms: number, reason: string) => {
 beforeAll(async () => {
 	saved_fetch = globals.fetch;
 	globals.fetch = stub_fetch;
-	fetch_api = ((await import(TRANSPORT_PATH)) as { fetch_api: FetchApi }).fetch_api;
+	const transport = (await import(TRANSPORT_PATH)) as {
+		fetch_api: FetchApi;
+		upload_floor_ms: (body: unknown) => number;
+	};
+	fetch_api = transport.fetch_api;
+	upload_floor_ms = transport.upload_floor_ms;
 });
 
 afterAll(() => {
@@ -240,5 +247,57 @@ describe('fetch_api attempt deadline', () => {
 		// exceed the grace alone — the old code reported delay+3000 and granted forever.
 		expect(busy!.ms).toBeGreaterThan(100);
 		expect(busy!.attempt).toBe(1);
+	});
+});
+
+// F. a large body must not be aborted mid-upload: the server would go on to
+// commit it while the client reported an error (the dd774 slow-link save).
+describe('fetch_api upload floor', () => {
+	test('F1. the floor is body-sized, and zero for non-string bodies', () => {
+		expect(upload_floor_ms('x'.repeat(2 * 1024 * 1024))).toBeGreaterThan(5000);
+		expect(upload_floor_ms('x'.repeat(1000))).toBeLessThan(5000);
+		expect(upload_floor_ms(new FormData())).toBe(0);
+		expect(upload_floor_ms(undefined)).toBe(0);
+		// UTF-8 bytes, not UTF-16 units: 'α' is 2 bytes, '中' is 3
+		expect(upload_floor_ms('α'.repeat(64 * 1024))).toBe(2 * upload_floor_ms('x'.repeat(64 * 1024)));
+		expect(upload_floor_ms('中'.repeat(64 * 1024))).toBe(3 * upload_floor_ms('x'.repeat(64 * 1024)));
+	});
+
+	test('F2. the upload time is ADDED to the caller timeout (server keeps its budget)', async () => {
+		health_alive = false; // no busy extension: only the floor can lengthen it
+		const body = 'x'.repeat(64 * 1024); // floor ~1024ms
+		const floor = upload_floor_ms(body);
+		const call = await timed_call({ timeout_ms: 200, retries: 1 }, 5000, body);
+		expect(call).not.toBeNull();
+		expect(call?.result.api_error?.code).toBe('client.timeout');
+		expect(call!.ms).toBeGreaterThan(floor + 200 - 50);
+		expect(call!.ms).toBeLessThan(floor + 1500);
+	});
+
+	test('F3. a small body keeps the caller timeout', async () => {
+		health_alive = false;
+		const call = await timed_call({ timeout_ms: 200, retries: 1 }, 5000, '{"a":1}');
+		expect(call).not.toBeNull();
+		expect(call!.ms).toBeLessThan(800);
+	});
+
+	test('F4. a long caller timeout still gets the upload time on top', async () => {
+		health_alive = false;
+		const body = 'x'.repeat(16 * 1024); // floor ~256ms
+		const call = await timed_call({ timeout_ms: 900, retries: 1 }, 5000, body);
+		expect(call).not.toBeNull();
+		expect(call!.ms).toBeGreaterThan(900 + upload_floor_ms(body) - 50);
+	});
+
+	test('F5. a dead link pays the upload time once, not once per retry', async () => {
+		health_alive = false;
+		const body = 'x'.repeat(64 * 1024); // floor ~1024ms
+		const floor = upload_floor_ms(body);
+		// 3 attempts: (200+floor) + (200+20) + (200+40) + backoff 10+20
+		const call = await timed_call({ timeout_ms: 200, retries: 3, base_delay: 10 }, 10000, body);
+		expect(call).not.toBeNull();
+		expect(call?.result.api_error?.code).toBe('client.timeout');
+		expect(call!.ms).toBeGreaterThan(floor + 600);
+		expect(call!.ms).toBeLessThan(2 * floor + 200);
 	});
 });

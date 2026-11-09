@@ -130,6 +130,7 @@ async function emitInMode(
 		defaultLang: 'lg-eng',
 		callerTipo: SECTION,
 		emission,
+		door: 'read',
 	});
 	return emission.items[0] as DataItem;
 }

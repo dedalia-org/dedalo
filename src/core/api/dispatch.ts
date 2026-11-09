@@ -593,7 +593,7 @@ const IDEMPOTENCY_MAX_TOTAL_BYTES = 32 * 1024 * 1024;
  * (`idempotency.replay_unavailable`) — the entry stays, because forgetting it
  * would re-admit the duplicate execution this whole gate exists to stop.
  */
-const IDEMPOTENCY_MAX_BODY_BYTES = 512 * 1024;
+export const IDEMPOTENCY_MAX_BODY_BYTES = 512 * 1024;
 
 /** Everything an ApiResult carries besides the body and the (unreplayable) stream. */
 type ReplayableRest = Omit<ApiResult, 'body' | 'stream'>;

@@ -84,6 +84,10 @@
  *     O12–O15. per item: a newer edit of another item (O12), an insert of
  *         another locator (O13) or a live pending edit of another item (O14)
  *         never retires the orphan's item; a whole-field set_data does (O15).
+ *  D. DATALIST: the save request never carries the server-built `datalist`
+ *     (~6.5 MB for dd774 — it timed slow uplinks out after the server had
+ *     committed); an echo without one keeps the SAME array (identity-keyed
+ *     memos), an echo with its own replaces it.
  *  E. events.js snapshots are COPIES: `get_unsaved_instances()` and
  *     `uncommitted_nodes_snapshot()` cannot mutate the registry; the nodes
  *     snapshot drops nodes that left the document (E2).
@@ -1328,6 +1332,49 @@ else {
 			// spelling a later module uses to reach the claim, it throws
 			expect(typeof events.claim_orphaned_unsaved_writers).toBe('function');
 			expect(() => events.claim_orphaned_unsaved_writers()).toThrow(/already claimed/);
+		});
+	});
+
+	// ──────────────────────────────────────────────────────────────────────────
+	describe('D. datalist is never uploaded and survives the save echo', () => {
+		const with_datalist = () => {
+			const datalist = [{ tipo: 'dd1', section_tipo: 'dd1', parent: null }];
+			const self = make_instance();
+			self.data.datalist = datalist;
+			return { self, datalist };
+		};
+
+		test('D1. the request body has no datalist and keeps the save keys', async () => {
+			const { self } = with_datalist();
+			await self.save(EDIT('new'));
+			expect(requests.length).toBe(1);
+			const data = requests[0].data;
+			expect('datalist' in data, 'the datalist was uploaded').toBe(false);
+			expect(data.changed_data).toEqual(EDIT('new'));
+			expect(data.entries).toEqual(['stored']);
+			expect(data.tipo).toBe('test1');
+			expect(data.section_tipo).toBe('test2');
+			expect(data.section_id).toBe(self.section_id);
+		});
+
+		test('D2. an echo without a datalist keeps the SAME array', async () => {
+			const { self, datalist } = with_datalist();
+			const answer: Any = await self.save(EDIT('new'));
+			expect(answer.ok).toBe(true);
+			expect(self.data.datalist).toBe(datalist);
+		});
+
+		test('D3. an echo with its own datalist replaces it', async () => {
+			const { self, datalist } = with_datalist();
+			const fresh = [{ tipo: 'dd2' }];
+			responders.push((body: Any) => {
+				const answer: Any = success_for(body);
+				answer.data.data[0].datalist = fresh;
+				return answer;
+			});
+			await self.save(EDIT('new'));
+			expect(self.data.datalist).not.toBe(datalist);
+			expect(self.data.datalist).toEqual(fresh);
 		});
 	});
 }

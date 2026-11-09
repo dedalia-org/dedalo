@@ -994,7 +994,10 @@ const run_save = async function(self, new_changed_data, own) {
 		const send_data = async () => {
 			try {
 				// data. isolated cloned var and set received changed_data
-					const data = clone(self.data)
+				// (!) datalist is server-built (edit emit) and no save door reads it from the
+				// request; sending it uploaded ~6.5 MB per dd774 save and timed the save out
+					const {datalist: _server_built, ...payload} = self.data
+					const data = clone(payload)
 					data.changed_data = changed_data
 
 				// source
@@ -1119,6 +1122,15 @@ const run_save = async function(self, new_changed_data, own) {
 					console.error(`Error: data not found for ${self.tipo} in API save result. Keeping the previous data model.`, result);
 					self.data_degraded = true
 				}else{
+					// an echo without a datalist (best-effort decoration, or an edit-read-only
+					// payload the echo omits: WC-2026-11-09-security-access-save-echo-no-datalist)
+					// keeps the SAME array: readers deref it, memos key on its identity
+					if (data.datalist===undefined && self.data?.datalist!==undefined) {
+						data.datalist = self.data.datalist
+					}
+					if (data.changes_files===undefined && self.data?.changes_files!==undefined) {
+						data.changes_files = self.data.changes_files
+					}
 					self.data			= data
 					self.data_degraded	= false
 				}

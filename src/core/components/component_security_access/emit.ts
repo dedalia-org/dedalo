@@ -6,7 +6,9 @@
  * direct get_data — so it lives on the SHARED emit path, not just the
  * get_data endpoint. Without the datalist the client's permissions tree
  * renders empty. parent_tipo is the component's OWN tipo (not the caller);
- * the 13k-node datalist + changes_files are edit-only.
+ * the datalist + changes_files are edit-READ-only: the scalar save echo
+ * (door 'save_echo') carries parent_tipo/parent_section_id only — the client
+ * keeps its datalist (WC-2026-11-09-security-access-save-echo-no-datalist).
  */
 
 import type { DataItem } from '../../resolve/component_data.ts';
@@ -19,7 +21,7 @@ export const securityAccessEmitHook: ComponentEmitHook = {
 		// id; the direct get_data path stringifies them (PHP get_data_item) in the
 		// readComponentData post-step.
 		item.parent_section_id = context.row.section_id;
-		if (context.ddoMode === 'edit') {
+		if (context.ddoMode === 'edit' && context.door === 'read') {
 			const { getSecurityAccessDatalist } = await import(
 				'../../resolve/security_access_datalist.ts'
 			);

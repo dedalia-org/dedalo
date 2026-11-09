@@ -33,6 +33,12 @@ Merged since the last release; these ship with the next one.
 
     Before, picking records in the "Link resource" list sometimes did not save: the list showed the record as linked, but the portal refused it as already present, and quick successive picks were reported as failed. Clicking a linked record to remove it never removed it. The list now opens inside the page instead of an embedded frame, picks are applied one at a time, and each row shows what is actually stored.
 
+- **Saving a profile's access permissions no longer reports an error on slow connections when the save went through.**
+
+    Saving a profile's permissions used to upload the whole ontology tree shown in the editor (about 6.5 MB) with every save. On a slow connection the upload outlasted the client's wait, so the screen showed a save error and kept the changes marked as unsaved, even though the server had stored them (a reload showed them). The save now sends only the permissions. Large saves also get more time to upload before the client gives up. The server's reply to the save no longer sends the tree back either, so a retried save is recognised instead of being reported as failed.
+
+    Wire contract: `WC-2026-11-09-security-access-save-echo-no-datalist`.
+
 - **Opening a term in a new tree window now jumps straight to it and keeps it in view.**
 
     Before, a window opened on a term (for example *Open dd0-6* from a relation) scrolled slowly towards the highlighted term while the tree was still loading, often stopping with the term at the edge of the screen or jumping again later. The term is now centred at once and stays in view while the tree finishes loading; scrolling yourself stops the following immediately.
@@ -44,6 +50,10 @@ Merged since the last release; these ship with the next one.
 - **A refused maintenance action now shows the server's reason in the panel, not only a generic sentence.**
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
+
+??? note "Wire contract — 1 entry"
+
+    - `WC-2026-11-09-security-access-save-echo-no-datalist`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

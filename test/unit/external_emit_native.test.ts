@@ -94,6 +94,7 @@ async function emitOne(
 		defaultLang: 'lg-eng',
 		callerTipo: SECTION,
 		emission,
+		door: 'read',
 	});
 	expect(emission.items).toHaveLength(1);
 	return emission.items[0] as DataItem;
@@ -268,6 +269,7 @@ describe("'misconfigured' rather than a bare []", () => {
 			defaultLang: 'lg-eng',
 			callerTipo: UNBOUND_SECTION,
 			emission,
+			door: 'read',
 		});
 		const item = emission.items[0] as DataItem;
 		expect(item.entries).toEqual([]);
