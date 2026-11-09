@@ -29,6 +29,10 @@ Merged since the last release; these ship with the next one.
 
     Before, clicking the tree button (*Link resource*) of a relation component opened inline in a tree row made the page's own tree disappear into the picker panel, and picking a term linked nothing. The picker now opens its own tree under the component, and the picked term is linked.
 
+- **A portal's "Link resource" picker now saves every pick, and unlinks too.**
+
+    Before, picking records in the "Link resource" list sometimes did not save: the list showed the record as linked, but the portal refused it as already present, and quick successive picks were reported as failed. Clicking a linked record to remove it never removed it. The list now opens inside the page instead of an embedded frame, picks are applied one at a time, and each row shows what is actually stored.
+
 - **Opening a term in a new tree window now jumps straight to it and keeps it in view.**
 
     Before, a window opened on a term (for example *Open dd0-6* from a relation) scrolled slowly towards the highlighted term while the tree was still loading, often stopping with the term at the edge of the screen or jumping again later. The term is now centred at once and stays in view while the tree finishes loading; scrolling yourself stops the following immediately.

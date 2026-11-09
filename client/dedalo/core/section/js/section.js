@@ -902,7 +902,9 @@ section.prototype.build = async function(autoload=false) {
 				section_tipo	: self.section_tipo,
 				mode			: self.mode,
 				lang			: self.lang,
-				id_variant		: self.model,
+				// + the section's own variant: a picker list of the same tipo as a
+				// live page list must not share (and on close destroy) its filter
+				id_variant		: self.id_variant ? self.model + '_' + self.id_variant : self.model,
 				caller			: self
 			})
 			// preload search (experimental disable now)
@@ -1179,12 +1181,16 @@ section.prototype.build = async function(autoload=false) {
 
 	// initiator . URL defined var or Caller of parent section
 	// this is a param that defined who is calling to the section, sometimes it can be a tool or page or ...,
+		// A component caller (the portal link picker, in-page) wins: the page URL's
+		// `initiator` belongs to the page, not to this list.
 		const searchParams = new URLSearchParams(window.location.search);
-		const initiator = searchParams.has('initiator')
-			? searchParams.get('initiator')
-			: self.caller!==null
-				? self.caller.id
-				: null
+		const initiator = self.caller?.model?.startsWith('component_')
+			? self.caller.id
+			: searchParams.has('initiator')
+				? searchParams.get('initiator')
+				: self.caller!==null
+					? self.caller.id
+					: null
 		// fix initiator
 		// Strip any '#fragment' appended to the id (e.g. from URL hash navigation)
 		// (!) Absence is ALWAYS null, never false: consumers test it with

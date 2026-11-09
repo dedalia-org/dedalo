@@ -635,7 +635,9 @@ const get_buttons = function(self) {
 	// omitted — only the search controls remain. Activity (dd542) and Time machine
 	// (dd15) MUST behave identically; the rule is shared with
 	// view_graph_list_section (render_common_section.is_non_tools_section).
-		if (is_non_tools_section(self)) {
+	// The portal link picker (in-page list, caller = the portal) is the same:
+	// it picks records, it does not create, delete or run tools on them.
+		if (is_non_tools_section(self) || self.initiator?.includes('component_')) {
 			return fragment
 		}
 

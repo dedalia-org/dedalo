@@ -492,19 +492,6 @@ event_manager.publish('image_quality_change_'+self.id, img_src)
 - render_edit_component_image.js
 - vector_editor.js
 
-### initiator_link_
-
-```js
-top_window.event_manager.publish('initiator_link_' + self.initiator, {
-    section_tipo    : section_tipo,
-    section_id      : section_id
-})
-```
-
-**Emitted by:**
-
-- render_list_section.js
-
 ### key_up_esc
 
 ```js
