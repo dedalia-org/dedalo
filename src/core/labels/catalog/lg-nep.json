@@ -275,6 +275,7 @@
 	"error_password_reset_too_many_attempts": "धेरै प्रयासहरू; पछि फेरि प्रयास गर्नुहोस्",
 	"error_password_reset_weak_password": "पासवर्डले बलियोपनका आवश्यकताहरू पूरा गर्दैन",
 	"error_perm_developer_required": "यो कार्यका लागि विकासकर्ता विशेषाधिकार आवश्यक छ",
+	"error_perm_export_column_out_of_scope": "निर्यात स्तम्भ \"${column}\" तपाईंको दायराबाहिरका रेकर्डसँग जोडिएको छ। स्तम्भ हटाउनुहोस् वा प्रशासकलाई सोध्नुहोस्।",
 	"error_perm_out_of_scope": "रेकर्ड तपाईंको परियोजनाको दायराबाहिर छ",
 	"error_perm_section_not_writable": "यो च्यानलमार्फत यो खण्डमा लेख्न सकिँदैन",
 	"error_perm_superuser_required": "Dédalo सुपरयुजरले मात्र यो कार्य गर्न सक्नुहुन्छ",

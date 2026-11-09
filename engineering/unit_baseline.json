@@ -1809,6 +1809,11 @@
 			"skipped": 0,
 			"assertions": 163
 		},
+		"test/unit/export_frontier_fanout_native.test.ts": {
+			"tests": 23,
+			"skipped": 0,
+			"assertions": 114
+		},
 		"test/unit/export_gate_b_native.test.ts": {
 			"tests": 16,
 			"skipped": 0,
@@ -1838,6 +1843,11 @@
 			"tests": 2,
 			"skipped": 0,
 			"assertions": 9
+		},
+		"test/unit/export_leaf_label_grant_native.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 41
 		},
 		"test/unit/export_open_grid_native.test.ts": {
 			"tests": 23,

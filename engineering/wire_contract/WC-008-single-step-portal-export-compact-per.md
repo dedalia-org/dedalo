@@ -30,3 +30,10 @@
   PAIRED DATAFRAME frames (`resolveDataframeFlatValue` — the "full ref info in
   one cell" promise extended to frame fields); no live portal carries paired
   frames on this corpus, so the existing WC-008 pins are unaffected.
+
+## Addendum 2026-11-09 — the compact cell crosses the export frontier
+
+Every target a compact cell resolves, at every datalist depth, and every paired frame target take
+the export frontier's record key; an ungranted IMPLICIT child is dropped from the cell. A scoped
+caller's export of a hidden deep record now throws `perm.export_column_out_of_scope` naming the
+compact column. See `WC-2026-11-09-export-frontier-fanout`.

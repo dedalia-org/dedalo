@@ -86,6 +86,15 @@ const DEAD_LEGACY_MODELS: ReadonlySet<string> = new Set([
  * TIME (never module-hoisted); absent principal (internal resolutions,
  * harnesses) = no filter. Admin-flagged users go through the matrix like PHP
  * (no bypass); the superuser passes via getPermissions' own short-circuit.
+ *
+ * THE ONE PREDICATE (T0-1 / S03, 2026-11-09): the decision is
+ * frontier_scope.ts `frontierAllowedComponents` — the same key the export walk
+ * asks of the same child set, with the frontier's SECTION-TIPO exemption arm
+ * only (no `table` is passed, so the shared-table arm — matrix_list,
+ * matrix_hierarchy… — does not widen it; doing so is a lead decision, like
+ * Gate B's). Effect: a non-admin's component_filter now shows the project
+ * name, dd153.dd156 (WC-2026-11-09-implicit-children-frontier-predicate). Before, this asked bare
+ * `ddoIsAuthorized` and the export asked nothing at all.
  */
 async function filterAuthorizedRelated(
 	componentTipos: string[],
@@ -94,12 +103,15 @@ async function filterAuthorizedRelated(
 	const { currentPrincipal } = await import('../../security/request_context.ts');
 	const principal = currentPrincipal();
 	if (principal === undefined) return new Set(componentTipos);
-	const { ddoIsAuthorized } = await import('../../security/permissions.ts');
-	const kept = new Set<string>();
-	for (const tipo of componentTipos) {
-		if (await ddoIsAuthorized(principal, targetSectionTipo, tipo)) kept.add(tipo);
-	}
-	return kept;
+	const { frontierAllowedComponents } = await import('../../security/frontier_scope.ts');
+	// A RENDER decision: the map is narrowed, nothing is noted — the widget shows
+	// the user what they may read, as PHP did (the `surface` names only the log
+	// channel, which this caller never writes to).
+	return frontierAllowedComponents(
+		{ principal, surface: 'door', door: 'request_config.implicit' },
+		targetSectionTipo,
+		componentTipos,
+	);
 }
 
 /**

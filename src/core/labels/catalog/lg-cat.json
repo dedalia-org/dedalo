@@ -275,6 +275,7 @@
 	"error_password_reset_too_many_attempts": "Massa intents; torneu-ho a provar més tard",
 	"error_password_reset_weak_password": "La contrasenya no compleix els requisits de seguretat",
 	"error_perm_developer_required": "Aquesta acció requereix privilegis de desenvolupador",
+	"error_perm_export_column_out_of_scope": "La columna d'exportació «${column}» enllaça amb registres fora del vostre abast. Traieu la columna o consulteu un administrador.",
 	"error_perm_out_of_scope": "El registre és fora de l'abast dels vostres projectes",
 	"error_perm_section_not_writable": "Aquesta secció no es pot escriure a través d'aquest canal",
 	"error_perm_superuser_required": "Només el superusuari de Dédalo pot dur a terme aquesta acció",

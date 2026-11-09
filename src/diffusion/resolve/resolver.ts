@@ -2635,6 +2635,13 @@ export interface ExportAtomRun {
 	 * not by the selection, so it is not capped.
 	 */
 	frontierGrants: Map<string, ExportFrontierGrant>;
+	/**
+	 * `${section_tipo}\u0000${component_tipo}` → the frontier COMPONENT answer
+	 * for an IMPLICIT config child read at that section (T0-1 / S03,
+	 * {@link exportImplicitChildren}). Bounded like the record memo: a pure
+	 * memo of the run's own principal, so an overflow only re-asks.
+	 */
+	frontierChildCache: Map<string, boolean>;
 	/** Bound of this run's growing memos (record + frontier caches here, the
 	 * projection's caches in export/atoms.ts). Defaults to
 	 * {@link EXPORT_RUN_CACHE_LIMIT}; a gate injects a small one to prove the
@@ -2661,6 +2668,7 @@ export function createExportAtomRun(options: { cacheLimit?: number } = {}): Expo
 		recordCache: new Map(),
 		frontierRecordCache: new Map(),
 		frontierGrants: new Map(),
+		frontierChildCache: new Map(),
 		cacheLimit,
 	};
 }
@@ -2777,6 +2785,99 @@ export async function exportCrossingAllowed(
 	componentTipo: string | undefined,
 ): Promise<boolean> {
 	return (await exportCrossingRefusal(run, sectionTipo, sectionId, componentTipo)) === null;
+}
+
+/**
+ * THE WALK'S RECORD CROSSING BEYOND THE DECLARED CHAIN (T0-1 / S02): a target
+ * the walk reaches by fan-out, by a nested value / compact cell, as a dataframe
+ * frame target, a parents-chain ancestor or a media-walk target. The SAME law
+ * as {@link assertExportCrossing} (record key on the runtime identity; a
+ * dangling target passes; THROW otherwise) — no component is named: the
+ * component a crossing reads is decided by the config it came from (explicit =
+ * subdatum floor, implicit = {@link exportImplicitChildren}).
+ *
+ * Returns true (the CellFrontier contract): the export law never skips, it
+ * throws.
+ */
+export async function exportCrossRecord(
+	run: ExportAtomRun,
+	sectionTipo: string,
+	sectionId: number | string,
+): Promise<boolean> {
+	await assertExportCrossing(run, sectionTipo, sectionId, undefined);
+	return true;
+}
+
+/**
+ * THE IMPLICIT CHILD SET a caller may read at `sectionTipo` (T0-1 / S03,
+ * owner decision D1): an implicit relation config's label components, each
+ * asked through the frontier's component key (frontier_scope.ts — the same
+ * predicate implicit.ts filterAuthorizedRelated asks for the edit form). An
+ * ungranted child is DROPPED, never thrown — it is the relation's display as
+ * this caller is shown it — and the drop is LOUD: noted once per run per pair
+ * (the memo answers every later ask). An allowed pair is recorded as a runtime
+ * grant, so a later read of the finished export re-asks it.
+ *
+ * No frontier (internal / global admin): every child.
+ */
+export async function exportImplicitChildren(
+	run: ExportAtomRun,
+	sectionTipo: string,
+	componentTipos: readonly string[],
+): Promise<Set<string>> {
+	const scope = run.frontier;
+	if (scope === undefined || scope.principal === undefined) return new Set(componentTipos);
+	const allowed = new Set<string>();
+	for (const componentTipo of componentTipos) {
+		if (await implicitChildAnswer(run, sectionTipo, componentTipo, true))
+			allowed.add(componentTipo);
+	}
+	return allowed;
+}
+
+/**
+ * {@link exportImplicitChildren}'s answer for ONE child WITHOUT acting on it
+ * (no note, no grant): for the look-ahead that must not prefetch what the walk
+ * will drop (export/external_prefetch.ts).
+ */
+export async function exportImplicitChildAllowed(
+	run: ExportAtomRun,
+	sectionTipo: string,
+	componentTipo: string,
+): Promise<boolean> {
+	const scope = run.frontier;
+	if (scope === undefined || scope.principal === undefined) return true;
+	return implicitChildAnswer(run, sectionTipo, componentTipo, false);
+}
+
+async function implicitChildAnswer(
+	run: ExportAtomRun,
+	sectionTipo: string,
+	componentTipo: string,
+	act: boolean,
+): Promise<boolean> {
+	const scope = run.frontier as FrontierScope;
+	const key = `${sectionTipo}\u0000${componentTipo}`;
+	const known = getBoundedRunMemo(run.frontierChildCache, key);
+	if (known !== undefined) return known;
+	const allowed = await frontierComponentAllowed(scope, { sectionTipo, componentTipo });
+	// A look-ahead never memoizes: the walk's first ask must still note / record.
+	if (!act) return allowed;
+	setBoundedRunMemo(run.frontierChildCache, key, allowed, run.cacheLimit);
+	if (allowed) {
+		if (!run.frontierGrants.has(key)) {
+			run.frontierGrants.set(key, { section_tipo: sectionTipo, component_tipo: componentTipo });
+		}
+	} else {
+		noteFrontierRefusal(scope, {
+			surface: scope.surface,
+			door: scope.door,
+			sectionTipo,
+			componentTipo,
+			key: 'component',
+		});
+	}
+	return allowed;
 }
 
 /**

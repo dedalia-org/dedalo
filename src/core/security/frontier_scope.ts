@@ -41,10 +41,28 @@
  *                 from a miss is itself the leak (begins-with / ends-with /
  *                 contains / `==` walk a hidden value out character by
  *                 character).
- *       EXPORT    THROWS `perm.denied`. An export is a deliverable; a silently
- *                 short cell is a corrupted one, and a heritage archive cannot
- *                 carry a column that is complete for one operator and quietly
- *                 truncated for another.
+ *       EXPORT    THROWS. An export is a deliverable; a silently short cell is
+ *                 a corrupted one, and a heritage archive cannot carry a column
+ *                 that is complete for one operator and quietly truncated for
+ *                 another. A walk-time refusal surfaces as
+ *                 `perm.export_column_out_of_scope` naming the COLUMN whose
+ *                 walk crossed (never the hidden record), so the operator can
+ *                 drop that column (owner decision D2, 2026-11-09). EVERY
+ *                 crossing of the walk is under this law, at every depth: the
+ *                 declared hops, a relation leaf's targets, its fan-out into
+ *                 config children, the nested targets of the value / compact
+ *                 cells, dataframe frame targets, parents-chain ancestors and
+ *                 the media walk (T0-1 / S02).
+ *                 ONE CARVE-OUT (owner decision D1, 2026-11-09): the CHILD SET
+ *                 of an IMPLICIT relation config (no request_config — the
+ *                 ontology `relations` name the labels) is the relation's
+ *                 DISPLAY as this caller is shown it, not a crossing into
+ *                 hidden data. An ungranted child is DROPPED from the cell,
+ *                 loudly (noted), exactly as the edit form drops it — the one
+ *                 predicate is {@link frontierAllowedComponents}. A child of an
+ *                 EXPLICIT (curator-configured) map is read at the subdatum
+ *                 floor and asks no component key (owner decision D3) — the
+ *                 edit form shows it to anyone who may read the relation.
  *       DIFFUSION DROPS the row and leaves a ledger line. The published target
  *                 is public; a record the enqueuing principal may not read must
  *                 not be pushed there by them, and the run must still finish.
@@ -98,13 +116,13 @@
  *
  * ── WHAT THIS MODULE IS NOT ─────────────────────────────────────────────────
  *
- * Two neighbours answer a DIFFERENT question and answer it MORE STRICTLY. Both
- * are fail-closed, so neither is a hole — and both are ledgered rather than
- * silently widened from here:
+ * One neighbour answers a DIFFERENT question and answers it MORE STRICTLY. It
+ * is fail-closed, so not a hole — and it is ledgered rather than silently
+ * widened from here (`relations/request_config/implicit.ts`
+ * filterAuthorizedRelated USED to be the second one; since T0-1 it asks
+ * {@link frontierAllowedComponents}, so a non-admin's component_filter widget
+ * shows the project name — WC-2026-11-09-implicit-children-frontier-predicate):
  *
- *   - `relations/request_config/implicit.ts` filterAuthorizedRelated decides
- *     which ddos a widget may RENDER. It holds no exemption, so a non-admin's
- *     component_filter widget shows no project name today.
  *   - tool_export's GATE B (`diffusion/export/grid.ts`) decides whether the
  *     caller may ASK for a declared column, before any crossing happens. It
  *     keeps the bare `getPermissions >= 1`: the exemptions here exist for hops
@@ -113,7 +131,7 @@
  *     for a column a user declared. Reconciling the two would WIDEN the export,
  *     which is a decision, not a cleanup.
  *
- * Both are listed in the shrink-only census in
+ * It is listed in the shrink-only census in
  * `test/unit/frontier_class_native.test.ts`.
  */
 
@@ -396,6 +414,34 @@ export async function frontierComponentAllowed(
 		return (await scope.componentGrant(scope.principal, step.sectionTipo, componentTipo)) >= 1;
 	}
 	return ddoIsAuthorized(scope.principal, step.sectionTipo, componentTipo);
+}
+
+/**
+ * THE ONE CHILD-SET PREDICATE (T0-1 / S03, 2026-11-09): which of an IMPLICIT
+ * relation config's child components may this caller read at `sectionTipo`?
+ * {@link frontierComponentAllowed} per child — the same key, the same
+ * exemptions — so the widget that RENDERS the map (relations/request_config/
+ * implicit.ts, PHP filter_authorized_related) and the export that WALKS it
+ * (diffusion/export) can never answer the same question two ways. The
+ * related_list children (T1-15) are its next consumer.
+ *
+ * Order-preserving; never throws (property 4). The caller applies its law —
+ * the widget narrows its map, the export narrows the cell and notes the
+ * refusal (frontier law §3, the EXPORT carve-out for implicit child sets).
+ */
+export async function frontierAllowedComponents(
+	scope: FrontierScope,
+	sectionTipo: string,
+	componentTipos: readonly string[],
+	table?: string,
+): Promise<Set<string>> {
+	const allowed = new Set<string>();
+	for (const componentTipo of componentTipos) {
+		const step: FrontierStep =
+			table === undefined ? { sectionTipo, componentTipo } : { sectionTipo, componentTipo, table };
+		if (await frontierComponentAllowed(scope, step)) allowed.add(componentTipo);
+	}
+	return allowed;
 }
 
 /**

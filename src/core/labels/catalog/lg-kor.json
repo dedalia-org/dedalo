@@ -275,6 +275,7 @@
 	"error_password_reset_too_many_attempts": "시도 횟수가 너무 많습니다. 나중에 다시 시도하세요",
 	"error_password_reset_weak_password": "비밀번호가 강도 요구 사항을 충족하지 않습니다",
 	"error_perm_developer_required": "이 작업에는 개발자 권한이 필요합니다",
+	"error_perm_export_column_out_of_scope": "내보내기 열 \"${column}\"이(가) 범위를 벗어난 레코드에 연결되어 있습니다. 열을 제거하거나 관리자에게 문의하십시오.",
 	"error_perm_out_of_scope": "이 레코드는 프로젝트 범위를 벗어납니다",
 	"error_perm_section_not_writable": "이 채널을 통해서는 이 섹션에 쓸 수 없습니다",
 	"error_perm_superuser_required": "Dédalo 슈퍼유저만 이 작업을 수행할 수 있습니다",

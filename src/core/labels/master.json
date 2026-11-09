@@ -280,6 +280,7 @@
 	"error_password_reset_too_many_attempts": "Too many attempts; try again later",
 	"error_password_reset_weak_password": "The password does not meet the strength requirements",
 	"error_perm_developer_required": "Developer privileges are required for this action",
+	"error_perm_export_column_out_of_scope": "The export column \"${column}\" links to records outside your scope. Remove the column or ask an administrator.",
 	"error_perm_out_of_scope": "The record is outside your project scope",
 	"error_perm_section_not_writable": "This section is not writable through this channel",
 	"error_perm_superuser_required": "Only the Dédalo superuser can perform this action",

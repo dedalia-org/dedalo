@@ -275,6 +275,7 @@
 	"error_password_reset_too_many_attempts": "尝试次数过多；请稍后重试",
 	"error_password_reset_weak_password": "密码不符合强度要求",
 	"error_perm_developer_required": "此操作需要开发者权限",
+	"error_perm_export_column_out_of_scope": "导出列“${column}”链接到您范围之外的记录。请移除该列或联系管理员。",
 	"error_perm_out_of_scope": "该记录不在您的项目范围内",
 	"error_perm_section_not_writable": "无法通过此通道写入此分区",
 	"error_perm_superuser_required": "只有 Dédalo 超级用户才能执行此操作",

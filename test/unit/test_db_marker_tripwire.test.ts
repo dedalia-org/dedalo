@@ -370,6 +370,15 @@ const DOORS: readonly { name: string; run: () => Promise<unknown> }[] = [
 		run: async () => (await import('../helpers/ai_spend_ledger.ts')).sweepAiSpendLedger(),
 	},
 	{
+		// The export-frontier identity (test/helpers/export_frontier_identity.ts):
+		// users/profiles/projects at explicit ids — refused, writing nothing.
+		name: 'exportFrontierIdentity.install',
+		run: async () =>
+			(await import('../helpers/export_frontier_identity.ts'))
+				.exportFrontierIdentity('marker_probe', 1)
+				.install([], []),
+	},
+	{
 		// The machine-name converter's scratch records (test/helpers/machine_name_scratch.ts):
 		// a raw matrix_ontology INSERT — refused, writing nothing, on an unmarked database.
 		name: 'seedMachineNameScratch',

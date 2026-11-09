@@ -500,7 +500,9 @@ describe.if(DB_READY)('THE FRONTIER CLASS — a hidden value is invisible on eve
 		expect(alpha).not.toContain(STEM);
 		// The EXPORT law, stated: the refusal is the answer, not a short cell.
 		expect(alpha.startsWith('REFUSED:')).toBe(true);
-		expect(alpha).toBe('REFUSED:perm.denied');
+		// A walk-time crossing surfaces by its COLUMN (T0-1 / D2, 2026-11-09:
+		// grid.ts columnNamedRefusal) — the code, never the hidden record.
+		expect(alpha).toBe('REFUSED:perm.export_column_out_of_scope');
 
 		const [adminAlpha, adminBravo] = await bothSentinels(setHiddenValue, () => exportAnswer(ADMIN));
 		expect(
@@ -557,10 +559,10 @@ const OPEN_FRONTIER_DOORS: readonly { file: string; why: string }[] = [
 		file: 'src/diffusion/export/grid.ts',
 		why: "Gate B authorizes a DECLARED export column on the bare `getPermissions >= 1`, without the frontier's globally-visible exemptions. STRICTER than the frontier, therefore fail-closed and not a hole — reconciling it would WIDEN the export, which is a decision for the lead rather than a cleanup, and human_write_scope_tripwire's TOOLS-02 assertion pins the current call.",
 	},
-	{
-		file: 'src/core/relations/request_config/implicit.ts',
-		why: 'filterAuthorizedRelated answers the COMPONENT key with no frontier exemption, so a non-admin sees no project name in a component_filter widget. STRICTER than the frontier, therefore fail-closed and not a hole — but it is the same predicate answered twice and must adopt frontierComponentAllowed.',
-	},
+	// CLOSED 2026-11-09 (T0-1): src/core/relations/request_config/implicit.ts
+	// filterAuthorizedRelated now answers through frontierAllowedComponents
+	// (WC-2026-11-09-implicit-children-frontier-predicate) — gated by
+	// export_leaf_label_grant_native.test.ts (the component_filter widget case).
 ];
 
 describe.if(DB_READY)('THE OTHER DIRECTION — the frontier refuses no lawful crossing', () => {
@@ -666,9 +668,10 @@ describe('the frontier class census is SHRINK-ONLY', () => {
 	});
 
 	test('the census may only shrink', () => {
-		// Measured 2026-08-28 at 4; path_read.ts closed 2026-09-03 (P1-3). Lower
+		// Measured 2026-08-28 at 4; path_read.ts closed 2026-09-03 (P1-3);
+		// implicit.ts closed 2026-11-09 (T0-1). Lower
 		// this number when a door closes; raising it means a NEW frontier door
 		// shipped unfixed, which this gate refuses.
-		expect(OPEN_FRONTIER_DOORS.length).toBeLessThanOrEqual(3);
+		expect(OPEN_FRONTIER_DOORS.length).toBeLessThanOrEqual(2);
 	});
 });

@@ -275,6 +275,7 @@
 	"error_password_reset_too_many_attempts": "بہت زیادہ کوششیں؛ بعد میں دوبارہ کوشش کریں",
 	"error_password_reset_weak_password": "پاس ورڈ مضبوطی کی شرائط پوری نہیں کرتا",
 	"error_perm_developer_required": "اس کارروائی کے لیے ڈویلپر کے اختیارات درکار ہیں",
+	"error_perm_export_column_out_of_scope": "برآمدی کالم \"${column}\" آپ کے دائرے سے باہر کے ریکارڈز سے منسلک ہے۔ کالم ہٹا دیں یا کسی منتظم سے رابطہ کریں۔",
 	"error_perm_out_of_scope": "ریکارڈ آپ کے منصوبے کے دائرے سے باہر ہے",
 	"error_perm_section_not_writable": "اس سیکشن میں اس چینل کے ذریعے لکھا نہیں جا سکتا",
 	"error_perm_superuser_required": "یہ کارروائی صرف Dédalo کا سپر یوزر کر سکتا ہے",

@@ -161,6 +161,23 @@ export const ERROR_REGISTRY = {
 			"The record exists outside the user's project scope. The user cannot " +
 			'reach it; pick a record from their own search results.',
 	},
+	'perm.export_column_out_of_scope': {
+		category: 'permission',
+		status: 403,
+		label_key: 'error_perm_export_column_out_of_scope',
+		message: 'An export column reaches records outside the user scope',
+		severity: 'warn',
+		disclosure: 'operator',
+		retryable: false,
+		// The COLUMN only (its ontology labels — the user's own declaration),
+		// never the hidden record: section / id stay in the operator log
+		// (`[frontier] REFUSED …`) and in the log-only coordinates.
+		details_keys: ['column'],
+		hint:
+			'A stored link in this column leads to a record the user may not read, so the ' +
+			'export cannot be complete. Remove the column from the export, or ask an ' +
+			'administrator to widen the user scope.',
+	},
 	'perm.section_not_writable': {
 		category: 'permission',
 		status: 403,

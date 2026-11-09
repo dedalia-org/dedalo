@@ -275,6 +275,7 @@
 	"error_password_reset_too_many_attempts": "Слишком много попыток; повторите позже",
 	"error_password_reset_weak_password": "Пароль не соответствует требованиям надёжности",
 	"error_perm_developer_required": "Для этого действия требуются права разработчика",
+	"error_perm_export_column_out_of_scope": "Столбец экспорта «${column}» ссылается на записи вне вашей области. Удалите столбец или обратитесь к администратору.",
 	"error_perm_out_of_scope": "Запись находится вне области ваших проектов",
 	"error_perm_section_not_writable": "Этот раздел недоступен для записи через этот канал",
 	"error_perm_superuser_required": "Это действие может выполнить только суперпользователь Dédalo",

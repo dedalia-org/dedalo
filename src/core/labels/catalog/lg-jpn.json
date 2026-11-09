@@ -275,6 +275,7 @@
 	"error_password_reset_too_many_attempts": "試行回数が多すぎます。しばらくしてから再試行してください",
 	"error_password_reset_weak_password": "パスワードが強度要件を満たしていません",
 	"error_perm_developer_required": "この操作には開発者権限が必要です",
+	"error_perm_export_column_out_of_scope": "エクスポート列「${column}」は、あなたの範囲外のレコードにリンクしています。列を削除するか、管理者に問い合わせてください。",
 	"error_perm_out_of_scope": "このレコードはあなたのプロジェクトの範囲外です",
 	"error_perm_section_not_writable": "このセクションはこのチャネルからは書き込めません",
 	"error_perm_superuser_required": "この操作は Dédalo のスーパーユーザーのみが実行できます",

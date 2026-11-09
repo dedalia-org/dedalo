@@ -613,6 +613,7 @@ describe('F. the prefetch looks ahead UNDER the export frontier, and stops on St
 				leafExternal: EXT_AUTHOR,
 				relationLeaf: null,
 				externalChildren: [],
+				implicitChildren: new Set(),
 			},
 		],
 		fieldsOf: new Map([[EXT_AUTHOR, ['author']]]),

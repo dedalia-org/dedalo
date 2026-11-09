@@ -17,6 +17,25 @@ Merged since the last release; these ship with the next one.
 
 ### For users
 
+#### Security
+
+- **Exports no longer include linked records outside your projects.**
+
+    An export follows the links of each record: the records a field points to, the records those
+    records point to, their frames, their thesaurus parents and their media files. Before, only the
+    first link was checked against your projects. A record outside your projects two links away could
+    appear in an export, while the same record reached directly was refused.
+
+    Every linked record is now checked, at every depth and in every export format. If a column would
+    include a record you cannot open, the export stops and names that column. Remove the column or ask
+    an administrator. Administrators are not affected.
+
+    A relation without a configured list of fields shows its target's label fields. Those you have no
+    permission to read are now left out of the export, and the rest still export. The project selector
+    now shows the project names to every user who may set a project.
+
+    Wire contract: `WC-2026-11-09-export-frontier-fanout`, `WC-2026-11-09-implicit-children-frontier-predicate`.
+
 #### Fixed
 
 - **Saving a hierarchical autocomplete on a duplicated record no longer fails with "cannot delete path in scalar".**
@@ -52,8 +71,10 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 1 entry"
+??? note "Wire contract — 3 entries"
 
+    - `WC-2026-11-09-export-frontier-fanout`
+    - `WC-2026-11-09-implicit-children-frontier-predicate`
     - `WC-2026-11-09-start-deep-link-found-set-position`
 
 ## 7.0.0-beta.8 — 2026-11-08

@@ -275,6 +275,7 @@
 	"error_password_reset_too_many_attempts": "Troppi tentativi; riprova più tardi",
 	"error_password_reset_weak_password": "La password non soddisfa i requisiti di sicurezza",
 	"error_perm_developer_required": "Per questa azione sono necessari i privilegi di sviluppatore",
+	"error_perm_export_column_out_of_scope": "La colonna di esportazione «${column}» rimanda a record fuori dal tuo ambito. Rimuovi la colonna o chiedi a un amministratore.",
 	"error_perm_out_of_scope": "Il record è al di fuori dell'ambito dei tuoi progetti",
 	"error_perm_section_not_writable": "Questa sezione non è scrivibile attraverso questo canale",
 	"error_perm_superuser_required": "Solo il superutente di Dédalo può eseguire questa azione",

@@ -275,6 +275,7 @@
 	"error_password_reset_too_many_attempts": "Demasiadas tentativas; tente novamente mais tarde",
 	"error_password_reset_weak_password": "A senha não cumpre os requisitos de segurança",
 	"error_perm_developer_required": "Esta ação requer privilégios de programador",
+	"error_perm_export_column_out_of_scope": "A coluna de exportação «${column}» liga a registos fora do seu âmbito. Remova a coluna ou contacte um administrador.",
 	"error_perm_out_of_scope": "O registo está fora do âmbito dos seus projetos",
 	"error_perm_section_not_writable": "Esta secção não permite escrita através deste canal",
 	"error_perm_superuser_required": "Só o superutilizador do Dédalo pode realizar esta ação",

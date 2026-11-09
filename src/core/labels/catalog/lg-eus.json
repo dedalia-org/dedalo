@@ -275,6 +275,7 @@
 	"error_password_reset_too_many_attempts": "Saiakera gehiegi; saiatu berriro geroago",
 	"error_password_reset_weak_password": "Pasahitzak ez ditu sendotasun-baldintzak betetzen",
 	"error_perm_developer_required": "Ekintza honetarako garatzaile-baimenak behar dira",
+	"error_perm_export_column_out_of_scope": "Esportazio-zutabeak («${column}») zure esparrutik kanpoko erregistroetara lotzen du. Kendu zutabea edo galdetu administratzaile bati.",
 	"error_perm_out_of_scope": "Erregistroa zure proiektuen esparrutik kanpo dago",
 	"error_perm_section_not_writable": "Atal hau ezin da kanal honen bidez idatzi",
 	"error_perm_superuser_required": "Dédaloren supererabiltzaileak bakarrik egin dezake ekintza hau",

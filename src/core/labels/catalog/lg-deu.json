@@ -275,6 +275,7 @@
 	"error_password_reset_too_many_attempts": "Zu viele Versuche; versuchen Sie es später erneut",
 	"error_password_reset_weak_password": "Das Passwort erfüllt nicht die Sicherheitsanforderungen",
 	"error_perm_developer_required": "Für diese Aktion sind Entwicklerrechte erforderlich",
+	"error_perm_export_column_out_of_scope": "Die Exportspalte „${column}“ verweist auf Einträge außerhalb Ihres Bereichs. Entfernen Sie die Spalte oder wenden Sie sich an einen Administrator.",
 	"error_perm_out_of_scope": "Der Eintrag liegt außerhalb Ihres Projektbereichs",
 	"error_perm_section_not_writable": "Diese Sektion ist über diesen Kanal nicht beschreibbar",
 	"error_perm_superuser_required": "Nur der Dédalo-Superuser kann diese Aktion ausführen",

@@ -80,6 +80,7 @@ import {
 	type ToolResponse,
 	toolRequestId,
 } from '../../core/tools/module.ts';
+import type { FieldPlan } from '../plan/types.ts';
 import { loadExportRecord, prefetchExportRecords } from '../resolve/resolver.ts';
 import type { ExportRun, ExportSegment, GridAtom } from './atoms.ts';
 import {
@@ -1202,13 +1203,39 @@ async function openExportGridInScope(
 	const tabulator = createTabulator({ dataFormat, breakdown, fillTheGaps, lang });
 
 	/** One record's entries (PHP get_record_atoms), per data format. */
+	/**
+	 * One record's entries, with a walk-time frontier refusal NAMED BY ITS
+	 * COLUMN (owner decision D2, 2026-11-09): the walk THROWS on a record the
+	 * caller may not read (frontier law §3, at every depth since T0-1), and the
+	 * operator who asked for the export can only act on the column that led
+	 * there — drop it, or ask for a wider scope. The hidden record's section /
+	 * id stay in the operator log and the log-only coordinates.
+	 */
 	const buildEntries = async (record: {
 		section_id: number;
 		section_tipo: string;
 	}): Promise<RecordEntry[]> => {
+		let walking: FieldPlan | undefined;
+		try {
+			return await buildEntriesOf(record, (field) => {
+				walking = field;
+			});
+		} catch (error) {
+			throw await columnNamedRefusal(error, walking, context.applicationLang);
+		}
+	};
+
+	const buildEntriesOf = async (
+		record: {
+			section_id: number;
+			section_tipo: string;
+		},
+		onField: (field: FieldPlan) => void,
+	): Promise<RecordEntry[]> => {
 		const entries: RecordEntry[] = [];
 		degradation.beginRecord(record.section_tipo, record.section_id);
 		for (const field of fields) {
+			onField(field);
 			const ddoIndex = field.exportColumn?.ordinal ?? 0;
 			const path = (field.exportColumn?.path ?? []) as RawPathStep[];
 			const firstStep = path[0] ?? {};
@@ -1644,4 +1671,33 @@ async function buildRawCell(
 	];
 	if (raw === undefined || raw === null) return { raw: null, cellType: 'json' };
 	return { raw: JSON.stringify({ dedalo_data: raw }), cellType: 'json' };
+}
+
+/**
+ * A walk-time `perm.denied` (the export frontier's refusal — Gate A / Gate B
+ * refuse BEFORE any record is walked, so nothing else of that code reaches
+ * buildEntries) re-thrown as `perm.export_column_out_of_scope`, its `column`
+ * detail = the declared path's ontology labels joined ' > ' in the interface
+ * language. The original error rides as `cause` (never serialized) and its
+ * log-only coordinates are kept. Anything else propagates unchanged.
+ */
+async function columnNamedRefusal(
+	error: unknown,
+	field: FieldPlan | undefined,
+	applicationLang: string,
+): Promise<unknown> {
+	if (!(error instanceof DedaloError) || error.code !== 'perm.denied' || field === undefined) {
+		return error;
+	}
+	const labels: string[] = [];
+	for (const step of field.exportColumn?.path ?? []) {
+		const tipo = resolveDeclaredTipo((step as { component_tipo?: unknown }).component_tipo);
+		if (tipo !== null) labels.push(await termByTipo(tipo, applicationLang));
+	}
+	return new DedaloError('perm.export_column_out_of_scope', {
+		message: `export column ${labels.join(' > ')}: ${error.message}`,
+		details: { column: labels.join(' > ') },
+		...(error.coordinates === undefined ? {} : { coordinates: error.coordinates }),
+		cause: error,
+	});
 }
