@@ -260,7 +260,9 @@ describe('fetch_api upload floor', () => {
 		expect(upload_floor_ms(undefined)).toBe(0);
 		// UTF-8 bytes, not UTF-16 units: 'α' is 2 bytes, '中' is 3
 		expect(upload_floor_ms('α'.repeat(64 * 1024))).toBe(2 * upload_floor_ms('x'.repeat(64 * 1024)));
-		expect(upload_floor_ms('中'.repeat(64 * 1024))).toBe(3 * upload_floor_ms('x'.repeat(64 * 1024)));
+		expect(upload_floor_ms('中'.repeat(64 * 1024))).toBe(
+			3 * upload_floor_ms('x'.repeat(64 * 1024)),
+		);
 	});
 
 	test('F2. the upload time is ADDED to the caller timeout (server keeps its budget)', async () => {
