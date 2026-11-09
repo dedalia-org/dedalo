@@ -328,3 +328,13 @@ TLD JSON is unconverted: its loader fills the pair through the same legacy deriv
   `ts_tree_db_semantics` (dd35 → `area_tool`, red before).
 - **Gate reconciliation:** no fixture in `test/parity/fixtures/oracle_harvest/` is touched.
   Re-harvest: impossible, not needed.
+
+## Addendum 2026-11-09 — a map that already declares the machine name
+
+- **Shape:** the shown tipos of a Yes node whose ddo_map ALREADY declares `machine_name`
+  (ontology6, the 'M' component: `[ontology43, ontology5, ontology9]`) drop the label instead
+  of replacing it, so the machine name is shown once: the badge reads `area_root`, not
+  `area_root, area_root` (`replaceTranslatableTermTipos`). A map without it is unchanged.
+- **Gate:** `ts_tree_db_semantics` ("a map that already declares the machine name only drops
+  the label", red before).
+- **Gate reconciliation:** no fixture in `test/parity/fixtures/oracle_harvest/` is touched.

@@ -39,6 +39,12 @@ Merged since the last release; these ship with the next one.
     locator by the client and stripped by the server's relation insert. Locators already saved with it are harmless
     to read; removing the key from them restores the clean locator shape.
 
+- **The ontology tree shows each node's model name once, not twice.**
+
+    In the Ontology tree, the model badge next to the **M** icon (shown with Ctrl+M) repeated the model name (`area_root, area_root`). It now shows it once.
+
+    Wire contract: `WC-2026-11-04-ontology-machine-names`.
+
 - **Link resource now works from a component opened inside the Ontology or Thesaurus tree.**
 
     Before, clicking the tree button (*Link resource*) of a relation component opened inline in a tree row made the page's own tree disappear into the picker panel, and picking a term linked nothing. The picker now opens its own tree under the component, and the picked term is linked.
