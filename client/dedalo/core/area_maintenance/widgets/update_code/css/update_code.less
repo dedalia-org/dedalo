@@ -344,8 +344,8 @@
 					}
 				}
 				.value {
-					font-weight: 300;
-					color: var(--color_grey_9);
+					font-weight: 400;
+					color: var(--fg_muted);
 				}
 			}
 
@@ -400,17 +400,36 @@
 			>.image_command_row {
 				display: flex;
 				flex-wrap: wrap;
-				align-items: center;
+				// stretch: the Copy button takes the command box's height
+				align-items: stretch;
 				gap: 0.5rem;
 				margin: 0.4rem 0;
 
+				// reclaimed from the global BLOCK `code` rule (layout/general.less):
+				// its light ink, weight 200 and `padding-top:0 !important` are for a
+				// dark surface — on this light one the command was barely legible
+				// and sat high against the button
 				>.image_command {
 					flex: 1 1 20rem;
-					padding: 0.4rem 0.6rem;
-					border-radius: 3px;
+					display: flex;
+					align-items: center;
+					margin: 0;
+					padding: 0.55rem 0.75rem !important;
+					border: 1px solid var(--border_default);
+					border-radius: 4px;
 					background: var(--bg_surface_alt);
+					color: var(--fg_default);
+					font-family: @dd_mono;
+					font-size: 0.95rem;
+					font-weight: 400;
+					line-height: 1.4;
 					overflow-wrap: anywhere;
 					user-select: all;
+				}
+				// the global button is `height: min-content`: reset so it stretches
+				>.button_copy_command {
+					height: auto;
+					margin: 0;
 				}
 			}
 			>.dd_note.image_command_note {

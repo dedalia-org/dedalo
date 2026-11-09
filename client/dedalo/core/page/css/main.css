@@ -19520,8 +19520,8 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   cursor: pointer;
 }
 .widget_update_code_modal .body .files_container .file_container .value {
-  font-weight: 300;
-  color: var(--color_grey_9);
+  font-weight: 400;
+  color: var(--fg_muted);
 }
 .widget_update_code_modal .body .files_container .file_container:last-child {
   border-bottom: none;
@@ -19574,17 +19574,30 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 .widget_update_code_modal .footer .image_command_panel > .image_command_row {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: stretch;
   gap: 0.5rem;
   margin: 0.4rem 0;
 }
 .widget_update_code_modal .footer .image_command_panel > .image_command_row > .image_command {
   flex: 1 1 20rem;
-  padding: 0.4rem 0.6rem;
-  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0.55rem 0.75rem !important;
+  border: 1px solid var(--border_default);
+  border-radius: 4px;
   background: var(--bg_surface_alt);
+  color: var(--fg_default);
+  font-family: Menlo, Monaco, Consolas, 'Courier New', monospace;
+  font-size: 0.95rem;
+  font-weight: 400;
+  line-height: 1.4;
   overflow-wrap: anywhere;
   user-select: all;
+}
+.widget_update_code_modal .footer .image_command_panel > .image_command_row > .button_copy_command {
+  height: auto;
+  margin: 0;
 }
 .widget_update_code_modal .footer .image_command_panel > .dd_note.image_command_note {
   margin-bottom: 0.75rem;
