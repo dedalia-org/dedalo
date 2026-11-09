@@ -177,8 +177,15 @@
 	// components_container
 	.components_container {
 		display: grid;
-		grid-template-columns: 1fr 1fr;
+		// minmax(0, …): a long unbroken word must not widen its column
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 		grid-gap: 1em;
+
+		// two text columns of ~180px each on a phone: one language per row
+		@media screen and (max-width: @width_break_point_phone) {
+			grid-template-columns: minmax(0, 1fr);
+			grid-gap: 1.5em;
+		}
 
 		.target_component_container {
 			min-height: 110px;

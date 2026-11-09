@@ -119,8 +119,14 @@
 }
 .wrapper_tool.tool_lang_multi .components_container {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   grid-gap: 1em;
+}
+@media screen and (max-width: 600px) {
+  .wrapper_tool.tool_lang_multi .components_container {
+    grid-template-columns: minmax(0, 1fr);
+    grid-gap: 1.5em;
+  }
 }
 .wrapper_tool.tool_lang_multi .components_container .target_component_container {
   min-height: 110px;
