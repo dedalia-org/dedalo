@@ -913,7 +913,9 @@ describe(`COMPONENT_GEOLOCATION CHANGED INDICATOR (common .modified line, blocks
 		for (let i = 0; i < 40 && !icons.every(el => el.dataset.tooltip_active==='true'); i++) {
 			await new Promise(resolve => setTimeout(resolve, 50))
 		}
-		icons.forEach(el => assert.equal(el.dataset.tooltip_active, 'true', `common tooltip expected on .${el.className}`))
+		for (const el of icons) {
+			assert.equal(el.dataset.tooltip_active, 'true', `common tooltip expected on .${el.className}`)
+		}
 	});
 
 
@@ -931,8 +933,8 @@ describe(`COMPONENT_GEOLOCATION CHANGED INDICATOR (common .modified line, blocks
 
 	it(`fields the buffer writes as null (alt) or stamps (id) are not a change`, async function() {
 
-		instance.current_value[0] = {...structuredClone(stored), alt:null}
-		delete instance.current_value[0].id
+		const { id, ...without_id } = structuredClone(stored)
+		instance.current_value[0] = {...without_id, alt:null}
 		assert.isFalse(instance.update_changed_indicator(0), 'alt:null / missing id expected equal to the stored entry')
 	});
 
@@ -950,6 +952,8 @@ describe(`COMPONENT_GEOLOCATION CHANGED INDICATOR (common .modified line, blocks
 	it(`destroy changed-indicator instance`, async function() {
 
 		await instance.destroy(true)
+		assert.equal(instance.status, 'destroyed', 'status expected destroyed')
+
 		while (component_container.firstChild) {
 			component_container.removeChild(component_container.firstChild)
 		}
