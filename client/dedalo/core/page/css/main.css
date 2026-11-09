@@ -20503,6 +20503,7 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   border-bottom-left-radius: 5px;
   border-bottom-right-radius: 5px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  max-width: 100vw;
 }
 .thesaurus_pane.hide {
   display: none;
@@ -22503,7 +22504,7 @@ body.inspector_resizing {
 .wrap_ts_object .removed_from_view {
   display: none;
 }
-@media screen and (max-width: 600px) {
+@media screen and (max-width: 600px), (hover: none) and (pointer: coarse) {
   .wrap_ts_object > .content_data > .id_column_content {
     min-height: 44px;
   }
@@ -22525,16 +22526,18 @@ body.inspector_resizing {
     min-width: 44px;
     margin: 0;
   }
-  .wrap_ts_object > .content_data > .elements_container > .button_show_component {
+  .wrap_ts_object > .content_data > .elements_container > .button_show_component,
+  .wrap_ts_object > .content_data > .elements_container > .button_show_indexations {
     flex: 0 0 auto;
-    box-sizing: border-box;
-    min-width: 44px;
-    min-height: 44px;
-    padding: 12px 8px;
-    background-clip: content-box;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    min-width: 1.75rem;
+    height: 22px;
+    margin-right: 0.5rem;
+  }
+  .wrap_ts_object > .content_data > .elements_container > .button_show_component::before,
+  .wrap_ts_object > .content_data > .elements_container > .button_show_indexations::before {
+    content: '';
+    position: absolute;
+    inset: -11px -0.25rem;
   }
   .wrap_ts_object > .content_data > .elements_container > .link_children {
     border: 0 !important;
@@ -22565,6 +22568,89 @@ body.inspector_resizing {
   }
   .wrap_ts_object > .content_data > .elements_container > .link_children.loading_spinner::before {
     display: none;
+  }
+}
+@media screen and (max-width: 960px) {
+  .wrap_ts_object > .content_data > .elements_container {
+    flex-wrap: wrap;
+  }
+  .wrap_ts_object > .content_data > .elements_container > .model_value {
+    order: 1;
+    flex: 1 1 100%;
+    font-size: 0.85rem;
+    overflow-wrap: anywhere;
+  }
+}
+@media (hover: none) {
+  .wrap_ts_object > .content_data > .id_column_content {
+    opacity: 0.7;
+  }
+}
+@media screen and (max-width: 600px) {
+  .wrap_ts_object > .content_data {
+    border-bottom: 1px solid var(--color_grey_13);
+    padding-bottom: 2px;
+  }
+  .wrap_ts_object > .content_data > .elements_container {
+    order: -1;
+    flex: 1 1 100%;
+    box-sizing: border-box;
+    padding-left: 36px;
+  }
+  .wrap_ts_object > .content_data > .elements_container > .link_children,
+  .wrap_ts_object > .content_data > .elements_container > .link_children.open {
+    position: absolute;
+    top: 0;
+    left: -8px;
+  }
+  .wrap_ts_object > .content_data > .elements_container > .model_value {
+    order: 1;
+    flex: 1 1 100%;
+    margin: 0 0 4px;
+    font-size: 0.85rem;
+    line-height: 1.2;
+  }
+  .wrap_ts_object > .content_data > .elements_container > .term > .term_text,
+  .wrap_ts_object > .content_data > .elements_container > .model_value {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .wrap_ts_object > .content_data > .id_column_content {
+    flex: 1 1 100%;
+    box-sizing: border-box;
+    flex-wrap: wrap;
+    min-height: 36px;
+    padding-left: 21px;
+  }
+  .wrap_ts_object > .content_data > .id_column_content .id_column_link {
+    height: 36px;
+  }
+  .wrap_ts_object > .content_data > .data_container {
+    padding-left: 0.5rem;
+  }
+  .wrap_ts_object > .content_data > .data_container > .wrapper_component {
+    float: none;
+    min-width: 0;
+    width: 100%;
+  }
+  .wrap_ts_object > .content_data > .indexations_container .css_spinner {
+    margin-left: 1rem;
+  }
+  .wrap_ts_object > .content_data > .nd_container {
+    margin-left: 1rem;
+    width: calc(100% - 1rem);
+  }
+  .wrap_ts_object > .content_data > .nd_container > .wrap_ts_object {
+    width: 100%;
+  }
+  .wrap_ts_object > .content_data > .nd_container .data_container {
+    padding-left: 0.5rem;
+  }
+  .wrap_ts_object > .children_container {
+    padding-left: 0.75rem;
+  }
+  .wrap_ts_object .show_more {
+    margin-left: 1rem;
   }
 }
 /**

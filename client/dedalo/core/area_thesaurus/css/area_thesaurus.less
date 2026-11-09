@@ -260,6 +260,9 @@
 		display: none;
 	}
 
+	// 50vh is wider than a portrait phone: never wider than the screen
+	max-width: 100vw;
+
 	// the area drops its own page chrome when it is a pane, not a page
 	> .area_thesaurus,
 	> .area_ontology {
