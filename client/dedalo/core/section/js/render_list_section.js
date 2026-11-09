@@ -271,13 +271,15 @@ export const render_column_id = function(options) {
 						caller_instance.picker_chain = (caller_instance.picker_chain || Promise.resolve())
 						.then(async () => {
 							const item = (await get_linked_items(caller_instance)).get(item_key)
-							if (item) {
-								await caller_instance.unlink_record(item)
-							} else {
-								await caller_instance.link_record({
+							const result = item
+								? await caller_instance.unlink_record(item)
+								: await caller_instance.link_record({
 									section_tipo	: section_tipo,
 									section_id		: section_id
 								})
+							if (result===false) {
+								// refused: the repaint below shows the stored state, not the click
+								console.warn('Link/unlink refused by the portal:', item_key)
 							}
 							const linked = await get_linked_items(caller_instance)
 							_set_link_button_state(linked.has(item_key), link_icon, link_button)
