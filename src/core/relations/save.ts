@@ -899,6 +899,20 @@ export async function validateRelationInserts(
 }
 
 /**
+ * Client UI state that rides a locator payload but is NOT part of the locator:
+ * `paginated_key` (the row's page index — PHP unset it) and `close_modal` (the
+ * list link button's "keep the picker open" flag, render_list_section.js). PHP
+ * rebuilt a `locator` object on save, dropping both; the TS door copies the
+ * payload, so each must be named here or it is stored on every relation.
+ */
+const CLIENT_ONLY_LOCATOR_KEYS = ['paginated_key', 'close_modal'] as const;
+
+/** Remove every CLIENT_ONLY_LOCATOR_KEYS key from `value`, in place. */
+function stripClientOnlyLocatorKeys(value: Record<string, unknown>): void {
+	for (const key of CLIENT_ONLY_LOCATOR_KEYS) delete value[key];
+}
+
+/**
  * PHP validate_data_element proper — normalization + the three drops that
  * predate the constraint gates. Byte-identical to what this module has always
  * done; the split exists so the batch door can run the set-scoped constraints
@@ -955,8 +969,8 @@ async function normalizeRelationInsert(
 	if (context.translatable) {
 		value.lang = context.lang;
 	}
-	// biome-ignore lint/performance/noDelete: PHP unset — paginated_key must be ABSENT in persisted data
-	delete value.paginated_key;
+	// client UI keys must be ABSENT in persisted data
+	stripClientOnlyLocatorKeys(value);
 	// Canonical stored address (WC-2026-08-10-section-id-int-canonical): int for
 	// a record, verbatim for an external remote id. Never Number() blindly.
 	value.section_id = canonicalizeStoredSectionId(value.section_id);

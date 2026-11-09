@@ -663,6 +663,20 @@ export function counterFloorExpression(tableName: string, tipoParam = '$1'): str
 }
 
 /**
+ * Whether an INSERT leaves this column out: undefined (not given) or null =
+ * SQL NULL, as in every other matrix writer — never the jsonb literal `null`.
+ * The scalar is refused by the row triggers (matrix_string_search_sync /
+ * matrix_relation_index_sync: jsonb_each — a TM snapshot carries
+ * `"string": null` for a record that never had a string value; undeleting one
+ * died on it) and by every later key removal (`#-` → "cannot delete path in
+ * scalar": a duplicate whose re-derived `_hi` index came out empty was born
+ * with relation_search = 'null' and no autocomplete_hi on it could be cleared).
+ */
+function isAbsentColumn(value: unknown): boolean {
+	return value === undefined || value === null;
+}
+
+/**
  * Insert a NEW section record at a counter-allocated section_id — THE id
  * allocator, and the one door that mints a record's permanent address.
  *
@@ -693,7 +707,7 @@ export async function insertMatrixRecordWithCounter(
 	const params: (string | RawJsonText)[] = [sectionTipo];
 	let paramIndex = 2;
 	for (const [columnName, value] of Object.entries(jsonbColumns)) {
-		if (value === undefined) continue;
+		if (isAbsentColumn(value)) continue;
 		if (!MATRIX_JSONB_COLUMNS.includes(columnName as MatrixJsonbColumn)) {
 			throw new DedaloError('internal.invariant', {
 				message: `insertMatrixRecordWithCounter: '${columnName}' is not a matrix jsonb column`,
@@ -804,12 +818,7 @@ async function insertExplicitIdRow(
 	const params: (string | number | RawJsonText)[] = [sectionTipo, sectionId];
 	let paramIndex = 3;
 	for (const [columnName, value] of Object.entries(jsonbColumns)) {
-		// null = SQL NULL (the column left out of the INSERT), as in every other
-		// matrix writer — never the jsonb literal `null`, which the row triggers
-		// (matrix_string_search_sync / matrix_relation_index_sync: jsonb_each)
-		// refuse. A TM snapshot carries `"string": null` for a record that never
-		// had a string value; undeleting one died on it.
-		if (value === undefined || value === null) continue;
+		if (isAbsentColumn(value)) continue;
 		if (!MATRIX_JSONB_COLUMNS.includes(columnName as MatrixJsonbColumn)) {
 			throw new DedaloError('internal.invariant', {
 				message: `insertMatrixRecordWithExplicitId: '${columnName}' is not a matrix jsonb column`,

@@ -25,6 +25,20 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Saving a hierarchical autocomplete on a duplicated record no longer fails with "cannot delete path in scalar".**
+
+    A record created by duplication could be stored with an invalid empty search index. Any later save of a
+    hierarchical autocomplete on that record — by hand or through *Propagate component data* — then failed on
+    that record with "cannot delete path in scalar". New records are now stored correctly. A record already
+    affected is repaired by setting its `relation_search` column to SQL NULL wherever `jsonb_typeof(relation_search) = 'null'`.
+
+- **Records linked from the list's link button no longer store the stray `close_modal` key in their locator.**
+
+    Linking a record with the link button of a portal's list view saved the button's own "keep the window open"
+    flag (`close_modal`) inside the stored relation, next to the real locator keys. The flag is now kept out of the
+    locator by the client and stripped by the server's relation insert. Locators already saved with it are harmless
+    to read; removing the key from them restores the clean locator shape.
+
 - **Link resource now works from a component opened inside the Ontology or Thesaurus tree.**
 
     Before, clicking the tree button (*Link resource*) of a relation component opened inline in a tree row made the page's own tree disappear into the picker panel, and picking a term linked nothing. The picker now opens its own tree under the component, and the picked term is linked.

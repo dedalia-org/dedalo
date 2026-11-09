@@ -22,6 +22,10 @@
  *  4. Two CONCURRENT counter-driven inserts on one tipo allocate distinct ids
  *     and both rows land (the single-statement counter CTE serializes on the
  *     counter row).
+ *  5. A null column on the counter-driven insert is SQL NULL, never the jsonb
+ *     scalar `null` — the scalar made every later key removal on that column
+ *     throw "cannot delete path in scalar" (a duplicated tch1 record could not
+ *     have its component_autocomplete_hi cleared by tool_propagate_component_data).
  *
  * SKIPPED sub-case — the '_dd' counter branch (tableName.endsWith('_dd') →
  * matrix_counter_dd): the only allowlisted _dd tables are matrix_dd and
@@ -41,6 +45,7 @@ import {
 	allocateComponentItemId,
 	insertMatrixRecordWithCounter,
 	insertMatrixRecordWithExplicitId,
+	updateMatrixKeysData,
 	updateMatrixRecord,
 } from '../../src/core/db/matrix_write.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
@@ -51,7 +56,8 @@ const TEST_TABLE = 'matrix_test';
 const EXPLICIT_TIPO = 'zzcg1';
 const ABSORB_TIPO = 'zzcg2';
 const RACE_TIPO = 'zzcg3';
-const SCRATCH_TIPOS = [EXPLICIT_TIPO, ABSORB_TIPO, RACE_TIPO];
+const NULL_COLUMN_TIPO = 'zzcg4';
+const SCRATCH_TIPOS = [EXPLICIT_TIPO, ABSORB_TIPO, RACE_TIPO, NULL_COLUMN_TIPO];
 
 async function cleanScratch(): Promise<void> {
 	for (const tipo of SCRATCH_TIPOS) {
@@ -224,4 +230,29 @@ describe('insertMatrixRecordWithCounter — concurrent allocations never collide
 		expect(rows.map((row) => Number(row.section_id))).toEqual([1, 2]);
 		expect(await counterValue(RACE_TIPO)).toBe(2);
 	}, 30000);
+});
+
+// ---------------------------------------------------------------------------
+// 5. null column ⇒ SQL NULL (never the jsonb scalar), so key removal still works.
+// ---------------------------------------------------------------------------
+
+describe('insertMatrixRecordWithCounter — a null column is SQL NULL', () => {
+	test('relation_search: null lands as SQL NULL and a later key removal succeeds', async () => {
+		const sectionId = await insertMatrixRecordWithCounter(TEST_TABLE, NULL_COLUMN_TIPO, {
+			relation: {},
+			relation_search: null,
+		});
+		const rows = (await sql.unsafe(
+			`SELECT relation_search IS NULL AS is_sql_null, jsonb_typeof(relation_search) AS kind
+			   FROM ${TEST_TABLE} WHERE section_tipo = $1 AND section_id = $2`,
+			[NULL_COLUMN_TIPO, sectionId],
+		)) as { is_sql_null: boolean; kind: string | null }[];
+		expect(rows[0]).toEqual({ is_sql_null: true, kind: null });
+
+		// The outcome the scalar broke: removing a key from the column (`#-`).
+		const updated = await updateMatrixKeysData(TEST_TABLE, NULL_COLUMN_TIPO, sectionId, [
+			{ column: 'relation_search', key: 'zzcg4', value: null },
+		]);
+		expect(updated).toBe(1);
+	});
 });

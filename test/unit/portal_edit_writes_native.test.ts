@@ -254,6 +254,20 @@ describe('validateRelationInsert (PHP validate_data_element pins)', () => {
 		});
 	});
 
+	test('close_modal (the list link button UI flag) is stripped — never a locator key', async () => {
+		// The payload render_list_section.js publishes on initiator_link_<id>.
+		const normalized = await validateRelationInsert(
+			{ section_tipo: TARGET_SECTION, section_id: 101, close_modal: false },
+			context(),
+		);
+		expect(normalized).toEqual({
+			type: 'dd151',
+			section_id: 101,
+			section_tipo: TARGET_SECTION,
+			from_component_tipo: PORTAL,
+		});
+	});
+
 	test('duplicate insert is ignored (null) — the client dup check relies on it', async () => {
 		const normalized = await validateRelationInsert(
 			{ section_tipo: TARGET_SECTION, section_id: 101, from_component_tipo: PORTAL },
