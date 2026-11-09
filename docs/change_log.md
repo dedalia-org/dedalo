@@ -23,6 +23,10 @@ Merged since the last release; these ship with the next one.
 
     Before, clicking the tree button (*Link resource*) of a relation component opened inline in a tree row made the page's own tree disappear into the picker panel, and picking a term linked nothing. The picker now opens its own tree under the component, and the picked term is linked.
 
+- **Opening a term in a new tree window now jumps straight to it and keeps it in view.**
+
+    Before, a window opened on a term (for example *Open dd0-6* from a relation) scrolled slowly towards the highlighted term while the tree was still loading, often stopping with the term at the edge of the screen or jumping again later. The term is now centred at once and stays in view while the tree finishes loading; scrolling yourself stops the following immediately.
+
 ### For administrators
 
 #### Fixed

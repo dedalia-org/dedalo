@@ -2737,169 +2737,90 @@ const hilite_search_results = function(node_info, hilite_set, total_found) {
 
 /**
 * SCROLL_TO_NODE
-* Scrolls the viewport to center the given DOM node ONLY when it is out of
-* view. When the node is already fully visible nothing is scrolled (a single
-* delayed verification covers late layout shifts from slow tree parses: it
-* scrolls again only if the node is no longer visible).
-* When a scroll is needed it uses an IntersectionObserver + setInterval retry
-* strategy. Stops when the element reaches >5% viewport visibility, when the
-* user manually scrolls (wheel event detected), or after MAX_SCROLL_ATTEMPTS
-* (10) retries at 350 ms intervals. A 10-second absolute timeout disconnects
-* the observer as a safety fallback.
-* Scrolling is vertical (element centered); the horizontal axis is moved only
-* when the node lies outside the viewport width.
-* The inner center_with_scroll_to helper computes absolute scroll coordinates
-* to center the element, used in preference to scrollIntoView for finer
-* positioning control.
+* Brings the node to the vertical center of the viewport, INSTANTLY, and keeps it
+* there while the tree is still settling.
+*
+* Why not a smooth scroll with retries (the previous design): a deep-link window
+* (e.g. 'Open dd0-6') hilites while branches above the term are still rendering.
+* Every layout shift moved the target, every 350 ms retry restarted a smooth
+* animation from wherever the last one was, and the loop stopped as soon as 5% of
+* the node was visible — a slow, wandering scroll that often ended at the edge.
+*
+* Now: one instant jump (only if the node is not fully visible), then a per-frame
+* check re-pins the node while the layout keeps moving it (a ResizeObserver is not
+* enough: the tree grows inside containers whose size the body does not reflect).
+* The pin ends on the first user interaction (wheel, touch, key, pointer), after
+* QUIET_MS without the node moving, or after MAX_MS — whichever comes first. The
+* user never fights the page: their first gesture wins.
+* Horizontal scroll moves only when the node lies outside the viewport width.
 * @param {HTMLElement} node_to_scroll - The element to scroll into view.
 * @returns {void}
 */
 const scroll_to_node = (node_to_scroll) => {
 
-	let scrolled = false
+	const QUIET_MS	= 1200	// layout considered settled after this long without resizes
+	const MAX_MS	= 8000	// hard cap for slow parses
 
-	// fully visible check. A node that already fits the viewport height does
-	// not need any scroll (prevents unnecessary page movement).
-	const is_fully_visible = (el) => {
-		const rect = el.getBoundingClientRect()
+	const is_fully_visible = () => {
+		const rect = node_to_scroll.getBoundingClientRect()
+		return rect.height > 0 && rect.top >= 0 && rect.bottom <= window.innerHeight
+	}
+
+	const center = () => {
+		const rect = node_to_scroll.getBoundingClientRect()
 		if (rect.height <= 0) {
-			return false
+			return // not laid out (yet)
 		}
-		return rect.top >= 0 && rect.bottom <= window.innerHeight
-	}
-
-	const center_with_scroll_to = (el, offsetTop = 0)=> {
-		const rect   = el.getBoundingClientRect(); // position relative to viewport
-		const scrollTop  = window.pageYOffset || document.documentElement.scrollTop;
-		const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-
-		// Desired Y coordinate of the element’s top edge after scrolling
-		const desiredY = scrollTop + rect.top - (window.innerHeight / 2) + (rect.height / 2) + offsetTop;
-
-		// Desired X coordinate – moved ONLY when the node is outside the
-		// viewport width, to prevent unnecessary horizontal shifts.
 		const out_of_view_x = (rect.left < 0 || rect.right > window.innerWidth)
-		const desiredX = out_of_view_x
-			? scrollLeft + rect.left - (window.innerWidth / 2) + (rect.width / 2)
-			: scrollLeft
-
 		window.scrollTo({
-			top:   desiredY,
-			left:  desiredX,
-			behavior: 'smooth'   // optional
-		});
-
-		scrolled = true
+			top			: window.scrollY + rect.top - (window.innerHeight / 2) + (rect.height / 2),
+			left		: out_of_view_x
+				? window.scrollX + rect.left - (window.innerWidth / 2) + (rect.width / 2)
+				: window.scrollX,
+			behavior	: 'instant'
+		})
 	}
 
-	// user wheel event
-	// To prevent to change the early user scroll, check for user wheel event
-	// before to try it programmatically (less intrusive behavior)
-	let user_scroll = false
-	const wheel_handler = () => {
-		user_scroll = true
+	// pinned state. Ends on user input, quiet layout or the hard cap.
+	const user_events = ['wheel','touchstart','keydown','mousedown']
+	let quiet_timer	= null
+	let frame		= null
+	const stop = () => {
+		clearTimeout(quiet_timer)
+		clearTimeout(max_timer)
+		cancelAnimationFrame(frame)
+		for (const name of user_events) {
+			window.removeEventListener(name, stop, true)
+		}
 	}
-	window.addEventListener('wheel', wheel_handler, { passive: true });
-
-	// cleanup helper. The wheel listener is removed in EVERY exit path
-	// (success, user scroll, max attempts, timeout, already-visible).
-	const cleanup_wheel = () => {
-		window.removeEventListener('wheel', wheel_handler, { passive: true });
+	const arm_quiet = () => {
+		clearTimeout(quiet_timer)
+		quiet_timer = setTimeout(stop, QUIET_MS)
+	}
+	const max_timer = setTimeout(stop, MAX_MS)
+	for (const name of user_events) {
+		window.addEventListener(name, stop, { capture: true, passive: true })
 	}
 
-	const scroll_node = () => {
-		if (user_scroll) {
-			cleanup_wheel()
+	// A shift that leaves the node visible is not chased (no jitter); only one
+	// that hides it re-centers. Every movement of the node re-arms the quiet timer.
+	let last_top = null
+	const pin = () => {
+		if (!node_to_scroll.isConnected) {
+			stop()
 			return
 		}
-		// node_to_scroll.scrollIntoView({ behavior: "smooth", block: "end", inline: "nearest" })
-		center_with_scroll_to(node_to_scroll, 0)
+		if (!is_fully_visible()) {
+			center()
+		}
+		const top = node_to_scroll.getBoundingClientRect().top
+		if (top!==last_top) {
+			last_top = top
+			arm_quiet()
+		}
+		frame = requestAnimationFrame(pin)
 	}
-
-	let scroll_interval = null;
-	let scroll_attempts = 0;
-	const MAX_SCROLL_ATTEMPTS = 10; // Prevent infinite scrolling
-
-	// already fully visible case: no scroll needed now. A single delayed
-	// verification protects against late layout shifts (slow tree parses)
-	// moving the node out of sight: it scrolls only when really needed
-	// instead of the previous unconditional re-centering.
-	if (is_fully_visible(node_to_scroll)) {
-		cleanup_wheel()
-		setTimeout(() => {
-			if (!is_fully_visible(node_to_scroll)) {
-				center_with_scroll_to(node_to_scroll, 0)
-			}
-		}, 2000)
-		return
-	}
-
-	// Create observer
-	const observer = new IntersectionObserver((entries) => {
-		entries.forEach(entry => {
-
-			if (entry.isIntersecting) {
-				// console.error('Element is visible:', entry.target);
-
-				const visibilityPercentage = Math.round(entry.intersectionRatio * 100);
-				if (visibilityPercentage > 5) {
-					// Success - clean up everything
-					observer.disconnect();
-					if (scroll_interval) {
-						clearInterval(scroll_interval);
-						scroll_interval = null;
-					}
-					cleanup_wheel()
-				}
-			} else {
-				// console.log('Element is not visible:', entry.target);
-
-				// Clear any existing interval
-				if (scroll_interval) {
-					clearInterval(scroll_interval);
-				}
-
-				// Initial scroll attempt
-				scroll_node();
-				scroll_attempts = 1;
-
-				// Set up interval with retry limit
-				const do_scroll = () => {
-					if (scroll_attempts >= MAX_SCROLL_ATTEMPTS) {
-						console.warn('Max scroll attempts reached, giving up');
-						clearInterval(scroll_interval);
-						observer.disconnect();
-						cleanup_wheel()
-						return;
-					}
-
-					console.log(`Scrolling attempt ${scroll_attempts + 1}`);
-					scroll_attempts++;
-					dd_request_idle_callback(scroll_node);
-				};
-
-				scroll_interval = setInterval(do_scroll, 350);
-			}
-		});
-	}, {
-		threshold: [0, 0.05, 0.1] // Check at 0%, 5%, and 10% visibility
-	})
-
-	observer.observe(node_to_scroll);
-
-	// Cleanup timeout as fallback
-	setTimeout(() => {
-		if (observer) {
-			observer.disconnect();
-		}
-		if (scroll_interval) {
-			clearInterval(scroll_interval);
-		}
-		cleanup_wheel()
-		if (!scrolled) {
-			console.log('Scroll operation timed out after 10 seconds');
-		}
-	}, 10000);
+	pin()
 }//end scroll_to_node
 
 
