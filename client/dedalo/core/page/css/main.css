@@ -28954,7 +28954,13 @@ body.inspector_resizing {
 }
 .component_text_area.list img {
   height: 0.9rem;
+  width: auto;
+  min-width: 0;
   vertical-align: bottom;
+}
+.component_text_area.list .image,
+.component_text_area.list p {
+  display: inline;
 }
 .component_text_area.search .content_data {
   display: flex;
@@ -28986,8 +28992,6 @@ body.inspector_resizing {
   padding: 0.05rem;
   z-index: 1;
 }
-  width: auto;
-  min-width: 0;
 .component_text_area.view_line .toolbar_container > .toolbar_button.button_save {
   padding: 1px;
   padding-right: 0.5rem;
@@ -29214,38 +29218,6 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
 :where(.component_text_area .editor_container) img.image_resized {
   height: auto;
 }
-/**
-* widget calculation
-*
-* Included from main.less file
-*/
-.wrapper_widget.calculation > .content_data {
-  font-size: 1rem;
-}
-.wrapper_widget.calculation > .content_data .value {
-  letter-spacing: 0.05em;
-  font-family: "date_separator", apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-}
-/**
-* widget get_archive_weights
-*
-* Included from main.less file
-*/
-.wrapper_widget.get_archive_weights .content_data .get_archive_weights {
-  display: flex;
-}
-.wrapper_widget.get_archive_weights .content_data .get_archive_weights .archive_weights {
-  padding: unset;
-  display: flex;
-  flex-direction: column;
-}
-.wrapper_widget.get_archive_weights .content_data .get_archive_weights .sum_weights {
-  font-size: 1.2rem;
-}
-.wrapper_widget.get_archive_weights .content_data .get_archive_weights .sum_diameter {
-  font-size: 1.2rem;
-  padding-left: 0.5rem;
-}
 :where(.component_text_area .editor_container) .image-style-align-center {
   margin-left: auto;
   margin-right: auto;
@@ -29294,6 +29266,38 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
 }
 :where(.component_text_area .editor_container) .image-inline.image-style-align-right {
   margin-left: 0.75em;
+}
+/**
+* widget calculation
+*
+* Included from main.less file
+*/
+.wrapper_widget.calculation > .content_data {
+  font-size: 1rem;
+}
+.wrapper_widget.calculation > .content_data .value {
+  letter-spacing: 0.05em;
+  font-family: "date_separator", apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+/**
+* widget get_archive_weights
+*
+* Included from main.less file
+*/
+.wrapper_widget.get_archive_weights .content_data .get_archive_weights {
+  display: flex;
+}
+.wrapper_widget.get_archive_weights .content_data .get_archive_weights .archive_weights {
+  padding: unset;
+  display: flex;
+  flex-direction: column;
+}
+.wrapper_widget.get_archive_weights .content_data .get_archive_weights .sum_weights {
+  font-size: 1.2rem;
+}
+.wrapper_widget.get_archive_weights .content_data .get_archive_weights .sum_diameter {
+  font-size: 1.2rem;
+  padding-left: 0.5rem;
 }
 .wrapper_widget.get_archive_weights .content_data .get_archive_weights .weights_values {
   padding-top: 0.5rem;
