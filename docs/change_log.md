@@ -26,6 +26,13 @@ Merged since the last release; these ship with the next one.
     that record with "cannot delete path in scalar". New records are now stored correctly. A record already
     affected is repaired by setting its `relation_search` column to SQL NULL wherever `jsonb_typeof(relation_search) = 'null'`.
 
+- **Records linked from the list's link button no longer store the stray `close_modal` key in their locator.**
+
+    Linking a record with the link button of a portal's list view saved the button's own "keep the window open"
+    flag (`close_modal`) inside the stored relation, next to the real locator keys. The flag is now kept out of the
+    locator by the client and stripped by the server's relation insert. Locators already saved with it are harmless
+    to read; removing the key from them restores the clean locator shape.
+
 ### For administrators
 
 #### Fixed

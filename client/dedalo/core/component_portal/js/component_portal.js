@@ -352,18 +352,22 @@ component_portal.prototype.init = async function(options) {
 	// events subscribe
 
 		// initiator_link. Observes user click over list record_
-			const initiator_link_handler = async (locator) => {
+		// The payload is a MESSAGE: the locator plus the publisher's UI flag
+		// `close_modal`. Only the locator is linked — the flag is not part of it
+		// and was stored on every relation made from the list link button.
+			const initiator_link_handler = async (message) => {
 				// debug
 					if(SHOW_DEBUG===true) {
-						console.log('-> event fn_initiator_link locator:', locator);
+						console.log('-> event fn_initiator_link locator:', message);
 					}
+				const { close_modal, ...locator } = message
 				// add locator selected
 					const result = await self.link_record(locator)
 					if (result===false) {
 						return
 					}
 				// modal close
-					if (self.modal && locator.close_modal !== false) {
+					if (self.modal && close_modal !== false) {
 						self.modal.close()
 					}
 			}
@@ -372,11 +376,12 @@ component_portal.prototype.init = async function(options) {
 			)
 
 		// initiator_unlink. Observes user click over list record to remove from portal
-			const initiator_unlink_handler = async (locator) => {
+			const initiator_unlink_handler = async (message) => {
 				// debug
 					if (SHOW_DEBUG===true) {
-						console.log('-> event fn_initiator_unlink locator:', locator);
+						console.log('-> event fn_initiator_unlink locator:', message);
 					}
+				const { close_modal, ...locator } = message
 
 					if (!locator.id) {
 						console.warn('Value to unlink not found in current entries');
@@ -389,7 +394,7 @@ component_portal.prototype.init = async function(options) {
 						return
 					}
 				// modal close
-					if (self.modal && locator.close_modal !== false) {
+					if (self.modal && close_modal !== false) {
 						self.modal.close()
 					}
 			}
