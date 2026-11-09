@@ -63,6 +63,23 @@
  *                 EXPLICIT (curator-configured) map is read at the subdatum
  *                 floor and asks no component key (owner decision D3) — the
  *                 edit form shows it to anyone who may read the relation.
+ *                 AND THE DISPLAY CARVE-OUT (owner decision D4, 2026-11-09,
+ *                 WC-2026-11-09-export-relation-display): a PLAIN relation
+ *                 column (one-step declared path) exports EXACTLY what the host
+ *                 record's section read shows for it. A record the read
+ *                 DISPLAYS under the column is not a crossing for the RECORD
+ *                 key, provided every component the walk reads there is one the
+ *                 read displayed AT THAT RECORD (or stores nothing there), and
+ *                 every frame entry it reads there was emitted there. The
+ *                 display is the read's own answer
+ *                 (security/host_component_read.ts hostColumnDisplay — never
+ *                 a second notion of it), asked only after the record key
+ *                 refused. Beyond it the full law stands, THROW: a declared path
+ *                 into the target, a record the read does not expand, a
+ *                 component it does not show, the parents chain, the media walk,
+ *                 dedalo_raw. A media-capturing run keeps the carve-out: the
+ *                 media ZIP re-authorizes every file per record (media_zip.ts).
+ *                 SEARCH and DIFFUSION are untouched.
  *       DIFFUSION DROPS the row and leaves a ledger line. The published target
  *                 is public; a record the enqueuing principal may not read must
  *                 not be pushed there by them, and the run must still finish.

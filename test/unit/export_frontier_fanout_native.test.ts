@@ -15,6 +15,13 @@
  * So a record outside the caller's projects, two links away, exported its
  * value while the SAME record, reached by a declared path, refused the export.
  *
+ * ADDENDUM 2026-11-09 (owner decision D4, WC-2026-11-09-export-relation-display):
+ * a record the PLAIN column DISPLAYS (the host read embeds it) is no longer a
+ * record-key crossing — the depth 0/1/2 and frame-target cases below now pin
+ * scoped == admin. The REFUSES law still holds for the parents chain, the
+ * media walk, the no-children / iri branches (the read expands no target
+ * there), and everything export_relation_display_native gates.
+ *
  * WHAT THIS FILE PROVES, per crossing × format (value, grid_value fan-out,
  * WC-008 compact):
  *   REFUSES  a scoped caller's export THROWS `perm.export_column_out_of_scope`
@@ -65,6 +72,8 @@ import { EXPORT_ROW_MEDIA } from '../../src/diffusion/export/row_media.ts';
 import { toolExportGetExportGrid } from '../../tools/tool_export/server/tool_export.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
 import { exportFrontierIdentity } from '../helpers/export_frontier_identity.ts';
+import { hostColumnDisplayedValues, hostSectionReadItems } from '../helpers/host_section_read.ts';
+import { registerSessionCleanup } from '../helpers/session_cleanup.ts';
 
 const A = 'zzxg1';
 const A_FILTER = 'zzxg2';
@@ -115,6 +124,8 @@ const ID = new (class {
 const identity = exportFrontierIdentity('export_frontier_fanout', 933500);
 
 const LANG = 'lg-eng';
+
+registerSessionCleanup();
 const term = (value: string) => ({ [LANG]: value });
 const text = (tipo: string, value: string) => ({ [tipo]: [{ id: 1, lang: LANG, value }] });
 
@@ -605,29 +616,49 @@ describe.if(DB_READY)('the export frontier covers the fan-out (T0-1 / S02)', () 
 		});
 	}
 
+	/**
+	 * FLIPPED 2026-11-09 (owner decision D4, WC-2026-11-09-export-relation-display):
+	 * every case here is a record the PLAIN column DISPLAYS — the section read of
+	 * the root embeds it under P / Q for this persona (explicit children, the
+	 * subdatum floor) — so it is not a crossing for the record key: the scoped
+	 * export carries exactly what the admin's does. The refusal law beyond the
+	 * display (a declared path into the target, a record the read does not
+	 * expand, a component it does not show, the parents chain, the media walk)
+	 * is gated by export_relation_display_native and the cases above.
+	 */
 	for (const hidden of HIDDEN_CASES) {
-		describe(`REFUSES — ${hidden.name}`, () => {
+		describe(`DISPLAYED — ${hidden.name}`, () => {
 			for (const shape of hidden.shapes) {
-				test(`${shape}: scoped THROWS naming the column; admin sees the value`, async () => {
+				test(`${shape}: the column displays it → the scoped export equals the admin's`, async () => {
 					await resetChain();
 					const answers: Record<string, string[]> = { scoped: [], admin: [] };
 					for (const sentinel of [SENTINEL_ALPHA, SENTINEL_BRAVO]) {
 						await writeRecord(hidden.key, identity.otherProject, sentinel);
+						// the SCREEN: the scoped caller's own section read of the root
+						// embeds this value under this column — the carve-out's premise,
+						// asked of the read itself, not of the admin's export
+						const shown = hostColumnDisplayedValues(
+							await hostSectionReadItems(identity.scoped, A, ID.root, LANG, 'export-fanout'),
+							shape === 'compact' ? Q : P,
+							A,
+							ID.root,
+						);
+						expect(shown).toContain(sentinel);
 						answers.scoped?.push(await exportAnswer(identity.scoped, shape));
 						answers.admin?.push(await exportAnswer(identity.admin, shape));
 					}
 					const [scopedAlpha, scopedBravo] = answers.scoped as [string, string];
 					const [adminAlpha, adminBravo] = answers.admin as [string, string];
-					// non-vacuity: the admin's export carries the hidden value
+					// non-vacuity: the out-of-scope record's value reaches the deliverable
 					expect(adminAlpha).toContain(SENTINEL_ALPHA);
 					expect(adminBravo).toContain(SENTINEL_BRAVO);
 					expect(adminAlpha).not.toBe(adminBravo);
-					// the scoped caller: refused, by the column, identically, naming neither
-					const column = shape === 'compact' ? 'zz fan compact' : 'zz fan main';
-					expect(scopedAlpha).toBe(`REFUSED:${REFUSAL}:${JSON.stringify({ column })}`);
-					expect(scopedBravo).toBe(scopedAlpha);
-					expect(scopedAlpha).not.toContain('alpha');
-					expect(scopedBravo).not.toContain('bravo');
+					// the scoped caller: the displayed out-of-scope value IS exported …
+					expect(scopedAlpha).toContain(SENTINEL_ALPHA);
+					expect(scopedBravo).toContain(SENTINEL_BRAVO);
+					// … and exactly what the column displays — the admin's bytes
+					expect(scopedAlpha).toBe(adminAlpha);
+					expect(scopedBravo).toBe(adminBravo);
 				});
 			}
 		});

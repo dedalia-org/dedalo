@@ -206,7 +206,15 @@ export function createExportRun(
 			// run's scope at CALL time, and with none they cross everything —
 			// every internal user of this walk is byte-unchanged.
 			frontier: {
-				crossRecord: (sectionTipo, sectionId) => exportCrossRecord(atoms, sectionTipo, sectionId),
+				// `reads` null = the cell cannot name what it reads there → the
+				// full law; a list = the display carve-out may apply (D4).
+				crossRecord: (sectionTipo, sectionId, reads, frames) =>
+					exportCrossRecord(
+						atoms,
+						sectionTipo,
+						sectionId,
+						reads === null ? 'strict' : { reads, ...(frames === undefined ? {} : { frames }) },
+					),
 				implicitChildren: (sectionTipo, componentTipos) =>
 					exportImplicitChildren(atoms, sectionTipo, componentTipos),
 			},
@@ -228,6 +236,15 @@ async function readableMapChildren(
 	if (implicitTipos.length === 0) return children;
 	const allowed = await exportImplicitChildren(run.atoms, targetSection, implicitTipos);
 	return children.filter((child) => !isImplicitChild(child) || allowed.has(child.tipo));
+}
+
+/** The tipos of `tipos` that are not dataframes (a dataframe reads the OWNER record). */
+async function nonDataframeTipos(tipos: readonly string[]): Promise<string[]> {
+	const out: string[] = [];
+	for (const tipo of tipos) {
+		if ((await getModelByTipo(tipo)) !== 'component_dataframe') out.push(tipo);
+	}
+	return out;
 }
 
 /** The origin tag ownChildrenOf stamps on an implicit map's children. */
@@ -269,7 +286,8 @@ async function resolveParentsChain(
 		// THE FRONTIER (T0-1): an ancestor is another record. Thesaurus tables
 		// are globally visible (the record key exempts them); a tree on a
 		// project-gated table is not.
-		await exportCrossRecord(run.atoms, ancestor.section_tipo, ancestor.section_id);
+		// STRICT (D4): the parents chain is beyond any column's display.
+		await exportCrossRecord(run.atoms, ancestor.section_tipo, ancestor.section_id, 'strict');
 		const term = await getTermByLocator(ancestor, lang, true);
 		if (term !== null && term !== '') parts.push(term);
 	}
@@ -929,8 +947,16 @@ async function fanOutRelation(
 		// crossing — at depth 0 (already asserted by resolveRecordAtoms: a memo
 		// hit), at every nested depth (the recursion re-enters here) and for a
 		// dataframe's FRAME targets (the recursion's locators are the frames).
-		await exportCrossRecord(run.atoms, locator.sectionTipo, locator.sectionId);
-		for (const child of await readableMapChildren(run, children, locator.sectionTipo)) {
+		// The children are decided FIRST, so the crossing can name what it reads
+		// there (the display carve-out, D4, admits a record the host read shows
+		// only for components the read shows; a dataframe child is read on the
+		// OWNER record, so its frames are crossed on the owner below, per entry;
+		// its frame targets are crossings of their own).
+		const readable = await readableMapChildren(run, children, locator.sectionTipo);
+		await exportCrossRecord(run.atoms, locator.sectionTipo, locator.sectionId, {
+			reads: await nonDataframeTipos(readable.map((child) => child.tipo)),
+		});
+		for (const child of readable) {
 			const childModel = (await getModelByTipo(child.tipo)) ?? String(child.model ?? '');
 			if (childModel === '') continue; // PHP: missing TLD → skip (debug log)
 
@@ -971,6 +997,22 @@ async function fanOutRelation(
 						sectionId: stored.section_id as number | string,
 						index,
 						id: stored.id,
+					});
+				}
+				// The frames are the OWNER's data: free for an owner in record scope;
+				// a display-admitted owner (a target walked deeper) must have been
+				// shown each ENTRY there (D4 — a slot item lists only the frames of
+				// the main items the read shows).
+				if (frameLocators.length > 0) {
+					await exportCrossRecord(run.atoms, ownerSectionTipo, ownerSectionId, {
+						reads: [],
+						frames: frameLocators.map((frame) => ({
+							frameTipo: child.tipo,
+							mainTipo,
+							pairId: locator.id as number | string,
+							sectionTipo: frame.sectionTipo,
+							sectionId: frame.sectionId,
+						})),
 					});
 				}
 				const dataframeSegment: ExportSegment = {
@@ -1274,6 +1316,7 @@ async function walkMediaReads(
 				run.atoms,
 				locator.section_tipo,
 				locator.section_id as number | string,
+				'strict', // the media walk: files leave the system — never the display (D4)
 			);
 			const targetChildren = await readableTargetChildren(run, children, locator.section_tipo);
 			for (const child of targetChildren) {
@@ -1306,7 +1349,7 @@ async function walkMediaReads(
 					const frameId = (frame as RawLocator).section_id;
 					if (typeof frameSection !== 'string' || frameId === undefined) continue;
 					// a frame TARGET is a crossing too (T0-1)
-					await exportCrossRecord(run.atoms, frameSection, frameId as number | string);
+					await exportCrossRecord(run.atoms, frameSection, frameId as number | string, 'strict');
 					for (const frameChild of await readableTargetChildren(run, frameChildren, frameSection)) {
 						next.push({
 							sectionTipo: frameSection,

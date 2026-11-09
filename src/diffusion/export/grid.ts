@@ -81,7 +81,11 @@ import {
 	toolRequestId,
 } from '../../core/tools/module.ts';
 import type { FieldPlan } from '../plan/types.ts';
-import { loadExportRecord, prefetchExportRecords } from '../resolve/resolver.ts';
+import {
+	type ExportDisplayColumn,
+	loadExportRecord,
+	prefetchExportRecords,
+} from '../resolve/resolver.ts';
 import type { ExportRun, ExportSegment, GridAtom } from './atoms.ts';
 import {
 	cellTypeOfModel,
@@ -1217,11 +1221,21 @@ async function openExportGridInScope(
 	}): Promise<RecordEntry[]> => {
 		let walking: FieldPlan | undefined;
 		try {
-			return await buildEntriesOf(record, (field) => {
+			return await buildEntriesOf(record, async (field) => {
 				walking = field;
+				// THE DISPLAY CARVE-OUT (owner decision D4): a plain relation column
+				// exports what this record's section read shows for it; every other
+				// column (and a file-carrying export) walks under the full law.
+				run.atoms.displayColumn = await displayColumnOf(field, record, {
+					dataFormat,
+					lang,
+					scoped: run.atoms.frontier !== undefined,
+				});
 			});
 		} catch (error) {
 			throw await columnNamedRefusal(error, walking, context.applicationLang);
+		} finally {
+			run.atoms.displayColumn = undefined;
 		}
 	};
 
@@ -1230,12 +1244,12 @@ async function openExportGridInScope(
 			section_id: number;
 			section_tipo: string;
 		},
-		onField: (field: FieldPlan) => void,
+		onField: (field: FieldPlan) => Promise<void>,
 	): Promise<RecordEntry[]> => {
 		const entries: RecordEntry[] = [];
 		degradation.beginRecord(record.section_tipo, record.section_id);
 		for (const field of fields) {
-			onField(field);
+			await onField(field);
 			const ddoIndex = field.exportColumn?.ordinal ?? 0;
 			const path = (field.exportColumn?.path ?? []) as RawPathStep[];
 			const firstStep = path[0] ?? {};
@@ -1671,6 +1685,44 @@ async function buildRawCell(
 	];
 	if (raw === undefined || raw === null) return { raw: null, cellType: 'json' };
 	return { raw: JSON.stringify({ dedalo_data: raw }), cellType: 'json' };
+}
+
+/**
+ * The PLAIN RELATION COLUMN a field is on this record (owner decision D4,
+ * WC-2026-11-09-export-relation-display), or undefined when the full frontier
+ * law applies to the whole field:
+ *   - only for a scoped run (an admin run carries no frontier at all);
+ *   - only a ONE-STEP declared path on this record's own section whose
+ *     component stores relations — a path INTO the target (a picked target
+ *     field, any declared hop) is beyond the display;
+ *   - never in dedalo_raw (its cell reads no target, and its media walk is
+ *     beyond the display).
+ * A run that captures media (EVERY tool_export job does) keeps the carve-out:
+ * value/grid capture only RECORDS the addresses the cell read, and the media
+ * ZIP re-authorizes every file as the job owner (writers/media_zip.ts —
+ * principalCanAccessRecord + component grant), so a displayed record outside
+ * the record scope never ships a file. Excluding capture runs disabled D4 for
+ * every real export (live repro numisdata3/numisdata30, user 1).
+ */
+async function displayColumnOf(
+	field: FieldPlan,
+	record: { section_id: number; section_tipo: string },
+	run: { dataFormat: string; lang: string; scoped: boolean },
+): Promise<ExportDisplayColumn | undefined> {
+	if (!run.scoped || run.dataFormat === 'dedalo_raw') return undefined;
+	const path = (field.exportColumn?.path ?? []) as RawPathStep[];
+	if (path.length !== 1) return undefined;
+	const sectionTipo = resolveDeclaredTipo(path[0]?.section_tipo);
+	const columnTipo = resolveDeclaredTipo(path[0]?.component_tipo);
+	if (sectionTipo !== record.section_tipo || columnTipo === null) return undefined;
+	const model = await getModelByTipo(columnTipo);
+	if (model === null || getColumnNameByModel(model) !== 'relation') return undefined;
+	return {
+		hostSectionTipo: record.section_tipo,
+		hostSectionId: record.section_id,
+		columnTipo,
+		lang: run.lang,
+	};
 }
 
 /**

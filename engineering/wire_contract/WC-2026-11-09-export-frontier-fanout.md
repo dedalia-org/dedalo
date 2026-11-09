@@ -32,3 +32,10 @@
 - **Gate reconciliation:** TS-only. The parity breakdown differential runs as the admin
   (no frontier) — no fixture edit, no re-harvest. `frontier_class_native`'s EXPORT probe now pins
   the new code instead of `perm.denied`.
+
+## Addendum 2026-11-09 — the display carve-out (owner decision D4)
+
+A record a PLAIN relation column DISPLAYS (the host record's section read embeds it, for this
+principal) is no longer a record-key crossing; every component read there must be one the read
+shows. Everything beyond the display keeps this entry's law. See
+WC-2026-11-09-export-relation-display.

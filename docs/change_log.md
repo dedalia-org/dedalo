@@ -58,6 +58,20 @@ Merged since the last release; these ship with the next one.
     that record with "cannot delete path in scalar". New records are now stored correctly. A record already
     affected is repaired by setting its `relation_search` column to SQL NULL wherever `jsonb_typeof(relation_search) = 'null'`.
 
+- **Exporting a related field no longer refuses what the record already shows you.**
+
+    A related field (a portal or an autocomplete) shows the labels of the records it points to, even
+    when those records are outside your projects. Exporting that same field stopped with "links to
+    records outside your scope", although the record on screen already showed every value.
+
+    An export of a related field now carries exactly what the record shows you for it, in every format.
+    Anything beyond that is still checked: picking a field inside the linked records, the thesaurus
+    parents, and a linked record the field does not show. If one of those reaches a record you cannot
+    open, the export still stops and names the column. Media files of linked records you cannot open
+    are still left out of the media archive.
+
+    Wire contract: `WC-2026-11-09-export-relation-display`.
+
 - **Records linked from the list's link button no longer store the stray `close_modal` key in their locator.**
 
     Linking a record with the link button of a portal's list view saved the button's own "keep the window open"
@@ -84,10 +98,11 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 4 entries"
+??? note "Wire contract — 5 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
+    - `WC-2026-11-09-export-relation-display`
     - `WC-2026-11-09-implicit-children-frontier-predicate`
     - `WC-2026-11-09-start-deep-link-found-set-position`
 

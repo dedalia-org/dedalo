@@ -1859,6 +1859,11 @@
 			"skipped": 0,
 			"assertions": 174
 		},
+		"test/unit/export_relation_display_native.test.ts": {
+			"tests": 18,
+			"skipped": 0,
+			"assertions": 81
+		},
 		"test/unit/export_run_bounds_identity_native.test.ts": {
 			"tests": 8,
 			"skipped": 0,

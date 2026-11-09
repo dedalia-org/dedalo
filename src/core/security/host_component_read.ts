@@ -59,6 +59,7 @@
 
 import type { Ddo } from '../concepts/ddo.ts';
 import { isTemporalSource, type Rqo, type RqoSource } from '../concepts/rqo.ts';
+import { canonicalizeStoredSectionId } from '../concepts/section_id.ts';
 import type { Principal } from './permissions.ts';
 
 /** The sqo keys a host-component page may carry with a value (everything else must be empty). */
@@ -335,6 +336,217 @@ export async function admitHostComponentRead(
 	const requested = getSectionTipos(request.sqo);
 	const admitted = requested.length > 0 && requested.every((section) => targets.includes(section));
 	return admitted ? { rqo: derivedRqo(request, host) } : null;
+}
+
+/**
+ * WHAT A HOST RECORD'S SECTION READ SHOWS FOR ONE RELATION COLUMN — the
+ * export's display carve-out (frontier_scope.ts, owner decision D4,
+ * WC-2026-11-09-export-relation-display): the records the read EXPANDED under
+ * the column and the (section, component) pairs it emitted there.
+ */
+export interface HostColumnDisplay {
+	/** True when the read emitted at least one item AT this record. */
+	hasRecord(sectionTipo: string, sectionId: number | string): boolean;
+	/**
+	 * True when the read emitted this component AT THIS RECORD — per record,
+	 * never per section: a component shown at one record of a section is not
+	 * shown at another one (a record displayed in one position with its label
+	 * is not displayed with a field the read shows only at its siblings).
+	 */
+	hasComponent(sectionTipo: string, sectionId: number | string, componentTipo: string): boolean;
+	/**
+	 * True when the read emitted, AT the owner record, this exact dataframe
+	 * entry (frame slot, main component, pair key, frame target) — a frame is
+	 * displayed per entry, never per slot: the read emits a slot item at an
+	 * owner with only the frames paired to the main items it shows.
+	 */
+	hasFrame(sectionTipo: string, sectionId: number | string, frame: DisplayedFrame): boolean;
+}
+
+/** One dataframe entry as {@link HostColumnDisplay.hasFrame} is asked about it. */
+export interface DisplayedFrame {
+	readonly frameTipo: string;
+	readonly mainTipo: string;
+	readonly pairId: number | string;
+	readonly sectionTipo: string;
+	readonly sectionId: number | string;
+}
+
+/** One host column, addressed for {@link hostColumnDisplay}. */
+export interface HostColumnAddress {
+	readonly sectionTipo: string;
+	readonly sectionId: number;
+	readonly tipo: string;
+	readonly lang: string;
+}
+
+/** A record's display key, on its CANONICAL address (an int; an external id verbatim). */
+const displayKey = (sectionTipo: string, sectionId: unknown): string =>
+	`${sectionTipo}\u0000${String(canonicalizeStoredSectionId(sectionId))}`;
+
+/**
+ * A frame entry's display key, at its owner record: (owner, main component,
+ * frame slot, pair key, frame target).
+ */
+const frameKey = (owner: string, frame: DisplayedFrame): string =>
+	[
+		owner,
+		frame.mainTipo,
+		frame.frameTipo,
+		pairKeyText(frame.pairId),
+		displayKey(frame.sectionTipo, frame.sectionId),
+	].join('\u0001');
+
+/** A pair key as the pairing compares it (subdatum.ts: Number(id_key) === Number(id)). */
+function pairKeyText(pairId: number | string): string {
+	const numeric = Number(pairId);
+	return Number.isFinite(numeric) ? String(numeric) : String(pairId);
+}
+
+/** An entry's pair key (`id_key`), or null when it carries none (not a frame). */
+function pairKeyOf(entry: Record<string, unknown>): number | string | null {
+	const pairId = entry.id_key;
+	return typeof pairId === 'number' || typeof pairId === 'string' ? pairId : null;
+}
+
+/** True when the entry names a target record (section_tipo string + section_id). */
+function isLocatorShaped(
+	entry: Record<string, unknown>,
+): entry is Record<string, unknown> & { section_tipo: string; section_id: number | string } {
+	return typeof entry.section_tipo === 'string' && entry.section_id !== undefined;
+}
+
+/** One emitted entry as a displayed frame of slot `frameTipo`, or null. */
+function asDisplayedFrame(frameTipo: string, entry: unknown): DisplayedFrame | null {
+	if (entry === null || typeof entry !== 'object') return null;
+	const frame = entry as Record<string, unknown>;
+	const pairId = pairKeyOf(frame);
+	if (pairId === null || !isLocatorShaped(frame)) return null;
+	return {
+		frameTipo,
+		mainTipo: String(frame.main_component_tipo ?? ''),
+		pairId,
+		sectionTipo: frame.section_tipo,
+		sectionId: frame.section_id as number | string,
+	};
+}
+
+/** The display key of the record an item was emitted AT, or null (no address / no tipo). */
+function emittedAt(item: DisplayItem): string | null {
+	if (typeof item.section_tipo !== 'string' || typeof item.tipo !== 'string') return null;
+	if (item.section_id === null || item.section_id === undefined) return null;
+	return displayKey(item.section_tipo, item.section_id);
+}
+
+/** The dataframe entries an emitted item carries (entries with a pair key). */
+function emittedFrames(item: DisplayItem): DisplayedFrame[] {
+	const entries = Array.isArray(item.entries) ? item.entries : [];
+	return entries
+		.map((entry) => asDisplayedFrame(String(item.tipo), entry))
+		.filter((frame): frame is DisplayedFrame => frame !== null);
+}
+
+/**
+ * THE DISPLAY OF ONE RELATION COLUMN, derived from the read itself — never a
+ * second notion of "display" (WC-2026-11-09-export-relation-display). It runs
+ * the SAME admission + emission the host-component get_data runs (module
+ * header): the column node of the host section's EDIT map (STEP 11 gated, so a
+ * column the principal holds 0 on has no display — null), served through the
+ * one get_data emission (read.ts readComponentDataEmission) with the
+ * server-derived rqo, paged to the end (pagination is presentation: the user
+ * pages through every target). What it emitted IS the display: every record
+ * an item was emitted AT (the targets the read expanded, at every depth it
+ * expanded them — a target the read did not expand is not displayed), and
+ * every (record, component) it emitted, keyed PER RECORD (a child the read
+ * refused — component key 0 — emits nothing, so it is not displayed either),
+ * and every dataframe ENTRY it emitted at its owner record.
+ *
+ * The read answers for the AMBIENT principal (read.ts reads currentPrincipal),
+ * so the ambient principal MUST be `principal`: a mismatch is an invariant
+ * breach, refused loudly rather than answered for the wrong user.
+ */
+export async function hostColumnDisplay(
+	principal: Principal,
+	column: HostColumnAddress,
+): Promise<HostColumnDisplay | null> {
+	const { currentPrincipal } = await import('./request_context.ts');
+	const ambient = currentPrincipal();
+	if (ambient?.userId !== principal.userId) {
+		const { DedaloError } = await import('../errors/dedalo_error.ts');
+		throw new DedaloError('internal.invariant', {
+			message: `hostColumnDisplay: the ambient principal (${String(ambient?.userId)}) is not the asking principal (${principal.userId}) — the read would answer for another user`,
+		});
+	}
+	const host: HostComponent = { ...column, mode: 'edit' };
+	const targets = await hostColumnTargets(principal, host);
+	if (targets === null) return null;
+	const records = new Set<string>();
+	const shown = new Set<string>();
+	const frames = new Set<string>();
+	await forEachDisplayPage(host, targets, (items) => {
+		for (const item of items) {
+			const record = emittedAt(item);
+			if (record === null) continue;
+			records.add(record);
+			shown.add(`${record}\u0000${String(item.tipo)}`);
+			for (const frame of emittedFrames(item)) frames.add(frameKey(record, frame));
+		}
+	});
+	return {
+		hasRecord: (sectionTipo, sectionId) => records.has(displayKey(sectionTipo, sectionId)),
+		hasComponent: (sectionTipo, sectionId, componentTipo) =>
+			shown.has(`${displayKey(sectionTipo, sectionId)}\u0000${componentTipo}`),
+		hasFrame: (sectionTipo, sectionId, frame) =>
+			frames.has(frameKey(displayKey(sectionTipo, sectionId), frame)),
+	};
+}
+
+/** One emitted item, as {@link hostColumnDisplay} reads it. */
+interface DisplayItem {
+	readonly section_tipo?: unknown;
+	readonly section_id?: unknown;
+	readonly tipo?: unknown;
+	readonly entries?: unknown;
+	readonly pagination?: { total?: unknown };
+}
+
+/**
+ * Page the host column's get_data to the end, handing each page's items to
+ * `visit`. The page size is the client ceiling (the read clamps to it anyway);
+ * the column's own item carries the total.
+ */
+async function forEachDisplayPage(
+	host: HostComponent,
+	targets: readonly string[],
+	visit: (items: readonly DisplayItem[]) => void,
+): Promise<void> {
+	const { CLIENT_MAX_LIMIT } = await import('../concepts/sqo.ts');
+	const { readComponentDataEmission } = await import('../section/read.ts');
+	for (let offset = 0; ; offset += CLIENT_MAX_LIMIT) {
+		const request = {
+			source: {
+				type: 'component',
+				action: 'get_data',
+				tipo: host.tipo,
+				section_tipo: host.sectionTipo,
+				section_id: host.sectionId,
+			},
+			sqo: {
+				section_tipo: [...targets],
+				filter_by_locators: [{ section_tipo: host.sectionTipo, section_id: host.sectionId }],
+				limit: CLIENT_MAX_LIMIT,
+				offset,
+			},
+		} as unknown as HostReadRequest;
+		const produced = await readComponentDataEmission(derivedRqo(request, host));
+		const items = produced.items as readonly DisplayItem[];
+		visit(items);
+		const own = items.find(
+			(item) => item.tipo === host.tipo && item.section_tipo === host.sectionTipo,
+		);
+		const total = Number(own?.pagination?.total ?? 0);
+		if (!Number.isFinite(total) || offset + CLIENT_MAX_LIMIT >= total) return;
+	}
 }
 
 /**
