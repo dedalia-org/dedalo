@@ -5549,6 +5549,11 @@
 			"skipped": 0,
 			"assertions": 8
 		},
+		"test/unit/start_deep_link_navigation_native.test.ts": {
+			"tests": 14,
+			"skipped": 0,
+			"assertions": 97
+		},
 		"test/unit/start_record_scope_native.test.ts": {
 			"tests": 12,
 			"skipped": 0,
