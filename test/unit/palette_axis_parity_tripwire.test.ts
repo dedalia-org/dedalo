@@ -244,10 +244,6 @@ const LIGHT_DEAD_TOKENS: ReadonlyArray<{ token: string; consumer: string }> = [
 	{ token: '--menu_dropdown_bg', consumer: 'menu.less dark block' },
 	{ token: '--menu_dropdown_border', consumer: 'menu.less dark block' },
 	{ token: '--menu_dropdown_li_border', consumer: 'menu.less dark block' },
-	{
-		token: '--debug_info_bar_bg',
-		consumer: 'menu.less dark block (C10: light paints @color_grey_4_light instead)',
-	},
 	{ token: '--select_bg', consumer: 'component_select.less dark block' },
 	{ token: '--select_fg', consumer: 'component_select.less dark block' },
 	{
