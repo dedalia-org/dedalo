@@ -71,6 +71,11 @@ const A_FILTER = 'zzxg2';
 const P = 'zzxg3';
 const F = 'zzxg4';
 const Q = 'zzxg5';
+/** An implicit select whose relations name ONLY section B: no label children. */
+const SEL = 'zzxg6';
+/** A component_iri whose dd560 label frame lands in E. */
+const IRI = 'zzxg7';
+const IRI_FRAME = 'dd560';
 const B = 'zzxg10';
 const B_FILTER = 'zzxg11';
 const B_LABEL = 'zzxg12';
@@ -184,6 +189,14 @@ const S = situation({
 			term: term('zz fan compact'),
 			properties: requestConfig(B, [B_LABEL, R]),
 		},
+		{
+			tipo: SEL,
+			parent: A,
+			model: 'component_select',
+			term: term('zz fan select'),
+			relations: [{ tipo: B }],
+		},
+		{ tipo: IRI, parent: A, model: 'component_iri', term: term('zz fan iri') },
 		section(B, 'zz fan b'),
 		filter(B_FILTER, B),
 		label(B_LABEL, B),
@@ -236,6 +249,18 @@ const CHAIN: Record<
 		relation: {
 			[P]: [relationLocator(P, B, ID.b, 1)],
 			[Q]: [relationLocator(Q, B, ID.b, 1)],
+			[SEL]: [relationLocator(SEL, B, ID.b, 1)],
+			[IRI_FRAME]: [
+				{
+					id: 1,
+					type: 'dd490',
+					id_key: 1,
+					section_tipo: E,
+					section_id: ID.e,
+					from_component_tipo: IRI_FRAME,
+					main_component_tipo: IRI,
+				},
+			],
 			[F]: [
 				{
 					id: 1,
@@ -294,13 +319,14 @@ async function writeRecord(
 		record.id,
 	]);
 	// the depth-2 record also holds an image file (the media-walk probe)
+	const iri = key === 'root' ? { [IRI]: [{ id: 1, iri: 'https://example.org/zzxg' }] } : null;
 	const media =
 		key === 'e'
 			? { [E_IMAGE]: [{ id: 1, files_info: [{ quality: 'original', file_path: E_IMAGE_PATH }] }] }
 			: null;
 	await sql.unsafe(
-		`INSERT INTO matrix_test (section_tipo, section_id, relation, string, media, data)
-		 VALUES ($1, $2, $3::text::jsonb, $4::text::jsonb, $5::text::jsonb, $6::text::jsonb)`,
+		`INSERT INTO matrix_test (section_tipo, section_id, relation, string, media, data, iri)
+		 VALUES ($1, $2, $3::text::jsonb, $4::text::jsonb, $5::text::jsonb, $6::text::jsonb, $7::text::jsonb)`,
 		[
 			record.section,
 			record.id,
@@ -308,6 +334,7 @@ async function writeRecord(
 			encodeForJsonb(record.label === '' ? {} : text(record.label, value)),
 			encodeForJsonb(media),
 			encodeForJsonb({ section_tipo: record.section, section_id: record.id }),
+			encodeForJsonb(iri),
 		],
 	); // a raw write skips the engine's data-cache invalidation: the thesaurus
 	// term memo (the parents chain reads it) would serve the previous value
@@ -332,8 +359,9 @@ async function exportAnswer(
 	principal: Principal,
 	shape: Shape,
 	withParents = false,
+	leafOverride?: string,
 ): Promise<string> {
-	const leaf = shape === 'compact' ? Q : P;
+	const leaf = leafOverride ?? (shape === 'compact' ? Q : P);
 	const parents = withParents ? { value_with_parents: true } : {};
 	const options = {
 		section_tipo: A,
@@ -402,6 +430,8 @@ const SCOPED_GRANTS = [
 	{ sectionTipo: A, tipo: A, level: 2 },
 	{ sectionTipo: A, tipo: P, level: 2 },
 	{ sectionTipo: A, tipo: Q, level: 2 },
+	{ sectionTipo: A, tipo: SEL, level: 2 },
+	{ sectionTipo: A, tipo: IRI, level: 2 },
 ];
 
 /** The admin: level 3 on every section and component of the situation. */
@@ -534,6 +564,46 @@ describe.if(DB_READY)('the export frontier covers the fan-out (T0-1 / S02)', () 
 			});
 		}
 	});
+
+	/**
+	 * Two more branches of relation_list.ts resolveCellValue that read ANOTHER
+	 * record: a relation with NO children (its label is the target's own term —
+	 * resolveLocatorLabels) and a component_iri (its title is read on the dd560
+	 * frame's target record — resolveIriTitles). The iri case is the ONLY guard
+	 * of its crossing (mutation-verified); the no-children crossing sits behind
+	 * the leaf-target and per-locator crossings, so its case pins the BEHAVIOUR
+	 * (lawful OK, hidden refused by the column), not that one line.
+	 */
+	const OTHER_BRANCHES: { name: string; leaf: string; key: string; column: string }[] = [
+		{
+			name: 'a relation with NO children (label = target term)',
+			leaf: SEL,
+			key: 'b',
+			column: 'zz fan select',
+		},
+		{
+			name: 'a component_iri title (dd560 frame target)',
+			leaf: IRI,
+			key: 'e',
+			column: 'zz fan iri',
+		},
+	];
+	for (const branch of OTHER_BRANCHES) {
+		describe(`the cell branch for ${branch.name} crosses the same frontier`, () => {
+			for (const shape of ['value', 'fanout'] as const) {
+				test(`${shape}: LAWFUL in scope; hidden → scoped THROWS by the column, admin exports`, async () => {
+					await resetChain();
+					const lawful = await exportAnswer(identity.scoped, shape, false, branch.leaf);
+					expect(lawful.startsWith('OK:'), lawful).toBe(true);
+					await writeRecord(branch.key, identity.otherProject, SENTINEL_ALPHA);
+					const admin = await exportAnswer(identity.admin, shape, false, branch.leaf);
+					expect(admin.startsWith('OK:'), admin).toBe(true);
+					const scoped = await exportAnswer(identity.scoped, shape, false, branch.leaf);
+					expect(scoped).toBe(`REFUSED:${REFUSAL}:${JSON.stringify({ column: branch.column })}`);
+				});
+			}
+		});
+	}
 
 	for (const hidden of HIDDEN_CASES) {
 		describe(`REFUSES — ${hidden.name}`, () => {

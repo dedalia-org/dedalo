@@ -501,6 +501,11 @@ export async function resolveRelationTargetValues(
 			// child set comes from implicit.ts, which already filters it through
 			// the same predicate (frontierAllowedComponents) for the ambient
 			// principal — the export runs inside its own principal scope.
+			// SECOND LAYER: in the export every target reaching this branch was
+			// already crossed (the leaf's own targets by resolver.ts, deeper ones
+			// per locator by atoms.ts fanOutRelation), so removing this check is
+			// not observable today — it keeps the branch safe for any new caller
+			// that passes `frontier` without walking through those doors.
 			if (
 				opts?.frontier !== undefined &&
 				typeof locator?.section_tipo === 'string' &&

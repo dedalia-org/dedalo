@@ -656,6 +656,59 @@ describe('F. the prefetch looks ahead UNDER the export frontier, and stops on St
 		expect(asked.map((entry) => entry.id).sort()).toEqual(batchRemote);
 	});
 
+	/**
+	 * T0-1 / D1: a RELATION leaf (the portal itself) whose external child is
+	 * IMPLICIT — the walk drops it for a caller without the grant, so the
+	 * prefetch must not ask the remote source for it. An EXPLICIT child is
+	 * read at the subdatum floor (D3), so the same ungranted child IS fetched.
+	 */
+	const leafPlan = (implicit: boolean): ExternalPrefetchPlan => ({
+		demands: [
+			{
+				rootSection: HOST_SECTION,
+				hops: [],
+				leafExternal: null,
+				relationLeaf: PORTAL,
+				externalChildren: [EXT_AUTHOR],
+				implicitChildren: new Set(implicit ? [EXT_AUTHOR] : []),
+			},
+		],
+		fieldsOf: new Map([[EXT_AUTHOR, ['author']]]),
+	});
+
+	test('T0-1: an ungranted IMPLICIT child of a relation leaf is never asked of the source', async () => {
+		await prefetchExternalRowsForBatch(
+			runWith(0),
+			leafPlan(true),
+			batch,
+			'lg-spa',
+			new EmissionContext(),
+		);
+		expect(asked).toEqual([]);
+	});
+
+	test('T0-1 control: the same implicit child GRANTED is prefetched', async () => {
+		await prefetchExternalRowsForBatch(
+			runWith(1),
+			leafPlan(true),
+			batch,
+			'lg-spa',
+			new EmissionContext(),
+		);
+		expect(asked.map((entry) => entry.id).sort()).toEqual(batchRemote);
+	});
+
+	test('T0-1 control (D3): the same ungranted child, EXPLICIT, is prefetched at the floor', async () => {
+		await prefetchExternalRowsForBatch(
+			runWith(0),
+			leafPlan(false),
+			batch,
+			'lg-spa',
+			new EmissionContext(),
+		);
+		expect(asked.map((entry) => entry.id).sort()).toEqual(batchRemote);
+	});
+
 	test('a Stop during the prefetch starts no further remote record', async () => {
 		const controller = new AbortController();
 		onAsk = () => controller.abort();
