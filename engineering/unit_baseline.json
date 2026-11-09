@@ -924,6 +924,11 @@
 			"skipped": 0,
 			"assertions": 5
 		},
+		"test/unit/component_get_data_target_grant_native.test.ts": {
+			"tests": 34,
+			"skipped": 0,
+			"assertions": 113
+		},
 		"test/unit/component_info_legacy_state_native.test.ts": {
 			"tests": 9,
 			"skipped": 0,

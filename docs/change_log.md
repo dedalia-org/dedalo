@@ -38,6 +38,19 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **A portal no longer refuses to refresh when one of its target sections is closed to you.**
+
+    A record you can open shows the rows of its portals, even rows that point into a section you
+    have no permission to open. Before, refreshing that portal, paging it or saving it answered
+    "no access", although the same rows were on screen.
+
+    The portal's own read is now checked like the record it belongs to: you need access to the
+    record and to the field. It returns exactly the columns and rows the record shows for that
+    portal, and nothing more, whatever the request asks for. A request that names any other
+    section, another record or a search filter is still refused.
+
+    Wire contract: `WC-2026-11-09-component-get-data-host-gate`.
+
 - **Saving a hierarchical autocomplete on a duplicated record no longer fails with "cannot delete path in scalar".**
 
     A record created by duplication could be stored with an invalid empty search index. Any later save of a
@@ -71,8 +84,9 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 3 entries"
+??? note "Wire contract — 4 entries"
 
+    - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
     - `WC-2026-11-09-implicit-children-frontier-predicate`
     - `WC-2026-11-09-start-deep-link-found-set-position`

@@ -1161,11 +1161,10 @@ describe('a nested RELATION child in a section the user holds nothing on is emit
 		check(await readPeople([{ tipo: REL5, parent: 'self', section_tipo: 'self' }], restricted));
 	});
 
-	// No get_data-door twin: a get_data of REL5 names THES in its sqo, and the
-	// read door's per-sqo-target gate refuses a section the user holds < 1 on
-	// (Gate B, PHP-identical class.dd_core_api.php:2131-2153). Decision (h)
-	// opens only a SEARCH (the autocomplete) through a writer chain, never a
-	// get_data page of the target (pinned in the (h) describe).
+	// No get_data-door twin HERE: a component's own get_data of PEOPLE/1 is
+	// gated as a read of the HOST (WC-2026-11-09-component-get-data-host-gate,
+	// security/host_component_read.ts), pinned in
+	// component_get_data_target_grant_native.test.ts and in the (h) describe.
 });
 
 /** A save that inserts THES/`termId` into `tipo` on PEOPLE/1. */
@@ -1419,9 +1418,21 @@ describe('(h) DECIDED: the autocomplete search a WRITER picks a term with, throu
 		expect(answer.errorCode).toBe('perm.denied');
 	});
 
-	test('a get_data (not a search) of THES from TERM_REF stays refused, chain or not', async () => {
-		const answer = await getData(TERM_REF, PEOPLE, THES, restricted, { callers: PEOPLE_ROOT });
-		expect(answer.errorCode).toBe('perm.denied');
+	// A get_data (not a search) is not opened by the writer chain — it is the
+	// HOST's component read (WC-2026-11-09-component-get-data-host-gate): served
+	// with the chain and without it, the term at read level, as the section read
+	// embeds it. The writer scope's own refusals (above) are untouched.
+	test('a get_data (not a search) of THES from TERM_REF is the HOST read: served, chain or not', async () => {
+		for (const extra of [{ callers: PEOPLE_ROOT }, {}]) {
+			const answer = await getData(TERM_REF, PEOPLE, THES, restricted, extra);
+			expect(answer.errorCode).toBeNull();
+			expect(
+				itemsOf(answer, TERM, THES).some(
+					(item) => JSON.stringify(item.entries) === JSON.stringify(textValue('term one')),
+				),
+			).toBe(true);
+			expect(entryOf(answer, TERM, THES)?.permissions).toBe(1);
+		}
 	});
 
 	test('the COUNT door agrees with the read door (same scope, same total; no chain → refused)', async () => {

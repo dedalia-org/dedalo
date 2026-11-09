@@ -289,27 +289,63 @@ async function ungrantedTargetSections(
  * refused exactly as before — no chain, a refused chain, a read-only
  * component, a section the component does not target. The read and the count
  * door both decide here, so they cannot disagree.
+ *
+ * THE HOST-COMPONENT READ (WC-2026-11-09-component-get-data-host-gate): a
+ * component's OWN get_data of one host record is a read of the HOST — its
+ * sqo sections are only the component's targets. Admitted ONLY when
+ * security/host_component_read.ts proves every fact of that shape (readable
+ * host record + component, the component a column of the host section's map,
+ * every sqo section a target of that column node, the sqo pinning exactly the
+ * host); the verdict then carries the SERVER-DERIVED rqo the read serves
+ * (re-rooted at the host map, client show / callers dropped), so the answer
+ * is the slice the host read embeds. Same function at both doors.
  */
 async function gateReadTargets(
-	rqo: Pick<Rqo, 'sqo' | 'source'>,
+	rqo: Pick<Rqo, 'sqo' | 'source' | 'show' | 'search' | 'choose'>,
+	principal: Principal,
+): Promise<GateBVerdict> {
+	const sqo = rqo.sqo;
+	if (sqo === undefined) return ORDINARY_READ;
+	const ungranted = await ungrantedTargetSections(sqo, principal);
+	if (ungranted.length === 0) return ORDINARY_READ;
+	const { admitHostComponentRead } = await import('../../security/host_component_read.ts');
+	const hostRead = await admitHostComponentRead(principal, rqo);
+	if (hostRead !== null) return { targetSearchScope: null, servedRqo: hostRead.rqo };
+	const scope = await scopedTargetSearch(rqo, sqo, ungranted, principal);
+	if (scope === null) {
+		throw new DedaloError('perm.denied', { coordinates: { section_tipo: ungranted[0] as string } });
+	}
+	return { targetSearchScope: scope, servedRqo: null };
+}
+
+/**
+ * What Gate B admitted: the scoped target search (h) to thread to the read /
+ * count, and the server-derived rqo a host-component read is SERVED from
+ * (null = serve the client's rqo).
+ */
+interface GateBVerdict {
+	readonly targetSearchScope: TargetSearchScope | null;
+	readonly servedRqo: Rqo | null;
+}
+
+/** Every sqo target granted: the ordinary read of the client's rqo. */
+const ORDINARY_READ: GateBVerdict = Object.freeze({ targetSearchScope: null, servedRqo: null });
+
+/** Gate B's writer-chain leg: the scoped target search (h) for `ungranted`, or null. */
+async function scopedTargetSearch(
+	rqo: Pick<Rqo, 'source'>,
+	sqo: NonNullable<Rqo['sqo']>,
+	ungranted: string[],
 	principal: Principal,
 ): Promise<TargetSearchScope | null> {
-	const sqo = rqo.sqo;
-	if (sqo === undefined) return null;
-	const ungranted = await ungrantedTargetSections(sqo, principal);
-	if (ungranted.length === 0) return null;
 	const { resolveTargetSearchScope } = await import('../../security/writer_chain_scope.ts');
 	const source = rqo.source ?? {};
-	const scope = await resolveTargetSearchScope(principal, {
+	return resolveTargetSearchScope(principal, {
 		source,
 		sqoMode: (sqo as { mode?: unknown }).mode,
 		ungranted,
 		lang: typeof source.lang === 'string' ? source.lang : currentDataLang(),
 	});
-	if (scope === null) {
-		throw new DedaloError('perm.denied', { coordinates: { section_tipo: ungranted[0] as string } });
-	}
-	return scope;
 }
 
 /**
@@ -323,12 +359,14 @@ async function readGatedSection(
 	principal: Principal,
 ): Promise<ApiResult> {
 	await gateReadSource(rqo.source, principal);
-	const targetSearchScope = await gateReadTargets(rqo, principal);
+	const { targetSearchScope, servedRqo } = await gateReadTargets(rqo, principal);
 
 	// Sub-action routing + the generic section read live in the section
-	// facade (S2-25) — everything below the gates is section semantics.
+	// facade (S2-25) — everything below the gates is section semantics. A
+	// host-component read is served from Gate B's derived rqo (the host map's
+	// column node), never from the client's show / callers.
 	const readResult = await routeSectionRead(
-		rqo,
+		servedRqo ?? rqo,
 		principal,
 		targetSearchScope === null ? {} : { targetSearchScope },
 	);
@@ -355,8 +393,8 @@ async function countGatedRows(
 ): Promise<ApiResult> {
 	// Gate B — the SAME function the read takes (a scoped target search, owner
 	// decision (h), is admitted or refused alike at both doors).
-	const targetSearchScope = await gateReadTargets(
-		{ sqo: clientSqo, source: rqo.source },
+	const { targetSearchScope } = await gateReadTargets(
+		{ sqo: clientSqo, source: rqo.source, show: rqo.show, search: rqo.search, choose: rqo.choose },
 		principal,
 	);
 	await gateTimeMachineRead(rqo, principal);

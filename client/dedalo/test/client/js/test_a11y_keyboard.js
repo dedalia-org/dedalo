@@ -258,7 +258,20 @@ describe('a11y: the cataloguing surface is operable without a mouse', function (
 		});
 		it('view_line_edit_portal.render_column_id: the line-view edit (pen) button is named', function () {
 			const fragment = view_line_edit_portal.render_column_id({
-				caller: { view: 'line', section_tipo: 'test3', context: { view: 'line' } },
+				caller: {
+					view: 'line',
+					section_tipo: 'test3',
+					context: {
+						view: 'line',
+						// the pen renders only for a readable target (can_open_target)
+						request_config: [
+							{
+								api_engine: 'dedalo',
+								sqo: { section_tipo: [{ tipo: 'test3', permissions: 2 }] },
+							},
+						],
+					},
+				},
 				section_id: '7',
 				section_tipo: 'test3',
 			});

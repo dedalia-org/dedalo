@@ -63,7 +63,9 @@
 		destroy_row_windows,
 		destroy_unwindowed_dependencies,
 		log_pending_rows,
-		lock_rows
+		lock_rows,
+		snapshot_read_state,
+		restore_read_state
 	} from '../../common/js/common.js'
 	import {
 		dd_request_idle_callback,
@@ -2033,8 +2035,13 @@ export const holds_component_locks = function(instance) {
 * @param {Object} [options.sqo] - The SQO that triggered this navigation (used for
 *   the history entry; the actual SQO used for the refresh comes from `self.rqo.sqo`).
 *   Read after the callback, so a callback may set it (update_pagination)
-* @returns {Promise<boolean>} false if the user refused the row lock or cancelled
-*   the unsaved-data dialog; true otherwise
+* @param {Object} [options.read_state] - snapshot_read_state taken by a caller
+*   that changed the sqo BEFORE calling navigate (search update_caller);
+*   otherwise navigate takes it before the callback. Restored when the refresh
+*   is refused but the last good render is kept (an embedded section).
+* @returns {Promise<boolean>} false if the user refused the row lock, cancelled
+*   the unsaved-data dialog, or the refresh was refused with the old rows kept
+*   (sqo restored); true otherwise
 */
 section.prototype.navigate = async function(options) {
 
@@ -2086,6 +2093,11 @@ const navigate_locked = async function(self, options) {
 			window.page_globals.service_autocomplete.destroy(true, true, true)
 		}
 
+	// read_state. What the refresh is about to replace, taken BEFORE the callback
+	// changes it (update_pagination). A caller that changed the sqo BEFORE
+	// navigate (search update_caller) hands its own pre-change snapshot.
+		const read_state = options.read_state || snapshot_read_state(self)
+
 	// callback execute
 		if (callback) {
 			await callback()
@@ -2100,7 +2112,7 @@ const navigate_locked = async function(self, options) {
 		}
 
 	// refresh
-		await self.refresh({
+		const refreshed = await self.refresh({
 			destroy : false // avoid to destroy here to allow section to recover from loosed login scenarios
 		})
 
@@ -2110,6 +2122,16 @@ const navigate_locked = async function(self, options) {
 		}
 		if (self.inspector && self.inspector.node) {
 			self.inspector.node.classList.remove('loading')
+		}
+
+	// refused refresh that KEPT the last good render (an embedded section:
+	// build_autoload live_refresh leaves status 'rendered'). The old rows are on
+	// screen, so the sqo, total and paginator go back to describing them, and no
+	// history entry is pushed for a page that was never shown. A page root keeps
+	// its page-scope failure (status 'initialized' + the page panel).
+		if (refreshed!==true && self.status==='rendered') {
+			restore_read_state(self, read_state)
+			return false
 		}
 
 	// navigation history. When user paginates, store navigation history to allow browser navigation too
@@ -2761,7 +2783,8 @@ const build_sqo_id = function(tipo) {
 * exactly as they were (WC-2026-10-30-section-record-row-box).
 *
 * When `session_save` is true the new offset is persisted to local DB under the
-* `<tipo>_<mode>` key so it survives a page reload or change_mode transition.
+* `<tipo>_<mode>` key so it survives a page reload or change_mode transition —
+* only once navigate answered true (a refused page turn stores nothing).
 *
 * @see section.prototype.navigate
 * @param {number} offset - Zero-based record offset to navigate to
@@ -2786,24 +2809,26 @@ section.prototype.update_pagination = async function (offset) {
 
 				// get sqo after modification for proper navigation (history entry)
 					navigate_options.sqo = clone(self.rqo.sqo)
-
-				// save pagination
-				// Updates local DB pagination values
-					if (self.session_save===true) {
-						await data_manager.set_local_db_data(
-							{
-								id		: `${self.tipo}_${self.mode}`,
-								value	: {
-									limit	: self.rqo.sqo.limit,
-									offset	: self.rqo.sqo.offset
-								}
-							},
-							'pagination'
-						)
-					}
 			}
 		}
 		self.navigate(navigate_options)
+		.then(async (navigated) => {
+			// save pagination. Updates local DB pagination values — only for a page
+			// turn that happened: a refused one (lock / unsaved cancel / a refused
+			// read that kept the old page) must not store an offset nobody sees
+			if (navigated===true && self.session_save===true) {
+				await data_manager.set_local_db_data(
+					{
+						id		: `${self.tipo}_${self.mode}`,
+						value	: {
+							limit	: self.rqo.sqo.limit,
+							offset	: self.rqo.sqo.offset
+						}
+					},
+					'pagination'
+				)
+			}
+		})
 
 	return true
 }//end update_pagination

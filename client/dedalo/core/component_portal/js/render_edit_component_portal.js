@@ -213,6 +213,76 @@ const render_edit_view = async function(self, options) {
 
 
 /**
+* CAN_OPEN_TARGET
+* THE rule for every "open the linked record" affordance of a portal row (the
+* row pencil, its context menu, edit_record_handler): may the caller open a
+* record of `section_tipo` from this portal?
+*
+* The answer is read from the grant the server already stamped on the target
+* in the portal context — `context.request_config[].sqo.section_tipo[]` items
+* `{tipo, permissions, model:'section', …}` carry THE CALLER's section-level
+* permissions (buildSqoSectionTipoDdos). A target the user cannot read
+* (permissions < 1) opens a record window whose read is refused, and on return
+* the portal's refresh read is refused too — so the affordance is not offered.
+*
+*   - matching item, api_engine !== 'dedalo' → true (an external engine opens
+*     an external URL; Dédalo grants do not apply — edit_record_handler still
+*     refuses a binding without a published ui_base_url);
+*   - matching item with a grant              → permissions >= 1 (coerced with
+*     parseInt: a string "0" is a stated 0, never an open door);
+*   - matching item without a parseable grant → true (no grant stated: the
+*     server stamps every Dédalo target, so this is a non-standard shape and
+*     the read is authorized server-side anyway);
+*   - no matching item (unknown section)      → `options.unknown` (default
+*     false: edit_record_handler cannot resolve an engine for it either). The
+*     open-in-window paths that need no engine pass true (the default row
+*     button and its context menu; the indexation view, whose rows are records
+*     of ANY indexing section): only a STATED grant below read hides them.
+*
+* @param {Object} self - The component_portal (or subclass) instance.
+* @param {string} section_tipo - The row's target section tipo.
+* @param {Object} [options]
+* @param {boolean} [options.unknown=false] - Answer for a section absent from
+*   every request_config sqo.
+* @returns {boolean}
+*/
+export const can_open_target = function(self, section_tipo, options={}) {
+
+	const unknown = options.unknown===true
+
+	const request_config = self?.context?.request_config
+	if (!Array.isArray(request_config)) {
+		return unknown
+	}
+
+	for (const item of request_config) {
+		const sqo_sections = item?.sqo?.section_tipo
+		if (!Array.isArray(sqo_sections)) {
+			continue
+		}
+		const target = sqo_sections.find(el => (el && typeof el==='object' ? el.tipo : el)===section_tipo)
+		if (target===undefined) {
+			continue
+		}
+		if (item.api_engine && item.api_engine!=='dedalo') {
+			return true
+		}
+		// coerced: a string grant ("0") must never fail open
+		const permissions = (target && typeof target==='object')
+			? Number.parseInt(target.permissions, 10)
+			: Number.NaN
+		if (Number.isNaN(permissions)) {
+			return true
+		}
+		return permissions >= 1
+	}
+
+	return unknown
+}//end can_open_target
+
+
+
+/**
 * RENDER_COLUMN_ID
 * Build the ID-column cell for a single portal row: the "open record" button and,
 * when the row may be dragged, the drag handle.
@@ -254,6 +324,27 @@ export const render_column_id = function(options) {
 	// DocumentFragment
 		const fragment = new DocumentFragment()
 
+	// target readable. A row whose target section the user cannot read (a
+	// STATED grant below 1, see can_open_target) gets no "open record" button at
+	// all: the id (when shown) as plain text and the drag handle, neither of which
+	// opens the record. A section absent from the sqo keeps the button: its
+	// context menu opens the record in a window without needing an engine
+	// (left-click → edit_record_handler stays a no-op for it, as before).
+		if (!can_open_target(self, section_tipo, {unknown: true})) {
+			if(show_interface.show_section_id){
+				ui.create_dom_element({
+					element_type	: 'span',
+					class_name		: `section_id${section_id.length>5 ? ' small' : ''}`,
+					text_content	: section_id,
+					parent			: fragment
+				})
+			}
+			if (options.drag!==false && (can_reorder(self) || can_drag_out(self))) {
+				fragment.appendChild( render_drag_node(options) )
+			}
+			return fragment
+		}
+
 	// button_edit. component portal caller (link)
 		const button_edit = ui.create_dom_element({
 			element_type	: 'button',
@@ -267,6 +358,11 @@ export const render_column_id = function(options) {
 		// if user has alt pressed, open new tab
 		button_edit.addEventListener('contextmenu', (e) => {
 			e.preventDefault();
+
+			// re-checked at click time: the grant may have changed since render
+			if (!can_open_target(self, section_tipo, {unknown: true})) {
+				return
+			}
 
 			// if alt is pressed, open new tab instead new window
 			const features = e.altKey===true
@@ -287,9 +383,13 @@ export const render_column_id = function(options) {
 				name		: `record_view_${section_id}`,
 				features	: features,
 				on_blur : () => {
-					// refresh current instance
+					// refresh current instance. destroy:false like the left-click
+					// path (edit_record_handler): the build tears down its own
+					// dependencies only after a successful read, so a REFUSED read
+					// (the target became unreadable) keeps live rows, not inert ones
 					self.refresh({
-						build_autoload : true
+						destroy			: false,
+						build_autoload	: true
 					})
 				}
 			})

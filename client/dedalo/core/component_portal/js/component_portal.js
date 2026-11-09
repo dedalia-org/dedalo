@@ -61,6 +61,8 @@
 		lock_rows,
 		destroy_row_windows,
 		destroy_unwindowed_dependencies,
+		snapshot_read_state,
+		restore_read_state,
 		get_caller_chain_tipos,
 		select_by_caller_chain,
 		create_callers,
@@ -69,7 +71,7 @@
 	import {component_common, init_events_subscription, check_unsaved_data} from '../../component_common/js/component_common.js'
 	import {DATAFRAME_TYPE} from '../../component_common/js/dataframe.js'
 	import {paginator} from '../../paginator/js/paginator.js'
-	import {render_edit_component_portal} from '../../component_portal/js/render_edit_component_portal.js'
+	import {render_edit_component_portal, can_open_target} from '../../component_portal/js/render_edit_component_portal.js'
 	import {render_list_component_portal} from '../../component_portal/js/render_list_component_portal.js'
 	import {render_search_component_portal} from '../../component_portal/js/render_search_component_portal.js'
 	// the ONE picker module: its channel prefix and its wiring call. Nothing about the
@@ -2397,8 +2399,9 @@ component_portal.prototype.get_search_value = function() {
 * @param {Function} [options.callback] - Async function that updates `self.rqo.sqo`
 *                                        before the refresh.  Called and awaited before
 *                                        fetching new data.
-* @returns {Promise<boolean>} `false` if the row lock was refused or the container node
-*                             is not found in the DOM; `true` after a successful refresh.
+* @returns {Promise<boolean>} `false` if the row lock was refused, the container node
+*                             is not found in the DOM, or the read was refused with the
+*                             old page kept (sqo restored); `true` otherwise.
 */
 component_portal.prototype.navigate = async function(options) {
 
@@ -2435,6 +2438,9 @@ const navigate_locked = async function(self, options) {
 			flush_only : true
 		})
 
+	// read_state. Taken BEFORE the callback changes the sqo (see the restore below)
+		const read_state = snapshot_read_state(self)
+
 	// callback execute
 	// The callback mutates self.rqo.sqo (offset, limit, etc.) before the refresh
 	// so the API call uses the updated parameters.
@@ -2457,12 +2463,20 @@ const navigate_locked = async function(self, options) {
 		container.classList.add('loading')
 
 	// refresh
-		await self.refresh({
+		const refreshed = await self.refresh({
 			destroy : false // avoid to destroy here to allow component to recover from loosed login scenarios
 		})
 
 	// loading
 		container.classList.remove('loading')
+
+	// refused refresh that KEPT the last good render (build_autoload
+	// live_refresh: status back to 'rendered'): the old page is on screen, so the
+	// sqo, total and paginator go back to describing it
+		if (refreshed!==true && self.status==='rendered') {
+			restore_read_state(self, read_state)
+			return false
+		}
 
 
 	return true
@@ -2864,9 +2878,11 @@ const set_view_order_locked = async function(self, next) {
 			sync_view_order_sqo(self)
 			// usable again. A FAILED read (e.g. the server refusing the column:
 			// assertViewOrder's per-hop read check, which the client gate cannot see)
-			// aborts build() with status 'initialized' (common.js build_autoload), and
-			// refresh() refuses every later action on a non-'rendered' instance — the
-			// old rows would stay on screen, dead. Re-read under the restored order.
+			// of a LIVE portal goes back to 'rendered' with its last good render kept
+			// (common.js build_autoload live_refresh): those rows are the restored
+			// order's, nothing to re-read. A portal whose node is not in the document
+			// is left 'initialized', and refresh() refuses every later action on a
+			// non-'rendered' instance — re-read it under the restored order.
 			if (self.status!=='rendered') {
 				await reread_restored_order(self)
 			}
@@ -3320,8 +3336,9 @@ component_portal.prototype.delete_linked_record = async function(options) {
 * @param {string} options.section_tipo - Ontology tipo of the target section.
 * @param {string|number} options.section_id - Record id of the target record.
 * @returns {Promise<Window|undefined>} The native `Window` object of the opened window,
-*                                      or `undefined` if no `engine_request_config` is
-*                                      found for the given `section_tipo`.
+*                                      or `undefined` if the target section is not
+*                                      readable (can_open_target) or no
+*                                      `engine_request_config` is found for it.
 */
 component_portal.prototype.edit_record_handler = async function(options) {
 
@@ -3330,6 +3347,17 @@ component_portal.prototype.edit_record_handler = async function(options) {
 	// options
 		const section_tipo	= options.section_tipo
 		const section_id	= options.section_id
+
+	// target readable (can_open_target). The renderers hide the pencil of such a
+	// row; this is the backstop for every other caller: a record of a section the
+	// user cannot read is never opened (its read is refused, and so is this
+	// portal's refresh on return).
+		if (!can_open_target(self, section_tipo)) {
+			if(SHOW_DEBUG===true) {
+				console.warn(')) edit_record_handler: target section not readable:', section_tipo);
+			}
+			return
+		}
 
 	// engine_request_config. Get current section engine
 	// Determine which API engine owns this section_tipo by matching against the
