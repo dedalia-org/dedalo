@@ -212,6 +212,109 @@ describe('PINNED RECORD VIEW — pin and offset are exclusive', function () {
 		);
 	});
 
+	it('a reloaded deep link reopens INSIDE its found set (the start shape, no pin)', async () => {
+		// WC-2026-11-09-start-deep-link-found-set-position: start answers a
+		// `?tipo&mode=edit&id` reload with the list→edit navigation shape — a main
+		// request_config carrying the page-view sqo at the record's offset, and NO
+		// section_id (a section_id is what made build_rqo_show pin the record 1/1).
+		const hits = (list_instance.data?.entries ?? [])
+			.slice(0, 3)
+			.map((entry) => ({ section_tipo: 'test3', section_id: entry.section_id }));
+		assert.equal(hits.length, 3, 'the fixture must hold at least 3 records');
+
+		const instance = await get_instance({
+			model: 'section',
+			tipo: 'test3',
+			section_tipo: 'test3',
+			mode: 'edit',
+			id_variant: 'pinned_record_view_deep_link',
+			// session_save stays ON: it is the reload's real mode (and false forces
+			// the 1/1 single-record branch of section.build). The 3-hit found set it
+			// stores for test3 is the one the result-set case above already stores.
+			request_config: [
+				{
+					api_engine: 'dedalo',
+					type: 'main',
+					sqo: {
+						section_tipo: ['test3'],
+						filter: null,
+						order: null,
+						filter_by_locators: hits,
+						limit: 1,
+						offset: 1,
+					},
+				},
+			],
+		});
+
+		try {
+			await instance.build(true);
+
+			assert.deepEqual(
+				instance.rqo.sqo.filter_by_locators,
+				hits,
+				'the found set must not be replaced by a pin of the record',
+			);
+			assert.equal(
+				instance.rqo.sqo.offset,
+				1,
+				'the server-resolved position must win over the stored pagination',
+			);
+			assert.equal(String(instance.section_id), String(hits[1].section_id));
+			assert.equal(
+				await instance.get_total(),
+				hits.length,
+				'the paginator counts the found set, not 1/1',
+			);
+		} finally {
+			await instance.destroy(true, true, true);
+		}
+	});
+
+	it('a real start deep link is consumed as a page view by the page element door', async () => {
+		const { instantiate_page_element } = await import('../../../core/page/js/page.js');
+		const response = await data_manager.request({
+			body: {
+				action: 'start',
+				prevent_lock: true,
+				options: {
+					search_obj: { tipo: 'test3', mode: 'edit', id: String(record_id) },
+					menu: false,
+				},
+			},
+		});
+		const entry = (response.data?.context ?? []).find((item) => item.tipo === 'test3');
+		assert.isOk(entry, 'start must describe the section');
+		assert.equal(String(entry.section_id_selected), String(record_id), 'start names the record');
+		assert.isUndefined(entry.section_id, 'start must not pin the record (section_id)');
+		const navigation_sqo = entry.request_config?.find((item) => item.type === 'main')?.sqo;
+		assert.isOk(navigation_sqo, 'start ships the navigation sqo');
+
+		// a page stand-in: not model 'page', so sync_url_record leaves the runner's URL alone
+		const instance = await instantiate_page_element(
+			{ id_variant: 'pinned_record_view_start' },
+			{ ...entry, id_variant: 'pinned_record_view_start' },
+		);
+
+		try {
+			await instance.build(true);
+
+			assert.isNotOk(
+				instance.rqo.sqo.filter_by_locators?.length === 1,
+				'a deep link must not be read as a single-record pin',
+			);
+			assert.equal(instance.rqo.sqo.offset, navigation_sqo.offset);
+			assert.equal(
+				String(instance.section_id),
+				String(record_id),
+				'the offset names the linked record',
+			);
+			assert.isAbove(await instance.get_total(), 0);
+		} finally {
+			await instance.destroy(true, true, true);
+		}
+	});
+
 	it('goto_list drops the pin that names the open record', async () => {
 		const instance = await get_instance({
 			model: 'section',

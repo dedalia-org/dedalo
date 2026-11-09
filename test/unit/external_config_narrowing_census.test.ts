@@ -166,7 +166,7 @@ const CENSUS: readonly CensusEntry[] = [
 			"stamps the limit the engine ALREADY paged the emitted data with onto the item's sqo — a mirror of local runtime state, not a request to the service",
 	},
 
-	// ---- section-owned: not multi-engine by construction (4) -----------------
+	// ---- section-owned: not multi-engine by construction (5) -----------------
 	{
 		// Censused under its narrowing until W3; the narrowing is gone (the
 		// engine-matched element node replaced it) and what the scan still sees
@@ -194,6 +194,13 @@ const CENSUS: readonly CensusEntry[] = [
 		symbol: 'sectionListSqo',
 		status: 'section_owned',
 		reason: 'built with ownerIsSection: true — the sqo limit/order of the section itself',
+	},
+	{
+		file: 'src/core/api/handlers/dd_core_api.ts',
+		symbol: 'start deep-link navigation request_config (api_engine literal)',
+		status: 'section_owned',
+		reason:
+			'PRODUCES the one dedalo `main` item a SECTION record deep link carries — the list→edit navigation shape (WC-2026-11-09-start-deep-link-found-set-position); a section is never multi-engine and nothing is narrowed',
 	},
 
 	// ---- deferred: still indexed, each with its reason (6) -------------------

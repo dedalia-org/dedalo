@@ -711,6 +711,58 @@ export function mergeSessionSqo(
 	return clientSqo;
 }
 
+/**
+ * A SINGLE-RECORD PIN: exactly one locator in `filter_by_locators` — the
+ * selector of a RECORD VIEW ("this record"), as opposed to a PAGE VIEW selected
+ * by limit/offset. Two or more locators are a result set (a semantic search's
+ * ranked hits) and stay a page view. A Time Machine source (`mode 'tm'`) is
+ * never a pin: its one locator names a record whose HISTORY is many rows.
+ *
+ * The same rule as the client's section.js `is_pinned_record_view`; each side
+ * is gated on its own behaviour (start_deep_link_navigation_native here,
+ * test_pinned_record_view in the browser). Readers: section/read.ts (a pin is
+ * never stored as session navigation), search/record_position.ts.
+ * WC-2026-11-09-start-deep-link-found-set-position.
+ */
+export function isSingleRecordPin(value: unknown): boolean {
+	const sqo = asSqoRecord(value);
+	// sqo.mode is the ROW SOURCE: a Time Machine read lists a record's history.
+	if (sqo === null || sqo.mode === 'tm') return false;
+	const pins = sqo.filter_by_locators;
+	return Array.isArray(pins) && pins.length === 1 && locatorNamesARecord(pins[0]);
+}
+
+/** A plain object (an SQO or a locator), or null for anything else. */
+function asSqoRecord(value: unknown): Record<string, unknown> | null {
+	return value !== null && typeof value === 'object' && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+/** A pin that names a record (a section_id is present). */
+function locatorNamesARecord(value: unknown): boolean {
+	const locator = asSqoRecord(value);
+	return locator !== null && locator.section_id !== undefined && locator.section_id !== null;
+}
+
+/** `section_tipo` (string or array) names exactly `sectionTipo`. */
+function namesOnlySection(sectionTipos: unknown, sectionTipo: string): boolean {
+	const tipos = Array.isArray(sectionTipos) ? sectionTipos : [sectionTipos];
+	return tipos.length === 1 && tipos[0] === sectionTipo;
+}
+
+/**
+ * A stored session SQO that is a PAGE VIEW of exactly `sectionTipo` — the only
+ * kind a record position means anything in. Refused: a non-object, a Time
+ * Machine source, a descendant expansion (`children_recursive`), an SQO over
+ * other or several sections, and a single-record pin.
+ */
+export function isFoundSetSqoOf(value: unknown, sectionTipo: string): value is Sqo {
+	const sqo = asSqoRecord(value);
+	if (sqo === null || sqo.mode === 'tm' || sqo.children_recursive === true) return false;
+	return namesOnlySection(sqo.section_tipo, sectionTipo) && !isSingleRecordPin(sqo);
+}
+
 /** Normalize section_tipo to the array form the engine works with. */
 export function getSectionTipos(sqo: Sqo): string[] {
 	return Array.isArray(sqo.section_tipo) ? sqo.section_tipo : [sqo.section_tipo];

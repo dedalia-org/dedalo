@@ -173,6 +173,65 @@ async function deepLinkRecordInScope(
 }
 
 /**
+ * The URL's `session_save` read the way the client reads it (page.js
+ * instantiate_page_element: `JSON.parse` when present), so both sides agree on
+ * an opted-out window: `false`, `0`, `null` opt out; absent or unparseable
+ * does not.
+ */
+function sessionSaveOptedOut(value: unknown): boolean {
+	// URL vars arrive as strings; a programmatic caller may send a boolean.
+	if (typeof value !== 'string') return value === false;
+	if (value === '') return false;
+	try {
+		return !JSON.parse(value);
+	} catch {
+		// Probe catch (CONVENTIONS.md): an unparseable value is not an opt-out.
+		return false;
+	}
+}
+
+/**
+ * start's navigation half: the page-view SQO a plain section record deep link
+ * reopens in (search/record_position.ts resolveDeepLinkNavigation), or null to
+ * keep the single-record pin. Only the page's own plain section in its default
+ * view qualifies — a viewer (`?view=`), a section_tool reroute (its config
+ * names the target) and an opted-out window (`session_save=false`, which
+ * declared itself outside session navigation) keep the record alone. Runs
+ * AFTER deepLinkRecordInScope, so the record is one the caller may read.
+ */
+async function deepLinkNavigationSqo(options: {
+	sectionRecordDeepLink: boolean;
+	pageTipo: string;
+	pageSectionTipo: string;
+	pageSectionId: unknown;
+	pageView: string | null;
+	pageConfig: Record<string, unknown> | null;
+	sessionSave: unknown;
+	storedSqo: unknown;
+	principal: Principal;
+}): Promise<Record<string, unknown> | null> {
+	const { pageSectionId } = options;
+	// Each a reason the record stays pinned alone (see the docblock).
+	const keepsThePin = [
+		!options.sectionRecordDeepLink,
+		options.pageView !== null,
+		options.pageConfig !== null,
+		options.pageSectionTipo !== options.pageTipo,
+		sessionSaveOptedOut(options.sessionSave),
+	];
+	if (keepsThePin.includes(true)) return null;
+	// Lazy (CONVENTIONS.md §2 rationale 3, rarely hit): only a section record
+	// deep link reaches it — once per page boot, never on the read path.
+	const { resolveDeepLinkNavigation } = await import('../../search/record_position.ts');
+	return (await resolveDeepLinkNavigation(
+		options.pageTipo,
+		pageSectionId,
+		options.principal,
+		options.storedSqo,
+	)) as Record<string, unknown> | null;
+}
+
+/**
  * Gate A: the request source (section_tipo, tipo). For a dd15 source the level
  * is the Time Machine floor, which reads the TM scope — so the caller must run
  * this inside withTimeMachineReadScope. The dd128 own-user-record rules apply
@@ -1628,8 +1687,38 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			// $current_context->section_id = $section_id). The client reads it to
 			// set the instance's section_id, which every component read/save then
 			// threads — without it a viewer/component deep link reads section_id null.
+			//
+			// A plain SECTION record deep link (?tipo=X&mode=edit&id=N — the
+			// address bar of every edit view, so every RELOAD) reopens INSIDE a
+			// navigation instead (WC-2026-11-09-start-deep-link-found-set-position):
+			// the record's position in the user's stored found set, else in the
+			// whole section, shipped exactly as the list→edit navigation ships it
+			// (client render_list_section button_edit.navigate → page.navigate):
+			// a `main` request_config carrying the page-view sqo + section_id_selected,
+			// NO section_id — a section_id would make the client pin the record
+			// alone (build_rqo_show), the 1/1 paginator this replaces.
 			if (pageSectionId !== null) {
-				(sectionContext as { section_id?: unknown }).section_id = pageSectionId;
+				const navigationSqo = await deepLinkNavigationSqo({
+					sectionRecordDeepLink,
+					pageTipo,
+					pageSectionTipo,
+					pageSectionId,
+					pageView,
+					pageConfig,
+					sessionSave: searchObj.session_save,
+					storedSqo: context.session.sqoSession?.[pageTipo],
+					principal,
+				});
+				if (navigationSqo !== null) {
+					const entry = sectionContext as {
+						request_config?: unknown;
+						section_id_selected?: unknown;
+					};
+					entry.request_config = [{ api_engine: 'dedalo', type: 'main', sqo: navigationSqo }];
+					entry.section_id_selected = pageSectionId;
+				} else {
+					(sectionContext as { section_id?: unknown }).section_id = pageSectionId;
+				}
 			}
 			startContext.push(sectionContext);
 		}

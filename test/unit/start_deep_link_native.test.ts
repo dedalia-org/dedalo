@@ -73,7 +73,11 @@ describe.if(DB_READY)('start: a section deep link with a record id is EDIT', () 
 		const [entry] = await startPage({ tipo: SECTION, section_id: String(recordId) }, context);
 		expect(entry?.model).toBe('section');
 		expect(entry?.mode).toBe('edit');
-		expect(String(entry?.section_id)).toBe(String(recordId));
+		// The record is NAMED as the selected record of its navigation, not pinned
+		// alone (WC-2026-11-09-start-deep-link-found-set-position — the position
+		// half is start_deep_link_navigation_native).
+		expect(String(entry?.section_id_selected)).toBe(String(recordId));
+		expect(entry?.section_id).toBeUndefined();
 	});
 
 	test('an explicit mode is overridden too — the id IS the edit request', async () => {

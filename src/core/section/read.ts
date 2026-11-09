@@ -38,7 +38,7 @@ import {
 } from '../concepts/rqo.ts';
 import { isConsultationOnlySection, TIME_MACHINE_SECTION_TIPO } from '../concepts/section.ts';
 import { canonicalizeStoredSectionId, classifyWireSectionId } from '../concepts/section_id.ts';
-import { mergeSessionSqo, sanitizeClientSqo } from '../concepts/sqo.ts';
+import { isSingleRecordPin, mergeSessionSqo, sanitizeClientSqo } from '../concepts/sqo.ts';
 import type { MatrixRecord } from '../db/matrix.ts';
 import { memoizedReadMatrixRecord, runWithRecordMemo } from '../db/record_memo.ts';
 import type { TmCoords } from '../db/time_machine.ts';
@@ -3590,7 +3590,19 @@ export async function readSectionRowsEmission(
 	// context stamps it back as `sqo_session`. The ALS session is read at call
 	// time; requests without one (harnesses, background) skip.
 	// (PHP $session_save_modes = ['edit','list','list_thesaurus'], :2276.)
-	if (sessionSave && (mode === 'list' || mode === 'edit' || mode === 'list_thesaurus')) {
+	//
+	// A SINGLE-RECORD PIN is not navigation and is never stored
+	// (WC-2026-11-09-start-deep-link-found-set-position): it is the identity of
+	// one record view (a mini-record pen, a pinned deep link), and storing it
+	// REPLACED the user's found set — a reload of an edit page lost its filter
+	// position for good, and the next list read inherited the pin. The stored
+	// found set stays what the last PAGE VIEW read left (concepts/sqo.ts
+	// isSingleRecordPin — the client's is_pinned_record_view rule).
+	if (
+		sessionSave &&
+		(mode === 'list' || mode === 'edit' || mode === 'list_thesaurus') &&
+		!isSingleRecordPin(sqo)
+	) {
 		const callerModel = source.model ?? (await getModelByTipo(callerTipo));
 		if (callerModel === 'section') {
 			const { currentRequestContext } = await import('../security/request_context.ts');

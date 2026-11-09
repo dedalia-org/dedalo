@@ -33,6 +33,17 @@ Merged since the last release; these ship with the next one.
     locator by the client and stripped by the server's relation insert. Locators already saved with it are harmless
     to read; removing the key from them restores the clean locator shape.
 
+- **Reloading a record's edit page keeps the record's place in its search results.**
+
+    Reloading the browser on a record opened in edit mode, or opening its address in a new tab, showed the
+    record alone: the paginator read 1 of 1 and the previous/next buttons went nowhere, whether or not the
+    list had been filtered. The page now reopens the record at its position in the records you were browsing,
+    with their total, so previous/next continue through the same search. When the record is not part of that
+    search (an address shared by a colleague, for example), the paginator moves through every record of the
+    section instead.
+
+    Wire contract: `WC-2026-11-09-start-deep-link-found-set-position`.
+
 ### For administrators
 
 #### Fixed
@@ -40,6 +51,10 @@ Merged since the last release; these ship with the next one.
 - **A refused maintenance action now shows the server's reason in the panel, not only a generic sentence.**
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
+
+??? note "Wire contract — 1 entry"
+
+    - `WC-2026-11-09-start-deep-link-found-set-position`
 
 ## 7.0.0-beta.8 — 2026-11-08
 
