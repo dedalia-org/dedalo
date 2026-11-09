@@ -434,9 +434,11 @@ export const get_content_value = (i, stored_entry, self) =>{
 			map_container,
 			() => {
 				self.get_map(map_container, i)
-				.then(()=>{
+				.then((built)=>{
 					// fade the map in now that Leaflet has initialised
 					reveal()
+					// false = stale container (destroyed/refreshed mid-load): nothing to wire
+					if (built===false) return
 					self.layers_loader({
 						load: 'full'
 					})
@@ -504,9 +506,11 @@ export const get_content_value_read = (i, stored_entry, self) =>{
 			map_container,
 			() => {
 				self.get_map(map_container, i)
-				.then(()=>{
+				.then((built)=>{
 					// fade the map in now that Leaflet has initialised
 					reveal()
+					// false = stale container (destroyed/refreshed mid-load): nothing to wire
+					if (built===false) return
 					self.layers_loader({
 						load: 'full'
 					})

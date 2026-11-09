@@ -539,6 +539,9 @@ export const component_geolocation = function(){
 				console.warn('component_geolocation destroy: error removing map', e)
 			}
 			self.map = null
+			// the control is bound to the removed map: refresh (destroy without delete_self)
+			// would reuse it, and its overlay clicks add markers to a pane-less map
+			self.layer_control = false
 			self.tile_layer = null
 			self.source_layers = {}
 			self.FeatureGroup = {}
@@ -1475,6 +1478,12 @@ component_geolocation.prototype.get_map = async function(map_container, key) {
 	// load libs
 		await self.load_libs()
 
+	// destroyed or refreshed while the libs loaded: this container is stale — building a
+	// map on it would steal self.map/layer_control from the new render and leak its observers
+		if (self.status==='destroyed' || !map_container.isConnected) {
+			return false
+		}
+
 	// stored entry — null when the record has no geolocation value
 		const stored_entry = self.get_stored_entry(key)
 
@@ -1650,12 +1659,17 @@ component_geolocation.prototype.get_map = async function(map_container, key) {
 		})
 
 	// map ready event — fires once Leaflet has painted its first frame
+		const ready_map = self.map
 		self.map.whenReady(async function(){
 			// init map editor — attaches geoman toolbar and pm:create/pm:cut/pm:remove events
 				self.init_draw_editor()
 
 			// set the lang of the tool — map geoman UI matches the user's Dédalo data language
 				const json_langs = self.json_langs || await get_json_langs() || []
+				// the map was destroyed/replaced during the await (self.map null or a newer map)
+				if (self.map!==ready_map) {
+					return
+				}
 				if (json_langs.length<1) {
 					console.error('Error. Expected array of json_langs but empty result is obtained:', json_langs);
 				}

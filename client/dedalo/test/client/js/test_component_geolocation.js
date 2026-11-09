@@ -805,6 +805,83 @@ describe(`COMPONENT_GEOLOCATION EMPTY RECORD (no stored value)`, function() {
 // each of these paths needs its own creation guard. These are the exact call sites:
 // update_draw_data (drawing/create_point), layer_data_change (geo-tag insert), and
 // map_update_coordinates from a POPULATED caller.
+describe(`COMPONENT_GEOLOCATION REBUILD AFTER destroy(delete_self=false) (refresh)`, function() {
+
+	this.timeout(15000);
+
+	let instance = null
+
+	// a stored point: the marker is what crashed (_initIcon on a pane-less map)
+	const point_layer = () => ({
+		layer_id	: 1,
+		layer_data	: {
+			type		: 'FeatureCollection',
+			features	: [{type:'Feature', geometry:{type:'Point', coordinates:[0, 0]}, properties:{}}]
+		}
+	})
+
+	const open_map = async function() {
+		const holder = create_map_holder(component_container, 0)
+		const built = await instance.get_map(holder, 0)
+		instance.ar_layer_loaded = [point_layer()]
+		instance.layers_loader({load:'full'})
+		return built
+	}
+
+
+
+	it(`the rebuilt map gets its OWN layer control (the old one is bound to the removed map)`, async function() {
+
+		instance = await build_empty_instance('rebuild')
+		await open_map()
+		const old_map = instance.map
+		assert.strictEqual(instance.layer_control._map, old_map, 'precondition: control bound to the first map')
+
+		// what common.refresh does
+		await instance.destroy(false, true, false)
+		assert.isFalse(instance.layer_control, 'layer_control expected reset by destroy')
+
+		// (!) THE REGRESSION: the stale control's overlay click added the new FeatureGroup
+		// to the removed map → marker._initIcon: getPane() undefined → appendChild throws
+		await open_map()
+		assert.notStrictEqual(instance.map, old_map, 'expected a new map')
+		assert.strictEqual(instance.layer_control._map, instance.map, 'layer_control expected bound to the NEW map')
+		assert.isOk(instance.map.hasLayer(instance.FeatureGroup[1]), 'drawing layer expected on the NEW map')
+	});
+
+
+
+	it(`get_map on a DETACHED container (refreshed mid-load) builds nothing`, async function() {
+
+		const live_map		= instance.map
+		const live_control	= instance.layer_control
+
+		const stale_holder = create_map_holder(component_container, 0)
+		stale_holder.remove()
+
+		const built = await instance.get_map(stale_holder, 0)
+
+		assert.isFalse(built, 'get_map expected false on a detached container')
+		assert.strictEqual(instance.map, live_map, 'self.map expected untouched by the stale call')
+		assert.strictEqual(instance.layer_control, live_control, 'layer_control expected untouched by the stale call')
+		assert.equal(stale_holder.children.length, 0, 'no Leaflet DOM expected in the stale container')
+	});
+
+
+
+	it(`destroy rebuild instance`, async function() {
+
+		await instance.destroy(true)
+		assert.equal(instance.status, 'destroyed', 'status expected destroyed')
+
+		while (component_container.firstChild) {
+			component_container.removeChild(component_container.firstChild)
+		}
+	});
+});
+
+
+
 describe(`COMPONENT_GEOLOCATION EMPTY RECORD FIRST-VALUE CREATION`, function() {
 
 	this.timeout(20000);

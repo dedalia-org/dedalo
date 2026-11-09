@@ -32,6 +32,14 @@ Merged since the last release; these ship with the next one.
     that record with "cannot delete path in scalar". New records are now stored correctly. A record already
     affected is repaired by setting its `relation_search` column to SQL NULL wherever `jsonb_typeof(relation_search) = 'null'`.
 
+- **Refreshing a map with drawn points no longer throws errors or loses its layer control.**
+
+    When a geolocation field was refreshed (the map reload button, or the record re-rendering), its
+    drawn points were added back to the map that had just been removed: the console showed
+    `Cannot read properties of undefined (reading 'appendChild')` once per point, and on maps with
+    several base layers the layer selector disappeared. The rebuilt map now gets its own layer
+    control, and a map whose field is refreshed while it is still loading is no longer built twice.
+
 - **Records linked from the list's link button no longer store the stray `close_modal` key in their locator.**
 
     Linking a record with the link button of a portal's list view saved the button's own "keep the window open"
