@@ -15,6 +15,14 @@ shape by the id under which the source tree records each one
 
 Merged since the last release; these ship with the next one.
 
+### For users
+
+#### Fixed
+
+- **Link resource now works from a component opened inside the Ontology or Thesaurus tree.**
+
+    Before, clicking the tree button (*Link resource*) of a relation component opened inline in a tree row made the page's own tree disappear into the picker panel, and picking a term linked nothing. The picker now opens its own tree under the component, and the picked term is linked.
+
 ### For administrators
 
 #### Fixed

@@ -3854,6 +3854,13 @@ const build_thesaurus_pane = async function(self, pane) {
 				mode			: 'list',
 				lang			: self.lang,
 				caller			: self,
+				// (!) OWN KEY. Without it the key equals the HOST page's area when the
+				// caller lives inside that area's tree (a component opened inline in
+				// the Ontology/Thesaurus tree): get_instance returned the page area
+				// itself, which was rebuilt and re-rendered into the pane — the page
+				// tree vanished and no picker was wired. `key` names this one instance
+				// and, unlike id_variant, does not cascade.
+				key				: `${area_model}_${area_tipo}_picker`,
 				// (!) NO id_variant. It is tempting — it would key the area per
 				// component — but `id_variant` CASCADES: section.js:1191 forwards
 				// `options.id_variant || self.id_variant` to every section_record it

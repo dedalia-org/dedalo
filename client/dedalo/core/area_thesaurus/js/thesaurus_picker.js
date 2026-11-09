@@ -629,7 +629,8 @@ export const attach_picker = function(area_instance, options={}) {
 * `.caller`, NOT the area's — two different objects. A linker with no caller was opened
 * through a separate browser window (the DS deep-link), so its event_manager lives on
 * the opener; an in-page linker (indexation, a component's own tree view) owns the
-* current window's.
+* current window's. A linker whose node lives in THIS document is in-page too,
+* caller or not (tree-row components are built caller-less).
 *
 * @param {Object} linker - Component instance waiting for the pick (needs `id`).
 * @param {Array} terms - Array of {section_tipo, section_id, label}, length >= 1.
@@ -656,10 +657,14 @@ export const publish_link_terms = function(linker, terms) {
 			return false
 		}
 
-	// window_base. Reads the LINKER's caller, never the area's
-		const window_base = !linker.caller
-			? window.opener // the linker lives in the window that opened this one
-			: window // default case (in-page tree view, indexation)
+	// window_base. Reads the LINKER's caller, never the area's. A linker rendered in
+	// THIS document is in-page even without a caller: components opened inline in a
+	// ts_object row (Ontology/Thesaurus tree) are built caller-less, and sending their
+	// pick to window.opener lost it.
+		const in_page = !!linker.caller || linker.node?.ownerDocument===document
+		const window_base = in_page
+			? window // default case (in-page tree view, indexation, tree-row component)
+			: window.opener // the linker lives in the window that opened this one
 		if (!window_base || !window_base.event_manager) {
 			console.error('(!) [publish_link_terms] refused: no event_manager on the target window (opener closed?)', linker);
 			return false

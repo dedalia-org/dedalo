@@ -463,6 +463,17 @@ describe('THESAURUS PICKER CLIENT TEST', function() {
 			assert.deepEqual(Object.keys(messages[0][0]).sort(), ['label', 'section_id', 'section_tipo'])
 		})
 
+		it('a caller-less linker rendered in THIS document is published in-page (tree-row component)', async function() {
+			// Components opened inline in a ts_object row are built without a caller.
+			// Resolving their window from `.caller` alone sent the pick to window.opener
+			// (none) and the Ontology tree's "Link resource" linked nothing.
+			const linker	= { id: 'caller_less_in_page', node: document.createElement('div'), data: { entries: [] } }
+			const messages	= await with_link_subscription(linker, async () => {
+				assert.equal(publish_link_terms(linker, [TERM_A]), true)
+			})
+			assert.equal(messages.length, 1)
+		})
+
 		it('a pick that reaches nobody is REFUSED loudly, never silently lost', function() {
 			const linker = make_linker('nobody_subscribed')
 			assert.equal(publish_link_terms(linker, [TERM_A]), false,

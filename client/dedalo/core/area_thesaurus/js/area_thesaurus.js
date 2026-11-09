@@ -826,7 +826,9 @@ area_thesaurus.prototype.build = async function(autoload=true) {
 				section_tipo	: self.section_tipo,
 				mode			: self.mode,
 				lang			: self.lang,
-				id_variant		: self.model,
+				// a picker area gets its own filter: one embedded in the area page
+				// would otherwise share (and steal the node of) the page's filter
+				id_variant		: self.picker_caller ? self.model + '_picker' : self.model,
 				caller			: self
 			})
 		}
