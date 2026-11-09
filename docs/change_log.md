@@ -23,6 +23,15 @@ Merged since the last release; these ship with the next one.
 
     Before, on a phone the row of action buttons took most of the width, so a nested term was squeezed and its badges and expand arrow each wrapped onto a line of their own; deep branches could widen the page past the screen. Now each node is a compact block: the expand arrow leads the term, the model text sits on its own smaller line, the actions follow underneath, and a hairline separates nodes. On tablets and other touch screens the buttons are finger-sized and no longer wait for a hover to show, and the long model text moves under the term instead of crowding it.
 
+#### Added
+
+- **The map field shows the common unsaved-changes line, and its reload and add-point icons have tooltips.**
+
+    While a geolocation field's coordinates or view differ from what is saved, the field shows the
+    same orange line at the top as every other edited field; it goes away on its own when the value
+    is set back to the saved one, or once it is saved. It is information only: it does not stop you
+    from leaving the record. The reload and add-point icons now explain themselves on hover.
+
 #### Fixed
 
 - **Saving a hierarchical autocomplete on a duplicated record no longer fails with "cannot delete path in scalar".**

@@ -882,6 +882,82 @@ describe(`COMPONENT_GEOLOCATION REBUILD AFTER destroy(delete_self=false) (refres
 
 
 
+describe(`COMPONENT_GEOLOCATION CHANGED INDICATOR (common .modified line, blocks nothing)`, function() {
+
+	this.timeout(15000);
+
+	let instance	= null
+	let node		= null
+
+	const stored	= {id:1, lat:10, lon:20, zoom:5}
+	const shown		= () => node.classList.contains('modified')
+
+
+
+	it(`no line on an untouched record; the map icons carry a tooltip`, async function() {
+
+		instance = await build_empty_instance('changed_indicator')
+		instance.data.entries = [structuredClone(stored)]
+
+		node = await instance.render()
+		component_container.appendChild(node)
+
+		assert.isFalse(shown(), '.modified expected absent before any edit')
+		assert.isFalse(instance.update_changed_indicator(0), 'no change expected')
+
+		assert.isOk(node.querySelector('.map_reload')?.title, 'expected a tooltip on the reload icon')
+		assert.isOk(node.querySelector('.map_point')?.title, 'expected a tooltip on the add-point icon')
+
+		// the common (codex) tooltip, not the browser's: its library loads lazily, so wait for it
+		const icons = [node.querySelector('.map_reload'), node.querySelector('.map_point')]
+		for (let i = 0; i < 40 && !icons.every(el => el.dataset.tooltip_active==='true'); i++) {
+			await new Promise(resolve => setTimeout(resolve, 50))
+		}
+		icons.forEach(el => assert.equal(el.dataset.tooltip_active, 'true', `common tooltip expected on .${el.className}`))
+	});
+
+
+
+	it(`shows on a change and hides when the value returns to the stored one`, async function() {
+
+		instance.handle_coord_change(0, 'lat', 11)
+		assert.isTrue(shown(), '.modified expected after changing lat')
+
+		instance.handle_coord_change(0, 'lat', 10)
+		assert.isFalse(shown(), '.modified expected removed once lat is back to the stored value')
+	});
+
+
+
+	it(`fields the buffer writes as null (alt) or stamps (id) are not a change`, async function() {
+
+		instance.current_value[0] = {...structuredClone(stored), alt:null}
+		delete instance.current_value[0].id
+		assert.isFalse(instance.update_changed_indicator(0), 'alt:null / missing id expected equal to the stored entry')
+	});
+
+
+
+	it(`does not register the instance as unsaved (no navigation guard)`, async function() {
+
+		instance.handle_coord_change(0, 'zoom', 7)
+		assert.isTrue(shown(), 'precondition: .modified shown')
+		assert.notEqual(window.unsaved_data, true, 'window.unsaved_data expected not armed by the indicator')
+	});
+
+
+
+	it(`destroy changed-indicator instance`, async function() {
+
+		await instance.destroy(true)
+		while (component_container.firstChild) {
+			component_container.removeChild(component_container.firstChild)
+		}
+	});
+});
+
+
+
 describe(`COMPONENT_GEOLOCATION EMPTY RECORD FIRST-VALUE CREATION`, function() {
 
 	this.timeout(20000);

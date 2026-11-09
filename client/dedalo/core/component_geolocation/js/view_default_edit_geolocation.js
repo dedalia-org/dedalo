@@ -291,7 +291,8 @@ export const get_content_value = (i, stored_entry, self) =>{
 			const refresh_node = ui.create_dom_element({
 				element_type	: 'span',
 				parent			: inputs_container,
-				class_name		: 'map_reload'
+				class_name		: 'map_reload',
+				title			: get_label.reload || 'Reload'
 			})
 			refresh_node.addEventListener('click', fn_refresh)
 			function fn_refresh(e) {
@@ -326,6 +327,7 @@ export const get_content_value = (i, stored_entry, self) =>{
 							(input) => { input.value = '' }
 						)
 						self.is_data_changed = false
+						self.update_changed_indicator(i)
 						self.layers_loader({load:'full'})
 					return
 				}
@@ -373,6 +375,7 @@ export const get_content_value = (i, stored_entry, self) =>{
 				// Reset changed flag
 				// (!) must come AFTER update_input_values, which marks the component dirty
 					self.is_data_changed = false
+					self.update_changed_indicator(i)
 
 				// load all layers
 					self.layers_loader({load:'full'})
@@ -388,9 +391,12 @@ export const get_content_value = (i, stored_entry, self) =>{
 			const add_point_node = ui.create_dom_element({
 				element_type	: 'span',
 				parent			: inputs_container,
-				class_name		: 'map_point'
+				class_name		: 'map_point',
+				title			: get_label.add_point || 'Add a point at these coordinates'
 			})
 			add_point_node.addEventListener('click', fn_click_add_point)
+			// the common tooltip (render only activates it on .button, these icons are not)
+			ui.activate_tooltips(inputs_container, '.map_reload, .map_point')
 			function fn_click_add_point(e) {
 				e.stopPropagation()
 
