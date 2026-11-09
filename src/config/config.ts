@@ -34,8 +34,8 @@
 import { legacyAwareDefaultDir } from './catalog/media.ts';
 import { declaredDataLangs, resolveCurrentDataLang } from './data_langs.ts';
 import { RETIRED_ENV_KEYS, readEnv } from './env.ts';
-import { resolveInstanceColor } from './instance_color.ts';
 import { UNCONFIGURED } from './install_state.ts';
+import { resolveInstanceColor } from './instance_color.ts';
 import { isDiffusionLangCode } from './lang_code.ts';
 import {
 	readBool,
