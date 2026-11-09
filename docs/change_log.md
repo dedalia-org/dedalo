@@ -32,6 +32,14 @@ Merged since the last release; these ship with the next one.
     that record with "cannot delete path in scalar". New records are now stored correctly. A record already
     affected is repaired by setting its `relation_search` column to SQL NULL wherever `jsonb_typeof(relation_search) = 'null'`.
 
+- **Fields whose value holds an empty object no longer look edited when they are not.**
+
+    The client's value comparison treated two empty objects as different, so a value containing one
+    (for example a map point, whose stored shape carries empty properties) never matched its saved
+    copy. Such fields always sent a save that changed nothing, and setting them back to the saved
+    value left the orange unsaved line and the leave-page warning on. Both now behave like every
+    other field.
+
 - **Refreshing a map with drawn points no longer throws errors or loses its layer control.**
 
     When a geolocation field was refreshed (the map reload button, or the record re-rendering), its
