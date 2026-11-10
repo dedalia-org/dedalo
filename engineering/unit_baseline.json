@@ -1350,6 +1350,11 @@
 			"skipped": 0,
 			"assertions": 17
 		},
+		"test/unit/delete_data_filter_native.test.ts": {
+			"tests": 9,
+			"skipped": 0,
+			"assertions": 43
+		},
 		"test/unit/delete_data_native.test.ts": {
 			"tests": 5,
 			"skipped": 0,
@@ -6944,6 +6949,11 @@
 			"tests": 13,
 			"skipped": 0,
 			"assertions": 470
+		},
+		"test/unit/wiped_filter_reconcile_native.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 30
 		},
 		"test/unit/wire_contract_tripwire.test.ts": {
 			"tests": 8,
