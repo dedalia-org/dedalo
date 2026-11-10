@@ -737,6 +737,8 @@
 	"publication_hosts_draft_name": "Nome del server (in questo pannello)",
 	"publication_hosts_draft_one_machine": "un socket (questa macchina)",
 	"publication_hosts_draft_paired": "Abbinato come",
+	"publication_hosts_draft_site_home": "Home del sito (vuoto = /home/<domain>)",
+	"publication_hosts_draft_site_home_fact": "Home del sito",
 	"publication_hosts_draft_state": "Stato",
 	"publication_hosts_draft_v1_user": "Account del pool v1",
 	"publication_hosts_draft_v2_port": "Porta locale di v2",

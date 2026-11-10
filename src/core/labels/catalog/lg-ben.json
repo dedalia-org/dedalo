@@ -737,6 +737,8 @@
 	"publication_hosts_draft_name": "হোস্টের নাম (এই প্যানেলে)",
 	"publication_hosts_draft_one_machine": "একটি সকেট (এই মেশিন)",
 	"publication_hosts_draft_paired": "এই নামে পেয়ার করা",
+	"publication_hosts_draft_site_home": "সাইট হোম (খালি = /home/<domain>)",
+	"publication_hosts_draft_site_home_fact": "সাইট হোম",
 	"publication_hosts_draft_state": "অবস্থা",
 	"publication_hosts_draft_v1_user": "v1 পুল অ্যাকাউন্ট",
 	"publication_hosts_draft_v2_port": "v2 স্থানীয় পোর্ট",

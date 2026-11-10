@@ -737,6 +737,8 @@
 	"publication_hosts_draft_name": "اسم المضيف (في هذه اللوحة)",
 	"publication_hosts_draft_one_machine": "مقبس (هذا الجهاز)",
 	"publication_hosts_draft_paired": "مقترن باسم",
+	"publication_hosts_draft_site_home": "مسار الموقع الرئيسي (فارغ = /home/<domain>)",
+	"publication_hosts_draft_site_home_fact": "مسار الموقع",
 	"publication_hosts_draft_state": "الحالة",
 	"publication_hosts_draft_v1_user": "حساب مجمّع v1",
 	"publication_hosts_draft_v2_port": "المنفذ المحلي لـ v2",

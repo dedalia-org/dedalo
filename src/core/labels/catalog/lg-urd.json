@@ -737,6 +737,8 @@
 	"publication_hosts_draft_name": "ہوسٹ کا نام (اس پینل میں)",
 	"publication_hosts_draft_one_machine": "ایک ساکٹ (یہ مشین)",
 	"publication_hosts_draft_paired": "اس نام سے جوڑا گیا",
+	"publication_hosts_draft_site_home": "سائٹ ہوم (خالی = /home/<domain>)",
+	"publication_hosts_draft_site_home_fact": "سائٹ ہوم",
 	"publication_hosts_draft_state": "حالت",
 	"publication_hosts_draft_v1_user": "v1 پول اکاؤنٹ",
 	"publication_hosts_draft_v2_port": "v2 مقامی پورٹ",

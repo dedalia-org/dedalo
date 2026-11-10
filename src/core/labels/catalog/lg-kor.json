@@ -737,6 +737,8 @@
 	"publication_hosts_draft_name": "호스트 이름 (이 패널에서)",
 	"publication_hosts_draft_one_machine": "소켓 (이 머신)",
 	"publication_hosts_draft_paired": "페어링 이름",
+	"publication_hosts_draft_site_home": "사이트 홈 (비우면 /home/<domain>)",
+	"publication_hosts_draft_site_home_fact": "사이트 홈",
 	"publication_hosts_draft_state": "상태",
 	"publication_hosts_draft_v1_user": "v1 풀 계정",
 	"publication_hosts_draft_v2_port": "v2 로컬 포트",

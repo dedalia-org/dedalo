@@ -44,8 +44,10 @@ import {
 } from '../../../publication/host_agent/src/provision/init/draft.ts';
 import {
 	type AgentLayout,
+	cleanAbsolute,
 	DOMAIN_PATTERN,
 	derive,
+	FORBIDDEN_HOMES,
 	type HostDeclaration,
 	INSTANCE_PATTERN,
 	LayoutError,
@@ -83,6 +85,7 @@ export const DRAFT_FIELDS = Object.freeze([
 	'name',
 	'instance',
 	'site.domain',
+	'site.home',
 	'listen.kind',
 	'listen.host',
 	'listen.port',
@@ -138,7 +141,8 @@ export interface PanelDraft {
 	agent_user: string;
 	engine_group?: string;
 	web: { server: 'apache' | 'nginx' };
-	site: { domain: string };
+	/** `home`: the site's own directory (home layout only); absent = init's `/home/<domain>`. */
+	site: { domain: string; home?: string };
 	v1?: { user: string };
 	media: { mode: 'shared' | 'copy' | 'none'; root?: string };
 	v2: { unit: string; user: string; port: number };
@@ -238,6 +242,27 @@ function readListen(r: Reader, value: unknown): PanelDraft['listen'] {
 	};
 }
 
+/** `site.home`: empty/absent = the default; else a clean absolute path no site-sharing directory. */
+function readSiteHome(r: Reader, value: unknown, layout: PanelDraft['layout']): string | undefined {
+	if (value === undefined || value === '') return undefined;
+	if (layout === 'system') {
+		r.refuse('site.home', 'only the home layout has a site home');
+		return undefined;
+	}
+	try {
+		const home = cleanAbsolute('site.home', value);
+		if (FORBIDDEN_HOMES.includes(home)) {
+			r.refuse('site.home', `'${home}' holds other sites; a site home is its own directory`);
+			return undefined;
+		}
+		return home;
+	} catch (error) {
+		if (!(error instanceof LayoutError)) throw error;
+		r.refuse('site.home', error.reason);
+		return undefined;
+	}
+}
+
 function readMedia(r: Reader, value: unknown): PanelDraft['media'] {
 	const media = r.object('media.mode', value, ['mode', 'root']);
 	const mode = r.choice('media.mode', media.mode, ['shared', 'copy', 'none'] as const);
@@ -259,7 +284,7 @@ export function readPanelDraft(value: unknown): PanelDraft {
 	const raw = r.object('instance', value, DRAFT_KEYS);
 	const apis = r.choice('apis', raw.apis, ['v2_only', 'v1_and_v2'] as const);
 	const web = r.object('web.server', raw.web, ['server']);
-	const site = r.object('site.domain', raw.site, ['domain']);
+	const site = r.object('site.domain', raw.site, ['domain', 'home']);
 	const v2 = r.object('v2.unit', raw.v2, ['unit', 'user', 'port']);
 	const draft: PanelDraft = {
 		instance: r.text(
@@ -288,6 +313,8 @@ export function readPanelDraft(value: unknown): PanelDraft {
 			port: r.port('v2.port', v2.port),
 		},
 	};
+	const home = readSiteHome(r, site.home, draft.layout);
+	if (home !== undefined) draft.site.home = home;
 	if (draft.listen.kind === 'unix') {
 		draft.engine_group = r.text(
 			'engine_group',
@@ -315,9 +342,9 @@ export function readPanelDraft(value: unknown): PanelDraft {
 
 // ------------------------------------------------------------------- the agent's rule set
 
-/** The site's home a `home` layout uses: init's default `/home/<domain>`. */
-function siteHome(domain: string): string {
-	return join('/home', domain);
+/** The site's home a `home` layout uses: the draft's, else init's default `/home/<domain>`. */
+function siteHome(draft: PanelDraft): string {
+	return draft.site.home ?? join('/home', draft.site.domain);
 }
 
 /**
@@ -329,7 +356,7 @@ export function standInDeclaration(draft: PanelDraft): HostDeclaration {
 	const paths = layoutPaths(
 		draft.layout,
 		draft.instance,
-		draft.layout === 'home' ? siteHome(draft.site.domain) : null,
+		draft.layout === 'home' ? siteHome(draft) : null,
 	);
 	return {
 		instance: draft.instance,
@@ -365,9 +392,13 @@ function standInApis(
 	draft: PanelDraft,
 	servesV1: boolean,
 ): Pick<HostDeclaration, 'site' | 'v1' | 'php_bin'> {
-	if (!servesV1) return { site: { domain: draft.site.domain, os_family: 'debian' } };
+	const base = {
+		domain: draft.site.domain,
+		...(draft.site.home === undefined ? {} : { home: draft.site.home }),
+	};
+	if (!servesV1) return { site: { ...base, os_family: 'debian' } };
 	return {
-		site: { domain: draft.site.domain, fpm: { flavor: 'debian', version: V1_PHP_FLOOR } },
+		site: { ...base, fpm: { flavor: 'debian', version: V1_PHP_FLOOR } },
 		v1: { user: draft.v1?.user ?? '' },
 		php_bin: DEFAULTS.phpBin,
 	};
@@ -378,7 +409,8 @@ function standInApis(
  * order is load-bearing: `site.fpm` is `apis` before `site.` is `site.domain`).
  */
 const FORM_FIELD_RULES: readonly (readonly [RegExp, DraftField])[] = [
-	[/^(state_root|agent_dir|bun_bin|site\.home)/, 'layout'],
+	[/^site\.home/, 'site.home'],
+	[/^(state_root|agent_dir|bun_bin)/, 'layout'],
 	[/^v2\.group/, 'v2.user'],
 	[/^v2\.health_url/, 'v2.port'],
 	[/^web\./, 'web.server'],

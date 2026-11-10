@@ -737,6 +737,8 @@
 	"publication_hosts_draft_name": "Zerbitzariaren izena (panel honetan)",
 	"publication_hosts_draft_one_machine": "socket bat (makina hau)",
 	"publication_hosts_draft_paired": "Honela parekatua",
+	"publication_hosts_draft_site_home": "Gunearen direktorioa (hutsik = /home/<domain>)",
+	"publication_hosts_draft_site_home_fact": "Gunearen direktorioa",
 	"publication_hosts_draft_state": "Egoera",
 	"publication_hosts_draft_v1_user": "v1 pool-aren kontua",
 	"publication_hosts_draft_v2_port": "v2 tokiko ataka",

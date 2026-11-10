@@ -737,6 +737,8 @@
 	"publication_hosts_draft_name": "Имя сервера (в этой панели)",
 	"publication_hosts_draft_one_machine": "сокет (эта машина)",
 	"publication_hosts_draft_paired": "Сопряжён как",
+	"publication_hosts_draft_site_home": "Домашний каталог сайта (пусто = /home/<domain>)",
+	"publication_hosts_draft_site_home_fact": "Домашний каталог сайта",
 	"publication_hosts_draft_state": "Состояние",
 	"publication_hosts_draft_v1_user": "Учётная запись пула v1",
 	"publication_hosts_draft_v2_port": "Локальный порт v2",

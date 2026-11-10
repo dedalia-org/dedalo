@@ -48,6 +48,7 @@ export const DRAFT_FORM_FIELDS = Object.freeze([
 	'media.mode',
 	'media.root',
 	'layout',
+	'site.home',
 	'agent_user',
 	'engine_group',
 	'v2.user',
@@ -86,6 +87,9 @@ export const read_draft_form = function (inputs) {
 				: { mode: text('media.mode'), root: text('media.root') },
 		v2: { unit: text('v2.unit'), user: text('v2.user'), port: number('v2.port') },
 	};
+	// a custom site home exists only on the 'home' layout
+	const home = text('site.home');
+	if (home && draft.layout === 'home') draft.site.home = home;
 	if (!two) draft.engine_group = text('engine_group');
 	if (draft.apis === 'v1_and_v2') draft.v1 = { user: text('v1.user') };
 
@@ -106,6 +110,7 @@ export const fill_draft_form = function (inputs, proposal) {
 	set('name', proposal.name);
 	set('instance', draft.instance);
 	set('site.domain', draft.site?.domain);
+	set('site.home', draft.site?.home);
 	set('listen.kind', draft.listen?.kind);
 	set('listen.host', draft.listen?.host);
 	set('listen.port', draft.listen?.port);
@@ -231,6 +236,14 @@ const render_draft = function (self, row, parent, body_response) {
 		draft.site?.domain,
 		true,
 	);
+	if (draft.site?.home) {
+		fact_row(
+			facts,
+			get_label.publication_hosts_draft_site_home_fact || 'Site home',
+			draft.site.home,
+			true,
+		);
+	}
 	fact_row(
 		facts,
 		get_label.publication_hosts_draft_listen || 'Agent listens on',
@@ -491,6 +504,11 @@ const render_draft_form = function (self, parent, body_response) {
 		['home', get_label.publication_hosts_draft_layout_home || '/home/<domain> (the site home)'],
 		['system', get_label.publication_hosts_draft_layout_system || '/opt and /srv'],
 	]);
+	text_field(
+		'site.home',
+		get_label.publication_hosts_draft_site_home || 'Site home (empty = /home/<domain>)',
+	);
+	inputs['site.home'].placeholder = '/home/<domain>';
 	text_field('listen.port', get_label.publication_hosts_draft_listen_port || 'Agent port');
 	select_field('web.server', get_label.publication_hosts_draft_web_server || 'Web server', [
 		['apache', get_label.publication_hosts_draft_web_apache || 'Apache'],
@@ -531,8 +549,12 @@ const render_draft_form = function (self, parent, body_response) {
 		show(inputs.engine_group, !two);
 		show(inputs['v1.user'], v1);
 		show(inputs['media.root'], inputs['media.mode'].value !== 'none');
+		// a custom home only on the 'home' layout
+		const home_layout = inputs.layout.value === 'home';
+		show(inputs['site.home'], home_layout);
+		inputs['site.home'].disabled = !home_layout;
 	};
-	for (const path of ['listen.kind', 'apis', 'media.mode']) {
+	for (const path of ['listen.kind', 'apis', 'media.mode', 'layout']) {
 		inputs[path].addEventListener('change', sync_visibility);
 	}
 	sync_visibility();

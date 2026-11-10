@@ -737,6 +737,8 @@
 	"publication_hosts_draft_name": "Nom du serveur (dans ce panneau)",
 	"publication_hosts_draft_one_machine": "un socket (cette machine)",
 	"publication_hosts_draft_paired": "Appairé sous",
+	"publication_hosts_draft_site_home": "Répertoire du site (vide = /home/<domain>)",
+	"publication_hosts_draft_site_home_fact": "Répertoire du site",
 	"publication_hosts_draft_state": "État",
 	"publication_hosts_draft_v1_user": "Compte du pool v1",
 	"publication_hosts_draft_v2_port": "Port local de v2",

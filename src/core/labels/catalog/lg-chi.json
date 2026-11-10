@@ -737,6 +737,8 @@
 	"publication_hosts_draft_name": "主机名称（在本面板中）",
 	"publication_hosts_draft_one_machine": "一个套接字（本机）",
 	"publication_hosts_draft_paired": "配对名称",
+	"publication_hosts_draft_site_home": "站点主目录（留空 = /home/<domain>）",
+	"publication_hosts_draft_site_home_fact": "站点主目录",
 	"publication_hosts_draft_state": "状态",
 	"publication_hosts_draft_v1_user": "v1 进程池账户",
 	"publication_hosts_draft_v2_port": "v2 本地端口",

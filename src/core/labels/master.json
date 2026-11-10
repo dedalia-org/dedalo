@@ -743,6 +743,8 @@
 	"publication_hosts_draft_name": "Host name (in this panel)",
 	"publication_hosts_draft_one_machine": "a socket (this machine)",
 	"publication_hosts_draft_paired": "Paired as",
+	"publication_hosts_draft_site_home": "Site home (empty = /home/<domain>)",
+	"publication_hosts_draft_site_home_fact": "Site home",
 	"publication_hosts_draft_state": "State",
 	"publication_hosts_draft_v1_user": "v1 pool account",
 	"publication_hosts_draft_v2_port": "v2 local port",

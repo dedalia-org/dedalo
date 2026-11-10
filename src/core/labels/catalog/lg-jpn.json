@@ -737,6 +737,8 @@
 	"publication_hosts_draft_name": "ホスト名（このパネル内）",
 	"publication_hosts_draft_one_machine": "ソケット（このマシン）",
 	"publication_hosts_draft_paired": "ペアリング名",
+	"publication_hosts_draft_site_home": "サイトのホーム（空 = /home/<domain>）",
+	"publication_hosts_draft_site_home_fact": "サイトのホーム",
 	"publication_hosts_draft_state": "状態",
 	"publication_hosts_draft_v1_user": "v1 プールのアカウント",
 	"publication_hosts_draft_v2_port": "v2 のローカルポート",

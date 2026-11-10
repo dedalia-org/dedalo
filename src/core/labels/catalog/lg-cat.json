@@ -737,6 +737,8 @@
 	"publication_hosts_draft_name": "Nom del servidor (en aquest panell)",
 	"publication_hosts_draft_one_machine": "un sòcol (aquesta màquina)",
 	"publication_hosts_draft_paired": "Aparellat com a",
+	"publication_hosts_draft_site_home": "Directori del lloc (buit = /home/<domain>)",
+	"publication_hosts_draft_site_home_fact": "Directori del lloc",
 	"publication_hosts_draft_state": "Estat",
 	"publication_hosts_draft_v1_user": "Compte del pool de v1",
 	"publication_hosts_draft_v2_port": "Port local de v2",

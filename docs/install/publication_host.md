@@ -459,6 +459,10 @@ directory, as in the [manual install](#lay-out-each-site-in-its-home-directory):
 | the site's web server logs | `/var/log/apache2/museum.org` (RHEL `/var/log/httpd/…`, nginx `/var/log/nginx/…`): never in the home | where your virtual host puts them |
 | the v2 API's SELinux type (RHEL, Rocky, Alma) | `dedalo_publication_v2_t`, from the publication host's own policy module ([below](#rhel-rocky-and-alma)) | the same |
 
+If the site's home is not `/home/<domain>` (for example `/home/www/vhosts/museum.org`), set `site.home` to
+that directory in the declaration, or fill **Site home** in the panel's draft form. It applies to the
+`home` layout only; with `system` it is refused.
+
 Root runs the Bun and the agent code from beneath the home, so the home must belong to root.
 init makes it so, as a *will change* item (`--yes` applies it):
 

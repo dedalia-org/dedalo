@@ -737,6 +737,8 @@
 	"publication_hosts_draft_name": "होस्ट नाम (इस पैनल में)",
 	"publication_hosts_draft_one_machine": "एक सॉकेट (यह मशीन)",
 	"publication_hosts_draft_paired": "इस नाम से पेयर किया गया",
+	"publication_hosts_draft_site_home": "साइट होम (खाली = /home/<domain>)",
+	"publication_hosts_draft_site_home_fact": "साइट होम",
 	"publication_hosts_draft_state": "स्थिति",
 	"publication_hosts_draft_v1_user": "v1 पूल खाता",
 	"publication_hosts_draft_v2_port": "v2 स्थानीय पोर्ट",

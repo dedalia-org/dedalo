@@ -737,6 +737,8 @@
 	"publication_hosts_draft_name": "Servername (in diesem Panel)",
 	"publication_hosts_draft_one_machine": "ein Socket (diese Maschine)",
 	"publication_hosts_draft_paired": "Gekoppelt als",
+	"publication_hosts_draft_site_home": "Site-Home (leer = /home/<domain>)",
+	"publication_hosts_draft_site_home_fact": "Site-Home",
 	"publication_hosts_draft_state": "Status",
 	"publication_hosts_draft_v1_user": "Konto des v1-Pools",
 	"publication_hosts_draft_v2_port": "Lokaler Port von v2",
