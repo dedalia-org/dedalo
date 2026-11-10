@@ -23230,6 +23230,11 @@ body.inspector_resizing {
   padding-top: 1rem;
   width: calc(100% - 2.6rem);
 }
+@media screen and (max-width: 600px) {
+  .component_check_box.view_tools > .content_data {
+    grid-template-columns: 1fr;
+  }
+}
 .component_check_box.view_tools > .content_data .select_all {
   position: absolute;
   top: 1rem;
@@ -23259,6 +23264,11 @@ body.inspector_resizing {
   margin-right: 0.5rem;
   margin-left: 0px;
 }
+.component_check_box.view_tools > .content_data > .content_value > .input_label {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: normal;
+}
 .component_check_box.view_tools > .content_data > .content_value > .input_label > .input_checkbox {
   margin-right: 0.33rem;
 }
@@ -23266,12 +23276,20 @@ body.inspector_resizing {
   vertical-align: text-bottom;
 }
 .component_check_box.view_tools > .content_data > .content_value > .developer_info {
-  margin-left: 0.33rem;
-  flex: 1 1;
+  order: 1;
+  flex-basis: 100%;
+  padding-left: 4rem;
+  font-size: 0.9em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
-.component_check_box.view_tools > .content_data > .content_value:last-child,
-.component_check_box.view_tools > .content_data > .content_value:nth-last-child(2):nth-child(even) {
+.component_check_box.view_tools > .content_data > .content_value:last-child {
   border-bottom: none;
+}
+@media screen and (min-width: 601px) {
+  .component_check_box.view_tools > .content_data > .content_value:nth-last-child(2):nth-child(even) {
+    border-bottom: none;
+  }
 }
 .component_check_box.view_tools > .content_data > .content_value > .tool_info_toggle {
   flex: 0 0 auto;
@@ -23290,18 +23308,28 @@ body.inspector_resizing {
 }
 .component_check_box.view_tools > .content_data > .content_value > .tool_description {
   display: none;
+  order: 2;
   flex-basis: 100%;
   padding: 0.25rem 0 0.33rem 4rem;
   font-size: 0.9em;
   line-height: 1.3;
   white-space: pre-line;
-  opacity: 0.7;
+  opacity: 0.85;
 }
 .component_check_box.view_tools > .content_data > .content_value.open > .tool_info_toggle {
   opacity: 0.8;
 }
 .component_check_box.view_tools > .content_data > .content_value.open > .tool_description {
   display: block;
+}
+@media screen and (max-width: 600px) {
+  .component_check_box.view_tools > .content_data > .content_value {
+    margin-left: 0;
+  }
+  .component_check_box.view_tools > .content_data > .content_value > .developer_info,
+  .component_check_box.view_tools > .content_data > .content_value > .tool_description {
+    padding-left: 1.85rem;
+  }
 }
 .component_check_box.search > .content_data > .q_operator {
   width: 3rem;

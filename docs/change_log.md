@@ -390,6 +390,14 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Profile tool permissions list is readable on a phone.**
+
+    The tools list in a profile (and any check box shown as a tools list) now uses one column on
+    narrow screens instead of two cramped ones. When the field is active, each tool's internal
+    name and number sits on its own line under the label instead of squeezed beside it, a long
+    label wraps instead of pushing the info button down, and the opened description is easier to
+    read.
+
 - **Publication host install accepts passwords with accented letters (ñ, ç, ü…) and any language's letters.**
 
     When the publication host install asks for the database password and the v1
