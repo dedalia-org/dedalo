@@ -667,22 +667,28 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	const BLANK_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
 
 	/**
-	* Arming UA builds the IGN's AU.AdministrativeUnit WMS: every WMS layer
-	* pointed at www.ign.es takes its tiles from BLANK_TILE while this is in
-	* place (beforeEach), so no test reaches IGN. The layer stays a real
-	* L.TileLayer.WMS. Returns the restore (L is global).
+	* Arming UA builds the core's built-in IGN layer (`builtin=ign_admin_units`,
+	* through the tile proxy): while this is in place (beforeEach) its tiles come
+	* from BLANK_TILE, so no test makes the server reach IGN. The layer stays a
+	* real L.TileLayer. Returns the restore (L is global).
 	*/
 	const offline_ua_wms = function() {
-		const original = L.tileLayer.wms
-		L.tileLayer.wms = function(url, options) {
+		const original = L.tileLayer
+		const patched = function(url, options) {
 			const layer = original.call(this, url, options)
-			if (String(url).startsWith('https://www.ign.es/')) {
+			if (String(url).includes('builtin=ign_admin_units')) {
 				layer.getTileUrl = () => BLANK_TILE
 			}
 			return layer
 		}
-		return () => { L.tileLayer.wms = original }
+		patched.wms = original.wms
+		L.tileLayer = patched
+		return () => { L.tileLayer = original }
 	}
+
+	/** The layer a basemap swap (Catastro, UA) puts on the map. */
+	const is_swap_layer = (layer) => layer instanceof L.TileLayer.WMS
+		|| (layer instanceof L.TileLayer && String(layer._url).includes('builtin=ign_admin_units'))
 
 	let geolocation, tool, map_container, restore_ua_wms
 
@@ -4524,6 +4530,20 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.notMatch(layer._url, /google/i, 'expected no Google Maps tiles, on the map or offered by the control')
 		}
 
+		// OSM is the core's built-in: through the tile proxy, or OpenStreetMap's one direct
+		// template where the server lists it in tile_direct; never a host the page names
+		const osm_url = tile_entries.find((entry) => entry.name==='OSM').layer._url
+		assert.isTrue(
+			osm_url.includes('/api/v1/map_tile?') && osm_url.includes('builtin=osm')
+				|| osm_url==='https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+			'expected the built-in osm, got ' + osm_url
+		)
+		assert.equal(
+			osm_url.includes('/api/v1/map_tile?'),
+			!(geolocation.context.features.tile_direct || []).includes('osm'),
+			'expected the proxy exactly when the server does not list osm as direct'
+		)
+
 		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[0]), true, 'expected the first basemap (OSM) active on the map')
 		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[1]), false, 'expected the other basemap NOT active')
 	})
@@ -5338,7 +5358,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const original			= find_active_tile_layer(map)
 		const wms_on_map		= () => {
 			const layers = []
-			map.eachLayer((layer) => { if (layer instanceof L.TileLayer.WMS) layers.push(layer) })
+			map.eachLayer((layer) => { if (is_swap_layer(layer)) layers.push(layer) })
 			return layers
 		}
 		const click_cat	= () => tool.catastro_control.getContainer().click()
@@ -5367,7 +5387,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.deepEqual(wms_on_map(), [], 'expected no WMS left once both are off')
 		assert.equal(map.hasLayer(original), true, 'expected the original basemap back')
 		const entries = geolocation.layer_control ? Object.values(geolocation.layer_control._layers) : []
-		assert.isFalse(entries.some((entry) => entry.layer instanceof L.TileLayer.WMS), 'expected no WMS left in the layer control')
+		assert.isFalse(entries.some((entry) => is_swap_layer(entry.layer)), 'expected no WMS left in the layer control')
 		assert.equal(tool._basemap_swap_armed, null, 'expected no swap holding the basemap')
 	})
 
@@ -5684,7 +5704,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isOk(tool.ua_panel.querySelector('.uca-maps-ua-level-select'), 'expected the level select rendered')
 		})
 
-		// v6's UA_on swaps the basemap for AU.AdministrativeUnit, as Catastro does:
+		// v6's UA_on swaps the basemap for the IGN administrative units, as Catastro does:
 		// laid over it, the units would be read against a second map
 		it('opening the "UA" panel swaps the active basemap; closing it restores the previous one', function() {
 
@@ -5696,8 +5716,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 			tool.ua_control.getContainer().click()
 			assert.equal(tool.ua_panel.hidden, false, 'expected the panel open')
-			assert.isOk(tool._ua_tile_layer, 'expected the AU.AdministrativeUnit tile layer built')
+			assert.isOk(tool._ua_tile_layer, 'expected the administrative-units tile layer built')
 			assert.equal(geolocation.map.hasLayer(tool._ua_tile_layer), true, 'expected it active on the map')
+			const ua_url = tool._ua_tile_layer._url
+			assert.include(ua_url, '/api/v1/map_tile?', 'expected the core\'s built-in, through the tile proxy')
+			assert.include(ua_url, 'builtin=ign_admin_units')
+			assert.notInclude(ua_url, 'ign.es', 'expected no provider address in the page')
 			assert.equal(geolocation.map.hasLayer(previous_base_layer), false, 'expected the PREVIOUS basemap removed while UA is active — a swap, not an overlay')
 
 			tool.ua_control.getContainer().click()
@@ -5874,7 +5898,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(tool.ua_control, null, 'expected ua_control cleared')
 			assert.equal(tool.ua_panel, null, 'expected ua_panel cleared')
 			assert.isNotOk(map_container_node.querySelector('.uca-maps-ua-control'), 'expected the button removed from the DOM')
-			assert.equal(geolocation.map.hasLayer(tile_layer), false, 'expected the AU.AdministrativeUnit layer removed from the map')
+			assert.equal(geolocation.map.hasLayer(tile_layer), false, 'expected the administrative-units layer removed from the map')
 			assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored on teardown, not left blank')
 		})
 	})

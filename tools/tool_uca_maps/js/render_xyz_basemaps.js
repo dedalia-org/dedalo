@@ -174,7 +174,7 @@ export const populate_xyz_basemaps = function(self, panel) {
 			element_type	: 'span',
 			class_name		: 'uca-maps-xyz-item-name',
 			text_content	: basemap.name,
-			title			: basemap.url,
+			title			: basemap.url || '',
 			parent			: item
 		})
 

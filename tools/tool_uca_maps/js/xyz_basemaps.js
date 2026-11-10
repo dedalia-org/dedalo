@@ -32,19 +32,18 @@ import {render_xyz_basemaps_panel, populate_xyz_basemaps} from './render_xyz_bas
 
 
 /** v6's defaults (`class.tool_leaflet_special_tools.php`) for a non-numisdata
-* `section_tipo`, except the OSM URL (see that entry) and WITHOUT Google Maps:
-* `mt1.google.com` is no documented endpoint, and requesting its tiles bypasses the
-* official Map Tiles API, which its terms forbid. */
+* `section_tipo`, WITHOUT Google Maps: `mt1.google.com` is no documented endpoint, and
+* requesting its tiles bypasses the official Map Tiles API, which its terms forbid. OSM is
+* the core's built-in `osm` (`builtin`), whose tiles come through the tile proxy (or
+* straight from OpenStreetMap where the server says so): the page may not name an OSM
+* host of its own. Max zoom 19, the built-in's own. */
 // exported for the client gate
 export const DEFAULT_BASEMAPS = [
 	{
-		// literal https, not v6's protocol-relative '//', as the core's TILE_URLS: an
-		// http:// tile request that OSM redirects to https breaks the CSP in dev
-		url			: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+		builtin		: 'osm',
 		name		: 'OSM',
-		attribution	: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 		minzoom		: 0,
-		maxzoom		: 20
+		maxzoom		: 19
 	},
 	{
 		url			: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -183,11 +182,10 @@ const rebuild_xyz_layer_control = function(self, {activate_index = 0} = {}) {
 	}
 
 	self._xyz_tile_layers = self.basemaps.map((basemap) => {
-		const tile_layer = L.tileLayer(basemap.url, {
-			attribution	: basemap.attribution,
-			minZoom		: basemap.minzoom,
-			maxZoom		: basemap.maxzoom
-		})
+		const zooms = {minZoom: basemap.minzoom, maxZoom: basemap.maxzoom}
+		const tile_layer = basemap.builtin
+			? geolocation.get_builtin_layer(basemap.builtin, zooms)
+			: L.tileLayer(basemap.url, {attribution: basemap.attribution, ...zooms})
 		// the name is text (the panel list sets it as textContent), Leaflet's
 		// control writes it as innerHTML
 		layer_control.addBaseLayer(tile_layer, escape_html(basemap.name))

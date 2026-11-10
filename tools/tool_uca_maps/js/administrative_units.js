@@ -8,7 +8,7 @@
 * ADMINISTRATIVE_UNITS
 * "Administrative Units" (UA): the same language gate and basemap swap as Catastro.
 * v6's one toggle (`special_tools_UA_es.js` UA_on/UA_off) shows the level select, swaps
-* the basemap for the AU.AdministrativeUnit WMS and arms the click; here opening the
+* the basemap for the IGN administrative-units WMS and arms the click; here opening the
 * panel IS arming, and closing it, by any path, disarms.
 */
 
@@ -32,10 +32,6 @@ import {
 	wms_point_options
 } from './basemap_swap.js'
 import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
-
-
-
-const UA_URL = 'https://www.ign.es/wms-inspire/unidades-administrativas'
 
 
 
@@ -106,21 +102,17 @@ const toggle_ua_panel = function(self) {
 
 /**
 * ENABLE_UA
-* Swaps the basemap for the AU.AdministrativeUnit WMS and arms the click.
+* Swaps the basemap for the IGN administrative-units WMS and arms the click.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
 */
 const enable_ua = function(self) {
 
+	// the core's built-in IGN source, through the tile proxy: the page may not name
+	// www.ign.es itself (the CSP admits no tile host it can relay)
 	enable_basemap_swap(self, 'ua', {
-		url			: UA_URL,
-		wms_options	: {
-			layers		: 'AU.AdministrativeUnit',
-			format		: 'image/png',
-			transparent	: true,
-			opacity		: 1
-		},
+		tile_layer	: self.geolocation.get_builtin_layer('ign_admin_units', {opacity: 1}),
 		label		: self.get_tool_label('ua_control_title') || 'Administrative Units',
 		on_click	: (latlng) => check_administrative_unit_at_point(self, latlng),
 		// the panel goes with the swap: an open panel over a disarmed map lies

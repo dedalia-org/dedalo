@@ -52,10 +52,13 @@ const slot = (key, name) => `_${key}_${name}`
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {string} key - the feature's state key ('catastro' | 'ua')
-* @param {{url: string, wms_options: Object, label: string, on_click: function(Object): void, disarm: function(): void}} swap
+* The WMS is either a layer the caller built (`tile_layer`, e.g. a core built-in drawn
+* through the tile proxy) or an endpoint and its options, loaded by the page itself.
+*
+* @param {{tile_layer?: Object, url?: string, wms_options?: Object, label: string, on_click: function(Object): void, disarm: function(): void}} swap
 * @returns {void}
 */
-export const enable_basemap_swap = function(self, key, {url, wms_options, label, on_click, disarm}) {
+export const enable_basemap_swap = function(self, key, {tile_layer: given_layer, url, wms_options, label, on_click, disarm}) {
 
 	const geolocation	= self.geolocation
 	const map			= geolocation.map
@@ -82,7 +85,7 @@ export const enable_basemap_swap = function(self, key, {url, wms_options, label,
 		}
 	})
 
-	const tile_layer = L.tileLayer.wms(`${url}?`, wms_options)
+	const tile_layer = given_layer || L.tileLayer.wms(`${url}?`, wms_options)
 	self[slot(key, 'tile_layer')] = tile_layer
 	layer_control.addBaseLayer(tile_layer, label)
 	tile_layer.addTo(map) // the layer control redraws itself: no radio click to simulate
