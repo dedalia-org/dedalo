@@ -25412,6 +25412,12 @@ body.inspector_resizing {
 .component_iri.edit:not(:hover):not(.active) > .content_data > .content_value > .component_dataframe .component_placeholder {
   visibility: hidden;
 }
+.component_iri.edit:not(.active) > .content_data > .content_value:has(>.input_value.title:placeholder-shown) > .input_value.title {
+  display: none;
+}
+.component_iri.edit:not(.active) > .content_data > .content_value:has(>.input_value.title:placeholder-shown) > .component_dataframe {
+  flex-basis: 100%;
+}
 .component_iri.edit .component_dataframe .section_record > .column_section_id {
   order: 2;
   margin-left: auto;

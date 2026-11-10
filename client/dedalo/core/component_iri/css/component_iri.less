@@ -54,6 +54,18 @@
 			}
 		}
 
+		// not active + empty title: drop the title so the dataframe label takes
+		// its width (no ellipsis); .active restores the edit distribution
+		// (the dataframe takes the full line, or the url would join it and narrow it)
+		&:not(.active) >.content_data >.content_value:has(>.input_value.title:placeholder-shown) {
+			>.input_value.title {
+				display: none;
+			}
+			>.component_dataframe {
+				flex-basis: 100%;
+			}
+		}
+
 		// group the embedded dataframe's pen + trash together at the right (like
 		// the component_portal view_line) so the linked-record text sits on the left.
 		.component_dataframe .section_record {
