@@ -385,6 +385,25 @@
 			padding: 0px;
 			>.content_data {
 				padding: 0px;
+
+				// the shared exit-edit button (layout.less) owns the top-right
+				// corner: the trigger takes the top-left, the search look.
+				// Phone keeps its in-row trigger (`&.edit` phone block).
+				@media screen and (min-width: (@width_break_point_phone + 1)) {
+					>.content_value >.input-group >.button_container.button_calendar_container {
+						left: -0.9rem;
+						right: auto;
+						top: -1.4rem;
+					}
+				}
+
+				// centre the row: a wrapped range's `<>` (alone on its line) leaves
+				// the second trigger's corner, and an unwrapped one keeps its second
+				// field clear of the exit button. `safe`: an overflowing field
+				// stays start-aligned, never clipped on the left.
+				>.content_value {
+					justify-content: safe center;
+				}
 			}
 		}
 	}

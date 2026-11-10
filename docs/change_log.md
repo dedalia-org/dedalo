@@ -34,6 +34,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Date fields inside portal rows no longer stack their buttons**
+
+    In a portal row (line view), the date's calendar button sat on top of the
+    row's close button. The calendar button now sits at the field's top-left
+    corner, and the `<>` mark of a date range is centred between the two dates.
+
 - **Open relationships dialog no longer jumps when switching scope**
 
     - Switching between **Current record** and **All found records** keeps the dialog in place: it stays anchored at the top and keeps its height while the new list loads.
@@ -58,6 +64,10 @@ Merged since the last release; these ship with the next one.
     - Text panes fill the tool's height, whatever size the field has in the record form.
     - The two columns no longer jump when the tool opens; your saved split is applied straight away.
     - On narrow windows and phones the panes stack in equal halves, each with a single scrollbar, and the action buttons line up.
+
+- **The multi-language tool's **Automatic translation** works: it offers the same engines as the single-language tool.**
+
+    The **Automatic translation** button in the multi-language tool did nothing: the tool had no translation engines of its own. It now uses the engines configured for the single-language translation tool (`tool_lang`) — the same list, the same server settings — so one configuration serves both. The engine selector and its local-AI options are shared by both tools; where no engine is configured the button is no longer shown.
 
 - **Saving a hierarchical autocomplete on a duplicated record no longer fails with "cannot delete path in scalar".**
 

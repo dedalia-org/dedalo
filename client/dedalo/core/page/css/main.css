@@ -23698,6 +23698,16 @@ body.inspector_resizing {
 .component_date.view_line.edit > .content_data {
   padding: 0px;
 }
+@media screen and (min-width: 601px) {
+  .component_date.view_line.edit > .content_data > .content_value > .input-group > .button_container.button_calendar_container {
+    left: -0.9rem;
+    right: auto;
+    top: -1.4rem;
+  }
+}
+.component_date.view_line.edit > .content_data > .content_value {
+  justify-content: safe center;
+}
 .dd_calendar_popup {
   position: fixed;
   inset: auto;
