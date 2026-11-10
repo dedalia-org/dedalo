@@ -79,6 +79,10 @@
 * @var {Array|null}        langs        - Available language codes (unused by this tool currently).
 * @var {Object|null}       caller       - The component or section instance that opened this
 *                                         tool; used to refresh the parent after generation.
+* @var {Object|null}       rebuild_policy - The server's "Force to create" verdict
+*                                         {allowed, reason} (inspect_hierarchy `rebuild`).
+* @var {Object|null}       force_to_create_control - {label, checkbox} of that control,
+*                                         painted by render_tool_hierarchy paint_rebuild_policy.
 */
 export const tool_hierarchy = function () {
 
@@ -95,6 +99,9 @@ export const tool_hierarchy = function () {
 	this.target_lang	= null
 	this.langs			= null
 	this.caller			= null
+
+	this.rebuild_policy				= null
+	this.force_to_create_control	= null
 }//end tool_hierarchy
 
 

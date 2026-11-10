@@ -203,6 +203,10 @@ export const textAreaEmitHook: ComponentEmitHook = {
 			context.row,
 			context.record,
 			sectionsEntry?.value ?? [],
+			// Internal read, unchanged: EmitHookContext carries no principal (same
+			// ledgered gap as the unscoped related_sections above) — the gated
+			// persons feed is dd_component_text_area_api.get_tags_info.
+			undefined,
 		);
 	},
 };

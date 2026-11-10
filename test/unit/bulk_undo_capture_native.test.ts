@@ -21,7 +21,7 @@
  *   - a fault after the write inside the caller's transaction leaves NEITHER row.
  *
  * DOORS: saveComponentData (replace, append, slot, date, id stamp, absent, no-op,
- * saveTm:false, upsert), createSectionRecord, the CSV door (replace, append,
+ * saveTm:false, the absent-record refusal), createSectionRecord, the CSV door (replace, append,
  * legacy envelope frames), import_execute (update, create), propagate (add,
  * replace, delete), update_cache (a re-save that changes / one that does not),
  * bulk_revert (its own writes), the delete doors and the dataframe cascade.
@@ -497,23 +497,27 @@ describe('saveComponentData under a bulk id', () => {
 		expect(rows.filter((row) => row.tipo === SLOT)).toEqual([]);
 	});
 
-	test('the UPSERT branch (a save onto a record that does not exist) births it', async () => {
+	test('a save onto a record that does not exist is refused and records NO birth (WC-2026-11-10-save-never-creates)', async () => {
 		const [{ m } = { m: 0 }] = (await sql.unsafe(
 			`SELECT COALESCE(MAX(section_id), 0) + 1000 AS m FROM "${TABLE}" WHERE section_tipo = $1`,
 			[SECTION],
 		)) as { m: number }[];
 		const id = Number(m);
 		const bulk = syntheticBulk();
-		await save(id, TEXT, 'lg-spa', [{ action: 'set_data', value: [{ value: 'new' }] }], {
-			bulkProcessId: bulk,
-		});
-		const rows = await runRows(SECTION, id, bulk);
-		// The birth image: the birth defaults the INSERT carried (none in this section).
-		expect(rows[0]).toMatchObject({ tipo: SECTION, tm_role: 3, lang: 'lg-nolan', data: {} });
-		expect(rows.filter((row) => row.tm_role === 3).length).toBe(1);
-		expectPair(rows, TEXT, undefined, await stored(SECTION, id, 'string', TEXT), 'lg-spa');
+		await expect(
+			saveComponentData({
+				componentTipo: TEXT,
+				sectionTipo: SECTION,
+				sectionId: id,
+				lang: 'lg-spa',
+				changedData: [{ action: 'set_data', value: [{ value: 'new' }] }] as never,
+				userId: USER_ID,
+				bulkProcessId: bulk,
+			}),
+		).rejects.toMatchObject({ code: 'resource.not_found' });
+		expect(await runRows(SECTION, id, bulk)).toEqual([]);
+		expect(await stored(SECTION, id, 'string', TEXT)).toBe('NO-RECORD');
 	});
-
 	test('a fault AFTER the save inside the caller’s transaction leaves neither row', async () => {
 		const id = await newRecord();
 		const bulk = syntheticBulk();

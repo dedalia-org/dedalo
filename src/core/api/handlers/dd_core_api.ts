@@ -42,7 +42,7 @@ import {
 	type Principal,
 } from '../../security/permissions.ts';
 import type { TargetSearchScope } from '../../security/writer_chain_scope.ts';
-import { getTermByLocator, getTermTipos } from '../../ts_object/term_resolver.ts';
+import { getTermByLocator } from '../../ts_object/term_resolver.ts';
 import {
 	type ActionHandler,
 	type ApiRequestContext,
@@ -51,6 +51,7 @@ import {
 import type { ApiResult } from '../response.ts';
 import { relationTargetsAction } from './relation_targets.ts';
 import { normalizeTermLocators } from './section_terms.ts';
+import { admitTermLocators } from './section_terms_access.ts';
 
 /** PHP safe_tipo grammar (shared/core_functions.php:2296). */
 const SAFE_TIPO = /^[a-z]{2,}[0-9]+$/;
@@ -118,14 +119,103 @@ async function gateRelatedHosts(sqo: unknown, principal: Principal): Promise<boo
 		.map((locator) => locator?.section_tipo)
 		.filter((tipo): tipo is string => typeof tipo === 'string');
 	if (hostSectionTipos.length === 0) return false;
-	for (const hostSectionTipo of new Set(hostSectionTipos)) {
+	await assertHostSectionsReadable(hostSectionTipos, principal);
+	await gateRelatedHostRecords(related.filter_by_locators, principal);
+	return true;
+}
+
+/** The host SECTION half: read grant >= 1 on every distinct host section, else `perm.denied`. */
+async function assertHostSectionsReadable(
+	sectionTipos: readonly string[],
+	principal: Principal,
+): Promise<void> {
+	for (const hostSectionTipo of new Set(sectionTipos)) {
 		const level = await getPermissions(principal, hostSectionTipo, hostSectionTipo);
 		if (level < 1) {
 			throw new DedaloError('perm.denied', { coordinates: { section_tipo: hostSectionTipo } });
 		}
 	}
-	await gateRelatedHostRecords(related.filter_by_locators, principal);
-	return true;
+}
+
+/** One indexation-grid host locator, canonical (int id). */
+type GridHostLocator = { section_tipo: string; section_id: number };
+
+/**
+ * THE LOCATOR GATE of the indexation grid (WC-2026-11-10-indexation-grid-read-door,
+ * addendum LOCATOR SWAP). The grid is BUILT from `sqo.filter_by_locators`, not from
+ * `source` — so gating the source alone let a caller granted on one term name any
+ * other host. Every entry is therefore a HOST and passes the source's own gate: the
+ * section read grant >= 1 (assertHostSectionsReadable) + the record scope, batched
+ * (scopeInverseReferenceHits — the same predicate principalCanAccessRecord asks per
+ * id); one failure REFUSES the call with `perm.denied` (same for missing and
+ * out-of-scope: no existence oracle) — a client naming a host it may not read is
+ * refused, never narrowed. And the source term must be among them (the client sends
+ * [term] for the direct badge, the term's whole subtree — the term included — for
+ * the recursive one, render_ts_line.js), or the request is not about its source:
+ * `search.invalid_sqo`. An entry that names no record (no id: a section-wide sweep;
+ * a non-address id; no section) is malformed, refused the same way. An ABSENT/empty
+ * list names nothing to show (the build answers an empty grid) and passes.
+ * Returns the canonical entries: the build reads exactly what was gated.
+ */
+async function gateIndexationGridLocators(
+	raw: unknown,
+	source: GridHostLocator,
+	principal: Principal,
+): Promise<GridHostLocator[]> {
+	const locators = canonicalGridLocators(raw);
+	if (locators.length === 0) return locators;
+	if (
+		!locators.some(
+			(l) => l.section_tipo === source.section_tipo && l.section_id === source.section_id,
+		)
+	) {
+		throw invalidGridLocators('filter_by_locators does not name the source term');
+	}
+	await assertHostSectionsReadable(
+		locators.map((locator) => locator.section_tipo),
+		principal,
+	);
+	const { scopeInverseReferenceHits } = await import('../../security/record_scope.ts');
+	const visible = new Set(
+		(await scopeInverseReferenceHits(locators, principal)).map(
+			(l) => `${l.section_tipo}|${l.section_id}`,
+		),
+	);
+	const refused = locators.find((l) => !visible.has(`${l.section_tipo}|${l.section_id}`));
+	if (refused !== undefined) {
+		throw new DedaloError('perm.denied', { coordinates: { ...refused } });
+	}
+	return locators;
+}
+
+/** The wire `filter_by_locators` as canonical host locators; a malformed entry throws. */
+function canonicalGridLocators(raw: unknown): GridHostLocator[] {
+	if (raw === undefined || raw === null) return [];
+	if (!Array.isArray(raw)) throw invalidGridLocators('filter_by_locators is not an array');
+	return raw.map((entry: { section_tipo?: unknown; section_id?: unknown } | null) => {
+		const sectionId = canonicalGridLocatorId(entry?.section_id);
+		if (typeof entry?.section_tipo !== 'string' || sectionId === null) {
+			throw invalidGridLocators('a filter_by_locators entry names no record');
+		}
+		return { section_tipo: entry.section_tipo, section_id: sectionId };
+	});
+}
+
+/** A positive record address (int, or the client's legacy string form), else null. */
+function canonicalGridLocatorId(value: unknown): number | null {
+	try {
+		const id = coerceSectionId(value, 'rqo.dd_core_api.get_indexation_grid.filter_by_locators');
+		return id >= 1 ? id : null;
+	} catch {
+		return null;
+	}
+}
+
+function invalidGridLocators(reason: string): DedaloError {
+	return new DedaloError('search.invalid_sqo', {
+		message: `get_indexation_grid: ${reason}`,
+		publicMessage: 'The indexation grid needs filter_by_locators naming its source term',
+	});
 }
 
 /**
@@ -170,6 +260,65 @@ async function deepLinkRecordInScope(
 	if (pageModel !== 'section' && !pageModel?.startsWith('component_')) return true;
 	const { principalCanAccessRecord } = await import('../../security/record_scope.ts');
 	return principalCanAccessRecord(sectionTipo, sectionId, principal);
+}
+
+/**
+ * The URL's `session_save` read the way the client reads it (page.js
+ * instantiate_page_element: `JSON.parse` when present), so both sides agree on
+ * an opted-out window: `false`, `0`, `null` opt out; absent or unparseable
+ * does not.
+ */
+function sessionSaveOptedOut(value: unknown): boolean {
+	// URL vars arrive as strings; a programmatic caller may send a boolean.
+	if (typeof value !== 'string') return value === false;
+	if (value === '') return false;
+	try {
+		return !JSON.parse(value);
+	} catch {
+		// Probe catch (CONVENTIONS.md): an unparseable value is not an opt-out.
+		return false;
+	}
+}
+
+/**
+ * start's navigation half: the page-view SQO a plain section record deep link
+ * reopens in (search/record_position.ts resolveDeepLinkNavigation), or null to
+ * keep the single-record pin. Only the page's own plain section in its default
+ * view qualifies — a viewer (`?view=`), a section_tool reroute (its config
+ * names the target) and an opted-out window (`session_save=false`, which
+ * declared itself outside session navigation) keep the record alone. Runs
+ * AFTER deepLinkRecordInScope, so the record is one the caller may read.
+ */
+async function deepLinkNavigationSqo(options: {
+	sectionRecordDeepLink: boolean;
+	pageTipo: string;
+	pageSectionTipo: string;
+	pageSectionId: unknown;
+	pageView: string | null;
+	pageConfig: Record<string, unknown> | null;
+	sessionSave: unknown;
+	storedSqo: unknown;
+	principal: Principal;
+}): Promise<Record<string, unknown> | null> {
+	const { pageSectionId } = options;
+	// Each a reason the record stays pinned alone (see the docblock).
+	const keepsThePin = [
+		!options.sectionRecordDeepLink,
+		options.pageView !== null,
+		options.pageConfig !== null,
+		options.pageSectionTipo !== options.pageTipo,
+		sessionSaveOptedOut(options.sessionSave),
+	];
+	if (keepsThePin.includes(true)) return null;
+	// Lazy (CONVENTIONS.md §2 rationale 3, rarely hit): only a section record
+	// deep link reaches it — once per page boot, never on the read path.
+	const { resolveDeepLinkNavigation } = await import('../../search/record_position.ts');
+	return (await resolveDeepLinkNavigation(
+		options.pageTipo,
+		pageSectionId,
+		options.principal,
+		options.storedSqo,
+	)) as Record<string, unknown> | null;
 }
 
 /**
@@ -230,27 +379,63 @@ async function ungrantedTargetSections(
  * refused exactly as before — no chain, a refused chain, a read-only
  * component, a section the component does not target. The read and the count
  * door both decide here, so they cannot disagree.
+ *
+ * THE HOST-COMPONENT READ (WC-2026-11-09-component-get-data-host-gate): a
+ * component's OWN get_data of one host record is a read of the HOST — its
+ * sqo sections are only the component's targets. Admitted ONLY when
+ * security/host_component_read.ts proves every fact of that shape (readable
+ * host record + component, the component a column of the host section's map,
+ * every sqo section a target of that column node, the sqo pinning exactly the
+ * host); the verdict then carries the SERVER-DERIVED rqo the read serves
+ * (re-rooted at the host map, client show / callers dropped), so the answer
+ * is the slice the host read embeds. Same function at both doors.
  */
 async function gateReadTargets(
-	rqo: Pick<Rqo, 'sqo' | 'source'>,
+	rqo: Pick<Rqo, 'sqo' | 'source' | 'show' | 'search' | 'choose'>,
+	principal: Principal,
+): Promise<GateBVerdict> {
+	const sqo = rqo.sqo;
+	if (sqo === undefined) return ORDINARY_READ;
+	const ungranted = await ungrantedTargetSections(sqo, principal);
+	if (ungranted.length === 0) return ORDINARY_READ;
+	const { admitHostComponentRead } = await import('../../security/host_component_read.ts');
+	const hostRead = await admitHostComponentRead(principal, rqo);
+	if (hostRead !== null) return { targetSearchScope: null, servedRqo: hostRead.rqo };
+	const scope = await scopedTargetSearch(rqo, sqo, ungranted, principal);
+	if (scope === null) {
+		throw new DedaloError('perm.denied', { coordinates: { section_tipo: ungranted[0] as string } });
+	}
+	return { targetSearchScope: scope, servedRqo: null };
+}
+
+/**
+ * What Gate B admitted: the scoped target search (h) to thread to the read /
+ * count, and the server-derived rqo a host-component read is SERVED from
+ * (null = serve the client's rqo).
+ */
+interface GateBVerdict {
+	readonly targetSearchScope: TargetSearchScope | null;
+	readonly servedRqo: Rqo | null;
+}
+
+/** Every sqo target granted: the ordinary read of the client's rqo. */
+const ORDINARY_READ: GateBVerdict = Object.freeze({ targetSearchScope: null, servedRqo: null });
+
+/** Gate B's writer-chain leg: the scoped target search (h) for `ungranted`, or null. */
+async function scopedTargetSearch(
+	rqo: Pick<Rqo, 'source'>,
+	sqo: NonNullable<Rqo['sqo']>,
+	ungranted: string[],
 	principal: Principal,
 ): Promise<TargetSearchScope | null> {
-	const sqo = rqo.sqo;
-	if (sqo === undefined) return null;
-	const ungranted = await ungrantedTargetSections(sqo, principal);
-	if (ungranted.length === 0) return null;
 	const { resolveTargetSearchScope } = await import('../../security/writer_chain_scope.ts');
 	const source = rqo.source ?? {};
-	const scope = await resolveTargetSearchScope(principal, {
+	return resolveTargetSearchScope(principal, {
 		source,
 		sqoMode: (sqo as { mode?: unknown }).mode,
 		ungranted,
 		lang: typeof source.lang === 'string' ? source.lang : currentDataLang(),
 	});
-	if (scope === null) {
-		throw new DedaloError('perm.denied', { coordinates: { section_tipo: ungranted[0] as string } });
-	}
-	return scope;
 }
 
 /**
@@ -264,12 +449,14 @@ async function readGatedSection(
 	principal: Principal,
 ): Promise<ApiResult> {
 	await gateReadSource(rqo.source, principal);
-	const targetSearchScope = await gateReadTargets(rqo, principal);
+	const { targetSearchScope, servedRqo } = await gateReadTargets(rqo, principal);
 
 	// Sub-action routing + the generic section read live in the section
-	// facade (S2-25) — everything below the gates is section semantics.
+	// facade (S2-25) — everything below the gates is section semantics. A
+	// host-component read is served from Gate B's derived rqo (the host map's
+	// column node), never from the client's show / callers.
 	const readResult = await routeSectionRead(
-		rqo,
+		servedRqo ?? rqo,
 		principal,
 		targetSearchScope === null ? {} : { targetSearchScope },
 	);
@@ -296,8 +483,8 @@ async function countGatedRows(
 ): Promise<ApiResult> {
 	// Gate B — the SAME function the read takes (a scoped target search, owner
 	// decision (h), is admitted or refused alike at both doors).
-	const targetSearchScope = await gateReadTargets(
-		{ sqo: clientSqo, source: rqo.source },
+	const { targetSearchScope } = await gateReadTargets(
+		{ sqo: clientSqo, source: rqo.source, show: rqo.show, search: rqo.search, choose: rqo.choose },
 		principal,
 	);
 	await gateTimeMachineRead(rqo, principal);
@@ -947,17 +1134,18 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			});
 		}
 		await refuseAreaWrite(sectionTipo, source.model);
-		// THE WRITE DOOR (closure Step 3): a create names no record, so the
-		// consultation-capped SECTION level is its whole authorization — the one
-		// rule the duplicate / delete doors and the MCP create share (PHP
-		// section::create_record:452 refusal on Activity/TM); the
-		// createSectionRecord engine backstops it for other doors.
-		const { authorizeSectionTarget } = await import('../../security/write_door.ts');
-		const grant = await authorizeSectionTarget(
-			principal,
-			{ section_tipo: sectionTipo },
-			{ level: 2, door: 'create' },
-		);
+		// THE WRITE DOOR (closure Step 3; T0-2 owner decision D4 REVISED
+		// 2026-11-10, WC-2026-11-10-add-new-element-create-gate): a create names
+		// no record, so the consultation-capped SECTION level ≥ 2 is its whole
+		// authorization — PHP dd_core_api::create parity, the SECTION-LEVEL create
+		// rule (write_door.ts authorizeSectionCreate). NOT the New-button
+		// predicate: the feature-owned sections this door serves (text-area /
+		// TM / index notes, references, dataframe frames, presets) ship no
+		// button_new, so asking it refused them for everyone, root included.
+		// Residual, as in PHP: a crafted `create` skips the New button. The
+		// createSectionRecord engine backstops the consultation-only refusal.
+		const { authorizeSectionCreate } = await import('../../security/write_door.ts');
+		const grant = await authorizeSectionCreate(principal, sectionTipo, { door: 'create' });
 		const { createSectionRecord } = await import('../../section/record/create_record.ts');
 		const sectionId = await createSectionRecord(grant.sectionTipo, principal.userId);
 
@@ -1030,6 +1218,11 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				{ section_tipo: sectionTipo, section_id: sourceSectionId },
 				{ level: 2, door: 'duplicate' },
 			);
+			// …and duplication BIRTHS a record the user asked for by pressing a
+			// button: the NEW-BUTTON predicate on the section (T0-2 / D4 — section
+			// ≥ 2 AND its button_new ≥ 2), unlike `create` above.
+			const { authorizeRecordCreate } = await import('../../security/write_door.ts');
+			await authorizeRecordCreate(principal, sectionTipo, { door: 'duplicate' });
 		}
 		const { duplicateSectionRecord } = await import('../../section/record/duplicate_record.ts');
 		const newSectionId = await duplicateSectionRecord(
@@ -1165,9 +1358,8 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		// records — PHP ontology::delete_main, fired before the record
 		// delete). Global-admin only, matching the structural blast radius.
 		{
-			const { ONTOLOGY_MAIN_SECTIONS, deleteOntologyMain } = await import(
-				'../../ontology/ontology_delete.ts'
-			);
+			const { ONTOLOGY_MAIN_SECTIONS, assertRegistryCascadeAllowed, deleteOntologyMain } =
+				await import('../../ontology/ontology_delete.ts');
 			if (ONTOLOGY_MAIN_SECTIONS.has(sectionTipo) && deleteMode === 'delete_record') {
 				if (!principal.isGlobalAdmin) {
 					throw new DedaloError('perm.denied', {
@@ -1178,6 +1370,13 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				const { deleteSectionRecord: cascadeDelete } = await import(
 					'../../section/record/delete_record.ts'
 				);
+				// HIER-REBUILD: every target's cascade is admitted BEFORE the first
+				// one runs (a protected TLD, or a TLD another registry record still
+				// declares → ontology.teardown_refused), so a multi-delete refuses
+				// whole instead of half-uninstalling (WC-2026-11-10-hierarchy-rebuild-ownership).
+				for (const targetId of targets) {
+					await assertRegistryCascadeAllowed(sectionTipo, targetId);
+				}
 				// Int addresses, matching the plain-delete echo below
 				// (WC-2026-08-10-section-id-int-canonical — String() minting repealed).
 				const cascaded: number[] = [];
@@ -1632,8 +1831,38 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			// $current_context->section_id = $section_id). The client reads it to
 			// set the instance's section_id, which every component read/save then
 			// threads — without it a viewer/component deep link reads section_id null.
+			//
+			// A plain SECTION record deep link (?tipo=X&mode=edit&id=N — the
+			// address bar of every edit view, so every RELOAD) reopens INSIDE a
+			// navigation instead (WC-2026-11-09-start-deep-link-found-set-position):
+			// the record's position in the user's stored found set, else in the
+			// whole section, shipped exactly as the list→edit navigation ships it
+			// (client render_list_section button_edit.navigate → page.navigate):
+			// a `main` request_config carrying the page-view sqo + section_id_selected,
+			// NO section_id — a section_id would make the client pin the record
+			// alone (build_rqo_show), the 1/1 paginator this replaces.
 			if (pageSectionId !== null) {
-				(sectionContext as { section_id?: unknown }).section_id = pageSectionId;
+				const navigationSqo = await deepLinkNavigationSqo({
+					sectionRecordDeepLink,
+					pageTipo,
+					pageSectionTipo,
+					pageSectionId,
+					pageView,
+					pageConfig,
+					sessionSave: searchObj.session_save,
+					storedSqo: context.session.sqoSession?.[pageTipo],
+					principal,
+				});
+				if (navigationSqo !== null) {
+					const entry = sectionContext as {
+						request_config?: unknown;
+						section_id_selected?: unknown;
+					};
+					entry.request_config = [{ api_engine: 'dedalo', type: 'main', sqo: navigationSqo }];
+					entry.section_id_selected = pageSectionId;
+				} else {
+					(sectionContext as { section_id?: unknown }).section_id = pageSectionId;
+				}
 			}
 			startContext.push(sectionContext);
 		}
@@ -1771,15 +2000,16 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		const langRaw = (rqo as { lang?: unknown }).lang;
 		const lang = typeof langRaw === 'string' ? langRaw : currentDataLang();
 
-		// Resolve the already-deduped batch; skip unreadable/untermed sections.
+		// SEC (WC-2026-11-10-section-terms-read-door): per locator the section
+		// grant + the grant on every term component + the record scope of the
+		// address the term read hits; refused locators are OMITTED (batch
+		// semantics) and recorded (readDoorNotices). Sections with no
+		// section_map term are skipped too — otherwise getTermByLocator returns
+		// the "{tipo}_{id}" fallback string, which would clobber the client's
+		// own provisional node label (handlers/section_terms_access.ts).
+		const admitted = await admitTermLocators(principal, locatorEntries, scope);
 		const terms: Record<string, string | null> = {};
-		for (const { key, section_tipo: sectionTipo, section_id: sectionId } of locatorEntries) {
-			// SEC: read permission required on the section (omit forbidden, never leak).
-			if ((await getPermissions(principal, sectionTipo, sectionTipo)) < 1) continue;
-			// Only sections with a section_map term — otherwise getTermByLocator
-			// returns the "{tipo}_{id}" fallback string, which would clobber the
-			// client's own provisional node label.
-			if ((await getTermTipos(sectionTipo, scope)).length === 0) continue;
+		for (const { key, section_tipo: sectionTipo, section_id: sectionId } of admitted) {
 			terms[key] = await getTermByLocator(
 				{ section_tipo: sectionTipo, section_id: sectionId },
 				lang,
@@ -1788,7 +2018,15 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			);
 		}
 
-		return { status: 200, body: ok(terms, { requestId: context.requestId }) };
+		const { readDoorNotices } = await import('../../security/read_door.ts');
+		const notices = readDoorNotices();
+		return {
+			status: 200,
+			body: ok(terms, {
+				requestId: context.requestId,
+				...(notices === undefined ? {} : { notices }),
+			}),
+		};
 	},
 	// get_matrix_ontology_locator: DELETED at the DEC-16 re-sync (2026-07-11)
 	// together with the PHP endpoint and matrix_ontology_locator_differential —
@@ -1868,13 +2106,28 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		const { buildIndexationGrid, indexationRowsPast } = await import(
 			'../../section/indexation_grid.ts'
 		);
+		// The grid lists who indexes THIS term record: scoped like the related search host.
+		await assertHostRecordInScope(sectionTipo as string, gridSectionId, principal);
+		// …and the build reads filter_by_locators: every entry is a host, gated alike,
+		// the source among them (gateIndexationGridLocators). The build and the past
+		// probe read exactly the gated list.
+		const filterByLocators = await gateIndexationGridLocators(
+			(rqo.sqo as { filter_by_locators?: unknown } | undefined)?.filter_by_locators,
+			{ section_tipo: sectionTipo as string, section_id: gridSectionId },
+			principal,
+		);
 		const gridSqo = {
 			...(rqo.sqo ?? {}),
+			filter_by_locators: filterByLocators,
 			limit: page.limit,
 			offset: page.offset,
 		} as import('../../section/indexation_grid.ts').IndexationGridSqo;
-		// The grid lists who indexes THIS term record: scoped like the related search host.
-		await assertHostRecordInScope(sectionTipo as string, gridSectionId, principal);
+		// Per ROW (WC-2026-11-10-indexation-grid-read-door): the indexing
+		// section's read grant + the grant on the text_area its fragment is
+		// quoted from; a refused row is OMITTED and the number withheld is NAMED
+		// in the owned `withheld_rows` key (always present, 0 = nothing
+		// withheld). Rows of AUTHZ-05 out-of-scope groups are never counted.
+		const report = { withheldRows: 0 };
 		const grid = await buildIndexationGrid(
 			{
 				sectionTipo: sectionTipo as string,
@@ -1883,14 +2136,27 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				sqo: gridSqo,
 			},
 			principal,
+			report,
 		);
+		// indexationRowsPast applies the same quote key to the tail.
 		const owesNotice =
 			page.bounded === 'clamped' ||
 			(page.bounded === 'defaulted' && (await indexationRowsPast(gridSqo, page, principal)));
-		const notices = owesNotice
-			? [pageClampedNotice('get_indexation_grid', asSent.limit, asSent.offset, page)]
-			: undefined;
-		return { status: 200, body: ok(grid, { requestId: context.requestId, notices }) };
+		const { readDoorNotices } = await import('../../security/read_door.ts');
+		const notices = [
+			...(owesNotice
+				? [pageClampedNotice('get_indexation_grid', asSent.limit, asSent.offset, page)]
+				: []),
+			...(readDoorNotices() ?? []),
+		];
+		return {
+			status: 200,
+			body: ok(grid, {
+				requestId: context.requestId,
+				extend: { withheld_rows: report.withheldRows },
+				notices: notices.length > 0 ? notices : undefined,
+			}),
+		};
 	},
 	get_activity_metric: async (rqo, context) => {
 		// On-demand activity dataset for the area dashboard's timeline range

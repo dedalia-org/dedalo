@@ -4,17 +4,20 @@
  * transcription (tool_tr_print's only source).
  *
  * Branch inventory of the ACTION (buildTagsInfo itself is gated elsewhere;
- * what is pinned here is the door: argument refusals, the AUTHZ-01 record
- * gate, the lang choice and the unknown-type report), in execution order:
+ * what is pinned here is the door: argument refusals, the AUTHZ-01 read
+ * door, the lang choice and the unknown-type report), in execution order:
  *  1. requirePrincipal — no anonymous read;
  *  2. coordinate refusal: missing tipo / section_tipo / section_id ⇒
- *     `errors:['bad_source']` + the byte-exact message. `section_id: 0` is
- *     NOT a coordinate refusal — it survives to the record gate (and is
- *     refused there, by record_scope's `sectionId < 1`);
- *  3. options refusal: absent `ar_type`, a non-array, or an array with no
- *     string ⇒ `errors:['bad_options']` — checked BEFORE the record gate;
- *  4. AUTHZ-01 (TS-stronger than PHP): an EXISTING record outside the
- *     caller's scope ⇒ the forbidden envelope, and NO tags shape leaks;
+ *     `request.invalid_source`. `section_id: 0` is NOT a coordinate refusal —
+ *     it survives to the read door (and is refused there, by the record-scope
+ *     step's `sectionId < 1`, as `perm.out_of_scope`);
+ *  3. AUTHZ-01 (WC-077 as amended by WC-2026-11-10-tags-info-read-door): the
+ *     write door's READ mode — section >= 1, the text_area's pair grant, the
+ *     record scope — decided BEFORE the options (an unauthorized caller learns
+ *     nothing about the action's grammar); NO tags shape leaks. The grant
+ *     PAIRS (reader vs control) and the hops live in tags_info_read_door_native;
+ *  4. options refusal: absent `ar_type`, a non-array, or an array with no
+ *     string ⇒ `request.invalid_options`;
  *  5. lang: `source.lang` when a non-empty string, else currentDataLang();
  *     the transcription text is per-lang, so the wrong lang resolves nothing;
  *  6. unknown requested types are NAMED in `msg` (never silently narrowed),
@@ -48,74 +51,31 @@ import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
 import type { Session } from '../../src/core/security/session_store.ts';
-import {
-	dropSituation,
-	ensureSituation,
-	situation,
-} from '../../src/core/test_data/situations/situation.ts';
+import { dropSituation, ensureSituation } from '../../src/core/test_data/situations/situation.ts';
 import { mustGet } from '../helpers/assert.ts';
+import {
+	ZZTAGS_NOTE_SECTION,
+	ZZTAGS_SECTION,
+	ZZTAGS_SITUATION,
+	ZZTAGS_TAGS_INDEX,
+	ZZTAGS_TEXT_AREA,
+} from '../helpers/zztags_situation.ts';
 
-const SECTION = 'zztags1'; // the host section (its own matrix_table → matrix_test)
+const SECTION = ZZTAGS_SECTION; // the host section (its own matrix_table → matrix_test)
 const SECTION_ID = 934100; // scratch band 934100-934199
-const TEXT_AREA = 'zztags2'; // component_text_area, translatable; declares tags_index/tags_notes
-const TAGS_INDEX = 'zztags3'; // component_autocomplete_hi — the tags_index target
-const NOTE_SECTION = 'zztags4'; // properties.tags_notes key — never written by this file
-const NOTE_TITLE = 'zztags5';
-const NOTE_BODY = 'zztags6';
-const NOTE_PUBLISHABLE = 'zztags7';
-/**
- * The host's `component_filter`. A section is PROJECT-GATED by having one
- * (resolver.ts getComponentFilterTipo), and without it the record-scope gate
- * has nothing to enforce — the AUTHZ case below would pass for every principal
- * and prove nothing. The install section this gate used to read was gated; the
- * built one has to be too, or the migration would have quietly removed the
- * subject of the test.
- */
-const HOST_FILTER = 'zztags8';
+const TEXT_AREA = ZZTAGS_TEXT_AREA; // component_text_area, translatable; declares tags_index/tags_notes
+const TAGS_INDEX = ZZTAGS_TAGS_INDEX; // component_autocomplete_hi — the tags_index target
+const NOTE_SECTION = ZZTAGS_NOTE_SECTION; // properties.tags_notes key — never written by this file
 const MISSING_NOTE_ID = '934101'; // deliberately absent record
 
-/** The transcription, stored ONLY in lg-spa (the lang half of the file). */
 /**
- * The shape this gate is ABOUT, built rather than borrowed. `tags_index` names
- * the component a mark's index entry lives in; `tags_notes` maps a note section
- * to the components a note's title / body / publishable flag are read from.
- * Both are copied from the shipped rsc36 declaration, with the install's tipos
- * replaced by this situation's own.
+ * The shape this gate is ABOUT, built rather than borrowed — ONE definition
+ * shared with tags_info_read_door_native (test/helpers/zztags_situation.ts). The
+ * host is PROJECT-GATED by its component_filter (zztags8): without it the
+ * record-scope gate would have nothing to enforce and the AUTHZ case below would
+ * pass for every principal.
  */
-const TAGS_SITUATION = situation({
-	tld: 'zztags',
-	name: 'text_area tags_info',
-	nodes: [
-		{ tipo: SECTION, model: 'section', parent: 'dd14' },
-		{ tipo: TAGS_INDEX, model: 'component_autocomplete_hi', parent: SECTION },
-		{
-			tipo: TEXT_AREA,
-			model: 'component_text_area',
-			parent: SECTION,
-			is_translatable: true,
-			properties: {
-				tags_index: { tipo: TAGS_INDEX, section_id: 'self', section_tipo: 'self' },
-				tags_notes: {
-					[NOTE_SECTION]: [
-						{ id: 'title', type: 'text', section_tipo: NOTE_SECTION, component_tipo: NOTE_TITLE },
-						{ id: 'body', type: 'text', section_tipo: NOTE_SECTION, component_tipo: NOTE_BODY },
-						{
-							id: 'publishable',
-							type: 'bool',
-							section_tipo: NOTE_SECTION,
-							component_tipo: NOTE_PUBLISHABLE,
-						},
-					],
-				},
-			},
-		},
-		{ tipo: HOST_FILTER, model: 'component_filter', parent: SECTION },
-		{ tipo: NOTE_SECTION, model: 'section', parent: 'dd14' },
-		{ tipo: NOTE_TITLE, model: 'component_input_text', parent: NOTE_SECTION },
-		{ tipo: NOTE_BODY, model: 'component_text_area', parent: NOTE_SECTION },
-		{ tipo: NOTE_PUBLISHABLE, model: 'component_check_box', parent: NOTE_SECTION },
-	],
-});
+const TAGS_SITUATION = ZZTAGS_SITUATION;
 
 /** Resolved after the situation exists — never assumed (a scratch section has its own table). */
 let TABLE = 'matrix_test';
@@ -124,7 +84,8 @@ const SPA_TEXT =
 	'<p>uno [index-n-1-Person-data:x:data]dos[/index-n-1] tres' +
 	` [note-a-1-data:{'section_tipo':'${NOTE_SECTION}','section_id':'${MISSING_NOTE_ID}'}:data] fin.</p>`;
 
-const ADMIN: Principal = { userId: 1, isGlobalAdmin: true, isDeveloper: true };
+/** The SUPERUSER (root, -1): the read door's section + pair steps answer it by rule. */
+const ADMIN: Principal = { userId: -1, isGlobalAdmin: true, isDeveloper: true };
 /** No user record, hence no projects: every non-admin record scope check fails. */
 const NO_ACCESS: Principal = { userId: 999999, isGlobalAdmin: false, isDeveloper: false };
 
@@ -284,16 +245,17 @@ describe('get_tags_info — argument refusals', () => {
 		}
 	});
 
-	test('section_id 0 is NOT a coordinate refusal — it reaches the record gate', async () => {
+	test('section_id 0 is NOT a coordinate refusal — it reaches the read door', async () => {
 		const refusal = await refusalOf(
 			getTagsInfo(
 				rqoOf({ tipo: TEXT_AREA, section_tipo: SECTION, section_id: 0 }, { ar_type: ['index'] }),
 				contextFor(ADMIN),
 			),
 		);
-		// Admin, so the ONLY thing that can refuse here is record_scope's
-		// `sectionId < 1` — proving the coordinate check let 0 through.
-		expect(refusal.code).toBe(FORBIDDEN_CODE);
+		// Admin, so the ONLY thing that can refuse here is the scope step's
+		// `sectionId < 1` (perm.out_of_scope) — proving the coordinate check let
+		// 0 through.
+		expect(refusal.code).toBe('perm.out_of_scope');
 	});
 
 	test('a missing / non-array / string-less ar_type ⇒ bad_options, byte-exact', async () => {
@@ -312,18 +274,20 @@ describe('get_tags_info — argument refusals', () => {
 		}
 	});
 
-	test('the options refusal is decided BEFORE the record gate', async () => {
-		// An out-of-scope caller on a bad-options request still gets bad_options:
-		// the order in the handler is arguments → authz.
+	test('the read door is decided BEFORE the options refusal', async () => {
+		// An unauthorized caller on a bad-options request gets perm.denied, never
+		// request.invalid_options: the order in the handler is coordinates →
+		// authz → options (delete_tag's order; WC-2026-11-10-tags-info-read-door
+		// flips the earlier arguments-first pin).
 		const refusal = await refusalOf(
 			getTagsInfo(rqoOf(hostSource(), { ar_type: [] }), contextFor(NO_ACCESS)),
 		);
-		expect(refusal.code).toBe(BAD_OPTIONS_CODE);
+		expect(refusal.code).toBe(FORBIDDEN_CODE);
 	});
 });
 
-describe('get_tags_info — AUTHZ-01 record gate', () => {
-	test('an EXISTING record outside the caller scope ⇒ forbidden envelope, no tags shape', async () => {
+describe('get_tags_info — AUTHZ-01 read door', () => {
+	test('an EXISTING record, a caller with no grant and no scope ⇒ forbidden envelope, no tags shape', async () => {
 		const refusal = await refusalOf(
 			getTagsInfo(rqoOf(hostSource(), { ar_type: ['index', 'note'] }), contextFor(NO_ACCESS)),
 		);

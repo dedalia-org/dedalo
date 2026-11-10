@@ -200,7 +200,7 @@ const CENSUS: Record<string, CensusRow> = {
 	'src/core/relations/save.ts': {
 		verdict: 'delegates',
 		reason:
-			'deletePortalLocator mints a RecordGrant through authorizeRecordAccess (write, level 2, floor 2: dd128-aware pair + scope) before any read, lock or write; the effect is a private function typed on the grant and audited as grant.userId; applyAddNewElement’s createSectionRecord is a birth under the save door. Matrix dd_component_portal_api:delete_locator DD1725 leg.',
+			'deletePortalLocator mints a RecordGrant through authorizeRecordAccess (write, level 2, floor 2: dd128-aware pair + scope) before any read, lock or write; the effect is a private function typed on the grant and audited as grant.userId; applyAddNewElement’s createSectionRecord is authorized on its TARGET, not by the save door (which gates only the host): authorizeRecordCreate (write_door.ts — the target section ≥ 2 AND its first button_new ≥ 2; dd128 → dd179, so a profile without that grant is refused perm.denied) runs before the insert, then the portal’s target_sections membership (T0-2, WC-2026-11-10-add-new-element-create-gate). Matrix dd_component_portal_api:delete_locator DD1725 leg.',
 	},
 	'src/core/relations/children_write.ts': {
 		verdict: 'not-dd128',

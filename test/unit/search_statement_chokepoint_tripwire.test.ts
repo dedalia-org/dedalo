@@ -105,6 +105,8 @@ const GUARDED: Readonly<Record<string, { doors: Readonly<Record<string, Door>> }
 					'the export selection cursor declares the selection and arms the budget',
 			},
 			wrapSearch: {
+				'src/core/search/record_position.ts':
+					'the deep-link record position numbers the ordered found set (the flag is inherited)',
 				'src/diffusion/resolve/selection.ts':
 					'the diffusion keyset batch embeds the selection (the flag is inherited)',
 			},

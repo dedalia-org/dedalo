@@ -87,6 +87,7 @@ import {
 	removeDataframeDataById,
 	type SortByColumnChange,
 	type SortDataChange,
+	type ToolAddNewElementAccess,
 	validateRelationInsert,
 } from '../../relations/save.ts';
 import {
@@ -96,6 +97,7 @@ import {
 	type WriteReceipt,
 } from '../../section_record/index.ts';
 import type { Principal } from '../../security/permissions.ts';
+import { currentPrincipal } from '../../security/request_context.ts';
 import type { AppendMergeResult, RelationAppendValidator } from './append_merge.ts';
 import { beginSaveHistory, finishSaveHistory } from './bulk_capture.ts';
 import { applyItemGate } from './item_gates.ts';
@@ -146,7 +148,7 @@ export interface SaveRequest {
 	 * (bulk_capture.ts, WC …-bulk-revert-undo-log): a hidden BEFORE image of the
 	 * region it replaces plus its ordinary VISIBLE after-row, both carrying the
 	 * run id, for every key it changes (nothing for a save that changes
-	 * nothing); a record the save materializes gets the run's BIRTH marker, and
+	 * nothing — a save never births a record, so it never writes a BIRTH marker), and
 	 * a target its dataframe cascade wipes gets a role-4 snapshot. That is what
 	 * makes a bulk run revertable EXACTLY, as one operation.
 	 * `saveTm: false` suppresses the TM row entirely — OUTSIDE a bulk run only.
@@ -216,6 +218,19 @@ export interface SaveRequest {
 	 * a scan in test/unit/save_append_import_native.test.ts (the gate).
 	 */
 	appendImport?: true | AppendImportOptions;
+	/**
+	 * A TOOL-driven add_new_element (T0-2, owner decision D3 REVISED 2026-11-10):
+	 * the access relations/save.ts `toolAddNewElementAccess(principal, tool)`
+	 * mints — the SECTION-level create + target_sections membership, no
+	 * New-button half. Absent → the USER door rule (the New-button predicate).
+	 *
+	 * NOT A WIRE FIELD, and unforgeable twice over: every door builds its
+	 * SaveRequest field by field (dd_core_api save never spreads the wire
+	 * payload), and the value carries a module-private SYMBOL brand that no JSON
+	 * payload can produce — applyAddNewElement refuses an unbranded one. Who
+	 * mints it is censused (create_door_census_tripwire: tool server code only).
+	 */
+	toolCreateAccess?: ToolAddNewElementAccess;
 }
 
 /** The object form of `SaveRequest.appendImport`. */
@@ -1178,11 +1193,11 @@ export async function saveComponentData(request: SaveRequest): Promise<SaveResul
 // A REFUSED SAVE LEAVES NO TRACE (2026-09-29).
 //
 // applySaveComponentData answers a refusal with `{ok:false}` — some of them
-// AFTER it already wrote: the create-on-first-save branch materializes a
-// missing record (row + matrix_counter raise + NEW activity row) before the
-// change loop runs, and a `remove` of an absent id then refuses. Committing
-// that left an empty record and a jumped counter for a save that reported
-// failure. The refusal is therefore carried OUT of the transaction as a
+// AFTER it already wrote (an item-id allocation, a meta counter raise) before
+// the change loop refuses (e.g. a `remove` of an absent id). Committing that
+// left a jumped counter for a save that reported failure. (The case that first
+// exposed it — the old create-on-first-save branch materializing a missing
+// record — is gone: a save never creates, WC-2026-11-10-save-never-creates.) The refusal is therefore carried OUT of the transaction as a
 // throw (so it rolls back) and converted back to the unchanged ok:false
 // result at this boundary — the throw never escapes saveComponentData.
 //
@@ -1191,10 +1206,9 @@ export async function saveComponentData(request: SaveRequest): Promise<SaveResul
 // CALLER's transaction — its owner decides (the CSV door throws on ok:false and
 // rolls the row back). Deliberately NOT a SAVEPOINT here: whether the refused
 // part stays is the caller's decision, and a caller that wants it undone opens
-// its own (tool_import_rdf: one per op). Either way a create-on-save keeps its
-// NEW activity row and bulk-run BIRTH marker — create_record.ts decides the
-// birth by the insert statement, never by xmin, which under
-// a savepoint is the SUBtransaction's id (measured 2026-09-29; fixed 2026-10-01).
+// its own (tool_import_rdf: one per op). A save never births a record
+// (refuseAbsentRecord, WC-2026-11-10-save-never-creates), so no refused part
+// can leave a NEW activity row or bulk-run BIRTH marker behind.
 // ---------------------------------------------------------------------------
 
 /** The refusal in flight — thrown inside the transaction, caught right here. */
@@ -1615,6 +1629,49 @@ function writtenKeyEcho(key: string): {
 	};
 }
 
+/**
+ * A SAVE NEVER CREATES A RECORD (WC-2026-11-10-save-never-creates). A save whose
+ * address has no matrix row is refused here, inside its transaction and before
+ * any write — no row, no counter raise, no epoch, no TM / activity row, no bulk
+ * birth marker. Neither PHP did otherwise: v7 `matrix_db_manager::update_by_key`
+ * is a plain UPDATE ("does NOT perform an upsert fallback"), v6
+ * `JSON_RecordDataBoundObject::Save` logged "non existing or deleted record" and
+ * saved nothing. Creating is a create door's business (authorizeRecordCreate /
+ * authorizeSectionCreate, the counter's id law); bringing a deleted record back
+ * is the Time Machine restore's. Only global admins and principal-less internal
+ * callers reach this: every other principal is refused `perm.out_of_scope` by
+ * the record scope first (a missing row is never in scope). The sentence says
+ * which case it is — history at the address means the record was deleted.
+ */
+async function lockExistingComponentKey(
+	table: string,
+	column: MatrixJsonbColumn,
+	componentTipo: string,
+	sectionTipo: string,
+	sectionId: number,
+): Promise<LockedComponentKey> {
+	const locked = await lockComponentKey(table, column, componentTipo, sectionTipo, sectionId);
+	return locked ?? refuseAbsentRecord(sectionTipo, sectionId);
+}
+
+/** The absent-row refusal (see {@link lockExistingComponentKey}): THROWS. */
+async function refuseAbsentRecord(sectionTipo: string, sectionId: number): Promise<never> {
+	const { addressHasTimeMachineHistory } = await import('../../db/time_machine.ts');
+	const deleted = await addressHasTimeMachineHistory(sectionTipo, sectionId);
+	const sentence = deleted
+		? `save: record ${sectionTipo}/${sectionId} was deleted — restore it from Time Machine`
+		: `save: record ${sectionTipo}/${sectionId} does not exist — create records with New`;
+	throw new DedaloError('resource.not_found', {
+		message: sentence,
+		publicMessage: sentence,
+		coordinates: {
+			section_tipo: sectionTipo,
+			section_id: sectionId,
+			address: deleted ? 'deleted' : 'absent',
+		},
+	});
+}
+
 async function applySaveComponentData(
 	request: SaveRequest,
 	receipt: WriteReceipt,
@@ -1667,26 +1724,14 @@ async function applySaveComponentData(
 	// saves on the same record queue instead of clobbering each other's items,
 	// and the data write + Time Machine audit row land atomically. No wire
 	// change; nothing in the response shape depends on this.
-	let locked = await lockComponentKey(table, column, componentTipo, sectionTipo, sectionId);
-	if (locked === null) {
-		// PHP set_dato upserts: saving component data to a section_id whose matrix
-		// row does not exist yet CREATES the record (class.section_record::save_key_data
-		// → matrix INSERT), rather than erroring. Mirror that so an edit-mode save on a
-		// not-yet-materialized record works (e.g. the portal suite's test3/2 fixture,
-		// which the test clears then links into). The section + write permission (level
-		// >= 2) were already validated by the dispatch save handler, so the create is
-		// authorized. The create is CONFLICT-TOLERANT and the row is RE-LOCKED after it
-		// (S1-02 Wave-2 correction: the upsert branch would otherwise lock nothing when
-		// a concurrent save materializes the row first). Under a bulk id the create
-		// writes the run's BIRTH marker — only when it really inserted the row.
-		const { createSectionRecord } = await import('./create_record.ts');
-		await createSectionRecord(sectionTipo, userId, new Date(), Number(sectionId), {
-			conflictTolerant: true,
-			bulkProcessId: request.bulkProcessId,
-		});
-		locked = await lockComponentKey(table, column, componentTipo, sectionTipo, sectionId);
-	}
-	let items: unknown[] = locked?.items ?? [];
+	const locked = await lockExistingComponentKey(
+		table,
+		column,
+		componentTipo,
+		sectionTipo,
+		sectionId,
+	);
+	let items: unknown[] = locked.items;
 	// THE SAVE'S HISTORY (bulk_capture.ts): its BEFORE is cut and CLONED here,
 	// under the lock and before any branch below mutates a stored item in place.
 	const history = await beginSaveHistory({
@@ -1700,7 +1745,7 @@ async function applySaveComponentData(
 		lang: effectiveLang,
 		requestLang: lang,
 		userId,
-		lockedImage: locked?.image,
+		lockedImage: locked.image,
 		callerMain: callerDataframe?.main_component_tipo ?? null,
 	});
 
@@ -1838,12 +1883,24 @@ async function applySaveComponentData(
 		if (change.action === 'add_new_element') {
 			// PHP component_relation_common::add_new_element: create a target
 			// record (inheriting the host's project filter) and link it.
+			// T0-2: the TARGET is authorized inside (the create rule the access
+			// names, then the target_sections membership) — the host grant above
+			// says nothing about it.
 			const outcome = await applyAddNewElement(
 				items,
 				String(change.value ?? ''),
 				componentTipo,
 				sectionTipo,
 				sectionId,
+				{
+					// A tool's server-minted access (section level), else the USER
+					// door rule (the New-button predicate + target_sections).
+					access: request.toolCreateAccess ?? {
+						mode: 'create',
+						principal: request.principal ?? currentPrincipal(),
+						membership: 'target_sections',
+					},
+				},
 			);
 			if (outcome === null) {
 				return { ok: false, message: 'add_new_element failed' };

@@ -83,7 +83,8 @@
 		render_column_component_info,
 		add_wrapper_events,
 		get_buttons_by_permissions,
-		render_list_after
+		render_list_after,
+		can_open_target
 	} from './render_edit_component_portal.js'
 	import {bind_row_drag, can_reorder, can_drag_out} from './drag_and_drop.js'
 
@@ -415,44 +416,52 @@ view_line_edit_portal.render_column_id = function(options) {
 
 	const fragment = new DocumentFragment()
 
+	// target readable (can_open_target). No pencil on a row whose target section
+	// the user cannot read: the record window's read would be refused and so
+	// would the portal's refresh on return. The ontology tree button below is
+	// not a record opener and keeps its own rule.
+		const open_allowed = can_open_target(self, section_tipo)
+
 	// edit icon title, also the icon-only button's accessible name (axe button-name)
 		const pen_title = SHOW_DEBUG
 			? (get_label.open || 'Open') + ` ${section_tipo}-${section_id}`
 			: (get_label.open || 'Open')
 
-	// button_edit
-		const button_edit = ui.create_dom_element({
-			element_type	: 'button',
-			class_name		: 'button_edit button_view_' + (self.view || self.context.view || 'default'),
-			aria			: {label : pen_title},
-			parent			: fragment
-		})
-		// click event
-		const click_handler = (e) => {
-			e.stopPropagation()
-			// edit_record_handler
-			self.edit_record_handler({
-				section_tipo	: section_tipo,
-				section_id		: section_id
+	if (open_allowed) {
+		// button_edit
+			const button_edit = ui.create_dom_element({
+				element_type	: 'button',
+				class_name		: 'button_edit button_view_' + (self.view || self.context.view || 'default'),
+				aria			: {label : pen_title},
+				parent			: fragment
 			})
-		}
-		button_edit.addEventListener('mousedown', click_handler)
-		// focus event
-		const focus_handler = (e) => {
-			// force activate on input focus (tabulating case)
-			if (!self.active) {
-				ui.component.activate(self)
+			// click event
+			const click_handler = (e) => {
+				e.stopPropagation()
+				// edit_record_handler
+				self.edit_record_handler({
+					section_tipo	: section_tipo,
+					section_id		: section_id
+				})
 			}
-		}
-		button_edit.addEventListener('focus', focus_handler)
+			button_edit.addEventListener('mousedown', click_handler)
+			// focus event
+			const focus_handler = (e) => {
+				// force activate on input focus (tabulating case)
+				if (!self.active) {
+					ui.component.activate(self)
+				}
+			}
+			button_edit.addEventListener('focus', focus_handler)
 
-	// edit icon
-		ui.create_dom_element({
-			element_type	: 'span',
-			class_name		: 'button pen icon grey',
-			title			: pen_title,
-			parent			: button_edit
-		})
+		// edit icon
+			ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'button pen icon grey',
+				title			: pen_title,
+				parent			: button_edit
+			})
+	}//end if (open_allowed)
 
 	// button_tree ontology only
 		const is_ontology = get_section_id_from_tipo(self.section_tipo) === '0'

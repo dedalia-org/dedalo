@@ -32,6 +32,7 @@ import { toStructuredErr } from '../../core/errors/convert.ts';
 import { DedaloError } from '../../core/errors/dedalo_error.ts';
 import {
 	authorizeRecordAccess,
+	authorizeRecordCreate,
 	authorizeSectionRecord,
 	authorizeSectionTarget,
 } from '../../core/security/write_door.ts';
@@ -168,19 +169,21 @@ function substituteRefs(value: unknown, created: Record<string, number>): unknow
  * WHAT EACH WRITE TOOL'S OP TOUCHES — the component its value lands in (`field`,
  * stamped to a tipo above, or save_component's `tipo`), or the whole record
  * (`record`), or a new record (`create`; find_or_create adds every match/set
- * field's pair, exactly its tool's own pre-flight). A write tool with no row is
+ * field's pair, exactly its tool's own pre-flight), or a record AND the new copy
+ * it births (`duplicate`: the record door, then the New-button predicate —
+ * exactly what dedalo_duplicate_record asks at apply, T0-2 / D4). A write tool with no row is
  * REFUSED: a plan the validator cannot authorize is never confirmed (fail closed,
  * so a new registry write tool must be taught its target here first —
  * agent_change_plan's "every write tool has a plan target" leg).
  */
-const OP_TARGET: Readonly<Record<string, 'field' | 'tipo' | 'record' | 'create'>> = {
+const OP_TARGET: Readonly<Record<string, 'field' | 'tipo' | 'record' | 'create' | 'duplicate'>> = {
 	dedalo_set_field: 'field',
 	dedalo_portal_link: 'field',
 	dedalo_portal_unlink: 'field',
 	dedalo_upload_media: 'field',
 	dedalo_save_component: 'tipo',
 	dedalo_delete_record: 'record',
-	dedalo_duplicate_record: 'record',
+	dedalo_duplicate_record: 'duplicate',
 	dedalo_create_record: 'create',
 	dedalo_find_or_create: 'create',
 };
@@ -203,8 +206,12 @@ async function authorizeOp(
 			await authorizeCreateOp(principal, op, sectionTipo, door);
 			return;
 		}
-		const component = shape === 'record' ? undefined : op.args[shape];
+		const component = shape === 'record' || shape === 'duplicate' ? undefined : op.args[shape];
 		await authorizeTargetOp(principal, sectionTipo, component, op.args.section_id, door);
+		// A duplicate BIRTHS a record: the SAME New-button predicate its executor
+		// (fields_write.ts duplicateRecord) asks, so a validated plan cannot
+		// half-apply on it (T0-2 / D4).
+		if (shape === 'duplicate') await authorizeRecordCreate(principal, sectionTipo, { door });
 	} catch (error) {
 		throw withOpId(error, op.op_id);
 	}
@@ -248,14 +255,21 @@ async function authorizeTargetOp(
 	);
 }
 
-/** A create (create_record / find_or_create): the section level, plus every match/set field's pair. */
+/**
+ * A create (create_record / find_or_create): THE NEW-BUTTON PREDICATE
+ * (write_door.ts authorizeRecordCreate — section ≥ 2 AND its button_new ≥ 2),
+ * the SAME predicate the MCP create executors ask (records_write.ts createRecord,
+ * fields_write.ts findOrCreate; T0-2 / D4), plus every match/set field's pair.
+ * A section-level-only dry-run here would validate a plan its own apply
+ * refuses half-way (review finding F3).
+ */
 async function authorizeCreateOp(
 	principal: RegistryPrincipal,
 	op: ChangeOp,
 	sectionTipo: string,
 	door: string,
 ): Promise<void> {
-	await authorizeSectionTarget(principal, { section_tipo: sectionTipo }, { level: 2, door });
+	await authorizeRecordCreate(principal, sectionTipo, { door });
 	const rules = [...ruleFields(op.args.match), ...ruleFields(op.args.set)];
 	for (const field of rules) {
 		const tipo = await resolveFieldReference(sectionTipo, field);

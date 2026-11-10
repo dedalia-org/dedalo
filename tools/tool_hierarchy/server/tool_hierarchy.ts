@@ -9,8 +9,10 @@
  *    instead of pressing a button and hoping.
  *
  *  - `generate_virtual_section` (WRITE) — converge to that invariant
- *    (`ensureHierarchy`), or, with force_to_create, tear the ontology down first and
- *    rebuild (`rebuildHierarchy`). The name is kept because the client action + the
+ *    (`ensureHierarchy`), or, with force_to_create, delete the hierarchy's ontology
+ *    from scratch and re-provision it (`rebuildHierarchy`) — an OWNED case 1
+ *    hierarchy only; any other is refused `ontology.teardown_refused` + `reason`
+ *    before a write (HIER-REBUILD). The name is kept because the client action + the
  *    tool registry are wire contract; the SEMANTICS are now "make this hierarchy
  *    consistent", which is what pressing it always meant.
  *
@@ -29,6 +31,7 @@
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { clearOntologyDerivedCaches } from '../../../src/core/ontology/cache_invalidation.ts';
 import {
+	classifyHierarchyRebuild,
 	ensureHierarchy,
 	HIERARCHY_SECTION,
 	inspectHierarchy,
@@ -86,14 +89,24 @@ export function hierarchyTargets(options: Record<string, unknown>): WriteTarget[
 	return [{ section_tipo: HIERARCHY_SECTION, section_id: options.section_id ?? null }];
 }
 
-/** READ: the invariant checklist the client renders as the status panel. */
+/**
+ * READ: the invariant checklist the client renders as the status panel, plus
+ * `rebuild` = {allowed, reason} — whether "Force to create" may run on this
+ * hierarchy (hierarchy_state.ts classifyHierarchyRebuild, the same verdict the
+ * write door enforces), so the panel disables it and says why
+ * (WC-2026-11-10-hierarchy-rebuild-ownership).
+ */
 export async function toolHierarchyInspect(context: ToolActionContext): Promise<ToolResponse> {
 	const target = targetOf(context);
 	if (target === null) throw missingTarget('inspect_hierarchy');
 	// `usable` inside the state IS the verdict the panel renders — the legacy
 	// body's 'Hierarchy is ready/incomplete' msg only restated it.
 	const state = await inspectHierarchy(target.sectionId);
-	return ok({ state }, { requestId: toolRequestId(context) });
+	const verdict = await classifyHierarchyRebuild(target.sectionId);
+	return ok(
+		{ state, rebuild: { allowed: verdict.allowed, reason: verdict.reason } },
+		{ requestId: toolRequestId(context) },
+	);
 }
 
 /** WRITE: converge to the invariant (force_to_create → tear the ontology down first). */

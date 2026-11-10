@@ -27,6 +27,7 @@ import { getComponentModel, getRenderClass } from '../../src/core/components/reg
 import { sql } from '../../src/core/db/postgres.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { buildStructureContext } from '../../src/core/resolve/structure_context.ts';
+import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import {
 	dropSituation,
@@ -113,6 +114,8 @@ beforeAll(async () => {
 	await ensureSituation(SITUATION);
 	expect(await getMatrixTableFromTipo(SECTION)).toBe(TEST_TABLE);
 	await cleanScratchRecord(SECTION, RECORD_ID, TEST_TABLE);
+	// A save never creates a record (WC-2026-11-10-save-never-creates): the gate builds it.
+	await createSectionRecord(SECTION, -1, new Date(), RECORD_ID);
 });
 
 afterAll(async () => {

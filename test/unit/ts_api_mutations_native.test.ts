@@ -578,7 +578,14 @@ describe('addChild', () => {
 		const error = await refusal(callAddChild({ section_tipo: SECTION, section_id: P1 }, NOBODY));
 		expect(error.code).toBe('perm.denied');
 		expect(error.spec.status).toBe(403);
-		expect(error.coordinates).toEqual({ section_tipo: SECTION, required_level: 2 });
+		// The refusal is the New-button predicate's section half (T0-2 / D4 —
+		// write_door.ts authorizeRecordCreate): it names the door and the section.
+		expect(error.coordinates).toEqual({
+			door: 'add_child',
+			section_tipo: SECTION,
+			tipo: SECTION,
+			required: 2,
+		});
 		expect(await test3RowCount()).toBe(before);
 	});
 

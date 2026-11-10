@@ -71,7 +71,8 @@
 	import {
 		render_column_component_info,
 		render_list_after,
-		get_buttons
+		get_buttons,
+		can_open_target
 	} from './render_edit_component_portal.js'
 
 
@@ -454,6 +455,13 @@ const render_column_id = function(options) {
 		const section_tipo	= options.section_tipo
 
 	const fragment = new DocumentFragment()
+
+	// target readable (can_open_target). The rows here are records of ANY
+	// indexing section, rarely listed in this portal's sqo: an unknown section
+	// stays openable (unknown:true); only a STATED grant below read hides it.
+		if (!can_open_target(self, section_tipo, {unknown: true})) {
+			return fragment
+		}
 
 	// button_edit
 		const button_edit = ui.create_dom_element({

@@ -31,13 +31,14 @@ import type { ApiNotice } from '../../errors/schema.ts';
 import { createOntologyCache } from '../../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../../ontology/cache_invalidation.ts';
 import { getModelSectionForSection } from '../../ontology/model_section.ts';
-import { getModelByTipo, getNode, getSectionRealTipo } from '../../ontology/resolver.ts';
+import { getModelByTipo, getNode } from '../../ontology/resolver.ts';
 import { contextLabelOf } from '../../resolve/structure_context.ts';
 import {
 	composeContains,
 	locatorJsonVariants,
 	relationProbeGroups,
 } from '../../search/containment.ts';
+import { sectionButtonRows } from '../../section/buttons.ts';
 import { registerSectionDataListener } from '../../section_record/save_event.ts';
 import {
 	partitionDeepSelfDdos,
@@ -952,47 +953,35 @@ export function extractSqoSectionTipos(item: ParsedRequestConfigItem | undefined
 }
 
 /**
- * (sectionTipo, buttonModel) → the button tipo, or null. Pure dd_ontology shape,
- * so it caches exactly like the resolver's own lookups (hub-cleared on every
- * dd_ontology write by the factory).
+ * (sectionTipo, buttonModel) → the section's FIRST button of that model, or null.
  *
- * WHY IT NEEDS A CACHE. `buildSqoSectionTipoDdos` enriches EVERY resolved sqo
+ * ONE LOOKUP WITH THE CREATE GATE (T0-2, WC-2026-11-10-add-new-element-create-gate).
+ * The rows are section/buttons.ts `sectionButtonRows` — virtual-aware (the real
+ * section's buttons, then the virtual's own) AND exclude_elements-aware, the
+ * PHP security::get_section_new_permissions resolution — the very rows the
+ * server's New-button predicate (security/write_door.ts authorizeRecordCreate) and
+ * the section list's "New" answer from. So the portal "+" is offered iff the
+ * gate admits it: this used to be a private lookup (own button first, else the
+ * real's, NO exclude), which offered "+" on a virtual whose exclude_elements
+ * drops the real's button_new — a "+" the server then refuses.
+ *
+ * WHY IT IS CACHED. `buildSqoSectionTipoDdos` enriches EVERY resolved sqo
  * target, and an sqo with a `source: 'ontology_sections'` resolves to every
- * ontology registry target on the install — 205 sections on dedalo7_mht. Each
- * one cost two probes (`button_new` + `button_delete`), and a section with no
- * such child cost FOUR: the miss, then the virtual-section fallback's own two
- * queries. `ontology10`/`ontology42` measured 42ms per resolution because of it,
- * which is 17.3s of the 20.6s an LLM-map build spent — and the same 42ms is paid
- * by the live autocomplete on those components. Nothing here is record data:
- * the answer only moves when the ontology does.
- *
- * NULL IS A CACHED ANSWER. "no button of this model" is the common case and the
- * expensive one (four queries), so it must be stored, not re-derived — hence
- * `has()` rather than a truthiness check on `get()`.
+ * ontology registry target on the install — 205 sections on dedalo7_mht; the
+ * uncached probes measured 42ms per resolution on `ontology10`/`ontology42`
+ * (17.3s of a 20.6s LLM-map build). `sectionButtonRows` holds that cache now
+ * (createOntologyCache, hub-cleared on every dd_ontology write): ONE entry per
+ * section serving both button models, and "no button" — the common case — is
+ * a cached EMPTY row list, never re-derived (the entry is checked with
+ * `!== undefined`, not truthiness).
  */
-const sectionButtonCache = createOntologyCache<string, string | null>();
-
-/** button_new/button_delete direct children of a section (virtual-aware). */
 async function findSectionButtonTipo(
 	sectionTipo: string,
 	buttonModel: string,
 ): Promise<string | null> {
-	const cacheKey = `${sectionTipo} ${buttonModel}`;
-	if (sectionButtonCache.has(cacheKey)) return sectionButtonCache.get(cacheKey) ?? null;
-	const read = async (parent: string) =>
-		(await sql.unsafe('SELECT tipo FROM dd_ontology WHERE parent = $1 AND model = $2 LIMIT 1', [
-			parent,
-			buttonModel,
-		])) as { tipo: string }[];
-	let rows = await read(sectionTipo);
-	if (rows.length === 0) {
-		// virtual section: borrow the REAL section's button (getSectionRealTipo)
-		const real = await getSectionRealTipo(sectionTipo);
-		if (real !== sectionTipo) rows = await read(real);
-	}
-	const found = rows[0]?.tipo ?? null;
-	sectionButtonCache.set(cacheKey, found);
-	return found;
+	return (
+		(await sectionButtonRows(sectionTipo)).find((row) => row.model === buttonModel)?.tipo ?? null
+	);
 }
 
 /**

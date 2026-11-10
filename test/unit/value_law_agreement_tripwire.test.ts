@@ -266,7 +266,10 @@ describe('DATA-33 — getSectionRealTipo is the ONE virtual→real law', () => {
 			'src/core/identify/profile.ts',
 			'src/core/identify/profile_source.ts',
 			'src/core/relations/request_config/implicit.ts',
-			'src/core/relations/request_config/explicit.ts',
+			// (explicit.ts LEFT this list with T0-2: its button lookup now DELEGATES
+			// to section/buttons.ts sectionButtonRows — listed above — the ONE
+			// virtual-aware + exclude_elements-aware button resolution; it no
+			// longer names the law because it no longer borrows by itself)
 			'src/diffusion/resolve/resolver.ts',
 			'src/ai/mcp/tools/discovery.ts',
 		]) {

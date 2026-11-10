@@ -31,7 +31,7 @@ import {
 	resolvePeriodLabels,
 } from '../components/component_date/date_value.ts';
 import type { ExternalSourceStatus } from '../components/component_external/value.ts';
-import { resolveIriTitles } from '../components/component_iri/resolve_title.ts';
+import { type IriLabelFrame, resolveIriTitles } from '../components/component_iri/resolve_title.ts';
 import { getFlatValueFamily } from '../components/registry.ts';
 import { mediaTypeOf } from '../concepts/media.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../concepts/section_id.ts';
@@ -140,6 +140,90 @@ export interface CellValueResolveOptions {
 	 * capture — every other reader of this module.
 	 */
 	onMediaRead?: (address: MediaReadAddress) => void;
+	/**
+	 * THE FRONTIER OF THE RESOLUTION (T0-1 / S02 + S03, 2026-11-09). A flat
+	 * value crosses into OTHER records — a relation's targets at every depth,
+	 * dataframe frame targets, iri label frames — and reads an IMPLICIT config's
+	 * child components there. Armed, every such crossing is asked HERE before
+	 * a single byte of the target is read; absent, nothing is asked (the
+	 * interactive callers — relation_list panel, Referencias, related labels —
+	 * are byte-unchanged, and their own doors scope their output).
+	 *
+	 * A seam of FUNCTIONS, not a scope object: the caller owns the law (the
+	 * export binds the frontier's THROW, diffusion/export/atoms.ts), and this
+	 * module stays free of any diffusion import. The host record itself is NOT
+	 * asked — the caller authorized it before asking for its value.
+	 */
+	frontier?: CellFrontier;
+}
+
+/**
+ * The crossings a cell resolution asks about (CellValueResolveOptions.frontier).
+ */
+export interface CellFrontier {
+	/**
+	 * May the resolution read this TARGET record? `false` = skip the target
+	 * (the surface already made the refusal loud); a THROW = the surface's law.
+	 * The id travels VERBATIM (an external remote id is never Number()-ed).
+	 * `reads` = the component tipos the resolution reads AT this record (a
+	 * dataframe child excluded: it reads the owner), or null when the branch
+	 * cannot name them (a label resolved through another module) — the
+	 * surface may weigh a crossing by what it reads (the export's display
+	 * carve-out, frontier_scope.ts D4) and must take null as "unknown".
+	 * `frames` = the dataframe entries read AT this record when it is their
+	 * OWNER (asked per entry, never per slot).
+	 */
+	crossRecord(
+		sectionTipo: string,
+		sectionId: number | string,
+		reads: readonly string[] | null,
+		frames?: readonly FrameRead[],
+	): Promise<boolean>;
+	/**
+	 * Which of an IMPLICIT config's child components may be read at the target
+	 * section `sectionTipo` (frontier_scope.ts frontierAllowedComponents —
+	 * the predicate the edit form's implicit map uses). A child of an EXPLICIT
+	 * (curator-configured) map is never asked: it is read at the subdatum
+	 * floor, as the edit form shows it (owner decision D3).
+	 */
+	implicitChildren(
+		sectionTipo: string,
+		componentTipos: readonly string[],
+	): Promise<ReadonlySet<string>>;
+}
+
+/** One dataframe entry read at its owner record (CellFrontier.crossRecord `frames`). */
+export interface FrameRead {
+	readonly frameTipo: string;
+	readonly mainTipo: string;
+	readonly pairId: number | string;
+	readonly sectionTipo: string;
+	readonly sectionId: number | string;
+}
+
+/** One config child of a relation / frame, with the map it came from. */
+export interface ConfigChild {
+	tipo: string;
+	/** True when it came from the IMPLICIT legacy map (ontology `relations`). */
+	implicit: boolean;
+}
+
+/**
+ * The children the caller may read at `targetSection`: every explicit child,
+ * and the implicit ones the armed frontier allows. Order-preserving. Unarmed
+ * = every child (the interactive callers).
+ */
+async function readableChildren<T extends ConfigChild>(
+	children: readonly T[],
+	targetSection: string,
+	opts: CellValueResolveOptions | undefined,
+): Promise<T[]> {
+	const frontier = opts?.frontier;
+	if (frontier === undefined) return [...children];
+	const implicitTipos = children.filter((child) => child.implicit).map((child) => child.tipo);
+	if (implicitTipos.length === 0) return [...children];
+	const allowed = await frontier.implicitChildren(targetSection, implicitTipos);
+	return children.filter((child) => !child.implicit || allowed.has(child.tipo));
 }
 
 /** One media component read on one record (CellValueResolveOptions.onMediaRead). */
@@ -253,10 +337,13 @@ export interface RelationTargetValue {
  */
 export async function relationTargetChildren(
 	componentTipo: string,
-): Promise<{ tipo: string; isDataframe: boolean }[]> {
-	const children: { tipo: string; isDataframe: boolean }[] = [];
-	for (const tipo of await ownConfigChildTipos(componentTipo)) {
-		children.push({ tipo, isDataframe: (await getModelByTipo(tipo)) === 'component_dataframe' });
+): Promise<(ConfigChild & { isDataframe: boolean })[]> {
+	const children: (ConfigChild & { isDataframe: boolean })[] = [];
+	for (const child of await ownConfigChildren(componentTipo)) {
+		children.push({
+			...child,
+			isDataframe: (await getModelByTipo(child.tipo)) === 'component_dataframe',
+		});
 	}
 	return children;
 }
@@ -267,24 +354,32 @@ export async function relationTargetChildren(
  * ONE derivation for resolveDataframeFlatValue and the export's dedalo_raw
  * media walk.
  */
-export function dataframeFrameChildTipos(frameTipo: string): Promise<string[]> {
-	return ownConfigChildTipos(frameTipo);
+export function dataframeFrameChildren(frameTipo: string): Promise<ConfigChild[]> {
+	return ownConfigChildren(frameTipo);
+}
+
+/** {@link dataframeFrameChildren}'s tipos (an ontology-only reach test needs no origin). */
+export async function dataframeFrameChildTipos(frameTipo: string): Promise<string[]> {
+	return (await ownConfigChildren(frameTipo)).map((child) => child.tipo);
 }
 
 /**
  * A component's own-config children, in map order: the ddo_map entries whose
  * parent is the component ('self', its tipo, or unset), then the implicit
- * legacy map's COMPONENTS.
+ * legacy map's COMPONENTS — each tagged with the map it came from, because
+ * the two answer to different keys (CellFrontier.implicitChildren).
  */
-async function ownConfigChildTipos(ownerTipo: string): Promise<string[]> {
+async function ownConfigChildren(ownerTipo: string): Promise<ConfigChild[]> {
 	const cell = await resolveOwnConfigMap(ownerTipo);
-	const tipos = (cell.rawDdos ?? [])
+	const children: ConfigChild[] = (cell.rawDdos ?? [])
 		.filter((child) => typeof child?.tipo === 'string' && isOwnMapChild(child.parent, ownerTipo))
-		.map((child) => child.tipo as string);
+		.map((child) => ({ tipo: child.tipo as string, implicit: false }));
 	for (const relTipo of cell.implicitRelations ?? []) {
-		if ((await getModelByTipo(relTipo))?.startsWith('component_') === true) tipos.push(relTipo);
+		if ((await getModelByTipo(relTipo))?.startsWith('component_') === true) {
+			children.push({ tipo: relTipo, implicit: true });
+		}
 	}
-	return tipos;
+	return children;
 }
 
 /** Is a ddo_map entry with this `parent` a direct child of `ownerTipo`? */
@@ -347,6 +442,21 @@ export async function resolveRelationTargetValues(
 			const targetSection = locator?.section_tipo;
 			const targetId = locator?.section_id;
 			if (typeof targetSection !== 'string' || targetId === undefined) continue;
+			// THE FRONTIER (T0-1): this target is another record — asked before a
+			// byte of it is read, at EVERY depth (this function re-enters through
+			// resolveCellValue's datalist branch for a nested relation child).
+			// The children THIS caller may read at THIS target: explicit ones at the
+			// subdatum floor, implicit ones per the frontier's component key (D1) —
+			// decided first, so the crossing can name what it reads there.
+			const targetChildren = await readableChildren(children, targetSection, opts);
+			if (opts?.frontier !== undefined) {
+				const reads = targetChildren
+					.filter((child) => !child.isDataframe)
+					.map((child) => child.tipo);
+				if (!(await opts.frontier.crossRecord(targetSection, targetId as number | string, reads))) {
+					continue;
+				}
+			}
 			// Media capture per TARGET (onMediaRead): the addresses read below this
 			// target land on target.media AND reach the caller's own sink.
 			const outerOnMedia = opts?.onMediaRead;
@@ -363,13 +473,13 @@ export async function resolveRelationTargetValues(
 							},
 						};
 			const fieldParts: string[] = [];
-			for (const child of children) {
+			for (const child of targetChildren) {
 				if (child.isDataframe) {
 					// Frames live on THIS record's relation column, paired to the
 					// MAIN locator by (dd490, main, id_key = locator.id) — PHP
 					// relation_common :871-897; empty/no-frames contributes nothing.
 					const frameFlat = await resolveDataframeFlatValue(
-						record,
+						{ ...record, sectionTipo, sectionId },
 						child.tipo,
 						locator?.main_component_tipo ?? componentTipo,
 						locator?.id,
@@ -412,6 +522,27 @@ export async function resolveRelationTargetValues(
 		const properties = (await getNode(componentTipo))?.properties ?? null;
 		for (let index = 0; index < locators.length; index++) {
 			const locator = locators[index] as { section_tipo?: unknown; section_id?: unknown };
+			// THE FRONTIER (T0-1): the label is read from the TARGET record. Its
+			// child set comes from implicit.ts, which already filters it through
+			// the same predicate (frontierAllowedComponents) for the ambient
+			// principal — the export runs inside its own principal scope.
+			// SECOND LAYER: in the export every target reaching this branch was
+			// already crossed (the leaf's own targets by resolver.ts, deeper ones
+			// per locator by atoms.ts fanOutRelation), so removing this check is
+			// not observable today — it keeps the branch safe for any new caller
+			// that passes `frontier` without walking through those doors.
+			if (
+				opts?.frontier !== undefined &&
+				typeof locator?.section_tipo === 'string' &&
+				locator.section_id !== undefined &&
+				!(await opts.frontier.crossRecord(
+					locator.section_tipo,
+					locator.section_id as number | string,
+					null, // the label's components are implicit.ts's to pick — unknown here
+				))
+			) {
+				continue;
+			}
 			const labels = await resolveLocatorLabels(componentTipo, properties, sectionTipo, lang, [
 				locator,
 			]);
@@ -436,7 +567,8 @@ export async function resolveRelationTargetValues(
  * Null pairId (PHP null id_key) or zero pairs → null (contributes nothing).
  */
 export async function resolveDataframeFlatValue(
-	record: { columns: { relation?: unknown } },
+	/** The OWNER record + its address (the frames are its data). */
+	record: { columns: { relation?: unknown }; sectionTipo: string; sectionId: number | string },
 	frameTipo: string,
 	mainComponentTipo: string,
 	pairId: number | string | undefined,
@@ -451,9 +583,28 @@ export async function resolveDataframeFlatValue(
 		dataframeEntryMatches(entry as never, mainComponentTipo, pairId, frameTipo),
 	);
 	if (paired.length === 0) return null;
+	// THE FRONTIER: the frames are the OWNER's data — crossed on the owner, per
+	// entry (free for an owner in record scope; D4 asks the display per entry).
+	if (opts?.frontier !== undefined) {
+		const frames: FrameRead[] = [];
+		for (const entry of paired) {
+			const frame = entry as { section_tipo?: unknown; section_id?: unknown };
+			if (typeof frame.section_tipo !== 'string' || frame.section_id === undefined) continue;
+			frames.push({
+				frameTipo,
+				mainTipo: mainComponentTipo,
+				pairId,
+				sectionTipo: frame.section_tipo,
+				sectionId: frame.section_id as number | string,
+			});
+		}
+		if (!(await opts.frontier.crossRecord(record.sectionTipo, record.sectionId, [], frames))) {
+			return null;
+		}
+	}
 
-	const frameChildTipos = await dataframeFrameChildTipos(frameTipo);
-	if (frameChildTipos.length === 0) return null;
+	const frameChildren = await dataframeFrameChildren(frameTipo);
+	if (frameChildren.length === 0) return null;
 
 	const frameSeparator = await componentFieldsSeparator(frameTipo);
 	const frameParts: string[] = [];
@@ -462,12 +613,29 @@ export async function resolveDataframeFlatValue(
 		if (typeof frameTarget.section_tipo !== 'string' || frameTarget.section_id === undefined) {
 			continue;
 		}
+		// THE FRONTIER (T0-1): a frame TARGET is another record (a rating, an
+		// uncertainty term …) — asked before it is read.
+		const readableFrameChildren = await readableChildren(
+			frameChildren,
+			frameTarget.section_tipo,
+			opts,
+		);
+		if (
+			opts?.frontier !== undefined &&
+			!(await opts.frontier.crossRecord(
+				frameTarget.section_tipo,
+				frameTarget.section_id as number | string,
+				readableFrameChildren.map((child) => child.tipo),
+			))
+		) {
+			continue;
+		}
 		const fields: string[] = [];
-		for (const childTipo of frameChildTipos) {
+		for (const child of readableFrameChildren) {
 			const value = await resolveCellValue(
 				frameTarget.section_tipo,
 				frameTarget.section_id as number | string,
-				childTipo,
+				child.tipo,
 				lang,
 				unresolved,
 				frameSeparator,
@@ -524,6 +692,54 @@ async function resolveExternalCellValue(
 		return null;
 	}
 	return derived.entries.join(itemSeparator);
+}
+
+/**
+ * The iri TITLE read off ONE label frame (the IriLabelReader of the flat-iri
+ * branch of resolveDataframeFlatValue): every non-empty label component on the
+ * frame's target record, joined ', '; null when none resolves.
+ *
+ * THE FRONTIER (T0-1): the label lives on the FRAME's target record — STRICT
+ * (null): an iri title is beyond any relation column's display, so a frame
+ * whose record the frontier refuses yields no title at all.
+ */
+async function resolveIriFrameTitle(
+	frame: IriLabelFrame,
+	lang: string,
+	unresolved: string[],
+	opts: CellValueResolveOptions | undefined,
+): Promise<string | null> {
+	if (
+		opts?.frontier !== undefined &&
+		!(await opts.frontier.crossRecord(frame.sectionTipo, frame.sectionId, null))
+	) {
+		return null;
+	}
+	const labels = await resolveIriFrameLabels(frame, lang, unresolved, opts);
+	return labels.length > 0 ? labels.join(', ') : null;
+}
+
+/** Each of the frame's label components resolved on its target record; empties dropped. */
+async function resolveIriFrameLabels(
+	frame: IriLabelFrame,
+	lang: string,
+	unresolved: string[],
+	opts: CellValueResolveOptions | undefined,
+): Promise<string[]> {
+	const labels: string[] = [];
+	for (const labelTipo of frame.labelTipos) {
+		const label = await resolveCellValue(
+			frame.sectionTipo,
+			frame.sectionId,
+			labelTipo,
+			lang,
+			unresolved,
+			RECORDS_SEPARATOR,
+			opts,
+		);
+		if (label !== null && label !== '') labels.push(label);
+	}
+	return labels;
 }
 
 /** One component's flat display string on one record (PHP get_value). */
@@ -638,22 +854,9 @@ export async function resolveCellValue(
 		// path's own record seam are local.
 		const iriItems = ((record.columns.iri as Record<string, unknown[]> | null)?.[componentTipo] ??
 			[]) as { iri?: unknown; id?: number | string }[];
-		const titles = await resolveIriTitles(record, componentTipo, async (frame) => {
-			const labels: string[] = [];
-			for (const labelTipo of frame.labelTipos) {
-				const label = await resolveCellValue(
-					frame.sectionTipo,
-					frame.sectionId,
-					labelTipo,
-					lang,
-					unresolved,
-					RECORDS_SEPARATOR,
-					opts,
-				);
-				if (label !== null && label !== '') labels.push(label);
-			}
-			return labels.length > 0 ? labels.join(', ') : null;
-		});
+		const titles = await resolveIriTitles(record, componentTipo, (frame) =>
+			resolveIriFrameTitle(frame, lang, unresolved, opts),
+		);
 		const parts: string[] = [];
 		for (const item of iriItems) {
 			const fields: string[] = [];

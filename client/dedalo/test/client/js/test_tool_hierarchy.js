@@ -17,8 +17,14 @@
  *   - the prototype is wired with the common + tool-specific lifecycle methods.
  *
  * This is the locked client template (layer 1: module-load + construct + wiring).
+ *
+ * Plus the fixture-free REBUILD POLICY painter (HIER-REBUILD,
+ * WC-2026-11-10-hierarchy-rebuild-ownership): paint_rebuild_policy over a
+ * hand-built "Force to create" control — a refused rebuild disables and
+ * unchecks the checkbox and names the server's `reason` beside it.
  */
 
+import {paint_rebuild_policy} from '../../../tools/tool_hierarchy/js/render_tool_hierarchy.js'
 import {tool_hierarchy} from '../../../tools/tool_hierarchy/js/tool_hierarchy.js'
 
 
@@ -58,6 +64,75 @@ describe('TOOL_HIERARCHY CLIENT TEST', function() {
 		assert.equal(typeof tool_hierarchy.prototype.init, 'function', 'expected init defined')
 		assert.equal(typeof tool_hierarchy.prototype.build, 'function', 'expected build defined')
 		assert.equal(typeof tool_hierarchy.prototype.generate_virtual_section, 'function', 'expected generate_virtual_section defined')
+	})
+
+	it('construct seeds the rebuild policy slots', function() {
+		const instance = new tool_hierarchy()
+		assert.equal(instance.rebuild_policy, null, 'expected rebuild_policy null')
+		assert.equal(instance.force_to_create_control, null, 'expected force_to_create_control null')
+	})
+
+	describe('paint_rebuild_policy', function() {
+
+		// a "Force to create" control as render_tool_hierarchy builds it: label + checkbox in a container
+		const make_self = function(policy, labels) {
+			const container	= document.createElement('div')
+			const label		= document.createElement('label')
+			const checkbox	= document.createElement('input')
+			checkbox.type		= 'checkbox'
+			checkbox.checked	= true
+			label.appendChild(checkbox)
+			container.appendChild(label)
+			return {
+				container,
+				rebuild_policy			: policy,
+				force_to_create_control	: {label, checkbox},
+				get_tool_label			: (key) => labels[key]
+			}
+		}
+		const notes = (self) => self.container.querySelectorAll(':scope > .rebuild_refused')
+
+		it('a refused rebuild disables + unchecks the checkbox and names the reason', function() {
+			const text = 'zz refused: another hierarchy record declares this TLD'
+			const self = make_self({allowed: false, reason: 'not_sole_declarer'}, {rebuild_refused_not_sole_declarer: text})
+			paint_rebuild_policy(self)
+			const {label, checkbox} = self.force_to_create_control
+			assert.equal(checkbox.disabled, true, 'expected the checkbox disabled')
+			assert.equal(checkbox.checked, false, 'expected the checkbox unchecked')
+			assert.equal(label.classList.contains('disabled'), true, 'expected the label marked disabled')
+			assert.equal(label.title, text, 'expected the reason as the label title')
+			assert.equal(notes(self).length, 1, 'expected one reason note')
+			assert.equal(notes(self)[0].textContent, text, 'expected the reason label as the note')
+		})
+
+		it('an unknown label falls back to a sentence naming the reason', function() {
+			const self = make_self({allowed: false, reason: 'ontology_package'}, {})
+			paint_rebuild_policy(self)
+			assert.equal(notes(self).length, 1, 'expected one reason note')
+			assert.include(notes(self)[0].textContent, 'ontology_package', 'expected the reason named')
+		})
+
+		it('repainting replaces the note; an allowed rebuild re-enables the control', function() {
+			const self = make_self({allowed: false, reason: 'core'}, {rebuild_refused_core: 'zz core'})
+			paint_rebuild_policy(self)
+			paint_rebuild_policy(self)
+			assert.equal(notes(self).length, 1, 'expected exactly one note after two paints')
+
+			self.rebuild_policy = {allowed: true, reason: null}
+			paint_rebuild_policy(self)
+			const {label, checkbox} = self.force_to_create_control
+			assert.equal(checkbox.disabled, false, 'expected the checkbox enabled')
+			assert.equal(label.classList.contains('disabled'), false, 'expected no disabled mark')
+			assert.equal(label.hasAttribute('title'), false, 'expected no title')
+			assert.equal(notes(self).length, 0, 'expected no note')
+		})
+
+		it('no policy yet (inspect not answered) paints nothing', function() {
+			const self = make_self(null, {})
+			paint_rebuild_policy(self)
+			assert.equal(self.force_to_create_control.checkbox.disabled, false, 'expected the checkbox untouched')
+			assert.equal(notes(self).length, 0, 'expected no note')
+		})
 	})
 
 })

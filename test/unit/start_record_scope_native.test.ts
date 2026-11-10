@@ -9,7 +9,9 @@
  *
  *   1. out-of-project record → 403 perm.denied, environment, nothing about the record;
  *   2. a missing id → the SAME status, code, message and body shape (no existence oracle);
- *   3. an in-scope record → 200, context section_id stamped;
+ *   3. an in-scope record → 200, the context NAMES the record (section_id_selected
+ *      inside its navigation, or section_id when pinned —
+ *      WC-2026-11-09-start-deep-link-found-set-position);
  *   4. a record the persona just created → 200 (born in their project);
  *   5. the superuser on the out-of-project record → 200 (non-vacuity: it exists);
  *   6. a COMPONENT deep link to the record is gated the same way
@@ -48,6 +50,7 @@ registerSessionCleanup();
 const SECTION = 'zzsrs1';
 const TEXT = 'zzsrs2';
 const FILTER = 'zzsrs3';
+const BUTTON_NEW = 'zzsrs4';
 const IN_SCOPE_ID = 1;
 const OUT_OF_SCOPE_ID = 2;
 /** Never created: the no-oracle leg. */
@@ -84,6 +87,11 @@ const SITUATION = situation({
 	nodes: [
 		{ tipo: SECTION, parent: 'test1', model: 'section', term: { 'lg-eng': 'zzsrs scoped' } },
 		{ tipo: TEXT, parent: SECTION, model: 'component_input_text', order_number: 1 },
+		// The section's button_new (at 2 in the persona's profile). The persona
+		// CREATES here through core create, which is SECTION level (T0-2 D4
+		// REVISED, authorizeSectionCreate) and does not ask it; the button keeps
+		// the section create-able at the New-button doors too.
+		{ tipo: BUTTON_NEW, parent: SECTION, model: 'button_new', order_number: 3 },
 		{
 			tipo: FILTER,
 			parent: SECTION,
@@ -166,6 +174,16 @@ function sectionContextOf(body: Record<string, unknown>): Record<string, unknown
 	);
 }
 
+/**
+ * The record a section deep link's context names: `section_id_selected` when
+ * start reopened it inside a navigation, `section_id` when it pinned it alone
+ * (WC-2026-11-09-start-deep-link-found-set-position).
+ */
+function namedRecordOf(body: Record<string, unknown>): unknown {
+	const entry = sectionContextOf(body);
+	return entry?.section_id_selected ?? entry?.section_id;
+}
+
 describe.if(DB_READY)('start: a section deep link is record-scope gated', () => {
 	beforeAll(async () => {
 		await assertTestDatabase('start_record_scope_native');
@@ -177,6 +195,7 @@ describe.if(DB_READY)('start: a section deep link is record-scope gated', () => 
 				dd774: [
 					{ id: 1, tipo: SECTION, section_tipo: SECTION, value: 2 },
 					{ id: 2, tipo: TEXT, section_tipo: SECTION, value: 2 },
+					{ id: 3, tipo: BUTTON_NEW, section_tipo: SECTION, value: 2 },
 				],
 			},
 		});
@@ -236,10 +255,20 @@ describe.if(DB_READY)('start: a section deep link is record-scope gated', () => 
 		expect(await shape(MISSING_ID)).toEqual(outOfScope);
 	});
 
-	test('an in-scope record → 200 with the section_id stamped', async () => {
+	test('an in-scope record → 200 with the record named', async () => {
 		const allowed = await start(USER_ID, { tipo: SECTION, id: String(IN_SCOPE_ID) });
 		expect(allowed.status).toBe(200);
-		expect(sectionContextOf(allowed.body)?.section_id).toBe(IN_SCOPE_ID);
+		expect(namedRecordOf(allowed.body)).toBe(IN_SCOPE_ID);
+		// The scoped principal's navigation: the record reopens inside the
+		// sections it may list (its projects), at a truthful position — not
+		// pinned alone (WC-2026-11-09-start-deep-link-found-set-position).
+		const entry = sectionContextOf(allowed.body);
+		expect(entry?.section_id_selected).toBe(IN_SCOPE_ID);
+		const sqo = (
+			entry?.request_config as { type?: string; sqo?: { offset?: unknown } }[] | undefined
+		)?.find((item) => item.type === 'main')?.sqo;
+		// id 1 is the lowest id of the section: first in its default order
+		expect(sqo?.offset).toBe(0);
 	});
 
 	test('a record the persona just created → 200', async () => {
@@ -265,7 +294,7 @@ describe.if(DB_READY)('start: a section deep link is record-scope gated', () => 
 	test('the superuser opens the out-of-project record (it exists: the refusal is scope)', async () => {
 		const allowed = await start(-1, { tipo: SECTION, id: String(OUT_OF_SCOPE_ID) });
 		expect(allowed.status).toBe(200);
-		expect(sectionContextOf(allowed.body)?.section_id).toBe(OUT_OF_SCOPE_ID);
+		expect(namedRecordOf(allowed.body)).toBe(OUT_OF_SCOPE_ID);
 	});
 
 	test('the component data read behind such a link never carries the out-of-project value', async () => {

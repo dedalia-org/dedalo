@@ -193,8 +193,12 @@ async function chainedComponentNode(
 	});
 }
 
-/** The dedalo target sections of an effective config. */
-async function dedaloTargetsOf(node: ElementNode): Promise<string[]> {
+/**
+ * The dedalo target sections of an effective config. Exported for the
+ * host-component read (security/host_component_read.ts) — ONE derivation of
+ * "what a component targets" for both scoped admissions.
+ */
+export async function dedaloTargetsOf(node: ElementNode): Promise<string[]> {
 	const { extractSqoSectionTipos } = await import('../relations/request_config/explicit.ts');
 	const { engineOf } = await import('../relations/request_config/engine_select.ts');
 	return [

@@ -777,3 +777,9 @@ self-referencing chain builds in dedalo_raw / value / grid_value, CSV included),
 R5/R6 (`media_rerun_required`), each mutation-verified; client suite
 `test_tool_export.js` (the same "PORTAL column" case, third leg). No parity
 fixture covers these surfaces; no re-harvest.
+
+## Addendum 2026-11-09 — `frontier_grants` also holds the implicit children
+
+The run now also asks the component key on each IMPLICIT child the fan-out reads; every pair it
+ALLOWS joins `frontier_grants`, so a later revocation closes the finished export exactly as for a
+leaf grant. See `WC-2026-11-09-export-frontier-fanout`.

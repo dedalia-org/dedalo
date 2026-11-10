@@ -47,14 +47,16 @@ const TOOL_JS = join(REPO_ROOT, 'tools/tool_media_versions/js/tool_media_version
 
 describe('media-versions panel ↔ engine contract', () => {
 	test("the engine refuses 'force_save' — the reason the client must not send it", async () => {
-		// Scratch section + a nonexistent record: the action check runs first, so
-		// this never reaches a write. If this ever starts succeeding, 'force_save'
-		// became a real action and the client rule below can be revisited.
+		// The seeded test3/1 (a save never creates a record — a nonexistent one would
+		// be refused resource.not_found before the action check, WC-2026-11-10-save-never-creates).
+		// The refusal rolls the save's transaction back, so nothing is written. If this
+		// ever starts succeeding, 'force_save' became a real action and the client rule
+		// below can be revisited.
 		await expect(
 			saveComponentData({
 				componentTipo: 'test94',
 				sectionTipo: 'test3',
-				sectionId: -999999,
+				sectionId: 1,
 				lang: 'lg-nolan',
 				changedData: [{ action: 'force_save' } as never],
 				userId: -1,

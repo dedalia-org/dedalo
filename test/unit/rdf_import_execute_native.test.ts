@@ -1317,29 +1317,31 @@ describe.if(DB_READY)(
 			}
 		});
 
-		test('a caller record that is MISSING is materialized under the op savepoint WITH its birth marker and NEW activity row (revertable)', async () => {
-			// A record deleted while the tool was open: its address is empty again.
+		test('a caller record that is MISSING is never re-created: the IRI fails with resource.not_found and writes nothing (WC-2026-11-10-save-never-creates)', async () => {
+			// A record deleted while the tool was open: its address is empty again. A save
+			// never creates a record, so the caller's write is refused — a NOT-FOUND is a
+			// fault, not an op refusal (isOpRefusal), and the whole IRI rolls back.
 			const id = await newRecord();
 			await cleanScratchRecord(SECTION, id, TABLE);
 			await sweepActivityRows(SECTION, [id]);
 			const report = await run(id, [
 				plan(iriOf('missing-caller'), [set(CALLER, TITLE, 'lg-eng', [{ value: 'Resurrected' }])]),
 			]);
-			expect(report.iris[0]?.error).toBeNull();
-			expect(report.written.map((entry) => [entry.section_id, entry.component_tipo])).toEqual([
-				[id, TITLE],
-			]);
-			const bulkId = report.bulk_process_id as number;
-			expect(bulkId).toBeGreaterThan(0);
-			// The save's create-on-first-save ran inside the op's SAVEPOINT: the row's xmin
-			// is the subtransaction's, so a birth decided by xmin would answer "not mine".
+			expect(report.iris[0]?.error ?? '').toContain(`record ${SECTION}/${id} does not exist`);
+			expect(report.written).toEqual([]);
+			expect(report.created).toEqual([]);
+			const rows = (await sql.unsafe(
+				`SELECT count(*)::int AS n FROM "${TABLE}" WHERE section_tipo = $1 AND section_id = $2`,
+				[SECTION, id],
+			)) as { n: number }[];
+			expect(rows[0]?.n).toBe(0);
 			const births = (await sql.unsafe(
 				`SELECT count(*)::int AS n FROM matrix_time_machine
-				  WHERE section_tipo = $1 AND section_id = $2 AND tm_role = 3 AND bulk_process_id = $3`,
-				[SECTION, id, bulkId],
+				  WHERE section_tipo = $1 AND section_id = $2 AND tm_role = 3`,
+				[SECTION, id],
 			)) as { n: number }[];
-			expect(births[0]?.n).toBe(1);
-			expect(await countActivityRows(SECTION, [id])).toBe(1);
+			expect(births[0]?.n).toBe(0);
+			expect(await countActivityRows(SECTION, [id])).toBe(0);
 		});
 
 		test('a BORN record that cannot hold the identifier that finds it is never made (term or intermediate): reruns add none', async () => {

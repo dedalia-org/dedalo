@@ -61,6 +61,7 @@ import {
 } from '../../../src/core/ontology/resolver.ts';
 import { buildRequestConfigForElement } from '../../../src/core/relations/request_config/build.ts';
 import { extractSqoSectionTipos } from '../../../src/core/relations/request_config/explicit.ts';
+import { toolAddNewElementAccess } from '../../../src/core/relations/save.ts';
 import { readComponentItems } from '../../../src/core/resolve/component_data.ts';
 import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
 import { runSearch } from '../../../src/core/search/search_statement.ts';
@@ -1283,6 +1284,10 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 				lang: 'lg-nolan',
 				changedData: [{ action: 'add_new_element', id: null, value: portalTarget }],
 				userId: ctx.userId,
+				principal: ctx.principal,
+				// T0-2 / D3 REVISED: the portal create is a TOOL's — the server-minted
+				// access asks the SECTION level + target_sections, not the New button.
+				toolCreateAccess: toolAddNewElementAccess(ctx.principal, 'tool_import_files'),
 			});
 			const created = (save as { ok: boolean; created_section_id?: number }).created_section_id;
 			if (!save.ok || created == null) {
@@ -1392,6 +1397,10 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 			lang: 'lg-nolan',
 			changedData: [{ action: 'add_new_element', id: null, value: portalTarget }],
 			userId: ctx.userId,
+			principal: ctx.principal,
+			// T0-2 / D3 REVISED: the portal create is a TOOL's — the server-minted
+			// access asks the SECTION level + target_sections, not the New button.
+			toolCreateAccess: toolAddNewElementAccess(ctx.principal, 'tool_import_files'),
 		});
 		const created = (save as { ok: boolean; created_section_id?: number }).created_section_id;
 		if (!save.ok || created == null) {

@@ -460,6 +460,7 @@ const TRIPWIRES = [
 	'test/unit/media_url_version_tripwire.test.ts',
 	'test/unit/external_law_registry_tripwire.test.ts',
 	'test/unit/tool_reason_keys_tripwire.test.ts',
+	'test/unit/create_door_census_tripwire.test.ts',
 ];
 
 // ---------------------------------------------------------------------------

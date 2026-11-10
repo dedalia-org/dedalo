@@ -178,6 +178,23 @@ async function readFilterLang(
 	return elementLang(componentTipo, model, { requested: lang, ambient: lang });
 }
 
+/**
+ * THE stored items of one component in one record, through every storage
+ * indirection the value read applies — today the component_alias data key
+ * (WC-020: an alias stores NOTHING under its own tipo, its value lives in the
+ * TARGET's slot). The one door resolveComponentValue reads through; a caller
+ * asking "does this component hold anything here?" (the export's display
+ * carve-out) asks it too, so a future indirection cannot split the answers.
+ */
+export async function readStoredComponentItems(
+	record: MatrixRecord,
+	componentTipo: string,
+	model: string,
+): Promise<unknown[] | null> {
+	const { resolveDataTipo } = await import('../ontology/alias.ts');
+	return readComponentItems(record, await resolveDataTipo(componentTipo), model);
+}
+
 async function resolveStoredComponentValue(
 	record: MatrixRecord,
 	componentTipo: string,
@@ -185,11 +202,7 @@ async function resolveStoredComponentValue(
 	lang: string,
 	options: ComponentValueReadOptions,
 ): Promise<{ value: unknown[] | null; fallbackValue: unknown[] | null }> {
-	// component_alias data key (WC-020): an alias stores NOTHING under its own
-	// tipo — its value lives in the TARGET's column slot.
-	const { resolveDataTipo } = await import('../ontology/alias.ts');
-	const dataTipo = await resolveDataTipo(componentTipo);
-	const items = readComponentItems(record, dataTipo, model);
+	const items = await readStoredComponentItems(record, componentTipo, model);
 	if (items === null || items.length === 0) {
 		return { value: null, fallbackValue: null };
 	}

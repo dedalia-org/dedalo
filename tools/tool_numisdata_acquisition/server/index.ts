@@ -36,6 +36,7 @@ import {
 import { labelByTipo } from '../../../src/core/ontology/labels.ts';
 import { getColumnNameByModel, getModelByTipo } from '../../../src/core/ontology/resolver.ts';
 import { getTldFromTipo } from '../../../src/core/ontology/tld.ts';
+import { toolAddNewElementAccess } from '../../../src/core/relations/save.ts';
 import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
 import { runSearch } from '../../../src/core/search/search_statement.ts';
 import { buildSearchSql } from '../../../src/core/search/sql_assembler.ts';
@@ -684,6 +685,10 @@ async function importImagePair(
 			sectionId,
 			lang: NO_LANG,
 			userId: context.userId,
+			principal: context.principal,
+			// T0-2 / D3 REVISED: the portal create is a TOOL's — the server-minted
+			// access asks the SECTION level + target_sections, not the New button.
+			toolCreateAccess: toolAddNewElementAccess(context.principal, 'tool_numisdata_acquisition'),
 			changedData: [{ action: 'add_new_element', id: null, value: T().imageSection }],
 		});
 		const createdSectionId = (save as { ok: boolean; created_section_id?: number })

@@ -1374,12 +1374,12 @@ else {
 					verdict: 'derived-state',
 					bypass_reason: BYPASS.hierarchy,
 					reason:
-						'force_to_create: tears the tld’s ONTOLOGY down and re-provisions it through the same invariant writer; the `<tld>1` TERMS are not touched, so the surviving root is relinked afterwards.',
+						'force_to_create: for an OWNED case 1 hierarchy only (classifyHierarchyRebuild — not core/test, sole hierarchy1 declarer of the tld, `<tld>1`/`<tld>2` provisioned virtuals or absent, provisioning preconditions valid; anything else is refused ontology.teardown_refused before a write) deletes the tld’s ontology FROM SCRATCH and re-provisions it through the same invariant writer, teardown + provision in ONE transaction; the `<tld>1` TERMS are not touched, so the surviving root is relinked afterwards.',
 				},
 				deleteSectionRecord: {
 					verdict: 'derived-state',
 					reason:
-						'handed to rebuildHierarchy (force_to_create) as its delete callback, through which deleteOntologyByTld removes the tld’s ontology_main REGISTRY row and every `<tld>0` ontology node record (its dd_ontology nodes go directly, not through this door); ensureHierarchy then re-provisions all three from the hierarchy record. The `<tld>1` TERMS are never touched. HONEST LIMIT: a curator’s edit to a `<tld>0` node record or to the ontology_main row is not carried over — force_to_create is the operator’s explicit “rebuild from the hierarchy record”, so the verdict is derived-state, not lossless.',
+						'handed to rebuildHierarchy (force_to_create) as its delete callback, through which the ownership-checked deleteOwnedHierarchyOntology (only after classifyHierarchyRebuild found the hierarchy OWNED, inside the rebuild’s one transaction) removes, FROM SCRATCH, the tld’s ontology_main REGISTRY row and EVERY `<tld>0` ontology node record — legacy/install extras such as an own section_list included (its dd_ontology nodes go directly, not through this door); ensureHierarchy then re-provisions `<tld>0/1/2` + a fresh ontology_main row from the hierarchy record, and a failed provision rolls the teardown back. The `<tld>1` TERMS are never touched. HONEST LIMIT: a curator’s edit to a `<tld>0` node record or to the ontology_main row, and any extra node, is not carried over — force_to_create is the operator’s explicit “delete and recreate from the hierarchy record” (owner decision D10), so the verdict is derived-state, not lossless.',
 				},
 			},
 		},

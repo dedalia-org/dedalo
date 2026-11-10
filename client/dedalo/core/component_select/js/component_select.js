@@ -38,6 +38,7 @@
 	import {render_list_component_select} from './render_list_component_select.js'
 	import {render_search_component_select} from './render_search_component_select.js'
 	import {request_failed, response_data} from '../../common/js/api_error.js'
+	import {handle_api_error} from '../../common/js/error_dispatch.js'
 
 
 
@@ -241,6 +242,12 @@ component_select.prototype.add_new_element = async function(target_section_tipo)
 		// below feeds on it as a pre-fetched read answer)
 		if (request_failed(api_response)) {
 			console.error('Error on api_response on try to create new row:', api_response);
+			// REFUSED creation: ONE toast, render kept — never silent (page.js
+			// draws nothing for perm.* with page_scope:false). No wrapper, no
+			// page_scope = render_scoped_panel's toast; a code already toasted by
+			// the page listener is dropped by deduped_toast. Rationale in full:
+			// component_portal add_new_element_locked.
+			await handle_api_error(api_response.error, {wrapper: null})
 			return false
 		}
 		if (response_data(api_response)) {

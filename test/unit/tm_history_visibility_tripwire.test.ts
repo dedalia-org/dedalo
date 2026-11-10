@@ -153,8 +153,11 @@ const NARROWED_READERS: Readonly<Record<string, { reads: number; visible: number
 	// readTimeMachineRow, readTimeMachineHistory, readOtherLangItemIds, the
 	// two-lane as-of reader (newestRowAt: readFrameStateRowAt / readLaneRowAt),
 	// the TM preview bound + lifecycle probes (nextVisibleRow) and the per-lane as-of reader
-	// of frame targets (readKeyLanesAt) are all visibility-narrowed.
-	'src/core/db/time_machine.ts': { reads: 6, visible: 6 },
+	// of frame targets (readKeyLanesAt) are all visibility-narrowed. The 7th read,
+	// addressHasTimeMachineHistory, is an existence probe over EVERY row (hidden and
+	// dead generations included) — "did a record ever live here", the save door's
+	// absent-row refusal sentence (WC-2026-11-10-save-never-creates); it serves no row.
+	'src/core/db/time_machine.ts': { reads: 7, visible: 6 },
 	'src/core/section/record/observers.ts': { reads: 1, visible: 1 },
 	'src/core/section/record/delete_record.ts': { reads: 1, visible: 1 },
 	'tools/tool_time_machine/server/bulk_revert_legacy.ts': { reads: 3, visible: 3 },

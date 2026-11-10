@@ -117,6 +117,7 @@ import type { FieldPlan } from '../plan/types.ts';
 import {
 	type ExportAtomRun,
 	exportCrossingAllowed,
+	exportImplicitChildAllowed,
 	loadExportRecord,
 	prefetchExportRecords,
 } from '../resolve/resolver.ts';
@@ -336,6 +337,12 @@ interface ExternalDemand {
 	/** A relation leaf whose stored targets carry these external children. */
 	relationLeaf: string | null;
 	externalChildren: string[];
+	/**
+	 * The externalChildren that came from the leaf's IMPLICIT map: each answers
+	 * to the caller's grant at the target section (T0-1 / S03 — the walk drops
+	 * an ungranted one, so the look-ahead must not ask the source for it).
+	 */
+	implicitChildren: ReadonlySet<string>;
 }
 
 /** The run's prediction: demands + the remote fields of every predicted component. */
@@ -373,9 +380,12 @@ async function isExternalModel(tipo: string): Promise<boolean> {
  * fanOutRelation read (own request_config ddos parented to the component,
  * plus the implicit legacy relations).
  */
-async function externalChildrenOf(relationTipo: string): Promise<string[]> {
+async function externalChildrenOf(
+	relationTipo: string,
+): Promise<{ tipos: string[]; implicit: Set<string> }> {
 	const cell = await resolveOwnConfigMap(relationTipo);
 	const out: string[] = [];
+	const implicit = new Set<string>();
 	for (const child of cell.rawDdos ?? []) {
 		if (typeof child?.tipo !== 'string') continue;
 		if (child.parent !== undefined && child.parent !== 'self' && child.parent !== relationTipo) {
@@ -384,9 +394,12 @@ async function externalChildrenOf(relationTipo: string): Promise<string[]> {
 		if ((await isExternalModel(child.tipo)) && !out.includes(child.tipo)) out.push(child.tipo);
 	}
 	for (const tipo of cell.implicitRelations ?? []) {
-		if ((await isExternalModel(tipo)) && !out.includes(tipo)) out.push(tipo);
+		if ((await isExternalModel(tipo)) && !out.includes(tipo)) {
+			out.push(tipo);
+			implicit.add(tipo);
+		}
 	}
-	return out;
+	return { tipos: out, implicit };
 }
 
 /**
@@ -422,6 +435,7 @@ export async function planExternalPrefetch(
 					leafExternal: leaf.tipo,
 					relationLeaf: null,
 					externalChildren: [],
+					implicitChildren: new Set(),
 				});
 			}
 			continue;
@@ -429,7 +443,8 @@ export async function planExternalPrefetch(
 		// Only a relation leaf has config children to fan out through.
 		if (getColumnNameByModel(leafModel) !== 'relation') continue;
 		const children: string[] = [];
-		for (const child of await externalChildrenOf(leaf.tipo)) {
+		const declared = await externalChildrenOf(leaf.tipo);
+		for (const child of declared.tipos) {
 			if (await remember(child)) children.push(child);
 		}
 		if (children.length > 0) {
@@ -439,6 +454,7 @@ export async function planExternalPrefetch(
 				leafExternal: null,
 				relationLeaf: leaf.tipo,
 				externalChildren: children,
+				implicitChildren: declared.implicit,
 			});
 		}
 	}
@@ -633,6 +649,14 @@ export async function prefetchExternalRowsForBatch(
 						continue;
 					}
 					for (const child of demand.externalChildren) {
+						// An IMPLICIT child the walk will drop for this caller (D1) is
+						// never asked of the remote source either.
+						if (
+							demand.implicitChildren.has(child) &&
+							!(await exportImplicitChildAllowed(run, locator.section_tipo, child))
+						) {
+							continue;
+						}
 						await set.add(child, locator.section_tipo, locator.section_id, plan, isExternalSection);
 					}
 				}

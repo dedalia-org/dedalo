@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global it, describe, assert */
+/*global it, describe, assert, beforeEach, afterEach, page_globals */
 /*eslint no-undef: "error"*/
 
 import {
@@ -8,6 +8,7 @@ import {
 import {get_instance} from '../../../core/common/js/instances.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {ui} from '../../../core/common/js/ui.js'
+import {handle_api_error, reset_error_dispatch_state} from '../../../core/common/js/error_dispatch.js'
 
 
 
@@ -277,6 +278,92 @@ describe(`COMPONENT_SELECT DATA OPERATIONS`, function() {
 				component_container.removeChild(component_container.firstChild)
 			}
 	});
+});
+
+
+
+describe(`COMPONENT_SELECT REFUSED add_new_element (T0-2)`, function() {
+
+	this.timeout(10000);
+
+	// The save is refused at the TRANSPORT (window.fetch stubbed for the
+	// add_new_element body only): the real data_manager publishes 'api_error',
+	// answered here exactly as page.js does (page_scope:false).
+	let original_fetch	= null
+	let page_token		= null
+	let instance		= null
+
+	beforeEach(() => {
+		original_fetch = window.fetch
+		reset_error_dispatch_state()
+		page_token = event_manager.subscribe('api_error', (api_error) =>
+			handle_api_error(api_error, {scope:'page', page_scope:false})
+		)
+	})
+	afterEach(async () => {
+		window.fetch = original_fetch
+		event_manager.unsubscribe(page_token)
+		if (instance) {
+			await instance.destroy(true)
+			instance = null
+		}
+		while (component_container.firstChild) {
+			component_container.removeChild(component_container.firstChild)
+		}
+	})
+
+	for (const [code, status] of [['perm.denied', 403], ['request.invalid_source', 400]]) {
+		it(`${code}: one toast, render kept`, async function() {
+
+			instance = await get_instance({
+				model			: 'component_select',
+				tipo			: tipo,
+				section_tipo	: section_tipo,
+				section_id		: section_id,
+				lang			: lang,
+				mode			: 'edit',
+				view			: 'default',
+				id_variant		: 'refused_add_' + Math.random()
+			})
+			await instance.build(true)
+			const wrapper = await instance.render()
+			component_container.appendChild(wrapper)
+			// no previous value: the clear save (a REAL write) is never sent
+			instance.data.entries = []
+			const page_error_before = page_globals.page_error ?? null
+
+			window.fetch = async (url, init) => {
+				if (typeof init?.body==='string' && init.body.includes('"add_new_element"')) {
+					return new Response(JSON.stringify({
+						ok			: false,
+						request_id	: 'rq-select-add-new-element',
+						error		: {code, message: `refused ${code}`, retryable: false}
+					}), {status, headers: {'content-type': 'application/json'}})
+				}
+				return original_fetch(url, init)
+			}
+
+			const toasts = []
+			const token = event_manager.subscribe('notification', (payload) => {
+				if (payload?.api_error?.code===code) toasts.push(payload)
+			})
+			let result
+			try {
+				result = await instance.add_new_element('test3')
+				await new Promise((resolve) => setTimeout(resolve, 150))
+			} finally {
+				event_manager.unsubscribe(token)
+			}
+
+			assert.isFalse(result, 'add_new_element answers false')
+			assert.equal(toasts.length, 1, 'exactly ONE toast (never silent, never twice)')
+			assert.strictEqual(instance.node, wrapper, 'same wrapper')
+			assert.isTrue(wrapper.isConnected, 'still in the document')
+			assert.isNull(wrapper.querySelector('.api_error_panel'), 'no panel inside the select')
+			assert.isNull(wrapper.querySelector('.page_error_container'), 'no page panel inside the select')
+			assert.strictEqual(page_globals.page_error ?? null, page_error_before, 'page slot untouched')
+		});
+	}
 });
 
 

@@ -89,11 +89,10 @@ const census = [...actionKeys, ...toolKeys, ...extraKeys];
  * 2026-09-30 (closure Step 3, SEC-2-media → 5). Shrink-only: remove an entry
  * when its door closes; a new entry is a new hole and is refused here.
  */
+// Shrunk 5 → 1 on 2026-11-10 (T0-3 + S12 residue): get_section_terms,
+// get_indexation_grid, get_tags_info and get_widget_data closed to `component`.
+// The SQO console stays open by owner decision (reason in read_door.ts).
 const OPEN_CEILING: ReadonlySet<string> = new Set([
-	'dd_core_api:get_section_terms',
-	'dd_core_api:get_indexation_grid',
-	'dd_component_text_area_api:get_tags_info',
-	'dd_component_info:get_widget_data',
 	'dd_utils_api:convert_search_object_to_sql_query',
 ]);
 

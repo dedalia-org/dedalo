@@ -60,6 +60,7 @@ import {
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import {
 	DraftInvalid,
+	deriveDraft,
 	draftJson,
 	draftsPath,
 	instanceFromDomain,
@@ -67,7 +68,9 @@ import {
 	proposeDraft,
 	readPanelDraft,
 	type StoredDraft,
+	standInDeclaration,
 	validateDraft,
+	validateDraftsFile,
 } from '../../src/core/publication_host/drafts.ts';
 import {
 	buildPanelKit,
@@ -221,6 +224,61 @@ describe('drafts: read, judged by the agent rules, siblings on the machine', () 
 			),
 		).toEqual(['media.root']);
 		expect(validateDraft('museum_org', v2Draft(), EMPTY)).toEqual(v2Draft());
+	});
+
+	test('site.home: a custom home flows to the draft, its JSON and the derived paths; refusals name site.home', () => {
+		const custom = v2Draft({ site: { domain: 'museum.org', home: '/home/www/vhosts/museum.org' } });
+		expect(readPanelDraft(custom)).toEqual(custom);
+		expect(JSON.parse(draftJson(custom)).site).toEqual(custom.site);
+		const derived = deriveDraft(custom);
+		if (!('layout' in derived)) throw new Error('expected a layout');
+		const home = '/home/www/vhosts/museum.org';
+		expect(derived.layout.site?.home).toBe(home);
+		const decl = standInDeclaration(custom);
+		expect(decl.state_root.startsWith(`${home}/`)).toBe(true);
+		expect(decl.agent_dir.startsWith(`${home}/`)).toBe(true);
+		expect(decl.bun_bin.startsWith(`${home}/`)).toBe(true);
+		expect(validateDraft('museum_org', custom, EMPTY)).toEqual(custom);
+		// empty / absent = the default, omitted from the draft
+		expect(readPanelDraft(v2Draft({ site: { domain: 'museum.org', home: '' } })).site).toEqual({
+			domain: 'museum.org',
+		});
+		expect(
+			proposeDraft({ domain: 'museum.org', machines: 'two' } as never, EMPTY).draft.site,
+		).toEqual({ domain: 'museum.org' });
+		for (const bad of ['relative/dir', '/home/../etc', '/home', '/srv', '/']) {
+			const issues = issuesOf(() =>
+				readPanelDraft(v2Draft({ site: { domain: 'museum.org', home: bad } })),
+			);
+			expect(issues.map((i) => i.field)).toEqual(['site.home']);
+		}
+		const system = issuesOf(() =>
+			readPanelDraft(
+				v2Draft({ layout: 'system', site: { domain: 'museum.org', home: '/home/www/museum.org' } }),
+			),
+		);
+		expect(system.map((i) => i.field)).toEqual(['site.home']);
+		expect(system[0]?.message).toContain('only the home layout');
+		// two drafts on one machine sharing a home: derived paths clash, named
+		const other = v2Draft({
+			instance: 'archive_org',
+			site: { domain: 'archive.org', home: '/home/www/vhosts/museum.org' },
+			agent_user: 'archive_org_agent',
+			v2: { unit: 'dedalo-publication-api-v2-archive_org', user: 'archive_org_v2', port: 3101 },
+			listen: { kind: 'tls', host: '127.0.0.1', port: 8472 },
+			media: { mode: 'copy', root: '/srv/dedalo_pub/archive_org' },
+		});
+		const clash = issuesOf(() =>
+			validateDraft('museum_org', custom, { ...EMPTY, drafts: [stored('archive_org', other)] }),
+		);
+		expect(clash.length).toBeGreaterThan(0);
+	});
+
+	test('a stored draft written before site.home still loads', () => {
+		const old = stored('museum_org', v2Draft());
+		expect(validateDraftsFile({ version: 1, drafts: [old] }).drafts[0]?.draft.site).toEqual({
+			domain: 'museum.org',
+		});
 	});
 
 	test('the registry name: grammar, the reserved prefix, a paired host or a draft already holding it', () => {

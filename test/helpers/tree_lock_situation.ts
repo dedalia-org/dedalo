@@ -5,7 +5,7 @@
  *
  * Two sections per TLD:
  *  - `<tld>1` — a thesaurus WITH a sibling-order component (term, parent,
- *    children, number order, section_map thesaurus block). The order is a
+ *    children, number order, section_map thesaurus block, button_new). The order is a
  *    per-parent dataframe on the CHILD, paired by id_key to the parent-link
  *    locator's item id.
  *  - `<tld>10` — the same WITHOUT an order component, so a move writes ONLY the
@@ -98,7 +98,7 @@ export function treeSituation(tld: string, table = 'matrix_test'): TreeSituation
 		order: null,
 		table,
 	};
-	const sectionNodes = (s: TreeSection, mapTipo: string, label: string) => [
+	const sectionNodes = (s: TreeSection, mapTipo: string, buttonNewTipo: string, label: string) => [
 		{ tipo: s.section, parent: 'test1', model: 'section', term: { 'lg-eng': label } },
 		{
 			tipo: s.term,
@@ -140,6 +140,11 @@ export function treeSituation(tld: string, table = 'matrix_test'): TreeSituation
 			},
 			order_number: 5,
 		},
+		// The section's button_new: a tree door that BIRTHS a node (add_child, a
+		// children add_new_element) asks the New-button predicate (T0-2,
+		// write_door.ts authorizeRecordCreate) — no button_new, no create, the
+		// superuser included.
+		{ tipo: buttonNewTipo, parent: s.section, model: 'button_new', order_number: 6 },
 	];
 	return {
 		tld,
@@ -149,8 +154,8 @@ export function treeSituation(tld: string, table = 'matrix_test'): TreeSituation
 			tld,
 			name: `${tld} tree integrity`,
 			nodes: [
-				...sectionNodes(ordered, `${tld}6`, `${tld} ordered tree`),
-				...sectionNodes(plain, `${tld}14`, `${tld} plain tree`),
+				...sectionNodes(ordered, `${tld}6`, `${tld}7`, `${tld} ordered tree`),
+				...sectionNodes(plain, `${tld}14`, `${tld}15`, `${tld} plain tree`),
 			],
 		}),
 	};

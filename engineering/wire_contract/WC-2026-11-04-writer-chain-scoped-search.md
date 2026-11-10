@@ -53,3 +53,10 @@ COLUMNS and FILTER PATHS* (incl. *a scoped relation column OWN-config child on a
 third section is NOT served*), *(h)/(i) the scope never widens*, *decision (j) and the
 write-authority caps*. Parity: Gate B's refusal for a chain-less request is byte-unchanged;
 no fixture carries `source.callers` — no drift. **Re-harvest: none.**
+
+## Addendum 2026-11-09 — the get_data of the target is host-gated
+
+"A get_data (not a search) of the target stays refused" no longer holds for a component's
+OWN get_data of one readable host record: it is gated as a read of the HOST
+(`WC-2026-11-09-component-get-data-host-gate`). The writer-chain scope itself is unchanged —
+it still opens only the autocomplete SEARCH.

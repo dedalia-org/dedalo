@@ -330,12 +330,23 @@ export interface BoundRows {
  * the scoped set. No granted section ⇒ the empty set. A row naming no section
  * (NULL) names no record: it reaches the grant leg as no readable section and
  * is dropped there.
+ *
+ * `sectionsFrom` (optional): a SUPERSET of `rows` whose sections LEG 1 lists
+ * instead — for a caller whose `rows` is already narrowed by an earlier scope
+ * (the indexation probe: owner scope, then the section_top scope), so the
+ * section statement reads the same rows whatever the earlier leg kept (READ-4's
+ * bound: the cost may not depend on what is visible). A granted section with no
+ * row in `rows` only adds a predicate that matches nothing.
  */
-export async function scopedRows(rows: BoundRows, principal: Principal): Promise<BoundRows> {
+export async function scopedRows(
+	rows: BoundRows,
+	principal: Principal,
+	sectionsFrom: BoundRows = rows,
+): Promise<BoundRows> {
 	if (principal.isGlobalAdmin) return rows;
 	const sections = (await sql.unsafe(
-		`SELECT DISTINCT scoped_rows.section_tipo FROM (${rows.sql}) AS scoped_rows`,
-		rows.params as (string | number | null)[],
+		`SELECT DISTINCT scoped_rows.section_tipo FROM (${sectionsFrom.sql}) AS scoped_rows`,
+		sectionsFrom.params as (string | number | null)[],
 	)) as { section_tipo: string | null }[];
 	const { granted } = await hitsWithSectionGrant(
 		sections.map((row) => ({ section_tipo: String(row.section_tipo), section_id: 0 })),
@@ -364,9 +375,14 @@ export function rowScopeFor(principal: Principal): (rows: BoundRows) => Promise<
  * Does ANY row of `rows` survive this principal's scope? One EXISTS over
  * {@link scopedRows} — stopping at the first visible record. Discloses a
  * boolean about records the caller may see, nothing about the others.
+ * `sectionsFrom`: as {@link scopedRows}.
  */
-export async function anyRowInScope(rows: BoundRows, principal: Principal): Promise<boolean> {
-	const scoped = await scopedRows(rows, principal);
+export async function anyRowInScope(
+	rows: BoundRows,
+	principal: Principal,
+	sectionsFrom: BoundRows = rows,
+): Promise<boolean> {
+	const scoped = await scopedRows(rows, principal, sectionsFrom);
 	const found = (await sql.unsafe(
 		`SELECT EXISTS (SELECT 1 FROM (${scoped.sql}) AS any_rows) AS found`,
 		scoped.params as (string | number | null)[],

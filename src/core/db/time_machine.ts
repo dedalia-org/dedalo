@@ -232,6 +232,27 @@ export async function readTimeMachineHistory(
 	return rows.map(rowFromDb);
 }
 
+/**
+ * Whether ANY Time Machine row exists at a record address — every generation,
+ * bookkeeping rows included (deliberately NOT `withTmHistory`: the question is
+ * "did a record ever live here", not "what is the living record's history").
+ * The save door's refusal sentence for an absent row (WC-2026-11-10-save-never-creates):
+ * history at an address with no live row means the record was deleted. One
+ * indexed EXISTS over (section_tipo, section_id); asked on the refusal path only.
+ */
+export async function addressHasTimeMachineHistory(
+	sectionTipo: string,
+	sectionId: number,
+): Promise<boolean> {
+	const rows = (await sql.unsafe(
+		`SELECT EXISTS (
+			SELECT 1 FROM matrix_time_machine WHERE section_tipo = $1 AND section_id = $2
+		 ) AS present`,
+		[sectionTipo, sectionId],
+	)) as { present: boolean }[];
+	return rows[0]?.present === true;
+}
+
 /** One other-language main item a visible history row recorded. */
 interface HistoryItem {
 	rowId: number;

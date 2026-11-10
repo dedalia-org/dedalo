@@ -64,6 +64,7 @@ const BROKEN_TERM_SECTION = `${TLD}5`;
 const BROKEN_TABLE_NODE = `${TLD}6`; // matrix_table node naming a table that is not there
 const MIRROR = `${TLD}7`; // component_autocomplete on the broken section, observes LINK
 const INDEXER = `${TLD}8`; // component_autocomplete_hi on SECTION, observed by MIRROR
+const BUTTON_NEW = `${TLD}9`; // SECTION's button_new — what a create door asks (T0-2)
 const TABLE = 'matrix_test';
 const ROOT = -1;
 
@@ -142,6 +143,17 @@ beforeAll(async () => {
 		tld: TLD,
 		term: { 'lg-eng': 'write obligations scratch section' },
 		relations: [{ tipo: 'test24' }],
+	});
+	// The section's button_new: the MCP create this gate drives asks the
+	// New-button predicate (T0-2 / D4, authorizeRecordCreate) — no button_new,
+	// no create, the superuser included. Core create (also driven here) is
+	// SECTION level (D4 REVISED) and does not ask it.
+	await upsertDdOntologyNode({
+		tipo: BUTTON_NEW,
+		model: 'button_new',
+		parent: SECTION,
+		tld: TLD,
+		term: { 'lg-eng': 'write obligations new' },
 	});
 	await upsertDdOntologyNode({
 		tipo: TEXT,
@@ -276,7 +288,7 @@ describe.if(DB_READY)(
 		test('the tolerated-conflict race loser writes NO row: nothing was created (the enumerated empty cell)', async () => {
 			const id = await createSectionRecord(SECTION, ROOT);
 			expect(await activityRows(id)).toHaveLength(1);
-			// the same address again, conflict tolerated — the S1-02 materialize-on-save loser
+			// the same address again, conflict tolerated — an explicit-id import's race loser (CSV / import_files)
 			const again = await createSectionRecord(SECTION, ROOT, new Date(), id, {
 				conflictTolerant: true,
 			});

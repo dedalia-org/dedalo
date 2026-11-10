@@ -35,6 +35,10 @@ export const READ_DOOR_PROBED: ReadonlySet<string> = new Set([
 	'mcp:dedalo_get_media_info',
 	'http:GET /dedalo/core/api/v1/raw',
 	'http:GET /dedalo/core/api/v1/map_tile',
+	'dd_component_text_area_api:get_tags_info',
+	'dd_component_info:get_widget_data',
+	'dd_core_api:get_section_terms',
+	'dd_core_api:get_indexation_grid',
 ]);
 
 const completed = new Set<string>();

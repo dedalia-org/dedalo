@@ -14,8 +14,9 @@
  *      (a meta-counter UPDATE lands inside the tx), then the json_codec guard
  *      fires on the value → the DedaloError reaches the caller, the counter
  *      and the data column are byte-unchanged, no TM row was appended;
- *   B. a NOT-yet-materialised twin: the save CREATES the row inside the tx
- *      (PHP set_dato upsert), then fails → the row does not exist afterwards;
+ *   B. an ABSENT row: a save never creates a record (WC-2026-11-10-save-never-creates
+ *      — nor did PHP v6/v7), so it is refused `resource.not_found` inside the tx
+ *      BEFORE the value guards run → the row still does not exist, no TM row;
  *   C. the caller-fault refusals (`request.invalid_data`) throw the typed
  *      code and write nothing.
  *
@@ -174,7 +175,7 @@ describe('save_component failure propagation (write paths never absorb integrity
 		expect(await tmRowCount(EXISTING_ID)).toBe(tmBefore + 1);
 	});
 
-	test('B. the record materialised inside the tx is gone after the failure', async () => {
+	test('B. a save to an absent row is refused resource.not_found and creates nothing', async () => {
 		expect(await readMatrixRecord(TABLE, SECTION_TIPO, UNBORN_ID)).toBeNull();
 		const error = await refusalOf(
 			saveComponentData({
@@ -190,7 +191,8 @@ describe('save_component failure propagation (write paths never absorb integrity
 				userId: -1,
 			}),
 		);
-		expect(error.code).toBe('internal.invariant');
+		// The existence refusal precedes the json_codec guard the NaN would trip.
+		expect(error.code).toBe('resource.not_found');
 		expect(await readMatrixRecord(TABLE, SECTION_TIPO, UNBORN_ID)).toBeNull();
 		expect(await tmRowCount(UNBORN_ID)).toBe(0);
 	});

@@ -717,7 +717,7 @@ two API configuration files, prove the agent (B4) and pair it (B5).
 - **v1 runs in its own dedicated, stamped PHP-FPM pool** per instance (`fpm_pool`, §9.4), as
   `v1.user`, with its own socket, `open_basedir` and temporary directory
   (`/var/lib/dedalo_publication_host/<instance>/v1/`); the website's PHP is never edited.
-- **Layout.** The default is the per-site home `/home/<domain>/{dedalo, host_agent, .bun}`;
+- **Layout.** The default is the per-site home `/home/<domain>/{dedalo, host_agent, .bun}` (the declaration's `site.home` — also settable in the panel's draft form, `home` layout only — replaces `/home/<domain>` with a custom directory such as `/home/www/vhosts/museum.org`);
   the site's web server logs are OUTSIDE it, in the distribution's log directory per site
   (`/var/log/{apache2,httpd,nginx}/<domain>/`, `root:root 0755`, created by `apply` and rotated
   by the stamped `/etc/logrotate.d/dedalo_<instance>_web`: a sandboxed web unit — Ubuntu 26.04's

@@ -31,6 +31,21 @@
  * not a record address. The note lookup on the same page already compares
  * addresses with `parseInt()` on both sides, so int ids match there.
  *
+ * READ DOOR (WC-2026-11-10-tags-info-read-door). The HOST door (section >= 1,
+ * the text_area's pair grant, the record scope) is the API handler's; every
+ * HOP this feed takes into OTHER data is gated here, with the principal THREADED
+ * IN as a parameter (never ambient), through the read door's own helpers
+ * (security/read_door.ts doorComponentAllowed — the loud refusal recorder):
+ *   - a NOTE record: each `tags_notes` ddo's (note section, component) pair
+ *     grant + the note record's scope. A refused note is DROPPED and its id
+ *     named in `withheld_notes` (owner OD-2 (a));
+ *   - index / reference: the HOST tag-source component (`tags_<type>.tipo`)
+ *     needs its own pair grant on the host section; refused → the type's key
+ *     is absent and the refusal recorded. Term LABELS pass "as displayed"
+ *     (owner OD-3 (a), the D4 export precedent) — no per-term section grant;
+ *   - persons: the inverse related search runs SCOPED to the principal.
+ * `principal` undefined = an INTERNAL read (the read door's convention): no gate.
+ *
  * (!) The IN-TEXT tag MARKERS (`[note-a-3-data:{'section_id':'12'}:data]`) keep
  * their historical string serialization — those bytes live inside stored text
  * scalars and publication v1 LIKE-probes them. Only the resolved payload built
@@ -51,6 +66,10 @@ import {
 import { filterItemsByLang, readComponentItems } from '../../resolve/component_data.ts';
 import { currentDataLang } from '../../resolve/request_lang.ts';
 import { NOTE_PATTERN } from '../../resolve/tr_marks.ts';
+import { noteFrontierRefusal } from '../../security/frontier_scope.ts';
+import type { Principal } from '../../security/permissions.ts';
+import { doorComponentAllowed, type ReadDoorScope } from '../../security/read_door.ts';
+import { principalCanAccessRecord } from '../../security/record_scope.ts';
 import { getTermByLocator } from '../../ts_object/term_resolver.ts';
 import type { PersonTagElement } from './tags_persons.ts';
 
@@ -123,6 +142,70 @@ export interface TagsInfoHost {
 	 * dd_component_text_area_api.get_tags_info — coerces at the door.
 	 */
 	section_id: number;
+}
+
+/** The door name every hop refusal of this feed is logged under. */
+const TAGS_INFO_DOOR = 'dd_component_text_area_api.get_tags_info';
+
+/**
+ * Every well-formed ddo's (note section, component) pair is readable — the
+ * read door records each refusal itself.
+ */
+async function noteDdosGranted(
+	scope: ReadDoorScope,
+	locator: TagLocator,
+	ddoMap: readonly NoteDdo[],
+): Promise<boolean> {
+	for (const ddo of ddoMap) {
+		if (!isNoteDdo(ddo)) continue;
+		const allowed = await doorComponentAllowed(scope, {
+			sectionTipo: locator.section_tipo,
+			componentTipo: ddo.component_tipo,
+			sectionId: locator.section_id,
+		});
+		if (!allowed) return false;
+	}
+	return true;
+}
+
+/** A ddo that names both its output key and its component. */
+function isNoteDdo(
+	ddo: NoteDdo | undefined,
+): ddo is NoteDdo & { id: string; component_tipo: string } {
+	return typeof ddo?.id === 'string' && typeof ddo.component_tipo === 'string';
+}
+
+/**
+ * May the caller read this NOTE record through its ddo map? Every ddo's
+ * (note section, component) pair (section >= 1 + the component's own grant)
+ * AND the record scope. Internal reads (no principal) gate nothing.
+ */
+async function noteReadable(
+	scope: ReadDoorScope,
+	locator: TagLocator,
+	ddoMap: readonly NoteDdo[],
+): Promise<boolean> {
+	const principal = scope.principal;
+	if (principal === undefined) return true;
+	if (!(await noteDdosGranted(scope, locator, ddoMap))) return false;
+	const id = Number(locator.section_id);
+	if (
+		Number.isInteger(id) &&
+		(await principalCanAccessRecord(locator.section_tipo, id, principal))
+	) {
+		return true;
+	}
+	noteFrontierRefusal(
+		{ principal, surface: 'door', door: scope.door },
+		{
+			surface: 'door',
+			door: scope.door,
+			sectionTipo: locator.section_tipo,
+			sectionId: locator.section_id,
+			key: 'record',
+		},
+	);
+	return false;
 }
 
 /** Read one record, tolerating a section whose matrix table cannot be resolved. */
@@ -244,8 +327,10 @@ async function buildAnnotations(
 	config: Record<string, NoteDdo[]>,
 	rawValues: string[],
 	lang: string,
-): Promise<NoteElement[]> {
+	scope: ReadDoorScope,
+): Promise<{ notes: NoteElement[]; withheld: StoredSectionId[] }> {
 	const annotations: NoteElement[] = [];
+	const withheld: StoredSectionId[] = [];
 	for (const rawValue of rawValues) {
 		if (typeof rawValue !== 'string' || rawValue === '') continue;
 		NOTE_PATTERN.lastIndex = 0;
@@ -266,45 +351,105 @@ async function buildAnnotations(
 			const ddoMap = config[locator.section_tipo];
 			if (!Array.isArray(ddoMap)) continue;
 
-			const note: NoteElement = { data: locator };
-			const noteRecord = await readRecord(locator.section_tipo, locator.section_id);
-			for (const ddo of ddoMap) {
-				if (typeof ddo?.id !== 'string' || typeof ddo.component_tipo !== 'string') continue;
-				if (noteRecord === null) {
-					note[ddo.id] = ddo.type === 'bool' ? false : [];
-					continue;
-				}
-				const items = await readItems(noteRecord, ddo.component_tipo, lang);
-				if (ddo.type === 'bool') {
-					// component_publication: the 'yes' term is section_id 1 (PHP
-					// compared ONLY section_id here, so the reference locator does
-					// too — via the locator law's own comparator, which gives the
-					// loose-numeric semantics a stored '01' needs).
-					const first = items[0] as Locator | undefined;
-					note[ddo.id] =
-						first !== undefined &&
-						first !== null &&
-						compareLocators(
-							first,
-							{ section_tipo: first.section_tipo, section_id: PUBLICATION_YES_ID },
-							['section_id'],
-						);
-					continue;
-				}
-				// WC-077: literal ddos emit STRING values, not stored items — the
-				// client renders them directly (`note.title.join(' | ')`).
-				note[ddo.id] = items.map((item) => {
-					if (item !== null && typeof item === 'object') {
-						const value = (item as { value?: unknown }).value;
-						return typeof value === 'string' ? value : (value ?? '');
-					}
-					return item;
-				});
+			// THE NOTE HOP: a note the caller may not read is dropped and NAMED.
+			if (!(await noteReadable(scope, locator, ddoMap))) {
+				withheld.push(locator.section_id);
+				continue;
 			}
-			annotations.push(note);
+
+			annotations.push(await resolveNote(locator, ddoMap, lang));
 		}
 	}
-	return annotations;
+	return { notes: annotations, withheld };
+}
+
+/** The value of a ddo when the note record does not exist (PHP defaults). */
+function emptyNoteValue(ddo: NoteDdo): boolean | never[] {
+	return ddo.type === 'bool' ? false : [];
+}
+
+/** One ddo's value out of the note record's stored items. */
+function noteValue(ddo: NoteDdo, items: unknown[]): unknown {
+	if (ddo.type === 'bool') {
+		// component_publication: the 'yes' term is section_id 1 (PHP
+		// compared ONLY section_id here, so the reference locator does
+		// too — via the locator law's own comparator, which gives the
+		// loose-numeric semantics a stored '01' needs).
+		const first = items[0] as Locator | undefined;
+		return (
+			first !== undefined &&
+			first !== null &&
+			compareLocators(first, { section_tipo: first.section_tipo, section_id: PUBLICATION_YES_ID }, [
+				'section_id',
+			])
+		);
+	}
+	// WC-077: literal ddos emit STRING values, not stored items — the
+	// client renders them directly (`note.title.join(' | ')`).
+	return items.map((item) => {
+		if (item !== null && typeof item === 'object') {
+			const value = (item as { value?: unknown }).value;
+			return typeof value === 'string' ? value : (value ?? '');
+		}
+		return item;
+	});
+}
+
+/**
+ * One AUTHORIZED note record resolved through its `tags_notes` ddo_map — every
+ * ddo id becomes a key; an absent record yields the per-type empty defaults.
+ */
+async function resolveNote(
+	locator: TagLocator,
+	ddoMap: NoteDdo[],
+	lang: string,
+): Promise<NoteElement> {
+	const note: NoteElement = { data: locator };
+	const noteRecord = await readRecord(locator.section_tipo, locator.section_id);
+	for (const ddo of ddoMap) {
+		if (!isNoteDdo(ddo)) continue;
+		note[ddo.id] =
+			noteRecord === null
+				? emptyNoteValue(ddo)
+				: noteValue(ddo, await readItems(noteRecord, ddo.component_tipo, lang));
+	}
+	return note;
+}
+
+/**
+ * An index / reference type: ABSENT (undefined) when the install does not
+ * configure it (PHP `isset`) or when the host tag-source hop is refused (the
+ * read door records the refusal); else its marks resolved to terms.
+ */
+async function buildPointerTags(
+	config: TagsPointerConfig | undefined | null,
+	scope: ReadDoorScope,
+	host: TagsInfoHost,
+	hostRecord: MatrixRecord | null,
+	lang: string,
+): Promise<TagTermElement[] | undefined> {
+	if (config === undefined || config === null) return undefined;
+	if (!(await tagSourceReadable(scope, config, host))) return undefined;
+	return buildTagsAsTerms(config, host, hostRecord, lang);
+}
+
+/**
+ * The HOST tag-source hop of an index/reference type: the component named by
+ * `tags_<type>.tipo` is a component of the host section and needs its own pair
+ * grant. Refused (recorded loudly by the read door) → false, the key is absent.
+ */
+async function tagSourceReadable(
+	scope: ReadDoorScope,
+	config: TagsPointerConfig,
+	host: TagsInfoHost,
+): Promise<boolean> {
+	if (scope.principal === undefined) return true;
+	if (typeof config.tipo !== 'string' || config.tipo === '') return true; // nothing is read
+	return doorComponentAllowed(scope, {
+		sectionTipo: host.section_tipo,
+		componentTipo: config.tipo,
+		sectionId: host.section_id,
+	});
 }
 
 /**
@@ -314,40 +459,42 @@ async function buildAnnotations(
  *   ['index','note','reference']. An unknown type resolves nothing and is
  *   reported back so the caller can say so out loud instead of serving a
  *   silently narrower payload.
+ * @param principal the caller every hop is gated for (module header). REQUIRED
+ *   positionally so no caller can forget it (the F2 shape); `undefined` is an
+ *   explicit internal read.
  */
 export async function buildTagsInfo(
 	types: readonly string[],
 	host: TagsInfoHost,
 	lang: string = currentDataLang(),
-): Promise<{ tags_info: TagsInfo; unknown_types: string[] }> {
+	principal: Principal | undefined,
+): Promise<{ tags_info: TagsInfo; unknown_types: string[]; withheld_notes: StoredSectionId[] }> {
+	const scope: ReadDoorScope = { principal, door: TAGS_INFO_DOOR };
 	const properties = ((await getEffectivePropertiesByTipo(host.tipo)) ??
 		{}) as TextAreaTagProperties;
 	const hostRecord = await readRecord(host.section_tipo, host.section_id);
 	const tagsInfo: TagsInfo = {};
 	const unknownTypes: string[] = [];
+	const withheldNotes: StoredSectionId[] = [];
 
 	for (const type of types) {
 		switch (type) {
-			case 'index':
-				if (properties.tags_index !== undefined && properties.tags_index !== null) {
-					tagsInfo.tags_index = await buildTagsAsTerms(
-						properties.tags_index,
-						host,
-						hostRecord,
-						lang,
-					);
-				}
+			case 'index': {
+				const terms = await buildPointerTags(properties.tags_index, scope, host, hostRecord, lang);
+				if (terms !== undefined) tagsInfo.tags_index = terms;
 				break;
-			case 'reference':
-				if (properties.tags_reference !== undefined && properties.tags_reference !== null) {
-					tagsInfo.tags_reference = await buildTagsAsTerms(
-						properties.tags_reference,
-						host,
-						hostRecord,
-						lang,
-					);
-				}
+			}
+			case 'reference': {
+				const terms = await buildPointerTags(
+					properties.tags_reference,
+					scope,
+					host,
+					hostRecord,
+					lang,
+				);
+				if (terms !== undefined) tagsInfo.tags_reference = terms;
 				break;
+			}
 			case 'note':
 				if (properties.tags_notes !== undefined && properties.tags_notes !== null) {
 					// The notes live in the TEXT of the transcription itself.
@@ -361,7 +508,9 @@ export async function buildTagsInfo(
 									}
 									return typeof item === 'string' ? item : '';
 								});
-					tagsInfo.tags_notes = await buildAnnotations(properties.tags_notes, rawValues, lang);
+					const annotations = await buildAnnotations(properties.tags_notes, rawValues, lang, scope);
+					tagsInfo.tags_notes = annotations.notes;
+					withheldNotes.push(...annotations.withheld);
 				}
 				break;
 			case 'person':
@@ -385,6 +534,10 @@ export async function buildTagsInfo(
 							lang,
 							sectionTipos: 'all',
 							limit: false,
+							// F2: the inverse search is SCOPED to the caller —
+							// an out-of-scope referencing record never feeds the
+							// persons list (undefined = internal read).
+							principal,
 						},
 					);
 					const sectionsEntry = related.data.find(
@@ -395,6 +548,8 @@ export async function buildTagsInfo(
 						{ section_tipo: host.section_tipo, section_id: host.section_id },
 						hostRecord,
 						sectionsEntry?.value ?? [],
+						// Each owner's persons component needs its own pair grant.
+						scope,
 					);
 				}
 				break;
@@ -403,5 +558,5 @@ export async function buildTagsInfo(
 		}
 	}
 
-	return { tags_info: tagsInfo, unknown_types: unknownTypes };
+	return { tags_info: tagsInfo, unknown_types: unknownTypes, withheld_notes: withheldNotes };
 }

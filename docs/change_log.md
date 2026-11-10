@@ -15,7 +15,102 @@ shape by the id under which the source tree records each one
 
 Merged since the last release; these ship with the next one.
 
+!!! warning "Action needed when you update"
+
+    - The "+" of a portal (and Duplicate, add term, the assistant) now needs permission to create in the target section.
+
 ### For users
+
+#### Security
+
+- **The "+" of a portal (and Duplicate, add term, the assistant) now needs permission to create in the target section.** *(action needed)*
+
+    Before, anyone who could edit a portal (or a selector, or a children field) could create
+    records through its "+" in any section at all — including Users and Profiles — even without
+    permission to create there. The tools that create records through a portal (import files,
+    numismatic acquisition, poster frame) had the same gap.
+
+    Now these ways of creating a record ask for write access to the section **and** to its
+    **New** button: the "+" of a portal, selector or children field, **Duplicate**,
+    adding a term in a thesaurus tree, and the AI assistant's create / find-or-create / duplicate
+    tools (an assistant change plan is checked the same way before you confirm it). A portal's
+    "+" can only create in the sections that portal links to. When the answer is no, a message
+    now appears on screen; before, the click silently did nothing or created the record anyway.
+    Global administrators have no bypass, and even root cannot use **+**, **Duplicate** or **add
+    term** in a section that has no **New** button.
+
+    Creating a record with **New** in a section's list, the records a feature creates for you in
+    its own section — notes on a text, Time Machine notes, indexation notes, references,
+    dataframe annotations, presets — and the records an import tool creates (import files,
+    numismatic acquisition, poster frame) still need only write access to that section, as
+    before. A portal create made by such a tool is also limited to the sections the portal links
+    to.
+
+    **Action needed:** a profile whose users should use the **+** of a portal, **Duplicate**,
+    **add term** in a tree, or the assistant's record tools must grant the section's **New**
+    button at write level (in the profile's permissions, under that section). Notes, references,
+    presets and imports do not need it.
+
+    Wire contract: `WC-2026-11-10-add-new-element-create-gate`.
+
+- **Graph labels and the thesaurus indexation list show only what the user may read.**
+
+    The graph view labels its nodes with each record's display term. That label used to be served to
+    anyone with read access to the section. It now also requires read access to the component the term
+    is drawn from and the record inside the user's projects; a node the user may not read keeps its
+    provisional label, and a short notice says the answer was narrowed.
+
+    The thesaurus "show indexations" list quotes a fragment of every transcription that indexes the
+    term. Each row is now shown only when the user may read the indexing record's section and the text
+    field the fragment comes from, and the indexing record itself is inside the user's projects. Rows
+    the user may not read are left out, and the response states how many were withheld. A request that
+    names a term the user may not read in its list of terms is refused as a whole. Users who already had
+    those grants see no change.
+
+    Wire contract: `WC-2026-11-10-section-terms-read-door`, `WC-2026-11-10-indexation-grid-read-door`.
+
+- **The transcription print feed now checks the section, the transcription field and every note it shows.**
+
+    The request that resolves a transcription's tags for the print tool (index terms, notes and
+    persons) used to check only that the record was in the user's projects. It now asks what the
+    record page asks: read access to the section, read access to the transcription field itself, and
+    the record in the user's scope. The records the tags point at are checked too: a note is shown
+    only when the user may read the note's section, its fields and the note record itself, otherwise
+    it is left out of the print and its id is listed as withheld; the index terms are shown only when
+    the user may read the field that holds them; and the persons list only includes records in the
+    user's projects, and only from the field holding the persons when the user may read that field. Index term labels are shown as the record displays them. Users who already see
+    everything see no change.
+
+    Wire contract: `WC-2026-11-10-tags-info-read-door`.
+
+- **Info widgets are computed only for users who may read the widget's section and component.**
+
+    The request that computes an info widget (the values an info component shows, loaded on demand)
+    used to check only that the record was in the user's projects. It now asks what the record page
+    asks: read access to the section, read access to the info component itself, and the record in the
+    user's scope. A user without those grants is refused instead of being served the computed value.
+    The components a widget reads its inputs from are not checked one by one: the widget is shown as
+    the info component displays it. Users who already see the widget see no change. A request naming a
+    record id that is not a number is now refused as an invalid request.
+
+    Wire contract: `WC-2026-11-10-widget-data-read-door`.
+
+- **Exports no longer include linked records outside your projects.**
+
+    An export follows the links of each record: the records a field points to, the records those
+    records point to, their frames, their thesaurus parents and their media files. Before, only the
+    first link was checked against your projects. A record outside your projects two links away could
+    appear in an export, while the same record reached directly was refused.
+
+    Every linked record is now checked, at every depth and in every export format. If a column would
+    include a record you cannot open, the export stops and names that column. Remove the column or ask
+    an administrator. Administrators are not affected.
+
+    A relation without a configured list of fields shows its target's label fields. Those you have no
+    permission to read are now left out of the export, and the rest still export. The project selector
+    now shows the project names to every user who may set a project.
+
+    Wire contract: `WC-2026-11-09-export-frontier-fanout`, `WC-2026-11-09-implicit-children-frontier-predicate`.
 
 #### Changed
 
@@ -102,6 +197,26 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-10-translation-empty-result`.
 
+- **The transcription print tool shows why it cannot open instead of staying blank.**
+
+    When the server refused the request that resolves a transcription's tags (for example because the
+    user may not read the transcription field or its section), the print tool waited forever and showed
+    an empty window. It now shows the error message, with the request reference an administrator can
+    look up in the server log.
+
+- **A portal no longer refuses to refresh when one of its target sections is closed to you.**
+
+    A record you can open shows the rows of its portals, even rows that point into a section you
+    have no permission to open. Before, refreshing that portal, paging it or saving it answered
+    "no access", although the same rows were on screen.
+
+    The portal's own read is now checked like the record it belongs to: you need access to the
+    record and to the field. It returns exactly the columns and rows the record shows for that
+    portal, and nothing more, whatever the request asks for. A request that names any other
+    section, another record or a search filter is still refused.
+
+    Wire contract: `WC-2026-11-09-component-get-data-host-gate`.
+
 - **Saving a hierarchical autocomplete on a duplicated record no longer fails with "cannot delete path in scalar".**
 
     A record created by duplication could be stored with an invalid empty search index. Any later save of a
@@ -116,6 +231,20 @@ Merged since the last release; these ship with the next one.
     copy. Such fields always sent a save that changed nothing, and setting them back to the saved
     value left the orange unsaved line and the leave-page warning on. Both now behave like every
     other field.
+
+- **Exporting a related field no longer refuses what the record already shows you.**
+
+    A related field (a portal or an autocomplete) shows the labels of the records it points to, even
+    when those records are outside your projects. Exporting that same field stopped with "links to
+    records outside your scope", although the record on screen already showed every value.
+
+    An export of a related field now carries exactly what the record shows you for it, in every format.
+    Anything beyond that is still checked: picking a field inside the linked records, the thesaurus
+    parents, and a linked record the field does not show. If one of those reaches a record you cannot
+    open, the export still stops and names the column. Media files of linked records you cannot open
+    are still left out of the media archive.
+
+    Wire contract: `WC-2026-11-09-export-relation-display`.
 
 - **Refreshing a map with drawn points no longer throws errors or loses its layer control.**
 
@@ -146,6 +275,17 @@ Merged since the last release; these ship with the next one.
 
     Before, picking records in the "Link resource" list sometimes did not save: the list showed the record as linked, but the portal refused it as already present, and quick successive picks were reported as failed. Clicking a linked record to remove it never removed it. The list now opens inside the page instead of an embedded frame, picks are applied one at a time, and each row shows what is actually stored.
 
+- **Reloading a record's edit page keeps the record's place in its search results.**
+
+    Reloading the browser on a record opened in edit mode, or opening its address in a new tab, showed the
+    record alone: the paginator read 1 of 1 and the previous/next buttons went nowhere, whether or not the
+    list had been filtered. The page now reopens the record at its position in the records you were browsing,
+    with their total, so previous/next continue through the same search. When the record is not part of that
+    search (an address shared by a colleague, for example), the paginator moves through every record of the
+    section instead.
+
+    Wire contract: `WC-2026-11-09-start-deep-link-found-set-position`.
+
 - **Saving a profile's access permissions no longer reports an error on slow connections when the save went through.**
 
     Saving a profile's permissions used to upload the whole ontology tree shown in the editor (about 6.5 MB) with every save. On a slow connection the upload outlasted the client's wait, so the screen showed a save error and kept the changes marked as unsaved, even though the server had stored them (a reload showed them). The save now sends only the permissions. Large saves also get more time to upload before the client gives up. The server's reply to the save no longer sends the tree back either, so a retried save is recognised instead of being reported as failed.
@@ -158,7 +298,35 @@ Merged since the last release; these ship with the next one.
 
 ### For administrators
 
+#### Security
+
+- **The Hierarchy tool's "Force to create" only rebuilds a hierarchy's own ontology, and deleting a hierarchy record no longer uninstalls an ontology it does not own.**
+
+    Before, "Force to create" deleted every ontology definition of whatever TLD the hierarchy
+    record named — a core ontology, an installed ontology package or another hierarchy's TLD
+    included — and deleted it before checking that it could be recreated. Deleting a hierarchy
+    record did the same, even while another record still declared that TLD.
+
+    Now "Force to create" runs only for a hierarchy that owns its provisioned ontology (it is the
+    only record declaring the TLD, and the TLD holds the virtual sections that hierarchy created).
+    It deletes those definitions from scratch — own list columns or other custom definitions
+    included — and recreates them in one step: if the recreation fails, nothing is changed. The
+    thesaurus terms are never deleted. For any other hierarchy the option is disabled and the tool
+    says why: a core ontology or an installed package (repair it with an ontology update), a
+    hierarchy that points at a defined section, a duplicated TLD, or a record that cannot be
+    provisioned (for example a "Real section tipo" that is not a section). Deleting a hierarchy
+    record that declares a core TLD, or a TLD another record also declares, is refused. Activating
+    a hierarchy that points at a defined section no longer creates sections of its own; when no
+    model section is declared for it, it has no model root, and that is no longer reported as
+    an error.
+
+    Wire contract: `WC-2026-11-10-hierarchy-rebuild-ownership`.
+
 #### Added
+
+- **The publication host draft form can set a custom site home.**
+
+    The **New publication host** form in the Publication hosts panel has a new optional field, **Site home**. Leave it empty for the default `/home/<domain>`; fill it when the site lives elsewhere, for example `/home/www/vhosts/museum.org`. It applies to the `home` layout only, and the form hides it for `system`. See [the site's home, or the system directories](./install/publication_host.md#the-sites-home-or-the-system-directories).
 
 - **An installation can now be given its own colour, so several installations open side by side can be told apart.**
 
@@ -168,19 +336,45 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Saving a field of a record that does not exist (or was deleted) is refused instead of creating the record.**
+
+    Before, a save addressed to a record number with no record behind it (possible for a global
+    administrator, the assistant or a tool working with a stale or mistyped number) silently
+    created a record at that number, without asking for permission to create in the section,
+    and could bring a deleted record's number back to life as a new, empty record.
+
+    Now such a save is refused with a "not found" message that says which case it is: the record
+    does not exist (create records with **New**), or it was deleted (restore it from **Time
+    Machine**). Nothing is written. A spreadsheet import row whose record was deleted while the
+    import was running is reported as failed instead of being recreated.
+
+    Wire contract: `WC-2026-11-10-save-never-creates`.
+
 - **A refused maintenance action now shows the server's reason in the panel, not only a generic sentence.**
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 7 entries"
+??? note "Wire contract — 19 entries"
 
+    - `WC-2026-11-09-component-get-data-host-gate`
+    - `WC-2026-11-09-export-frontier-fanout`
+    - `WC-2026-11-09-export-relation-display`
+    - `WC-2026-11-09-implicit-children-frontier-predicate`
     - `WC-2026-11-09-instance-identity`
     - `WC-2026-11-09-security-access-save-echo-no-datalist`
+    - `WC-2026-11-09-start-deep-link-found-set-position`
+    - `WC-2026-11-10-add-new-element-create-gate`
+    - `WC-2026-11-10-hierarchy-rebuild-ownership`
+    - `WC-2026-11-10-indexation-grid-read-door`
     - `WC-2026-11-10-portal-get-data-children-lang`
     - `WC-2026-11-10-related-list-cells`
+    - `WC-2026-11-10-save-never-creates`
+    - `WC-2026-11-10-section-terms-read-door`
+    - `WC-2026-11-10-tags-info-read-door`
     - `WC-2026-11-10-tm-restore-unchanged-notice`
     - `WC-2026-11-10-tm-subject-cell-page`
     - `WC-2026-11-10-translation-empty-result`
+    - `WC-2026-11-10-widget-data-read-door`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

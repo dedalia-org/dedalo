@@ -60,7 +60,7 @@ import { getSectionMapValue } from '../../core/ontology/section_map.ts';
 import { getChildren } from '../../core/relations/children.ts';
 import { resolveIndexConfig } from '../../core/relations/models/relation_index.ts';
 import { getParents, getParentsRecursive } from '../../core/relations/parent.ts';
-import { readComponentItems } from '../../core/resolve/component_data.ts';
+import { readComponentItems, readStoredComponentItems } from '../../core/resolve/component_data.ts';
 import { parseInverseEntry } from '../../core/resolve/relation_index.ts';
 import {
 	findInverseReferenceLocators,
@@ -73,6 +73,11 @@ import {
 	frontierRecordAllowed,
 	noteFrontierRefusal,
 } from '../../core/security/frontier_scope.ts';
+import {
+	type DisplayedFrame,
+	type HostColumnDisplay,
+	hostColumnDisplay,
+} from '../../core/security/host_component_read.ts';
 import type { Principal } from '../../core/security/permissions.ts';
 import { getTermByLocator, getTermDataByLocator } from '../../core/ts_object/term_resolver.ts';
 import type { MetaValueIR, ParserContext, ValueMeta } from '../parsers/types.ts';
@@ -2635,6 +2640,20 @@ export interface ExportAtomRun {
 	 * not by the selection, so it is not capped.
 	 */
 	frontierGrants: Map<string, ExportFrontierGrant>;
+	/**
+	 * `${section_tipo}\u0000${component_tipo}` → the frontier COMPONENT answer
+	 * for an IMPLICIT config child read at that section (T0-1 / S03,
+	 * {@link exportImplicitChildren}). Bounded like the record memo: a pure
+	 * memo of the run's own principal, so an overflow only re-asks.
+	 */
+	frontierChildCache: Map<string, boolean>;
+	/**
+	 * THE RELATION COLUMN WHOSE DISPLAY the walk is resolving right now (owner
+	 * decision D4, WC-2026-11-09-export-relation-display) — set by the door
+	 * (grid.ts) for ONE plain relation column of ONE host record, cleared after.
+	 * Absent = no display carve-out: every crossing takes the full law.
+	 */
+	displayColumn?: ExportDisplayColumn;
 	/** Bound of this run's growing memos (record + frontier caches here, the
 	 * projection's caches in export/atoms.ts). Defaults to
 	 * {@link EXPORT_RUN_CACHE_LIMIT}; a gate injects a small one to prove the
@@ -2642,6 +2661,36 @@ export interface ExportAtomRun {
 	 * tipo (bounded by the ontology), so it is not capped. */
 	cacheLimit: number;
 }
+
+/**
+ * One plain relation column of one host record (ExportAtomRun.displayColumn).
+ * `display` is the host read's answer, asked LAZILY — only when a crossing
+ * under this column is refused by the record key — and once per column per
+ * record.
+ */
+export interface ExportDisplayColumn {
+	readonly hostSectionTipo: string;
+	readonly hostSectionId: number;
+	readonly columnTipo: string;
+	readonly lang: string;
+	display?: Promise<HostColumnDisplay | null>;
+}
+
+/**
+ * How far a crossing may lean on the column's display (owner decision D4):
+ *   'strict'  the full frontier law — a declared hop, a parents-chain
+ *             ancestor, the media walk, any look-ahead;
+ *   reads     a crossing INSIDE the column's display walk: a record the record
+ *             key refuses still passes when the host read DISPLAYS it AND
+ *             every component the walk reads there (`reads`) is one the read
+ *             displayed AT that record, and every dataframe entry it reads
+ *             there (`frames`, the record being the frames' OWNER) is one the
+ *             read emitted there. `[]` = the bare target identity (the leaf
+ *             crossing; its reads are asked again by the projection).
+ */
+export type ExportCrossingReach =
+	| 'strict'
+	| { readonly reads: readonly string[]; readonly frames?: readonly DisplayedFrame[] };
 
 /** One runtime (section, component) grant the export frontier allowed. */
 export interface ExportFrontierGrant {
@@ -2661,6 +2710,7 @@ export function createExportAtomRun(options: { cacheLimit?: number } = {}): Expo
 		recordCache: new Map(),
 		frontierRecordCache: new Map(),
 		frontierGrants: new Map(),
+		frontierChildCache: new Map(),
 		cacheLimit,
 	};
 }
@@ -2682,10 +2732,11 @@ async function assertExportCrossing(
 	sectionTipo: string,
 	sectionId: number | string,
 	componentTipo: string | undefined,
+	reach: ExportCrossingReach = 'strict',
 ): Promise<void> {
 	const scope = run.frontier;
 	if (scope === undefined || scope.principal === undefined) return;
-	const refused = await exportCrossingRefusal(run, sectionTipo, sectionId, componentTipo);
+	const refused = await exportCrossingRefusal(run, sectionTipo, sectionId, componentTipo, reach);
 	if (refused !== null) {
 		noteFrontierRefusal(scope, {
 			surface: scope.surface,
@@ -2733,6 +2784,7 @@ async function exportCrossingRefusal(
 	sectionTipo: string,
 	sectionId: number | string,
 	componentTipo: string | undefined,
+	reach: ExportCrossingReach = 'strict',
 ): Promise<'component' | 'record' | null> {
 	const scope = run.frontier;
 	if (scope === undefined || scope.principal === undefined) return null;
@@ -2759,7 +2811,74 @@ async function exportCrossingRefusal(
 		}
 		setBoundedRunMemo(run.frontierRecordCache, key, allowed, run.cacheLimit);
 	}
-	return allowed ? null : 'record';
+	if (allowed) return null;
+	// THE DISPLAY CARVE-OUT (D4) — asked only AFTER the record key refused, and
+	// never memoized with it: the record answer is the principal's, the display
+	// answer is one host record's column.
+	if (reach !== 'strict' && (await displayAdmits(run, sectionTipo, sectionId, reach))) {
+		return null;
+	}
+	return 'record';
+}
+
+/**
+ * Owner decision D4 (frontier_scope.ts, WC-2026-11-09-export-relation-display):
+ * a relation column exports EXACTLY what the host record's section read shows
+ * for it, so a record the read DISPLAYS under the column is not a crossing for
+ * the record key — provided every component the walk reads there is one the
+ * read displayed AT THAT RECORD (per record, never per section: a record shown
+ * in one position is not shown with what the read shows only at its siblings)
+ * or one that holds NO data there (the read emits no item for an empty
+ * relation; reading an empty slot exports nothing). The display is the read's own answer
+ * (security/host_component_read.ts hostColumnDisplay: the same admission and
+ * emission the host-component get_data runs), never a second notion of it.
+ * No column under walk, no principal, or no display (the host map shows the
+ * principal no such column) → false: the full law applies.
+ */
+async function displayAdmits(
+	run: ExportAtomRun,
+	sectionTipo: string,
+	sectionId: number | string,
+	reach: Exclude<ExportCrossingReach, 'strict'>,
+): Promise<boolean> {
+	const column = run.displayColumn;
+	const principal = run.frontier?.principal;
+	if (column === undefined || principal === undefined) return false;
+	column.display ??= hostColumnDisplay(principal, {
+		sectionTipo: column.hostSectionTipo,
+		sectionId: column.hostSectionId,
+		tipo: column.columnTipo,
+		lang: column.lang,
+	});
+	const display = await column.display;
+	if (display === null || !display.hasRecord(sectionTipo, sectionId)) return false;
+	for (const componentTipo of reach.reads) {
+		if (display.hasComponent(sectionTipo, sectionId, componentTipo)) continue;
+		if (!(await holdsNoData(run, sectionTipo, sectionId, componentTipo))) return false;
+	}
+	return (reach.frames ?? []).every((frame) => display.hasFrame(sectionTipo, sectionId, frame));
+}
+
+/**
+ * True when `componentTipo` stores nothing on (section, record): the read
+ * emits no item for an empty relation, and the walk reading it exports
+ * nothing — so its absence from the display is not a refusal. Anything not
+ * provably empty (no matrix record, no storage column) is NOT empty.
+ */
+async function holdsNoData(
+	run: ExportAtomRun,
+	sectionTipo: string,
+	sectionId: number | string,
+	componentTipo: string,
+): Promise<boolean> {
+	const model = await getModelByTipo(componentTipo);
+	if (model === null || getColumnNameByModel(model) === null) return false;
+	const record = await loadExportRecord(run, sectionTipo, sectionId);
+	if (record === null) return false;
+	// the value read's OWN door (alias data key included) — never a second
+	// copy of the storage rules
+	const items = await readStoredComponentItems(record, componentTipo, model);
+	return items === null || items.length === 0;
 }
 
 /**
@@ -2777,6 +2896,103 @@ export async function exportCrossingAllowed(
 	componentTipo: string | undefined,
 ): Promise<boolean> {
 	return (await exportCrossingRefusal(run, sectionTipo, sectionId, componentTipo)) === null;
+}
+
+/**
+ * THE WALK'S RECORD CROSSING BEYOND THE DECLARED CHAIN (T0-1 / S02): a target
+ * the walk reaches by fan-out, by a nested value / compact cell, as a dataframe
+ * frame target, a parents-chain ancestor or a media-walk target. The SAME law
+ * as {@link assertExportCrossing} (record key on the runtime identity; a
+ * dangling target passes; THROW otherwise) — no component is named: the
+ * component a crossing reads is decided by the config it came from (explicit =
+ * subdatum floor, implicit = {@link exportImplicitChildren}).
+ * `reach` (D4): a crossing of a plain relation column's display walk passes
+ * the components it will read there, so a record the read displays may be
+ * crossed; the parents chain and the media walk pass 'strict'.
+ *
+ * Returns true (the CellFrontier contract): the export law never skips, it
+ * throws.
+ */
+export async function exportCrossRecord(
+	run: ExportAtomRun,
+	sectionTipo: string,
+	sectionId: number | string,
+	reach: ExportCrossingReach,
+): Promise<boolean> {
+	await assertExportCrossing(run, sectionTipo, sectionId, undefined, reach);
+	return true;
+}
+
+/**
+ * THE IMPLICIT CHILD SET a caller may read at `sectionTipo` (T0-1 / S03,
+ * owner decision D1): an implicit relation config's label components, each
+ * asked through the frontier's component key (frontier_scope.ts — the same
+ * predicate implicit.ts filterAuthorizedRelated asks for the edit form). An
+ * ungranted child is DROPPED, never thrown — it is the relation's display as
+ * this caller is shown it — and the drop is LOUD: noted once per run per pair
+ * (the memo answers every later ask). An allowed pair is recorded as a runtime
+ * grant, so a later read of the finished export re-asks it.
+ *
+ * No frontier (internal / global admin): every child.
+ */
+export async function exportImplicitChildren(
+	run: ExportAtomRun,
+	sectionTipo: string,
+	componentTipos: readonly string[],
+): Promise<Set<string>> {
+	const scope = run.frontier;
+	if (scope === undefined || scope.principal === undefined) return new Set(componentTipos);
+	const allowed = new Set<string>();
+	for (const componentTipo of componentTipos) {
+		if (await implicitChildAnswer(run, sectionTipo, componentTipo, true))
+			allowed.add(componentTipo);
+	}
+	return allowed;
+}
+
+/**
+ * {@link exportImplicitChildren}'s answer for ONE child WITHOUT acting on it
+ * (no note, no grant): for the look-ahead that must not prefetch what the walk
+ * will drop (export/external_prefetch.ts).
+ */
+export async function exportImplicitChildAllowed(
+	run: ExportAtomRun,
+	sectionTipo: string,
+	componentTipo: string,
+): Promise<boolean> {
+	const scope = run.frontier;
+	if (scope === undefined || scope.principal === undefined) return true;
+	return implicitChildAnswer(run, sectionTipo, componentTipo, false);
+}
+
+async function implicitChildAnswer(
+	run: ExportAtomRun,
+	sectionTipo: string,
+	componentTipo: string,
+	act: boolean,
+): Promise<boolean> {
+	const scope = run.frontier as FrontierScope;
+	const key = `${sectionTipo}\u0000${componentTipo}`;
+	const known = getBoundedRunMemo(run.frontierChildCache, key);
+	if (known !== undefined) return known;
+	const allowed = await frontierComponentAllowed(scope, { sectionTipo, componentTipo });
+	// A look-ahead never memoizes: the walk's first ask must still note / record.
+	if (!act) return allowed;
+	setBoundedRunMemo(run.frontierChildCache, key, allowed, run.cacheLimit);
+	if (allowed) {
+		if (!run.frontierGrants.has(key)) {
+			run.frontierGrants.set(key, { section_tipo: sectionTipo, component_tipo: componentTipo });
+		}
+	} else {
+		noteFrontierRefusal(scope, {
+			surface: scope.surface,
+			door: scope.door,
+			sectionTipo,
+			componentTipo,
+			key: 'component',
+		});
+	}
+	return allowed;
 }
 
 /**
@@ -2982,7 +3198,12 @@ export async function resolveRecordAtoms(
 				// so the target record's data reaches the deliverable exactly as a
 				// hop's would. The component key names no component — the leaf reads
 				// the TARGET's label through its own ontology, not a declared tipo.
-				await assertExportCrossing(run, locator.section_tipo, locator.section_id, undefined);
+				// Inside a plain relation column's display walk (D4) the bare target
+				// identity leans on the display; what is READ there is asked again,
+				// per component, by the projection's own crossing.
+				await assertExportCrossing(run, locator.section_tipo, locator.section_id, undefined, {
+					reads: [],
+				});
 				locators.push({
 					sectionTipo: locator.section_tipo,
 					sectionId: locator.section_id as number | string,

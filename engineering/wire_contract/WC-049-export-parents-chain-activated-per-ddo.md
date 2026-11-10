@@ -119,3 +119,11 @@ from both cells, one chain per `' | '` piece of a target's text), two ddos each 
 cell empty, flag-on vs flag-off identical modulo the parents columns, literal
 leaf and flag-off byte identity. The `dedalo_raw` pin stays. Client:
 `test_tool_export.js` 'TOOL_EXPORT PARENTS CHECKBOX (per data format)'.
+
+## Addendum 2026-11-09 — every ancestor crosses the export frontier
+
+`resolveParentsChain` takes the frontier's record key on each ancestor before resolving its term
+(thesaurus tables stay exempt as globally visible). A hidden ancestor throws
+`perm.export_column_out_of_scope` naming the column. Gate:
+`test/unit/export_frontier_fanout_native.test.ts` (the PARENTS chain block). See
+`WC-2026-11-09-export-frontier-fanout`.

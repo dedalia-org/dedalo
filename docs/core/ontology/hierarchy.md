@@ -175,7 +175,8 @@ the install-time activation, the `tool_hierarchy` button, a repair script — go
 | --- | --- | --- |
 | `inspectHierarchy(sectionId)` | `ontology/hierarchy_state.ts` | **Pure read.** Returns `{tld, typology, usable, checks:[{id, label, ok, detail}]}` — every condition with a pass/fail and *what is actually there* (`DANGLING → al1/1 does not exist`). Safe to call on every render; `tool_hierarchy` paints its status panel from it. |
 | `ensureHierarchy(sectionId, userId, options?)` | `ontology/hierarchy_state.ts` | **Idempotent converge.** Creates only what is missing and returns the post-write state plus `applied[]` (empty on a healthy record → *"Already consistent — nothing to do"*). Never deletes. `options.activate` (default `true`) flags the hierarchy; `options.activeInThesaurus` sets `hierarchy125`. |
-| `rebuildHierarchy(sectionId, userId, deleteRecord, options?)` | `ontology/hierarchy_state.ts` | Ontology teardown (`deleteOntologyByTld`) **+ ensure**. The `<tld>1` **terms are never touched** — only the `dd_ontology` nodes, the ontology-main row and the `<tld>0` node records — so the surviving root is re-linked afterwards. |
+| `rebuildHierarchy(sectionId, userId, deleteRecord, options?)` | `ontology/hierarchy_state.ts` | Ontology teardown **from scratch + ensure**, in ONE transaction, only for an OWNED hierarchy (`classifyHierarchyRebuild`; otherwise `ontology.teardown_refused` + `reason`, nothing written). The `<tld>1` **terms are never touched** — only the `dd_ontology` nodes, the ontology-main row and the `<tld>0` node records — so the surviving root is re-linked afterwards; a failed re-provisioning rolls the teardown back. |
+| `classifyHierarchyRebuild(sectionId)` | `ontology/hierarchy_state.ts` | **Pure read.** `{allowed, reason, tld, detail}` — may *Force to create* run here? Refuses `core` (core or `test` TLD), `not_sole_declarer`, `root_only` (rooted at a defined section), `ontology_package`, `invalid_source`. Read from the stored `dd_ontology` shape, never from `hierarchy109`/`hierarchy53` alone. |
 | `inspectAllHierarchies()` | `ontology/hierarchy_state.ts` | Every `hierarchy1` record's state — the maintenance overview ("which of my hierarchies are broken, and why"). |
 
 !!! danger "One writer, on purpose"
@@ -337,7 +338,12 @@ const outcome = await ensureHierarchy(3, userId);
     master record **before** writing anything, and refuses rather than papering over an
     operator error — a `hierarchy109` naming a section that does not exist is reported, not
     silently rewritten. To *rebuild* a broken ontology, use `rebuildHierarchy()`; that is
-    the only path that deletes anything, and even then the thesaurus terms survive.
+    the only path that deletes anything, it refuses a hierarchy that does not own its TLD,
+    and even then the thesaurus terms survive. A **root-only** hierarchy — one whose
+    `hierarchy53` names a defined section outside its own `<tld>1`/`<tld>2` — is never
+    provisioned: its `ontology` check asks only that the declared sections exist. With
+    `hierarchy58` unset it has no model section and no model root (`hierarchy59`); a set
+    `hierarchy58` that names no section is still reported.
 
 ## Related
 

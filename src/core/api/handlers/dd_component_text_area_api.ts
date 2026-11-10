@@ -4,7 +4,11 @@
  *
  * Both PHP actions are ported (WC-077):
  *  - `get_tags_info` — READ: resolve a transcription's marks into the records
- *    they point at (tool_tr_print's feed);
+ *    they point at (tool_tr_print's feed). AUTHZ (WC-077 AUTHZ-01 as amended
+ *    by WC-2026-11-10-tags-info-read-door): the write door's READ mode first —
+ *    section >= 1, the text_area's pair grant, the record scope — BEFORE the
+ *    options; then every hop under the same principal (note records, host
+ *    tag-source components, the persons inverse search);
  *  - `delete_tag` — WRITE: remove one tag's marks from EVERY language of the
  *    text (tool_indexation's step 1; its step 2, the portal locator, is
  *    dd_component_portal_api::delete_locator, which PHP deliberately moved out
@@ -70,6 +74,27 @@ export const componentTextAreaApiActions: Record<string, ActionHandler> = {
 			});
 		}
 
+		// THE READ DOOR (T0-3, WC-2026-11-10-tags-info-read-door): the write
+		// door's READ mode — the section floor (>= 1, PHP's own
+		// assert_section_permission), the text_area's own pair grant
+		// (read_door.authorizeComponentRead) and the record scope
+		// (perm.out_of_scope). Asked BEFORE the options are read: an
+		// unauthorized caller learns nothing about the action's own grammar
+		// (delete_tag's order). The hops the feed resolves (note records, the
+		// host's tag-source components, the persons inverse search) are gated
+		// inside buildTagsInfo with the SAME principal.
+		const { authorizeRecordAccess } = await import('../../security/write_door.ts');
+		const grant = await authorizeRecordAccess(
+			principal,
+			{ section_tipo: sectionTipo, component_tipo: tipo, section_id: sectionId },
+			{
+				mode: 'read',
+				level: 1,
+				sectionFloor: 1,
+				door: 'dd_component_text_area_api.get_tags_info',
+			},
+		);
+
 		// PHP took `options.ar_type` verbatim; a non-array is a client bug, and
 		// defaulting it would serve a payload nobody asked for.
 		const requestedTypes = Array.isArray(options.ar_type)
@@ -81,16 +106,6 @@ export const componentTextAreaApiActions: Record<string, ActionHandler> = {
 			});
 		}
 
-		// AUTHZ-01 (TS-stronger than PHP, spec §3 permits stronger): this feed
-		// resolves the CONTENT of a record and of every record its tags point at.
-		// Gate the host record like every other door reading by (tipo, id).
-		const { principalCanAccessRecord } = await import('../../security/record_scope.ts');
-		if (!(await principalCanAccessRecord(sectionTipo, sectionId, principal))) {
-			throw new DedaloError('perm.denied', {
-				coordinates: { section_tipo: sectionTipo, section_id: sectionId, tipo },
-			});
-		}
-
 		// The request's data lang when the client names one (the text_area is
 		// per-lang: its notes and text belong to the lang being transcribed).
 		const { currentDataLang } = await import('../../resolve/request_lang.ts');
@@ -98,21 +113,35 @@ export const componentTextAreaApiActions: Record<string, ActionHandler> = {
 			typeof source.lang === 'string' && source.lang !== '' ? source.lang : currentDataLang();
 
 		const { buildTagsInfo } = await import('../../components/component_text_area/tags_info.ts');
-		const { tags_info, unknown_types } = await buildTagsInfo(
+		// The effect addresses what was AUTHORIZED — the grant, never the rqo.
+		const { tags_info, unknown_types, withheld_notes } = await buildTagsInfo(
 			requestedTypes,
-			{ tipo, section_tipo: sectionTipo, section_id: sectionId },
+			{
+				tipo: grant.componentTipo,
+				section_tipo: grant.sectionTipo,
+				section_id: grant.sectionId,
+			},
 			lang,
+			principal,
 		);
+		// A hop the caller may not read (a host tag-source component) is refused
+		// LOUDLY by the read door's own recorder: one perm.out_of_scope notice.
+		const { readDoorNotices } = await import('../../security/read_door.ts');
+		const notices = readDoorNotices();
 
 		// Never silently narrow: an unresolvable type is NAMED — as an owned
 		// top-level key now that the prose channel is gone (the answer itself is
 		// valid, so this is not an error and not a coded notice either: the types
-		// are caller-supplied strings, not a closed vocabulary).
+		// are caller-supplied strings, not a closed vocabulary). A note the caller
+		// may not read is dropped and its id NAMED in the owned `withheld_notes`
+		// key (owner OD-2 (a)): the id is already in the transcription's own mark,
+		// so naming it discloses nothing the text does not.
 		return {
 			status: 200,
 			body: ok(tags_info, {
 				requestId: context.requestId,
-				extend: { unknown_types },
+				extend: { unknown_types, withheld_notes },
+				...(notices === undefined ? {} : { notices }),
 			}),
 		};
 	},

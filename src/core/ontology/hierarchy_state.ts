@@ -43,7 +43,8 @@
  *                 may legitimately pair foreign sections (live: 'WW' pairs hierarchy53
  *                 `mht72` with hierarchy58 `ww2`)
  *   root_term     hierarchy45 → an EXISTING record in `<tld>1`
- *   root_model    hierarchy59 → an EXISTING record in `<tld>2`
+ *   root_model    hierarchy59 → an EXISTING record in `<tld>2` (a root-only
+ *                 hierarchy with hierarchy58 unset has none: no model section)
  *
  * A root the engine creates is NAMED after the hierarchy (hierarchy5, all languages) —
  * it is the node the whole tree descends from, and an empty one at the top of the tree is
@@ -55,17 +56,35 @@
  * `ensure` is idempotent: run it twice, get the same DB. `rebuild` = teardown + ensure,
  * and the teardown is ontology-only — the TERMS in `<tld>1` are never touched.
  *
+ * THE TWO HIERARCHY KINDS (HIER-REBUILD, owner 2026-11-10;
+ * WC-2026-11-10-hierarchy-rebuild-ownership). Case 1 PROVISIONED: the hierarchy
+ * owns `<tld>0/1/2`, `<tld>1`/`<tld>2` virtuals of one real section outside the
+ * tld (usually hierarchy20). Case 2 ROOT-ONLY: the hierarchy points at a defined
+ * section (hierarchy53 outside its own `<tld>1`/`<tld>2`, or a stored `<tld>1`
+ * that is not a provisioned virtual) and NEVER provisions `<tld>0/1/2`. ONE
+ * classification, read from STORED structure (dd_ontology) — never from the
+ * editable hierarchy109/hierarchy53 literals alone — decides both doors:
+ * `ensure` provisions only case 1, and `rebuild` (force, FROM SCRATCH: every
+ * node of the tld, every `<tld>0` record, the ontology35 row) runs only for an
+ * OWNED case 1 hierarchy (classifyHierarchyRebuild), validated before the first
+ * delete, teardown + provision in ONE transaction. A refusal is
+ * `ontology.teardown_refused` with a `reason` (teardown_scope.ts).
+ *
  * SINGLE WRITER: nothing outside this module may call generateVirtualSection or write a
  * root-term locator. Guarded by test/unit/hierarchy_single_writer_tripwire.test.ts.
  */
 
 import { compareLocators } from '../concepts/locator.ts';
+import { lockOntologyProjection } from '../db/dd_ontology.ts';
 import { updateMatrixKeyData } from '../db/matrix_write.ts';
-import { sql } from '../db/postgres.ts';
+import { isInTransaction, sql, withTransaction } from '../db/postgres.ts';
+import { DedaloError } from '../errors/dedalo_error.ts';
 import type { ReconcileDefinition } from '../reconcile/registry.ts';
 import { applyAddNewElement } from '../relations/save.ts';
+import { type Principal, resolvePrincipal } from '../security/permissions.ts';
+import { clearOntologyDerivedCaches } from './cache_invalidation.ts';
 import { generateVirtualSection } from './hierarchy_provision.ts';
-import { deleteOntologyByTld } from './ontology_delete.ts';
+import { deleteOwnedHierarchyOntology } from './ontology_delete.ts';
 import {
 	HIERARCHY_ACTIVE,
 	HIERARCHY_ACTIVE_IN_THESAURUS,
@@ -77,6 +96,7 @@ import {
 	HIERARCHY_TERM,
 	HIERARCHY_TLD,
 	HIERARCHY_TYPOLOGY,
+	ONTOLOGY_MAIN_SECTION,
 	RELATION_TYPE_CHILDREN,
 	RELATION_TYPE_LINK,
 	SI_NO_NO,
@@ -84,9 +104,23 @@ import {
 	THESAURUS_SECTION,
 	YES_NO_SECTION,
 } from './ontology_tipos.ts';
-import { getColumnNameByModel, getMatrixTableFromTipo, getModelByTipo } from './resolver.ts';
+import { getOntologyMainFromTld } from './ontology_write.ts';
+import {
+	getColumnNameByModel,
+	getMatrixTableFromTipo,
+	getModelByTipo,
+	getSectionRealTipo,
+	runtimeModelOfStored,
+} from './resolver.ts';
 import { getSectionMapValue } from './section_map.ts';
-import { safeTld } from './tld.ts';
+import {
+	anotherRegistryRowDeclaresTld,
+	isProtectedTld,
+	isTeardownRefusal,
+	type TeardownRefusalReason,
+	teardownRefused,
+} from './teardown_scope.ts';
+import { getTldFromTipo, safeTld } from './tld.ts';
 
 /** The hierarchy registry section + its table. */
 export const HIERARCHY_SECTION = 'hierarchy1';
@@ -296,6 +330,25 @@ function activeCheck(row: RegistryRow | null): { ok: boolean; detail: string } {
 	return { ok: true, detail: 'Yes' };
 }
 
+/**
+ * The two model checks (`targets` model half, `root_model`). A root-only
+ * hierarchy with hierarchy58 UNSET has no model root — both pass with "none".
+ */
+async function modelChecks(
+	row: RegistryRow | null,
+	rootOnly: boolean,
+	modelTarget: string,
+	targetCheck: (value: string, fallback: string) => Promise<[boolean, string]>,
+): Promise<{ target: [boolean, string]; root: { ok: boolean; detail: string } }> {
+	if (!hasModelRoot(row, rootOnly)) {
+		return { target: [true, NO_MODEL_ROOT], root: { ok: true, detail: NO_MODEL_ROOT } };
+	}
+	return {
+		target: await targetCheck(literal(row, HIERARCHY_TARGET_SECTION_MODEL), modelTarget),
+		root: await rootTermCheck(row, HIERARCHY_GENERAL_TERM_MODEL, modelTarget),
+	};
+}
+
 /** Read the full state of ONE hierarchy. Pure — no writes, safe to call on every render. */
 export async function inspectHierarchy(sectionId: number): Promise<HierarchyState> {
 	const row = await readRegistry(sectionId);
@@ -371,7 +424,7 @@ export async function inspectHierarchy(sectionId: number): Promise<HierarchyStat
 	// used to re-derive `<tld>1`/`<tld>2` and contradict this very row.
 	const targets = declaredTargets(row, tld);
 
-	const ontology = await ontologyPresent(tld, targets);
+	const ontology = await ontologyCheck(row, tld, targets);
 	add('ontology', 'Ontology', ontology.ok, ontology.detail);
 
 	// The target sections are OPERATOR DATA too, not tld-derived constants — the same rule
@@ -396,10 +449,10 @@ export async function inspectHierarchy(sectionId: number): Promise<HierarchyStat
 		literal(row, HIERARCHY_TARGET_SECTION),
 		targets.terms,
 	);
-	const [targetModelOk, targetModelDetail] = await targetCheck(
-		literal(row, HIERARCHY_TARGET_SECTION_MODEL),
-		targets.model,
-	);
+	// C1: a root-only hierarchy with hierarchy58 UNSET has no model root — not a
+	// defect (a SET hierarchy58 naming a non-section still is).
+	const model = await modelChecks(row, ontology.rootOnly, targets.model, targetCheck);
+	const [targetModelOk, targetModelDetail] = model.target;
 	add(
 		'targets',
 		'Target sections',
@@ -409,7 +462,7 @@ export async function inspectHierarchy(sectionId: number): Promise<HierarchyStat
 
 	const rootTerm = await rootTermCheck(row, HIERARCHY_GENERAL_TERM, targets.terms);
 	add('root_term', 'General term', rootTerm.ok, rootTerm.detail);
-	const rootModel = await rootTermCheck(row, HIERARCHY_GENERAL_TERM_MODEL, targets.model);
+	const rootModel = model.root;
 	add('root_model', 'General term model', rootModel.ok, rootModel.detail);
 
 	return {
@@ -419,6 +472,372 @@ export async function inspectHierarchy(sectionId: number): Promise<HierarchyStat
 		usable: checks.every((check) => check.ok),
 		checks,
 	};
+}
+
+/* --------------------------------------------------------- classification */
+
+/**
+ * The STORED shape of a tld's `<tld>1`/`<tld>2` (dd_ontology — never the
+ * registry literals; plan HIER-REBUILD §1a / F18):
+ *   provisioned       each present one is a `section`, the VIRTUAL of exactly one
+ *                     real section OUTSIDE the tld (es1 → hierarchy20). Extra
+ *                     children of any model are ignored (no model allowlist).
+ *   absent            neither exists and the tld holds nothing but `<tld>0`.
+ *   root_only         a present one is a REAL section (tchi1): the definition IS
+ *                     the hierarchy's section — case 2.
+ *   ontology_package  anything else: not a section (numisdata1 = area), a virtual
+ *                     of a section INSIDE the tld (tch1 → tch7), of several
+ *                     sections, of a virtual; or a tld holding definitions with
+ *                     no `<tld>1`/`<tld>2` at all — an installed package.
+ */
+type StoredShape = 'provisioned' | 'absent' | 'root_only' | 'ontology_package';
+
+interface StoredNode {
+	model: string | null;
+	relatedTipos: string[];
+}
+
+/** The stored dd_ontology rows of `tipos` (runtime model + related tipos), read fresh. */
+async function readStoredNodes(tipos: readonly string[]): Promise<Map<string, StoredNode>> {
+	const found = new Map<string, StoredNode>();
+	if (tipos.length === 0) return found;
+	const rows = (await sql.unsafe(
+		"SELECT tipo, model, relations FROM dd_ontology WHERE tipo = ANY(string_to_array($1, ','))",
+		[tipos.join(',')],
+	)) as { tipo: string; model: string | null; relations: unknown }[];
+	for (const row of rows) {
+		const relations = Array.isArray(row.relations) ? row.relations : [];
+		found.set(row.tipo, {
+			model: await runtimeModelOfStored(row.tipo, row.model),
+			relatedTipos: relations
+				.map((relation) => (relation as { tipo?: unknown } | null)?.tipo)
+				.filter((tipo): tipo is string => typeof tipo === 'string' && tipo !== ''),
+		});
+	}
+	return found;
+}
+
+/** The related tipos of a node whose runtime model is `section`. */
+async function relatedSections(node: StoredNode): Promise<string[]> {
+	const related = await readStoredNodes(node.relatedTipos);
+	return node.relatedTipos.filter((tipo) => related.get(tipo)?.model === 'section');
+}
+
+/** One present `<tld>1`/`<tld>2`: null when it is the provisioned shape, else its verdict. */
+async function sectionNodeShape(
+	tipo: string,
+	tld: string,
+	node: StoredNode,
+): Promise<{ shape: StoredShape; detail: string } | null> {
+	if (node.model !== 'section') {
+		return { shape: 'ontology_package', detail: `${tipo} is a ${node.model}, not a section` };
+	}
+	const sources = await relatedSections(node);
+	if (sources.length === 0) {
+		return { shape: 'root_only', detail: `${tipo} is a real section (a defined section)` };
+	}
+	return virtualSourceShape(tipo, tld, sources);
+}
+
+/** A virtual `<tld>1`/`<tld>2`: provisioned only as the virtual of ONE real section outside the tld. */
+async function virtualSourceShape(
+	tipo: string,
+	tld: string,
+	sources: readonly string[],
+): Promise<{ shape: StoredShape; detail: string } | null> {
+	const source = sources[0] as string;
+	if (sources.length > 1 || getTldFromTipo(source) === tld) {
+		return {
+			shape: 'ontology_package',
+			detail: `${tipo} is a virtual of ${sources.join(', ')} — not one real section outside the tld`,
+		};
+	}
+	const sourceNode = (await readStoredNodes([source])).get(source);
+	const sourceIsReal = sourceNode !== undefined && (await relatedSections(sourceNode)).length === 0;
+	return sourceIsReal
+		? null
+		: { shape: 'ontology_package', detail: `${tipo}'s source ${source} is not a real section` };
+}
+
+/** Neither `<tld>1` nor `<tld>2` exists: absent, unless the tld holds other definitions (a package). */
+async function shapeWithoutSections(tld: string): Promise<{ shape: StoredShape; detail: string }> {
+	const others = (await sql.unsafe(
+		'SELECT count(*)::int AS n FROM dd_ontology WHERE tld = $1 AND tipo <> $2',
+		[tld, `${tld}0`],
+	)) as { n: number }[];
+	return (others[0]?.n ?? 0) > 0
+		? { shape: 'ontology_package', detail: `'${tld}' holds definitions but no ${tld}1/${tld}2` }
+		: { shape: 'absent', detail: `'${tld}' holds no ${tld}1/${tld}2` };
+}
+
+/** The tld's stored projection: every dd_ontology node (tipo → parent) and every `<tld>0` record id. */
+interface StoredProjection {
+	parents: Map<string, string | null>;
+	recordIds: number[];
+}
+
+async function readStoredProjection(tld: string): Promise<StoredProjection> {
+	const nodes = (await sql.unsafe('SELECT tipo, parent FROM dd_ontology WHERE tld = $1', [
+		tld,
+	])) as { tipo: string; parent: string | null }[];
+	const records = (await sql.unsafe(
+		'SELECT section_id FROM matrix_ontology WHERE section_tipo = $1 ORDER BY section_id',
+		[`${tld}0`],
+	)) as { section_id: number }[];
+	return {
+		parents: new Map(nodes.map((node) => [node.tipo, node.parent])),
+		recordIds: records.map((record) => Number(record.section_id)),
+	};
+}
+
+/**
+ * TEARDOWN-ONLY (A1): the projection must be CONSISTENT — record `<tld>0`/N
+ * projects node `<tld>N`, and every node but the `<tld>0` container has its
+ * record. A half-projected tld (live: `mdcat` — 12 `<tld>0` records, one node)
+ * is an installed package the engine did not build; a teardown would wipe it.
+ */
+function projectionInconsistency(tld: string, projection: StoredProjection): string | null {
+	const unprojected = projection.recordIds.filter((id) => !projection.parents.has(`${tld}${id}`));
+	if (unprojected.length > 0) {
+		return `${tld}0 record(s) [${unprojected.join(', ')}] have no dd_ontology node`;
+	}
+	const recordTipos = new Set(projection.recordIds.map((id) => `${tld}${id}`));
+	const sourceless = [...projection.parents.keys()].filter(
+		(tipo) => tipo !== `${tld}0` && !recordTipos.has(tipo),
+	);
+	return sourceless.length > 0
+		? `node(s) [${sourceless.sort().join(', ')}] have no ${tld}0 record`
+		: null;
+}
+
+/**
+ * TEARDOWN-ONLY (A2): every node but `<tld>0/1/2` must descend from `<tld>1`
+ * or `<tld>2` — the legacy extras a provisioned thesaurus carries. A node hung
+ * anywhere else (a sibling section under `<tld>0`) is package structure. No
+ * model allowlist: WHERE a node hangs decides, not what it is.
+ */
+function strayNode(tld: string, projection: StoredProjection): string | null {
+	const anchors = new Set([`${tld}1`, `${tld}2`]);
+	for (const tipo of projection.parents.keys()) {
+		if (tipo === `${tld}0` || anchors.has(tipo)) continue;
+		if (!descendsFrom(tipo, anchors, projection.parents)) {
+			return `${tipo} does not descend from ${tld}1/${tld}2`;
+		}
+	}
+	return null;
+}
+
+/** Does `tipo`'s parent chain reach one of `anchors`? (Hop-bounded: a parent cycle ends it.) */
+function descendsFrom(
+	tipo: string,
+	anchors: ReadonlySet<string>,
+	parents: ReadonlyMap<string, string | null>,
+): boolean {
+	let current = parents.get(tipo);
+	for (let hops = 0; typeof current === 'string' && hops <= parents.size; hops++) {
+		if (anchors.has(current)) return true;
+		current = parents.get(current);
+	}
+	return false;
+}
+
+/**
+ * TEARDOWN-ONLY (A1): an ABSENT shape (no `<tld>1`/`<tld>2`) holding `<tld>0`
+ * records or an ontology35 row is not "nothing to lose" — it is an installed
+ * (or inactive) package with no projected sections. Provisioning writes the
+ * three together, so an owned hierarchy is never in this state.
+ */
+async function absentButHolding(tld: string, projection: StoredProjection): Promise<string | null> {
+	if (projection.recordIds.length > 0) {
+		return `'${tld}' has no ${tld}1/${tld}2 but holds ${projection.recordIds.length} ${tld}0 record(s)`;
+	}
+	return (await getOntologyMainFromTld(tld)) !== null
+		? `'${tld}' has no ${tld}1/${tld}2 but has an ontology35 registry row`
+		: null;
+}
+
+/** The repair of an installed package / orphan tld: not this hierarchy's to rebuild. */
+const UPDATE_ADVICE = 'repair it with an ontology update';
+
+/** The teardown-only package probes (A1/A2), after the stored shape said provisioned or absent. */
+async function packageStructure(tld: string, shape: StoredShape): Promise<string | null> {
+	const projection = await readStoredProjection(tld);
+	if (shape === 'absent') {
+		const holding = await absentButHolding(tld, projection);
+		if (holding !== null) return `${holding} — ${UPDATE_ADVICE}`;
+	}
+	const drift = projectionInconsistency(tld, projection);
+	if (drift !== null) return `${drift} — ${driftAdvice(tld, shape)}`;
+	const stray = strayNode(tld, projection);
+	return stray === null ? null : `${stray} — ${UPDATE_ADVICE}`;
+}
+
+/**
+ * The repair of an inconsistent projection. Under a PROVISIONED shape it is the
+ * hierarchy's OWN ontology that drifted (a node lost while its record stays):
+ * Force must not run on it, but the hierarchy needs no ontology update — the
+ * tld is re-projected from its own records (Ontology parser), then the tool
+ * runs without Force. Any other shape keeps the package advice.
+ */
+function driftAdvice(tld: string, shape: StoredShape): string {
+	return shape === 'provisioned'
+		? `this hierarchy's own ontology has drifted: re-project '${tld}' from its records (Ontology parser), then run the tool without "Force to create"`
+		: UPDATE_ADVICE;
+}
+
+async function storedShape(tld: string): Promise<{ shape: StoredShape; detail: string }> {
+	const tipos = [`${tld}1`, `${tld}2`];
+	const nodes = await readStoredNodes(tipos);
+	if (nodes.size === 0) return shapeWithoutSections(tld);
+	for (const [tipo, node] of nodes) {
+		const verdict = await sectionNodeShape(tipo, tld, node);
+		if (verdict !== null) return verdict;
+	}
+	return { shape: 'provisioned', detail: `${tld}1/${tld}2 are provisioned virtual sections` };
+}
+
+/** hierarchy53 names a section OTHER than the hierarchy's own `<tld>1`/`<tld>2` (case 2 by declaration). */
+function declaredElsewhere(row: RegistryRow | null, tld: string): boolean {
+	const terms = literal(row, HIERARCHY_TARGET_SECTION).trim();
+	return terms !== '' && terms !== `${tld}1` && terms !== `${tld}2`;
+}
+
+/**
+ * CASE 2 (root-only): rooted at a section the hierarchy does not provision —
+ * by declaration (hierarchy53) or by stored shape. ensure never provisions
+ * `<tld>0/1/2` for it, and its `ontology` check is "the declared sections exist
+ * as sections" (plan HIER-REBUILD §3.5, owner decision D7).
+ */
+async function isRootOnlyHierarchy(row: RegistryRow | null, tld: string): Promise<boolean> {
+	if (declaredElsewhere(row, tld)) return true;
+	const { shape } = await storedShape(tld);
+	return shape === 'root_only' || shape === 'ontology_package';
+}
+
+/** The detail of the model checks of a root-only hierarchy that declares no model section. */
+const NO_MODEL_ROOT = 'none (root-only, hierarchy58 unset: no model section)';
+
+/**
+ * Does this hierarchy HAVE a model root? Always for case 1 (it provisions
+ * `<tld>2`). For a root-only (case 2) hierarchy only when hierarchy58 is SET:
+ * unset means "no model section" — there is no `<tld>2` it would ever create,
+ * so the convention fallback would name a section nothing makes (C1, owner
+ * decision 2026-11-10).
+ */
+function hasModelRoot(row: RegistryRow | null, rootOnly: boolean): boolean {
+	return !rootOnly || literal(row, HIERARCHY_TARGET_SECTION_MODEL).trim() !== '';
+}
+
+/** The `ontology` check of a root-only hierarchy: its declared sections are sections. */
+async function declaredSectionsPresent(
+	declared: readonly string[],
+): Promise<{ ok: boolean; detail: string }> {
+	const missing: string[] = [];
+	for (const tipo of new Set(declared)) {
+		const model = await getModelByTipo(tipo);
+		if (model !== 'section') missing.push(`${tipo} (${model ?? 'unknown tipo'})`);
+	}
+	return missing.length === 0
+		? { ok: true, detail: `root-only: ${declared.join(' / ')} (defined sections)` }
+		: { ok: false, detail: `root-only: not a section: ${missing.join(', ')}` };
+}
+
+/** The `ontology` check, by kind: case 1 = the provisioned triad; case 2 = the declared sections. */
+async function ontologyCheck(
+	row: RegistryRow | null,
+	tld: string,
+	targets: { terms: string; model: string },
+): Promise<{ ok: boolean; detail: string; rootOnly: boolean }> {
+	const rootOnly = await isRootOnlyHierarchy(row, tld);
+	const check = rootOnly
+		? await declaredSectionsPresent(
+				hasModelRoot(row, true) ? [targets.terms, targets.model] : [targets.terms],
+			)
+		: await ontologyPresent(tld, targets);
+	return { ...check, rootOnly };
+}
+
+/** Can "Force to create" run on this hierarchy, and if not, WHY (the client panel reads it). */
+export interface RebuildVerdict {
+	allowed: boolean;
+	reason: TeardownRefusalReason | null;
+	tld: string | null;
+	detail: string;
+}
+
+type RefusalProbe = (
+	row: RegistryRow,
+	tld: string,
+	sectionId: number,
+) => Promise<{ reason: TeardownRefusalReason; detail: string } | null>;
+
+/**
+ * The refusal probes, IN ORDER — the first that answers decides the reason
+ * (core before duplicates: `lg` is both core and declared by a registry row).
+ */
+const REBUILD_REFUSAL_PROBES: readonly RefusalProbe[] = [
+	async (_row, tld) =>
+		isProtectedTld(tld)
+			? { reason: 'core', detail: `'${tld}' is a core TLD — repair it with an ontology update` }
+			: null,
+	async (_row, tld, sectionId) =>
+		(await anotherRegistryRowDeclaresTld(HIERARCHY_SECTION, sectionId, tld))
+			? { reason: 'not_sole_declarer', detail: `another hierarchy record declares '${tld}'` }
+			: null,
+	async (row, tld) =>
+		declaredElsewhere(row, tld)
+			? {
+					reason: 'root_only',
+					detail: `the hierarchy is rooted at '${literal(row, HIERARCHY_TARGET_SECTION)}', a section it does not provision`,
+				}
+			: null,
+	async (_row, tld) => {
+		const { shape, detail } = await storedShape(tld);
+		if (shape === 'root_only') return { reason: 'root_only', detail };
+		const packaged =
+			shape === 'ontology_package'
+				? `${detail} — ${UPDATE_ADVICE}`
+				: await packageStructure(tld, shape);
+		return packaged === null ? null : { reason: 'ontology_package', detail: packaged };
+	},
+	async (row) => {
+		const source = literal(row, HIERARCHY_SOURCE_REAL_SECTION);
+		const blocker = provisionBlocker(row, source === '' ? null : await getModelByTipo(source));
+		return blocker === null ? null : { reason: 'invalid_source', detail: blocker };
+	},
+];
+
+/**
+ * MAY "Force to create" tear this hierarchy down and rebuild it from scratch?
+ * Read-only. Allowed only for an OWNED case 1 hierarchy: not a protected TLD
+ * (core / `test`), the SOLE hierarchy1 record declaring its TLD, rooted at its
+ * own `<tld>1` (hierarchy53 unset or `<tld>1`/`<tld>2`), a stored shape that is
+ * provisioned or absent, and every provisioning precondition valid (a row whose
+ * hierarchy109 names no section — the 110 `hiearachy20` master rows — is
+ * `invalid_source`, never a torn-down hierarchy). rebuildHierarchy re-runs it
+ * inside its transaction, under the tld's projection lock.
+ */
+export async function classifyHierarchyRebuild(
+	sectionId: number,
+	lockedRow?: RegistryRow | null,
+): Promise<RebuildVerdict> {
+	// The rebuild hands in the row it read FOR UPDATE, so the tld classified is
+	// the tld torn down (A3); every other caller reads it fresh.
+	const row = lockedRow === undefined ? await readRegistry(sectionId) : lockedRow;
+	const tld = registryTld(row);
+	if (row === null || tld === null) {
+		return {
+			allowed: false,
+			reason: 'invalid_source',
+			tld,
+			detail: 'the hierarchy record is missing or has no valid TLD (hierarchy6)',
+		};
+	}
+	for (const probe of REBUILD_REFUSAL_PROBES) {
+		const refusal = await probe(row, tld, sectionId);
+		if (refusal !== null) return { allowed: false, tld, ...refusal };
+	}
+	return { allowed: true, reason: null, tld, detail: `'${tld}' is this hierarchy's own` };
 }
 
 /* ----------------------------------------------------------------- writes */
@@ -530,6 +949,117 @@ async function nameRootTerm(
 }
 
 /**
+ * Clause 1 of isOwnProvisionedSection: the target is one of the two addresses
+ * provisioning mints for a TLD — `<tld>1` (the terms) or `<tld>2` (the models).
+ * Any other section is never "the hierarchy's own".
+ */
+function isProvisionedAddress(targetSectionTipo: string, tld: string): boolean {
+	return targetSectionTipo === `${tld}1` || targetSectionTipo === `${tld}2`;
+}
+
+/**
+ * Clauses 2+3 of isOwnProvisionedSection: the target is a SECTION, and a
+ * VIRTUAL one whose real section is the source the registry row declares
+ * (hierarchy109; unset ⇒ the default thesaurus section). A real section (its
+ * own real tipo) or a virtual of some other source is not a provisioned one.
+ */
+async function isVirtualOfDeclaredSource(
+	targetSectionTipo: string,
+	row: RegistryRow | null,
+): Promise<boolean> {
+	if ((await getModelByTipo(targetSectionTipo)) !== 'section') return false;
+	const declaredSource = literal(row, HIERARCHY_SOURCE_REAL_SECTION);
+	const source = declaredSource === '' ? THESAURUS_SECTION : declaredSource;
+	const realTipo = await getSectionRealTipo(targetSectionTipo);
+	return realTipo !== targetSectionTipo && realTipo === source;
+}
+
+/**
+ * IS `targetSectionTipo` A SECTION THIS HIERARCHY'S OWN PROVISIONING CREATED?
+ * The shape hierarchy_provision.ts generateVirtualSection writes, checked
+ * exactly as follows (and nothing more):
+ *   1. the tipo is `<tld>1` or `<tld>2` of the row's own TLD (hierarchy6);
+ *   2. its dd_ontology node is a `section`;
+ *   3. it is a VIRTUAL section — `getSectionRealTipo(target) !== target` — whose
+ *      real section is the row's declared source (hierarchy109, unset =
+ *      hierarchy20). A REAL section named `<X>1`/`<X>2` with hierarchy109 set to
+ *      itself is NOT a provisioned virtual and fails here;
+ *   4. the TLD is THIS row's: no OTHER hierarchy1 record declares the same
+ *      hierarchy6 (trim + lower-case, the `findHierarchyByTld` spelling).
+ *
+ * WHY (T0-2 review finding F2): hierarchy53 / hierarchy58 are operator data on
+ * the registry row, so an editor can steer them at ANY empty section; minting
+ * the root there in `system` mode created a record in a section no create rule
+ * was ever asked about. A foreign pairing is legitimate (live: WW → mht72), so
+ * "the target belongs to the TLD" is NOT a universal invariant — only the
+ * hierarchy's OWN provisioned sections are structurally its own. Those keep the
+ * system mint (a brand-new `<tld>1` carries no profile grants yet, so asking
+ * them would block every non-root activation); any other declared target is a
+ * user's choice and is minted under the ACTING principal's New-button
+ * predicate ({@link mintDeclaredRootTerm}).
+ *
+ * WHY 4 IS A UNIQUENESS SCAN (final review S1): hierarchy6 is itself an
+ * editor-writable literal — an editor setting it to ANOTHER installed
+ * hierarchy's TLD made that hierarchy's `<tld>1` look like this row's own.
+ * Provisioning records no row-level ownership fact the editor cannot also
+ * write: the only tie from a `<tld>0`/`<tld>1` node back to its registry record
+ * is the hierarchy53/58 write-back ON that record (editable), and the `<tld>0`
+ * node's grouper parent is not uniform across installs. So the row owns its TLD
+ * only when it is the sole record declaring it; a duplicate declaration (the
+ * hijack, or a genuinely doubled registry) falls back to the acting principal's
+ * create rule. Residual (documented, not checked): a TLD that has NO hierarchy1
+ * row at all (an ontology-only TLD whose `<tld>1` is a virtual section) is
+ * "owned" by whichever row declares it first.
+ */
+async function isOwnProvisionedSection(
+	targetSectionTipo: string,
+	tld: string,
+	row: RegistryRow | null,
+	sectionId: number,
+): Promise<boolean> {
+	if (!isProvisionedAddress(targetSectionTipo, tld)) return false;
+	if (!(await isVirtualOfDeclaredSource(targetSectionTipo, row))) return false;
+	// The sole-declarer scan — ONE function, shared with the rebuild
+	// classification and the registry-delete cascade (teardown_scope.ts).
+	return !(await anotherRegistryRowDeclaresTld(HIERARCHY_SECTION, sectionId, tld));
+}
+
+/**
+ * Mint the root in the hierarchy's OWN provisioned section (isOwnProvisionedSection
+ * holds): a structural record no user chose — `system` access.
+ */
+async function mintProvisionedRootTerm(
+	sectionId: number,
+	componentTipo: string,
+	targetSectionTipo: string,
+): Promise<{ items: unknown[]; sectionId: number } | null> {
+	return applyAddNewElement([], targetSectionTipo, componentTipo, HIERARCHY_SECTION, sectionId, {
+		access: {
+			mode: 'system',
+			reason:
+				'the hierarchy invariant mints the root term its tree hangs on, in the hierarchy’s OWN provisioned section (isOwnProvisionedSection: <tld>1/<tld>2, a virtual of its declared source, the TLD declared by no other registry row) — a structural record no user chose (hierarchy_state is the single writer)',
+		},
+	});
+}
+
+/**
+ * Mint the root in an operator-DECLARED section that is not the hierarchy's own
+ * (F2): the ACTING principal's New-button predicate on the target
+ * (applyAddNewElement `create` access; the declared pairing is the structural
+ * membership). The installer acts as the superuser, the tool as its caller.
+ */
+async function mintDeclaredRootTerm(
+	sectionId: number,
+	componentTipo: string,
+	targetSectionTipo: string,
+	principal: Principal,
+): Promise<{ items: unknown[]; sectionId: number } | null> {
+	return applyAddNewElement([], targetSectionTipo, componentTipo, HIERARCHY_SECTION, sectionId, {
+		access: { mode: 'create', principal, membership: 'structural' },
+	});
+}
+
+/**
  * Make `componentTipo` point at a REAL, NAMED root record in `targetSectionTipo`:
  *   - the stored target exists → keep it (re-stamped to the canonical locator shape);
  *   - the section has records  → link its lowest id (the imported root);
@@ -542,6 +1072,7 @@ async function ensureRootTerm(
 	componentTipo: string,
 	targetSectionTipo: string,
 	row: RegistryRow | null,
+	actor: { tld: string; userId: number },
 ): Promise<{ changed: string[]; error: string | null }> {
 	const changed: string[] = [];
 
@@ -580,14 +1111,29 @@ async function ensureRootTerm(
 			]);
 			changed.push(`${componentTipo}: linked the existing root ${targetSectionTipo}/${rootId}`);
 		} else {
-			// The section is empty — mint the root the tree hangs its children on.
-			const outcome = await applyAddNewElement(
-				[],
-				targetSectionTipo,
-				componentTipo,
-				HIERARCHY_SECTION,
-				sectionId,
-			);
+			// The section is empty — mint the root the tree hangs its children on:
+			// as the system in the hierarchy's OWN provisioned section, else under
+			// the acting principal's create rule (F2 — a steered target).
+			let outcome: { items: unknown[]; sectionId: number } | null;
+			if (await isOwnProvisionedSection(targetSectionTipo, actor.tld, row, sectionId)) {
+				outcome = await mintProvisionedRootTerm(sectionId, componentTipo, targetSectionTipo);
+			} else {
+				try {
+					outcome = await mintDeclaredRootTerm(
+						sectionId,
+						componentTipo,
+						targetSectionTipo,
+						await resolvePrincipal(actor.userId),
+					);
+				} catch (error) {
+					if (!(error instanceof DedaloError) || !error.code.startsWith('perm.')) throw error;
+					// The refusal's CODE on the payload (SEC-18: never raw exception text).
+					return {
+						changed,
+						error: `${componentTipo}: may not create a root in ${targetSectionTipo} — it is not this hierarchy’s own section and the acting user may not create there (${error.code})`,
+					};
+				}
+			}
 			if (outcome === null) {
 				return {
 					changed,
@@ -630,25 +1176,66 @@ async function ensureRootTerm(
  * that does not name a section is a data defect the `targets` check surfaces —
  * repairing it here would destroy the evidence the operator needs.
  *
+ * A ROOT-ONLY (case 2) hierarchy provisions no `<tld>1`/`<tld>2`, so the
+ * convention is defaulted there only when that section EXISTS (a stored real
+ * `<tld>1`, tchi-style) — never a pointer at a section nothing will create.
+ *
  * Re-reads the registry row itself (the steps before it write to the row) and
  * answers the `applied` lines it produced.
  */
-async function ensureTargetSectionDefaults(sectionId: number, tld: string): Promise<string[]> {
+async function ensureTargetSectionDefaults(
+	sectionId: number,
+	tld: string,
+	rootOnly: boolean,
+): Promise<string[]> {
 	const applied: string[] = [];
 	const row = await readRegistry(sectionId);
-	if (literal(row, HIERARCHY_TARGET_SECTION) === '') {
-		await write(sectionId, 'string', HIERARCHY_TARGET_SECTION, [
-			{ id: 1, lang: 'lg-nolan', value: `${tld}1` },
-		]);
-		applied.push(`target section set to ${tld}1`);
-	}
-	if (literal(row, HIERARCHY_TARGET_SECTION_MODEL) === '') {
-		await write(sectionId, 'string', HIERARCHY_TARGET_SECTION_MODEL, [
-			{ id: 1, lang: 'lg-nolan', value: `${tld}2` },
-		]);
-		applied.push(`target model section set to ${tld}2`);
+	for (const [componentTipo, fallback, what] of [
+		[HIERARCHY_TARGET_SECTION, `${tld}1`, 'target section'],
+		[HIERARCHY_TARGET_SECTION_MODEL, `${tld}2`, 'target model section'],
+	] as const) {
+		if (literal(row, componentTipo) !== '') continue;
+		if (rootOnly && (await getModelByTipo(fallback)) !== 'section') continue;
+		await write(sectionId, 'string', componentTipo, [{ id: 1, lang: 'lg-nolan', value: fallback }]);
+		applied.push(`${what} set to ${fallback}`);
 	}
 	return applied;
+}
+
+/**
+ * Step 5 for ONE root. A root-only hierarchy whose declared (or defaulted)
+ * section is not a section gets the reason, not a mint attempt: it provisions
+ * no section of its own, so the operator must declare one (hierarchy53/58).
+ */
+async function ensureDeclaredRoot(
+	sectionId: number,
+	componentTipo: string,
+	targetSectionTipo: string,
+	row: RegistryRow | null,
+	actor: { tld: string; userId: number; rootOnly: boolean },
+): Promise<{ changed: string[]; error: string | null }> {
+	if (actor.rootOnly && (await getModelByTipo(targetSectionTipo)) !== 'section') {
+		return {
+			changed: [],
+			error: `${componentTipo}: '${targetSectionTipo}' is not a section — a root-only hierarchy provisions none; declare its section (hierarchy53/hierarchy58)`,
+		};
+	}
+	return ensureRootTerm(sectionId, componentTipo, targetSectionTipo, row, actor);
+}
+
+/**
+ * The roots ensure converges — [component, declared section] — read from the
+ * row AFTER step 4. No model root for a root-only row with hierarchy58 unset (C1).
+ */
+function declaredRoots(
+	row: RegistryRow | null,
+	tld: string,
+	rootOnly: boolean,
+): [string, string][] {
+	const targets = declaredTargets(row, tld);
+	const roots: [string, string][] = [[HIERARCHY_GENERAL_TERM, targets.terms]];
+	if (hasModelRoot(row, rootOnly)) roots.push([HIERARCHY_GENERAL_TERM_MODEL, targets.model]);
+	return roots;
 }
 
 /** A typology locator (hierarchy9) naming a positive integer record. */
@@ -696,6 +1283,28 @@ export const REGISTRY_PROVISION_INPUTS_SQL = `SELECT COALESCE(json_agg(json_buil
 	'section_id', h.section_id, 'string', h.string, 'relation', h.relation,
 	'source_model', (SELECT o.model FROM dd_ontology o WHERE o.tipo = h.string->'${HIERARCHY_SOURCE_REAL_SECTION}'->0->>'value' LIMIT 1)
 ) ORDER BY h.section_id), '[]'::json) FROM "${HIERARCHY_MAIN_TABLE}" h WHERE h.section_tipo = '${HIERARCHY_SECTION}'`;
+
+/**
+ * Why provisioning did not happen, as the operator should read it. "already
+ * generated" is the precondition firing on a PARTIAL ontology (the node records
+ * exist but a dd_ontology node was purged): Rebuild is the honest fix — but only
+ * named when "Force to create" may actually run here; otherwise the refusal's
+ * reason is named instead of steering the operator at a door that refuses.
+ */
+async function provisionFailureMessage(
+	sectionId: number,
+	tld: string,
+	detail: string,
+	provision: { msg: string; errors: string[] },
+): Promise<string> {
+	if (!provision.msg.includes('already generated')) {
+		return `provisioning failed: ${provision.errors.join('; ')}`;
+	}
+	const verdict = await classifyHierarchyRebuild(sectionId);
+	return verdict.allowed
+		? `the ontology of '${tld}' is INCOMPLETE (${detail}) — use Rebuild`
+		: `the ontology of '${tld}' is INCOMPLETE (${detail}) — Rebuild is not available here (${verdict.reason}: ${verdict.detail})`;
+}
 
 /**
  * Converge ONE hierarchy to the invariant. THE only writer. Idempotent: the second run
@@ -764,30 +1373,25 @@ export async function ensureHierarchy(
 	// 3. the ontology. generateVirtualSection re-reads the record, so the flags above
 	// must already be committed — they are (updateMatrixKeyData writes immediately).
 	// Asked about the sections the row DECLARES (unset → the `<tld>1`/`<tld>2`
-	// convention, which is what provisioning is about to create anyway).
-	const ontology = await ontologyPresent(tld, declaredTargets(row, tld));
-	if (!ontology.ok) {
+	// convention, which is what provisioning is about to create anyway). A ROOT-ONLY
+	// (case 2) hierarchy is NEVER provisioned: it has no `<tld>0/1/2` of its own, its
+	// sections follow their ontology definition (HIER-REBUILD, owner decision D7).
+	const ontology = await ontologyCheck(row, tld, declaredTargets(row, tld));
+	if (!ontology.ok && !ontology.rootOnly) {
 		const provision = await generateVirtualSection({
 			section_tipo: HIERARCHY_SECTION,
 			section_id: sectionId,
 			userId,
 		});
-		// "already generated" is the precondition firing on a PARTIAL ontology (e.g. the
-		// node records exist but a dd_ontology node was purged). Surface it — a rebuild
-		// is the honest fix, and silently proceeding would leave a half-built hierarchy.
 		if (!provision.ok) {
-			return fail(
-				provision.msg.includes('already generated')
-					? `the ontology of '${tld}' is INCOMPLETE (${ontology.detail}) — use Rebuild`
-					: `provisioning failed: ${provision.errors.join('; ')}`,
-			);
+			return fail(await provisionFailureMessage(sectionId, tld, ontology.detail, provision));
 		}
 		applied.push(`provisioned the ontology (${tld}0, ${tld}1, ${tld}2)`);
 	}
 
 	// 4. the target sections — defaulted when unset, never overwritten (see
 	// ensureTargetSectionDefaults for the law).
-	applied.push(...(await ensureTargetSectionDefaults(sectionId, tld)));
+	applied.push(...(await ensureTargetSectionDefaults(sectionId, tld, ontology.rootOnly)));
 
 	// 5. the roots — resolve-or-create, never trust the stored locator.
 	row = await readRegistry(sectionId);
@@ -795,12 +1399,12 @@ export async function ensureHierarchy(
 	// the sections the row DECLARES, never into `<tld>1`/`<tld>2` derived behind
 	// its back (that minted a second root in a section the operator never
 	// pointed at, and left the declared one empty).
-	const ensureTargets = declaredTargets(row, tld);
-	for (const [componentTipo, targetSectionTipo] of [
-		[HIERARCHY_GENERAL_TERM, ensureTargets.terms],
-		[HIERARCHY_GENERAL_TERM_MODEL, ensureTargets.model],
-	] as [string, string][]) {
-		const outcome = await ensureRootTerm(sectionId, componentTipo, targetSectionTipo, row);
+	for (const [componentTipo, targetSectionTipo] of declaredRoots(row, tld, ontology.rootOnly)) {
+		const outcome = await ensureDeclaredRoot(sectionId, componentTipo, targetSectionTipo, row, {
+			tld,
+			userId,
+			rootOnly: ontology.rootOnly,
+		});
 		if (outcome.error !== null) errors.push(outcome.error);
 		applied.push(...outcome.changed);
 	}
@@ -834,10 +1438,97 @@ export async function ensureHierarchy(
 	};
 }
 
+/** A rebuild whose re-provisioning did not end usable: thrown to roll the teardown back. */
+class RebuildRolledBack extends Error {
+	constructor(readonly outcome: EnsureResult) {
+		super(`hierarchy rebuild rolled back: ${outcome.msg}`);
+	}
+}
+
+/** The safe tld a registry row declares (hierarchy6), or null. */
+function registryTld(row: RegistryRow | null): string | null {
+	return row === null ? null : safeTld(literal(row, HIERARCHY_TLD).trim().toLowerCase());
+}
+
+/** The registry row, read FOR UPDATE (rebuild only: hierarchy6 cannot move under the teardown). */
+async function lockRegistryRow(sectionId: number): Promise<RegistryRow | null> {
+	const rows = (await sql.unsafe(
+		`SELECT relation, string FROM "${HIERARCHY_MAIN_TABLE}"
+		 WHERE section_tipo = $1 AND section_id = $2 FOR UPDATE`,
+		[HIERARCHY_SECTION, sectionId],
+	)) as RegistryRow[];
+	return rows[0] ?? null;
+}
+
 /**
- * Tear the tld's ONTOLOGY down and rebuild it. The `<tld>1` TERMS are NOT touched —
- * deleteOntologyByTld only removes the dd_ontology nodes, the ontology_main row and the
- * `<tld>0` node records — so `ensure` relinks the surviving root afterwards.
+ * The ROW locks of everything the teardown deletes — every `<tld>0` record
+ * (section_id order) and the tld's ontology35 row — taken BEFORE the
+ * projection lock. The ordinary record delete takes its row lock first and the
+ * projection lock second (delete_record → projectOntologyRecordLifecycle), so
+ * the rebuild must take them in the same order or the two deadlock (B1).
+ */
+async function lockTeardownRows(tld: string): Promise<void> {
+	// A protected tld is refused before any teardown: nothing to row-lock.
+	if (isProtectedTld(tld)) return;
+	await sql.unsafe(
+		'SELECT section_id FROM matrix_ontology WHERE section_tipo = $1 ORDER BY section_id FOR UPDATE',
+		[`${tld}0`],
+	);
+	await sql.unsafe(
+		`SELECT section_id FROM "matrix_ontology_main"
+		 WHERE section_tipo = $1 AND string @> $2::text::jsonb ORDER BY section_id FOR UPDATE`,
+		[ONTOLOGY_MAIN_SECTION, JSON.stringify({ [HIERARCHY_TLD]: [{ value: tld }] })],
+	);
+}
+
+/**
+ * Inside the rebuild's transaction, in the one lock order (B1): the registry
+ * row FOR UPDATE (A3 — read ONCE, its tld is the tld classified and torn
+ * down), the tld's teardown rows, THEN the tld's projection lock; classify
+ * under all of them and throw the refusal — with the checklist `state` —
+ * unless owned. Answers the owned tld.
+ */
+async function lockAndAdmitRebuild(sectionId: number): Promise<string> {
+	const row = await lockRegistryRow(sectionId);
+	const declared = registryTld(row);
+	if (declared !== null) {
+		await lockTeardownRows(declared);
+		await lockOntologyProjection([declared]);
+	}
+	const verdict = await classifyHierarchyRebuild(sectionId, row);
+	if (verdict.allowed && verdict.tld !== null) return verdict.tld;
+	throw teardownRefused(verdict.tld ?? '', verdict.reason ?? 'invalid_source', {
+		detail: verdict.detail,
+		coordinates: { section_tipo: HIERARCHY_SECTION, section_id: sectionId },
+		state: await inspectHierarchy(sectionId),
+	});
+}
+
+/**
+ * "Force to create": delete the hierarchy's ontology FROM SCRATCH and provision it
+ * again (owner decision D10) — every dd_ontology node of the tld, every `<tld>0`
+ * record (legacy/install extras included), the tld's ontology35 row; then
+ * `ensure`. The `<tld>1` TERMS are never touched, so ensure relinks the root.
+ *
+ * Only for an OWNED case 1 hierarchy (classifyHierarchyRebuild); otherwise
+ * `ontology.teardown_refused` + `reason`, before any write. ONE transaction,
+ * ONE lock order (lockAndAdmitRebuild): the registry row FOR UPDATE, the
+ * teardown rows, the tld's projection lock; the classification read under
+ * them, then the teardown and the re-provisioning. ANY failure after
+ * admission — a provisioning that does not end usable, a SQL error anywhere in
+ * the teardown or the provisioning — rolls the whole transaction back and
+ * answers `ok:false` with the state re-inspected AFTER the rollback (nothing
+ * changed). Joined to a caller's transaction, the rollback is the caller's:
+ * the failure is re-thrown.
+ *
+ * RESIDUAL (B3, not this module's to fix): the per-record delete pipeline
+ * (delete_record.ts steps 6-7) moves a record's media to `deleted/` and
+ * settles its unpublish intent AFTER its own withTransaction returns — which,
+ * joined to this one, is before the rebuild commits, and neither is undone by
+ * a rollback. A `<tld>0` node record carrying media files or a diffusion
+ * target would keep those side effects after a rolled-back rebuild. Ontology
+ * node records carry neither today; deferring them to commit
+ * (registerCommitAction) is a delete_record change, ledgered, not made here.
  */
 export async function rebuildHierarchy(
 	sectionId: number,
@@ -845,31 +1536,42 @@ export async function rebuildHierarchy(
 	deleteRecord: (sectionTipo: string, sectionId: number) => Promise<unknown>,
 	options: EnsureOptions = {},
 ): Promise<EnsureResult> {
-	const row = await readRegistry(sectionId);
-	const tld = safeTld(literal(row, HIERARCHY_TLD).trim().toLowerCase());
-	if (row === null || tld === null) {
-		return {
-			ok: false,
-			msg: 'cannot rebuild: the hierarchy record has no valid TLD',
-			errors: ['invalid tld'],
-			state: await inspectHierarchy(sectionId),
-			applied: [],
-		};
+	const ambient = isInTransaction();
+	try {
+		return await withTransaction(async () => {
+			const tld = await lockAndAdmitRebuild(sectionId);
+			await deleteOwnedHierarchyOntology({ owned: true, tld }, deleteRecord);
+			const ensured = await ensureHierarchy(sectionId, userId, options);
+			if (!ensured.ok) throw new RebuildRolledBack(ensured);
+			if (ensured.state.tld !== tld) {
+				throw new DedaloError('internal.invariant', {
+					message: `rebuild of '${tld}' converged a hierarchy declaring '${ensured.state.tld}'`,
+					coordinates: { section_tipo: HIERARCHY_SECTION, section_id: sectionId },
+				});
+			}
+			return {
+				...ensured,
+				applied: [`tore down the ontology of '${tld}' (from scratch)`, ...ensured.applied],
+			};
+		});
+	} catch (error) {
+		// Reads inside the rolled-back transaction may have cached its state.
+		await clearOntologyDerivedCaches();
+		if (ambient || isTeardownRefusal(error)) throw error;
+		return rolledBackOutcome(error, sectionId);
 	}
-	const teardown = await deleteOntologyByTld(tld, deleteRecord);
-	if (!teardown.ok) {
-		return {
-			ok: false,
-			msg: `teardown of '${tld}' failed — nothing was rebuilt`,
-			errors: teardown.errors,
-			state: await inspectHierarchy(sectionId),
-			applied: [],
-		};
-	}
-	const ensured = await ensureHierarchy(sectionId, userId, options);
+}
+
+/** The `ok:false` answer of a rolled-back rebuild — the state read AFTER the rollback. */
+async function rolledBackOutcome(error: unknown, sectionId: number): Promise<EnsureResult> {
+	const outcome = error instanceof RebuildRolledBack ? error.outcome : null;
+	const cause = outcome === null ? String((error as Error)?.message ?? error) : outcome.msg;
 	return {
-		...ensured,
-		applied: [`tore down the ontology of '${tld}'`, ...ensured.applied],
+		ok: false,
+		msg: `rebuild failed and was rolled back — nothing changed (${cause})`,
+		errors: outcome === null ? [cause] : outcome.errors,
+		state: await inspectHierarchy(sectionId),
+		applied: [],
 	};
 }
 

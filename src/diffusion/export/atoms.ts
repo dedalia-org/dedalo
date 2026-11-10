@@ -60,6 +60,7 @@ import type {
 import {
 	addMediaReadAddress,
 	componentFieldsSeparator,
+	dataframeFrameChildren,
 	dataframeFrameChildTipos,
 	mediaItemsHoldAFile,
 	relationTargetChildren,
@@ -74,6 +75,8 @@ import type { FieldPlan } from '../plan/types.ts';
 import type { ExportAtomRun, ExportLeafAtom } from '../resolve/resolver.ts';
 import {
 	createExportAtomRun,
+	exportCrossRecord,
+	exportImplicitChildren,
 	getBoundedRunMemo,
 	loadExportRecord,
 	loadExportRecordFromTable,
@@ -124,10 +127,15 @@ export interface ExportRun {
 	 * cell's unit labels via `currentApplicationLang()`, a component_external
 	 * cell's remote row via `currentDataLang()`). Unset → the ambient scope.
 	 *
-	 * It covers the langs ONLY. The walk also reads the PRINCIPAL ambiently (a
-	 * relation cell's implicit label request_config, implicit.ts
-	 * filterAuthorizedRelated → `currentPrincipal()`), and frontier refusals are
-	 * noted on the ambient request context. The COMPLETE scope — both langs,
+	 * It covers the langs ONLY. The walk also reads the PRINCIPAL ambiently in
+	 * ONE corner — a relation with an implicit config that names NO component
+	 * resolves its label through datalist.ts resolveLocatorLabels →
+	 * implicit.ts filterAuthorizedRelated → `currentPrincipal()`. Every other
+	 * relation reads its children through the principal-free
+	 * `resolveOwnConfigMap`; THOSE are filtered by the export run's own frontier
+	 * (cellOpts.frontier → resolver.ts exportImplicitChildren, T0-1 / S03), not
+	 * by the ambient principal. Frontier refusals are noted on the ambient
+	 * request context. The COMPLETE scope — both langs,
 	 * the principal, the refusal collector — is grid.ts `openExportGrid`'s
 	 * export scope, which is what every export goes through; grid.ts therefore
 	 * leaves this unset (the scope already carries it).
@@ -193,8 +201,57 @@ export function createExportRun(
 		cellOpts: {
 			loadRecord: (tableName, sectionTipo, sectionId) =>
 				loadExportRecordFromTable(atoms, tableName, sectionTipo, sectionId),
+			// THE FRONTIER OF EVERY NESTED CELL READ (T0-1). Inert until the door
+			// sets `atoms.frontier` (grid.ts, non-admins): both functions read the
+			// run's scope at CALL time, and with none they cross everything —
+			// every internal user of this walk is byte-unchanged.
+			frontier: {
+				// `reads` null = the cell cannot name what it reads there → the
+				// full law; a list = the display carve-out may apply (D4).
+				crossRecord: (sectionTipo, sectionId, reads, frames) =>
+					exportCrossRecord(
+						atoms,
+						sectionTipo,
+						sectionId,
+						reads === null ? 'strict' : { reads, ...(frames === undefined ? {} : { frames }) },
+					),
+				implicitChildren: (sectionTipo, componentTipos) =>
+					exportImplicitChildren(atoms, sectionTipo, componentTipos),
+			},
 		},
 	};
+}
+
+/**
+ * A config map's children the walk may read at `targetSection` — explicit
+ * children at the subdatum floor (owner decision D3), implicit ones per the
+ * run's frontier (D1: an ungranted one is dropped and noted).
+ */
+async function readableMapChildren(
+	run: ExportRun,
+	children: RawConfigDdo[],
+	targetSection: string,
+): Promise<RawConfigDdo[]> {
+	const implicitTipos = children.filter(isImplicitChild).map((child) => child.tipo);
+	if (implicitTipos.length === 0) return children;
+	const allowed = await exportImplicitChildren(run.atoms, targetSection, implicitTipos);
+	return children.filter((child) => !isImplicitChild(child) || allowed.has(child.tipo));
+}
+
+/** The tipos of `tipos` that are not dataframes (a dataframe reads the OWNER record). */
+async function nonDataframeTipos(tipos: readonly string[]): Promise<string[]> {
+	const out: string[] = [];
+	for (const tipo of tipos) {
+		if ((await getModelByTipo(tipo)) !== 'component_dataframe') out.push(tipo);
+	}
+	return out;
+}
+
+/** The origin tag ownChildrenOf stamps on an implicit map's children. */
+const IMPLICIT_CHILD = Symbol('implicit_config_child');
+
+function isImplicitChild(ddo: RawConfigDdo): boolean {
+	return (ddo as { [IMPLICIT_CHILD]?: boolean })[IMPLICIT_CHILD] === true;
 }
 
 /**
@@ -226,6 +283,11 @@ async function resolveParentsChain(
 	}
 	const parts: string[] = [];
 	for (const ancestor of ancestors) {
+		// THE FRONTIER (T0-1): an ancestor is another record. Thesaurus tables
+		// are globally visible (the record key exempts them); a tree on a
+		// project-gated table is not.
+		// STRICT (D4): the parents chain is beyond any column's display.
+		await exportCrossRecord(run.atoms, ancestor.section_tipo, ancestor.section_id, 'strict');
 		const term = await getTermByLocator(ancestor, lang, true);
 		if (term !== null && term !== '') parts.push(term);
 	}
@@ -330,7 +392,9 @@ async function ownChildrenOf(run: ExportRun, componentTipo: string): Promise<Raw
 		for (const candidate of map.implicitRelations ?? []) {
 			const model = await getModelByTipo(candidate);
 			if (model?.startsWith('component_')) {
-				children.push({ tipo: candidate, parent: 'self', model });
+				// Tagged: an implicit child answers to the caller's grant (D1),
+				// an explicit one is read at the subdatum floor (D3).
+				children.push({ tipo: candidate, parent: 'self', model, [IMPLICIT_CHILD]: true });
 			}
 		}
 	}
@@ -879,7 +943,20 @@ async function fanOutRelation(
 	if (children.length === 0) return; // PHP: empty ddo_direct_children → no atoms
 
 	for (const locator of locators) {
-		for (const child of children) {
+		// THE FRONTIER (T0-1 / S02): every locator this loop reads through is a
+		// crossing — at depth 0 (already asserted by resolveRecordAtoms: a memo
+		// hit), at every nested depth (the recursion re-enters here) and for a
+		// dataframe's FRAME targets (the recursion's locators are the frames).
+		// The children are decided FIRST, so the crossing can name what it reads
+		// there (the display carve-out, D4, admits a record the host read shows
+		// only for components the read shows; a dataframe child is read on the
+		// OWNER record, so its frames are crossed on the owner below, per entry;
+		// its frame targets are crossings of their own).
+		const readable = await readableMapChildren(run, children, locator.sectionTipo);
+		await exportCrossRecord(run.atoms, locator.sectionTipo, locator.sectionId, {
+			reads: await nonDataframeTipos(readable.map((child) => child.tipo)),
+		});
+		for (const child of readable) {
 			const childModel = (await getModelByTipo(child.tipo)) ?? String(child.model ?? '');
 			if (childModel === '') continue; // PHP: missing TLD → skip (debug log)
 
@@ -920,6 +997,22 @@ async function fanOutRelation(
 						sectionId: stored.section_id as number | string,
 						index,
 						id: stored.id,
+					});
+				}
+				// The frames are the OWNER's data: free for an owner in record scope;
+				// a display-admitted owner (a target walked deeper) must have been
+				// shown each ENTRY there (D4 — a slot item lists only the frames of
+				// the main items the read shows).
+				if (frameLocators.length > 0) {
+					await exportCrossRecord(run.atoms, ownerSectionTipo, ownerSectionId, {
+						reads: [],
+						frames: frameLocators.map((frame) => ({
+							frameTipo: child.tipo,
+							mainTipo,
+							pairId: locator.id as number | string,
+							sectionTipo: frame.sectionTipo,
+							sectionId: frame.sectionId,
+						})),
 					});
 				}
 				const dataframeSegment: ExportSegment = {
@@ -1161,6 +1254,18 @@ type RawLocator = {
  * see collectRawMediaAddresses. Iterative, each (section, id, component)
  * expanded once.
  */
+/** {@link readableMapChildren} for the relation_list child shape ({tipo, implicit}). */
+async function readableTargetChildren<T extends { tipo: string; implicit: boolean }>(
+	run: ExportRun,
+	children: readonly T[],
+	targetSection: string,
+): Promise<T[]> {
+	const implicitTipos = children.filter((child) => child.implicit).map((child) => child.tipo);
+	if (implicitTipos.length === 0) return [...children];
+	const allowed = await exportImplicitChildren(run.atoms, targetSection, implicitTipos);
+	return children.filter((child) => !child.implicit || allowed.has(child.tipo));
+}
+
 async function walkMediaReads(
 	run: ExportRun,
 	startSection: string,
@@ -1204,7 +1309,17 @@ async function walkMediaReads(
 		const next: typeof stack = [];
 		for (const locator of locators) {
 			if (typeof locator?.section_tipo !== 'string' || locator.section_id === undefined) continue;
-			for (const child of children) {
+			// THE FRONTIER (T0-1): the media walk mirrors the value format's reads,
+			// so it crosses the SAME records — and what it reads leaves the system
+			// as FILES in the archive. Asked before the target is queued.
+			await exportCrossRecord(
+				run.atoms,
+				locator.section_tipo,
+				locator.section_id as number | string,
+				'strict', // the media walk: files leave the system — never the display (D4)
+			);
+			const targetChildren = await readableTargetChildren(run, children, locator.section_tipo);
+			for (const child of targetChildren) {
 				if (!child.isDataframe) {
 					next.push({
 						sectionTipo: locator.section_tipo,
@@ -1228,16 +1343,18 @@ async function walkMediaReads(
 					),
 				);
 				if (frames.length === 0) continue;
-				const frameChildren = await dataframeFrameChildTipos(child.tipo);
+				const frameChildren = await dataframeFrameChildren(child.tipo);
 				for (const frame of frames) {
 					const frameSection = (frame as RawLocator).section_tipo;
 					const frameId = (frame as RawLocator).section_id;
 					if (typeof frameSection !== 'string' || frameId === undefined) continue;
-					for (const frameChild of frameChildren) {
+					// a frame TARGET is a crossing too (T0-1)
+					await exportCrossRecord(run.atoms, frameSection, frameId as number | string, 'strict');
+					for (const frameChild of await readableTargetChildren(run, frameChildren, frameSection)) {
 						next.push({
 							sectionTipo: frameSection,
 							sectionId: frameId as number | string,
-							componentTipo: frameChild,
+							componentTipo: frameChild.tipo,
 						});
 					}
 				}

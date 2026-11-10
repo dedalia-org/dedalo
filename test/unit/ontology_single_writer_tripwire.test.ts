@@ -26,6 +26,14 @@
  *     `ontology_state.ts` (the whole-tld door, scoped to the tld it rebuilds). A third module
  *     that parses and upserts would write a record into ANOTHER tld's namespace again. The
  *     census is proven on a synthetic offender (self-test) as well as on the tree.
+ *  4. The UNCHECKED tld teardown `deleteOntologyByTld` (ontology_delete.ts — it trusts the tld
+ *     it is handed; only protected TLDs are refused inside it) is named outside its allowlist:
+ *     its definition and the suite's test_data teardowns. Every product door goes through an
+ *     ownership-checked path instead — the registry-delete cascade (`deleteOntologyMain`, sole
+ *     declarer) and tool_hierarchy's force rebuild (`rebuildHierarchy` → classifyHierarchyRebuild
+ *     → `deleteOwnedHierarchyOntology`). HIER-REBUILD: a second module calling the unchecked
+ *     door is how a hierarchy row's editable hierarchy6 tore down a TLD it did not own
+ *     (WC-2026-11-10-hierarchy-rebuild-ownership).
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -57,6 +65,32 @@ const DELETE_TLD_ALLOWLIST = new Set([
 	// there, making deleteTldNodes the one sanctioned sweep.
 	'src/core/test_data/synthetic_hierarchy_fixture.ts',
 ]);
+
+/**
+ * The modules allowed to name the UNCHECKED tld teardown (rule 4). A prefix ending in `/`
+ * admits its whole subtree.
+ */
+const UNCHECKED_TEARDOWN_ALLOWLIST: readonly string[] = [
+	'src/core/ontology/ontology_delete.ts', // defines it (and its checked doors)
+	// the suite's own fixtures: teardown of scratch/synthetic TLDs inside the MARKED test
+	// database (assertTestDatabase) — never an installation's TLD
+	'src/core/test_data/',
+];
+
+const uncheckedTeardownAllowed = (rel: string): boolean =>
+	UNCHECKED_TEARDOWN_ALLOWLIST.some((entry) =>
+		entry.endsWith('/') ? rel.startsWith(entry) : rel === entry,
+	);
+
+/** The files among `sources` naming `deleteOntologyByTld` in CODE, outside the allowlist. */
+function uncheckedTeardownOffenders(sources: readonly { rel: string; text: string }[]): string[] {
+	return sources
+		.filter(
+			(source) =>
+				!uncheckedTeardownAllowed(source.rel) && /\bdeleteOntologyByTld\b/.test(code(source.text)),
+		)
+		.map((source) => source.rel);
+}
 
 function sourceFiles(): string[] {
 	const found: string[] = [];
@@ -219,5 +253,37 @@ describe('dd_ontology has one reconcile/rebuild authority', () => {
 			]),
 		);
 		expect(parseOffenders(sources)).toEqual([]);
+	});
+
+	test('the unchecked tld teardown census catches a synthetic offender and ignores prose (self-test)', () => {
+		const offender = {
+			rel: 'src/core/zz/rogue.ts',
+			text: "import { deleteOntologyByTld } from '../ontology/ontology_delete.ts';\nawait deleteOntologyByTld(tld, del);",
+		};
+		const prose = {
+			rel: 'src/core/zz/prose.ts',
+			text: '/** never call `deleteOntologyByTld` from here */\nexport {};',
+		};
+		const fixture = { ...offender, rel: 'src/core/test_data/zz_fixture.ts' };
+		const definer = { ...offender, rel: 'src/core/ontology/ontology_delete.ts' };
+		expect(uncheckedTeardownOffenders([offender, prose, fixture, definer])).toEqual([
+			'src/core/zz/rogue.ts',
+		]);
+	});
+
+	test('only ontology_delete.ts and the suite test_data name the unchecked tld teardown', () => {
+		const sources = sourceFiles().map((file) => ({
+			rel: relative(REPO_ROOT, file),
+			text: readFileSync(file, 'utf8'),
+		}));
+		// Floor: the census sees the definition and a fixture user (not an empty tree).
+		const users = sources.filter((source) => /\bdeleteOntologyByTld\b/.test(code(source.text)));
+		expect(users.map((source) => source.rel)).toEqual(
+			expect.arrayContaining([
+				'src/core/ontology/ontology_delete.ts',
+				'src/core/test_data/synthetic_hierarchy_fixture.ts',
+			]),
+		);
+		expect(uncheckedTeardownOffenders(sources)).toEqual([]);
 	});
 });

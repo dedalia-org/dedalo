@@ -59,7 +59,7 @@
 	import {is_empty} from '../../component_common/js/component_common.js'
 	import {dd_request_idle_callback} from '../../common/js/events.js'
 	import {data_manager} from '../../common/js/data_manager.js'
-	import {common} from '../../common/js/common.js'
+	import {common, snapshot_read_state} from '../../common/js/common.js'
 	import {ui} from '../../common/js/ui.js'
 	import {get_instance} from '../../common/js/instances.js'
 	import {
@@ -1849,6 +1849,11 @@ search.prototype.update_state = async function(options) {
 			const filter = json_query_obj.filter || null
 			const children_recursive = json_query_obj.children_recursive ?? false
 
+		// read_state. The caller's read state BEFORE this search changes it: a
+		// section whose refresh is refused but keeps its old rows (embedded:
+		// build_autoload live_refresh) puts it back (section navigate)
+			const read_state = snapshot_read_state(caller_instance)
+
 		// rqo.sqo update
 			caller_instance.total						= null
 			caller_instance.rqo.sqo.limit				= limit
@@ -1909,7 +1914,8 @@ search.prototype.update_state = async function(options) {
 				const section_promise = caller_instance.navigate({
 					callback			: null,
 					navigation_history	: true,
-					action				: 'search'
+					action				: 'search',
+					read_state			: read_state
 				})
 				section_promise.finally(()=>{
 					// loading css remove

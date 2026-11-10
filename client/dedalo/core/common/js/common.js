@@ -3955,6 +3955,69 @@ export const is_page_root = function(instance) {
 
 
 /**
+* SNAPSHOT_READ_STATE
+* The read state a navigate() changes before its refresh: `rqo.sqo`,
+* `request_config_object.sqo` and `total`. Taken BEFORE the change so a refused
+* refresh that keeps the last good render (build_autoload live_refresh) can put
+* it back — the sqo must never describe rows that are not on screen.
+* @param {Object} instance
+* @returns {Object} {rqo_sqo, rco_sqo, total}
+*/
+export const snapshot_read_state = function(instance) {
+	return {
+		rqo_sqo	: instance?.rqo?.sqo ? clone(instance.rqo.sqo) : null,
+		rco_sqo	: instance?.request_config_object?.sqo ? clone(instance.request_config_object.sqo) : null,
+		total	: instance?.total
+	}
+}//end snapshot_read_state
+
+
+
+/**
+* RESTORE_READ_STATE
+* Put back a snapshot_read_state IN PLACE (other holders keep the same sqo
+* objects), then re-render the paginator from it (it also clears the
+* paginator's 'loading' class, which only a caller render removes otherwise).
+* @param {Object} instance
+* @param {Object} snapshot - from snapshot_read_state
+* @returns {void}
+*/
+export const restore_read_state = function(instance, snapshot) {
+	if (!instance || !snapshot) {
+		return
+	}
+	const restore_in_place = (target, source) => {
+		if (!target || !source) return
+		for (const key of Object.keys(target)) {
+			delete target[key]
+		}
+		Object.assign(target, clone(source))
+	}
+	restore_in_place(instance.rqo?.sqo, snapshot.rqo_sqo)
+	restore_in_place(instance.request_config_object?.sqo, snapshot.rco_sqo)
+	instance.total = snapshot.total
+	if (instance.paginator && typeof instance.paginator.refresh==='function') {
+		instance.paginator.refresh()
+	}
+}//end restore_read_state
+
+
+
+/**
+* IS_LIVE_RENDER
+* Whether an instance's node is a painted element attached to the document —
+* i.e. a build now running is a REFRESH of a live render, not a first build.
+* @param {Object} instance
+* @returns {boolean}
+*/
+const is_live_render = function(instance) {
+	const node = instance?.node
+	return !!node && node.isConnected===true
+}//end is_live_render
+
+
+
+/**
 * BUILD_AUTOLOAD
 * Execute the API request that loads context and data for a section, area, or portal
 * during its `build` phase. Provides a single canonical call site for the
@@ -3973,6 +4036,11 @@ export const is_page_root = function(instance) {
 * (error_dispatch is_page_identity_revoked) nothing is sent. On every failure
 * path — the latch included — status is reset to `previous_status`
 * ('initialized') and false is returned so the calling build() knows to abort.
+* A REFRESH of an EMBEDDED live node (not is_page_root, is_live_render) is the
+* exception: the failure goes back to 'rendered' (after the dispatch settles),
+* keeps the last good render, and is surfaced as a toast — never a page panel
+* appended into the live wrapper, never the page slot. Its navigate()
+* callers restore the sqo they changed (snapshot_read_state).
 *
 * Developer mode logging: when SHOW_DEVELOPER or SHOW_DEBUG is true, the raw
 * api_response is logged to the console. Errors are additionally highlighted.
@@ -3999,6 +4067,18 @@ export const build_autoload = async function(self, {recovery_retry=false}={}) {
 			self.status = 'initialized'
 			return false
 		}
+
+	// live_refresh. This build REFRESHES the node of an EMBEDDED instance
+	// already painted in the document (a portal back from its record window, an
+	// embedded list's page turn). Captured BEFORE the request — the build already
+	// set status 'building', so the node is the only witness left.
+	// (!) A PAGE ROOT (is_page_root) is never a live refresh: its refused read is
+	// the PAGE's failure and keeps the page-scope behaviour (page slot + panel).
+	// A page-root section's search / page turn has already written the sqo,
+	// stored the offset and pushed history before its refresh; keeping its old
+	// rows on screen under that state would leave tools (export, propagate)
+	// acting on a set nobody sees.
+		const live_refresh = !is_page_root(self) && is_live_render(self)
 
 	// load context and data
 		const api_response = self.tmp_api_response || await data_manager.request({
@@ -4034,12 +4114,22 @@ export const build_autoload = async function(self, {recovery_retry=false}={}) {
 	// response check
 		if (request_failed(api_response) || !response_data(api_response)) {
 
-			// previous_status
-				const previous_status = 'initialized'
-
-			// status update. Set BEFORE the (awaited) dispatch so a rebuild
+			// status update. A first build (or a page root) has nothing to keep:
+			// 'initialized', set BEFORE the (awaited) dispatch so a rebuild
 			// triggered by the recovery starts from a coherent state.
-				self.status = previous_status // 'initialized' or 'rendered'
+			// A refused LIVE REFRESH keeps the last good render: the build_autoload
+			// callers return before touching data or dependencies and a refresh with
+			// destroy:false leaves the DOM as it was, so it ends 'rendered' again
+			// (refresh_locked answers false — status is not 'built' — and a later
+			// refresh can retry). With destroy:true the row instances are already
+			// gone: the rows stay painted but inert until the next refresh.
+			// (!) 'rendered' only AFTER the dispatch: a relogin overlay can wait for
+			// minutes, and 'rendered' meanwhile would let a concurrent refresh()
+			// pass its status gate (the row lock is re-entrant by depth) and start
+			// a second build beside this one. 'building' refuses it.
+				if (!live_refresh) {
+					self.status = 'initialized'
+				}
 
 			// THE handler. The policy decides the surface (relogin overlay,
 			// no-access panel, toast); `recovered` is true only when the cause
@@ -4049,10 +4139,17 @@ export const build_autoload = async function(self, {recovery_retry=false}={}) {
 					// failure (page_globals.page_error); an embedded one is panel-local:
 					// its caller renders the build()===false answer, or render() of this
 					// failed instance draws it (see common.prototype.render).
-					const {recovered} = await handle_api_error(api_response.error, {
-						wrapper		: self.node,
-						page_scope	: is_page_root(self)
-					})
+					// (!) A LIVE REFRESH never hands its node as the wrapper: self.node
+					// is the rendered element, and a page-panel action appended the
+					// full no-access panel INSIDE it, under the still-visible rows
+					// (a portal whose target became unreadable). Nor does it set the
+					// page slot: the page is fine, only this re-read was refused. No
+					// wrapper + no page_scope = render_scoped_panel's toast, so the
+					// refusal is compact and never silent (inline → toast, too).
+					const dispatch_ctx = live_refresh
+						? {wrapper: null}
+						: {wrapper: self.node, page_scope: is_page_root(self)}
+					const {recovered} = await handle_api_error(api_response.error, dispatch_ctx)
 					// Recovered (re-login): re-send the SAME request and hand its answer
 					// back to the build() in flight. (!) Never a nested build()+render()
 					// here: that rendered a second copy, reset build_error, and this
@@ -4063,6 +4160,11 @@ export const build_autoload = async function(self, {recovery_retry=false}={}) {
 						self.tmp_api_response = undefined
 						return build_autoload(self, {recovery_retry: true})
 					}
+				}
+
+			// live refresh settled without recovery: back to its kept render
+				if (live_refresh) {
+					self.status = 'rendered'
 				}
 
 			return false
