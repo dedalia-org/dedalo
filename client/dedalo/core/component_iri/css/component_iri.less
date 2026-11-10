@@ -97,7 +97,15 @@
 				align-items: center;
 				display: flex;
 				flex-wrap: wrap;
-				row-gap: 1rem;
+				// tight inside one iri (label, title, url read as one unit), wider
+				// between iris — a uniform gap glued each url to the NEXT label
+				row-gap: 0.25rem;
+				// separator between iris (same rule line as list/portal rows)
+				& + .content_value {
+					margin-top: 0.5rem;
+					padding-top: 0.5rem;
+					border-top: 1px solid var(--border_default);
+				}
 				// actions cluster width (>.content_actions), read by the url input too
 				--iri_actions_width: 4.5rem;
 				&:has(>.content_actions >.input_iri_active) {
@@ -138,8 +146,13 @@
 						margin-top: 0px;
 					}
 
+					// label text on the inputs' text edge (border-less input +
+					// 0.5rem padding): drop the stacked content_data/row paddings
 					>.content_data {
+						padding-left: 0px;
+
 						>.section_record.view_line {
+							padding-left: 0.25rem; // + the label's own 0.25rem = 0.5rem
 							// One line only always
 							flex-wrap: nowrap;
 							// Tight pen + trash: the portal view_line row gap, the
@@ -183,8 +196,7 @@
 						min-height: unset;
 
 						>.content_data {
-						    padding: 0px;
-						    padding-left: 0.5rem;
+							padding: 0px;
 						}
 					}
 				}

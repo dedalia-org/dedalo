@@ -25443,8 +25443,13 @@ body.inspector_resizing {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  row-gap: 1rem;
+  row-gap: 0.25rem;
   --iri_actions_width: 4.5rem;
+}
+.component_iri.edit > .content_data > .content_value + .content_value {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border_default);
 }
 .component_iri.edit > .content_data > .content_value:has(>.content_actions >.input_iri_active) {
   --iri_actions_width: 6rem;
@@ -25466,7 +25471,11 @@ body.inspector_resizing {
 .component_iri.edit > .content_data > .content_value > .component_dataframe > .list_after > .component_placeholder {
   margin-top: 0px;
 }
+.component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data {
+  padding-left: 0px;
+}
 .component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data > .section_record.view_line {
+  padding-left: 0.25rem;
   flex-wrap: nowrap;
   column-gap: 0.4rem;
   padding-right: 0.25rem;
@@ -25497,7 +25506,6 @@ body.inspector_resizing {
   }
   .component_iri.edit > .content_data > .content_value > .component_dataframe > .content_data {
     padding: 0px;
-    padding-left: 0.5rem;
   }
 }
 .component_iri.edit > .content_data > .content_value > .input_value {
