@@ -39,12 +39,11 @@
  * stripped by removeAllInverseReferences below). No wire-shape change.
  */
 
-import { config } from '../../../config/config.ts';
 import { compareLocators } from '../../concepts/locator.ts';
 import { isConsultationOnlySection } from '../../concepts/section.ts';
 import { dbTimestamp } from '../../db/db_timestamp.ts';
 import { MATRIX_JSONB_COLUMNS, type MatrixJsonbColumn } from '../../db/matrix.ts';
-import { deleteMatrixRecord } from '../../db/matrix_write.ts';
+import { allocateComponentItemId, deleteMatrixRecord } from '../../db/matrix_write.ts';
 import { sql, withTransaction } from '../../db/postgres.ts';
 import {
 	ensureTmHistoryReady,
@@ -128,24 +127,54 @@ async function recordCascadeDeleteTwin(
 	await recordBulkCascadeDelete({ ...entry, bulkId });
 }
 
+/** The record a wipe is emptying, and who empties it (wipedComponentValue). */
+interface WipeTarget {
+	/** The WIPER — whose birth default a wiped component_filter takes. */
+	userId: number;
+	table: string;
+	sectionTipo: string;
+	sectionId: number;
+}
+
 /**
  * What a data WIPE (deleteSectionData) leaves in one component key: nothing
- * (null removes the key), except component_filter, which keeps the default
- * project (PHP get_default_data_for_user) instead of emptying. Exported so the
- * bulk revert can recognise a key still in its wiped state (bulk_revert_records).
+ * (null removes the key), except component_filter, which takes the WIPER's
+ * default projects instead of emptying (WC-2026-11-10-wipe-filter-user-default).
+ *
+ * PHP section_record::delete_data → component_filter::get_default_data_for_user
+ * ($user_id), then set_data: the SAME cascade a record is born with
+ * (resolveDefaultFilterData — a non-admin's first project, else the configured
+ * default), and each item takes the component's NEXT counter id (set_data's
+ * set_data_item_counter; the wipe keeps the meta counters, so it is the count
+ * + 1, never a reused id). Until 2026-11-10 this wrote a CONSTANT — the default
+ * project, type dd151, no id — which moved a non-admin's wiped record out of
+ * their own project scope (audit OX3).
+ *
+ * Runs inside the wipe's transaction, the row already locked FOR UPDATE: the
+ * counter allocation is a same-row UPDATE on the same connection. Its value is
+ * a function of WHO wiped and WHEN, so nothing may recompute it afterwards — a
+ * bulk revert reads what the wipe wrote from its own history row
+ * (bulk_revert_records isWipedState).
  */
-export function wipedComponentValue(model: string, componentTipo: string): unknown[] | null {
+async function wipedComponentValue(
+	model: string,
+	componentTipo: string,
+	target: WipeTarget,
+): Promise<unknown[] | null> {
 	if (model !== 'component_filter') return null;
-	return [
-		{
-			type: 'dd151',
-			// DEDALO_DEFAULT_PROJECT — already an int config value
-			// (WC-2026-08-10-section-id-int-canonical).
-			section_id: config.features.defaultProject,
-			section_tipo: config.features.filterSectionTipo, // DEDALO_FILTER_SECTION_TIPO_DEFAULT
-			from_component_tipo: componentTipo,
-		},
-	];
+	const { resolveDefaultFilterData } = await import('./record_defaults.ts');
+	const defaults = await resolveDefaultFilterData(target.userId, componentTipo);
+	const items: unknown[] = [];
+	for (const locator of defaults) {
+		const id = await allocateComponentItemId(
+			target.table,
+			target.sectionTipo,
+			target.sectionId,
+			componentTipo,
+		);
+		items.push({ ...locator, id });
+	}
+	return items;
 }
 
 export interface DeleteRecordResult {
@@ -972,8 +1001,8 @@ async function recordWipeHistory(
  *   - per component: a Time Machine pair (backfill row with the OLD full
  *     value at NOW-60s when the tipo+lang has no TM history yet, then the
  *     save row with the new value), and the column KEY REMOVED
- *     (jsonb_set_lax 'delete_key'; component_filter gets the user's default
- *     project instead of null);
+ *     (jsonb_set_lax 'delete_key'; component_filter gets the WIPER's default
+ *     projects instead of null — wipedComponentValue);
  *   - then the modified stamps refresh (dd197 user locator + dd201 date,
  *     whole-key replace);
  *   - and every EMPTIED MEDIA component's files move into their `deleted/`
@@ -1115,9 +1144,14 @@ export async function deleteSectionData(
 					continue;
 				}
 
-				// component_filter keeps the user's default project (PHP
-				// get_default_data_for_user) instead of emptying to null.
-				const newData = wipedComponentValue(model, component.tipo);
+				// component_filter takes the WIPER's default projects (PHP
+				// get_default_data_for_user, a fresh counter id) instead of emptying.
+				const newData = await wipedComponentValue(model, component.tipo, {
+					userId,
+					table,
+					sectionTipo,
+					sectionId,
+				});
 
 				// The history rows are written after the loop (recordWipeHistory),
 				// COMPOSED: a main's rows carry its slots' frames, a slot gets none.

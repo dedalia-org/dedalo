@@ -94,7 +94,14 @@ import {
 } from '../../../src/core/db/matrix_write.ts';
 import { isInTransaction, withTransaction } from '../../../src/core/db/postgres.ts';
 import { recordEpoch } from '../../../src/core/db/record_generation.ts';
-import { decodeTmImage, recordBulkBirth, TM_ROLE } from '../../../src/core/db/time_machine.ts';
+import {
+	decodeTmImage,
+	nextVisibleRowAfter,
+	readTimeMachineRow,
+	recordBulkBirth,
+	type TimeMachineRow,
+	TM_ROLE,
+} from '../../../src/core/db/time_machine.ts';
 import { toDedaloError } from '../../../src/core/errors/index.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from '../../../src/core/ontology/resolver.ts';
 import {
@@ -115,10 +122,7 @@ import {
 	MODIFIED_BY_USER,
 	MODIFIED_DATE,
 } from '../../../src/core/section/record/create_record.ts';
-import {
-	deleteSectionRecord,
-	wipedComponentValue,
-} from '../../../src/core/section/record/delete_record.ts';
+import { deleteSectionRecord } from '../../../src/core/section/record/delete_record.ts';
 import { getExternalLaw } from '../../../src/core/section/record/external_laws/classify.ts';
 import { isCoveredObserverTipo } from '../../../src/core/section/record/observers.ts';
 import { isLangSlicedModel } from '../../../src/core/section/record/save_component.ts';
@@ -527,11 +531,74 @@ function keyOf(columns: Record<string, unknown>, column: string, tipo: string): 
 		: undefined;
 }
 
-/** Whether a live key is still in the state the wipe left it (wipedComponentValue). */
-function isWipedState(live: unknown, model: string, tipo: string): boolean {
+/**
+ * The key's first visible history row after row `afterId`, or null when there
+ * is none or the next row of the record is not this key's (a section-level row).
+ */
+async function nextKeyRow(
+	marker: RecordMarker,
+	tipo: string,
+	afterId: number,
+): Promise<TimeMachineRow | null> {
+	const coords = {
+		sectionTipo: marker.sectionTipo,
+		sectionId: marker.sectionId,
+		componentTipo: tipo,
+	};
+	const rowId = await nextVisibleRowAfter(coords, afterId);
+	if (rowId === null) return null;
+	const row = await readTimeMachineRow(rowId);
+	return row !== null && row.tipo === tipo ? row : null;
+}
+
+/**
+ * THE VALUE THE WIPE ITSELF WROTE into one key (WC-2026-11-10-wipe-filter-user-default),
+ * or `undefined` when its history row cannot be found.
+ *
+ * deleteSectionData writes the role-4 twin (`marker.row`) FIRST, then, in the
+ * same transaction, the key's history: an optional BACKFILL row (the pre-wipe
+ * value, when the key had no visible history) and the wipe's own row (the value
+ * it left). Row ids follow that order (one record's writes serialise behind its
+ * FOR UPDATE lock), so the wipe's row is the key's first visible row after the
+ * twin — or the one after it, when that first row is the backfill (it holds
+ * the snapshot's value; a wipe that changed nothing never reaches here).
+ */
+async function wipeWrittenValue(
+	marker: RecordMarker,
+	tipo: string,
+	snapshotValue: unknown,
+): Promise<unknown> {
+	// deleteSectionData skips an EMPTY key: a record wiped with no filter got
+	// none from the wipe, so any row after the twin is someone else's write.
+	if (isEmptyValue(snapshotValue)) return undefined;
+	let row = await nextKeyRow(marker, tipo, marker.row.id);
+	if (row !== null && canonicalJson(row.data) === canonicalJson(snapshotValue)) {
+		row = await nextKeyRow(marker, tipo, row.id);
+	}
+	return row === null ? undefined : row.data;
+}
+
+/**
+ * Whether a live key is still in the state the wipe left it. Every key a wipe
+ * EMPTIES is recognised by being empty. The one key it FILLS — component_filter,
+ * the wiper's default projects with a fresh counter id (wipedComponentValue) —
+ * is a function of who wiped and when, so it is never recomputed here: it is
+ * compared with what the wipe wrote, read back from the wipe's own history row.
+ * That also recognises a PRE-FIX wipe (its row holds the old constant). No row
+ * → not recognised: the key reads as written since, and the record is kept —
+ * never a guess.
+ */
+async function isWipedState(
+	live: unknown,
+	model: string,
+	tipo: string,
+	marker: RecordMarker,
+	snapshotValue: unknown,
+): Promise<boolean> {
 	if (isEmptyValue(live)) return true;
-	const wiped = wipedComponentValue(model, tipo);
-	return wiped !== null && canonicalJson(live) === canonicalJson(wiped);
+	if (model !== 'component_filter') return false;
+	const written = await wipeWrittenValue(marker, tipo, snapshotValue);
+	return written !== undefined && canonicalJson(live) === canonicalJson(written);
 }
 
 /** The state a revert PRODUCES on one record, per key (producedStateOf). */
@@ -651,7 +718,9 @@ async function wipedKeysOf(
 				continue;
 			}
 			const model = (await getModelByTipo(tipo)) ?? '';
-			if (!isWipedState(liveValue, model, tipo)) return { keys, written: true };
+			if (!(await isWipedState(liveValue, model, tipo, marker, value))) {
+				return { keys, written: true };
+			}
 			if (isEmptyValue(value)) continue; // nothing to bring back
 			keys.push({ column, tipo, model, live: liveValue, value });
 		}

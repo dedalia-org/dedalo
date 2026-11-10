@@ -129,6 +129,24 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Emptying a record's data no longer moves it out of your project.**
+
+    Deleting a record's **data** (keeping the record) empties every field except its
+    projects, which are reset. They used to be reset to the installation's default
+    project, whoever did it — so a cataloguer working in their own project lost sight
+    of the record they had just emptied: they could no longer find, open, edit or
+    restore it. The projects are now reset the way a new record gets them: to your
+    first project, or the default project for a global administrator (or a user with
+    no project). The same applies when a dataframe link set to delete its target
+    empties that record.
+
+    Records emptied before this update still sit in the default project. An
+    administrator can find them, and put each one back in the projects it had before
+    it was emptied, with the new **wiped_filter_projects** check in the Maintenance
+    area's reconcile panel: run it first without applying to see the list, then apply.
+
+    Wire contract: `WC-2026-11-10-wipe-filter-user-default`.
+
 - **The transcription print tool shows why it cannot open instead of staying blank.**
 
     When the server refused the request that resolves a transcription's tags (for example because the
@@ -299,7 +317,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 14 entries"
+??? note "Wire contract — 15 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -315,6 +333,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-10-section-terms-read-door`
     - `WC-2026-11-10-tags-info-read-door`
     - `WC-2026-11-10-widget-data-read-door`
+    - `WC-2026-11-10-wipe-filter-user-default`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

@@ -101,8 +101,6 @@ const WRITE_MODULES = [
  * has to make in this file, not an omission nobody notices.
  */
 const NON_PRIMITIVE_EXPORTS: Record<string, string> = {
-	wipedComponentValue:
-		'a pure value rule (what a data wipe leaves in one key); reads config, writes nothing.',
 	isInstalledDataLang: 'a language predicate; reads config, writes nothing.',
 	installedDataLangs: 'a language accessor; reads config, writes nothing.',
 	ontologyTldRefusal: 'builds a refusal message from an ontology node; writes nothing.',
@@ -221,6 +219,11 @@ const CENSUS: Record<string, CensusRow> = {
 		verdict: 'system',
 		reason:
 			'the portal_declared_order reconcile (portal order model, WC-2026-10-31-portal-order-model) — run by the operator (Maintenance › Reconcile, scripts/reconcile.ts) or a post-COMMIT ontology-change trigger; no request or principal exists, so it saves as userId -1 with a superuser principal. Its keys are portal tipos that DECLARE a column order (request_config show.ddo_map `order`), re-saving the SAME locators re-ranked (set_data; relation gate 0 skips every gate for stored locators) — never a new value, and never a dd128 field the save door would not already accept from the record it holds.',
+	},
+	'src/core/section/record/wiped_filter_reconcile.ts': {
+		verdict: 'system',
+		reason:
+			'the wiped_filter_projects reconcile (T0-5): run by the operator (Maintenance › Reconcile, scripts/reconcile.ts) — no request or principal exists, so it restores as userId -1 through persistRestoredKeys. Its only key is a section’s component_filter (getComponentFilterTipo), written back to the value its own Time Machine history held before a pre-T0-5 data wipe, and only while the key still holds that wipe’s exact signature (re-checked under the row lock); the users section declares no component_filter (getComponentFilterTipo(dd128) is null), so no dd128 component is reachable.',
 	},
 	'src/core/relations/children_orphan_sweep.ts': {
 		verdict: 'system',

@@ -167,6 +167,7 @@ export const REGISTERED_NAMES: readonly string[] = [
 	'web_image_exposure',
 	'portal_declared_order',
 	'ddo_self_depth',
+	'wiped_filter_projects',
 ];
 
 // Process-lifetime registry state (module_state_tripwire allowlisted): the
