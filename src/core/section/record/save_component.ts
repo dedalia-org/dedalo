@@ -87,6 +87,7 @@ import {
 	removeDataframeDataById,
 	type SortByColumnChange,
 	type SortDataChange,
+	type ToolAddNewElementAccess,
 	validateRelationInsert,
 } from '../../relations/save.ts';
 import {
@@ -96,6 +97,7 @@ import {
 	type WriteReceipt,
 } from '../../section_record/index.ts';
 import type { Principal } from '../../security/permissions.ts';
+import { currentPrincipal } from '../../security/request_context.ts';
 import type { AppendMergeResult, RelationAppendValidator } from './append_merge.ts';
 import { beginSaveHistory, finishSaveHistory } from './bulk_capture.ts';
 import { applyItemGate } from './item_gates.ts';
@@ -216,6 +218,19 @@ export interface SaveRequest {
 	 * a scan in test/unit/save_append_import_native.test.ts (the gate).
 	 */
 	appendImport?: true | AppendImportOptions;
+	/**
+	 * A TOOL-driven add_new_element (T0-2, owner decision D3 REVISED 2026-11-10):
+	 * the access relations/save.ts `toolAddNewElementAccess(principal, tool)`
+	 * mints — the SECTION-level create + target_sections membership, no
+	 * New-button half. Absent → the USER door rule (the New-button predicate).
+	 *
+	 * NOT A WIRE FIELD, and unforgeable twice over: every door builds its
+	 * SaveRequest field by field (dd_core_api save never spreads the wire
+	 * payload), and the value carries a module-private SYMBOL brand that no JSON
+	 * payload can produce — applyAddNewElement refuses an unbranded one. Who
+	 * mints it is censused (create_door_census_tripwire: tool server code only).
+	 */
+	toolCreateAccess?: ToolAddNewElementAccess;
 }
 
 /** The object form of `SaveRequest.appendImport`. */
@@ -1838,12 +1853,24 @@ async function applySaveComponentData(
 		if (change.action === 'add_new_element') {
 			// PHP component_relation_common::add_new_element: create a target
 			// record (inheriting the host's project filter) and link it.
+			// T0-2: the TARGET is authorized inside (the create rule the access
+			// names, then the target_sections membership) — the host grant above
+			// says nothing about it.
 			const outcome = await applyAddNewElement(
 				items,
 				String(change.value ?? ''),
 				componentTipo,
 				sectionTipo,
 				sectionId,
+				{
+					// A tool's server-minted access (section level), else the USER
+					// door rule (the New-button predicate + target_sections).
+					access: request.toolCreateAccess ?? {
+						mode: 'create',
+						principal: request.principal ?? currentPrincipal(),
+						membership: 'target_sections',
+					},
+				},
 			);
 			if (outcome === null) {
 				return { ok: false, message: 'add_new_element failed' };

@@ -48,10 +48,16 @@ async function authorizeWrite(
 	});
 }
 
-/** A create: no record named, so the consultation-capped SECTION level is its whole authorization. */
-async function authorizeSectionCreate(principal: Principal, sectionTipo: string, door: string) {
-	const { authorizeSectionTarget } = await import('../../../core/security/write_door.ts');
-	return authorizeSectionTarget(principal, { section_tipo: sectionTipo }, { level: 2, door });
+/**
+ * A create: no record named, so "may create in S" is its whole authorization —
+ * the user-facing New-button predicate (T0-2 / D4, write_door.ts
+ * authorizeRecordCreate): the consultation-capped section level ≥ 2 AND the
+ * section's first button_new ≥ 2. NOT the section-level rule core create asks
+ * (authorizeSectionCreate, D4 REVISED).
+ */
+async function authorizeMcpCreate(principal: Principal, sectionTipo: string, door: string) {
+	const { authorizeRecordCreate } = await import('../../../core/security/write_door.ts');
+	return authorizeRecordCreate(principal, sectionTipo, { door });
 }
 
 /**
@@ -181,9 +187,8 @@ export async function createRecord(
 	input: { section_tipo: string },
 ): Promise<{ section_id: number }> {
 	const sectionTipo = assertValidTipo(input.section_tipo, 'mcp.create.section_tipo');
-	// No record named: the (consultation-capped) section level is the whole
-	// authorization of a create.
-	const grant = await authorizeSectionCreate(principal, sectionTipo, 'mcp.create');
+	// No record named: the New-button predicate is the whole authorization of a create.
+	const grant = await authorizeMcpCreate(principal, sectionTipo, 'mcp.create');
 	const { createSectionRecord } = await import('../../../core/section/record/create_record.ts');
 	const sectionId = await createSectionRecord(grant.sectionTipo, principal.userId);
 	return { section_id: sectionId };

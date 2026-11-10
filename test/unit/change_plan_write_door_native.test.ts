@@ -28,6 +28,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { validateChangePlan } from '../../src/ai/agent/change_plan.ts';
 import { TOOL_REGISTRY } from '../../src/ai/mcp/registry.ts';
+import { sql } from '../../src/core/db/postgres.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { type Principal, resolvePrincipal } from '../../src/core/security/permissions.ts';
 import {
@@ -137,6 +138,32 @@ describe.if(DB_READY)('req 7 — the change-plan validator asks the write door',
 		expect(
 			await verdict(superuser, 'dedalo_create_record', { section_tipo: CONSULTATION_ONLY }),
 		).toBe('perm.denied');
+	});
+
+	// T0-2 / D4 (review finding F3): a create / duplicate op is dry-run on the SAME
+	// New-button predicate its MCP executor asks (authorizeRecordCreate), so a plan the
+	// human confirms never half-applies on it. FEATURE_EDITOR holds test3 at 2 and its
+	// button_new test126 at an explicit 0; CONTROL holds both at 2.
+	test('a create / duplicate op asks the NEW-BUTTON predicate: FEATURE_EDITOR (test126 at 0) is refused, nothing written', async () => {
+		const rowsBefore =
+			await sql`SELECT count(*)::int AS n FROM matrix_test WHERE section_tipo = ${AUTHZ_SECTION}`;
+		const create = { section_tipo: AUTHZ_SECTION };
+		const duplicate = { section_tipo: AUTHZ_SECTION, section_id: recordId };
+		expect(await verdict(ids.control, 'dedalo_create_record', create)).toBe('validated');
+		expect(await verdict(ids.featureEditor, 'dedalo_create_record', create)).toBe('perm.denied');
+		expect(await verdict(ids.control, 'dedalo_duplicate_record', duplicate)).toBe('validated');
+		expect(await verdict(ids.featureEditor, 'dedalo_duplicate_record', duplicate)).toBe(
+			'perm.denied',
+		);
+		const findArgs = {
+			section_tipo: AUTHZ_SECTION,
+			match: [{ field: AUTHZ_TEXT, value: 'zzplan', lang: 'lg-eng' }],
+		};
+		expect(await verdict(ids.featureEditor, 'dedalo_find_or_create', findArgs)).toBe('perm.denied');
+		// Validation writes nothing — the refused plans left test3's row set as it was.
+		const rowsAfter =
+			await sql`SELECT count(*)::int AS n FROM matrix_test WHERE section_tipo = ${AUTHZ_SECTION}`;
+		expect(rowsAfter[0]?.n).toBe(rowsBefore[0]?.n);
 	});
 
 	test('a find_or_create asks every match field’s pair: SECTION_ONLY on test52 is refused', async () => {

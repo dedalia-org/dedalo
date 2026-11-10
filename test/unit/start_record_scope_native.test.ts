@@ -50,6 +50,7 @@ registerSessionCleanup();
 const SECTION = 'zzsrs1';
 const TEXT = 'zzsrs2';
 const FILTER = 'zzsrs3';
+const BUTTON_NEW = 'zzsrs4';
 const IN_SCOPE_ID = 1;
 const OUT_OF_SCOPE_ID = 2;
 /** Never created: the no-oracle leg. */
@@ -86,6 +87,11 @@ const SITUATION = situation({
 	nodes: [
 		{ tipo: SECTION, parent: 'test1', model: 'section', term: { 'lg-eng': 'zzsrs scoped' } },
 		{ tipo: TEXT, parent: SECTION, model: 'component_input_text', order_number: 1 },
+		// The section's button_new (at 2 in the persona's profile). The persona
+		// CREATES here through core create, which is SECTION level (T0-2 D4
+		// REVISED, authorizeSectionCreate) and does not ask it; the button keeps
+		// the section create-able at the New-button doors too.
+		{ tipo: BUTTON_NEW, parent: SECTION, model: 'button_new', order_number: 3 },
 		{
 			tipo: FILTER,
 			parent: SECTION,
@@ -189,6 +195,7 @@ describe.if(DB_READY)('start: a section deep link is record-scope gated', () => 
 				dd774: [
 					{ id: 1, tipo: SECTION, section_tipo: SECTION, value: 2 },
 					{ id: 2, tipo: TEXT, section_tipo: SECTION, value: 2 },
+					{ id: 3, tipo: BUTTON_NEW, section_tipo: SECTION, value: 2 },
 				],
 			},
 		});

@@ -78,6 +78,7 @@
 	// picker (mode, channel name, publisher, selection cap) is re-declared here.
 	import {PICKER_LINK_CHANNEL_PREFIX, attach_picker} from '../../area_thesaurus/js/thesaurus_picker.js'
 	import {response_data, request_failed} from '../../common/js/api_error.js'
+	import {handle_api_error} from '../../common/js/error_dispatch.js'
 	import {max_page_limit} from '../../common/js/sqo_limit.js'
 	import {can_view_sort, can_save_view_order} from '../../component_portal/js/drag_and_drop.js'
 
@@ -2010,12 +2011,29 @@ const add_new_element_locked = async function(self, target_section_tipo) {
 
 		}else{
 			console.error('Error on api_response on try to create new row:', api_response);
+			// REFUSED creation (perm.denied, request.invalid_source …): ONE toast,
+			// the render kept, nothing opened (render_button_add opens only on
+			// true). data_manager already published 'api_error', but page.js
+			// dispatches it page_scope:false with no wrapper, which for a page-panel
+			// code (perm.* → no_access_page) means "the request's own path owns the
+			// surface" and draws NOTHING — this is that path. Same ctx as a refused
+			// live refresh in build_autoload (common.js live_refresh): no wrapper
+			// (the no-access panel would land INSIDE the live portal) and no
+			// page_scope (the page is fine, only this sub-action was refused) →
+			// render_scoped_panel's toast. Never twice: for a code already 'toast'
+			// by policy (request.invalid_source → '*') the page listener toasted it
+			// synchronously at publish, and this dispatch hits deduped_toast (same
+			// code + text in the dedupe window). Same in component_select.
+				if (api_response?.error) {
+					await handle_api_error(api_response.error, {wrapper: null})
+				}
 			return false
 		}
 
 
 	return true
 }//end add_new_element_locked
+
 
 
 

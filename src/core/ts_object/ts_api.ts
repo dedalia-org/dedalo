@@ -49,6 +49,7 @@ import {
 import { createSectionRecord } from '../section/record/create_record.ts';
 import type { Principal } from '../security/permissions.ts';
 import { getPermissions } from '../security/permissions.ts';
+import { authorizeRecordCreate } from '../security/write_door.ts';
 import { scopeTargetsSection, type WriterChainScope } from '../security/writer_chain_scope.ts';
 import { withTreeTransaction } from './tree_locks.ts';
 import {
@@ -507,8 +508,12 @@ export async function addChild(rqo: Rqo, principal: Principal): Promise<TsApiOut
 	const source = (rqo.source ?? {}) as Record<string, unknown>;
 	const sectionTipo = source.section_tipo as string;
 
-	// SEC-10: write ≥2.
-	await requireSectionLevel(principal, sectionTipo, 2);
+	// SEC-10 + T0-2 / D4: add_child BIRTHS a record, so it asks the New-button
+	// predicate (write_door.ts authorizeRecordCreate): the section ≥ 2 (the old
+	// SEC-10 floor, now consultation-capped) AND the section's first button_new
+	// ≥ 2 — the same rule as the portal "+", core duplicate and the MCP create.
+	// NOT core create, which is SECTION level (authorizeSectionCreate, D4 REVISED).
+	await authorizeRecordCreate(principal, sectionTipo, { door: 'add_child' });
 
 	const sectionId = doorSectionId(source.section_id, 'add_child.section_id');
 

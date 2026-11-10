@@ -362,13 +362,18 @@ export async function findOrCreate(
 	// judged one by one AFTER the record existed: a caller holding the section
 	// at 2 but a match field at 0 (or whose new record fell outside their scope)
 	// left an empty record behind on every call. Now:
-	//   1. the section level of the create, then EVERY match/set field's
-	//      (section, component) pair at write level — before anything is written;
+	//   1. the CREATE PREDICATE (T0-2 / D4: the section ≥ 2 AND its button_new
+	//      ≥ 2 — write_door.ts authorizeRecordCreate), then EVERY match/set
+	//      field's (section, component) pair at write level — before anything is
+	//      written;
 	//   2. the create and every fill run in ONE transaction, so a fill the full
 	//      write door still refuses (the scope of the new record, a link target
 	//      out of reach, a value the engine rejects) rolls the create back.
 	const rules = [...input.match, ...(input.set ?? [])];
-	await authorizeSectionWrite(principal, { section_tipo: sectionTipo }, 'mcp.find_or_create');
+	{
+		const { authorizeRecordCreate } = await import('../../../core/security/write_door.ts');
+		await authorizeRecordCreate(principal, sectionTipo, { door: 'mcp.find_or_create' });
+	}
 	for (const rule of rules) {
 		const fieldTipo = await resolveFieldReference(sectionTipo, rule.field);
 		await authorizeSectionWrite(
@@ -455,6 +460,12 @@ export async function duplicateRecord(
 		{ section_tipo: sectionTipo, section_id: input.section_id },
 		'mcp.duplicate',
 	);
+	// …and a duplicate BIRTHS a record: the New-button predicate (T0-2 / D4), as at
+	// the core duplicate door.
+	{
+		const { authorizeRecordCreate } = await import('../../../core/security/write_door.ts');
+		await authorizeRecordCreate(principal, sectionTipo, { door: 'mcp.duplicate' });
+	}
 	const { duplicateSectionRecord } = await import(
 		'../../../core/section/record/duplicate_record.ts'
 	);

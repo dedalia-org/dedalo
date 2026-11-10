@@ -51,6 +51,31 @@
  * section-level authorization with a null target, whatever its schema layer
  * does or skips. Its grant's `sectionId` is a number by type.
  *
+ * TWO CREATE RULES (T0-2, WC-2026-11-10-add-new-element-create-gate; owner
+ * decisions D1/D4 2026-11-10, D4/D3 REVISED the same day). There is NO single
+ * create rule engine-wide, by design — each door asks exactly one of these:
+ *
+ * {@link authorizeRecordCreate} — THE NEW-BUTTON PREDICATE, "may PRESS NEW in
+ * S": the section level ≥ 2 (consultation-capped) AND the FIRST `button_new`
+ * of S (section/buttons.ts `sectionButtonRows` — virtual + exclude_elements
+ * aware, the same rows the section list's "New" and the portal "+" answer
+ * from) ≥ 2. No button_new → refused, the superuser included (PHP
+ * security::get_section_new_permissions: null < 2). Asked by: add_new_element
+ * through a USER door (portal / select save, temporal, children "+" —
+ * relations/save.ts applyAddNewElement, `create` access), the tree's add_child,
+ * core + MCP duplicate, the MCP create / find_or_create, and the agent change
+ * plan's dry-run of those ops.
+ *
+ * {@link authorizeSectionCreate} — THE SECTION-LEVEL CREATE, "may create in S"
+ * where S is a FEATURE-OWNED target that ships no "New" (text-area / TM / index
+ * notes, references, dataframe frames, presets) or an import: the section level
+ * ≥ 2, consultation-capped — PHP dd_core_api::create parity. Asked by: core
+ * `create`, and a TOOL-driven add_new_element (applyAddNewElement `tool`
+ * access, minted server-side only). The tool import create doors and the
+ * duplicate's dataframe re-mint ask the same section level through their own
+ * section-target checks. Residual (as PHP): a crafted core `create` skips the
+ * New button.
+ *
  * ── REFUSAL CODES (the adapter in core/tools/security.ts maps them onto the
  *    legacy tool-envelope sentences; every other door relays them) ──────────
  *
@@ -66,7 +91,9 @@
 import { INT4_MAX, INT4_MIN } from '../concepts/section_id.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { assertValidTipo } from '../search/identifier_gate.ts';
+import { sectionButtonRows } from '../section/buttons.ts';
 import {
+	getPermissions,
 	getRecordComponentPermission,
 	getSectionPermissions,
 	isSelfServiceAccountWrite,
@@ -443,4 +470,106 @@ async function authorizeParsedSectionTarget(
 		);
 	}
 	return Object.freeze({ ...target, level, door }) as SectionGrant;
+}
+
+/**
+ * THE SECTION-LEVEL CREATE (see the header — the second create rule): the
+ * consultation-capped SECTION level ≥ 2, nothing else. A thin, NAMED door over
+ * {@link authorizeSectionTarget} with no record named, so the census
+ * (create_door_census_tripwire, verdict `authorizes-section-create`) can see
+ * which doors ask the section level as their create rule — never the New
+ * button. Refusal: `perm.denied` 403 (or `request.invalid` on a bad tipo).
+ */
+export async function authorizeSectionCreate(
+	principal: Principal,
+	sectionTipo: unknown,
+	options: { readonly door: string },
+): Promise<SectionGrant> {
+	return authorizeSectionTarget(
+		principal,
+		{ section_tipo: sectionTipo },
+		{ level: 2, door: options.door },
+	);
+}
+
+/**
+ * Proof that a CREATE in a section was authorized ({@link authorizeRecordCreate}).
+ * Names the button_new the decision read, so a refusal and a grant are both
+ * traceable to one ontology node.
+ */
+export type SectionCreateGrant = Readonly<{
+	[grantBrand]: true;
+	sectionTipo: string;
+	/** The section's first button_new (sectionButtonRows) — the create grant read. */
+	buttonNewTipo: string;
+	/** The section level (consultation-capped). */
+	sectionLevel: number;
+	/** The button_new level. */
+	createLevel: number;
+	door: string;
+	/** The principal the grant was minted for — the created record's author. */
+	userId: number;
+}>;
+
+/** The refusal of a create: one sentence per missing half, one code (perm.denied). */
+function createRefused(
+	door: string,
+	sectionTipo: string,
+	reason: string,
+	coordinates: Record<string, unknown> = {},
+): DedaloError {
+	return new DedaloError('perm.denied', {
+		message: `${door}: may not create a record in ${sectionTipo} — ${reason}`,
+		coordinates: { door, section_tipo: sectionTipo, ...coordinates },
+	});
+}
+
+/**
+ * THE CREATE PREDICATE — "may `principal` create a record in `sectionTipo`?"
+ * In this order, THROWING on the first refusal:
+ *
+ *   1. GRAMMAR  the tipo passes the identifier gate (`request.invalid`).
+ *   2. SECTION  `getSectionPermissions >= 2` — consultation-capped, so Activity
+ *               / Time Machine are refused here for everyone (D1 (b): a create
+ *               the caller could not then edit is no create).
+ *   3. BUTTON   the FIRST `button_new` of `sectionButtonRows(S)` exists — a
+ *               section that offers no "New" admits no create, superuser
+ *               INCLUDED (PHP null < 2);
+ *   4. LEVEL    `getPermissions(principal, S, button_new) >= 2`.
+ *
+ * Every refusal is `perm.denied` (403). Two cached lookups (the ontology
+ * button-row cache, the per-user permissions table). No module state.
+ */
+export async function authorizeRecordCreate(
+	principal: Principal,
+	sectionTipo: unknown,
+	options: { readonly door: string },
+): Promise<SectionCreateGrant> {
+	const { door } = options;
+	const tipo = gateTipo(sectionTipo, door, 'section_tipo');
+	const sectionLevel = await getSectionPermissions(principal, tipo);
+	if (sectionLevel < 2) {
+		// Names the SECTION as the refused tipo (as levelShortfall's section half does).
+		throw createRefused(door, tipo, 'the section grant is below 2', { tipo, required: 2 });
+	}
+	const buttonNewTipo =
+		(await sectionButtonRows(tipo)).find((row) => row.model === 'button_new')?.tipo ?? null;
+	if (buttonNewTipo === null) {
+		throw createRefused(door, tipo, 'the section offers no button_new');
+	}
+	const createLevel = await getPermissions(principal, tipo, buttonNewTipo);
+	if (createLevel < 2) {
+		throw createRefused(door, tipo, `the button_new grant ${buttonNewTipo} is below 2`, {
+			tipo: buttonNewTipo,
+			required: 2,
+		});
+	}
+	return Object.freeze({
+		sectionTipo: tipo,
+		buttonNewTipo,
+		sectionLevel,
+		createLevel,
+		door,
+		userId: principal.userId,
+	}) as SectionCreateGrant;
 }

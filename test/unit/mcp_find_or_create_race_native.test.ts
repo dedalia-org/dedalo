@@ -37,6 +37,9 @@ const SITUATION = situation({
 	nodes: [
 		{ tipo: SECTION, parent: 'test1', model: 'section', term: { 'lg-eng': 'Zz entities' } },
 		{ tipo: NAME, parent: SECTION, model: 'component_input_text', term: { 'lg-eng': 'Zz name' } },
+		// The create branch asks the New-button predicate (T0-2): no button_new, no
+		// create — the superuser included.
+		{ tipo: 'zzfoc3', parent: SECTION, model: 'button_new' },
 	],
 });
 

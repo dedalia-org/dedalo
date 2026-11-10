@@ -291,6 +291,10 @@ HERMETIC_TRIPWIRES=(
 	test/unit/tool_read_only_action_tripwire.test.ts
 	test/unit/client_error_contract_tripwire.test.ts
 	test/unit/tool_reason_keys_tripwire.test.ts
+	# --- 2026-11-10: the T0-2 create-door census -- fs + the import-resolved call
+	#     graph only (no src module imported). Verified DB-less (DB_HOST=127.0.0.1
+	#     DB_PORT=59999: 29 pass / 0 fail, 2026-11-10 after the D4/D3 revision).
+	test/unit/create_door_census_tripwire.test.ts
 	test/unit/sw_tombstone_tripwire.test.ts
 	test/unit/date_flat_value_single_source_tripwire.test.ts
 	test/unit/error_throw_ratchet.test.ts

@@ -80,6 +80,8 @@ const FILTER_TIPO = 'test6834';
 const HOST_SECTION = 'test6099';
 const PORTAL = 'test6157';
 const TARGET_SECTION = 'test6100';
+/** TARGET_SECTION's button_new (the create grant the portal "+" needs). */
+const TARGET_BUTTON_NEW = 'test6274';
 /**
  * WHERE these sections store. Resolved from the ontology in beforeAll (a `test`
  * clone carries the test24 matrix_table node → `matrix_test`) and asserted
@@ -92,7 +94,7 @@ const SCRATCH_USER = 99999871;
 const SCRATCH_USER_NO_PROJECTS = 99999872;
 /** Deliberately NOT DEDALO_DEFAULT_PROJECT, so "their own project" is provable. */
 const SCRATCH_PROJECT = 99871;
-/** A scratch dd234 profile granting SCRATCH_USER level 2 on the host section and its portal. */
+/** A scratch dd234 profile granting SCRATCH_USER level 2 on the host section and its portal, and the create grant (section + button_new) on the portal target. */
 const SCRATCH_PROFILE = 99999871;
 
 const created: { sectionTipo: string; sectionId: number }[] = [];
@@ -177,6 +179,11 @@ beforeAll(async () => {
 				dd774: [
 					{ tipo: HOST_SECTION, section_tipo: HOST_SECTION, value: 2 },
 					{ tipo: PORTAL, section_tipo: HOST_SECTION, value: 2 },
+					// The portal "+" CREATES in TARGET_SECTION as this user: the T0-2
+					// New-button predicate (write_door.ts authorizeRecordCreate) asks the
+					// target section ≥ 2 AND its button_new (test6274) ≥ 2.
+					{ tipo: TARGET_SECTION, section_tipo: TARGET_SECTION, value: 2 },
+					{ tipo: TARGET_BUTTON_NEW, section_tipo: TARGET_SECTION, value: 2 },
 				],
 			}),
 		],

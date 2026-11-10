@@ -101,6 +101,15 @@ const section = (tipo: string) => ({
 	term: { 'lg-eng': `zz ${tipo}`, 'lg-spa': `zz ${tipo}` },
 });
 
+/** A face portal's explicit request_config: its one target is the image section. */
+const imagePortalConfig = {
+	source: {
+		request_config: [
+			{ sqo: { section_tipo: [{ source: 'section', value: [TARGETS.imageSection] }] } },
+		],
+	},
+};
+
 const SITUATION = situation({
 	tld: TLD,
 	name: 'numisdata acquisition commit',
@@ -116,8 +125,17 @@ const SITUATION = situation({
 		component(TARGETS.publicRemark, TARGETS.object, 'component_text_area', true),
 		component(TARGETS.sourceUri, TARGETS.object, 'component_iri'),
 		component(TARGETS.typeRelation, TARGETS.object, 'component_autocomplete'),
-		component(TARGETS.obversePortal, TARGETS.object, 'component_portal'),
-		component(TARGETS.reversePortal, TARGETS.object, 'component_portal'),
+		// The face portals TARGET the image section (as the real numisdata portals
+		// target rsc170): an add_new_element outside a portal's target_sections is
+		// refused (T0-2 / D2), so the situation declares what the install declares.
+		{
+			...component(TARGETS.obversePortal, TARGETS.object, 'component_portal'),
+			properties: imagePortalConfig,
+		},
+		{
+			...component(TARGETS.reversePortal, TARGETS.object, 'component_portal'),
+			properties: imagePortalConfig,
+		},
 		section(TARGETS.auctionSection),
 		component(TARGETS.auctionCompany, TARGETS.auctionSection, 'component_autocomplete'),
 		component(TARGETS.auctionNumberTitle, TARGETS.auctionSection, 'component_input_text'),
@@ -131,6 +149,11 @@ const SITUATION = situation({
 		component(TARGETS.catalogueName, TARGETS.catalogueSection, 'component_input_text'),
 		section(TARGETS.imageSection),
 		component(TARGETS.imageComponent, TARGETS.imageSection, 'component_image'),
+		// The image section's button_new. Each face's portal add_new_element is a
+		// TOOL create (T0-2 / D3 REVISED): SECTION level + target_sections, it does
+		// not ask the button; the node keeps the section create-able at the user
+		// New-button doors too.
+		component('zzna62', TARGETS.imageSection, 'button_new'),
 	],
 });
 

@@ -34,7 +34,11 @@
  *
  *   user/profile  identity         dd244   project  grants (dd774)
  *   944001/944011 CONTROL          No      P        test3=2 + MEDIA_COMPONENTS=2 + test52/test101/test162/zzauthz1/test99=2
- *   944002/944012 SECTION_ONLY     No      P        test3=2, MEDIA_COMPONENTS=0 (explicit), test101=1
+ *                                                   + test126=2 (test3's button_new: CONTROL MAY CREATE — the
+ *                                                   T0-2 New-button predicate asks it at the user create doors;
+ *                                                   core create is SECTION level and does not)
+ *   944002/944012 SECTION_ONLY     No      P        test3=2, MEDIA_COMPONENTS=0 (explicit), test101=1,
+ *                                                   test126=2 (may create: its refusals are the components')
  *   944003/944013 COMPONENT_ONLY   No      P        test3=0 (explicit), MEDIA_COMPONENTS=2, test101=1
  *   944004/944014 OUT_OF_SCOPE     No      Q        = CONTROL
  *   944005/944015 USER_MANAGER     No      P        dd128=2, dd128.dd1725=2, dd128.dd132=2
@@ -42,7 +46,8 @@
  *   944007/944017 TOOL_GRANTED     No      P        = CONTROL, plus dd1067 → tool_assistant,
  *                                                   tool_identify, tool_rag
  *   944008/944018 LEVEL_1          No      P        test3=1 + MEDIA_COMPONENTS=1 + test101=1 (read, never write)
- *   944009/944019 TEXT_ONLY        No      P        test3=2, test17=2, AUTHZ_SUBTITLE_TEXT_AREA=2, test94=0
+ *   944009/944019 TEXT_ONLY        No      P        test3=2, test17=2, AUTHZ_SUBTITLE_TEXT_AREA=2, test94=0,
+ *                                                   test126=2 (may create)
  *                                                   (the transcript is writable, its AV is not)
  *   944010/944020 TRANSCRIBER      No      P        test3=2, test17=2, AUTHZ_SUBTITLE_TEXT_AREA=2, test94=1
  *                                                   (the typical transcriber: hears the AV, writes the transcript)
@@ -58,6 +63,27 @@
  *   944025/944035 TREE_EDITOR      No      P        test3=2, test201=2 (children), test71=2 (parent),
  *                                                   test22=2 (sibling order), test101=1 — writes a hierarchy;
  *                                                   with OUT_OF_SCOPE's twin absent, scope is its only refusal
+ *
+ *   944026/944036 PORTAL_EDITOR    No      P        test3=2, test80=2 (portal → test3), test126=2 (test3's
+ *                                                   button_new), test101=1; test6100=2, test6274=1 (its
+ *                                                   button_new, READ), test6216=2, test6254=1; test38=2 (no
+ *                                                   button_new); test65=2, test13=2 (button_new — a fully
+ *                                                   create-granted section OUTSIDE test80's targets) +
+ *                                                   test156/test73/test19=2, test151=1 (test65's children,
+ *                                                   parent, order, filter); dd128/dd234: nothing. The T0-2
+ *                                                   create gate's persona (add_new_element_create_gate_native)
+ *   944027/944037 CHILD_EDITOR     No      P        = PORTAL_EDITOR's test65 grants with test13 (the
+ *                                                   button_new) at an EXPLICIT 0 — writes test65's children,
+ *                                                   may not create there
+ *
+ *   944028/944038 FEATURE_EDITOR   No      P        rsc326/rsc832/rsc377/rsc425/rsc1379=2 (the SECTION only —
+ *                                                   the feature-owned sections ship no button_new: notes, TM
+ *                                                   notes, index notes, references, dataframe Annotation
+ *                                                   frames); test3=2, test80=2, test101=1, test126 at an
+ *                                                   EXPLICIT 0 (writes test3's portal, may NOT press its
+ *                                                   "New"); test6100=2 with test6274 at an explicit 0. The
+ *                                                   section-level create doors' persona (T0-2 D4/D3 revised:
+ *                                                   core create, tool-driven add_new_element)
  *
  *   (User ids skip 944021/944022 — the projects — so a profile id, N + 10,
  *   never lands on another record of the band.)
@@ -117,10 +143,47 @@ export const AUTHZ_TRANSCRIBER_USER_ID = 944010;
 export const AUTHZ_READ_COMPONENT_USER_ID = 944023;
 export const AUTHZ_READ_SECTION_USER_ID = 944024;
 export const AUTHZ_TREE_EDITOR_USER_ID = 944025;
+export const AUTHZ_PORTAL_EDITOR_USER_ID = 944026;
+export const AUTHZ_CHILD_EDITOR_USER_ID = 944027;
+export const AUTHZ_FEATURE_EDITOR_USER_ID = 944028;
+/**
+ * The feature-owned sections WITHOUT a button_new (T0-2 regression hunt,
+ * 2026-11-10): text-area notes, Time Machine notes, index notes, references,
+ * dataframe Annotation frames. Seed-shipped `rsc` (core-installed on every
+ * install), spelled through {@link seedTipo} as the generic-TLD census asks.
+ */
+const seedTipo = <T extends string, N extends number>(tld: T, id: N): `${T}${N}` => `${tld}${id}`;
+export const AUTHZ_FEATURE_SECTIONS = [
+	seedTipo('rsc', 326),
+	seedTipo('rsc', 832),
+	seedTipo('rsc', 377),
+	seedTipo('rsc', 425),
+	seedTipo('rsc', 1379),
+] as const;
 /** test3's component_relation_children / its paired component_relation_parent / the order number. */
 export const AUTHZ_CHILDREN = 'test201';
 export const AUTHZ_PARENT = 'test71';
 export const AUTHZ_ORDER = 'test22';
+/** test3's component_portal (targets test3 only). */
+export const AUTHZ_PORTAL = 'test80';
+/** test3's button_new — the create grant on test3. */
+export const AUTHZ_BUTTON_NEW = 'test126';
+/** A section whose button_new (test6274) the PORTAL_EDITOR holds at READ only. */
+export const AUTHZ_READ_BUTTON_SECTION = 'test6100';
+export const AUTHZ_READ_BUTTON_NEW = 'test6274';
+/** test6100's component_input_text (a find_or_create match field) / component_filter. */
+export const AUTHZ_READ_BUTTON_TEXT = 'test6216';
+export const AUTHZ_READ_BUTTON_FILTER = 'test6254';
+/** A section with NO button_new at all. */
+export const AUTHZ_NO_BUTTON_SECTION = 'test38';
+/** A fully create-granted section (button_new test13) OUTSIDE test80's targets. */
+export const AUTHZ_OFF_TARGET_SECTION = 'test65';
+export const AUTHZ_OFF_TARGET_BUTTON_NEW = 'test13';
+/** test65's component_relation_children / parent / order / filter (a project-filtered hierarchy). */
+export const AUTHZ_OFF_TARGET_CHILDREN = 'test156';
+export const AUTHZ_OFF_TARGET_PARENT = 'test73';
+export const AUTHZ_OFF_TARGET_ORDER = 'test19';
+export const AUTHZ_OFF_TARGET_FILTER = 'test151';
 
 /** The profile of user N is N + 10 (944001 → 944011). */
 const profileOf = (userId: number): number => userId + 10;
@@ -224,6 +287,19 @@ const CONTROL_GRANTS: [string, string, number][] = [
 	[AUTHZ_SECTION, AUTHZ_TEXT_2, 2],
 	[AUTHZ_SECTION, AUTHZ_SUBTITLE_TEXT_AREA, 2],
 	[AUTHZ_SECTION, AUTHZ_IMAGE, 2],
+	// test3's button_new: the CONTROL (and every identity "= CONTROL") MAY CREATE
+	// in test3 — the T0-2 New-button predicate (write_door.ts authorizeRecordCreate)
+	// asks it at the portal "+", duplicate, add_child and the MCP create doors.
+	// Core create is SECTION level (authorizeSectionCreate, D4 REVISED): not asked.
+	[AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 2],
+];
+
+/** test65's tree (children, parent link, order) writable, its filter readable. */
+const OFF_TARGET_TREE_GRANTS: [string, string, number][] = [
+	[AUTHZ_OFF_TARGET_SECTION, AUTHZ_OFF_TARGET_CHILDREN, 2],
+	[AUTHZ_OFF_TARGET_SECTION, AUTHZ_OFF_TARGET_PARENT, 2],
+	[AUTHZ_OFF_TARGET_SECTION, AUTHZ_OFF_TARGET_ORDER, 2],
+	[AUTHZ_OFF_TARGET_SECTION, AUTHZ_OFF_TARGET_FILTER, 1],
 ];
 
 const IDENTITIES: readonly IdentitySpec[] = [
@@ -247,6 +323,10 @@ const IDENTITIES: readonly IdentitySpec[] = [
 			[AUTHZ_SECTION, AUTHZ_TEXT, 0],
 			[AUTHZ_SECTION, AUTHZ_SUBTITLE_TEXT_AREA, 0],
 			[AUTHZ_SECTION, AUTHZ_FILTER, 1],
+			// May create in test3 (as on HEAD, when the section level was a create's
+			// whole authorization): a NO_COMPONENT cell on a create door (MCP
+			// find_or_create) must be refused ON its component, not on the button.
+			[AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 2],
 		],
 	},
 	{
@@ -308,6 +388,9 @@ const IDENTITIES: readonly IdentitySpec[] = [
 			[AUTHZ_SECTION, AUTHZ_SUBTITLE_TEXT_AREA, 2],
 			[AUTHZ_SECTION, AUTHZ_AV, 0],
 			[AUTHZ_SECTION, AUTHZ_FILTER, 1],
+			// May create in test3: its refusal on a create door (MCP find_or_create's
+			// SET field) must be the AV's, not the button's.
+			[AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 2],
 		],
 	},
 	{
@@ -365,6 +448,63 @@ const IDENTITIES: readonly IdentitySpec[] = [
 			[AUTHZ_SECTION, AUTHZ_PARENT, 2],
 			[AUTHZ_SECTION, AUTHZ_ORDER, 2],
 			[AUTHZ_SECTION, AUTHZ_FILTER, 1],
+		],
+	},
+	{
+		// The create gate's persona (T0-2): writes test3's portal and children,
+		// may create in test3 (button_new at 2) and test65 (outside the portal's
+		// targets); holds test6100 at 2 but its button_new at READ (1); test38 at
+		// 2 with no button_new to hold; nothing on dd128/dd234.
+		userId: AUTHZ_PORTAL_EDITOR_USER_ID,
+		name: 'zzauthz_portal_editor',
+		admin: false,
+		project: AUTHZ_PROJECT_P,
+		grants: [
+			[AUTHZ_SECTION, AUTHZ_SECTION, 2],
+			[AUTHZ_SECTION, AUTHZ_PORTAL, 2],
+			[AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 2],
+			[AUTHZ_SECTION, AUTHZ_FILTER, 1],
+			[AUTHZ_READ_BUTTON_SECTION, AUTHZ_READ_BUTTON_SECTION, 2],
+			[AUTHZ_READ_BUTTON_SECTION, AUTHZ_READ_BUTTON_NEW, 1],
+			[AUTHZ_READ_BUTTON_SECTION, AUTHZ_READ_BUTTON_TEXT, 2],
+			[AUTHZ_READ_BUTTON_SECTION, AUTHZ_READ_BUTTON_FILTER, 1],
+			[AUTHZ_NO_BUTTON_SECTION, AUTHZ_NO_BUTTON_SECTION, 2],
+			[AUTHZ_OFF_TARGET_SECTION, AUTHZ_OFF_TARGET_SECTION, 2],
+			[AUTHZ_OFF_TARGET_SECTION, AUTHZ_OFF_TARGET_BUTTON_NEW, 2],
+			...OFF_TARGET_TREE_GRANTS,
+		],
+	},
+	{
+		// The children door's refusal: test65's tree writable, its button_new at an
+		// EXPLICIT 0 — the create grant is the only thing it lacks.
+		userId: AUTHZ_CHILD_EDITOR_USER_ID,
+		name: 'zzauthz_child_editor',
+		admin: false,
+		project: AUTHZ_PROJECT_P,
+		grants: [
+			[AUTHZ_OFF_TARGET_SECTION, AUTHZ_OFF_TARGET_SECTION, 2],
+			[AUTHZ_OFF_TARGET_SECTION, AUTHZ_OFF_TARGET_BUTTON_NEW, 0],
+			...OFF_TARGET_TREE_GRANTS,
+		],
+	},
+	{
+		// The SECTION-level create doors' persona (T0-2, D4/D3 revised 2026-11-10):
+		// write on every feature section (none ships a button_new) and on test3 +
+		// its portal, with test3's button_new and test6100's at an EXPLICIT 0 —
+		// core create and a tool-driven add_new_element must admit it, every
+		// New-button door must refuse it.
+		userId: AUTHZ_FEATURE_EDITOR_USER_ID,
+		name: 'zzauthz_feature_editor',
+		admin: false,
+		project: AUTHZ_PROJECT_P,
+		grants: [
+			...AUTHZ_FEATURE_SECTIONS.map((tipo): [string, string, number] => [tipo, tipo, 2]),
+			[AUTHZ_SECTION, AUTHZ_SECTION, 2],
+			[AUTHZ_SECTION, AUTHZ_PORTAL, 2],
+			[AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 0],
+			[AUTHZ_SECTION, AUTHZ_FILTER, 1],
+			[AUTHZ_READ_BUTTON_SECTION, AUTHZ_READ_BUTTON_SECTION, 2],
+			[AUTHZ_READ_BUTTON_SECTION, AUTHZ_READ_BUTTON_NEW, 0],
 		],
 	},
 	{
@@ -603,6 +743,9 @@ export interface AuthzIdentities {
 	readComponent: Principal;
 	readSection: Principal;
 	treeEditor: Principal;
+	portalEditor: Principal;
+	childEditor: Principal;
+	featureEditor: Principal;
 }
 
 export async function resolveAuthzIdentities(): Promise<AuthzIdentities> {
@@ -620,6 +763,9 @@ export async function resolveAuthzIdentities(): Promise<AuthzIdentities> {
 		readComponent: await resolvePrincipal(AUTHZ_READ_COMPONENT_USER_ID),
 		readSection: await resolvePrincipal(AUTHZ_READ_SECTION_USER_ID),
 		treeEditor: await resolvePrincipal(AUTHZ_TREE_EDITOR_USER_ID),
+		portalEditor: await resolvePrincipal(AUTHZ_PORTAL_EDITOR_USER_ID),
+		childEditor: await resolvePrincipal(AUTHZ_CHILD_EDITOR_USER_ID),
+		featureEditor: await resolvePrincipal(AUTHZ_FEATURE_EDITOR_USER_ID),
 	};
 }
 
@@ -641,12 +787,16 @@ export async function assertAuthzDoorContrast(ids: AuthzIdentities): Promise<voi
 		if (p.isGlobalAdmin) problems.push(`${label} is a global admin`);
 		await expectLevel(label, p, AUTHZ_SECTION, AUTHZ_SECTION, 2);
 		for (const tipo of AUTHZ_MEDIA_COMPONENTS) await expectLevel(label, p, AUTHZ_SECTION, tipo, 2);
+		// May create in test3 (T0-2 New-button predicate: test126 is its button_new).
+		await expectLevel(label, p, AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 2);
 	}
+	await expectLevel('sectionOnly', ids.sectionOnly, AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 2);
 	await expectLevel('level1', ids.level1, AUTHZ_SECTION, AUTHZ_SECTION, 1);
 	for (const tipo of AUTHZ_MEDIA_COMPONENTS)
 		await expectLevel('level1', ids.level1, AUTHZ_SECTION, tipo, 1);
 	await expectLevel('textOnly', ids.textOnly, AUTHZ_SECTION, AUTHZ_TEXT_AREA, 2);
 	await expectLevel('textOnly', ids.textOnly, AUTHZ_SECTION, AUTHZ_AV, 0);
+	await expectLevel('textOnly', ids.textOnly, AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 2);
 	await expectLevel('transcriber', ids.transcriber, AUTHZ_SECTION, AUTHZ_TEXT_AREA, 2);
 	await expectLevel('transcriber', ids.transcriber, AUTHZ_SECTION, AUTHZ_SUBTITLE_TEXT_AREA, 2);
 	await expectLevel('transcriber', ids.transcriber, AUTHZ_SECTION, AUTHZ_AV, 1);
@@ -679,6 +829,41 @@ export async function assertAuthzDoorContrast(ids: AuthzIdentities): Promise<voi
 	}
 	// The contrast the children write-through's permission leg needs.
 	await expectLevel('sectionOnly', ids.sectionOnly, AUTHZ_SECTION, AUTHZ_PARENT, 0);
+	// The create gate's contrast: test3's button_new held by PORTAL_EDITOR, not
+	// by TREE_EDITOR; test6100 writable with its button_new at READ.
+	if (ids.portalEditor.isGlobalAdmin) problems.push('portalEditor is a global admin');
+	const pe = ids.portalEditor;
+	await expectLevel('portalEditor', pe, AUTHZ_SECTION, AUTHZ_SECTION, 2);
+	await expectLevel('portalEditor', pe, AUTHZ_SECTION, AUTHZ_PORTAL, 2);
+	await expectLevel('portalEditor', pe, AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 2);
+	await expectLevel('treeEditor', ids.treeEditor, AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 0);
+	const rb = AUTHZ_READ_BUTTON_SECTION;
+	await expectLevel('portalEditor', pe, rb, rb, 2);
+	await expectLevel('portalEditor', pe, rb, AUTHZ_READ_BUTTON_NEW, 1);
+	await expectLevel('portalEditor', pe, AUTHZ_NO_BUTTON_SECTION, AUTHZ_NO_BUTTON_SECTION, 2);
+	await expectLevel('portalEditor', pe, AUTHZ_OFF_TARGET_SECTION, AUTHZ_OFF_TARGET_SECTION, 2);
+	const offButton = AUTHZ_OFF_TARGET_BUTTON_NEW;
+	await expectLevel('portalEditor', pe, AUTHZ_OFF_TARGET_SECTION, offButton, 2);
+	await expectLevel('portalEditor', pe, USERS_SECTION, USERS_SECTION, 0);
+	await expectLevel('portalEditor', pe, PROFILES_SECTION, PROFILES_SECTION, 0);
+	const ce = ids.childEditor;
+	if (ce.isGlobalAdmin) problems.push('childEditor is a global admin');
+	await expectLevel('childEditor', ce, AUTHZ_OFF_TARGET_SECTION, AUTHZ_OFF_TARGET_SECTION, 2);
+	await expectLevel('childEditor', ce, AUTHZ_OFF_TARGET_SECTION, offButton, 0);
+	for (const tipo of [AUTHZ_OFF_TARGET_CHILDREN, AUTHZ_OFF_TARGET_PARENT, AUTHZ_OFF_TARGET_ORDER]) {
+		await expectLevel('portalEditor', pe, AUTHZ_OFF_TARGET_SECTION, tipo, 2);
+		await expectLevel('childEditor', ce, AUTHZ_OFF_TARGET_SECTION, tipo, 2);
+	}
+	// The section-level create doors' contrast: every feature section writable,
+	// test3 + its portal writable with its button_new at 0, test6100 likewise.
+	const fe = ids.featureEditor;
+	if (fe.isGlobalAdmin) problems.push('featureEditor is a global admin');
+	for (const tipo of AUTHZ_FEATURE_SECTIONS) await expectLevel('featureEditor', fe, tipo, tipo, 2);
+	await expectLevel('featureEditor', fe, AUTHZ_SECTION, AUTHZ_SECTION, 2);
+	await expectLevel('featureEditor', fe, AUTHZ_SECTION, AUTHZ_PORTAL, 2);
+	await expectLevel('featureEditor', fe, AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 0);
+	await expectLevel('featureEditor', fe, rb, rb, 2);
+	await expectLevel('featureEditor', fe, rb, AUTHZ_READ_BUTTON_NEW, 0);
 	if (problems.length > 0) {
 		throw new Error(`authz_door_fixture: the contrast is degraded — ${problems.join('; ')}`);
 	}

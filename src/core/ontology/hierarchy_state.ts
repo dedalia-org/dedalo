@@ -62,8 +62,10 @@
 import { compareLocators } from '../concepts/locator.ts';
 import { updateMatrixKeyData } from '../db/matrix_write.ts';
 import { sql } from '../db/postgres.ts';
+import { DedaloError } from '../errors/dedalo_error.ts';
 import type { ReconcileDefinition } from '../reconcile/registry.ts';
 import { applyAddNewElement } from '../relations/save.ts';
+import { type Principal, resolvePrincipal } from '../security/permissions.ts';
 import { generateVirtualSection } from './hierarchy_provision.ts';
 import { deleteOntologyByTld } from './ontology_delete.ts';
 import {
@@ -84,7 +86,12 @@ import {
 	THESAURUS_SECTION,
 	YES_NO_SECTION,
 } from './ontology_tipos.ts';
-import { getColumnNameByModel, getMatrixTableFromTipo, getModelByTipo } from './resolver.ts';
+import {
+	getColumnNameByModel,
+	getMatrixTableFromTipo,
+	getModelByTipo,
+	getSectionRealTipo,
+} from './resolver.ts';
 import { getSectionMapValue } from './section_map.ts';
 import { safeTld } from './tld.ts';
 
@@ -530,6 +537,100 @@ async function nameRootTerm(
 }
 
 /**
+ * IS `targetSectionTipo` A SECTION THIS HIERARCHY'S OWN PROVISIONING CREATED?
+ * The shape hierarchy_provision.ts generateVirtualSection writes, checked
+ * exactly as follows (and nothing more):
+ *   1. the tipo is `<tld>1` or `<tld>2` of the row's own TLD (hierarchy6);
+ *   2. its dd_ontology node is a `section`;
+ *   3. it is a VIRTUAL section — `getSectionRealTipo(target) !== target` — whose
+ *      real section is the row's declared source (hierarchy109, unset =
+ *      hierarchy20). A REAL section named `<X>1`/`<X>2` with hierarchy109 set to
+ *      itself is NOT a provisioned virtual and fails here;
+ *   4. the TLD is THIS row's: no OTHER hierarchy1 record declares the same
+ *      hierarchy6 (trim + lower-case, the `findHierarchyByTld` spelling).
+ *
+ * WHY (T0-2 review finding F2): hierarchy53 / hierarchy58 are operator data on
+ * the registry row, so an editor can steer them at ANY empty section; minting
+ * the root there in `system` mode created a record in a section no create rule
+ * was ever asked about. A foreign pairing is legitimate (live: WW → mht72), so
+ * "the target belongs to the TLD" is NOT a universal invariant — only the
+ * hierarchy's OWN provisioned sections are structurally its own. Those keep the
+ * system mint (a brand-new `<tld>1` carries no profile grants yet, so asking
+ * them would block every non-root activation); any other declared target is a
+ * user's choice and is minted under the ACTING principal's New-button
+ * predicate ({@link mintDeclaredRootTerm}).
+ *
+ * WHY 4 IS A UNIQUENESS SCAN (final review S1): hierarchy6 is itself an
+ * editor-writable literal — an editor setting it to ANOTHER installed
+ * hierarchy's TLD made that hierarchy's `<tld>1` look like this row's own.
+ * Provisioning records no row-level ownership fact the editor cannot also
+ * write: the only tie from a `<tld>0`/`<tld>1` node back to its registry record
+ * is the hierarchy53/58 write-back ON that record (editable), and the `<tld>0`
+ * node's grouper parent is not uniform across installs. So the row owns its TLD
+ * only when it is the sole record declaring it; a duplicate declaration (the
+ * hijack, or a genuinely doubled registry) falls back to the acting principal's
+ * create rule. Residual (documented, not checked): a TLD that has NO hierarchy1
+ * row at all (an ontology-only TLD whose `<tld>1` is a virtual section) is
+ * "owned" by whichever row declares it first.
+ */
+async function isOwnProvisionedSection(
+	targetSectionTipo: string,
+	tld: string,
+	row: RegistryRow | null,
+	sectionId: number,
+): Promise<boolean> {
+	if (targetSectionTipo !== `${tld}1` && targetSectionTipo !== `${tld}2`) return false;
+	if ((await getModelByTipo(targetSectionTipo)) !== 'section') return false;
+	const declaredSource = literal(row, HIERARCHY_SOURCE_REAL_SECTION);
+	const source = declaredSource === '' ? THESAURUS_SECTION : declaredSource;
+	const realTipo = await getSectionRealTipo(targetSectionTipo);
+	if (realTipo === targetSectionTipo || realTipo !== source) return false;
+	const rivals = (await sql.unsafe(
+		`SELECT 1 FROM "${HIERARCHY_MAIN_TABLE}"
+		 WHERE section_tipo = $1 AND section_id <> $2
+		   AND lower(trim(string->'${HIERARCHY_TLD}'->0->>'value')) = $3
+		 LIMIT 1`,
+		[HIERARCHY_SECTION, sectionId, tld],
+	)) as unknown[];
+	return rivals.length === 0;
+}
+
+/**
+ * Mint the root in the hierarchy's OWN provisioned section (isOwnProvisionedSection
+ * holds): a structural record no user chose — `system` access.
+ */
+async function mintProvisionedRootTerm(
+	sectionId: number,
+	componentTipo: string,
+	targetSectionTipo: string,
+): Promise<{ items: unknown[]; sectionId: number } | null> {
+	return applyAddNewElement([], targetSectionTipo, componentTipo, HIERARCHY_SECTION, sectionId, {
+		access: {
+			mode: 'system',
+			reason:
+				'the hierarchy invariant mints the root term its tree hangs on, in the hierarchy’s OWN provisioned section (isOwnProvisionedSection: <tld>1/<tld>2, a virtual of its declared source, the TLD declared by no other registry row) — a structural record no user chose (hierarchy_state is the single writer)',
+		},
+	});
+}
+
+/**
+ * Mint the root in an operator-DECLARED section that is not the hierarchy's own
+ * (F2): the ACTING principal's New-button predicate on the target
+ * (applyAddNewElement `create` access; the declared pairing is the structural
+ * membership). The installer acts as the superuser, the tool as its caller.
+ */
+async function mintDeclaredRootTerm(
+	sectionId: number,
+	componentTipo: string,
+	targetSectionTipo: string,
+	principal: Principal,
+): Promise<{ items: unknown[]; sectionId: number } | null> {
+	return applyAddNewElement([], targetSectionTipo, componentTipo, HIERARCHY_SECTION, sectionId, {
+		access: { mode: 'create', principal, membership: 'structural' },
+	});
+}
+
+/**
  * Make `componentTipo` point at a REAL, NAMED root record in `targetSectionTipo`:
  *   - the stored target exists → keep it (re-stamped to the canonical locator shape);
  *   - the section has records  → link its lowest id (the imported root);
@@ -542,6 +643,7 @@ async function ensureRootTerm(
 	componentTipo: string,
 	targetSectionTipo: string,
 	row: RegistryRow | null,
+	actor: { tld: string; userId: number },
 ): Promise<{ changed: string[]; error: string | null }> {
 	const changed: string[] = [];
 
@@ -580,14 +682,29 @@ async function ensureRootTerm(
 			]);
 			changed.push(`${componentTipo}: linked the existing root ${targetSectionTipo}/${rootId}`);
 		} else {
-			// The section is empty — mint the root the tree hangs its children on.
-			const outcome = await applyAddNewElement(
-				[],
-				targetSectionTipo,
-				componentTipo,
-				HIERARCHY_SECTION,
-				sectionId,
-			);
+			// The section is empty — mint the root the tree hangs its children on:
+			// as the system in the hierarchy's OWN provisioned section, else under
+			// the acting principal's create rule (F2 — a steered target).
+			let outcome: { items: unknown[]; sectionId: number } | null;
+			if (await isOwnProvisionedSection(targetSectionTipo, actor.tld, row, sectionId)) {
+				outcome = await mintProvisionedRootTerm(sectionId, componentTipo, targetSectionTipo);
+			} else {
+				try {
+					outcome = await mintDeclaredRootTerm(
+						sectionId,
+						componentTipo,
+						targetSectionTipo,
+						await resolvePrincipal(actor.userId),
+					);
+				} catch (error) {
+					if (!(error instanceof DedaloError) || !error.code.startsWith('perm.')) throw error;
+					// The refusal's CODE on the payload (SEC-18: never raw exception text).
+					return {
+						changed,
+						error: `${componentTipo}: may not create a root in ${targetSectionTipo} — it is not this hierarchy’s own section and the acting user may not create there (${error.code})`,
+					};
+				}
+			}
 			if (outcome === null) {
 				return {
 					changed,
@@ -800,7 +917,10 @@ export async function ensureHierarchy(
 		[HIERARCHY_GENERAL_TERM, ensureTargets.terms],
 		[HIERARCHY_GENERAL_TERM_MODEL, ensureTargets.model],
 	] as [string, string][]) {
-		const outcome = await ensureRootTerm(sectionId, componentTipo, targetSectionTipo, row);
+		const outcome = await ensureRootTerm(sectionId, componentTipo, targetSectionTipo, row, {
+			tld,
+			userId,
+		});
 		if (outcome.error !== null) errors.push(outcome.error);
 		applied.push(...outcome.changed);
 	}

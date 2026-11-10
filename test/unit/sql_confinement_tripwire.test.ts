@@ -1024,7 +1024,8 @@ const DD_ONTOLOGY_DIRECT_READ_RATCHET = new Set<string>([
 	// (PERF-02; the staleness self-test below enforces this pruning).
 	'src/core/relations/request_config/build.ts',
 	'src/core/relations/request_config/implicit.ts',
-	'src/core/relations/request_config/explicit.ts',
+	// explicit.ts: findSectionButtonTipo now reads section/buttons.ts
+	// sectionButtonRows (the create gate's rows) — entry retired 2026-11-10 (T0-2).
 	// dd_info.ts, info_widgets.ts, tm_record.ts: migrated off direct dd_ontology
 	// queries — entries retired 2026-07-07 (staleness self-test below now
 	// enforces this pruning mechanically).

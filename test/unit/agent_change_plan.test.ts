@@ -2,7 +2,7 @@
  * Gate: the agent write harness — images through the provider seam and the
  * propose→confirm→apply change-plan protocol (Phase 4 of the work-system MCP
  * foundation). Fully OFFLINE via the scripted provider; DB writes only on the
- * scratch section (test183 → matrix_test) and removed afterwards.
+ * scratch section (test65 → matrix_test) and removed afterwards.
  *
  * The load-bearing assertions:
  *   - a valid proposal ENDS the turn with a validated plan and ZERO writes;
@@ -14,11 +14,14 @@
  */
 // Migrated to the generic `test` TLD 2026-08-20 (AGENTS.md hard rules). Two
 // bindings went:
-//   - the write surface is `test183` + its OWN component_input_text `test187`
+//   - the write surface is `test65` + its OWN component_input_text `test159`
 //     (a coherent section/component pair, matrix_test, present on every
 //     install). NOT `test3`, whose component_external `test215` would turn an
-//     edit read into an outbound request; `test187` is is_translatable, so the
-//     lg-* a plan asks for survives the round trip.
+//     edit read into an outbound request; `test159` is is_translatable, so the
+//     lg-* a plan asks for survives the round trip. (2026-11-10, T0-2 / D4: the
+//     surface moved from test183 to test65 — find_or_create now asks the create
+//     predicate, and test183 has no button_new, so it admits no create at all,
+//     the superuser included; test65 carries test13.)
 //   - the out-of-scope half no longer reads whatever install records the
 //     database happens to hold (`expect(hiddenId).toBeGreaterThan(0)` was the
 //     file's one red on the suite DB). It BUILDS the split: the synthetic ACL
@@ -61,9 +64,9 @@ const SCOPED: Principal = {
 	isDeveloper: false,
 };
 
-const SCRATCH_SECTION = 'test183';
+const SCRATCH_SECTION = 'test65';
 const SCRATCH_TABLE = 'matrix_test';
-const TEXT_FIELD = 'test187';
+const TEXT_FIELD = 'test159';
 
 /** The project-gated section of the out-of-scope half, and what gates it. */
 const GATED_SECTION = 'test3';
@@ -208,7 +211,7 @@ describe('propose_change_plan (scripted loop, write mode)', () => {
 			SELECT section_id FROM matrix_test
 			WHERE section_tipo = ${SCRATCH_SECTION}
 			  AND EXISTS (
-				SELECT 1 FROM jsonb_array_elements(string->'test187') e
+				SELECT 1 FROM jsonb_array_elements(string->'test159') e
 				WHERE e->>'value' LIKE ${`${unique}%`}
 			)
 		`) as { section_id: number }[];

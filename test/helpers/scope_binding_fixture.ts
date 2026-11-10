@@ -19,12 +19,13 @@
  *                                     test3.test52 = 2, test3.test99 = 2,
  *                                     test3.test80 = 2 (the portal a path
  *                                     search hops through and an import
- *                                     links through). NOTHING on test65,
+ *                                     links through), test3.test126 = 2
+ *                                     (button_new: may create). NOTHING on test65,
  *                                     NOTHING on hierarchy1.
  *   profileB    matrix_profiles  B's profile — misc.dd774: hierarchy1 = 2,
  *                                     test3 = 2, test3.test52 = 2,
  *                                     test3.test99 = 2, test3.test80 = 2,
- *                                     and READ ONLY on
+ *                                     test3.test126 = 2, and READ ONLY on
  *                                     test65 = 1 / test65.test52 = 1 (the
  *                                     level a write action must refuse).
  *   projectOfA  matrix_projects  A's project (dd153) — what puts a record A
@@ -136,6 +137,13 @@ export const SB_HOP_COMPONENT = 'test80';
  * (perm.denied) and the scope probe went unasked.
  */
 export const SB_INPUT_COMPONENT = 'test162';
+/**
+ * test3's button_new (both: 2) — both profiles MAY CREATE in test3 (the import's
+ * portal "+" creates its media record there): the T0-2 New-button predicate
+ * (write_door.ts authorizeRecordCreate) asks it, so without it the import's
+ * create refuses before the scope question these probes pin is asked.
+ */
+export const SB_BUTTON_NEW = 'test126';
 /**
  * A test-TLD section A holds NOTHING on — the real target A must be refused
  * on — and B holds READ ONLY (test65 = 1, test65.test52 = 1): the level a
@@ -330,6 +338,7 @@ export async function installScopeBindingFixture(
 					grant(3, SB_GRANTED_SECTION, SB_MEDIA_COMPONENT, 2),
 					grant(4, SB_GRANTED_SECTION, SB_HOP_COMPONENT, 2),
 					grant(5, SB_GRANTED_SECTION, SB_INPUT_COMPONENT, 2),
+					grant(6, SB_GRANTED_SECTION, SB_BUTTON_NEW, 2),
 					...extraGrantsOfA.map(([section, tipo], index) => grant(100 + index, section, tipo, 2)),
 				],
 			},
@@ -347,6 +356,7 @@ export async function installScopeBindingFixture(
 					grant(5, SB_DENIED_SECTION, SB_DENIED_SECTION, 1),
 					grant(6, SB_DENIED_SECTION, SB_GRANTED_COMPONENT, 1),
 					grant(8, SB_GRANTED_SECTION, SB_INPUT_COMPONENT, 2),
+					grant(9, SB_GRANTED_SECTION, SB_BUTTON_NEW, 2),
 				],
 			},
 		});

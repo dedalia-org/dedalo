@@ -248,12 +248,15 @@ async function createChildRecord(host: HostContext, targetSectionTipo: string): 
 		throw invalidData(host, "'add_new_element' needs the section to create the child in");
 	}
 	await assertChildSection(host, targetSectionTipo);
+	// T0-2: the New-button predicate on the target runs inside, BEFORE the insert;
+	// assertChildSection above IS this door's membership ('structural').
 	const outcome = await applyAddNewElement(
 		[],
 		targetSectionTipo,
 		host.componentTipo,
 		host.sectionTipo,
 		host.sectionId,
+		{ access: { mode: 'create', principal: actorOf(host), membership: 'structural' } },
 	);
 	if (outcome === null) {
 		throw new DedaloError('record.save_failed', {

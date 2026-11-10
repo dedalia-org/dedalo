@@ -484,7 +484,12 @@ export async function resolveTemporalSave(rqo: Rqo, principal: Principal): Promi
 				componentTipo,
 				sectionTipo,
 				Number(source.section_id ?? TEMPORAL_SECTION_ID_SENTINEL),
-				{ skipHostFilterRead: true },
+				{
+					skipHostFilterRead: true,
+					// T0-2: the New-button predicate on the target, then the portal's
+					// target_sections membership (after the 400 above).
+					access: { mode: 'create', principal, membership: 'target_sections' },
+				},
 			);
 			if (outcome === null) {
 				throw new DedaloError('record.save_failed', {

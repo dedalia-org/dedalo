@@ -371,6 +371,112 @@ async function defaultProjectFilterData(): Promise<Record<string, unknown>[]> {
 }
 
 /**
+ * How an add_new_element is authorized (applyAddNewElement's `access`):
+ * - `create` — a USER door (portal / select save, temporal, children "+"): the
+ *   NEW-BUTTON predicate on the target (write_door.ts authorizeRecordCreate),
+ *   then the membership the door declares ('target_sections' for a
+ *   portal/select and the temporal door; 'structural' for a door that proved
+ *   the target itself — the children write-through's assertChildSection).
+ *   `principal` absent → the request scope's, else the superuser (D5 (a)).
+ * - `tool` — a TOOL's server code driving a portal create (tool_import_files,
+ *   tool_posterframe, tool_numisdata_acquisition — D3 REVISED 2026-11-10): the
+ *   SECTION-LEVEL create (write_door.ts authorizeSectionCreate), then the
+ *   target_sections membership — NO New-button half (an import creates media
+ *   records the way the tool's own create doors do). UNFORGEABLE: the value
+ *   carries a module-private symbol brand only {@link toolAddNewElementAccess}
+ *   mints, so a JSON payload — which cannot carry a symbol — can never select
+ *   it, and applyAddNewElement refuses an unbranded `tool` access loudly. The
+ *   census (create_door_census_tripwire) pins WHO mints it: tool server code only.
+ * - `system` — an engine convergence minting a record no user chose; the
+ *   reason is required so the census can read it.
+ */
+const TOOL_ACCESS_BRAND: unique symbol = Symbol('dedalo.add_new_element.tool_access');
+
+/** The server-minted tool access (see {@link AddNewElementAccess}). */
+export type ToolAddNewElementAccess = Readonly<{
+	[TOOL_ACCESS_BRAND]: true;
+	mode: 'tool';
+	principal: Principal;
+	/** The tool whose server code drives the create (log + refusal door name). */
+	tool: string;
+	membership: 'target_sections';
+}>;
+
+export type AddNewElementAccess =
+	| {
+			readonly mode: 'create';
+			readonly principal?: Principal | null;
+			readonly membership: 'target_sections' | 'structural';
+	  }
+	| ToolAddNewElementAccess
+	| { readonly mode: 'system'; readonly reason: string };
+
+/**
+ * MINT the tool access for an add_new_element a TOOL's server code drives
+ * (passed as `SaveRequest.toolCreateAccess`). Server-only by construction: the
+ * brand is a symbol no wire payload can carry. Callers are censused
+ * (create_door_census_tripwire — tool server code only, never a user door).
+ */
+export function toolAddNewElementAccess(
+	principal: Principal,
+	tool: string,
+): ToolAddNewElementAccess {
+	if (!/^tool_[a-z0-9_]+$/.test(tool)) {
+		throw new DedaloError('internal.invariant', {
+			message: `toolAddNewElementAccess: '${tool}' is not a tool name`,
+		});
+	}
+	return Object.freeze({
+		[TOOL_ACCESS_BRAND]: true as const,
+		mode: 'tool' as const,
+		principal,
+		tool,
+		membership: 'target_sections' as const,
+	});
+}
+
+/** A `tool` access that was not minted by {@link toolAddNewElementAccess} is refused, loudly. */
+function assertMintedToolAccess(access: {
+	mode: 'tool';
+}): asserts access is ToolAddNewElementAccess {
+	if ((access as Partial<ToolAddNewElementAccess>)[TOOL_ACCESS_BRAND] !== true) {
+		throw new DedaloError('internal.invariant', {
+			message: 'add_new_element: a tool access that toolAddNewElementAccess did not mint',
+		});
+	}
+}
+
+/** The principal an add_new_element runs as: the door's, the request scope's, else the superuser. */
+async function addNewElementActor(access: AddNewElementAccess): Promise<Principal> {
+	const { currentPrincipal } = await import('../security/request_context.ts');
+	const { SUPERUSER_ID } = await import('../security/permissions.ts');
+	const explicit =
+		access.mode === 'create' || access.mode === 'tool' ? access.principal : undefined;
+	return explicit ?? currentPrincipal() ?? (await resolvePrincipal(SUPERUSER_ID));
+}
+
+/**
+ * D2: the target must be one of the component's declared target sections —
+ * resolved by the same request_config builder the client's target list comes
+ * from (dynamic targets included). Outside them the caller named a section the
+ * component does not link to: a caller fault, request.invalid_source 400. The
+ * target is LOG-ONLY in the message (as at the temporal door's own 400).
+ */
+async function assertDeclaredTargetSection(
+	targetSectionTipo: string,
+	componentTipo: string,
+	sectionTipo: string,
+): Promise<void> {
+	const { getElementTargetSectionTipos } = await import('./request_config/build.ts');
+	const declared = await getElementTargetSectionTipos(componentTipo, sectionTipo);
+	if (declared.includes(targetSectionTipo)) return;
+	throw new DedaloError('request.invalid_source', {
+		message: `add_new_element: '${targetSectionTipo}' is not a target section of ${componentTipo}`,
+		coordinates: { tipo: componentTipo, section_tipo: sectionTipo },
+	});
+}
+
+/**
  * PHP add_new_element (component_relation_common.php:3770-3860): create a
  * record in the target section — inheriting the HOST record's project filter
  * (or the create-door default) into the target's component_filter — then
@@ -378,10 +484,37 @@ async function defaultProjectFilterData(): Promise<Record<string, unknown>[]> {
  *
  * THE ACTOR IS THE REAL CALLER. This path used to hardcode user -1, so every
  * record born from a portal "+" was attributed to the superuser and left no
- * NEW activity row (audit §5.1). The principal is request-scoped
- * (security/request_context.ts) — never captured at module level; outside any
- * request scope (background jobs, unit harnesses) it falls back to the
- * superuser exactly as the rest of the engine does.
+ * NEW activity row (audit §5.1). The principal is passed EXPLICITLY by the
+ * door (`access.principal` — the request's own, `request.principal ??
+ * currentPrincipal()`); absent, the request scope's (security/request_context.ts),
+ * and outside any request scope (unit harnesses) the superuser, exactly as the
+ * rest of the engine does (T0-2 owner decision D5 (a)).
+ *
+ * THE CREATE GATE (T0-2, WC-2026-11-10-add-new-element-create-gate). The
+ * target section is CALLER-NAMED, so the host's authorization (the portal
+ * component ≥ 2 + the host record scope) says nothing about it. This is the
+ * ONE gate site every add_new_element reaches, BEFORE the host-filter read and
+ * the insert; WHICH rule it asks is the `access` the caller states:
+ *   `create` (the user doors — portal/select save, temporal, children):
+ *     1. authorizeRecordCreate(principal, target) — the NEW-BUTTON predicate:
+ *        section ≥ 2 AND the target's first button_new ≥ 2; no button_new
+ *        refuses (perm.denied 403);
+ *     2. then the MEMBERSHIP the door declares: 'target_sections' — the target
+ *        must be one of the component's request_config target sections
+ *        (getElementTargetSectionTipos, the same resolver the client's
+ *        target_section list comes from), else request.invalid_source 400 (D2 —
+ *        stricter than PHP); 'structural' — the door already proved the target
+ *        (the children door's assertChildSection), nothing re-checked here.
+ *   `tool` (tool_import_files, tool_posterframe, tool_numisdata_acquisition,
+ *     through saveComponentData's server-only `toolCreateAccess` — D3 REVISED):
+ *     authorizeSectionCreate (section ≥ 2, consultation-capped) then the
+ *     target_sections membership. No New-button half.
+ *   `system` (with a written reason): neither — an engine convergence minting a
+ *     structural record no user chose (the hierarchy invariant's root term in
+ *     the hierarchy's own provisioned section, ontology/hierarchy_state.ts).
+ *     Never for a request door.
+ * The create rule runs FIRST: a target the caller may not create in answers the
+ * permission refusal whatever the portal declares.
  */
 export async function applyAddNewElement(
 	items: unknown[],
@@ -399,13 +532,42 @@ export async function applyAddNewElement(
 		 * which is the same fallback a host with an empty filter already takes.
 		 */
 		skipHostFilterRead?: boolean;
+		/**
+		 * Who creates, and which membership the door asks of the target (see the
+		 * header). Absent = `{ mode: 'create', membership: 'target_sections' }`
+		 * with the request-scope principal — the STRICTER membership, so a door
+		 * that forgets to state it can only be refused more, never less.
+		 */
+		access?: AddNewElementAccess;
 	},
 ): Promise<{ items: unknown[]; sectionId: number } | null> {
 	if (targetSectionTipo === '') return null;
 	const { createSectionRecord } = await import('../section/record/create_record.ts');
-	const { currentPrincipal } = await import('../security/request_context.ts');
-	const { SUPERUSER_ID } = await import('../security/permissions.ts');
-	const userId = currentPrincipal()?.userId ?? SUPERUSER_ID;
+	const access: AddNewElementAccess = options?.access ?? {
+		mode: 'create',
+		membership: 'target_sections',
+	};
+	const principal = await addNewElementActor(access);
+	const userId = principal.userId;
+
+	if (access.mode === 'create') {
+		// 1. THE NEW-BUTTON PREDICATE on the TARGET (perm.denied 403) — first.
+		const { authorizeRecordCreate } = await import('../security/write_door.ts');
+		await authorizeRecordCreate(principal, targetSectionTipo, { door: 'add_new_element' });
+		// 2. THE MEMBERSHIP the door declared (request.invalid_source 400).
+		if (access.membership === 'target_sections') {
+			await assertDeclaredTargetSection(targetSectionTipo, componentTipo, sectionTipo);
+		}
+	} else if (access.mode === 'tool') {
+		// A TOOL's server code (D3 REVISED): the SECTION-LEVEL create, then the
+		// target_sections membership — no New-button half. Minted server-side only.
+		assertMintedToolAccess(access);
+		const { authorizeSectionCreate } = await import('../security/write_door.ts');
+		await authorizeSectionCreate(principal, targetSectionTipo, {
+			door: `${access.tool}.add_new_element`,
+		});
+		await assertDeclaredTargetSection(targetSectionTipo, componentTipo, sectionTipo);
+	}
 
 	// Host project filter. EMPTY (no intersection, no host filter, or the
 	// temporal door) → PHP's own DEDALO_DEFAULT_PROJECT branch, NOT the create

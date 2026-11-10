@@ -28,6 +28,7 @@ import {
 	getTranslatableByTipo,
 } from '../../../src/core/ontology/resolver.ts';
 import { getMainRelatedSectionTipo } from '../../../src/core/relations/request_config/implicit.ts';
+import { toolAddNewElementAccess } from '../../../src/core/relations/save.ts';
 import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
 import { findInverseReferences } from '../../../src/core/search/search_related.ts';
 import { saveComponentData } from '../../../src/core/section/record/save_component.ts';
@@ -141,6 +142,10 @@ async function createIdentifyingImage(ctx: ToolActionContext): Promise<ToolRespo
 		lang: 'lg-nolan',
 		changedData: [{ action: 'add_new_element', id: null, value: portalTargetSectionTipo }],
 		userId: host.userId,
+		principal: ctx.principal,
+		// T0-2 / D3 REVISED: the portal create is a TOOL's — the server-minted
+		// access asks the SECTION level + target_sections, not the New button.
+		toolCreateAccess: toolAddNewElementAccess(ctx.principal, 'tool_posterframe'),
 	})) as { ok: boolean; message: string; created_section_id?: number };
 	if (!saveResult.ok || saveResult.created_section_id == null) {
 		throw new DedaloError('record.save_failed', {

@@ -5,9 +5,11 @@
 import { ApiError } from '../../../core/common/js/api_error.js';
 import { snapshot_read_state } from '../../../core/common/js/common.js';
 import { data_manager } from '../../../core/common/js/data_manager.js';
-import { reset_error_dispatch_state } from '../../../core/common/js/error_dispatch.js';
+import { handle_api_error, reset_error_dispatch_state } from '../../../core/common/js/error_dispatch.js';
 import { event_manager } from '../../../core/common/js/event_manager.js';
 import { get_instance } from '../../../core/common/js/instances.js';
+import { ui } from '../../../core/common/js/ui.js';
+import { buttons } from '../../../core/component_portal/js/buttons.js';
 import { component_portal } from '../../../core/component_portal/js/component_portal.js';
 import {
 	can_open_target,
@@ -424,6 +426,149 @@ describe(`PORTAL TARGET ACCESS`, function () {
 			);
 			assert.equal(section.total, read_state.total, 'total restored');
 			assert.isNull(section.node.querySelector('.api_error_panel'), 'no panel inside the list');
+		});
+	});
+
+	describe(`a refused add_new_element (T0-2)`, function () {
+		// The save is refused at the TRANSPORT (window.fetch stubbed for the
+		// add_new_element body only), so the real data_manager runs: it publishes
+		// 'api_error' and this block answers it exactly as page.js does
+		// (page_scope:false). The test frame has no page instance of its own.
+		let original_fetch = null;
+		let page_token = null;
+		const built = [];
+
+		beforeEach(() => {
+			original_fetch = window.fetch;
+			reset_error_dispatch_state();
+			page_token = event_manager.subscribe('api_error', (api_error) =>
+				handle_api_error(api_error, { scope: 'page', page_scope: false }),
+			);
+		});
+		afterEach(async () => {
+			window.fetch = original_fetch;
+			event_manager.unsubscribe(page_token);
+			while (built.length) {
+				await built.pop().destroy(true, true, true);
+			}
+		});
+
+		const refuse_add_new_element = (code, status) => {
+			window.fetch = async (url, init) => {
+				if (typeof init?.body === 'string' && init.body.includes('"add_new_element"')) {
+					return new Response(
+						JSON.stringify({
+							ok: false,
+							request_id: 'rq-add-new-element',
+							error: { code, message: `refused ${code}`, retryable: false },
+						}),
+						{ status, headers: { 'content-type': 'application/json' } },
+					);
+				}
+				return original_fetch(url, init);
+			};
+		};
+
+		/** Toasts carrying `code` published while `fn` runs. */
+		const toasts_of = async (code, fn) => {
+			const seen = [];
+			const token = event_manager.subscribe('notification', (payload) => {
+				if (payload?.api_error?.code === code) seen.push(payload);
+			});
+			try {
+				await fn();
+				await new Promise((resolve) => setTimeout(resolve, 150));
+			} finally {
+				event_manager.unsubscribe(token);
+			}
+			return seen;
+		};
+
+		const live_portal = async () => {
+			const instance = await get_instance({
+				model: 'component_portal',
+				tipo: 'test80',
+				section_tipo: 'test3',
+				section_id: 1,
+				mode: 'edit',
+				view: 'line',
+				lang: page_globals?.dedalo_data_nolan ?? 'lg-nolan',
+				id_variant: `add_new_refused_${Math.random()}`,
+				caller: {
+					model: 'section',
+					type: 'section',
+					id: `fake_section_${Math.random()}`,
+					tipo: 'test3',
+					section_tipo: 'test3',
+					mode: 'edit',
+				},
+			});
+			built.push(instance);
+			assert.notEqual(await instance.build(true), false, 'the first build succeeds');
+			document.getElementById('content').appendChild(await instance.render());
+			assert.equal(instance.status, 'rendered');
+			return instance;
+		};
+
+		for (const [code, status] of [
+			['perm.denied', 403],
+			['request.invalid_source', 400],
+		]) {
+			it(`${code}: one toast, render kept, created_section_id null`, async () => {
+				const instance = await live_portal();
+				const wrapper = instance.node;
+				const entries_before = JSON.stringify(instance.data?.entries ?? []);
+				const page_error_before = page_globals.page_error ?? null;
+
+				refuse_add_new_element(code, status);
+				let result;
+				const toasts = await toasts_of(code, async () => {
+					result = await instance.add_new_element('test3');
+				});
+
+				assert.isFalse(result, 'add_new_element answers false');
+				assert.equal(toasts.length, 1, 'exactly ONE toast (never silent, never twice)');
+				assert.isNull(instance.created_section_id, 'no created address');
+				assert.strictEqual(instance.node, wrapper, 'same wrapper');
+				assert.isTrue(wrapper.isConnected, 'still in the document');
+				assert.equal(instance.status, 'rendered', 'render kept');
+				assert.isNull(wrapper.querySelector('.api_error_panel'), 'no panel inside the portal');
+				assert.isNull(wrapper.querySelector('.page_error_container'), 'no page panel inside the portal');
+				assert.equal(JSON.stringify(instance.data?.entries ?? []), entries_before, 'data untouched');
+				assert.strictEqual(page_globals.page_error ?? null, page_error_before, 'page slot untouched');
+			});
+		}
+
+		it(`the "+" button opens no modal on a refusal`, async () => {
+			const instance = await live_portal();
+			instance.target_section = [{ tipo: 'test3', label: 'test3' }];
+			const button = buttons.render_button_add(instance);
+
+			const original_attach = ui.attach_to_modal;
+			let modals = 0;
+			ui.attach_to_modal = (...args) => {
+				modals++;
+				return original_attach.apply(ui, args);
+			};
+			refuse_add_new_element('perm.denied', 403);
+			try {
+				const toasts = await toasts_of('perm.denied', async () => {
+					const settled = new Promise((resolve) => {
+						const token = event_manager.subscribe('notification', () => {
+							event_manager.unsubscribe(token);
+							resolve();
+						});
+						setTimeout(resolve, 5000);
+					});
+					button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+					await settled;
+				});
+				assert.equal(toasts.length, 1, 'one toast');
+				assert.equal(modals, 0, 'no modal opened');
+				assert.isNull(instance.created_section_id);
+			} finally {
+				ui.attach_to_modal = original_attach;
+			}
 		});
 	});
 });

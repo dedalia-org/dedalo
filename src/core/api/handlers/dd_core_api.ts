@@ -1040,17 +1040,18 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			});
 		}
 		await refuseAreaWrite(sectionTipo, source.model);
-		// THE WRITE DOOR (closure Step 3): a create names no record, so the
-		// consultation-capped SECTION level is its whole authorization — the one
-		// rule the duplicate / delete doors and the MCP create share (PHP
-		// section::create_record:452 refusal on Activity/TM); the
-		// createSectionRecord engine backstops it for other doors.
-		const { authorizeSectionTarget } = await import('../../security/write_door.ts');
-		const grant = await authorizeSectionTarget(
-			principal,
-			{ section_tipo: sectionTipo },
-			{ level: 2, door: 'create' },
-		);
+		// THE WRITE DOOR (closure Step 3; T0-2 owner decision D4 REVISED
+		// 2026-11-10, WC-2026-11-10-add-new-element-create-gate): a create names
+		// no record, so the consultation-capped SECTION level ≥ 2 is its whole
+		// authorization — PHP dd_core_api::create parity, the SECTION-LEVEL create
+		// rule (write_door.ts authorizeSectionCreate). NOT the New-button
+		// predicate: the feature-owned sections this door serves (text-area /
+		// TM / index notes, references, dataframe frames, presets) ship no
+		// button_new, so asking it refused them for everyone, root included.
+		// Residual, as in PHP: a crafted `create` skips the New button. The
+		// createSectionRecord engine backstops the consultation-only refusal.
+		const { authorizeSectionCreate } = await import('../../security/write_door.ts');
+		const grant = await authorizeSectionCreate(principal, sectionTipo, { door: 'create' });
 		const { createSectionRecord } = await import('../../section/record/create_record.ts');
 		const sectionId = await createSectionRecord(grant.sectionTipo, principal.userId);
 
@@ -1123,6 +1124,11 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				{ section_tipo: sectionTipo, section_id: sourceSectionId },
 				{ level: 2, door: 'duplicate' },
 			);
+			// …and duplication BIRTHS a record the user asked for by pressing a
+			// button: the NEW-BUTTON predicate on the section (T0-2 / D4 — section
+			// ≥ 2 AND its button_new ≥ 2), unlike `create` above.
+			const { authorizeRecordCreate } = await import('../../security/write_door.ts');
+			await authorizeRecordCreate(principal, sectionTipo, { door: 'duplicate' });
 		}
 		const { duplicateSectionRecord } = await import('../../section/record/duplicate_record.ts');
 		const newSectionId = await duplicateSectionRecord(
