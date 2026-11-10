@@ -15,6 +15,7 @@ import { buildMediaLocation } from '../../src/core/media/path.ts';
 import { requireTestMediaRoot } from '../../src/core/media/test_media_root.ts';
 import { resolveMediaToolContext } from '../../src/core/media/tool_support.ts';
 import type { GatedToolActionSpec } from '../../src/core/tools/module.ts';
+import { unguarded } from '../../src/core/tools/reason_keys.ts';
 import {
 	IMAGE_READ_GATE,
 	objectPdfReport,
@@ -54,7 +55,8 @@ describe('tool_uca_maps object_pdf_report — the per-image gate', () => {
 		const declared = (await loadAction('get_image_file')) as GatedToolActionSpec;
 		expect(String(IMAGE_READ_GATE.permission)).toBe(String(declared.permission));
 		expect(Number(IMAGE_READ_GATE.minLevel)).toBe(Number(declared.minLevel));
-		expect(IMAGE_READ_GATE.handler).toBe(declared.handler);
+		// the loader wraps every handler (the reason-key guard): compare the function behind it
+		expect(IMAGE_READ_GATE.handler).toBe(unguarded(declared.handler));
 	});
 });
 

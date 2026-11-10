@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { GatedToolActionSpec, ToolActionSpec } from '../../src/core/tools/module.ts';
+import { unguarded } from '../../src/core/tools/reason_keys.ts';
 import { getAdministrativeUnit } from '../../tools/tool_uca_maps/server/administrative_units.ts';
 import { getCapabilities } from '../../tools/tool_uca_maps/server/capabilities.ts';
 import { getCatastroParcel } from '../../tools/tool_uca_maps/server/catastro.ts';
@@ -78,6 +79,7 @@ describe('tool_uca_maps — the declared gate of every action', () => {
 		} else {
 			expect('gatedInHandler' in spec).toBe(false);
 		}
-		expect(spec.handler).toBe(gate.handler);
+		// the loader wraps every handler (the reason-key guard); the function behind it is the claim
+		expect(unguarded(spec.handler)).toBe(gate.handler);
 	});
 });
