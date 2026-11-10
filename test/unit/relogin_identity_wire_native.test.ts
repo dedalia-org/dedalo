@@ -63,6 +63,7 @@ beforeAll(async () => {
 			'render_error_inline',
 			'render_error_panel',
 			'render_error_modal',
+			'severity_type',
 		]
 			.map((name) => `export const ${name} = () => {}\n`)
 			.join(''),
