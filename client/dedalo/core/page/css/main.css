@@ -28376,7 +28376,8 @@ body.inspector_resizing {
 * Included from main.less file
 */
 .component_security_access.edit > .content_data {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
   min-height: 12rem;
   pointer-events: unset !important;
 }
@@ -28386,6 +28387,9 @@ body.inspector_resizing {
   }
 }
 .component_security_access.edit > .content_data > .save_buttons {
+  grid-area: 1 / 2;
+  justify-self: end;
+  z-index: 3;
   top: 5.6rem;
   position: sticky;
   float: right;
@@ -28414,6 +28418,7 @@ body.inspector_resizing {
   transition: opacity 1s linear;
   padding-bottom: 1.5rem;
   overflow: auto;
+  grid-area: 1 / 1;
   position: sticky;
   top: 5rem;
 }
@@ -28450,8 +28455,7 @@ body.inspector_resizing {
   line-height: 1.1rem;
 }
 .component_security_access.edit > .content_data > .tree_root {
-  flex: 1 1 auto;
-  min-width: 0;
+  grid-area: 1 / 2;
   display: flex;
   flex-direction: column;
   flex-wrap: wrap;
@@ -28675,6 +28679,36 @@ body.inspector_resizing {
 .component_security_access.edit > .content_data > .tree_root .icon_arrow.up:after {
   transform: rotate(360deg);
   opacity: 0.5;
+}
+@media screen and (max-width: 600px) {
+  .component_security_access.edit > .content_data > .tree_root .li_item {
+    margin-left: 0.75rem;
+    align-items: flex-start;
+  }
+  .component_security_access.edit > .content_data > .tree_root .li_item > .area_label {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-wrap: break-word;
+  }
+  .component_security_access.edit > .content_data > .tree_root .li_item > .area_label.icon_arrow:after {
+    top: 0.2rem;
+  }
+  .component_security_access.edit > .content_data > .tree_root .li_item .info_text {
+    display: block;
+    padding-left: 0;
+    font-size: 0.85em;
+  }
+  .component_security_access.edit > .content_data > .tree_root .li_item > input[type=checkbox] {
+    margin-top: 0.25rem;
+  }
+  .component_security_access.edit > .content_data > .tree_root .radio_buttons_container,
+  .component_security_access.edit > .content_data > .tree_root .permissions_global {
+    flex: none;
+    margin-top: 0.22rem;
+  }
+  .component_security_access.edit > .content_data > .tree_root .radio_buttons_container {
+    margin-left: 0;
+  }
 }
 .component_security_access.edit.active > .content_data > .tree_root > .tree_filter {
   background-color: var(--color_white);
