@@ -129,6 +129,21 @@ describe('a v2.env init renders boots v2 config with exactly the typed values', 
 		]);
 	});
 
+	test('a password with letters outside ASCII (ñ, ç, ü, €, a CJK and an emoji) boots back byte-exact', async () => {
+		const values: V2Values = {
+			host: '127.0.0.1',
+			port: '3306',
+			socket: null,
+			user: 'web_ro',
+			password: 'Contraseña#ç-ü+€_漢字!🔑',
+			dbNames: ['web_museum'],
+			deploymentMode: 'apache',
+		};
+		const booted = await bootV2Config(render(values, 'utf8.env').path);
+		expect(booted.code, booted.err).toBe(0);
+		expect((JSON.parse(booted.out) as Record<string, unknown>).DB_PASSWORD).toBe(values.password);
+	});
+
 	test('anti-vacuity: a file without the keys does NOT read back the typed values (v2 falls back to its defaults)', async () => {
 		const path = join(scratch, 'empty.env');
 		writeFileSync(path, '# nothing\n', { mode: 0o600 });

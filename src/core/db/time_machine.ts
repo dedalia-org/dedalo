@@ -205,9 +205,10 @@ export async function recordTimeMachine(entry: TimeMachineEntry, timestamp: stri
 /**
  * VISIBLE change history of one component on one SOURCE record, newest first
  * (the search_tm default ordering), narrowed to the record living at the
- * address now and to ordinary rows (`withTmHistory`). No production caller
- * today; the narrowing is here so that wiring one cannot serve a dead
- * generation's snapshots or a hidden undo-log image.
+ * address now and to ordinary rows (`withTmHistory`) — never a dead
+ * generation's snapshots or a hidden undo-log image. Ties on the
+ * second-granular timestamp break by id (insertion order), so "newest first"
+ * is total (the wiped_filter_projects reconcile walks it in order).
  */
 export async function readTimeMachineHistory(
 	sourceSectionTipo: string,
@@ -225,7 +226,7 @@ export async function readTimeMachineHistory(
 				 AND matrix_time_machine.section_id = $2
 				 AND matrix_time_machine.tipo = $3`,
 			)}
-		 ORDER BY timestamp DESC
+		 ORDER BY timestamp DESC, id DESC
 		 LIMIT $4`,
 		[sourceSectionTipo, sourceSectionId, componentTipo, limit],
 	)) as Record<string, unknown>[];

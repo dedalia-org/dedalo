@@ -228,6 +228,7 @@ describe('reconcile registry completeness (S-10)', () => {
 			web_image_exposure: 'src/diffusion/api/reconcile.ts',
 			portal_declared_order: 'src/core/relations/declared_order_reconcile.ts',
 			ddo_self_depth: 'src/core/relations/request_config/self_depth_check.ts',
+			wiped_filter_projects: 'src/core/section/record/wiped_filter_reconcile.ts',
 		};
 		for (const definition of REGISTERED) {
 			const owner = owners[definition.name];

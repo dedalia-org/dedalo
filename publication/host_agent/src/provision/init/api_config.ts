@@ -65,7 +65,15 @@ export const VALUE_GRAMMARS = Object.freeze({
   user: /^[A-Za-z0-9_.@-]{1,80}$/,
   db: /^[A-Za-z0-9_.@-]{1,80}$/,
   entity: /^[A-Za-z0-9_.-]{1,80}$/,
-  secret: /^[\x21-\x7e]{8,256}$/,
+  // Any VISIBLE character, letters of every script included (ñ, ç, ü…): written as UTF-8, read
+  // back as the same bytes by PHP, Bun and systemd. Refused: whitespace, control/format/private/
+  // unassigned/surrogate code points, every Default_Ignorable (zero-width, variation selector,
+  // Hangul filler, CGJ: they render as nothing, so the operator cannot see what was typed), U+FFFD
+  // (the mark of a decoding that went wrong — never a key someone pressed), and ' \ $ — the v2 env
+  // file is read by three grammars (Bun: `\$` and `$NAME` special even inside single quotes, measured
+  // Bun 1.4.4; the agent's parseEnvFile: literal; systemd/`. env`: literal), so no escape means one
+  // thing to all.
+  secret: /^[^\s\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Default_Ignorable_Code_Point}\uFFFD'\\$]{8,256}$/u,
 });
 export type ValueClass = keyof typeof VALUE_GRAMMARS;
 
@@ -84,12 +92,14 @@ function forbiddenClass(value: string): string {
   if (value.length === 0) return 'it is empty';
   if (/[\0]/.test(value)) return 'it contains a NUL byte';
   if (/[\r\n]/.test(value)) return 'it contains a line break';
-  if (/[\x00-\x1f\x7f]/.test(value)) return 'it contains a control character';
+  if (/\p{Cc}/u.test(value)) return 'it contains a control character';
   if (/\s/.test(value)) return 'it contains whitespace';
   if (value.includes("'")) return "it contains a single quote (')";
   if (value.includes('\\')) return 'it contains a backslash';
   if (value.includes('$')) return "it contains '$'";
-  if (/[^\x21-\x7e]/.test(value)) return 'it contains a non-ASCII character';
+  if (value.includes('\uFFFD')) return 'it contains U+FFFD, the replacement character (the input was not read as UTF-8)';
+  if (/[\p{Cf}\p{Default_Ignorable_Code_Point}]/u.test(value)) return 'it contains an invisible character (zero-width, variation selector, filler)';
+  if (/[\p{Co}\p{Cn}\p{Cs}]/u.test(value)) return 'it contains a private-use, unassigned or broken (lone surrogate) character';
   return 'it contains a character outside its grammar';
 }
 
@@ -99,10 +109,12 @@ export function checkValue(field: string, cls: ValueClass, value: unknown): stri
   const grammar = VALUE_GRAMMARS[cls];
   if (cls === 'secret') {
     // A dollar sign too: Bun's env-file loader expands $NAME even inside single quotes (measured
-    // on Bun 1.4.2 — test/unit/publication_host_init_v2_env_native.test.ts): v2 would read another value.
+    // on Bun 1.4.2 and 1.4.4 — test/unit/publication_host_init_v2_env_native.test.ts): v2 would read another value.
     if (value.includes("'") || value.includes('\\') || value.includes('$')) throw new ApiConfigRefused(field, `${forbiddenClass(value)} — a secret may not hold ', \\ or a dollar sign`);
-    if (value.length < 8) throw new ApiConfigRefused(field, 'is shorter than 8 characters');
-    if (value.length > 256) throw new ApiConfigRefused(field, 'is longer than 256 characters');
+    // Length in characters (code points), as the grammar counts them: 'ñ' is one, not two.
+    const length = [...value].length;
+    if (length < 8) throw new ApiConfigRefused(field, 'is shorter than 8 characters');
+    if (length > 256) throw new ApiConfigRefused(field, 'is longer than 256 characters');
   }
   if (!grammar.test(value)) throw new ApiConfigRefused(field, `${forbiddenClass(value)} (${cls} grammar ${grammar.source})`);
   if (cls === 'socket' && value.split('/').includes('..')) throw new ApiConfigRefused(field, "must not contain '..'");

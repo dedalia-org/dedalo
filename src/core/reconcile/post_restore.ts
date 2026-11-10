@@ -136,6 +136,11 @@ export const POST_RESTORE_PLAN: readonly PostRestoreStep[] = [
 		apply: false,
 		why: "a definition check, never a repair: a restore can bring back an ontology whose request_config declares section_tipo 'self' below the first level; the dry list names each definition, and the correction is an edit on the master ontology (its apply is refused at the registry)",
 	},
+	{
+		name: 'wiped_filter_projects',
+		apply: false,
+		why: "it moves records between project scopes: a restore can bring back records an older data wipe filed under the default project, and the dry list names each with the projects its history held before the wipe — putting them back is the operator's decision, never a restore side effect",
+	},
 ];
 
 export interface PostRestoreStepResult {

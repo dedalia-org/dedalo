@@ -120,6 +120,9 @@ const TABLE = 'matrix_test';
 const ORDER_HOST = `${TLD}8`;
 const ORDER_PORTAL = `${TLD}7`;
 const ORDER_COLUMN = `${TLD}9`;
+/** wiped_filter_projects: a filtered section and its component_filter. */
+const WIPED_HOST = `${TLD}10`;
+const WIPED_FILTER = `${TLD}11`;
 /** dd_ontology node of model 'matrix_table' whose term is `matrix_test`. */
 const MATRIX_TEST_RELATION = 'test24';
 
@@ -251,6 +254,7 @@ async function sweepMediaSituation(): Promise<void> {
 	await cleanScratchTipo(MEDIA_SECTION, TABLE);
 	await cleanScratchTipo(RAG_SECTION, TABLE);
 	await cleanScratchTipo(ORDER_HOST, TABLE);
+	await cleanScratchTipo(WIPED_HOST, TABLE);
 	await deleteTldNodes(TLD);
 	await clearOntologyDerivedCaches();
 	for (const path of planted.splice(0)) rmSync(path, { force: true });
@@ -371,6 +375,23 @@ beforeAll(async () => {
 				],
 			},
 		},
+	});
+	// zzrc10/zzrc11: a filtered section (no record yet → in sync).
+	await upsertDdOntologyNode({
+		tipo: WIPED_HOST,
+		model: 'section',
+		tld: TLD,
+		term: { 'lg-eng': 'Reconcile wiped-filter host section' },
+		properties: {},
+		relations: [{ tipo: MATRIX_TEST_RELATION }],
+	});
+	await upsertDdOntologyNode({
+		tipo: WIPED_FILTER,
+		parent: WIPED_HOST,
+		model: 'component_filter',
+		tld: TLD,
+		term: { 'lg-eng': 'Projects' },
+		properties: {},
 	});
 	await clearOntologyDerivedCaches();
 
@@ -850,6 +871,29 @@ const PLANTERS: Record<string, Planter> = {
 		},
 		async unplant() {
 			await cleanScratchTipo(ORDER_HOST, TABLE);
+		},
+	},
+	wiped_filter_projects: {
+		scope: [WIPED_HOST],
+		async plant() {
+			// A filter a pre-T0-5 data wipe left: ONE id-less dd151 locator on the
+			// default project (the drift is the live key; no TM history needed for dry).
+			await insertMatrixRecordWithCounter(TABLE, WIPED_HOST, {
+				relation: {
+					[WIPED_FILTER]: [
+						{
+							type: 'dd151',
+							section_id: config.features.defaultProject,
+							section_tipo: config.features.filterSectionTipo,
+							from_component_tipo: WIPED_FILTER,
+						},
+					],
+				},
+			});
+			return 1;
+		},
+		async unplant() {
+			await cleanScratchTipo(WIPED_HOST, TABLE);
 		},
 	},
 	ddo_self_depth: {

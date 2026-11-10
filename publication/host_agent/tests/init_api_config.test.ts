@@ -174,7 +174,8 @@ describe('server_config_api.php', () => {
   test.skipIf(php === null && phpReason !== null)(`the PHP round trip reads back the typed values${php === null ? ` — skipped: ${phpReason}` : ''}`, () => {
     expect(php).not.toBeNull(); // RED (not skipped) on Linux when php is missing
     mkdirSync(join(scratch, 'config_api'), { recursive: true });
-    for (const values of [v1, { ...v1, transport: 'tcp' as const, socket: null, port: '3307' }]) {
+    const unicode = { ...v1, password: 'Contraseña#ç-ü+€_漢字!🔑', webUserCode: 'Código-ñandú-ç%&🔑' };
+    for (const values of [v1, { ...v1, transport: 'tcp' as const, socket: null, port: '3307' }, unicode]) {
       const file = join(scratch, 'config_api', 'server_config_api.php');
       writeFileSync(file, renderV1Config(V1_TEMPLATE, values));
       const code = [
@@ -207,7 +208,17 @@ describe('the value grammars', () => {
       ['secret', 'q7Zk2pX', 'shorter than 8'],
       ['secret', 'x'.repeat(257), 'longer than 256'],
       ['secret', 'has spaceinit', 'whitespace'],
-      ['secret', 'ünïcodeXX', 'non-ASCII'],
+      ['secret', 'ñandú\u00a0abc', 'whitespace'],
+      ['secret', 'abc\u200bdefgh', 'invisible'],
+      ['secret', 'abc\u202edefgh', 'invisible'],
+      ['secret', 'abc\ue000defgh', 'private-use'],
+      ['secret', 'abc\u3164defgh', 'invisible'],
+      ['secret', 'abc\ufe0fdefgh', 'invisible'],
+      ['secret', 'abc\u034fdefgh', 'invisible'],
+      ['secret', 'abc\ufffddefgh', 'U+FFFD'],
+      ['secret', 'abc\u0085defgh', 'control character'],
+      ['secret', 'abc\ud83ddefgh', 'lone surrogate'],
+      ['secret', 'ñçüé€漢字', 'shorter than 8'],
       ['user', 'web$ro', "'$'"],
       ['db', 'a\nb', 'line break'],
       ['host', 'a\tb', 'control'],
@@ -239,5 +250,20 @@ describe('the value grammars', () => {
     expect(() => renderV2Env(V2_TEMPLATE, { ...v2, password: `abc'defghij` })).toThrow('DB_PASSWORD');
     expect(() => renderV1Config(V1_TEMPLATE, { ...v1, webUserCode: `abc'defghij` })).toThrow('API_WEB_USER_CODE');
     expect(checkValue('F', 'secret', '!#%&()*+,-./:;<=>?@[]^_`{|}~')).toHaveLength(28);
+  });
+
+  test('a secret may use letters of any script: counted in characters, rendered byte-exact', () => {
+    const secret = 'Contraseña#ç-ü+€_漢字!🔑';
+    expect(checkValue('F', 'secret', secret)).toBe(secret);
+    // 8 characters, 9 UTF-16 units (the emoji is two): length is characters, both ways.
+    expect(checkValue('F', 'secret', 'ñçüé€漢字🔑')).toHaveLength(9);
+    expect(checkValue('F', 'secret', 'ñ'.repeat(256))).toHaveLength(256);
+    // 256 characters but 512 UTF-16 units: admitted — a check on .length would refuse it.
+    expect([...checkValue('F', 'secret', '🔑'.repeat(256))]).toHaveLength(256);
+    expect(() => checkValue('F', 'secret', '🔑'.repeat(257))).toThrow('longer than 256');
+    expect(renderV2Env(V2_TEMPLATE, { ...v2, password: secret })).toContain(`DB_PASSWORD='${secret}'`);
+    const php = renderV1Config(V1_TEMPLATE, { ...v1, password: secret, webUserCode: `${secret}x` });
+    expect(php).toContain(`'${secret}'`);
+    expect(php).toContain(`'${secret}x'`);
   });
 });

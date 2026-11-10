@@ -227,6 +227,31 @@ clears. The cache clear runs the engine's invalidation hub, so it drops every
 registered in-memory cache — including the UI-label dictionaries, which is what
 makes a label deploy visible without a restart.
 
+### Records an older "delete data" moved out of their project
+
+In earlier v7 releases, deleting a record's data (the delete mode that keeps the
+row) reset its project filter to the configured default project for every
+user. A curator whose projects did not include the default one then lost the
+record: it disappeared from their lists and they could no longer open it.
+
+The `wiped_filter_projects` reconcile in `reconcile_status` finds those records
+and puts their projects back:
+
+- **Dry run** (the default) lists each record whose project filter still holds
+  exactly what the old wipe wrote — one locator on the default project, without
+  an item id — with the projects its Time Machine history held before the wipe.
+  A record whose filter was edited since is not listed.
+- Each listed record has a status: `restorable`; `project_missing` (a project
+  it held no longer exists — it is still restored, and should be re-filed by
+  hand); or `unrecoverable` (its history holds no earlier projects — it is
+  never written, because a project is never guessed).
+- **Apply** (any global admin) restores the recoverable records one by one, each
+  re-checked under a row lock and recorded in the Time Machine. A second apply
+  lists only the `unrecoverable` records.
+
+It is never scheduled and never applied automatically: it changes which users
+can reach a record, so the decision stays with the operator.
+
 ### The Register tools panel
 
 `register_tools` is the one config widget that reports a DISCREPANCY rather than

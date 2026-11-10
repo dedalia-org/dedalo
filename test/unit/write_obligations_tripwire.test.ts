@@ -152,6 +152,7 @@ const U = {
 	toolTimeMachineApplyValue:
 		'tools/tool_time_machine/server/tool_time_machine.ts#toolTimeMachineApplyValue',
 	writeRevertedKey: 'tools/tool_time_machine/server/bulk_revert_undo.ts#writeRevertedKey',
+	restoreWipedFilterKey: 'src/core/section/record/wiped_filter_reconcile.ts#restoreWipedFilterKey',
 	writeComposedUnit: 'tools/tool_time_machine/server/bulk_revert_undo.ts#writeComposedUnit',
 	archiveWriteRecordRow: 'src/core/archive/restore.ts#writeRecordRow',
 	deriveRelationSearch: `${RELATIONS_SAVE}#deriveRelationSearch`,
@@ -640,8 +641,9 @@ const EXCLUSIVE: readonly { target: string; allowed: readonly string[]; why: str
 			U.writeRevertedKey,
 			U.writeComposedUnit,
 			U.writeWipedKey,
+			U.restoreWipedFilterKey,
 		],
-		why: 'the COMPONENT-RESTORE entry is the doors that write a key’s PAST value: apply_value, the bulk revert-undo’s key write and its composed unit, and the soft-cascade restore’s key write. Any other door writing a restored mirror through it would skip propagating a curator’s value; a restore through persistRecordKeys would propagate a past derivation as truth (a phantom referencer’s back-mirror lists the record again — cases 14d, 14e, 17b).',
+		why: 'the COMPONENT-RESTORE entry is the doors that write a key’s PAST value: apply_value, the bulk revert-undo’s key write and its composed unit, the soft-cascade restore’s key write, and the wiped_filter_projects reconcile’s restore of a pre-wipe project filter from its Time Machine history (T0-5). Any other door writing a restored mirror through it would skip propagating a curator’s value; a restore through persistRecordKeys would propagate a past derivation as truth (a phantom referencer’s back-mirror lists the record again — cases 14d, 14e, 17b).',
 	},
 	{
 		target: U.prepareBirthColumns,

@@ -13,8 +13,9 @@ class FakeInput implements TtyInput {
   isTTY = true;
   raw: boolean[] = [];
   private listener: ((chunk: Buffer | string) => void) | null = null;
-  private readonly pending: string[] = [];
-  constructor(...chunks: string[]) {
+  private readonly pending: (string | Buffer)[] = [];
+  /** A string chunk arrives as its UTF-8 bytes; a Buffer chunk arrives as given (a split character). */
+  constructor(...chunks: (string | Buffer)[]) {
     this.pending.push(...chunks);
   }
   setRawMode(mode: boolean): void {
@@ -32,7 +33,7 @@ class FakeInput implements TtyInput {
   resume(): void {
     const chunks = this.pending.splice(0);
     queueMicrotask(() => {
-      for (const chunk of chunks) this.listener?.(Buffer.from(chunk));
+      for (const chunk of chunks) this.listener?.(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
     });
   }
   pause(): void {}
@@ -59,7 +60,7 @@ class FakeSignals implements TtySignals {
   }
 }
 
-function terminal(...chunks: string[]) {
+function terminal(...chunks: (string | Buffer)[]) {
   const input = new FakeInput(...chunks);
   const output = new FakeOutput();
   const signals = new FakeSignals();
@@ -140,6 +141,25 @@ describe('ttyPrompter', () => {
     expect(t.output.text).not.toContain('s3cret');
     expect(t.output.text).toContain('v2 database password (hidden): ');
     expect(t.output.text).toContain('v2 database password again: ');
+  });
+
+  test('secret: a UTF-8 character split across two data chunks is decoded whole (never U+FFFD)', async () => {
+    const secret = 'Contraseña-ç🔑';
+    const bytes = Buffer.from(`${secret}\r`);
+    // Split INSIDE 'ñ' (2 bytes) and inside the emoji (4 bytes), in both entries alike: decoding
+    // each chunk alone turned both halves into U+FFFD and the two corrupted entries MATCHED.
+    const n = bytes.indexOf(Buffer.from('ñ')) + 1;
+    const k = bytes.indexOf(Buffer.from('🔑')) + 2;
+    const parts = [bytes.subarray(0, n), bytes.subarray(n, k), bytes.subarray(k)];
+    const t = terminal(...parts, ...parts);
+    expect(await t.prompter.secret('v2 database password')).toBe(secret);
+  });
+
+  test('backspace removes one character: an emoji whole, never half a surrogate pair', async () => {
+    const t = terminal('abc🔑\x7fd\r');
+    const answer = await t.prompter.visible('v2 database user', null);
+    expect(answer).toBe('abcd');
+    expect(answer).not.toMatch(/[\uD800-\uDFFF]/);
   });
 
   test('secret: a mismatch asks again; three mismatches abort (null)', async () => {

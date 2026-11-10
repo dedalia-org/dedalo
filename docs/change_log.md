@@ -162,6 +162,24 @@ Merged since the last release; these ship with the next one.
     row's close button. The calendar button now sits at the field's top-left
     corner, and the `<>` mark of a date range is centred between the two dates.
 
+- **Emptying a record's data no longer moves it out of your project.**
+
+    Deleting a record's **data** (keeping the record) empties every field except its
+    projects, which are reset. They used to be reset to the installation's default
+    project, whoever did it — so a cataloguer working in their own project lost sight
+    of the record they had just emptied: they could no longer find, open, edit or
+    restore it. The projects are now reset the way a new record gets them: to your
+    first project, or the default project for a global administrator (or a user with
+    no project). The same applies when a dataframe link set to delete its target
+    empties that record.
+
+    Records emptied before this update still sit in the default project. An
+    administrator can find them, and put each one back in the projects it had before
+    it was emptied, with the new **wiped_filter_projects** check in the Maintenance
+    area's reconcile panel: run it first without applying to see the list, then apply.
+
+    Wire contract: `WC-2026-11-10-wipe-filter-user-default`.
+
 - **The close (×) button of a field inside a list row shows only while that field is hovered or active.**
 
     Before, activating a portal showed the × (back to list mode) on every field being edited in its rows at once. Now each × appears only on the field under the pointer or the active one.
@@ -372,6 +390,19 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Publication host install accepts passwords with accented letters (ñ, ç, ü…) and any language's letters.**
+
+    When the publication host install asks for the database password and the v1
+    `API_WEB_USER_CODE`, it refused any character outside plain ASCII, so a password such as
+    `Contraseña#ç` could not be used. Now any visible character is accepted: letters of any
+    language and symbols such as `!#%&+-_@`. It is written to the API configuration files exactly
+    as typed, even when a paste or a slow SSH link delivers a character in two pieces.
+
+    Still refused: spaces, characters that show as nothing (zero-width, variation selectors — so
+    also emoji written with one, such as ❤️), `'`, `\` and `$`. The v2 configuration file is
+    read by Bun, which treats `$` specially even inside quotes, so v2 would read a different
+    password.
+
 - **Saving a field of a record that does not exist (or was deleted) is refused instead of creating the record.**
 
     Before, a save addressed to a record number with no record behind it (possible for a global
@@ -390,7 +421,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 20 entries"
+??? note "Wire contract — 21 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -412,6 +443,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-10-tm-subject-cell-page`
     - `WC-2026-11-10-translation-empty-result`
     - `WC-2026-11-10-widget-data-read-door`
+    - `WC-2026-11-10-wipe-filter-user-default`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

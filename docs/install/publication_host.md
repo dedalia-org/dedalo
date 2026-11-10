@@ -402,8 +402,10 @@ Before it changes anything, init prints the whole report:
 Then, if they are missing, it asks for the API configuration files' secrets: the database
 password and, for v1 only, the v1 `API_WEB_USER_CODE`, typed without echo, twice. They are never printed,
 never written to the journal and never passed on a command line. A secret is 8 to 256
-printable ASCII characters with no space, `'`, `\` or `$` (Bun's environment-file loader expands
-`$` even inside quotes, so v2 would read another value); a refused one is named, never echoed,
+visible characters: letters of any language (`ñ`, `ç`, `ü`…) and symbols such as `!#%&+-_@` are
+fine. Refused: spaces, characters that show as nothing (zero-width, variation selectors, so
+also emoji written with one, such as ❤️), `'`, `\` and `$` (Bun's environment-file loader
+expands `$` even inside quotes, so v2 would read another value); a refused one is named, never echoed,
 and its file stays under *still to do*.
 
 **(v1 only)** How v1 reaches MariaDB is a decision of its own (`api_config.v1_db_transport`: `socket` or
