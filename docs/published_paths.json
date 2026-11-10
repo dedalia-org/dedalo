@@ -1,6 +1,6 @@
 {
   "_comment": "Page paths as last PUBLISHED to dedalo.dev/docs/v7/. Rewritten by `bun run docs:publish` on every successful upload, so it records what is actually being served rather than what we intend to serve. docs_versioning_tripwire fails if a path listed here has left docs/ without gaining a redirect_maps entry in mkdocs.yml — that is the difference between a rename and a 404. Empty until the first publish: no v7 URL is public yet, so no v7 rename can break anything yet.",
-  "published_at": "2026-11-07",
+  "published_at": "2026-11-10",
   "paths": [
     "",
     "api/",
@@ -115,6 +115,7 @@
     "core/ontology/authoring",
     "core/ontology/hierarchy",
     "core/ontology/local_ontology_overrides",
+    "core/ontology/ontology_css",
     "core/ontology/ontology_engine",
     "core/ontology/ontology_write",
     "core/ontology/relation_list",
@@ -143,8 +144,10 @@
     "core/system/diffusion",
     "core/system/errors",
     "core/system/external_services",
+    "core/system/geo_services",
     "core/system/logger",
     "core/system/login",
+    "core/system/map_tile_proxy",
     "core/system/media_engine",
     "core/system/media_protection",
     "core/system/observers",
