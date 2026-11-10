@@ -31,6 +31,7 @@ import { type ApiNotice, DedaloError, isErrorInDomain, ok, specOf } from '../err
 import type { RelatedLocatorFilter } from '../search/search_related.ts';
 import { getPermissions, type Principal } from '../security/permissions.ts';
 import { currentRequestId } from '../security/request_context.ts';
+import { sourceComponentLevel } from '../security/write_door.ts';
 import { readSection, type SectionReadOptions } from './read.ts';
 
 /**
@@ -629,13 +630,13 @@ export async function routeSectionRead(
 		// record-scope branch above — never a 403 that reveals the component exists.
 		// The dd128 own-user-record rules apply first, as in Gate A: tool_user_admin
 		// reads the actor's own name/email/password/image with a zero dd128 grant.
+		// A FIXED dataframe slot source (dd560) is bound by its main, as Gate A
+		// binds it (write_door.ts sourceComponentLevel, T0-4).
 		if (typeof source.section_tipo === 'string' && typeof source.tipo === 'string') {
-			const { getRecordComponentPermission } = await import('../security/permissions.ts');
-			const level = await getRecordComponentPermission(
+			const level = await sourceComponentLevel(
 				principal,
-				source.section_tipo,
-				source.tipo,
-				source.section_id,
+				source as typeof source & { section_tipo: string; tipo: string },
+				'read.get_data',
 			);
 			if (level < 1) {
 				return emptyShell();

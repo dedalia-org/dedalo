@@ -170,7 +170,12 @@ async function fieldRefusal(
 	} catch (error) {
 		if (
 			isDedaloError(error) &&
-			(error.code.startsWith('perm.') || error.code === 'request.invalid')
+			(error.code.startsWith('perm.') ||
+				error.code === 'request.invalid' ||
+				// A FIXED dataframe slot (dd560) asked without a valid main (T0-4): the
+				// door's refusal of THIS field — reported and skipped like any other, never
+				// a rolled-back row.
+				error.code === 'request.invalid_source')
 		) {
 			return `IGNORED: not writable by the importer (${error.code}) — the field was NOT written`;
 		}

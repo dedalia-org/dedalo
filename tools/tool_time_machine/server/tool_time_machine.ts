@@ -98,7 +98,7 @@ import {
 	persistRestoredKeys,
 } from '../../../src/core/section_record/index.ts';
 import { principalCanAccessRecord } from '../../../src/core/security/record_scope.ts';
-import { authorizeRecordAccess } from '../../../src/core/security/write_door.ts';
+import { authorizeRecordAccess, type FrameOf } from '../../../src/core/security/write_door.ts';
 import { readRowLaneState, restoredLaneValue } from '../../../src/core/tm_record/lane_state.ts';
 import { restorableRelationValue } from '../../../src/core/tm_record/relation_snapshot_shape.ts';
 import {
@@ -448,11 +448,19 @@ async function authorizeComponentWrite(
 	sectionTipo: string,
 	sectionId: number,
 	componentTipo: string,
+	frameOf?: FrameOf,
 ): Promise<void> {
 	await authorizeRecordAccess(
 		context.principal,
 		{ section_tipo: sectionTipo, component_tipo: componentTipo, section_id: sectionId },
-		{ mode: 'write', level: 2, sectionFloor: 1, door: 'tool_time_machine.apply_value' },
+		{
+			mode: 'write',
+			level: 2,
+			sectionFloor: 1,
+			door: 'tool_time_machine.apply_value',
+			// A FIXED dataframe slot (dd560) is judged against its main (T0-4).
+			...(frameOf === undefined ? {} : { frameOf }),
+		},
 	);
 }
 
@@ -543,7 +551,11 @@ export async function toolTimeMachineApplyValue(context: ToolActionContext): Pro
 		// a refusal rolls the restore back. An unchanged key is never asked.
 		const door: ChangedKeysDoor = async (componentTipos) => {
 			for (const componentTipo of componentTipos) {
-				await authorizeComponentWrite(context, sectionTipo, sectionId, componentTipo);
+				// A whole-record restore rewrites a fixed slot (dd560) for EVERY main
+				// of the section declaring it — bound by all of them (T0-4).
+				await authorizeComponentWrite(context, sectionTipo, sectionId, componentTipo, {
+					everyMain: true,
+				});
 			}
 		};
 		// Throws on refusal (the dispatch catch converts), so the activity row is
@@ -673,7 +685,8 @@ export async function toolTimeMachineApplyValue(context: ToolActionContext): Pro
 			// THE WRITE DOOR of each slot the restore writes (cross-write:r2): the
 			// module gate authorized the MAIN pair only — a slot is its own
 			// component, never written on the main's grant.
-			(slotTipo) => authorizeComponentWrite(context, sectionTipo, sectionId, slotTipo),
+			(slotTipo) =>
+				authorizeComponentWrite(context, sectionTipo, sectionId, slotTipo, { mainTipo: tipo }),
 		);
 		// Chokepoint write, the COMPONENT-RESTORE entry: restored value + the
 		// record's modified stamps + the save law's relation_search in one update

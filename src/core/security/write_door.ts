@@ -27,8 +27,11 @@
  *               account's own self-service write (dd128 grants 0 to most
  *               profiles; `isSelfServiceAccountWrite` is the whole carve-out).
  *   3. PAIR     write: `getRecordComponentPermission >= level` (the dd128
- *               own-record downgrade AND upgrade applied); read: the read
- *               door's `authorizeComponentRead` (the read law has ONE home).
+ *               own-record downgrade AND upgrade applied) — for a FIXED
+ *               dataframe slot (dd560) min(2, its MAIN's level), the main
+ *               named by `frameOf` and validated, else `request.invalid_source`
+ *               (T0-4); read: the read door's `authorizeComponentRead` (the
+ *               read law has ONE home).
  *   4. SCOPE    write: `assertRecordWriteTarget`; read:
  *               `principalCanAccessRecord`. In BOTH the non-positive-id
  *               refusal runs BEFORE the global-admin bypass.
@@ -88,15 +91,26 @@
  * half through the real resolver, no mocks) + authz_door_matrix_native.
  */
 
+import { isValidTipo } from '../concepts/ontology.ts';
+import { dataframePairingOf } from '../concepts/rqo.ts';
 import { INT4_MAX, INT4_MIN } from '../concepts/section_id.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
+import {
+	getModelByTipo,
+	getRecursiveChildrenTipos,
+	getSectionRealTipo,
+	tipoBelongsToSection,
+} from '../ontology/resolver.ts';
 import { assertValidTipo } from '../search/identifier_gate.ts';
 import { sectionButtonRows } from '../section/buttons.ts';
 import {
+	FIXED_FRAME_OWN_LEVEL,
 	getPermissions,
 	getRecordComponentPermission,
 	getSectionPermissions,
+	isFixedDataframeSlot,
 	isSelfServiceAccountWrite,
+	modelDeclaresFixedSlot,
 	type Principal,
 } from './permissions.ts';
 import { authorizeComponentRead } from './read_door.ts';
@@ -241,7 +255,24 @@ export interface RecordAccessOptions {
 	 * is refused as `internal.invariant` before anything is read.
 	 */
 	readonly sectionFloor: 0 | 1 | 2;
+	/**
+	 * The MAIN a FIXED dataframe slot write belongs to (T0-4, owner decision 1:
+	 * the frame's level IS its main's). Consulted ONLY when the component is a
+	 * fixed slot (`isFixedDataframeSlot`, dd560) — a caller may pass it on every
+	 * write. `{ mainTipo }`: the one main the frame pairs with (the save door's
+	 * `source.caller_dataframe.main_component_tipo`, raw — the door validates it).
+	 * `{ everyMain: true }`: a whole-slot write (a section-record restore) — bound
+	 * by EVERY component of the section whose model declares the slot. Absent on
+	 * a fixed-slot write → `request.invalid_source`: never a silent 2.
+	 */
+	readonly frameOf?: FrameOf;
 }
+
+/** Which main(s) bound a fixed dataframe slot write — see {@link RecordAccessOptions.frameOf}. */
+export type FrameOf = { readonly mainTipo: unknown } | { readonly everyMain: true };
+
+/** What the fixed-slot bound reads of a door's options: the named main(s) and the door id. */
+type FrameOptions = Pick<RecordAccessOptions, 'frameOf' | 'door'>;
 
 /**
  * The ONLY doors that may skip the SECTION half (`sectionFloor: 0`) — the human
@@ -311,13 +342,139 @@ async function assertPair(
 		await authorizeComponentRead({ principal, door: options.door }, target);
 		return;
 	}
-	const level = await getRecordComponentPermission(
-		principal,
-		target.sectionTipo,
-		target.componentTipo,
-		target.sectionId,
-	);
+	const level = isFixedDataframeSlot(target.componentTipo)
+		? await boundedFrameLevel(principal, target, options)
+		: await getRecordComponentPermission(
+				principal,
+				target.sectionTipo,
+				target.componentTipo,
+				target.sectionId,
+			);
 	if (level < options.level) throw levelShortfall(options.door, target, options.level, 'component');
+}
+
+/** A value the identifier gate accepts as a tipo (no throw — the caller names the refusal). */
+function isTipoSpelling(value: unknown): value is string {
+	return typeof value === 'string' && isValidTipo(value);
+}
+
+/** The refusal of a fixed-slot write whose main is missing or not a valid main. */
+function invalidFrameMain(door: string, target: Target, reason: string): DedaloError {
+	return new DedaloError('request.invalid_source', {
+		message: `${door}: the dataframe slot ${target.componentTipo} on ${target.sectionTipo} is written only through its main — ${reason}`,
+		coordinates: { door, section_tipo: target.sectionTipo, tipo: target.componentTipo },
+	});
+}
+
+/**
+ * Is `mainTipo` a valid main of fixed slot `target.componentTipo` on this
+ * section: a component OF the record's section (virtual-aware) whose model
+ * declares the slot (a shared slot accepts any such model — F7).
+ */
+async function isValidFrameMain(mainTipo: string, target: Target): Promise<boolean> {
+	if (!modelDeclaresFixedSlot(await getModelByTipo(mainTipo), target.componentTipo)) return false;
+	return tipoBelongsToSection(mainTipo, target.sectionTipo);
+}
+
+/** Every component of the record's section that is a valid main of the slot. */
+async function sectionMainsOfSlot(target: Target): Promise<string[]> {
+	const realSection = await getSectionRealTipo(target.sectionTipo);
+	const mains: string[] = [];
+	for (const tipo of await getRecursiveChildrenTipos(realSection)) {
+		if (modelDeclaresFixedSlot(await getModelByTipo(tipo), target.componentTipo)) mains.push(tipo);
+	}
+	return mains;
+}
+
+/** The main(s) `frameOf` names, validated — THROWS `request.invalid_source` otherwise. */
+async function frameMainsOf(target: Target, options: FrameOptions): Promise<string[]> {
+	const frameOf = options.frameOf;
+	if (frameOf === undefined) throw invalidFrameMain(options.door, target, 'no main named');
+	if ('everyMain' in frameOf) {
+		const mains = await sectionMainsOfSlot(target);
+		if (mains.length === 0) {
+			throw invalidFrameMain(options.door, target, 'the section has no component declaring it');
+		}
+		return mains;
+	}
+	const mainTipo = frameOf.mainTipo;
+	if (!isTipoSpelling(mainTipo) || !(await isValidFrameMain(mainTipo, target))) {
+		throw invalidFrameMain(
+			options.door,
+			target,
+			`main ${JSON.stringify(mainTipo ?? null)} is not a component of the section declaring the slot`,
+		);
+	}
+	return [mainTipo];
+}
+
+/**
+ * A FIXED dataframe slot's level: min(own 2, every main `options.frameOf` names,
+ * validated) — the frame IS its main's level (T0-4, owner decision 1). The write
+ * door's pair and the direct-read doors ({@link sourceComponentLevel}) share it.
+ */
+async function boundedFrameLevel(
+	principal: Principal,
+	target: Target,
+	options: FrameOptions,
+): Promise<number> {
+	let level = FIXED_FRAME_OWN_LEVEL;
+	for (const mainTipo of await frameMainsOf(target, options)) {
+		const mainLevel = await getRecordComponentPermission(
+			principal,
+			target.sectionTipo,
+			mainTipo,
+			target.sectionId,
+		);
+		level = Math.min(level, mainLevel);
+	}
+	return level;
+}
+
+/**
+ * THE LEVEL OF A RECORD-ADDRESSED SOURCE COMPONENT for a DIRECT READ door (Gate
+ * A, dd_core_api.ts gateReadSource; the component get_data self-gate,
+ * section/read_facade.ts; the get_data main stamp, section/read.ts) —
+ * `getRecordComponentPermission`, except a FIXED dataframe slot (dd560), which
+ * is bound by its MAIN exactly as the write door binds it (T0-4 A residual: the
+ * slot's own 2 is a ceiling the main lowers, never a grant on its own):
+ *   - a COMPLETE pairing (`source.caller_dataframe` main + id_key >= 1,
+ *     `dataframePairingOf` — the read serves that main's frames only) → min(2,
+ *     that main's level), the main validated first (`request.invalid_source`
+ *     otherwise);
+ *   - anything less (no main, a null main, a main without a valid id_key) — the
+ *     read serves the WHOLE slot, every main's frames → min over EVERY main of
+ *     the section declaring the slot (`everyMain`, the whole-slot bound).
+ */
+export async function sourceComponentLevel(
+	principal: Principal,
+	source: {
+		section_tipo: string;
+		tipo: string;
+		section_id?: unknown;
+		caller_dataframe?: unknown;
+	},
+	door: string,
+): Promise<number> {
+	const sectionId = source.section_id as number | string | null | undefined;
+	if (!isFixedDataframeSlot(source.tipo)) {
+		return getRecordComponentPermission(principal, source.section_tipo, source.tipo, sectionId);
+	}
+	// Only a COMPLETE pairing (main + id_key >= 1 — the read's own gate,
+	// callerDataframePairing) narrows the read to ONE main's frames; anything
+	// less serves the whole slot, every main's frames, so every main bounds it.
+	const pairing = dataframePairingOf(
+		source.caller_dataframe as { main_component_tipo?: unknown; id_key?: unknown } | null,
+	);
+	const frameOf: FrameOf =
+		pairing === null ? { everyMain: true } : { mainTipo: pairing.main_component_tipo };
+	const parsed = parseRecordId(sectionId);
+	const target: Target = {
+		sectionTipo: source.section_tipo,
+		componentTipo: source.tipo,
+		sectionId: parsed.kind === 'id' ? parsed.id : null,
+	};
+	return boundedFrameLevel(principal, target, { frameOf, door });
 }
 
 /** Step 4: the record scope — the non-positive-id refusal precedes the admin bypass in both modes. */
@@ -375,6 +532,14 @@ export interface SectionTargetOptions {
 	/** The minimum level on the target (the pair when `tipo` is named, else the section). */
 	readonly level: number;
 	readonly door: string;
+	/**
+	 * The MAIN a FIXED dataframe slot target belongs to — as
+	 * {@link RecordAccessOptions.frameOf}: consulted only when `tipo` is a fixed
+	 * slot (dd560); absent there → `request.invalid_source` (an importer that
+	 * KNOWS the frames' main — the CSV legacy envelope — names it; a door that
+	 * cannot never gets a silent 2).
+	 */
+	readonly frameOf?: FrameOf;
 }
 
 /** The grammar of a section target: the id may be ABSENT (a create), never invalid. */
@@ -407,6 +572,16 @@ async function sectionTargetLevel(
 ): Promise<number> {
 	const { sectionTipo, componentTipo, sectionId } = target;
 	if (componentTipo === sectionTipo) return getSectionPermissions(principal, sectionTipo);
+	// A fixed dataframe slot is never a section target of its own: its level is
+	// its main's (T0-4) — bound by the main the caller names (`frameOf`), else
+	// refused, never a silent 2.
+	if (isFixedDataframeSlot(componentTipo)) {
+		if (options.frameOf === undefined) {
+			throw invalidFrameMain(options.door, target, 'a section-target door names no main');
+		}
+		await assertSectionFloor(principal, target, 1, selfService, options.door);
+		return boundedFrameLevel(principal, target, options);
+	}
 	await assertSectionFloor(principal, target, 1, selfService, options.door);
 	return getRecordComponentPermission(principal, sectionTipo, componentTipo, sectionId);
 }

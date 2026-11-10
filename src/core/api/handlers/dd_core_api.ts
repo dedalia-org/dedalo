@@ -13,7 +13,7 @@ import { config } from '../../../config/config.ts';
 import { dispatchAreaRead, refuseAreaWrite } from '../../area/read.ts';
 import { isAreaModel } from '../../concepts/area.ts';
 import { isTemporalSource, type Rqo, type RqoSource } from '../../concepts/rqo.ts';
-import { isConsultationOnlySection } from '../../concepts/section.ts';
+import { isConsultationOnlySection, TM_NOTES_SECTION_TIPO } from '../../concepts/section.ts';
 import {
 	canonicalizeStoredSectionId,
 	classifyWireSectionId,
@@ -38,9 +38,10 @@ import {
 } from '../../section/record/save_component.ts';
 import {
 	getPermissions,
-	getRecordComponentPermission,
+	isTmNoteCreatorWithAccess,
 	type Principal,
 } from '../../security/permissions.ts';
+import { sourceComponentLevel } from '../../security/write_door.ts';
 import type { TargetSearchScope } from '../../security/writer_chain_scope.ts';
 import { getTermByLocator } from '../../ts_object/term_resolver.ts';
 import {
@@ -326,15 +327,16 @@ async function deepLinkNavigationSqo(options: {
  * is the Time Machine floor, which reads the TM scope — so the caller must run
  * this inside withTimeMachineReadScope. The dd128 own-user-record rules apply
  * first (PHP resolve_component_read_permission): tool_user_admin reads the
- * actor's own name/email/password/image, which most profiles grant 0 on.
+ * actor's own name/email/password/image, which most profiles grant 0 on. A
+ * FIXED dataframe slot source (dd560) is bound by its main, like its write
+ * (write_door.ts sourceComponentLevel, T0-4).
  */
 async function gateReadSource(source: RqoSource | undefined, principal: Principal): Promise<void> {
 	if (source?.section_tipo === undefined || source.tipo === undefined) return;
-	const level = await getRecordComponentPermission(
+	const level = await sourceComponentLevel(
 		principal,
-		source.section_tipo,
-		source.tipo,
-		source.section_id,
+		source as RqoSource & { section_tipo: string; tipo: string },
+		'read.gate_a',
 	);
 	if (level < 1) {
 		throw new DedaloError('perm.denied', {
@@ -356,6 +358,11 @@ async function ungrantedTargetSections(
 	const ungranted: string[] = [];
 	for (const targetSectionTipo of getSectionTipos(sqo)) {
 		if (relatedHosts && targetSectionTipo === RELATED_ALL_SECTIONS) continue;
+		// The TM NOTES section (T0-4): getPermissions' own rsc832 rule
+		// (permissions.ts tmNotesSectionGrant) — read only on the audit path (a
+		// profile grant) or by a global admin, as at every other section-level
+		// door. A TM-path reader reaches one note through its own component
+		// get_data (no sqo), never a list.
 		const level = await getPermissions(principal, targetSectionTipo, targetSectionTipo);
 		if (level < 1) ungranted.push(targetSectionTipo);
 	}
@@ -700,11 +707,27 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		// component of a section the profile holds 0 on, reached through a portal
 		// the profile may edit) depends on it. Converging it to 1 is an owner-review
 		// item of WC-2026-09-30-write-door, not a silent change here.
+		//
+		// frameOf (T0-4): a FIXED dataframe slot (dd560, the IRI label frame) is
+		// judged against its MAIN — the client's caller_dataframe.main_component_tipo
+		// (common.js), validated by the door; consulted only for a fixed slot.
+		const callerDataframe =
+			(
+				source as {
+					caller_dataframe?: { main_component_tipo?: string; id_key?: number | string };
+				}
+			).caller_dataframe ?? null;
 		const { authorizeRecordAccess } = await import('../../security/write_door.ts');
 		await authorizeRecordAccess(
 			principal,
 			{ section_tipo: source.section_tipo, component_tipo: source.tipo, section_id: sectionId },
-			{ mode: 'write', level: 2, sectionFloor: 0, door: 'save' },
+			{
+				mode: 'write',
+				level: 2,
+				sectionFloor: 0,
+				door: 'save',
+				frameOf: { mainTipo: callerDataframe?.main_component_tipo },
+			},
 		);
 		if (!Array.isArray(dataPayload.changed_data)) {
 			throw new DedaloError('request.invalid_data', {
@@ -723,12 +746,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			// the write path never depends on ambient ALS state alone.
 			principal,
 			// Dataframe saves carry the pairing context (PHP source.caller_dataframe).
-			callerDataframe:
-				(
-					source as {
-						caller_dataframe?: { main_component_tipo?: string; id_key?: number | string };
-					}
-				).caller_dataframe ?? null,
+			callerDataframe,
 		});
 		if (!outcome.ok) {
 			throw new DedaloError('record.save_failed', {
@@ -1316,11 +1334,25 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			// them delete a record they can never see (cross-project IDOR) — and no
 			// caller, admins included, may address a non-positive section_id (SEC-05;
 			// the delete ENGINES already refused it, this door did not).
-			await authorizeSectionRecord(
-				principal,
-				{ section_tipo: sectionTipo, section_id: targetId },
-				{ level: 2, door: 'delete' },
-			);
+			//
+			// THE TM-NOTE CREATOR ADMISSION (T0-4, owner Q-a): the creator of a TM
+			// note deletes their OWN note on the TM path — the record is a note
+			// (rsc832) BOUND to a TM row whose section the caller has TM access to,
+			// and its dd200 is the caller. Named, narrow (one record, delete_record
+			// only), and the whole of it: no rsc832 section grant is asked — the TM
+			// path holds none. Everyone else (other users, admins, a delete_data)
+			// goes through the section door below, unchanged (the audit path).
+			const creatorDelete =
+				sectionTipo === TM_NOTES_SECTION_TIPO &&
+				deleteMode === 'delete_record' &&
+				(await isTmNoteCreatorWithAccess(principal, targetId));
+			if (!creatorDelete) {
+				await authorizeSectionRecord(
+					principal,
+					{ section_tipo: sectionTipo, section_id: targetId },
+					{ level: 2, door: 'delete' },
+				);
+			}
 			targets = [targetId];
 		} else {
 			// A section target (no record named): the consultation-capped section

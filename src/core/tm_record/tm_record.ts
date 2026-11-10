@@ -45,6 +45,7 @@
  */
 
 import { getComponentModel } from '../components/registry.ts';
+import { TM_NOTES_CODE_TIPO, TM_NOTES_SECTION_TIPO, TM_NOTES_TEXT } from '../concepts/section.ts';
 import type { MatrixJsonbColumn, MatrixRecord } from '../db/matrix.ts';
 import { assertMatrixTable, MATRIX_JSONB_COLUMNS, readMatrixRecord } from '../db/matrix.ts';
 import { sql } from '../db/postgres.ts';
@@ -81,10 +82,11 @@ export const TM_COLUMN_SECTION_TIPO = 'dd1772'; // component_input_text
 export const TM_COLUMN_USER_ID = 'dd578'; // component_autocomplete_hi (relation)
 export const TM_COLUMN_BULK_PROCESS_ID = 'dd1371'; // component_number
 export const TM_COLUMN_DATA = 'dd1574'; // generic data column
-export const TM_NOTES_TEXT = 'rsc329'; // component_text_area (annotation)
-export const TM_NOTES_SECTION_TIPO = 'rsc832'; // DEDALO_TIME_MACHINE_NOTES_SECTION_TIPO (dd_tipos.php:220)
-const TM_NOTES_CODE_TIPO = 'rsc835'; // the notes section's Code (component_number): the annotated TM row id
-const CREATED_BY_USER = 'dd200'; // DEDALO_SECTION_INFO_CREATED_BY_USER
+// The TM notes section + its text / Code live in the kernel (concepts/section.ts)
+// since T0-4: security/permissions.ts rules on them. Re-exported for TM callers.
+export { TM_NOTES_CODE_TIPO, TM_NOTES_SECTION_TIPO, TM_NOTES_TEXT } from '../concepts/section.ts';
+
+const CREATED_BY_USER = 'dd200'; // DEDALO_SECTION_INFO_CREATED_BY_USER (the note creator)
 const USERS_SECTION_TIPO = 'dd128'; // DEDALO_SECTION_USERS_TIPO
 const RELATION_TYPE_LINK = 'dd151'; // DEDALO_RELATION_TYPE_LINK
 
@@ -212,65 +214,98 @@ async function tmNoteColumn(): Promise<MatrixJsonbColumn | null> {
 }
 
 /**
- * The rsc329 annotation value for one TM row (PHP class.tm_record.php:690-755):
- * search the notes section (rsc832) for the record whose Code (rsc835) equals
- * the TM row id, adopt its rsc329 data verbatim (all langs — the emit side
- * lang-filters like PHP get_data_lang), and pin the note record's section_id on
- * the FIRST item as parent_section_id — component_text_area's 'tm' branch lifts
- * it onto the data item so the client note view can open/create the note record.
- * No note (or a note with no stored text) → PHP's single empty placeholder item
- * carrying only parent_section_id.
+ * The NOTE that binds one TM row: the rsc832 record whose Code (rsc835) equals
+ * the TM row id, or null. THE ONE LOOKUP — the TM cell (tmNoteValue) and the
+ * note creation door (tm_note_create.ts: "already bound → that note") answer
+ * the same question the same way, so the door never mints a second note for a
+ * row the cell already shows one for.
+ *
+ * PHP searches rsc835 as component_number with q = the TM row id; the jsonb
+ * text projection matches both number and numeric-string storage. A row can own
+ * several note records (the lost-id bug minted one per click): the oldest one
+ * WITH text wins, so an empty duplicate never shadows the note the user wrote.
+ * The note record's address is MINTED here from an int PK column
+ * (WC-2026-08-10-section-id-int-canonical).
  */
-async function tmNoteValue(tmRowId: number): Promise<unknown[]> {
+export async function findTmNoteSectionId(tmRowId: number): Promise<number | null> {
 	const table = await getMatrixTableFromTipo(TM_NOTES_SECTION_TIPO);
 	const column = await tmNoteColumn();
+	if (table === null || column === null) return null;
+	assertMatrixTable(table);
+	// Table and column identifiers are allowlist-gated; values are bound params.
+	const rows = (await sql.unsafe(
+		`SELECT section_id
+		 FROM "${table}"
+		 WHERE section_tipo = $1
+		   AND EXISTS (
+		     SELECT 1 FROM jsonb_array_elements(COALESCE(number->$2, '[]'::jsonb)) AS code
+		     WHERE code->>'value' = $3
+		   )
+		 ORDER BY CASE WHEN jsonb_typeof("${column}"->$4) = 'array'
+		               THEN jsonb_array_length("${column}"->$4) > 0
+		               ELSE false END DESC,
+		          section_id ASC
+		 LIMIT 1`,
+		[TM_NOTES_SECTION_TIPO, TM_NOTES_CODE_TIPO, String(tmRowId), TM_NOTES_TEXT],
+	)) as { section_id: number }[];
+	const found = rows[0]?.section_id;
+	return found === undefined || found === null ? null : Number(found);
+}
 
-	// The note record's own address, MINTED here from an int PK column (PHP
-	// carried the DB driver's string; WC-2026-08-10-section-id-int-canonical
-	// repeals that shape). The client only tests it for presence and echoes it
-	// into the note open/create RQO, which reads addresses as ints.
+/**
+ * The note record's CREATOR — its dd200 relation (PHP
+ * section_record::get_created_by_user_id: `dd200[0].section_id`, the
+ * audit-visible locator; `data.created_by_user_id` is only a mirror). Null when
+ * the record carries none.
+ */
+function noteCreatorId(record: MatrixRecord | null): number | null {
+	const relation = record?.columns.relation as Record<string, unknown> | null | undefined;
+	const items = relation?.[CREATED_BY_USER];
+	const first = Array.isArray(items)
+		? (items[0] as { section_id?: unknown } | undefined)
+		: undefined;
+	if (first?.section_id === undefined || first.section_id === null) return null;
+	const id = Number(first.section_id);
+	return Number.isInteger(id) ? id : null;
+}
+
+/**
+ * The rsc329 annotation value for one TM row (PHP class.tm_record.php:690-755):
+ * the note record that binds the row ({@link findTmNoteSectionId}), its rsc329
+ * data adopted verbatim (all langs — the emit side lang-filters like PHP
+ * get_data_lang), and the note record's section_id pinned on the FIRST item as
+ * parent_section_id — component_text_area's 'tm' branch lifts it onto the data
+ * item so the client note view can open/create the note record. The note's
+ * CREATOR (dd200) rides beside it as `note_created_by_user_id` (T0-4 F5: the
+ * cell names the note creator under its own key, never the TM row author); the
+ * TM cell decorator (read_tm.ts) lifts and strips both.
+ * No note (or a note with no stored text) → PHP's single empty placeholder item
+ * carrying only parent_section_id (and a null creator).
+ */
+async function tmNoteValue(tmRowId: number): Promise<unknown[]> {
 	let noteSectionId: number | null = null;
+	let noteCreator: number | null = null;
 	let noteItems: unknown[] | null = null;
-	if (table !== null && column !== null) {
-		assertMatrixTable(table);
-		// PHP searches rsc835 as component_number with q = the TM row id; the
-		// jsonb text projection matches both number and numeric-string storage.
-		// A row can own several note records (the lost-id bug minted one per
-		// click): the oldest one WITH text wins, so an empty duplicate never
-		// shadows the note the user actually wrote.
-		// Table and column identifiers are allowlist-gated; values are bound params.
-		const rows = (await sql.unsafe(
-			`SELECT section_id
-			 FROM "${table}"
-			 WHERE section_tipo = $1
-			   AND EXISTS (
-			     SELECT 1 FROM jsonb_array_elements(COALESCE(number->$2, '[]'::jsonb)) AS code
-			     WHERE code->>'value' = $3
-			   )
-			 ORDER BY CASE WHEN jsonb_typeof("${column}"->$4) = 'array'
-			               THEN jsonb_array_length("${column}"->$4) > 0
-			               ELSE false END DESC,
-			          section_id ASC
-			 LIMIT 1`,
-			[TM_NOTES_SECTION_TIPO, TM_NOTES_CODE_TIPO, String(tmRowId), TM_NOTES_TEXT],
-		)) as { section_id: number }[];
-		const found = rows[0]?.section_id ?? null;
-		if (found !== null) {
-			noteSectionId = Number(found);
-			const noteRecord = await readMatrixRecord(table, TM_NOTES_SECTION_TIPO, noteSectionId);
-			const columnValue = noteRecord?.columns[column];
-			const items = (columnValue as Record<string, unknown> | null | undefined)?.[TM_NOTES_TEXT];
-			// PHP get_data coerces non-array data to [$data]; null keeps the placeholder.
-			noteItems = items == null ? null : Array.isArray(items) ? items : [items];
-		}
+	const found = await findTmNoteSectionId(tmRowId);
+	if (found !== null) {
+		const table = (await getMatrixTableFromTipo(TM_NOTES_SECTION_TIPO)) as string;
+		const column = (await tmNoteColumn()) as MatrixJsonbColumn;
+		noteSectionId = found;
+		const noteRecord = await readMatrixRecord(table, TM_NOTES_SECTION_TIPO, noteSectionId);
+		noteCreator = noteCreatorId(noteRecord);
+		const columnValue = noteRecord?.columns[column];
+		const items = (columnValue as Record<string, unknown> | null | undefined)?.[TM_NOTES_TEXT];
+		// PHP get_data coerces non-array data to [$data]; null keeps the placeholder.
+		noteItems = items == null ? null : Array.isArray(items) ? items : [items];
 	}
 
 	const value = noteItems !== null && noteItems.length > 0 ? [...noteItems] : [{}];
 	const first = value[0];
+	const navigation = { parent_section_id: noteSectionId, note_created_by_user_id: noteCreator };
 	value[0] =
 		first !== null && typeof first === 'object'
-			? { ...(first as Record<string, unknown>), parent_section_id: noteSectionId }
-			: { parent_section_id: noteSectionId };
+			? { ...(first as Record<string, unknown>), ...navigation }
+			: navigation;
 	return value;
 }
 

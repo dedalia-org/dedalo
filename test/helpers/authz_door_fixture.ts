@@ -37,6 +37,8 @@
  *                                                   + test126=2 (test3's button_new: CONTROL MAY CREATE — the
  *                                                   T0-2 New-button predicate asks it at the user create doors;
  *                                                   core create is SECTION level and does not)
+ *                                                   + test6100.test6394=1 (test6100's time_machine_list: TM ACCESS
+ *                                                   there — the create_tm_note door's served leg, T0-4 part C)
  *   944002/944012 SECTION_ONLY     No      P        test3=2, MEDIA_COMPONENTS=0 (explicit), test101=1,
  *                                                   test126=2 (may create: its refusals are the components')
  *   944003/944013 COMPONENT_ONLY   No      P        test3=0 (explicit), MEDIA_COMPONENTS=2, test101=1
@@ -84,6 +86,15 @@
  *                                                   "New"); test6100=2 with test6274 at an explicit 0. The
  *                                                   section-level create doors' persona (T0-2 D4/D3 revised:
  *                                                   core create, tool-driven add_new_element)
+ *
+ *   944029/944039 IRI_EDITOR       No      P        test3=2, test140=2 (test3's component_iri), test101=1,
+ *                                                   dd1706=1 + dd1715=1 (READ on the label frame's target: the
+ *                                                   relation-insert read-grant gate, finding F6, isolated) — NO
+ *                                                   row on dd560 (the IRI label frame): its level is its main's;
+ *                                                   + test3938=2, test5611=1, test5617 absent (0): two IRIs of
+ *                                                   one section at different levels (T0-4 fix 3)
+ *   944030/944040 IRI_READER       No      P        = IRI_EDITOR's test3 grants with test140=1 (the IRI READ-only) — the frame
+ *                                                   follows it to 1 (T0-4 decision 1)
  *
  *   (User ids skip 944021/944022 — the projects — so a profile id, N + 10,
  *   never lands on another record of the band.)
@@ -146,6 +157,21 @@ export const AUTHZ_TREE_EDITOR_USER_ID = 944025;
 export const AUTHZ_PORTAL_EDITOR_USER_ID = 944026;
 export const AUTHZ_CHILD_EDITOR_USER_ID = 944027;
 export const AUTHZ_FEATURE_EDITOR_USER_ID = 944028;
+export const AUTHZ_IRI_EDITOR_USER_ID = 944029;
+export const AUTHZ_IRI_READER_USER_ID = 944030;
+/** test3's component_iri (its fixed label frame is dd560, component_iri/descriptor.ts). */
+export const AUTHZ_IRI = 'test140';
+/** The IRI label frame's target section and its label field (seed-shipped `dd` ontology). */
+export const AUTHZ_IRI_LABEL_SECTION = 'dd1706';
+export const AUTHZ_IRI_LABEL_FIELD = 'dd1715';
+/**
+ * A section with TWO component_iri (test3938: test5611, test5617) — the IRI_EDITOR
+ * holds the first at 1 and the second at 0 (no row), so a fixed-slot read naming
+ * the first WITHOUT a complete pairing must be bound by both (T0-4 fix 3).
+ */
+export const AUTHZ_IRI_SPLIT_SECTION = 'test3938';
+export const AUTHZ_IRI_SPLIT_A = 'test5611';
+export const AUTHZ_IRI_SPLIT_B = 'test5617';
 /**
  * The feature-owned sections WITHOUT a button_new (T0-2 regression hunt,
  * 2026-11-10): text-area notes, Time Machine notes, index notes, references,
@@ -174,6 +200,8 @@ export const AUTHZ_READ_BUTTON_NEW = 'test6274';
 /** test6100's component_input_text (a find_or_create match field) / component_filter. */
 export const AUTHZ_READ_BUTTON_TEXT = 'test6216';
 export const AUTHZ_READ_BUTTON_FILTER = 'test6254';
+/** test6100's time_machine_list (the §7.4 TM-access grant; test3 declares none). */
+export const AUTHZ_TM_LIST = 'test6394';
 /** A section with NO button_new at all. */
 export const AUTHZ_NO_BUTTON_SECTION = 'test38';
 /** A fully create-granted section (button_new test13) OUTSIDE test80's targets. */
@@ -302,13 +330,23 @@ const OFF_TARGET_TREE_GRANTS: [string, string, number][] = [
 	[AUTHZ_OFF_TARGET_SECTION, AUTHZ_OFF_TARGET_FILTER, 1],
 ];
 
+/** The IRI personas' common grants: test3 writable, the label target READABLE (F6 isolated). */
+const iriGrants = (iriLevel: number): [string, string, number][] => [
+	[AUTHZ_SECTION, AUTHZ_SECTION, 2],
+	[AUTHZ_SECTION, AUTHZ_IRI, iriLevel],
+	[AUTHZ_SECTION, AUTHZ_FILTER, 1],
+	[AUTHZ_IRI_LABEL_SECTION, AUTHZ_IRI_LABEL_SECTION, 1],
+	[AUTHZ_IRI_LABEL_SECTION, AUTHZ_IRI_LABEL_FIELD, 1],
+];
+
 const IDENTITIES: readonly IdentitySpec[] = [
 	{
 		userId: AUTHZ_CONTROL_USER_ID,
 		name: 'zzauthz_control',
 		admin: false,
 		project: AUTHZ_PROJECT_P,
-		grants: CONTROL_GRANTS,
+		// + TM access on test6100 (CONTROL only — not the "= CONTROL" identities).
+		grants: [...CONTROL_GRANTS, [AUTHZ_READ_BUTTON_SECTION, AUTHZ_TM_LIST, 1]],
 	},
 	{
 		userId: AUTHZ_SECTION_ONLY_USER_ID,
@@ -506,6 +544,27 @@ const IDENTITIES: readonly IdentitySpec[] = [
 			[AUTHZ_READ_BUTTON_SECTION, AUTHZ_READ_BUTTON_SECTION, 2],
 			[AUTHZ_READ_BUTTON_SECTION, AUTHZ_READ_BUTTON_NEW, 0],
 		],
+	},
+	{
+		// T0-4 decision 1: the IRI label frame (dd560) at its MAIN's level. No dd560
+		// row on either — the frame's own level is the engine's, never the matrix's.
+		userId: AUTHZ_IRI_EDITOR_USER_ID,
+		name: 'zzauthz_iri_editor',
+		admin: false,
+		project: AUTHZ_PROJECT_P,
+		// + the split section: its first IRI READ (1), its second absent (0) — fix 3.
+		grants: [
+			...iriGrants(2),
+			[AUTHZ_IRI_SPLIT_SECTION, AUTHZ_IRI_SPLIT_SECTION, 2],
+			[AUTHZ_IRI_SPLIT_SECTION, AUTHZ_IRI_SPLIT_A, 1],
+		],
+	},
+	{
+		userId: AUTHZ_IRI_READER_USER_ID,
+		name: 'zzauthz_iri_reader',
+		admin: false,
+		project: AUTHZ_PROJECT_P,
+		grants: iriGrants(1),
 	},
 	{
 		userId: AUTHZ_TOOL_GRANTED_USER_ID,
@@ -746,6 +805,8 @@ export interface AuthzIdentities {
 	portalEditor: Principal;
 	childEditor: Principal;
 	featureEditor: Principal;
+	iriEditor: Principal;
+	iriReader: Principal;
 }
 
 export async function resolveAuthzIdentities(): Promise<AuthzIdentities> {
@@ -766,6 +827,8 @@ export async function resolveAuthzIdentities(): Promise<AuthzIdentities> {
 		portalEditor: await resolvePrincipal(AUTHZ_PORTAL_EDITOR_USER_ID),
 		childEditor: await resolvePrincipal(AUTHZ_CHILD_EDITOR_USER_ID),
 		featureEditor: await resolvePrincipal(AUTHZ_FEATURE_EDITOR_USER_ID),
+		iriEditor: await resolvePrincipal(AUTHZ_IRI_EDITOR_USER_ID),
+		iriReader: await resolvePrincipal(AUTHZ_IRI_READER_USER_ID),
 	};
 }
 
@@ -790,6 +853,15 @@ export async function assertAuthzDoorContrast(ids: AuthzIdentities): Promise<voi
 		// May create in test3 (T0-2 New-button predicate: test126 is its button_new).
 		await expectLevel(label, p, AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 2);
 	}
+	// CONTROL alone holds TM access on test6100 (the create_tm_note served leg).
+	await expectLevel('control', ids.control, AUTHZ_READ_BUTTON_SECTION, AUTHZ_TM_LIST, 1);
+	await expectLevel(
+		'componentOnly',
+		ids.componentOnly,
+		AUTHZ_READ_BUTTON_SECTION,
+		AUTHZ_TM_LIST,
+		0,
+	);
 	await expectLevel('sectionOnly', ids.sectionOnly, AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 2);
 	await expectLevel('level1', ids.level1, AUTHZ_SECTION, AUTHZ_SECTION, 1);
 	for (const tipo of AUTHZ_MEDIA_COMPONENTS)
@@ -864,6 +936,18 @@ export async function assertAuthzDoorContrast(ids: AuthzIdentities): Promise<voi
 	await expectLevel('featureEditor', fe, AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 0);
 	await expectLevel('featureEditor', fe, rb, rb, 2);
 	await expectLevel('featureEditor', fe, rb, AUTHZ_READ_BUTTON_NEW, 0);
+	// The IRI personas: the IRI at 2 / 1, the label target readable, NO matrix
+	// level on the frame slot (dd560 is a `dd` node, never a child of test3).
+	for (const [label, p, iriLevel] of [
+		['iriEditor', ids.iriEditor, 2],
+		['iriReader', ids.iriReader, 1],
+	] as const) {
+		if (p.isGlobalAdmin) problems.push(`${label} is a global admin`);
+		await expectLevel(label, p, AUTHZ_SECTION, AUTHZ_SECTION, 2);
+		await expectLevel(label, p, AUTHZ_SECTION, AUTHZ_IRI, iriLevel);
+		await expectLevel(label, p, AUTHZ_SECTION, 'dd560', 0);
+		await expectLevel(label, p, AUTHZ_IRI_LABEL_SECTION, AUTHZ_IRI_LABEL_SECTION, 1);
+	}
 	if (problems.length > 0) {
 		throw new Error(`authz_door_fixture: the contrast is degraded — ${problems.join('; ')}`);
 	}

@@ -43,14 +43,19 @@
  *   doors pass as `ownLevelOf` WITH the item's section_id and the node's mode:
  *   it carries the search-mode grants and the dd128 OWN-USER-RECORD cases
  *   (full name / email / password / image → 2 on the viewer's own row; the
- *   guarded fields → 1). KNOWN DIVERGENCES, ledgered in
- *   WC-2026-11-04-subdatum-own-level-residual-divergences (the twin does not
- *   carry them on ANY door today): the TM-notes section
- *   (PHP → 1, the note's creator → 2), the IRI dataframe dd560 (PHP → 2) and
- *   the dd15 tm-mode floor beyond getPermissions' own. A NODE-level stamp (a
- *   context entry, the caller level a child inherits from) has no single
- *   row, so it is asked with no section_id — the matrix level — where PHP
- *   used the first instance's row (merge_unique_context first-wins).
+ *   guarded fields → 1), the IRI label frame dd560 (own 2: the caller
+ *   chain makes it exactly its main's level — PHP answered a flat 2) and the
+ *   TM-notes section rsc832 (max(profile grant, TM path): the creator 2 on the
+ *   text, readers with TM access to the annotated change 1, no TM access 0 —
+ *   PHP answered 1, the creator 2, with no TM coupling) — both T0-4, owner
+ *   decisions 2026-11-10, diverging from PHP on purpose. TWO KNOWN
+ *   DIVERGENCES remain, both ledgered in
+ *   WC-2026-11-04-subdatum-own-level-residual-divergences: (a) the dd15
+ *   tm-mode floor beyond getPermissions' own; (b) its item 4 — a NODE-level
+ *   stamp (a context entry, the caller level a child inherits from) has no
+ *   single row, so it is asked with no section_id — the matrix level (rsc832:
+ *   the profile grant alone) — where PHP used the first instance's row
+ *   (merge_unique_context first-wins).
  *
  * WHAT THIS MODULE COMPUTES: step 2 over the emission's NODE chain
  * (relations/element_registry.ts — each node knows its parent occurrence), so

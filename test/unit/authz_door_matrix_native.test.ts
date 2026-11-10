@@ -94,6 +94,7 @@ import { componentTextAreaApiActions } from '../../src/core/api/handlers/dd_comp
 import { mcpApiActions } from '../../src/core/api/handlers/dd_mcp_api.ts';
 import { resolveMediaActionContext } from '../../src/core/api/handlers/media_action_context.ts';
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
+import { TM_NOTES_SECTION_TIPO } from '../../src/core/concepts/section.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { writeMediaCompanions } from '../../src/core/media/ingest/companion_writes.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
@@ -131,6 +132,9 @@ import {
 	AUTHZ_FILTER,
 	AUTHZ_IMAGE,
 	AUTHZ_PROJECT_P,
+	AUTHZ_READ_BUTTON_FILTER,
+	AUTHZ_READ_BUTTON_SECTION,
+	AUTHZ_READ_BUTTON_TEXT,
 	AUTHZ_SECTION,
 	AUTHZ_STUB_MODEL_ID,
 	AUTHZ_TEXT,
@@ -1150,6 +1154,84 @@ function bulkRevertProbe(): Probe {
 }
 
 /**
+ * THE TM-NOTE DOOR (dd_component_text_area_api:create_tm_note, T0-4 part B):
+ * its admission is its own — TM ACCESS to the annotated row's section
+ * (canAccessTimeMachineList) AND AUTHORSHIP of that row — no section or pair
+ * grant. Per cell the identity AUTHORS a fresh TM row (a save of test6100's
+ * input_text as that identity, on a scratch test6100 record born as root), then
+ * annotates it through the REAL dispatch. test6100, not test3: it declares a
+ * time_machine_list (test6394), so TM access is a grant an identity can hold.
+ *   CONTROL     the only matrix identity granted test6394 → served (one note);
+ *   NO_SECTION  authors the row, holds no test6394 grant → perm.denied;
+ *   ADMIN_ID0   a global admin authoring the row: TM access by flag → served.
+ * Every record (annotated + note) is swept with its TM rows (disposable).
+ */
+function createTmNoteProbe(): Probe {
+	return {
+		expect: { CONTROL: 'served', NO_SECTION: 'refused', ADMIN_ID0: 'served' },
+		run: async (identity) => {
+			await assertTestDatabase('authz_door_matrix_native: create_tm_note probe');
+			const principal = principalOf(identity);
+			const annotated = await createSectionRecord(
+				AUTHZ_READ_BUTTON_SECTION,
+				-1,
+				new Date(),
+				undefined,
+				{
+					filterData: [
+						{
+							type: 'dd675',
+							section_id: AUTHZ_PROJECT_P,
+							section_tipo: 'dd153',
+							from_component_tipo: AUTHZ_READ_BUTTON_FILTER,
+						},
+					],
+				},
+			);
+			disposable.push({ sectionTipo: AUTHZ_READ_BUTTON_SECTION, sectionId: annotated });
+			const saved = await saveComponentData({
+				componentTipo: AUTHZ_READ_BUTTON_TEXT,
+				sectionTipo: AUTHZ_READ_BUTTON_SECTION,
+				sectionId: annotated,
+				lang: 'lg-nolan',
+				changedData: [
+					{
+						action: 'set_data',
+						key: null,
+						value: [{ id: 1, lang: 'lg-nolan', value: `zzauthz_tm_${identity}` }],
+					} as never,
+				],
+				userId: principal.userId,
+			});
+			if (!saved.ok)
+				throw new Error(`create_tm_note probe: the authoring save failed (${saved.message})`);
+			const { sql } = await import('../../src/core/db/postgres.ts');
+			const rows = (await sql.unsafe(
+				`SELECT id FROM matrix_time_machine
+				  WHERE section_tipo = $1 AND section_id = $2 AND tipo = $3 AND user_id = $4::text
+				  ORDER BY id DESC LIMIT 1`,
+				[AUTHZ_READ_BUTTON_SECTION, annotated, AUTHZ_READ_BUTTON_TEXT, principal.userId],
+			)) as { id: number | string }[];
+			const tmRowId = Number(rows[0]?.id);
+			if (!Number.isInteger(tmRowId)) throw new Error('create_tm_note probe: no TM row authored');
+			const rqo = {
+				action: 'create_tm_note',
+				dd_api: 'dd_component_text_area_api',
+				options: { matrix_id: tmRowId },
+			} as unknown as Rqo;
+			const result = await dispatchRqo(rqo, dispatchContext(principal) as never);
+			const noteId = Number(
+				(result.body as { data?: { section_id?: unknown } } | undefined)?.data?.section_id,
+			);
+			if (Number.isInteger(noteId) && noteId > 0) {
+				disposable.push({ sectionTipo: TM_NOTES_SECTION_TIPO, sectionId: noteId });
+			}
+			return envelopeOutcome(result as { status: number; body?: { error?: { code?: string } } });
+		},
+	};
+}
+
+/**
  * TIME MACHINE apply_value, SECTION branch (cross-write:r3,
  * tool_time_machine/server/tool_time_machine.ts): a whole-record restore asks
  * the write door for every component it CHANGES, behind the row lock
@@ -2000,7 +2082,9 @@ const NOT_YET_PROBED: Readonly<Record<string, string>> = {
  * probed through the real handler (translationProbe). 62 → 61: req 10 —
  * tool_update_cache `update_cache`'s per-row write door (updateCacheRowProbe).
  * 61 → 60: `dd_utils_api:install` removed with the browser installer
- * (WC-2026-10-12-install-surface-removed) — not probed, gone.
+ * (WC-2026-10-12-install-surface-removed) — not probed, gone. (T0-4 part B
+ * listed `dd_component_text_area_api:create_tm_note` here, 60 → 61; part C
+ * PROBES it — createTmNoteProbe — and restores 60.)
  */
 const NOT_YET_PROBED_CEILING = 60;
 
@@ -2566,6 +2650,8 @@ async function deriveCensus(): Promise<Census> {
 			return outcomeOf(() => deleteTag(rqo, handlerContext(principalOf(identity))));
 		},
 	});
+
+	probes.set('dd_component_text_area_api:create_tm_note', createTmNoteProbe());
 
 	// SEC-2: the portal unlink goes through THE WRITE DOOR (write, level 2,
 	// section floor 2): the pair (dd128-aware) and the record scope, ahead of any

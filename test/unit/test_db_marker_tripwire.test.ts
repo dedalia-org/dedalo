@@ -599,6 +599,27 @@ const DOORS: readonly { name: string; run: () => Promise<unknown> }[] = [
 			(await import('../helpers/authz_door_fixture.ts')).createDoorRecord('test3', 944021),
 	},
 	{
+		name: 'installTmNoteFixture',
+		run: async () => (await import('../helpers/tm_note_fixture.ts')).installTmNoteFixture(),
+	},
+	{
+		name: 'removeTmNoteFixture',
+		run: async () => (await import('../helpers/tm_note_fixture.ts')).removeTmNoteFixture(),
+	},
+	{
+		name: 'mintTmRow',
+		run: async () => (await import('../helpers/tm_note_fixture.ts')).mintTmRow(947201, 'zzmk'),
+	},
+	{
+		name: 'setTmNoteTmAccess',
+		run: async () => (await import('../helpers/tm_note_fixture.ts')).setTmNoteTmAccess(947201, 0),
+	},
+	{
+		name: 'forgetDeletedTmNoteRecord',
+		run: async () =>
+			(await import('../helpers/tm_note_fixture.ts')).forgetDeletedTmNoteRecord('test3', 999_997),
+	},
+	{
 		name: 'sweepActivityRows',
 		run: async () =>
 			(await import('../helpers/activity_rows.ts')).sweepActivityRows('zzmk1', [999_997]),

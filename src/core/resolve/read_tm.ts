@@ -717,11 +717,12 @@ function tmEnvelopeExtra(row: TmRow): Record<string, unknown> {
  * the note-record NAVIGATION keys the client note view consumes
  * (view_note_text_area.js) — `matrix_id` (the TM row id; note creation aborts
  * without it), `parent_section_tipo`/`parent_section_id` (the notes section
- * rsc832 + the existing note record, or null) and `created_by_user_id`. None of
- * those are properties of the VALUE, so no emit hook could produce them.
+ * rsc832 + the existing note record, or null), `tm_user_id` (the TM row's
+ * author) and `created_by_user_id` (the note record's dd200 creator, or null).
+ * None of those are properties of the VALUE, so no emit hook could produce them.
  *
- * `parent_section_id` is read off the first STORED item, where tm_record.ts's
- * `tmNoteValue` parked it (PHP component_text_area_json's 'tm' branch did the
+ * `parent_section_id` (and the note creator, `note_created_by_user_id`) is read
+ * off the first STORED item, where tm_record.ts's `tmNoteValue` parked it (PHP component_text_area_json's 'tm' branch did the
  * same lift), and stripped from the emitted entries. It must come from the
  * stored value, not the lang-filtered entries: an empty note (created on the
  * first click, before any text) or one written in another lang has no
@@ -737,20 +738,32 @@ const TM_CELL_DECORATORS: Readonly<
 > = {
 	[TIPO_NOTES]: (item, row, stored) => {
 		const storedFirst = Array.isArray(stored) ? stored[0] : undefined;
-		const parentSectionId =
+		const parked =
 			storedFirst !== undefined && storedFirst !== null && typeof storedFirst === 'object'
-				? (((storedFirst as Record<string, unknown>).parent_section_id ??
-						null) as StoredSectionId | null)
-				: null;
+				? (storedFirst as Record<string, unknown>)
+				: {};
+		const parentSectionId = (parked.parent_section_id ?? null) as StoredSectionId | null;
+		const noteCreator = parked.note_created_by_user_id;
 		const entries = Array.isArray(item.entries) ? (item.entries as Record<string, unknown>[]) : [];
 		const first = entries[0];
 		if (first !== undefined && first !== null && typeof first === 'object') {
-			const { parent_section_id: _lifted, ...rest } = first;
+			const {
+				parent_section_id: _lifted,
+				note_created_by_user_id: _liftedCreator,
+				...rest
+			} = first;
 			item.entries = [rest, ...entries.slice(1)];
 		}
 		item.parent_section_id = parentSectionId;
 		item.parent_section_tipo = TM_NOTES_SECTION_TIPO;
-		item.created_by_user_id = Number(row.user_id);
+		// T0-4 F5 (WC — see the lead's entry): two users, two keys. `tm_user_id` is
+		// the TM ROW's author (who made the change — the only user who may create
+		// its note, create_tm_note); `created_by_user_id` is the NOTE record's
+		// creator (its dd200), null when the row has no note. The key used to carry
+		// the row author under the note creator's name.
+		item.tm_user_id = Number(row.user_id);
+		item.created_by_user_id =
+			typeof noteCreator === 'number' && Number.isInteger(noteCreator) ? noteCreator : null;
 		item.matrix_id = row.id;
 	},
 };

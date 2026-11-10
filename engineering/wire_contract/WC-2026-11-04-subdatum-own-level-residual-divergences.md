@@ -56,3 +56,14 @@ place, every door), not by a door-local patch.
    exists to assert against.
 
 Parity: no frozen fixture isolates any of the four — no drift. **Re-harvest: none.**
+
+## Addendum 2026-11-10 — items 1 and 2 closed (T0-4)
+
+Items 1 (TM notes `rsc832`) and 2 (IRI `dd560`) are no longer unported: both now live in
+`getRecordComponentPermission` (every record-addressed door; the section-level doors are
+bounded by the matrix — rsc832 lost its public-list read), with owner-decided shapes that
+diverge from PHP — `WC-2026-11-10-iri-frame-and-tm-note-levels`. Gates:
+`test/unit/subdatum_own_level_ported_native.test.ts`,
+`test/unit/subdatum_own_level_iri_native.test.ts`. PHP's `section_record::get_permissions`
+rsc832 override is inert (its only reader skips rows below 1; every branch is ≥ 1) and has
+no TS twin. Items 3 and 4 unchanged.

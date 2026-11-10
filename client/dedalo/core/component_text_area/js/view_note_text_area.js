@@ -57,11 +57,13 @@ export const view_note_text_area = function() {
 *
 * The note icon is coloured green when data.entries is non-empty (existing annotations)
 * and grey otherwise (no annotation yet). Clicking the icon:
-*   1. Guards creation: only the user who authored the change (identified by
-*      self.caller.locator.user_id) may create a new note section; others are blocked
-*      with an alert.
-*   2. Lazily creates a notes section record via self.add_component_history_note() when
-*      data.parent_section_id is absent; skips creation when the record already exists.
+*   1. Guards creation (UX only — the server enforces it): only the user who authored
+*      the change (data.tm_user_id, self.caller.locator.user_id as fallback) may create
+*      a new note; others are blocked with an alert.
+*   2. Lazily creates the note via self.add_component_history_note() when
+*      data.parent_section_id is absent — ONE 'create_tm_note' request that creates the
+*      notes record bound to the TM row server-side (T0-4); skips creation when the
+*      record already exists.
 *   3. Opens a modal that contains:
 *      - An inner component_text_area in 'edit' mode bound to the notes section record.
 *      - A 'Delete' button (shown only when permissions > 1) that removes the notes
@@ -80,13 +82,14 @@ export const view_note_text_area = function() {
 *                                   falls back to self.section_tipo when absent
 *   parent_section_id    {string|number|null} — id of an already-created notes section
 *                                               record, or null/absent when not yet created
-*   created_by_user_id   {number|null} — user id that originally created this notes record;
-*                                        null/falsy means no note exists yet
+*   tm_user_id           {number} — the TM row's author (who made the change): the only
+*                                   user the server lets create its note
+*   created_by_user_id   {number|null} — the NOTE record's creator (its dd200);
+*                                        null when no note exists yet
 *
-* (!) self.caller.locator.user_id is read as an integer via parseInt(). If the caller chain
-*     does not include a locator property (e.g. view used outside a time-machine context)
-*     this will produce NaN and the ownership check will always fail, silently blocking note
-*     creation. No null-guard is present in this code — document only, do not fix.
+* (!) When neither data.tm_user_id nor self.caller.locator.user_id is present (e.g. view
+*     used outside a time-machine context) the author is NaN and the UX check blocks
+*     creation; the server would refuse it anyway.
 *
 * (!) alert() is used for the ownership error instead of the standard notification system.
 *     This is intentional legacy behaviour: alert() blocks until dismissed, preventing any
@@ -124,17 +127,17 @@ view_note_text_area.render = async function(self, options) {
 		const click_handler = async (e) => {
 			e.stopPropagation()
 
-			// validating note creation
-				// created_by_user_id: component text area note creation if is already created
-				const created_by_user_id = self.data.created_by_user_id
+			// validating note creation (UX only — create_tm_note enforces it server-side)
+				// note_exists: the TM row already has its note record
+				const note_exists	= !!self.data.parent_section_id
 				// user_id: current logged user
-				const user_id			= page_globals.user_id
-				// tm_user_id: column userID from time machine record
-				const tm_user_id		= parseInt(self.caller.locator.user_id)
+				const user_id		= page_globals.user_id
+				// tm_user_id: the TM row's author (who made the change)
+				const tm_user_id	= parseInt(self.data.tm_user_id ?? self.caller?.locator?.user_id)
 
 				// If a note does not yet exist, one will be created, but only the user who
 				// made the change will be able to create it.
-				if (!created_by_user_id && user_id!==tm_user_id) {
+				if (!note_exists && user_id!==tm_user_id) {
 					alert(get_label.not_allow_to_create_note || 'Cannot create notes of a change that is not yours')
 					console.error('Access prohibited. This note is not yours');
 					return
@@ -150,13 +153,13 @@ view_note_text_area.render = async function(self, options) {
 
 			// parent_section_id. Get existing or create a new one
 				// Reuse the existing parent_section_id when present; otherwise call
-				// add_component_history_note(), which creates a new record server-side,
-				// stores the matrix_id as the notes code, and returns the new section_id.
+				// add_component_history_note(): ONE create_tm_note request — the server
+				// creates the notes record bound to this TM row (the Code is never a
+				// client value) and returns its section_id.
 				const parent_section_id	= self.data.parent_section_id
 					? self.data.parent_section_id
 					: await self.add_component_history_note({
-						notes_section_tipo	: parent_section_tipo,
-						matrix_id			: matrix_id
+						matrix_id : matrix_id
 					})
 
 			// error creating parent_section_id check

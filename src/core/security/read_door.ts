@@ -491,6 +491,14 @@ export const READ_DOOR_POSTURE: ReadonlyMap<string, ReadDoorPosture> = new Map<
 		},
 	],
 	['dd_component_text_area_api:delete_tag', { posture: 'mutating', reason: 'removes a tag.' }],
+	[
+		'dd_component_text_area_api:create_tm_note',
+		{
+			posture: 'mutating',
+			reason:
+				'creates the Time Machine note bound to one TM row (or answers the one that binds it) — admitted on TM access to the row’s section AND authorship of the change (tm_record/tm_note_create.ts, T0-4).',
+		},
+	],
 	['dd_component_av_api:create_posterframe', { posture: 'mutating', reason: 'writes a frame.' }],
 	['dd_component_av_api:delete_posterframe', { posture: 'mutating', reason: 'removes a frame.' }],
 	[

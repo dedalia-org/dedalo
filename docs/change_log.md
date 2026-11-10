@@ -41,7 +41,7 @@ Merged since the last release; these ship with the next one.
     term** in a section that has no **New** button.
 
     Creating a record with **New** in a section's list, the records a feature creates for you in
-    its own section — notes on a text, Time Machine notes, indexation notes, references,
+    its own section — notes on a text, indexation notes, references,
     dataframe annotations, presets — and the records an import tool creates (import files,
     numismatic acquisition, poster frame) still need only write access to that section, as
     before. A portal create made by such a tool is also limited to the sections the portal links
@@ -114,6 +114,32 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-09-export-frontier-fanout`, `WC-2026-11-09-implicit-children-frontier-predicate`.
 
 #### Changed
+
+- **IRI labels follow their IRI's permission; Time Machine notes belong to the change they annotate.**
+
+    **IRI labels.** Before, only root could save the label of an IRI link; every other user got
+    a permission error and saw the label read-only. Now the label has the same permission as its
+    IRI field: whoever can edit the IRI can edit its label, and whoever can only read the IRI
+    reads its label. When an import carries IRI labels, they are imported for users who can
+    edit the IRI; for others the label column is reported as ignored and the rest of the row is
+    still imported.
+
+    **Time Machine notes.** Before, any user allowed to edit the notes section could rewrite
+    anyone's note. Now a note belongs to the change it annotates:
+
+    - Only the author of a change can add a note to it, from the component history in the
+      inspector or from the Time Machine. The note is linked to the change automatically.
+    - The author can edit and delete their own note. Everyone else — administrators and root
+      included — can read it.
+    - A user who cannot see a section's history cannot see its notes either. Before, any logged-in
+      user could read every note's text through the raw record view, the assistant's record tools
+      or an export; now notes are reached through the Time Machine only.
+    - A note cannot be duplicated.
+    - Users given a specific permission on the Time Machine notes section keep working with it
+      like any other section (for audits and exports); their changes are recorded in its
+      history.
+
+    Wire contract: `WC-2026-11-10-iri-frame-and-tm-note-levels`.
 
 - **The Ontology and Thesaurus trees are now usable on phones and tablets.**
 
@@ -339,7 +365,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 15 entries"
+??? note "Wire contract — 16 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -351,6 +377,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-10-add-new-element-create-gate`
     - `WC-2026-11-10-hierarchy-rebuild-ownership`
     - `WC-2026-11-10-indexation-grid-read-door`
+    - `WC-2026-11-10-iri-frame-and-tm-note-levels`
     - `WC-2026-11-10-save-never-creates`
     - `WC-2026-11-10-section-terms-read-door`
     - `WC-2026-11-10-tags-info-read-door`

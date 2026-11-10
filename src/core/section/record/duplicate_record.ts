@@ -122,7 +122,7 @@
 import { config } from '../../../config/config.ts';
 import { incrementCounter } from '../../api/counters.ts';
 import { isMediaModel, mediaTypeOf } from '../../concepts/media.ts';
-import { isConsultationOnlySection } from '../../concepts/section.ts';
+import { isConsultationOnlySection, TM_NOTES_SECTION_TIPO } from '../../concepts/section.ts';
 import { isConvertibleSectionIdString, isSectionId } from '../../concepts/section_id.ts';
 import { isDataframeEntry } from '../../concepts/subdatum.ts';
 import { MATRIX_JSONB_COLUMNS, type MatrixJsonbColumn, readMatrixRecord } from '../../db/matrix.ts';
@@ -432,6 +432,21 @@ async function readDuplicableSource(
 	if (isConsultationOnlySection(sectionTipo)) {
 		throw new DedaloError('perm.denied', {
 			message: `duplicateSectionRecord: section '${sectionTipo}' is consultation-only (read-only)`,
+			coordinates: {
+				section_tipo: sectionTipo,
+				section_id: sourceSectionId,
+				operation: 'duplicate',
+			},
+		});
+	}
+	// A TM NOTE is never duplicated (T0-4, owner Q-b): the copy would carry the
+	// Code (the TM row it annotates) under a new creator — a second note bound to
+	// someone else's change, not created through create_tm_note. Here, at the
+	// ENGINE, so every door that duplicates refuses it whatever its own
+	// predicate says (root included). Gate: subdatum_own_level_ported_native.
+	if (sectionTipo === TM_NOTES_SECTION_TIPO) {
+		throw new DedaloError('perm.denied', {
+			message: `duplicateSectionRecord: a Time Machine note (${sectionTipo}) is created only bound to its TM row, through create_tm_note — never duplicated`,
 			coordinates: {
 				section_tipo: sectionTipo,
 				section_id: sourceSectionId,
