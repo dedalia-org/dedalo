@@ -22,6 +22,10 @@
  *  - the child items come in LOCATOR order, one per paged locator, carrying the
  *    target's identity (section_tipo + section_id) and the target's stored
  *    value — `entries: []` when the target is empty, never null (WC-001);
+ *  - a DIRECT get_data of the portal (the client's refresh read, sent with the
+ *    portal's own lang `lg-nolan`) resolves its translatable children in the
+ *    ACTIVE data lang, exactly like the section read — never in lg-nolan, which
+ *    would empty `entries` and push every value into `fallback_value`;
  *  - the section-read re-stamp (relation_core.ts:650-682): every emitted item
  *    is anchored to the OUTER record (row_section_id) and re-parented to the
  *    read's caller, while a child keeps `from_component_tipo` = the CREATING
@@ -44,7 +48,8 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
-import { readSectionRows } from '../../src/core/section/read.ts';
+import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
+import { readComponentData, readSectionRows } from '../../src/core/section/read.ts';
 import {
 	dropSituation,
 	ensureSituation,
@@ -335,5 +340,52 @@ describe('portal list cell — the child items', () => {
 		expect(children.length).toBe(1); // cell limit 1 ⇒ exactly one expanded target
 		expect(children[0]?.from_component_tipo).toBe(PORTAL);
 		expect(children[0]?.section_id).toBe(LOCATOR_IDS[0]);
+	});
+});
+
+/** The client's portal refresh read: get_data on the portal itself, lang = its own lg-nolan. */
+async function readPortalDirect(lang: string): Promise<Record<string, unknown>[]> {
+	const items = await runWithRequestLangs({ applicationLang: 'lg-eng', dataLang: 'lg-eng' }, () =>
+		readComponentData({
+			action: 'read',
+			source: {
+				action: 'get_data',
+				model: 'component_portal',
+				tipo: PORTAL,
+				section_tipo: HOST,
+				section_id: HOST_ID,
+				mode: 'edit',
+				lang,
+			},
+			sqo: { section_tipo: [TARGET], limit: 10, offset: 0 },
+		} as unknown as Rqo),
+	);
+	return items as unknown as Record<string, unknown>[];
+}
+
+describe('portal get_data (the refresh read) — children lang', () => {
+	test('lang lg-nolan ⇒ translatable children resolve in the ACTIVE data lang', async () => {
+		const children = itemsOf(await readPortalDirect('lg-nolan'), CHILD);
+		// Non-vacuity: every stored locator was expanded (edit page of 10).
+		expect(children.length).toBe(LOCATOR_IDS.length);
+		const filled = children.filter((child) => TARGET_VALUES[Number(child.section_id)] !== null);
+		expect(filled.length).toBe(3);
+		for (const child of filled) {
+			expect(child.lang).toBe('lg-eng');
+			// The value is the child's OWN-lang entry, not a fallback (the client
+			// marks fallbacks and drops the separators between them).
+			expect(child.entries).toEqual([
+				{ lang: 'lg-eng', value: TARGET_VALUES[Number(child.section_id)] },
+			]);
+		}
+	});
+
+	test('an EXPLICIT translatable lang ask is kept (lg-spa ⇒ children in lg-spa)', async () => {
+		const children = itemsOf(await readPortalDirect('lg-spa'), CHILD);
+		expect(children.length).toBe(LOCATOR_IDS.length);
+		for (const child of children) {
+			expect(child.lang).toBe('lg-spa');
+			expect(child.entries).toEqual([]);
+		}
 	});
 });

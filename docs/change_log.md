@@ -48,6 +48,12 @@ Merged since the last release; these ship with the next one.
 
     Editing a linked record from a portal (or a select, check box, filter, thesaurus term or list row) opens it in a separate window. Before, the original window refreshed once, as soon as you came back to it — often before the edit had finished saving, so it kept showing the old value until the page was reloaded, and later edits in the same window never refreshed it at all. Now the original window refreshes after every field save the edit window completes, including the last one made while closing or reloading it. Other changes made in that window (creating, deleting or duplicating records, tool actions) still refresh it once, when you return to it.
 
+- **A refreshed portal shows its values normally, with their separators.**
+
+    After a portal refreshed without a page reload (for example after editing a row in its own window, or changing page), a translatable column showed its values as if they were missing in the current language (highlighted) and with no comma between multiple values. The refresh now reads those columns in the current data language, exactly as a page load does, so the cell looks the same either way.
+
+    Wire contract: `WC-2026-11-10-portal-get-data-children-lang`.
+
 - **Related-records columns show their values in lists and in the record history.**
 
     A "related records" field (component_relation_related) shown as a list column was blank, or
@@ -162,10 +168,11 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 6 entries"
+??? note "Wire contract — 7 entries"
 
     - `WC-2026-11-09-instance-identity`
     - `WC-2026-11-09-security-access-save-echo-no-datalist`
+    - `WC-2026-11-10-portal-get-data-children-lang`
     - `WC-2026-11-10-related-list-cells`
     - `WC-2026-11-10-tm-restore-unchanged-notice`
     - `WC-2026-11-10-tm-subject-cell-page`

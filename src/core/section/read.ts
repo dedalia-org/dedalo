@@ -2649,6 +2649,11 @@ async function readComponentDataUnflagged(
 			// sqoSchema — WC-2026-10-31-portal-order-model): the full list ordered
 			// before this page is cut; paginated_key stays the stored index.
 			viewOrder: rqo.sqo?.view_order,
+			// Translatable columns resolve in the active data lang, never the
+			// portal's own lg-nolan (the section read's models/portal.ts rule):
+			// a refresh read of a portal sent lang:'lg-nolan', so every column
+			// value landed in fallback_value — marked, separators dropped.
+			childrenLang: lang === 'lg-nolan' ? currentDataLang() : lang,
 			childRowFromTarget: true,
 			childrenFromOwnConfig: node.configSource === 'own' && !node.dataChildrenInjected,
 			ddinfoBare: true,
