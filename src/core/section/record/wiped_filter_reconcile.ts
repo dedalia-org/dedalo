@@ -138,11 +138,21 @@ interface FilterSite {
 	column: MatrixJsonbColumn;
 }
 
+/**
+ * The ONE item of a single-item array value when it is an object WITHOUT an
+ * `id` key — the shape the pre-fix wipe left — else null.
+ */
+function soleIdlessItem(value: unknown): Record<string, unknown> | null {
+	if (!Array.isArray(value) || value.length !== 1) return null;
+	const item = value[0] as Record<string, unknown> | null;
+	if (item === null || typeof item !== 'object') return null;
+	return 'id' in item ? null : item;
+}
+
 /** Whether `value` is EXACTLY what the pre-fix wipe wrote into `filterTipo`. */
 export function isLegacyWipedFilter(value: unknown, filterTipo: string): boolean {
-	if (!Array.isArray(value) || value.length !== 1) return false;
-	const item = value[0] as Record<string, unknown> | null;
-	if (item === null || typeof item !== 'object' || 'id' in item) return false;
+	const item = soleIdlessItem(value);
+	if (item === null) return false;
 	return (
 		item.type === LEGACY_WIPE_TYPE &&
 		item.section_tipo === config.features.filterSectionTipo &&
@@ -151,18 +161,33 @@ export function isLegacyWipedFilter(value: unknown, filterTipo: string): boolean
 	);
 }
 
+/** The run's section scope as a set, or null when unscoped (every section). */
+function scopeSet(scope: readonly string[] | undefined): ReadonlySet<string> | null {
+	return scope === undefined || scope.length === 0 ? null : new Set(scope);
+}
+
+/**
+ * Where one section's filter key lives, or null when it has none the scan can
+ * reach: no component_filter, no matrix table / storage, or a table outside
+ * the allowlist (the SQL below interpolates it).
+ */
+async function siteOf(sectionTipo: string): Promise<FilterSite | null> {
+	const filterTipo = await getComponentFilterTipo(sectionTipo);
+	if (filterTipo === null) return null;
+	const table = await getMatrixTableFromTipo(sectionTipo);
+	const storage = await mainStorage(filterTipo);
+	if (table === null || storage === null || !MATRIX_TABLE_ALLOWLIST.includes(table)) return null;
+	return { table, sectionTipo, filterTipo, column: storage.column };
+}
+
 /** Every section (in scope) with a filter key in an allowlisted matrix table. */
 async function filterSites(scope: readonly string[] | undefined): Promise<FilterSite[]> {
-	const wanted = scope === undefined || scope.length === 0 ? null : new Set(scope);
+	const wanted = scopeSet(scope);
 	const sites: FilterSite[] = [];
 	for (const section of await listSectionNodes()) {
 		if (wanted !== null && !wanted.has(section.tipo)) continue;
-		const filterTipo = await getComponentFilterTipo(section.tipo);
-		if (filterTipo === null) continue;
-		const table = await getMatrixTableFromTipo(section.tipo);
-		const storage = await mainStorage(filterTipo);
-		if (table === null || storage === null || !MATRIX_TABLE_ALLOWLIST.includes(table)) continue;
-		sites.push({ table, sectionTipo: section.tipo, filterTipo, column: storage.column });
+		const site = await siteOf(section.tipo);
+		if (site !== null) sites.push(site);
 	}
 	return sites;
 }
@@ -227,22 +252,35 @@ async function preWipeFilter(site: FilterSite, sectionId: number): Promise<unkno
 	return null;
 }
 
+/**
+ * Whether one filter item's project has a record. An item that does not
+ * address the projects section names no project — nothing to prove (true);
+ * a non-integer project id can address no record (false).
+ */
+async function namedProjectExists(
+	table: string,
+	projectsTipo: string,
+	item: unknown,
+): Promise<boolean> {
+	const locator = item as Record<string, unknown> | null;
+	if (locator?.section_tipo !== projectsTipo) return true;
+	const id = Number(canonicalizeStoredSectionId(locator.section_id as never));
+	if (!Number.isInteger(id)) return false;
+	// table allowlisted by the caller; tipo/id bound.
+	const rows = (await sql.unsafe(
+		`SELECT 1 FROM "${table}" WHERE section_tipo = $1 AND section_id = $2 LIMIT 1`,
+		[projectsTipo, id],
+	)) as unknown[];
+	return rows.length > 0;
+}
+
 /** Whether every project a filter value names has a record. */
 async function projectsExist(value: readonly unknown[]): Promise<boolean> {
 	const projectsTipo = config.features.filterSectionTipo;
 	const table = await getMatrixTableFromTipo(projectsTipo);
 	if (table === null || !MATRIX_TABLE_ALLOWLIST.includes(table)) return false;
 	for (const item of value) {
-		const locator = item as Record<string, unknown> | null;
-		if (locator?.section_tipo !== projectsTipo) continue;
-		const id = Number(canonicalizeStoredSectionId(locator.section_id as never));
-		if (!Number.isInteger(id)) return false;
-		// table allowlisted above; tipo/id bound.
-		const rows = (await sql.unsafe(
-			`SELECT 1 FROM "${table}" WHERE section_tipo = $1 AND section_id = $2 LIMIT 1`,
-			[projectsTipo, id],
-		)) as unknown[];
-		if (rows.length === 0) return false;
+		if (!(await namedProjectExists(table, projectsTipo, item))) return false;
 	}
 	return true;
 }
@@ -308,6 +346,35 @@ function failureCode(error: unknown): string {
 	return error instanceof DedaloError ? error.code : 'internal.unexpected';
 }
 
+/** The DRY status of a matched key, from its pre-wipe value. */
+async function dryStatusOf(preWipe: unknown[] | null): Promise<WipedFilterStatus> {
+	if (preWipe === null) return 'unrecoverable';
+	return (await projectsExist(preWipe)) ? 'restorable' : 'project_missing';
+}
+
+/**
+ * APPLY the restore of one recoverable match, updating it in place: `restored`
+ * on a write, `changed` when the signature was gone behind the lock, `failed`
+ * (with its code) when the restore threw — the run goes on either way.
+ */
+async function applyRestore(
+	site: FilterSite,
+	match: WipedFilterMatch,
+	preWipe: unknown[],
+): Promise<void> {
+	try {
+		match.restored = await restoreWipedFilterKey(site, match.section_id, preWipe);
+		if (!match.restored) match.status = 'changed';
+	} catch (error) {
+		console.error(
+			`${WIPED_FILTER_PROJECTS}: restore of ${site.sectionTipo}/${match.section_id} ${site.filterTipo} failed:`,
+			error,
+		);
+		match.status = 'failed';
+		match.error = failureCode(error);
+	}
+}
+
 /** Judge (and on apply, restore) one matched key. */
 async function reconcileKey(
 	site: FilterSite,
@@ -320,27 +387,22 @@ async function reconcileKey(
 		section_id: sectionId,
 		filter_tipo: site.filterTipo,
 		pre_wipe_filter: preWipe,
-		status:
-			preWipe === null
-				? 'unrecoverable'
-				: (await projectsExist(preWipe))
-					? 'restorable'
-					: 'project_missing',
+		status: await dryStatusOf(preWipe),
 		restored: false,
 	};
 	if (!apply || preWipe === null) return match;
-	try {
-		match.restored = await restoreWipedFilterKey(site, sectionId, preWipe);
-		if (!match.restored) match.status = 'changed';
-	} catch (error) {
-		console.error(
-			`${WIPED_FILTER_PROJECTS}: restore of ${site.sectionTipo}/${sectionId} ${site.filterTipo} failed:`,
-			error,
-		);
-		match.status = 'failed';
-		match.error = failureCode(error);
-	}
+	await applyRestore(site, match, preWipe);
 	return match;
+}
+
+/** Count one judged match into the run's summary (and list it, up to REPORT_SAMPLE). */
+function tally(summary: WipedFilterSummary, match: WipedFilterMatch): void {
+	summary.drift++;
+	if (match.restored) summary.applied++;
+	if (match.status === 'unrecoverable') summary.unrecoverable++;
+	if (match.status === 'project_missing') summary.project_missing++;
+	if (match.status === 'failed') summary.failed++;
+	if (summary.matches.length < REPORT_SAMPLE) summary.matches.push(match);
 }
 
 /** THE RUN: scan every site in scope, judge each match, restore on apply. */
@@ -361,13 +423,7 @@ export async function reconcileWipedFilters(
 		summary.scanned++;
 		for (const sectionId of await candidates(site)) {
 			checkAborted(options.signal);
-			const match = await reconcileKey(site, sectionId, options.apply);
-			summary.drift++;
-			if (match.restored) summary.applied++;
-			if (match.status === 'unrecoverable') summary.unrecoverable++;
-			if (match.status === 'project_missing') summary.project_missing++;
-			if (match.status === 'failed') summary.failed++;
-			if (summary.matches.length < REPORT_SAMPLE) summary.matches.push(match);
+			tally(summary, await reconcileKey(site, sectionId, options.apply));
 		}
 	}
 	return summary;
