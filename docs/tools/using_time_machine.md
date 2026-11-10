@@ -36,7 +36,7 @@ The time machine attaches to record elements — both individual **components** 
 
 | Control | What it does |
 | --- | --- |
-| History list | The change entries for the element, newest first — when, who, and which field changed. |
+| History list | The change entries for the element, newest first — when, who, which field changed, and its value. For a field that links records (related terms, a portal), each entry shows up to the first 10 linked records; open the preview (eye) icon to see the whole value. |
 | Preview (eye) icon | Loads the chosen historical value into the read-only preview pane for comparison with **Now**. |
 | Annotation column | Shows the **text** of the annotation attached to each history entry, if any. In the tool this column is read-only; annotations are written from the record inspector's history block, where the same column is a note icon that opens the annotation editor. |
 | Language selector | Chooses which language of the value to view and restore. Shown only for text fields that hold one value per language; a field that links records has no languages, so it has no selector. |
