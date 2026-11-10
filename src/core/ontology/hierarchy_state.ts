@@ -949,6 +949,32 @@ async function nameRootTerm(
 }
 
 /**
+ * Clause 1 of isOwnProvisionedSection: the target is one of the two addresses
+ * provisioning mints for a TLD — `<tld>1` (the terms) or `<tld>2` (the models).
+ * Any other section is never "the hierarchy's own".
+ */
+function isProvisionedAddress(targetSectionTipo: string, tld: string): boolean {
+	return targetSectionTipo === `${tld}1` || targetSectionTipo === `${tld}2`;
+}
+
+/**
+ * Clauses 2+3 of isOwnProvisionedSection: the target is a SECTION, and a
+ * VIRTUAL one whose real section is the source the registry row declares
+ * (hierarchy109; unset ⇒ the default thesaurus section). A real section (its
+ * own real tipo) or a virtual of some other source is not a provisioned one.
+ */
+async function isVirtualOfDeclaredSource(
+	targetSectionTipo: string,
+	row: RegistryRow | null,
+): Promise<boolean> {
+	if ((await getModelByTipo(targetSectionTipo)) !== 'section') return false;
+	const declaredSource = literal(row, HIERARCHY_SOURCE_REAL_SECTION);
+	const source = declaredSource === '' ? THESAURUS_SECTION : declaredSource;
+	const realTipo = await getSectionRealTipo(targetSectionTipo);
+	return realTipo !== targetSectionTipo && realTipo === source;
+}
+
+/**
  * IS `targetSectionTipo` A SECTION THIS HIERARCHY'S OWN PROVISIONING CREATED?
  * The shape hierarchy_provision.ts generateVirtualSection writes, checked
  * exactly as follows (and nothing more):
@@ -991,12 +1017,8 @@ async function isOwnProvisionedSection(
 	row: RegistryRow | null,
 	sectionId: number,
 ): Promise<boolean> {
-	if (targetSectionTipo !== `${tld}1` && targetSectionTipo !== `${tld}2`) return false;
-	if ((await getModelByTipo(targetSectionTipo)) !== 'section') return false;
-	const declaredSource = literal(row, HIERARCHY_SOURCE_REAL_SECTION);
-	const source = declaredSource === '' ? THESAURUS_SECTION : declaredSource;
-	const realTipo = await getSectionRealTipo(targetSectionTipo);
-	if (realTipo === targetSectionTipo || realTipo !== source) return false;
+	if (!isProvisionedAddress(targetSectionTipo, tld)) return false;
+	if (!(await isVirtualOfDeclaredSource(targetSectionTipo, row))) return false;
 	// The sole-declarer scan — ONE function, shared with the rebuild
 	// classification and the registry-delete cascade (teardown_scope.ts).
 	return !(await anotherRegistryRowDeclaresTld(HIERARCHY_SECTION, sectionId, tld));

@@ -7,6 +7,7 @@
 // imports
 	import {ui} from '../../../core/common/js/ui.js'
 	import {tr} from '../../../core/common/js/tr.js'
+	import {error_text, error_debug_suffix} from '../../../core/common/js/render_api_error.js'
 
 
 
@@ -103,6 +104,18 @@ render_tool_tr_print.prototype.edit = async function(options) {
 	// render level
 		const render_level = options.render_level || 'full'
 
+	// build failure (e.g. the tags feed was refused): SHOW it instead of a
+	// transcript the tool could not resolve
+		if (self.error) {
+			const error_content = render_build_error(self)
+			if (render_level==='content') {
+				return error_content
+			}
+			return ui.tool.build_wrapper_edit(self, {
+				content_data : error_content
+			})
+		}
+
 	// content_data
 		const content_data = await get_content_data_edit(self)
 		if (render_level==='content') {
@@ -125,6 +138,36 @@ render_tool_tr_print.prototype.edit = async function(options) {
 
 	return wrapper
 }//end edit
+
+
+
+/**
+* RENDER_BUILD_ERROR
+* The content shown when build() failed (self.error). An ApiError (a refused
+* get_tags_info — perm.denied / perm.out_of_scope — or a transport failure)
+* renders through the shared error text, with the request_id debug suffix that
+* joins it to the server log; any other Error shows its message.
+* @param {Object} self - tool_tr_print instance
+* @returns {HTMLElement} content_data carrying the error message
+*/
+export const render_build_error = function(self) {
+
+	const error	= self.error
+	const text	= error?.is_api_error===true
+		? error_text(error) + error_debug_suffix(error)
+		: String(error?.message || error)
+
+	const content_data = ui.tool.build_content_data(self)
+	content_data.classList.add('build_error')
+	ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'error_alert',
+		text_content	: text,
+		parent			: content_data
+	})
+
+	return content_data
+}//end render_build_error
 
 
 

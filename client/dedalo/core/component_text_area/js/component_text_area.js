@@ -1405,43 +1405,43 @@ component_text_area.prototype.delete_tag = function(tag_id, type, key=0) {
 * Used by annotation panels (indexation, notes, geo) to load the structured data
 * associated with each tag_id so the panel can render details and allow editing.
 *
-* (!) The Promise does not resolve when the call FAILED — callers
-*     that depend on a resolved value may hang if the server returns an error.
-*     This is a pre-existing design; do NOT change.
+* A FAILED call REJECTS with the response's ApiError (a refusal such as
+* `perm.denied` / `perm.out_of_scope`, or a transport failure) so the caller can
+* SHOW it. It used to never settle, which hung the caller (tool_tr_print stayed
+* blank forever on a refused feed — T0-3, 2026-11-10).
 *
 * @param {Array<string>} ar_type - List of annotation types to retrieve, e.g. ['index']
 * @param {number} [key=0] - Entry key (language slot) to query
-* @returns {Promise<*>} Resolves with the response payload (the tags metadata array/object)
+* @returns {Promise<*>} Resolves with the response payload (the tags metadata array/object);
+*   rejects with the ApiError when the call failed
 */
-component_text_area.prototype.get_tags_info = function(ar_type, key=0) {
+component_text_area.prototype.get_tags_info = async function(ar_type, key=0) {
 
 	const self = this
 
-	return new Promise(function(resolve){
-
-		data_manager.request({
-			body : {
-				action	: 'get_tags_info',
-				dd_api	: 'dd_component_text_area_api', // component_text_area
-				source	: {
-					section_tipo	: self.section_tipo,
-					section_id		: self.section_id,
-					tipo			: self.tipo,
-					lang			: self.lang
-				},
-				options : {
-					ar_type	: ar_type ,// array current selected tag type (passed as param)
-					key		: key // int, text_area data key, by default is 0
-				}
+	const api_response = await data_manager.request({
+		body : {
+			action	: 'get_tags_info',
+			dd_api	: 'dd_component_text_area_api', // component_text_area
+			source	: {
+				section_tipo	: self.section_tipo,
+				section_id		: self.section_id,
+				tipo			: self.tipo,
+				lang			: self.lang
+			},
+			options : {
+				ar_type	: ar_type ,// array current selected tag type (passed as param)
+				key		: key // int, text_area data key, by default is 0
 			}
-		})
-		.then(async function(api_response){
-
-			if (!request_failed(api_response)) {
-				resolve(response_data(api_response))
-			}
-		})
+		}
 	})
+
+	// a refused / failed feed is the caller's to show — never a silent hang
+	if (request_failed(api_response)) {
+		throw api_response.error
+	}
+
+	return response_data(api_response)
 }//end get_tags_info
 
 

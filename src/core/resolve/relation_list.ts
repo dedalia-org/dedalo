@@ -31,7 +31,7 @@ import {
 	resolvePeriodLabels,
 } from '../components/component_date/date_value.ts';
 import type { ExternalSourceStatus } from '../components/component_external/value.ts';
-import { resolveIriTitles } from '../components/component_iri/resolve_title.ts';
+import { type IriLabelFrame, resolveIriTitles } from '../components/component_iri/resolve_title.ts';
 import { getFlatValueFamily } from '../components/registry.ts';
 import { mediaTypeOf } from '../concepts/media.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../concepts/section_id.ts';
@@ -694,6 +694,54 @@ async function resolveExternalCellValue(
 	return derived.entries.join(itemSeparator);
 }
 
+/**
+ * The iri TITLE read off ONE label frame (the IriLabelReader of the flat-iri
+ * branch of resolveDataframeFlatValue): every non-empty label component on the
+ * frame's target record, joined ', '; null when none resolves.
+ *
+ * THE FRONTIER (T0-1): the label lives on the FRAME's target record — STRICT
+ * (null): an iri title is beyond any relation column's display, so a frame
+ * whose record the frontier refuses yields no title at all.
+ */
+async function resolveIriFrameTitle(
+	frame: IriLabelFrame,
+	lang: string,
+	unresolved: string[],
+	opts: CellValueResolveOptions | undefined,
+): Promise<string | null> {
+	if (
+		opts?.frontier !== undefined &&
+		!(await opts.frontier.crossRecord(frame.sectionTipo, frame.sectionId, null))
+	) {
+		return null;
+	}
+	const labels = await resolveIriFrameLabels(frame, lang, unresolved, opts);
+	return labels.length > 0 ? labels.join(', ') : null;
+}
+
+/** Each of the frame's label components resolved on its target record; empties dropped. */
+async function resolveIriFrameLabels(
+	frame: IriLabelFrame,
+	lang: string,
+	unresolved: string[],
+	opts: CellValueResolveOptions | undefined,
+): Promise<string[]> {
+	const labels: string[] = [];
+	for (const labelTipo of frame.labelTipos) {
+		const label = await resolveCellValue(
+			frame.sectionTipo,
+			frame.sectionId,
+			labelTipo,
+			lang,
+			unresolved,
+			RECORDS_SEPARATOR,
+			opts,
+		);
+		if (label !== null && label !== '') labels.push(label);
+	}
+	return labels;
+}
+
 /** One component's flat display string on one record (PHP get_value). */
 export async function resolveCellValue(
 	sectionTipo: string,
@@ -806,30 +854,9 @@ export async function resolveCellValue(
 		// path's own record seam are local.
 		const iriItems = ((record.columns.iri as Record<string, unknown[]> | null)?.[componentTipo] ??
 			[]) as { iri?: unknown; id?: number | string }[];
-		const titles = await resolveIriTitles(record, componentTipo, async (frame) => {
-			// THE FRONTIER (T0-1): the label lives on the FRAME's target record —
-			// STRICT (null): an iri title is beyond any relation column's display.
-			if (
-				opts?.frontier !== undefined &&
-				!(await opts.frontier.crossRecord(frame.sectionTipo, frame.sectionId, null))
-			) {
-				return null;
-			}
-			const labels: string[] = [];
-			for (const labelTipo of frame.labelTipos) {
-				const label = await resolveCellValue(
-					frame.sectionTipo,
-					frame.sectionId,
-					labelTipo,
-					lang,
-					unresolved,
-					RECORDS_SEPARATOR,
-					opts,
-				);
-				if (label !== null && label !== '') labels.push(label);
-			}
-			return labels.length > 0 ? labels.join(', ') : null;
-		});
+		const titles = await resolveIriTitles(record, componentTipo, (frame) =>
+			resolveIriFrameTitle(frame, lang, unresolved, opts),
+		);
 		const parts: string[] = [];
 		for (const item of iriItems) {
 			const fields: string[] = [];
