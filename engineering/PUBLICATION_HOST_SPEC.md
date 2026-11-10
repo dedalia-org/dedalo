@@ -1097,9 +1097,12 @@ inside the CI image's container, with no privileged sibling and no SELinux kerne
   `systemd-analyze verify` with no warning naming a rendered unit. Its `--record` writes the EL
   drill record (`el_drill_record.json` under `engineering/`: ONE inputs digest, one entry per EL
   major, each its own run — commit, time, legs, measured types and floors — so recording one
-  major never rewrites another's measurements); the root ratchet `test/unit/publication_host_el_drill_record.test.ts`
+  major never rewrites another's measurements). A host entry also proves its bytes, not its
+  commit: `legs_inputs` (sha256 of the drill script and of every file a leg declares it proves,
+  `Leg.inputs`), `legs_digest` over them, `sha` = the BASE HEAD only, and `tree_dirty` (those files
+  differed from HEAD at the run); the root ratchet `test/unit/publication_host_el_drill_record.test.ts`
   then turns any change to an EL-relevant input (`EL_DRILL_INPUTS`, `src/provision/selinux.ts`)
-  red until the drill runs again, and names each supported major not yet recorded
+  or to a leg input red until the drill runs again, and names each supported major not yet recorded
   (`PENDING_EL_HOSTS`, shrink-only). `--capture <dir>` keeps the raw discovery outputs (the argv
   init's exec door runs) for the typed EL fixtures. Recorded: RHEL 9.8 and RHEL 10.2 (aarch64, enforcing), 2026-10-09.
   **fapolicyd** (default rules, measured RHEL 9.8): root may execute an untrusted Bun, but that

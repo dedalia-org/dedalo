@@ -567,11 +567,21 @@ export interface ElHost {
 	readonly version: string;
 	readonly kernel: string;
 	readonly selinux: 'enforcing';
+	/** BASE HEAD: the git HEAD the run's tree was checked out at — the tree itself may differ (tree_dirty). */
 	readonly sha: string;
 	readonly at: string;
 	readonly measured: ElMeasured;
 	readonly legs: readonly string[];
 	readonly skipped: readonly string[];
+	/**
+	 * WHAT THE RUN PROVED, by content: sha256 of every file the run's legs declare (LEG_INPUT_SELF and
+	 * each leg's `inputs`), repo-relative — the bytes the drill ran, whatever HEAD said.
+	 */
+	readonly legs_inputs: Readonly<Record<string, string>>;
+	/** legsDigest(legs_inputs): the ratchet recomputes it from the working tree. */
+	readonly legs_digest: string;
+	/** `git status --porcelain` over the legs_inputs paths was non-empty: the bytes were not HEAD's. */
+	readonly tree_dirty: boolean;
 }
 
 /** The record: ONE inputs digest every host was measured against, one entry per EL major. */
@@ -628,6 +638,50 @@ export function mergeRecord(existing: ElDrillRecord | null, run: ElDrillRecord):
 	};
 }
 
+/** The drill itself: every recorded run proves the drill's own bytes, whatever legs it ran. */
+export const LEG_INPUT_SELF = 'scripts/publication_host_init_drill.ts';
+
+/**
+ * THE LEG INPUTS of a run: the drill script plus every file its legs DECLARE they prove (`inputs`),
+ * repo-relative, sorted, unique.
+ */
+export function legInputPaths(legs: readonly Pick<Leg, 'inputs'>[]): string[] {
+	return [...new Set([LEG_INPUT_SELF, ...legs.flatMap((leg) => leg.inputs ?? [])])].sort();
+}
+
+/** sha256 of each leg input's bytes; `read` is injectable (the ratchet's non-vacuity proof). */
+export function legInputHashes(
+	root: string,
+	paths: readonly string[],
+	read: (path: string) => Uint8Array = (path) => readFileSync(path),
+): Record<string, string> {
+	return Object.fromEntries(
+		[...paths].sort().map((path) => [
+			path,
+			createHash('sha256')
+				.update(read(join(root, path)))
+				.digest('hex'),
+		]),
+	);
+}
+
+/** THE LEGS DIGEST: sha256 of `<path>\0<sha256>\n` lines in sorted path order. */
+export function legsDigest(hashes: Readonly<Record<string, string>>): string {
+	const lines = Object.keys(hashes)
+		.sort()
+		.map((path) => `${path}\0${hashes[path]}\n`);
+	return createHash('sha256').update(lines.join('')).digest('hex');
+}
+
+/** The leg inputs whose bytes differ between a recorded run and today (changed, added or removed). */
+export function changedLegInputs(
+	recorded: Readonly<Record<string, string>>,
+	today: Readonly<Record<string, string>>,
+): string[] {
+	const paths = new Set([...Object.keys(recorded), ...Object.keys(today)]);
+	return [...paths].filter((path) => recorded[path] !== today[path]).sort();
+}
+
 /* ── legs ──────────────────────────────────────────────────────────────────────────── */
 
 export const INSTANCE = 'drill_museum';
@@ -649,6 +703,16 @@ export const KIT_DOMAIN = 'kit.test';
 /** The SYSTEM-layout site (EL): its v2 tree is typed by the provisioner's own SELinux policy module. */
 export const SYSTEM_INSTANCE = 'drill_system';
 export const SYSTEM_DOMAIN = 'sysl.test';
+/**
+ * The COPY-MODE site (T0-6): its agent, under its real unit's UMask=0027, writes the media root the
+ * host's web server serves AS ANOTHER USER. Its root sits outside every declared tree (layout claims).
+ */
+export const COPY_INSTANCE = 'drill_copy';
+export const COPY_DOMAIN = 'copymedia.test';
+export const COPY_MEDIA_ROOT = '/srv/dd_copy_media';
+/** The generic `test` TLD media file the leg publishes: image/1.5MB is a public quality, its key test3_1. */
+export const COPY_MEDIA_PATH = 'image/1.5MB/0/test99_test3_1.jpg';
+export const COPY_MEDIA_KEY = 'test3_1';
 /** The policy module and its one type (publication/host_agent/src/provision/selinux_module.ts). */
 const SELINUX_MODULE = 'dedalo_publication_host';
 const SELINUX_MODULE_SOURCE = `/var/lib/dedalo_publication_host/_host/${SELINUX_MODULE}.cil`;
@@ -889,6 +953,11 @@ interface Leg {
 	/** Only a real host can answer it (a container shares its daemon's kernel): run in place only. */
 	readonly inPlaceOnly?: true;
 	readonly what: string;
+	/**
+	 * The repo files (repo-relative) whose behaviour this leg PROVES on a real host: the record's
+	 * legs_digest covers them, so changing one is red until the drill runs again (the ratchet).
+	 */
+	readonly inputs?: readonly string[];
 	run(ctx: Ctx): Promise<void>;
 }
 
@@ -1155,7 +1224,7 @@ async function guidedInstall(
 	);
 	check(
 		run.answered.includes('apply changes'),
-		`${instance}: init never asked to apply its changes`,
+		`${instance}: init never asked to apply its changes; answered ${run.answered.join(', ')}\n${run.transcript.slice(-4000)}`,
 	);
 	return run.transcript;
 }
@@ -1871,6 +1940,284 @@ export const LEGS: readonly Leg[] = Object.freeze([
 			);
 		},
 	},
+	{
+		name: 'copy-media-web-user',
+		family: 'both',
+		required: true,
+		inputs: [
+			'publication/host_agent/src/audit_actions.ts',
+			'publication/host_agent/src/media/copy.ts',
+			'publication/host_agent/src/media/fs_modes.ts',
+			'publication/host_agent/src/media/probe.ts',
+			'publication/host_agent/src/media/repair.ts',
+			'publication/host_agent/src/media/sha_index.ts',
+			// The engine rule builder the leg applies (expectedRulesForHost → the profile → protection's blocks + map).
+			'src/core/media/protection.ts',
+			'src/core/media/publication_host_rules.ts',
+			'src/core/publication_host/rules.ts',
+		],
+		what: `T0-6 on a real host: a v2-only media.mode=copy site (${COPY_MEDIA_ROOT}) whose agent runs as its own user under its REAL unit (UMask=0027) while the host's web server serves as ANOTHER user (Debian nginx/www-data, EL httpd/apache): the ENGINE-rendered include applied through rules.apply (nginx: the engine's map through rules.map first); media.mark + media.put as the engine sends them → an anonymous GET through the web server is 200 with the exact bytes, every level the agent minted 0755, marker and file 0644, .publication/copy 0700, the marker stat-able AS the web user; unmarked → 404; the pre-fix footprint (media levels, .publication, pub 0750, a marker 0640) is not served (nginx 404, Apache 403) and probe web_traversable=false until the agent's restart repairs it: 0755/0644 back, ONE media.repair audit row (5 dirs, 1 marker), 200 again, web_traversable=true; a second restart adds no row`,
+		async run(ctx) {
+			const el = ctx.args.family === 'el';
+			const server = el ? 'apache' : 'nginx';
+			const webUser = el ? 'apache' : 'www-data';
+			await must(
+				ctx,
+				el
+					? 'systemctl disable --now nginx; systemctl enable --now httpd'
+					: 'systemctl disable --now apache2; systemctl enable --now nginx',
+				`the host's ${el ? 'httpd' : 'nginx'} serves`,
+			);
+			await makeSite(ctx, COPY_DOMAIN, server);
+			await guidedInstall(
+				ctx,
+				COPY_INSTANCE,
+				COPY_DOMAIN,
+				'',
+				// v2-only (no v1 block): the media path needs no PHP anywhere.
+				draftFor(COPY_INSTANCE, COPY_DOMAIN, {
+					apis: undefined,
+					media: { mode: 'copy', root: COPY_MEDIA_ROOT },
+				}),
+			);
+			const unit = await instanceUnits(ctx, COPY_INSTANCE);
+			const agentUser = `${COPY_INSTANCE}_agent`;
+			// THE SITUATION, measured: the agent under UMask=0027 as its own user; the web workers as a
+			// user that is neither the agent nor in its group — the only shape the bug lives in.
+			const shown = await must(
+				ctx,
+				`systemctl show -p UMask -p User ${unit.agent}`,
+				"the agent unit's UMask and User",
+			);
+			check(
+				/^UMask=0027$/m.test(shown) && new RegExp(`^User=${agentUser}$`, 'm').test(shown),
+				`${unit.agent} does not run as ${agentUser} under UMask=0027:\n${shown}`,
+			);
+			const workers = await must(
+				ctx,
+				`ps -o user= -C ${el ? 'httpd' : 'nginx'} | sort -u`,
+				'the web workers',
+			);
+			check(
+				workers.split('\n').includes(webUser),
+				`no ${el ? 'httpd' : 'nginx'} worker runs as ${webUser}: ${workers.trim()}`,
+			);
+			const webGroups = (await must(ctx, `id -nG ${webUser}`, `${webUser}'s groups`)).trim();
+			const agentGroup = (await must(ctx, `id -gn ${agentUser}`, `${agentUser}'s group`)).trim();
+			check(
+				!webGroups.split(' ').includes(agentGroup),
+				`${webUser} is in the agent's group ${agentGroup}: 0750 would be traversable, the leg proves nothing`,
+			);
+			// THE ENGINE'S CALLS, in its order: status → (nginx) the map → the include, rendered from that status.
+			const status = await agentCall(ctx, COPY_INSTANCE, 'GET', '/v1/status');
+			check(status.status === 200, `GET /v1/status answered ${status.status}: ${status.body}`);
+			const reported = JSON.parse(status.body) as {
+				rules?: { server?: string };
+				media?: { mode?: string; root?: string };
+			};
+			check(
+				reported.rules?.server === server &&
+					reported.media?.mode === 'copy' &&
+					reported.media.root === COPY_MEDIA_ROOT,
+				`the agent reports ${JSON.stringify({ rules: reported.rules?.server, media: reported.media })}`,
+			);
+			if (!el) {
+				const pushed = await pushMap(ctx, COPY_INSTANCE, await engineMap());
+				check(pushed.status === 200, `rules.map answered ${pushed.status}: ${pushed.body}`);
+			}
+			const rules = await engineRulesFor(status.body);
+			const applied = await agentCall(ctx, COPY_INSTANCE, 'POST', '/v1/rules/apply', {
+				json: { server: rules.server, text: rules.text, hash: rules.hash },
+			});
+			check(applied.status === 200, `rules.apply answered ${applied.status}: ${applied.body}`);
+			const answer = JSON.parse(applied.body) as { hash?: string; reloaded?: boolean };
+			check(
+				answer.hash === rules.hash && answer.reloaded === true,
+				`rules.apply answer ${applied.body}`,
+			);
+			const url = `${rules.mediaUrl}/${COPY_MEDIA_PATH}`;
+			const bytes = `dd copy media ${randomBytes(12).toString('hex')}\n`;
+			const sha256 = createHash('sha256').update(bytes).digest('hex');
+			const mark = async (published: boolean): Promise<void> => {
+				const done = await agentCall(ctx, COPY_INSTANCE, 'POST', '/v1/media/mark', {
+					json: { key: COPY_MEDIA_KEY, published },
+				});
+				check(
+					done.status === 200 && JSON.parse(done.body).published === published,
+					`media.mark ${COPY_MEDIA_KEY} published:${published} answered ${done.status}: ${done.body}`,
+				);
+			};
+			// `dark`: not served, as 404 or 403 — under a 0750 level Apache's own directory walk answers
+			// 403 (EACCES) before the gate's rewrite runs (measured, RHEL 9.8 / 10.2); nginx's `-f` 404s.
+			const servedProblem = async (want: 200 | 404 | 'dark'): Promise<string | null> => {
+				const got = await anonymousGet(ctx, COPY_DOMAIN, url);
+				const ok =
+					want === 'dark'
+						? got.status === 404 || got.status === 403
+						: got.status === want && (want === 404 || got.sha256 === sha256);
+				return ok
+					? null
+					: `GET ${url} through ${el ? 'httpd' : 'nginx'} answered ${got.status} (sha256 ${got.sha256}), expected ${want === 'dark' ? '404 or 403' : want}${want === 200 ? ` with sha256 ${sha256}` : ''}`;
+			};
+			const served = async (want: 404 | 'dark', when: string): Promise<void> => {
+				const problem = await servedProblem(want);
+				check(problem === null, `${when}: ${problem}`);
+			};
+			const root = COPY_MEDIA_ROOT;
+			const marker = `${root}/.publication/pub/${COPY_MEDIA_KEY}`;
+			const levels = ['image', 'image/1.5MB', 'image/1.5MB/0'].map((level) => `${root}/${level}`);
+			const gate = [`${root}/.publication`, `${root}/.publication/pub`];
+			const healthy: Record<string, string> = {
+				[root]: '755',
+				...Object.fromEntries([...levels, ...gate].map((path) => [path, '755'])),
+				[marker]: '644',
+				[`${root}/${COPY_MEDIA_PATH}`]: '644',
+				[`${root}/.publication/copy`]: '700',
+			};
+			// Served AND the modes, judged together: a red names the dark level next to the 404 it causes.
+			const servedWithModes = async (when: string): Promise<void> => {
+				const problem = await servedProblem(200);
+				const out = (
+					await ctx.runner.sh(`stat -c '%a %n' ${Object.keys(healthy).map(q).join(' ')} 2>&1`)
+				).out;
+				const wrong = [...(problem === null ? [] : [problem]), ...modeMismatches(out, healthy)];
+				check(wrong.length === 0, `${when}: ${wrong.join('; ')}`);
+			};
+			const webUserSees = async (): Promise<boolean> =>
+				(await ctx.runner.sh(`runuser -u ${webUser} -- test -f ${q(marker)}`)).code === 0;
+			const traversable = async (): Promise<unknown> => {
+				const probe = await agentCall(ctx, COPY_INSTANCE, 'GET', '/v1/media/probe');
+				check(probe.status === 200, `media.probe answered ${probe.status}: ${probe.body}`);
+				return (JSON.parse(probe.body) as { web_traversable?: unknown }).web_traversable;
+			};
+			const auditFile = `${unit.stateRoot}/audit/audit.jsonl`;
+			const repairRows = async (): Promise<string[]> =>
+				(await ctx.runner.sh(`grep -F '"action":"media.repair"' ${q(auditFile)}`)).out
+					.split('\n')
+					.filter(Boolean);
+			// The pass's SUCCESS line only (`[media.repair] {report}`): its failure line is
+			// `[media.repair] the pass stopped — …` and must never count as a finished pass.
+			const repairLines = async (): Promise<string[]> =>
+				(
+					await ctx.runner.sh(
+						`journalctl --no-pager -o cat -u ${unit.agent} | grep '^\\[media\\.repair\\] {'`,
+					)
+				).out
+					.split('\n')
+					.filter(Boolean);
+			const restartAndRepair = async (): Promise<{
+				dirs_fixed?: number;
+				markers_fixed?: number;
+			}> => {
+				const before = (await repairLines()).length;
+				await must(ctx, `systemctl restart ${unit.agent}`, `restart ${unit.agent}`);
+				await must(
+					ctx,
+					`for i in $(seq 1 150); do curl -fsS --max-time 5 -o /dev/null --unix-socket /run/dedalo_publication_host/${COPY_INSTANCE}/agent.sock http://localhost/publication/host_agent/health && exit 0; sleep 0.2; done; exit 1`,
+					`${COPY_INSTANCE}: /health after the restart`,
+				);
+				let lines = await repairLines();
+				for (let i = 0; i < 150 && lines.length === before; i += 1) {
+					await Bun.sleep(200);
+					lines = await repairLines();
+				}
+				check(
+					lines.length === before + 1,
+					`${unit.agent}: ${lines.length - before} [media.repair] {…} success lines after the restart, expected 1`,
+				);
+				return JSON.parse((lines.at(-1) as string).slice('[media.repair] '.length)) as {
+					dirs_fixed?: number;
+					markers_fixed?: number;
+				};
+			};
+
+			// 1. Published as the engine publishes: the marker first, then the file.
+			await mark(true);
+			await putRootFile(ctx, '/root/dd_copy_put', bytes);
+			const put = await agentCall(
+				ctx,
+				COPY_INSTANCE,
+				'PUT',
+				`/v1/media/file?path=${encodeURIComponent(COPY_MEDIA_PATH)}`,
+				{
+					file: '/root/dd_copy_put',
+					headers: [
+						'Content-Type: application/octet-stream',
+						`X-Sha256: ${sha256}`,
+						`X-Size: ${Buffer.byteLength(bytes)}`,
+					],
+				},
+			);
+			check(put.status === 200, `media.put answered ${put.status}: ${put.body}`);
+			const landed = JSON.parse(put.body) as { path?: string; sha256?: string };
+			check(
+				landed.path === COPY_MEDIA_PATH && landed.sha256 === sha256,
+				`media.put answer ${put.body}`,
+			);
+			await servedWithModes('published');
+			check(await webUserSees(), `as ${webUser}, test -f ${marker} is false`);
+			// 2. Unpublished: the gate 404s before the file is deleted.
+			await mark(false);
+			await served(404, 'unpublished');
+			check((await ctx.runner.sh(`test -e ${q(marker)}`)).code !== 0, `${marker} is still there`);
+			// 3. The PRE-FIX FOOTPRINT, then the boot repair. Dark first (non-vacuity): 404 + the probe sees it.
+			await mark(true);
+			await must(
+				ctx,
+				`chmod 0750 ${[...levels, ...gate].map(q).join(' ')} && chmod 0640 ${q(marker)}`,
+				'the pre-fix 0750/0640 footprint',
+			);
+			await served('dark', 'the pre-fix footprint');
+			check(!(await webUserSees()), `as ${webUser}, the marker is stat-able under 0750`);
+			const dark = await traversable();
+			check(
+				dark === false,
+				`media.probe web_traversable is ${String(dark)} under 0750, expected false`,
+			);
+			const rowsBefore = (await repairRows()).length;
+			await restartAndRepair();
+			await servedWithModes('after the boot repair');
+			const rows = await repairRows();
+			check(
+				rows.length === rowsBefore + 1,
+				`${rows.length - rowsBefore} new media.repair audit rows, expected 1`,
+			);
+			const row = JSON.parse(rows.at(-1) as string) as {
+				outcome?: string;
+				detail?: { dirs_fixed?: number; markers_fixed?: number };
+			};
+			check(
+				row.outcome === 'ok' && row.detail?.dirs_fixed === 5 && row.detail?.markers_fixed === 1,
+				`the media.repair row ${rows.at(-1)}: expected outcome ok, 5 dirs, 1 marker`,
+			);
+			check(await webUserSees(), `as ${webUser}, the marker is not stat-able after the repair`);
+			const lit = await traversable();
+			check(lit === true, `media.probe web_traversable is ${String(lit)} after the repair`);
+			const statusAfter = await agentCall(ctx, COPY_INSTANCE, 'GET', '/v1/status');
+			check(
+				(JSON.parse(statusAfter.body) as { media?: { web_traversable?: unknown } }).media
+					?.web_traversable === true,
+				`GET /v1/status media.web_traversable after the repair: ${statusAfter.body}`,
+			);
+			// 4. A healthy tree: the boot pass fixes nothing and writes nothing.
+			const healthyPass = await restartAndRepair();
+			check(
+				healthyPass.dirs_fixed === 0 && healthyPass.markers_fixed === 0,
+				`the boot pass over a healthy tree reported ${JSON.stringify(healthyPass)}`,
+			);
+			check(
+				(await repairRows()).length === rows.length,
+				'a restart over a healthy tree wrote a media.repair row',
+			);
+			// The engine's own unpublish leaves no published test file behind.
+			await mark(false);
+			const deleted = await agentCall(ctx, COPY_INSTANCE, 'POST', '/v1/media/delete', {
+				json: { paths: [COPY_MEDIA_PATH] },
+			});
+			check(deleted.status === 200, `media.delete answered ${deleted.status}: ${deleted.body}`);
+			await ctx.runner.sh('rm -f /root/dd_copy_put');
+		},
+	},
 	// ── EL only ──
 	{
 		name: 'selinux-labels',
@@ -2044,7 +2391,7 @@ export const LEGS: readonly Leg[] = Object.freeze([
 				(await ctx.runner.sh('rpm -q fapolicyd')).code === 0,
 				'fapolicyd is not installed on this VM (dnf install fapolicyd; the leg starts and stops it itself)',
 			);
-			const unit = await instanceUnits(INSTANCE);
+			const unit = await instanceUnits(ctx, INSTANCE);
 			const home = `/home/${DOMAIN}`;
 			const trustFile = `/etc/fapolicyd/trust.d/dedalo_${INSTANCE}`;
 			const trustUnit = `dedalo-pubhost-trust-${INSTANCE}.service`;
@@ -2353,7 +2700,7 @@ export const LEGS: readonly Leg[] = Object.freeze([
 		required: true,
 		what: `a home-layout install an earlier provisioner typed data_home_t (its v2 rule and selinux.state record data_home_t, the tree relabelled so — the footprint the code before 2026-10-09 left) is RE-TYPED by init's re-run: the rule is ${V2_TREE_TYPE}, the whole tree (v2.env, the current link, the pushed release) relabelled, restorecon -n empty, selinux.state records the new type, a second re-run changes nothing, v2 restarts and answers its /health; no AVC since the leg started`,
 		async run(ctx) {
-			const unit = await instanceUnits(INSTANCE);
+			const unit = await instanceUnits(ctx, INSTANCE);
 			const home = `/home/${DOMAIN}`;
 			const v2 = `${unit.stateRoot}/publication_api/v2`;
 			const spec = `${escapeRegExp(v2)}(/.*)?`;
@@ -2490,7 +2837,7 @@ export const LEGS: readonly Leg[] = Object.freeze([
 				transcript.includes('selinux.v2_policy'),
 				`init did not list selinux.v2_policy for a system-layout site:\n${transcript.slice(-3000)}`,
 			);
-			const unit = await instanceUnits(SYSTEM_INSTANCE);
+			const unit = await instanceUnits(ctx, SYSTEM_INSTANCE);
 			check(
 				unit.stateRoot.startsWith('/srv/') && unit.agentDir.startsWith('/opt/'),
 				`${SYSTEM_INSTANCE} is not in the system layout: state ${unit.stateRoot}, agent ${unit.agentDir}`,
@@ -2916,17 +3263,25 @@ async function s9Rules(
 	return JSON.parse(done.out) as { spec: string; type: string; path: string; recursive: boolean }[];
 }
 
-/** One instance's agent unit, Bun and agent tree, from its declaration through the agent package in a CHILD. */
+/**
+ * One instance's agent unit, Bun and agent tree, from its declaration — read ON THE TARGET (the
+ * container or this host), parsed through the agent package in a CHILD here.
+ */
 async function instanceUnits(
+	ctx: Ctx,
 	instance: string,
 ): Promise<{ agent: string; bunBin: string; agentDir: string; v2Unit: string; stateRoot: string }> {
+	const path = `/etc/dedalo_publication_host/${instance}.json`;
+	const declaration = await must(ctx, `cat ${path}`, `${instance}'s declaration`);
 	const probe = [
 		`const { parseDeclaration } = await import(${JSON.stringify(join(AGENT_DIR, 'src/provision/schema.ts'))});`,
-		`const path = '/etc/dedalo_publication_host/${instance}.json';`,
-		'const { layout } = parseDeclaration(JSON.parse(await Bun.file(path).text()), path);',
+		`const { layout } = parseDeclaration(JSON.parse(await Bun.stdin.text()), ${JSON.stringify(path)});`,
 		'console.log(JSON.stringify({ agent: layout.agentUnitName, bunBin: layout.bunBin, agentDir: layout.agentDir, v2Unit: layout.v2.unit, stateRoot: layout.state.root }));',
 	].join('\n');
-	const done = await spawnText([process.execPath, '-e', probe], { cwd: AGENT_DIR });
+	const done = await spawnText([process.execPath, '-e', probe], {
+		cwd: AGENT_DIR,
+		stdin: declaration,
+	});
 	if (done.code !== 0) throw new LegFailure(`reading ${instance}'s declaration: ${done.err}`);
 	return JSON.parse(done.out) as {
 		agent: string;
@@ -3026,6 +3381,94 @@ async function agentPost(
 	);
 	const [status = '0', ...rest] = done.out.split('\n');
 	return { status: Number(status.trim()), body: rest.join('\n').trim() };
+}
+
+/**
+ * One call to an instance's agent over its unix socket, as the engine sends it: the bearer read as
+ * root from the credential, the actor header, a JSON body (stdin) or a file's bytes. `path` is under
+ * /publication/host_agent.
+ */
+async function agentCall(
+	ctx: Ctx,
+	instance: string,
+	method: 'GET' | 'POST' | 'PUT',
+	path: string,
+	opts: { json?: unknown; file?: string; headers?: readonly string[] } = {},
+): Promise<{ status: number; body: string }> {
+	const headers = [
+		`-H "Authorization: Bearer $(cat /etc/dedalo_publication_host/${instance}/credentials/SERVICE_TOKEN)"`,
+		"-H 'X-Dedalo-Actor: init_drill'",
+		...(opts.json === undefined ? [] : ["-H 'Content-Type: application/json' --data-binary @-"]),
+		...(opts.file === undefined ? [] : [`--data-binary @${q(opts.file)}`]),
+		...(opts.headers ?? []).map((header) => `-H ${q(header)}`),
+	].join(' ');
+	const done = await ctx.runner.sh(
+		`curl -sS --max-time 120 -o /root/dd_agent_call -w '%{http_code}' --unix-socket /run/dedalo_publication_host/${instance}/agent.sock -X ${method} ${headers} ${q(`http://localhost/publication/host_agent${path}`)}; echo; cat /root/dd_agent_call 2>/dev/null; rm -f /root/dd_agent_call`,
+		opts.json === undefined ? {} : { stdin: JSON.stringify(opts.json) },
+	);
+	const [status = '0', ...rest] = done.out.split('\n');
+	return { status: Number(status.trim()), body: rest.join('\n').trim() };
+}
+
+/**
+ * The include the ENGINE would apply on this host — expectedRulesForHost over the agent's own
+ * `GET /v1/status` body (its server and media root; the engine's public qualities), and the media
+ * URL — from the ENGINE in a child (the drill imports no engine module).
+ */
+async function engineRulesFor(
+	statusBody: string,
+): Promise<{ server: string; text: string; hash: string; mediaUrl: string }> {
+	const probe = [
+		`const { expectedRulesForHost } = await import(${JSON.stringify(join(REPO_ROOT, 'src/core/publication_host/rules.ts'))});`,
+		`const { publicationHostMediaUrl } = await import(${JSON.stringify(join(REPO_ROOT, 'src/core/media/publication_host_rules.ts'))});`,
+		'const status = JSON.parse(await Bun.stdin.text());',
+		"const rules = expectedRulesForHost({ name: 'init_drill', qualities: null }, status);",
+		'console.log(JSON.stringify({ server: rules.server, text: rules.text, hash: rules.hash, mediaUrl: publicationHostMediaUrl() }));',
+	].join('\n');
+	const done = await spawnText([process.execPath, '-e', probe], {
+		env: { ...(process.env as Record<string, string>) },
+		stdin: statusBody,
+	});
+	if (done.code !== 0) throw new LegFailure(`the engine's expectedRulesForHost(): ${done.err}`);
+	return JSON.parse(done.out.trim().split('\n').at(-1) ?? '{}') as {
+		server: string;
+		text: string;
+		hash: string;
+		mediaUrl: string;
+	};
+}
+
+/** An ANONYMOUS GET through the site's web server: the status and the sha256 of the body it served. */
+async function anonymousGet(
+	ctx: Ctx,
+	domain: string,
+	path: string,
+): Promise<{ status: number; sha256: string }> {
+	const done = await ctx.runner.sh(
+		`rm -f /tmp/dd_copy_body; curl -sk --max-time 30 --resolve ${domain}:443:127.0.0.1 -o /tmp/dd_copy_body -w '%{http_code}' ${q(`https://${domain}${path}`)}; echo; sha256sum /tmp/dd_copy_body | cut -d' ' -f1`,
+	);
+	const [status = '0', sha256 = ''] = done.out.split('\n');
+	return { status: Number(status.trim()), sha256: sha256.trim() };
+}
+
+/**
+ * The paths whose mode is not the one expected, from `stat -c '%a %n'` output (one line per path,
+ * the octal mode first). A path stat did not print (absent, or a stat error) is a mismatch too.
+ */
+export function modeMismatches(
+	statOut: string,
+	expected: Readonly<Record<string, string>>,
+): string[] {
+	const seen = new Map<string, string>();
+	for (const line of statOut.split('\n')) {
+		const match = line.match(/^([0-7]{3,4}) (\/.*)$/);
+		if (match) seen.set(match[2] as string, match[1] as string);
+	}
+	return Object.entries(expected).flatMap(([path, want]) => {
+		const got = seen.get(path);
+		if (got === undefined) return [`${path} not stat-ed (${statOut.trim().slice(-300)})`];
+		return got === want ? [] : [`${path} is ${got}, expected ${want}`];
+	});
 }
 
 /** buildNginxMap() and its hash, from the ENGINE in a child (the drill imports no engine module). */
@@ -3502,6 +3945,10 @@ async function writeRecord(ctx: Ctx, passed: string[], skipped: string[]): Promi
 	const inputs = await elDrillInputs();
 	const sha = (await spawnText(['git', 'rev-parse', 'HEAD'])).out.trim();
 	const kernel = (await ctx.runner.sh('uname -r')).out.trim();
+	const legInputs = legInputPaths(legsFor(ctx.args));
+	const legsInputs = legInputHashes(REPO_ROOT, legInputs);
+	const porcelain = await spawnText(['git', 'status', '--porcelain', '--', ...legInputs]);
+	if (porcelain.code !== 0) throw new Error(`git status over the leg inputs: ${porcelain.err}`);
 	const run: ElDrillRecord = {
 		inputs_digest: elDrillInputsDigest(AGENT_DIR, inputs),
 		hosts: [
@@ -3525,6 +3972,9 @@ async function writeRecord(ctx: Ctx, passed: string[], skipped: string[]): Promi
 				},
 				legs: passed.sort(),
 				skipped: skipped.sort(),
+				legs_inputs: legsInputs,
+				legs_digest: legsDigest(legsInputs),
+				tree_dirty: porcelain.out.trim() !== '',
 			},
 		],
 	};

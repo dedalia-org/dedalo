@@ -13,6 +13,11 @@
  *     recorded, or named in PENDING_EL_HOSTS with its reason. A pending major that the record
  *     now names is a stale row (red): delete it.
  *   - LEGS: EACH host's recorded run passed every REQUIRED EL-family leg (legsFor), skipped none.
+ *   - LEG INPUTS: EACH host carries `legs_inputs` (sha256 per file: the drill script and every file
+ *     a leg DECLARES it proves, `Leg.inputs`) and `legs_digest` over them. Recomputed from the
+ *     working tree here: a changed declared input (copy-media-web-user's agent media code, the
+ *     engine rule builder…) is RED, naming the file, until the drill re-records. `sha` is only the
+ *     BASE HEAD the run's tree was checked out at; `tree_dirty` says its bytes were not HEAD's.
  *   - MEASURED: EACH host carries the facts the spec says the drill measures (the two booleans,
  *     the home's traverse type, the home layout's v2 tree type, the v1 PHP floor, its systemd's supported directives) — its own:
  *     a host is one run on one VM (its sha, its time), and recording one major never rewrites
@@ -25,6 +30,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import {
 	AGENT_DIR,
 	captureCommands,
+	changedLegInputs,
 	controlNamed,
 	debianInPlaceRefusal,
 	EL_DRILL_RECORD,
@@ -32,9 +38,14 @@ import {
 	type ElHost,
 	elDrillInputs,
 	elDrillInputsDigest,
+	LEG_INPUT_SELF,
+	legInputHashes,
+	legInputPaths,
+	legsDigest,
 	legsFor,
 	mergeRecord,
 	parseDrillArgs,
+	REPO_ROOT,
 	SELINUX_CONTROL_DIR,
 	SELINUX_CONTROL_FILE,
 	SELINUX_CONTROL_URL,
@@ -116,6 +127,50 @@ describe('the EL drill record holds the tree', () => {
 		}
 	});
 
+	test("LEG INPUTS: every host proved TODAY's bytes of the drill and of every declared leg input", () => {
+		const args = parseDrillArgs(['--family', 'el', '--in-place']);
+		if ('error' in args) throw new Error(args.error);
+		const paths = legInputPaths(legsFor(args));
+		// anti-vacuity: the drill itself and the T0-6 leg's agent + engine files are in the set
+		expect(paths).toContain(LEG_INPUT_SELF);
+		expect(paths).toContain('publication/host_agent/src/media/fs_modes.ts');
+		expect(paths).toContain('publication/host_agent/src/media/repair.ts');
+		expect(paths).toContain('src/core/publication_host/rules.ts');
+		const today = legInputHashes(REPO_ROOT, paths);
+		for (const host of record().hosts) {
+			expect(typeof host.tree_dirty, `${host.os} tree_dirty`).toBe('boolean');
+			expect(host.legs_digest, `${host.os} legs_digest is not its legs_inputs' digest`).toBe(
+				legsDigest(host.legs_inputs ?? {}),
+			);
+			const changed = changedLegInputs(host.legs_inputs ?? {}, today);
+			expect(
+				changed,
+				`${host.os}: these leg inputs differ from what its recorded run proved — re-record: run ` +
+					'`bun run test:pubhost:init:el -- --media-nfs <host:/export> --record` as root on the disposable ' +
+					'SELinux-enforcing EL VMs (engineering/PUBLICATION_HOST_SPEC.md §9.11) and commit the new record',
+			).toEqual([]);
+			expect(legsDigest(today), `${host.os} legs_digest`).toBe(host.legs_digest);
+		}
+	});
+
+	test('the legs digest moves with ONE byte of a declared input, and names that file (not vacuous)', () => {
+		const args = parseDrillArgs(['--family', 'el', '--in-place']);
+		if ('error' in args) throw new Error(args.error);
+		const paths = legInputPaths(legsFor(args));
+		const target = 'publication/host_agent/src/media/fs_modes.ts';
+		const real = legInputHashes(REPO_ROOT, paths);
+		const mutated = legInputHashes(REPO_ROOT, paths, (path) => {
+			const bytes = new Uint8Array(readFileSync(path));
+			if (path.endsWith(target)) bytes[0] = (bytes[0] ?? 0) ^ 1;
+			return bytes;
+		});
+		expect(legsDigest(mutated)).not.toBe(legsDigest(real));
+		expect(changedLegInputs(real, mutated)).toEqual([target]);
+		// a dropped or added input is named too
+		const { [target]: _dropped, ...without } = real;
+		expect(changedLegInputs(real, without)).toEqual([target]);
+	});
+
 	test('MEASURED: per host, the booleans, the home traverse type, the home v2 type, the v1 PHP floor, the supported directives', () => {
 		for (const host of record().hosts) {
 			const { measured, sha, at } = host;
@@ -158,6 +213,9 @@ const host = (os: ElHost['os'], sha: string, php: string): ElHost => ({
 	},
 	legs: ['fresh-converge'],
 	skipped: [],
+	legs_inputs: {},
+	legs_digest: '',
+	tree_dirty: false,
 });
 
 describe('mergeRecord: one major recorded never rewrites another', () => {

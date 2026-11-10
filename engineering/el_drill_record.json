@@ -7,8 +7,8 @@
 			"version": "10.2",
 			"kernel": "6.12.0-211.7.3.el10_2.aarch64",
 			"selinux": "enforcing",
-			"sha": "db6517908fe572fbc7ca3707ef6e5384af110371",
-			"at": "2026-10-23T07:17:32.073Z",
+			"sha": "8f029818bdf02fa37b3ba5469e82e32184d50635",
+			"at": "2026-11-10T20:11:52.367Z",
 			"measured": {
 				"booleans": {
 					"httpd_can_network_relay": {
@@ -79,6 +79,7 @@
 				"agent-root-grant",
 				"booleans-measured",
 				"configtest-rollback",
+				"copy-media-web-user",
 				"fapolicyd",
 				"fresh-converge",
 				"hand-map-migration",
@@ -98,7 +99,21 @@
 				"v1-handler-probe",
 				"v2-only-site"
 			],
-			"skipped": []
+			"skipped": [],
+			"legs_inputs": {
+				"publication/host_agent/src/audit_actions.ts": "1ff63f7142d4030e451b4565e1e10850bca5acf1815670dd773c753a2babfea3",
+				"publication/host_agent/src/media/copy.ts": "abbf805cedcbfa0d68900713cddedd048a1f205fc8195aa3f4ba6d1b2244d570",
+				"publication/host_agent/src/media/fs_modes.ts": "9e7ae681d4c58317501b183ba4a5014c30ce3f152f7243548d51b145e69dc0e9",
+				"publication/host_agent/src/media/probe.ts": "b9720f713357f010ef0533953363c53023ae925424444440e6561d45b92b443d",
+				"publication/host_agent/src/media/repair.ts": "652fc79a3519bfdab9a4f38445e598b5a3873dc79d7cc3d04a1fd509a60ccc89",
+				"publication/host_agent/src/media/sha_index.ts": "1394654dee5818731dd23bd81c7941b903e48a2f12661ffd32667e92175585d7",
+				"scripts/publication_host_init_drill.ts": "0cc7462cbdab1ab1f986af58b66ea38ffa226d5f319eb97378d15891be241401",
+				"src/core/media/protection.ts": "3ea410673e31c4ca44498349de8acc47ce7d7cbad140aa42e2535d5d3c58e180",
+				"src/core/media/publication_host_rules.ts": "e643d340e01844df85ecf912441985dbc1ba1c70448d8d6ee0f3b159ebd2aaab",
+				"src/core/publication_host/rules.ts": "2d670b39f91a92151ca072ce54d0e775c468cf21463113ec3155a3f02ae5295d"
+			},
+			"legs_digest": "e650402e9edea7f9818e6a6e386b62d24362f6f4d99ef764a6fa9a161275aef7",
+			"tree_dirty": true
 		},
 		{
 			"os": "el9",
@@ -106,8 +121,8 @@
 			"version": "9.8",
 			"kernel": "5.14.0-687.5.3.el9_8.aarch64",
 			"selinux": "enforcing",
-			"sha": "c65c03a7f54055b50b4f574cc4cd79589b8810c3",
-			"at": "2026-10-23T00:26:01.053Z",
+			"sha": "8f029818bdf02fa37b3ba5469e82e32184d50635",
+			"at": "2026-11-10T20:13:23.555Z",
 			"measured": {
 				"booleans": {
 					"httpd_can_network_relay": {
@@ -178,6 +193,7 @@
 				"agent-root-grant",
 				"booleans-measured",
 				"configtest-rollback",
+				"copy-media-web-user",
 				"fapolicyd",
 				"fresh-converge",
 				"hand-map-migration",
@@ -197,7 +213,21 @@
 				"v1-handler-probe",
 				"v2-only-site"
 			],
-			"skipped": []
+			"skipped": [],
+			"legs_inputs": {
+				"publication/host_agent/src/audit_actions.ts": "1ff63f7142d4030e451b4565e1e10850bca5acf1815670dd773c753a2babfea3",
+				"publication/host_agent/src/media/copy.ts": "abbf805cedcbfa0d68900713cddedd048a1f205fc8195aa3f4ba6d1b2244d570",
+				"publication/host_agent/src/media/fs_modes.ts": "9e7ae681d4c58317501b183ba4a5014c30ce3f152f7243548d51b145e69dc0e9",
+				"publication/host_agent/src/media/probe.ts": "b9720f713357f010ef0533953363c53023ae925424444440e6561d45b92b443d",
+				"publication/host_agent/src/media/repair.ts": "652fc79a3519bfdab9a4f38445e598b5a3873dc79d7cc3d04a1fd509a60ccc89",
+				"publication/host_agent/src/media/sha_index.ts": "1394654dee5818731dd23bd81c7941b903e48a2f12661ffd32667e92175585d7",
+				"scripts/publication_host_init_drill.ts": "0cc7462cbdab1ab1f986af58b66ea38ffa226d5f319eb97378d15891be241401",
+				"src/core/media/protection.ts": "3ea410673e31c4ca44498349de8acc47ce7d7cbad140aa42e2535d5d3c58e180",
+				"src/core/media/publication_host_rules.ts": "e643d340e01844df85ecf912441985dbc1ba1c70448d8d6ee0f3b159ebd2aaab",
+				"src/core/publication_host/rules.ts": "2d670b39f91a92151ca072ce54d0e775c468cf21463113ec3155a3f02ae5295d"
+			},
+			"legs_digest": "e650402e9edea7f9818e6a6e386b62d24362f6f4d99ef764a6fa9a161275aef7",
+			"tree_dirty": true
 		}
 	]
 }
