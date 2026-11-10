@@ -4860,6 +4860,11 @@
 			"skipped": 0,
 			"assertions": 5
 		},
+		"test/unit/relation_related_list_cells_native.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 24
+		},
 		"test/unit/relation_search_builders.test.ts": {
 			"tests": 23,
 			"skipped": 0,
