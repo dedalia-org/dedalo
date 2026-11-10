@@ -194,6 +194,15 @@ interface GridContext {
 	defaultDdoMaps: Map<string, GridDdo[]>;
 	/** Memoized element tool contexts, keyed `${elementTipo}|${toolName}` (PHP structure_context->tools). */
 	toolContexts: Map<string, Record<string, unknown>>;
+	/**
+	 * The quote key of THIS caller (WC-2026-11-10-indexation-grid-read-door):
+	 * may the text_area a fragment is quoted from be read? Absent = an internal
+	 * build, nothing to gate. Asked by textAreaIndexationCell for the component
+	 * it ACTUALLY reads — the backstop of the per-locator pre-filter.
+	 */
+	quoteGate?: IndexationQuoteGate;
+	/** Set by textAreaIndexationCell when the gate refused its quote: the row is withheld. */
+	quoteRefused: boolean;
 }
 
 async function readRecordOnce(
@@ -769,6 +778,13 @@ async function textAreaIndexationCell(
 	indexLocator: IndexLocator,
 	columnObj: Record<string, unknown>,
 ): Promise<GridCell> {
+	// THE QUOTE KEY, on the component this cell actually reads: a refused quote
+	// renders nothing of the text and marks the row withheld (the caller drops
+	// it and counts it — never a husk row with the quote blanked).
+	if (ctx.quoteGate !== undefined && !(await ctx.quoteGate(sectionTipo, ddo.tipo))) {
+		ctx.quoteRefused = true;
+		return cell({ type: 'column', label: ddo.label, value: [] });
+	}
 	const node = await getNode(ddo.tipo);
 	const properties = (node?.properties ?? {}) as {
 		fields_separator?: string;
@@ -1473,8 +1489,216 @@ export async function indexationRowsPast(
 		past,
 	);
 	if (tail === null) return false;
-	const { anyRowInScope } = await import('../security/record_scope.ts');
-	return anyRowInScope(sectionTopProjection(tail), principal);
+	// The page withholds rows whose quote the caller may not read
+	// (withholdUnquotableRows); the probe asks about the SAME rows or it would
+	// owe a notice for a tail the caller can never page to. Silent gate: a past
+	// row is not part of this answer, so it records no refusal.
+	const quoted = await quotableTail(tail, indexationQuoteGate(principal, false));
+	if (quoted === null) return false;
+	// …and the ROW's own record scope (withholdUnquotableRows' third half): a
+	// tail row whose indexing record is outside the caller's projects is one
+	// the page would withhold, so it owes no notice either. The group leg lists
+	// its sections from the UNNARROWED tail's projection, so what the probe reads
+	// does not depend on what the row leg kept (READ-4's bound).
+	const { anyRowInScope, scopedRows } = await import('../security/record_scope.ts');
+	const rowScoped = await scopedRows(quoted, principal);
+	return anyRowInScope(sectionTopProjection(rowScoped), principal, sectionTopProjection(quoted));
+}
+
+/** The door name of the grid's refusal log line and its posture entry. */
+export const INDEXATION_GRID_DOOR = 'dd_core_api.get_indexation_grid';
+
+/**
+ * THE QUOTE KEY of the grid (WC-2026-11-10-indexation-grid-read-door, owner
+ * decision S12 2026-11-10): a row quotes a fragment of the INDEXING record's
+ * text_area, so the caller must hold, on the indexing record's OWN section,
+ * the section read grant AND the grant on the component the fragment is
+ * quoted from — the human read's pair (security/read_door.ts
+ * doorComponentAllowed). A locator naming no tag component (an index with no
+ * tagged text) needs the section grant only here; the component the row then
+ * reads is still asked by textAreaIndexationCell (ctx.quoteGate).
+ *
+ * `component` undefined/'' = no tag component. Memoized per (section,
+ * component) for the gate's lifetime (one build / one probe), so a refusal is
+ * logged once per pair, not once per row. `loud` = record the refusal
+ * (noteFrontierRefusal → the request's perm.out_of_scope notice): the page's
+ * gate; the past probe's gate is silent.
+ */
+export type IndexationQuoteGate = (sectionTipo: string, componentTipo?: string) => Promise<boolean>;
+
+export function indexationQuoteGate(principal: Principal, loud: boolean): IndexationQuoteGate {
+	const memo = new Map<string, Promise<boolean>>();
+	return (sectionTipo, componentTipo) => {
+		const component = componentTipo === undefined || componentTipo === '' ? null : componentTipo;
+		const key = `${sectionTipo}|${component ?? ''}`;
+		let decision = memo.get(key);
+		if (decision === undefined) {
+			decision = quoteAllowed(principal, sectionTipo, component, loud);
+			memo.set(key, decision);
+		}
+		return decision;
+	};
+}
+
+async function quoteAllowed(
+	principal: Principal,
+	sectionTipo: string,
+	componentTipo: string | null,
+	loud: boolean,
+): Promise<boolean> {
+	// Dynamic, like record_scope above: the security layer pulls in the assembler.
+	const { doorComponentAllowed, doorComponentGranted } = await import('../security/read_door.ts');
+	const scope = { principal, door: INDEXATION_GRID_DOOR };
+	if (componentTipo !== null) {
+		const step = { sectionTipo, componentTipo };
+		return loud ? doorComponentAllowed(scope, step) : doorComponentGranted(scope, step);
+	}
+	const { getPermissions } = await import('../security/permissions.ts');
+	const allowed = (await getPermissions(principal, sectionTipo, sectionTipo)) >= 1;
+	if (!allowed && loud) {
+		const { noteFrontierRefusal } = await import('../security/frontier_scope.ts');
+		noteFrontierRefusal(
+			{ principal, surface: 'door', door: INDEXATION_GRID_DOOR },
+			{ surface: 'door', door: INDEXATION_GRID_DOOR, sectionTipo, key: 'component' },
+		);
+	}
+	return allowed;
+}
+
+/**
+ * The SQL twin of indexLocatorOf's `component_tipo`, over a breakdown row
+ * `quoted`: absent key → '' (no tag component), JSON null → 'null' (String(null),
+ * as the page reads it), else its text.
+ */
+const TAG_COMPONENT_SQL = `CASE WHEN quoted.locator_data ? 'tag_component_tipo' THEN COALESCE(quoted.locator_data->>'tag_component_tipo', 'null') ELSE '' END`;
+
+/**
+ * The tail rows whose quote the gate admits, as a bound SELECT of the tail's
+ * own columns — or null when none survives. Bounded whatever the tail: one
+ * statement for the DISTINCT (section, tag component) pairs (at most one row
+ * per pair), the gate asked per pair, then the filter rides the caller's one
+ * statement.
+ */
+async function quotableTail(
+	tail: { sql: string; params: readonly unknown[] },
+	gate: IndexationQuoteGate,
+): Promise<{ sql: string; params: readonly unknown[] } | null> {
+	const pairs = (await sql.unsafe(
+		`SELECT DISTINCT quoted.section_tipo, ${TAG_COMPONENT_SQL} AS component_tipo FROM (${tail.sql}) AS quoted`,
+		tail.params as (string | number | null)[],
+	)) as { section_tipo: string; component_tipo: string }[];
+	const params: unknown[] = [...tail.params];
+	const allowed: string[] = [];
+	for (const pair of pairs) {
+		if (!(await gate(pair.section_tipo, pair.component_tipo))) continue;
+		params.push(pair.section_tipo, pair.component_tipo);
+		allowed.push(`($${params.length - 1}::text, $${params.length}::text)`);
+	}
+	if (allowed.length === 0) return null;
+	return {
+		sql: `SELECT quoted.* FROM (${tail.sql}) AS quoted WHERE (quoted.section_tipo, ${TAG_COMPONENT_SQL}) IN (VALUES ${allowed.join(', ')})`,
+		params,
+	};
+}
+
+type IndexGroups = Map<string, Map<string, IndexLocator[]>>;
+
+/**
+ * The page half of the row key: every locator of the (already AUTHZ-05
+ * scoped) groups whose quote the gate refuses, OR whose indexing record is
+ * outside the caller's record scope (the record the fragment is quoted FROM —
+ * a group's scope is its section_top's, never its rows'), is withheld,
+ * COUNTED, and an emptied group leaves no husk (as scopeIndexationGroups).
+ * Only rows of groups the caller may see are counted — a row of an
+ * out-of-scope group stays uncounted, or the count would be an existence
+ * oracle over records the caller cannot reach (record_scope.ts
+ * scopeInverseReferenceHits). The past probe (indexationRowsPast) applies the
+ * same two halves to the tail.
+ */
+export async function withholdUnquotableRows(
+	groups: IndexGroups,
+	gate: IndexationQuoteGate,
+	principal: Principal,
+): Promise<{ groups: IndexGroups; withheld: number }> {
+	const quoted = await keepGroupRows(groups, (locators) => quotableLocators(locators, gate));
+	const inScope = await rowRecordsInScope(quoted, principal);
+	const scoped = await keepGroupRows(quoted, async (locators) =>
+		locators.filter((locator) => inScope.has(rowRecordKey(locator))),
+	);
+	return { groups: scoped, withheld: groupRowCount(groups) - groupRowCount(scoped) };
+}
+
+/** The groups with each row list narrowed by `keep`; emptied groups / sections leave no husk. */
+async function keepGroupRows(
+	groups: IndexGroups,
+	keep: (locators: IndexLocator[]) => Promise<IndexLocator[]>,
+): Promise<IndexGroups> {
+	const narrowed: IndexGroups = new Map();
+	for (const [topTipo, byId] of groups) {
+		const kept = new Map<string, IndexLocator[]>();
+		for (const [topId, locators] of byId) {
+			const keptLocators = await keep(locators);
+			if (keptLocators.length > 0) kept.set(topId, keptLocators);
+		}
+		if (kept.size > 0) narrowed.set(topTipo, kept);
+	}
+	return narrowed;
+}
+
+function groupRowCount(groups: IndexGroups): number {
+	let rows = 0;
+	for (const byId of groups.values()) {
+		for (const locators of byId.values()) rows += locators.length;
+	}
+	return rows;
+}
+
+/** The scope key of a row's OWN record (the IndexLocator's id read as its canonical int). */
+const rowRecordKey = (locator: Pick<IndexLocator, 'section_tipo' | 'section_id'>) =>
+	`${locator.section_tipo}|${Number(locator.section_id)}`;
+
+/**
+ * The indexing records (row owners) of `groups` inside the caller's record
+ * scope — ONE batched probe per (section, chunk), the list's own predicate
+ * (scopeInverseReferenceHits; global admins unscoped). Every section with an
+ * out-of-scope row records ONE refusal (log line + the request's
+ * perm.out_of_scope notice). Only rows the quote key already admitted reach
+ * here, so a refusal is never logged twice for one row.
+ */
+async function rowRecordsInScope(groups: IndexGroups, principal: Principal): Promise<Set<string>> {
+	const rows = [...groups.values()].flatMap((byId) =>
+		[...byId.values()].flat().map((locator) => ({
+			section_tipo: locator.section_tipo,
+			section_id: Number(locator.section_id),
+		})),
+	);
+	const { scopeInverseReferenceHits } = await import('../security/record_scope.ts');
+	const visible = new Set((await scopeInverseReferenceHits(rows, principal)).map(rowRecordKey));
+	const refusedSections = new Set(
+		rows.filter((row) => !visible.has(rowRecordKey(row))).map((row) => row.section_tipo),
+	);
+	if (refusedSections.size > 0) {
+		const { noteFrontierRefusal } = await import('../security/frontier_scope.ts');
+		for (const sectionTipo of refusedSections) {
+			noteFrontierRefusal(
+				{ principal, surface: 'door', door: INDEXATION_GRID_DOOR },
+				{ surface: 'door', door: INDEXATION_GRID_DOOR, sectionTipo, key: 'record' },
+			);
+		}
+	}
+	return visible;
+}
+
+/** The locators of one group whose quote the gate admits, in order. */
+async function quotableLocators(
+	locators: readonly IndexLocator[],
+	gate: IndexationQuoteGate,
+): Promise<IndexLocator[]> {
+	const kept: IndexLocator[] = [];
+	for (const locator of locators) {
+		if (await gate(locator.section_tipo, locator.component_tipo)) kept.push(locator);
+	}
+	return kept;
 }
 
 /**
@@ -1578,6 +1802,11 @@ export async function buildIndexationGrid(
 		sqo: IndexationGridSqo;
 	},
 	principal: Principal,
+	/**
+	 * Filled with the rows the quote key withheld (the handler names the count
+	 * in the owned `withheld_rows` envelope key — never silent).
+	 */
+	report?: { withheldRows: number },
 ): Promise<GridCell[]> {
 	const grid: GridCell[] = [];
 
@@ -1596,7 +1825,15 @@ export async function buildIndexationGrid(
 
 	const groups = groupBySectionTop(hits);
 
-	const scopedGroups = await scopeIndexationGroups(groups, principal);
+	const authorizedGroups = await scopeIndexationGroups(groups, principal);
+	// The quote key per row (WC-2026-11-10-indexation-grid-read-door).
+	const quoteGate = indexationQuoteGate(principal, true);
+	const { groups: scopedGroups, withheld } = await withholdUnquotableRows(
+		authorizedGroups,
+		quoteGate,
+		principal,
+	);
+	let withheldRows = withheld;
 
 	const ctx: GridContext = {
 		dataLang: currentDataLang(),
@@ -1606,6 +1843,8 @@ export async function buildIndexationGrid(
 		records: new Map(),
 		defaultDdoMaps: new Map(),
 		toolContexts: new Map(),
+		quoteGate,
+		quoteRefused: false,
 	};
 
 	// Bun-native: prefetch every top record in one query per matrix table.
@@ -1650,13 +1889,17 @@ export async function buildIndexationGrid(
 
 		const sectionValues: GridCell[] = [];
 		const sectionRowCounts: number[] = [];
+		let groupsWithheld = 0;
 		for (const [, groupLocators] of byId) {
 			const rowsMaxCount: number[] = [];
+			const groupValues: GridCell[] = [];
 
 			if (headDdoMap !== null) {
 				const head = await gridRowCells(ctx, headDdoMap, groupLocators[0] as IndexLocator);
+				// A refused quote in a HEAD cell rendered empty; the head is no row.
+				ctx.quoteRefused = false;
 				const headRowCount = head.rowCounts.length > 0 ? Math.max(...head.rowCounts) : 0;
-				sectionValues.push(
+				groupValues.push(
 					cell({
 						type: 'row',
 						row_count: headRowCount,
@@ -1668,12 +1911,21 @@ export async function buildIndexationGrid(
 				rowsMaxCount.push(headRowCount);
 			}
 
+			let rowsKept = 0;
 			if (rowDdoMap !== null) {
 				for (const locator of groupLocators) {
+					ctx.quoteRefused = false;
 					const row = await gridRowCells(ctx, rowDdoMap, locator);
+					if (ctx.quoteRefused) {
+						// The backstop refused the component this row actually quotes.
+						ctx.quoteRefused = false;
+						withheldRows++;
+						continue;
+					}
+					rowsKept++;
 					const rowCount = row.rowCounts.length > 0 ? Math.max(...row.rowCounts) : 0;
 					rowsMaxCount.push(rowCount);
-					sectionValues.push(
+					groupValues.push(
 						cell({
 							type: 'row',
 							row_count: rowCount,
@@ -1683,13 +1935,21 @@ export async function buildIndexationGrid(
 						}),
 					);
 				}
+				// Every row withheld: no husk group (its head would quote nothing).
+				if (rowsKept === 0) {
+					groupsWithheld++;
+					continue;
+				}
 			} else {
 				console.warn(
 					`[indexation_grid] undefined row ddo_map for section ${topTipo} — configure the ontology indexation_list`,
 				);
 			}
+			sectionValues.push(...groupValues);
 			sectionRowCounts.push(rowsMaxCount.reduce((a, b) => a + b, 0));
 		}
+		// Every group withheld: no husk section caption either.
+		if (groupsWithheld === byId.size) continue;
 
 		sectionGrid.value = sectionValues as unknown[];
 		grid.push(
@@ -1701,5 +1961,6 @@ export async function buildIndexationGrid(
 		);
 	}
 
+	if (report !== undefined) report.withheldRows = withheldRows;
 	return grid;
 }

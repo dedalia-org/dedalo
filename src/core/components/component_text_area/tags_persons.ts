@@ -39,6 +39,7 @@ import { termByTipo } from '../../ontology/labels.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from '../../ontology/resolver.ts';
 import { readComponentItems } from '../../resolve/component_data.ts';
 import { currentApplicationLang, currentDataLang } from '../../resolve/request_lang.ts';
+import { doorComponentAllowed, type ReadDoorScope } from '../../security/read_door.ts';
 import { getTermByLocator, getTermTipos } from '../../ts_object/term_resolver.ts';
 
 /**
@@ -171,6 +172,51 @@ export async function getTagPersonLabel(locator: {
 }
 
 /**
+ * An owner's (section, source component) pair grant for the PERSONS hop,
+ * memoized per (section, component) for ONE buildTagsPersons call only (the
+ * map is created per call, never module-level). The read door records each
+ * refusal itself (one notice per refused pair).
+ */
+async function ownerComponentGranted(
+	scope: ReadDoorScope,
+	granted: Map<string, boolean>,
+	componentTipo: string,
+	owner: { section_tipo: string; section_id: StoredSectionId },
+): Promise<boolean> {
+	const key = `${owner.section_tipo}\u0000${componentTipo}`;
+	const known = granted.get(key);
+	if (known !== undefined) return known;
+	const allowed = await doorComponentAllowed(scope, {
+		sectionTipo: owner.section_tipo,
+		componentTipo,
+		sectionId: owner.section_id,
+	});
+	granted.set(key, allowed);
+	return allowed;
+}
+
+/**
+ * The owners whose `componentTipo` the caller may read: an owner record's
+ * persons component needs its own pair grant (section >= 1 + component >= 1),
+ * exactly like the host tag-source hop of index/reference. A refused owner is
+ * skipped. No principal (undefined scope or principal) = an internal read,
+ * every owner passes.
+ */
+async function grantedOwners<Owner extends { section_tipo: string; section_id: StoredSectionId }>(
+	scope: ReadDoorScope | undefined,
+	granted: Map<string, boolean>,
+	componentTipo: string,
+	owners: Owner[],
+): Promise<Owner[]> {
+	if (scope?.principal === undefined) return owners;
+	const readable: Owner[] = [];
+	for (const owner of owners) {
+		if (await ownerComponentGranted(scope, granted, componentTipo, owner)) readable.push(owner);
+	}
+	return readable;
+}
+
+/**
  * The full tags_persons payload for one host record (PHP get_tags_persons).
  *
  * @param config the text_area's `properties.tags_persons` object.
@@ -184,8 +230,11 @@ export async function buildTagsPersons(
 	host: { section_tipo: string; section_id: StoredSectionId },
 	hostRecord: MatrixRecord | null,
 	relatedLocators: { section_tipo: string; section_id: StoredSectionId }[],
+	scope: ReadDoorScope | undefined,
 ): Promise<PersonTagElement[]> {
 	const result: PersonTagElement[] = [];
+	// Per-call memo of the owner (section, component) grants — dies with the call.
+	const granted = new Map<string, boolean>();
 	// Identity of the host row among owners. Both sides go through the SAME
 	// canonicalization before being stringified into the key, so a pre-sweep
 	// '528' and a post-sweep 528 land on one key instead of two.
@@ -212,11 +261,16 @@ export async function buildTagsPersons(
 				continue;
 			}
 			// Owners: the host itself for self entries (stale ontology
-			// section_id ignored — PHP :1454), one per related record otherwise.
-			const owners =
+			// section_id ignored — PHP :1454), one per related record otherwise;
+			// each kept only when the caller may read its persons component.
+			const owners = await grantedOwners(
+				scope,
+				granted,
+				entry.component_tipo,
 				entry.section_tipo === host.section_tipo
 					? [{ section_tipo: host.section_tipo, section_id: hostSectionId }]
-					: refs;
+					: refs,
+			);
 
 			const state = typeof entry.state === 'string' && entry.state.length > 0 ? entry.state : 'a';
 			const tagId = entry.tag_id !== undefined && entry.tag_id !== null ? entry.tag_id : 1;

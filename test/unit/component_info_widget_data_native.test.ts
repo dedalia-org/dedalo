@@ -11,11 +11,13 @@
  *
  * Branch inventory of the handler, in execution order — one case each:
  *  1. requirePrincipal   — throws without a seeded principal;
- *  2. AUTHZ-01 record gate (principalCanAccessRecord, TS-STRONGER than PHP):
- *     non-admin + an EXISTING out-of-scope record ⇒ the forbidden envelope;
- *     the same record + admin proceeds (that pairing is what makes the gate
- *     case non-vacuous), and a non-positive section_id is refused for admins
- *     too (record_scope's `sectionId < 1` rule reached through this door);
+ *  2. the READ DOOR (write_door.authorizeRecordAccess read mode, STRICTER than
+ *     PHP which had no gate — WC-2026-11-10-widget-data-read-door): a profile-
+ *     less non-admin ⇒ perm.denied (the section floor, its first refusal);
+ *     the same record + the superuser proceeds; a non-positive section_id
+ *     reaches the record-scope step for the superuser too ⇒ perm.out_of_scope.
+ *     The PAIRED reader/control proof of each half (section, info component,
+ *     scope, non-address id) is test/unit/widget_data_read_door_native.test.ts;
  *  3. no `properties.widgets` (or no ontology node at all) ⇒ the PHP
  *     ' Empty defined widgets …' message — byte-exact, LEADING and TRAILING
  *     space included;
@@ -72,7 +74,7 @@ import * as widget_registry from '../../src/core/components/component_info/widge
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
-import type { Principal } from '../../src/core/security/permissions.ts';
+import { type Principal, SUPERUSER_ID } from '../../src/core/security/permissions.ts';
 import type { Session } from '../../src/core/security/session_store.ts';
 import { mustGet } from '../helpers/assert.ts';
 
@@ -89,7 +91,12 @@ const SECTION_ID = 934000; // scratch band 934000-934099
 const INFO_WITH_WIDGETS = 'test212'; // component_info, properties.widgets = [test_info]
 const WIDGET_NAME = 'test_info';
 const NO_WIDGETS_TIPO = 'test52'; // component_input_text — no properties.widgets
-const UNKNOWN_TIPO = 'zzt_no_such_tipo_934000'; // getNode() → null
+// getNode() → null. Tipo-SHAPED on purpose: since the read door the write
+// door's grammar step refuses a malformed tipo (request.invalid) before any
+// ontology lookup — pinned separately below — so the "no node" branch is only
+// reachable with a well-formed tipo that names nothing.
+const UNKNOWN_TIPO = 'zzt934000';
+const MALFORMED_TIPO = 'zzt_no_such_tipo_934000';
 
 // The test6883 descriptors chain: test6813 --test6837--> rsc167 --rsc860--> terms.
 // The two ends sit in DIFFERENT matrix tables and that is the point of the hop:
@@ -116,7 +123,12 @@ const locatorOf = (sectionTipo: string, sectionId: number | string, from: string
 	from_component_tipo: from,
 });
 
-const ADMIN: Principal = { userId: 1, isGlobalAdmin: true, isDeveloper: true };
+// The SUPERUSER (-1), not a userId-1 global admin: since the read door
+// (WC-2026-11-10-widget-data-read-door) a global admin is judged on its PROFILE's
+// section + info-component grants like anyone else, and a fabricated userId 1
+// has no profile in the suite DB. The superuser is the one identity the
+// resolver grants everything, which is what these compute-branch cases need.
+const ADMIN: Principal = { userId: SUPERUSER_ID, isGlobalAdmin: true, isDeveloper: true };
 /** No user record, hence no projects: every non-admin record scope check fails. */
 const NO_ACCESS: Principal = { userId: 999999, isGlobalAdmin: false, isDeveloper: false };
 
@@ -269,7 +281,7 @@ describe('get_widget_data — identity and record gate', () => {
 		).rejects.toThrow(/no authenticated principal/);
 	});
 
-	test('AUTHZ-01: an EXISTING record outside the caller scope ⇒ perm.denied (403)', async () => {
+	test('a profile-less non-admin on an EXISTING record ⇒ perm.denied (403, the section floor)', async () => {
 		const refusal = await refusalOf(
 			getWidgetData(
 				rqoOf(
@@ -283,7 +295,7 @@ describe('get_widget_data — identity and record gate', () => {
 		expect(refusal.spec.status).toBe(403);
 	});
 
-	test('the SAME record + an admin principal passes the gate (the refusal is scope, not fixture)', async () => {
+	test('the SAME record + the superuser passes the door (the refusal is the grant, not the fixture)', async () => {
 		const result = await getWidgetData(
 			rqoOf(
 				{ tipo: INFO_WITH_WIDGETS, section_tipo: SECTION, section_id: SECTION_ID },
@@ -296,7 +308,12 @@ describe('get_widget_data — identity and record gate', () => {
 		expect(Array.isArray(body.data)).toBe(true);
 	});
 
-	test('non-positive section_id is refused for ADMINS too (record_scope sectionId < 1)', async () => {
+	// Since the read door (WC-2026-11-10-widget-data-read-door): 0 / -1 / '0'
+	// are well-formed INTEGERS (the id grammar), so they pass the section and
+	// pair halves for the superuser and fall to the record-scope step, whose
+	// refusal is now its own code — perm.out_of_scope (was the bare perm.denied
+	// of the record-only gate).
+	test('non-positive section_id is refused for ADMINS too (record_scope sectionId < 1 ⇒ perm.out_of_scope)', async () => {
 		for (const sectionId of [0, -1, '0']) {
 			const refusal = await refusalOf(
 				getWidgetData(
@@ -307,7 +324,7 @@ describe('get_widget_data — identity and record gate', () => {
 					contextFor(ADMIN),
 				),
 			);
-			expect(refusal.code).toBe('perm.denied');
+			expect(refusal.code).toBe('perm.out_of_scope');
 		}
 	});
 });
@@ -354,6 +371,19 @@ describe('get_widget_data — widget resolution refusals (the two registered cod
 		expect(refusal.message).toBe(
 			`Empty defined widgets for dd_component_info : ${UNKNOWN_TIPO} [${UNKNOWN_TIPO}]`,
 		);
+	});
+
+	test('a MALFORMED tipo is refused by the door grammar (request.invalid) before any ontology lookup', async () => {
+		const refusal = await refusalOf(
+			getWidgetData(
+				rqoOf(
+					{ tipo: MALFORMED_TIPO, section_tipo: SECTION, section_id: SECTION_ID },
+					{ widget_name: WIDGET_NAME },
+				),
+				contextFor(ADMIN),
+			),
+		);
+		expect(refusal.code).toBe('request.invalid');
 	});
 
 	test('a widget_name none of the declared widgets carries ⇒ widget.not_defined', async () => {
@@ -462,7 +492,10 @@ describe('get_widget_data — thread-through into the widget compute', () => {
 		);
 		expect(mustGet(echo.calls[0], 'echo call 0').context).toEqual({
 			sectionTipo: SECTION,
-			sectionId: String(SECTION_ID), // the raw client value, uncoerced
+			// The GRANT's id: the string form is coerced (counted) at the door and
+			// the compute receives the int (was the raw client string before the
+			// read door, WC-2026-11-10-widget-data-read-door).
+			sectionId: SECTION_ID,
 			mode: 'list',
 			lang: 'lg-spa',
 			userId: ADMIN.userId,

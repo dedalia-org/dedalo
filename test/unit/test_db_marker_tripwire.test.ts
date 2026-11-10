@@ -556,6 +556,36 @@ const DOORS: readonly { name: string; run: () => Promise<unknown> }[] = [
 			(await import('../helpers/read_door_identity_fixture.ts')).removeReadDoorIdentityFixture(),
 	},
 	{
+		name: 'installWidgetDataDoorFixture',
+		run: async () =>
+			(await import('../helpers/widget_data_door_fixture.ts')).installWidgetDataDoorFixture(),
+	},
+	{
+		name: 'removeWidgetDataDoorFixture',
+		run: async () =>
+			(await import('../helpers/widget_data_door_fixture.ts')).removeWidgetDataDoorFixture(),
+	},
+	{
+		name: 'installTermsGridDoorFixture',
+		run: async () =>
+			(await import('../helpers/terms_grid_door_fixture.ts')).installTermsGridDoorFixture(),
+	},
+	{
+		name: 'removeTermsGridDoorFixture',
+		run: async () =>
+			(await import('../helpers/terms_grid_door_fixture.ts')).removeTermsGridDoorFixture(),
+	},
+	{
+		name: 'installTagsInfoDoorFixture',
+		run: async () =>
+			(await import('../helpers/tags_info_door_fixture.ts')).installTagsInfoDoorFixture(),
+	},
+	{
+		name: 'removeTagsInfoDoorFixture',
+		run: async () =>
+			(await import('../helpers/tags_info_door_fixture.ts')).removeTagsInfoDoorFixture(),
+	},
+	{
 		name: 'installAuthzDoorFixture',
 		run: async () => (await import('../helpers/authz_door_fixture.ts')).installAuthzDoorFixture(),
 	},

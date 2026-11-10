@@ -98,3 +98,23 @@ Gates: `test/unit/tags_info.test.ts`, `test/unit/text_area_delete_tag.test.ts`.
 
 
 ---
+
+## Addendum 2026-11-10 — AUTHZ-01 corrected and replaced by the read door (T0-3)
+
+**The AUTHZ-01 bullet above misstated PHP.** PHP did NOT "resolve for any
+coordinates a logged-in user named": frozen `class.dd_component_text_area_api.php:205`
+asserted `security::assert_section_permission($section_tipo, 1, …)` first. TS
+until this addendum was therefore not "stronger" — it swapped PHP's section grant
+for the record scope (weaker on one axis, stronger on the other), and consulted
+neither the text_area's own grant nor any grant on the records the tags point at.
+
+**The law now** (WC-2026-11-10-tags-info-read-door, owner OD-1 (c)):
+
+- the HOST door is the write door's READ mode (`authorizeRecordAccess`,
+  `{mode:'read', level:1, sectionFloor:1}`): section >= 1 (PHP parity restored)
+  → the text_area's pair grant → the record scope (`perm.out_of_scope`);
+- it runs BEFORE the options are parsed (an unauthorized caller with a bad
+  `ar_type` gets `perm.denied`, never `request.invalid_options`);
+- every HOP is gated with the same principal: note records (dropped + named in
+  `withheld_notes`), the host tag-source component of index/reference, and the
+  persons inverse search (scoped).

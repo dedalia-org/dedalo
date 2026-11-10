@@ -37,6 +37,17 @@
  *   GET /dedalo/core/api/v1/raw        (the admin's profile projects the row)
  *   GET /dedalo/core/api/v1/map_tile   (the component key on the geolocation, with the tile
  *                                       already in the memory: the denied reader is refused)
+ *   dd_component_av_api:get_media_streams / :download_fragment
+ *                                      (the AV component grant + the record scope)
+ *   dd_component_text_area_api:get_tags_info
+ *                                      (the text_area's own grant at the host door;
+ *                                       detailed: tags_info_read_door_native)
+ *   dd_component_info:get_widget_data  (the info component's own grant; detailed:
+ *                                       widget_data_read_door_native)
+ *   dd_core_api:get_section_terms      (the term component's grant per locator — omitted
+ *                                       + notice; detailed: section_terms_read_door_native)
+ *   dd_core_api:get_indexation_grid    (the quoted text_area's grant per row — withheld_rows
+ *                                       + notice; detailed: indexation_grid_read_door_native)
  *
  *   ai/rag/retrieval.ts aclGate     (the chokepoint under identify_by_image /
  *                                    similar_objects / search_by_text_image:
@@ -968,6 +979,279 @@ describe.if(DB_READY)('AV reads — the component read grant + the record scope'
 			},
 		);
 	}
+});
+
+/* ─────────── dd_component_text_area_api:get_tags_info (T0-3) ────────────── */
+//
+// One pair of the detailed gate (test/unit/tags_info_read_door_native.test.ts):
+// the text_area's own pair grant at the host read door. NO_TEXT_AREA differs
+// from CONTROL on that ONE grant (test/helpers/tags_info_door_fixture.ts, on the
+// zztags situation). Both fixtures are idempotent and swept here: bun runs the
+// files of one process sequentially, so the dedicated gate never holds them at
+// the same time.
+
+describe.if(DB_READY)('dd_component_text_area_api:get_tags_info — the text_area grant', () => {
+	let tags: typeof import('../helpers/tags_info_door_fixture.ts');
+	let zztags: typeof import('../helpers/zztags_situation.ts');
+	let situations: typeof import('../../src/core/test_data/situations/situation.ts');
+
+	beforeAll(async () => {
+		tags = await import('../helpers/tags_info_door_fixture.ts');
+		zztags = await import('../helpers/zztags_situation.ts');
+		situations = await import('../../src/core/test_data/situations/situation.ts');
+		await situations.ensureSituation(zztags.ZZTAGS_SITUATION);
+		await tags.installTagsInfoDoorFixture();
+	});
+	afterAll(async () => {
+		await tags.removeTagsInfoDoorFixture();
+		expect(await situations.dropSituation(zztags.ZZTAGS_SITUATION)).toBe(0);
+	});
+
+	leg(
+		'dd_component_text_area_api:get_tags_info',
+		'the text_area denied (section held, record in scope) → perm.denied; the control on the identical call is served the exact index + note',
+		async () => {
+			const { componentTextAreaApiActions } = await import(
+				'../../src/core/api/handlers/dd_component_text_area_api.ts'
+			);
+			const { runWithRequestContext } = await import('../../src/core/security/request_context.ts');
+			const handler = componentTextAreaApiActions.get_tags_info;
+			expect(handler).toBeDefined();
+			const persona = (key: 'CONTROL' | 'NO_TEXT_AREA'): Principal => ({
+				userId: tags.TAGS_PERSONAS[key].userId,
+				isGlobalAdmin: false,
+				isDeveloper: false,
+			});
+			const call = (principal: Principal) => {
+				const context = handlerContext(principal);
+				return runWithRequestContext(
+					{ principal, session: null, requestId: context.requestId, clientIp: '127.0.0.1' },
+					() =>
+						(handler as NonNullable<typeof handler>)(
+							{
+								action: 'get_tags_info',
+								dd_api: 'dd_component_text_area_api',
+								source: {
+									tipo: zztags.ZZTAGS_TEXT_AREA,
+									section_tipo: zztags.ZZTAGS_SECTION,
+									section_id: tags.TAGS_HOST_ID,
+									lang: 'lg-spa',
+								},
+								options: { ar_type: ['index', 'note'] },
+							} as unknown as Rqo,
+							context,
+						),
+				);
+			};
+
+			const refusal = await refusalOf(call(persona('NO_TEXT_AREA')));
+			expect(refusal.code).toBe('perm.denied');
+			expect(JSON.stringify(refusal)).not.toContain('note in scope');
+
+			const served = await call(persona('CONTROL'));
+			expect(served.status).toBe(200);
+			const body = served.body as unknown as {
+				ok: boolean;
+				data: unknown;
+				withheld_notes?: unknown[];
+			};
+			expect(body.ok).toBe(true);
+			expect(body.data).toEqual({
+				tags_index: [{ data: tags.TAGS_INDEX_LOCATOR, label: 'input text content of one' }],
+				tags_notes: [
+					{
+						data: { section_tipo: zztags.ZZTAGS_NOTE_SECTION, section_id: tags.TAGS_NOTE_IN_ID },
+						title: ['note in scope'],
+						body: ['note in scope body'],
+						publishable: true,
+					},
+				],
+			});
+			expect(body.withheld_notes).toEqual([tags.TAGS_NOTE_OUT_ID]);
+		},
+	);
+});
+
+/* ─────────── dd_component_info:get_widget_data (S12 residue) ────────────── */
+//
+// One pair of the detailed gate (test/unit/widget_data_read_door_native.test.ts):
+// the info component's own pair grant. NO_COMPONENT differs from CONTROL on that
+// ONE grant (test/helpers/widget_data_door_fixture.ts, idempotent install).
+
+describe.if(DB_READY)('dd_component_info:get_widget_data — the info component grant', () => {
+	let widget: typeof import('../helpers/widget_data_door_fixture.ts');
+
+	beforeAll(async () => {
+		widget = await import('../helpers/widget_data_door_fixture.ts');
+		await widget.installWidgetDataDoorFixture();
+	});
+	afterAll(async () => {
+		await widget.removeWidgetDataDoorFixture();
+	});
+
+	leg(
+		'dd_component_info:get_widget_data',
+		'the info component denied (section held, record in scope) → perm.denied; the control on the identical call is served the exact widget body',
+		async () => {
+			const { componentInfoApiActions } = await import(
+				'../../src/core/api/handlers/dd_component_info.ts'
+			);
+			const handler = componentInfoApiActions.get_widget_data;
+			expect(handler).toBeDefined();
+			const call = async (userId: number) =>
+				(handler as NonNullable<typeof handler>)(
+					{
+						action: 'get_widget_data',
+						dd_api: 'dd_component_info',
+						source: {
+							tipo: widget.WIDGET_INFO,
+							section_tipo: widget.WIDGET_SECTION,
+							section_id: widget.IN_SCOPE_RECORD_ID,
+							mode: 'edit',
+						},
+						options: { widget_name: widget.WIDGET_NAME },
+					} as unknown as Rqo,
+					handlerContext(await resolvePrincipal(userId)),
+				);
+
+			const refusal = await refusalOf(call(widget.WIDGET_NO_COMPONENT_USER_ID));
+			expect(refusal.code).toBe('perm.denied');
+			expect(JSON.stringify(refusal)).not.toContain(widget.IN_SCOPE_VALUE);
+
+			const served = await call(widget.WIDGET_CONTROL_USER_ID);
+			expect(served.status).toBe(200);
+			expect(served.body as unknown).toEqual({
+				ok: true,
+				request_id: 'read-door-gate',
+				data: [
+					{
+						widget: 'test_info',
+						key: 0,
+						widget_id: 'test_value',
+						id: 'test_value',
+						value: widget.IN_SCOPE_VALUE,
+					},
+					{
+						widget: 'test_info',
+						key: 0,
+						widget_id: 'test_label',
+						id: 'test_label',
+						value: widget.IN_SCOPE_VALUE,
+					},
+				],
+			});
+		},
+	);
+});
+
+/* ──── dd_core_api:get_section_terms / :get_indexation_grid (S12 residue) ──── */
+//
+// One pair each of the detailed gates (test/unit/section_terms_read_door_native.test.ts,
+// test/unit/indexation_grid_read_door_native.test.ts) over their shared fixture
+// (test/helpers/terms_grid_door_fixture.ts, idempotent install): TERM_DENIED
+// lacks only test3's term component, TEXT_DENIED only the indexed text_area.
+// Refused entries are OMITTED (batch / row semantics) — the reader's answer is
+// an exact narrowed shape with one perm.out_of_scope notice.
+
+describe.if(DB_READY)('dd_core_api term + indexation reads — the per-entry grants', () => {
+	let grid: typeof import('../helpers/terms_grid_door_fixture.ts');
+	let langs: typeof import('../../src/core/resolve/request_lang.ts');
+
+	beforeAll(async () => {
+		grid = await import('../helpers/terms_grid_door_fixture.ts');
+		langs = await import('../../src/core/resolve/request_lang.ts');
+		await grid.installTermsGridDoorFixture();
+	}, 60000);
+	afterAll(async () => {
+		await grid.removeTermsGridDoorFixture();
+		expect(await grid.termsGridDoorResidue()).toEqual([]);
+	});
+
+	interface EnvelopeBody {
+		ok: boolean;
+		data: unknown;
+		withheld_rows?: number;
+		notices?: { code: string }[];
+	}
+	async function dispatchAs(
+		userId: number,
+		lang: string,
+		request: Record<string, unknown>,
+	): Promise<EnvelopeBody> {
+		const principal = await resolvePrincipal(userId);
+		const outcome = await langs.runWithRequestLangs({ applicationLang: lang, dataLang: lang }, () =>
+			dispatchRqo(
+				{ dd_api: 'dd_core_api', ...request } as never,
+				contextFor(principal, `zzdoor_${userId}`) as never,
+			),
+		);
+		expect(outcome.status).toBe(200);
+		const body = outcome.body as unknown as EnvelopeBody;
+		expect(body.ok).toBe(true);
+		return body;
+	}
+	const noticeCodes = (body: EnvelopeBody) => (body.notices ?? []).map((notice) => notice.code);
+
+	leg(
+		'dd_core_api:get_section_terms',
+		'the term component denied → the locator OMITTED + one perm.out_of_scope; the control on the identical call is served the term',
+		async () => {
+			const request = {
+				action: 'get_section_terms',
+				locators: [{ section_tipo: grid.TG_SECTION, section_id: grid.TG_IN_SCOPE_RECORD }],
+				lang: 'lg-eng',
+			};
+			const narrowed = await dispatchAs(grid.TG_TERM_DENIED_USER_ID, 'lg-eng', request);
+			expect(narrowed.data).toEqual({});
+			expect(noticeCodes(narrowed)).toEqual(['perm.out_of_scope']);
+			expect(JSON.stringify(narrowed)).not.toContain(grid.TG_IN_SCOPE_TERM);
+
+			const served = await dispatchAs(grid.TG_CONTROL_USER_ID, 'lg-eng', request);
+			expect(served.data).toEqual({
+				[`${grid.TG_SECTION}_${grid.TG_IN_SCOPE_RECORD}`]: grid.TG_IN_SCOPE_TERM,
+			});
+			expect(served.notices).toBeUndefined();
+		},
+	);
+
+	leg(
+		'dd_core_api:get_indexation_grid',
+		'the quoted text_area denied → no row, withheld_rows 2 + one perm.out_of_scope; the control on the identical call is served both rows',
+		async () => {
+			const term = {
+				section_tipo: grid.GRID_TERM.section_tipo,
+				section_id: String(grid.GRID_TERM.section_id),
+				tipo: 'hierarchy40',
+			};
+			const request = {
+				action: 'get_indexation_grid',
+				prevent_lock: true,
+				source: { ...term, value: null },
+				sqo: {
+					mode: 'related',
+					section_tipo: ['all'],
+					total: null,
+					limit: 200,
+					offset: 0,
+					filter_by_locators: [term],
+				},
+			};
+			const fragments = (body: EnvelopeBody) =>
+				['zz9376r1', 'zz9376r2'].filter((fragment) =>
+					JSON.stringify(body.data).includes(`fragmento ${fragment} indexado`),
+				);
+
+			const narrowed = await dispatchAs(grid.TG_TEXT_DENIED_USER_ID, 'lg-spa', request);
+			expect(narrowed.data).toEqual([]);
+			expect(narrowed.withheld_rows).toBe(2);
+			expect(noticeCodes(narrowed)).toEqual(['perm.out_of_scope']);
+
+			const served = await dispatchAs(grid.TG_CONTROL_USER_ID, 'lg-spa', request);
+			expect(fragments(served)).toEqual(['zz9376r1', 'zz9376r2']);
+			expect(served.withheld_rows).toBe(0);
+			expect(served.notices).toBeUndefined();
+		},
+	);
 });
 
 // LAST, and on purpose: every door READ_DOOR_PROBED names ran its leg to

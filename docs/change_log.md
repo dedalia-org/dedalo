@@ -53,6 +53,48 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-10-add-new-element-create-gate`.
 
+- **Graph labels and the thesaurus indexation list show only what the user may read.**
+
+    The graph view labels its nodes with each record's display term. That label used to be served to
+    anyone with read access to the section. It now also requires read access to the component the term
+    is drawn from and the record inside the user's projects; a node the user may not read keeps its
+    provisional label, and a short notice says the answer was narrowed.
+
+    The thesaurus "show indexations" list quotes a fragment of every transcription that indexes the
+    term. Each row is now shown only when the user may read the indexing record's section and the text
+    field the fragment comes from, and the indexing record itself is inside the user's projects. Rows
+    the user may not read are left out, and the response states how many were withheld. A request that
+    names a term the user may not read in its list of terms is refused as a whole. Users who already had
+    those grants see no change.
+
+    Wire contract: `WC-2026-11-10-section-terms-read-door`, `WC-2026-11-10-indexation-grid-read-door`.
+
+- **The transcription print feed now checks the section, the transcription field and every note it shows.**
+
+    The request that resolves a transcription's tags for the print tool (index terms, notes and
+    persons) used to check only that the record was in the user's projects. It now asks what the
+    record page asks: read access to the section, read access to the transcription field itself, and
+    the record in the user's scope. The records the tags point at are checked too: a note is shown
+    only when the user may read the note's section, its fields and the note record itself, otherwise
+    it is left out of the print and its id is listed as withheld; the index terms are shown only when
+    the user may read the field that holds them; and the persons list only includes records in the
+    user's projects, and only from the field holding the persons when the user may read that field. Index term labels are shown as the record displays them. Users who already see
+    everything see no change.
+
+    Wire contract: `WC-2026-11-10-tags-info-read-door`.
+
+- **Info widgets are computed only for users who may read the widget's section and component.**
+
+    The request that computes an info widget (the values an info component shows, loaded on demand)
+    used to check only that the record was in the user's projects. It now asks what the record page
+    asks: read access to the section, read access to the info component itself, and the record in the
+    user's scope. A user without those grants is refused instead of being served the computed value.
+    The components a widget reads its inputs from are not checked one by one: the widget is shown as
+    the info component displays it. Users who already see the widget see no change. A request naming a
+    record id that is not a number is now refused as an invalid request.
+
+    Wire contract: `WC-2026-11-10-widget-data-read-door`.
+
 - **Exports no longer include linked records outside your projects.**
 
     An export follows the links of each record: the records a field points to, the records those
@@ -170,7 +212,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 8 entries"
+??? note "Wire contract — 12 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -179,7 +221,11 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-09-start-deep-link-found-set-position`
     - `WC-2026-11-10-add-new-element-create-gate`
     - `WC-2026-11-10-hierarchy-rebuild-ownership`
+    - `WC-2026-11-10-indexation-grid-read-door`
     - `WC-2026-11-10-save-never-creates`
+    - `WC-2026-11-10-section-terms-read-door`
+    - `WC-2026-11-10-tags-info-read-door`
+    - `WC-2026-11-10-widget-data-read-door`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

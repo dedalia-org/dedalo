@@ -312,9 +312,13 @@ describe('buildTagsPersons (PHP get_tags_persons)', () => {
 	};
 
 	async function build() {
-		return buildTagsPersons(CONFIG, { section_tipo: HOST_SECTION, section_id: hostId }, null, [
-			{ section_tipo: OH_SECTION, section_id: String(ohId) },
-		]);
+		return buildTagsPersons(
+			CONFIG,
+			{ section_tipo: HOST_SECTION, section_id: hostId },
+			null,
+			[{ section_tipo: OH_SECTION, section_id: String(ohId) }],
+			undefined,
+		);
 	}
 
 	test('informants group under the RELATED record; crew under the host (stale id ignored)', async () => {
@@ -361,6 +365,7 @@ describe('buildTagsPersons (PHP get_tags_persons)', () => {
 			{ section_tipo: HOST_SECTION, section_id: hostId },
 			null,
 			[{ section_tipo: OH_SECTION, section_id: String(ohId) }],
+			undefined, // internal read: no principal
 		);
 		// First entry wins; the duplicate contributes nothing.
 		// WC-2026-08-10-section-id-int-canonical: int addresses.

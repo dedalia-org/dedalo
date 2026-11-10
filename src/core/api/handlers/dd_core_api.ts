@@ -42,7 +42,7 @@ import {
 	type Principal,
 } from '../../security/permissions.ts';
 import type { TargetSearchScope } from '../../security/writer_chain_scope.ts';
-import { getTermByLocator, getTermTipos } from '../../ts_object/term_resolver.ts';
+import { getTermByLocator } from '../../ts_object/term_resolver.ts';
 import {
 	type ActionHandler,
 	type ApiRequestContext,
@@ -51,6 +51,7 @@ import {
 import type { ApiResult } from '../response.ts';
 import { relationTargetsAction } from './relation_targets.ts';
 import { normalizeTermLocators } from './section_terms.ts';
+import { admitTermLocators } from './section_terms_access.ts';
 
 /** PHP safe_tipo grammar (shared/core_functions.php:2296). */
 const SAFE_TIPO = /^[a-z]{2,}[0-9]+$/;
@@ -118,14 +119,103 @@ async function gateRelatedHosts(sqo: unknown, principal: Principal): Promise<boo
 		.map((locator) => locator?.section_tipo)
 		.filter((tipo): tipo is string => typeof tipo === 'string');
 	if (hostSectionTipos.length === 0) return false;
-	for (const hostSectionTipo of new Set(hostSectionTipos)) {
+	await assertHostSectionsReadable(hostSectionTipos, principal);
+	await gateRelatedHostRecords(related.filter_by_locators, principal);
+	return true;
+}
+
+/** The host SECTION half: read grant >= 1 on every distinct host section, else `perm.denied`. */
+async function assertHostSectionsReadable(
+	sectionTipos: readonly string[],
+	principal: Principal,
+): Promise<void> {
+	for (const hostSectionTipo of new Set(sectionTipos)) {
 		const level = await getPermissions(principal, hostSectionTipo, hostSectionTipo);
 		if (level < 1) {
 			throw new DedaloError('perm.denied', { coordinates: { section_tipo: hostSectionTipo } });
 		}
 	}
-	await gateRelatedHostRecords(related.filter_by_locators, principal);
-	return true;
+}
+
+/** One indexation-grid host locator, canonical (int id). */
+type GridHostLocator = { section_tipo: string; section_id: number };
+
+/**
+ * THE LOCATOR GATE of the indexation grid (WC-2026-11-10-indexation-grid-read-door,
+ * addendum LOCATOR SWAP). The grid is BUILT from `sqo.filter_by_locators`, not from
+ * `source` — so gating the source alone let a caller granted on one term name any
+ * other host. Every entry is therefore a HOST and passes the source's own gate: the
+ * section read grant >= 1 (assertHostSectionsReadable) + the record scope, batched
+ * (scopeInverseReferenceHits — the same predicate principalCanAccessRecord asks per
+ * id); one failure REFUSES the call with `perm.denied` (same for missing and
+ * out-of-scope: no existence oracle) — a client naming a host it may not read is
+ * refused, never narrowed. And the source term must be among them (the client sends
+ * [term] for the direct badge, the term's whole subtree — the term included — for
+ * the recursive one, render_ts_line.js), or the request is not about its source:
+ * `search.invalid_sqo`. An entry that names no record (no id: a section-wide sweep;
+ * a non-address id; no section) is malformed, refused the same way. An ABSENT/empty
+ * list names nothing to show (the build answers an empty grid) and passes.
+ * Returns the canonical entries: the build reads exactly what was gated.
+ */
+async function gateIndexationGridLocators(
+	raw: unknown,
+	source: GridHostLocator,
+	principal: Principal,
+): Promise<GridHostLocator[]> {
+	const locators = canonicalGridLocators(raw);
+	if (locators.length === 0) return locators;
+	if (
+		!locators.some(
+			(l) => l.section_tipo === source.section_tipo && l.section_id === source.section_id,
+		)
+	) {
+		throw invalidGridLocators('filter_by_locators does not name the source term');
+	}
+	await assertHostSectionsReadable(
+		locators.map((locator) => locator.section_tipo),
+		principal,
+	);
+	const { scopeInverseReferenceHits } = await import('../../security/record_scope.ts');
+	const visible = new Set(
+		(await scopeInverseReferenceHits(locators, principal)).map(
+			(l) => `${l.section_tipo}|${l.section_id}`,
+		),
+	);
+	const refused = locators.find((l) => !visible.has(`${l.section_tipo}|${l.section_id}`));
+	if (refused !== undefined) {
+		throw new DedaloError('perm.denied', { coordinates: { ...refused } });
+	}
+	return locators;
+}
+
+/** The wire `filter_by_locators` as canonical host locators; a malformed entry throws. */
+function canonicalGridLocators(raw: unknown): GridHostLocator[] {
+	if (raw === undefined || raw === null) return [];
+	if (!Array.isArray(raw)) throw invalidGridLocators('filter_by_locators is not an array');
+	return raw.map((entry: { section_tipo?: unknown; section_id?: unknown } | null) => {
+		const sectionId = canonicalGridLocatorId(entry?.section_id);
+		if (typeof entry?.section_tipo !== 'string' || sectionId === null) {
+			throw invalidGridLocators('a filter_by_locators entry names no record');
+		}
+		return { section_tipo: entry.section_tipo, section_id: sectionId };
+	});
+}
+
+/** A positive record address (int, or the client's legacy string form), else null. */
+function canonicalGridLocatorId(value: unknown): number | null {
+	try {
+		const id = coerceSectionId(value, 'rqo.dd_core_api.get_indexation_grid.filter_by_locators');
+		return id >= 1 ? id : null;
+	} catch {
+		return null;
+	}
+}
+
+function invalidGridLocators(reason: string): DedaloError {
+	return new DedaloError('search.invalid_sqo', {
+		message: `get_indexation_grid: ${reason}`,
+		publicMessage: 'The indexation grid needs filter_by_locators naming its source term',
+	});
 }
 
 /**
@@ -1906,15 +1996,16 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		const langRaw = (rqo as { lang?: unknown }).lang;
 		const lang = typeof langRaw === 'string' ? langRaw : currentDataLang();
 
-		// Resolve the already-deduped batch; skip unreadable/untermed sections.
+		// SEC (WC-2026-11-10-section-terms-read-door): per locator the section
+		// grant + the grant on every term component + the record scope of the
+		// address the term read hits; refused locators are OMITTED (batch
+		// semantics) and recorded (readDoorNotices). Sections with no
+		// section_map term are skipped too — otherwise getTermByLocator returns
+		// the "{tipo}_{id}" fallback string, which would clobber the client's
+		// own provisional node label (handlers/section_terms_access.ts).
+		const admitted = await admitTermLocators(principal, locatorEntries, scope);
 		const terms: Record<string, string | null> = {};
-		for (const { key, section_tipo: sectionTipo, section_id: sectionId } of locatorEntries) {
-			// SEC: read permission required on the section (omit forbidden, never leak).
-			if ((await getPermissions(principal, sectionTipo, sectionTipo)) < 1) continue;
-			// Only sections with a section_map term — otherwise getTermByLocator
-			// returns the "{tipo}_{id}" fallback string, which would clobber the
-			// client's own provisional node label.
-			if ((await getTermTipos(sectionTipo, scope)).length === 0) continue;
+		for (const { key, section_tipo: sectionTipo, section_id: sectionId } of admitted) {
 			terms[key] = await getTermByLocator(
 				{ section_tipo: sectionTipo, section_id: sectionId },
 				lang,
@@ -1923,7 +2014,15 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			);
 		}
 
-		return { status: 200, body: ok(terms, { requestId: context.requestId }) };
+		const { readDoorNotices } = await import('../../security/read_door.ts');
+		const notices = readDoorNotices();
+		return {
+			status: 200,
+			body: ok(terms, {
+				requestId: context.requestId,
+				...(notices === undefined ? {} : { notices }),
+			}),
+		};
 	},
 	// get_matrix_ontology_locator: DELETED at the DEC-16 re-sync (2026-07-11)
 	// together with the PHP endpoint and matrix_ontology_locator_differential —
@@ -2003,13 +2102,28 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		const { buildIndexationGrid, indexationRowsPast } = await import(
 			'../../section/indexation_grid.ts'
 		);
+		// The grid lists who indexes THIS term record: scoped like the related search host.
+		await assertHostRecordInScope(sectionTipo as string, gridSectionId, principal);
+		// …and the build reads filter_by_locators: every entry is a host, gated alike,
+		// the source among them (gateIndexationGridLocators). The build and the past
+		// probe read exactly the gated list.
+		const filterByLocators = await gateIndexationGridLocators(
+			(rqo.sqo as { filter_by_locators?: unknown } | undefined)?.filter_by_locators,
+			{ section_tipo: sectionTipo as string, section_id: gridSectionId },
+			principal,
+		);
 		const gridSqo = {
 			...(rqo.sqo ?? {}),
+			filter_by_locators: filterByLocators,
 			limit: page.limit,
 			offset: page.offset,
 		} as import('../../section/indexation_grid.ts').IndexationGridSqo;
-		// The grid lists who indexes THIS term record: scoped like the related search host.
-		await assertHostRecordInScope(sectionTipo as string, gridSectionId, principal);
+		// Per ROW (WC-2026-11-10-indexation-grid-read-door): the indexing
+		// section's read grant + the grant on the text_area its fragment is
+		// quoted from; a refused row is OMITTED and the number withheld is NAMED
+		// in the owned `withheld_rows` key (always present, 0 = nothing
+		// withheld). Rows of AUTHZ-05 out-of-scope groups are never counted.
+		const report = { withheldRows: 0 };
 		const grid = await buildIndexationGrid(
 			{
 				sectionTipo: sectionTipo as string,
@@ -2018,14 +2132,27 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				sqo: gridSqo,
 			},
 			principal,
+			report,
 		);
+		// indexationRowsPast applies the same quote key to the tail.
 		const owesNotice =
 			page.bounded === 'clamped' ||
 			(page.bounded === 'defaulted' && (await indexationRowsPast(gridSqo, page, principal)));
-		const notices = owesNotice
-			? [pageClampedNotice('get_indexation_grid', asSent.limit, asSent.offset, page)]
-			: undefined;
-		return { status: 200, body: ok(grid, { requestId: context.requestId, notices }) };
+		const { readDoorNotices } = await import('../../security/read_door.ts');
+		const notices = [
+			...(owesNotice
+				? [pageClampedNotice('get_indexation_grid', asSent.limit, asSent.offset, page)]
+				: []),
+			...(readDoorNotices() ?? []),
+		];
+		return {
+			status: 200,
+			body: ok(grid, {
+				requestId: context.requestId,
+				extend: { withheld_rows: report.withheldRows },
+				notices: notices.length > 0 ? notices : undefined,
+			}),
+		};
 	},
 	get_activity_metric: async (rqo, context) => {
 		// On-demand activity dataset for the area dashboard's timeline range

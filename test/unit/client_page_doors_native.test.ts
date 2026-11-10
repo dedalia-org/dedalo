@@ -89,7 +89,9 @@
  *     three hosts whose row past the page has an owner and a section_top that
  *     disagree for the reader (HOST3 owner visible / top hidden, HOST4 owner
  *     hidden / top visible, HOST5 top in an unreadable section) get the notice
- *     exactly when the TOP is the reader's;
+ *     exactly when the TOP AND the row's OWN record are the reader's (the page
+ *     withholds a row whose indexing record is out of scope —
+ *     WC-2026-11-10-indexation-grid-read-door, row record scope);
  *   - A DDO-BORNE WINDOW: a section read's literal show.ddo_map naming a
  *     component_relation_index with a hostile `limit` (0, over the ceiling,
  *     MAX_SAFE_INTEGER) emits at most the ceiling of inverse locators, its
@@ -1576,15 +1578,18 @@ else {
 			expect(seen).toEqual(expected);
 		});
 
-		test('get_indexation_grid: the past probe scopes each row as its SECTION_TOP group, never its owner', async () => {
+		test('get_indexation_grid: the past probe scopes each row as its SECTION_TOP group AND its own record', async () => {
 			// Three hosts, each a full visible page (TOP_PAGE, every record its own
 			// top) and ONE row past it whose owner and section_top disagree for the
-			// reader — the page renders and scopes that row as its top, so the
-			// probe must too:
+			// reader — the page scopes that row as its top AND withholds it when
+			// its own (indexing) record is out of scope, so the probe must too:
 			//   - HOST3: owner VISIBLE, top a HIDDEN record → nothing past is the
 			//     reader's: no notice (an owner-scoped probe claims one);
-			//   - HOST4: owner HIDDEN, top a VISIBLE record → the reader can page to
-			//     it: the notice is owed (an owner-scoped probe drops it);
+			//   - HOST4: owner HIDDEN, top a VISIBLE record → the page WITHHOLDS the
+			//     row (its indexing record is out of scope — the row record key,
+			//     WC-2026-11-10-indexation-grid-read-door), so nothing past is the
+			//     reader's: no notice (a top-only probe claims one). Re-pinned
+			//     2026-11-10 from `true` (group scope only) with that law;
 			//   - HOST5: owner VISIBLE, top the same id in a section the reader may
 			//     not read (zzpg11) → no notice (a probe that kept the owner's
 			//     section would ask about a visible zzpg3 record).
@@ -1592,7 +1597,7 @@ else {
 				?.door as Door;
 			const cells: [number, boolean][] = [
 				[HOST3_ID, false],
-				[HOST4_ID, true],
+				[HOST4_ID, false],
 				[HOST5_ID, false],
 			];
 			for (const [hostId, owed] of cells) {

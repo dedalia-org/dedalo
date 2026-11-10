@@ -207,7 +207,7 @@ const host = () => ({ tipo: TEXT_AREA, section_tipo: HOST_SECTION, section_id: h
 
 describe('buildTagsInfo — index / reference tags', () => {
 	test('locators resolve to a term label, tag_id string / section_id int (WC-077)', async () => {
-		const { tags_info } = await buildTagsInfo(['index', 'reference'], host(), LANG);
+		const { tags_info } = await buildTagsInfo(['index', 'reference'], host(), LANG, undefined);
 		const index = tags_info.tags_index ?? [];
 		expect(index).toHaveLength(1);
 		// The client filters with `el.data.tag_id === tag_id` against the STRING
@@ -229,6 +229,7 @@ describe('buildTagsInfo — index / reference tags', () => {
 			['index', 'reference'],
 			{ tipo: TEXT_AREA, section_tipo: HOST_SECTION, section_id: bareHostId },
 			LANG,
+			undefined,
 		);
 		expect(tags_info.tags_index).toEqual([]);
 		expect(tags_info.tags_reference).toEqual([]);
@@ -237,7 +238,7 @@ describe('buildTagsInfo — index / reference tags', () => {
 
 describe('buildTagsInfo — annotations', () => {
 	test('note marks in the text resolve through the tags_notes ddo_map', async () => {
-		const { tags_info } = await buildTagsInfo(['note'], host(), LANG);
+		const { tags_info } = await buildTagsInfo(['note'], host(), LANG, undefined);
 		const notes = tags_info.tags_notes ?? [];
 		expect(notes).toHaveLength(1);
 		const note = notes[0] as NoteElement;
@@ -263,6 +264,7 @@ describe('buildTagsInfo — annotations', () => {
 				['note'],
 				{ tipo: TEXT_AREA, section_tipo: HOST_SECTION, section_id: brokenId },
 				LANG,
+				undefined,
 			);
 			expect(tags_info.tags_notes).toEqual([]);
 		} finally {
@@ -271,14 +273,19 @@ describe('buildTagsInfo — annotations', () => {
 	});
 
 	test('notes are LANG-scoped: another lang slice resolves nothing', async () => {
-		const { tags_info } = await buildTagsInfo(['note'], host(), 'lg-eng');
+		const { tags_info } = await buildTagsInfo(['note'], host(), 'lg-eng', undefined);
 		expect(tags_info.tags_notes).toEqual([]);
 	});
 });
 
 describe('buildTagsInfo — gating and honesty', () => {
 	test('an unknown tag type is reported back, never silently dropped', async () => {
-		const { tags_info, unknown_types } = await buildTagsInfo(['index', 'unicorn'], host(), LANG);
+		const { tags_info, unknown_types } = await buildTagsInfo(
+			['index', 'unicorn'],
+			host(),
+			LANG,
+			undefined,
+		);
 		expect(unknown_types).toEqual(['unicorn']);
 		expect(tags_info.tags_index).toBeDefined();
 	});
@@ -289,6 +296,7 @@ describe('buildTagsInfo — gating and honesty', () => {
 			['index', 'note', 'reference', 'person'],
 			{ tipo: NOTE_BODY, section_tipo: NOTE_SECTION, section_id: noteId },
 			LANG,
+			undefined,
 		);
 		expect(Object.keys(tags_info)).toEqual([]);
 	});

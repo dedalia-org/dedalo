@@ -387,17 +387,19 @@ export const READ_DOOR_POSTURE: ReadonlyMap<string, ReadDoorPosture> = new Map<
 	[
 		'dd_core_api:get_section_terms',
 		{
-			posture: 'open',
+			posture: 'component',
+			gate: READ_DOOR_GATE,
 			reason:
-				'returns the section_map DISPLAY TERM of each locator behind the SECTION grant only (PHP get_section_terms parity): neither the record scope nor the term component’s grant is consulted. The term is what every resolved relation quotes, so the exposure is the label of a record the caller can name — open, not closed by P1-3.',
+				'returns the section_map DISPLAY TERM of each named locator: per locator the section grant + the grant on EVERY term component (getTermTipos, doorComponentAllowed) + the record scope of the address the term read hits (Number(section_id), batched scopeInverseReferenceHits); refused locators OMITTED (batch semantics) with one perm.out_of_scope notice (handlers/section_terms_access.ts, WC-2026-11-10-section-terms-read-door). Detailed gate: test/unit/section_terms_read_door_native.test.ts.',
 		},
 	],
 	[
 		'dd_core_api:get_indexation_grid',
 		{
-			posture: 'open',
+			posture: 'component',
+			gate: READ_DOOR_GATE,
 			reason:
-				'the thesaurus “show indexations” grid: section grant >= 1 on the term’s section, then the indexing records’ fragments are quoted with no component grant on THEIR sections. Open.',
+				'the thesaurus “show indexations” grid: section grant >= 1 on the term’s section + term record scope; EVERY sqo.filter_by_locators entry (what the grid is built from) passes the same section grant + record scope or the call is refused perm.denied, and the source term must be among them (search.invalid_sqo; gateIndexationGridLocators); AUTHZ-05 group scope, then PER ROW the indexing section’s read grant + the grant on the text_area the fragment is quoted from (indexationQuoteGate; cell backstop on the component actually read) + the indexing record’s own record scope; refused rows omitted, counted in the owned withheld_rows key + one perm.out_of_scope notice; the past probe applies the same row key (WC-2026-11-10-indexation-grid-read-door). Detailed gate: test/unit/indexation_grid_read_door_native.test.ts.',
 		},
 	],
 	[
@@ -482,9 +484,10 @@ export const READ_DOOR_POSTURE: ReadonlyMap<string, ReadDoorPosture> = new Map<
 	[
 		'dd_component_text_area_api:get_tags_info',
 		{
-			posture: 'open',
+			posture: 'component',
+			gate: READ_DOOR_GATE,
 			reason:
-				'resolves a text_area’s tag payload — the host record’s content and every tagged record’s — behind the RECORD scope only (AUTHZ-01); the text_area component’s own grant and the tagged components’ are not consulted. Open.',
+				'resolves a text_area’s tag payload through the write door’s read mode (write_door.authorizeRecordAccess, sectionFloor 1): the section floor (PHP parity), the text_area’s own grant (authorizeComponentRead) and the record scope, decided BEFORE the options; every hop is gated with the same principal — each note record needs its ddo (section, component) pairs + record scope (refused → dropped and named in withheld_notes), the host tag-source component of index/reference needs its own pair grant (term labels as displayed, OD-3), the persons inverse search is scoped (silently, in SQL — no existence oracle) and each persons owner’s source component needs its own pair grant (refused owner skipped) (T0-3, WC-2026-11-10-tags-info-read-door). Detailed gate: test/unit/tags_info_read_door_native.test.ts.',
 		},
 	],
 	['dd_component_text_area_api:delete_tag', { posture: 'mutating', reason: 'removes a tag.' }],
@@ -511,9 +514,10 @@ export const READ_DOOR_POSTURE: ReadonlyMap<string, ReadDoorPosture> = new Map<
 	[
 		'dd_component_info:get_widget_data',
 		{
-			posture: 'open',
+			posture: 'component',
+			gate: READ_DOOR_GATE,
 			reason:
-				'component_info’s computed widget over a record behind the RECORD scope only (AUTHZ-01); the info component’s grant is not consulted. Open.',
+				'component_info’s computed widget over a record — through the write door’s read mode (write_door.authorizeRecordAccess): section ≥1, the info component’s own grant (authorizeComponentRead), the record scope (perm.out_of_scope); a non-address section_id is refused by name (request.invalid_source). The widget’s ipo inputs pass "as displayed" (owner decision 2026-11-10: a derived value of the info component, no per-input grant). PHP had no gate (WC-2026-11-10-widget-data-read-door). Detailed gate: test/unit/widget_data_read_door_native.test.ts.',
 		},
 	],
 	['dd_component_3d_api:move_file_to_dir', { posture: 'mutating', reason: 'moves a 3D file.' }],
@@ -583,7 +587,7 @@ export const READ_DOOR_POSTURE: ReadonlyMap<string, ReadDoorPosture> = new Map<
 		{
 			posture: 'open',
 			reason:
-				'the global-admin SQO→SQL developer console executes the built query and returns its rows; the admin’s own profile grants are not consulted per column. Admin-only, open.',
+				'the global-admin SQO→SQL developer console executes the built query and returns its rows; the admin’s own profile grants are not consulted per column. Admin-only, open BY DESIGN (owner decision 2026-11-10): a diagnostics console must show what the query returns, so projecting it would make it lie about the query under test. DELIBERATE asymmetry: the raw GET view (api/raw_view.ts) DOES project an admin through their profile — that is a record view, this is a query console.',
 		},
 	],
 	['dd_utils_api:get_server_ready_status', { posture: 'structure_only', reason: 'readiness.' }],
