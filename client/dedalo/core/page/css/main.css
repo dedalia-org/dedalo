@@ -23354,6 +23354,11 @@ body.inspector_resizing {
   font-weight: 500;
   font-size: 0.95rem;
 }
+.component_dataframe > .content_data > .content_value > .button.activate.has_value,
+.component_dataframe_mini > .content_data > .content_value > .button.activate.has_value {
+  background-color: var(--color_blue_3);
+  color: var(--fg_inverse);
+}
 .component_dataframe.list > .content_data > .content_value,
 .component_dataframe_mini.list > .content_data > .content_value {
   height: 1rem;

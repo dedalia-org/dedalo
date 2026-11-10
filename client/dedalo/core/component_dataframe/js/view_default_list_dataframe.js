@@ -227,7 +227,7 @@ const render_content_value = function(options) {
 	// button_activate
 		const button_activate = ui.create_dom_element({
 			element_type	: 'span',
-			class_name		: 'button activate',
+			class_name		: 'button activate' + (entries.length >= 1 ? ' has_value' : ''), // has_value: a frame exists (visible without a rating)
 			text_content 	:  self.properties.label || '?',
 			parent			: content_value
 		})
