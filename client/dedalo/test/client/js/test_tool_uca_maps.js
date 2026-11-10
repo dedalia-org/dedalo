@@ -2732,6 +2732,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		assert.isOk(seen, 'expected the capture to go through domtoimage.toBlob')
 		assert.equal(seen.node, container, 'expected the map container captured')
+		// a stamped tile URL is outside the tile proxy's closed grammar: refused, blank
+		assert.notEqual(seen.options.cacheBust, true, 'expected no cache-busting stamp on the tile requests')
+		assert.isUndefined(seen.options.requestInterceptor, 'expected same-origin tiles fetched as they are')
 		const filter = seen.options.filter
 		assert.isFalse(filter(container.querySelector('.leaflet-pm-toolbar')), 'expected Geoman\'s toolbar out of the image')
 		assert.isFalse(filter(container.querySelector('.leaflet-control-zoom')), 'expected the zoom buttons out of the image')

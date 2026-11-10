@@ -218,11 +218,11 @@ export const download_map_image = async function(self, format, file_name=DEFAULT
 		await load_dom_to_image()
 
 		const container			= self.geolocation.map.getContainer()
-		// cacheBust + width/height as v6 (`domtoimage.toPng`). Geoman's toolbar stays
-		// out: dom-to-image-more fetches the `url(#…)` in its SVG icons. filterUrls: a
-		// relative URL with no base is an unresolved custom property, never painted.
+		// width/height as v6, not its cacheBust: the tile proxy refuses a stamped tile
+		// (closed grammar), and its same-origin tiles need no interceptor. Geoman's
+		// toolbar stays out: dom-to-image-more fetches its icons' `url(#…)`. filterUrls:
+		// a relative URL with no base is an unresolved custom property, never painted.
 		const capture_options	= {
-			cacheBust	: true,
 			width		: container.offsetWidth,
 			height		: container.offsetHeight,
 			filter		: (node) => keep_in_map_image(self, node),
