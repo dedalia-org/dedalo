@@ -69,6 +69,52 @@ export function parseTmRowId(value: unknown): number | null {
 	return Number.isSafeInteger(candidate) && candidate > 0 ? candidate : null;
 }
 
+/**
+ * THROWS `perm.denied` unless `principal` may annotate TM row `matrixId`. ONE
+ * refusal for every well-formed id the caller may not annotate — unknown,
+ * hidden, not theirs, or without TM access: telling them apart would let a
+ * caller enumerate which TM row ids exist (an existence oracle).
+ */
+async function assertMayAnnotateTmRow(principal: Principal, matrixId: number): Promise<void> {
+	const row = await readTimeMachineRow(matrixId);
+	const author = row === null || row.user_id === null ? null : Number(row.user_id);
+	if (
+		row === null ||
+		author !== principal.userId ||
+		!(await canAccessTimeMachineList(principal, row.section_tipo))
+	) {
+		throw new DedaloError('perm.denied', {
+			message: `${CREATE_TM_NOTE_DOOR}: user ${principal.userId} may not annotate TM row ${matrixId}`,
+			coordinates: { matrix_id: matrixId, operation: 'create_tm_note' },
+		});
+	}
+}
+
+/** Bind the new note `sectionId`'s Code to TM row `matrixId` (inside the caller's transaction). */
+async function bindTmNoteCode(
+	principal: Principal,
+	sectionId: number,
+	matrixId: number,
+): Promise<void> {
+	const saved = await saveComponentData({
+		componentTipo: TM_NOTES_CODE_TIPO,
+		sectionTipo: TM_NOTES_SECTION_TIPO,
+		sectionId,
+		lang: NO_LANG,
+		changedData: [{ action: 'set_data', key: null, value: [{ value: matrixId }] }],
+		userId: principal.userId,
+		principal,
+	});
+	if (!saved.ok) {
+		// Thrown INSIDE the transaction: the record above rolls back with it, so
+		// no Code-less note survives a failed binding.
+		throw new DedaloError('record.save_failed', {
+			message: `${CREATE_TM_NOTE_DOOR}: binding note ${sectionId} to TM row ${matrixId} failed: ${saved.message}`,
+			coordinates: { section_tipo: TM_NOTES_SECTION_TIPO, section_id: sectionId },
+		});
+	}
+}
+
 /** Create (or answer) the note bound to TM row `rawMatrixId`, as `principal`. See the module doc. */
 export async function createTmNote(
 	principal: Principal,
@@ -85,44 +131,12 @@ export async function createTmNote(
 		// Serializes two creates for the same row (a double click, two tabs): the
 		// second waits, then finds the first one's note below.
 		await acquireNodeLock(TM_NOTES_SECTION_TIPO, `tm_${matrixId}`);
-
-		// ONE refusal for every well-formed id the caller may not annotate — unknown,
-		// hidden, not theirs, or without TM access: telling them apart would let a
-		// caller enumerate which TM row ids exist (an existence oracle).
-		const row = await readTimeMachineRow(matrixId);
-		const author = row === null || row.user_id === null ? null : Number(row.user_id);
-		if (
-			row === null ||
-			author !== principal.userId ||
-			!(await canAccessTimeMachineList(principal, row.section_tipo))
-		) {
-			throw new DedaloError('perm.denied', {
-				message: `${CREATE_TM_NOTE_DOOR}: user ${principal.userId} may not annotate TM row ${matrixId}`,
-				coordinates: { matrix_id: matrixId, operation: 'create_tm_note' },
-			});
-		}
+		await assertMayAnnotateTmRow(principal, matrixId);
 
 		const existing = await findTmNoteSectionId(matrixId);
 		if (existing !== null) return { sectionId: existing, created: false };
-
 		const sectionId = await createSectionRecord(TM_NOTES_SECTION_TIPO, principal.userId);
-		const saved = await saveComponentData({
-			componentTipo: TM_NOTES_CODE_TIPO,
-			sectionTipo: TM_NOTES_SECTION_TIPO,
-			sectionId,
-			lang: NO_LANG,
-			changedData: [{ action: 'set_data', key: null, value: [{ value: matrixId }] }],
-			userId: principal.userId,
-			principal,
-		});
-		if (!saved.ok) {
-			// Thrown INSIDE the transaction: the record above rolls back with it, so
-			// no Code-less note survives a failed binding.
-			throw new DedaloError('record.save_failed', {
-				message: `${CREATE_TM_NOTE_DOOR}: binding note ${sectionId} to TM row ${matrixId} failed: ${saved.message}`,
-				coordinates: { section_tipo: TM_NOTES_SECTION_TIPO, section_id: sectionId },
-			});
-		}
+		await bindTmNoteCode(principal, sectionId, matrixId);
 		return { sectionId, created: true };
 	});
 }

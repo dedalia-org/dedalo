@@ -4,8 +4,8 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 900,
-		"functions": 15631,
+		"files": 903,
+		"functions": 15698,
 		"functionsOverCap": 658,
 		"filesOverCap": 257
 	},
@@ -414,7 +414,7 @@
 		"src/core/security/section_permissions.ts": 18,
 		"src/core/security/session_store.ts": 9,
 		"src/core/test_data/seed.ts": 9,
-		"src/core/tm_record/tm_record.ts": 11,
+		"src/core/tm_record/tm_record.ts": 9,
 		"src/core/tools/babel.ts": 11,
 		"src/core/tools/background.ts": 7,
 		"src/core/tools/config.ts": 11,

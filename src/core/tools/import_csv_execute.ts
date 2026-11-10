@@ -37,7 +37,7 @@ import {
 	readMatrixKeyForUpdate,
 } from '../db/matrix_write.ts';
 import { withTransaction } from '../db/postgres.ts';
-import { DedaloError, isDedaloError } from '../errors/index.ts';
+import { DedaloError } from '../errors/index.ts';
 import {
 	getColumnNameByModel,
 	getMatrixTableFromTipo,
@@ -69,6 +69,7 @@ import {
 } from '../security/write_door.ts';
 import type { PlannedColumn, PlannedRecord } from './import_csv.ts';
 import { groupItemsByLang } from './import_data.ts';
+import { isFieldWriteRefusal } from './import_field_refusal.ts';
 import type { ImportFileReport, ImportProgressFrame, ImportRowIssue } from './import_wire.ts';
 
 /**
@@ -930,21 +931,36 @@ async function columnAuthorized(
  */
 function columnDoorTargets(column: PlannedColumn): { tipo: string; frameOf?: FrameOf }[] {
 	const targets = new Map<string, { tipo: string; frameOf?: FrameOf }>();
-	const add = (tipo: string, mainTipo: string | null): void => {
+	for (const [tipo, mainTipo] of [...ownColumnPairs(column), ...legacyFramePairs(column)]) {
 		const key = `${tipo}|${mainTipo ?? ''}`;
-		if (targets.has(key)) return;
+		if (targets.has(key)) continue;
 		targets.set(key, mainTipo === null ? { tipo } : { tipo, frameOf: { mainTipo } });
-	};
-	const slotColumnMains =
-		column.model === DATAFRAME_MODEL ? frameMains(conformFrames(column), null) : [];
-	if (slotColumnMains.length === 0) add(column.tipo, null);
-	for (const main of slotColumnMains) add(column.tipo, main);
-	for (const frame of column.dataframe ?? []) {
-		const slot = isObject(frame) ? frame.from_component_tipo : undefined;
-		if (typeof slot !== 'string' || slot === '') continue;
-		add(slot, frameMains([frame], dataTipoOf(column))[0] ?? null);
 	}
 	return [...targets.values()];
+}
+
+/** The column's own component, once per main its frames name when it is a slot column (else unpaired). */
+function ownColumnPairs(column: PlannedColumn): [string, string | null][] {
+	const mains = column.model === DATAFRAME_MODEL ? frameMains(conformFrames(column), null) : [];
+	if (mains.length === 0) return [[column.tipo, null]];
+	return mains.map((main): [string, string] => [column.tipo, main]);
+}
+
+/** Each slot the column's legacy {data, dataframe} envelope frames name, with that frame's main. */
+function legacyFramePairs(column: PlannedColumn): [string, string | null][] {
+	const pairs: [string, string | null][] = [];
+	for (const frame of column.dataframe ?? []) {
+		const slot = frameSlotOf(frame);
+		if (slot === null) continue;
+		pairs.push([slot, frameMains([frame], dataTipoOf(column))[0] ?? null]);
+	}
+	return pairs;
+}
+
+/** A legacy frame's slot tipo (`from_component_tipo`), or null when it names none. */
+function frameSlotOf(frame: unknown): string | null {
+	const slot = isObject(frame) ? frame.from_component_tipo : undefined;
+	return typeof slot === 'string' && slot !== '' ? slot : null;
 }
 
 /** A slot column's conformed frames as a list (the shape slotColumnFrames reads). */
@@ -972,34 +988,35 @@ async function componentRefusal(
 	frameOf?: FrameOf,
 ): Promise<string | null> {
 	try {
-		if (ctx.isNew) {
-			await authorizeSectionTarget(
-				ctx.principal,
-				{ section_tipo: ctx.sectionTipo, tipo: componentTipo },
-				{ level: 2, door: 'import_csv.column', frameOf },
-			);
-		} else {
-			await authorizeRecordAccess(
-				ctx.principal,
-				{ section_tipo: ctx.sectionTipo, component_tipo: componentTipo, section_id: ctx.sectionId },
-				{ mode: 'write', level: 2, sectionFloor: 1, door: 'import_csv.column', frameOf },
-			);
-		}
+		await authorizeRowComponent(ctx, componentTipo, frameOf);
 		return null;
 	} catch (error) {
-		if (
-			isDedaloError(error) &&
-			(error.code.startsWith('perm.') ||
-				error.code === 'request.invalid' ||
-				// A FIXED dataframe slot (dd560) asked without a valid main (T0-4): the
-				// door's refusal of THIS column — reported and skipped like any other, never
-				// a rolled-back row.
-				error.code === 'request.invalid_source')
-		) {
+		if (isFieldWriteRefusal(error)) {
 			return `IGNORED: not writable by the importer (${error.code}) — the column was NOT written`;
 		}
 		throw error;
 	}
+}
+
+/** Ask the write door for one component: the section pair for a NEW row record, the record door otherwise. */
+async function authorizeRowComponent(
+	ctx: RowWriteContext,
+	componentTipo: string,
+	frameOf?: FrameOf,
+): Promise<void> {
+	if (ctx.isNew) {
+		await authorizeSectionTarget(
+			ctx.principal,
+			{ section_tipo: ctx.sectionTipo, tipo: componentTipo },
+			{ level: 2, door: 'import_csv.column', frameOf },
+		);
+		return;
+	}
+	await authorizeRecordAccess(
+		ctx.principal,
+		{ section_tipo: ctx.sectionTipo, component_tipo: componentTipo, section_id: ctx.sectionId },
+		{ mode: 'write', level: 2, sectionFloor: 1, door: 'import_csv.column', frameOf },
+	);
 }
 
 /**

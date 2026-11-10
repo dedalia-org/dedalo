@@ -612,20 +612,34 @@ export async function getPermissionGrant(
 ): Promise<PermissionGrant> {
 	const ruled = await ruleOrderGrant(principal, parentTipo, tipo);
 	if (ruled !== null) return ruled;
+	const aliased = await aliasTargetGrant(principal, parentTipo, tipo);
+	if (aliased !== null) return aliased;
+	return matrixGrant(principal, parentTipo, tipo);
+}
 
-	// component_alias (WC-020): ACL grants live on REAL components — an alias
-	// is a view of its target with the target's exact rights (no privilege
-	// change in either direction; without the hop a non-admin could never be
-	// granted a config node and every alias would vanish from their reads).
-	{
-		const { resolveAliasTargetTipo } = await import('../ontology/alias.ts');
-		const aliasTarget = await resolveAliasTargetTipo(tipo).catch(() => null);
-		if (aliasTarget !== null) {
-			return getPermissionGrant(principal, parentTipo, aliasTarget);
-		}
-	}
+/**
+ * component_alias (WC-020): ACL grants live on REAL components — an alias is a
+ * view of its target with the target's exact rights (no privilege change in
+ * either direction; without the hop a non-admin could never be granted a config
+ * node and every alias would vanish from their reads). Null when `tipo` is not
+ * an alias.
+ */
+async function aliasTargetGrant(
+	principal: Principal,
+	parentTipo: string,
+	tipo: string,
+): Promise<PermissionGrant | null> {
+	const { resolveAliasTargetTipo } = await import('../ontology/alias.ts');
+	const aliasTarget = await resolveAliasTargetTipo(tipo).catch(() => null);
+	return aliasTarget === null ? null : getPermissionGrant(principal, parentTipo, aliasTarget);
+}
 
-	// Matrix lookup.
+/** The profile matrix, then the rsc832 / public-list fallbacks for a matrix 0. */
+async function matrixGrant(
+	principal: Principal,
+	parentTipo: string,
+	tipo: string,
+): Promise<PermissionGrant> {
 	const table = await getPermissionsTable(principal.userId);
 	const level = table.get(`${parentTipo}_${tipo}`) ?? 0;
 
@@ -1181,11 +1195,24 @@ export async function getRecordComponentPermission(
 	}
 	// The IRI label frame (and any fixed dataframe slot): never lowers its main.
 	if (isFixedDataframeSlot(componentTipo)) return FIXED_FRAME_OWN_LEVEL;
+	return matrixLevelWithOwnFloor(principal, sectionTipo, componentTipo, sectionId);
+}
+
+/**
+ * The matrix level, floored at 1 on the actor's OWN guarded dd128 fields. A
+ * global admin skips the guarded downgrade (PHP), so the matrix decides — and
+ * most profiles grant 0 on dd128, which refused tool_user_admin's read-only
+ * section id / username / profile rows on the admin's OWN record (TODO-071).
+ * Your own guarded fields are always readable: a floor, never a cap (a matrix 2
+ * stays 2).
+ */
+async function matrixLevelWithOwnFloor(
+	principal: Principal,
+	sectionTipo: string,
+	componentTipo: string,
+	sectionId: number | string | null | undefined,
+): Promise<number> {
 	const level = await getPermissions(principal, sectionTipo, componentTipo);
-	// A global admin skips the guarded downgrade (PHP), so the matrix decides — and most
-	// profiles grant 0 on dd128, which refused tool_user_admin's read-only section id /
-	// username / profile rows on the admin's OWN record (TODO-071). Your own guarded
-	// fields are always readable: a floor, never a cap (a matrix 2 stays 2).
 	if (
 		level < 1 &&
 		SELF_ELEVATION_GUARDED.has(componentTipo) &&

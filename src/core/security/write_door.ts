@@ -386,26 +386,37 @@ async function sectionMainsOfSlot(target: Target): Promise<string[]> {
 	return mains;
 }
 
-/** The main(s) `frameOf` names, validated — THROWS `request.invalid_source` otherwise. */
-async function frameMainsOf(target: Target, options: FrameOptions): Promise<string[]> {
-	const frameOf = options.frameOf;
-	if (frameOf === undefined) throw invalidFrameMain(options.door, target, 'no main named');
-	if ('everyMain' in frameOf) {
-		const mains = await sectionMainsOfSlot(target);
-		if (mains.length === 0) {
-			throw invalidFrameMain(options.door, target, 'the section has no component declaring it');
-		}
-		return mains;
+/** `everyMain`: every valid main of the slot — THROWS when the section has none. */
+async function everyFrameMainOf(target: Target, door: FrameOptions['door']): Promise<string[]> {
+	const mains = await sectionMainsOfSlot(target);
+	if (mains.length === 0) {
+		throw invalidFrameMain(door, target, 'the section has no component declaring it');
 	}
-	const mainTipo = frameOf.mainTipo;
+	return mains;
+}
+
+/** One named main, validated — THROWS when it is not a valid main of the slot. */
+async function namedFrameMainOf(
+	mainTipo: unknown,
+	target: Target,
+	door: FrameOptions['door'],
+): Promise<string[]> {
 	if (!isTipoSpelling(mainTipo) || !(await isValidFrameMain(mainTipo, target))) {
 		throw invalidFrameMain(
-			options.door,
+			door,
 			target,
 			`main ${JSON.stringify(mainTipo ?? null)} is not a component of the section declaring the slot`,
 		);
 	}
 	return [mainTipo];
+}
+
+/** The main(s) `frameOf` names, validated — THROWS `request.invalid_source` otherwise. */
+async function frameMainsOf(target: Target, options: FrameOptions): Promise<string[]> {
+	const frameOf = options.frameOf;
+	if (frameOf === undefined) throw invalidFrameMain(options.door, target, 'no main named');
+	if ('everyMain' in frameOf) return everyFrameMainOf(target, options.door);
+	return namedFrameMainOf(frameOf.mainTipo, target, options.door);
 }
 
 /**

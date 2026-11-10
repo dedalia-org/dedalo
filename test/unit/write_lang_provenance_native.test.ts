@@ -339,6 +339,14 @@ const SAVE_DOORS: ReadonlyMap<string, { lang: string; reason: string }> = new Ma
 		{ lang: 'nolan', reason: 'Permission grants are structural data.' },
 	],
 	[
+		'src/core/tm_record/tm_note_create.ts',
+		{
+			lang: 'nolan',
+			reason:
+				'create_tm_note (T0-4): the one save binds the new note’s Code (TM_NOTES_CODE_TIPO) to the TM row id — a number, lg-nolan (NO_LANG).',
+		},
+	],
+	[
 		'src/core/tools/import_csv_execute.ts',
 		{
 			lang: 'caller+items',
