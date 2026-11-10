@@ -284,7 +284,40 @@ describe('apply_value restores the paired dataframe frames', () => {
 			`SELECT id FROM matrix_time_machine WHERE section_tipo = $1 AND section_id = $2 AND tipo = $3`,
 			[SECTION, recordId, SLOT],
 		)) as unknown[];
-		expect(rows.length).toBe(0);
+		expect(rows).toEqual([]);
+	});
+});
+
+describe('apply_value of an UNCHANGED state is a no-op even when its frames are not contiguous', () => {
+	// A shared slot [A1, B1, A2]: restoreSlot would regroup A's frames to [A1, A2, B1] —
+	// a reorder only, which is no change (frame order is not state).
+	const OTHER = { ...FRAMES_A_STORED[0], id: 7, id_key: 7, main_component_tipo: 'test9999' };
+	const LIVE_SLOT = [FRAMES_A_STORED[0], OTHER, FRAMES_A_STORED[1]];
+
+	test('slot keeps its order; no TM row is written', async () => {
+		const { recordId, tmRowId } = await makeTwin([...MAIN_A_STORED, ...FRAMES_A_STORED]);
+		await sql.unsafe(
+			`UPDATE ${TABLE} SET relation = relation || $3::text::jsonb
+			 WHERE section_tipo = $1 AND section_id = $2`,
+			[SECTION, recordId, JSON.stringify({ [MAIN]: MAIN_A_STORED, [SLOT]: LIVE_SLOT })],
+		);
+		const response = await toolTimeMachineApplyValue(
+			await context({
+				section_tipo: SECTION,
+				section_id: recordId,
+				tipo: MAIN,
+				lang: 'lg-nolan',
+				matrix_id: tmRowId,
+			}),
+		);
+		expect(response.ok).toBe(true);
+		expect(await storedKey(recordId, SLOT)).toEqual(LIVE_SLOT);
+		const rows = (await sql.unsafe(
+			`SELECT id, tipo, lang, data FROM matrix_time_machine
+			 WHERE section_tipo = $1 AND section_id = $2 AND tipo IN ($3, $4) AND id <> $5`,
+			[SECTION, recordId, MAIN, SLOT, tmRowId],
+		)) as unknown[];
+		expect(rows).toEqual([]);
 	});
 });
 

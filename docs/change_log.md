@@ -34,6 +34,20 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Restoring a Time Machine version that equals the current value no longer adds history.**
+
+    Before, applying a Time Machine version whose value was already the current one
+    (for example the first of two identical saves, or an empty version onto an empty
+    field) still wrote a new history row, moved the record's modification date and
+    logged a "recover" activity entry — so the history said a value changed when
+    nothing had. Now such a restore writes nothing at all: no history row, no date
+    change, no activity entry. Restoring a version that differs is recorded as before.
+    The Time Machine window now says so ("The selected version is the same as the
+    current value. Nothing was restored") and stays open, without first asking you to
+    confirm an overwrite that would not happen.
+
+    Wire contract: `WC-2026-11-10-tm-restore-unchanged-notice`.
+
 - **Saving a hierarchical autocomplete on a duplicated record no longer fails with "cannot delete path in scalar".**
 
     A record created by duplication could be stored with an invalid empty search index. Any later save of a
@@ -104,10 +118,11 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 2 entries"
+??? note "Wire contract — 3 entries"
 
     - `WC-2026-11-09-instance-identity`
     - `WC-2026-11-09-security-access-save-echo-no-datalist`
+    - `WC-2026-11-10-tm-restore-unchanged-notice`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

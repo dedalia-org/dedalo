@@ -2638,6 +2638,20 @@ export const ERROR_REGISTRY = {
 		disclosure: 'public',
 		retryable: false,
 	},
+	/**
+	 * A NOTICE, never thrown: tool_time_machine.apply_value restored a version
+	 * equal to the live value, so it wrote nothing (no TM row, no stamp, no
+	 * activity). `conflict`: the record already holds the requested state.
+	 */
+	'tool.restore_unchanged': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_tool_restore_unchanged',
+		message: 'The selected version equals the current value; nothing was restored',
+		severity: 'info',
+		disclosure: 'public',
+		retryable: false,
+	},
 	'tool.dependency_unavailable': {
 		category: 'unavailable',
 		status: 503,

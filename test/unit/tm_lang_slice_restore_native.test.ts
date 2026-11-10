@@ -758,6 +758,137 @@ describe('the BULK door obeys the same law (P0-4 covers BOTH restore doors)', ()
 	});
 });
 
+describe('a restore that changes nothing leaves NO trace (history records changes, not clicks)', () => {
+	/** The whole record row as stored text — value, modified stamps, relation_search, everything. */
+	async function recordText(sectionId: number): Promise<string> {
+		const rows = (await sql.unsafe(
+			`SELECT t::text AS text FROM "${TABLE}" t WHERE section_tipo = $1 AND section_id = $2`,
+			[SECTION, sectionId],
+		)) as { text: string }[];
+		return rows[0]?.text as string;
+	}
+	/** The RECOVER rows logActivity appended for this record. */
+	async function activityCount(sectionId: number): Promise<number> {
+		const rows = (await sql.unsafe(
+			`SELECT count(*)::int AS n FROM matrix_activity
+			 WHERE misc->'dd551'->0->'value'->>'section_tipo' = $1
+			   AND misc->'dd551'->0->'value'->>'section_id' = $2`,
+			[SECTION, String(sectionId)],
+		)) as { n: number }[];
+		return rows[0]?.n ?? 0;
+	}
+	/** Restore `rowId` and return what changed: new TM rows, new activity rows, whether the record row moved. */
+	async function restoreDelta(sectionId: number, tipo: string, lang: string, rowId: number) {
+		const tmBefore = (await tmRows(sectionId, tipo)).length;
+		const activityBefore = await activityCount(sectionId);
+		const textBefore = await recordText(sectionId);
+		const response = await restore(sectionId, tipo, lang, rowId);
+		expect(response.ok).toBe(true);
+		return {
+			tm: (await tmRows(sectionId, tipo)).length - tmBefore,
+			activity: (await activityCount(sectionId)) - activityBefore,
+			recordMoved: (await recordText(sectionId)) !== textBefore,
+			notice:
+				((response as { notices?: { code: string }[] }).notices ?? [])
+					.map((n) => n.code)
+					.join(',') || null,
+		};
+	}
+
+	test('A → B → A, restoring the first A: no TM row, no stamp, no activity', async () => {
+		const id = await createSectionRecord(SECTION, -1);
+		await save(TRANSLATABLE, id, 'lg-eng', insertFirst('A'));
+		await save(TRANSLATABLE, id, 'lg-eng', updateItem(1, 'B'));
+		await save(TRANSLATABLE, id, 'lg-eng', updateItem(1, 'A'));
+		const first = (await tmRows(id, TRANSLATABLE))[0];
+		expect((first?.data as { value?: unknown }[])[0]?.value).toBe('A');
+		expect(await restoreDelta(id, TRANSLATABLE, 'lg-eng', first?.id as number)).toEqual({
+			tm: 0,
+			activity: 0,
+			recordMoved: false,
+			notice: 'tool.restore_unchanged',
+		});
+	});
+
+	test('an EMPTY row restored onto an empty live value is a no-op too', async () => {
+		const id = await createSectionRecord(SECTION, -1);
+		await save(TRANSLATABLE, id, 'lg-eng', insertFirst('X'));
+		await save(TRANSLATABLE, id, 'lg-eng', [{ action: 'remove', id: 1, value: null }]);
+		const rows = await tmRows(id, TRANSLATABLE);
+		const empty = rows[rows.length - 1];
+		expect(empty?.data as unknown[]).toEqual([]);
+		expect(await restoreDelta(id, TRANSLATABLE, 'lg-eng', empty?.id as number)).toEqual({
+			tm: 0,
+			activity: 0,
+			recordMoved: false,
+			notice: 'tool.restore_unchanged',
+		});
+	});
+
+	test('an UNSLICED main (component_number) obeys the same law', async () => {
+		const id = await createSectionRecord(SECTION, -1);
+		await save(UNSLICED, id, 'lg-nolan', insertFirst(7));
+		await save(UNSLICED, id, 'lg-nolan', updateItem(1, 8));
+		await save(UNSLICED, id, 'lg-nolan', updateItem(1, 7));
+		const first = (await tmRows(id, UNSLICED))[0];
+		expect(await restoreDelta(id, UNSLICED, 'lg-nolan', first?.id as number)).toEqual({
+			tm: 0,
+			activity: 0,
+			recordMoved: false,
+			notice: 'tool.restore_unchanged',
+		});
+	});
+
+	test('DRY RUN answers {changed} and writes nothing, whether or not the restore would change something', async () => {
+		const id = await createSectionRecord(SECTION, -1);
+		await save(TRANSLATABLE, id, 'lg-eng', insertFirst('A'));
+		await save(TRANSLATABLE, id, 'lg-eng', updateItem(1, 'B'));
+		await save(TRANSLATABLE, id, 'lg-eng', updateItem(1, 'A'));
+		const [first, b] = await tmRows(id, TRANSLATABLE);
+		for (const [row, changed] of [
+			[first, false],
+			[b, true],
+		] as const) {
+			const tmBefore = (await tmRows(id, TRANSLATABLE)).length;
+			const activityBefore = await activityCount(id);
+			const textBefore = await recordText(id);
+			const response = (await toolTimeMachineApplyValue(
+				await context({
+					section_tipo: SECTION,
+					section_id: id,
+					tipo: TRANSLATABLE,
+					lang: 'lg-eng',
+					matrix_id: row?.id,
+					dry_run: true,
+				}),
+			)) as { ok: boolean; data?: unknown; notices?: { code: string }[] };
+			expect(response.ok).toBe(true);
+			expect(response.data).toEqual({ changed });
+			expect((response.notices ?? []).map((n) => n.code)).toEqual(
+				changed ? [] : ['tool.restore_unchanged'],
+			);
+			expect((await tmRows(id, TRANSLATABLE)).length).toBe(tmBefore);
+			expect(await activityCount(id)).toBe(activityBefore);
+			expect(await recordText(id)).toBe(textBefore);
+		}
+	});
+
+	test('POSITIVE CONTROL: restoring a value that differs still writes one TM row and one activity row', async () => {
+		const id = await createSectionRecord(SECTION, -1);
+		await save(TRANSLATABLE, id, 'lg-eng', insertFirst('A'));
+		await save(TRANSLATABLE, id, 'lg-eng', updateItem(1, 'B'));
+		await save(TRANSLATABLE, id, 'lg-eng', updateItem(1, 'A'));
+		const b = (await tmRows(id, TRANSLATABLE))[1];
+		expect((b?.data as { value?: unknown }[])[0]?.value).toBe('B');
+		expect(await restoreDelta(id, TRANSLATABLE, 'lg-eng', b?.id as number)).toEqual({
+			tm: 1,
+			activity: 1,
+			recordMoved: true,
+			notice: null,
+		});
+	});
+});
+
 describe('the destructive client action is confirmed', () => {
 	/**
 	 * The client half cannot be driven from a server gate, so it is asserted at
@@ -772,18 +903,26 @@ describe('the destructive client action is confirmed', () => {
 	test('apply_value is not reached without a confirmation', () => {
 		const start = source.indexOf("self.button_apply.addEventListener('click'");
 		expect(start).toBeGreaterThan(-1);
-		const call = source.indexOf('self.apply_value(', start);
+		// The WRITE call (the dry-run probe before it writes nothing: it is rolled back).
+		const call = source.indexOf("self.apply_value({...apply_options, notices: 'caller'})", start);
 		expect(call).toBeGreaterThan(start);
 		const handler = source.slice(start, call);
 		// The guard AND its early return — a confirm whose answer is discarded
 		// would be worse than none.
 		expect(handler).toMatch(/if\s*\(!confirm\(/);
 		expect(handler).toMatch(/return/);
+		// The probe runs BEFORE the confirm: an unchanged restore never asks to overwrite.
+		const probe = handler.indexOf('dry_run: true');
+		expect(probe).toBeGreaterThan(-1);
+		expect(probe).toBeLessThan(handler.search(/if\s*\(!confirm\(/));
 	});
 
 	test('the confirmation NAMES what will be overwritten', () => {
 		const start = source.indexOf("self.button_apply.addEventListener('click'");
-		const handler = source.slice(start, source.indexOf('self.apply_value(', start));
+		const handler = source.slice(
+			start,
+			source.indexOf("self.apply_value({...apply_options, notices: 'caller'})", start),
+		);
 		// Component, language and record — a generic are-you-sure teaches nothing
 		// and gets clicked through.
 		expect(handler).toContain('component_label');
@@ -820,7 +959,10 @@ describe('the destructive client action is confirmed', () => {
 
 	test('the client asks that label for the three values the message names', () => {
 		const start = source.indexOf("self.button_apply.addEventListener('click'");
-		const handler = source.slice(start, source.indexOf('self.apply_value(', start));
+		const handler = source.slice(
+			start,
+			source.indexOf("self.apply_value({...apply_options, notices: 'caller'})", start),
+		);
 		expect(handler).toContain("'apply_value_confirm_msg'");
 		// component, language, record — the three tokens, in the order the English
 		// label reads them.

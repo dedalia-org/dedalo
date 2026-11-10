@@ -977,6 +977,22 @@ function unslicedDoorIdentity(identity: LaneIdentity): LaneIdentity {
 }
 
 /**
+ * Whether a change would leave an UNFORCED visible row (recordMainRows' own
+ * law, so "no-op" and "no TM row" never disagree): a language lane or the
+ * frame lane differs between the two states.
+ */
+export function mainStateChanged(
+	before: MainState,
+	after: MainState,
+	identity: LaneIdentity,
+): boolean {
+	const door = unslicedDoorIdentity(identity);
+	return (
+		rowLanes({ before, after }, door, false).length > 0 || frameLaneChanged(before, after, door)
+	);
+}
+
+/**
  * A backfill's history probe: whether the record already has a visible row of
  * the main in `lane`. `anyTag` — an UNSLICED main's one lane is every row of
  * it whatever its tag (a PHP save of a relation flagged translatable was

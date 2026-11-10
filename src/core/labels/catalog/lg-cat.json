@@ -380,6 +380,7 @@
 	"error_tool_rdf_class_unmapped": "No s'ha importat res: l'ontologia externa no associa cap classe de la secció d'aquest registre al tipus RDF ${type}",
 	"error_tool_rdf_graph_too_large": "El document RDF és massa gran o massa niat per llegir-lo (límit ${limit})",
 	"error_tool_rdf_identifier_unwritable": "No s'ha creat: el registre no ha pogut contenir l'identificador que el torna a trobar (${reason})",
+	"error_tool_restore_unchanged": "La versió seleccionada és igual al valor actual. No s'ha restaurat res",
 	"error_tool_snapshot_unrestorable": "Aquesta entrada de l'historial desa un valor en un format antic que no és un enllaç vàlid, de manera que no es pot restaurar. El valor actual no ha canviat",
 	"error_tool_source_unavailable": "El servidor ${site} no respon o està fora de servei. Contacteu amb qui el manté",
 	"error_tool_target_not_found": "La destinació de l'eina no existeix",
