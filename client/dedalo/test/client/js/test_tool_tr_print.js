@@ -19,11 +19,11 @@
  * This is the locked client template (layer 1: module-load + construct + wiring).
  */
 
-import {tool_tr_print} from '../../../tools/tool_tr_print/js/tool_tr_print.js'
-import {render_build_error} from '../../../tools/tool_tr_print/js/render_tool_tr_print.js'
-import {component_text_area} from '../../../core/component_text_area/js/component_text_area.js'
-import {data_manager} from '../../../core/common/js/data_manager.js'
 import {ApiError} from '../../../core/common/js/api_error.js'
+import {data_manager} from '../../../core/common/js/data_manager.js'
+import {component_text_area} from '../../../core/component_text_area/js/component_text_area.js'
+import {render_build_error} from '../../../tools/tool_tr_print/js/render_tool_tr_print.js'
+import {tool_tr_print} from '../../../tools/tool_tr_print/js/tool_tr_print.js'
 
 
 

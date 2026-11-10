@@ -24,8 +24,8 @@
  * unchecks the checkbox and names the server's `reason` beside it.
  */
 
-import {tool_hierarchy} from '../../../tools/tool_hierarchy/js/tool_hierarchy.js'
 import {paint_rebuild_policy} from '../../../tools/tool_hierarchy/js/render_tool_hierarchy.js'
+import {tool_hierarchy} from '../../../tools/tool_hierarchy/js/tool_hierarchy.js'
 
 
 

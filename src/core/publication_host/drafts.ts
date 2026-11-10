@@ -249,13 +249,16 @@ function readSiteHome(r: Reader, value: unknown, layout: PanelDraft['layout']): 
 		r.refuse('site.home', 'only the home layout has a site home');
 		return undefined;
 	}
+	return checkedSiteHome(r, value);
+}
+
+/** A non-empty `site.home` on a home layout: a clean absolute path that is not a shared directory. */
+function checkedSiteHome(r: Reader, value: unknown): string | undefined {
 	try {
 		const home = cleanAbsolute('site.home', value);
-		if (FORBIDDEN_HOMES.includes(home)) {
-			r.refuse('site.home', `'${home}' holds other sites; a site home is its own directory`);
-			return undefined;
-		}
-		return home;
+		if (!FORBIDDEN_HOMES.includes(home)) return home;
+		r.refuse('site.home', `'${home}' holds other sites; a site home is its own directory`);
+		return undefined;
 	} catch (error) {
 		if (!(error instanceof LayoutError)) throw error;
 		r.refuse('site.home', error.reason);
@@ -315,29 +318,49 @@ export function readPanelDraft(value: unknown): PanelDraft {
 	};
 	const home = readSiteHome(r, site.home, draft.layout);
 	if (home !== undefined) draft.site.home = home;
-	if (draft.listen.kind === 'unix') {
-		draft.engine_group = r.text(
+	const engineGroup = readEngineGroup(r, raw.engine_group, draft.listen.kind);
+	if (engineGroup !== undefined) draft.engine_group = engineGroup;
+	const v1 = readV1(r, raw.v1, apis);
+	if (v1 !== undefined) draft.v1 = v1;
+	if (r.issues.length > 0) throw new DraftInvalid(r.issues);
+	return draft;
+}
+
+/** `engine_group`: required on one machine (unix listen), refused over mTLS. */
+function readEngineGroup(
+	r: Reader,
+	value: unknown,
+	listenKind: PanelDraft['listen']['kind'],
+): string | undefined {
+	if (listenKind === 'unix') {
+		return r.text(
 			'engine_group',
-			raw.engine_group,
+			value,
 			UNIX_NAME,
 			'the group of the account that runs Dédalo (one machine)',
 		);
-	} else if (raw.engine_group !== undefined) {
+	}
+	if (value !== undefined) {
 		r.refuse(
 			'engine_group',
 			'only one machine has an engine group; over mTLS the work system is its client certificate',
 		);
 	}
+	return undefined;
+}
+
+/** `v1`: required when the draft serves Publication API v1, refused when it serves v2 only. */
+function readV1(r: Reader, value: unknown, apis: PanelDraft['apis']): PanelDraft['v1'] {
 	if (apis === 'v1_and_v2') {
-		const v1 = r.object('v1.user', raw.v1, ['user']);
-		draft.v1 = {
+		const v1 = r.object('v1.user', value, ['user']);
+		return {
 			user: r.text('v1.user', v1.user, UNIX_NAME, 'a system account name (the v1 pool user)'),
 		};
-	} else if (raw.v1 !== undefined) {
+	}
+	if (value !== undefined) {
 		r.refuse('v1.user', 'is a Publication API v1 field, and the draft serves v2 only');
 	}
-	if (r.issues.length > 0) throw new DraftInvalid(r.issues);
-	return draft;
+	return undefined;
 }
 
 // ------------------------------------------------------------------- the agent's rule set

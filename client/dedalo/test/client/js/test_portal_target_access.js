@@ -5,7 +5,10 @@
 import { ApiError } from '../../../core/common/js/api_error.js';
 import { snapshot_read_state } from '../../../core/common/js/common.js';
 import { data_manager } from '../../../core/common/js/data_manager.js';
-import { handle_api_error, reset_error_dispatch_state } from '../../../core/common/js/error_dispatch.js';
+import {
+	handle_api_error,
+	reset_error_dispatch_state,
+} from '../../../core/common/js/error_dispatch.js';
 import { event_manager } from '../../../core/common/js/event_manager.js';
 import { get_instance } from '../../../core/common/js/instances.js';
 import { ui } from '../../../core/common/js/ui.js';
@@ -103,7 +106,10 @@ describe(`PORTAL TARGET ACCESS`, function () {
 		it(`an unknown section is not openable unless the caller says so`, () => {
 			const self = stub_portal('line');
 			assert.isFalse(can_open_target(self, 'test999'), 'default: unknown → false');
-			assert.isTrue(can_open_target(self, 'test999', { unknown: true }), 'indexation: unknown → true');
+			assert.isTrue(
+				can_open_target(self, 'test999', { unknown: true }),
+				'indexation: unknown → true',
+			);
 			assert.isFalse(can_open_target({}, READABLE), 'no request_config → false');
 		});
 		it(`an external engine target always opens; a stated grant wins over unknown:true`, () => {
@@ -116,7 +122,10 @@ describe(`PORTAL TARGET ACCESS`, function () {
 				},
 			};
 			assert.isTrue(can_open_target(self, 'test5'), 'external engine: Dédalo grants do not apply');
-			assert.isFalse(can_open_target(self, UNREADABLE, { unknown: true }), 'stated 0 is never openable');
+			assert.isFalse(
+				can_open_target(self, UNREADABLE, { unknown: true }),
+				'stated 0 is never openable',
+			);
 		});
 		it(`a string grant is coerced, never fails open`, () => {
 			const self = {
@@ -185,9 +194,16 @@ describe(`PORTAL TARGET ACCESS`, function () {
 				section_tipo: UNREADABLE,
 				drag: false,
 			});
-			assert.isNotNull(readable.querySelector('button.button_edit'), 'readable target: open button');
+			assert.isNotNull(
+				readable.querySelector('button.button_edit'),
+				'readable target: open button',
+			);
 			assert.isNull(unreadable.querySelector('button.button_edit'), 'unreadable target: none');
-			assert.equal(unreadable.querySelector('.section_id')?.textContent, '7', 'the id stays visible');
+			assert.equal(
+				unreadable.querySelector('.section_id')?.textContent,
+				'7',
+				'the id stays visible',
+			);
 		});
 
 		it(`default render_column_id: a section absent from the sqo keeps its button (context menu opens it)`, () => {
@@ -225,7 +241,11 @@ describe(`PORTAL TARGET ACCESS`, function () {
 			// the user comes back to this window: open_window's on_blur fires once
 			window.dispatchEvent(new Event('focus'));
 			assert.equal(refreshes.length, 1, 'the portal refreshed on return');
-			assert.strictEqual(refreshes[0].destroy, false, 'a refused re-read keeps LIVE rows, not inert ones');
+			assert.strictEqual(
+				refreshes[0].destroy,
+				false,
+				'a refused re-read keeps LIVE rows, not inert ones',
+			);
 			assert.strictEqual(refreshes[0].build_autoload, true);
 		});
 
@@ -233,7 +253,10 @@ describe(`PORTAL TARGET ACCESS`, function () {
 			const self = stub_portal('line');
 			const handler = component_portal.prototype.edit_record_handler;
 
-			const refused_window = await handler.call(self, { section_tipo: UNREADABLE, section_id: '1' });
+			const refused_window = await handler.call(self, {
+				section_tipo: UNREADABLE,
+				section_id: '1',
+			});
 			assert.isUndefined(refused_window, 'nothing opened for an unreadable target');
 			assert.equal(opened.length, 0, 'window.open never called');
 
@@ -334,10 +357,21 @@ describe(`PORTAL TARGET ACCESS`, function () {
 			});
 
 			assert.isFalse(result, 'refresh answers false');
-			assert.equal(instance.status, 'rendered', 'status back to rendered: a later refresh can retry');
+			assert.equal(
+				instance.status,
+				'rendered',
+				'status back to rendered: a later refresh can retry',
+			);
 			assert.isNull(wrapper.querySelector('.api_error_panel'), 'no page panel inside the portal');
-			assert.isNull(wrapper.querySelector('.page_error_container'), 'no page panel inside the portal');
-			assert.strictEqual(wrapper.content_data, content_before, 'the rendered rows are the same node');
+			assert.isNull(
+				wrapper.querySelector('.page_error_container'),
+				'no page panel inside the portal',
+			);
+			assert.strictEqual(
+				wrapper.content_data,
+				content_before,
+				'the rendered rows are the same node',
+			);
 			assert.isTrue(content_before.isConnected, 'still in the document');
 			assert.equal(content_before.children.length, rows_before, 'every row kept');
 			assert.equal(content_before.innerHTML, content_html, 'and unchanged');
@@ -350,7 +384,10 @@ describe(`PORTAL TARGET ACCESS`, function () {
 
 			// a later refresh is accepted again
 			data_manager.request = original_request;
-			assert.isTrue(await instance.refresh({ destroy: false, build_autoload: true }), 'refresh retries');
+			assert.isTrue(
+				await instance.refresh({ destroy: false, build_autoload: true }),
+				'refresh retries',
+			);
 		});
 
 		it(`a PAGE-ROOT instance keeps the page-scope failure (control)`, async () => {
@@ -407,7 +444,9 @@ describe(`PORTAL TARGET ACCESS`, function () {
 			const sqo_before = JSON.parse(JSON.stringify(section.rqo.sqo));
 			section.total = null;
 			section.rqo.sqo.offset = 0;
-			section.rqo.sqo.filter = { $and: [{ q: 'never shown', path: [{ section_tipo: 'test3', component_tipo: 'test52' }] }] };
+			section.rqo.sqo.filter = {
+				$and: [{ q: 'never shown', path: [{ section_tipo: 'test3', component_tipo: 'test52' }] }],
+			};
 
 			data_manager.request = async () => refused();
 			const navigated = await section.navigate({
@@ -533,9 +572,20 @@ describe(`PORTAL TARGET ACCESS`, function () {
 				assert.isTrue(wrapper.isConnected, 'still in the document');
 				assert.equal(instance.status, 'rendered', 'render kept');
 				assert.isNull(wrapper.querySelector('.api_error_panel'), 'no panel inside the portal');
-				assert.isNull(wrapper.querySelector('.page_error_container'), 'no page panel inside the portal');
-				assert.equal(JSON.stringify(instance.data?.entries ?? []), entries_before, 'data untouched');
-				assert.strictEqual(page_globals.page_error ?? null, page_error_before, 'page slot untouched');
+				assert.isNull(
+					wrapper.querySelector('.page_error_container'),
+					'no page panel inside the portal',
+				);
+				assert.equal(
+					JSON.stringify(instance.data?.entries ?? []),
+					entries_before,
+					'data untouched',
+				);
+				assert.strictEqual(
+					page_globals.page_error ?? null,
+					page_error_before,
+					'page slot untouched',
+				);
 			});
 		}
 
