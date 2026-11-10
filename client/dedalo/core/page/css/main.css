@@ -10607,7 +10607,7 @@ body:has(.component_av.view_viewer) {
   -webkit-mask-position: center;
   mask-position: center;
   width: 1.3rem;
-  height: 2.2rem;
+  height: 1.3rem;
   display: inline-block;
   margin-left: 0.9rem;
   margin-right: 0px;
