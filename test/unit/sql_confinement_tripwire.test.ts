@@ -1037,7 +1037,8 @@ const DD_ONTOLOGY_DIRECT_READ_RATCHET = new Set<string>([
 	'src/core/api/handlers/menu.ts',
 	// ontology_delete.ts re-homed into src/core/ontology/ (WS-C S2-22) — that
 	// directory IS the exempt canonical home, so its ratchet entry is retired.
-	'src/core/resolve/relation_index.ts',
+	// relation_index.ts: its private relation_list lookup now goes through
+	// section/list_definitions/node_find.ts (T0-7) — entry retired 2026-11-10.
 	'src/core/resolve/relation_list.ts',
 	'src/core/resolve/section_elements_context.ts',
 	'src/core/resolve/security_access_datalist.ts',

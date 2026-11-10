@@ -51,6 +51,7 @@ import {
 import { getSectionMap } from '../ontology/section_map.ts';
 import { resolveLocatorLabels } from '../relations/datalist.ts';
 import { findInverseReferences } from '../search/search_related.ts';
+import { findSectionChildByModel } from '../section/list_definitions/node_find.ts';
 import { resolveOwnConfigMap } from '../section/list_definitions/section_list.ts';
 import type { Principal } from '../security/permissions.ts';
 import { type EmissionContext, resolveComponentValue } from './component_data.ts';
@@ -80,12 +81,12 @@ export async function getRelationListColumns(sectionTipo: string): Promise<strin
 	}
 
 	// Legacy: the section's relation_list ontology node — its `relations`
-	// links name the column tipos.
-	const legacyRows = (await sql.unsafe(
-		`SELECT relations FROM dd_ontology WHERE parent = $1 AND model = 'relation_list' LIMIT 1`,
-		[sectionTipo],
-	)) as { relations: { tipo?: string }[] | null }[];
-	return (legacyRows[0]?.relations ?? [])
+	// links name the column tipos. Virtual-aware (a virtual without its own node
+	// inherits the real section's — PHP get_relation_list_obj's resolve_virtual
+	// retry, class.relation_list.php:305-321) and first by order_number: the ONE
+	// lookup, findSectionChildByModel (T0-7).
+	const node = await findSectionChildByModel(sectionTipo, 'relation_list');
+	return (node?.relations ?? [])
 		.map((link) => link.tipo)
 		.filter((tipo): tipo is string => typeof tipo === 'string');
 }

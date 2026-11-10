@@ -24,8 +24,8 @@
 import { sql } from '../db/postgres.ts';
 import { createOntologyCache } from '../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
-import { getSectionRealTipo } from '../ontology/resolver.ts';
 import type { InverseReferenceLocatorHit } from '../search/search_related.ts';
+import { findSectionChildByModel } from '../section/list_definitions/node_find.ts';
 
 /** PHP parse_data: raw breakdown hit → client locator entry. */
 export function parseInverseEntry(hit: InverseReferenceLocatorHit): Record<string, unknown> {
@@ -65,32 +65,20 @@ registerOntologyCacheClearer(clearRelatedListCache);
 
 /**
  * The section's related_list component tipos (PHP
- * resolve_ar_related_related_list): the relation nodes of the section's
- * relation_list ontology child — direct first, then through the VIRTUAL
- * section's real section (rsc205 → rsc3 → rsc133 → [rsc349, rsc140, rsc224]).
+ * resolve_ar_related_related_list, trait.request_config_v5.php:295-330): the
+ * relation nodes of the section's relation_list ontology child — own first,
+ * then through the VIRTUAL section's real section (rsc205 → rsc3 → rsc133 →
+ * [rsc349, rsc140, rsc224]), first by order_number. The node lookup is THE one,
+ * findSectionChildByModel (T0-7); this keeps only the relations + its cache.
+ * No section_map scope here (PHP applies that to the References grid only).
  */
 export async function getRelatedListChildTipos(sectionTipo: string): Promise<string[]> {
 	const cached = relatedListCache.get(sectionTipo);
 	if (cached !== undefined) return cached;
 
-	const readRelationList = async (parent: string): Promise<{ tipo?: unknown }[] | null> => {
-		const rows = (await sql.unsafe(
-			`SELECT relations FROM dd_ontology WHERE parent = $1 AND model = 'relation_list' LIMIT 1`,
-			[parent],
-		)) as { relations: { tipo?: unknown }[] | null }[];
-		return rows.length > 0 ? (rows[0]?.relations ?? []) : null;
-	};
-
-	let relations = await readRelationList(sectionTipo);
-	if (relations === null) {
-		// Virtual section: borrow the REAL section's relation_list (getSectionRealTipo).
-		const realTipo = await getSectionRealTipo(sectionTipo);
-		if (realTipo !== sectionTipo) {
-			relations = await readRelationList(realTipo);
-		}
-	}
-	const tipos = (relations ?? [])
-		.map((node) => node.tipo)
+	const node = await findSectionChildByModel(sectionTipo, 'relation_list');
+	const tipos = (node?.relations ?? [])
+		.map((link) => link.tipo)
 		.filter((tipo): tipo is string => typeof tipo === 'string');
 	relatedListCache.set(sectionTipo, tipos);
 	return tipos;
