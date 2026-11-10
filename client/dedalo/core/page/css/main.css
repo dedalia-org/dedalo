@@ -5278,6 +5278,22 @@ input::placeholder {
   right: -9px;
   z-index: 3;
 }
+.wrapper_component.edit:not(.active):not(:hover) > .content_data > .button_exit_edit,
+.wrapper_component.search:not(.active):not(:hover) > .content_data > .button_exit_edit,
+.wrapper_component.player:not(.active):not(:hover) > .content_data > .button_exit_edit,
+.wrapper_component.edit:not(.active):not(:hover) > .content_data > .content_value > .button_exit_edit,
+.wrapper_component.search:not(.active):not(:hover) > .content_data > .content_value > .button_exit_edit,
+.wrapper_component.player:not(.active):not(:hover) > .content_data > .content_value > .button_exit_edit {
+  display: none;
+}
+.wrapper_component.edit:is(.active, :hover) > .content_data > .button_exit_edit,
+.wrapper_component.search:is(.active, :hover) > .content_data > .button_exit_edit,
+.wrapper_component.player:is(.active, :hover) > .content_data > .button_exit_edit,
+.wrapper_component.edit:is(.active, :hover) > .content_data > .content_value > .button_exit_edit,
+.wrapper_component.search:is(.active, :hover) > .content_data > .content_value > .button_exit_edit,
+.wrapper_component.player:is(.active, :hover) > .content_data > .content_value > .button_exit_edit {
+  display: block;
+}
 .wrapper_component.edit > .content_data,
 .wrapper_component.search > .content_data,
 .wrapper_component.player > .content_data {

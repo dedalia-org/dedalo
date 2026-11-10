@@ -423,6 +423,22 @@ input::placeholder {
 			right: -9px;
 			z-index: 3;
 		}
+		// (!) the exit X follows ITS OWN component (hover or active). The generic
+		// `&.active .show_on_active` reveal below is a descendant rule: an active
+		// portal lit the X of every nested row component. Specificity beats that
+		// leak; the mosaic and view_text hides still win over the reveal.
+		&:not(.active):not(:hover) {
+			>.content_data >.button_exit_edit,
+			>.content_data >.content_value >.button_exit_edit {
+				display: none;
+			}
+		}
+		&:is(.active, :hover) {
+			>.content_data >.button_exit_edit,
+			>.content_data >.content_value >.button_exit_edit {
+				display: block;
+			}
+		}
 
 		// content data defaults
 		>.content_data {

@@ -40,6 +40,10 @@ Merged since the last release; these ship with the next one.
     row's close button. The calendar button now sits at the field's top-left
     corner, and the `<>` mark of a date range is centred between the two dates.
 
+- **The close (×) button of a field inside a list row shows only while that field is hovered or active.**
+
+    Before, activating a portal showed the × (back to list mode) on every field being edited in its rows at once. Now each × appears only on the field under the pointer or the active one.
+
 - **Open relationships dialog no longer jumps when switching scope**
 
     - Switching between **Current record** and **All found records** keeps the dialog in place: it stays anchored at the top and keeps its height while the new list loads.
