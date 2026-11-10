@@ -6,3 +6,8 @@ export const is_equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 export const load_style = () => {};
 export const load_script = () => {};
 export const strip_tags = (value) => String(value ?? '').replace(/<[^<>]*>/g, '');
+// records each cross-window save notice, so a gate can assert run_save's order
+export const broadcast_calls = [];
+export const broadcast_record_save = (type) => {
+	broadcast_calls.push(type);
+};

@@ -288,7 +288,7 @@ export const render_column_id = function(options) {
 				features	: features,
 				on_blur : () => {
 					// refresh current instance
-					self.refresh({
+					return self.refresh({
 						build_autoload : true
 					})
 				}

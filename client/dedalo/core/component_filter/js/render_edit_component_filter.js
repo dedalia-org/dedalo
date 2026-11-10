@@ -585,7 +585,7 @@ export const get_buttons = (self) => {
 							// refresh current instance
 							// Triggers a full data reload when the user returns from the project
 							// list window, picking up any newly-created projects.
-							self.refresh({
+							return self.refresh({
 								build_autoload : true
 							})
 						}

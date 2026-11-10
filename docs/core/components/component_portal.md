@@ -375,6 +375,39 @@ indexation "remove filter" footer and the print notice all live in
 `.list_after`. A mosaic tile's hover overlay (`.sr_mosaic_hover`) is built on
 demand by `delegate_row_hover` and flushed before it leaves.
 
+### Editing a row in its own window
+
+The row's edit button (`edit_record_handler` in `component_portal.js`) opens the
+linked record in a separate window (`open_window` in
+`client/dedalo/core/common/js/utils/util.js`). The portal refreshes when that
+window **saves**, not when you come back to the portal window:
+
+- **Edit window.** Every component save (`run_save` in `component_common.js`)
+  posts `saving` before the request, then `saved` or `failed`, to the window
+  that opened it (`window.opener.postMessage`, own origin only). After its first
+  save the page also posts `unloading` when it goes away (reload, navigation,
+  close).
+- **Portal window.** It accepts a message only from its own origin and from the
+  exact window it opened. It refreshes 150 ms after each `saved` (a burst of
+  saves is one refresh) and never while a save is still in flight. Refreshes
+  never overlap: one asked for while another runs waits for it. A refresh that
+  is refused because another one is still building is retried once, after 1 s.
+- **Saves that never report.** When the window closes or unloads with a save
+  in flight, the portal refreshes once, 1 s later.
+- **Fallback.** Coming back to the portal window still refreshes once, for
+  windows that never report (external engines) and for changes made there
+  without a component save (record create/delete/duplicate, tool actions).
+  It waits for a save in flight, and is skipped once a save has refreshed.
+- **The refresh destroys the row instances** (`refresh({build_autoload:true})`):
+  kept instances would hold the pre-edit data and the row would render the old
+  value. The portal instance itself stays, so `window_blur_<portal id>` still
+  fires after each refresh.
+
+The same contract serves every `open_window` caller that passes `on_blur`
+(select, check box, radio button, filter, list rows, thesaurus terms). A
+callback must **return** its refresh promise: that is how the window knows a
+refresh is still running or was refused.
+
 ### Drag and drop
 
 All gestures are **delegated** (`client/dedalo/core/component_portal/js/drag_and_drop.js`):

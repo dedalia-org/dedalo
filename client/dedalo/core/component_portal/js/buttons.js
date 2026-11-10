@@ -536,7 +536,7 @@ buttons.render_button_list = (self) => {
 				height	: 740,
 				on_blur : () => {
 					// refresh current instance
-					self.refresh({
+					return self.refresh({
 						build_autoload : true
 					})
 				}

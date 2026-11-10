@@ -44,6 +44,10 @@ Merged since the last release; these ship with the next one.
 
     - Switching between **Current record** and **All found records** keeps the dialog in place: it stays anchored at the top and keeps its height while the new list loads.
 
+- **A record edited in its own window now shows the saved value in the list or field that opened it.**
+
+    Editing a linked record from a portal (or a select, check box, filter, thesaurus term or list row) opens it in a separate window. Before, the original window refreshed once, as soon as you came back to it — often before the edit had finished saving, so it kept showing the old value until the page was reloaded, and later edits in the same window never refreshed it at all. Now the original window refreshes after every field save the edit window completes, including the last one made while closing or reloading it. Other changes made in that window (creating, deleting or duplicating records, tool actions) still refresh it once, when you return to it.
+
 - **Restoring a Time Machine version that equals the current value no longer adds history.**
 
     Before, applying a Time Machine version whose value was already the current one
