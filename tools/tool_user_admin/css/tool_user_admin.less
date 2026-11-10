@@ -96,6 +96,18 @@
 					grid-column: span 4;
 					height: 29rem;
 				}
+				// user activity statistics: full width, below the profile fields
+				&.dd1537 {
+					grid-row: auto;
+					grid-column: 1 / -1;
+					margin-top: 1.5rem;
+
+					// read-only here: no navigation from the charts (the section bars are role=link)
+					a, button, [role=link], [role=button] {
+						pointer-events: none;
+						cursor: default;
+					}
+				}
 			}
 		}
 

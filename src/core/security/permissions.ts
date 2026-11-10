@@ -785,6 +785,14 @@ const SELF_EDITABLE_COMPONENTS: ReadonlySet<string> = new Set([
 	'dd522',
 	'dd1206',
 ]);
+/**
+ * dd128 own-record components forced to READ (never write): the actor's own
+ * statistics, dd1537 "User activity" (component_info, user_activity widget),
+ * shown in tool_user_admin (TS-only, 2026-11-10,
+ * WC-2026-11-10-own-user-activity-read). A derived read-only value of one's
+ * own history; it exposes nothing about any other account.
+ */
+const SELF_READABLE_COMPONENTS: ReadonlySet<string> = new Set(['dd1537']);
 
 /**
  * The dd128 OWN-USER-RECORD rules (PHP component_common::
@@ -829,6 +837,7 @@ export function resolveOwnUserRecordPermission(
 	if (tipo === GLOBAL_ADMIN_COMPONENT) return 1;
 	if (SELF_ELEVATION_GUARDED.has(tipo) && principal.isGlobalAdmin === false) return 1;
 	if (SELF_EDITABLE_COMPONENTS.has(tipo)) return 2;
+	if (SELF_READABLE_COMPONENTS.has(tipo)) return 1;
 	return null;
 }
 

@@ -68,6 +68,18 @@
   grid-column: span 4;
   height: 29rem;
 }
+.wrapper_tool.tool_user_admin > .content_data .components_container .wrapper_component.dd1537 {
+  grid-row: auto;
+  grid-column: 1 / -1;
+  margin-top: 1.5rem;
+}
+.wrapper_tool.tool_user_admin > .content_data .components_container .wrapper_component.dd1537 a,
+.wrapper_tool.tool_user_admin > .content_data .components_container .wrapper_component.dd1537 button,
+.wrapper_tool.tool_user_admin > .content_data .components_container .wrapper_component.dd1537 [role=link],
+.wrapper_tool.tool_user_admin > .content_data .components_container .wrapper_component.dd1537 [role=button] {
+  pointer-events: none;
+  cursor: default;
+}
 .wrapper_tool.tool_user_admin > .content_data .active_style_switcher {
   display: flex;
   flex-wrap: wrap;

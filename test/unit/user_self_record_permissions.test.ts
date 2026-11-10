@@ -10,6 +10,7 @@
  *                                            >= 1 (global admin: matrix, floored at READ —
  *                                                  TODO-071, tool_user_admin's read-only rows)
  *   dd452/dd134/dd133/dd522/dd1206        -> 2  (editable self-data, used by tool_user_admin)
+ *   dd1537 (own User activity statistics) -> 1  (TS-only, WC-2026-11-10-own-user-activity-read)
  *
  * The TS port shipped only the SEARCH-mode branch, so both halves were missing:
  * an ordinary user could not edit their own password/email/name (the tool's whole
@@ -28,6 +29,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { dispatchRqo } from '../../src/core/api/dispatch.ts';
+import { componentInfoApiActions } from '../../src/core/api/handlers/dd_component_info.ts';
 import { clearDatalistCache, getDatalist } from '../../src/core/relations/datalist.ts';
 import {
 	getPermissions,
@@ -107,6 +109,12 @@ describe('resolveOwnUserRecordPermission — the PHP dd128 table', () => {
 
 	test('a string section_id from the wire still matches its own record', () => {
 		expect(resolveOwnUserRecordPermission(principal(7, false), USERS, 'dd133', '7')).toBe(2);
+	});
+
+	test('own User activity statistics (dd1537) are READ-only, another record untouched', () => {
+		expect(resolveOwnUserRecordPermission(principal(7, false), USERS, 'dd1537', 7)).toBe(1);
+		expect(resolveOwnUserRecordPermission(principal(7, true), USERS, 'dd1537', 7)).toBe(1);
+		expect(resolveOwnUserRecordPermission(principal(7, false), USERS, 'dd1537', 8)).toBeNull();
 	});
 });
 
@@ -340,6 +348,69 @@ describe('dd_core_api::read serves your OWN record to tool_user_admin (end to en
 				}),
 			]);
 		}
+	});
+});
+
+describe('get_widget_data serves your OWN statistics to tool_user_admin (end to end)', () => {
+	// dd1537 "User activity" (component_info, async user_activity widget): the
+	// profile grants nothing on dd128, so the read door alone refused the tool's
+	// statistics panel (WC-2026-11-10-own-user-activity-read).
+	const OWN = OA_GRANTED_NON_ADMIN_ID;
+	let user: Principal;
+
+	beforeAll(async () => {
+		await installOntologyAreaAccessFixture();
+		user = await resolvePrincipal(OWN);
+	});
+	afterAll(async () => {
+		await removeOntologyAreaAccessFixture();
+	});
+
+	async function widget(sectionId: number) {
+		const handler = componentInfoApiActions.get_widget_data;
+		if (handler === undefined) throw new Error('get_widget_data handler missing');
+		try {
+			const result = await runWithRequestContext(
+				{
+					principal: user,
+					session: null,
+					requestId: 'self-widget',
+					clientIp: '127.0.0.1',
+				} as never,
+				() =>
+					handler(
+						{
+							action: 'get_widget_data',
+							dd_api: 'dd_component_info',
+							source: { tipo: 'dd1537', section_tipo: USERS, section_id: sectionId, mode: 'edit' },
+							options: { widget_name: 'user_activity' },
+						} as never,
+						{ requestId: 'self-widget', clientIp: '127.0.0.1', principal: user } as never,
+					),
+			);
+			return { status: result.status, body: result.body as { data?: unknown[] } };
+		} catch (error) {
+			return { status: 0, code: (error as { code?: string }).code };
+		}
+	}
+
+	test('the matrix alone would refuse — dd128 and dd1537 grant 0', async () => {
+		expect(await getPermissions(user, USERS, USERS)).toBe(0);
+		expect(await getPermissions(user, USERS, 'dd1537')).toBe(0);
+	});
+
+	test('own record: served, one user_activity item', async () => {
+		const result = await widget(OWN);
+		expect(result.status).toBe(200);
+		const items = (result as { body: { data?: { widget?: string }[] } }).body.data ?? [];
+		expect(items.length).toBeGreaterThan(0);
+		expect(items[0]?.widget).toBe('user_activity');
+	});
+
+	test("ANOTHER user's statistics stay refused", async () => {
+		const result = await widget(OA_GRANTED_ADMIN_ID);
+		expect(result.status).toBe(0);
+		expect((result as { code?: string }).code).toBe('perm.denied');
 	});
 });
 

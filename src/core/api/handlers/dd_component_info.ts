@@ -26,6 +26,12 @@
  * A section_id that is not a record address is refused BY NAME
  * (`request.invalid_source`), never folded into a permission refusal; the
  * compute receives the GRANT's coordinates (an int id), never the rqo's.
+ *
+ * OWN USER RECORD (WC-2026-11-10-own-user-activity-read): the actor's own dd128
+ * record skips the section floor and record scope — exactly read Gate A
+ * (read_facade.getDataRecordGateAdmits + gateReadSource) — and is judged on
+ * getRecordComponentPermission alone, so tool_user_admin shows a user their own
+ * statistics (dd1537) though most profiles grant 0 on dd128.
  */
 
 import { coerceSectionId } from '../../concepts/section_id.ts';
@@ -33,6 +39,7 @@ import { ok } from '../../errors/convert.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
 import { getNode } from '../../ontology/resolver.ts';
 import { currentDataLang } from '../../resolve/request_lang.ts';
+import { getRecordComponentPermission, isActorsOwnUserRecord } from '../../security/permissions.ts';
 import { authorizeRecordAccess, parseRecordId } from '../../security/write_door.ts';
 import type { ActionHandler } from '../handler_context.ts';
 import { requirePrincipal } from '../handler_context.ts';
@@ -78,6 +85,19 @@ function assertWidgetTipos(tipo: string, sectionTipo: string): void {
 	});
 }
 
+/** The own-user-record admission: read level >= 1 on the dd128-aware resolver, else perm.denied. */
+async function ownUserRecordGrant(
+	principal: Parameters<typeof getRecordComponentPermission>[0],
+	tipo: string,
+	sectionTipo: string,
+	sectionId: number,
+): Promise<{ componentTipo: string; sectionTipo: string; sectionId: number }> {
+	if ((await getRecordComponentPermission(principal, sectionTipo, tipo, sectionId)) < 1) {
+		throw new DedaloError('perm.denied', { coordinates: { section_tipo: sectionTipo, tipo } });
+	}
+	return { componentTipo: tipo, sectionTipo, sectionId };
+}
+
 /** dd_component_info action handlers, keyed by action (registered in dispatch.ts). */
 export const componentInfoApiActions: Record<string, ActionHandler> = {
 	get_widget_data: async (rqo, context) => {
@@ -98,11 +118,14 @@ export const componentInfoApiActions: Record<string, ActionHandler> = {
 		assertWidgetTipos(tipo, sectionTipo);
 
 		// The read door: section >= 1 → info component pair grant → record scope.
-		const grant = await authorizeRecordAccess(
-			principal,
-			{ section_tipo: sectionTipo, component_tipo: tipo, section_id: rawSectionId },
-			{ mode: 'read', level: 1, sectionFloor: 1, door: 'dd_component_info.get_widget_data' },
-		);
+		// The actor's own user record: the dd128-aware component level alone (Gate A).
+		const grant = isActorsOwnUserRecord(principal, sectionTipo, rawSectionId)
+			? await ownUserRecordGrant(principal, tipo, sectionTipo, rawSectionId)
+			: await authorizeRecordAccess(
+					principal,
+					{ section_tipo: sectionTipo, component_tipo: tipo, section_id: rawSectionId },
+					{ mode: 'read', level: 1, sectionFloor: 1, door: 'dd_component_info.get_widget_data' },
+				);
 
 		// The component's ontology widget definitions (PHP resolves the instance
 		// in mode 'list' / lang NOLAN — only properties are needed here).

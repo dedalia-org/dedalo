@@ -133,6 +133,15 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **Users see their own activity statistics in their profile.**
+
+    The user profile panel (opened from your name in the menu) now shows your own activity
+    statistics below the profile fields: total actions, sections touched, peak hour, activity by type,
+    by section and by hour. It is read-only and shows only your own history — every user sees it,
+    whether or not their profile grants access to the Users section.
+
+    Wire contract: `WC-2026-11-10-own-user-activity-read`.
+
 - **The map field shows the common unsaved-changes line, and its reload and add-point icons have tooltips.**
 
     While a geolocation field's coordinates or view differ from what is saved, the field shows the
@@ -367,7 +376,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 19 entries"
+??? note "Wire contract — 20 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -379,6 +388,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-10-add-new-element-create-gate`
     - `WC-2026-11-10-hierarchy-rebuild-ownership`
     - `WC-2026-11-10-indexation-grid-read-door`
+    - `WC-2026-11-10-own-user-activity-read`
     - `WC-2026-11-10-portal-get-data-children-lang`
     - `WC-2026-11-10-related-list-cells`
     - `WC-2026-11-10-save-never-creates`

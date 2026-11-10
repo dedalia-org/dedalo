@@ -32,6 +32,7 @@
 *   dd133  — password component (editable)
 *   dd134  — email component (editable)
 *   dd522  — user avatar image component (editable)
+*   dd1537 — user activity statistics component_info (read-only)
 *
 * Exported symbols:
 *   tool_user_admin — constructor; prototype methods assigned below.
@@ -432,6 +433,18 @@ tool_user_admin.prototype.get_ddo_map = function() {
 				}
 			},
 			...(page_globals.user_id > 0 ? {} : { permissions : 1 })
+		},
+		// user activity statistics (component_info, user_activity widget) . read only
+		// no properties override: it would replace the context's `widgets` definition
+		{
+			tipo			: 'dd1537',
+			type			: 'component',
+			typo			: 'ddo',
+			model			: 'component_info',
+			section_tipo	: section_tipo,
+			parent			: section_tipo,
+			mode			: 'edit',
+			permissions		: 1
 		}
 	]
 
