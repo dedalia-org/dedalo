@@ -13,8 +13,8 @@
  *     duplicate id; 'ignore' returns without error and without duplicating —
  *     and it must do so INSIDE withTransaction, because the ON-CONFLICT-not-
  *     exception design exists precisely so an ambient transaction survives
- *     the save path's materialize race (S1-02: a raised 23505 would abort the
- *     whole tx).
+ *     an explicit-id import's create race (a raised 23505 would abort the
+ *     whole tx; the save path no longer creates — WC-2026-11-10-save-never-creates).
  *  3. absorbComponentItemIds: explicit item ids (numeric AND numeric-string —
  *     imports/migrations carry both) raise the component item-id counter so
  *     allocateComponentItemId never re-mints them; absorb never LOWERS the

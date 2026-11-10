@@ -128,11 +128,25 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Saving a field of a record that does not exist (or was deleted) is refused instead of creating the record.**
+
+    Before, a save addressed to a record number with no record behind it (possible for a global
+    administrator, the assistant or a tool working with a stale or mistyped number) silently
+    created a record at that number, without asking for permission to create in the section,
+    and could bring a deleted record's number back to life as a new, empty record.
+
+    Now such a save is refused with a "not found" message that says which case it is: the record
+    does not exist (create records with **New**), or it was deleted (restore it from **Time
+    Machine**). Nothing is written. A spreadsheet import row whose record was deleted while the
+    import was running is reported as failed instead of being recreated.
+
+    Wire contract: `WC-2026-11-10-save-never-creates`.
+
 - **A refused maintenance action now shows the server's reason in the panel, not only a generic sentence.**
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 6 entries"
+??? note "Wire contract — 7 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -140,6 +154,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-09-implicit-children-frontier-predicate`
     - `WC-2026-11-09-start-deep-link-found-set-position`
     - `WC-2026-11-10-add-new-element-create-gate`
+    - `WC-2026-11-10-save-never-creates`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

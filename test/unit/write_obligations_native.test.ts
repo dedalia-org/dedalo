@@ -288,7 +288,7 @@ describe.if(DB_READY)(
 		test('the tolerated-conflict race loser writes NO row: nothing was created (the enumerated empty cell)', async () => {
 			const id = await createSectionRecord(SECTION, ROOT);
 			expect(await activityRows(id)).toHaveLength(1);
-			// the same address again, conflict tolerated — the S1-02 materialize-on-save loser
+			// the same address again, conflict tolerated — an explicit-id import's race loser (CSV / import_files)
 			const again = await createSectionRecord(SECTION, ROOT, new Date(), id, {
 				conflictTolerant: true,
 			});

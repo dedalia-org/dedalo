@@ -2,21 +2,24 @@
  * A REFUSED SAVE LEAVES NO TRACE (2026-09-29) — save_component.ts
  * runSaveAtomically.
  *
- * `saveComponentData` materializes a MISSING record (create-on-first-save, the
- * PHP set_dato upsert) BEFORE its change loop runs. A change the loop then
- * refuses with `{ok:false}` — `remove` of an id the component does not hold —
- * used to COMMIT that create: an empty record persisted, matrix_counter jumped
- * to the requested id, a NEW activity row described a creation the caller was
- * told failed. When saveComponentData owns the transaction the refusal now
- * rolls it back; under a caller's transaction the caller owns that choice.
+ * A change the loop refuses with `{ok:false}` — `remove` of an id the
+ * component does not hold — may come AFTER the save already wrote inside its
+ * transaction (an id-less `update` allocating an item id: a meta-counter
+ * raise). When saveComponentData owns the transaction the refusal rolls that
+ * back; under a caller's transaction the caller owns that choice.
  *
- * Covered here (1 fails without the fix; 2 fails with a savepoint fence):
- *  1. refused change on a missing record → ok:false, no row, counter
- *     unchanged, no TM row, no activity row;
- *  2. inside a CALLER's transaction the save joins without a savepoint (the
- *     caller owns the refusal's fate), and a create-on-save there still logs
- *     its NEW activity row;
- *  3. the legitimate create-on-save path still creates exactly one record.
+ * (Until 2026-11-10 the write this gate caught was the create-on-first-save
+ * branch materializing a MISSING record. A save never creates any more —
+ * WC-2026-11-10-save-never-creates, gate save_missing_record_refused_native —
+ * so the property is pinned on an EXISTING record here.)
+ *
+ * Covered:
+ *  1. owned transaction: allocate-then-refuse on an existing record → ok:false,
+ *     the record's columns byte-unchanged (meta counter included), no TM row;
+ *  2. inside a CALLER's transaction the refused save joins it and the caller's
+ *     next save still commits;
+ *  3. an absent-record refusal (resource.not_found, a JS throw after a SELECT)
+ *     does not poison the caller's transaction: caught, the next save commits.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -35,12 +38,12 @@ const SECTION_TIPO = 'zzsref1';
 /** component_input_text, translatable → 'string' column. */
 const COMPONENT = 'zzsref2';
 const ANCHOR_ID = 1;
-/** Ids far above the anchor: a committed create would raise the counter to them. */
-const REFUSED_ID = 918301;
-const AMBIENT_REFUSED_ID = 918302;
-const AMBIENT_OK_ID = 918303;
-const CREATE_ID = 918304;
-const ALL_IDS = [REFUSED_ID, AMBIENT_REFUSED_ID, AMBIENT_OK_ID, CREATE_ID];
+/** Existing records the situation builds. */
+const REFUSED_ID = 2;
+const AMBIENT_REFUSED_ID = 3;
+const AMBIENT_OK_ID = 4;
+/** Never created: the absent-record case. Far above the counter. */
+const ABSENT_ID = 918304;
 
 const SITUATION = situation({
 	tld: 'zzsref',
@@ -61,7 +64,10 @@ const SITUATION = situation({
 			term: { 'lg-spa': 'Texto', 'lg-eng': 'Text' },
 		},
 	],
-	records: [{ section_tipo: SECTION_TIPO, section_id: ANCHOR_ID }],
+	records: [ANCHOR_ID, REFUSED_ID, AMBIENT_REFUSED_ID, AMBIENT_OK_ID].map((section_id) => ({
+		section_tipo: SECTION_TIPO,
+		section_id,
+	})),
 });
 
 async function rowCount(sectionId: number): Promise<number> {
@@ -70,6 +76,25 @@ async function rowCount(sectionId: number): Promise<number> {
 		[SECTION_TIPO, sectionId],
 	)) as unknown[];
 	return rows.length;
+}
+
+/** The record's whole stored image, as text (byte comparison). */
+async function recordImage(sectionId: number): Promise<string | null> {
+	const rows = (await sql.unsafe(
+		`SELECT row_to_json(t)::text AS image FROM (
+			SELECT data, relation, string, date, iri, geo, number, media, misc, meta
+			  FROM ${TABLE} WHERE section_tipo = $1 AND section_id = $2) t`,
+		[SECTION_TIPO, sectionId],
+	)) as { image: string }[];
+	return rows[0]?.image ?? null;
+}
+
+async function storedValues(sectionId: number): Promise<string[]> {
+	const rows = (await sql.unsafe(
+		`SELECT string->$3 AS items FROM ${TABLE} WHERE section_tipo = $1 AND section_id = $2`,
+		[SECTION_TIPO, sectionId, COMPONENT],
+	)) as { items: { value: string }[] | null }[];
+	return (rows[0]?.items ?? []).map((item) => item.value);
 }
 
 async function counterValue(): Promise<number | null> {
@@ -100,7 +125,7 @@ async function activityRowCount(sectionId: number): Promise<number> {
 }
 
 async function cleanAll(): Promise<void> {
-	for (const id of ALL_IDS) await cleanScratchRecord(SECTION_TIPO, id, TABLE);
+	await cleanScratchRecord(SECTION_TIPO, ABSENT_ID, TABLE);
 	await sql.unsafe(
 		`DELETE FROM matrix_activity WHERE section_tipo = 'dd542'
 		 AND misc->'dd551'->0->'value'->>'section_tipo' = $1`,
@@ -108,14 +133,21 @@ async function cleanAll(): Promise<void> {
 	);
 }
 
-/** The refused change: remove an item id the (missing) record cannot hold. */
+/**
+ * The refused change, AFTER a write: an id-less update (allocates an item id —
+ * a meta-counter raise inside the tx), then a remove of an id the record
+ * cannot hold.
+ */
 function refusedRemove(sectionId: number) {
 	return saveComponentData({
 		componentTipo: COMPONENT,
 		sectionTipo: SECTION_TIPO,
 		sectionId,
 		lang: 'lg-spa',
-		changedData: [{ action: 'remove', id: 1, value: null }],
+		changedData: [
+			{ action: 'update', id: null, value: { lang: 'lg-spa', value: 'never-kept' } },
+			{ action: 'remove', id: 999, value: null },
+		],
 		userId: -1,
 	});
 }
@@ -142,27 +174,24 @@ afterAll(async () => {
 	expect(await dropSituation(SITUATION)).toBe(0);
 });
 
-describe('a refused save on a missing record leaves no trace', () => {
-	test('owned transaction: ok:false, no row, counter unchanged, no TM row, no activity row', async () => {
-		expect(await rowCount(REFUSED_ID)).toBe(0);
+describe('a refused save leaves no trace', () => {
+	test('owned transaction: ok:false, the existing record byte-unchanged, no TM row', async () => {
+		const before = await recordImage(REFUSED_ID);
+		expect(before).not.toBeNull();
 		const counterBefore = await counterValue();
-		expect(counterBefore === null || counterBefore < REFUSED_ID).toBe(true);
+		const tmBefore = await tmRowCount(REFUSED_ID);
 
 		const outcome = await refusedRemove(REFUSED_ID);
 		expect(outcome.ok).toBe(false);
-		expect(outcome.message).toBe('remove: no item with id 1');
+		expect(outcome.message).toBe('remove: no item with id 999');
 
-		expect(await rowCount(REFUSED_ID)).toBe(0);
+		expect(await recordImage(REFUSED_ID)).toBe(before);
 		expect(await counterValue()).toBe(counterBefore);
-		expect(await tmRowCount(REFUSED_ID)).toBe(0);
+		expect(await tmRowCount(REFUSED_ID)).toBe(tmBefore);
 		expect(await activityRowCount(REFUSED_ID)).toBe(0);
 	}, 30000);
 
-	test("caller's transaction: the save joins it WITHOUT a savepoint — create-on-save stays attributable", async () => {
-		// The refused save's writes stay in the caller's transaction — the caller
-		// owns that choice (the CSV door throws on ok:false and rolls its row back).
-		// The create's birth is decided by its insert statement (create_record.ts
-		// createSectionRecord), so the NEW activity row is logged either way.
+	test("caller's transaction: the refused save joins it and the caller's next save commits", async () => {
 		const outcomes = await withTransaction(async () => {
 			const refused = await refusedRemove(AMBIENT_REFUSED_ID);
 			const kept = await legitimateUpdate(AMBIENT_OK_ID, 'kept-after-refusal');
@@ -170,18 +199,28 @@ describe('a refused save on a missing record leaves no trace', () => {
 		});
 		expect(outcomes.refused.ok).toBe(false);
 		expect(outcomes.kept.ok).toBe(true);
-		expect(await rowCount(AMBIENT_OK_ID)).toBe(1);
-		expect(await activityRowCount(AMBIENT_OK_ID)).toBe(1);
+		expect(await storedValues(AMBIENT_OK_ID)).toContain('kept-after-refusal');
 	}, 30000);
 
-	test('create-on-first-save still materializes exactly one record', async () => {
-		expect(await rowCount(CREATE_ID)).toBe(0);
-		const outcome = await legitimateUpdate(CREATE_ID, 'materialized-on-save');
-		expect(outcome.ok).toBe(true);
-		expect(await rowCount(CREATE_ID)).toBe(1);
-		expect(Number(await counterValue())).toBeGreaterThanOrEqual(CREATE_ID);
-		expect(await tmRowCount(CREATE_ID)).toBeGreaterThan(0);
-		// The probe the refusal test relies on DOES see a real create's NEW row.
-		expect(await activityRowCount(CREATE_ID)).toBe(1);
+	test("an absent-record refusal does not poison the caller's transaction", async () => {
+		expect(await rowCount(ABSENT_ID)).toBe(0);
+		const counterBefore = await counterValue();
+		const code = await withTransaction(async () => {
+			let refusedCode: string | null = null;
+			try {
+				await legitimateUpdate(ABSENT_ID, 'never-born');
+			} catch (error) {
+				refusedCode = (error as { code?: string }).code ?? null;
+			}
+			const kept = await legitimateUpdate(AMBIENT_OK_ID, 'kept-after-not-found');
+			expect(kept.ok).toBe(true);
+			return refusedCode;
+		});
+		expect(code).toBe('resource.not_found');
+		expect(await rowCount(ABSENT_ID)).toBe(0);
+		expect(await counterValue()).toBe(counterBefore);
+		expect(await tmRowCount(ABSENT_ID)).toBe(0);
+		expect(await activityRowCount(ABSENT_ID)).toBe(0);
+		expect(await storedValues(AMBIENT_OK_ID)).toContain('kept-after-not-found');
 	}, 30000);
 });

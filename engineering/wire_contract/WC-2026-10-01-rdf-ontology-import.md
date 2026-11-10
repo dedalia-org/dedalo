@@ -180,3 +180,13 @@
   `test/unit/rdf_import_execute_native.test.ts`, `test/unit/action_scope_binding_tripwire.test.ts`
   (the READ exemption became a per-write re-authorization exemption: `ddo_map` is ontology,
   not client), client `test_tool_import_rdf.js`.
+
+## Addendum 2026-11-10 — a missing caller is no longer re-created
+
+WC-2026-11-10-save-never-creates: a save never creates a record. The "record the save
+materializes under an op's savepoint (a caller deleted while the tool was open)" above
+no longer happens: the caller's write is refused `resource.not_found` (category
+`not_found`, which `isOpRefusal` does not count as an op refusal), so the whole IRI rolls
+back and reports `error: 'save: record <S>/<N> does not exist — …'` (or `… was deleted —
+restore it from Time Machine`) with nothing written, created, born or logged. Gate:
+`rdf_import_execute_native` ("a caller record that is MISSING is never re-created").

@@ -476,9 +476,10 @@ the caller, the earlier write in the same tx is rolled back, no row / no
 counter row survives a failed create; the converter keeps the sentence
 server-side and has no tx dependency) and
 `test/unit/save_component_failure_native.test.ts` (the same through
-`saveComponentData` on a scratch twin: an allocated item id, a materialised
-row and the audit row all roll back; caller faults are typed and write
-nothing; an anti-vacuity control proves the same insert with a JSON-safe value
+`saveComponentData` on a scratch twin: an allocated item id and the audit
+row roll back; a save to an absent row is refused `resource.not_found` and
+creates nothing (WC-2026-11-10-save-never-creates); caller faults are typed and
+write nothing; an anti-vacuity control proves the same insert with a JSON-safe value
 does move them).
 
 ## 9. Add-a-code checklist

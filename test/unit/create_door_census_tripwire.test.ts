@@ -407,13 +407,6 @@ const CENSUS: Readonly<Record<string, Readonly<Record<string, CensusRow>>>> = {
 		},
 
 		// --- PENDING ------------------------------------------------------------
-		'src/core/section/record/save_component.ts#applySaveComponentData': {
-			verdict: 'pending',
-			reachesPredicate: false,
-			sectionArgs: ['sectionTipo'],
-			reason:
-				'the save-to-missing-row UPSERT: a save addressed to a record id that does not exist creates it at the caller-chosen id, authorized only by the HOST component level (≥ 2) — no create predicate on the section. T0-2 plan §7 neighbour, out of this item.',
-		},
 		'tools/tool_import_files/server/index.ts#importFiles': {
 			verdict: 'pending',
 			reachesPredicate: false,
@@ -498,7 +491,7 @@ const CENSUS: Readonly<Record<string, Readonly<Record<string, CensusRow>>>> = {
 };
 
 /** PINNED. Shrink-only. */
-const PENDING_COUNT = 3;
+const PENDING_COUNT = 2;
 
 /**
  * THE TOOL-ACCESS MINTERS — every caller of `toolAddNewElementAccess` (derived),

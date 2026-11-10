@@ -27,7 +27,7 @@
  *
  * WHAT THIS CHOKEPOINT DOES NOT COVER. Every door that inserts through the
  * engine passes here — the section-list "+", the tree "+", the portal "+",
- * materialize-on-save, both imports, both MCP write tools, portalize. The
+ * both imports, both MCP write tools, portalize. The
  * COPY-based ontology doors do NOT: ontology/data_io_import.ts and
  * ontology/ontology_update.ts stream rows straight into matrix_ontology with
  * `psql`, bypassing the engine entirely. ONT-TLD is enforced for those by
@@ -233,7 +233,7 @@ export interface SectionDefaultsSpec {
  * (getOrderedSubtree is explicitly NOT cached — resolver.ts: "the full-tree
  * consumers cache their derived structures") plus one getModelByTipo per
  * component, on every single record. CSV import, ontology and hierarchy
- * provisioning and the materialize-on-save path all paid it per row. This
+ * provisioning all paid it per row. This
  * cache is this module holding up its end of that contract: measured on oh1
  * (36 components), the walk alone cost 0.65 ms/record and the whole build
  * 3.8 ms; the cached build is 0.14 ms, all of it the per-actor project cascade
