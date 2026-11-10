@@ -6,49 +6,197 @@
 .component_filter_records {
 
 	&.edit {
+		position: relative;
 
+		// documentation link, pinned top-right of the wrapper (label line)
+		>.help_link {
+			position: absolute;
+			top: 0.15rem;
+			right: 0.25rem;
+			width: 1.15rem;
+			height: 1.15rem;
+			background-color: var(--fg_muted);
+			mask: url('../../themes/default/icons/info.svg') no-repeat center / contain;
+			opacity: 0.7;
+
+			&:hover,
+			&:focus-visible {
+				background-color: var(--color_primary);
+				opacity: 1;
+			}
+		}
+
+		// a card with its own surface: the sticky head can then be opaque and match
+		// it whatever tint the active wrapper style paints around it
 		>.content_data {
 			display: grid;
-			grid-template-columns: 1fr 2fr 10fr;
+			grid-template-columns: max-content minmax(10rem, 2fr) 7fr;
+			align-items: stretch;
 			max-height: 30rem;
 			overflow: auto;
+			padding: 0;
+			background-color: var(--bg_surface);
+			border: 1px solid var(--border_default);
+			border-radius: 8px;
+			font-size: 0.92rem;
+
+			// filter + header stick as one block; subgrid keeps the header on the row columns
+			>.sticky_head {
+				grid-column: 1 / -1;
+				display: grid;
+				grid-template-columns: subgrid;
+				position: sticky;
+				top: 0;
+				z-index: 1;
+				background-color: var(--bg_surface);
+
+				>.filter_bar {
+					grid-column: 1 / -1;
+					display: flex;
+					align-items: center;
+					gap: 0.75rem;
+					padding: 0.6rem 0.75rem;
+
+					>.filter_input {
+						flex: 1 1 16rem;
+						max-width: 26rem;
+						padding: 0.4rem 0.7rem 0.4rem 2rem;
+						font-size: 0.9rem;
+						color: var(--fg_default);
+						background: var(--bg_input) var(--search_icon_url) no-repeat left 0.6rem center / 0.9rem;
+						border: 1px solid var(--border_default);
+						border-radius: 6px;
+
+						&:focus {
+							outline: none;
+							border-color: var(--color_primary);
+							box-shadow: 0 0 0 2px color-mix(in srgb, var(--color_primary) 22%, transparent);
+						}
+					}
+
+					>.filter_count {
+						margin-left: auto;
+						color: var(--fg_muted);
+						font-size: 0.82rem;
+						font-variant-numeric: tabular-nums;
+						white-space: nowrap;
+					}
+				}
+
+				>.no_results {
+					grid-column: 1 / -1;
+					padding: 1.5rem 0.75rem;
+					text-align: center;
+					color: var(--fg_muted);
+					font-style: italic;
+				}
+			}
 
 			.header_row {
 				display: contents;
 
 				>.label_item {
-					background-color: @color_grey_5;
-					color: @color_white;
-					padding: 0.333rem;
-					position: sticky;
-					top: -8px;
-					z-index: 1;
+					display: flex;
+					align-items: center;
+					gap: 0.35rem;
+					padding: 0.45rem 0.75rem;
+					background-color: var(--bg_surface_alt);
+					color: var(--fg_muted);
+					font-size: 0.75rem;
+					font-weight: 600;
+					letter-spacing: 0.06em;
+					text-transform: uppercase;
+					white-space: nowrap;
+					border-top: 1px solid var(--border_default);
+					border-bottom: 1px solid var(--border_strong);
+
+					&.sortable {
+						cursor: pointer;
+						user-select: none;
+
+						// sort glyph: themeable via mask (currentColor)
+						&::after {
+							content: '';
+							width: 0.7rem;
+							height: 0.7rem;
+							background-color: currentColor;
+							mask: url('../../themes/default/icons/sort_all.svg') no-repeat center / contain;
+							opacity: 0.35;
+						}
+						&:hover {
+							color: var(--fg_default);
+						}
+						&[data-sort="asc"],
+						&[data-sort="desc"] {
+							color: var(--fg_default);
+
+							&::after { opacity: 1; }
+						}
+						&[data-sort="asc"]::after { mask-image: url('../../themes/default/icons/sort_up.svg'); }
+						&[data-sort="desc"]::after { mask-image: url('../../themes/default/icons/sort_down.svg'); }
+					}
 				}
 			}
 
 			>.content_value {
 				display: contents;
 
-				.label {
-					padding: 0.5rem;
-					height: 100%;
-					border-bottom: 1px solid @color_grey_13;
+				&[hidden] {
+					display: none;
 				}
 
-				.section_tipo {
+				>* {
+					display: flex;
+					align-items: center;
+					min-height: 2.4rem;
+					padding: 0.3rem 0.75rem;
+					border-bottom: 1px solid var(--border_default);
+				}
+
+				// :is() lifts specificity over the input's own row line below
+				&:last-child >:is(*, .input_value) {
+					border-bottom-color: transparent;
+				}
+
+				&:hover >* {
+					background-color: var(--bg_surface_alt);
+				}
+
+				// tipo: mono, single line
+				>:first-child {
+					white-space: nowrap;
+					font-family: Menlo, Monaco, Consolas, 'Courier New', monospace;
+					font-size: 0.82rem;
 					font-weight: 600;
+					color: var(--fg_default);
 				}
 
-				.body_item {
-					padding: 0.5rem;
-					height: 100%;
-					background-color: @color_grey_15;
-					border-bottom: 1px solid @color_grey_13;
+				// ids input: flat until hovered/focused; its bottom border IS the row line
+				>.input_value {
+					width: auto;
+					min-width: 0;
+					margin: 0;
+					color: var(--fg_default);
+					background-color: transparent;
+					border: 1px solid transparent;
+					border-bottom-color: var(--border_default);
+					border-radius: 0;
+					outline: none; // the global input outline drew a column line
+					font-variant-numeric: tabular-nums;
 
-					&.input_value {
-						padding-top: 0.2rem;
-						padding-bottom: 0.2rem;
+					&::placeholder {
+						color: var(--fg_muted);
+						opacity: 0.6;
+					}
+					&:hover {
+						border-color: var(--border_default);
+						background-color: var(--bg_input);
+					}
+					&:focus {
 						outline: none;
+						background-color: var(--bg_input);
+						border-color: var(--color_primary);
+						box-shadow: 0 0 0 2px color-mix(in srgb, var(--color_primary) 22%, transparent);
 					}
 				}
 			}

@@ -99,6 +99,21 @@ view_default_edit_filter_records.render = async function(self, options) {
 		// set pointers
 		wrapper.content_data = content_data
 
+	// help_link. Top-right of the wrapper: opens the component documentation
+	// (how the section list is built)
+		const help_label = get_label.documentation || 'Documentation'
+		const help_link = ui.create_dom_element({
+			element_type	: 'a',
+			class_name		: 'help_link',
+			title			: help_label,
+			parent			: wrapper
+		})
+		help_link.href		= 'https://dedalo.dev/docs/v7/core/components/component_filter_records/'
+		help_link.target	= '_blank'
+		help_link.rel		= 'noopener noreferrer'
+		help_link.setAttribute('aria-label', help_label)
+		help_link.addEventListener('click', (e) => e.stopPropagation())
+
 
 	return wrapper
 }//end render
@@ -147,33 +162,101 @@ const get_content_data = function(self) {
 	// content_data
 		const content_data = ui.component.build_content_data(self)
 
+	// sticky_head: filter + column header, stuck together on top of the scrolling list
+		const sticky_head = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'sticky_head',
+			parent			: content_data
+		})
+
+	// filter_bar. Input hides rows whose tipo/section label do not contain the text
+		const filter_bar = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'filter_bar',
+			parent			: sticky_head
+		})
+		const filter_input = ui.create_dom_element({
+			element_type	: 'input',
+			class_name		: 'filter_input',
+			placeholder		: get_label.filter || 'Filter by tipo or section',
+			parent			: filter_bar
+		})
+		filter_input.type = 'search'
+		filter_input.setAttribute('aria-label', get_label.filter || 'Filter by tipo or section')
+		const filter_count = ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'filter_count',
+			parent			: filter_bar
+		})
+		filter_count.setAttribute('aria-live', 'polite')
+		const apply_filter = () => {
+			const q		= filter_input.value.trim().toLowerCase()
+			const rows	= content_data.querySelectorAll(':scope>.content_value')
+			let shown	= 0
+			for (const row of rows) {
+				row.hidden = q.length>0 && !(row.dataset.search || '').includes(q)
+				if (!row.hidden) shown++
+			}
+			filter_count.textContent = q.length>0 ? `${shown} / ${rows.length}` : String(rows.length)
+			no_results.hidden = shown>0
+		}
+		filter_input.addEventListener('input', apply_filter)
+
 	// header_row
 		const header_row = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'header_row',
-			parent			: content_data
+			parent			: sticky_head
 		})
+		// sort. Reorders the row nodes in place (content_data[i] pointers keep datalist order)
+		const sort = { key : 'tipo', dir : 1 }
+		const apply_sort = () => {
+			const rows = [...content_data.querySelectorAll(':scope>.content_value')]
+			// value is read live (the input changes after render); empty values always sink last
+			const get_key = (row) => sort.key==='value'
+				? (row.querySelector('.input_value')?.value ?? row.children[2]?.textContent ?? '').trim()
+				: (row.dataset[sort.key] || '')
+			rows.sort((a, b) => {
+				const ka = get_key(a), kb = get_key(b)
+				if (!ka !== !kb) return ka ? -1 : 1
+				return sort.dir * ka.localeCompare(kb, undefined, { numeric: true, sensitivity: 'base' })
+			})
+			content_data.append(...rows)
+			for (const node of header_row.querySelectorAll('.sortable')) {
+				node.dataset.sort = node.dataset.key===sort.key
+					? (sort.dir===1 ? 'asc' : 'desc')
+					: ''
+			}
+		}
+		const create_sorter = (key, class_name, text) => {
+			const node = ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'label_item sortable ' + class_name,
+				inner_html		: text,
+				parent			: header_row
+			})
+			node.dataset.key = key
+			node.addEventListener('click', () => {
+				sort.dir = (sort.key===key) ? -sort.dir : 1
+				sort.key = key
+				apply_sort()
+			})
+		}
 		// header_tipo
-		ui.create_dom_element({
-			element_type	: 'span',
-			class_name		: 'label_item tipo',
-			inner_html		: 'tipo',
-			parent			: header_row
-		})
+		create_sorter('tipo', 'tipo', 'tipo')
 		// header_label
-		ui.create_dom_element({
-			element_type	: 'span',
-			class_name		: 'label_item label',
-			inner_html		: get_label.section || 'Section',
-			parent			: header_row
+		create_sorter('label', 'label', get_label.section || 'Section')
+
+	// no_results. Shown by apply_filter when the filter matches nothing
+		const no_results = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'no_results',
+			inner_html		: get_label.no_records || 'No records found',
+			parent			: sticky_head
 		})
+		no_results.hidden = true
 		// header_value
-		ui.create_dom_element({
-			element_type	: 'span',
-			class_name		: 'label_item value',
-			inner_html		: get_label.value || 'Value',
-			parent			: header_row
-		})
+		create_sorter('value', 'value', get_label.value || 'Value')
 
 	// body rows
 	// permissions switch
@@ -218,6 +301,10 @@ const get_content_data = function(self) {
 					content_data[i] = input_element_node
 				}
 		}
+
+	// initial order: tipo asc; initial count
+		apply_sort()
+		apply_filter()
 
 
 	// realocate rendered DOM items
@@ -294,12 +381,13 @@ const get_content_value = (i, datalist_item, self) => {
 
 	// label
 		const label	= datalist_item.label
-		ui.create_dom_element({
+		const label_node = ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'body_item',
 			inner_html		: render_value(label, self.context.render_class),
 			parent			: content_value
 		})
+		set_row_keys(content_value, tipo, label_node.textContent)
 
 	// input field
 		const item					= entries.find(item => item.tipo===tipo)
@@ -380,12 +468,13 @@ const get_content_value_read = (i, current_value, self) => {
 		})
 
 	// label
-		ui.create_dom_element({
+		const label_node = ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'label',
 			inner_html		: render_value(current_value.label, self.context.render_class),
 			parent			: content_value
 		})
+		set_row_keys(content_value, current_value.tipo || '', label_node.textContent)
 
 	// value
 		ui.create_dom_element({
@@ -398,6 +487,23 @@ const get_content_value_read = (i, current_value, self) => {
 
 	return content_value
 }//end get_content_value_read
+
+
+
+/**
+* SET_ROW_KEYS
+* Stamp the sort keys (data-tipo, data-label) and the lowercase filter haystack
+* (data-search) read by the header sorters and the filter input.
+* @param {HTMLElement} row
+* @param {string} tipo
+* @param {string} label - plain text
+* @returns {void}
+*/
+const set_row_keys = (row, tipo, label) => {
+	row.dataset.tipo	= tipo
+	row.dataset.label	= label
+	row.dataset.search	= (tipo + ' ' + label).toLowerCase()
+}//end set_row_keys
 
 
 
