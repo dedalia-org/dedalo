@@ -2788,6 +2788,23 @@ export const ERROR_REGISTRY = {
 		retryable: false,
 		details_keys: ['node'],
 	},
+	'ontology.teardown_refused': {
+		// HIER-REBUILD (WC-2026-11-10-hierarchy-rebuild-ownership): a door that
+		// would erase a TLD's ontology on the strength of a registry row's editable
+		// hierarchy6 — tool_hierarchy force rebuild, the dd_core_api delete of a
+		// hierarchy1/ontology35 record, the deleteOntologyByTld primitive — refused
+		// BEFORE any write. One code, the WHY in `reason` (owner decision D4):
+		// core | not_sole_declarer | root_only | ontology_package | invalid_source.
+		// Conflict: the request is well formed, the stored state forbids it.
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_ontology_teardown_refused',
+		message: 'The ontology of this TLD cannot be deleted or rebuilt from this record',
+		severity: 'warn',
+		disclosure: 'operator',
+		retryable: false,
+		details_keys: ['tld', 'reason'],
+	},
 	'ontology.invalid_node': {
 		category: 'unavailable',
 		status: 503,

@@ -38,10 +38,13 @@ The tool attaches **only** to hierarchy-definition records (tipo `hierarchy1`). 
 | Control | What it does |
 | --- | --- |
 | **Activate / repair** | Converges the record to a usable state, creating only the missing pieces. Safe to run repeatedly. |
-| **Rebuild** (force to create) | Tears down the hierarchy's ontology nodes and rebuilds them from scratch. Use it only when the ordinary repair cannot fix a structurally broken ontology. |
+| **Rebuild** (force to create) | Deletes every ontology definition of the hierarchy and recreates it from scratch. Use it only when the ordinary repair cannot fix a structurally broken ontology. Available only for a hierarchy that owns its ontology — otherwise the option is disabled and the tool says why. |
 
 !!! warning "Rebuild removes the ontology, not your terms"
-    Rebuild deletes the hierarchy's runtime ontology nodes and re-creates them. Your **thesaurus terms are not touched** — the records already filed into the tree survive, and the root is re-linked to them afterwards. Still, prefer the plain **Activate / repair** unless a rebuild is genuinely needed.
+    Rebuild deletes **all** of the hierarchy's ontology definitions — including any own list columns or other custom definitions an older installation carried — and re-creates the standard ones. It happens in one step: if the re-creation fails, nothing is changed. Your **thesaurus terms are not touched** — the records already filed into the tree survive, and the root is re-linked to them afterwards. Still, prefer the plain **Activate / repair** unless a rebuild is genuinely needed.
+
+!!! note "When Rebuild is not available"
+    Rebuild is disabled, with the reason next to the checkbox, when the hierarchy does not own its ontology: a core ontology or an installed ontology package (repair those with an ontology update), a hierarchy that points at an existing defined section instead of its own, a TLD that another hierarchy record also declares, or a record that cannot be provisioned (for example a *Real section tipo* that is not a section). A hierarchy that points at a defined section is never given sections of its own by **Activate / repair** either.
 
 ## Tips and gotchas
 

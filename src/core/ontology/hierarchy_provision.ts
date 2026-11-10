@@ -13,7 +13,10 @@
  * entire write phase inside ONE withTransaction — a mid-sequence throw rolls the
  * whole thing back so a half-built hierarchy is never committed (parity with PHP
  * DBi::transaction). createSectionRecord acquires the per-tipo counter lock inside
- * that tx, so the wrapper is also required for concurrency.
+ * that tx, so the wrapper is also required for concurrency. Joined to a caller's
+ * transaction (the hierarchy rebuild) the write phase is a SAVEPOINT instead, so
+ * a failed provisioning leaves the caller's transaction usable
+ * (withRollbackScope).
  *
  * BYTE PINS (verified against PHP):
  *  - descriptor ontology7 tld item uses lang lg-nolan, like the
@@ -38,7 +41,7 @@
 import { canonicalizeStoredSectionId } from '../concepts/section_id.ts';
 import { readMatrixRecord } from '../db/matrix.ts';
 import { updateMatrixKeyData, updateMatrixRecord } from '../db/matrix_write.ts';
-import { sql, withTransaction } from '../db/postgres.ts';
+import { isInTransaction, sql, withTransaction } from '../db/postgres.ts';
 import { createSectionRecord } from '../section/record/create_record.ts';
 import { setSectionPermissions } from '../security/section_permissions.ts';
 import { clearOntologyDerivedCaches } from './cache_invalidation.ts';
@@ -79,6 +82,27 @@ import { getMatrixTableFromTipo, getModelByTipo } from './resolver.ts';
 import { getSectionIdFromTipo, getTldFromTipo, mapTldToTargetSectionTipo } from './tld.ts';
 
 const MATRIX_ONTOLOGY = 'matrix_ontology';
+
+/**
+ * Run `work` so a throw undoes ONLY its writes and leaves any surrounding
+ * transaction usable. Joined to a caller's transaction, withTransaction opens
+ * nothing of its own: a SQL error caught and reported here would leave the
+ * CALLER's transaction aborted (every later statement 25P02 — the rebuild's
+ * re-inspection surfaced as internal.unexpected). So inside a transaction it
+ * is a SAVEPOINT; outside one, a transaction of its own.
+ */
+async function withRollbackScope<T>(savepoint: string, work: () => Promise<T>): Promise<T> {
+	if (!isInTransaction()) return withTransaction(work);
+	await sql.unsafe(`SAVEPOINT ${savepoint}`, []);
+	try {
+		const result = await work();
+		await sql.unsafe(`RELEASE SAVEPOINT ${savepoint}`, []);
+		return result;
+	} catch (error) {
+		await sql.unsafe(`ROLLBACK TO SAVEPOINT ${savepoint}`, []);
+		throw error;
+	}
+}
 
 export interface GenerateVirtualSectionOptions {
 	section_id: number;
@@ -235,9 +259,10 @@ export async function generateVirtualSection(
 		)
 		.map((item) => ({ id: item.id ?? 1, lang: item.lang, value: String(item.value ?? '') }));
 
-	// --- write phase, ONE transaction (rollback on any throw) ---
+	// --- write phase, ONE transaction or savepoint (rollback on any throw) ---
 	try {
-		await withTransaction(async () => {
+		await withRollbackScope('hierarchy_provision', async () => {
+			await lockProvisioningRows(table, sectionTipo, sectionId, tld2);
 			await provisionVirtualSections({
 				tld2,
 				typologyId,
@@ -267,6 +292,31 @@ export async function generateVirtualSection(
 	response.msg =
 		response.errors.length === 0 ? 'Request done successfully' : 'Request done with errors';
 	return response;
+}
+
+/**
+ * THE ONE LOCK ORDER of every door that writes a hierarchy's ontology
+ * (HIER-REBUILD): the registry row FOR UPDATE, then the tld's ontology35 row,
+ * THEN the projection lock (taken by the node writes below). The rebuild
+ * (hierarchy_state.ts lockAndAdmitRebuild) takes the same order; provisioning
+ * used to take the projection lock first and UPDATE the registry row last
+ * (the hierarchy53/58 write-back) — the reverse, a deadlock with a rebuild.
+ */
+async function lockProvisioningRows(
+	table: string,
+	sectionTipo: string,
+	sectionId: number,
+	tld: string,
+): Promise<void> {
+	await sql.unsafe(
+		`SELECT section_id FROM "${table}" WHERE section_tipo = $1 AND section_id = $2 FOR UPDATE`,
+		[sectionTipo, sectionId],
+	);
+	await sql.unsafe(
+		`SELECT section_id FROM "matrix_ontology_main"
+		 WHERE section_tipo = 'ontology35' AND string @> $1::text::jsonb ORDER BY section_id FOR UPDATE`,
+		[JSON.stringify({ hierarchy6: [{ value: tld }] })],
+	);
 }
 
 interface ProvisionArgs {
@@ -450,11 +500,15 @@ async function provisionVirtualSections(args: ProvisionArgs): Promise<void> {
 	// error is collected and we continue. A THROW would roll back the whole
 	// transaction, hence the catch.
 	try {
-		const granted = await setSectionPermissions({
-			sectionTipos: [`${tld2}1`, `${tld2}2`],
-			userId,
-			permissions: 2,
-		});
+		// Under its own SAVEPOINT: a SQL error inside the grant must not abort the
+		// provisioning transaction it is reported non-fatal in.
+		const granted = await withRollbackScope('hierarchy_provision_grant', () =>
+			setSectionPermissions({
+				sectionTipos: [`${tld2}1`, `${tld2}2`],
+				userId,
+				permissions: 2,
+			}),
+		);
 		if (granted.ok !== true) {
 			response.errors.push(`Error setting permissions for current user: ${granted.error}`);
 		}

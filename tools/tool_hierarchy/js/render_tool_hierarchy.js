@@ -314,10 +314,13 @@ const get_content_data = async function(self) {
 				// the teardown removes the dd_ontology nodes and the '<tld>0' node records,
 				// never the '<tld>1' thesaurus records — so that is spelled out too, because
 				// an operator who fears for 69,000 terms will never press the button.
+				// REBUILD is FROM SCRATCH (owner decision D10): every ontology definition of the
+				// hierarchy — own list columns and other custom nodes included — is deleted and
+				// re-provisioned; the confirmation says so before anything is sent.
 					const rebuild = check_force_to_create.checked
 					const confirm_msg = rebuild
 						? (self.get_tool_label('confirm_rebuild')
-							|| 'REBUILD: the ontology of this hierarchy will be deleted and re-created.\n\nThe thesaurus TERMS are NOT deleted.\n\nContinue?')
+							|| 'REBUILD FROM SCRATCH: every ontology definition of this hierarchy (all its nodes, including any own list columns or other custom definitions, and its ontology record) will be deleted and created again.\n\nThe thesaurus TERMS are NOT deleted.\n\nContinue?')
 						: (self.get_tool_label('confirm_activate')
 							|| 'Activate / repair this hierarchy?\n\nOnly what is missing will be created. Nothing is deleted.')
 					if (!confirm(confirm_msg)) {
@@ -371,6 +374,15 @@ const get_content_data = async function(self) {
 						console.error('generate_virtual_section failed:', api_response.error)
 						messages_container.classList.add('error')
 						await handle_api_error(api_response.error, {wrapper: messages_container})
+
+						// reason — the teardown refusal's TOP-LEVEL extension key
+						// (ontology.teardown_refused, hierarchy_state.ts rebuildHierarchy): the
+						// server just said "Force to create" may not run here, so the control
+						// follows it without a second round-trip.
+							if (api_response.error?.code==='ontology.teardown_refused' && api_response.reason) {
+								self.rebuild_policy = {allowed: false, reason: api_response.reason}
+								paint_rebuild_policy(self)
+							}
 
 						// errors — a NAMED extension key on the FAILURE envelope, at its TOP
 						// level, beside `state` (ERRORS_SPEC §3.0; thrown as DedaloError
@@ -495,8 +507,10 @@ const get_content_data = async function(self) {
 			)
 
 		// check box: REBUILD (the destructive variant of the same button)
-		// Checked → the server tears the tld's ONTOLOGY down (dd_ontology nodes, the
-		// ontology_main row, the '<tld>0' node records) and re-provisions it. The
+		// Checked → the server deletes the tld's ONTOLOGY FROM SCRATCH (every dd_ontology
+		// node, the ontology_main row, every '<tld>0' node record) and re-provisions it —
+		// only for a hierarchy that owns its provisioned ontology; otherwise the control
+		// is disabled with the server's reason (paint_rebuild_policy). The
 		// thesaurus TERMS in '<tld>1' are NOT touched — the old label ("existing
 		// thesaurus data may be lost") was wrong about that, and being wrong in the
 		// scary direction meant nobody dared use the one control that fixes a broken
@@ -512,6 +526,14 @@ const get_content_data = async function(self) {
 				type			: 'checkbox',
 				parent			: label_field_check_box
 			})
+			// the server's verdict on "Force to create" (inspect_hierarchy `rebuild`) may
+			// arrive before or after this point: keep the control, and paint whichever
+			// verdict is already known
+			self.force_to_create_control = {
+				label		: label_field_check_box,
+				checkbox	: check_force_to_create
+			}
+			paint_rebuild_policy(self)
 
 	// messages_container
 	// Created after the buttons but declared at function scope so the click_handler
@@ -600,6 +622,61 @@ export const paint_status = function(self, container, state) {
 
 
 /**
+* PAINT_REBUILD_POLICY
+* Disables "Force to create" when the server says it may not run on this hierarchy, and
+* says WHY next to it.
+*
+* The verdict is the server's (inspect_hierarchy `rebuild` = {allowed, reason}, from
+* hierarchy_state.ts classifyHierarchyRebuild — the same check the write door enforces):
+* only a hierarchy that OWNS its provisioned ontology may be deleted and recreated. The
+* reason is one of core | not_sole_declarer | root_only | ontology_package |
+* invalid_source, each with its own tool label (`rebuild_refused_<reason>`).
+* Pure DOM over `self.rebuild_policy` + `self.force_to_create_control`; a no-op until
+* both exist. All text goes through text_content.
+*
+* @param {Object} self - the tool instance
+* @return {void}
+*/
+export const paint_rebuild_policy = function(self) {
+
+	const control	= self.force_to_create_control
+	const policy	= self.rebuild_policy
+	if (!control || !policy) {
+		return
+	}
+
+	const refused = policy.allowed===false
+	control.checkbox.disabled = refused
+	if (refused) {
+		control.checkbox.checked = false
+	}
+	control.label.classList.toggle('disabled', refused)
+
+	// one note, replaced on every paint
+	const previous = control.label.parentNode?.querySelector(':scope > .rebuild_refused')
+	if (previous) {
+		previous.remove()
+	}
+	if (!refused) {
+		control.label.removeAttribute('title')
+		return
+	}
+	const note_text = self.get_tool_label('rebuild_refused_' + policy.reason)
+		|| ('Force to create is not available for this hierarchy (' + String(policy.reason) + ')')
+	control.label.title = note_text
+	if (control.label.parentNode) {
+		ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'rebuild_refused',
+			text_content	: note_text,
+			parent			: control.label.parentNode
+		})
+	}
+}//end paint_rebuild_policy
+
+
+
+/**
 * RENDER_STATUS_PANEL
 * Fetches the hierarchy state and paints it. Fire-and-forget from the render path: the
 * panel appears as soon as the server answers, and a failure to fetch leaves a readable
@@ -619,6 +696,12 @@ export const render_status_panel = async function(self, container) {
 		// (tools/tool_hierarchy/server/tool_hierarchy.ts:68), so it is read through
 		// the ONE accessor, not off the envelope's top level.
 		const state = response_data(api_response)?.state
+		// "Force to create" verdict (inspect_hierarchy `rebuild`, HIER-REBUILD)
+		const rebuild = response_data(api_response)?.rebuild
+		if (rebuild) {
+			self.rebuild_policy = rebuild
+			paint_rebuild_policy(self)
+		}
 		if (state) {
 			paint_status(self, container, state)
 			return

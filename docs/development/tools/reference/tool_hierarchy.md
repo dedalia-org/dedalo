@@ -38,8 +38,8 @@ Root terms are **resolved or created, never assumed at a fixed id**: if the loca
 
 **Server** (`tools/tool_hierarchy/server/{index,tool_hierarchy}.ts`). Two API actions:
 
-- `inspect_hierarchy` — **read**, `permission: 'targets', minLevel: 1` over `hierarchy1/<section_id>`. Returns the checklist. The client calls it when the tool opens.
-- `generate_virtual_section` — **write**, `permission: 'targets', minLevel: 2` over `hierarchy1/<section_id>` — the record the core writer is pinned to, never the `section_tipo` the client sends (which the writer ignores). Converges the record (`ensureHierarchy`); with `force_to_create`, tears the TLD's ontology down first and rebuilds it (`rebuildHierarchy`). The action name is kept because it is wire contract; the semantics are "make this hierarchy consistent", which is what pressing the button always meant.
+- `inspect_hierarchy` — **read**, `permission: 'targets', minLevel: 1` over `hierarchy1/<section_id>`. Returns the checklist (`state`) and `rebuild: {allowed, reason}` — whether *Force to create* may run here. The client calls it when the tool opens and disables the checkbox, with the `rebuild_refused_<reason>` label, when it may not.
+- `generate_virtual_section` — **write**, `permission: 'targets', minLevel: 2` over `hierarchy1/<section_id>` — the record the core writer is pinned to, never the `section_tipo` the client sends (which the writer ignores). Converges the record (`ensureHierarchy`); with `force_to_create`, deletes the TLD's ontology from scratch and re-provisions it (`rebuildHierarchy`) — only for a hierarchy that OWNS its provisioned ontology (`classifyHierarchyRebuild`); any other is refused `ontology.teardown_refused` with a `reason` before anything is written. The action name is kept because it is wire contract; the semantics are "make this hierarchy consistent", which is what pressing the button always meant.
 
 The handler sequences nothing itself. The invariant, and every write that establishes it, lives in `src/core/ontology/hierarchy_state.ts` — one writer, guarded by `test/unit/hierarchy_single_writer_tripwire.test.ts`. Afterwards the ontology-derived caches are invalidated (`clearOntologyDerivedCaches`) so the menu and the tree pick the hierarchy up.
 
@@ -58,12 +58,15 @@ The write response carries the fresh `state`, so the panel repaints from what ac
 | --- | --- | --- | --- |
 | `section_id` | int | yes | the hierarchy-definition record (the caller record) |
 | `section_tipo` | string | yes | that record's section — must be `hierarchy1`; any other value is refused as an unusable target. The gate is asserted on `hierarchy1` itself, not on this value |
-| `force_to_create` | bool | no (default `false`) | **Rebuild**: tear the TLD's ontology down (its `dd_ontology` nodes, its ontology-main row and its `<tld>0` node records) and re-provision. The `<tld>1` **terms are not touched** |
+| `force_to_create` | bool | no (default `false`) | **Rebuild from scratch**: delete every `dd_ontology` node of the TLD, its ontology-main row and every `<tld>0` node record (extras included), then re-provision `<tld>0/1/2` — in one transaction, after the ownership check. The `<tld>1` **terms are not touched** |
 
 Response: `{ result, msg, errors[], state, applied[] }`, where `state` is `{section_id, tld, typology, usable, checks: [{id, label, ok, detail}]}`.
 
 !!! warning "Rebuild deletes the ontology, not the terms"
     The old label ("existing thesaurus data may be lost") was wrong, and being wrong in the scary direction meant nobody used the one control that fixes a broken ontology. A rebuild removes the TLD's ontology nodes and node records and re-creates them; the thesaurus records in `<tld>1` survive, and the root is re-linked to them afterwards.
+
+!!! danger "Rebuild only for an owned hierarchy"
+    The TLD comes from the record's editable `hierarchy6`, so the rebuild never trusts it alone. It runs only when the TLD is not core (nor the suite's `test`), this record is the only `hierarchy1` record declaring it, `hierarchy53` is unset or the record's own `<tld>1`/`<tld>2`, the stored `<tld>1`/`<tld>2` are absent or virtual sections of one real section outside the TLD, every other node of the TLD hangs under `<tld>1`/`<tld>2`, each `<tld>0` record has its node and each node its record, an absent shape holds no `<tld>0` record and no ontology-main row, and provisioning can succeed. Otherwise the answer is `ontology.teardown_refused` (409) with `reason` = `core`, `not_sole_declarer`, `root_only`, `ontology_package` or `invalid_source`, and nothing is written. Any failure after that check — a re-provisioning that does not end usable, or a database error in the teardown or the provisioning — rolls everything back and answers `ok:false` with the state as it stands after the rollback.
 
 ## How it is registered & surfaced
 
@@ -72,7 +75,7 @@ Response: `{ result, msg, errors[], state, applied[] }`, where `state` is `{sect
 - `dd1326` name = `tool_hierarchy`; `dd799` label ("Hierarchy tool").
 - `dd1350` affected_tipos = `["hierarchy1"]` → the tool attaches **only** to hierarchy-definition records.
 - `dd1335` properties = `{ "mode": "edit" }` → it opens in edit mode, so the definition can be completed inline before converging.
-- `dd1372` labels supply the localized strings. The panel and the confirmations fall back to English when a label is absent, so the tool works before the labels are translated: `status_ready`, `status_incomplete`, `status_unavailable`, `confirm_activate`, `confirm_rebuild`, `generate`, `force_to_create`.
+- `dd1372` labels supply the localized strings. The panel and the confirmations fall back to English when a label is absent, so the tool works before the labels are translated: `status_ready`, `status_incomplete`, `status_unavailable`, `confirm_activate`, `confirm_rebuild`, `generate`, `force_to_create`, and one `rebuild_refused_<reason>` per refusal reason.
 
 Surfacing (`getElementTools`, `src/core/tools/registry.ts`): restricted by `affected_tipos` to `hierarchy1`, the tool appears only on hierarchy-definition records.
 
@@ -127,4 +130,4 @@ A refusal — the tool does **not** paper over an operator error:
 - [Installing new hierarchies](../../../management/install_new_hierarchies.md) — the panel imports **and activates** the hierarchies you tick; this tool is how you activate one afterwards.
 - [tool_cataloging](tool_cataloging.md) — the natural follow-up: drag real records into the hierarchy this tool builds.
 - [Creating new tools](../creating_tools.md) · [Server contract](../server_contract.md).
-- Source: `tools/tool_hierarchy/server/{index,tool_hierarchy}.ts`, `tools/tool_hierarchy/js/{tool_hierarchy,render_tool_hierarchy}.js`; core: `src/core/ontology/hierarchy_state.ts` (`inspectHierarchy`, `ensureHierarchy`, `rebuildHierarchy`), `src/core/ontology/hierarchy_provision.ts` (`generateVirtualSection`), `src/core/ontology/ontology_delete.ts` (`deleteOntologyByTld`).
+- Source: `tools/tool_hierarchy/server/{index,tool_hierarchy}.ts`, `tools/tool_hierarchy/js/{tool_hierarchy,render_tool_hierarchy}.js`; core: `src/core/ontology/hierarchy_state.ts` (`inspectHierarchy`, `ensureHierarchy`, `rebuildHierarchy`), `src/core/ontology/hierarchy_provision.ts` (`generateVirtualSection`), `src/core/ontology/ontology_delete.ts` (`deleteOwnedHierarchyOntology`), `src/core/ontology/teardown_scope.ts` (the refusal and the sole-declarer scan).

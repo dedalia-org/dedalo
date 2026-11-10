@@ -126,6 +126,30 @@ Merged since the last release; these ship with the next one.
 
 ### For administrators
 
+#### Security
+
+- **The Hierarchy tool's "Force to create" only rebuilds a hierarchy's own ontology, and deleting a hierarchy record no longer uninstalls an ontology it does not own.**
+
+    Before, "Force to create" deleted every ontology definition of whatever TLD the hierarchy
+    record named — a core ontology, an installed ontology package or another hierarchy's TLD
+    included — and deleted it before checking that it could be recreated. Deleting a hierarchy
+    record did the same, even while another record still declared that TLD.
+
+    Now "Force to create" runs only for a hierarchy that owns its provisioned ontology (it is the
+    only record declaring the TLD, and the TLD holds the virtual sections that hierarchy created).
+    It deletes those definitions from scratch — own list columns or other custom definitions
+    included — and recreates them in one step: if the recreation fails, nothing is changed. The
+    thesaurus terms are never deleted. For any other hierarchy the option is disabled and the tool
+    says why: a core ontology or an installed package (repair it with an ontology update), a
+    hierarchy that points at a defined section, a duplicated TLD, or a record that cannot be
+    provisioned (for example a "Real section tipo" that is not a section). Deleting a hierarchy
+    record that declares a core TLD, or a TLD another record also declares, is refused. Activating
+    a hierarchy that points at a defined section no longer creates sections of its own; when no
+    model section is declared for it, it has no model root, and that is no longer reported as
+    an error.
+
+    Wire contract: `WC-2026-11-10-hierarchy-rebuild-ownership`.
+
 #### Fixed
 
 - **Saving a field of a record that does not exist (or was deleted) is refused instead of creating the record.**
@@ -146,7 +170,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 7 entries"
+??? note "Wire contract — 8 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -154,6 +178,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-09-implicit-children-frontier-predicate`
     - `WC-2026-11-09-start-deep-link-found-set-position`
     - `WC-2026-11-10-add-new-element-create-gate`
+    - `WC-2026-11-10-hierarchy-rebuild-ownership`
     - `WC-2026-11-10-save-never-creates`
 
 ## 7.0.0-beta.8 — 2026-11-08

@@ -1264,9 +1264,8 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		// records — PHP ontology::delete_main, fired before the record
 		// delete). Global-admin only, matching the structural blast radius.
 		{
-			const { ONTOLOGY_MAIN_SECTIONS, deleteOntologyMain } = await import(
-				'../../ontology/ontology_delete.ts'
-			);
+			const { ONTOLOGY_MAIN_SECTIONS, assertRegistryCascadeAllowed, deleteOntologyMain } =
+				await import('../../ontology/ontology_delete.ts');
 			if (ONTOLOGY_MAIN_SECTIONS.has(sectionTipo) && deleteMode === 'delete_record') {
 				if (!principal.isGlobalAdmin) {
 					throw new DedaloError('perm.denied', {
@@ -1277,6 +1276,13 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				const { deleteSectionRecord: cascadeDelete } = await import(
 					'../../section/record/delete_record.ts'
 				);
+				// HIER-REBUILD: every target's cascade is admitted BEFORE the first
+				// one runs (a protected TLD, or a TLD another registry record still
+				// declares → ontology.teardown_refused), so a multi-delete refuses
+				// whole instead of half-uninstalling (WC-2026-11-10-hierarchy-rebuild-ownership).
+				for (const targetId of targets) {
+					await assertRegistryCascadeAllowed(sectionTipo, targetId);
+				}
 				// Int addresses, matching the plain-delete echo below
 				// (WC-2026-08-10-section-id-int-canonical — String() minting repealed).
 				const cascaded: number[] = [];

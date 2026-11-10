@@ -1002,17 +1002,24 @@ describe('F2 — the hierarchy invariant’s root term: system only in its OWN p
 		await seedHierarchy(termsTarget);
 		const observed = await observe(termsTarget, () => ensureHierarchy(HIER_ID, userId));
 		const outcome = observed.answer.value as { ok: boolean; errors: string[] } | undefined;
-		// The OWN provisioned model section (hierarchy58 unset → zzcgh2) — the legit mint.
-		const ownModelRoots = (await rowIds(`${HIER_TLD}2`)).size;
+		// HIER-REBUILD D7 (owner, 2026-11-10): a row whose hierarchy53 is steered at a
+		// section OUTSIDE its own `<tld>1`/`<tld>2` is ROOT-ONLY (case 2) — ensure never
+		// provisions `<tld>0/1/2` for it. Measured as the tld's dd_ontology node count
+		// (there is no `<tld>2` table to read when nothing was provisioned).
+		const ownNodes = (
+			(await sql.unsafe('SELECT count(*)::int AS n FROM dd_ontology WHERE tld = $1', [
+				HIER_TLD,
+			])) as { n: number }[]
+		)[0]?.n;
 		const termRoot = await rootOf('hierarchy45');
 		const modelRoot = await rootOf('hierarchy59');
 		await sweepHierarchy();
-		return { observed, outcome, ownModelRoots, termRoot, modelRoot };
+		return { observed, outcome, ownNodes, termRoot, modelRoot };
 	}
 
 	afterAll(sweepHierarchy);
 
-	test('STEERED to test38 (empty, no button_new) as the SUPERUSER → refused, nothing created; the own model root is still minted', async () => {
+	test('STEERED to test38 (empty, no button_new) as the SUPERUSER → refused, nothing created; root-only (HIER-REBUILD D7): no own <tld>0/1/2 provisioned', async () => {
 		const run = await ensureAs(ROOT, AUTHZ_NO_BUTTON_SECTION);
 		expect(run.observed.answer.code).toBeNull();
 		expect(run.outcome?.ok).toBe(false);
@@ -1025,9 +1032,9 @@ describe('F2 — the hierarchy invariant’s root term: system only in its OWN p
 		});
 		expect(run.termRoot?.section_tipo).not.toBe(AUTHZ_NO_BUTTON_SECTION);
 		markCreateDoorDriven('hierarchy:declared_root_term', 'refused');
-		// The legit half of the same activation: the system mint in its OWN section.
-		expect(run.ownModelRoots).toBe(1);
-		expect(run.modelRoot?.section_tipo).toBe(`${HIER_TLD}2`);
+		// D7: steered elsewhere = root-only — no own `<tld>0/1/2`, so no system mint either.
+		expect(run.ownNodes).toBe(0);
+		expect(run.modelRoot).toBeNull();
 	}, 120_000);
 
 	test('STEERED to test1020 (a foreign thesaurus) as PORTAL_EDITOR (no hierarchy38 grant) → refused, nothing created', async () => {
@@ -1037,16 +1044,20 @@ describe('F2 — the hierarchy invariant’s root term: system only in its OWN p
 			`may not create a root in ${FOREIGN_THESAURUS}`,
 		);
 		expect(run.observed.created.length).toBe(0);
-		expect(run.ownModelRoots).toBe(1);
+		expect(run.ownNodes).toBe(0);
 	}, 120_000);
 
 	test('CONTROL: DECLARED test1020 as the SUPERUSER (hierarchy38 at 3) → its root is created there', async () => {
 		const run = await ensureAs(ROOT, FOREIGN_THESAURUS);
+		// HIER-REBUILD C1: a root-only row with hierarchy58 UNSET has NO model root —
+		// not an error; the term root alone makes it usable.
 		expect(run.outcome?.errors ?? []).toEqual([]);
+		expect(run.outcome?.ok).toBe(true);
+		expect(run.modelRoot).toBeNull();
 		expect(run.observed.created.length).toBe(1);
 		expect(run.termRoot?.section_tipo).toBe(FOREIGN_THESAURUS);
 		markCreateDoorDriven('hierarchy:declared_root_term', 'created');
-		expect(run.ownModelRoots).toBe(1);
+		expect(run.ownNodes).toBe(0);
 	}, 120_000);
 
 	// S1 — the two registry literals isOwnProvisionedSection used to trust.

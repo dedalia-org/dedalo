@@ -165,6 +165,15 @@ the keys the client already reads by name (PHP parity). Rules:
   (`client/dedalo/core/common/js/api_error.js`); the two failure readers read
   `api_response.errors` by name on the failure branch, deliberately. The
   converter writes neither (§3.1);
+- `reason` is a FAILURE extension key of `ontology.teardown_refused` (every
+  door that refuses an ontology teardown: `tool_hierarchy` force rebuild,
+  `dd_core_api` delete of a registry record): the throw's
+  `extend:{reason, state?}` — `reason` ∈ {`core`, `not_sole_declarer`,
+  `root_only`, `ontology_package`, `invalid_source`}, `state` the hierarchy
+  checklist (tool_hierarchy only, beside its `{state, errors}`). The
+  tool_hierarchy client reads `api_response.reason` by name on the failure
+  branch to name WHY "Force to create" is unavailable
+  (WC-2026-11-10-hierarchy-rebuild-ownership);
 - `result` is FORBIDDEN as a top-level name on both shapes
   (`ENVELOPE_FORBIDDEN_KEYS = ['result']`, a `superRefine` on both schemas):
   it was the compat mirror of `data` (§3.1) and a body carrying it is a

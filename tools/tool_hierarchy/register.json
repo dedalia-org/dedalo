@@ -622,52 +622,52 @@
           {
             "lang": "lg-eng",
             "name": "confirm_rebuild",
-            "value": "REBUILD: the ontology of this hierarchy will be deleted and re-created.\n\nThe thesaurus TERMS are NOT deleted.\n\nContinue?"
+            "value": "REBUILD FROM SCRATCH: every ontology definition of this hierarchy (all its nodes, including any own list columns or other custom definitions, and its ontology record) will be deleted and created again.\n\nThe thesaurus TERMS are NOT deleted.\n\nContinue?"
           },
           {
             "lang": "lg-spa",
             "name": "confirm_rebuild",
-            "value": "RECONSTRUIR: la ontología de esta jerarquía se borrará y se volverá a crear.\n\nLos TÉRMINOS del tesauro NO se borran.\n\n¿Continuar?"
+            "value": "RECONSTRUIR DESDE CERO: todas las definiciones de ontología de esta jerarquía (todos sus nodos, incluidas las columnas de listado propias u otras definiciones personalizadas, y su registro de ontología) se borrarán y se volverán a crear.\n\nLos TÉRMINOS del tesauro NO se borran.\n\n¿Continuar?"
           },
           {
             "lang": "lg-cat",
             "name": "confirm_rebuild",
-            "value": "RECONSTRUIR: l'ontologia d'aquesta jerarquia s'esborrarà i es tornarà a crear.\n\nEls TERMES del tesaurus NO s'esborren.\n\nContinuar?"
+            "value": "RECONSTRUIR DES DE ZERO: totes les definicions d'ontologia d'aquesta jerarquia (tots els seus nodes, incloses les columnes de llistat pròpies o altres definicions personalitzades, i el seu registre d'ontologia) s'esborraran i es tornaran a crear.\n\nEls TERMES del tesaurus NO s'esborren.\n\nContinuar?"
           },
           {
             "lang": "lg-eus",
             "name": "confirm_rebuild",
-            "value": "BERRERAIKI: hierarkia honen ontologia ezabatu eta berriro sortuko da.\n\nTesauroaren TERMINOAK EZ dira ezabatzen.\n\nJarraitu?"
+            "value": "HUTSETIK BERRERAIKI: hierarkia honen ontologia-definizio guztiak (bere nodo guztiak, zerrenda-zutabe propioak edo beste definizio pertsonalizatu batzuk barne, eta bere ontologia-erregistroa) ezabatu eta berriro sortuko dira.\n\nTesauroaren TERMINOAK EZ dira ezabatzen.\n\nJarraitu?"
           },
           {
             "lang": "lg-fra",
             "name": "confirm_rebuild",
-            "value": "RECONSTRUIRE : l'ontologie de cette hiérarchie sera supprimée et recréée.\n\nLes TERMES du thésaurus ne sont PAS supprimés.\n\nContinuer ?"
+            "value": "RECONSTRUIRE À PARTIR DE ZÉRO : toutes les définitions d'ontologie de cette hiérarchie (tous ses nœuds, y compris les colonnes de liste propres ou d'autres définitions personnalisées, et son enregistrement d'ontologie) seront supprimées et recréées.\n\nLes TERMES du thésaurus ne sont PAS supprimés.\n\nContinuer ?"
           },
           {
             "lang": "lg-por",
             "name": "confirm_rebuild",
-            "value": "RECONSTRUIR: a ontologia desta hierarquia será eliminada e recriada.\n\nOs TERMOS do tesauro NÃO são eliminados.\n\nContinuar?"
+            "value": "RECONSTRUIR DO ZERO: todas as definições de ontologia desta hierarquia (todos os seus nós, incluindo colunas de listagem próprias ou outras definições personalizadas, e o seu registo de ontologia) serão eliminadas e criadas de novo.\n\nOs TERMOS do tesauro NÃO são eliminados.\n\nContinuar?"
           },
           {
             "lang": "lg-deu",
             "name": "confirm_rebuild",
-            "value": "NEU AUFBAUEN: Die Ontologie dieser Hierarchie wird gelöscht und neu erstellt.\n\nDie BEGRIFFE des Thesaurus werden NICHT gelöscht.\n\nFortfahren?"
+            "value": "VON GRUND AUF NEU AUFBAUEN: Alle Ontologie-Definitionen dieser Hierarchie (alle ihre Knoten, einschließlich eigener Listenspalten oder anderer benutzerdefinierter Definitionen, und ihr Ontologie-Datensatz) werden gelöscht und neu erstellt.\n\nDie BEGRIFFE des Thesaurus werden NICHT gelöscht.\n\nFortfahren?"
           },
           {
             "lang": "lg-ita",
             "name": "confirm_rebuild",
-            "value": "RICOSTRUISCI: l'ontologia di questa gerarchia verrà eliminata e ricreata.\n\nI TERMINI del thesaurus NON vengono eliminati.\n\nContinuare?"
+            "value": "RICOSTRUISCI DA ZERO: tutte le definizioni di ontologia di questa gerarchia (tutti i suoi nodi, comprese le colonne di elenco proprie o altre definizioni personalizzate, e il suo record di ontologia) verranno eliminate e ricreate.\n\nI TERMINI del thesaurus NON vengono eliminati.\n\nContinuare?"
           },
           {
             "lang": "lg-ell",
             "name": "confirm_rebuild",
-            "value": "ΑΝΑΔΟΜΗΣΗ: η οντολογία αυτής της ιεραρχίας θα διαγραφεί και θα δημιουργηθεί ξανά.\n\nΟι ΟΡΟΙ του θησαυρού ΔΕΝ διαγράφονται.\n\nΣυνέχεια;"
+            "value": "ΑΝΑΔΟΜΗΣΗ ΑΠΟ ΤΟ ΜΗΔΕΝ: όλοι οι ορισμοί οντολογίας αυτής της ιεραρχίας (όλοι οι κόμβοι της, συμπεριλαμβανομένων των δικών της στηλών λίστας ή άλλων προσαρμοσμένων ορισμών, και η εγγραφή οντολογίας της) θα διαγραφούν και θα δημιουργηθούν ξανά.\n\nΟι ΟΡΟΙ του θησαυρού ΔΕΝ διαγράφονται.\n\nΣυνέχεια;"
           },
           {
             "lang": "lg-nep",
             "name": "confirm_rebuild",
-            "value": "पुनर्निर्माण: यो पदानुक्रमको ओन्टोलोजी मेटाएर पुनः सिर्जना गरिनेछ।\n\nथिसौरसका शब्दहरू मेटिँदैनन्।\n\nजारी राख्ने?"
+            "value": "सुरुदेखि पुनर्निर्माण: यस पदानुक्रमका सबै ओन्टोलोजी परिभाषाहरू (यसका सबै नोडहरू, आफ्नै सूची स्तम्भहरू वा अन्य अनुकूलित परिभाषाहरू सहित, र यसको ओन्टोलोजी रेकर्ड) मेटाएर पुनः सिर्जना गरिनेछ।\n\nथिसौरसका शब्दहरू मेटिँदैनन्।\n\nजारी राख्ने?"
           },
           {
             "lang": "lg-eng",
@@ -818,6 +818,256 @@
             "lang": "lg-nep",
             "name": "status_unavailable",
             "value": "पदानुक्रम स्थिति उपलब्ध छैन"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "rebuild_refused_core",
+            "value": "Force to create is not available: this is a core ontology. Repair it with an ontology update."
+          },
+          {
+            "lang": "lg-spa",
+            "name": "rebuild_refused_core",
+            "value": "Forzar a crear no está disponible: es una ontología del núcleo. Repárela con una actualización de ontología."
+          },
+          {
+            "lang": "lg-cat",
+            "name": "rebuild_refused_core",
+            "value": "Forçar a crear no està disponible: és una ontologia del nucli. Repareu-la amb una actualització d'ontologia."
+          },
+          {
+            "lang": "lg-eus",
+            "name": "rebuild_refused_core",
+            "value": "Sortzera behartu ez dago erabilgarri: muineko ontologia da. Konpondu ontologia-eguneraketa batekin."
+          },
+          {
+            "lang": "lg-fra",
+            "name": "rebuild_refused_core",
+            "value": "Forcer la création n'est pas disponible : c'est une ontologie du noyau. Réparez-la avec une mise à jour d'ontologie."
+          },
+          {
+            "lang": "lg-por",
+            "name": "rebuild_refused_core",
+            "value": "Forçar a criação não está disponível: é uma ontologia do núcleo. Repare-a com uma atualização de ontologia."
+          },
+          {
+            "lang": "lg-deu",
+            "name": "rebuild_refused_core",
+            "value": "Erstellen erzwingen ist nicht verfügbar: Dies ist eine Kern-Ontologie. Reparieren Sie sie mit einer Ontologie-Aktualisierung."
+          },
+          {
+            "lang": "lg-ita",
+            "name": "rebuild_refused_core",
+            "value": "Forza creazione non è disponibile: è un'ontologia del nucleo. Riparala con un aggiornamento dell'ontologia."
+          },
+          {
+            "lang": "lg-ell",
+            "name": "rebuild_refused_core",
+            "value": "Η αναγκαστική δημιουργία δεν είναι διαθέσιμη: πρόκειται για βασική οντολογία. Επιδιορθώστε την με ενημέρωση οντολογίας."
+          },
+          {
+            "lang": "lg-nep",
+            "name": "rebuild_refused_core",
+            "value": "सिर्जना गर्न बाध्य पार्ने उपलब्ध छैन: यो मूल ओन्टोलोजी हो। ओन्टोलोजी अद्यावधिकद्वारा यसलाई मर्मत गर्नुहोस्।"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "rebuild_refused_not_sole_declarer",
+            "value": "Force to create is not available: another hierarchy record declares the same TLD. Resolve the duplicate first."
+          },
+          {
+            "lang": "lg-spa",
+            "name": "rebuild_refused_not_sole_declarer",
+            "value": "Forzar a crear no está disponible: otro registro de jerarquía declara el mismo TLD. Resuelva primero el duplicado."
+          },
+          {
+            "lang": "lg-cat",
+            "name": "rebuild_refused_not_sole_declarer",
+            "value": "Forçar a crear no està disponible: un altre registre de jerarquia declara el mateix TLD. Resoleu primer el duplicat."
+          },
+          {
+            "lang": "lg-eus",
+            "name": "rebuild_refused_not_sole_declarer",
+            "value": "Sortzera behartu ez dago erabilgarri: beste hierarkia-erregistro batek TLD bera adierazten du. Konpondu lehenik bikoiztua."
+          },
+          {
+            "lang": "lg-fra",
+            "name": "rebuild_refused_not_sole_declarer",
+            "value": "Forcer la création n'est pas disponible : un autre enregistrement de hiérarchie déclare le même TLD. Résolvez d'abord le doublon."
+          },
+          {
+            "lang": "lg-por",
+            "name": "rebuild_refused_not_sole_declarer",
+            "value": "Forçar a criação não está disponível: outro registo de hierarquia declara o mesmo TLD. Resolva primeiro o duplicado."
+          },
+          {
+            "lang": "lg-deu",
+            "name": "rebuild_refused_not_sole_declarer",
+            "value": "Erstellen erzwingen ist nicht verfügbar: Ein anderer Hierarchie-Datensatz deklariert dieselbe TLD. Beheben Sie zuerst das Duplikat."
+          },
+          {
+            "lang": "lg-ita",
+            "name": "rebuild_refused_not_sole_declarer",
+            "value": "Forza creazione non è disponibile: un altro record di gerarchia dichiara lo stesso TLD. Risolvi prima il duplicato."
+          },
+          {
+            "lang": "lg-ell",
+            "name": "rebuild_refused_not_sole_declarer",
+            "value": "Η αναγκαστική δημιουργία δεν είναι διαθέσιμη: άλλη εγγραφή ιεραρχίας δηλώνει το ίδιο TLD. Επιλύστε πρώτα το διπλότυπο."
+          },
+          {
+            "lang": "lg-nep",
+            "name": "rebuild_refused_not_sole_declarer",
+            "value": "सिर्जना गर्न बाध्य पार्ने उपलब्ध छैन: अर्को पदानुक्रम रेकर्डले उही TLD घोषणा गर्छ। पहिले दोहोरोपन समाधान गर्नुहोस्।"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "rebuild_refused_root_only",
+            "value": "Force to create is not available: this hierarchy points at a defined section and has no ontology of its own to rebuild."
+          },
+          {
+            "lang": "lg-spa",
+            "name": "rebuild_refused_root_only",
+            "value": "Forzar a crear no está disponible: esta jerarquía apunta a una sección definida y no tiene ontología propia que reconstruir."
+          },
+          {
+            "lang": "lg-cat",
+            "name": "rebuild_refused_root_only",
+            "value": "Forçar a crear no està disponible: aquesta jerarquia apunta a una secció definida i no té ontologia pròpia per reconstruir."
+          },
+          {
+            "lang": "lg-eus",
+            "name": "rebuild_refused_root_only",
+            "value": "Sortzera behartu ez dago erabilgarri: hierarkia honek definitutako atal bat seinalatzen du eta ez du berreraikitzeko ontologia propiorik."
+          },
+          {
+            "lang": "lg-fra",
+            "name": "rebuild_refused_root_only",
+            "value": "Forcer la création n'est pas disponible : cette hiérarchie pointe vers une section définie et n'a pas d'ontologie propre à reconstruire."
+          },
+          {
+            "lang": "lg-por",
+            "name": "rebuild_refused_root_only",
+            "value": "Forçar a criação não está disponível: esta hierarquia aponta para uma secção definida e não tem ontologia própria para reconstruir."
+          },
+          {
+            "lang": "lg-deu",
+            "name": "rebuild_refused_root_only",
+            "value": "Erstellen erzwingen ist nicht verfügbar: Diese Hierarchie verweist auf einen definierten Abschnitt und hat keine eigene Ontologie zum Neuaufbau."
+          },
+          {
+            "lang": "lg-ita",
+            "name": "rebuild_refused_root_only",
+            "value": "Forza creazione non è disponibile: questa gerarchia punta a una sezione definita e non ha un'ontologia propria da ricostruire."
+          },
+          {
+            "lang": "lg-ell",
+            "name": "rebuild_refused_root_only",
+            "value": "Η αναγκαστική δημιουργία δεν είναι διαθέσιμη: αυτή η ιεραρχία δείχνει σε μια ορισμένη ενότητα και δεν έχει δική της οντολογία για ανακατασκευή."
+          },
+          {
+            "lang": "lg-nep",
+            "name": "rebuild_refused_root_only",
+            "value": "सिर्जना गर्न बाध्य पार्ने उपलब्ध छैन: यो पदानुक्रमले परिभाषित खण्डलाई संकेत गर्छ र पुनर्निर्माण गर्न यसको आफ्नै ओन्टोलोजी छैन।"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "rebuild_refused_ontology_package",
+            "value": "Force to create is not available: this TLD's ontology is not one this hierarchy can recreate safely. An installed ontology package is repaired with an ontology update; a hierarchy's own definitions out of step with their records are re-projected from those records (Ontology parser), then the tool is run without Force."
+          },
+          {
+            "lang": "lg-spa",
+            "name": "rebuild_refused_ontology_package",
+            "value": "Forzar a crear no está disponible: la ontología de este TLD no es una que esta jerarquía pueda recrear con seguridad. Un paquete de ontología instalado se repara con una actualización de ontología; las definiciones propias de una jerarquía desajustadas respecto a sus registros se vuelven a proyectar desde esos registros (Parser de ontología) y después se ejecuta la herramienta sin Forzar."
+          },
+          {
+            "lang": "lg-cat",
+            "name": "rebuild_refused_ontology_package",
+            "value": "Forçar a crear no està disponible: l'ontologia d'aquest TLD no és una que aquesta jerarquia pugui recrear amb seguretat. Un paquet d'ontologia instal·lat es repara amb una actualització d'ontologia; les definicions pròpies d'una jerarquia desajustades respecte als seus registres es tornen a projectar des d'aquests registres (Parser d'ontologia) i després s'executa l'eina sense Forçar."
+          },
+          {
+            "lang": "lg-eus",
+            "name": "rebuild_refused_ontology_package",
+            "value": "Sortzera behartu ez dago erabilgarri: TLD honen ontologia ez da hierarkia honek segurtasunez berriro sor dezakeena. Instalatutako ontologia-pakete bat ontologia-eguneraketa batekin konpontzen da; hierarkia baten definizio propioak beren erregistroekin bat ez badatoz, erregistro horietatik berriro proiektatzen dira (Ontologia-analizatzailea) eta gero tresna Behartu gabe exekutatzen da."
+          },
+          {
+            "lang": "lg-fra",
+            "name": "rebuild_refused_ontology_package",
+            "value": "Forcer la création n'est pas disponible : l'ontologie de ce TLD n'est pas une ontologie que cette hiérarchie peut recréer sans risque. Un paquet d'ontologie installé se répare par une mise à jour d'ontologie ; les définitions propres d'une hiérarchie désynchronisées de leurs enregistrements sont reprojetées depuis ces enregistrements (Analyseur d'ontologie), puis l'outil est exécuté sans Forcer."
+          },
+          {
+            "lang": "lg-por",
+            "name": "rebuild_refused_ontology_package",
+            "value": "Forçar a criação não está disponível: a ontologia deste TLD não é uma que esta hierarquia possa recriar com segurança. Um pacote de ontologia instalado repara-se com uma atualização de ontologia; as definições próprias de uma hierarquia dessincronizadas dos seus registos são novamente projetadas a partir desses registos (Analisador de ontologia) e depois a ferramenta é executada sem Forçar."
+          },
+          {
+            "lang": "lg-deu",
+            "name": "rebuild_refused_ontology_package",
+            "value": "Erstellen erzwingen ist nicht verfügbar: Die Ontologie dieser TLD kann diese Hierarchie nicht sicher neu erstellen. Ein installiertes Ontologie-Paket wird mit einer Ontologie-Aktualisierung repariert; eigene Definitionen einer Hierarchie, die nicht mehr zu ihren Datensätzen passen, werden aus diesen Datensätzen neu projiziert (Ontologie-Parser), danach wird das Werkzeug ohne Erzwingen ausgeführt."
+          },
+          {
+            "lang": "lg-ita",
+            "name": "rebuild_refused_ontology_package",
+            "value": "Forza creazione non è disponibile: l'ontologia di questo TLD non è una che questa gerarchia possa ricreare in sicurezza. Un pacchetto di ontologia installato si ripara con un aggiornamento dell'ontologia; le definizioni proprie di una gerarchia non allineate ai loro record vengono riproiettate da quei record (Parser dell'ontologia), poi lo strumento si esegue senza Forza."
+          },
+          {
+            "lang": "lg-ell",
+            "name": "rebuild_refused_ontology_package",
+            "value": "Η αναγκαστική δημιουργία δεν είναι διαθέσιμη: η οντολογία αυτού του TLD δεν μπορεί να αναδημιουργηθεί με ασφάλεια από αυτή την ιεραρχία. Ένα εγκατεστημένο πακέτο οντολογίας επιδιορθώνεται με ενημέρωση οντολογίας· οι δικοί ορισμοί μιας ιεραρχίας που δεν συμφωνούν με τις εγγραφές τους προβάλλονται ξανά από αυτές τις εγγραφές (Αναλυτής οντολογίας) και έπειτα το εργαλείο εκτελείται χωρίς Αναγκαστική."
+          },
+          {
+            "lang": "lg-nep",
+            "name": "rebuild_refused_ontology_package",
+            "value": "सिर्जना गर्न बाध्य पार्ने उपलब्ध छैन: यो TLD को ओन्टोलोजी यो पदानुक्रमले सुरक्षित रूपमा पुनः सिर्जना गर्न सक्ने होइन। स्थापित ओन्टोलोजी प्याकेज ओन्टोलोजी अद्यावधिकद्वारा मर्मत हुन्छ; आफ्ना रेकर्डसँग नमिलेका पदानुक्रमका आफ्नै परिभाषाहरू ती रेकर्डबाट पुनः प्रक्षेपण गरिन्छन् (ओन्टोलोजी पार्सर), त्यसपछि उपकरण बाध्य नपारी चलाइन्छ।"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "rebuild_refused_invalid_source",
+            "value": "Force to create is not available: the hierarchy cannot be provisioned (check the TLD, the typology and the real section tipo)."
+          },
+          {
+            "lang": "lg-spa",
+            "name": "rebuild_refused_invalid_source",
+            "value": "Forzar a crear no está disponible: la jerarquía no se puede aprovisionar (revise el TLD, la tipología y el tipo de sección real)."
+          },
+          {
+            "lang": "lg-cat",
+            "name": "rebuild_refused_invalid_source",
+            "value": "Forçar a crear no està disponible: la jerarquia no es pot aprovisionar (reviseu el TLD, la tipologia i el tipus de secció real)."
+          },
+          {
+            "lang": "lg-eus",
+            "name": "rebuild_refused_invalid_source",
+            "value": "Sortzera behartu ez dago erabilgarri: hierarkia ezin da hornitu (egiaztatu TLDa, tipologia eta atal errealaren tipoa)."
+          },
+          {
+            "lang": "lg-fra",
+            "name": "rebuild_refused_invalid_source",
+            "value": "Forcer la création n'est pas disponible : la hiérarchie ne peut pas être provisionnée (vérifiez le TLD, la typologie et le tipo de section réelle)."
+          },
+          {
+            "lang": "lg-por",
+            "name": "rebuild_refused_invalid_source",
+            "value": "Forçar a criação não está disponível: a hierarquia não pode ser aprovisionada (verifique o TLD, a tipologia e o tipo de secção real)."
+          },
+          {
+            "lang": "lg-deu",
+            "name": "rebuild_refused_invalid_source",
+            "value": "Erstellen erzwingen ist nicht verfügbar: Die Hierarchie kann nicht bereitgestellt werden (prüfen Sie TLD, Typologie und den Tipo des realen Abschnitts)."
+          },
+          {
+            "lang": "lg-ita",
+            "name": "rebuild_refused_invalid_source",
+            "value": "Forza creazione non è disponibile: la gerarchia non può essere predisposta (controlla il TLD, la tipologia e il tipo della sezione reale)."
+          },
+          {
+            "lang": "lg-ell",
+            "name": "rebuild_refused_invalid_source",
+            "value": "Η αναγκαστική δημιουργία δεν είναι διαθέσιμη: η ιεραρχία δεν μπορεί να προετοιμαστεί (ελέγξτε το TLD, την τυπολογία και το tipo της πραγματικής ενότητας)."
+          },
+          {
+            "lang": "lg-nep",
+            "name": "rebuild_refused_invalid_source",
+            "value": "सिर्जना गर्न बाध्य पार्ने उपलब्ध छैन: पदानुक्रम प्रावधान गर्न सकिँदैन (TLD, टाइपोलोजी र वास्तविक खण्ड tipo जाँच गर्नुहोस्)।"
           }
         ]
       }
