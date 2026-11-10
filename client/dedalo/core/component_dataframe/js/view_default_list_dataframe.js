@@ -449,12 +449,13 @@ const open_target_section = async function (self) {
 			})
 
 	// modal. Create a modal to attach the section node
+		let section = null
 		const modal = ui.attach_to_modal({
 			header		: header,
 			body		: body,
 			footer		: footer_container,
-			callback : () => {
-				ui.load_item_with_spinner({
+			callback : async () => {
+				await ui.load_item_with_spinner({
 					container	: body,
 					label		: 'section',
 					callback	: async () => {
@@ -467,7 +468,7 @@ const open_target_section = async function (self) {
 						// could be released, and this slot destroyed, under an open
 						// modal. Re-asserted after get_instance: `caller` is not
 						// part of the instance key and a cache hit skips init.
-						const section = await get_instance({
+						section = await get_instance({
 							model			: 'section',
 							mode			: 'edit',
 							tipo			: section_tipo,
@@ -483,6 +484,19 @@ const open_target_section = async function (self) {
 						const section_node = await section.render()
 
 						return section_node
+					}
+				})
+				// activate the sole visible editable component (e.g. a lone
+				// annotation text area) so the user can type at once. rAF queued
+				// after the spinner's own rAF swap, so the node is in the DOM (the
+				// frame's project filter is editable but never attached).
+				requestAnimationFrame(() => {
+					const editable = (section?.ar_instances[0]?.ar_instances || []).filter(el =>
+						el.type==='component' && el.model!=='component_section_id'
+						&& el.permissions>1 && el.node?.checkVisibility?.()
+					)
+					if (editable.length===1) {
+						ui.component.activate(editable[0])
 					}
 				})
 			}
