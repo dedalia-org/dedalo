@@ -295,29 +295,17 @@ buttons.render_button_add = (self) => {
 
 /**
 * RENDER_BUTTON_LINK
-* Creates a 'link' button that opens an iframe-based section-list modal so the
-* user can browse existing records and link one to the portal.
+* Creates a 'link' button that opens a modal holding the target section's list
+* (an in-page section instance, `caller: self`, never an iframe). Its id column
+* links/unlinks each row through this portal's own doors — see the initiator
+* case of render_list_section.render_column_id.
 *
-* The iframe URL points to the target section in 'list' mode and passes
-* `initiator=self.id` so the list page can call back to this portal instance
-* (via event_manager or window.opener) when the user selects a record.
+* Several target sections → a `<select>` in the modal header switches the list;
+* one → the select is rendered with class 'mono' (hidden in CSS).
 *
-* When multiple target sections are configured a `<select>` element is added
-* to the modal header; changing the selection reloads the iframe to the chosen
-* section type.  For a single target section the select is rendered with class
-* 'mono' (visually hidden in CSS) but the DOM element is still present.
+* The modal is stored on self.modal; closing it destroys the list instance.
 *
-* A reference to the modal is stored on self.modal so that downstream handlers
-* (e.g. the set_value callback inside component_portal.js) can close it after
-* the user picks a record.
-*
-* Guard: returns null early (with a console.warn) if target_section is empty,
-* preventing render errors when the portal context lacks a configured section.
-*
-* (!) The cleanup function registered on self.modal.cleanup uses anonymous
-* functions for removeEventListener, which means the listeners are NOT actually
-* removed (anonymous functions cannot be de-registered by reference). This is a
-* known pre-existing limitation — do not attempt to fix it here.
+* Guard: returns null (console.warn) when target_section is empty.
 *
 * @param {Object} self - Live component_portal instance.
 * @returns {HTMLElement|null} Span element with class 'button link', or null
@@ -349,106 +337,121 @@ buttons.render_button_link = (self) => {
 			return
 		}
 
-		// iframe
-		( () => {
+		// picker. The target section list is rendered IN THIS PAGE (no iframe): its
+		// id column (render_list_section, initiator case) resolves this portal by
+		// `section.caller` and links/unlinks through the portal's own doors, awaiting
+		// the server's answer. The iframe version reached back across window.parent
+		// with fire-and-forget events and an optimistic state that aliased the portal
+		// data, so a pick could be dropped while the list showed it as linked.
+		const body = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'picker_container'
+		})
 
-			const get_iframe_url = (tipo) => {
+		// header_custom
+			const header_custom = ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'header_custom'
+			})
+			ui.create_dom_element({
+				element_type	: 'span',
+				inner_html		: get_label.section,
+				class_name		: 'label',
+				parent			: header_custom
+			})
 
-				const session_key = 'section_' + tipo + '_' + self.tipo
-
-				const url = DEDALO_CORE_URL + '/page/?' + object_to_url_vars({
-					tipo		: tipo,
-					mode		: 'list',
-					session_key	: session_key, // used to save server and local DDB custom SQO
-					menu		: false,
-					initiator	: self.id // initiator is the caller (self)
-				})
-
-				return url
+		// section. One live list instance at a time; destroyed on switch and close.
+		// load_seq invalidates a load that a switch or close overtook mid-build.
+			let section = null
+			let load_seq = 0
+			const load_section = async (tipo) => {
+				const seq = ++load_seq
+				if (section) {
+					const old = section
+					section = null
+					await old.destroy(true, true, true)
+				}
+				body.replaceChildren(ui.create_dom_element({
+					element_type	: 'span',
+					class_name		: 'loading'
+				}))
+				try {
+					const current = await get_instance({
+						model			: 'section',
+						mode			: 'list',
+						tipo			: tipo,
+						section_tipo	: tipo,
+						// own instance key: the page may already show this same section
+						id_variant		: 'picker_' + self.id,
+						session_key		: 'section_' + tipo + '_' + self.tipo,
+						inspector		: false,
+						caller			: self // initiator = self.id
+					})
+					await current.build(true)
+					if (seq!==load_seq) {
+						await current.destroy(true, true, true)
+						return
+					}
+					section = current
+					body.replaceChildren(await current.render())
+				} catch (error) {
+					console.error('Error loading picker section:', error);
+					if (seq===load_seq) {
+						body.replaceChildren(ui.create_dom_element({
+							element_type	: 'span',
+							class_name		: 'error',
+							text_content	: get_label.error || 'Error'
+						}))
+					}
+				}
 			}
 
-			// modal_body
-				const iframe_container = ui.create_dom_element({
-					element_type	: 'div',
-					class_name		: 'iframe_container'
-				})
-				const iframe = ui.create_dom_element({
-					element_type	: 'iframe',
-					class_name		: 'fixed',
-					src				: get_iframe_url(section_tipo),
-					parent			: iframe_container
-				})
-
-			// modal_header
-				// header_custom
-				const header_custom = ui.create_dom_element({
-					element_type	: 'div',
-					class_name		: 'header_custom'
-				})
-				// header label
+		// select_section
+			const select_section = ui.create_dom_element({
+				element_type	: 'select',
+				class_name		: 'select_section' + (target_section_length===1 ? ' mono' : ''),
+				parent			: header_custom
+			})
+			const stop = (e) => e.stopPropagation()
+			select_section.addEventListener('click', stop)
+			select_section.addEventListener('mousedown', stop)
+			select_section.addEventListener('change', function(){
+				load_section(this.value)
+			})
+			for (let i = 0; i < target_section_length; i++) {
+				const item = target_section[i]
 				ui.create_dom_element({
-					element_type	: 'span',
-					inner_html		: get_label.section,
-					class_name		: 'label',
-					parent			: header_custom
+					element_type	: 'option',
+					value			: item.tipo,
+					inner_html		: render_value(item.label + ' [' + item.tipo + ']', 'text'),
+					parent			: select_section
 				})
+			}
 
-			// select_section
-				const select_section = ui.create_dom_element({
-					element_type	: 'select',
-					class_name		: 'select_section' + (target_section_length===1 ? ' mono' : ''),
-					parent			: header_custom
+		// modal. Stored on self so the portal can close it later
+			try {
+				self.modal = ui.attach_to_modal({
+					header	: header_custom,
+					body	: body,
+					footer	: null,
+					size	: 'big'
 				})
-				// named handlers so cleanup() can remove the same references later
-				const select_click_handler = function(e){
-					e.stopPropagation()
-				}
-				const select_mousedown_handler = function(e){
-					e.stopPropagation()
-				}
-				const select_change_handler = function(){
-					iframe.src = get_iframe_url(this.value)
-				}
-				select_section.addEventListener('click', select_click_handler)
-				select_section.addEventListener('mousedown', select_mousedown_handler)
-				select_section.addEventListener('change', select_change_handler)
-				// options for select_section
-					for (let i = 0; i < target_section_length; i++) {
-						const item = target_section[i]
-						ui.create_dom_element({
-							element_type	: 'option',
-							value			: item.tipo,
-							inner_html		: render_value(item.label + ' [' + item.tipo + ']', 'text'),
-							parent			: select_section
-						})
+				self.modal.on_close = () => {
+					load_seq++ // a load in flight discards itself
+					if (section) {
+						section.destroy(true, true, true)
+						section = null
 					}
-
-			// fix modal to allow close later, on set value
-			// Note: Store modal reference on self to allow external control/cleanup
-				try {
-					self.modal = ui.attach_to_modal({
-						header	: header_custom,
-						body	: iframe_container,
-						footer	: null,
-						size	: 'big'
-					})
-					// Store cleanup function on modal for potential cleanup
-					self.modal.cleanup = function() {
-						// Remove event listeners by reference (the previous version passed
-						// brand-new anonymous functions, so removeEventListener was a no-op).
-						select_section.removeEventListener('click', select_click_handler)
-						select_section.removeEventListener('mousedown', select_mousedown_handler)
-						select_section.removeEventListener('change', select_change_handler)
-					}
-				} catch (error) {
-					console.error('Error creating modal:', error);
-					handle_api_error(new ApiError({
-						code	: CLIENT_ERROR.BAD_RESPONSE,
-						message	: 'An error occurred while opening the link dialog',
-						raw		: error
-					}), {wrapper: self.node});
 				}
-		})()
+				await load_section(section_tipo)
+			} catch (error) {
+				console.error('Error creating modal:', error);
+				handle_api_error(new ApiError({
+					code	: CLIENT_ERROR.BAD_RESPONSE,
+					message	: 'An error occurred while opening the link dialog',
+					raw		: error
+				}), {wrapper: self.node});
+			}
 
 		return
 	}

@@ -63,6 +63,13 @@ export interface EmitHookContext {
 	callerTipo: string;
 	/** The per-read emission context: items array + stamp ledger (S2-29). */
 	emission: EmissionContext;
+	/**
+	 * save_echo = the item that REPLACES the client's self.data after a scalar
+	 * save; a hook may omit only edit-READ payload the client already holds,
+	 * never what the next paint needs
+	 * (WC-2026-11-09-security-access-save-echo-no-datalist).
+	 */
+	door: 'read' | 'save_echo';
 }
 
 /** One model's emit-time particularity (see the module doc for the surface). */

@@ -3,7 +3,6 @@
 /*eslint no-undef: "error"*/
 
 import {response_data} from '../../../core/common/js/api_error.js'
-import {event_manager} from '../../../core/common/js/event_manager.js'
 import {get_instance} from '../../../core/common/js/instances.js'
 import {ui} from '../../../core/common/js/ui.js'
 import {clone, pause} from '../../../core/common/js/utils/util.js'
@@ -553,53 +552,6 @@ describe(`COMPONENT_PORTAL DATA OPERATIONS`, async function() {
 			await instance.destroy(true, true, true)
 		})
 	})//end describe ADD DATA
-
-	// ─── LIST LINK BUTTON MESSAGE (initiator_link / initiator_unlink) ──────────
-	// render_list_section.js publishes {section_tipo, section_id, close_modal:false}.
-	// close_modal is the picker's "stay open" flag, NOT a locator key: it was stored
-	// on every relation made from the list link button. The handler must hand the
-	// locator WITHOUT it to link_record/unlink_record and read the flag itself.
-	// link_record/unlink_record are stubbed: nothing reaches the server.
-
-	describe(`LIST LINK BUTTON MESSAGE`, function() {
-
-		it(`${portal_model} initiator_link/unlink pass the locator without close_modal; the flag decides the modal`, async function() {
-
-			const instance = await get_portal_instance('edit', 'default', portal_section_id)
-
-			const received	= []
-			let closed		= 0
-			instance.link_record	= async (locator) => { received.push(locator); return true }
-			instance.unlink_record	= async (locator) => { received.push(locator); return true }
-			instance.modal			= { close: () => { closed++ } }
-
-			try {
-				const target = make_locator(9003)
-
-				// link, keep open
-				event_manager.publish(`initiator_link_${instance.id}`, {...target, close_modal: false})
-				await pause(50)
-				// link, flag absent: closes (the default)
-				event_manager.publish(`initiator_link_${instance.id}`, {...target})
-				await pause(50)
-				// unlink, keep open
-				event_manager.publish(`initiator_unlink_${instance.id}`, {...target, id: 1, close_modal: false})
-				await pause(50)
-
-				assert.equal(received.length, 3, 'every message must reach link_record/unlink_record')
-				for (const locator of received) {
-					assert.equal(Object.hasOwn(locator, 'close_modal'), false, 'close_modal must not ride the locator')
-					assert.equal(locator.section_id, target.section_id)
-					assert.equal(locator.section_tipo, target.section_tipo)
-				}
-				assert.equal(received[2].id, 1, 'unlink keeps the locator id')
-				assert.equal(closed, 1, 'only the message without close_modal:false closes the modal')
-			} finally {
-				instance.modal = null
-				await instance.destroy(true, true, true)
-			}
-		})
-	})//end describe LIST LINK BUTTON MESSAGE
 
 
 

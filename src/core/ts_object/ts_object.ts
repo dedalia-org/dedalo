@@ -724,20 +724,27 @@ async function recordFlagIsYes(record: MatrixRecord | null, flagTipo: string): P
 
 /**
  * The declared tipos with the translatable members of `term` replaced by the
- * machine-name tipo (once, at the first such position); null when nothing was
- * replaced.
+ * machine-name tipo (once, at the first such position — or nowhere, when the
+ * list already declares it: then the label is only dropped); null when no label
+ * was declared.
  */
-async function replaceTranslatableTermTipos(
+export async function replaceTranslatableTermTipos(
 	declaredTipos: string[],
 	termTipos: ReadonlySet<unknown>,
 	machineNameTipo: string,
 ): Promise<string[] | null> {
 	const shown: string[] = [];
 	let replaced = false;
+	// a map that already declares the machine name (ontology6: [ontology43, ontology5, …])
+	// only loses the label — inserting it again would show the name twice
+	let inserted = declaredTipos.includes(machineNameTipo);
 	for (const tipo of declaredTipos) {
 		const isLabel = termTipos.has(tipo) && (await getTranslatableByTipo(tipo));
 		if (!isLabel) shown.push(tipo);
-		else if (!replaced) shown.push(machineNameTipo);
+		else if (!inserted) {
+			shown.push(machineNameTipo);
+			inserted = true;
+		}
 		replaced ||= isLabel;
 	}
 	return replaced ? shown : null;

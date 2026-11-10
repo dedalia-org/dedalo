@@ -64,6 +64,7 @@ async function emitPosterframeUrl(): Promise<unknown> {
 		defaultLang: 'lg-nolan',
 		callerTipo: SECTION_TIPO,
 		emission,
+		door: 'read',
 	});
 	return (emission.items[0] as { posterframe_url?: unknown }).posterframe_url;
 }

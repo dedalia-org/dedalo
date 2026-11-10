@@ -109,7 +109,7 @@
 
 // imports
 	import {common} from '../../common/js/common.js'
-	import {clone, get_json_langs, load_style, load_script} from '../../common/js/utils/index.js'
+	import {clone, get_json_langs, is_equal, load_style, load_script} from '../../common/js/utils/index.js'
 	import {component_common} from '../../component_common/js/component_common.js'
 	import {escape_html} from '../../common/js/utils/render_escape.js'
 	import {request_failed} from '../../common/js/api_error.js'
@@ -539,6 +539,9 @@ export const component_geolocation = function(){
 				console.warn('component_geolocation destroy: error removing map', e)
 			}
 			self.map = null
+			// the control is bound to the removed map: refresh (destroy without delete_self)
+			// would reuse it, and its overlay clicks add markers to a pane-less map
+			self.layer_control = false
 			self.tile_layer = null
 			self.source_layers = {}
 			self.FeatureGroup = {}
@@ -560,6 +563,7 @@ export const component_geolocation = function(){
 				self.build_source_layers(0)
 			}
 		}
+		self.update_changed_indicator(0)
 		return api_response
 	}
 	component_geolocation.prototype.load_data			= component_common.prototype.load_data
@@ -778,6 +782,37 @@ component_geolocation.prototype.get_entry_buffer = function(key) {
 
 	return self.current_value[key]
 }//end get_entry_buffer
+
+
+
+/**
+* UPDATE_CHANGED_INDICATOR
+* Toggles the common unsaved line (wrapper `.modified`, page/css/layout/layout.less) by
+* the REAL diff of the edit buffer against the stored entry: a value set back to what is
+* stored clears it. Visual only — no unsaved registration, so it blocks nothing; the
+* save gate keeps reading is_data_changed.
+* null/undefined fields and the id are ignored: the buffer writes `alt: null` and stamps
+* the id where the stored entry simply has no such key.
+* @param {number} key - Index into `current_value` (and `data.entries`).
+* @returns {boolean} True when the buffer differs from the stored entry.
+*/
+component_geolocation.prototype.update_changed_indicator = function(key=0) {
+
+	const self = this
+
+	const value		= self.current_value[key]
+	const defined	= (obj) => Object.fromEntries(
+		Object.entries(obj || {}).filter(([name, v]) => v!==null && v!==undefined && name!=='id')
+	)
+	const changed = value!==undefined && value!==null
+		&& !is_equal(defined(value), defined(self.get_stored_entry(key)))
+
+	if (self.node) {
+		self.node.classList.toggle('modified', changed)
+	}
+
+	return changed
+}//end update_changed_indicator
 
 
 
@@ -1475,6 +1510,12 @@ component_geolocation.prototype.get_map = async function(map_container, key) {
 	// load libs
 		await self.load_libs()
 
+	// destroyed or refreshed while the libs loaded: this container is stale — building a
+	// map on it would steal self.map/layer_control from the new render and leak its observers
+		if (self.status==='destroyed' || !map_container.isConnected) {
+			return false
+		}
+
 	// stored entry — null when the record has no geolocation value
 		const stored_entry = self.get_stored_entry(key)
 
@@ -1650,12 +1691,17 @@ component_geolocation.prototype.get_map = async function(map_container, key) {
 		})
 
 	// map ready event — fires once Leaflet has painted its first frame
+		const ready_map = self.map
 		self.map.whenReady(async function(){
 			// init map editor — attaches geoman toolbar and pm:create/pm:cut/pm:remove events
 				self.init_draw_editor()
 
 			// set the lang of the tool — map geoman UI matches the user's Dédalo data language
 				const json_langs = self.json_langs || await get_json_langs() || []
+				// the map was destroyed/replaced during the await (self.map null or a newer map)
+				if (self.map!==ready_map) {
+					return
+				}
 				if (json_langs.length<1) {
 					console.error('Error. Expected array of json_langs but empty result is obtained:', json_langs);
 				}
@@ -1775,6 +1821,7 @@ component_geolocation.prototype.update_input_values = function(key, data, map_co
 	// (!) fn_refresh also routes through here and resets the flag to false right
 	// after, so restoring the DB state does not leave the component dirty.
 		self.is_data_changed = true
+		self.update_changed_indicator(key)
 
 	// track changes in self.data.changed_data
 		// (!) DISABLED because, when changing the position of the map, it is not saved unintentionally.
@@ -1898,6 +1945,7 @@ component_geolocation.prototype.handle_coord_change = function(key, name, val) {
 
 	// mark as changed
 	self.is_data_changed = true
+	self.update_changed_indicator(key)
 
 	// map updates — the camera follows what was typed; the typed value is the
 	// record's, so it must survive the move untouched.
@@ -2727,6 +2775,7 @@ component_geolocation.prototype.update_draw_data = function(layer_id) {
 		// create on first touch — drawing on a record with no stored value is the
 		// action that CREATES the value; current_value[key] is undefined until now
 		self.get_entry_buffer(key).lib_data = self.ar_layer_loaded
+		self.update_changed_indicator(key)
 
 
 	// track changes in self.data.changed_data — enqueue for the next save

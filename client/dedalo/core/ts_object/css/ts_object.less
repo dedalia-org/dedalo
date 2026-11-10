@@ -802,12 +802,14 @@
 		display: none;
 	}
 
-	// PHONE. The tree is embedded by tools (indexation, cataloging) and by
-	// area_thesaurus; on a touch screen its 20px icons, 1rem expander and bare
-	// term text are not targets. Hit boxes grow to 44px (@phone_hit_target);
-	// the INK does not (icons keep @ts_icon_ink via the absolute mask-size,
-	// the expander keeps its triangle). Rows get taller — usable, not dense.
-	@media screen and (max-width: @width_break_point_phone) {
+	// TOUCH. The tree is embedded by tools (indexation, cataloging) and by
+	// area_thesaurus / area_ontology; on a touch screen — phone OR tablet — its
+	// 20px icons, 1rem expander and bare term text are not targets. Hit boxes
+	// grow to 44px (@phone_hit_target); the INK does not (icons keep
+	// @ts_icon_ink via the absolute mask-size, the expander keeps its triangle).
+	// Rows get taller — usable, not dense. A tablet keeps the one-line row; the
+	// two-line PHONE layout is below.
+	@media screen and (max-width: @width_break_point_phone), (hover: none) and (pointer: coarse) {
 		@phone_target: 44px;
 
 		>.content_data {
@@ -837,18 +839,21 @@
 					margin: 0;
 				}
 
-				// the 'M'/model badges: the TARGET grows, the painted badge does
-				// not — transparent padding, background clipped to the content box
-				>.button_show_component {
+				// the 'M'/'P'/'U:13' badges: the TARGET grows, the painted pill
+				// stays a pill — an unpainted ::before carries the 44px height
+				// (a padded, content-box-clipped badge painted as a tall bar)
+				>.button_show_component,
+				>.button_show_indexations {
 					flex: 0 0 auto;
-					box-sizing: border-box;
-					min-width: @phone_target;
-					min-height: @phone_target;
-					padding: 12px 8px;
-					background-clip: content-box;
-					display: inline-flex;
-					align-items: center;
-					justify-content: center;
+					min-width: 1.75rem;
+					height: 22px;
+					margin-right: 0.5rem;
+
+					&::before {
+						content: '';
+						position: absolute;
+						inset: ((22px - @phone_target) / 2) -0.25rem;
+					}
 				}
 
 				// the expander: the triangle is drawn by BORDERS, so the box
@@ -889,6 +894,114 @@
 					}
 				}
 			}
+		}
+	}
+
+	// TABLET. The ontology model text ('component_portal, component_portal')
+	// beside a deep term squeezed the term to a word per line: own line.
+	@media screen and (max-width: @width_break_point_1) {
+		>.content_data > .elements_container {
+			flex-wrap: wrap;
+
+			>.model_value {
+				order: 1;
+				flex: 1 1 100%;
+				font-size: 0.85rem;
+				overflow-wrap: anywhere;
+			}
+		}
+	}
+
+	// no hover on touch: the id-column actions cannot wait for one to un-dim
+	@media (hover: none) {
+		>.content_data > .id_column_content {
+			opacity: 0.7;
+		}
+	}
+
+	// PHONE layout. Five 44px action boxes beside the term left a nested term
+	// ~100px and every badge/expander wrapped to its own line. Here a node is a
+	// compact block, hairline-separated from the next:
+	//   ▸ Term [tipo] ⧉ P M      — expander LEADS (never wraps off alone)
+	//     model_value            — own small line
+	//     ⊕ ✥ 🗑 1 ✎             — actions, ink aligned with the term
+	// the desktop indents (4rem / 5.2rem / 6.9rem) shrink to a shallow step.
+	@media screen and (max-width: @width_break_point_phone) {
+		@phone_term_x: 36px; // the term column: the expander sits in this gutter
+
+		>.content_data {
+			border-bottom: 1px solid @color_grey_13;
+			padding-bottom: 2px;
+
+			>.elements_container {
+				order: -1;
+				flex: 1 1 100%;
+				box-sizing: border-box;
+				// every wrapped line (badges, model) starts at the term column;
+				// leaves (no expander) align with their siblings for free
+				padding-left: @phone_term_x;
+
+				>.link_children,
+				>.link_children.open { // .open carries a desktop top/left nudge
+					position: absolute; // `contain: content` makes the container its box
+					top: 0;
+					left: -8px;
+				}
+				>.model_value {
+					order: 1;
+					flex: 1 1 100%;
+					margin: 0 0 4px;
+					font-size: 0.85rem;
+					line-height: 1.2;
+				}
+				// the page is a `display: table` that grows to its widest
+				// min-content: a deep node must never set it
+				>.term > .term_text,
+				>.model_value {
+					min-width: 0;
+					overflow-wrap: anywhere;
+				}
+			}
+			>.id_column_content {
+				flex: 1 1 100%;
+				box-sizing: border-box;
+				flex-wrap: wrap; // 5 × 44px under a deep indent would widen the page
+				min-height: 36px;
+				padding-left: @phone_term_x - ((44px - @ts_icon_ink) / 2); // icon INK on the term column
+
+				.id_column_link {
+					height: 36px;
+				}
+			}
+			>.data_container {
+				padding-left: 0.5rem;
+
+				>.wrapper_component {
+					float: none;
+					min-width: 0;
+					width: 100%;
+				}
+			}
+			>.indexations_container .css_spinner {
+				margin-left: 1rem;
+			}
+			>.nd_container {
+				margin-left: 1rem;
+				width: calc(100% - 1rem);
+
+				>.wrap_ts_object {
+					width: 100%;
+				}
+				.data_container {
+					padding-left: 0.5rem;
+				}
+			}
+		}
+		>.children_container {
+			padding-left: 0.75rem; // the hairline + expander column carry the hierarchy; a deep node keeps its width
+		}
+		.show_more {
+			margin-left: 1rem;
 		}
 	}
 

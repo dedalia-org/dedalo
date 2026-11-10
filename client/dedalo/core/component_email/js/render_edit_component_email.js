@@ -441,6 +441,7 @@ export const get_buttons = (self) => {
 			const send_multiple_email = ui.create_dom_element({
 				element_type	: 'span',
 				class_name		: 'button email_multiple',
+				title			: get_label.send_email_to_all || 'Send an e-mail to all the records found (Bcc)',
 				parent			: fragment
 			})
 			const click_handler = async (e) => {

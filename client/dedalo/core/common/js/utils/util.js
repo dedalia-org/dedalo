@@ -721,7 +721,16 @@ export function object_equals(o1, o2) {
 	// check if the o1 is object
 	// null is a object but it's not possible check his keys, so use the ===
 	// check if the object keys has length, has any property
-	const equal = (o1 !== null && o2 !== null) && typeof o1 === 'object' && Object.keys(o1).length > 0
+	// (!) two EMPTY plain objects are equal: the key walk used to be skipped for them, so
+	// `{}` vs a clone of `{}` fell to === and a value holding one (a GeoJSON feature's
+	// `properties: {}`) never matched its own stored copy. Other key-less objects (Date…)
+	// stay compared by reference.
+	const is_plain = (o) => {
+		const proto = Object.getPrototypeOf(o)
+		return proto === Object.prototype || proto === null
+	}
+	const equal = (o1 !== null && o2 !== null) && typeof o1 === 'object' && typeof o2 === 'object'
+		&& (Object.keys(o1).length > 0 || (is_plain(o1) && is_plain(o2)))
 		? Object.keys(o1).length === Object.keys(o2).length
 		  && Object.keys(o1).every(p => is_equal(o1[p], o2[p]))
 		: o1 === o2;

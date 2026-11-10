@@ -23,6 +23,7 @@
 	import {view_search_user_presets} from './view_search_user_presets.js'
 	import {view_export_user_presets} from './view_export_user_presets.js'
 	import {response_data} from '../../common/js/api_error.js'
+	import {get_instance_by_id} from '../../common/js/instances.js'
 
 
 
@@ -38,9 +39,8 @@
 *                                 buttons and their full event wiring.
 *
 * Two private helpers support render_column_id:
-*   - _update_link_button       – async; resolves the initial linked/unlinked state
-*                                 of a row's link button when the list is rendered
-*                                 inside a portal-picker iframe.
+*   - get_linked_items          – async; what the portal-picker's caller stores
+*                                 (linked state + item ids for unlink).
 *   - _set_link_button_state    – sync; reflects a known linked/unlinked boolean
 *                                 onto the button and icon CSS classes immediately.
 *
@@ -150,12 +150,11 @@ render_list_section.list = async function(options) {
 *
 * The fragment's content varies by context:
 *
-*   1. initiator (iframe portal-picker)
-*      A section list rendered inside an iframe with an `initiator` URL parameter
-*      pointing to a component_* instance in the parent window.  The button
-*      toggles a link/unlink relationship with that component.  The visual state
-*      (linked vs. unlinked) is resolved asynchronously by _update_link_button
-*      so the button renders immediately and the icon updates without blocking.
+*   1. initiator (portal link picker)
+*      The list opened by a component_portal's link button (in-page, caller =
+*      the portal, so `initiator` is its id). The button toggles link/unlink
+*      through the portal's link_record / unlink_record, serialized per portal;
+*      the state shown is the stored one (get_linked_items).
 *
 *   2. section_tool source  (self.config.source_model === 'section_tool')
 *      A tool-driven list.  Renders an edit-pen button that opens the configured
@@ -229,221 +228,66 @@ export const render_column_id = function(options) {
 		// variant to render.  Cases are evaluated in source order.
 		switch(true){
 
-			// initiator. is a url var used in iframe containing section list to link to opener portal
-			// This case handles a section list rendered inside an <iframe> that was
-			// opened by a component_portal (or similar) in the parent window.  The
-			// component's instance ID is passed as the 'initiator' URL variable so we
-			// can reach back across the window boundary to publish link/unlink events.
+			// initiator. The list is a portal's link picker (component_portal
+			// buttons.render_button_link): `self.initiator` is the caller portal's id.
 			case (self.initiator?.includes('component_')): {
 
-				// (!) window.parent is the parent frame; it may equal window itself if
-				// the page is not embedded.  get_instance_by_id is a global helper
-				// exposed on the parent page object.
-				const top_window 	= window.parent
-				const initiator		= self.initiator
-				const caller_instance = top_window ? top_window.get_instance_by_id(initiator) : null
+				const caller_instance = get_instance_by_id(self.initiator)
 
-				// link_icon
-				// Starts hidden (hide_opacity) so the icon only becomes visible once
-				// _update_link_button has determined the correct state asynchronously.
+				// link_icon. Hidden until the linked state is known
 					const link_icon = ui.create_dom_element({
 						element_type	: 'span',
 						class_name		: 'button link icon hide_opacity'
 					})
 
-				// link_button. component portal caller (link)
+				// link_button
 					const link_button = ui.create_dom_element({
 						element_type	: 'button',
 						class_name		: 'link_button',
 						parent			: fragment
 					})
-
-				// update link button
-				// Fire-and-forget: resolves the linked/unlinked initial state without
-				// blocking the synchronous render of this row.  The icon becomes visible
-				// once the promise settles (see _update_link_button → requestAnimationFrame).
-					_update_link_button(initiator, link_icon, link_button, section_tipo, section_id)
-
-				// Click event
-				// Optimistic UI pattern: update the in-memory Map and the icon immediately,
-				// then publish the cross-window event.  The parent component receives the
-				// event and persists the change; no round-trip to the server is made here.
-					const link_click_handler = (e) => {
-						e.stopPropagation()
-
-						if (!top_window || !top_window.event_manager) {
-							console.error('Unable to get top_window event_manager:', top_window);
-							return
-						}
-
-						// item_key: composite string used as the Map key.
-						// Matching must be type-safe; section_id from the server can be
-						// a number while entries_full items may be strings.
-						const item_key = String(section_tipo) + '_' + String(section_id)
-						const is_added = caller_instance && caller_instance.session_linked_items
-							? caller_instance.session_linked_items.get(item_key) === true
-							: false
-
-						if (is_added) {
-							// top window event to unlink
-							top_window.event_manager.publish('initiator_unlink_' + initiator, {
-								section_tipo	: section_tipo,
-								section_id		: section_id,
-								close_modal		: false
-							})
-							// update session state
-							// Mirror the removal in the cached Map so subsequent clicks in
-							// the same session do not need another API fetch.
-							if (caller_instance && caller_instance.session_linked_items) {
-								caller_instance.session_linked_items.set(item_key, false)
-							}
-							// keep entries_full synchronized (remove item)
-							if (caller_instance && Array.isArray(caller_instance.data?.entries_full)) {
-								const index = caller_instance.data.entries_full.findIndex(
-									item => String(item.section_tipo) === String(section_tipo) && String(item.section_id) === String(section_id)
-								)
-								if (index !== -1) caller_instance.data.entries_full.splice(index, 1)
-							}
-							// Decrement the cached total used by _update_link_button's
-							// cache-invalidation guard so the Map is not discarded prematurely.
-							if (caller_instance && caller_instance.data?.pagination?.total !== undefined) {
-								caller_instance.data.pagination.total = Math.max(0, caller_instance.data.pagination.total - 1)
-								caller_instance._linked_cache_total = caller_instance.data.pagination.total
-							}
-							// optimistically update UI
-							_set_link_button_state(false, link_icon, link_button)
-						} else {
-							// top window event to link
-							top_window.event_manager.publish('initiator_link_' + initiator, {
-								section_tipo	: section_tipo,
-								section_id		: section_id,
-								close_modal		: false
-							})
-							// update session state
-							if (caller_instance && caller_instance.session_linked_items) {
-								caller_instance.session_linked_items.set(item_key, true)
-							}
-							// keep entries_full synchronized (add item)
-							// Guard against duplicates: only push when not already present.
-							if (caller_instance && Array.isArray(caller_instance.data?.entries_full)) {
-								const exists = caller_instance.data.entries_full.some(
-									item => String(item.section_tipo) === String(section_tipo) && String(item.section_id) === String(section_id)
-								)
-								if (!exists) caller_instance.data.entries_full.push({ section_tipo, section_id })
-							}
-							if (caller_instance && caller_instance.data?.pagination?.total !== undefined) {
-								caller_instance.data.pagination.total += 1
-								caller_instance._linked_cache_total = caller_instance.data.pagination.total
-							}
-							// optimistically update UI
-							_set_link_button_state(true, link_icon, link_button)
-						}
-					}
-					link_button.addEventListener('click', link_click_handler)
-					// Append nodes
 					link_button.appendChild(section_id_node)
 					link_button.appendChild(link_icon)
 
+				if (!caller_instance) {
+					console.error('Caller instance not found for initiator:', self.initiator)
+					break;
+				}
 
-				// button_edit
-					// const button_edit = ui.create_dom_element({
-					// 	element_type	: 'button',
-					// 	class_name		: 'button_edit',
-					// 	parent			: fragment
-					// })
-					// button_edit.addEventListener('click', async function(){
-					// 	// navigate link
-					// 		// const user_navigation_options = {
-					// 		// 	tipo		: section_tipo,
-					// 		// 	section_id	: section_id,
-					// 		// 	model		: self.model,
-					// 		// 	mode		: 'edit'
-					// 		// }
-					// 		const user_navigation_rqo = {
-					// 			caller_id	: self.id,
-					// 			source		: {
-					// 				action			: 'search',
-					// 				model			: 'section',
-					// 				tipo			: section_tipo,
-					// 				section_tipo	: section_tipo,
-					// 				mode			: 'edit',
-					// 				lang			: self.lang
-					// 			},
-					// 			sqo : {
-					// 				section_tipo		: [{tipo : section_tipo}],
-					// 				limit				: 1,
-					// 				offset				: 0,
-					// 				filter_by_locators	: [{
-					// 					section_tipo : section_tipo,
-					// 					section_id : section_id
-					// 				}]
-					// 			}
-					// 		}
+				const item_key = section_tipo + '_' + section_id
 
-					// 		if(SHOW_DEBUG===true) {
-					// 			console.log("// section_record build_id_column user_navigation_rqo initiator component:", user_navigation_rqo);
-					// 		}
-					// 		event_manager.publish('user_navigation', user_navigation_rqo)
+				// initial state
+					get_linked_items(caller_instance)
+					.then(linked => _set_link_button_state(linked.has(item_key), link_icon, link_button))
+					.catch(error => console.error('Error resolving linked items:', error))
+					.finally(() => requestAnimationFrame(() => link_icon.classList.remove('hide_opacity')))
 
-					// 	// detail_section
-					// 		// ( async () => {
-					// 		// 	const options = {
-					// 		// 		model 			: 'section',
-					// 		// 		type			: 'section',
-					// 		// 		tipo			: self.section_tipo,
-					// 		// 		section_tipo  	: self.section_tipo,
-					// 		// 		section_id 		: self.section_id,
-					// 		// 		mode 			: 'edit',
-					// 		// 		lang 			: page_globals.dedalo_data_lang
-					// 		// 	}
-					// 		// 	const page_element_call	= await data_manager.get_page_element(options)
-					// 		// 	const page_element		= page_element_call.result
-
-					// 		// 	// detail_section instance. Create target section page element and instance
-					// 		// 		const detail_section = await get_instance(page_element)
-
-					// 		// 		// set self as detail_section caller (!)
-					// 		// 			detail_section.caller = initiator
-
-					// 		// 		// load data and render wrapper
-					// 		// 			await detail_section.build(true)
-					// 		// 			const detail_section_wrapper = await detail_section.render()
-
-					// 		// 	// modal container (header, body, footer, size)
-					// 		// 		const header = ui.create_dom_element({
-					// 		// 			element_type	: 'div',
-					// 		// 			text_content 	: detail_section.label
-					// 		// 		})
-					// 		// 		const modal = ui.attach_to_modal(header, detail_section_wrapper, null, 'big')
-					// 		// 		modal.on_close = () => {
-					// 		// 			detail_section.destroy(true, true, true)
-					// 		// 		}
-					// 		// })()
-
-					// 	// iframe
-					// 		// ( async () => {
-					// 		// 	const iframe = ui.create_dom_element({
-					// 		// 		element_type	: 'iframe',
-					// 		// 		src 			: DEDALO_CORE_URL + '/page/?tipo=' + self.section_tipo + '&section_id=' + self.section_id + '&mode=edit'
-					// 		// 	})
-					// 		// 	// modal container (header, body, footer, size)
-					// 		// 		const header = ui.create_dom_element({
-					// 		// 			element_type	: 'div',
-					// 		// 			text_content 	: detail_section.label
-					// 		// 		})
-					// 		// 		const modal = ui.attach_to_modal(header, iframe, null, 'big')
-					// 		// 		modal.on_close = () => {
-					// 		// 			detail_section.destroy(true, true, true)
-					// 		// 	}
-					// 		// })()
-					// })
-					// button_edit.appendChild(section_id_node)
-					// // edit_icon
-					// 	ui.create_dom_element({
-					// 		element_type	: 'span',
-					// 		class_name		: 'button edit icon',
-					// 		parent			: button_edit
-					// 	})
+				// click. Toggle through the portal's own doors, ONE at a time (a second
+				// change_value overlapping the first is queued and its caller never gets
+				// the save answer), and paint the state the server reports.
+					const link_click_handler = (e) => {
+						e.stopPropagation()
+						link_button.classList.add('loading')
+						caller_instance.picker_chain = (caller_instance.picker_chain || Promise.resolve())
+						.then(async () => {
+							const item = (await get_linked_items(caller_instance)).get(item_key)
+							const result = item
+								? await caller_instance.unlink_record(item)
+								: await caller_instance.link_record({
+									section_tipo	: section_tipo,
+									section_id		: section_id
+								})
+							if (result===false) {
+								// refused: the repaint below shows the stored state, not the click
+								console.warn('Link/unlink refused by the portal:', item_key)
+							}
+							const linked = await get_linked_items(caller_instance)
+							_set_link_button_state(linked.has(item_key), link_icon, link_button)
+						})
+						.catch(error => console.error('Error linking/unlinking record:', error))
+						.finally(() => link_button.classList.remove('loading'))
+					}
+					link_button.addEventListener('click', link_click_handler)
 				break;
 			}
 
@@ -804,112 +648,53 @@ export const render_column_id = function(options) {
 
 
 /**
-* _UPDATE_LINK_BUTTON
-* Async private helper that resolves and applies the initial linked/unlinked
-* visual state for a row's link button in portal-picker mode.
-*
-* Strategy (in order):
-*   1. Cache-invalidation check: if the parent component's data reference or
-*      pagination total changed since the last render, wipe the session Map so
-*      it is rebuilt from fresh data.
-*   2. Instant path: if session_linked_items (a Map) already exists on the
-*      caller instance, look up the key and return immediately — no API call.
-*   3. Inline-data shortcut: if total <= limit, all linked items are already
-*      in caller_instance.data.entries; copy them into entries_full directly.
-*   4. New-record shortcut: if section_id is '0' or empty, no items can be
-*      linked yet — set entries_full to [].
-*   5. API fetch: fire a single 'read_raw' request for the caller component's
-*      full linked-item list.  A shared promise (_loading_full_data) is stored
-*      on the caller instance to prevent redundant parallel requests when many
-*      rows are initialized simultaneously (race-condition guard).
-*   6. Build the session_linked_items Map from entries_full once, then update
-*      the button and reveal the icon via requestAnimationFrame.
-*
-* Side effects:
-*   - Mutates caller_instance.session_linked_items (Map).
-*   - Mutates caller_instance.data.entries_full (Array).
-*   - Mutates caller_instance._linked_cache_entries_ref and _linked_cache_total.
-*   - Temporarily sets caller_instance._loading_full_data (Promise; deleted in finally).
-*   - Calls _set_link_button_state on the supplied DOM elements.
-*   - Schedules a requestAnimationFrame to remove 'hide_opacity' from link_icon.
-*
-* @private
-* @param {string} initiator - Instance ID of the component_portal caller in the parent window.
-* @param {HTMLElement} link_icon - Icon span whose CSS classes reflect the linked state.
-* @param {HTMLElement} link_button - Button element that wraps the icon; receives 'added' class.
-* @param {string|number} section_tipo - Ontology tipo of the row's section.
-* @param {string|number} section_id - Record id of the row.
-* @returns {Promise<void>}
+* GET_LINKED_ITEMS
+* What the picker's caller portal stores, as a Map 'section_tipo_section_id' →
+* stored item (with its per-item `id`, which unlink_record needs).
+* Read from the portal's own data when it holds every entry; otherwise from
+* the server ('read_raw'). Cached on the caller per `data` object: the portal
+* replaces `data` on every refresh (each landed link/unlink), so the cache can
+* never outlive the stored truth, and nothing here mutates the portal's data.
+* @param {Object} caller_instance - The component_portal instance
+* @returns {Promise<Map<string,Object>>}
 */
-const _update_link_button = async function(initiator, link_icon, link_button, section_tipo, section_id) {
+const get_linked_items = function(caller_instance) {
 
-	if (!initiator) return
-
-	const top_window = window.parent
-	if (!top_window || typeof top_window.get_instance_by_id !== 'function') return
-
-	const caller_instance = top_window.get_instance_by_id(initiator)
-	if (!caller_instance) {
-		console.error('Caller instance not found for initiator:', initiator)
-		return
+	const data = caller_instance.data || {}
+	if (caller_instance.picker_linked?.data !== data) {
+		const promise = read_linked_items(caller_instance, data)
+		caller_instance.picker_linked = {data, promise}
+		// a failed read is not cached
+		promise.catch(() => {
+			if (caller_instance.picker_linked?.promise===promise) {
+				caller_instance.picker_linked = null
+			}
+		})
 	}
 
-	// Cache Invalidation Check
-	// If the parent component's data reference or total changed (e.g. user manually unlinked/linked externally),
-	// we wipe the cached state so it reliably regenerates with fresh component state on reopening the iframe.
-	const current_entries_ref = caller_instance.data?.entries
-	const current_total = caller_instance.data?.pagination?.total
-	if (
-		caller_instance._linked_cache_entries_ref !== current_entries_ref ||
-		caller_instance._linked_cache_total !== current_total
-	) {
-		caller_instance.session_linked_items = null
-		delete caller_instance._loading_full_data
-		if (caller_instance.data) {
-			caller_instance.data.entries_full = null
-		}
-		caller_instance._linked_cache_entries_ref = current_entries_ref
-		caller_instance._linked_cache_total = current_total
-	}
+	return caller_instance.picker_linked.promise
+}//end get_linked_items
 
-	// Instant Return Optimization
-	// If the session Map already exists, just update the UI and return.
-	if (caller_instance.session_linked_items) {
-		const item_key = String(section_tipo) + '_' + String(section_id)
-		const is_added = caller_instance.session_linked_items.get(item_key) === true
-		_set_link_button_state(is_added, link_icon, link_button)
 
-		requestAnimationFrame(() => link_icon?.classList.remove('hide_opacity'))
-		return
-	}
 
-	// Ensure caller_instance.data exists
-	if (!caller_instance.data) {
-		caller_instance.data = {}
-	}
+/**
+* READ_LINKED_ITEMS
+* @see get_linked_items
+* @param {Object} caller_instance
+* @param {Object} data - caller_instance.data at call time
+* @returns {Promise<Map<string,Object>>}
+*/
+const read_linked_items = async function(caller_instance, data) {
 
-	// Try to get the full data from the caller instance
-	const total = caller_instance.data.pagination?.total
-	const limit = caller_instance.data.pagination?.limit || 10
-	// Check if the data is below the limit.
-	// If so, fetch the full data from component data, and prevent fetching full data from API.
-	if (total !== undefined && (total <= limit)) {
-		caller_instance.data.entries_full = caller_instance.data.entries || []
-	} else if (!caller_instance.section_id || same_section_id(caller_instance.section_id, 0)) {
-		// Optimization: if it is a new record, it cannot have linked items.
-		caller_instance.data.entries_full = []
-	}
+	const entries	= data.entries || []
+	const total		= data.pagination?.total
 
-	try {
-		// Race condition protection: If data is being loaded, wait for the existing loading promise.
-		// This prevents redundant API calls when multiple buttons (rows) are initialized simultaneously.
-		if (caller_instance._loading_full_data) {
-			await caller_instance._loading_full_data
-		} else if (!caller_instance.data.entries_full) {
-
-			// Create a shared promise for the API request
-			caller_instance._loading_full_data = (async () => {
-				const rqo = {
+	const items = (typeof total==='number' && total <= entries.length)
+		? entries
+		: (!caller_instance.section_id || same_section_id(caller_instance.section_id, 0))
+			? [] // new record: nothing stored yet
+			: response_data(await data_manager.request({
+				body : {
 					action	: 'read_raw',
 					options	: {
 						type			: 'component',
@@ -918,56 +703,31 @@ const _update_link_button = async function(initiator, link_icon, link_button, se
 						model			: caller_instance.model
 					},
 					sqo : {
-						select 				: [],
+						select				: [],
 						section_tipo		: [caller_instance.section_tipo],
-						filter_by_locators 	: [{
-							section_tipo : caller_instance.section_tipo,
-							section_id : caller_instance.section_id
+						filter_by_locators	: [{
+							section_tipo	: caller_instance.section_tipo,
+							section_id		: caller_instance.section_id
 						}]
 					}
 				}
-				const api_response = await data_manager.request({
-					body : rqo
-				})
-				// Expecting the payload's first row to contain the array of linked items
-				caller_instance.data.entries_full = response_data(api_response)?.[0] || []
-			})()
+			}))?.[0] || []
 
-			try {
-				await caller_instance._loading_full_data
-			} finally {
-				delete caller_instance._loading_full_data
-			}
+	// a dataframe's raw value holds the frames of EVERY main item: only this
+	// instance's (id_key) are its own — never unlink another item's frame
+	const own = caller_instance.model==='component_dataframe'
+		? (item) => String(item.id_key)===String(data.id_key)
+		: () => true
+
+	const linked = new Map()
+	for (const item of (Array.isArray(items) ? items : [])) {
+		if (item?.section_tipo && item.section_id && own(item)) {
+			linked.set(item.section_tipo + '_' + item.section_id, item)
 		}
-
-		// Initialize session_linked_items Map once from the full data array
-		if (!caller_instance.session_linked_items) {
-			caller_instance.session_linked_items = new Map()
-			if (Array.isArray(caller_instance.data.entries_full)) {
-				caller_instance.data.entries_full.forEach(item => {
-					if (item.section_tipo && item.section_id) {
-						const key = String(item.section_tipo) + '_' + String(item.section_id)
-						caller_instance.session_linked_items.set(key, true)
-					}
-				})
-			}
-		}
-
-		// Final UI update
-		const item_key = String(section_tipo) + '_' + String(section_id)
-		const is_added = caller_instance.session_linked_items.get(item_key) === true
-
-		_set_link_button_state(is_added, link_icon, link_button)
-
-	} catch (error) {
-		console.error('Error in _update_link_button:', error)
-	} finally {
-		// Ensure the icon is at least revealed if it was hidden via hide_opacity
-		requestAnimationFrame(() => {
-			link_icon?.classList.remove('hide_opacity')
-		})
 	}
-}//end _update_link_button
+
+	return linked
+}//end read_linked_items
 
 
 

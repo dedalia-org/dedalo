@@ -112,6 +112,21 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-09-export-frontier-fanout`, `WC-2026-11-09-implicit-children-frontier-predicate`.
 
+#### Changed
+
+- **The Ontology and Thesaurus trees are now usable on phones and tablets.**
+
+    Before, on a phone the row of action buttons took most of the width, so a nested term was squeezed and its badges and expand arrow each wrapped onto a line of their own; deep branches could widen the page past the screen. Now each node is a compact block: the expand arrow leads the term, the model text sits on its own smaller line, the actions follow underneath, and a hairline separates nodes. On tablets and other touch screens the buttons are finger-sized and no longer wait for a hover to show, and the long model text moves under the term instead of crowding it.
+
+#### Added
+
+- **The map field shows the common unsaved-changes line, and its reload and add-point icons have tooltips.**
+
+    While a geolocation field's coordinates or view differ from what is saved, the field shows the
+    same orange line at the top as every other edited field; it goes away on its own when the value
+    is set back to the saved one, or once it is saved. It is information only: it does not stop you
+    from leaving the record. The reload and add-point icons now explain themselves on hover.
+
 #### Fixed
 
 - **The transcription print tool shows why it cannot open instead of staying blank.**
@@ -141,6 +156,14 @@ Merged since the last release; these ship with the next one.
     that record with "cannot delete path in scalar". New records are now stored correctly. A record already
     affected is repaired by setting its `relation_search` column to SQL NULL wherever `jsonb_typeof(relation_search) = 'null'`.
 
+- **Fields whose value holds an empty object no longer look edited when they are not.**
+
+    The client's value comparison treated two empty objects as different, so a value containing one
+    (for example a map point, whose stored shape carries empty properties) never matched its saved
+    copy. Such fields always sent a save that changed nothing, and setting them back to the saved
+    value left the orange unsaved line and the leave-page warning on. Both now behave like every
+    other field.
+
 - **Exporting a related field no longer refuses what the record already shows you.**
 
     A related field (a portal or an autocomplete) shows the labels of the records it points to, even
@@ -155,12 +178,34 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-09-export-relation-display`.
 
+- **Refreshing a map with drawn points no longer throws errors or loses its layer control.**
+
+    When a geolocation field was refreshed (the map reload button, or the record re-rendering), its
+    drawn points were added back to the map that had just been removed: the console showed
+    `Cannot read properties of undefined (reading 'appendChild')` once per point, and on maps with
+    several base layers the layer selector disappeared. The rebuilt map now gets its own layer
+    control, and a map whose field is refreshed while it is still loading is no longer built twice.
+
 - **Records linked from the list's link button no longer store the stray `close_modal` key in their locator.**
 
     Linking a record with the link button of a portal's list view saved the button's own "keep the window open"
     flag (`close_modal`) inside the stored relation, next to the real locator keys. The flag is now kept out of the
     locator by the client and stripped by the server's relation insert. Locators already saved with it are harmless
     to read; removing the key from them restores the clean locator shape.
+
+- **The ontology tree shows each node's model name once, not twice.**
+
+    In the Ontology tree, the model badge next to the **M** icon (shown with Ctrl+M) repeated the model name (`area_root, area_root`). It now shows it once.
+
+    Wire contract: `WC-2026-11-04-ontology-machine-names`.
+
+- **Link resource now works from a component opened inside the Ontology or Thesaurus tree.**
+
+    Before, clicking the tree button (*Link resource*) of a relation component opened inline in a tree row made the page's own tree disappear into the picker panel, and picking a term linked nothing. The picker now opens its own tree under the component, and the picked term is linked.
+
+- **A portal's "Link resource" picker now saves every pick, and unlinks too.**
+
+    Before, picking records in the "Link resource" list sometimes did not save: the list showed the record as linked, but the portal refused it as already present, and quick successive picks were reported as failed. Clicking a linked record to remove it never removed it. The list now opens inside the page instead of an embedded frame, picks are applied one at a time, and each row shows what is actually stored.
 
 - **Reloading a record's edit page keeps the record's place in its search results.**
 
@@ -172,6 +217,16 @@ Merged since the last release; these ship with the next one.
     section instead.
 
     Wire contract: `WC-2026-11-09-start-deep-link-found-set-position`.
+
+- **Saving a profile's access permissions no longer reports an error on slow connections when the save went through.**
+
+    Saving a profile's permissions used to upload the whole ontology tree shown in the editor (about 6.5 MB) with every save. On a slow connection the upload outlasted the client's wait, so the screen showed a save error and kept the changes marked as unsaved, even though the server had stored them (a reload showed them). The save now sends only the permissions. Large saves also get more time to upload before the client gives up. The server's reply to the save no longer sends the tree back either, so a retried save is recognised instead of being reported as failed.
+
+    Wire contract: `WC-2026-11-09-security-access-save-echo-no-datalist`.
+
+- **Opening a term in a new tree window now jumps straight to it and keeps it in view.**
+
+    Before, a window opened on a term (for example *Open dd0-6* from a relation) scrolled slowly towards the highlighted term while the tree was still loading, often stopping with the term at the edge of the screen or jumping again later. The term is now centred at once and stays in view while the tree finishes loading; scrolling yourself stops the following immediately.
 
 ### For administrators
 
@@ -205,6 +260,12 @@ Merged since the last release; these ship with the next one.
 
     The **New publication host** form in the Publication hosts panel has a new optional field, **Site home**. Leave it empty for the default `/home/<domain>`; fill it when the site lives elsewhere, for example `/home/www/vhosts/museum.org`. It applies to the `home` layout only, and the form hides it for `system`. See [the site's home, or the system directories](./install/publication_host.md#the-sites-home-or-the-system-directories).
 
+- **An installation can now be given its own colour, so several installations open side by side can be told apart.**
+
+    Set `DEDALO_INSTANCE_COLOR="#rrggbb"` in the installation's configuration to turn it on. The colour tints the Dédalo logo in the menu, draws a thin line under the menu bar and colours the developer information bar. The browser tab shows an icon in that colour with two letters of the installation's name, and the tab title starts with `[DEDALO_ENTITY_LABEL]`. Nothing is added to the menu. Without the setting, nothing changes; a value that is not a valid hex colour is reported in the server log and the colour stays off.
+
+    Wire contract: `WC-2026-11-09-instance-identity`.
+
 #### Fixed
 
 - **Saving a field of a record that does not exist (or was deleted) is refused instead of creating the record.**
@@ -225,12 +286,14 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 12 entries"
+??? note "Wire contract — 14 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
     - `WC-2026-11-09-export-relation-display`
     - `WC-2026-11-09-implicit-children-frontier-predicate`
+    - `WC-2026-11-09-instance-identity`
+    - `WC-2026-11-09-security-access-save-echo-no-datalist`
     - `WC-2026-11-09-start-deep-link-found-set-position`
     - `WC-2026-11-10-add-new-element-create-gate`
     - `WC-2026-11-10-hierarchy-rebuild-ownership`

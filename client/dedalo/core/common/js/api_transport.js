@@ -109,11 +109,29 @@ const retry_after_ms = (response) => {
 
 
 /**
+* UPLOAD_FLOOR_MS
+* Upload time ADDED to the per-attempt deadline for a string body: its UTF-8
+* size at a slow worst-case uplink. A fixed 5 s aborted multi-MB saves mid-upload
+* while the server went on to COMMIT them, so the user saw an error for a stored save.
+* shortcut: MIN_UPLINK_BYTES_PER_MS is an assumed link speed, not measured; tune if real remotes still abort.
+* @param {*} body
+* @return {number} ms (0 for non-string bodies: FormData uploads keep the caller's timeout)
+*/
+const MIN_UPLINK_BYTES_PER_MS = 64 // ~64 KB/s
+export const upload_floor_ms = (body) => {
+	// bytes on the wire, not UTF-16 units: multibyte text is up to 3x longer as UTF-8
+	return typeof body==='string' ? Math.ceil(new TextEncoder().encode(body).length / MIN_UPLINK_BYTES_PER_MS) : 0
+}//end upload_floor_ms
+
+
+
+/**
 * FETCH_API
 * @param {string} url
 * @param {Object} init - native fetch init (method, headers, body, signal, …)
 * @param {Object} [options]
-*   timeout_ms  {number}   per-attempt abort (default 5000; grows by the backoff delay per retry)
+*   timeout_ms  {number}   per-attempt abort (default 5000; grows by the backoff delay per retry;
+*                          plus upload_floor_ms(init.body) until an attempt times out)
 *   retries     {number}   max attempts (default 5)
 *   base_delay  {number}   backoff base in ms (default 500): delay = base_delay * 2^(attempt-1)
 *   on_wait     {Function} (attempt, delay_ms, reason:'busy'|'retry') — UI hook, optional
@@ -125,6 +143,9 @@ const retry_after_ms = (response) => {
 export const fetch_api = async (url, init = {}, options = {}) => {
 
 	const timeout_ms	= options.timeout_ms ?? 5000
+	// upload time is ADDED (the server still needs its budget once the body is in).
+	// Dropped after the first timed-out attempt so a dead link fails in ~one floor, not retries x floor.
+	let upload_ms		= upload_floor_ms(init.body)
 	const retries		= Math.max(1, options.retries ?? 5)
 	const base_delay	= options.base_delay ?? 500
 	const on_wait		= typeof options.on_wait==='function' ? options.on_wait : null
@@ -138,7 +159,7 @@ export const fetch_api = async (url, init = {}, options = {}) => {
 	while (attempt < retries) {
 		attempt++
 		const delay				= base_delay * Math.pow(2, attempt - 1)
-		const current_timeout	= attempt===1 ? timeout_ms : timeout_ms + delay
+		const current_timeout	= (attempt===1 ? timeout_ms : timeout_ms + delay) + upload_ms
 		// the ONE extension a busy server earns; also the value on_wait reports, so
 		// the notice and the wait it describes expire together
 		const busy_grace		= busy_grace_ms ?? (delay + 3000)
@@ -213,6 +234,7 @@ export const fetch_api = async (url, init = {}, options = {}) => {
 			const caller_aborted = !!caller_signal?.aborted
 			const api_error = normalize_transport_error(error, {timed_out, caller_aborted, timeout_ms: current_timeout, attempt})
 			last = {json:null, api_error, response:null}
+			if (timed_out) upload_ms = 0
 			if (caller_aborted || api_error.retryable!==true || attempt >= retries) return last
 			if (on_wait) on_wait(attempt, delay, 'retry')
 			await new Promise((resolve) => setTimeout(resolve, delay))

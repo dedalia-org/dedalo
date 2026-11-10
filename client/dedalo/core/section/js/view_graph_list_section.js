@@ -448,7 +448,7 @@ const get_buttons = function(self) {
 	// other-buttons drawer, no toggle. Activity (dd542) and Time machine (dd15)
 	// MUST behave identically; the rule is shared with view_default_list_section
 	// (render_common_section.is_non_tools_section).
-		if (is_non_tools_section(self)) {
+		if (is_non_tools_section(self) || self.initiator?.includes('component_')) { // + portal link picker
 			return fragment
 		}
 

@@ -61,6 +61,7 @@ import {
 	buildNodeData,
 	getPermissionsElement,
 	isIndexable,
+	replaceTranslatableTermTipos,
 } from '../../src/core/ts_object/ts_object.ts';
 
 const SUPERUSER: Principal = { userId: -1, isGlobalAdmin: true, isDeveloper: true };
@@ -308,6 +309,22 @@ describe("buildNodeData — the 'M' icon carries the model name (model_value)", 
 		const stamped = node.ar_elements.filter((element) => element.model_value !== undefined);
 		expect(stamped).toHaveLength(1);
 		expect(stamped[0]?.value).toBe('M');
+	});
+
+	it('a map that already declares the machine name only drops the label (no doubled name)', async () => {
+		// ontology6 shows [ontology43, ontology5, ontology9]: on a dd0 record flagged
+		// use_machine_name, swapping ontology5 for ontology43 rendered "area_root, area_root".
+		const term = new Set(['ontology5']);
+		expect(
+			await replaceTranslatableTermTipos(
+				['ontology43', 'ontology5', 'ontology9'],
+				term,
+				'ontology43',
+			),
+		).toEqual(['ontology43', 'ontology9']);
+		expect(
+			await replaceTranslatableTermTipos(['ontology5', 'ontology9'], term, 'ontology43'),
+		).toEqual(['ontology43', 'ontology9']);
 	});
 });
 

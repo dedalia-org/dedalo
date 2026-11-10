@@ -805,6 +805,163 @@ describe(`COMPONENT_GEOLOCATION EMPTY RECORD (no stored value)`, function() {
 // each of these paths needs its own creation guard. These are the exact call sites:
 // update_draw_data (drawing/create_point), layer_data_change (geo-tag insert), and
 // map_update_coordinates from a POPULATED caller.
+describe(`COMPONENT_GEOLOCATION REBUILD AFTER destroy(delete_self=false) (refresh)`, function() {
+
+	this.timeout(15000);
+
+	let instance = null
+
+	// a stored point: the marker is what crashed (_initIcon on a pane-less map)
+	const point_layer = () => ({
+		layer_id	: 1,
+		layer_data	: {
+			type		: 'FeatureCollection',
+			features	: [{type:'Feature', geometry:{type:'Point', coordinates:[0, 0]}, properties:{}}]
+		}
+	})
+
+	const open_map = async function() {
+		const holder = create_map_holder(component_container, 0)
+		const built = await instance.get_map(holder, 0)
+		instance.ar_layer_loaded = [point_layer()]
+		instance.layers_loader({load:'full'})
+		return built
+	}
+
+
+
+	it(`the rebuilt map gets its OWN layer control (the old one is bound to the removed map)`, async function() {
+
+		instance = await build_empty_instance('rebuild')
+		await open_map()
+		const old_map = instance.map
+		assert.strictEqual(instance.layer_control._map, old_map, 'precondition: control bound to the first map')
+
+		// what common.refresh does
+		await instance.destroy(false, true, false)
+		assert.isFalse(instance.layer_control, 'layer_control expected reset by destroy')
+
+		// (!) THE REGRESSION: the stale control's overlay click added the new FeatureGroup
+		// to the removed map → marker._initIcon: getPane() undefined → appendChild throws
+		await open_map()
+		assert.notStrictEqual(instance.map, old_map, 'expected a new map')
+		assert.strictEqual(instance.layer_control._map, instance.map, 'layer_control expected bound to the NEW map')
+		assert.isOk(instance.map.hasLayer(instance.FeatureGroup[1]), 'drawing layer expected on the NEW map')
+	});
+
+
+
+	it(`get_map on a DETACHED container (refreshed mid-load) builds nothing`, async function() {
+
+		const live_map		= instance.map
+		const live_control	= instance.layer_control
+
+		const stale_holder = create_map_holder(component_container, 0)
+		stale_holder.remove()
+
+		const built = await instance.get_map(stale_holder, 0)
+
+		assert.isFalse(built, 'get_map expected false on a detached container')
+		assert.strictEqual(instance.map, live_map, 'self.map expected untouched by the stale call')
+		assert.strictEqual(instance.layer_control, live_control, 'layer_control expected untouched by the stale call')
+		assert.equal(stale_holder.children.length, 0, 'no Leaflet DOM expected in the stale container')
+	});
+
+
+
+	it(`destroy rebuild instance`, async function() {
+
+		await instance.destroy(true)
+		assert.equal(instance.status, 'destroyed', 'status expected destroyed')
+
+		while (component_container.firstChild) {
+			component_container.removeChild(component_container.firstChild)
+		}
+	});
+});
+
+
+
+describe(`COMPONENT_GEOLOCATION CHANGED INDICATOR (common .modified line, blocks nothing)`, function() {
+
+	this.timeout(15000);
+
+	let instance	= null
+	let node		= null
+
+	const stored	= {id:1, lat:10, lon:20, zoom:5}
+	const shown		= () => node.classList.contains('modified')
+
+
+
+	it(`no line on an untouched record; the map icons carry a tooltip`, async function() {
+
+		instance = await build_empty_instance('changed_indicator')
+		instance.data.entries = [structuredClone(stored)]
+
+		node = await instance.render()
+		component_container.appendChild(node)
+
+		assert.isFalse(shown(), '.modified expected absent before any edit')
+		assert.isFalse(instance.update_changed_indicator(0), 'no change expected')
+
+		assert.isOk(node.querySelector('.map_reload')?.title, 'expected a tooltip on the reload icon')
+		assert.isOk(node.querySelector('.map_point')?.title, 'expected a tooltip on the add-point icon')
+
+		// the common (codex) tooltip, not the browser's: its library loads lazily, so wait for it
+		const icons = [node.querySelector('.map_reload'), node.querySelector('.map_point')]
+		for (let i = 0; i < 40 && !icons.every(el => el.dataset.tooltip_active==='true'); i++) {
+			await new Promise(resolve => setTimeout(resolve, 50))
+		}
+		for (const el of icons) {
+			assert.equal(el.dataset.tooltip_active, 'true', `common tooltip expected on .${el.className}`)
+		}
+	});
+
+
+
+	it(`shows on a change and hides when the value returns to the stored one`, async function() {
+
+		instance.handle_coord_change(0, 'lat', 11)
+		assert.isTrue(shown(), '.modified expected after changing lat')
+
+		instance.handle_coord_change(0, 'lat', 10)
+		assert.isFalse(shown(), '.modified expected removed once lat is back to the stored value')
+	});
+
+
+
+	it(`fields the buffer writes as null (alt) or stamps (id) are not a change`, async function() {
+
+		const { id, ...without_id } = structuredClone(stored)
+		instance.current_value[0] = {...without_id, alt:null}
+		assert.isFalse(instance.update_changed_indicator(0), 'alt:null / missing id expected equal to the stored entry')
+	});
+
+
+
+	it(`does not register the instance as unsaved (no navigation guard)`, async function() {
+
+		instance.handle_coord_change(0, 'zoom', 7)
+		assert.isTrue(shown(), 'precondition: .modified shown')
+		assert.notEqual(window.unsaved_data, true, 'window.unsaved_data expected not armed by the indicator')
+	});
+
+
+
+	it(`destroy changed-indicator instance`, async function() {
+
+		await instance.destroy(true)
+		assert.equal(instance.status, 'destroyed', 'status expected destroyed')
+
+		while (component_container.firstChild) {
+			component_container.removeChild(component_container.firstChild)
+		}
+	});
+});
+
+
+
 describe(`COMPONENT_GEOLOCATION EMPTY RECORD FIRST-VALUE CREATION`, function() {
 
 	this.timeout(20000);

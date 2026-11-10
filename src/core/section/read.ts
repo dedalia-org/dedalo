@@ -4008,6 +4008,7 @@ async function emitDdoDataUnbound(
 		defaultLang,
 		callerTipo,
 		emission,
+		door: 'read',
 	};
 	if (emitHook?.emitItem !== undefined) {
 		await emitHook.emitItem(hookContext);

@@ -529,12 +529,13 @@
 		}
 	}
 
-	// literal component inputs (input_text, number, date): hide the outline
+	// literal component inputs (input_text, number, date, email): hide the outline
 	// border at rest and reveal it only when the component is hovered or active.
 	// :not(:focus) leaves the focus hilite (.hilite_mixin) untouched while editing.
 	.wrapper_component.component_input_text.edit,
 	.wrapper_component.component_number.edit,
-	.wrapper_component.component_date.edit {
+	.wrapper_component.component_date.edit,
+	.wrapper_component.component_email.edit {
 
 		input:not(:focus), .contenteditable:not(:focus) {
 			outline-color: transparent;

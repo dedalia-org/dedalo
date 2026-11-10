@@ -594,6 +594,8 @@ export const V6_MIGRATION: Readonly<Record<string, MigrationRule>> = build();
  * the moment to document it.
  */
 export const NEW_IN_V7: readonly string[] = [
+	// identity: the installation colour (src/config/instance_color.ts)
+	'DEDALO_INSTANCE_COLOR',
 	// server / runtime
 	'SERVER_UNIX_SOCKET',
 	'SERVER_TCP_PORT',

@@ -984,7 +984,10 @@ export const coreApiActions: Record<string, ActionHandler> = {
 			// disappeared after the first save, killing the person button (and
 			// tag insertion with it) until a full reload. Relation saves above
 			// already reuse the full get_data pipeline, hooks included. Best
-			// effort: a decoration hiccup never fails a durable save.
+			// effort: a decoration hiccup never fails a durable save. Hooks see
+			// door:'save_echo' and may omit edit-READ-only payload the client
+			// already holds (security_access datalist,
+			// WC-2026-11-09-security-access-save-echo-no-datalist).
 			if (!isRelationSave) {
 				try {
 					const { getEmitHook } = await import('../../components/emit_hooks.ts');
@@ -1015,6 +1018,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 								defaultLang: lang,
 								callerTipo: source.section_tipo,
 								emission: new EmissionContext([savedDataItem as never]),
+								door: 'save_echo',
 							});
 						}
 					}

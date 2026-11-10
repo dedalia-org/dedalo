@@ -337,6 +337,10 @@ const get_content_data_edit = function(self) {
 		})
 		dedalo_icon.tabIndex = 0
 		dedalo_icon.setAttribute('role', 'button')
+		// installation name on hover (the logo is tinted in the installation colour)
+		if (page_globals.dedalo_instance_color && page_globals.dedalo_entity_label) {
+			dedalo_icon.title = page_globals.dedalo_entity_label
+		}
 		// click event
 		const dedalo_icon_click_handler = (e) => {
 			e.stopPropagation()

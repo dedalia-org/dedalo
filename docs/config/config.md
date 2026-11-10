@@ -176,6 +176,22 @@ DEDALO_ENTITY_LABEL="Museu de Prehistòria de València"
 
 ---
 
+### Defining the installation colour
+
+DEDALO_INSTANCE_COLOR `string` (optional)
+
+Defines the colour that identifies this installation, so that people working with several installations can tell them apart at a glance. The colour tints the Dédalo logo in the menu, draws a thin line under the menu bar, colours the developer information bar and is used for the browser tab icon. The tab title is prefixed with `[DEDALO_ENTITY_LABEL]`.
+
+When unset, none of this is shown. The value must be a hex colour in the form `#rrggbb`; any other value is reported in the server log at boot and the colour stays off. Choose a mid-tone, saturated colour: the menu is dark, so a very dark colour hardly shows, and the developer bar carries white text, so a very light one is hard to read.
+
+```bash
+DEDALO_INSTANCE_COLOR="#b23838"
+```
+
+*Default: (unset)*
+
+---
+
 ### Defining entity
 
 ENTITY `string`

@@ -27,8 +27,6 @@
 *   { id, type, section_tipo, section_id, from_component_tipo }
 *
 * Event bus tokens used by this module (all stored in `self.events_tokens` for cleanup):
-*   `initiator_link_<id>`    — user selects a record from the picker modal.
-*   `initiator_unlink_<id>`  — user removes a linked record from the picker modal.
 *   `link_terms_<id>`        — the term picker's confirmed selection, an ARRAY of terms
 *                              (tree/indexation views). The channel name is never composed
 *                              here: it is `PICKER_LINK_CHANNEL_PREFIX + self.id`, owned by
@@ -301,12 +299,10 @@ export const component_portal = function() {
 *
 * Delegates base property setup (id, tipo, section_tipo, mode, lang, caller, …) to
 * `component_common.prototype.init`, which in turn calls `common.prototype.init`.
-* All three event tokens are pushed into `self.events_tokens` so they are cleaned
+* The event tokens are pushed into `self.events_tokens` so they are cleaned
 * up during `destroy()`.
 *
 * Event subscriptions registered here:
-*   `initiator_link_<id>`   — user confirms selection in picker; calls `link_record`.
-*   `initiator_unlink_<id>` — user removes a record from picker; calls `unlink_record`.
 *   `link_terms_<id>`       — the term picker's confirmed selection (an ARRAY); completes
 *                             every locator with the view's own metadata
 *                             (tag_id / tag_component_tipo / top_locator in indexation view,
@@ -353,57 +349,6 @@ component_portal.prototype.init = async function(options) {
 		self.request_config			= options.request_config || null
 
 	// events subscribe
-
-		// initiator_link. Observes user click over list record_
-		// The payload is a MESSAGE: the locator plus the publisher's UI flag
-		// `close_modal`. Only the locator is linked — the flag is not part of it
-		// and was stored on every relation made from the list link button.
-			const initiator_link_handler = async (message) => {
-				// debug
-					if(SHOW_DEBUG===true) {
-						console.log('-> event fn_initiator_link locator:', message);
-					}
-				const { close_modal, ...locator } = message
-				// add locator selected
-					const result = await self.link_record(locator)
-					if (result===false) {
-						return
-					}
-				// modal close
-					if (self.modal && close_modal !== false) {
-						self.modal.close()
-					}
-			}
-			self.events_tokens.push(
-				event_manager.subscribe(`initiator_link_${self.id}`, initiator_link_handler)
-			)
-
-		// initiator_unlink. Observes user click over list record to remove from portal
-			const initiator_unlink_handler = async (message) => {
-				// debug
-					if (SHOW_DEBUG===true) {
-						console.log('-> event fn_initiator_unlink locator:', message);
-					}
-				const { close_modal, ...locator } = message
-
-					if (!locator.id) {
-						console.warn('Value to unlink not found in current entries');
-						return
-					}
-
-				// remove locator selected
-					const result = await self.unlink_record(locator)
-					if (result===false) {
-						return
-					}
-				// modal close
-					if (self.modal && close_modal !== false) {
-						self.modal.close()
-					}
-			}
-			self.events_tokens.push(
-				event_manager.subscribe(`initiator_unlink_${self.id}`, initiator_unlink_handler)
-			)
 
 		// link_terms. Observes the term picker's CONFIRMED selection
 		// Published by the ONE publisher (thesaurus_picker.publish_link_terms) on
@@ -1444,7 +1389,7 @@ const compose_show_interface = function(self) {
 * The length-1 case of `link_records` — same door, same duplicate detection, same
 * refresh — kept as the stable single-pick entry point:
 *  - `service_autocomplete` when the user picks an option from the datalist.
-*  - `initiator_link_<id>` event handler (picker modal confirm).
+*  - the link picker's id column (render_list_section, initiator case).
 *  - `component_relation_*` client models, which inherit this method verbatim.
 *
 * @param {Object} value                      - Locator to insert.  Will be mutated:
@@ -3125,7 +3070,7 @@ component_portal.prototype.get_unlink_changed_data = function(ar_locators) {
 *
 * The `remove_dialog` callback is supplied as `() => true` (auto-confirm) because the
 * delete confirmation was already shown to the user by the remove button handler that
-* published the `initiator_unlink_<id>` event.  Passing the callback here prevents a
+* called it (or by the link picker, whose toggle is the confirmation).  Passing the callback here prevents a
 * second confirmation dialog from appearing.
 *
 * Publishes `remove_element_<id>` after the refresh so that any sibling UI elements
@@ -3193,7 +3138,7 @@ const unlink_record_locked = async function(self, locator) {
 
 	// change_value (implies saves too)
 	// The remove confirmation dialog is controlled by the button that called this function
-	// (via the initiator_unlink event); supplying remove_dialog:()=>true here prevents
+	// (or the link picker toggle); supplying remove_dialog:()=>true here prevents
 	// a second confirmation from appearing.
 		const api_response = await self.change_value({
 			changed_data	: changed_data,
@@ -3905,6 +3850,13 @@ const build_thesaurus_pane = async function(self, pane) {
 				mode			: 'list',
 				lang			: self.lang,
 				caller			: self,
+				// (!) OWN KEY. Without it the key equals the HOST page's area when the
+				// caller lives inside that area's tree (a component opened inline in
+				// the Ontology/Thesaurus tree): get_instance returned the page area
+				// itself, which was rebuilt and re-rendered into the pane — the page
+				// tree vanished and no picker was wired. `key` names this one instance
+				// and, unlike id_variant, does not cascade.
+				key				: `${area_model}_${area_tipo}_picker`,
 				// (!) NO id_variant. It is tempting — it would key the area per
 				// component — but `id_variant` CASCADES: section.js:1191 forwards
 				// `options.id_variant || self.id_variant` to every section_record it

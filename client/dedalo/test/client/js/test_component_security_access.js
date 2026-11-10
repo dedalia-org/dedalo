@@ -345,6 +345,53 @@ describe(`COMPONENT_SECURITY_ACCESS DATA OPERATIONS`, function() {
 
 
 
+	it(`a save does not upload the datalist and keeps the tree usable`, async function() {
+
+		// the stored value, restored at the end (earlier tests left unsaved edits)
+		const original			= structuredClone(instance.db_data?.entries || [])
+		const datalist_before	= instance.data.datalist
+		assert.isAbove(datalist_before?.length || 0, 0, 'datalist expected before the save')
+
+		const item		= {tipo : 'test45', section_tipo : 'test3'}
+		const baseline	= instance.get_value_entry('test45', 'test3')?.value ?? 0
+		// capture the save request: the datalist is server-built and must NOT be uploaded
+		const native_fetch	= window.fetch
+		const save_bodies	= []
+		window.fetch = function(url, init) {
+			if (typeof init?.body==='string' && init.body.includes('"action":"save"')) save_bodies.push(init.body)
+			return native_fetch.apply(this, arguments)
+		}
+		try {
+			instance.update_value(item, baseline===2 ? 1 : 2)
+			let result
+			try {
+				result = await instance.save_changes()
+			}finally{
+				window.fetch = native_fetch
+			}
+			assert.isOk(result, 'save_changes expected to succeed')
+			assert.isAbove(save_bodies.length, 0, 'no save request captured')
+			for (const body of save_bodies) {
+				assert.notProperty(JSON.parse(body).data || {}, 'datalist', 'the save request uploaded the datalist')
+			}
+
+			const datalist = instance.data.datalist
+			assert.isAbove(datalist?.length || 0, 0, 'the save lost the datalist')
+			const leaf = datalist.find(el => el.ar_parent && el.ar_parent.length > 0)
+			const area = datalist.find(el => el.tipo===el.section_tipo)
+			assert.isOk(Array.isArray(instance.get_parents(leaf)), 'get_parents broke after a save')
+			assert.isOk(Array.isArray(instance.get_children(area)), 'get_children broke after a save')
+		}finally{
+			instance.update_value(item, baseline)
+			await instance.change_value({
+				changed_data	: [Object.freeze({action : 'set_data', value : original})],
+				refresh			: false
+			})
+		}
+	});
+
+
+
 	it(`update_parents_radio_butons method exists`, async function() {
 
 		assert.equal(typeof instance.update_parents_radio_butons, 'function', 'update_parents_radio_butons expected to be a function')
