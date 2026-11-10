@@ -156,7 +156,7 @@ const TLD = {
 	legacy: 'zzrsl',
 	rootOnly: 'zzrsr',
 	realOne: 'zzrst',
-	ensureCase2: 'zzrsq',
+	ensureCase2: 'zzrsy',
 	duplicate: 'zzrsd',
 	control: 'zzrsc',
 	invalid: 'zzrsi',

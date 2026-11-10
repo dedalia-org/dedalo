@@ -94,9 +94,11 @@ const NO_WIDGETS_TIPO = 'test52'; // component_input_text — no properties.widg
 // getNode() → null. Tipo-SHAPED on purpose: since the read door the write
 // door's grammar step refuses a malformed tipo (request.invalid) before any
 // ontology lookup — pinned separately below — so the "no node" branch is only
-// reachable with a well-formed tipo that names nothing.
-const UNKNOWN_TIPO = 'zzt934000';
-const MALFORMED_TIPO = 'zzt_no_such_tipo_934000';
+// reachable with a well-formed tipo that names nothing. `zzciw` is this file's
+// OWN reserved scratch TLD (never built), so nothing — no other gate's
+// situation — can ever materialize it (scratch_tld_uniqueness_tripwire).
+const UNKNOWN_TIPO = 'zzciw934000';
+const MALFORMED_TIPO = 'zzciw_no_such_tipo_934000';
 
 // The test6883 descriptors chain: test6813 --test6837--> rsc167 --rsc860--> terms.
 // The two ends sit in DIFFERENT matrix tables and that is the point of the hop:

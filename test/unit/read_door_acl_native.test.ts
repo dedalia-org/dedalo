@@ -1237,7 +1237,7 @@ describe.if(DB_READY)('dd_core_api term + indexation reads — the per-entry gra
 				},
 			};
 			const fragments = (body: EnvelopeBody) =>
-				['zz9376r1', 'zz9376r2'].filter((fragment) =>
+				['tg9376r1', 'tg9376r2'].filter((fragment) =>
 					JSON.stringify(body.data).includes(`fragmento ${fragment} indexado`),
 				);
 
@@ -1247,7 +1247,7 @@ describe.if(DB_READY)('dd_core_api term + indexation reads — the per-entry gra
 			expect(noticeCodes(narrowed)).toEqual(['perm.out_of_scope']);
 
 			const served = await dispatchAs(grid.TG_CONTROL_USER_ID, 'lg-spa', request);
-			expect(fragments(served)).toEqual(['zz9376r1', 'zz9376r2']);
+			expect(fragments(served)).toEqual(['tg9376r1', 'tg9376r2']);
 			expect(served.withheld_rows).toBe(0);
 			expect(served.notices).toBeUndefined();
 		},

@@ -7,7 +7,7 @@
  * disclosure assertion of its consumers is a PAIR — the reader is refused /
  * narrowed, the CONTROL on the same call is served.
  *
- * WHAT IT MINTS (explicit ids 9376xx, string prefix `zz9376`; no ontology node
+ * WHAT IT MINTS (explicit ids 9376xx, string prefix `tg9376`; no ontology node
  * is written — users/profiles/projects are ordinary dd128/dd234/dd153 records,
  * the content records are test3 / test6813 rows of `matrix_test`):
  *
@@ -27,8 +27,8 @@
  *   test6813.test6826=1, test6813.test6837=1, testgeoa1=1 (the thesaurus term's
  *   section — get_indexation_grid's own door gate).
  *
- *   matrix_test test3/937631    IN the project   — test52 'zz9376 in scope'
- *   matrix_test test3/937632    NO project        — test52 'zz9376 out of scope'
+ *   matrix_test test3/937631    IN the project   — test52 'tg9376 in scope'
+ *   matrix_test test3/937632    NO project        — test52 'tg9376 out of scope'
  *   matrix_test test6813/937641, /937642  IN the project — the two group tops
  *   matrix_test test3/937651, /937652     indexing records: an rsc36 tagged
  *                               transcription + an rsc860 dd96 locator to the
@@ -98,8 +98,8 @@ export const TG_INDEXING_RECORDS = [937651, 937652] as const;
 export const TG_ROW_SCOPE_TOP_RECORDS = [937643, 937644] as const;
 /** 937653 in TG_PROJECT_ID; 937654 only in TG_SECOND_PROJECT_ID. */
 export const TG_ROW_SCOPE_INDEXING_RECORDS = [937653, 937654] as const;
-export const TG_IN_SCOPE_TERM = 'zz9376 in scope';
-export const TG_OUT_OF_SCOPE_TERM = 'zz9376 out of scope';
+export const TG_IN_SCOPE_TERM = 'tg9376 in scope';
+export const TG_OUT_OF_SCOPE_TERM = 'tg9376 out of scope';
 
 /** The thesaurus term the grid is asked about (an existing synthetic-hierarchy record). */
 export const GRID_TERM = { section_tipo: `${SYNTHETIC_HIERARCHY_A_TLD}1`, section_id: 8 } as const;
@@ -245,29 +245,29 @@ export async function installTermsGridDoorFixture(): Promise<void> {
 	await purge({ strict: false });
 
 	await insertRecord('matrix_projects', PROJECTS_SECTION, TG_PROJECT_ID, {
-		string: { dd156: [{ id: 1, lang: 'lg-eng', value: 'zz9376 scratch project' }] },
+		string: { dd156: [{ id: 1, lang: 'lg-eng', value: 'tg9376 scratch project' }] },
 	});
 	await insertRecord('matrix_projects', PROJECTS_SECTION, TG_SECOND_PROJECT_ID, {
-		string: { dd156: [{ id: 1, lang: 'lg-eng', value: 'zz9376 second scratch project' }] },
+		string: { dd156: [{ id: 1, lang: 'lg-eng', value: 'tg9376 second scratch project' }] },
 	});
 	const personas: [number, number, string, { sectionTipo: string; tipo: string } | undefined][] = [
-		[TG_CONTROL_USER_ID, TG_CONTROL_PROFILE_ID, 'zz9376_control', undefined],
+		[TG_CONTROL_USER_ID, TG_CONTROL_PROFILE_ID, 'tg9376_control', undefined],
 		[
 			TG_TERM_DENIED_USER_ID,
 			TG_TERM_DENIED_PROFILE_ID,
-			'zz9376_term_denied',
+			'tg9376_term_denied',
 			{ sectionTipo: TG_SECTION, tipo: TG_TERM_COMPONENT },
 		],
 		[
 			TG_SECTION_DENIED_USER_ID,
 			TG_SECTION_DENIED_PROFILE_ID,
-			'zz9376_section_denied',
+			'tg9376_section_denied',
 			{ sectionTipo: TG_SECTION, tipo: TG_SECTION },
 		],
 		[
 			TG_TEXT_DENIED_USER_ID,
 			TG_TEXT_DENIED_PROFILE_ID,
-			'zz9376_text_denied',
+			'tg9376_text_denied',
 			{ sectionTipo: TG_SECTION, tipo: TG_TEXT_AREA },
 		],
 	];
@@ -289,7 +289,7 @@ export async function installTermsGridDoorFixture(): Promise<void> {
 	}
 	// WIDE: CONTROL's own profile, in BOTH projects.
 	await insertRecord('matrix_users', USERS_SECTION, TG_WIDE_USER_ID, {
-		string: { dd132: [{ id: 1, lang: 'lg-nolan', value: 'zz9376_wide' }] },
+		string: { dd132: [{ id: 1, lang: 'lg-nolan', value: 'tg9376_wide' }] },
 		relation: {
 			dd131: [locator('dd131', YES_NO_SECTION, 1)],
 			dd244: [locator('dd244', YES_NO_SECTION, NO)],
@@ -335,7 +335,7 @@ export async function installTermsGridDoorFixture(): Promise<void> {
 	clearTermsGridDoorCaches();
 }
 
-/** One section_top group (in TG_PROJECT_ID) with ONE indexing row quoting `zz9376r<ordinal>`. */
+/** One section_top group (in TG_PROJECT_ID) with ONE indexing row quoting `tg9376r<ordinal>`. */
 async function insertIndexedGroup(group: {
 	topId: number;
 	indexingId: number;
@@ -344,7 +344,7 @@ async function insertIndexedGroup(group: {
 	indexingProjectId: number;
 }): Promise<void> {
 	await insertRecord('matrix_test', TG_TOP_SECTION, group.topId, {
-		string: { [TG_TOP_CODE]: [{ id: 1, lang: 'lg-nolan', value: `ZZ9376-${group.ordinal}` }] },
+		string: { [TG_TOP_CODE]: [{ id: 1, lang: 'lg-nolan', value: `TG9376-${group.ordinal}` }] },
 		relation: {
 			[TG_TOP_FILTER]: [projectLocator(TG_TOP_FILTER)],
 			[TG_TOP_PORTAL]: [locator(TG_TOP_PORTAL, TG_SECTION, group.indexingId)],
@@ -352,7 +352,7 @@ async function insertIndexedGroup(group: {
 	});
 	await insertRecord('matrix_test', TG_SECTION, group.indexingId, {
 		string: {
-			[TG_TEXT_AREA]: [{ id: 1, lang: 'lg-spa', value: transcription(`zz9376r${group.ordinal}`) }],
+			[TG_TEXT_AREA]: [{ id: 1, lang: 'lg-spa', value: transcription(`tg9376r${group.ordinal}`) }],
 		},
 		relation: {
 			[TG_SECTION_FILTER]: [projectLocator(TG_SECTION_FILTER, group.indexingProjectId)],

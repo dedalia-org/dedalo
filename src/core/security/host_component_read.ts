@@ -58,6 +58,7 @@
  */
 
 import type { Ddo } from '../concepts/ddo.ts';
+import { compareLocators, type Locator } from '../concepts/locator.ts';
 import { isTemporalSource, type Rqo, type RqoSource } from '../concepts/rqo.ts';
 import { canonicalizeStoredSectionId } from '../concepts/section_id.ts';
 import type { Principal } from './permissions.ts';
@@ -159,14 +160,28 @@ function isPageVocabularyOnly(sqo: Record<string, unknown>): boolean {
 	);
 }
 
-/** `pin` is exactly `{section_tipo, section_id}` naming the host record. */
+/** The locator properties a host pin is matched on (the locator law, locator.ts). */
+const HOST_PIN_PROPERTIES: readonly string[] = ['section_tipo', 'section_id'];
+
+/**
+ * `pin` is exactly `{section_tipo, section_id}` naming the host record. The
+ * pin's id is canonicalized FIRST and must come out a record address (an int,
+ * or its one strict decimal spelling '5'): the locator law then compares two
+ * ints, so its loose-numeric rule cannot admit another spelling ('0x5', '5.0',
+ * [5]) of the host id — the pin admits exactly what the section read emits.
+ */
 function isHostPin(pin: unknown, sectionTipo: string, sectionId: number): boolean {
 	if (pin === null || typeof pin !== 'object') return false;
 	const fields = pin as Record<string, unknown>;
+	const pinnedId = canonicalizeStoredSectionId(fields.section_id);
 	return [
-		Object.keys(fields).every((key) => key === 'section_tipo' || key === 'section_id'),
-		fields.section_tipo === sectionTipo,
-		String(fields.section_id) === String(sectionId),
+		Object.keys(fields).every((key) => HOST_PIN_PROPERTIES.includes(key)),
+		typeof pinnedId === 'number',
+		compareLocators(
+			{ section_tipo: fields.section_tipo, section_id: pinnedId } as Locator,
+			{ section_tipo: sectionTipo, section_id: sectionId },
+			HOST_PIN_PROPERTIES,
+		),
 	].every(Boolean);
 }
 
@@ -409,11 +424,19 @@ function pairKeyOf(entry: Record<string, unknown>): number | string | null {
 	return typeof pairId === 'number' || typeof pairId === 'string' ? pairId : null;
 }
 
-/** True when the entry names a target record (section_tipo string + section_id). */
-function isLocatorShaped(
+/**
+ * The record an entry targets, on its CANONICAL address (canonicalizeStoredSectionId:
+ * an int; an external id verbatim) — or null when it names no record (no
+ * section_tipo string, or an id that is neither an int nor a string).
+ */
+function frameTargetOf(
 	entry: Record<string, unknown>,
-): entry is Record<string, unknown> & { section_tipo: string; section_id: number | string } {
-	return typeof entry.section_tipo === 'string' && entry.section_id !== undefined;
+): Pick<DisplayedFrame, 'sectionTipo' | 'sectionId'> | null {
+	const sectionId = canonicalizeStoredSectionId(entry.section_id);
+	const named = typeof sectionId === 'number' || typeof sectionId === 'string';
+	return typeof entry.section_tipo === 'string' && named
+		? { sectionTipo: entry.section_tipo, sectionId }
+		: null;
 }
 
 /** One emitted entry as a displayed frame of slot `frameTipo`, or null. */
@@ -421,14 +444,9 @@ function asDisplayedFrame(frameTipo: string, entry: unknown): DisplayedFrame | n
 	if (entry === null || typeof entry !== 'object') return null;
 	const frame = entry as Record<string, unknown>;
 	const pairId = pairKeyOf(frame);
-	if (pairId === null || !isLocatorShaped(frame)) return null;
-	return {
-		frameTipo,
-		mainTipo: String(frame.main_component_tipo ?? ''),
-		pairId,
-		sectionTipo: frame.section_tipo,
-		sectionId: frame.section_id as number | string,
-	};
+	const target = frameTargetOf(frame);
+	if (pairId === null || target === null) return null;
+	return { frameTipo, mainTipo: String(frame.main_component_tipo ?? ''), pairId, ...target };
 }
 
 /** The display key of the record an item was emitted AT, or null (no address / no tipo). */

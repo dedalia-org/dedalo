@@ -63,8 +63,8 @@ let textDenied: Principal;
 let superuser: Principal;
 let wide: Principal;
 
-const FRAGMENTS = ['zz9376r1', 'zz9376r2'] as const;
-const CODES = ['ZZ9376-1', 'ZZ9376-2'] as const;
+const FRAGMENTS = ['tg9376r1', 'tg9376r2'] as const;
+const CODES = ['TG9376-1', 'TG9376-2'] as const;
 
 function contextFor(principal: Principal): ApiRequestContext {
 	return {
@@ -293,7 +293,7 @@ describe('get_indexation_grid — (d) every filter_by_locators entry passes the 
 	test('a locator in a section the caller holds no grant on → 403 perm.denied, no row', async () => {
 		const refused = await gridWith(control, [TERM_LOCATOR, ungrantedSection]);
 		expect([refused.status, refused.code]).toEqual([403, 'perm.denied']);
-		expect(JSON.stringify(refused.body)).not.toContain('zz9376r');
+		expect(JSON.stringify(refused.body)).not.toContain('tg9376r');
 		// the pair: the same locator on a section-denied persona's own section
 		const sectionRefused = await gridWith(sectionDenied, [TERM_LOCATOR, inScope]);
 		expect([sectionRefused.status, sectionRefused.code]).toEqual([403, 'perm.denied']);
@@ -304,7 +304,7 @@ describe('get_indexation_grid — (d) every filter_by_locators entry passes the 
 	test('a locator naming an out-of-scope record → 403 perm.denied; the superuser is served', async () => {
 		const refused = await gridWith(control, [TERM_LOCATOR, outOfScope]);
 		expect([refused.status, refused.code]).toEqual([403, 'perm.denied']);
-		expect(JSON.stringify(refused.body)).not.toContain('zz9376r');
+		expect(JSON.stringify(refused.body)).not.toContain('tg9376r');
 		expect((await gridWith(superuser, [TERM_LOCATOR, outOfScope])).status).toBe(200);
 	});
 
@@ -312,7 +312,7 @@ describe('get_indexation_grid — (d) every filter_by_locators entry passes the 
 		// Source = GRID_TERM_B (granted, in scope); the filter names GRID_TERM.
 		const swapped = await gridWith(control, [TERM_LOCATOR], GRID_TERM_B);
 		expect([swapped.status, swapped.code]).toEqual([400, 'search.invalid_sqo']);
-		expect(JSON.stringify(swapped.body)).not.toContain('zz9376r');
+		expect(JSON.stringify(swapped.body)).not.toContain('tg9376r');
 		// a section-wide sweep (no id) names no record: refused too
 		const sweep = await gridWith(control, [
 			TERM_LOCATOR,
@@ -329,8 +329,8 @@ const TERM_B_LOCATOR: Locator = {
 	section_id: String(GRID_TERM_B.section_id),
 	tipo: 'hierarchy40',
 };
-const ROW_FRAGMENTS = ['zz9376r3', 'zz9376r4'] as const;
-const ROW_CODES = ['ZZ9376-3', 'ZZ9376-4'] as const;
+const ROW_FRAGMENTS = ['tg9376r3', 'tg9376r4'] as const;
+const ROW_CODES = ['TG9376-3', 'TG9376-4'] as const;
 
 function quotedB(body: { data: unknown[] }): { fragments: string[]; codes: string[] } {
 	const json = JSON.stringify(body.data);
@@ -359,7 +359,7 @@ describe('get_indexation_grid — (e) the indexing record OWN record scope', () 
 	test('control (one project): the out-of-project row is withheld + counted, its group in scope', async () => {
 		const narrowed = await gridWith(control, [TERM_B_LOCATOR], GRID_TERM_B);
 		expect(narrowed.status).toBe(200);
-		expect(quotedB(narrowed.body)).toEqual({ fragments: ['zz9376r3'], codes: ['ZZ9376-3'] });
+		expect(quotedB(narrowed.body)).toEqual({ fragments: ['tg9376r3'], codes: ['TG9376-3'] });
 		expect(narrowed.body.withheld_rows).toBe(1);
 		expect(noticeCodes(narrowed.body)).toEqual(['perm.out_of_scope']);
 	});

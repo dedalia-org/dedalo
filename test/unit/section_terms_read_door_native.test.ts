@@ -198,10 +198,10 @@ describe('get_section_terms — the three refusals, each a pair', () => {
 
 describe('get_section_terms — ids that address no record', () => {
 	test('a non-address id (graph token / external remote id) still flows for the reader — nothing to scope', async () => {
-		// Number('zz9376token') is NaN: the term read touches no row and answers
+		// Number('tg9376token') is NaN: the term read touches no row and answers
 		// '' — the pre-existing behaviour the graph's provisional label relies on.
-		const body = await terms(control, [{ section_tipo: TG_SECTION, section_id: 'zz9376token' }]);
-		expect(body.data).toEqual({ [`${TG_SECTION}_zz9376token`]: '' });
+		const body = await terms(control, [{ section_tipo: TG_SECTION, section_id: 'tg9376token' }]);
+		expect(body.data).toEqual({ [`${TG_SECTION}_tg9376token`]: '' });
 		expect(body.notices).toBeUndefined();
 	});
 
