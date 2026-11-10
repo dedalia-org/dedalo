@@ -2,7 +2,7 @@
  * media.probe — WHAT THE PUBLICATION HOST'S MEDIA ROOT IS, measured on every call (spec §6).
  *
  * A rule hash proves the rules are INSTALLED (§7); this proves the tree they gate is there
- * and shaped as declared. Four measurements, in dependency order:
+ * and shaped as declared. Five measurements, in dependency order:
  *
  * - present: MEDIA_ROOT is a directory. Absent ⇒ nothing else is probed: every later answer
  *   would describe the empty mountpoint, not the media.
@@ -15,6 +15,14 @@
  * - pub_readable / pub_markers: `.publication/pub/` (engineering/MEDIA_PROTECTION.md: one
  *   flat file per published record) can be listed, and how many regular files it holds. In copy
  *   mode an ABSENT pub/ is zero markers (the agent creates it with the first one), never a problem.
+ * - web_traversable: pub_readable is measured AS THE AGENT, so it cannot see what the web
+ *   server sees. The rules stat `.publication/pub/<key>` as the web user, who is not the
+ *   agent and not in its group: every level root → `.publication` → `pub` (down to the deepest
+ *   that exists) needs the search bit for OTHERS (o+x), or every media file 404s (T0-6: dirs
+ *   minted 0750 under the unit's UMask=0027). false names the FIRST dark level — a fault in
+ *   copy mode (the agent owns those levels); ADVISORY in shared mode (the web user may reach
+ *   the work host's export as its owner or group, which these bits cannot show). A mode-bit
+ *   check, not an identity switch: ACLs and SELinux labels are not measured here.
  *
  * Expectation by mode: `shared` (§5.1) must be read-only — a writable export lets the
  * publication host rewrite the work host's media; `copy` (§5.2) must be writable — the agent
@@ -26,9 +34,10 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { open, opendir, stat, unlink } from 'node:fs/promises';
+import { opendir, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { config } from '../config';
+import { PRIVATE_FILE_MODE, createFileExact } from './fs_modes';
 
 export interface MediaProbe {
   mode: 'shared' | 'copy' | 'none';
@@ -37,6 +46,8 @@ export interface MediaProbe {
   read_only: boolean | null;
   pub_readable: boolean | null;
   pub_markers: number | null;
+  /** Every level root → `.publication/pub` (deepest existing) has o+x; null when unmeasured. */
+  web_traversable: boolean | null;
   problems: string[];
 }
 
@@ -47,7 +58,7 @@ export interface ProbeTarget {
   root: string | null;
 }
 
-/** The four filesystem questions the probe asks — nothing else is reachable through it. */
+/** The five filesystem questions the probe asks — nothing else is reachable through it. */
 export interface ProbeFs {
   /** true for a directory; false for ENOENT/ENOTDIR/not-a-directory; throws on any other errno. */
   isDirectory(path: string): Promise<boolean>;
@@ -56,6 +67,8 @@ export interface ProbeFs {
   remove(path: string): Promise<void>;
   /** Regular files directly inside `dir` (subdirectories are not markers). */
   countFiles(dir: string): Promise<number>;
+  /** st_mode of `path` (stat: the web server follows links too); null for ENOENT/ENOTDIR. */
+  modeOf(path: string): Promise<number | null>;
 }
 
 export const PROBE_FILE_PREFIX = '.dedalo_host_agent_probe.';
@@ -79,8 +92,7 @@ export const nodeProbeFs: ProbeFs = {
     }
   },
   async createExclusive(path) {
-    const handle = await open(path, 'wx', 0o600);
-    await handle.close();
+    await (await createFileExact(path, PRIVATE_FILE_MODE)).close();
   },
   async remove(path) {
     await unlink(path);
@@ -91,6 +103,15 @@ export const nodeProbeFs: ProbeFs = {
       if (entry.isFile()) count++;
     }
     return count;
+  },
+  async modeOf(path) {
+    try {
+      return (await stat(path)).mode;
+    } catch (error) {
+      const code = errorCode(error);
+      if (code === 'ENOENT' || code === 'ENOTDIR') return null;
+      throw error;
+    }
   },
 };
 
@@ -114,9 +135,48 @@ async function probeReadOnly(root: string, fs: ProbeFs, problems: string[]): Pro
   return false;
 }
 
+/** The first level root → `.publication` → `pub` without o+x; null when all (that exist) have it. */
+async function firstDarkLevel(root: string, fs: ProbeFs): Promise<{ path: string; mode: number } | null> {
+  for (const path of [root, join(root, '.publication'), join(root, PUB_DIR)]) {
+    const mode = await fs.modeOf(path);
+    if (mode === null) return null;
+    if ((mode & 0o001) === 0) return { path, mode };
+  }
+  return null;
+}
+
+/**
+ * Copy mode: the agent owns these levels and the web user is "others" — a dark level is a
+ * fault. Shared mode: the export is the work host's and the web user may reach it as its
+ * owner or group, which mode bits for others cannot tell — the line is ADVISORY.
+ */
+function darkLevelProblem(mode: MediaMode, path: string, bits: number): string {
+  const head = `${path} has no search bit for others (mode ${(bits & 0o777).toString(8)})`;
+  if (mode === 'copy') {
+    return `${head}: the web server cannot stat the markers below it and the generated rules answer 404 for every media file`;
+  }
+  return (
+    `${head} (advisory: access as the owner or group is not verified): unless the web server reaches ` +
+    `the export as its owner or group, the generated rules answer 404 for every media file`
+  );
+}
+
+async function probeTraversable(target: ProbeTarget & { root: string }, fs: ProbeFs, problems: string[]): Promise<boolean | null> {
+  const root = target.root;
+  try {
+    const dark = await firstDarkLevel(root, fs);
+    if (dark === null) return true;
+    problems.push(darkLevelProblem(target.mode, dark.path, dark.mode));
+    return false;
+  } catch (error) {
+    problems.push(`web traversability of ${root} cannot be measured (${errorCode(error)})`);
+    return null;
+  }
+}
+
 export async function probeMediaTarget(target: ProbeTarget, fs: ProbeFs): Promise<MediaProbe> {
   const problems: string[] = [];
-  const unmeasured = { read_only: null, pub_readable: null, pub_markers: null } as const;
+  const unmeasured = { read_only: null, pub_readable: null, pub_markers: null, web_traversable: null } as const;
 
   if (target.mode === 'none') {
     return { mode: 'none', root: null, present: false, ...unmeasured, problems };
@@ -169,7 +229,8 @@ export async function probeMediaTarget(target: ProbeTarget, fs: ProbeFs): Promis
     }
   }
 
-  return { mode: target.mode, root, present: true, read_only, pub_readable, pub_markers, problems };
+  const web_traversable = await probeTraversable({ mode: target.mode, root }, fs, problems);
+  return { mode: target.mode, root, present: true, read_only, pub_readable, pub_markers, web_traversable, problems };
 }
 
 /** The configured media root, probed with the real filesystem. No route passes a path. */

@@ -37,8 +37,15 @@ import {
   requireCopyRoot,
   withKeyLock,
 } from '../src/media/copy';
+import { setOwnershipForTests } from '../src/media/fs_modes';
 import { PUB_DIR } from '../src/media/probe';
-import { COPY_STATE_DIR, lookupSha, resetShaIndexForTests, shaIndexEntries } from '../src/media/sha_index';
+import {
+  COPY_STATE_DIR,
+  SHA_INDEX_FILE,
+  lookupSha,
+  resetShaIndexForTests,
+  shaIndexEntries,
+} from '../src/media/sha_index';
 import { resetInstance, roots, scratchPath } from './fixtures/instance';
 
 const ROOT = roots.mediaRoot as string;
@@ -52,6 +59,11 @@ const K2 = 'test3_2';
 
 /** The scratch corners this file owns (outside the media root, inside .test-tmp/). */
 const CORNERS = ['outside_put', 'outside_delete', 'outside_master'] as const;
+
+/** The permission bits of a path under the media root. */
+function modeOf(rel: string): number {
+  return statSync(join(ROOT, rel)).mode & 0o777;
+}
 
 /** A fresh, empty corner: scratchPath only names the path, so it is (re)created here. */
 function corner(name: (typeof CORNERS)[number]): string {
@@ -284,6 +296,99 @@ describe('media.put', () => {
     const error = await caught(put(P1, bytesOf('jpeg')));
     expect([error.status, error.extensions?.path_reason]).toEqual([422, 'escapes_root']);
     expect(readdirSync(outside)).toEqual([]);
+  });
+});
+
+/**
+ * THE 404 BUG (T0-6): the unit runs the agent under UMask=0027, so a REQUESTED mode lands
+ * `mode & ~0027` — dirs 0750, the web user (not in the agent's group) cannot stat
+ * `.publication/pub/<key>` nor traverse a media dir, and every published file 404s. Modes
+ * are APPLIED (fchmod), so they are exact under any umask. The umask is process-wide:
+ * restored after every test, whatever the outcome.
+ */
+describe('modes under UMask=0027', () => {
+  let saved = 0o022;
+  beforeEach(() => {
+    saved = process.umask(0o027);
+  });
+  // afterEach runs whatever the test did: neither the umask nor an injected ownership leaks.
+  afterEach(() => {
+    process.umask(saved);
+    setOwnershipForTests(null);
+  });
+
+  test('mark → put: every level the agent mints is 0755, marker and files 0644, the private state 0700/0600', async () => {
+    await markKey(COPY, K1, true, ACTOR);
+    await markKey(COPY, K2, true, ACTOR);
+    await put(P1, bytesOf('jpeg'));
+    await put(AV2, bytesOf('mp4'));
+    const publicDirs = ['.publication', PUB_DIR, 'image', 'image/1.5MB', 'image/1.5MB/0', 'av', 'av/404'];
+    const publicFiles = [join(PUB_DIR, K1), join(PUB_DIR, K2), P1, AV2];
+    const modes = (paths: string[]) => Object.fromEntries(paths.map(path => [path, modeOf(path)]));
+    const all = (paths: string[], mode: number) => Object.fromEntries(paths.map(path => [path, mode]));
+    expect(modes(publicDirs)).toEqual(all(publicDirs, 0o755));
+    expect(modes(publicFiles)).toEqual(all(publicFiles, 0o644));
+    expect(modes([COPY_STATE_DIR, INCOMING_DIR])).toEqual(all([COPY_STATE_DIR, INCOMING_DIR], 0o700));
+    expect(modeOf(SHA_INDEX_FILE)).toBe(0o600);
+  });
+
+  test('the sha index reached before any mark (a manifest): .publication is 0755, copy/ 0700', async () => {
+    plant(P1_THUMB, 'planted');
+    await mediaManifest(COPY, null, 10);
+    expect([modeOf('.publication'), modeOf(COPY_STATE_DIR), modeOf(SHA_INDEX_FILE)]).toEqual([0o755, 0o700, 0o600]);
+  });
+
+  test('an operator-widened copy/ is pulled back to 0700, a dark .publication opened to 0755', async () => {
+    mkdirSync(join(ROOT, COPY_STATE_DIR), { recursive: true });
+    chmodSync(join(ROOT, '.publication'), 0o750);
+    chmodSync(join(ROOT, COPY_STATE_DIR), 0o755);
+    await markKey(COPY, K1, true, ACTOR);
+    await put(P1, bytesOf('jpeg'));
+    expect([modeOf('.publication'), modeOf(COPY_STATE_DIR)]).toEqual([0o755, 0o700]);
+  });
+
+  test('an existing dark media level on the put path is opened to 0755 (the lazy repair)', async () => {
+    mkdirSync(join(ROOT, 'image', '1.5MB', '0'), { recursive: true });
+    chmodSync(join(ROOT, 'image', '1.5MB'), 0o750);
+    await markKey(COPY, K1, true, ACTOR);
+    await put(P1, bytesOf('jpeg'));
+    expect(modeOf('image/1.5MB')).toBe(0o755);
+  });
+
+  test('a level the agent does NOT own that meets the need (0775: o+x) is left alone and the put lands', async () => {
+    mkdirSync(join(ROOT, 'image'), { recursive: true });
+    chmodSync(join(ROOT, 'image'), 0o775);
+    const foreign = join(ROOT, 'image');
+    setOwnershipForTests((_st, path) => path !== foreign);
+    await markKey(COPY, K1, true, ACTOR);
+    await put(P1, bytesOf('jpeg'));
+    expect([modeOf('image'), modeOf('image/1.5MB'), readFileSync(join(ROOT, P1), 'utf8')]).toEqual([0o775, 0o755, 'jpeg']);
+  });
+
+  test('a DARK level the agent does not own refuses the put (409 media_level_foreign), audited, never chmodded', async () => {
+    mkdirSync(join(ROOT, 'image'), { recursive: true });
+    chmodSync(join(ROOT, 'image'), 0o750);
+    const foreign = join(ROOT, 'image');
+    setOwnershipForTests((_st, path) => path !== foreign);
+    await markKey(COPY, K1, true, ACTOR);
+    const error = await caught(put(P1, bytesOf('jpeg')));
+    expect([error.status, reasonOf(error)]).toEqual([409, 'media_level_foreign']);
+    expect(modeOf('image')).toBe(0o750);
+    expect(existsSync(join(ROOT, P1))).toBe(false);
+    expect((await readAudit())[0]).toMatchObject({ action: 'media.put', outcome: 'refused', detail: { reason: 'media_level_foreign' } });
+  });
+
+  test('a symlinked level INSIDE the root is refused, never followed; the link target keeps its mode', async () => {
+    const target = join(ROOT, 'elsewhere');
+    mkdirSync(join(ROOT, 'image'), { recursive: true });
+    mkdirSync(target);
+    chmodSync(target, 0o700);
+    symlinkSync(target, join(ROOT, 'image', '1.5MB'));
+    await markKey(COPY, K1, true, ACTOR);
+    const error = await caught(put(P1, bytesOf('jpeg')));
+    expect([error.status, error.extensions?.path_reason]).toEqual([422, 'escapes_root']);
+    expect(modeOf('elsewhere')).toBe(0o700);
+    expect(readdirSync(target)).toEqual([]);
   });
 });
 

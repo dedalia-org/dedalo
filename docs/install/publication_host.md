@@ -2136,6 +2136,7 @@ paired host. The **Media access control** panel links to it. For each host it sh
 | Bun version | the publication host runs exactly the Bun version the work system pins (its `.bun-version` file, see [the site's Bun](#one-bun-per-site)). Green when they are equal; red when they differ in any way, even a patch or a prerelease tail, with the two versions shown (for example `1.4.1 != 1.4.2`); unknown (with a dash) when the host cannot be reached or proved, reports no version, or the work system pins none. The panel shows the expected version (this work system) and the reported one (the host) beside the media rule hashes |
 | Media mode | `shared`, `copy` or `none`, as declared on the publication host |
 | Media mount, Media read-only | the shared media mount is present, and the agent cannot write to it. Read-only is measured by trying to write as the agent, whose sandbox alone forbids it in shared mode, so green does not prove the mount itself is read-only: check its `ro` flag with `findmnt` on the media root |
+| Media reachable by the web server | every directory from the media root down to the publication markers lets the web server pass (the execute bit for others). In copy mode, red means one directory is closed to the web server: every published file answers "not found" although the agent reads it fine; restarting the agent repairs the folders it created (see [copy mode](#copy-mode-a-verified-copy-of-the-published-media)), and a directory the agent does not own you fix yourself (`chmod o+x`). In shared mode the media belongs to the work system and the web server may reach it as its owner or group, which this check cannot see: a closed directory shows unknown, not red, and you confirm by opening a published file. **Probe media** names the directory |
 | Media rules | the media rules installed there are the ones the work system would generate now (expected and reported hash side by side) |
 | Media map | nginx with a provisioned map only: the host-wide `http{}` map this work system would push, the one the host loads, and how many instances share it. A host map that differs only because another instance on the same host runs another Dédalo version is shared, not drift |
 | API v1, API v2 | the current and the previous release of each Publication API |
@@ -2283,6 +2284,16 @@ cannot mount the work system's media storage. The agent then keeps its own copy:
     confirmed after one check period, the panel turns red. A deletion is never reported as
     done before it is confirmed.
 
+- **The copy is readable by the web server.** The agent sets the folders it creates to
+  `0755`, the publication markers to `0644` and the files to `0644`, whatever the service's
+  `umask`; its own working folder (`.publication/copy`) stays `0700`. Every time the agent
+  starts in copy mode it checks its folders in the background, once it is already serving,
+  puts back any whose permissions drifted, and records one `media.repair` line in its audit
+  log. It never changes a folder owned by another user: such a folder is listed in that line
+  when it closes the copy to the web server, and copying into it is refused until you fix its
+  owner or permissions. Before this, the agent's folders were created without the execute
+  bit for others, so every published file answered "not found"; restarting the updated agent
+  repairs such a copy.
 - **Reconcile media copy** in the panel runs the comparison on demand.
 
 ## Checking the gate from the public side

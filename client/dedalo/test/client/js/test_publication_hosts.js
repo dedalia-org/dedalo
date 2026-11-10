@@ -723,6 +723,7 @@ describe('PUBLICATION_HOSTS WIDGET', function () {
 						read_only: true,
 						pub_readable: true,
 						pub_markers: 3,
+						web_traversable: true,
 						problems: [],
 					},
 				},

@@ -10,6 +10,7 @@ import { existsSync, unlinkSync } from 'node:fs';
 import { type AgentServer, bootSequence, claimListenTarget, drainServer, listenTarget, startServer } from './boot';
 import { config } from './config';
 import { bootPreflight } from './instance/roots';
+import { repairMediaAtBoot } from './media/repair';
 import { routeRequest } from './router';
 import { problem } from './util/response';
 
@@ -46,6 +47,11 @@ try {
 
 const where = config.LISTEN_KIND === 'unix' ? `unix socket ${config.SOCKET_PATH}` : `mTLS ${config.TLS_HOST}:${config.TLS_PORT}`;
 console.log(`Dédalo publication host agent listening on ${where}`);
+
+// The copy-mode media repair (T0-6, media/repair.ts): AFTER the listener, a streaming walk that
+// never holds the event loop and never rejects; puts converge on the same modes. Its
+// `[media.repair]` line closes the pass (gate: tests/index_process.test.ts).
+void repairMediaAtBoot(config);
 
 let shuttingDown = false;
 

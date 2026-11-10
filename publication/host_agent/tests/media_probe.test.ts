@@ -4,7 +4,7 @@
  * nodeProbeFs over a scratch root under the marker-guarded state root, plus the route.
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { config } from '../src/config';
 import {
@@ -43,6 +43,7 @@ function fakeFs(over: Partial<ProbeFs> = {}): { fs: ProbeFs; created: string[]; 
       removed.push(path);
     },
     countFiles: async () => 3,
+    modeOf: async () => 0o40755,
     ...over,
   };
   return { fs, created, removed };
@@ -51,7 +52,13 @@ function fakeFs(over: Partial<ProbeFs> = {}): { fs: ProbeFs; created: string[]; 
 const refuse = async (): Promise<never> => {
   throw new Error('the probe touched the filesystem');
 };
-const untouchable: ProbeFs = { isDirectory: refuse, createExclusive: refuse, remove: refuse, countFiles: refuse };
+const untouchable: ProbeFs = {
+  isDirectory: refuse,
+  createExclusive: refuse,
+  remove: refuse,
+  countFiles: refuse,
+  modeOf: refuse,
+};
 
 describe('probeMediaTarget — modes without a root', () => {
   test('none probes nothing and reports nothing', async () => {
@@ -62,6 +69,7 @@ describe('probeMediaTarget — modes without a root', () => {
       read_only: null,
       pub_readable: null,
       pub_markers: null,
+      web_traversable: null,
       problems: [],
     });
   });
@@ -87,6 +95,7 @@ describe('probeMediaTarget — present', () => {
       read_only: null,
       pub_readable: null,
       pub_markers: null,
+      web_traversable: null,
       problems: [`media root ${ROOT} is not a directory: the read-only mount is missing`],
     });
     expect(created).toEqual([]);
@@ -126,6 +135,7 @@ describe('probeMediaTarget — read_only is measured by a write that must fail',
         read_only: true,
         pub_readable: true,
         pub_markers: 3,
+        web_traversable: true,
         problems: [],
       });
       expect(removed).toEqual([]);
@@ -252,7 +262,69 @@ describe('probeMediaTarget — pub/', () => {
   });
 });
 
+describe('probeMediaTarget — web_traversable (the web user must search every level down to pub/)', () => {
+  const dark = (path: string) =>
+    `${path} has no search bit for others (mode 750): the web server cannot stat the markers below it and the generated rules answer 404 for every media file`;
+
+  test('every level 0755 ⇒ true, no problem', async () => {
+    const probe = await probeMediaTarget({ mode: 'copy', root: ROOT }, fakeFs().fs);
+    expect(probe.web_traversable).toBe(true);
+    expect(probe.problems).toEqual([]);
+  });
+
+  test('a 0750 pub/ ⇒ false, the problem names pub/', async () => {
+    const pub = join(ROOT, PUB_DIR);
+    const { fs } = fakeFs({ modeOf: async path => (path === pub ? 0o40750 : 0o40755) });
+    const probe = await probeMediaTarget({ mode: 'copy', root: ROOT }, fs);
+    expect(probe.web_traversable).toBe(false);
+    expect(probe.problems).toEqual([dark(pub)]);
+  });
+
+  test('the FIRST dark level is named; an absent level ends the walk (deepest existing)', async () => {
+    const dot = join(ROOT, '.publication');
+    const { fs } = fakeFs({ modeOf: async path => (path === ROOT ? 0o40755 : path === dot ? 0o40750 : null) });
+    expect((await probeMediaTarget({ mode: 'copy', root: ROOT }, fs)).problems).toEqual([dark(dot)]);
+    const absent = fakeFs({ modeOf: async path => (path === ROOT ? 0o40755 : null) });
+    expect((await probeMediaTarget({ mode: 'copy', root: ROOT }, absent.fs)).web_traversable).toBe(true);
+  });
+
+  test('shared mode: a dark level is still false, but the line is ADVISORY (owner/group access not verified)', async () => {
+    const { fs } = fakeFs({
+      createExclusive: async () => {
+        throw errno('EROFS');
+      },
+      modeOf: async path => (path === ROOT ? 0o40750 : 0o40755),
+    });
+    const probe = await probeMediaTarget({ mode: 'shared', root: ROOT }, fs);
+    expect(probe.web_traversable).toBe(false);
+    expect(probe.problems).toEqual([
+      `${ROOT} has no search bit for others (mode 750) (advisory: access as the owner or group is not verified): unless the web server reaches the export as its owner or group, the generated rules answer 404 for every media file`,
+    ]);
+  });
+
+  test('an uninspectable level is null, explained', async () => {
+    const { fs } = fakeFs({
+      modeOf: async () => {
+        throw errno('EACCES');
+      },
+    });
+    const probe = await probeMediaTarget({ mode: 'copy', root: ROOT }, fs);
+    expect(probe.web_traversable).toBeNull();
+    expect(probe.problems).toEqual([`web traversability of ${ROOT} cannot be measured (EACCES)`]);
+  });
+});
+
 describe('nodeProbeFs — the real filesystem', () => {
+  // The real-fs cases create dirs by plain mkdir: pin the umask so a hardened runner (0027,
+  // 0077) does not turn a "healthy" fixture dark. Restored whatever the test did.
+  let savedUmask = 0o022;
+  beforeEach(() => {
+    savedUmask = process.umask(0o022);
+  });
+  afterEach(() => {
+    process.umask(savedUmask);
+  });
+
   test('writable root, two markers, a subdirectory is not a marker, no probe file left behind', async () => {
     const root = join(roots.stateRoot, 'media_probe_root');
     await mkdir(join(root, PUB_DIR), { recursive: true });
@@ -269,9 +341,21 @@ describe('nodeProbeFs — the real filesystem', () => {
       read_only: false,
       pub_readable: true,
       pub_markers: 2,
+      web_traversable: true,
       problems: [],
     });
     expect((await readdir(root)).filter((name) => name.startsWith(PROBE_FILE_PREFIX))).toEqual([]);
+  });
+
+  test('a real 0750 pub/ is not web-traversable and is named', async () => {
+    const root = join(roots.stateRoot, 'media_probe_dark');
+    await mkdir(join(root, PUB_DIR), { recursive: true });
+    await chmod(join(root, PUB_DIR), 0o750);
+    const probe = await probeMediaTarget({ mode: 'copy', root }, nodeProbeFs);
+    expect(probe.web_traversable).toBe(false);
+    expect(probe.problems).toEqual([
+      `${join(root, PUB_DIR)} has no search bit for others (mode 750): the web server cannot stat the markers below it and the generated rules answer 404 for every media file`,
+    ]);
   });
 
   test('a missing root and a path through a file are both "not a directory"', async () => {

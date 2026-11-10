@@ -295,6 +295,10 @@ HERMETIC_TRIPWIRES=(
 	#     graph only (no src module imported). Verified DB-less (DB_HOST=127.0.0.1
 	#     DB_PORT=59999: 29 pass / 0 fail, 2026-11-10 after the D4/D3 revision).
 	test/unit/create_door_census_tripwire.test.ts
+	# --- 2026-11-10: T0-6 D5, the host-agent requested-mode census -- reads
+	#     publication/host_agent/src/media/*.ts through Bun.Transpiler only (no module
+	#     imported, no DB). Verified DB-less (DB_HOST=127.0.0.1 DB_PORT=59999).
+	test/unit/host_agent_requested_mode_tripwire.test.ts
 	test/unit/sw_tombstone_tripwire.test.ts
 	test/unit/date_flat_value_single_source_tripwire.test.ts
 	test/unit/error_throw_ratchet.test.ts

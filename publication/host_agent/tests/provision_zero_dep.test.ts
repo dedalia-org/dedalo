@@ -64,8 +64,12 @@ const ZERO_DEP = [
     .filter(name => name.endsWith('.ts'))
     .map(name => `render/${name}`),
 ];
-/** The ONE module outside provision/ a zero-dep module may import (src-relative). */
-const ALLOWED_OUTSIDE = ['instance/roots.ts'];
+/**
+ * The modules outside provision/ a zero-dep module may import (src-relative), each import-free
+ * or builtin-only (their own gates below): instance/roots.ts, and audit_actions.ts — the audit
+ * action origin map init/pair.ts derives its non-engine set from (T0-6; audit.ts loads config).
+ */
+const ALLOWED_OUTSIDE = ['instance/roots.ts', 'audit_actions.ts'];
 /**
  * NAMED EXEMPTIONS: a TYPE-ONLY import (erased at runtime) of a non-zero-dep module, file by file,
  * each with its reason. Nothing else is exempt: a value import, or a type import not listed here, is red.
@@ -129,4 +133,10 @@ test('instance/roots.ts imports only node: builtins and type-only modules', () =
   }
   expect(offenders).toEqual([]);
   expect(source).toContain("from '../config'"); // anti-vacuity: the one type-only import is seen
+});
+
+test('audit_actions.ts imports nothing at all (a leaf the root-run init may load)', () => {
+  const source = readFileSync(join(SRC, 'audit_actions.ts'), 'utf8');
+  expect([...source.matchAll(IMPORT)].map(match => match[2])).toEqual([]);
+  expect(source).toContain('AUDIT_ACTION_ORIGIN');
 });

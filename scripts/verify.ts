@@ -461,6 +461,7 @@ const TRIPWIRES = [
 	'test/unit/external_law_registry_tripwire.test.ts',
 	'test/unit/tool_reason_keys_tripwire.test.ts',
 	'test/unit/create_door_census_tripwire.test.ts',
+	'test/unit/host_agent_requested_mode_tripwire.test.ts',
 ];
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { probe_facts } from '../../client/dedalo/core/area_maintenance/widgets/publication_hosts/js/probe_view.js';
+import { isMediaProbe } from '../../src/core/publication_host/agent_client.ts';
 
 const DIR = join(
 	import.meta.dir,
@@ -49,5 +50,39 @@ describe('public probe client', () => {
 		expect(block).toContain('options: { name: host.name }');
 		expect(block).toContain('confirm_text: null');
 		expect(block).not.toContain('innerHTML');
+	});
+});
+
+/**
+ * The agent's media.probe shape guard (agent_client.ts isMediaProbe). `web_traversable`
+ * (T0-6): every dir from the media root to `.publication/pub` has o+x, so the web server
+ * can stat a marker — `false` means every published file 404s. REQUIRED: the agent channel
+ * has no skew window to carry (TS-era beta, engine + agent ship from one tree — the
+ * `served_apis` precedent, WC-2026-10-09-publication-host-v2-only-site).
+ */
+describe('media.probe shape guard: web_traversable', () => {
+	const probe = {
+		mode: 'copy',
+		root: '/srv/pub_media',
+		present: true,
+		read_only: false,
+		pub_readable: true,
+		web_traversable: true,
+		pub_markers: 3,
+		problems: [],
+	};
+
+	test('true, false and null (unmeasured) are accepted', () => {
+		for (const web_traversable of [true, false, null]) {
+			expect(isMediaProbe({ ...probe, web_traversable })).toBe(true);
+		}
+	});
+
+	test('absent (an agent that predates it) and a non-boolean are refused', () => {
+		const { web_traversable: _absent, ...older } = probe;
+		expect(isMediaProbe(older)).toBe(false);
+		for (const web_traversable of ['yes', 1, 0, {}, undefined]) {
+			expect(isMediaProbe({ ...probe, web_traversable })).toBe(false);
+		}
 	});
 });

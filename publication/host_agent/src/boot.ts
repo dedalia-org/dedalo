@@ -11,6 +11,8 @@
  *      files itself and refuses when any is missing, unreadable or not PEM, and the verify
  *      flags are constants (MTLS_VERIFY): no configuration can produce a TCP listener that
  *      accepts a client without a certificate from the pinned CA.
+ *   4. AFTER LISTEN (index.ts) — on a copy-mode host, the media mode repair
+ *      (media/repair.ts: a streaming walk beside the requests; reports, never refuses).
  *
  * Shape follows publication/site_builder/src/boot.ts + src/index.ts + src/instance/
  * listen_target.ts (claim, stale-socket probe, chmod after bind, drain), without the

@@ -705,6 +705,7 @@
 	"publication_hosts_check_media_mode": "মিডিয়া মোড",
 	"publication_hosts_check_media_mount": "মিডিয়া মাউন্ট",
 	"publication_hosts_check_media_read_only": "মিডিয়া শুধু-পঠনযোগ্য",
+	"publication_hosts_check_media_web_traversable": "ওয়েব সার্ভারের কাছে মিডিয়া পৌঁছানো যায়",
 	"publication_hosts_check_nginx_map": "হোস্ট মিডিয়া ম্যাপ",
 	"publication_hosts_check_pairing": "পেয়ারিং",
 	"publication_hosts_check_public_gate": "পাবলিক গেট",

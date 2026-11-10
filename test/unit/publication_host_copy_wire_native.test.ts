@@ -2,7 +2,7 @@
  * Copy-mode agent reasons → typed engine errors (PUBLICATION_HOST_SPEC §6, phase-3 E7):
  * the copy refusals go through the ONE wire mapping (wire.ts agentResponseError), REASON
  * FIRST — a `key_unpublished` / `media_mode` / `media_path_refused` / `size_mismatch` /
- * `hash_mismatch` / `key_invalid` refusal is one a retry cannot fix, `rejected` whatever
+ * `hash_mismatch` / `key_invalid` / `media_level_foreign` refusal is one a retry cannot fix, `rejected` whatever
  * status carried it (never the transient `busy`, never `failed`); `busy` is busy. The
  * reason rides `details.reason` and the log-only coordinates; agent prose never reaches
  * the public sentence. And the manifest read keeps no second mapping of its own.
@@ -36,6 +36,7 @@ const REFUSALS = [
 	'hash_mismatch',
 	'key_unpublished',
 	'key_invalid',
+	'media_level_foreign',
 ] as const;
 
 describe('copy-mode agent reasons', () => {
@@ -67,6 +68,13 @@ describe('copy-mode agent reasons', () => {
 		expect<string>(agentResponseError('pub1', 409, problem(409, 'made_up')).code).toBe(
 			'publication_host.rejected',
 		);
+	});
+
+	test('media_level_foreign (T0-6) tells the operator what to fix: a folder owned by another user, its owner or mode', () => {
+		const sentence = AGENT_REASON_SENTENCES.media_level_foreign ?? '';
+		expect(sentence).toContain('owned by another user');
+		expect(sentence).toContain('web server');
+		expect(sentence).toContain('owner or permissions');
 	});
 
 	test('hash_mismatch names both commands that send a checksum (rules, media put)', () => {

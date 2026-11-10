@@ -104,6 +104,14 @@ export interface MediaProbe {
 	present: boolean;
 	read_only: boolean | null;
 	pub_readable: boolean | null;
+	/**
+	 * Every directory from the media root down to `.publication/pub` grants o+x, so the web
+	 * server's own user can stat a marker (Rule B) and traverse to a file. `false`: a dir is
+	 * dark to the web server and EVERY published file 404s (the agent adds a problems[] line
+	 * naming it); `null`: not measured (mode `none`, root absent). Required: no compat with an
+	 * agent that predates it (PUBLICATION_HOST_SPEC §6, the `served_apis` precedent).
+	 */
+	web_traversable: boolean | null;
 	pub_markers: number | null;
 	problems: string[];
 }
@@ -559,6 +567,7 @@ function isProbeTail(value: Record<string, unknown>): boolean {
 	return (
 		isNullableBoolean(value.read_only) &&
 		isNullableBoolean(value.pub_readable) &&
+		isNullableBoolean(value.web_traversable) &&
 		isNullableCount(value.pub_markers)
 	);
 }

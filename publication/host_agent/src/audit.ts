@@ -4,7 +4,7 @@
  *
  * Copied from publication/site_builder/src/audit.ts. Changes: the actor is the
  * `X-Dedalo-Actor` string; `action` is the closed set of mutating §6 commands plus the
- * automatic rollback; an `outcome` field; no `site`; the path comes from instance/roots.ts;
+ * automatic rollback and the copy-mode boot repair; an `outcome` field; no `site`; the path comes from instance/roots.ts;
  * no mkdir (the provisioner creates the root-owned directory and the file, the preflight
  * proves the rest); `readAudit` reads a given path (no route serves the trail in this phase).
  *
@@ -21,19 +21,12 @@
 
 import { appendFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { AuditAction } from './audit_actions';
 import { type AgentConfig, config } from './config';
 import { AUDIT_DIR, AUDIT_FILE_NAME } from './instance/roots';
 
-export type AuditAction =
-  | 'rules.apply'
-  /** The host-wide nginx map contribution (src/rules/map.ts, spec §13.5). */
-  | 'rules.map'
-  | 'release.install'
-  | 'release.rollback'
-  | 'release.auto_rollback'
-  | 'media.put'
-  | 'media.delete'
-  | 'media.mark';
+export type { AuditAction } from './audit_actions';
+export { AUDIT_ACTION_ORIGIN } from './audit_actions';
 export type AuditOutcome = 'ok' | 'refused' | 'failed';
 
 export interface AuditEntry {

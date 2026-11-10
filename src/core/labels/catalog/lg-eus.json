@@ -705,6 +705,7 @@
 	"publication_hosts_check_media_mode": "Multimedia modua",
 	"publication_hosts_check_media_mount": "Multimedia muntatzea",
 	"publication_hosts_check_media_read_only": "Multimedia irakurtzeko soilik",
+	"publication_hosts_check_media_web_traversable": "Multimedia web zerbitzariak irits dezake",
 	"publication_hosts_check_nginx_map": "Zerbitzariaren multimedia-mapa",
 	"publication_hosts_check_pairing": "Parekatzea",
 	"publication_hosts_check_public_gate": "Ate publikoa",

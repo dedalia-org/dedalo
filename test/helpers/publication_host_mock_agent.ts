@@ -95,6 +95,7 @@ export const MOCK_PROBE = Object.freeze({
 	present: true,
 	read_only: true,
 	pub_readable: true,
+	web_traversable: true,
 	pub_markers: 2,
 	problems: [] as string[],
 });

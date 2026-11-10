@@ -306,3 +306,37 @@
 - TS ground truth: `test/unit/publication_host_setup_native.test.ts`,
   `test/unit/publication_host_widget_native.test.ts`; client:
   `client/dedalo/test/client/js/test_publication_host_setup.js`. No fixture interaction.
+
+## Addendum 2026-11-10 — `web_traversable` (T0-6: a copy host 404s while it reads healthy)
+
+- The agent's `media.probe` gains `web_traversable: boolean | null` (`PUBLICATION_HOST_SPEC.md`
+  §6): `true` every directory from the media root to `.publication/pub` grants o+x; `false`
+  a directory is dark to the web server's user, so Rule B's marker stat fails and EVERY
+  published file 404s (the agent adds a `problems[]` line naming it); `null` not measured
+  (mode `none`, root absent). Required by the engine's shape guard
+  (`agent_client.ts isMediaProbe`): a status or probe from an agent that predates it is
+  unreadable, as with `served_apis` — no skew window (TS-era beta, engine and agent ship
+  from one tree).
+- `probe({name})` → `data.probe` carries it: exactly the EIGHT known fields now
+  (`boundMediaProbe`), the value passed as the agent measured it.
+- `get_value` host rows (root AND non-root) gain one fixed check `media_web_traversable`,
+  placed in `HOST_CHECK_IDS` right after `media_read_only` (order: registry, secrets,
+  reachable, pairing, agent_version, bun_version, media_mode, media_mount, media_read_only,
+  media_web_traversable, rules_hash, api_v1, api_v2; the decorators still follow). Closed
+  detail vocabulary (`host_status.ts mediaWebTraversableCheck`): `ok` `traversable` |
+  `none` (media mode `none`); `blocked` `not_web_traversable` (COPY mode only — the agent
+  owns those levels); `unknown` `unverified_owner_group` (SHARED mode, `false`: the web user
+  may reach the work host's read-only export as its owner or group, which o+x does not show —
+  never a hard block; the agent's problems[] line for it is worded as advisory) |
+  `unmeasured` | `status_unavailable`. New label `publication_hosts_check_media_web_traversable`
+  (master + every catalog).
+- TS ground truth: `test/unit/publication_host_host_status_native.test.ts`,
+  `test/unit/publication_host_widget_native.test.ts`,
+  `test/unit/publication_host_probe_client.test.ts`. No fixture interaction.
+- New agent refusal reason `media_level_foreign` (409, `media.put` / `media.mark`): a dir
+  level under the copy root owned by another user whose mode fails what serving needs (a
+  public dir without o+x, or the private `.publication/copy/` granting group/other bits); the
+  agent never chmods it. `wire.ts` maps it `publication_host.rejected` (reason before status)
+  with an operator sentence (fix that folder's owner or permissions); it reaches the panel as
+  `details.reason` like every agent reason. Gates: `test/unit/publication_host_copy_wire_native.test.ts`,
+  agent `tests/media_copy.test.ts`, `tests/media_repair.test.ts`.

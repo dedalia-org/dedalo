@@ -34,6 +34,7 @@
  */
 
 import { join } from 'node:path';
+import { AUDIT_ACTION_ORIGIN } from '../../audit_actions';
 import { PAIR_NAME_PATTERN } from '../exec_contract';
 import type { InitExec } from '../exec_contract';
 import type { AgentLayout } from '../layout';
@@ -192,8 +193,12 @@ export interface PairPlanOptions {
 export const PACKAGE_REMOVE = 'remove';
 export const PACKAGE_KEEP = 'keep';
 
-/** An automatic record, not a work-host command: it proves nothing about the pairing. */
-const NOT_ENGINE_ACTIONS: ReadonlySet<string> = new Set(['release.auto_rollback']);
+/** Automatic records, not work-host commands: they prove nothing about the pairing (derived, never listed). */
+const NOT_ENGINE_ACTIONS: ReadonlySet<string> = new Set(
+  Object.entries(AUDIT_ACTION_ORIGIN)
+    .filter(([, origin]) => origin === 'agent')
+    .map(([action]) => action),
+);
 
 /**
  * THE HOST ANSWERS AS PAIRED: the agent's own audit trail (root reads it) records a command after

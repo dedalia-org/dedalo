@@ -85,6 +85,7 @@ function agentStatus(patch: StatusPatch = {}): AgentStatus {
 			present: true,
 			read_only: true,
 			pub_readable: true,
+			web_traversable: true,
 			pub_markers: 3,
 			problems: [],
 			...patch.media,
@@ -126,6 +127,7 @@ const AGENT_DERIVED = [
 	'media_mode',
 	'media_mount',
 	'media_read_only',
+	'media_web_traversable',
 	'rules_hash',
 	'api_v1',
 	'api_v2',
@@ -149,6 +151,7 @@ describe('buildHostChecks: a healthy shared host', () => {
 			media_mode: { state: 'ok', detail: 'shared' },
 			media_mount: { state: 'ok', detail: '3' },
 			media_read_only: { state: 'ok', detail: 'read_only' },
+			media_web_traversable: { state: 'ok', detail: 'traversable' },
 			rules_hash: { state: 'ok', detail: HASH.slice(0, 12) },
 			api_v1: { state: 'ok', detail: RELEASE },
 			api_v2: { state: 'ok', detail: RELEASE },
@@ -367,14 +370,52 @@ describe('media', () => {
 		});
 	});
 
+	test('a copy tree DARK to the web server (web_traversable false) is blocked: every file 404s', () => {
+		const copy = { mode: 'copy' as const, read_only: false, web_traversable: false };
+		const checks = buildHostChecks(withStatus({ media: copy }));
+		expect(byId(checks).media_web_traversable).toEqual({
+			state: 'blocked',
+			detail: 'not_web_traversable',
+		});
+		expect(checks.every((entry) => entry.state === 'ok')).toBe(false);
+	});
+
+	test('a SHARED root without o+x is unknown, not blocked: the web user may reach the export as its owner or group, which the probe cannot see', () => {
+		const shared = { mode: 'shared' as const, read_only: true, web_traversable: false };
+		const checks = buildHostChecks(withStatus({ media: shared }));
+		expect(byId(checks).media_web_traversable).toEqual({
+			state: 'unknown',
+			detail: 'unverified_owner_group',
+		});
+		expect(checks.some((entry) => entry.state === 'blocked')).toBe(false);
+	});
+
+	test('a traversable tree is ok, an unmeasured one unknown', () => {
+		expect(checkOf(withStatus({}), 'media_web_traversable')).toEqual({
+			state: 'ok',
+			detail: 'traversable',
+		});
+		expect(
+			checkOf(withStatus({ media: { web_traversable: null } }), 'media_web_traversable'),
+		).toEqual({ state: 'unknown', detail: 'unmeasured' });
+	});
+
 	test('mode none: a warning, and nothing to mount, measure or gate', () => {
 		const checks = byId(
 			buildHostChecks(
 				withStatus({
-					media: { mode: 'none', root: null, present: false, read_only: null, pub_readable: null },
+					media: {
+						mode: 'none',
+						root: null,
+						present: false,
+						read_only: null,
+						pub_readable: null,
+						web_traversable: null,
+					},
 				}),
 			),
 		);
+		expect(checks.media_web_traversable).toEqual({ state: 'ok', detail: 'none' });
 		expect(checks.media_mode).toEqual({ state: 'warn', detail: 'none' });
 		expect(checks.media_mount).toEqual({ state: 'ok', detail: 'none' });
 		expect(checks.media_read_only).toEqual({ state: 'ok', detail: 'none' });

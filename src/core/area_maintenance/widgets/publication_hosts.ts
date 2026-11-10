@@ -923,6 +923,7 @@ export function boundMediaProbe(probe: MediaProbe): MediaProbe {
 		present: probe.present,
 		read_only: probe.read_only,
 		pub_readable: probe.pub_readable,
+		web_traversable: probe.web_traversable,
 		pub_markers: probe.pub_markers,
 		problems: extra > 0 ? [...lines, `… ${extra} more`] : lines,
 	};
