@@ -66,8 +66,14 @@ class Aborted extends Error {}
 class RawReader {
   private readonly queue: string[] = [];
   private waiter: ((char: string) => void) | null = null;
+  /**
+   * ONE streaming decoder for the whole session: a UTF-8 character split across two `data` chunks
+   * (a paste, an SSH frame) is held until its last byte arrives. Decoding each chunk alone turns
+   * both halves into U+FFFD — and a secret typed twice with the same split would MATCH and be written.
+   */
+  private readonly decoder = new TextDecoder('utf-8');
   private readonly onData = (chunk: Buffer | string): void => {
-    for (const char of typeof chunk === 'string' ? chunk : chunk.toString('utf8')) {
+    for (const char of typeof chunk === 'string' ? chunk : this.decoder.decode(chunk, { stream: true })) {
       if (this.waiter !== null) {
         const resolve = this.waiter;
         this.waiter = null;
@@ -177,7 +183,8 @@ async function readLine(reader: RawReader, output: TtyOutput, echo: boolean): Pr
     }
     if (BACKSPACE.has(char)) {
       if (text.length > 0) {
-        text = text.slice(0, -1);
+        // One CHARACTER (code point), never half a surrogate pair: an emoji is one key, one backspace.
+        text = Array.from(text).slice(0, -1).join('');
         if (echo) output.write('\b \b');
       }
       continue;
