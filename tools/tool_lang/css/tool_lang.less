@@ -116,9 +116,11 @@
 				z-index: auto;
 			}
 
+			// narrow: one column, the two panes SHARE the height (each half),
+			// so both stay on screen and each editor scrolls inside itself. An
+			// outer scroll over a 50vh box let the source label scroll away.
 			@media screen and (max-width: @width_break_point_0) {
-				flex-wrap: wrap;
-				overflow-y: auto;
+				flex-direction: column;
 			}
 
 			select {
@@ -204,9 +206,10 @@
 				overflow-y: auto;
 
 				@media screen and (max-width: @width_break_point_0) {
-					// no split at this width (see render_tool_lang) — stack instead
+					// no split at this width (see render_tool_lang) — stack instead.
+					// !important: a window resized down keeps Split.js's inline width
 					width: 100% !important;
-					overflow: visible;
+					flex: 1 1 0;
 				}
 			}
 
@@ -227,10 +230,42 @@
 			// a text_area pane draws as tool_transcription/tool_indexation do: label as
 			// header row, ck toolbar + pill swapping over it (tool_mixins.less). Under
 			// the lang `.top`, so the selects stay reachable while editing.
+			// The text_area FILLS its pane: the pane, not the ontology, sizes it.
+			// The ontology's per-component css (injected as
+			// `.<section>_<tipo>.<tipo>.edit.wrapper_component[ > .content_data]`,
+			// 4-5 classes) pins grid placement and a height/min/max-height meant
+			// for the record form; this path (7-8 classes) outranks it, so the
+			// tool layout wins without !important.
 			.source_component_container,
 			.target_component_container {
+				display: flex;
+				flex-direction: column;
+
 				>.wrapper_component.component_text_area {
 					.text_area_pane_header();
+					// (!) stated, not inherited: under @width_break_point_1
+					// layout.less makes every edit wrapper a block with
+					// overflow-x:auto (a record-form rule). Here that dropped the
+					// header-row grid, so the 100%-tall content box hung a label
+					// height past the wrapper and the WRAPPER scrolled too (two
+					// scrollbars), and the label's -1rem bleed added a horizontal one.
+					display: grid;
+					overflow: visible;
+					flex: 1 1 auto;
+					min-height: 0;
+					height: auto;
+					max-height: none;
+					width: auto;
+					max-width: none;
+					grid-row: auto;
+					grid-column: auto;
+
+					>.content_data {
+						height: 100%;
+						min-height: 0;
+						max-height: none;
+					}
+
 				}
 			}
 			.target_component_container {
@@ -274,11 +309,17 @@
 			// corner; without this the primary action sits underneath it
 			padding-right: 3.5rem;
 			display: flex;
+			flex-wrap: wrap; // narrow: copy_to_target drops under, never squeezed
 			align-items: flex-end;
 			justify-content: space-between;
 			gap: 1rem;
 			border-top: 1px solid var(--border_default);
 			background-color: var(--bg_surface);
+
+			@media screen and (max-width: @width_break_point_0) {
+				// the bug bubble sits beside the copy row, not over the controls
+				padding-right: 1rem;
+			}
 
 			// automatic_translation_container
 			>.automatic_translation_container {
@@ -314,6 +355,10 @@
 					color: @color_white;
 				}
 
+				.button_automatic_translation {
+					white-space: nowrap;
+				}
+
 				>select {
 					margin-left: 0.75em;
 					width: fit-content;
@@ -342,6 +387,26 @@
 
 					&:hover {
 						opacity: 1;
+					}
+				}
+
+				// narrow: ONE aligned line — button | translator select (takes the
+				// rest) | gear. Wrapping let the gear fall alone under the button.
+				@media screen and (max-width: @width_break_point_0) {
+					flex: 1 1 100%;
+					display: grid;
+					grid-template-columns: auto minmax(0, 1fr) auto;
+					column-gap: 0.5rem;
+
+					>.status_container {
+						grid-column: 1 / -1;
+					}
+					>select {
+						width: 100%;
+						margin-left: 0px;
+					}
+					>.icon.gear {
+						margin-left: 0px;
 					}
 				}
 
@@ -385,7 +450,10 @@
 				background-color: var(--tool_lang_fill);
 				border-color: var(--tool_lang_border);
 				color: @color_white;
-				min-height: 2.75em;
+				// max(): this rule outranks tool_responsive's 44px phone hit
+				// target, so it must carry the floor itself
+				min-height: max(2.75em, 44px);
+				white-space: nowrap;
 			}
 
 			// success text after translation completes
@@ -468,6 +536,12 @@
 		// never top/bottom, so there is no .gutter-vertical rule to write.
 		&.gutter-horizontal {
 			cursor: col-resize;
+		}
+
+		// stacked panes: a window resized below the split threshold keeps the
+		// Split.js gutter, which would sit as a stray column between them
+		@media screen and (max-width: @width_break_point_0) {
+			display: none;
 		}
 	}
 }//end wrapper_tool

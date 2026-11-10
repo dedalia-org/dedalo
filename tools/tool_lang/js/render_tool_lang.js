@@ -69,8 +69,12 @@
 */
 const SPLIT_SIZES_ID = 'tool_lang_split_sizes'
 
-/** Below this viewport width the panes stack and the split is skipped. */
-const SPLIT_MIN_VIEWPORT = 800
+/**
+* Below this viewport width the panes stack and the split is skipped.
+* (!) Must equal @width_break_point_0 (core/page/css/layout/vars.less), where
+* tool_lang.less stacks the panes: at 800 the split ran on stacked panes.
+*/
+const SPLIT_MIN_VIEWPORT = 1024
 
 /** Fallback split when nothing is persisted yet: even halves. */
 const SPLIT_DEFAULT_SIZES = [50, 50]
@@ -370,54 +374,61 @@ const get_content_data_edit = async function(self) {
 			copy_to_target.addEventListener('click', async function(e){
 				e.stopPropagation()
 
-				// user confirmation to overwrite content
-				// guards against accidentally discarding existing target text
-					if (self.target_component.data.value && self.target_component.data.value.length>0) {
-						if (!confirm( get_label.sure || 'Sure?' )) {
-							return false
-						}
-					}
-
-				// source value
-					const source_component	= self.main_element
-					const source_value		= source_component.data.value
+				// (!) v7 data lives in `data.entries` ([{id, lang, value}]); the
+				// legacy `data.value` is undefined, which made this button a no-op
+					const source_entries	= self.main_element.data?.entries || []
+					const target_component	= self.target_component
+					const target_entries	= target_component.data?.entries || []
 
 				// debug
 					if(SHOW_DEBUG===true) {
-						console.log("--> copy_to_target source_value:", clone(source_value));
-						console.log("--> copy_to_target target_value:", clone(self.target_component.data.value));
+						console.log("--> copy_to_target source_entries:", clone(source_entries));
+						console.log("--> copy_to_target target_entries:", clone(target_entries));
 					}
 
-				// guard: source_value must be an array
-				// component data.value is always an array of item objects; if it is
-				// something else the component state is invalid and we bail early
-					if (!Array.isArray(source_value)) {
-						console.error('copy_to_target: source_value is not an array', source_value);
-						return;
+				// nothing to copy
+					if (!source_entries.some(el => el?.value)) {
+						return
 					}
 
-				// copy value
-				// mutate the target component's in-memory data before saving so the UI
-				// stays consistent with what was actually persisted
-					self.target_component.data.value = source_value
-
-				// save value. (Expected only one value in the array)
-				// iterates to match the generic save() API, though in practice text
-				// components carry exactly one value item
-					for (let i = 0; i < source_value.length; i++) {
-						self.target_component.save([{
-							action	: 'update',
-							id		: source_value[i]?.id || null,
-							value	: source_value[i]
-						}])
+				// user confirmation to overwrite content
+				// guards against accidentally discarding existing target text
+					if (target_entries.some(el => el?.value)) {
+						if (!confirm( get_label.sure || 'Sure?' )) {
+							return
+						}
 					}
 
-				// refresh the target component
-				// build_autoload:false skips re-fetching server data so the just-written
-				// value is displayed immediately without a round-trip
-					self.target_component.refresh({
-						build_autoload : false
+				// build the target entries: the TARGET's own id when it has one (else
+				// the source id — the shared cross-language id), and the target lang,
+				// never the source's
+					const new_entries = source_entries.map((source_entry, key) => {
+						const id = target_entries[key]?.id ?? source_entry?.id ?? null
+						const entry = {
+							...(id!==null ? {id} : {}),
+							lang	: target_component.lang,
+							value	: source_entry?.value ?? null
+						}
+						return entry
 					})
+
+				// save. One call carrying every entry (text components hold one)
+					const changed_data = new_entries.map((entry, key) => ({
+						action	: 'update',
+						id		: entry.id ?? null,
+						key		: key,
+						value	: entry
+					}))
+					const response = await target_component.save(changed_data)
+					// false = skipped (concurrent / invalid / no change); ok:false =
+					// refused (save() already surfaced the error to the user)
+					if (!response || response.ok===false) {
+						console.warn('copy_to_target: not saved', response)
+						return
+					}
+
+				// refresh from the server: it returns the saved entries (ids included)
+					await target_component.refresh()
 			})
 
 		// propagate_marks
@@ -426,7 +437,7 @@ const get_content_data_edit = async function(self) {
 			// buttons_container.appendChild(propagate_marks_block)
 
 	// split. Drag handle between the source and target panes.
-		activate_split(left_block)
+		await activate_split(left_block, right_block)
 
 	// content_data
 		const content_data = ui.tool.build_content_data(self)
@@ -445,7 +456,9 @@ const get_content_data_edit = async function(self) {
 * Deferred through when_in_viewport for the same reason tool_indexation defers
 * it: Split.js reads the panes' COMPUTED widths when it initialises, and while
 * the fragment is still detached (or the tool window is not painted yet) those
-* are zero, which pins the gutter to one edge.
+* are zero, which pins the gutter to one edge. The panes are PRE-SIZED to the
+* final widths before that (awaited by the caller, pre-paint), so the deferred
+* init changes nothing visible — no column jump on load.
 *
 * Skipped under SPLIT_MIN_VIEWPORT px, where the panes stack vertically and a
 * horizontal gutter would be meaningless (the CSS forces width:100% there).
@@ -456,44 +469,60 @@ const get_content_data_edit = async function(self) {
 * throw and leave the tool with no split at all.
 *
 * @param {HTMLElement} left_block - the source pane; the node observed for
-*   viewport entry. Both panes are addressed by id, as Split.js expects.
-* @returns {void}
+*   viewport entry.
+* @param {HTMLElement} right_block - the target pane.
+* @returns {Promise<void>}
 */
-const activate_split = function(left_block) {
+const activate_split = async function(left_block, right_block) {
+
+	// don't split on small windows
+		if (window.innerWidth < SPLIT_MIN_VIEWPORT) {
+			return
+		}
+
+	// stored sizes. Read BEFORE the panes paint (the fragment is still detached)
+	// so they open at their final widths — reading them in the deferred callback
+	// below made the columns jump from content-sized to 50/50 to the stored pair.
+		let sizes = SPLIT_DEFAULT_SIZES
+		try {
+			const stored = await data_manager.get_local_db_data(
+				SPLIT_SIZES_ID,
+				'status'
+			)
+			const stored_value = stored?.value
+			if (Array.isArray(stored_value)
+				&& stored_value.length===2
+				&& stored_value.every(el => typeof el==='number' && isFinite(el))
+			) {
+				sizes = stored_value
+			}
+		} catch (error) {
+			console.error('tool_lang activate_split: could not read stored sizes', error)
+		}
+
+	// pre-size the panes exactly as Split.js will (its default elementStyle:
+	// `calc(<size>% - gutterSize/2 px)`) and pre-insert the gutter it will adopt
+	// (the `gutter` factory below), so the deferred init moves nothing
+		const gutter_size = 8
+		left_block.style.width	= `calc(${sizes[0]}% - ${gutter_size/2}px)`
+		right_block.style.width	= `calc(${sizes[1]}% - ${gutter_size/2}px)`
+		const gutter_node = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'gutter gutter-horizontal'
+		})
+		gutter_node.style.width = `${gutter_size}px`
+		left_block.after(gutter_node)
 
 	when_in_viewport(
 		left_block, // node to observe
-		async () => { // callback
-
-			// don't split on small windows
-				if (window.innerWidth < SPLIT_MIN_VIEWPORT) {
-					return
-				}
-
-			// stored sizes
-				let sizes = SPLIT_DEFAULT_SIZES
-				try {
-					const stored = await data_manager.get_local_db_data(
-						SPLIT_SIZES_ID,
-						'status'
-					)
-					const stored_value = stored?.value
-					if (Array.isArray(stored_value)
-						&& stored_value.length===2
-						&& stored_value.every(el => typeof el==='number' && isFinite(el))
-					) {
-						sizes = stored_value
-					}
-				} catch (error) {
-					console.error('tool_lang activate_split: could not read stored sizes', error)
-				}
-
+		() => { // callback
 			// split
 			// @see https://github.com/nathancahill/split/tree/master/packages/splitjs
-				Split(['#tool_lang_left_block', '#tool_lang_right_block'], {
+				Split([left_block, right_block], {
 					sizes		: sizes,
 					minSize		: 200,
-					gutterSize	: 8,
+					gutterSize	: gutter_size,
+					gutter		: () => gutter_node, // adopt the pre-painted one
 					onDragEnd	: (new_sizes) => {
 						data_manager.set_local_db_data(
 							{
