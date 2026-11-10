@@ -20943,9 +20943,14 @@ body.inspector_resizing {
 .open_relations_modal::part(content) {
   width: 36rem;
   max-width: 92vw;
+  align-self: flex-start;
   max-height: 86vh;
   overflow: hidden;
   grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.open_relations_modal::part(overlay) {
+  box-sizing: border-box;
+  padding-top: 7vh;
 }
 .open_relations_modal::part(body) {
   overflow-y: auto;

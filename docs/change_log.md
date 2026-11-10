@@ -34,6 +34,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Open relationships dialog no longer jumps when switching scope**
+
+    - Switching between **Current record** and **All found records** keeps the dialog in place: it stays anchored at the top and keeps its height while the new list loads.
+
 - **Restoring a Time Machine version that equals the current value no longer adds history.**
 
     Before, applying a Time Machine version whose value was already the current one
