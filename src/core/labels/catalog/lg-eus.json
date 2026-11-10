@@ -380,6 +380,7 @@
 	"error_tool_rdf_class_unmapped": "Ez da ezer inportatu: kanpoko ontologiak ez du erregistro honen ataleko klaserik ${type} RDF motarekin lotzen",
 	"error_tool_rdf_graph_too_large": "RDF dokumentua handiegia da edo sakonegi habiaratuta dago irakurtzeko (muga ${limit})",
 	"error_tool_rdf_identifier_unwritable": "Ez da sortu: erregistroak ezin izan du berriro aurkitzeko identifikatzailea gorde (${reason})",
+	"error_tool_restore_unchanged": "Hautatutako bertsioa uneko balioaren berdina da. Ez da ezer leheneratu",
 	"error_tool_snapshot_unrestorable": "Historiako sarrera honek formatu zaharreko balio bat gordetzen du, lotura baliozkoa ez dena, beraz ezin da leheneratu. Uneko balioa ez da aldatu",
 	"error_tool_source_unavailable": "${site} zerbitzariak ez du erantzuten edo zerbitzuz kanpo dago. Jarri harremanetan bere arduradunarekin",
 	"error_tool_target_not_found": "Tresnaren helburua ez da existitzen",

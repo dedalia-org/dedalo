@@ -25,11 +25,15 @@
 - **Client effect:** the Apply button's `apply_value` calls request with `notices:'caller'`
   (other callers keep the page default).
   "Apply and save" first sends the dry run: unchanged → the notice is shown
-  (`handle_api_notice`, default toast) and NO overwrite confirm is asked; changed → the
+  (`handle_api_notice`; the tool registers `tool.restore_unchanged` as an INFO toast, and
+  `error_dispatch.js deduped_toast` now maps a policy severity through `severity_type` — an
+  `info` row used to paint as an error) and NO overwrite confirm is asked; changed → the
   DATA-03 confirm, then the real restore. A notice on the real restore (the record
   changed in between) is shown too and keeps the window open instead of closing it.
 - **Section restore** (`model === 'section'`) unchanged by this entry, except that it refuses `dry_run`.
 - **Gates:** `test/unit/tm_lang_slice_restore_native.test.ts` ("a restore that changes
   nothing leaves NO trace" — delta + notice per case, positive control),
   `test/unit/tm_dataframe_restore_native.test.ts` (frame reorder no-op),
-  `test/unit/tm_two_lanes_native.test.ts` (written-lanes expectation).
+  `test/unit/tm_two_lanes_native.test.ts` (written-lanes expectation), the section
+  `dry_run` refusal in `tm_lang_slice_restore_native`, and the client
+  `test_error_policy.js` (info severity → information toast).

@@ -380,6 +380,7 @@
 	"error_tool_rdf_class_unmapped": "Nichts importiert: Die externe Ontologie ordnet keine Klasse der Sektion dieses Eintrags dem RDF-Typ ${type} zu",
 	"error_tool_rdf_graph_too_large": "Das RDF-Dokument ist zu groß oder zu tief verschachtelt, um gelesen zu werden (Limit ${limit})",
 	"error_tool_rdf_identifier_unwritable": "Nicht erstellt: Der Eintrag konnte die Kennung, über die er wiedergefunden wird, nicht aufnehmen (${reason})",
+	"error_tool_restore_unchanged": "Die ausgewählte Version entspricht dem aktuellen Wert. Es wurde nichts wiederhergestellt",
 	"error_tool_snapshot_unrestorable": "Dieser Verlaufseintrag speichert einen Wert in einem alten Format, der keine gültige Verknüpfung ist, daher kann er nicht wiederhergestellt werden. Der aktuelle Wert ist unverändert",
 	"error_tool_source_unavailable": "Der Server ${site} antwortet nicht oder ist außer Betrieb. Wenden Sie sich an seinen Betreuer",
 	"error_tool_target_not_found": "Das Werkzeugziel existiert nicht",

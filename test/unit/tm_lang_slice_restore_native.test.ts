@@ -73,6 +73,7 @@ import {
 	getTranslatableByTipo,
 } from '../../src/core/ontology/resolver.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
+import { deleteSectionRecord } from '../../src/core/section/record/delete_record.ts';
 import {
 	isLangSlicedModel,
 	saveComponentData,
@@ -871,6 +872,32 @@ describe('a restore that changes nothing leaves NO trace (history records change
 			expect(await activityCount(id)).toBe(activityBefore);
 			expect(await recordText(id)).toBe(textBefore);
 		}
+	});
+
+	test('a SECTION restore refuses dry_run and writes nothing (the probe never reaches a real write)', async () => {
+		const id = await createSectionRecord(SECTION, -1);
+		await save(TRANSLATABLE, id, 'lg-eng', insertFirst('A'));
+		await deleteSectionRecord(SECTION, id, -1);
+		const [sectionRow] = await tmRows(id, SECTION);
+		expect(sectionRow).toBeDefined();
+		const tmBefore = (await tmRows(id, SECTION)).length;
+		const error = await toolTimeMachineApplyValue(
+			await context({
+				section_tipo: SECTION,
+				section_id: id,
+				tipo: SECTION,
+				lang: 'lg-nolan',
+				matrix_id: sectionRow?.id,
+				dry_run: true,
+			}),
+		).then(
+			() => null,
+			(thrown: unknown) => thrown as { code?: string },
+		);
+		expect(error?.code).toBe('request.invalid_options');
+		// not undeleted, no new history
+		expect(await recordText(id)).toBeUndefined();
+		expect((await tmRows(id, SECTION)).length).toBe(tmBefore);
 	});
 
 	test('POSITIVE CONTROL: restoring a value that differs still writes one TM row and one activity row', async () => {

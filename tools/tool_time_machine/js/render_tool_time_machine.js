@@ -8,6 +8,14 @@
 	import {ui} from '../../../core/common/js/ui.js'
 	import {request_failed, response_data} from '../../../core/common/js/api_error.js'
 	import {handle_api_error, handle_api_notice} from '../../../core/common/js/error_dispatch.js'
+	import {register_error_policy} from '../../../core/common/js/error_policy.js'
+
+
+
+// error policy. "Nothing was restored" is information, not a warning (registry severity 'info').
+register_error_policy({
+	'tool.restore_unchanged' : {action:'toast', severity:'info'}
+})
 
 
 

@@ -380,6 +380,7 @@
 	"error_tool_rdf_class_unmapped": "가져온 항목이 없습니다: 외부 온톨로지가 이 레코드 섹션의 어떤 클래스도 RDF 유형 ${type}에 매핑하지 않습니다",
 	"error_tool_rdf_graph_too_large": "RDF 문서가 너무 크거나 중첩이 너무 깊어 읽을 수 없습니다 (한도 ${limit})",
 	"error_tool_rdf_identifier_unwritable": "만들어지지 않았습니다: 레코드가 다시 찾는 데 필요한 식별자를 보관할 수 없습니다 (${reason})",
+	"error_tool_restore_unchanged": "선택한 버전이 현재 값과 같습니다. 아무것도 복원되지 않았습니다",
 	"error_tool_snapshot_unrestorable": "이 기록 항목은 유효한 링크가 아닌 이전 형식으로 값을 저장하고 있어 복원할 수 없습니다. 현재 값은 변경되지 않았습니다",
 	"error_tool_source_unavailable": "서버 ${site}이(가) 응답하지 않거나 서비스가 중단되었습니다. 해당 서버 관리자에게 문의하세요",
 	"error_tool_target_not_found": "도구 대상이 존재하지 않습니다",

@@ -246,7 +246,7 @@ export const error_debug_suffix = (api_error) => {
 * SEVERITY_TYPE
 * ApiError.severity → notification bubble type (render_node_info).
 */
-const severity_type = (api_error) => {
+export const severity_type = (api_error) => {
 	switch (api_error?.severity) {
 		case 'info'		: return 'success'
 		case 'warning'	: return 'warning'
