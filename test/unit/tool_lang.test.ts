@@ -72,6 +72,16 @@ describe('translateItems (stub provider)', () => {
 		expect(out).toEqual({ items: [], error: 'boom' });
 	});
 
+	test('an EMPTY result for a source with text is refused (unsupported pair); a blank source is not', async () => {
+		const emptyStub: TranslationProvider = async () => ({ ok: true, text: ' <p></p> ', msg: 'ok' });
+		const out = await translateItems([{ value: '<p>Visto MAN</p>' }], emptyStub, cfg);
+		expect(out.items).toEqual([]);
+		expect(out.emptyResult).toBe(true);
+		const blank = await translateItems([{ value: '<p> </p>' }], emptyStub, cfg);
+		expect(blank.error).toBeNull();
+		expect(blank.items).toHaveLength(1);
+	});
+
 	test('quota-exceeded result is treated as an error (never persisted)', async () => {
 		const quotaStub: TranslationProvider = async () => ({
 			ok: true,

@@ -2421,6 +2421,18 @@ export const ERROR_REGISTRY = {
 		retryable: true,
 		details_keys: ['provider_message'],
 	},
+	// The service answered, with no text: it does not translate this language pair
+	// (Babel/Apertium for a missing direction). Refused, never written as a blank.
+	'translation.empty_result': {
+		category: 'unavailable',
+		status: 503,
+		label_key: 'error_translation_empty_result',
+		message:
+			'The translation service returned no text: it probably does not support this language',
+		severity: 'warn',
+		disclosure: 'public',
+		retryable: false,
+	},
 	'translation.not_configured': {
 		category: 'unavailable',
 		status: 503,

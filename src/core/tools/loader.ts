@@ -102,6 +102,10 @@ function validateModuleName(module: ToolServerModule, expectedName: string): voi
 	if (!TOOL_NAME_PATTERN.test(module.name)) {
 		throw invalidToolModule(`tool.name '${module.name}' must match ^tool_[a-z0-9_]+$`);
 	}
+	const from = module.configFrom;
+	if (from !== undefined && (typeof from !== 'string' || !TOOL_NAME_PATTERN.test(from) || from === module.name)) {
+		throw invalidToolModule(`tool.configFrom must name another tool (^tool_[a-z0-9_]+$), got '${String(from)}'`);
+	}
 }
 
 /** `apiActions` is an object of handler specs, with no lifecycle hook inside it. */

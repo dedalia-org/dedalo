@@ -57,6 +57,7 @@
 	import {ui} from '../../../core/common/js/ui.js'
 	import {clone, get_json_langs} from '../../../core/common/js/utils/index.js'
 	import Split from '../../../lib/split/dist/split.es.js'
+	import {append_engine_selector} from './translator_engine_select.js'
 
 
 
@@ -352,9 +353,7 @@ const get_content_data_edit = async function(self) {
 		// automatic_translation
 		// only rendered when the tool config declares at least one translator_engine entry;
 		// the value is an array of engine descriptors {name, label, type ('browser'|'server')}
-			const translator_engine = (self.context.config)
-				? self.context.config.translator_engine.value
-				: false
+			const translator_engine = self.context?.config?.translator_engine?.value ?? false
 
 			if (translator_engine) {
 				const automatic_tranlation_node = build_automatic_translation(self, translator_engine, source_select_lang, target_select_lang, components_container)
@@ -737,109 +736,12 @@ const build_automatic_translation = (self, translator_engine, source_select_lang
 		}
 		button_automatic_translation.addEventListener('click', click_handler)
 
-	// select
-		self.translator_engine_select = ui.create_dom_element({
-			element_type	: 'select',
-			parent 			: automatic_translation_container
+	// engine select + browser-engine configuration (shared with tool_lang_multi)
+		append_engine_selector({
+			self				: self,
+			translator_engine	: translator_engine,
+			parent				: automatic_translation_container
 		})
-		for (let i = 0; i < translator_engine.length; i++) {
-
-			const engine = translator_engine[i]
-
-			const option = ui.create_dom_element({
-				element_type	: 'option',
-				value			: engine.name,
-				inner_html		: engine.label,
-				parent			: self.translator_engine_select
-			})
-			if (self.target_translator===engine.name) {
-				option.selected = true
-			}
-		}
-		const change_handler = (e) => {
-			// persist the last-selected engine so it is pre-selected on the next tool open
-			data_manager.set_local_db_data({
-				id		: 'translator_engine_select',
-				value	: self.translator_engine_select.value
-			}, 'status')
-
-			// show/hide configuration based on engine type
-			// the configuration_container (WASM/WebGPU checkbox) is only relevant for
-			// browser engines; server engines have no client-side device choice
-			const selected_engine = translator_engine.find(el => el.name===self.translator_engine_select.value)
-			if (selected_engine && selected_engine.type==='browser') {
-				configuration_container.classList.remove('hide')
-			}else{
-				configuration_container.classList.add('hide')
-			}
-		}
-		self.translator_engine_select.addEventListener('change', change_handler)
-
-	// configuration
-	// open/close the configuration options
-		const show_configuration = ui.create_dom_element({
-			element_type	: 'span',
-			class_name		: 'icon gear',
-			parent			: automatic_translation_container
-		})
-		const show_configuration_click_handler = function (e) {
-			configuration_container.classList.toggle('hide')
-		}
-		show_configuration.addEventListener('click', show_configuration_click_handler)
-
-		const configuration_container = ui.create_dom_element({
-			element_type	: 'div',
-			class_name		: 'configuration_container hide',
-			parent			: automatic_translation_container
-		})
-
-		// device checkbox
-		const device_container = ui.create_dom_element({
-			element_type	: 'span',
-			class_name		: 'device_container',
-			parent 			: configuration_container
-		})
-
-		const option_label = ui.create_dom_element({
-			element_type	: 'label',
-			inner_html		: self.get_tool_label('cpu_device') || 'More compatible, slower.',
-			parent			: device_container
-		})
-
-		const translator_device_checkbox = ui.create_dom_element({
-			element_type	: 'input',
-			type			: 'checkbox'
-		})
-
-		self.translator_device_checkbox = translator_device_checkbox
-
-		option_label.prepend(translator_device_checkbox)
-
-		const device_id = 'translator_device_checkbox'
-		translator_device_checkbox.addEventListener('change', function(){
-			data_manager.set_local_db_data({
-				id		: device_id,
-				value	: translator_device_checkbox.checked
-			}, 'status')
-		})
-
-		// restore the persisted device preference from IndexedDB on build
-		data_manager.get_local_db_data(
-			device_id,
-			'status'
-		).then(function( device_saved ){
-			if(device_saved){
-				translator_device_checkbox.checked = device_saved.value
-			}
-		})
-
-		// initial visibility: show config if the default engine is browser type
-		// mirrors the change_handler logic applied once at build time so the UI
-		// reflects the pre-selected engine without requiring a 'change' event
-		const initial_engine = translator_engine.find(el => el.name===self.target_translator)
-		if (initial_engine && initial_engine.type==='browser') {
-			configuration_container.classList.remove('hide')
-		}
 
 	return automatic_translation_container
 }//end build_automatic_translation

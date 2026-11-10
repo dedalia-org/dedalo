@@ -391,6 +391,7 @@
 	"error_tool_target_not_found": "The tool target does not exist",
 	"error_tool_too_many_items": "Too many items in one request: ${count} sent, at most ${limit} at a time",
 	"error_tool_unsupported_target": "The tool cannot operate on this target",
+	"error_translation_empty_result": "The translation service returned no text: it probably does not support this language",
 	"error_translation_not_configured": "The translation service is not configured for this engine",
 	"error_translation_provider_failed": "The translation service reported an error: ${provider_message}",
 	"error_tree_cycle": "The move would create a cycle in the tree",

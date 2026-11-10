@@ -732,8 +732,11 @@ export async function buildToolElementContext(
 	};
 	// Client-visible config (dd999/dd1633 client:true props): PHP appends a
 	// `config` key when the tool has any, carrying the full prop definitions.
+	// A tool declaring configFrom (module.ts) serves that tool's config instead.
 	const { getToolClientConfigRaw } = await import('./config.ts');
-	const clientConfig = await getToolClientConfigRaw(name);
+	const { getLoadedTool } = await import('./loader.ts');
+	const configName = (await getLoadedTool(name))?.module.configFrom ?? name;
+	const clientConfig = await getToolClientConfigRaw(configName);
 	if (Object.keys(clientConfig).length > 0) context.config = clientConfig;
 	return context;
 }

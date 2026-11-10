@@ -13016,6 +13016,25 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 :root[data-theme="dark"] .tool_header > .tool_buttons_container > .tool_button > .icon {
   filter: var(--toolbar_btn_icon_filter);
 }
+.wrapper_tool .component_message {
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2);
+  color: var(--fg_inverse);
+  font-size: 0.86rem;
+  line-height: 0.99rem;
+  min-height: 0;
+}
+.wrapper_tool .component_message .text {
+  padding: 0.5rem;
+  padding-right: 1.2rem;
+}
+.wrapper_tool .component_message .close {
+  top: 0.25rem;
+  right: 0.25rem;
+  height: 1rem;
+  line-height: 1rem;
+  opacity: 0.85;
+}
 /**
 * TOOL_RESPONSIVE — the PHONE tier shared by every tool surface.
 *

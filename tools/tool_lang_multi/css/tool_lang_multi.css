@@ -13,6 +13,21 @@
 .wrapper_tool.tool_lang_multi .spinner {
   background-color: var(--tool_lang_multi);
 }
+.wrapper_tool.tool_lang_multi .component_message {
+  position: static;
+  margin-bottom: 0.5em;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: flex-start;
+}
+.wrapper_tool.tool_lang_multi .component_message > .text {
+  flex: 1;
+}
+.wrapper_tool.tool_lang_multi .component_message > .close {
+  position: static;
+  flex: none;
+  margin: 0.5rem 0.5rem 0 0;
+}
 .wrapper_tool.tool_lang_multi > .content_data {
   padding-right: 1em;
 }
@@ -135,15 +150,22 @@
 .wrapper_tool.tool_lang_multi .components_container .target_component_container.source > .wrapper_component {
   border-left: 2px solid var(--tool_lang_multi);
 }
-.wrapper_tool.tool_lang_multi .components_container .target_component_container.loading {
-  pointer-events: none;
+.wrapper_tool.tool_lang_multi .components_container .target_component_container.translating {
+  cursor: wait;
 }
-.wrapper_tool.tool_lang_multi .components_container .target_component_container.loading::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(255, 255, 255, 0.7);
-  z-index: 10;
+.wrapper_tool.tool_lang_multi .components_container .target_component_container.translating > .wrapper_component {
+  opacity: 0.4;
+  pointer-events: none;
+  user-select: none;
+}
+.wrapper_tool.tool_lang_multi .components_container .target_component_container.translating > .wrapper_component > .buttons_container {
+  visibility: hidden;
+}
+.wrapper_tool.tool_lang_multi .components_container .target_component_container.translating > .spinner {
+  z-index: 3;
+}
+.wrapper_tool.tool_lang_multi .components_container .target_component_container.translating > .streaming_overlay:not(.hide) ~ .spinner {
+  display: none;
 }
 .wrapper_tool.tool_lang_multi .components_container .target_component_container .target_component_title {
   padding: 0.5em;

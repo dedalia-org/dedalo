@@ -69,6 +69,14 @@ Merged since the last release; these ship with the next one.
 
     The **Automatic translation** button in the multi-language tool did nothing: the tool had no translation engines of its own. It now uses the engines configured for the single-language translation tool (`tool_lang`) — the same list, the same server settings — so one configuration serves both. The engine selector and its local-AI options are shared by both tools; where no engine is configured the button is no longer shown.
 
+    Running it no longer stops with "Source component not available": the tool read every language as empty, so it always refused. When the language the tool opened in has no text, it now translates from the first language that does, and highlights it as the source.
+
+    To translate into one language only, use that language's own translate button (in the component's top button bar): it translates the current source into it. Clicking into a language no longer makes it the source — only editing it does — so its own button works. It does nothing when the source is empty (an empty paragraph counts as empty), so it can no longer blank a language. While a language is being translated it is dimmed with a spinner, clear of its buttons. A double click on **Automatic translation** no longer closes its dialog unseen. The tool's messages no longer overlap each other, look like the application's other notifications and can be closed. The "translate into all languages?" dialog now has the same layout and spacing as the application's other confirmation dialogs.
+
+    When the translation service does not support a language (for example Basque with Babel), the tool used to report "Translation completed" and leave that language blank — replacing whatever it held. Now nothing is written: the language keeps its text and shows "The translation service returned no text: it probably does not support this language". "Translate all" names the languages that failed in its summary.
+
+    Wire contract: `WC-2026-11-10-translation-empty-result`.
+
 - **Saving a hierarchical autocomplete on a duplicated record no longer fails with "cannot delete path in scalar".**
 
     A record created by duplication could be stored with an invalid empty search index. Any later save of a
@@ -139,11 +147,12 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 3 entries"
+??? note "Wire contract — 4 entries"
 
     - `WC-2026-11-09-instance-identity`
     - `WC-2026-11-09-security-access-save-echo-no-datalist`
     - `WC-2026-11-10-tm-restore-unchanged-notice`
+    - `WC-2026-11-10-translation-empty-result`
 
 ## 7.0.0-beta.8 — 2026-11-08
 
