@@ -120,9 +120,12 @@ export async function stageExternalImage(
 		deps.harvest ?? {},
 	);
 	if (!response.ok) {
-		throw new DedaloError('tool.action_failed', {
+		// retryable, from a mutating action: its client sends it once
+		// (retries: 1), so no resend can answer idempotency.outcome_unknown
+		throw new DedaloError('tool.source_unavailable', {
 			coordinates: { tool: 'tool_uca_maps' },
 			message: `The linked image answered HTTP ${String(response.status)}`,
+			details: { reason_key: 'linked_image_unavailable' },
 		});
 	}
 	const mediaType = response.contentType.split(';')[0]?.trim() ?? '';

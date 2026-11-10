@@ -29,6 +29,7 @@ import {
 	is_spanish_official_lang,
 	wms_point_options
 } from './basemap_swap.js'
+import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
 
 
 
@@ -156,6 +157,8 @@ export const check_catastro_at_point = async function(self, latlng) {
 
 		const response = await self.tool_request({
 			action	: 'get_catastro_parcel',
+			retries	: 1,
+			timeout	: LOOKUP_TIMEOUT_MS,
 			options	: wms_point_options(self, latlng)
 		})
 

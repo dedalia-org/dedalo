@@ -131,6 +131,7 @@
 		cancel_roman_search_timer,
 		roman_min_query
 	} from './roman_empire.js'
+	import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
 
 
 
@@ -339,6 +340,8 @@ tool_uca_maps.prototype.get_capabilities = async function() {
 
 	const response = await self.tool_request({
 		action	: 'get_capabilities',
+		retries	: 1,
+		timeout	: LOOKUP_TIMEOUT_MS,
 		options	: {
 			tipo			: self.geolocation.tipo,
 			section_id		: self.geolocation.section_id,

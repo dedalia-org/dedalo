@@ -13,7 +13,10 @@ import {
 } from '../../tools/tool_uca_maps/server/catastro.ts';
 
 /** A reply that is not an answer: the source unavailable, never "no parcel". */
-const SOURCE_UNAVAILABLE = expect.objectContaining({ code: 'security.outbound_failed' });
+const SOURCE_UNAVAILABLE = expect.objectContaining({
+	code: 'tool.source_unavailable',
+	details: { reason_key: 'catastro_unavailable' },
+});
 
 describe('featureInfoUrl', () => {
 	test('builds the fixed Catastro GetFeatureInfo query from a click payload', () => {

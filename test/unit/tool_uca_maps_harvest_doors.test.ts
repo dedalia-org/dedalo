@@ -123,14 +123,15 @@ describe('tool_uca_maps get_wms_layers — through harvestFetch', () => {
 		expect(site.sent).not.toContain(capabilities);
 	});
 
-	test('a non-2xx answer is a plain, non-retryable failure naming the status', async () => {
+	test('a non-2xx answer is the source unavailable, keyed, naming the status in the log', async () => {
 		const site = scriptedSite({
 			'https://wms.example/wms?service=WMS&request=GetCapabilities': { status: 404 },
 		});
 		const error = await failureOf(
 			getWmsLayers(contextOf({ url: 'https://wms.example/wms' }), site.deps),
 		);
-		expect(error.code).toBe('tool.action_failed');
+		expect(error.code).toBe('tool.source_unavailable');
+		expect(error.details).toEqual({ reason_key: 'wms_server_unavailable' });
 		expect(error.message).toContain('HTTP 404');
 	});
 });
@@ -180,17 +181,19 @@ describe('tool_uca_maps get_pleiades_place — through harvestFetch, Pleiades ov
 		expect(site.sent).not.toContain(PLACE);
 	});
 
-	test('an unknown id (404) is a plain failure, not a retryable transport one', async () => {
+	test('a non-2xx answer (an id its own index named) is the source unavailable, keyed', async () => {
 		const site = scriptedSite({ 'https://pleiades.stoa.org/places/1/json': { status: 404 } });
 		const error = await failureOf(getPleiadesPlace(contextOf({ id: '1' }), site.deps));
-		expect(error.code).toBe('tool.action_failed');
+		expect(error.code).toBe('tool.source_unavailable');
+		expect(error.details).toEqual({ reason_key: 'gazetteer_service_unavailable' });
 	});
 
 	test('a 200 that is not a place document is refused', async () => {
 		for (const body of ['not json', '{}']) {
 			const site = scriptedSite({ [PLACE]: { status: 200, body } });
 			const error = await failureOf(getPleiadesPlace(contextOf({ id: '423025' }), site.deps));
-			expect(error.code).toBe('security.outbound_failed');
+			expect(error.code).toBe('tool.source_unavailable');
+			expect(error.details).toEqual({ reason_key: 'gazetteer_service_unavailable' });
 			clearPacingForTests();
 		}
 	});

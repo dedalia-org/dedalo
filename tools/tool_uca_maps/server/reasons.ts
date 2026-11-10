@@ -50,6 +50,12 @@ export const REASON_KEYS = {
 		'This file has no coordinate system of its own (no .prj or crs member): provide its EPSG code (and, for a UTM one, its zone and band).',
 	projection_required:
 		'This file does not declare its projection and its coordinates are not longitude/latitude: provide its EPSG code (and, for a UTM one, its zone and band).',
+	wms_server_unavailable: 'The WMS server did not answer with its capabilities.',
+	linked_image_unavailable: 'The server of the linked image did not hand it over.',
+	gazetteer_service_unavailable: 'The gazetteer service did not answer properly.',
+	catastro_unavailable: 'The Catastro service did not answer properly.',
+	admin_units_unavailable: 'The administrative units service did not answer properly.',
+	place_search_unavailable: 'The place search service did not answer properly.',
 } as const satisfies Readonly<Record<string, string>>;
 
 export type ReasonKey = keyof typeof REASON_KEYS;

@@ -209,12 +209,13 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 		},
 	);
 
-	test('a non-2xx answer is a plain failure naming the status', async () => {
+	test('a non-2xx answer is the source unavailable, keyed, naming the status in the log', async () => {
 		const site = scriptedSite({ [IMAGE]: { status: 404 } });
 		const error = await failureOf(
 			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
 		);
-		expect(error.code).toBe('tool.action_failed');
+		expect(error.code).toBe('tool.source_unavailable');
+		expect(error.details).toEqual({ reason_key: 'linked_image_unavailable' });
 		expect(error.message).toContain('HTTP 404');
 	});
 

@@ -43,9 +43,13 @@ function invalidRequest(message: string, reason?: ReasonKey): DedaloError {
 	});
 }
 
-/** The third party answered, but not with something usable. */
+/** The third party is down or answered nothing usable: retryable, and every
+ * gazetteer action is readOnly, so the resend shows it. */
 function outboundFailure(message: string): DedaloError {
-	return new DedaloError('security.outbound_failed', { message });
+	return new DedaloError('tool.source_unavailable', {
+		message,
+		details: { reason_key: 'gazetteer_service_unavailable' },
+	});
 }
 
 /** One hit from any of the three sources, already reduced to what the map needs. */
@@ -348,7 +352,8 @@ export async function getPleiadesPlace(
 
 /**
  * One place document from Pleiades, a GeoJSON FeatureCollection. A non-2xx
- * answer (an unknown id) is a plain failure, not a retryable transport one.
+ * answer is the source failing (the id comes from its own index), refused as
+ * such; the client sends the action once, so nothing resends it.
  * `deps` scripts the site in tests.
  */
 async function fetchPleiadesPlace(id: string, deps: HarvestDeps = {}): Promise<unknown> {
@@ -363,10 +368,7 @@ async function fetchPleiadesPlace(id: string, deps: HarvestDeps = {}): Promise<u
 		deps,
 	);
 	if (!response.ok) {
-		throw new DedaloError('tool.action_failed', {
-			coordinates: { tool: 'tool_uca_maps' },
-			message: `Pleiades answered HTTP ${String(response.status)}`,
-		});
+		throw outboundFailure(`Pleiades answered HTTP ${String(response.status)}`);
 	}
 	const text = response.text();
 	let payload: unknown;

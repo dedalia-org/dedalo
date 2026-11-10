@@ -22,7 +22,6 @@ import {
 	ingest_image_upload,
 	ingest_staged_image,
 	image_url,
-	tool_request_with_timeout,
 	IMAGE_SECTION_TIPO,
 	IMAGE_COMPONENT_TIPO
 } from './image_upload.js'
@@ -175,6 +174,7 @@ const attach_ingested_image = async function(self, layer, section_id, extra) {
 
 	const file_response = await self.tool_request({
 		action	: 'get_image_file',
+		retries	: 1,
 		options	: {
 			tipo			: IMAGE_COMPONENT_TIPO,
 			section_tipo	: IMAGE_SECTION_TIPO,
@@ -297,7 +297,8 @@ export const external_images_enabled = function(self) {
 /**
 * STAGE_EXTERNAL_IMAGE
 * Has the server download one linked image into the caller's staging dir.
-* The tool_request RQO with its own timeout (STAGE_EXTERNAL_IMAGE_TIMEOUT_MS).
+* Sent once (`retries: 1`): a refusal of the linked site is retryable, and a
+* resend of this mutating action would be answered outcome_unknown instead.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {string} url
@@ -305,12 +306,15 @@ export const external_images_enabled = function(self) {
 */
 const stage_external_image = async function(self, url) {
 
-	return await tool_request_with_timeout(self, 'stage_external_image', {
-		tipo			: self.geolocation.tipo,
-		section_tipo	: self.geolocation.section_tipo,
-		section_id		: self.geolocation.section_id,
-		url				: url
-	}, {
+	return await self.tool_request({
+		action		: 'stage_external_image',
+		options		: {
+			tipo			: self.geolocation.tipo,
+			section_tipo	: self.geolocation.section_tipo,
+			section_id		: self.geolocation.section_id,
+			url				: url
+		},
+		retries		: 1,
 		timeout		: STAGE_EXTERNAL_IMAGE_TIMEOUT_MS,
 		// the panel shows its own progress line
 		busy_notice	: false

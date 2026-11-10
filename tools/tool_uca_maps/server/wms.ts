@@ -71,9 +71,12 @@ async function fetchWmsCapabilities(
 		deps,
 	);
 	if (!response.ok) {
-		throw new DedaloError('tool.action_failed', {
+		// the remote is down or refuses, not this server: retryable, and readOnly
+		// lets the resend show it
+		throw new DedaloError('tool.source_unavailable', {
 			coordinates: { tool: 'tool_uca_maps' },
 			message: `WMS GetCapabilities answered HTTP ${String(response.status)}`,
+			details: { reason_key: 'wms_server_unavailable' },
 		});
 	}
 	const landed = new URL(response.url);

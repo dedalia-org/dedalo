@@ -1,7 +1,7 @@
 {
 	"$schema": "../../src/core/tools/register.schema.json",
 	"name": "tool_uca_maps",
-	"version": "1.0.3",
+	"version": "1.0.4",
 	"label": {
 		"lg-eng": "UCA Maps",
 		"lg-spa": "Mapas UCA"
@@ -691,7 +691,25 @@
 		{ "lang": "lg-spa", "name": "reason_no_coordinate_system", "value": "Este fichero no tiene sistema de coordenadas propio (ni .prj ni miembro crs): indica su código EPSG (y, si es UTM, su zona y su banda)." },
 
 		{ "lang": "lg-eng", "name": "reason_projection_required", "value": "This file does not declare its projection and its coordinates are not longitude/latitude: provide its EPSG code (and, for a UTM one, its zone and band)." },
-		{ "lang": "lg-spa", "name": "reason_projection_required", "value": "Este fichero no declara su proyección y sus coordenadas no son longitud/latitud: indica su código EPSG (y, si es UTM, su zona y su banda)." }
+		{ "lang": "lg-spa", "name": "reason_projection_required", "value": "Este fichero no declara su proyección y sus coordenadas no son longitud/latitud: indica su código EPSG (y, si es UTM, su zona y su banda)." },
+
+		{ "lang": "lg-eng", "name": "reason_wms_server_unavailable", "value": "The WMS server did not answer with its capabilities." },
+		{ "lang": "lg-spa", "name": "reason_wms_server_unavailable", "value": "El servidor WMS no ha respondido con sus capacidades." },
+
+		{ "lang": "lg-eng", "name": "reason_linked_image_unavailable", "value": "The server of the linked image did not hand it over." },
+		{ "lang": "lg-spa", "name": "reason_linked_image_unavailable", "value": "El servidor de la imagen enlazada no la ha entregado." },
+
+		{ "lang": "lg-eng", "name": "reason_gazetteer_service_unavailable", "value": "The gazetteer service did not answer properly." },
+		{ "lang": "lg-spa", "name": "reason_gazetteer_service_unavailable", "value": "El servicio del gacetero no ha respondido correctamente." },
+
+		{ "lang": "lg-eng", "name": "reason_catastro_unavailable", "value": "The Catastro service did not answer properly." },
+		{ "lang": "lg-spa", "name": "reason_catastro_unavailable", "value": "El servicio del Catastro no ha respondido correctamente." },
+
+		{ "lang": "lg-eng", "name": "reason_admin_units_unavailable", "value": "The administrative units service did not answer properly." },
+		{ "lang": "lg-spa", "name": "reason_admin_units_unavailable", "value": "El servicio de unidades administrativas no ha respondido correctamente." },
+
+		{ "lang": "lg-eng", "name": "reason_place_search_unavailable", "value": "The place search service did not answer properly." },
+		{ "lang": "lg-spa", "name": "reason_place_search_unavailable", "value": "El servicio de búsqueda de lugares no ha respondido correctamente." }
 	],
 	"default_config": {
 		"gazetteer_data_path": "",

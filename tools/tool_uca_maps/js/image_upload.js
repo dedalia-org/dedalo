@@ -18,7 +18,7 @@ import {upload} from '../../../core/services/service_upload/js/service_upload.js
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
 import {exception_text, upload_refusal_text} from './panel_error_text.js'
 import {data_manager} from '../../../core/common/js/data_manager.js'
-import {create_source} from '../../../core/common/js/common.js'
+import {process_uploaded_file} from '../../tool_upload/js/tool_upload.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {object_to_url_vars} from '../../../core/common/js/utils/util.js'
 import {commit, ensure_properties, ensure_uca_maps, report_client_error, deliver_download} from './object_console.js'
@@ -26,6 +26,7 @@ import {carrier_image} from './uca_maps_data.js'
 import {DEFAULT_IMAGE_DOWNLOAD_NAME, sanitize_download_name} from './download_filename.js'
 import {hull_bounds, is_image_editing, attach_handles, detach_handles, seal_carrier_from_geoman, attach_carrier_drag, detach_carrier_drag} from './image_edit.js'
 import {rotated_image_overlay} from './rotated_image_overlay.js'
+import {CONVERSION_TIMEOUT_MS} from './request_budgets.js'
 
 
 
@@ -216,6 +217,7 @@ const holds_no_image_file = async function(self, section_id) {
 
 	const file_response = await self.tool_request({
 		action	: 'get_image_file',
+		retries	: 1,
 		options	: {
 			tipo			: IMAGE_COMPONENT_TIPO,
 			section_tipo	: IMAGE_SECTION_TIPO,
@@ -261,10 +263,10 @@ const delete_image_record = async function(section_id) {
 
 /**
 * INGEST_UPLOADED_FILE
-* Door 2: hands the staged upload to `tool_upload::process_uploaded_file`. The
-* rqo is built here because tool_upload's exported `process_uploaded_file()`
-* refuses any caller whose `model` is not 'tool_upload'; the server dispatcher
-* reads only model + action from `source`, and the permission gate reads `options`.
+* Door 2: hands the staged upload to `tool_upload::process_uploaded_file`
+* through tool_upload's own helper (as tool_image_rotation does), which sends
+* it once with a long deadline: the ingest builds every derivative tier
+* synchronously. The helper wants a caller whose model is tool_upload.
 *
 * @param {number} section_id - the new rsc170 record
 * @param {Object} file_data - what service_upload's transport returned
@@ -272,26 +274,19 @@ const delete_image_record = async function(section_id) {
 */
 const ingest_uploaded_file = async function(section_id, file_data) {
 
-	return await data_manager.request({
-		body : {
-			dd_api	: 'dd_tools_api',
-			action	: 'tool_request',
-			source	: {
-				typo	: 'source',
-				model	: 'tool_upload',
-				action	: 'process_uploaded_file'
-			},
-			options	: {
-				file_data		: file_data,
-				tipo			: IMAGE_COMPONENT_TIPO,
-				section_tipo	: IMAGE_SECTION_TIPO,
-				section_id		: section_id,
-				caller_type		: 'component'
-			}
+	return await process_uploaded_file({
+		file_data		: file_data,
+		process_options	: null,
+		caller			: {
+			type	: 'tool',
+			model	: 'tool_upload'
 		},
-		// the ingest builds every derivative tier synchronously; a big TIFF
-		// legitimately takes far longer than a normal API call
-		timeout : 600 * 1000
+		tipo			: IMAGE_COMPONENT_TIPO,
+		section_tipo	: IMAGE_SECTION_TIPO,
+		section_id		: section_id,
+		caller_type		: 'component',
+		quality			: null,
+		target_dir		: null
 	})
 }//end ingest_uploaded_file
 
@@ -434,6 +429,9 @@ export const upload_image_file = async function(self, file) {
 
 		const overlay_response = await self.tool_request({
 			action	: 'get_image_overlay',
+			retries	: 1,
+			timeout	: CONVERSION_TIMEOUT_MS,
+			busy_notice	: true,
 			options	: {
 				tipo			: IMAGE_COMPONENT_TIPO,
 				section_tipo	: IMAGE_SECTION_TIPO,
@@ -756,35 +754,6 @@ export const image_download_width = function(map, corners, quality) {
 
 
 
-/**
-* TOOL_REQUEST_WITH_TIMEOUT
-* Core's tool_request RQO with a timeout of its own: tool_request cannot raise
-* data_manager's 5 s per attempt. One copy for every slow action, built as
-* tool_request builds it, so the two cannot drift. Exported for object_image.js.
-*
-* @param {Object} self - tool_uca_maps instance
-* @param {string} action
-* @param {Object} options
-* @param {{timeout: number, busy_notice: boolean}} transport
-* @returns {Promise<Object>} the api_response
-*/
-export const tool_request_with_timeout = function(self, action, options, transport) {
-
-	return data_manager.request({
-		body : {
-			dd_api			: 'dd_tools_api',
-			action			: 'tool_request',
-			prevent_lock	: true,
-			source			: create_source(self, action),
-			options			: options
-		},
-		timeout		: transport.timeout,
-		busy_notice	: transport.busy_notice
-	})
-}//end tool_request_with_timeout
-
-
-
 // A large PNG at "Excelente" takes seconds per GDAL run (four, each bounded at
 // 60 s, server/gdal.ts), past data_manager's 5 s per attempt.
 // exported for the client gate
@@ -821,16 +790,19 @@ export const download_image = async function(self, carrier, format, quality, fil
 
 	try {
 
-		const response = await tool_request_with_timeout(self, 'image_download', {
-			tipo			: image.tipo,
-			section_tipo	: image.section_tipo,
-			section_id		: image.section_id,
-			file_path		: image.file_path,
-			corners			: image.corners,
-			format			: format,
-			width			: image_download_width(self.geolocation.map, image.corners, quality),
-			file_name		: base_name
-		}, {
+		const response = await self.tool_request({
+			action		: 'image_download',
+			options		: {
+				tipo			: image.tipo,
+				section_tipo	: image.section_tipo,
+				section_id		: image.section_id,
+				file_path		: image.file_path,
+				corners			: image.corners,
+				format			: format,
+				width			: image_download_width(self.geolocation.map, image.corners, quality),
+				file_name		: base_name
+			},
+			retries		: 1,
 			timeout		: IMAGE_DOWNLOAD_TIMEOUT_MS,
 			// a timeout this long turns the page's slow-server cue off by default
 			busy_notice	: true

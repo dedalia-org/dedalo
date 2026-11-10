@@ -84,10 +84,11 @@ describe('parsePlaceResults — Nominatim JSON → PlaceResult[]', () => {
 
 	// The distinction the whole panel rests on: "this place does not exist" and
 	// "the service did not answer me" must not reach the user as the same line.
-	test('a service error object is an outbound refusal, not an empty result set', () => {
+	test('a service error object is the source unavailable, not an empty result set', () => {
 		expect(() => parsePlaceResults('{"error":"Bad Request"}')).toThrow(
 			expect.objectContaining({
-				code: 'security.outbound_failed',
+				code: 'tool.source_unavailable',
+				details: { reason_key: 'place_search_unavailable' },
 				message: expect.stringMatching(/refused the request/),
 			}),
 		);

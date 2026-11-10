@@ -35,6 +35,7 @@ import {
 	reset_roman_panel,
 	source_input
 } from './render_roman_empire.js'
+import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
 
 
 
@@ -317,7 +318,12 @@ export const search_roman = async function(self, source, params) {
 			options.country		= params.country || ''
 		}
 
-		const response = await self.tool_request({action: action, options: options})
+		const response = await self.tool_request({
+			action	: action,
+			options	: options,
+			retries	: 1,
+			timeout	: LOOKUP_TIMEOUT_MS
+		})
 
 		// torn down (record deleted / navigated away) while in flight, or
 		// overtaken by a later keystroke — neither may touch the panel
@@ -389,6 +395,8 @@ export const add_roman_result = async function(self, index) {
 
 		const response = await self.tool_request({
 			action	: 'get_pleiades_place',
+			retries	: 1,
+			timeout	: LOOKUP_TIMEOUT_MS,
 			options	: {
 				tipo			: self.geolocation.tipo,
 				section_id		: self.geolocation.section_id,

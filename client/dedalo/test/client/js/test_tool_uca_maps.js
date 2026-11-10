@@ -769,7 +769,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		data_manager.request = async function(options) {
 			const body = options && options.body
 			if (body && body.action==='tool_request' && body.source && body.source.action==='stage_external_image') {
-				seen.stages.push({options: body.options, timeout: options.timeout})
+				seen.stages.push({options: body.options, timeout: options.timeout, retries: options.retries})
 				return stage(body.options.url)
 			}
 			if (body && body.action==='create') {
@@ -1216,6 +1216,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(seen.stages[0].options.url, good.url, 'expected the link itself sent')
 			assert.equal(seen.stages[0].options.section_id, geolocation.section_id, 'expected the MAP record named for the write gate')
 			assert.isAbove(seen.stages[0].timeout, 5000, 'expected a timeout past data_manager\'s 5 s default')
+			assert.equal(seen.stages[0].retries, 1, 'expected the stage sent once: a resend of its retryable refusal would read outcome_unknown')
 
 			assert.deepEqual(layer.feature.properties.images, [refused, recorded], 'expected the imported link moved out, the rest untouched')
 			const images = object_images(layer)
@@ -7132,7 +7133,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 
 		// the rest of the request is exactly what tool_request would send
-		assert.deepEqual(Object.keys(transport).sort(), ['body', 'busy_notice', 'timeout'], 'expected nothing but the body and the two transport options')
+		assert.deepEqual(Object.keys(transport).sort(), ['body', 'busy_notice', 'retries', 'timeout'], 'expected nothing but the body and the three transport options')
+		assert.equal(transport.retries, 1, 'expected a readOnly action sent once: it is never ledgered')
 		assert.deepEqual(transport.body, await tool_request_body('image_download', transport.body.options),
 			'expected the body tool_request builds: dd_api, prevent_lock and the source included')
 	})

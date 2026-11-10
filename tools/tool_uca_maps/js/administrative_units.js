@@ -31,6 +31,7 @@ import {
 	is_spanish_official_lang,
 	wms_point_options
 } from './basemap_swap.js'
+import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
 
 
 
@@ -167,6 +168,8 @@ export const check_administrative_unit_at_point = async function(self, latlng) {
 
 		const response = await self.tool_request({
 			action	: 'get_administrative_unit',
+			retries	: 1,
+			timeout	: LOOKUP_TIMEOUT_MS,
 			options	: {...wms_point_options(self, latlng), level: self._ua_level}
 		})
 

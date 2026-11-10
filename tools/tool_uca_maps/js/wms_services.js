@@ -26,6 +26,7 @@ import {
 } from './toolbar.js'
 import {render_wms_services_panel, populate_wms_layers} from './render_wms_services.js'
 import {report_client_error} from './object_console.js'
+import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
 
 
 
@@ -174,6 +175,8 @@ export const search_wms_layers = async function(self, raw_url) {
 
 		const response = await self.tool_request({
 			action	: 'get_wms_layers',
+			retries	: 1,
+			timeout	: LOOKUP_TIMEOUT_MS,
 			options	: {
 				tipo			: self.geolocation.tipo,
 				section_id		: self.geolocation.section_id,

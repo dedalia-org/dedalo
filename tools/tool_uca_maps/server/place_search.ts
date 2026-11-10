@@ -48,12 +48,15 @@ export function placeSearchUrl(query: string): URL {
 }
 
 /**
- * The service answered, but not with something usable: an outbound failure,
+ * The service answered, but not with something usable: the source failing,
  * never `request.invalid_options`, which would tell the user their input was
  * wrong and leave a third-party outage unclassified in the log.
  */
 function outboundFailure(message: string): DedaloError {
-	return new DedaloError('security.outbound_failed', { message });
+	return new DedaloError('tool.source_unavailable', {
+		message,
+		details: { reason_key: 'place_search_unavailable' },
+	});
 }
 
 /**

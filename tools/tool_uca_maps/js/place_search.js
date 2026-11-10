@@ -27,6 +27,7 @@ import {
 } from './toolbar.js'
 import {report_client_error} from './object_console.js'
 import {render_place_search_panel, reset_place_search_panel} from './render_place_search.js'
+import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
 
 
 
@@ -127,6 +128,8 @@ export const search_places = async function(self, raw_query) {
 
 		const response = await self.tool_request({
 			action	: 'search_places',
+			retries	: 1,
+			timeout	: LOOKUP_TIMEOUT_MS,
 			options	: {
 				tipo			: self.geolocation.tipo,
 				section_id		: self.geolocation.section_id,

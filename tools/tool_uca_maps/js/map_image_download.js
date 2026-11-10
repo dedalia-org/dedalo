@@ -30,6 +30,7 @@ import {
 	sanitize_download_name,
 	with_extension
 } from './download_filename.js'
+import {CONVERSION_TIMEOUT_MS} from './request_budgets.js'
 
 
 
@@ -241,6 +242,9 @@ export const download_map_image = async function(self, format, file_name=DEFAULT
 
 		const response = await self.tool_request({
 			action	: 'raster_download',
+			retries	: 1,
+			timeout	: CONVERSION_TIMEOUT_MS,
+			busy_notice	: true,
 			options	: {
 				tipo			: self.geolocation.tipo,
 				section_id		: self.geolocation.section_id,

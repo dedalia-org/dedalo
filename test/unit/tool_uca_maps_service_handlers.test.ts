@@ -205,12 +205,12 @@ describe('get_administrative_unit — the IGN reply wired into the handler', () 
 		});
 	});
 
-	test('an unreadable reply is security.outbound_failed, not a crash', async () => {
+	test('an unreadable reply is the source unavailable, not a crash', async () => {
 		reply = () => '<html>maintenance</html>';
 		const error = await failureOf(
 			getAdministrativeUnit(contextOf({ ...VALID_CLICK, level: 'Municipio' })),
 		);
-		expectCode(error, 'security.outbound_failed');
+		expectCode(error, 'tool.source_unavailable');
 	});
 });
 
@@ -262,7 +262,7 @@ describe('get_catastro_parcel — the WFS reply wired into the handler', () => {
 	test('an exception report other than "not found" is the source unavailable: no fallback, no "no parcel"', async () => {
 		reply = catastro({ getneighbourparcel: FAULT, getparcel: PARCEL });
 		const error = await failureOf(getCatastroParcel(contextOf(VALID_CLICK)));
-		expectCode(error, 'security.outbound_failed');
+		expectCode(error, 'tool.source_unavailable');
 		expect(sent.map((uri) => new URL(uri).searchParams.get('STOREDQUERIE_ID'))).toEqual([
 			null,
 			'getneighbourparcel',
@@ -272,6 +272,6 @@ describe('get_catastro_parcel — the WFS reply wired into the handler', () => {
 	test('a WFS reply that is not an answer (maintenance) is the source unavailable, never "no parcel"', async () => {
 		reply = catastro({ getneighbourparcel: MAINTENANCE, getparcel: MAINTENANCE });
 		const error = await failureOf(getCatastroParcel(contextOf(VALID_CLICK)));
-		expectCode(error, 'security.outbound_failed');
+		expectCode(error, 'tool.source_unavailable');
 	});
 });

@@ -28,6 +28,7 @@ import {
 	remove_toolbar_button,
 	remove_toolbar_panel
 } from './toolbar.js'
+import {CONVERSION_TIMEOUT_MS, LOOKUP_TIMEOUT_MS} from './request_budgets.js'
 
 
 
@@ -970,6 +971,9 @@ export const download_vector = async function(self, layer, format) {
 
 		const response = await self.tool_request({
 			action	: 'vector_download',
+			retries	: 1,
+			timeout	: CONVERSION_TIMEOUT_MS,
+			busy_notice	: true,
 			options	: {
 				tipo			: self.geolocation.tipo,
 				section_id		: self.geolocation.section_id,
@@ -1024,6 +1028,9 @@ export const download_object_pdf = async function(self, layer) {
 
 		const response = await self.tool_request({
 			action	: 'object_pdf_report',
+			retries	: 1,
+			timeout	: CONVERSION_TIMEOUT_MS,
+			busy_notice	: true,
 			options	: {
 				tipo			: self.geolocation.tipo,
 				section_id		: self.geolocation.section_id,
@@ -1458,6 +1465,8 @@ const request_elevation = async function(self, center) {
 
 		const response = await self.tool_request({
 			action	: 'get_elevation',
+			retries	: 1,
+			timeout	: LOOKUP_TIMEOUT_MS,
 			options	: {
 				tipo			: self.geolocation.tipo,
 				section_id		: self.geolocation.section_id,

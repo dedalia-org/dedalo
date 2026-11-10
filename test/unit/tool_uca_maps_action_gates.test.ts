@@ -1,8 +1,9 @@
 /**
  * tool_uca_maps — every action's declared gate, in one table. A downgrade to a
  * plain 'section'/'tipo' kind silently drops half of the record_tipo check, and
- * a handler that is not the module function may skip it; an action added or
- * dropped without its row is red here too.
+ * a handler that is not the module function may skip it; a lost readOnly puts a
+ * provider's failure back behind outcome_unknown, and one on the write would
+ * let a resend run it twice. An action added or dropped without its row is red.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -33,11 +34,13 @@ import { loadTool } from './fixtures/tool_uca_maps/helpers.ts';
 interface Gate {
 	permission: GatedToolActionSpec['permission'] | null;
 	minLevel?: number;
+	/** Writes nothing but scratch: never ledgered, so a provider's own failure reaches the user. */
+	readOnly?: true;
 	/** The module function the action must dispatch to. */
 	handler: ToolActionSpec['handler'];
 }
 
-const READ = { permission: 'record_tipo', minLevel: 1 } as const;
+const READ = { permission: 'record_tipo', minLevel: 1, readOnly: true } as const;
 
 const GATES: Readonly<Record<string, Gate>> = {
 	get_capabilities: { ...READ, handler: getCapabilities },
@@ -74,6 +77,7 @@ describe('tool_uca_maps — the declared gate of every action', () => {
 		const spec = action as ToolActionSpec;
 		expect(spec.permission).toBe(gate.permission);
 		expect(spec.minLevel).toBe(gate.minLevel);
+		expect((spec as { readOnly?: true }).readOnly).toBe(gate.readOnly);
 		if (gate.permission === null) {
 			expect((spec as { gatedInHandler?: string }).gatedInHandler?.trim()).toBeTruthy();
 		} else {

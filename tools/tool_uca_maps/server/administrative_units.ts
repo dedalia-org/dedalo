@@ -66,8 +66,9 @@ export async function getAdministrativeUnit(ctx: ToolActionContext): Promise<Too
 	try {
 		data = JSON.parse(text);
 	} catch {
-		throw new DedaloError('security.outbound_failed', {
+		throw new DedaloError('tool.source_unavailable', {
 			message: 'The administrative-units service returned an unreadable response.',
+			details: { reason_key: 'admin_units_unavailable' },
 		});
 	}
 

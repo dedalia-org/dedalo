@@ -47,8 +47,9 @@ export function featureInfoUrl({ bbox, width, height, x, y }: ClickParams): URL 
 export function parseCatastroRefcat(html: string): { refcat: string; url: string } | null {
 	const labelIndex = html.search(/Referencia catastral/i);
 	if (labelIndex === -1) {
-		throw new DedaloError('security.outbound_failed', {
+		throw new DedaloError('tool.source_unavailable', {
 			message: 'Catastro GetFeatureInfo answered without its parcel result page',
+			details: { reason_key: 'catastro_unavailable' },
 		});
 	}
 	const result = html.slice(labelIndex);
@@ -143,13 +144,15 @@ export function parseParcelGeometry(xml: string, refcat: string): [number, numbe
 			return null;
 		}
 		const code = xml.match(/exceptionCode="([\w.-]{1,64})"/)?.[1] ?? 'none';
-		throw new DedaloError('security.outbound_failed', {
+		throw new DedaloError('tool.source_unavailable', {
 			message: `Catastro WFS answered an exception other than "not found" (exceptionCode: ${code})`,
+			details: { reason_key: 'catastro_unavailable' },
 		});
 	}
 	if (!/<(?:\w+:)?FeatureCollection[\s>]/.test(xml)) {
-		throw new DedaloError('security.outbound_failed', {
+		throw new DedaloError('tool.source_unavailable', {
 			message: 'Catastro WFS answered with neither a FeatureCollection nor an ExceptionReport',
+			details: { reason_key: 'catastro_unavailable' },
 		});
 	}
 	return extractParcelPosList(xml, refcat);
