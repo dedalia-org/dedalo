@@ -3433,6 +3433,13 @@ component_portal.prototype.edit_record_handler = async function(options) {
 					.then(function(result){
 						// fire window_blur event
 						event_manager.publish('window_blur_'+self.id, self)
+						// the targets' data changed: notify ontology client observers
+						// of the refreshed component (e.g. numisdata595 observing numisdata77)
+						if (result!==false) {
+							event_manager.publish('update_value_'+edit_caller.id_base, {
+								caller : edit_caller
+							})
+						}
 						// false = refresh refused: open_window's watch retries once
 						return result
 					})
