@@ -367,6 +367,35 @@ describe('DATA_MANAGER.request — the envelope it resolves', function() {
 		})
 	})
 
+	it('a request its caller cancelled is not a console error (client.aborted); a real failure still is', async function() {
+		const events = capture_events(['api_error'])
+		const logged = []
+		const original_error = console.error
+		console.error = (...args) => { logged.push(String(args[0])) }
+		try {
+			await with_stubbed_fetch(async (url, init) => new Promise((resolve, reject) => {
+				init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+			}), async () => {
+				const controller = new AbortController()
+				const pending = data_manager.request({body: {action: 'read'}, retries: 1, signal: controller.signal})
+				controller.abort()
+				const api_response = await pending
+				assert.equal(api_response.error.code, CLIENT_ERROR.ABORTED)
+			})
+			assert.equal(events.seen.api_error?.length, 1, 'still published for whoever listens')
+			assert.equal(logged.filter(m => m.includes('request failed')).length, 0, 'no red line for a cancel')
+
+			// control: a network failure keeps its console line
+			await with_stubbed_fetch(async () => { throw new TypeError('Failed to fetch') }, async () => {
+				await data_manager.request({body: {action: 'read'}, retries: 1, base_delay: 1})
+			})
+			assert.equal(logged.filter(m => m.includes('request failed [client.network]')).length, 1)
+		} finally {
+			console.error = original_error
+			events.release()
+		}
+	})
+
 	it('csrf rejection is resent exactly once with the fresh token (auth.csrf_failed)', async function() {
 		for (const body of [
 			// the token's owner travels with it: the page's own session (a session of

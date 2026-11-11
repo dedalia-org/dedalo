@@ -841,8 +841,9 @@ const execute_request = async function(options) {
 			api_error.tool = request_tool(body)
 		}
 
-		// debug console message. Lock-state chatter is not worth a red line.
-		if (body?.action !== 'update_lock_components_state') {
+		// debug console message. Lock-state chatter is not worth a red line, nor is a
+		// request its own caller cancelled (e.g. a search superseded by the next keystroke).
+		if (body?.action !== 'update_lock_components_state' && api_error.code !== CLIENT_ERROR.ABORTED) {
 			console.error(`data_manager request failed [${api_error.code}]:`, api_error, envelope);
 		}
 
