@@ -1155,9 +1155,10 @@ const currentDataLang = resolveCurrentDataLang(
 	dataLangDefault,
 );
 if (currentDataLang.replaced && !UNCONFIGURED) {
-	// AN UNCONFIGURED BOX IS EXEMPT FROM THE REPORT, not from the substitution: its
-	// sentinel values are not an operator's choice (the server refuses to start on
-	// it anyway), so any mismatch there is not an operator's mistake.
+	// AN UNCONFIGURED BOX IS EXEMPT FROM THE REPORT, not from the substitution: it
+	// reads sentinels whose PROJECTS_DEFAULT_LANGS is ['lg-eng'] while DATA_LANG
+	// holds its catalog default 'lg-spa', so the mismatch there is the sentinel
+	// state (the server refuses to start on it anyway), not an operator's mistake.
 	console.error(
 		`[config] DEDALO_DATA_LANG = '${configuredDataLang}' is not among the data languages ` +
 			`this installation declares (${[...INSTALLED_DATA_LANGS].join(', ')}); using ` +
