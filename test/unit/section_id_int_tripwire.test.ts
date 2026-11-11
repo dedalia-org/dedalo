@@ -104,7 +104,8 @@ const DECL_CEILINGS = new Map<string, number>([
 	['src/core/ontology/ontology_write.ts', 1],
 	['src/core/ontology/parser.ts', 1],
 	['src/core/relations/children.ts', 1],
-	['src/core/relations/models/relation_related.ts', 1],
+	// relation_related.ts drained 1→0 (2026-11-10): the raw-jsonb list branch went
+	// with WC-2026-11-10-related-list-cells (list takes the portal path).
 	['src/core/relations/parent.ts', 4],
 	['src/core/relations/related.ts', 5],
 	['src/core/relations/relation_core.ts', 1],

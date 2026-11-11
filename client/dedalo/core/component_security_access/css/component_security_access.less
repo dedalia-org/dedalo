@@ -8,7 +8,10 @@
 	&.edit {
 
 		>.content_data {
-			display: flex;
+			// grid, not flex: the save buttons share the tree's cell (top-right, over
+			// the filter bar's free end) instead of reserving a column the tree loses
+			display: grid;
+			grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
 			min-height: 12rem;
 			pointer-events: unset !important; // prevent time machine lock tree arrows
 
@@ -17,6 +20,9 @@
 			}
 
 			>.save_buttons {
+				grid-area: 1 / 2;
+				justify-self: end;
+				z-index: 3; // above the sticky .tree_filter (2)
 				top: 5.6rem;
 				position: sticky;
 				float: right;
@@ -48,6 +54,7 @@
 				transition: opacity 1s linear;
 				padding-bottom: 1.5rem;
 				overflow: auto;
+				grid-area: 1 / 1;
 				position: sticky;
 				top: 5rem;
 
@@ -92,6 +99,7 @@
 
 			// ul root
 			>.tree_root {
+				grid-area: 1 / 2;
 				display: flex;
 				flex-direction: column;
 				flex-wrap: wrap;
@@ -391,6 +399,48 @@
 							transform: rotate(360deg);
 							opacity: 0.5;
 						}
+					}
+				}
+				// PHONE: every row keeps checkbox / radios and its label on ONE line.
+				// The label takes `flex: 1 1 0` so it never forces a wrap — it wraps its
+				// own text beside the controls; the child branch (width 100%) still
+				// drops to its own line. Half indent: deep levels ate the width.
+				@media screen and (max-width: @width_break_point_phone) {
+					.li_item {
+						margin-left: 0.75rem;
+						align-items: flex-start;
+
+						>.area_label {
+							flex: 1 1 0;
+							min-width: 0;
+							overflow-wrap: break-word;
+
+							// the chevron has no `top`: it would follow the LAST text line
+							// (the block tipo hint below) into the next row
+							&.icon_arrow:after {
+								top: 0.2rem;
+							}
+						}
+
+						// the [tipo model n] hint on its own line: inline it split mid-tipo
+						.info_text {
+							display: block;
+							padding-left: 0;
+							font-size: 0.85em;
+						}
+
+						>input[type=checkbox] {
+							margin-top: 0.25rem;
+						}
+					}
+
+					.radio_buttons_container, .permissions_global {
+						flex: none;
+						margin-top: 0.22rem;
+					}
+
+					.radio_buttons_container {
+						margin-left: 0;
 					}
 				}
 			}//end .tree_root

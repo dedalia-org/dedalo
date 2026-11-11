@@ -16,7 +16,7 @@
  */
 export const WRITEBACK_TETHERS = {
 	emptyBody:
-		'TETHER of the translation PENDING cells: an EMPTY provider body still BLANKS the stored target language',
+		'runAutomaticTranslation × translateAndWrite: an EMPTY provider body is REFUSED and the target language KEPT — and a real body is written',
 	deleteIfSafe:
 		'deleteIfSafe × deleteSectionRecord: the revert KEEPS a record it created that someone else wrote to — and deletes one nobody did',
 	transcription:

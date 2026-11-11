@@ -260,9 +260,9 @@ describe(`COMPONENT_FILTER_RECORDS DATA OPERATIONS`, function() {
 		const inputs = node.querySelectorAll('input[type="text"].input_value')
 		assert.isAbove(inputs.length, 0, 'expected filter value inputs in DOM')
 
-		// row i renders datalist[i], so the entry to look for is keyed by its tipo
-		const row_tipo = (instance.data.datalist || [])[0]?.tipo
-		assert.isOk(row_tipo, 'the first datalist row expected to carry a tipo')
+		// rows are re-ordered by the view's sort, so the tipo comes from the row itself
+		const row_tipo = inputs[0].closest('.content_value')?.dataset.tipo
+		assert.isOk(row_tipo, 'the first row expected to carry a tipo')
 
 		const input = inputs[0]
 		input.value = '1,2,3'
@@ -286,8 +286,8 @@ describe(`COMPONENT_FILTER_RECORDS DATA OPERATIONS`, function() {
 		const inputs = node.querySelectorAll('input[type="text"].input_value')
 		assert.isAbove(inputs.length, 0, 'expected filter value inputs in DOM')
 
-		const row_tipo = (instance.data.datalist || [])[0]?.tipo
-		assert.isOk(row_tipo, 'the first datalist row expected to carry a tipo')
+		const row_tipo = inputs[0].closest('.content_value')?.dataset.tipo
+		assert.isOk(row_tipo, 'the first row expected to carry a tipo')
 
 		const input = inputs[0]
 		input.value = '5,10,15'
@@ -307,8 +307,8 @@ describe(`COMPONENT_FILTER_RECORDS DATA OPERATIONS`, function() {
 		const inputs = node.querySelectorAll('input[type="text"].input_value')
 		assert.isAbove(inputs.length, 0, 'expected filter value inputs in DOM')
 
-		const row_tipo = (instance.data.datalist || [])[0]?.tipo
-		assert.isOk(row_tipo, 'the first datalist row expected to carry a tipo')
+		const row_tipo = inputs[0].closest('.content_value')?.dataset.tipo
+		assert.isOk(row_tipo, 'the first row expected to carry a tipo')
 
 		const input = inputs[0]
 		// empty value triggers remove action. change_handler overrides
@@ -321,6 +321,78 @@ describe(`COMPONENT_FILTER_RECORDS DATA OPERATIONS`, function() {
 
 		const entry = (instance.data.entries || []).find(el => el.tipo===row_tipo)
 		assert.isNotOk(entry, `no entry for ${row_tipo} expected after clearing the input`)
+	});
+
+
+
+	it(`edit view: filter narrows rows, headers sort by tipo/section/value`, async function() {
+
+		const content_data	= node.querySelector('.content_data')
+		const filter_input	= content_data.querySelector('.sticky_head .filter_input')
+		const filter_count	= content_data.querySelector('.sticky_head .filter_count')
+		const no_results	= content_data.querySelector('.sticky_head .no_results')
+		assert.isOk(filter_input && filter_count && no_results, 'expected filter input, count and empty message')
+		assert.isOk(node.querySelector(':scope>.help_link[href*="component_filter_records"]'), 'expected the docs help link on the wrapper')
+
+		const rows		= () => [...content_data.querySelectorAll(':scope>.content_value')]
+		const visible	= () => rows().filter(el => !el.hidden)
+		const tipos		= () => rows().map(el => el.dataset.tipo)
+		const cmp		= (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+		const total		= rows().length
+		assert.isAbove(total, 0, 'expected rows')
+
+		// opens sorted by tipo asc
+		assert.deepEqual(tipos(), [...tipos()].sort(cmp), 'rows expected in tipo asc order on open')
+
+		// filter by the first row tipo
+		const target = rows()[0].dataset.tipo
+		filter_input.value = target
+		filter_input.dispatchEvent(new Event('input'))
+		assert.isOk(visible().every(el => el.dataset.search.includes(target.toLowerCase())), 'only matching rows expected visible')
+		assert.equal(filter_count.textContent, `${visible().length} / ${total}`, 'count expected shown / total')
+		assert.isTrue(no_results.hidden, 'empty message expected hidden while rows match')
+
+		// no match
+		filter_input.value = 'zz_no_such_section_zz'
+		filter_input.dispatchEvent(new Event('input'))
+		assert.equal(visible().length, 0, 'no rows expected visible')
+		assert.isFalse(no_results.hidden, 'empty message expected shown')
+
+		// clear
+		filter_input.value = ''
+		filter_input.dispatchEvent(new Event('input'))
+		assert.equal(visible().length, total, 'all rows expected visible after clearing')
+
+		const header = (key) => content_data.querySelector(`.header_row .sortable[data-key="${key}"]`)
+
+		// tipo again → desc
+		header('tipo').click()
+		assert.equal(header('tipo').dataset.sort, 'desc', 'tipo header expected desc')
+		assert.deepEqual(tipos(), [...tipos()].sort(cmp).reverse(), 'rows expected in tipo desc order')
+
+		// section label asc
+		header('label').click()
+		const labels = rows().map(el => el.dataset.label)
+		assert.deepEqual(labels, [...labels].sort(cmp), 'rows expected in label asc order')
+
+		// value asc: DOM-only values (never dispatched → never saved); empty rows sink last
+		if (total >= 3) {
+			const all = rows()
+			const saved = all.map(el => el.querySelector('.input_value')?.value)
+			all[0].querySelector('.input_value').value = '120'
+			all[1].querySelector('.input_value').value = '9'
+			all.slice(2).forEach(el => { el.querySelector('.input_value').value = '' })
+			header('value').click()
+			const values = rows().map(el => el.querySelector('.input_value').value)
+			assert.deepEqual(values.slice(0, 2), ['9', '120'], 'values expected numeric asc, filled first')
+			assert.isOk(values.slice(2).every(v => v===''), 'empty values expected last')
+			header('value').click()
+			const desc = rows().map(el => el.querySelector('.input_value').value)
+			assert.deepEqual(desc.slice(0, 2), ['120', '9'], 'values expected numeric desc, filled first')
+			assert.isOk(desc.slice(2).every(v => v===''), 'empty values expected last in desc too')
+			// restore the inputs to what the model holds
+			all.forEach((el, i) => { el.querySelector('.input_value').value = saved[i] ?? '' })
+		}
 	});
 
 

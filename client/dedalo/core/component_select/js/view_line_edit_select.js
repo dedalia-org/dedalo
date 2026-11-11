@@ -251,7 +251,7 @@ const get_content_value = (i, current_value, self) => {
 						on_blur : () => {
 							// refresh current instance after the user closes/blurs the popup
 							// window, so any new or changed records are picked up in the datalist
-							self.refresh({
+							return self.refresh({
 								build_autoload : true
 							})
 						}

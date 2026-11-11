@@ -388,7 +388,7 @@ const get_content_value = (i, current_value, self) => {
 						name	: 'record_view',
 						on_blur : () => {
 							// refresh current instance
-							self.refresh({
+							return self.refresh({
 								build_autoload : true
 							})
 						}
@@ -620,7 +620,7 @@ const get_buttons = (self) => {
 						name	: 'section_view',
 						on_blur : () => {
 							// refresh current instance
-							self.refresh({
+							return self.refresh({
 								build_autoload : true
 							})
 						}

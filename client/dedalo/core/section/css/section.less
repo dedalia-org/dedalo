@@ -494,10 +494,20 @@ body.inspector_resizing {
 	&::part(content) {
 		width: 36rem;
 		max-width: 92vw;
+		// top-anchored, not flex-centred: a scope flip changes the list height and
+		// a centred dialog would jump under the cursor. No margin here: ::part beats
+		// the inline margin:0 the drag pin writes, so the offset lives on the overlay
+		align-self: flex-start;
 		max-height: 86vh;
 		// the body owns the scroll, not the whole dialog
 		overflow: hidden;
 		grid-template-rows: auto minmax(0, 1fr) auto;
+	}
+	// 7vh + 86vh fits the viewport; the drag pin's absolute top is measured
+	// from this padding box, so it still matches the rendered position
+	&::part(overlay) {
+		box-sizing: border-box;
+		padding-top: 7vh;
 	}
 	&::part(body) {
 		overflow-y: auto;

@@ -179,6 +179,20 @@ describe('ERROR_DISPATCH — handle_api_error', function() {
 		assert.equal(seen[0].type, 'warning')
 	})
 
+	it('toast severity info paints as information (success), never as an error', async function() {
+		register_error_policy({'zz_test.info_notice': {action: 'toast', severity: 'info'}})
+		let seen
+		try {
+			seen = await with_notifications(async () => {
+				await handle_api_notice({code: 'zz_test.info_notice', label_key: 'zz_test_info_notice', retryable: false})
+			})
+		} finally {
+			unregister_error_policy(['zz_test.info_notice'])
+		}
+		assert.equal(seen.length, 1)
+		assert.equal(seen[0].type, 'success')
+	})
+
 	it('silent: client.aborted and lock.update_state show nothing', async function() {
 		const seen = await with_notifications(async () => {
 			assert.equal((await handle_api_error(new ApiError({code: CLIENT_ERROR.ABORTED}))).action, 'silent')

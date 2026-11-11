@@ -115,6 +115,24 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **The export tool scrolls to the download buttons when an export finishes.**
+
+    When an export you started finishes, the export tool now scrolls smoothly down to the download
+    buttons, which become available at that moment. Reopening the tool on an export that already
+    ended does not scroll.
+
+- **The user's record filter list can be searched and sorted.**
+
+    The "Filtro de registros" list in a user record now has a search box on top that narrows the
+    rows by tipo or section name. The list opens ordered by tipo, and clicking the tipo, section or value
+    column header sorts by that column (click again to reverse); sorting by value lists the rows that
+    hold record numbers first. The tipo no longer breaks across
+    two lines. The list is redrawn as a cleaner table: a counter shows how many sections match, a
+    message appears when none do, and the id fields stay quiet until you point at or edit them.
+    An ⓘ icon at the top right of the field opens its documentation, which now explains in plain
+    language which sections appear in the list (those the logged-in administrator's own profile
+    lets them edit) and why one may be missing.
+
 - **IRI labels follow their IRI's permission; Time Machine notes belong to the change they annotate.**
 
     **IRI labels.** Before, only root could save the label of an IRI link; every other user got
@@ -147,6 +165,15 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **Users see their own activity statistics in their profile.**
+
+    The user profile panel (opened from your name in the menu) now shows your own activity
+    statistics below the profile fields: total actions, sections touched, peak hour, activity by type,
+    by section and by hour. It is read-only and shows only your own history — every user sees it,
+    whether or not their profile grants access to the Users section.
+
+    Wire contract: `WC-2026-11-10-own-user-activity-read`.
+
 - **The map field shows the common unsaved-changes line, and its reload and add-point icons have tooltips.**
 
     While a geolocation field's coordinates or view differ from what is saved, the field shows the
@@ -155,6 +182,12 @@ Merged since the last release; these ship with the next one.
     from leaving the record. The reload and add-point icons now explain themselves on hover.
 
 #### Fixed
+
+- **Date fields inside portal rows no longer stack their buttons**
+
+    In a portal row (line view), the date's calendar button sat on top of the
+    row's close button. The calendar button now sits at the field's top-left
+    corner, and the `<>` mark of a date range is centred between the two dates.
 
 - **Emptying a record's data no longer moves it out of your project.**
 
@@ -174,6 +207,35 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-10-wipe-filter-user-default`.
 
+- **The close (×) button of a field inside a list row shows only while that field is hovered or active.**
+
+    Before, activating a portal showed the × (back to list mode) on every field being edited in its rows at once. Now each × appears only on the field under the pointer or the active one.
+
+- **Open relationships dialog no longer jumps when switching scope**
+
+    - Switching between **Current record** and **All found records** keeps the dialog in place: it stays anchored at the top and keeps its height while the new list loads.
+
+- **A record edited in its own window now shows the saved value in the list or field that opened it.**
+
+    Editing a linked record from a portal (or a select, check box, filter, thesaurus term or list row) opens it in a separate window. Before, the original window refreshed once, as soon as you came back to it — often before the edit had finished saving, so it kept showing the old value until the page was reloaded, and later edits in the same window never refreshed it at all. Now the original window refreshes after every field save the edit window completes, including the last one made while closing or reloading it. Other changes made in that window (creating, deleting or duplicating records, tool actions) still refresh it once, when you return to it.
+
+- **A refreshed portal shows its values normally, with their separators.**
+
+    After a portal refreshed without a page reload (for example after editing a row in its own window, or changing page), a translatable column showed its values as if they were missing in the current language (highlighted) and with no comma between multiple values. The refresh now reads those columns in the current data language, exactly as a page load does, so the cell looks the same either way.
+
+    Wire contract: `WC-2026-11-10-portal-get-data-children-lang`.
+
+- **Related-records columns show their values in lists and in the record history.**
+
+    A "related records" field (component_relation_related) shown as a list column was blank, or
+    showed only the related record's id: the server sent the id instead of the fields the column
+    is configured to display. Lists, the Time Machine history list and nested cells now show those
+    fields, like any other relation column; a Time Machine history row shows up to 10 values of its own
+    field, not just the first. Nothing is written or changed in your data. AI search
+    indexes built before this change keep the old (empty) text for these fields until reindexed.
+
+    Wire contract: `WC-2026-11-10-related-list-cells`, `WC-2026-11-10-tm-subject-cell-page`.
+
 - **The References panel and delete dialogs show the columns of thesaurus terms and other virtual sections again.**
 
     When a record is referenced by a record of a virtual section — every thesaurus term, and
@@ -185,6 +247,48 @@ Merged since the last release; these ship with the next one.
 
     When a section defines more than one list of columns, the first one in ontology order is now
     always used.
+
+- **Profiles: the permissions tree uses the full width and reads well on phones.**
+
+    In a profile's "Access and permissions" field the permission tree only took the width of its
+    content and left a wide empty band on the right, so long names dropped below their x / r / rw
+    buttons. The tree now fills the space beside the "Latest changes" column (now at most 20rem
+    wide), and the Save / Cancel buttons appear at its top-right corner, next to the search box.
+    On a phone every row keeps its checkbox or buttons on the same line as its name, deeper levels
+    indent less, and the grey `[tipo model n]` hint moves to its own small line.
+
+- **Restoring a Time Machine version that equals the current value no longer adds history.**
+
+    Before, applying a Time Machine version whose value was already the current one
+    (for example the first of two identical saves, or an empty version onto an empty
+    field) still wrote a new history row, moved the record's modification date and
+    logged a "recover" activity entry — so the history said a value changed when
+    nothing had. Now such a restore writes nothing at all: no history row, no date
+    change, no activity entry. Restoring a version that differs is recorded as before.
+    The Time Machine window now says so ("The selected version is the same as the
+    current value. Nothing was restored") and stays open, without first asking you to
+    confirm an overwrite that would not happen.
+
+    Wire contract: `WC-2026-11-10-tm-restore-unchanged-notice`.
+
+- **Translation tool: Copy to target works again; panes fill the window and fit narrow screens**
+
+    - **Copy to target** did nothing: it now copies the source text into the target language (asking first when the target already has text) and saves it.
+    - Text panes fill the tool's height, whatever size the field has in the record form.
+    - The two columns no longer jump when the tool opens; your saved split is applied straight away.
+    - On narrow windows and phones the panes stack in equal halves, each with a single scrollbar, and the action buttons line up.
+
+- **The multi-language tool's **Automatic translation** works: it offers the same engines as the single-language tool.**
+
+    The **Automatic translation** button in the multi-language tool did nothing: the tool had no translation engines of its own. It now uses the engines configured for the single-language translation tool (`tool_lang`) — the same list, the same server settings — so one configuration serves both. The engine selector and its local-AI options are shared by both tools; where no engine is configured the button is no longer shown.
+
+    Running it no longer stops with "Source component not available": the tool read every language as empty, so it always refused. When the language the tool opened in has no text, it now translates from the first language that does, and highlights it as the source.
+
+    To translate into one language only, use that language's own translate button (in the component's top button bar): it translates the current source into it. Clicking into a language no longer makes it the source — only editing it does — so its own button works. It does nothing when the source is empty (an empty paragraph counts as empty), so it can no longer blank a language. While a language is being translated it is dimmed with a spinner, clear of its buttons. A double click on **Automatic translation** no longer closes its dialog unseen. The tool's messages no longer overlap each other, look like the application's other notifications and can be closed. The "translate into all languages?" dialog now has the same layout and spacing as the application's other confirmation dialogs.
+
+    When the translation service does not support a language (for example Basque with Babel), the tool used to report "Translation completed" and leave that language blank — replacing whatever it held. Now nothing is written: the language keeps its text and shows "The translation service returned no text: it probably does not support this language". "Translate all" names the languages that failed in its summary.
+
+    Wire contract: `WC-2026-11-10-translation-empty-result`.
 
 - **The transcription print tool shows why it cannot open instead of staying blank.**
 
@@ -325,6 +429,14 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Profile tool permissions list is readable on a phone.**
+
+    The tools list in a profile (and any check box shown as a tools list) now uses one column on
+    narrow screens instead of two cramped ones. When the field is active, each tool's internal
+    name and number sits on its own line under the label instead of squeezed beside it, a long
+    label wraps instead of pushing the info button down, and the opened description is easier to
+    read.
+
 - **A publication host in copy mode no longer answers "not found" for every published file.** *(action needed)*
 
     On a publication host declared in copy mode, the agent created its folders without the
@@ -377,7 +489,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 16 entries"
+??? note "Wire contract — 22 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -390,9 +502,15 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-10-hierarchy-rebuild-ownership`
     - `WC-2026-11-10-indexation-grid-read-door`
     - `WC-2026-11-10-iri-frame-and-tm-note-levels`
+    - `WC-2026-11-10-own-user-activity-read`
+    - `WC-2026-11-10-portal-get-data-children-lang`
+    - `WC-2026-11-10-related-list-cells`
     - `WC-2026-11-10-save-never-creates`
     - `WC-2026-11-10-section-terms-read-door`
     - `WC-2026-11-10-tags-info-read-door`
+    - `WC-2026-11-10-tm-restore-unchanged-notice`
+    - `WC-2026-11-10-tm-subject-cell-page`
+    - `WC-2026-11-10-translation-empty-result`
     - `WC-2026-11-10-widget-data-read-door`
     - `WC-2026-11-10-wipe-filter-user-default`
 

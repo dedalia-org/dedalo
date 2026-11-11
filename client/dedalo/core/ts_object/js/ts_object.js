@@ -1436,7 +1436,7 @@ ts_object.prototype.open_record = function(section_id, section_tipo) {
 				// refresh the instance
 				const instance = get_all_instances().find(el => parseInt(el.section_id)===parseInt(section_id) && el.section_tipo===section_tipo && el.model==='ts_object') || self
 				if (instance) {
-					instance.refresh_element()
+					return instance.refresh_element()
 				}else{
 					console.error('Unable to get the instance');
 				}

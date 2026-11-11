@@ -95,6 +95,7 @@ beforeAll(async () => {
 			'export const render_error_inline = () => {}',
 			'export const render_error_panel = () => {}',
 			'export const render_error_modal = () => {}',
+			"export const severity_type = () => 'error'",
 			'',
 		].join('\n'),
 	);

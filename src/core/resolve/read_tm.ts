@@ -1130,6 +1130,24 @@ function flaggedCellShape(
 	};
 }
 
+/** Page size of a TM row's own (subject) relation cell — WC-2026-11-10-tm-subject-cell-page. */
+export const TM_SUBJECT_CELL_LIMIT = 10;
+
+/**
+ * The row's SUBJECT relation column pages to TM_SUBJECT_CELL_LIMIT, not the list
+ * page of 1: a history row is a version of that field; capped because portals can
+ * hold hundreds of locators. Every other column keeps the list policy. A cell
+ * page only (models/portal.ts), never the governing `limit`: that one reaches the
+ * node and so the column context's sqo.limit, which the WC leaves untouched.
+ */
+function subjectCellLimit(
+	row: TmRow,
+	tipo: string,
+	isPortalFamily: boolean,
+): { tm_subject_limit?: number } {
+	return isPortalFamily && tipo === row.tipo ? { tm_subject_limit: TM_SUBJECT_CELL_LIMIT } : {};
+}
+
 /**
  * Emit ONE dd15 row's data items — one generic cell per requested ddo, resolved
  * from the virtual dd15 record that `tm_record.ts` materializes for the row.
@@ -1217,9 +1235,15 @@ async function emitTmRow(
 		// regardless; a transliterable is pinned to it (laneCellLang).
 		const cellLang = tipo === TIPO_NOTES ? lang : snapshotLang;
 		const clientDdo = (ddoByTipo.get(tipo) ?? { tipo }) as Record<string, unknown>;
+		// PORTAL family pins each nested block's parent to its own record; SELECT
+		// family (a flat resolved label) has no nested blocks to pin.
+		const isPortalFamily =
+			getColumnNameByModel(model) === 'relation' && !SELECT_FAMILY_MODELS.has(model);
+		const subjectLimit = subjectCellLimit(row, tipo, isPortalFamily);
 		// LIST mode is the whole point: it is what makes every emit hook fire.
 		const cellDdo = {
 			...clientDdo,
+			...subjectLimit,
 			tipo,
 			mode: 'list',
 			...(await laneCellLang(row, tipo, model, cellLang, lang)),
@@ -1238,10 +1262,6 @@ async function emitTmRow(
 			rowEmission,
 		);
 
-		// PORTAL family pins each nested block's parent to its own record; SELECT
-		// family (a flat resolved label) has no nested blocks to pin.
-		const isPortalFamily =
-			getColumnNameByModel(model) === 'relation' && !SELECT_FAMILY_MODELS.has(model);
 		for (let i = before; i < rowEmission.items.length; i++) {
 			const item = rowEmission.items[i] as Record<string, unknown>;
 			if (item.tipo === tipo) {

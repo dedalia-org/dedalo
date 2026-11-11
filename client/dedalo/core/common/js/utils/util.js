@@ -808,10 +808,14 @@ export function is_equal(el1, el2) {
 * that tool URLs can be redirected to window.location instead of window.open
 * if Safari logout issues recur.
 *
-* The optional on_blur callback is invoked via a 'focus' event on the opener
-* window (the inverse of the new window losing focus) rather than a 'blur'
-* event on the child window, because cross-origin event access is restricted.
-* The commented-out direct approach is preserved for reference.
+* The optional on_blur callback ("the child may have changed data, refresh")
+* is driven by watch_window_saves: it runs after EVERY successful component
+* save the child reports to this window (postMessage, debounced, so it runs
+* AFTER the write, never racing it), once on the opener's next 'focus'
+* (fallback for windows that never report, e.g. external engines; deferred
+* while a save is in flight), and once more after a settle when the child
+* closed with a save still unreported. Runs never overlap. The watch is torn
+* down when the child closes; re-opening the same target name replaces it.
 * @param {Object} options - Window options
 * @param {string} options.url - URL to open
 * @param {string} [options.target] - Window name / target (also accepts options.name)
@@ -820,8 +824,10 @@ export function is_equal(el1, el2) {
 * @param {number} [options.top=0] - Vertical offset from screen top
 * @param {number} [options.left=0] - Horizontal offset from screen left
 * @param {string|null} [options.features] - Raw window.open features string, or 'new_tab'
-* @param {Function|null} [options.on_blur] - Callback fired when the opener window
-*   regains focus (i.e. the user switches back from the new window)
+* @param {Function|null} [options.on_blur] - Refresh callback: after each save
+*   the child window reports, on the opener's next focus, and after the child
+*   closes with an unreported save (see watch_window_saves). Return the refresh
+*   promise so a run asked for meanwhile waits for it instead of being dropped
 * @returns {Window|null} The opened window object; the current window when the
 *   Safari redirect path is taken; null when the browser refused to open the
 *   window (pop-up blocker, window-count limit). Every caller that dereferences
@@ -910,29 +916,242 @@ export function open_window(options) {
 
 			// on_blur optional action callback
 				if (typeof on_blur==='function') {
-
-					// direct
-						// const fn_on_blur = function(e) {
-						// 	// remove self instance to prevent duplicity
-						// 	new_window.removeEventListener('blur', fn_on_blur)
-						// 	// exec callback function
-						// 	on_blur(e)
-						// }
-						// new_window.addEventListener('blur', fn_on_blur)
-
-					// inverse
-						const fn_on_focus = function(e) {
-							// remove self instance to prevent duplicity
-							window.removeEventListener('focus', fn_on_focus)
-							// exec callback function
-							on_blur(e)
-						}
-						window.addEventListener('focus', fn_on_focus)
+					watch_window_saves(new_window, target, on_blur)
 				}
 
 			return new_window
 		}
 }//end open_window
+
+
+
+/**
+* RECORD_SAVE_MESSAGE
+* Tag of the message a child window posts to its opener (window.opener
+* postMessage, same origin) when a component save starts ('saving'), succeeds
+* ('saved') or fails ('failed'), and ('unloading', no record fields) when a
+* page that has saved unloads (reload, navigation, close).
+* Message: {source: RECORD_SAVE_MESSAGE, type, section_tipo, section_id, component_tipo}.
+* Opener-bound on purpose, not a BroadcastChannel: window names ('section_view',
+* 'record_view_<id>') are not unique across tabs, so a broadcast refreshed
+* unrelated windows; the opener accepts a message only from the child it opened.
+*/
+export const RECORD_SAVE_MESSAGE = 'dedalo_record_save'
+
+// record_save_watchers. target window name → teardown of its open_window watch.
+// A re-open of the same name replaces (tears down) the previous watch.
+const record_save_watchers = new Map()
+
+// coalesce window: a burst of saves (one per blurred field) = one refresh
+const RECORD_SAVE_DEBOUNCE_MS = 150
+// shortcut: fixed settle for a save started in the child's beforeunload whose
+// 'saved' never arrives (the child died first); upgrade to a server-side
+// record-version check if 1s proves short on slow saves.
+const RECORD_SAVE_CLOSE_SETTLE_MS = 1000
+// shortcut: closed-child detection polls (no cross-window 'close' event exists);
+// upgrade to a child 'closing' message if the poll ever shows up in profiles.
+const RECORD_SAVE_CLOSED_POLL_MS = 1000
+// unloading_hooked. Child side: the pagehide 'unloading' report is attached once
+let unloading_hooked = false
+
+
+
+/**
+* BROADCAST_RECORD_SAVE
+* Child side of the open_window refresh contract: tell the window that opened
+* this one (window.opener) about a component save. Called by component_common
+* run_save with 'saving' right before the request, 'saved' on success and
+* 'failed' on an error response. No-op without an opener. Never throws: a save
+* must not fail over a notification.
+* @param {string} type - 'saving' | 'saved' | 'failed'
+* @param {Object} instance - the saving component instance
+* @returns {void}
+*/
+export function broadcast_record_save(type, instance) {
+	try {
+		const opener = typeof window!=='undefined' ? window.opener : null
+		if (!opener) {
+			return
+		}
+		// once per page: report the unload, so an opener waiting on a save this
+		// page dies before reporting is not blocked (see watch_window_saves)
+		if (!unloading_hooked) {
+			unloading_hooked = true
+			window.addEventListener('pagehide', () => {
+				try {
+					window.opener?.postMessage({source: RECORD_SAVE_MESSAGE, type: 'unloading'}, window.location.origin)
+				} catch (error) {
+					// opener gone: nothing to tell
+				}
+			})
+		}
+		// targetOrigin = own origin: an opener on another origin never receives it
+		opener.postMessage({
+			source			: RECORD_SAVE_MESSAGE,
+			type			: type,
+			section_tipo	: instance?.section_tipo,
+			section_id		: instance?.section_id,
+			component_tipo	: instance?.tipo
+		}, window.location.origin)
+	} catch (error) {
+		console.warn('broadcast_record_save: not sent:', error);
+	}
+}//end broadcast_record_save
+
+
+
+/**
+* WATCH_WINDOW_SAVES
+* Opener side of the open_window on_blur contract. Accepts RECORD_SAVE_MESSAGE
+* messages only from `new_window` itself (same origin, e.source===new_window)
+* and runs on_blur:
+*  - after every 'saved' (debounced RECORD_SAVE_DEBOUNCE_MS, so a burst of
+*    saves = one call) — the opener's read follows the child's write;
+*  - once on the opener's next 'focus' (fallback: external-engine windows never
+*    report), through the same timer, so a save reported meanwhile replaces it;
+*  - once more RECORD_SAVE_CLOSE_SETTLE_MS after the child is found closed
+*    while a 'saving' had no 'saved'/'failed' (the save started in the child's
+*    beforeunload and the child died before it could report);
+*  - once RECORD_SAVE_CLOSE_SETTLE_MS after an 'unloading' report while a save
+*    is in flight (the child reloads or navigates mid-save and stays open);
+*  - once RECORD_SAVE_CLOSE_SETTLE_MS after a run whose on_blur resolved false
+*    (common.refresh refused: another refresh was still building).
+* The timer never runs on_blur while a save is in flight (its 'saved' re-arms
+* it), and runs never overlap: common.refresh drops a call while the previous
+* one is still building, so a run asked for during an in-flight on_blur (when
+* on_blur returns its promise) is re-run once that one settles. Any run also
+* spends the focus fallback (it would only repeat the refresh).
+* Tears itself down (message + focus listeners, poll) when the child is closed;
+* a re-open of the same target replaces the previous watch. Never throws.
+* @param {Window} new_window - the opened window
+* @param {string} target - its window name
+* @param {Function} on_blur - the caller's refresh callback (may return a promise)
+* @returns {void}
+*/
+const watch_window_saves = function(new_window, target, on_blur) {
+
+	// one watch per target name
+		record_save_watchers.get(target)?.()
+
+	let timer		= null
+	let pending		= 0 // 'saving' not yet matched by 'saved' / 'failed'
+	let focus_used	= false
+	let poll		= null
+	let running		= null // in-flight on_blur promise
+	let dirty		= false // a run was asked for while one was in flight
+	let retried		= false // the one retry after a refused (false) run is spent
+
+	const run = function(e) {
+		if (running) {
+			dirty = true
+			return
+		}
+		// a save-driven run already refreshed: the focus fallback is redundant
+		focus_used = true
+		try {
+			running = Promise.resolve(on_blur(e))
+		} catch (error) {
+			console.error('open_window: on_blur failed:', error);
+			return
+		}
+		running
+			.then(result => {
+				// false = refresh refused (another refresh still building): retry
+				// ONCE after it settles; a second false (e.g. destroyed) stops
+				if (result===false && !retried) {
+					retried = true
+					schedule(e, RECORD_SAVE_CLOSE_SETTLE_MS)
+				}else{
+					retried = false
+				}
+			})
+			.catch(error => console.error('open_window: on_blur failed:', error))
+			.finally(() => {
+				running = null
+				if (dirty) {
+					dirty = false
+					run(e)
+				}
+			})
+	}
+	const schedule = function(e, delay) {
+		clearTimeout(timer)
+		timer = setTimeout(() => {
+			timer = null
+			if (pending===0) {
+				run(e)
+			}
+		}, delay)
+	}
+	const is_closed = function() {
+		try {
+			return new_window.closed===true
+		} catch (error) {
+			return true
+		}
+	}
+	const teardown = function() {
+		clearInterval(poll)
+		window.removeEventListener('message', fn_on_message)
+		window.removeEventListener('focus', fn_on_focus)
+		if (record_save_watchers.get(target)===teardown) {
+			record_save_watchers.delete(target)
+		}
+	}
+	// child gone: one settled refresh if a save was left unreported, then teardown
+	const check_closed = function() {
+		if (!is_closed()) {
+			return false
+		}
+		if (pending > 0) {
+			pending = 0 // no report can come any more: let the settled run through
+			schedule(null, RECORD_SAVE_CLOSE_SETTLE_MS)
+		}
+		teardown()
+		return true
+	}
+	const fn_on_focus = function(e) {
+		const closed = check_closed()
+		if (closed && timer) {
+			return // the settled refresh above covers it
+		}
+		if (!focus_used) {
+			focus_used = true
+			schedule(e, RECORD_SAVE_DEBOUNCE_MS)
+		}
+	}
+	const fn_on_message = function(e) {
+		try {
+			if (e.origin!==window.location.origin || e.source!==new_window) {
+				return
+			}
+		} catch (error) {
+			return
+		}
+		const message = e.data
+		if (!message || message.source!==RECORD_SAVE_MESSAGE) {
+			return
+		}
+		if (message.type==='saving') {
+			pending++
+		}else if (message.type==='failed') {
+			pending = Math.max(0, pending - 1)
+		}else if (message.type==='saved') {
+			pending = Math.max(0, pending - 1)
+			schedule(e, RECORD_SAVE_DEBOUNCE_MS)
+		}else if (message.type==='unloading' && pending > 0) {
+			// child reloads/navigates mid-save: its 'saved' can never come, and a
+			// stuck count would block every later run. Same settle as a close.
+			pending = 0
+			schedule(e, RECORD_SAVE_CLOSE_SETTLE_MS)
+		}
+	}
+
+	window.addEventListener('message', fn_on_message)
+	window.addEventListener('focus', fn_on_focus)
+	poll = setInterval(check_closed, RECORD_SAVE_CLOSED_POLL_MS)
+	record_save_watchers.set(target, teardown)
+}//end watch_window_saves
 
 
 

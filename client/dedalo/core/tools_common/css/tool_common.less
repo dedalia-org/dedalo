@@ -673,6 +673,34 @@
 
 
 
+// TOOL MESSAGES — ui.show_message banners inside a tool wear the page
+// notification look (.bubbles_notification_container .bubble, general.less):
+// same radius, shadow, ink, size and close mark. Colours stay the core
+// .component_message ones (layout.less), which the bubble shares.
+.wrapper_tool .component_message {
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-2);
+	color: var(--fg_inverse); // white in both themes (see the bubble)
+	font-size: 0.86rem;
+	line-height: 0.99rem;
+	min-height: 0;
+
+	.text {
+		padding: 0.5rem;
+		padding-right: 1.2rem;
+	}
+
+	.close {
+		top: 0.25rem;
+		right: 0.25rem;
+		height: 1rem;
+		line-height: 1rem;
+		opacity: 0.85;
+	}
+}
+
+
+
 // ── THE PHONE TIER, LAST ────────────────────────────────────────────────────
 // tool_responsive.less is the shared phone tier (@width_break_point_phone): the
 // base geometry is tightened there — `.wrapper_tool > .content_data` padding,

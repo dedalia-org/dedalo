@@ -422,7 +422,7 @@ export const get_buttons = (self) => {
 								name	: 'section_view',
 								on_blur : () => {
 									// refresh current instance
-									self.refresh({
+									return self.refresh({
 										build_autoload : true
 									})
 								}

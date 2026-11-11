@@ -34,7 +34,11 @@ import {
 	pollTranscriptionCompletion,
 	saveTranscriptionResult,
 } from '../../src/core/tools/transcription_asr.ts';
-import { babelProvider, translateAndWrite } from '../../src/core/tools/translation.ts';
+import {
+	babelProvider,
+	translateAndWrite,
+	translationFailure,
+} from '../../src/core/tools/translation.ts';
 import { toolTimeMachineBulkRevert } from '../../tools/tool_time_machine/server/bulk_revert.ts';
 import { WRITEBACK_TETHER_TITLES, WRITEBACK_TETHERS } from '../helpers/tool_writeback_tethers.ts';
 import { superuserTranslationGrant } from '../helpers/translation_grant.ts';
@@ -153,10 +157,9 @@ describe('tool_lossless_writeback — the server cells, EXECUTED (behaviour, not
 		// The WHOLE server write path — translateAndWrite with the REAL babelProvider (its
 		// guarded fetch, its response screen) and the real item loop, locked merge and
 		// chokepoint write — on a record of the scratch situation, with only the network
-		// replaced by an HTTP 200 whose body is empty. A refusal landing ANYWHERE on that
-		// path (the provider, translateItems, translateAndWrite) turns this red: then move
-		// both automatic_translation cells to 'refuses' (evidence: the declaration that now
-		// refuses), tether them in SERVER_REFUSES_TETHERS and lower PENDING_COUNT by 2.
+		// replaced by an HTTP 200. An EMPTY body (a service that does not support the
+		// language pair) must be REFUSED and the curator's translation KEPT; the
+		// COUNTERFACTUAL — a body with text — must be written, or the refusal is vacuous.
 		const sectionId = await createSectionRecord(SECTION, USER_ID);
 		await setText(sectionId, 'lg-spa', 'El texto de origen.', null);
 		await setText(sectionId, 'lg-eng', 'The text a curator already translated.', null);
@@ -166,17 +169,13 @@ describe('tool_lossless_writeback — the server cells, EXECUTED (behaviour, not
 		]);
 		const realFetch = globalThis.fetch;
 		const stubbedCalls: string[] = [];
-		try {
-			// The stub COUNTS its calls: if the provider's transport ever stops going
-			// through the global fetch, the count below is red (the provider has no
-			// injectable transport today — integrator request for a seam).
+		const translate = async (body: string) => {
 			globalThis.fetch = (async (input: unknown) => {
 				stubbedCalls.push(String(input instanceof Request ? input.url : input));
-				return new Response('', { status: 200 });
+				return new Response(body, { status: 200 });
 			}) as unknown as typeof fetch;
-			const outcome = await translateAndWrite(
-				await superuserTranslationGrant(SECTION, TEXT, sectionId),
-				{
+			try {
+				return await translateAndWrite(await superuserTranslationGrant(SECTION, TEXT, sectionId), {
 					model: 'component_input_text',
 					sourceLang: 'lg-spa',
 					targetLang: 'lg-eng',
@@ -184,24 +183,35 @@ describe('tool_lossless_writeback — the server cells, EXECUTED (behaviour, not
 					// a PUBLIC IP literal: the guard's no-lookup path, never dialled (fetch is stubbed)
 					uri: 'https://93.184.216.34/translate',
 					key: 'k',
-				},
-			);
-			globalThis.fetch = realFetch;
-			// one source item → one provider call, answered by the stub (never the network)
-			expect(
-				stubbedCalls.length,
-				`provider calls seen by the stub: ${stubbedCalls.join(', ')}`,
-			).toBe(1);
-			const english = langValues((await stored(sectionId))?.text).filter((entry) =>
-				entry.startsWith('lg-eng:'),
-			);
-			expect(
-				{ ok: outcome.ok, english },
-				'the server no longer writes an empty provider body over the target language — move both automatic_translation cells to refuses and lower PENDING_COUNT by 2',
-			).toEqual({ ok: true, english: ['lg-eng:'] });
-		} finally {
-			globalThis.fetch = realFetch;
-		}
+				});
+			} finally {
+				globalThis.fetch = realFetch;
+			}
+		};
+		const english = async () =>
+			langValues((await stored(sectionId))?.text).filter((entry) => entry.startsWith('lg-eng:'));
+
+		// The stub COUNTS its calls: if the provider's transport ever stops going through
+		// the global fetch, the counts below are red (no injectable transport today).
+		const refused = await translate('');
+		expect(stubbedCalls.length, `provider calls seen by the stub: ${stubbedCalls.join(', ')}`).toBe(
+			1,
+		);
+		expect({ ok: refused.ok, emptyResult: refused.emptyResult, english: await english() }).toEqual({
+			ok: false,
+			emptyResult: true,
+			english: ['lg-eng:The text a curator already translated.'],
+		});
+		// …and runAutomaticTranslation throws it as its own wire code, not provider_failed
+		expect(translationFailure(refused).code).toBe('translation.empty_result');
+
+		// counterfactual: a real translation IS written over the same slot
+		const written = await translate('The source text.');
+		expect(stubbedCalls.length).toBe(2);
+		expect({ ok: written.ok, english: await english() }).toEqual({
+			ok: true,
+			english: ['lg-eng:The source text.'],
+		});
 	});
 
 	behaviourTether(WRITEBACK_TETHERS.deleteIfSafe, async () => {

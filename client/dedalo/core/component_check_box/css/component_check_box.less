@@ -121,6 +121,11 @@
 			padding-top: 1rem;
 			width: calc(100% - 2.6rem);
 
+			// phone: one column (two ~150px cells break dev info per character)
+			@media screen and (max-width: @width_break_point_phone) {
+				grid-template-columns: 1fr;
+			}
+
 			.select_all {
 				position: absolute;
 				top: 1rem;
@@ -154,8 +159,12 @@
 					margin-left: 0px;
 				}
 
-				// label input
+				// label input: takes the free width and wraps its own text, so a long
+				// label never pushes the info toggle to a line of its own
 				>.input_label {
+					flex: 1 1 0;
+					min-width: 0;
+					white-space: normal; // content_data is .nowrap
 
 					>.input_checkbox {
 						margin-right: 0.33rem;
@@ -166,17 +175,28 @@
 					}
 				}
 
+				// shown on activation: own line under the label (inline, it was squeezed
+				// to a per-character column and pushed the label)
 				>.developer_info {
-					margin-left: 0.33rem;
-					flex: 1 1;
+					order: 1;
+					flex-basis: 100%;
+					padding-left: 4rem; // aligned under the label, like .tool_description
+					font-size: 0.9em;
+					line-height: 1.3;
+					overflow-wrap: anywhere;
 				}
 
 				// last grid line: no separator. The last item always; the one before
 				// only when it sits in the left column (even nth-child: the
-				// absolute-positioned .select_all label is child 1, outside the grid flow)
-				&:last-child,
-				&:nth-last-child(2):nth-child(even) {
+				// absolute-positioned .select_all label is child 1, outside the grid flow),
+				// and only while there are two columns
+				&:last-child {
 					border-bottom: none;
+				}
+				@media screen and (min-width: (@width_break_point_phone + 1)) {
+					&:nth-last-child(2):nth-child(even) {
+						border-bottom: none;
+					}
 				}
 
 				// tool description: folded under the row, toggled by the info button
@@ -200,12 +220,13 @@
 				}
 				>.tool_description {
 					display: none;
+					order: 2; // below the developer_info line
 					flex-basis: 100%;
 					padding: 0.25rem 0 0.33rem 4rem; // aligned under the label (icon + checkbox)
 					font-size: 0.9em;
 					line-height: 1.3;
 					white-space: pre-line; // content_data is .nowrap; keep paragraph breaks
-					opacity: 0.7;
+					opacity: 0.85;
 				}
 				&.open {
 					>.tool_info_toggle {
@@ -213,6 +234,15 @@
 					}
 					>.tool_description {
 						display: block;
+					}
+				}
+
+				// phone: one column; the 4rem indent gives back to the text
+				@media screen and (max-width: @width_break_point_phone) {
+					margin-left: 0;
+					>.developer_info,
+					>.tool_description {
+						padding-left: 1.85rem; // icon width
 					}
 				}
 			}

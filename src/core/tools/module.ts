@@ -361,6 +361,14 @@ export interface ToolServerModule {
 	 */
 	backgroundLanes?: Readonly<Record<string, JobLane>>;
 	/**
+	 * The tool whose CONFIG this one uses (dd996/dd1633 by that name), for a tool
+	 * that is another's alternate UI and owns no config of its own — tool_lang_multi
+	 * → tool_lang. ONE source for both halves: the client-visible `config` in this
+	 * tool's context (registry.ts) and what its handlers read server-side. Absent =
+	 * the tool's own config. Must name another tool (loader refuses self/malformed).
+	 */
+	configFrom?: string;
+	/**
 	 * Availability hook (PHP is_available) — decides whether the tool shows in a
 	 * given element's toolbar. MUST be fast and side-effect-free (the result is
 	 * cached per user/tipo/section_tipo). Framework-called only.

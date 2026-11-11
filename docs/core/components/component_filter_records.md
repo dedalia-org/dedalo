@@ -82,8 +82,85 @@ query.
 - A cataloguer should only see a handful of records of a section (e.g. only the 12
   archaeological objects on loan to their institution), even though they have read/write
   permission on that whole section.
-- A reviewer is granted access to a curated subset of `oh1` (Cultural objects) records for
+- A reviewer is granted access to a curated subset of `oh1` (Oral History) records for
   a temporary campaign, without touching their project membership.
+
+## How it works — a plain-language guide
+
+This part is for administrators who manage user accounts. No technical knowledge is
+needed.
+
+### What the component does
+
+Open a user's record (menu *Users*) and you find the **Records filter** field. It is a table
+with one row per section (a section is a kind of record: *Oral History*, *Image*,
+*Numismatic object*…). In each row you may type record numbers separated by commas.
+
+- **Row left empty** → no restriction. The user sees every record of that section their
+  profile and projects already allow.
+- **Row with numbers** → the user sees **only** those records of that section, and nothing
+  else in it.
+
+*Example.* Ana is a volunteer transcribing three interviews. In Ana's user record, in the
+row **Oral History** (`oh1`), you type `12,15,40`. From her next search on, Ana finds only
+the interviews with Id 12, 15 and 40. The other sections are not affected.
+
+### Which sections appear in the list
+
+The list does **not** show every section of the installation, and it does **not** depend
+on the user you are editing. It is built from the profile of **the person who is logged
+in** — you, the administrator filling the form. The idea: you can only narrow access to
+sections you are allowed to work on yourself.
+
+A section appears when **all** of these are true:
+
+1. Your user has a **profile** (field *User profile* in your own user record).
+2. In that profile (menu *Profiles*, field *Permissions*), **the section itself** is
+   ticked — not only some of its fields.
+3. Its level is **read and write** (2) or higher. Read-only is not enough.
+4. It is a real section. Menu groups and areas never appear.
+
+The rows are shown in order of their code (`tipo`), for example `numisdata3`,
+`numisdata4`, `oh1`, `rsc170`.
+
+*Example (codes from a numismatic installation).* María administers the accounts. Her
+profile gives her:
+
+| Section | What María's profile ticks | In María's list? |
+| --- | --- | --- |
+| Numismatic object (`numisdata4`) | the section, read and write | **Yes** |
+| Image (`rsc170`) | the section, read only | No — read only |
+| Type (`numisdata3`) | some fields, but not the section box | No — section not ticked |
+
+María now edits Ana's account. Ana's profile (*Editor*) has full access to **Type**
+(`numisdata3`). Even so, **Type is not in the list**: what counts is María's profile, not
+Ana's.
+
+!!! tip "Why is section X missing from my list?"
+    Check **your own** profile, not the edited user's:
+
+    - Does your user record have a profile? A user without a profile — **root included** —
+      sees an empty list.
+    - In that profile's permissions, is the **section** itself ticked (not just its
+      fields)?
+    - Is it at least **read and write**?
+
+    Fix the profile, then reload the user record: the section appears.
+
+!!! note "root follows the same rule"
+    Being root does not show every section. root's list comes from root's own profile like
+    anyone else's.
+
+### Working with a long list
+
+- **Filter box** (top): type part of a code or a section name — `numis`, `oral` — and
+  only the matching rows stay. The counter on the right shows how many match
+  (`4 / 41`).
+- **Column headers**: click **Tipo**, **Section** or **Value** to sort by that column; click
+  again to reverse the order. Sorting by **Value** brings the rows that already have record
+  numbers to the top (empty rows always stay at the bottom) — the quickest way to review
+  which restrictions a user has.
+- **Help icon** (ⓘ, top right of the field): opens this page.
 
 **When *not* to use it**
 
@@ -188,7 +265,10 @@ empty (`{}`), as shown in the shipped sample context. Behaviour is driven by:
   `getAuthorizedAreasForUser()`, `src/core/security/permissions.ts`). It lists every section
   the logged user is authorized for, keeping only areas whose `model === 'section'` and whose
   permission `value >= 2` (write or higher), resolving each section label from the ontology and
-  sorting alphabetically by label. Each datalist item is `{ tipo, permissions, label }`.
+  sorting alphabetically by label (the `edit` view re-orders the rows by `tipo`). Only
+  **self-keyed** grants count — a `dd774` entry whose `section_tipo` and `tipo` are both the
+  section; grants on the section's components alone do not list it. Each datalist item is
+  `{ tipo, permissions, label }`.
 - the **stored datum itself** — there is no config key. The presence of an entry for a section
   IS the switch; see [Definition](#definition).
 
@@ -208,7 +288,7 @@ The client model wires modes to renders in `js/component_filter_records.js`
 
 | Mode | View | Source | Behaviour |
 | --- | --- | --- | --- |
-| `edit` | `default` | `view_default_edit_filter_records.js` | Grid (`tipo` / section label / value input). One editable comma-separated id input per authorized section from the `datalist`. Header row with `tipo`, `Section`, `Value`. |
+| `edit` | `default` | `view_default_edit_filter_records.js` | Grid (`tipo` / section label / value input). One editable comma-separated id input per authorized section from the `datalist`. A sticky head carries a filter box (matches `tipo` or label, with a match counter) and the `tipo` / `Section` / `Value` header; `tipo`, `Section` and `Value` sort on click (`Value` reads the live input, numeric-aware, empty rows always last) (initial order: `tipo` ascending, numeric-aware). An ⓘ link pinned top-right of the wrapper opens this page. |
 | `edit` | `line` | `view_default_edit_filter_records.js` | Same render as `default`, label removed (compact inline). |
 | `edit` | `print` | `render_edit_component_filter_records.js` | Same render as `default` but forced read-only (`permissions = 1`): rows render through `get_content_value_read`, only entries present in the value are shown. |
 | `list` / `tm` | `default` | `view_default_list_filter_records.js` | Read-only string: each entry serialized as JSON, joined by `context.fields_separator`. |

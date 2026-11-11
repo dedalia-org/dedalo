@@ -38,7 +38,8 @@
 *                 ├── .component_column  ← rendered dd452 (full name, editable)
 *                 ├── .component_column  ← rendered dd133 (password, editable)
 *                 ├── .component_column  ← rendered dd134 (email, editable)
-*                 └── .component_column  ← rendered dd522 (user image, editable)
+*                 ├── .component_column  ← rendered dd522 (user image, editable)
+*                 └── .component_column  ← rendered dd1537 (user activity statistics, read-only)
 *
 * All component columns are created before any async rendering begins so that
 * the insertion order matches the ddo_map order regardless of which Promise
@@ -180,6 +181,10 @@ const get_content_data = async function(self) {
 		await Promise.all(ddo_map.map(async (ddo, index) => {
 			const component_instance = await self.get_component(ddo)
 			const component_node = await component_instance.render()
+			// the statistics are read-only by nature: no dimmed disabled look (clicks are blocked in CSS)
+			if (ddo.tipo==='dd1537') {
+				component_node.classList.remove('disabled_component')
+			}
 			columns[index].appendChild(component_node)
 		}))
 

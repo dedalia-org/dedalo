@@ -68,7 +68,7 @@
 
 
 // imports
-	import { clone, dd_console, is_equal } from '../../common/js/utils/index.js'
+	import { clone, dd_console, is_equal, broadcast_record_save } from '../../common/js/utils/index.js'
 	import { event_manager } from '../../common/js/event_manager.js'
 	import { set_before_unload, register_unsaved_instance, deregister_unsaved_instance, reset_unsaved_data, dd_request_idle_callback, get_unsaved_instances, orphaned_unsaved, claim_orphaned_unsaved_writers } from '../../common/js/events.js'
 	import { data_manager } from '../../common/js/data_manager.js'
@@ -726,6 +726,9 @@ export const init_events_subscription = function(self) {
 *     relogin_identity==='same'). Another identity reloads the page instead.
 *  7. Always publish 'save' (general) and 'save_' + self.id_base (component-specific)
 *     events with { instance, api_response } payload.
+*  8. Cross-window: broadcast_record_save 'saving' before the request,
+*     'saved' on success, 'failed' on error, so an opener's open_window on_blur
+*     refreshes after the write instead of racing it.
 *
 * saving_promise (edit-safety, engineering/wire_contract/WC-2026-10-30-section-record-row-box.md): assigned right
 * after the guard (step 1) and nulled when this call resolves — so its presence
@@ -1045,6 +1048,9 @@ const run_save = async function(self, new_changed_data, own) {
 			}
 
 		// Execute API call
+		// 'saving' first: if this window dies mid-request (save started in
+		// beforeunload) its opener still knows a write may have landed
+		broadcast_record_save('saving', self)
 		const api_response = await send_data()
 
 
@@ -1058,6 +1064,8 @@ const run_save = async function(self, new_changed_data, own) {
 		if (request_failed(api_response)) {
 
 			// ERROR CASE
+			// close the opener's 'saving' (open_window on_blur watch): nothing to refresh
+				broadcast_record_save('failed', self)
 			// restore 'modified': the data is still unsaved, so the orange marker
 			// must come back (it was cleared when the request started)
 			if (self.node) {
@@ -1191,6 +1199,9 @@ const run_save = async function(self, new_changed_data, own) {
 
 			// (!) no 'modified' removal here: it was already cleared when the
 			// request started, so the success animation runs on a clean wrapper
+
+			// tell the opener window (open_window on_blur watch) the record changed
+				broadcast_record_save('saved', self)
 
 		}//end else
 

@@ -422,4 +422,56 @@ else {
 			expect(calls.trace).toEqual(['save_1_start', 'save_1_end', 'save_2_start', 'save_2_end']);
 		});
 	});
+
+	// ────────────────────────────────────────────────────────────────────────────
+	// run_save → broadcast_record_save (open_window on_blur watch, child side)
+	// ────────────────────────────────────────────────────────────────────────────
+
+	describe('save() tells the opener window: saving, then saved only on success', () => {
+		// biome-ignore lint/suspicious/noExplicitAny: untyped client stub modules.
+		let stubs: { utils: any; dm: any };
+		beforeAll(async () => {
+			stubs = {
+				utils: await import(`${STUBS}/utils_index.js`),
+				dm: await import(`${STUBS}/data_manager.js`),
+			};
+		});
+
+		const save_with = async (request: () => Promise<unknown>) => {
+			stubs.utils.broadcast_calls.length = 0;
+			stubs.dm.data_manager.request = request;
+			const instance: Instance = {
+				model: 'component_input_text',
+				tipo: 'test52',
+				section_tipo: 'test3',
+				section_id: 1,
+				mode: 'list',
+				lang: 'lg-eng',
+				id: 'test_save_broadcast',
+				id_base: 'test_save_broadcast',
+				data: { entries: [], changed_data: [] },
+				db_data: { entries: [] },
+				node: null,
+				save: component_common_module.component_common.prototype.save,
+			};
+			await instance.save([{ action: 'insert', key: 0, value: 'x' }]);
+			return [...stubs.utils.broadcast_calls];
+		};
+
+		test('success → saving, saved', async () => {
+			const calls = await save_with(async () => ({
+				ok: true,
+				data: { data: [{ tipo: 'test52', section_tipo: 'test3', section_id: 1, entries: [] }] },
+			}));
+			expect(calls).toEqual(['saving', 'saved']);
+		});
+
+		test('failed request → saving, failed (never saved)', async () => {
+			// a rejected transport becomes run_save's typed failure envelope
+			const calls = await save_with(async () => {
+				throw new Error('network down');
+			});
+			expect(calls).toEqual(['saving', 'failed']);
+		});
+	});
 }

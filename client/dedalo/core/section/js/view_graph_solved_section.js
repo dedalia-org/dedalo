@@ -1301,7 +1301,7 @@ view_graph_solved_section.render_column_id = function(options) {
 				name		: 'record_view_' + section_id,
 				on_blur : () => {
 					// refresh current instance
-					self.refresh({
+					return self.refresh({
 						build_autoload : true
 					})
 				}

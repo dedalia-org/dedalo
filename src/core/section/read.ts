@@ -2031,6 +2031,16 @@ function explicitLangField(source: { lang?: unknown }): { lang?: string } {
 	return lang === null ? {} : { lang };
 }
 
+/**
+ * Translatable columns resolve in the active data lang, never the portal's own
+ * lg-nolan (the section read's models/portal.ts rule): a refresh read of a
+ * portal sent lang:'lg-nolan', so every column value landed in fallback_value —
+ * marked, separators dropped.
+ */
+function portalChildrenLang(lang: string): string {
+	return lang === 'lg-nolan' ? currentDataLang() : lang;
+}
+
 /** readComponentData's body; a refused TM preview row is recorded in `refusal`. */
 async function readComponentDataUnflagged(
 	rqo: Rqo,
@@ -2651,6 +2661,7 @@ async function readComponentDataUnflagged(
 			// sqoSchema — WC-2026-10-31-portal-order-model): the full list ordered
 			// before this page is cut; paginated_key stays the stored index.
 			viewOrder: rqo.sqo?.view_order,
+			childrenLang: portalChildrenLang(lang),
 			childRowFromTarget: true,
 			childrenFromOwnConfig: node.configSource === 'own' && !node.dataChildrenInjected,
 			ddinfoBare: true,

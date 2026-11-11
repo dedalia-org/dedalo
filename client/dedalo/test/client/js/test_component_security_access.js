@@ -9,6 +9,7 @@ import {get_instance} from '../../../core/common/js/instances.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {is_empty} from '../../../core/component_common/js/component_common.js'
 import {ui} from '../../../core/common/js/ui.js'
+import {open_css_frame} from './css_fixture_frame.js'
 import {set_before_unload} from '../../../core/common/js/events.js'
 import {
 	MATCH_LIMIT,
@@ -441,6 +442,62 @@ describe(`COMPONENT_SECURITY_ACCESS DATA OPERATIONS`, function() {
 		}finally{
 			await ui.component.deactivate(instance)
 			wrapper.style.minHeight = ''
+		}
+	});
+
+
+
+	it(`layout: desktop tree takes the free width, phone rows keep controls beside the label`, async function() {
+
+		// the suite iframe is narrower than both tiers' edges: measure a CLONE of the
+		// rendered component in frames of chosen width loading the real main.css
+		const mount = async (width) => {
+			const f = await open_css_frame(width, 'container')
+			f.container.appendChild(f.doc.importNode(instance.node, true))
+			return f
+		}
+
+		const desktop = await mount(1280)
+		try {
+			const cs			= el => desktop.win.getComputedStyle(el)
+			const content_data	= desktop.container.querySelector('.component_security_access > .content_data')
+			const changes		= content_data.querySelector(':scope > .changes_container')
+			const tree			= content_data.querySelector(':scope > .tree_root')
+			const save_buttons	= content_data.querySelector(':scope > .save_buttons')
+
+			assert.equal(cs(content_data).display, 'grid', 'content_data expected grid')
+			// a column of their own made the hidden buttons steal ~250px from the tree
+			assert.equal(cs(save_buttons).gridColumnStart, cs(tree).gridColumnStart, 'save buttons expected in the tree column')
+			assert.equal(cs(save_buttons).gridRowStart, cs(tree).gridRowStart, 'save buttons expected in the tree row')
+
+			const root_px = parseFloat(cs(desktop.doc.documentElement).fontSize)
+			assert.isAtMost(changes.getBoundingClientRect().width, 20 * root_px + 1, 'changes column capped at 20rem')
+			const cd_right = content_data.getBoundingClientRect().right - parseFloat(cs(content_data).paddingRight)
+			assert.approximately(tree.getBoundingClientRect().right, cd_right, 1, 'tree expected to reach the right edge')
+		}finally{
+			desktop.frame.remove()
+		}
+
+		const phone = await mount(390)
+		try {
+			// open every rendered branch: the deep rows are the ones that broke
+			for (const branch of phone.container.querySelectorAll('.tree_root .branch.hide')) {
+				branch.classList.remove('hide')
+			}
+			// each row's controls (checkbox / radios) and its label on ONE line: the
+			// checkbox used to sit on a line of its own, the label below the radios
+			let checked = 0
+			for (const li of phone.container.querySelectorAll('.tree_root li.li_item')) {
+				const control	= li.querySelector(':scope > input[type=checkbox], :scope > .radio_buttons_container')
+				const label		= li.querySelector(':scope > .area_label')
+				if (!control || !label || label.getBoundingClientRect().height===0) continue
+				assert.isBelow(label.getBoundingClientRect().top, control.getBoundingClientRect().bottom,
+					`label beside its controls: ${label.textContent}`)
+				checked++
+			}
+			assert.isAbove(checked, 0, 'expected rows to measure')
+		}finally{
+			phone.frame.remove()
 		}
 	});
 

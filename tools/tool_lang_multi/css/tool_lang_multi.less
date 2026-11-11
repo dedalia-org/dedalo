@@ -45,6 +45,31 @@
 		background-color: @tool_color;
 	}
 
+	// ui.show_message banners (translate-all summary, per-lang result). The core
+	// .component_message floats ABOVE its container (absolute, top: -height); here
+	// that covers the tool header and the row above. In flow instead: static
+	// ignores the inline `top` show_message sets.
+	.component_message {
+		position: static;
+		margin-bottom: 0.5em;
+		// the close mark is absolute in the core rule — with a static message it
+		// would anchor to the slot (white on white, out of sight). In flow instead:
+		// children are [close, text], so row-reverse puts it at the right end.
+		display: flex;
+		flex-direction: row-reverse;
+		align-items: flex-start;
+
+		>.text {
+			flex: 1;
+		}
+
+		>.close {
+			position: static;
+			flex: none;
+			margin: 0.5rem 0.5rem 0 0;
+		}
+	}
+
 	// content_data
 	>.content_data {
 		padding-right: 1em;
@@ -138,6 +163,12 @@
 				&:hover {
 					opacity: 1;
 				}
+
+				// phone: a tap target (@phone_hit_target, tool_responsive.less); mask stays centred
+				@media screen and (max-width: @width_break_point_phone) {
+					min-width: 44px;
+					min-height: 44px;
+				}
 			}
 
 			// collapsible configuration panel
@@ -198,16 +229,30 @@
 				}
 			}
 
-			// loading overlay during automatic translation
-			&.loading {
-				pointer-events: none;
+			// translating (set_slot_busy). The component is dimmed and locked like a
+			// core .loading node, its own action pill (buttons_container, which sits
+			// outside the slot box) is hidden — nothing on it may be used meanwhile —
+			// and the core spinner marks the slot. The title stays readable.
+			&.translating {
+				cursor: wait;
 
-				&::after {
-					content: '';
-					position: absolute;
-					inset: 0;
-					background: rgba(255,255,255,0.7);
-					z-index: 10;
+				>.wrapper_component {
+					opacity: 0.4;
+					pointer-events: none;
+					user-select: none;
+				}
+
+				>.wrapper_component >.buttons_container {
+					visibility: hidden;
+				}
+
+				>.spinner {
+					z-index: 3;
+				}
+
+				// the browser engine streams its text over the slot: that is the progress
+				>.streaming_overlay:not(.hide) ~ .spinner {
+					display: none;
 				}
 			}
 

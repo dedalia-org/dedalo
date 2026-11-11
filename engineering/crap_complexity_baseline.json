@@ -346,7 +346,7 @@
 		"src/core/relations/filter_projects.ts": 15,
 		"src/core/relations/models/portal.ts": 12,
 		"src/core/relations/models/relation_index.ts": 19,
-		"src/core/relations/models/relation_related.ts": 10,
+		"src/core/relations/models/relation_related.ts": 7,
 		"src/core/relations/order_locators.ts": 7,
 		"src/core/relations/parent.ts": 8,
 		"src/core/relations/related.ts": 14,

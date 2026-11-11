@@ -641,6 +641,10 @@ tool_time_machine.prototype.apply_value = function(options) {
 				matrix_id		: matrix_id
 			}
 		}
+		// dry_run: the server runs the restore, rolls it back and answers {changed}
+		if (options.dry_run===true) {
+			rqo.options.dry_run = true
+		}
 
 	// dataframe caller
 		// Forward the dataframe context so the server handler routes the restore
@@ -655,7 +659,9 @@ tool_time_machine.prototype.apply_value = function(options) {
 			data_manager.request({
 				body : rqo,
 				retries : 1, // one try only
-				timeout : 60 * 1000 // 60 secs waiting response
+				timeout : 60 * 1000, // 60 secs waiting response
+				// 'caller': the Apply button renders them itself (the window may close on success)
+				notices	: options.notices || 'page'
 			})
 			.then(function(response){
 				if(SHOW_DEVELOPER===true) {

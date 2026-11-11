@@ -80,6 +80,7 @@ import {
 	DDO_SELF_DEPTH,
 	scanDeepSelfDefinitions,
 } from '../../src/core/relations/request_config/self_depth_check.ts';
+import { TM_SUBJECT_CELL_LIMIT } from '../../src/core/resolve/read_tm.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 import {
@@ -857,7 +858,8 @@ describe('section_list governs list and TM (own sqo + limit); caller children re
 		expect(new Set(emitted.map((item) => Number(item.section_id)))).toEqual(new Set([1]));
 	});
 
-	test('TM, no caller children: the dd15 column of SL takes the section_list — show [C, A], sqo.limit 1, one record', async () => {
+	// WC-2026-11-10-tm-subject-cell-page: the subject cell pages to TM_SUBJECT_CELL_LIMIT, the context keeps sqo.limit 1
+	test('TM, no caller children: the dd15 column of SL takes the section_list — show [C, A], sqo.limit 1, the subject cell pages wider', async () => {
 		await recordTimeMachine(
 			{
 				sectionTipo: HOST,
@@ -880,10 +882,12 @@ describe('section_list governs list and TM (own sqo + limit); caller children re
 		const emitted = items.filter((item) => item.section_tipo === TARGET);
 		expect(emitted.length).toBeGreaterThan(0);
 		expect(tiposAt(items, TARGET)).toEqual(new Set([TEXT_C, TEXT_A]));
-		expect(new Set(emitted.map((item) => Number(item.section_id))).size).toBe(1);
+		expect(new Set(emitted.map((item) => Number(item.section_id))).size).toBe(
+			Math.min(TARGET_IDS.length, TM_SUBJECT_CELL_LIMIT),
+		);
 	});
 
-	test('TM, caller children [B]: show [B] — the sqo is STILL the section_list one (limit 1)', async () => {
+	test('TM, caller children [B]: show [B] — the sqo is STILL the section_list one (limit 1); the subject cell pages wider', async () => {
 		const { ok, items, context } = await readTm(PORTAL_SL, [
 			{ tipo: PORTAL_SL, section_tipo: HOST },
 			{ tipo: TEXT_B, section_tipo: TARGET, parent: PORTAL_SL },
@@ -896,7 +900,9 @@ describe('section_list governs list and TM (own sqo + limit); caller children re
 		const emitted = items.filter((item) => item.section_tipo === TARGET);
 		expect(emitted.length).toBeGreaterThan(0);
 		expect(tiposAt(items, TARGET)).toEqual(new Set([TEXT_B]));
-		expect(new Set(emitted.map((item) => Number(item.section_id))).size).toBe(1);
+		expect(new Set(emitted.map((item) => Number(item.section_id))).size).toBe(
+			Math.min(TARGET_IDS.length, TM_SUBJECT_CELL_LIMIT),
+		);
 	});
 });
 

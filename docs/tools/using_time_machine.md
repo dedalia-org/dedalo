@@ -26,7 +26,7 @@ The time machine attaches to record elements — both individual **components** 
 1. **Open the time machine** on the field or record whose history you want to see. A scrollable **history list** shows the change entries, most recent first, with when / who / which field.
 2. For a single component or record, the window shows two panes side by side: a **Now** pane with the current value, and a **preview** pane.
 3. **Pick an entry.** Click a history row's preview (eye) icon. The historical value loads into the preview pane, read-only, so you can compare it against **Now** before committing.
-4. **Apply and save.** When you are sure, press **Apply and save** — the live value is overwritten from the snapshot you selected. Restoring a whole section record restores all its components at once, and recovers any files that were deleted with it. The restore is itself recorded as a new history entry.
+4. **Apply and save.** When you are sure, press **Apply and save** — the live value is overwritten from the snapshot you selected. Restoring a whole section record restores all its components at once, and recovers any files that were deleted with it. The restore is itself recorded as a new history entry. For a single field, Dédalo first checks whether the restore would change anything: if the selected entry is the same as the current value (an empty entry onto an empty field included), it asks for no confirmation and writes nothing — no new history entry, no change to the record's modification date, no activity entry — and the window shows *The selected version is the same as the current value. Nothing was restored* and stays open. Otherwise it asks you to confirm the overwrite first.
 5. **Revert a batch (administrators).** If the entry you picked belongs to a batch run, an administrator additionally sees **Revert the bulk process**. Pressing it rolls back every record that run changed to its pre-run value, in one operation, then shows a summary of what was reverted and what was not — see [Reverting a batch run](#reverting-a-batch-run). Non-administrators see a notice to contact an administrator instead.
 
 !!! note "Fields with a dataframe"
@@ -36,7 +36,7 @@ The time machine attaches to record elements — both individual **components** 
 
 | Control | What it does |
 | --- | --- |
-| History list | The change entries for the element, newest first — when, who, and which field changed. |
+| History list | The change entries for the element, newest first — when, who, which field changed, and its value. For a field that links records (related terms, a portal), each entry shows up to the first 10 linked records; open the preview (eye) icon to see the whole value. |
 | Preview (eye) icon | Loads the chosen historical value into the read-only preview pane for comparison with **Now**. |
 | Annotation column | Shows the **text** of the annotation attached to each history entry, if any. In the tool this column is read-only; annotations are written from the record inspector's history block, where the same column is a note icon that opens the annotation editor. |
 | Language selector | Chooses which language of the value to view and restore. Shown only for text fields that hold one value per language; a field that links records has no languages, so it has no selector. |

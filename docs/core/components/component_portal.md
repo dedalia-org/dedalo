@@ -338,7 +338,7 @@ Two consequences follow, and they are the whole contract of the view:
 Modes:
 
 - **edit** — read/write: autocomplete-add, link existing, open target, reorder (drag, tap-tap, move-to-position), cross-portal move, remove (`remove_element` with `delete_link` or `delete_all`), `data_limit` cap, temporary header sort and its **Save**, and the update-external recompute of an `external` portal.
-- **list / tm** — read-only listing; `tm` (Time Machine) reuses the list render (list mode `limit` is always 1 per row). A click on a `list` portal opens it in the edit window, the rule of every list-mode component (`bind_edit_in_list` in `component_common.js`: write permission, not read-only, not inside a dataframe). The click never also activates a portal table that contains the cell. The window keeps the focus on itself when it opens; it does not hand it to the first row's edit button.
+- **list** — read-only listing; a cell shows one linked record unless the column's configuration sets a page size (`sqo.limit`). The Time Machine history list reuses the list render; in each history row the cell of the field that row is about shows up to 10 linked records (`TM_SUBJECT_CELL_LIMIT`, WC-2026-11-10-tm-subject-cell-page), every other column keeps the list rule. A click on a `list` portal opens it in the edit window, the rule of every list-mode component (`bind_edit_in_list` in `component_common.js`: write permission, not read-only, not inside a dataframe). The click never also activates a portal table that contains the cell. The window keeps the focus on itself when it opens; it does not hand it to the first row's edit button.
 
 **Full screen.** The tools' full-screen button (`ui.enter_fullscreen`) turns the portal into a full-page panel in every active style, also when it is nested in a table cell: the label on top, the tools as the orange pill beside the exit button (its own full-screen button hidden), and the search box in flow under the rows, its results capped and scrolled. Escape or the exit button restores the portal in place.
 
@@ -374,6 +374,39 @@ order indicator, `component_relation_related` back-references, the
 indexation "remove filter" footer and the print notice all live in
 `.list_after`. A mosaic tile's hover overlay (`.sr_mosaic_hover`) is built on
 demand by `delegate_row_hover` and flushed before it leaves.
+
+### Editing a row in its own window
+
+The row's edit button (`edit_record_handler` in `component_portal.js`) opens the
+linked record in a separate window (`open_window` in
+`client/dedalo/core/common/js/utils/util.js`). The portal refreshes when that
+window **saves**, not when you come back to the portal window:
+
+- **Edit window.** Every component save (`run_save` in `component_common.js`)
+  posts `saving` before the request, then `saved` or `failed`, to the window
+  that opened it (`window.opener.postMessage`, own origin only). After its first
+  save the page also posts `unloading` when it goes away (reload, navigation,
+  close).
+- **Portal window.** It accepts a message only from its own origin and from the
+  exact window it opened. It refreshes 150 ms after each `saved` (a burst of
+  saves is one refresh) and never while a save is still in flight. Refreshes
+  never overlap: one asked for while another runs waits for it. A refresh that
+  is refused because another one is still building is retried once, after 1 s.
+- **Saves that never report.** When the window closes or unloads with a save
+  in flight, the portal refreshes once, 1 s later.
+- **Fallback.** Coming back to the portal window still refreshes once, for
+  windows that never report (external engines) and for changes made there
+  without a component save (record create/delete/duplicate, tool actions).
+  It waits for a save in flight, and is skipped once a save has refreshed.
+- **The refresh destroys the row instances** (`refresh({build_autoload:true})`):
+  kept instances would hold the pre-edit data and the row would render the old
+  value. The portal instance itself stays, so `window_blur_<portal id>` still
+  fires after each refresh.
+
+The same contract serves every `open_window` caller that passes `on_blur`
+(select, check box, radio button, filter, list rows, thesaurus terms). A
+callback must **return** its refresh promise: that is how the window knows a
+refresh is still running or was refused.
 
 ### Drag and drop
 
