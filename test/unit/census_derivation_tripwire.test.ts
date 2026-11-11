@@ -421,7 +421,7 @@ const PRIVATE_ROOT_WALKERS: Readonly<Record<string, string>> = {
 		'ROOTS: `client/dedalo/test/client/js` `src/core/test_data` `test` — the registered tld_census roots re-walked one by one to prove each contributes files.',
 	'test/unit/hierarchy_single_writer_tripwire.test.ts': 'ROOTS: `scripts` `src` `tools`.',
 	'test/unit/host_agent_requested_mode_tripwire.test.ts':
-		'ROOTS: `publication/host_agent/src/media` — the agent\'s media tree, `*.ts` (T0-6: no create requests a mode; fs_modes.ts applies them). No shared lister owns that tree.',
+		"ROOTS: `publication/host_agent/src/media` — the agent's media tree, `*.ts` (T0-6: no create requests a mode; fs_modes.ts applies them). No shared lister owns that tree.",
 	'test/unit/html_text_tripwire.test.ts':
 		'ROOTS: `src` `tools` `publication` — SCAN_GLOBS: src/**, tools/*/server/**, publication/*/src/** (non-test .ts).',
 	'test/unit/import_scc_tripwire.test.ts': 'ROOTS: `src` `tools` — servers.',

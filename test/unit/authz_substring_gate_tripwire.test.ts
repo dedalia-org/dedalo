@@ -148,7 +148,7 @@ const EXEMPTIONS: Record<string, Exemption> = {
 	},
 	'test/unit/security_audit_2026_07_23_tripwire.test.ts': {
 		reason:
-			"AUTHZ-05 pins WHERE the inverse-reference scan is scoped (record_scope + the related-count door, and the door registry's scope call — scopeInverseReferenceHits / scopeRecordHits / the set-shaped anyRowInScope and rowScopeFor) and AUTHZ-06 WHERE the get_data facade self-gates; the file itself drives scopeInverseReferenceHits only as a global admin. The isRecordInScope pin is GONE (PERF-01): the projects leg is pinned as the SHARED PREDICATE (one buildSearchSql site, both doors routed through it), its behavioural twin count_native.test.ts. The AUTHZ-06 datalist pins (getUserProjects, the admin ternary) are GONE (READ-1): filter_projects_scope_native / filter_projects_membership_native hold the narrowing as outcomes.",
+			"AUTHZ-05 pins WHERE the inverse-reference scan is scoped (record_scope + the related-count door, and the door registry's scope call — scopeInverseReferenceHits / scopeRecordHits / the set-shaped anyRowInScope and rowScopeFor); AUTHZ-06's facade pin left the map with T0-4 (it now names sourceComponentLevel, not a derived authz symbol — filter_projects_scope_native and subdatum_own_level_iri_native drive it); the file itself drives scopeInverseReferenceHits only as a global admin. The isRecordInScope pin is GONE (PERF-01): the projects leg is pinned as the SHARED PREDICATE (one buildSearchSql site, both doors routed through it), its behavioural twin count_native.test.ts. The AUTHZ-06 datalist pins (getUserProjects, the admin ternary) are GONE (READ-1): filter_projects_scope_native / filter_projects_membership_native hold the narrowing as outcomes.",
 		pins: {
 			getPermissions: [
 				{
@@ -172,14 +172,6 @@ const EXEMPTIONS: Record<string, Exemption> = {
 					case: 'the SET-SHAPED scope (anyRowInScope) answers record by record exactly what the hit-list scope answers',
 					covers:
 						"AUTHZ-05 — the door registry accepts anyRowInScope as a door's scope call: it is driven for a reader and an admin over records each half of the rule (projects, section grant, dd478) decides, and must equal scopeInverseReferenceHits cell for cell",
-				},
-			],
-			getRecordComponentPermission: [
-				{
-					file: 'test/unit/filter_projects_scope_native.test.ts',
-					case: 'get_data of a component the reader holds level 0 on answers the EMPTY shell',
-					covers:
-						'AUTHZ-06 — the component get_data facade self-gates on getRecordComponentPermission(principal, source.section_tipo, source.tipo, source.section_id) (record-scoped since the dd128 own-record rules)',
 				},
 			],
 		},
@@ -207,7 +199,7 @@ const EXEMPTIONS: Record<string, Exemption> = {
  * isRecordInScope — counted the day the census learned to see them.)
  */
 const EXEMPTION_FILE_CEILING = 4;
-const EXEMPTION_PIN_CEILING = 10;
+const EXEMPTION_PIN_CEILING = 9;
 
 // --- planted material (never borrowed from the tree) --------------------------
 
