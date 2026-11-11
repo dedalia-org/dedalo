@@ -18893,10 +18893,25 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   white-space: nowrap;
 }
 .wrapper_widget.update_ontology .tld_catalog .tld_toolbar .tld_default,
-.wrapper_widget.update_ontology .tld_catalog .tld_toolbar .tld_clear {
+.wrapper_widget.update_ontology .tld_catalog .tld_toolbar .tld_clear,
+.wrapper_widget.update_ontology .tld_catalog .tld_toolbar .tld_fullscreen {
   flex: 0 0 auto;
   font-size: 0.74rem;
   padding: 0.15rem 0.5rem;
+}
+.wrapper_widget.update_ontology .tld_catalog.fullscreen {
+  margin: 0;
+  padding: 1rem 2.5rem 1rem 1rem;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.wrapper_widget.update_ontology .tld_catalog.fullscreen .tld_fullscreen {
+  display: none;
+}
+.wrapper_widget.update_ontology .tld_catalog.fullscreen .tld_list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
 }
 .wrapper_widget.update_ontology .tld_catalog .tld_list_head {
   font-size: 0.72rem;
