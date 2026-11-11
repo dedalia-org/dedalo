@@ -18,8 +18,8 @@
  *                            on the node's date_mode; the shape corpus itself
  *                            lives in date_flat_value_native.test.ts;
  *   - family 'iri'         → the bare iri (the stored `title` must NOT leak);
- *   - family 'media'       → exportBase + the default-quality file_path, and a
- *                            media model with no default quality → ledgered;
+ *   - family 'media'       → exportBase + the default-quality file_path (pdf
+ *                            and 3d; exportBase unset → ledgered);
  *   - family 'datalist'    → the two halves of resolveRelationTargetValues:
  *                            the CONFIG-CHILDREN branch (skips invalid
  *                            locators, joins by the component's
@@ -332,12 +332,37 @@ describe('resolveCellValue — per-family dispatch', () => {
 		}
 	});
 
-	test('a media model with no declared default quality is LEDGERED, never guessed', async () => {
-		// test26 is a component_3d — a media model the media CONTRACT declares
-		// no default quality for, so the cell is null and the model ledgered.
+	test("component_3d is family 'media': exportBase + its default-quality file_path", async () => {
+		// test26 is the test3 component_3d. Until 2026-11-11 it declared NO
+		// flatValue, so it fell through to the generic "uncovered model" ledger
+		// (null) — this gate then claimed the media contract has no default
+		// quality for 3d, which was never true (DEDALO_3D_QUALITY_DEFAULT). Every
+		// media model declares one, so the cell composes like any media model.
+		const { mediaTypeOf } = await import('../../src/core/concepts/media.ts');
+		const quality = mediaTypeOf('component_3d')?.defaultQuality;
+		expect(quality).toBeDefined();
+		const rows = (await sql.unsafe(
+			`SELECT media->'test26' AS items FROM matrix_test WHERE section_tipo = $1 AND section_id = 1`,
+			[SECTION],
+		)) as { items: { files_info?: { quality?: string; file_path?: string }[] }[] | null }[];
+		const path =
+			(rows[0]?.items?.[0]?.files_info ?? []).find((info) => info?.quality === quality)
+				?.file_path ?? '';
+		if (path === '') {
+			throw new Error(
+				`fixture missing: test3/1 test26 has no '${quality}' files_info — gate cannot assert`,
+			);
+		}
 		const unresolved: string[] = [];
-		expect(await resolveCellValue(SECTION, 1, 'test26', 'lg-eng', unresolved)).toBeNull();
-		expect(unresolved).toEqual(['component_3d']);
+		const value = await resolveCellValue(SECTION, 1, 'test26', 'lg-eng', unresolved);
+		const exportBase = config.media.exportBase;
+		if (exportBase === undefined || exportBase === '') {
+			expect(value).toBeNull();
+			expect(unresolved).toContain('component_3d');
+		} else {
+			expect(value).toBe(`${exportBase}${path}`);
+			expect(unresolved).toEqual([]);
+		}
 	});
 
 	test('an uncovered model is LEDGERED (null + unresolved), and ledgered ONCE', async () => {

@@ -68,8 +68,10 @@
  *   (request isolation, no module state).
  */
 
+import { resolveInverseEntries } from '../../core/components/component_inverse/emit.ts';
 import { getFlatValueFamily } from '../../core/components/registry.ts';
 import { isMediaModel } from '../../core/concepts/media.ts';
+import { canonicalizeStoredSectionId, isSectionId } from '../../core/concepts/section_id.ts';
 import { dataframeEntryMatches } from '../../core/concepts/subdatum.ts';
 import { getColumnNameByModel, getModelByTipo, getNode } from '../../core/ontology/resolver.ts';
 import {
@@ -542,6 +544,11 @@ function directChildrenOf(
  *               SAME records and components, no display text built);
  *   references — T0-9 D4: the declared leaf related's CALCULATED locators fan
  *               out too, under a `sub_id:'references'` segment.
+ *   callerIndex — WC-2026-11-11-export-inverse-callers: a component_inverse
+ *               caller-pair sub-segment carries the caller's position as
+ *               item_index, so breakdown spreads callers (grid_value only). The
+ *               value fold keeps it null: an index there would zip UNRELATED
+ *               callers of different pairs into one record by position.
  */
 interface WalkMode {
 	parents: 'all' | 'top' | 'none';
@@ -549,6 +556,7 @@ interface WalkMode {
 	compact: boolean;
 	strict: boolean;
 	mediaOnly: boolean;
+	callerIndex: boolean;
 }
 
 /** One walk's shared state (one field on one record). */
@@ -688,6 +696,7 @@ async function resolveValueCellInScope(
 		compact: false,
 		strict: false,
 		mediaOnly: false,
+		callerIndex: false,
 	});
 	const atoms = walked.filter((atom) => !isReferencesAtom(atom));
 	const referencesCell = withReferences
@@ -786,6 +795,7 @@ export function collectGridAtoms(
 			compact: true,
 			strict: false,
 			mediaOnly: false,
+			callerIndex: true,
 		}),
 	);
 }
@@ -813,6 +823,7 @@ export function collectValueAtoms(
 			compact: false,
 			strict: false,
 			mediaOnly: false,
+			callerIndex: false,
 		}),
 	);
 }
@@ -1058,6 +1069,10 @@ async function emitPlainAtom(
 		return;
 	}
 	const family = getFlatValueFamily(model);
+	if (family === 'inverse') {
+		await emitInverseAtoms(ctx, sectionTipo, sectionId, componentTipo, model, segments);
+		return;
+	}
 	if (family !== undefined && LITERAL_ITEM_FAMILIES.has(family)) {
 		await emitLiteralItemAtoms(ctx, sectionTipo, sectionId, componentTipo, model, segments);
 		return;
@@ -1094,6 +1109,108 @@ async function emitPlainAtom(
 		segments,
 		...mediaField(capture?.media),
 	});
+}
+
+/**
+ * component_inverse (DERIVED backlinks — "who is calling me"): one atom per
+ * backlink locator, its value the CALLER record's id (PHP component_inverse::
+ * get_export_value :288 — `(int)from_section_id`, a malformed backlink with no
+ * from_section_tipo / from_component_tipo skipped).
+ *
+ * Segments: the leaf's own + ONE plain caller-pair segment (from_section_tipo,
+ * from_component_tipo; no sub_id), so every caller pair is its own column.
+ * DELIBERATE DIVERGENCE (WC-2026-11-11-export-inverse-callers, owner decision
+ * 2026-11-11): the pair segment carries the caller's running position WITHIN
+ * its pair (0-based, in the backlink order = section_id ASC) as item_index —
+ * PHP set none, so its breakdown never spread callers. Here 'default'/'rows'
+ * put one caller per row, 'columns' one per '|n' column, and the value fold
+ * joins the ids per the indexed-level rule (join_atoms.ts).
+ *
+ * The walk reads NO target record: the caller ids come from the host's own
+ * backlink list, scoped for the run's principal (the frontier's — explicit,
+ * because an export job may run detached from the request ALS; a run with no
+ * frontier is a global admin or internal walk → unscoped). Unreadable owners
+ * are dropped (scopeInverseReferenceHits — the edit view's policy), so no
+ * crossing is asked. What the atoms DISCLOSE (a caller section's ids, and in
+ * grid_value its name) is recorded as that section's read grant
+ * ({@link recordInverseCallerGrants}), so a later read of the finished export
+ * re-asks it.
+ */
+async function emitInverseAtoms(
+	ctx: WalkContext,
+	sectionTipo: string,
+	sectionId: number | string,
+	_componentTipo: string,
+	model: string,
+	segments: ExportSegment[],
+): Promise<void> {
+	const address = canonicalizeStoredSectionId(sectionId);
+	if (!isSectionId(address)) return;
+	const entries = await resolveInverseEntries(sectionTipo, address, {
+		principal: ctx.run.atoms.frontier?.principal,
+	});
+	const pairIndex = new Map<string, number>();
+	const disclosed: string[] = [];
+	for (const entry of entries) {
+		const fromSectionTipo = entry.from_section_tipo;
+		const fromComponentTipo = entry.from_component_tipo;
+		if (typeof fromSectionTipo !== 'string' || fromSectionTipo === '') continue;
+		if (typeof fromComponentTipo !== 'string' || fromComponentTipo === '') continue;
+		const pairKey = `${fromSectionTipo}_${fromComponentTipo}`;
+		const index = pairIndex.get(pairKey) ?? 0;
+		pairIndex.set(pairKey, index + 1);
+		disclosed.push(fromSectionTipo);
+		ctx.atoms.push({
+			value: String(entry.from_section_id),
+			cellType: cellTypeOfModel(model),
+			model,
+			segments: [
+				...segments,
+				{
+					section_tipo: fromSectionTipo,
+					component_tipo: fromComponentTipo,
+					model: null,
+					item_index: ctx.mode.callerIndex ? index : null,
+					section_id: null,
+				},
+			],
+		});
+	}
+	recordInverseCallerGrants(ctx.run.atoms, disclosed);
+}
+
+/**
+ * THE RE-CHECK RECORD of an inverse disclosure (component_inverse export —
+ * atoms above, dedalo_raw in grid.ts computedRawSlice). The build admitted each
+ * caller on LEG 1 of scopeInverseReferenceHits — the SECTION read grant
+ * (getPermissions(principal, section, section) >= 1) — plus the projects
+ * boundary (LEG 2, already re-asked through the manifest's record-scope
+ * fingerprint). LEG 1 is recorded here, once per DISTINCT caller section that
+ * reached the file, in the run's runtime grant set (ExportAtomRun.frontierGrants
+ * → manifest `frontier_grants`) as the pair (section, section): the re-check
+ * (access.ts runtimeFrontierGrantsHeld → frontierComponentAllowed →
+ * ddoIsAuthorized(principal, section, section)) asks exactly the build's
+ * question. A grant revoked on a caller section after the build closes the
+ * export, as a revoked runtime component grant does.
+ *
+ * Only what the build ASKED is recorded: the caller COMPONENT (whose term a
+ * grid_value header names) was never asked — the edit view's policy is the
+ * section grant — so recording it would lock an owner out of an export the
+ * build lawfully produced. Scoped runs only (a run with no frontier principal
+ * is a global admin / internal walk: nothing to re-ask).
+ */
+export function recordInverseCallerGrants(
+	run: ExportAtomRun,
+	callerSectionTipos: Iterable<unknown>,
+): void {
+	if (run.frontier?.principal === undefined) return;
+	for (const sectionTipo of callerSectionTipos) {
+		if (typeof sectionTipo !== 'string' || sectionTipo === '') continue;
+		const key = `${sectionTipo}\u0000${sectionTipo}`;
+		if (!run.frontierGrants.has(key)) {
+			run.frontierGrants.set(key, { section_tipo: sectionTipo, component_tipo: sectionTipo });
+		}
+	}
 }
 
 /**
@@ -1663,6 +1780,7 @@ export async function collectRawMediaAddresses(
 		compact: false,
 		strict: true,
 		mediaOnly: true,
+		callerIndex: false,
 	});
 	return out;
 }

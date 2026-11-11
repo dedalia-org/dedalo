@@ -8,6 +8,7 @@ export const component_3d: ComponentModel = {
 	model: 'component_3d',
 	column: 'media',
 	render: 'text',
+	flatValue: 'media', // export/panel cell = default-quality URL (as component_av)
 	importAppend: {
 		refuse:
 			'media: the file is the value — replace it through the media tools, there is nothing to append',

@@ -167,6 +167,13 @@ export type SearchBuilderFamily = 'string' | 'number' | 'date' | 'iri' | 'sectio
  *   family, not 'string', because 'string' means "lang-slice the stored jsonb
  *   value", and this model stores none: declaring 'string' would resolve every
  *   cell to a silent null while claiming a value exists.
+ * - 'inverse': DERIVED backlinks (component_inverse) — the caller records' ids.
+ *   The export walk emits one atom per caller under a caller-pair sub-segment
+ *   (from_section_tipo, from_component_tipo) carrying the caller's position as
+ *   item_index, so breakdown spreads callers
+ *   (WC-2026-11-11-export-inverse-callers); a flat cell is the ids joined. Its
+ *   own family for the same reason
+ *   as 'external': there is no stored value to slice.
  * Models with no family declared are LEDGERED unresolved by the consumers
  * (value null + a note, never a guessed string).
  */
@@ -177,7 +184,8 @@ export type FlatValueFamily =
 	| 'date'
 	| 'iri'
 	| 'media'
-	| 'external';
+	| 'external'
+	| 'inverse';
 
 /**
  * RENDER CLASS (audit P2-6 / CARRY-01 — XSS-03): what the client may DO with

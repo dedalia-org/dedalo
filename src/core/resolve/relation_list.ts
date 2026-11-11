@@ -31,6 +31,7 @@ import {
 	resolvePeriodLabels,
 } from '../components/component_date/date_value.ts';
 import type { ExternalSourceStatus } from '../components/component_external/value.ts';
+import { resolveInverseEntries } from '../components/component_inverse/emit.ts';
 import { type IriLabelFrame, resolveIriTitles } from '../components/component_iri/resolve_title.ts';
 import { getFlatValueFamily } from '../components/registry.ts';
 import { mediaTypeOf } from '../concepts/media.ts';
@@ -963,6 +964,27 @@ export async function resolveCellItems(
 	// remote id reaching a stored-family column) addresses no row.
 	const address = matrixRecordAddress(sectionId);
 	if (address === null) return null;
+
+	// INVERSE (component_inverse): DERIVED — the host record's backlinks, never
+	// its empty `misc` slot, so no record load. One item per backlink locator
+	// (the caller record's id), in the edit view's order (section_id ASC) and
+	// under the edit view's scope: the ALS principal (this is the request-path
+	// flat reader), unreadable owners dropped (scopeInverseReferenceHits). A
+	// malformed backlink (no owner section / component) is skipped, as PHP
+	// component_inverse::get_export_value does.
+	if (getFlatValueFamily(model) === 'inverse') {
+		const parts = (await resolveInverseEntries(sectionTipo, address))
+			.filter(
+				(entry) =>
+					typeof entry.from_section_tipo === 'string' &&
+					entry.from_section_tipo !== '' &&
+					typeof entry.from_component_tipo === 'string' &&
+					entry.from_component_tipo !== '',
+			)
+			.map((entry) => String(entry.from_section_id));
+		return parts.length > 0 ? parts : null;
+	}
+
 	const table = await getMatrixTableFromTipo(sectionTipo);
 	if (table === null) return null;
 	// The loader seam consults AFTER the null-table early-return (parity

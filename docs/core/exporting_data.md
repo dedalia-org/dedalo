@@ -110,6 +110,22 @@ exports its values, including *Projects*, *Publishable*, *Language*, *Parent*,
 record from a section you may not read exports as its section name followed by its
 id, and nothing else.
 
+### What a backlinks column contains
+
+A *backlinks* field — for example **Relations** (`dd1596`, a `component_inverse` in the
+*Section info* group every section carries) — stores nothing: it lists the records
+that point at the current one. In the **Standard** format it is one column holding
+the ids of every calling record (the callers of each calling field together, in
+ascending order, joined with `, `; the groups joined with the column's configured
+separator, `, ` by default). In the **Breakdown** format it grows **one column per
+calling field** (a People record pointed at by interviews through their *Informants*
+field gets a *Relations | Informants* column), and each caller is its own related
+item: in the **Default** and **Rows** modes each calling field's column lists its
+callers one per row (the record takes as many rows as its busiest calling field), one `|n` column per
+caller in **Columns**. Callers
+from records you may not read are left out, exactly as in the record's edit view
+(a global administrator sees them all).
+
 ## Export options
 
 All options are in the right-hand configuration panel.
@@ -328,6 +344,10 @@ reproduce the stored row verbatim, and the manual used to say it did:
   item without its stored `id` (so the save stamps a fresh one — the identity every
   remove, Time Machine restore and dataframe pairing addresses). The other models
   measured lossless.
+- A **calculated** field — the backlinks of a `component_inverse`, the children of a
+  `component_relation_children`, the pointing records of a `component_relation_index`
+  — exports its calculated value wrapped the same way, for reading only: it has no
+  stored data, so the import skips it.
 - A component with **no stored data** exports as an empty cell and imports as an
   **explicit clear** — a full-section re-import re-saves every component of every
   record and stamps a Time Machine row for each.
@@ -571,7 +591,20 @@ the walk rather than an override method.
 
 - The flat-join (`value` format) reference is `joinExportAtoms()`.
 - `dedalo_raw` cells are the exact stored value JSON-encoded with the
-  `dedalo_data` wrapper, always exactly that: `{dedalo_data: <stored value>}`.
+  `dedalo_data` wrapper: `{dedalo_data: <stored value>}`. The one exception is a
+  `derived` model (`component_inverse`, `component_relation_children`,
+  `component_relation_index`), which owns no stored value: its cell wraps the
+  computed value, and the import skips derived models.
+- `component_inverse` is the `inverse` flatValue family: one atom per caller,
+  value the caller `section_id`, path = the host segment plus a caller-pair
+  sub-segment `{section_tipo: from_section_tipo, component_tipo:
+  from_component_tipo, model: null, item_index, section_id: null}`. In the
+  grid_value walk `item_index` is the caller's position among that pair's callers
+  (section_id ascending), so each pair keys its own column and the breakdown
+  spreads callers like any relation's items; the value fold leaves it `null`, so
+  the one `value` cell joins every caller with `', '`. Callers
+  are filtered by the requester's read access (section grant + projects), as in
+  the edit view (`WC-2026-11-11-export-inverse-callers`).
   A component with dataframe slots grows one EXTRA column per slot, headed by
   the dataframe component's tipo and carrying that component's own stored
   frames — see

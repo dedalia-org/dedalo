@@ -40,6 +40,7 @@
  */
 
 import { resolveIriTitles } from '../../core/components/component_iri/resolve_title.ts';
+import { isDerivedModel } from '../../core/components/registry.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../../core/concepts/section_id.ts';
 import type { Sqo } from '../../core/concepts/sqo.ts';
 import type { MatrixRecord } from '../../core/db/matrix.ts';
@@ -2929,6 +2930,9 @@ async function holdsNoData(
 	const model = await getModelByTipo(componentTipo);
 	if (model === null || getColumnNameByModel(model) === null) return false;
 	if (readsComputedLocators(model)) return false;
+	// A DERIVED model (component_inverse's backlinks, …) stores nothing under
+	// its tipo: its value is computed, so an empty slot proves nothing.
+	if (isDerivedModel(model)) return false;
 	const record = await loadExportRecord(run, sectionTipo, sectionId);
 	if (record === null) return false;
 	// the value read's OWN door (alias data key included) — never a second

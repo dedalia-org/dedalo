@@ -219,6 +219,22 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Exports now include the records that point at each record (the Relations field), instead of an empty column.**
+
+    A field that lists the records pointing at the current one (the **Relations** field of the
+    *Section info* group, and any other field of that kind) always exported as an empty column, in
+    every format. It now exports its callers: in the **Standard** format one column with the ids of every calling
+    record; in the **Breakdown** format one column per calling field, and each caller gets its own
+    row (or its own `|n` column in the **Columns** mode), like any related item. Callers
+    you are not allowed to read are left out, exactly as in the record's edit view. The **Dédalo
+    (Raw)** format exports these calculated values too; the import tool skips them, since there is
+    nothing stored to write back. See [Exporting data](./core/exporting_data.md).
+
+    3D model fields also exported an empty column; they now export the file's address, like audiovisual
+    fields.
+
+    Wire contract: `WC-2026-11-11-export-inverse-callers`.
+
 - **Exports in the Standard format follow each column's configured fields and separators, and relation columns that came out blank now carry their values.**
 
     A relation column in the **Standard** export format used to show the related record's own default
@@ -573,7 +589,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 27 entries"
+??? note "Wire contract — 28 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -597,6 +613,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-10-translation-empty-result`
     - `WC-2026-11-10-widget-data-read-door`
     - `WC-2026-11-10-wipe-filter-user-default`
+    - `WC-2026-11-11-export-inverse-callers`
     - `WC-2026-11-11-export-related-references-column`
     - `WC-2026-11-11-export-value-single-walker`
     - `WC-2026-11-11-relation-index-related-list-context`

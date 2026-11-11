@@ -50,10 +50,13 @@
  */
 
 import { isDiffusionLangCode } from '../../config/lang_code.ts';
+import { resolveInverseEntries } from '../../core/components/component_inverse/emit.ts';
+import { getFlatValueFamily, isDerivedModel } from '../../core/components/registry.ts';
 import { CLIENT_MAX_LIMIT, getSectionTipos, sanitizeClientSqo } from '../../core/concepts/sqo.ts';
 import { DedaloError, ok } from '../../core/errors/index.ts';
 import { termByTipo } from '../../core/ontology/labels.ts';
 import { getColumnNameByModel, getModelByTipo } from '../../core/ontology/resolver.ts';
+import { componentLocators, readsComputedLocators } from '../../core/relations/locator_source.ts';
 import { EmissionContext } from '../../core/resolve/component_data.ts';
 import type { MediaReadAddress } from '../../core/resolve/relation_list.ts';
 import {
@@ -96,6 +99,7 @@ import {
 	fieldHasValueReferences,
 	PARENTS_SUB_ID,
 	REFERENCES_SUB_ID,
+	recordInverseCallerGrants,
 	resolveValueCellWithMedia,
 	segmentIdentityKey,
 	wireSegment,
@@ -1706,9 +1710,54 @@ export async function exportGridUnified(context: ToolActionContext): Promise<Too
 }
 
 /**
+ * The dedalo_raw slice of a DERIVED model (registry isDerivedModel — it stores
+ * nothing under its tipo) is its COMPUTED value, as PHP build_raw_export_data
+ * read `$this->get_data()`; the stored slot is empty by definition and exported
+ * null. Undefined = not computed here (read the stored slot):
+ *   - component_inverse → the backlinks (component_inverse/emit.ts), scoped for
+ *     the run's frontier principal (explicit: a job may run detached; no
+ *     frontier = admin/internal → unscoped), unreadable owners dropped; each
+ *     owner section recorded for the re-check (atoms.ts
+ *     recordInverseCallerGrants);
+ *   - component_relation_children / component_relation_index → THE locator
+ *     source (relations/locator_source.ts componentLocators — the export
+ *     fan-out's own; the index set is never filtered, owner rule);
+ *   - component_external → undefined: its column is inert and its value is the
+ *     REMOTE record's (dedalo_raw reads no external value — as before).
+ * Re-import never writes these back (tool_import_dedalo_csv skips derived).
+ */
+async function computedRawSlice(
+	run: ExportRun,
+	record: { section_id: number; section_tipo: string },
+	componentTipo: string,
+	model: string,
+): Promise<unknown[] | undefined> {
+	if (!isDerivedModel(model)) return undefined;
+	if (getFlatValueFamily(model) === 'inverse') {
+		const entries = await resolveInverseEntries(record.section_tipo, Number(record.section_id), {
+			principal: run.atoms.frontier?.principal,
+		});
+		// every entry's owner section reaches the cell: re-asked on a later read
+		recordInverseCallerGrants(
+			run.atoms,
+			entries.map((entry) => entry.from_section_tipo),
+		);
+		return entries;
+	}
+	if (readsComputedLocators(model)) {
+		return componentLocators(
+			{ sectionTipo: record.section_tipo, sectionId: Number(record.section_id), columns: null },
+			componentTipo,
+			model,
+		);
+	}
+	return undefined;
+}
+
+/**
  * dedalo_raw cell of ONE component (PHP get_raw_export_value: raw export does
- * NOT recurse — the component's own stored slice, `{"dedalo_data": <slice>}`
- * wrapped; component_section_id stays a plain int, the re-import record key).
+ * NOT recurse — the component's own stored slice (a DERIVED model's computed
+ * value: computedRawSlice), `{"dedalo_data": <slice>}` wrapped; component_section_id stays a plain int, the re-import record key).
  *
  * ONE component, ONE cell (WC-2026-08-09-export-raw-dataframe-own-column):
  * a component_dataframe slot is a component with its OWN stored data, so it
@@ -1725,6 +1774,12 @@ async function buildRawCell(
 ): Promise<{ raw: string | number | null; cellType: string }> {
 	if (model === 'component_section_id') {
 		return { raw: Number(record.section_id), cellType: 'section_id' };
+	}
+	const computed = await computedRawSlice(run, record, componentTipo, model);
+	if (computed !== undefined) {
+		return computed.length === 0
+			? { raw: null, cellType: 'json' }
+			: { raw: JSON.stringify({ dedalo_data: computed }), cellType: 'json' };
 	}
 	const stored = await loadExportRecord(run.atoms, record.section_tipo, Number(record.section_id));
 	const column = getColumnNameByModel(model);
