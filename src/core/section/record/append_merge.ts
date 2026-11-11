@@ -445,8 +445,15 @@ const LITERAL_EQUALITY: Readonly<
 	Record<LiteralEqualityFamily, (left: AppendItem, right: AppendItem) => boolean>
 > = {
 	string: (left, right) => canonicalJson(left.value) === canonicalJson(right.value),
+	// T0-12 / D3: an iri item's identity is its `iri` (within the lang slice).
+	// Its LABEL is not item identity — it is carried by the item's dd560 frame
+	// (the import writes it there), so `label_id` is no part of equality.
+	// A TITLE-ONLY item (both iris blank — still an item, D5) is identified by
+	// its deprecated `title`: two different titles are two items, never one.
 	iri: (left, right) =>
-		looseEqual(left.iri, right.iri) && looseEqual(left.label_id, right.label_id),
+		isBlankValue(left.iri) && isBlankValue(right.iri)
+			? looseEqual(left.title, right.title)
+			: looseEqual(left.iri, right.iri),
 	number: (left, right) => numberValueEqual(left.value, right.value),
 	date: (left, right) => dateSignature(left) === dateSignature(right),
 };
@@ -481,14 +488,15 @@ function isNumeric(value: unknown): boolean {
  * Whether a literal entry carries NO identity value — a blank the append
  * skips as `empty` (plan §5), and the executor keeps out of a multi-lang
  * cell's shared-id keys (no id is allocated for it). Per family, on the SAME
- * fields the equality reads: `value` for string/number, `iri` + `label_id`
- * for iri, the whole date signature for date.
+ * fields the equality reads: `value` for string/number, the whole date
+ * signature for date. iri: blank `iri` AND blank deprecated `title` (PHP
+ * component_iri `is_empty` — a title-only item is still an item, T0-12 / D5).
  */
 export function isEmptyLiteralItem(raw: unknown, family: LiteralEqualityFamily): boolean {
 	if (!isObject(raw)) return false;
 	switch (family) {
 		case 'iri':
-			return isBlankValue(raw.iri) && isBlankValue(raw.label_id);
+			return isBlankValue(raw.iri) && isBlankValue(raw.title);
 		case 'date':
 			return dateSignature(raw) === canonicalJson({});
 		default:

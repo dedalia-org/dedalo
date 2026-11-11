@@ -1185,8 +1185,8 @@ Row 1 will be saved as `[{"value":{"config":{"a":1}}}]`, row 4 as `[{"value":42}
 Component: `component_iri`. The component does not use languages; the main format to import is the array of `dd_iri` objects.
 
 !!! info "Data format in version 6.8.0"
-    The data version for the iri component changed in version 6.8.0. The `title` property is deprecated and will be removed in future versions.
-    In version >= 6.8.0 use the property `label_id` to define the title.
+    The data version for the iri component changed in version 6.8.0. The `title` property is deprecated and may be removed in future versions.
+    In version >= 6.8.0 use the property `label_id` to define the label.
 
 ```json
 [{
@@ -1197,8 +1197,14 @@ Component: `component_iri`. The component does not use languages; the main forma
 ```
 
 - `iri` property, **mandatory**. Defines the URL, it needs to have the protocol and a valid structure with domain.
-- `id` property **optional**. Defines the unique id of the data, it will be used to be linked with the label dataframe. If omitted, it is auto-assigned on save.
-- `label_id` property **optional**. Defines the target id (section_id) to be used as value of the label in dataframe.
+- `id` property **optional**. Defines the unique id of the data, it will be used to be linked with the label dataframe. If omitted, it is auto-assigned on save. On an item with a label it must be an integer >= 1, otherwise the cell is refused.
+- `label_id` property **optional**. The `section_id` of an existing record of the label list (`dd1706`, the label value in `dd1715`). It must be an integer >= 1 and name a record that exists, otherwise the cell is refused.
+
+!!! note "`label_id` is converted, never stored"
+
+    `label_id` is an import instruction, not part of the stored value. The import removes it from the item and saves the label as the item's label dataframe (`dd560`): a frame pointing to the `dd1706` record, paired with the item through its `id`. This is the same shape the editor writes. A labelled item must also carry an `iri` (or the deprecated `title`): a label with nothing to label is refused.
+
+    Saving a URI value whose item carries `label_id` directly (through the API, or any other door) is **refused**: the label belongs to the dataframe.
 
 !!! note "id exception for component_iri"
 
@@ -1313,8 +1319,9 @@ The table to import
         "label_id" : 8
     }]
     ```
-    And it will be processed to create the label relation with a `component_dataframe` pointing to the value 8 and create the relation with the `component_iri`.
-    The `component_dataframe` will point to the `section_id` 8 that is the `Dédalo` label.
+    And it will be processed to create the label relation with the label dataframe (`dd560`) pointing to the `section_id` 8 of the label list (`dd1706`), paired with the new URI item. `label_id` itself is not stored.
+
+    If the label list has no record 8, the cell is **refused** (reported in the run's `failed` rows) and nothing is written for it.
 
     !!! tip "Separator format"
 
@@ -1332,13 +1339,14 @@ The table to import
     | ------------  | ------ |
     | 1             | Dédalo, https://dedalo.dev |
 
-    The string value is checked during the import process. If the string value exists in the value list, it is set with its own id (section_id); if it does not exist, a new value is created in the list.
+    The string value is checked during the import process against the label list (`dd1706`, value in `dd1715`):
 
-    !!! warning "Not available yet — use the label's id instead"
+    - **Match rule:** the whole value is compared ignoring case, accents and surrounding white space (spaces, tabs, line breaks, non-breaking spaces) — `dédalo`, `DEDALO` and ` Dédalo ` all match a stored `Dédalo`. A label is never matched by a part of it: `Dédalo` does not match `Dédalo project`.
+    - **Found:** the existing label is used. The lookup covers the whole label list, not only your projects, so a label filed in another project is reused rather than duplicated.
+    - **Several found:** when the list holds more than one equivalent label, the one with the lowest id is used and the run reports a warning naming the others.
+    - **Not found:** a new label is created in the list with the text as written (trimmed), in your default project. Creating it needs permission to create records in the label list; without it the cell is **refused**, never imported without its label.
 
-        This form is **not supported by the current import engine**: resolving a text label requires a lookup-or-create in the label section, which is not implemented. Such a cell is **refused** — reported in the run's `failed` rows with an explanatory message — rather than imported without its label.
-
-        Use form 3 above instead, giving the label's **id** (`8, https://dedalo.dev`). A plain URI with no label (forms 1, 2 and 5) imports normally.
+    In every case the label is saved as the item's label dataframe (`dd560`), exactly as with form 3. Importing the same file again reuses the label created the first time.
 
 5. String of multiple values
 
@@ -1377,13 +1385,12 @@ The table to import
     | ------------  | ------- |
     | 1             |  Dédalo, https://dedalo.dev \| https://dedalo.dev/docs |
 
-    it will be parsed as:
+    it will be parsed as two items, the first one labelled `Dédalo` (resolved as in form 4, here the existing label 8):
 
     ```json
     [
         {
-            "iri":"https://dedalo.dev",
-            "label_id": 8
+            "iri":"https://dedalo.dev"
         },
         {
             "iri":"https://dedalo.dev/docs"
@@ -1391,11 +1398,13 @@ The table to import
     ]
     ```
 
+    and one label dataframe (`dd560`) frame pointing to `dd1706` record 8, paired with the first item.
+
 #### Version format < 6.8.0 (deprecated)
 
 !!! warning "Deprecated format"
 
-    The `title` property in IRI data was deprecated in version 6.8.0 and replaced by `label_id`. If you have CSV files using the old `title` property, they will still be accepted by the import process, but the `title` value will be ignored. Use `label_id` instead to preserve the label relationship.
+    The `title` property in IRI data was deprecated in version 6.8.0 and replaced by the label dataframe. Files using the old `title` property are still accepted, and the `title` value **is stored** on the item as before (its removal is under discussion). It does not create a label: the title the application displays comes from the label dataframe (`dd560`). Use `label_id` or the text-label form to set the label.
 
 ```json
 [{

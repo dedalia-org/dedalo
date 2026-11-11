@@ -210,6 +210,11 @@ const CENSUS: Record<string, CensusRow> = {
 		reason:
 			'the thesaurus tree mutators (persistTreeKeys, CLOSURE_PLAN Step 5): every key they write is HARD-BOUND to a section’s component_relation_parent (getParentTipo), its section_map order number, or add_child’s section_map thesaurus defaults — the users section declares no parent component (relation_children_write_through_native asserts getParentTipo(dd128) is null), so no dd128 component is reachable. Their one caller, ts_object/ts_api.ts, gates at the section level (its own row).',
 	},
+	'src/core/tools/import_iri_label.ts': {
+		verdict: 'not-dd128',
+		reason:
+			'the component_iri label resolver of the import executors (T0-12): its writes are HARD-BOUND to the label vocabulary — createSectionRecord(dd1706) and saveComponentData of its value dd1715, both module constants; no section or component reaches it from the file (only the label text). The create is asked of authorizeSectionTarget (dd1706 + dd1715, level 2) as the importer first; a refusal refuses the field (import_iri_label_native case 11).',
+	},
 	'src/core/tm_record/tm_note_create.ts': {
 		verdict: 'not-dd128',
 		reason:

@@ -327,6 +327,14 @@ const SAVE_DOORS: ReadonlyMap<string, { lang: string; reason: string }> = new Ma
 		{ lang: 'nolan', reason: 'Ontology data import writes DATA_NOLAN.' },
 	],
 	[
+		'src/core/tools/import_iri_label.ts',
+		{
+			lang: 'nolan',
+			reason:
+				'T0-12: creates a component_iri LABEL — dd1715 (not translatable) is written lg-nolan, the shape of every stored label.',
+		},
+	],
+	[
 		'src/core/security/auth.ts',
 		{ lang: 'nolan', reason: 'The Argon2id password hash — lg-nolan by definition.' },
 	],

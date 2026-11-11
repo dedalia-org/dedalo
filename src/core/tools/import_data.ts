@@ -220,6 +220,28 @@ export interface ConformResult {
 	/** Accepted, but flagged for a human (today: only component_select_lang). */
 	warnings: ConformFailure[];
 	msg: string;
+	/**
+	 * Frames the EXECUTOR must derive for items of `result` (T0-12: a
+	 * component_iri label → its dd560 frame). Conform runs at plan/preview time,
+	 * outside any transaction, so it never writes: it states the INTENT and the
+	 * executor resolves + writes it inside the row's transaction
+	 * (`import_iri_label.ts`). Absent = none. Never on the stored item.
+	 */
+	derivedFrames?: IriLabelIntent[];
+}
+
+/**
+ * One label an imported component_iri item carries (T0-12). `item` is the
+ * item's position in `result`: in the lang's array when `lang` names a key of a
+ * lang-keyed result, else in the flat array (`lang` null).
+ */
+export interface IriLabelIntent {
+	/** The fixed label slot of component_iri (dd560). */
+	slot: 'dd560';
+	lang: string | null;
+	item: number;
+	/** An existing dd1706 record id, or a label TEXT to find-or-create. */
+	target: { section_id: number } | { label: string };
 }
 
 export interface ConformInput {
