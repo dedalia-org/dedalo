@@ -19,17 +19,17 @@
  * relation_list — it is the definition of what a CALLER section shows of
  * itself in the inspector (and the path diffusion follows inversely), not an
  * edit-form child. A virtual whose exclude_elements names the real
- * relation_list node still inherits it (zzrv33 pins this; PHP's generic
+ * relation_list node still inherits it (zzvrl33 pins this; PHP's generic
  * subtraction reaching it is incidental, a deliberate non-port).
  *
- * SITUATION (`zzrv`, matrix_test, ids 900851+, dropped with a residue-0 check):
- *   zzrv1  section HOST (relation_list zzrv2, empty)    — §900851
- *   zzrv3  REAL referencing section: zzrv4, zzrv5 input_text, zzrv7 portal →
- *          host, relation_list zzrv8 → [zzrv4, zzrv5]
- *   zzrv30 VIRTUAL of zzrv3, no children                — §900852 → host
- *   zzrv31 VIRTUAL of zzrv3 with OWN relation_list zzrv32 → [zzrv4]
- *   zzrv33 VIRTUAL of zzrv3, exclude_elements zzrv35 naming zzrv8
- *   zzrv34 REAL section with TWO relation_list nodes and TWO time_machine_list
+ * SITUATION (`zzvrl`, matrix_test, ids 900851+, dropped with a residue-0 check):
+ *   zzvrl1  section HOST (relation_list zzvrl2, empty)    — §900851
+ *   zzvrl3  REAL referencing section: zzvrl4, zzvrl5 input_text, zzvrl7 portal →
+ *          host, relation_list zzvrl8 → [zzvrl4, zzvrl5]
+ *   zzvrl30 VIRTUAL of zzvrl3, no children                — §900852 → host
+ *   zzvrl31 VIRTUAL of zzvrl3 with OWN relation_list zzvrl32 → [zzvrl4]
+ *   zzvrl33 VIRTUAL of zzvrl3, exclude_elements zzvrl35 naming zzvrl8
+ *   zzvrl34 REAL section with TWO relation_list nodes and TWO time_machine_list
  *          nodes; the order-2 one of each is INSERTED FIRST so an unordered
  *          read picks it.
  */
@@ -56,157 +56,157 @@ registerSessionCleanup();
 
 const HOST_ID = 900851;
 const VIRTUAL_REF_ID = 900852;
-const hostLocator = { section_tipo: 'zzrv1', section_id: HOST_ID, type: 'dd571' };
+const hostLocator = { section_tipo: 'zzvrl1', section_id: HOST_ID, type: 'dd571' };
 
 const s = situation({
-	tld: 'zzrv',
+	tld: 'zzvrl',
 	name: 'relation_list virtual lookup',
 	nodes: [
 		// HOST
 		{
-			tipo: 'zzrv1',
+			tipo: 'zzvrl1',
 			parent: 'test1',
 			model: 'section',
 			term: { 'lg-spa': 'Anfitrión' },
 			relations: [{ tipo: 'test24' }],
 		},
 		{
-			tipo: 'zzrv2',
-			parent: 'zzrv1',
+			tipo: 'zzvrl2',
+			parent: 'zzvrl1',
 			model: 'relation_list',
 			term: { 'lg-spa': 'relation_list' },
 		},
 
 		// REAL referencing section
 		{
-			tipo: 'zzrv3',
+			tipo: 'zzvrl3',
 			parent: 'test1',
 			model: 'section',
 			term: { 'lg-spa': 'Real' },
 			relations: [{ tipo: 'test24' }],
 		},
 		{
-			tipo: 'zzrv4',
-			parent: 'zzrv3',
+			tipo: 'zzvrl4',
+			parent: 'zzvrl3',
 			model: 'component_input_text',
 			order_number: 1,
 			term: { 'lg-spa': 'Cuatro' },
 		},
 		{
-			tipo: 'zzrv5',
-			parent: 'zzrv3',
+			tipo: 'zzvrl5',
+			parent: 'zzvrl3',
 			model: 'component_input_text',
 			order_number: 2,
 			term: { 'lg-spa': 'Cinco' },
 		},
 		{
-			tipo: 'zzrv7',
-			parent: 'zzrv3',
+			tipo: 'zzvrl7',
+			parent: 'zzvrl3',
 			model: 'component_portal',
 			order_number: 3,
 			term: { 'lg-spa': 'Portal al anfitrión' },
-			relations: [{ tipo: 'zzrv1' }],
+			relations: [{ tipo: 'zzvrl1' }],
 		},
 		{
-			tipo: 'zzrv8',
-			parent: 'zzrv3',
+			tipo: 'zzvrl8',
+			parent: 'zzvrl3',
 			model: 'relation_list',
 			order_number: 4,
 			term: { 'lg-spa': 'relation_list' },
-			relations: [{ tipo: 'zzrv4' }, { tipo: 'zzrv5' }],
+			relations: [{ tipo: 'zzvrl4' }, { tipo: 'zzvrl5' }],
 		},
 
-		// VIRTUAL, no own children → inherits zzrv8.
+		// VIRTUAL, no own children → inherits zzvrl8.
 		{
-			tipo: 'zzrv30',
+			tipo: 'zzvrl30',
 			parent: 'test1',
 			model: 'section',
 			term: { 'lg-spa': 'Virtual' },
-			relations: [{ tipo: 'zzrv3' }],
+			relations: [{ tipo: 'zzvrl3' }],
 		},
 
 		// VIRTUAL with its OWN relation_list → own wins.
 		{
-			tipo: 'zzrv31',
+			tipo: 'zzvrl31',
 			parent: 'test1',
 			model: 'section',
 			term: { 'lg-spa': 'Virtual propio' },
-			relations: [{ tipo: 'zzrv3' }],
+			relations: [{ tipo: 'zzvrl3' }],
 		},
 		{
-			tipo: 'zzrv32',
-			parent: 'zzrv31',
+			tipo: 'zzvrl32',
+			parent: 'zzvrl31',
 			model: 'relation_list',
 			term: { 'lg-spa': 'relation_list' },
-			relations: [{ tipo: 'zzrv4' }],
+			relations: [{ tipo: 'zzvrl4' }],
 		},
 
 		// VIRTUAL whose exclude_elements names the real relation_list (D1 pin).
 		{
-			tipo: 'zzrv33',
+			tipo: 'zzvrl33',
 			parent: 'test1',
 			model: 'section',
 			term: { 'lg-spa': 'Virtual excluye' },
-			relations: [{ tipo: 'zzrv3' }],
+			relations: [{ tipo: 'zzvrl3' }],
 		},
 		{
-			tipo: 'zzrv35',
-			parent: 'zzrv33',
+			tipo: 'zzvrl35',
+			parent: 'zzvrl33',
 			model: 'exclude_elements',
 			term: { 'lg-spa': 'exclude_elements' },
-			relations: [{ tipo: 'zzrv8' }],
+			relations: [{ tipo: 'zzvrl8' }],
 		},
 
 		// REAL section with two nodes per model; order-2 inserted FIRST.
 		{
-			tipo: 'zzrv34',
+			tipo: 'zzvrl34',
 			parent: 'test1',
 			model: 'section',
 			term: { 'lg-spa': 'Dos listas' },
 			relations: [{ tipo: 'test24' }],
 		},
 		{
-			tipo: 'zzrv36',
-			parent: 'zzrv34',
+			tipo: 'zzvrl36',
+			parent: 'zzvrl34',
 			model: 'relation_list',
 			order_number: 2,
 			term: { 'lg-spa': 'relation_list segunda' },
-			relations: [{ tipo: 'zzrv4' }],
+			relations: [{ tipo: 'zzvrl4' }],
 		},
 		{
-			tipo: 'zzrv37',
-			parent: 'zzrv34',
+			tipo: 'zzvrl37',
+			parent: 'zzvrl34',
 			model: 'relation_list',
 			order_number: 1,
 			term: { 'lg-spa': 'relation_list primera' },
-			relations: [{ tipo: 'zzrv5' }],
+			relations: [{ tipo: 'zzvrl5' }],
 		},
 		{
-			tipo: 'zzrv38',
-			parent: 'zzrv34',
+			tipo: 'zzvrl38',
+			parent: 'zzvrl34',
 			model: 'time_machine_list',
 			order_number: 4,
 			term: { 'lg-spa': 'time_machine_list segunda' },
 		},
 		{
-			tipo: 'zzrv39',
-			parent: 'zzrv34',
+			tipo: 'zzvrl39',
+			parent: 'zzvrl34',
 			model: 'time_machine_list',
 			order_number: 3,
 			term: { 'lg-spa': 'time_machine_list primera' },
 		},
 	],
 	records: [
-		{ section_tipo: 'zzrv1', section_id: HOST_ID, columns: { data: {} } },
+		{ section_tipo: 'zzvrl1', section_id: HOST_ID, columns: { data: {} } },
 		{
-			section_tipo: 'zzrv30',
+			section_tipo: 'zzvrl30',
 			section_id: VIRTUAL_REF_ID,
 			columns: {
 				string: {
-					zzrv4: [{ lang: 'lg-nolan', value: 'Valor cuatro' }],
-					zzrv5: [{ lang: 'lg-nolan', value: 'Valor cinco' }],
+					zzvrl4: [{ lang: 'lg-nolan', value: 'Valor cuatro' }],
+					zzvrl5: [{ lang: 'lg-nolan', value: 'Valor cinco' }],
 				},
-				relation: { zzrv7: [hostLocator] },
+				relation: { zzvrl7: [hostLocator] },
 			},
 		},
 	],
@@ -242,8 +242,8 @@ async function relationListGrid(): Promise<{
 			source: {
 				typo: 'source',
 				model: 'relation_list',
-				tipo: 'zzrv2',
-				section_tipo: 'zzrv1',
+				tipo: 'zzvrl2',
+				section_tipo: 'zzvrl1',
 				section_id: HOST_ID,
 				action: 'get_relation_list',
 				mode: 'edit',
@@ -252,7 +252,7 @@ async function relationListGrid(): Promise<{
 			sqo: {
 				section_tipo: ['all'],
 				mode: 'related',
-				filter_by_locators: [{ section_tipo: 'zzrv1', section_id: HOST_ID }],
+				filter_by_locators: [{ section_tipo: 'zzvrl1', section_id: HOST_ID }],
 				limit: 10,
 				offset: 0,
 			},
@@ -275,63 +275,63 @@ async function relationListGrid(): Promise<{
 
 describe.if(DB_READY)('relation_list node lookup: virtual→real + order (T0-7)', () => {
 	test('a virtual WITHOUT its own relation_list inherits the real one (columns, in order)', async () => {
-		expect(await getRelationListColumns('zzrv30')).toEqual(['zzrv4', 'zzrv5']);
-		expect(await sectionRelationListTipo('zzrv30')).toBe('zzrv8');
-		expect(await getRelatedListChildTipos('zzrv30')).toEqual(['zzrv4', 'zzrv5']);
+		expect(await getRelationListColumns('zzvrl30')).toEqual(['zzvrl4', 'zzvrl5']);
+		expect(await sectionRelationListTipo('zzvrl30')).toBe('zzvrl8');
+		expect(await getRelatedListChildTipos('zzvrl30')).toEqual(['zzvrl4', 'zzvrl5']);
 	});
 
 	test('a virtual WITH its own relation_list keeps its own', async () => {
-		expect(await getRelationListColumns('zzrv31')).toEqual(['zzrv4']);
-		expect(await sectionRelationListTipo('zzrv31')).toBe('zzrv32');
-		expect(await getRelatedListChildTipos('zzrv31')).toEqual(['zzrv4']);
+		expect(await getRelationListColumns('zzvrl31')).toEqual(['zzvrl4']);
+		expect(await sectionRelationListTipo('zzvrl31')).toBe('zzvrl32');
+		expect(await getRelatedListChildTipos('zzvrl31')).toEqual(['zzvrl4']);
 	});
 
 	test('D1: exclude_elements never removes the inherited relation_list', async () => {
-		expect(await getRelationListColumns('zzrv33')).toEqual(['zzrv4', 'zzrv5']);
-		expect(await sectionRelationListTipo('zzrv33')).toBe('zzrv8');
-		expect(await getRelatedListChildTipos('zzrv33')).toEqual(['zzrv4', 'zzrv5']);
+		expect(await getRelationListColumns('zzvrl33')).toEqual(['zzvrl4', 'zzvrl5']);
+		expect(await sectionRelationListTipo('zzvrl33')).toBe('zzvrl8');
+		expect(await getRelatedListChildTipos('zzvrl33')).toEqual(['zzvrl4', 'zzvrl5']);
 	});
 
 	test('several relation_list nodes: the first by order_number wins', async () => {
-		expect(await getRelationListColumns('zzrv34')).toEqual(['zzrv5']);
-		expect(await sectionRelationListTipo('zzrv34')).toBe('zzrv37');
-		expect(await getRelatedListChildTipos('zzrv34')).toEqual(['zzrv5']);
+		expect(await getRelationListColumns('zzvrl34')).toEqual(['zzvrl5']);
+		expect(await sectionRelationListTipo('zzvrl34')).toBe('zzvrl37');
+		expect(await getRelatedListChildTipos('zzvrl34')).toEqual(['zzvrl5']);
 	});
 
 	test('the order law reaches the other list-definition models too', async () => {
-		expect((await findSectionChildByModel('zzrv34', 'time_machine_list'))?.tipo).toBe('zzrv39');
+		expect((await findSectionChildByModel('zzvrl34', 'time_machine_list'))?.tipo).toBe('zzvrl39');
 	});
 
 	test('References grid (get_relation_list) shows the inherited columns for a virtual referrer', async () => {
 		const grid = await relationListGrid();
 		const columns = grid.context
-			.filter((entry) => entry.section_tipo === 'zzrv30')
+			.filter((entry) => entry.section_tipo === 'zzvrl30')
 			.map((entry) => entry.component_tipo);
-		expect(columns).toEqual(['id', 'zzrv4', 'zzrv5']);
+		expect(columns).toEqual(['id', 'zzvrl4', 'zzvrl5']);
 		const values = grid.data
-			.filter((cell) => cell.section_tipo === 'zzrv30' && cell.component_tipo !== 'id')
+			.filter((cell) => cell.section_tipo === 'zzvrl30' && cell.component_tipo !== 'id')
 			.map((cell) => [cell.component_tipo, cell.value]);
 		expect(values).toEqual([
-			['zzrv4', 'Valor cuatro'],
-			['zzrv5', 'Valor cinco'],
+			['zzvrl4', 'Valor cuatro'],
+			['zzvrl5', 'Valor cinco'],
 		]);
 	});
 
 	test('related_search shows the inherited columns for a virtual referrer', async () => {
-		const related = await buildRelatedSections([{ section_tipo: 'zzrv1', section_id: HOST_ID }], {
-			callerTipo: 'zzrv1',
+		const related = await buildRelatedSections([{ section_tipo: 'zzvrl1', section_id: HOST_ID }], {
+			callerTipo: 'zzvrl1',
 			lang: 'lg-spa',
 		});
 		const columns = related.context
-			.filter((entry) => entry.section_tipo === 'zzrv30' && entry.model !== 'section')
+			.filter((entry) => entry.section_tipo === 'zzvrl30' && entry.model !== 'section')
 			.map((entry) => entry.tipo);
-		expect(columns).toEqual(['zzrv4', 'zzrv5']);
+		expect(columns).toEqual(['zzvrl4', 'zzvrl5']);
 		const values = related.data
-			.filter((cell) => cell.section_tipo === 'zzrv30')
+			.filter((cell) => cell.section_tipo === 'zzvrl30')
 			.map((cell) => [cell.tipo, cell.value]);
 		expect(values).toEqual([
-			['zzrv4', ['Valor cuatro']],
-			['zzrv5', ['Valor cinco']],
+			['zzvrl4', ['Valor cuatro']],
+			['zzvrl5', ['Valor cinco']],
 		]);
 	});
 });
