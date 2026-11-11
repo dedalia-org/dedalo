@@ -367,9 +367,16 @@ describe('AUTHZ-06: component_filter project datalist is narrowed per user', () 
 		const readFacade = read('src/core/section/read_facade.ts');
 		// Record-scoped since 2026-10-24 (tool_user_admin's dd128 own-record rules):
 		// the same component grant, judged with the addressed record in hand.
+		// Since T0-4 (2026-11-10) the facade asks write_door's sourceComponentLevel,
+		// which binds a FIXED dataframe slot (dd560) by its main and answers every
+		// other source with the same record-scoped component grant.
 		expect(readFacade).toMatch(
-			/getRecordComponentPermission\(\s*principal,\s*source\.section_tipo,\s*source\.tipo,\s*source\.section_id,?\s*\)/,
+			/sourceComponentLevel\(\s*principal,\s*source as [^,]+,\s*'read\.get_data',?\s*\)/,
 		);
 		expect(readFacade).toMatch(/if \(level < 1\) \{\s*return emptyShell\(\);/);
+		const writeDoor = read('src/core/security/write_door.ts');
+		expect(writeDoor).toMatch(
+			/if \(!isFixedDataframeSlot\(source\.tipo\)\) \{\s*return getRecordComponentPermission\(principal, source\.section_tipo, source\.tipo, sectionId\);/,
+		);
 	});
 });
