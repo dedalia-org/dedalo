@@ -82,8 +82,33 @@ Hierarchical components (thesaurus terms) have a chain of ancestors. When you ad
 a portal or autocomplete column whose target section is hierarchical, you get a small
 **parents** checkbox on its item: enable it to add a sibling column with the term's
 ancestor chain (nearest parent first, joined with ` > `). The option is per column
-only; there is no global switch. It applies to the **Breakdown** format and is off by
-default.
+only; there is no global switch. It applies to the **Standard** and **Breakdown**
+formats (disabled in **Dédalo (Raw)**) and is off by default.
+
+### Per-component "references" (calculated relations)
+
+A *related terms* column (`component_relation_related`) exports the relations
+**stored** on the record. When the field works in both directions (bidirectional or
+multidirectional), it also has **calculated** relations: the terms that point at it.
+Those are not part of the column. Its item has a small **references** checkbox:
+enable it to add a sibling column, headed with the column name followed by
+*references*, holding the calculated relations only (never repeating the stored
+ones). Like *parents*, the option is per column, off by default, and applies to the
+**Standard** and **Breakdown** formats; it is disabled in **Dédalo (Raw)**, which
+exports stored data only. A unidirectional related field has no calculated relations,
+so it shows no checkbox — and an export request that sets the option on a column
+without calculated relations is refused (`request.invalid_options`) rather than
+silently exporting less than was asked.
+
+### What a relation column contains
+
+A relation column exports the sub-fields configured for it (the fields you expanded
+or, for an unexpanded relation, those its configuration lists), at every level of
+nesting, joined with the separators configured for that column. Every relation field
+exports its values, including *Projects*, *Publishable*, *Language*, *Parent*,
+*Children*, *Related* and *Index* (indexations). In an indexation column, a pointing
+record from a section you may not read exports as its section name followed by its
+id, and nothing else.
 
 ## Export options
 
@@ -93,7 +118,7 @@ All options are in the right-hand configuration panel.
 
 | Format | Value | What it produces |
 | --- | --- | --- |
-| **Standard** | `value` | One flat value per cell. Multiple values of a relation are joined in the same cell. The most readable format. |
+| **Standard** | `value` | One flat value per cell. Multiple values of a relation are joined in the same cell with the column's configured separators; an empty related record keeps its place between them. The most readable format. |
 | **Breakdown** | `grid_value` | Relation items are *exploded* into extra rows and/or extra `\|n` columns, so each related item gets its own cell. See [Breakdown mode](#breakdown-mode). |
 | **Dédalo (Raw)** | `dedalo_raw` | Each cell is the stored Dédalo value wrapped as `{"dedalo_data": …}`. Not meant to be read by humans; it is the format the **import tool** unwraps (see [Raw export and the import tool](#raw-export-and-the-import-tool)) — not a verbatim copy of the stored row. |
 
@@ -404,8 +429,8 @@ src/core/tools/dispatch.ts   dispatchToolRequest() — permission-gated per-tool
 src/diffusion/export/grid.ts   openExportGrid() — THE producer
         │   resolves the SQO (search/sql_assembler.ts) then, per data_format,
         │   walks each export ddo's path to atoms and mints columns/rows —
-        │   the SAME leaf-value resolver the relation_list panel uses
-        │   (resolve/relation_list.ts resolveCellValue/resolvePathValue)
+        │   ONE walk for every format: a `value` cell is the join of the
+        │   same atoms grid_value emits (export/join_atoms.ts)
         │
         ├─ get_export_grid ──────────▶ NDJSON stream or whole grid, to the caller (API / MCP)
         │
@@ -459,6 +484,7 @@ The tool's actions, all dispatched through `dd_tools_api::tool_request` and gate
 | `list_export_jobs` | no | The caller's exports of the section, newest first. |
 | `delete_export_job` | no | Delete one of the caller's exports with all its files, freeing its quota. |
 | `components_with_parent` | no | Which relation columns can offer the parents checkbox (WC-049). |
+| `components_with_references` | no | Which columns can offer the references checkbox: a related field with calculated relations (`dd467` / `dd621`) — the same rule the export refuses the option with elsewhere. |
 
 `build_export_file`, `get_export_preview`, `list_export_jobs` and `delete_export_job` only ever open the
 **caller's own** exports. The first three also ask the build's read gates again over the recorded
@@ -486,6 +512,7 @@ permission gate before running it. Request fields:
 | `breakdown` | `'default'` \| `'rows'` \| `'columns'` (used with `grid_value`). |
 | `fill_the_gaps` | bool — repeat spanning values on exploded rows. |
 | `value_with_parents` | bool, **per entry of `ar_ddo_to_export`** — add that column's ancestor-chain sibling column (`value` and `grid_value`; ignored in `dedalo_raw`, which exports stored data only; a request-level value is ignored, WC-049). In `value`, the sibling column is `<column> \| parents` (key `<top>#parents`), placed right after the term column, whose cell mirrors the term cell: the same separators in the same places and one chain per term piece, so splitting both cells the same way pairs each term with its chain. An item without parents keeps an empty slot; an item with no term has no slot. |
+| `value_with_references` | bool, **per entry of `ar_ddo_to_export`** — for a `component_relation_related` leaf whose directionality calculates relations (`dd467` bidirectional, `dd621` multidirectional), add a sibling column `<column> \| references` (key `<top>#references`, after the term and parents columns) with the CALCULATED relations only: the references minus the stored locators. `value` and `grid_value`; ignored in `dedalo_raw`. On any other leaf (a `dd620` related, a portal, …) the request is REFUSED with `request.invalid_options` in every format (`WC-2026-11-11-export-related-references-column`). |
 | `ar_ddo_to_export` | the columns, **in output order**. |
 | `sqo` | the search query object (the selection to export). |
 | `ndjson_stream` | bool — stream the flat-table protocol vs return it whole (`get_export_grid` only; the background job always writes the protocol to its spool). |
@@ -508,23 +535,41 @@ user defined by dragging. `cell_type` (`text` \| `img` \| `av` \| `iri` \|
 
 ### The component contract
 
-Every component's export cell is resolved by ONE shared engine rather than a
-per-model override method: `tool_export.ts` resolves every cell through the
-SAME generic leaf-value walkers the relation_list panel uses
-(`resolvePathValue` / `resolveCellValue` in `src/core/resolve/relation_list.ts`),
-keyed on the export ddo's `path`. Per-model behavior is expressed
-declaratively instead — each component model's descriptor carries a
-`flatValue` facet that the shared walkers dispatch through, so relation
-components recurse component-driven (export-atom child recursion) without
-needing a bespoke override. Coverage is `value`, `grid_value` with all three
-breakdown modes, `dedalo_raw`, multi-hop paths, NDJSON streaming, and
-media/image cells — pinned by `test/parity/tool_export_differential.test.ts`,
+Every component's export cell is resolved by ONE shared walk rather than a
+per-model override method: `src/diffusion/export/atoms.ts` walks each export
+ddo's `path` into **atoms** (one value + its segment path), following the
+caller's `ddo_map` at every relation level. `grid_value` tabulates the atoms;
+`value` (and the compact cell of an unexpanded portal) is the JOIN of the same
+atoms (`src/diffusion/export/join_atoms.ts joinExportAtoms`): records by segment
+`item_index`, fields by segment identity, separators by precedence caller ddo →
+the component's own `request_config` `show` → its `properties` → defaults
+(`' | '` records, `', '` fields). `component_input_text`, `component_date` and
+`component_iri` join their own items with `records_separator ?? ' | '`; other
+leaves with the fields separator. An empty value (`''` or `'0'`) is skipped, but
+an empty related record keeps its slot. The fan-out stops only on a cycle (the
+same record and component already on the path, noted `relation_cycle:<tipo>`),
+never at a fixed depth (`WC-2026-11-11-export-value-single-walker`).
+
+Per-model behavior is expressed declaratively: each component model's
+descriptor carries a `flatValue` facet (every relation-column model declares one,
+gated by `descriptor_completeness_tripwire`); a relation's children per target
+come from ONE seam, `src/core/relations/config_children.ts` (explicit
+`request_config`, else — for a config-less `component_relation_index` — per
+pointing record its id plus its section's related_list columns, the columns the
+edit form shows, else the edit form's implicit config —
+`component_filter` → `dd156`); its locators from ONE source,
+`src/core/relations/locator_source.ts` (the stored slice, or the computed set of
+`component_relation_children` / `component_relation_index`). The interactive
+readers (relation_list panel, references) use the same two seams. Coverage is
+`value`, `grid_value` with all three breakdown modes, `dedalo_raw`, multi-hop
+paths, NDJSON streaming, and media/image cells — pinned by
+`test/unit/tool_export_value_relation_native.test.ts`,
 `test/parity/tool_export_breakdown_differential.test.ts` and
 `test/unit/tool_export_relation_dataframe_fanout_native.test.ts`. A genuinely new
-component shape that the shared resolver cannot express needs its own case
-added to the walkers rather than an override method.
+component shape that the shared walk cannot express needs its own case added to
+the walk rather than an override method.
 
-- The flat-join (`value` format) reference is `resolvePathValue()`.
+- The flat-join (`value` format) reference is `joinExportAtoms()`.
 - `dedalo_raw` cells are the exact stored value JSON-encoded with the
   `dedalo_data` wrapper, always exactly that: `{dedalo_data: <stored value>}`.
   A component with dataframe slots grows one EXTRA column per slot, headed by
@@ -537,14 +582,15 @@ added to the walkers rather than an override method.
 ### Files
 
 - `tools/tool_export/server/tool_export.ts` — the `get_export_grid` facade and the shared SQO section gate (`assertExportSqoSections`).
-- `src/diffusion/export/{compile_columns,atoms,grid,index}.ts` — the unified build: column-set plan compile, shared-walk atoms, the producer `openExportGrid` and the NDJSON emission (`exportGridUnified`).
+- `src/diffusion/export/{compile_columns,atoms,join_atoms,grid,index}.ts` — the unified build: column-set plan compile, shared-walk atoms, the value join, the producer `openExportGrid` and the NDJSON emission (`exportGridUnified`).
+- `src/core/relations/{config_children,locator_source}.ts` — a relation's children per target and its locators, shared by the export walk and the interactive readers.
 - `tools/tool_export/server/index.ts` — the tool's `ToolServerModule` registration (actions, background lanes, admission).
 - `tools/tool_export/server/export_job.ts` — `build_export_artifact`, `build_export_file`, `list_export_jobs`, per-user admission, the owned-job door.
 - `tools/tool_export/server/{preview,spool_reader}.ts` — the paged preview over the spool.
 - `tools/tool_export/server/artifact_store.ts` — the on-disk store: layout, confinement, quota, TTL sweep.
 - `tools/tool_export/server/{access,download}.ts` — the read re-check and the owner-only download route.
 - `tools/tool_export/server/writers/` — one streaming writer per format, plus the text semantics (`cells.ts`) and the spreadsheet plumbing (`spreadsheet.ts`).
-- `src/core/resolve/relation_list.ts` — the shared leaf-value resolvers (`resolvePathValue`, `resolveCellValue`) reused from the relation_list panel.
+- `src/core/resolve/relation_list.ts` — the interactive flat reader (`resolveCellValue`) of the relation_list panel and the references panel; the export walk reuses its leaf-level readers (`resolveCellItems`, `resolveCellValue` for a single literal or media leaf) but never its relation recursion.
 - `tools/tool_export/js/flat_table.js` — draws one preview page (no accumulator, no file building).
 - `tools/tool_export/js/{tool_export,render_tool_export,drag_tool_export}.js` — the wire, the UI and export runtime (job follow, pager, downloads, reconnect), the drag-and-drop column model.
 - `tools/tool_export/js/export_user_presets.js`, `client/dedalo/core/section/js/view_export_user_presets.js` — per-user presets (section `dd1781`; ordinary ontology data, no dedicated TS engine needed).

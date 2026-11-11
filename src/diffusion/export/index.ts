@@ -18,6 +18,7 @@
  * (2026-07-08, with the deep-breakdown export_tabulator rebuild).
  */
 
+export { exportPathMayReachMedia } from './atoms.ts';
 export type { ExportDdoInput } from './compile_columns.ts';
 export { compileExportPlan } from './compile_columns.ts';
 export type {

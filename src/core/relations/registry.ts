@@ -109,6 +109,12 @@ export interface RelationEmitContext {
 	scope?: EmitScope;
 	/** The generic emission path for child recursion. */
 	emitDdo: EmitDdoFn;
+	/**
+	 * Target sections whose locators are emitted as entries but NOT expanded
+	 * (no child cells) — a component_relation_index's existence-only pointers
+	 * (T0-9 D9, relations/models/relation_index.ts). Only the index sets it.
+	 */
+	existenceOnlyTargets?: ReadonlySet<string>;
 }
 
 /**

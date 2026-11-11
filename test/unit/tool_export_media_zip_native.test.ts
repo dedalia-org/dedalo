@@ -1523,8 +1523,12 @@ const ZZMZ_CHAIN = 'zzmz4';
 const TEXT = 'test52';
 const ZZMZ_HOST_IDS = [1, 2] as const;
 const ZZMZ_H3 = 3;
-/** Chain records: past MAX_FANOUT_DEPTH (12) distinct hops. */
+/** Chain records: 16 distinct hops, all walked — no depth cap; the fan-out stops only on a
+ * CYCLE (atoms.ts trail: the same record × component already on the path → relation_cycle). */
 const ZZMZ_CHAIN_IDS = Array.from({ length: 16 }, (_, k) => 10 + k);
+/** The ONLY media of the chain: an image on its LAST (16th) record — a value
+ * present only when the walk really reaches hop 16. */
+const ZZMZ_HOP16_PATH = '/image/1.5MB/0/zzmz_hop16.jpg';
 
 function zzmzSituation(targets: { h1: number[]; h2: number[]; h3: number[]; h3Text: number[] }) {
 	const link = (
@@ -1609,14 +1613,24 @@ function zzmzSituation(targets: { h1: number[]; h2: number[]; h3: number[]; h3Te
 			...ZZMZ_CHAIN_IDS.map((id, k) => ({
 				section_tipo: ZZMZ_HOST,
 				section_id: id,
-				columns: {
-					relation:
-						k + 1 < ZZMZ_CHAIN_IDS.length
-							? {
+				columns:
+					k + 1 < ZZMZ_CHAIN_IDS.length
+						? {
+								relation: {
 									[ZZMZ_CHAIN]: [link(ZZMZ_CHAIN_IDS[k + 1] as number, 1, ZZMZ_CHAIN, ZZMZ_HOST)],
-								}
-							: {},
-				},
+								},
+							}
+						: {
+								relation: {},
+								media: {
+									[IMAGE]: [
+										{
+											id: 1,
+											files_info: [fileInfo(image.defaultQuality, ZZMZ_HOP16_PATH, false)],
+										},
+									],
+								},
+							},
 			})),
 		],
 	});
@@ -2101,13 +2115,14 @@ describe.if(DB_READY)(
 			}
 		});
 
-		test('R11. a self-referencing portal chain longer than the fan-out ceiling still builds (the media capture never fails an export)', async () => {
+		test('R11. a 16-hop self-referencing portal chain is walked to its LAST hop and builds (no depth cap; the media capture never fails an export)', async () => {
 			const chain = [{ path: [step(ZZMZ_HOST, ZZMZ_CHAIN)] }];
 			for (const format of ['dedalo_raw', 'value', 'grid_value'] as const) {
 				const job = await run(chain, format, 'default', ZZMZ_HOST, [ZZMZ_CHAIN_IDS[0] as number]);
 				const manifest = await store.readManifest(job);
 				expect(manifest.status, format).toBe('ended');
-				expect(manifest.media_models, format).toEqual([]);
+				// the chain's ONLY media sits on hop 16: read ⇒ hop 16 was reached
+				expect(manifest.media_models, format).toEqual(['component_image']);
 				const csv = await buildArtifactFile({
 					store,
 					job,

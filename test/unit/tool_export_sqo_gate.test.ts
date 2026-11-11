@@ -57,6 +57,7 @@ const ACTIONS = [
 	'build_export_artifact',
 	'build_export_file',
 	'components_with_parent',
+	'components_with_references',
 	'delete_export_job',
 	'get_export_grid',
 	'get_export_preview',
@@ -71,7 +72,8 @@ describe('tool_export module surface', () => {
 	// CONTRACT EDIT (tool_export at scale): the module gained the server-built
 	// export — two BACKGROUND actions on the 'export' lane and two reads of the
 	// caller's own jobs; then (2026-09-24) the owner's delete_export_job,
-	// foreground. What this pin still guards: every action is READ-gated
+	// foreground; then (2026-11-11, T0-9 D4) components_with_references, the
+	// ontology-only references-checkbox gate. What this pin still guards: every action is READ-gated
 	// on the section (none may widen to a write level or a null gate), and
 	// get_export_grid stays the synchronous stream — never backgroundable.
 	test('every action is READ-gated on the section', async () => {

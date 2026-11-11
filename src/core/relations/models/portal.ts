@@ -230,6 +230,9 @@ export const portalResolver: RelationModelResolver = {
 				// reads the governing children whoever supplied them (relation_core).
 				childrenFromOwnConfig: node.configSource === 'own' && !node.dataChildrenInjected,
 				depth,
+				...(context.existenceOnlyTargets === undefined
+					? {}
+					: { existenceOnlyTargets: context.existenceOnlyTargets }),
 			},
 		);
 	},

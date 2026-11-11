@@ -16,6 +16,7 @@ export const component_select_lang: ComponentModel = {
 	monovalue: true,
 	defaultRelationType: 'dd151',
 	resolveData: 'select_family',
+	flatValue: 'datalist',
 	search: { status: 'ported' },
 	importConform: 'select_lang',
 	// Options = the project languages, not the lg1 section's ~21.7k records

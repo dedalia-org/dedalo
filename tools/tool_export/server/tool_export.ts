@@ -17,8 +17,9 @@
  */
 
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
-import { getNode } from '../../../src/core/ontology/resolver.ts';
+import { getModelByTipo, getNode } from '../../../src/core/ontology/resolver.ts';
 import { getParentTipo } from '../../../src/core/relations/children.ts';
+import { componentHasCalculatedLocators } from '../../../src/core/relations/locator_source.ts';
 import { buildRequestConfigForElement } from '../../../src/core/relations/request_config/build.ts';
 import { extractSqoSectionTipos } from '../../../src/core/relations/request_config/explicit.ts';
 import { getPermissions, type Principal } from '../../../src/core/security/permissions.ts';
@@ -76,6 +77,51 @@ export function exportSqoSectionTargets(options: Record<string, unknown>): unkno
 			: [sqoSections];
 }
 
+/** The `options.components` list of the two checkbox-gate actions ([] when invalid). */
+function checkboxGateComponents(
+	context: ToolActionContext,
+): { tipo: string; section_tipo: string }[] {
+	const raw = context.options.components;
+	const components = Array.isArray(raw)
+		? raw.filter(
+				(entry): entry is { tipo: string; section_tipo: string } =>
+					entry !== null &&
+					typeof entry === 'object' &&
+					typeof (entry as { tipo?: unknown }).tipo === 'string' &&
+					typeof (entry as { section_tipo?: unknown }).section_tipo === 'string',
+			)
+		: [];
+	if (components.length === 0) {
+		throw new DedaloError('request.invalid_options', {
+			publicMessage: 'options.components must be a non-empty list of {tipo, section_tipo}',
+		});
+	}
+	return components;
+}
+
+/**
+ * tool_export.components_with_references — which of the given components
+ * derive CALCULATED relations (T0-9 D4): the per-column "references" checkbox
+ * renders only for these. THE predicate is the one compileExportPlan refuses a
+ * forged flag with (locator_source.ts componentHasCalculatedLocators: a
+ * component_relation_related with dd467 / dd621 directionality; dd620 and every
+ * other model answer false). Pure ontology lookup — no record data leaves the
+ * server.
+ *
+ * options.components: [{ tipo, section_tipo }]. Result: { [tipo]: boolean }.
+ */
+export async function toolExportComponentsWithReferences(
+	context: ToolActionContext,
+): Promise<ToolResponse> {
+	const result: Record<string, boolean> = {};
+	for (const component of checkboxGateComponents(context)) {
+		if (result[component.tipo] !== undefined) continue;
+		const model = (await getModelByTipo(component.tipo)) ?? '';
+		result[component.tipo] = await componentHasCalculatedLocators(component.tipo, model);
+	}
+	return ok(result, { requestId: toolRequestId(context) });
+}
+
 /**
  * tool_export.components_with_parent — which of the given relation components
  * point at a section that has a component_relation_parent (i.e. whose targets
@@ -92,23 +138,8 @@ export function exportSqoSectionTargets(options: Record<string, unknown>): unkno
 export async function toolExportComponentsWithParent(
 	context: ToolActionContext,
 ): Promise<ToolResponse> {
-	const raw = context.options.components;
-	const components = Array.isArray(raw)
-		? raw.filter(
-				(entry): entry is { tipo: string; section_tipo: string } =>
-					entry !== null &&
-					typeof entry === 'object' &&
-					typeof (entry as { tipo?: unknown }).tipo === 'string' &&
-					typeof (entry as { section_tipo?: unknown }).section_tipo === 'string',
-			)
-		: [];
-	if (components.length === 0) {
-		throw new DedaloError('request.invalid_options', {
-			publicMessage: 'options.components must be a non-empty list of {tipo, section_tipo}',
-		});
-	}
 	const result: Record<string, boolean> = {};
-	for (const component of components) {
+	for (const component of checkboxGateComponents(context)) {
 		if (result[component.tipo] !== undefined) continue;
 		const node = await getNode(component.tipo);
 		const config = await buildRequestConfigForElement(node?.properties ?? null, {

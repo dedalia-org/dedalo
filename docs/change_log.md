@@ -115,6 +115,18 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **A record that points at a term from a section you cannot read shows its section name and id, in the edit form, in panels and in exports.**
+
+    Indexation fields (the fields that list the records pointing at a record) always list every
+    pointing record. A pointing record from a section you may not read is shown with its section's
+    name and its id, and nothing else. This now applies to every indexation field, including those
+    with their own configured columns, and in the panels and exports too: an export writes
+    the section name followed by the id for such a record, and the export does not stop.
+    Translatable columns of the pointing records now show the text in your data language instead of
+    an empty cell.
+
+    Wire contract: `WC-2026-11-09-export-frontier-fanout`, `WC-2026-11-11-relation-index-related-list-context`.
+
 - **The export tool scrolls to the download buttons when an export finishes.**
 
     When an export you started finishes, the export tool now scrolls smoothly down to the download
@@ -165,6 +177,19 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **Exports can include the calculated relations of a related-terms column, in a column of their own.**
+
+    A **Related** column exports the relations stored on the record. A related-terms field that works
+    in both directions also shows the terms that point at it; those are calculated, not stored, and
+    were never exported. A new per-column **references** checkbox in the export tool, offered only on
+    those fields, adds a sibling
+    column, headed with the column name followed by *references*, with those calculated relations only, never repeating the stored
+    ones. It works in the **Standard** and **Breakdown** formats; the **Dédalo (Raw)** format exports
+    stored data only, so the checkbox is disabled there. Presets keep the choice. See
+    [Export](./tools/using_export.md).
+
+    Wire contract: `WC-2026-11-11-export-related-references-column`.
+
 - **Users see their own activity statistics in their profile.**
 
     The user profile panel (opened from your name in the menu) now shows your own activity
@@ -183,6 +208,26 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Exports in the Standard format follow each column's configured fields and separators, and relation columns that came out blank now carry their values.**
+
+    A relation column in the **Standard** export format used to show the related record's own default
+    fields, not the sub-fields configured for that column, and ignored the separators configured for
+    it. It now exports exactly the configured sub-fields, joined with the configured separators, the
+    same way as the **Breakdown** format. A related record whose value is empty — an image not yet
+    uploaded, an empty text — keeps its place between the separators (and its own row in the
+    **Breakdown** format), so the pieces of a cell still line up with the related records.
+
+    The **Projects**, **Publishable**, **Language**, **Parent**, **Children**, **Related** and
+    **Index** (indexations) fields used to export as empty cells, and showed blank in the panels that
+    list a record's relations (for example the references panel). They now show their values
+    everywhere. In the **Breakdown** format, several values in one cell are now joined with the
+    field's own separator (for example `, ` between numbers).
+
+    Past exports were incomplete, not wrong: run the export again to get the full values. See
+    [Exporting data](./core/exporting_data.md).
+
+    Wire contract: `WC-2026-11-11-export-value-single-walker`.
+
 - **The Indexations field of a thesaurus term shows the columns of the records that point at it.**
 
     The field that lists the records pointing at a term (Indexations on every thesaurus term, and
@@ -194,6 +239,9 @@ Merged since the last release; these ship with the next one.
     The field always lists every record that points at the term, so "nobody points at this"
     can be trusted before deleting it. A pointing record from a section the user may not read is
     shown with its section's name and its id only, with blank columns.
+
+    Columns holding translatable text (a title, a name) were blank in the edit form and in the list;
+    they now show their value in the language you are working in.
 
     Wire contract: `WC-2026-11-11-relation-index-related-list-context`.
 
@@ -503,7 +551,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 23 entries"
+??? note "Wire contract — 25 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -527,6 +575,8 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-10-translation-empty-result`
     - `WC-2026-11-10-widget-data-read-door`
     - `WC-2026-11-10-wipe-filter-user-default`
+    - `WC-2026-11-11-export-related-references-column`
+    - `WC-2026-11-11-export-value-single-walker`
     - `WC-2026-11-11-relation-index-related-list-context`
 
 ## 7.0.0-beta.8 — 2026-11-08

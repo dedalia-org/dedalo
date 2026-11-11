@@ -72,9 +72,17 @@ bottom; the descriptor-facet steps are enforced by
    because a relation without a parser silently refuses every section-id list.
 7. Flat display string in grids? Declare `flatValue` — one of the
    `FlatValueFamily` names (`'string'`, `'datalist'`, `'section_id'`,
-   `'date'`, `'iri'`, `'media'`, `'external'`). Omitting it is legal and
-   means "this model has no flat form"; the consumers then LEDGER the cell
-   unresolved rather than guessing a string.
+   `'date'`, `'iri'`, `'media'`, `'external'`). Omitting it is legal for a
+   non-relation model and means "this model has no flat form"; the consumers
+   then LEDGER the cell unresolved rather than guessing a string. A
+   relation-column model MUST declare it (`descriptor_completeness_tripwire`,
+   T0-9; exempt: `component_dataframe`, folded into its main's cell, and the
+   `'external'` family). `'datalist'` = targets × config children: the
+   children come from `relations/config_children.ts` `exportConfigChildren`
+   and the targets from `relations/locator_source.ts` `componentLocators`
+   (stored slice, or computed for `relation_children` / `relation_index`) —
+   a new relation model with a new data contract extends THOSE, never a
+   consumer.
 8. Emit-time particularity? Declare `emitHook` (an `EmitHookId`) and add its
    implementation to `components/emit_hooks.ts` EMIT_HOOKS — in the model's
    own folder (`component_<model>/emit.ts`) or its engine home (the media

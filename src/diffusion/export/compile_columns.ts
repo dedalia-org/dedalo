@@ -19,9 +19,11 @@
  *   the ONE additive plan-type extension of P6): the ar_ddo_to_export ordinal
  *   (column identity = user DOM order — a skipped/invalid ddo still consumes
  *   its ordinal, exactly like the legacy `index` loop), the VERBATIM ddo path
- *   (the protocol col line's `path` payload), and the per-ddo
+ *   (the protocol col line's `path` payload), the per-ddo
  *   value_with_parents flag (the column's parents checkbox — WC-049: PER-DDO
- *   ONLY, the PHP request-global flag is deliberately not honored).
+ *   ONLY, the PHP request-global flag is deliberately not honored) and the
+ *   per-ddo value_with_references flag (T0-9 D4: calculated relations as a
+ *   sibling '#references' column).
  *
  * INVALID steps are kept, not dropped: a step without component_tipo compiles
  * with tipo '' and the walk/projection reproduce the legacy per-branch skip
@@ -29,7 +31,9 @@
  * LAST — they disagree on partially-invalid paths, deliberately).
  */
 
+import { DedaloError } from '../../core/errors/dedalo_error.ts';
 import { getModelByTipo } from '../../core/ontology/resolver.ts';
+import { componentHasCalculatedLocators } from '../../core/relations/locator_source.ts';
 import type { FieldPlan, PublicationPlan, ResolveStep } from '../plan/types.ts';
 
 /** One raw ar_ddo_to_export entry (client wire shape, verbatim). */
@@ -43,7 +47,33 @@ export interface ExportDdoInput {
 	}[];
 	/** Per-column parents checkbox (render_tool_export.js PARENTS_MODEL gate). */
 	value_with_parents?: boolean;
+	/** Per-column calculated-relations checkbox (T0-9 D4) — valid only on a
+	 * leaf with calculated relations, else REFUSED (assertReferencesEligible). */
+	value_with_references?: boolean;
 	[extra: string]: unknown;
+}
+
+/**
+ * T0-9 D4 — the per-ddo `value_with_references` flag is valid ONLY on a leaf
+ * that derives calculated relations (locator_source.ts
+ * componentHasCalculatedLocators: a component_relation_related with dd467 /
+ * dd621 directionality — the SAME predicate the client checkbox asks through
+ * tool_export.components_with_references). Anywhere else it would export
+ * nothing; a forged / stale flag is REFUSED loudly (request.invalid_options),
+ * never silently narrowed.
+ */
+async function assertReferencesEligible(
+	sourceChain: ResolveStep[],
+	ordinal: number,
+): Promise<void> {
+	const leaf = sourceChain[sourceChain.length - 1] as { tipo?: string; model?: string } | undefined;
+	const tipo = leaf?.tipo ?? '';
+	const model = leaf?.model ?? '';
+	if (tipo !== '' && (await componentHasCalculatedLocators(tipo, model))) return;
+	throw new DedaloError('request.invalid_options', {
+		publicMessage: `ar_ddo_to_export[${ordinal}].value_with_references: '${tipo}' (${model || 'unknown model'}) has no calculated relations`,
+		coordinates: { ordinal, component_tipo: tipo, model },
+	});
 }
 
 /**
@@ -101,6 +131,10 @@ export async function compileExportPlan(
 		};
 		if (ddo?.value_with_parents === true && field.exportColumn !== undefined) {
 			field.exportColumn.valueWithParents = true;
+		}
+		if (ddo?.value_with_references === true && field.exportColumn !== undefined) {
+			await assertReferencesEligible(sourceChain, ordinal);
+			field.exportColumn.valueWithReferences = true;
 		}
 		fields.push(field);
 	}

@@ -337,6 +337,7 @@ export const on_drop = function(zone, event) {
 		mode				: payload.ddo.mode,
 		label				: payload.ddo.label,
 		value_with_parents	: false, // per-component parents export (checkbox in the item)
+		value_with_references	: false, // per-component calculated relations export (checkbox in the item)
 		path				: payload.path // full path from current section replaces ddo single path
 	}
 	self.build_export_component(new_ddo)

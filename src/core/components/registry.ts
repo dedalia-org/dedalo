@@ -185,6 +185,16 @@ export function getSearchBuilderFamily(model: string): ComponentModel['searchBui
 	return resolveCanonical(model)?.searchBuilder;
 }
 
+/**
+ * The relation DATA contract of a model (descriptor `resolveData`),
+ * alias-following — read by relations/locator_source.ts (where a model's
+ * locators come from) and relations/config_children.ts (per-locator children).
+ * Undefined for non-relation models and the derived external family.
+ */
+export function getResolveDataId(model: string): ComponentModel['resolveData'] {
+	return resolveCanonical(model)?.resolveData;
+}
+
 /** Flat display-value family (relation_list grid cells). Alias-following. */
 export function getFlatValueFamily(model: string): ComponentModel['flatValue'] {
 	return resolveCanonical(model)?.flatValue;

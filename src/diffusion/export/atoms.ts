@@ -6,52 +6,85 @@
  *
  * The RESOLUTION (which records, which locators, in which order, with which
  * index provenance) is the shared resolver's resolveRecordAtoms; this module
- * turns those events into PHP-shaped export atoms:
+ * turns those events into PHP-shaped export atoms.
  *
- * - value format: the flat cell string — the PHP export_value::join_atoms
- *   record/field dimensions (legacy resolvePathValue): leaf display values
- *   come from the SAME resolveCellValue contract the relation_list panel
- *   uses; the FIRST indexed level joins with ' | ' (records separator), every
- *   deeper level flips to the component's declared fields_separator (?? ', ');
- * - grid_value format: one atom per placed value, carrying the FULL SEGMENT
- *   PATH (PHP export_path_segment[]): every segment names its runtime owner
- *   (`{section_tipo}_{component_tipo}`) and — when its owner record was
- *   reached by traversing a relation locator — the RAW stored-locator
- *   position as `item_index`. The tabulator (grid.ts) derives the column key,
- *   the '|n' suffixes and the row explosion FROM the segments, per breakdown.
+ * ONE WALKER, THREE FOLDS (T0-9, owner decision D1 — PHP export_value::join
+ * over get_export_value atoms): every format reads a column through the SAME
+ * walk (`walkFieldAtoms` → `fanOutRelation`), so the same ddo reads the same
+ * records, the same components and the same media in every format:
+ *
+ * - grid_value: the atoms themselves — one per placed value, carrying the FULL
+ *   SEGMENT PATH (PHP export_path_segment[]): every segment names its runtime
+ *   owner (`{section_tipo}_{component_tipo}`), the RAW stored-locator position
+ *   that reached it (`item_index`) and the separators PHP resolves for it
+ *   (caller ddo → own request_config show → properties → null). The tabulator
+ *   (grid.ts) derives the column key, the '|n' suffixes and the row explosion
+ *   FROM the segments, per breakdown;
+ * - value: the flat cell = join_atoms.ts `joinExportAtoms` of the column's
+ *   atoms (record/field dimensions, the records-level separator switch, PHP
+ *   empty() incl. '0', empty records keep their slot — D3);
+ * - WC-008 compact portal cells: one atom per reference whose value is the
+ *   SAME join over that reference's own atom subset.
  *
  * Relation-LEAF fan-out (PHP get_export_value recursion): a declared path
- * that ENDS on a relation component does not stop there — the component's OWN
- * request_config ddo_map children resolve per locator target (rsc139 →
- * rsc86 Surname AND rsc85 Name, one column each), and relation-model children
- * recurse further (their declared descendants in the same map first, else
- * their own config), each hop appending a segment with the locator position.
- * component_dataframe children are UNCOVERED scope (ledgered): they surface
- * in `unresolved` (loud) instead of silently dropping a declared column.
+ * that ENDS on a relation component does not stop there — its children (the
+ * CALLER's map entries when the caller's map declares them, else the
+ * component's own config, relations/config_children.ts) resolve per locator
+ * target, and relation-model children recurse further, each hop appending a
+ * segment with the locator position. component_dataframe children pair their
+ * frames on the record HOLDING the relation.
  *
  * Parents chains (WC-049, per-ddo value_with_parents checkbox): each relation
  * locator additionally emits its target's ancestor chain (getParentsRecursive
  * nearest-first × thesaurus term resolver, ' > ' joined, self excluded) as ONE
  * atom under a sibling `sub_id:'parents'` segment — the tabulator derives the
  * '#parents' column from the segment identity; the flag inherits down every
- * fan-out level (PHP export_context::descend). The VALUE format reads the SAME
- * chains inside the term cell's own fold (`resolveValueCellWithMedia`
- * withParents — the parents cell MIRRORS the term cell's structure; a sibling
- * column minted by grid.ts); dedalo_raw never does.
+ * fan-out level (PHP export_context::descend). The VALUE format folds the
+ * leaf level's chains into a MIRROR of the term cell (join_atoms.ts
+ * joinExportAtomsMirrored); dedalo_raw never grows one.
+ *
+ * Calculated relations (T0-9 D4, per-ddo value_with_references checkbox): a
+ * declared leaf component_relation_related whose directionality derives
+ * relations (dd467 / dd621) additionally fans out — through the SAME
+ * fanOutRelation, the same config children, the same frontier crossing — over
+ * its CALCULATED locators (core relations/locator_source.ts calculatedLocators:
+ * PHP get_data_with_references() minus the stored), under a sibling
+ * `sub_id:'references'` segment appended to the declared chain. grid_value
+ * derives the '#references' column from that segment identity; the VALUE format
+ * folds those atoms (segment stripped) with the main cell's own join into a
+ * sibling `<column>#references` cell. Never inside the main cell; the declared
+ * leaf only (nested related children are not expanded); dedalo_raw never.
+ *
+ * Media (row_media.ts): the media a cell READ is captured by the same walk —
+ * per atom (grid_value), per cell (value: every read of the walk, in read
+ * order), and for dedalo_raw by the SAME walk in its media-only, STRICT-
+ * frontier mode (`collectRawMediaAddresses`): no second mirror of the reads.
  *
  * Byte-parity notes (pinned by test/parity/tool_export_breakdown_differential):
- * - empty/null leaf values are SKIPPED (no atom, no join part) — the PHP
- *   empty() bug-for-bug rule;
+ * - empty/null leaf values are SKIPPED (no atom) — the PHP empty() rule;
  * - segments use the RUNTIME owner section (PHP instantiates every component
  *   at the locator target — multi-section autocompletes key per target);
- * - all caches live in the per-request ExportRun (request isolation, no
- *   module state).
+ * - all caches live in the per-request ExportRun or in ontology-scoped caches
+ *   (request isolation, no module state).
  */
 
 import { getFlatValueFamily } from '../../core/components/registry.ts';
 import { isMediaModel } from '../../core/concepts/media.ts';
 import { dataframeEntryMatches } from '../../core/concepts/subdatum.ts';
 import { getColumnNameByModel, getModelByTipo, getNode } from '../../core/ontology/resolver.ts';
+import {
+	configChildrenArePerLocator,
+	configChildrenArePerTarget,
+	exportConfigChildren,
+	isDirectConfigChild,
+	isImplicitConfigChild,
+	pointerIsExistenceOnly,
+} from '../../core/relations/config_children.ts';
+import {
+	calculatedLocators,
+	componentHasCalculatedLocators,
+	componentLocators,
+} from '../../core/relations/locator_source.ts';
 import { getParentsRecursive } from '../../core/relations/parent.ts';
 import type {
 	CellValueResolveOptions,
@@ -59,20 +92,15 @@ import type {
 } from '../../core/resolve/relation_list.ts';
 import {
 	addMediaReadAddress,
-	componentFieldsSeparator,
-	dataframeFrameChildren,
-	dataframeFrameChildTipos,
-	mediaItemsHoldAFile,
-	relationTargetChildren,
+	componentSeparators,
+	resolveCellItems,
 	resolveCellValue,
-	resolveRelationTargetValues,
 } from '../../core/resolve/relation_list.ts';
 import { runWithRequestLangs } from '../../core/resolve/request_lang.ts';
 import type { RawConfigDdo } from '../../core/section/list_definitions/section_list.ts';
-import { resolveOwnConfigMap } from '../../core/section/list_definitions/section_list.ts';
 import { getTermByLocator } from '../../core/ts_object/term_resolver.ts';
 import type { FieldPlan } from '../plan/types.ts';
-import type { ExportAtomRun, ExportLeafAtom } from '../resolve/resolver.ts';
+import type { ExportAtomRun, ExportCrossingReach } from '../resolve/resolver.ts';
 import {
 	createExportAtomRun,
 	exportCrossRecord,
@@ -83,17 +111,16 @@ import {
 	resolveRecordAtoms,
 	setBoundedRunMemo,
 } from '../resolve/resolver.ts';
+import { joinExportAtoms, joinExportAtomsMirrored } from './join_atoms.ts';
 
-/** PHP export_value records_separator (join_atoms depth-0 default). */
+/** PHP export_value records_separator — the depth-0 records glue, and the
+ * input_text/date/iri leaf item glue default (emitLiteralItemAtoms). */
 const RECORDS_SEPARATOR = ' | ';
 
 /** PHP parents_segment fields_separator — the ancestor-chain glue (WC-049:
  * TS pre-joins the chain into ONE atom; PHP emitted one atom per ancestor and
- * joined at tabulate time — same cell bytes, the TS cell join is fixed ' | '). */
+ * joined at tabulate time — same cell bytes). */
 const PARENTS_SEPARATOR = ' > ';
-
-/** PHP get_export_value recursion depth backstop (fail LOUD, never spin). */
-const MAX_FANOUT_DEPTH = 12;
 
 /**
  * Per-request export run state: the shared atom run + projection caches.
@@ -113,7 +140,7 @@ export interface ExportRun {
 	 * (null = target has no hierarchy). Shared targets resolve ONCE per run
 	 * while the bounded memo holds them. */
 	parentsChains: Map<string, string | null>;
-	/** component tipo → can a read of it reach a media component? (raw media walk, bounded) */
+	/** leaf component tipo → can its walk reach a media component? (bounded) */
 	mediaReach: Map<string, boolean>;
 	/** Threads the run's record cache into the shared flat-value resolvers —
 	 * without it every relation-target label re-reads its record per row (N+1). */
@@ -127,18 +154,16 @@ export interface ExportRun {
 	 * cell's unit labels via `currentApplicationLang()`, a component_external
 	 * cell's remote row via `currentDataLang()`). Unset → the ambient scope.
 	 *
-	 * It covers the langs ONLY. The walk also reads the PRINCIPAL ambiently in
-	 * ONE corner — a relation with an implicit config that names NO component
-	 * resolves its label through datalist.ts resolveLocatorLabels →
-	 * implicit.ts filterAuthorizedRelated → `currentPrincipal()`. Every other
-	 * relation reads its children through the principal-free
-	 * `resolveOwnConfigMap`; THOSE are filtered by the export run's own frontier
-	 * (cellOpts.frontier → resolver.ts exportImplicitChildren, T0-1 / S03), not
-	 * by the ambient principal. Frontier refusals are noted on the ambient
-	 * request context. The COMPLETE scope — both langs,
-	 * the principal, the refusal collector — is grid.ts `openExportGrid`'s
-	 * export scope, which is what every export goes through; grid.ts therefore
-	 * leaves this unset (the scope already carries it).
+	 * It covers the langs ONLY. The walk reads the PRINCIPAL ambiently in ONE
+	 * corner — a leaf with an implicit config that names NO component resolves
+	 * its label through datalist.ts resolveLocatorLabels → implicit.ts
+	 * filterAuthorizedRelated → `currentPrincipal()`. Every relation reads its
+	 * children through the principal-free core seam `exportConfigChildren`
+	 * (relations/config_children.ts); THOSE are filtered by the export run's own
+	 * frontier (resolver.ts exportImplicitChildren, T0-1 / S03), not by the
+	 * ambient principal. The COMPLETE scope — both langs, the principal, the
+	 * refusal collector — is grid.ts `openExportGrid`'s export scope, which is
+	 * what every export goes through; grid.ts therefore leaves this unset.
 	 */
 	applicationLang?: string;
 	/**
@@ -153,11 +178,25 @@ export interface ExportRun {
 	 * A capturing grid_value walk's sink for the media of values it DROPS
 	 * (empty display value — e.g. only the 'original' quality exists yet, or
 	 * the export base is unset — so no atom, and no cell, carries them). The
-	 * value format still reads that media (its capture fires before the URL is
-	 * formatted), so grid_value must too, or the same ddo archives different
-	 * files per format. Set per collectGridAtoms call, never on the run itself.
+	 * value format still reads that media, so grid_value must too, or the same
+	 * ddo archives different files per format. Set per collectGridAtoms call,
+	 * never on the run itself.
 	 */
 	droppedMedia?: MediaReadAddress[];
+	/**
+	 * EVERY media read of one walk, in read order (value cells and the dedalo_raw
+	 * media walk): kept or dropped, the walk's reads land here. Set on a scoped
+	 * copy per call, never on the run itself.
+	 */
+	mediaSink?: MediaReadAddress[];
+	/**
+	 * T0-9 D4 value format: the sink the `#references` walk reads into INSTEAD
+	 * of `mediaSink`, so each media address is credited to the column whose
+	 * cell read it (the sibling `#references` column, never the main one) —
+	 * as grid_value credits each atom's media to its own placed column. Set on
+	 * a scoped copy per value cell, never on the run itself.
+	 */
+	referencesMediaSink?: MediaReadAddress[];
 }
 
 /** Keep the media of a dropped (empty-valued) atom on the walk's sink. */
@@ -167,18 +206,26 @@ function noteDroppedMedia(run: ExportRun, media: readonly MediaReadAddress[] | u
 }
 
 /**
- * A capturing twin of the run's cell options — or null when the run does not
- * capture. Each call gets its OWN list, so a capture is scoped to exactly the
- * resolution it wraps (one atom, one value cell).
+ * A capturing twin of `base` — or null when the walk does not capture. Each
+ * call gets its OWN list, so a capture is scoped to exactly the resolution it
+ * wraps (one atom); the walk's sink (if any) sees every read too.
  */
 function mediaCapture(
 	run: ExportRun,
+	base: CellValueResolveOptions,
 ): { opts: CellValueResolveOptions; media: MediaReadAddress[] } | null {
-	if (run.captureMedia !== true) return null;
+	if (run.captureMedia !== true && run.mediaSink === undefined) return null;
 	const media: MediaReadAddress[] = [];
+	const sink = run.mediaSink;
 	return {
 		media,
-		opts: { ...run.cellOpts, onMediaRead: (read) => addMediaReadAddress(media, read) },
+		opts: {
+			...base,
+			onMediaRead: (read) => {
+				addMediaReadAddress(media, read);
+				if (sink !== undefined) addMediaReadAddress(sink, read);
+			},
+		},
 	};
 }
 
@@ -232,10 +279,10 @@ async function readableMapChildren(
 	children: RawConfigDdo[],
 	targetSection: string,
 ): Promise<RawConfigDdo[]> {
-	const implicitTipos = children.filter(isImplicitChild).map((child) => child.tipo);
+	const implicitTipos = children.filter(isImplicitConfigChild).map((child) => child.tipo);
 	if (implicitTipos.length === 0) return children;
 	const allowed = await exportImplicitChildren(run.atoms, targetSection, implicitTipos);
-	return children.filter((child) => !isImplicitChild(child) || allowed.has(child.tipo));
+	return children.filter((child) => !isImplicitConfigChild(child) || allowed.has(child.tipo));
 }
 
 /** The tipos of `tipos` that are not dataframes (a dataframe reads the OWNER record). */
@@ -245,13 +292,6 @@ async function nonDataframeTipos(tipos: readonly string[]): Promise<string[]> {
 		if ((await getModelByTipo(tipo)) !== 'component_dataframe') out.push(tipo);
 	}
 	return out;
-}
-
-/** The origin tag ownChildrenOf stamps on an implicit map's children. */
-const IMPLICIT_CHILD = Symbol('implicit_config_child');
-
-function isImplicitChild(ddo: RawConfigDdo): boolean {
-	return (ddo as { [IMPLICIT_CHILD]?: boolean })[IMPLICIT_CHILD] === true;
 }
 
 /**
@@ -300,6 +340,29 @@ async function resolveParentsChain(
  * sibling column): column key ends `#parents`, label leaf is the verbatim word. */
 export const PARENTS_SUB_ID = 'parents';
 
+/** The sub_id of the T0-9 D4 calculated-relations column (grid_value segment +
+ * the value-format sibling column): column key ends `#references`, label leaf
+ * is the verbatim word. */
+export const REFERENCES_SUB_ID = 'references';
+
+/**
+ * Does this export field grow a `#references` column (any non-raw format)?
+ * The per-ddo flag is set, no declared dataframe step, AND the declared leaf
+ * component derives calculated relations (component_relation_related with
+ * dd467 / dd621 — locator_source.ts componentHasCalculatedLocators; pure
+ * ontology, so the column set is the same for every record of a run).
+ */
+export async function fieldHasValueReferences(field: FieldPlan): Promise<boolean> {
+	if (field.exportColumn?.valueWithReferences !== true || hasDeclaredDataframeStep(field)) {
+		return false;
+	}
+	const leaf = field.sourceChain[field.sourceChain.length - 1] as
+		| { tipo?: string; model?: string }
+		| undefined;
+	if (leaf?.tipo === undefined || leaf.tipo === '' || typeof leaf.model !== 'string') return false;
+	return componentHasCalculatedLocators(leaf.tipo, leaf.model);
+}
+
 /**
  * Does this export field grow a WC-049 parents column in the VALUE format?
  * The per-ddo flag is set AND the declared leaf is a stored relation (the only
@@ -330,12 +393,29 @@ export interface ExportSegment {
 	section_id: number | string | null;
 	/** Virtual sub-column discriminator (PHP component_info/inverse, parents). */
 	sub_id?: string;
+	/**
+	 * The JOIN separators PHP resolves for this segment (export_path_segment
+	 * fields_separator / records_separator): caller ddo → own request_config
+	 * show (relations) → properties; ABSENT when none is declared (the join's
+	 * defaults apply). Read by join_atoms.ts only: they are NOT part of the
+	 * segment identity, and grid.ts strips them from the protocol `path`
+	 * (wireSegment) — the col line bytes never carry them.
+	 */
+	fields_separator?: string | null;
+	records_separator?: string | null;
 }
 
 /** PHP export_path_segment::get_identity_key (sub_id joined with '#'). */
 export function segmentIdentityKey(segment: ExportSegment): string {
 	const base = `${segment.section_tipo}_${segment.component_tipo}`;
 	return segment.sub_id !== undefined ? `${base}#${segment.sub_id}` : base;
+}
+
+/** A segment as the protocol carries it: the join separators stripped. */
+export function wireSegment(segment: ExportSegment): ExportSegment {
+	if (!('fields_separator' in segment) && !('records_separator' in segment)) return segment;
+	const { fields_separator: _fields, records_separator: _records, ...wire } = segment;
+	return wire;
 }
 
 /** One grid_value export atom: a placed value with its full segment path. */
@@ -375,30 +455,51 @@ export function cellTypeOfModel(model: string | null): string {
 type RawPathStep = Record<string, unknown>;
 
 /**
- * The relation component's OWN request_config child ddos (PHP
- * get_export_value `$this->request_config ?? build_request_config()` — the
- * component's own map, NO section_list substitution). Implicit configs (relations
- * list, no ddo_map) normalize to flat self-parented component children.
+ * The segment separators of one component reached through `ddo` (PHP
+ * get_export_value / build_export_path_segment precedence): the ddo's own
+ * fields_separator / records_separator, then what the component declares
+ * (relations: own request_config show, then properties; others: properties).
+ * Only declared keys are set.
  */
-async function ownChildrenOf(run: ExportRun, componentTipo: string): Promise<RawConfigDdo[]> {
-	const cached = getBoundedRunMemo(run.ownChildren, componentTipo);
+async function segmentSeparators(
+	componentTipo: string,
+	model: string | null,
+	ddo: Record<string, unknown> | null,
+): Promise<Pick<ExportSegment, 'fields_separator' | 'records_separator'>> {
+	const declared = await componentSeparators(
+		componentTipo,
+		typeof model === 'string' && getColumnNameByModel(model) === 'relation',
+	);
+	const fields = typeof ddo?.fields_separator === 'string' ? ddo.fields_separator : declared.fields;
+	const records =
+		typeof ddo?.records_separator === 'string' ? ddo.records_separator : declared.records;
+	return {
+		...(fields === null ? {} : { fields_separator: fields }),
+		...(records === null ? {} : { records_separator: records }),
+	};
+}
+
+/**
+ * The relation component's OWN config child ddos (PHP get_export_value
+ * `$this->request_config ?? build_request_config()` — the component's own
+ * map, NO section_list substitution): THE core seam
+ * relations/config_children.ts exportConfigChildren (explicit map verbatim;
+ * a config-less relation_index per LOCATOR section; else the edit form's
+ * implicit derivation, its children tagged isImplicitConfigChild — an implicit
+ * child answers to the caller's grant (D1), an explicit one is read at the
+ * subdatum floor (D3)). Run-memoized (bounded) on top of the ontology cache.
+ */
+async function ownChildrenOf(
+	run: ExportRun,
+	componentTipo: string,
+	locatorSectionTipo?: string,
+): Promise<RawConfigDdo[]> {
+	const memoKey =
+		locatorSectionTipo === undefined ? componentTipo : `${componentTipo}|${locatorSectionTipo}`;
+	const cached = getBoundedRunMemo(run.ownChildren, memoKey);
 	if (cached !== undefined) return cached;
-	const map = await resolveOwnConfigMap(componentTipo);
-	let children: RawConfigDdo[];
-	if (map.rawDdos !== null) {
-		children = map.rawDdos;
-	} else {
-		children = [];
-		for (const candidate of map.implicitRelations ?? []) {
-			const model = await getModelByTipo(candidate);
-			if (model?.startsWith('component_')) {
-				// Tagged: an implicit child answers to the caller's grant (D1),
-				// an explicit one is read at the subdatum floor (D3).
-				children.push({ tipo: candidate, parent: 'self', model, [IMPLICIT_CHILD]: true });
-			}
-		}
-	}
-	setBoundedRunMemo(run.ownChildren, componentTipo, children, run.atoms.cacheLimit);
+	const children = [...(await exportConfigChildren(componentTipo, locatorSectionTipo))];
+	setBoundedRunMemo(run.ownChildren, memoKey, children, run.atoms.cacheLimit);
 	return children;
 }
 
@@ -412,25 +513,61 @@ function hasDeclaredDataframeStep(field: FieldPlan): boolean {
 	);
 }
 
-/** Direct children of `parentTipo` in a ddo_map ('self' aliases the owner). */
+/**
+ * Direct children of `parentTipo` in a ddo_map — THE shared predicate
+ * (config_children.ts isDirectConfigChild, T0-9 D11): 'self' aliases the
+ * owner, a parent-less entry is no child (PHP `$ddo->parent === $tipo`).
+ */
 function directChildrenOf(
 	map: RawConfigDdo[],
 	parentTipo: string,
 	mapOwnerTipo: string,
 ): RawConfigDdo[] {
 	return map.filter(
-		(ddo) =>
-			typeof ddo?.tipo === 'string' &&
-			(ddo.parent === parentTipo || (ddo.parent === 'self' && parentTipo === mapOwnerTipo)),
+		(ddo) => typeof ddo?.tipo === 'string' && isDirectConfigChild(ddo, parentTipo, mapOwnerTipo),
 	);
 }
 
 /**
- * The value-format cell of one export field on one record — the PHP
- * export_value::join byte twin over the shared walk's events: leaves resolve
- * through resolveCellValue, per-level joins fold bottom-up over the index
- * vectors (level 0 = ' | ', deeper levels = the level component's declared
- * fields_separator), empty parts dropped at every level.
+ * How one call walks a field (the SAME walk in every mode — only what it
+ * resolves, emits and asks differs):
+ *   parents   — WC-049 '#parents' atoms: 'all' inherits down every fan-out
+ *               level (grid_value), 'top' only at the declared leaf's own
+ *               fan-out (the value mirror), 'none' never;
+ *   compact   — WC-008: a single-step stored component_portal yields ONE atom
+ *               per reference (grid_value only);
+ *   strict    — every crossing takes the full frontier law (the dedalo_raw
+ *               media walk: files leave the system — never the display, D4);
+ *   mediaOnly — resolve only media leaves (the dedalo_raw media walk: the
+ *               SAME records and components, no display text built);
+ *   references — T0-9 D4: the declared leaf related's CALCULATED locators fan
+ *               out too, under a `sub_id:'references'` segment.
+ */
+interface WalkMode {
+	parents: 'all' | 'top' | 'none';
+	references: boolean;
+	compact: boolean;
+	strict: boolean;
+	mediaOnly: boolean;
+}
+
+/** One walk's shared state (one field on one record). */
+interface WalkContext {
+	run: ExportRun;
+	mode: WalkMode;
+	lang: string;
+	unresolved: string[];
+	atoms: GridAtom[];
+	/** The cell options of this walk (the run's, or a strict twin). */
+	cellOpts: CellValueResolveOptions;
+	/** The relation expansions on the CURRENT recursion path — a data cycle
+	 * (A → B → A through the same component) stops instead of spinning. */
+	trail: Set<string>;
+}
+
+/**
+ * The value-format cell of one export field on one record — PHP
+ * export_value::join over the field's atoms (join_atoms.ts).
  */
 export async function resolveValueCell(
 	run: ExportRun,
@@ -442,16 +579,16 @@ export async function resolveValueCell(
 ): Promise<string | null> {
 	return (
 		await inRunLangs(run, lang, () =>
-			resolveValueCellInScope(run, field, sectionTipo, sectionId, lang, unresolved, false),
+			resolveValueCellInScope(run, field, sectionTipo, sectionId, lang, unresolved, false, false),
 		)
 	).flat;
 }
 
 /**
  * `resolveValueCell` plus the media components the cell was read from — the
- * value-format capture (row_media.ts). The flat string is the SAME bytes
- * (the capture only observes the reads); `media` is empty when the run does
- * not capture.
+ * value-format capture (row_media.ts): every media read of the cell's walk, in
+ * read order. The flat string is the SAME bytes (the capture only observes the
+ * reads); `media` is empty when the run does not capture.
  */
 export async function resolveValueCellWithMedia(
 	run: ExportRun,
@@ -462,43 +599,58 @@ export async function resolveValueCellWithMedia(
 	unresolved: string[],
 	/** Also build the WC-049 parents cell ({@link fieldHasValueParents}). */
 	withParents = false,
-): Promise<ValueCells & { media: MediaReadAddress[] }> {
-	const capture = mediaCapture(run);
-	const scoped: ExportRun = capture === null ? run : { ...run, cellOpts: capture.opts };
+	/** Also build the D4 `#references` cell ({@link fieldHasValueReferences}). */
+	withReferences = false,
+): Promise<ValueCells & { media: MediaReadAddress[]; referencesMedia: MediaReadAddress[] }> {
+	const sink: MediaReadAddress[] = [];
+	const referencesSink: MediaReadAddress[] = [];
+	const scoped: ExportRun =
+		run.captureMedia === true
+			? {
+					...run,
+					mediaSink: sink,
+					...(withReferences ? { referencesMediaSink: referencesSink } : {}),
+				}
+			: run;
 	const cells = await inRunLangs(scoped, lang, () =>
-		resolveValueCellInScope(scoped, field, sectionTipo, sectionId, lang, unresolved, withParents),
+		resolveValueCellInScope(
+			scoped,
+			field,
+			sectionTipo,
+			sectionId,
+			lang,
+			unresolved,
+			withParents,
+			withReferences,
+		),
 	);
-	return { ...cells, media: capture?.media ?? [] };
+	return { ...cells, media: sink, referencesMedia: referencesSink };
 }
 
 /**
- * One value-format field's cells on one record: the term cell (`flat`) and,
- * only when asked, its WC-049 parents cell.
+ * One value-format field's cells on one record: the term cell (`flat`), only
+ * when asked its WC-049 parents cell, and the column LABEL chain.
  *
- * THE PARENTS CELL MIRRORS THE TERM CELL (review 2026-09-25). It is built in
- * the SAME fold, with the SAME separators at the SAME levels, and a bucket the
- * term drops (empty) drops from both. At the leaf every target contributes
- * its ancestor chain ONCE PER PIECE its term text splits into on the leaf's
- * item separator, so a target whose text holds that separator (fields joined
- * by a ' | ' fields_separator, or the separator inside a value) still lines
- * up, and a target with no term contributes nothing. Split both cells the
- * same way and parents piece n is the chain of the record term piece n was
- * read from ('' when that record has no hierarchy). What text cannot carry: a
- * separator INSIDE a chain term, exactly as for the term cell itself.
- * `parents` is null when no piece has a chain (or the term cell is empty).
+ * THE PARENTS CELL MIRRORS THE TERM CELL (review 2026-09-25): it is the SAME
+ * fold (join_atoms.ts joinExportAtomsMirrored) — same separators at the same
+ * levels, a record the term has no atoms for has no slot in either. At the
+ * declared leaf's fan-out level every target contributes its ancestor chain
+ * ONCE PER PIECE its term text splits into on that level's record glue, so a
+ * target whose text holds that separator still lines up, and a target with no
+ * chain contributes '' slots. `parents` is null when no piece has a chain (or
+ * the term cell is empty).
  */
 export interface ValueCells {
 	flat: string | null;
 	parents: string | null;
-}
-
-/** One fold level of `resolveValueCellInScope`: the term text + its mirror. */
-interface FoldedValue {
-	term: string | null;
-	/** The parents mirror (same separators, one chain per term piece). */
-	parents: string;
-	/** Does any piece below carry a non-empty chain? */
-	hasChain: boolean;
+	/** T0-9 D4: the calculated-relations cell — the SAME join as `flat` over
+	 * the `#references` atoms (their references segment stripped, so they fold
+	 * exactly like main-cell atoms); null when not asked or nothing calculated. */
+	references?: string | null;
+	/** PHP export_tabulator :295-302 — the column header chain is atoms[0]'s
+	 * path when the leaf fans out (the declared chain otherwise): the first term
+	 * atom of the cell's own walk (a WC-008 compact column: its one segment). */
+	labelSegments?: ExportSegment[];
 }
 
 /**
@@ -528,155 +680,89 @@ async function resolveValueCellInScope(
 	lang: string,
 	unresolved: string[],
 	withParents: boolean,
+	withReferences: boolean,
 ): Promise<ValueCells> {
-	const none: ValueCells = { flat: null, parents: null };
+	const walked = await walkFieldAtoms(run, field, sectionTipo, sectionId, lang, unresolved, {
+		parents: withParents ? 'top' : 'none',
+		references: withReferences,
+		compact: false,
+		strict: false,
+		mediaOnly: false,
+	});
+	const atoms = walked.filter((atom) => !isReferencesAtom(atom));
+	const referencesCell = withReferences
+		? joinExportAtoms(walked.filter(isReferencesAtom).map(stripReferencesSegment))
+		: '';
+	const references = withReferences && referencesCell !== '' ? referencesCell : null;
+	const termAtoms = atoms.filter((atom) => !isParentsAtom(atom));
+	if (termAtoms.length === 0) return { flat: null, parents: null, references };
 	const path = field.exportColumn?.path ?? [];
-	if (path.length === 0) return none;
-	if (hasDeclaredDataframeStep(field)) {
-		// A DECLARED path step of model component_dataframe is not producible
-		// from the tool UI (frames belong to the SOURCE record, the drill-down
-		// lists the target's elements) and would mis-walk silently — loud instead.
-		noteUnresolved(unresolved, 'component_dataframe:declared-path');
-		return none;
-	}
-	const events = await resolveRecordAtoms(run.atoms, field, sectionTipo, sectionId);
-	if (events.length === 0) return none;
-
-	const hops = path.length - 1;
-	const leafTipo = String((path[hops] as RawPathStep | undefined)?.component_tipo ?? '');
-	if (leafTipo === '') return none;
-
-	// Per-level separators (legacy levelSeparator): level 0 always ' | ';
-	// deeper levels use the level component's declared fields_separator (the
-	// SAME cached core accessor the relation_list panel uses). The LEAF's
-	// separator is passed INTO resolveCellValue as its multi-item join.
-	const separators: string[] = [];
-	for (let level = 0; level <= hops; level++) {
-		const levelTipo = String((path[level] as RawPathStep | undefined)?.component_tipo ?? '');
-		separators.push(level === 0 ? RECORDS_SEPARATOR : await componentFieldsSeparator(levelTipo));
-	}
-
-	const joinLevel = async (group: ExportLeafAtom[], depth: number): Promise<FoldedValue> => {
-		if (depth === hops) {
-			// All hops consumed: exactly one leaf event per locator path.
-			const event = group[0] as ExportLeafAtom;
-			const itemSeparator = separators[hops] as string;
-			if (withParents) {
-				return resolveLeafWithParents(run, event, leafTipo, lang, unresolved, itemSeparator);
-			}
-			const term = await resolveCellValue(
-				event.ownerSectionTipo,
-				event.ownerSectionId,
-				leafTipo,
-				lang,
-				unresolved,
-				itemSeparator,
-				run.cellOpts,
-			);
-			return { term, parents: '', hasChain: false };
-		}
-		// Group by this hop's locator position (first-seen order = DFS order).
-		const buckets = new Map<number, ExportLeafAtom[]>();
-		for (const event of group) {
-			const position = event.indexVector[depth] as number;
-			const bucket = buckets.get(position);
-			if (bucket === undefined) buckets.set(position, [event]);
-			else bucket.push(event);
-		}
-		const terms: string[] = [];
-		const parents: string[] = [];
-		let hasChain = false;
-		for (const [, bucket] of buckets) {
-			const folded = await joinLevel(bucket, depth + 1);
-			// A bucket the term drops drops from the mirror too (alignment).
-			if (folded.term === null || folded.term === '') continue;
-			terms.push(folded.term);
-			parents.push(folded.parents);
-			hasChain ||= folded.hasChain;
-		}
-		const separator = separators[depth] as string;
-		return {
-			term: terms.length > 0 ? terms.join(separator) : null,
-			parents: parents.join(separator),
-			hasChain,
-		};
-	};
-
-	const folded = await joinLevel(events, 0);
+	// The declared leaf relation's fan-out level sits right after the declared
+	// chain: its parents segment is at index path.length.
+	const folded = withParents
+		? joinExportAtomsMirrored(termAtoms, atoms.filter(isParentsAtom), path.length)
+		: { text: joinExportAtoms(termAtoms), mirror: '', hasChain: false };
+	const flat = folded.text === '' ? null : folded.text;
 	return {
-		flat: folded.term,
-		parents: withParents && folded.term !== null && folded.hasChain ? folded.parents : null,
+		flat,
+		parents: withParents && flat !== null && folded.hasChain ? folded.mirror : null,
+		references,
+		labelSegments: (await compactApplies(field))
+			? [compactLabelSegment(termAtoms[0] as GridAtom, path.length)]
+			: (termAtoms[0] as GridAtom).segments,
+	};
+}
+
+/** Is this atom a D4 calculated-relations atom (under a '#references' segment)? */
+function isReferencesAtom(atom: GridAtom): boolean {
+	return atom.segments.some((segment) => segment.sub_id === REFERENCES_SUB_ID);
+}
+
+/** A '#references' atom shaped as the main cell's (its references segment
+ * dropped): the value fold then joins it with the main cell's own separators. */
+function stripReferencesSegment(atom: GridAtom): GridAtom {
+	return {
+		...atom,
+		segments: atom.segments.filter((segment) => segment.sub_id !== REFERENCES_SUB_ID),
+	};
+}
+
+/** Is this atom a WC-049 parents atom (its last segment the '#parents' sub-column)? */
+function isParentsAtom(atom: GridAtom): boolean {
+	return atom.segments[atom.segments.length - 1]?.sub_id === PARENTS_SUB_ID;
+}
+
+/** The ONE segment a WC-008 compact column's atoms carry (its label chain). */
+function compactLabelSegment(atom: GridAtom, declaredLength: number): ExportSegment {
+	const root = atom.segments[declaredLength - 1] as ExportSegment;
+	const reference = atom.segments[declaredLength];
+	return {
+		...root,
+		item_index: reference?.item_index ?? null,
+		section_id: reference?.section_id ?? null,
 	};
 }
 
 /**
- * The leaf of a parents-carrying value cell: the term text AND its mirror from
- * ONE per-target read. The term is byte-identical to resolveCellValue's
- * datalist branch (the targets' parts, flattened, joined with the item
- * separator; both reads share their early null-returns). A leaf of another
- * family has no targets to pair, so it keeps resolveCellValue's term and ONE
- * empty slot. The chain is the SAME resolveParentsChain the grid_value atoms
- * use; the leaf's stored targets already crossed the export frontier in
- * resolveRecordAtoms.
+ * COMPACT portal cells (WC-008, user-approved 2026-07-08): a SINGLE-step ddo
+ * whose leaf is a REAL portal (stored ontology model component_portal — the
+ * runtime alias also covers autocompletes, which keep PHP parity) does NOT fan
+ * out into columns: each referenced record lands in ONE cell.
  */
-async function resolveLeafWithParents(
-	run: ExportRun,
-	event: ExportLeafAtom,
-	leafTipo: string,
-	lang: string,
-	unresolved: string[],
-	itemSeparator: string,
-): Promise<FoldedValue> {
-	const model = await getModelByTipo(leafTipo);
-	if (model === null || getFlatValueFamily(model) !== 'datalist') {
-		const term = await resolveCellValue(
-			event.ownerSectionTipo,
-			event.ownerSectionId,
-			leafTipo,
-			lang,
-			unresolved,
-			itemSeparator,
-			run.cellOpts,
-		);
-		return { term, parents: '', hasChain: false };
-	}
-	const targets = await resolveRelationTargetValues(
-		event.ownerSectionTipo,
-		event.ownerSectionId,
-		leafTipo,
-		lang,
-		unresolved,
-		run.cellOpts,
-	);
-	const terms: string[] = [];
-	const slots: string[] = [];
-	let hasChain = false;
-	for (const target of targets) {
-		if (target.parts.length === 0) continue; // no term → no slot
-		const chain =
-			target.sectionTipo !== null && target.sectionId !== null
-				? ((await resolveParentsChain(run, target.sectionTipo, target.sectionId, lang)) ?? '')
-				: '';
-		if (chain !== '') hasChain = true;
-		for (const part of target.parts) {
-			terms.push(part);
-			// one chain per piece a consumer splits out of this part
-			for (const _piece of part.split(itemSeparator)) slots.push(chain);
-		}
-	}
-	return {
-		term: terms.length > 0 ? terms.join(itemSeparator) : null,
-		parents: slots.join(itemSeparator),
-		hasChain,
-	};
+async function compactApplies(field: FieldPlan): Promise<boolean> {
+	const path = field.exportColumn?.path ?? [];
+	if (path.length !== 1) return false;
+	const tipo = String((path[0] as RawPathStep | undefined)?.component_tipo ?? '');
+	return tipo !== '' && (await getNode(tipo))?.model === 'component_portal';
 }
 
 /**
  * grid_value atoms of one export field on one record (PHP get_record_atoms →
  * get_export_value recursion): literal leaves yield one atom whose segments
  * mirror the declared chain (item_index = the hop position that reached each
- * owner); relation leaves FAN OUT into their own request_config children per
- * stored locator, appending one segment per fan-out hop.
+ * owner); relation leaves FAN OUT into their children per stored locator,
+ * appending one segment per fan-out hop; a single-step real portal yields one
+ * COMPACT atom per reference (WC-008).
  */
 export function collectGridAtoms(
 	run: ExportRun,
@@ -685,48 +771,97 @@ export function collectGridAtoms(
 	sectionId: number | string,
 	lang: string,
 	unresolved: string[],
-	/** Override the field's value_with_parents flag (the value-format label
-	 * derivation passes false so a parents atom can never become atoms[0]). */
+	/** Override the field's value_with_parents flag. */
 	withParentsOverride?: boolean,
 	/** Receives the media of values the walk DROPS for being empty (capturing
 	 * runs only — see ExportRun.droppedMedia). */
 	droppedMedia?: MediaReadAddress[],
 ): Promise<GridAtom[]> {
 	const scoped: ExportRun = droppedMedia === undefined ? run : { ...run, droppedMedia };
+	const withParents = withParentsOverride ?? field.exportColumn?.valueWithParents === true;
 	return inRunLangs(run, lang, () =>
-		collectGridAtomsInScope(
-			scoped,
-			field,
-			sectionTipo,
-			sectionId,
-			lang,
-			unresolved,
-			withParentsOverride,
-		),
+		walkFieldAtoms(scoped, field, sectionTipo, sectionId, lang, unresolved, {
+			parents: withParents ? 'all' : 'none',
+			references: field.exportColumn?.valueWithReferences === true,
+			compact: true,
+			strict: false,
+			mediaOnly: false,
+		}),
 	);
 }
 
-async function collectGridAtomsInScope(
+/**
+ * The atoms the VALUE fold reads for one field on one record: the same walk as
+ * {@link collectGridAtoms} WITHOUT the WC-008 compaction (a single-step real
+ * portal fans out into its children — PHP's own grid atoms) and without the
+ * parents sub-column. The value cell is exactly joinExportAtoms of these; a
+ * gate's join oracle reads them (a compact cell's one pre-joined atom per
+ * reference is a deliberate grid_value divergence, not the PHP atom shape).
+ */
+export function collectValueAtoms(
 	run: ExportRun,
 	field: FieldPlan,
 	sectionTipo: string,
 	sectionId: number | string,
 	lang: string,
 	unresolved: string[],
-	withParentsOverride: boolean | undefined,
 ): Promise<GridAtom[]> {
-	// WC-049: per-locator ancestor-chain sibling '#parents' column (the export
-	// tool's per-column parents checkbox — per-ddo flag only, grid_value only).
-	const withParents = withParentsOverride ?? field.exportColumn?.valueWithParents === true;
-	const path = field.exportColumn?.path ?? [];
+	return inRunLangs(run, lang, () =>
+		walkFieldAtoms(run, field, sectionTipo, sectionId, lang, unresolved, {
+			parents: 'none',
+			references: false,
+			compact: false,
+			strict: false,
+			mediaOnly: false,
+		}),
+	);
+}
+
+/** THE walk of one export field on one record (see {@link WalkMode}). */
+async function walkFieldAtoms(
+	run: ExportRun,
+	field: FieldPlan,
+	sectionTipo: string,
+	sectionId: number | string,
+	lang: string,
+	unresolved: string[],
+	mode: WalkMode,
+): Promise<GridAtom[]> {
 	if (hasDeclaredDataframeStep(field)) {
-		// See resolveValueCell — declared dataframe steps stay loud, never a
-		// silent empty walk (frames live on the SOURCE record, not the target).
+		// A DECLARED path step of model component_dataframe is not producible
+		// from the tool UI (frames belong to the SOURCE record, the drill-down
+		// lists the target's elements) and would mis-walk silently — loud instead.
 		noteUnresolved(unresolved, 'component_dataframe:declared-path');
 		return [];
 	}
+	const path = field.exportColumn?.path ?? [];
+	if (path.length === 0) return [];
+	const ctx: WalkContext = {
+		run,
+		mode,
+		lang,
+		unresolved,
+		atoms: [],
+		cellOpts: mode.strict ? strictCellOpts(run) : run.cellOpts,
+		trail: new Set(),
+	};
 	const events = await resolveRecordAtoms(run.atoms, field, sectionTipo, sectionId);
-	const atoms: GridAtom[] = [];
+	const compact = mode.compact && (await compactApplies(field));
+
+	// The declared chain's segment separators are ontology + the declared step
+	// (PHP: the path[0] ddo is the root's context ddo; later hops are rebuilt
+	// ddos without separators) — resolved once per call, not per event.
+	const declaredSeparators: Pick<ExportSegment, 'fields_separator' | 'records_separator'>[] = [];
+	const declaredModels: (string | null)[] = [];
+	for (let position = 0; position < path.length; position++) {
+		const rawStep = path[position] as RawPathStep | undefined;
+		const componentTipo = String(rawStep?.component_tipo ?? '');
+		const model = (await getModelByTipo(componentTipo)) ?? String(rawStep?.model ?? '');
+		declaredModels.push(model);
+		declaredSeparators.push(
+			await segmentSeparators(componentTipo, model, position === 0 ? (rawStep ?? null) : null),
+		);
+	}
 
 	for (const event of events) {
 		// Segments of the DECLARED chain: runtime owner per position, the raw
@@ -734,139 +869,396 @@ async function collectGridAtomsInScope(
 		const segments: ExportSegment[] = [];
 		for (let position = 0; position < path.length; position++) {
 			const rawStep = path[position] as RawPathStep | undefined;
-			const componentTipo = String(rawStep?.component_tipo ?? '');
 			const owner = event.hopOwners[position];
 			segments.push({
 				section_tipo: owner?.sectionTipo ?? String(rawStep?.section_tipo ?? sectionTipo),
-				component_tipo: componentTipo,
-				model: (await getModelByTipo(componentTipo)) ?? String(rawStep?.model ?? ''),
+				component_tipo: String(rawStep?.component_tipo ?? ''),
+				model: declaredModels[position] ?? null,
 				item_index: position === 0 ? null : (event.indexVector[position - 1] ?? null),
 				section_id: position === 0 ? null : (owner?.sectionId ?? null),
+				...declaredSeparators[position],
 			});
 		}
 
 		if (event.locators !== undefined && isStoredRelationModel(event.step.model)) {
-			// COMPACT portal cells (WC-008, user-approved 2026-07-08): a
-			// SINGLE-step ddo whose leaf is a REAL portal (stored ontology model
-			// component_portal — the runtime alias also covers autocompletes,
-			// which keep PHP parity) does NOT fan out: each referenced record's
-			// FULL flat info lands in ONE cell, one atom per stored locator, and
-			// the breakdown explodes them by row or by '|n' column. Deep field
-			// columns stay available by dragging the expanded child components
-			// (multi-step declared paths, PHP-parity fan-out below).
-			if (path.length === 1) {
-				const storedModel = (await getNode(event.step.tipo))?.model ?? null;
-				if (storedModel === 'component_portal') {
-					// capture per TARGET: target.media (the outer list is unused)
-					const targets = await resolveRelationTargetValues(
-						event.ownerSectionTipo,
-						event.ownerSectionId,
-						event.step.tipo,
-						lang,
-						unresolved,
-						mediaCapture(run)?.opts ?? run.cellOpts,
-					);
-					const leafSegment = segments[0] as ExportSegment;
-					for (const target of targets) {
-						const value = target.parts.join(RECORDS_SEPARATOR);
-						if (value === '') noteDroppedMedia(run, target.media);
-						if (value !== '') {
-							atoms.push({
-								value,
-								cellType: 'text',
-								model: event.step.model,
-								segments: [
-									{
-										...leafSegment,
-										item_index: target.index,
-										section_id: target.sectionId,
-									},
-								],
-								...mediaField(target.media),
-							});
-						}
-						// WC-049 parents: sibling '#parents' atom per target. The
-						// indexed FIRST segment keeps the chain row-aligned with the
-						// compact value atom; the parents segment itself is unindexed.
-						if (withParents && target.sectionTipo !== null && target.sectionId !== null) {
-							const chain = await resolveParentsChain(
-								run,
-								target.sectionTipo,
-								target.sectionId,
-								lang,
-							);
-							if (chain !== null) {
-								atoms.push({
-									value: chain,
-									cellType: 'text',
-									model: event.step.model,
-									segments: [
-										{
-											...leafSegment,
-											item_index: target.index,
-											section_id: target.sectionId,
-										},
-										{
-											section_tipo: target.sectionTipo,
-											component_tipo: event.step.tipo,
-											model: null,
-											item_index: null,
-											section_id: null,
-											sub_id: PARENTS_SUB_ID,
-										},
-									],
-								});
-							}
-						}
-					}
-					continue;
-				}
+			const locators: FanOutLocator[] = event.locators;
+			if (compact) {
+				await emitCompactCells(
+					ctx,
+					event.step,
+					event.ownerSectionTipo,
+					event.ownerSectionId,
+					locators,
+					segments,
+				);
+				continue;
 			}
-			// Relation leaf: fan out into the component's own children per
-			// locator target (PHP get_export_value foreach data → ddo children).
-			// The OWNER is the record holding the leaf's data (dataframe slots
-			// live there).
+			// Relation leaf: fan out into its children per locator target (PHP
+			// get_export_value foreach data → ddo children). The OWNER is the
+			// record holding the leaf's data (dataframe slots live there).
+			ctx.trail.add(trailKey(event.ownerSectionTipo, event.ownerSectionId, event.step.tipo));
 			await fanOutRelation(
-				run,
+				ctx,
 				event.step.tipo,
 				event.ownerSectionTipo,
 				event.ownerSectionId,
-				event.locators,
+				locators,
 				segments,
-				lang,
-				unresolved,
-				atoms,
 				0,
-				withParents,
 			);
+			ctx.trail.clear();
+			if (
+				ctx.mode.references &&
+				(await componentHasCalculatedLocators(event.step.tipo, event.step.model))
+			) {
+				await emitReferencesAtoms(ctx, event, segments);
+			}
 			continue;
 		}
 
 		// Literal leaf: the component's flat value at the owner record.
-		const leafCapture = mediaCapture(run);
-		const value = await resolveCellValue(
+		await emitPlainAtom(
+			ctx,
 			event.ownerSectionTipo,
 			event.ownerSectionId,
 			event.step.tipo,
-			lang,
-			unresolved,
-			RECORDS_SEPARATOR,
-			leafCapture?.opts ?? run.cellOpts,
-		);
-		if (value === null || value === '') {
-			noteDroppedMedia(run, leafCapture?.media);
-			continue;
-		}
-		atoms.push({
-			value,
-			cellType: cellTypeOfModel(event.step.model),
-			model: event.step.model,
+			event.step.model,
 			segments,
-			...mediaField(leafCapture?.media),
-		});
+		);
 	}
 
-	return atoms;
+	return ctx.atoms;
+}
+
+/**
+ * T0-9 D4 — the declared leaf related's CALCULATED relations as a sibling
+ * column: the owner record's calculated locators (locator_source.ts — closure
+ * minus stored, positions = the calculated list's), fanned out by THE SAME
+ * fanOutRelation (config children, separators, the T0-1 crossing of every
+ * target) under the declared chain + a `sub_id:'references'` segment on the
+ * leaf (unindexed: its rows ride the children's own item axis). No parents and
+ * no nested references below it — the flag names its own column.
+ */
+async function emitReferencesAtoms(
+	ctx: WalkContext,
+	event: {
+		step: { tipo: string; model: string };
+		ownerSectionTipo: string;
+		ownerSectionId: number | string;
+	},
+	segments: ExportSegment[],
+): Promise<void> {
+	const owner = await loadExportRecord(ctx.run.atoms, event.ownerSectionTipo, event.ownerSectionId);
+	if (owner === null) return;
+	const calculated = await calculatedLocators(
+		{
+			sectionTipo: event.ownerSectionTipo,
+			sectionId: event.ownerSectionId,
+			columns: owner.columns as Record<string, unknown>,
+		},
+		event.step.tipo,
+		event.step.model,
+	);
+	const locators: FanOutLocator[] = [];
+	for (let index = 0; index < calculated.length; index++) {
+		const reference = calculated[index];
+		if (typeof reference?.section_tipo !== 'string' || reference.section_id === undefined) continue;
+		locators.push({
+			sectionTipo: reference.section_tipo,
+			sectionId: reference.section_id as number | string,
+			index,
+		});
+	}
+	if (locators.length === 0) return;
+	const leaf = segments[segments.length - 1] as ExportSegment;
+	const referencesSegment: ExportSegment = {
+		section_tipo: leaf.section_tipo,
+		component_tipo: leaf.component_tipo,
+		model: null,
+		item_index: null,
+		section_id: null,
+		sub_id: REFERENCES_SUB_ID,
+		// the leaf's own separators: the fold below the segment joins as the
+		// main cell's fan-out does
+		...(leaf.fields_separator !== undefined ? { fields_separator: leaf.fields_separator } : {}),
+		...(leaf.records_separator !== undefined ? { records_separator: leaf.records_separator } : {}),
+	};
+	// The value format credits this walk's media to the `#references` column:
+	// its reads land on the run's references sink, not the main cell's.
+	const referencesRun: ExportRun =
+		ctx.run.referencesMediaSink === undefined
+			? ctx.run
+			: { ...ctx.run, mediaSink: ctx.run.referencesMediaSink };
+	const referencesCtx: WalkContext = {
+		...ctx,
+		run: referencesRun,
+		mode: { ...ctx.mode, parents: 'none', references: false },
+		trail: new Set([trailKey(event.ownerSectionTipo, event.ownerSectionId, event.step.tipo)]),
+	};
+	await fanOutRelation(
+		referencesCtx,
+		event.step.tipo,
+		event.ownerSectionTipo,
+		event.ownerSectionId,
+		locators,
+		[...segments, referencesSegment],
+		0,
+	);
+}
+
+/**
+ * The cell options of a STRICT walk: every nested crossing a cell asks takes
+ * the full frontier law (never the display carve-out, D4).
+ */
+function strictCellOpts(run: ExportRun): CellValueResolveOptions {
+	const frontier = run.cellOpts.frontier;
+	if (frontier === undefined) return run.cellOpts;
+	return {
+		...run.cellOpts,
+		frontier: {
+			...frontier,
+			crossRecord: (sectionTipo, sectionId) =>
+				exportCrossRecord(run.atoms, sectionTipo, sectionId, 'strict'),
+		},
+	};
+}
+
+/** The crossing reach of one walk crossing: strict, or the display carve-out. */
+function crossingReach(
+	ctx: WalkContext,
+	reach: Exclude<ExportCrossingReach, 'strict'>,
+): ExportCrossingReach {
+	return ctx.mode.strict ? 'strict' : reach;
+}
+
+/** The trail key of one relation expansion (data holder × component). */
+function trailKey(
+	sectionTipo: string,
+	sectionId: number | string,
+	tipo: string,
+	pair = '',
+): string {
+	return `${sectionTipo}\u0000${sectionId}\u0000${tipo}\u0000${pair}`;
+}
+
+/**
+ * One plain (non-fan-out) atom: the component's flat value at the record.
+ * A media-only walk resolves media leaves only (no display text is built for
+ * anything else — it reads no media).
+ */
+async function emitPlainAtom(
+	ctx: WalkContext,
+	sectionTipo: string,
+	sectionId: number | string,
+	componentTipo: string,
+	model: string,
+	segments: ExportSegment[],
+): Promise<void> {
+	if (ctx.mode.mediaOnly && !isMediaModel(model) && getFlatValueFamily(model) !== 'datalist') {
+		return;
+	}
+	const family = getFlatValueFamily(model);
+	if (family !== undefined && LITERAL_ITEM_FAMILIES.has(family)) {
+		await emitLiteralItemAtoms(ctx, sectionTipo, sectionId, componentTipo, model, segments);
+		return;
+	}
+	const media = isMediaModel(model);
+	// D3: a media leaf is ALWAYS one atom (PHP component_media_common :340-372
+	// from_scalar($path, $url ?? '')) — the reached component keeps its slot.
+	const leafOpts = media ? { ...ctx.cellOpts, keepEmptyItems: true } : ctx.cellOpts;
+	const capture = mediaCapture(ctx.run, leafOpts);
+	// The target id VERBATIM — an external target's remote id is zero-padded
+	// ('000065686'), and Number() asked the service for a different record.
+	// resolveCellValue reads a matrix address only for the stored families.
+	const value = await resolveCellValue(
+		sectionTipo,
+		sectionId,
+		componentTipo,
+		ctx.lang,
+		ctx.unresolved,
+		RECORDS_SEPARATOR,
+		capture?.opts ?? leafOpts,
+	);
+	if (value === null || value === '') {
+		noteDroppedMedia(ctx.run, capture?.media);
+		// the empty media atom: a slot, no media credited (the cell shows nothing)
+		if (value === '' && media) {
+			ctx.atoms.push({ value: '', cellType: cellTypeOfModel(model), model, segments });
+		}
+		return;
+	}
+	ctx.atoms.push({
+		value,
+		cellType: cellTypeOfModel(model),
+		model,
+		segments,
+		...mediaField(capture?.media),
+	});
+}
+
+/**
+ * The literal flat families whose items become ONE ATOM EACH (PHP
+ * component_common::get_export_value :1901-1928 and every literal override —
+ * input_text :58, text_area :195, date :266, iri :350, section_id :162 — add
+ * one atom per data item). Media keeps its single URL atom (PHP
+ * component_media_common :340 export_value::from_scalar), relations fan out.
+ */
+const LITERAL_ITEM_FAMILIES: ReadonlySet<string> = new Set(['string', 'date', 'iri', 'section_id']);
+
+/**
+ * Models whose LEAF segment glues its items with the RECORDS separator (PHP
+ * component_input_text :58-74, component_date :266-282, component_iri
+ * :350-370: `fields_separator => ddo.records_separator ?? properties
+ * .records_separator ?? ' | '` — the legacy get_grid_value pre-join). Every
+ * other literal keeps build_export_path_segment's fields_separator (ddo ??
+ * properties ?? null → join_atoms' ', ').
+ */
+const RECORDS_GLUED_LEAF_MODELS: ReadonlySet<string> = new Set([
+	'component_input_text',
+	'component_date',
+	'component_iri',
+]);
+
+/**
+ * A literal leaf as PHP emits it: one atom per resolved item on the SAME
+ * segments, so the value fold joins them with the leaf segment's separator
+ * (join_atoms.ts) and a grid_value cell receives every item of its column ×
+ * row (bucket glue unchanged).
+ */
+async function emitLiteralItemAtoms(
+	ctx: WalkContext,
+	sectionTipo: string,
+	sectionId: number | string,
+	componentTipo: string,
+	model: string,
+	segments: ExportSegment[],
+): Promise<void> {
+	const leaf = segments[segments.length - 1] as ExportSegment;
+	// component_iri glues each item's value + title with the leaf's
+	// fields_separator (caller ddo → properties, segmentSeparators; PHP
+	// component_iri :354-358) — the reader falls back to properties → ', '.
+	// D3: every stored item is an atom, an EMPTY one included (PHP
+	// component_input_text :96-107, component_date :296-303) — so the records
+	// join keeps its slot; join_atoms skips '' at the leaf. Not for the iri: its
+	// title crosses into a frame record whose own reader must keep the default.
+	const cellOpts: CellValueResolveOptions =
+		model === 'component_iri'
+			? typeof leaf.fields_separator === 'string'
+				? { ...ctx.cellOpts, iriFieldsSeparator: leaf.fields_separator }
+				: ctx.cellOpts
+			: { ...ctx.cellOpts, keepEmptyItems: true };
+	const items = await resolveCellItems(
+		sectionTipo,
+		sectionId,
+		componentTipo,
+		ctx.lang,
+		ctx.unresolved,
+		RECORDS_SEPARATOR,
+		cellOpts,
+	);
+	if (items === null) return;
+	const leafSegments = RECORDS_GLUED_LEAF_MODELS.has(model)
+		? [
+				...segments.slice(0, -1),
+				{ ...leaf, fields_separator: leaf.records_separator ?? RECORDS_SEPARATOR },
+			]
+		: segments;
+	const cellType = cellTypeOfModel(model);
+	for (const value of items) {
+		ctx.atoms.push({ value, cellType, model, segments: leafSegments });
+	}
+}
+
+/**
+ * WC-008 compact cells: per stored reference, ONE atom whose value is the join
+ * of that reference's OWN fan-out atoms (join_atoms.ts — the caller map, the
+ * separators, PHP empty(), all of it the value fold's) and whose single
+ * segment is the leaf's, indexed by the reference. A reference with no atoms
+ * has no cell; one whose atoms join to '' keeps an EMPTY cell (D3 slot). The
+ * media read under a reference rides its atom (dropped media when its cell is
+ * empty); the WC-049 parents chain is a sibling '#parents' atom per reference.
+ */
+async function emitCompactCells(
+	ctx: WalkContext,
+	step: { tipo: string; model: string },
+	ownerSectionTipo: string,
+	ownerSectionId: number | string,
+	locators: FanOutLocator[],
+	segments: ExportSegment[],
+): Promise<void> {
+	const leafSegment = segments[0] as ExportSegment;
+	for (const locator of locators) {
+		const referenceAtoms: GridAtom[] = [];
+		const referenceMedia: MediaReadAddress[] = [];
+		const capturing = ctx.run.captureMedia === true || ctx.run.mediaSink !== undefined;
+		const scopedRun: ExportRun = capturing ? { ...ctx.run, droppedMedia: referenceMedia } : ctx.run;
+		const referenceCtx: WalkContext = {
+			...ctx,
+			run: scopedRun,
+			mode: { ...ctx.mode, parents: 'none' },
+			atoms: referenceAtoms,
+			trail: new Set([trailKey(ownerSectionTipo, ownerSectionId, step.tipo)]),
+		};
+		await fanOutRelation(
+			referenceCtx,
+			step.tipo,
+			ownerSectionTipo,
+			ownerSectionId,
+			[locator],
+			segments,
+			0,
+		);
+		const reference: ExportSegment = {
+			...wireSegment(leafSegment),
+			item_index: locator.index,
+			section_id: locator.sectionId,
+		};
+		if (referenceAtoms.length > 0) {
+			for (const atom of referenceAtoms) {
+				for (const read of atom.media ?? []) addMediaReadAddress(referenceMedia, read);
+			}
+			const value = joinExportAtoms(referenceAtoms);
+			if (value === '') noteDroppedMedia(ctx.run, referenceMedia);
+			ctx.atoms.push({
+				value,
+				cellType: 'text',
+				model: step.model,
+				segments: [reference],
+				...(value === '' ? {} : mediaField(capturing ? referenceMedia : undefined)),
+			});
+		} else {
+			noteDroppedMedia(ctx.run, referenceMedia);
+		}
+		// WC-049 parents: sibling '#parents' atom per reference. The indexed
+		// FIRST segment keeps the chain row-aligned with the compact value atom;
+		// the parents segment itself is unindexed.
+		if (ctx.mode.parents !== 'none') {
+			const chain = await resolveParentsChain(
+				ctx.run,
+				locator.sectionTipo,
+				locator.sectionId,
+				ctx.lang,
+			);
+			if (chain !== null) {
+				ctx.atoms.push({
+					value: chain,
+					cellType: 'text',
+					model: step.model,
+					segments: [
+						reference,
+						{
+							section_tipo: locator.sectionTipo,
+							component_tipo: step.tipo,
+							model: null,
+							item_index: null,
+							section_id: null,
+							sub_id: PARENTS_SUB_ID,
+						},
+					],
+				});
+			}
+		}
+	}
 }
 
 /**
@@ -892,57 +1284,75 @@ interface FanOutLocator {
 }
 
 /**
- * PHP component_relation_common::get_export_value recursion: per stored
- * locator × own-map child — plain children emit one atom (segment item_index
- * = the locator's RAW position), relation children recurse into THEIR stored
- * locators (declared descendants of the current map first, else the child's
- * own config map). `ownerSectionTipo/ownerSectionId` = the record HOLDING the
- * relation's data (where dataframe slots live — PHP $this->section_*).
+ * PHP component_relation_common::get_export_value recursion: per locator ×
+ * child — plain children emit one atom (segment item_index = the locator's RAW
+ * position), relation children recurse into THEIR locators (the caller map's
+ * declared descendants first, else the child's own config map).
+ * `ownerSectionTipo/ownerSectionId` = the record HOLDING the relation's data
+ * (where dataframe slots live — PHP $this->section_*). `baseSegments` ends with
+ * the relation's OWN segment (its separators already resolved).
+ *
+ * TERMINATION: no depth ceiling (a long chain of DISTINCT records is walked,
+ * PHP-like); a DATA CYCLE — the same component expanded again on the same
+ * record along the current path — stops, noted `relation_cycle:<tipo>`.
  */
 async function fanOutRelation(
-	run: ExportRun,
+	ctx: WalkContext,
 	relationTipo: string,
 	ownerSectionTipo: string,
 	ownerSectionId: number | string,
 	locators: FanOutLocator[],
 	baseSegments: ExportSegment[],
-	lang: string,
-	unresolved: string[],
-	atoms: GridAtom[],
 	depth: number,
-	/** WC-049 parents flag — inherits down EVERY relation level, exactly like
-	 * PHP export_context::descend copies value_with_parents to the child. */
-	withParents: boolean,
 	declaredMap?: RawConfigDdo[],
 	/** The tipo whose request_config `declaredMap` came from — 'self' entries
 	 * alias THIS tipo, never the current relation (a nested rsc368 must not
 	 * adopt the portal map's self children as its own). */
 	declaredMapOwner?: string,
 ): Promise<void> {
-	if (depth > MAX_FANOUT_DEPTH) {
-		throw new Error(
-			`tool_export fan-out exceeded depth ${MAX_FANOUT_DEPTH} at '${relationTipo}' — cyclic request_config?`,
-		);
-	}
+	const { run } = ctx;
 	// Children: the declared descendants when the caller's map declares them,
-	// else the component's OWN request_config (PHP context->ddo_map ?? own).
-	let map: RawConfigDdo[];
-	let mapOwner: string;
+	// else the component's OWN config (PHP context->ddo_map ?? own) — for a
+	// config-less relation_index, per LOCATOR section (id + the pointing
+	// section's relation_list columns — D10, a deliberate divergence from PHP's
+	// id-only resolve_export_ddo_children; config_children.ts).
+	let staticMap: { map: RawConfigDdo[]; mapOwner: string } | null = null;
 	if (
 		declaredMap !== undefined &&
 		declaredMapOwner !== undefined &&
 		directChildrenOf(declaredMap, relationTipo, declaredMapOwner).length > 0
 	) {
-		map = declaredMap;
-		mapOwner = declaredMapOwner;
-	} else {
-		map = await ownChildrenOf(run, relationTipo);
-		mapOwner = relationTipo;
+		staticMap = { map: declaredMap, mapOwner: declaredMapOwner };
+	} else if (!(await configChildrenArePerLocator(relationTipo))) {
+		staticMap = { map: await ownChildrenOf(run, relationTipo), mapOwner: relationTipo };
 	}
-	const children = directChildrenOf(map, relationTipo, mapOwner);
-	if (children.length === 0) return; // PHP: empty ddo_direct_children → no atoms
+	// PHP: empty ddo_direct_children → no atoms
+	if (
+		staticMap !== null &&
+		directChildrenOf(staticMap.map, relationTipo, staticMap.mapOwner).length === 0
+	) {
+		return;
+	}
+
+	// EXISTENCE ONLY (T0-9 D6/D9, the edit form's predicate — config_children.ts
+	// pointerIsExistenceOnly): a relation_index pointer in a section the
+	// requester may not read exports its ADDRESS (section name + id) and none of
+	// its content, whatever map (own or the caller's) would have read it.
+	const perTarget = await configChildrenArePerTarget(relationTipo);
 
 	for (const locator of locators) {
+		if (perTarget && (await pointerIsExistenceOnly(relationTipo, locator.sectionTipo))) {
+			await emitExistenceAtom(ctx, relationTipo, locator, baseSegments);
+			continue;
+		}
+		// per locator: a config-less relation_index (its children are the
+		// pointing section's — config_children.ts exportConfigChildren)
+		const { map, mapOwner } = staticMap ?? {
+			map: await ownChildrenOf(run, relationTipo, locator.sectionTipo),
+			mapOwner: relationTipo,
+		};
+		const children = directChildrenOf(map, relationTipo, mapOwner);
+		if (children.length === 0) continue;
 		// THE FRONTIER (T0-1 / S02): every locator this loop reads through is a
 		// crossing — at depth 0 (already asserted by resolveRecordAtoms: a memo
 		// hit), at every nested depth (the recursion re-enters here) and for a
@@ -951,11 +1361,15 @@ async function fanOutRelation(
 		// there (the display carve-out, D4, admits a record the host read shows
 		// only for components the read shows; a dataframe child is read on the
 		// OWNER record, so its frames are crossed on the owner below, per entry;
-		// its frame targets are crossings of their own).
+		// its frame targets are crossings of their own). A STRICT walk (the media
+		// walk) takes the full law instead.
 		const readable = await readableMapChildren(run, children, locator.sectionTipo);
-		await exportCrossRecord(run.atoms, locator.sectionTipo, locator.sectionId, {
-			reads: await nonDataframeTipos(readable.map((child) => child.tipo)),
-		});
+		await exportCrossRecord(
+			run.atoms,
+			locator.sectionTipo,
+			locator.sectionId,
+			crossingReach(ctx, { reads: await nonDataframeTipos(readable.map((child) => child.tipo)) }),
+		);
 		for (const child of readable) {
 			const childModel = (await getModelByTipo(child.tipo)) ?? String(child.model ?? '');
 			if (childModel === '') continue; // PHP: missing TLD → skip (debug log)
@@ -970,6 +1384,16 @@ async function fanOutRelation(
 				// section + MAIN locator position/target id (verified vs live PHP,
 				// numisdata3 §15657).
 				if (locator.id === undefined || locator.id === null) continue;
+				const frameTrail = trailKey(
+					ownerSectionTipo,
+					ownerSectionId,
+					child.tipo,
+					String(locator.id),
+				);
+				if (ctx.trail.has(frameTrail)) {
+					noteUnresolved(ctx.unresolved, `relation_cycle:${child.tipo}`);
+					continue;
+				}
 				const owner = await loadExportRecord(run.atoms, ownerSectionTipo, ownerSectionId);
 				const slot = ((owner?.columns.relation as Record<string, unknown[]> | null)?.[child.tipo] ??
 					[]) as Record<string, unknown>[];
@@ -1004,16 +1428,21 @@ async function fanOutRelation(
 				// shown each ENTRY there (D4 — a slot item lists only the frames of
 				// the main items the read shows).
 				if (frameLocators.length > 0) {
-					await exportCrossRecord(run.atoms, ownerSectionTipo, ownerSectionId, {
-						reads: [],
-						frames: frameLocators.map((frame) => ({
-							frameTipo: child.tipo,
-							mainTipo,
-							pairId: locator.id as number | string,
-							sectionTipo: frame.sectionTipo,
-							sectionId: frame.sectionId,
-						})),
-					});
+					await exportCrossRecord(
+						run.atoms,
+						ownerSectionTipo,
+						ownerSectionId,
+						crossingReach(ctx, {
+							reads: [],
+							frames: frameLocators.map((frame) => ({
+								frameTipo: child.tipo,
+								mainTipo,
+								pairId: locator.id as number | string,
+								sectionTipo: frame.sectionTipo,
+								sectionId: frame.sectionId,
+							})),
+						}),
+					);
 				}
 				const dataframeSegment: ExportSegment = {
 					section_tipo: ownerSectionTipo,
@@ -1021,23 +1450,22 @@ async function fanOutRelation(
 					model: 'component_dataframe',
 					item_index: locator.index,
 					section_id: locator.sectionId,
+					...(await segmentSeparators(child.tipo, childModel, child as Record<string, unknown>)),
 				};
 				// Frames-of-frames live on the SAME record (PHP $this->section_*).
+				ctx.trail.add(frameTrail);
 				await fanOutRelation(
-					run,
+					ctx,
 					child.tipo,
 					ownerSectionTipo,
 					ownerSectionId,
 					frameLocators,
 					[...baseSegments, dataframeSegment],
-					lang,
-					unresolved,
-					atoms,
 					depth + 1,
-					withParents,
 					map,
 					mapOwner,
 				);
+				ctx.trail.delete(frameTrail);
 				continue;
 			}
 
@@ -1047,23 +1475,34 @@ async function fanOutRelation(
 				model: childModel,
 				item_index: locator.index,
 				section_id: locator.sectionId,
+				...(await segmentSeparators(child.tipo, childModel, child as Record<string, unknown>)),
 			};
 			const segments = [...baseSegments, childSegment];
 
-			// Relation-model child: recurse into ITS stored locators. The bag is
-			// RAW jsonb, so section_id stays union-typed (unswept string form /
+			// Relation-model child: recurse into ITS locators. The bag is RAW
+			// jsonb, so section_id stays union-typed (unswept string form /
 			// external remote id) — WC-2026-08-10-section-id-int-canonical.
 			if (isStoredRelationModel(childModel)) {
+				const childTrail = trailKey(locator.sectionTipo, locator.sectionId, child.tipo);
+				if (ctx.trail.has(childTrail)) {
+					noteUnresolved(ctx.unresolved, `relation_cycle:${child.tipo}`);
+					continue;
+				}
 				const target = await loadExportRecord(run.atoms, locator.sectionTipo, locator.sectionId);
+				// THE locator source (core relations/locator_source.ts): stored slice,
+				// or the computed set of a derived model (relation_children/_index).
 				const bag =
-					((target?.columns.relation as Record<string, unknown[]> | null)?.[child.tipo] as
-						| {
-								section_tipo?: string;
-								section_id?: number | string;
-								id?: number | string;
-								main_component_tipo?: string;
-						  }[]
-						| undefined) ?? [];
+					target === null
+						? []
+						: await componentLocators(
+								{
+									sectionTipo: locator.sectionTipo,
+									sectionId: locator.sectionId,
+									columns: target.columns as Record<string, unknown>,
+								},
+								child.tipo,
+								childModel,
+							);
 				const childLocators: FanOutLocator[] = [];
 				for (let index = 0; index < bag.length; index++) {
 					const stored = bag[index];
@@ -1072,55 +1511,37 @@ async function fanOutRelation(
 					}
 					childLocators.push({
 						sectionTipo: stored.section_tipo,
-						sectionId: stored.section_id,
+						sectionId: stored.section_id as number | string,
 						index,
 						id: stored.id,
 						mainComponentTipo: stored.main_component_tipo,
 					});
 				}
+				ctx.trail.add(childTrail);
 				await fanOutRelation(
-					run,
+					ctx,
 					child.tipo,
 					locator.sectionTipo,
 					locator.sectionId,
 					childLocators,
 					segments,
-					lang,
-					unresolved,
-					atoms,
 					depth + 1,
-					withParents,
 					map,
 					mapOwner,
 				);
+				ctx.trail.delete(childTrail);
 				continue;
 			}
 
 			// Plain child: one atom, the child's flat value at the target record.
-			// The target id VERBATIM — an external target's remote id is zero-padded
-			// ('000065686'), and Number() asked the service for a different record.
-			// resolveCellValue reads a matrix address only for the stored families.
-			const childCapture = mediaCapture(run);
-			const value = await resolveCellValue(
+			await emitPlainAtom(
+				ctx,
 				locator.sectionTipo,
 				locator.sectionId,
 				child.tipo,
-				lang,
-				unresolved,
-				RECORDS_SEPARATOR,
-				childCapture?.opts ?? run.cellOpts,
-			);
-			if (value === null || value === '') {
-				noteDroppedMedia(run, childCapture?.media);
-				continue;
-			}
-			atoms.push({
-				value,
-				cellType: cellTypeOfModel(childModel),
-				model: childModel,
+				childModel,
 				segments,
-				...mediaField(childCapture?.media),
-			});
+			);
 		}
 
 		// WC-049 parents: the locator target's ancestor chain as a sibling
@@ -1128,10 +1549,15 @@ async function fanOutRelation(
 		// its children; targets without hierarchy emit nothing). The segment
 		// carries the locator's raw position, so the chain row-aligns with the
 		// locator's child atoms in every breakdown.
-		if (withParents) {
-			const chain = await resolveParentsChain(run, locator.sectionTipo, locator.sectionId, lang);
+		if (ctx.mode.parents === 'all' || (ctx.mode.parents === 'top' && depth === 0)) {
+			const chain = await resolveParentsChain(
+				run,
+				locator.sectionTipo,
+				locator.sectionId,
+				ctx.lang,
+			);
 			if (chain !== null) {
-				atoms.push({
+				ctx.atoms.push({
 					value: chain,
 					cellType: 'text',
 					model: (await getModelByTipo(relationTipo)) ?? '',
@@ -1153,32 +1579,61 @@ async function fanOutRelation(
 }
 
 /**
+ * The EXISTENCE-ONLY atom of one relation_index pointer (T0-9 D6/D8/D9): the
+ * pointer's section NAME + section_id — the same `<section name> <id>` the
+ * interactive reader (resolve/relation_list.ts) and the edit form's existence
+ * cell show — and nothing read from the pointing record. Its crossing is the
+ * frontier's narrow existence reach (resolver.ts ExportCrossingReach
+ * `existenceOf`, D8): admitted when the host read lists this pointer among
+ * the column's own entries, never a licence to read the record. The segment
+ * sits in the pointing section's address column (its component_section_id —
+ * config_children.ts exportConfigChildren answers the address for exactly this
+ * pointer), else on the relation itself. A media-only or strict walk reads
+ * nothing here and crosses nothing: an address carries no file.
+ */
+async function emitExistenceAtom(
+	ctx: WalkContext,
+	relationTipo: string,
+	locator: FanOutLocator,
+	baseSegments: ExportSegment[],
+): Promise<void> {
+	if (ctx.mode.mediaOnly || ctx.mode.strict) return;
+	await exportCrossRecord(ctx.run.atoms, locator.sectionTipo, locator.sectionId, {
+		reads: [],
+		existenceOf: relationTipo,
+	});
+	const address = (await ownChildrenOf(ctx.run, relationTipo, locator.sectionTipo))[0];
+	const { termByTipo } = await import('../../core/ontology/labels.ts');
+	ctx.atoms.push({
+		value: `${await termByTipo(locator.sectionTipo, ctx.lang)} ${String(locator.sectionId)}`,
+		cellType: 'text',
+		model:
+			address === undefined ? ((await getModelByTipo(relationTipo)) ?? '') : 'component_section_id',
+		segments: [
+			...baseSegments,
+			{
+				section_tipo: locator.sectionTipo,
+				component_tipo: address?.tipo ?? relationTipo,
+				model: address === undefined ? null : 'component_section_id',
+				item_index: locator.index,
+				section_id: locator.sectionId,
+			},
+		],
+	});
+}
+
+/**
  * THE dedalo_raw MEDIA ADDRESSES of one export field on one record
  * (row_media.ts). A raw cell carries the top component's OWN stored slice —
  * for a relation, the locators — and never recurses, so the addresses the
- * SAME ddo reads in the value format are derived here, structurally, the way
- * the value format reads them (invariant: the same ddo gives the same archive
- * in value, grid_value and dedalo_raw):
- *
- *  - the DECLARED path is followed first (resolveRecordAtoms — the value
- *    format's own walk), so a portal → title ddo reads no media even when the
- *    portal's config shows an image, and a portal → image ddo reads the image
- *    even when the portal's config does not show it;
- *  - at each leaf owner, resolveCellValue's reads are mirrored: a media leaf is
- *    an address when its stored items name a file (mediaItemsHoldAFile — any
- *    quality, whatever the export base); a datalist-family relation reads, per
- *    stored locator, relationTargetChildren (the SAME derivation
- *    resolveRelationTargetValues uses), a dataframe child through its frames
- *    paired on the record HOLDING the relation (dd490, main, id_key) and
- *    dataframeFrameChildTipos; nested relations recurse.
- *
- * TERMINATION WITHOUT A DEPTH CEILING. The walk is an explicit worklist and
- * each (section, id, component) is expanded once per call, so it ends on any
- * finite record graph — cycles included — and a long chain of DISTINCT
- * records (a self-referencing persons portal) is walked, not refused: this
- * runs on EVERY artifact build (CSV included), and a media side channel must
- * never fail an export that streams fine. A field that can reach no media
- * component (pure ontology, memoized) costs no record read at all.
+ * SAME ddo reads in the value format come from THE SAME WALK
+ * (`walkFieldAtoms`), run media-only (no display text) and STRICT (files leave
+ * the system — every crossing takes the full frontier law, never the display
+ * carve-out, D4): the declared path, the caller map, the per-model children
+ * and locators, the frames — the same reads by construction (invariant: the
+ * same ddo gives the same archive in value, grid_value and dedalo_raw). A
+ * field that can reach no media component (pure ontology, memoized —
+ * {@link exportPathMayReachMedia}) costs no record read at all.
  *
  * Nothing here authorizes: the media ZIP writer re-checks every address as the
  * owner.
@@ -1192,174 +1647,89 @@ export async function collectRawMediaAddresses(
 	const out: MediaReadAddress[] = [];
 	// the value format refuses declared dataframe steps (resolveValueCell)
 	if (hasDeclaredDataframeStep(field)) return out;
-	const path = field.exportColumn?.path ?? [];
-	const leafTipo = String((path[path.length - 1] as RawPathStep | undefined)?.component_tipo ?? '');
-	if (leafTipo === '' || !(await componentReachesMedia(run, leafTipo))) return out;
-	const events = await resolveRecordAtoms(run.atoms, field, sectionTipo, sectionId);
-	const visited = new Set<string>();
-	for (const event of events) {
-		await walkMediaReads(
-			run,
-			event.ownerSectionTipo,
-			event.ownerSectionId,
-			event.step.tipo,
-			out,
-			visited,
-		);
+	const path = (field.exportColumn?.path ?? []) as RawPathStep[];
+	const leafTipo = String(path[path.length - 1]?.component_tipo ?? '');
+	if (leafTipo === '') return out;
+	let reaches = getBoundedRunMemo(run.mediaReach, leafTipo);
+	if (reaches === undefined) {
+		reaches = await exportPathMayReachMedia(path);
+		setBoundedRunMemo(run.mediaReach, leafTipo, reaches, run.atoms.cacheLimit);
 	}
+	if (!reaches) return out;
+	const scoped: ExportRun = { ...run, mediaSink: out };
+	await walkFieldAtoms(scoped, field, sectionTipo, sectionId, '', [], {
+		parents: 'none',
+		references: false,
+		compact: false,
+		strict: true,
+		mediaOnly: true,
+	});
 	return out;
 }
 
 /**
- * Can a read of this component reach a media component — it IS one, or it is
- * a datalist-family relation whose target children (or their frames' children,
- * or nested relations) can? Pure ontology, memoized per run (top-level answers
- * only: an answer computed inside a cycle is partial, so inner results are
- * never cached).
+ * Can the export walk of a declared path READ a media component? (pure
+ * ontology, conservative): a media step, or a relation leaf whose fan-out —
+ * the SAME child selection fanOutRelation makes (caller map first, else own
+ * config; dataframe frames; nested relations) — can reach one. A per-locator
+ * component (config-less relation_index) is conservatively reachable (its
+ * columns are the pointing section's, known only at read time). Shared with the
+ * media ZIP's "may this un-captured column hold media" report
+ * (tools/tool_export media_zip.ts legacyColumnMayHoldMedia), so both answer
+ * from the walk's own child selection.
  */
-async function componentReachesMedia(run: ExportRun, componentTipo: string): Promise<boolean> {
-	const cached = getBoundedRunMemo(run.mediaReach, componentTipo);
-	if (cached !== undefined) return cached;
-	const reaches = await reachesMediaFrom(componentTipo, new Set());
-	setBoundedRunMemo(run.mediaReach, componentTipo, reaches, run.atoms.cacheLimit);
-	return reaches;
+export async function exportPathMayReachMedia(
+	path: readonly { component_tipo?: unknown }[],
+): Promise<boolean> {
+	for (const step of path) {
+		const tipo = step?.component_tipo;
+		if (typeof tipo !== 'string' || tipo === '') continue;
+		const model = await getModelByTipo(tipo);
+		if (typeof model === 'string' && isMediaModel(model)) return true;
+	}
+	const leaf = path[path.length - 1]?.component_tipo;
+	if (typeof leaf !== 'string' || leaf === '') return false;
+	const model = await getModelByTipo(leaf);
+	if (model === null) return false;
+	if (isStoredRelationModel(model))
+		return relationReachesMedia(leaf, undefined, undefined, new Set());
+	// a non-fan-out datalist leaf resolves its flat value through its config
+	return getFlatValueFamily(model) === 'datalist'
+		? relationReachesMedia(leaf, undefined, undefined, new Set())
+		: false;
 }
 
-async function reachesMediaFrom(componentTipo: string, seen: Set<string>): Promise<boolean> {
-	if (seen.has(componentTipo)) return false;
-	seen.add(componentTipo);
-	const model = await getModelByTipo(componentTipo);
-	if (model === null) return false;
-	if (isMediaModel(model)) return true;
-	if (getFlatValueFamily(model) !== 'datalist') return false;
-	for (const child of await relationTargetChildren(componentTipo)) {
-		const tipos = child.isDataframe ? await dataframeFrameChildTipos(child.tipo) : [child.tipo];
-		for (const tipo of tipos) {
-			if (await reachesMediaFrom(tipo, seen)) return true;
+async function relationReachesMedia(
+	relationTipo: string,
+	declaredMap: RawConfigDdo[] | undefined,
+	declaredMapOwner: string | undefined,
+	seen: Set<string>,
+): Promise<boolean> {
+	const seenKey = `${relationTipo}\u0000${declaredMapOwner ?? ''}`;
+	if (seen.has(seenKey)) return false;
+	seen.add(seenKey);
+	let map: RawConfigDdo[];
+	let mapOwner: string;
+	if (
+		declaredMap !== undefined &&
+		declaredMapOwner !== undefined &&
+		directChildrenOf(declaredMap, relationTipo, declaredMapOwner).length > 0
+	) {
+		map = declaredMap;
+		mapOwner = declaredMapOwner;
+	} else if (await configChildrenArePerLocator(relationTipo)) {
+		return true;
+	} else {
+		map = [...(await exportConfigChildren(relationTipo))];
+		mapOwner = relationTipo;
+	}
+	for (const child of directChildrenOf(map, relationTipo, mapOwner)) {
+		const childModel = (await getModelByTipo(child.tipo)) ?? String(child.model ?? '');
+		if (childModel === '') continue;
+		if (isMediaModel(childModel)) return true;
+		if (childModel === 'component_dataframe' || isStoredRelationModel(childModel)) {
+			if (await relationReachesMedia(child.tipo, map, mapOwner, seen)) return true;
 		}
 	}
 	return false;
-}
-
-type RawLocator = {
-	section_tipo?: unknown;
-	section_id?: unknown;
-	id?: number | string;
-	main_component_tipo?: string;
-};
-
-/**
- * resolveCellValue's MEDIA reads for one (record, component), without
- * resolving a single display value (no external call, no URL formatting):
- * see collectRawMediaAddresses. Iterative, each (section, id, component)
- * expanded once.
- */
-/** {@link readableMapChildren} for the relation_list child shape ({tipo, implicit}). */
-async function readableTargetChildren<T extends { tipo: string; implicit: boolean }>(
-	run: ExportRun,
-	children: readonly T[],
-	targetSection: string,
-): Promise<T[]> {
-	const implicitTipos = children.filter((child) => child.implicit).map((child) => child.tipo);
-	if (implicitTipos.length === 0) return [...children];
-	const allowed = await exportImplicitChildren(run.atoms, targetSection, implicitTipos);
-	return children.filter((child) => !child.implicit || allowed.has(child.tipo));
-}
-
-async function walkMediaReads(
-	run: ExportRun,
-	startSection: string,
-	startId: number | string,
-	startComponent: string,
-	out: MediaReadAddress[],
-	visited: Set<string>,
-): Promise<void> {
-	// LIFO worklist, children pushed in reverse: the reads come out in the
-	// value format's depth-first order (the archive's entry order).
-	const stack: { sectionTipo: string; sectionId: number | string; componentTipo: string }[] = [
-		{ sectionTipo: startSection, sectionId: startId, componentTipo: startComponent },
-	];
-	while (stack.length > 0) {
-		const { sectionTipo, sectionId, componentTipo } = stack.pop() as (typeof stack)[number];
-		const visitKey = `${sectionTipo}\u0000${sectionId}\u0000${componentTipo}`;
-		if (visited.has(visitKey)) continue;
-		visited.add(visitKey);
-		if (!(await componentReachesMedia(run, componentTipo))) continue;
-		const model = (await getModelByTipo(componentTipo)) as string;
-		const record = await loadExportRecord(run.atoms, sectionTipo, sectionId);
-		if (record === null) continue;
-		const column = getColumnNameByModel(model) ?? (isMediaModel(model) ? 'media' : 'relation');
-		const slot = ((record.columns[column as never] as unknown as Record<
-			string,
-			unknown[]
-		> | null) ?? null)?.[componentTipo];
-		if (isMediaModel(model)) {
-			if (mediaItemsHoldAFile(slot)) {
-				addMediaReadAddress(out, {
-					sectionTipo,
-					sectionId: Number(record.section_id),
-					componentTipo,
-				});
-			}
-			continue;
-		}
-		const locators = (Array.isArray(slot) ? slot : []) as RawLocator[];
-		if (locators.length === 0) continue;
-		const children = await relationTargetChildren(componentTipo);
-		const next: typeof stack = [];
-		for (const locator of locators) {
-			if (typeof locator?.section_tipo !== 'string' || locator.section_id === undefined) continue;
-			// THE FRONTIER (T0-1): the media walk mirrors the value format's reads,
-			// so it crosses the SAME records — and what it reads leaves the system
-			// as FILES in the archive. Asked before the target is queued.
-			await exportCrossRecord(
-				run.atoms,
-				locator.section_tipo,
-				locator.section_id as number | string,
-				'strict', // the media walk: files leave the system — never the display (D4)
-			);
-			const targetChildren = await readableTargetChildren(run, children, locator.section_tipo);
-			for (const child of targetChildren) {
-				if (!child.isDataframe) {
-					next.push({
-						sectionTipo: locator.section_tipo,
-						sectionId: locator.section_id as number | string,
-						componentTipo: child.tipo,
-					});
-					continue;
-				}
-				// Frames live on the record HOLDING the relation, paired to this
-				// locator (resolveDataframeFlatValue); null id → no frames.
-				if (locator.id === undefined || locator.id === null) continue;
-				const frames = (
-					((record.columns.relation as Record<string, unknown[]> | null)?.[child.tipo] ??
-						[]) as Record<string, unknown>[]
-				).filter((entry) =>
-					dataframeEntryMatches(
-						entry as never,
-						locator.main_component_tipo ?? componentTipo,
-						locator.id as number | string,
-						child.tipo,
-					),
-				);
-				if (frames.length === 0) continue;
-				const frameChildren = await dataframeFrameChildren(child.tipo);
-				for (const frame of frames) {
-					const frameSection = (frame as RawLocator).section_tipo;
-					const frameId = (frame as RawLocator).section_id;
-					if (typeof frameSection !== 'string' || frameId === undefined) continue;
-					// a frame TARGET is a crossing too (T0-1)
-					await exportCrossRecord(run.atoms, frameSection, frameId as number | string, 'strict');
-					for (const frameChild of await readableTargetChildren(run, frameChildren, frameSection)) {
-						next.push({
-							sectionTipo: frameSection,
-							sectionId: frameId as number | string,
-							componentTipo: frameChild.tipo,
-						});
-					}
-				}
-			}
-		}
-		for (let k = next.length - 1; k >= 0; k--) stack.push(next[k] as (typeof stack)[number]);
-	}
 }

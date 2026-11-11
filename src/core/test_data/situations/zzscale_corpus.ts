@@ -180,6 +180,22 @@ const ZZSCALE_NODES: SituationDescriptor['nodes'] = [
 		parent: ZZSCALE_SECTION,
 		model: 'component_relation_parent',
 		order_number: 2,
+		// A relation_parent MUST carry an explicit config (PHP :88, implicit.ts
+		// EXPLICIT_CONFIG_REQUIRED_MODELS): since T0-9 its flat value resolves
+		// (flatValue 'datalist'), and a config-less node throws there exactly as
+		// the edit form's builder does — the shape test71 has on the test TLD.
+		properties: {
+			source: {
+				request_config: [
+					{
+						sqo: { section_tipo: [{ source: 'self' }] },
+						show: {
+							ddo_map: [{ tipo: ZZSCALE_TERM_COMPONENT, parent: 'self', section_tipo: 'self' }],
+						},
+					},
+				],
+			},
+		},
 	},
 	{
 		// getRelatedParentTipo reads THIS node's relations to find the parent

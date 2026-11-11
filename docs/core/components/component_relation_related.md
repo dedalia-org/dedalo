@@ -242,7 +242,7 @@ DOM follows the portal structure: `wrapper_component component_relation_related 
 
 See [importing data — Related data](../importing_data.md#related-data).
 
-**Export.** The shared relation export path iterates the locators and, per the `show.ddo_map`, resolves each named child component against the target `section_id` / `section_tipo` to produce the sub-columns (term labels, optionally with parents). For diffusion, related components emit the locator array as JSON in SQL targets. See [exporting data](../exporting_data.md).
+**Export.** The shared relation export path iterates the locators and, per the `show.ddo_map`, resolves each named child component against the target `section_id` / `section_tipo` to produce the sub-columns (term labels, optionally with parents). The export reads the **stored** locators only; the calculated back-references (`dd467` / `dd621`) are exported only on request, by the per-column **references** option, as a separate sibling column `<column> | references` holding the calculated relations minus the stored ones (`WC-2026-11-11-export-related-references-column`). For diffusion, related components emit the locator array as JSON in SQL targets. See [exporting data](../exporting_data.md).
 
 ## Notes
 

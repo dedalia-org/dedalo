@@ -22,6 +22,7 @@ export const component_relation_index: ComponentModel = {
 	},
 	defaultRelationType: 'dd96',
 	resolveData: 'relation_index',
+	flatValue: 'datalist',
 	search: { status: 'ported' }, // builder_relation_index.ts (dedicated computed-inverse pipeline)
 	sortable: false, // PHP component_relation_common::get_sortable() → false (no subclass override)
 	importConform: 'relation',

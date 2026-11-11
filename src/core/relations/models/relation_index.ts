@@ -27,6 +27,7 @@ import { clampClientLimit } from '../../concepts/sqo.ts';
 import { memoizedReadMatrixRecord } from '../../db/record_memo.ts';
 import { getMatrixTableFromTipo } from '../../ontology/resolver.ts';
 import { buildDataItem, type DataItem, EmissionContext } from '../../resolve/component_data.ts';
+import { currentDataLang } from '../../resolve/request_lang.ts';
 import type { RelatedListDdo } from '../../section/related_list.ts';
 import { depthBoundNotice, MAX_DDO_DEPTH } from '../element_node.ts';
 import type { ElementNode, ElementNodeRegistry } from '../element_registry.ts';
@@ -200,11 +201,24 @@ async function emitOwnConfigIndexData(
 		...context.record,
 		columns: { ...context.record.columns, relation: relationSlot },
 	};
+	// D9 (owner, 2026-11-11): the name + id / blank-columns rule of the
+	// config-less index holds for a CONFIGURED one too — every pointer stays an
+	// entry, a pointer in a section the viewer may not read expands no child
+	// cell, and its sqo section ships existence only (the client's existence
+	// cell: label + section_id).
+	const unreadable = await existenceOnlySections([
+		...page.map((hit) => hit.section_tipo),
+		...configuredTargetSections(config),
+	]);
+	if (unreadable.size > 0) {
+		await markExistenceOnlyInNode(emission.nodes, await emittedIndexNode(context), unreadable);
+	}
 	const before = emission.items.length;
 	await portalResolver.emitDdoItems({
 		...context,
 		record: syntheticRecord,
 		ddo: { ...ddo, limit } as Ddo,
+		...(unreadable.size > 0 ? { existenceOnlyTargets: unreadable } : {}),
 	});
 	for (let i = before; i < emission.items.length; i++) {
 		const item = emission.items[i] as DataItem;
@@ -262,6 +276,12 @@ async function emitRelatedListChildren(
 	pointingSection: string,
 	recordIds: readonly number[],
 	childTipos: readonly string[],
+	/**
+	 * The request's DATA lang (PHP DEDALO_DATA_LANG) — the default lang a
+	 * TRANSLATABLE column resolves in (resolver.ts elementLang); never
+	 * 'lg-nolan', whose slice of a translatable value is empty.
+	 */
+	dataLang: string,
 ): Promise<void> {
 	const { ddo, row, callerTipo, emission, depth, emitDdo } = context;
 	const plans = await relatedListChildPlans(childTipos);
@@ -282,7 +302,7 @@ async function emitRelatedListChildren(
 				targetRecord,
 				{ section_tipo: pointingSection, section_id: recordId },
 				plan.mode,
-				'lg-nolan',
+				dataLang,
 				callerTipo,
 				emission,
 				// OWN CHILDREN exactly where PHP expands them (RelatedListChildPlan).
@@ -418,14 +438,15 @@ async function relatedListsOf(
 	return lists;
 }
 
-/** One pointing section's related_list for the current viewer ([] when it may not read the section). */
+/**
+ * One pointing section's related_list for the current viewer ([] when it may
+ * not read the section). The predicate is THE shared one
+ * (locator_source.ts pointingSectionReadable) — the flat reader and the export
+ * walk blank the same pointers through config_children.ts.
+ */
 async function readableRelatedList(section: string): Promise<RelatedListDdo[]> {
-	const { currentPrincipal } = await import('../../security/request_context.ts');
-	const principal = currentPrincipal();
-	if (principal !== undefined) {
-		const { getPermissions } = await import('../../security/permissions.ts');
-		if ((await getPermissions(principal, section, section)) < 1) return [];
-	}
+	const { pointingSectionReadable } = await import('../locator_source.ts');
+	if (!(await pointingSectionReadable(section))) return [];
 	const { sectionRelatedListConfig } = await import('../../section/related_list.ts');
 	return sectionRelatedListConfig(section);
 }
@@ -497,30 +518,80 @@ async function appendSqoSections(item: InjectableConfigItem, sections: string[])
 	if (missing.length === 0) return;
 	const { buildSqoSectionTipoDdos } = await import('../request_config/explicit.ts');
 	const enriched = await buildSqoSectionTipoDdos(missing);
-	sqo.section_tipo = [...current, ...enriched.map(existenceOnlyWhenUnreadable)];
+	const unreadable = await existenceOnlySections(missing);
+	sqo.section_tipo = [...current, ...enriched.map((ddo) => existenceOnlyWhen(ddo, unreadable))];
+}
+
+/**
+ * The sections of `sections` whose pointers are EXISTENCE ONLY for the
+ * ambient requester — THE shared predicate (locator_source.ts
+ * pointingSectionReadable), the one the flat reader and the export ask
+ * through config_children.ts pointerIsExistenceOnly.
+ */
+async function existenceOnlySections(sections: Iterable<string>): Promise<Set<string>> {
+	const { pointingSectionReadable } = await import('../locator_source.ts');
+	const unreadable = new Set<string>();
+	for (const section of sections) {
+		if (!unreadable.has(section) && !(await pointingSectionReadable(section))) {
+			unreadable.add(section);
+		}
+	}
+	return unreadable;
 }
 
 /** What a pointing section the viewer may NOT read keeps of its enriched sqo ddo. */
 const EXISTENCE_KEYS = ['typo', 'tipo', 'model', 'permissions', 'label'] as const;
 
 /**
- * A pointing section the viewer may not read (stated `permissions` < 1) ships
- * as EXISTENCE ONLY: its tipo, model, the stated grant, its label and the
- * explicit marker `existence_only: true` — never its buttons, color or
- * matrix_table. The MARKER (not the grant) is what the client keys the
- * existence cell on (render_edit_component_portal.js unreadable_target): every
- * relation component's sqo carries real grants, and an ordinary portal with a
- * 0-grant target must keep its look (WC-2026-11-09-component-get-data-host-gate).
- * A readable section's ddo is returned unchanged.
+ * A pointing section the viewer may not read (`unreadable`, from
+ * existenceOnlySections — the shared predicate) ships as EXISTENCE ONLY: its
+ * tipo, model, the stated grant, its label and the explicit marker
+ * `existence_only: true` — never its buttons, color or matrix_table. The
+ * MARKER (not the grant) is what the client keys the existence cell on
+ * (render_edit_component_portal.js unreadable_target): every relation
+ * component's sqo carries real grants, and an ordinary portal with a 0-grant
+ * target must keep its look (WC-2026-11-09-component-get-data-host-gate).
+ * Any other ddo (a readable section, a bare tipo) is returned unchanged.
  */
-function existenceOnlyWhenUnreadable<T>(ddo: T): T {
-	const permissions = Number((ddo as { permissions?: unknown }).permissions);
-	if (!(permissions < 1)) return ddo;
+function existenceOnlyWhen<T>(ddo: T, unreadable: ReadonlySet<string>): T {
+	const tipo = sqoSectionTipoOf(ddo);
+	if (tipo === undefined || !unreadable.has(tipo) || typeof ddo !== 'object' || ddo === null) {
+		return ddo;
+	}
 	const source = ddo as Record<string, unknown>;
 	const reduced: Record<string, unknown> = {};
 	for (const key of EXISTENCE_KEYS) if (key in source) reduced[key] = source[key];
 	reduced.existence_only = true;
 	return reduced as T;
+}
+
+/** The configured target sections of an index (its request_config sqo), [] for 'all'. */
+function configuredTargetSections(config: RelationIndexConfig): string[] {
+	return config.targetSections === 'all' ? [] : config.targetSections;
+}
+
+/**
+ * D9: mark the `unreadable` sections of the node's configured
+ * `sqo.section_tipo` EXISTENCE ONLY (existenceOnlyWhen) — on a FRESH clone
+ * swapped in through the registry, never mutating the cached own config.
+ */
+async function markExistenceOnlyInNode(
+	nodes: ElementNodeRegistry,
+	node: ElementNode,
+	unreadable: ReadonlySet<string>,
+): Promise<void> {
+	const config = structuredClone(node.effectiveConfig) as InjectableConfigItem[];
+	let changed = false;
+	for (const item of config) {
+		const sqo = (item as { sqo?: Record<string, unknown> }).sqo;
+		if (sqo === undefined || !Array.isArray(sqo.section_tipo)) continue;
+		sqo.section_tipo = (sqo.section_tipo as unknown[]).map((entry) => {
+			const marked = existenceOnlyWhen(entry, unreadable);
+			if (marked !== entry) changed = true;
+			return marked;
+		});
+	}
+	if (changed) nodes.replaceEffectiveConfig(node, config);
 }
 
 /** Append every related_list ddo, re-parented to the index, once per (tipo, section_tipo). */
@@ -626,6 +697,11 @@ async function emitRelationIndexData(
 	config: RelationIndexConfig,
 ): Promise<void> {
 	const { ddo, row, ddoMode, callerTipo, emission, depth } = context;
+	// The related_list children resolve in the CURRENT data lang (PHP
+	// DEDALO_DATA_LANG) — the same lang the get_data door hands
+	// readRelationIndexData (section/read.ts), so the two doors cannot drift.
+	// Read per call from the request scope, never captured at module level.
+	const dataLang = currentDataLang();
 	const { findInverseReferenceLocators, countInverseReferences } = await import(
 		'../../search/search_related.ts'
 	);
@@ -713,7 +789,7 @@ async function emitRelationIndexData(
 			emission.nodes.addNotices([await depthBoundNotice(row, ddo.tipo, depth)]);
 			continue;
 		}
-		await emitRelatedListChildren(context, table, pointingSection, recordIds, childTipos);
+		await emitRelatedListChildren(context, table, pointingSection, recordIds, childTipos, dataLang);
 	}
 }
 
@@ -771,6 +847,17 @@ export async function readRelationIndexData(
 	// no representative seeding, no pool quirk (PHP get_subdatum branch).
 	if (config.hasRequestConfig) {
 		const emission = new EmissionContext([], nodes === undefined ? {} : { nodes });
+		// D9: the configured index's existence-only pointers (emitOwnConfigIndexData)
+		const unreadable = await existenceOnlySections([
+			...page.map((hit) => hit.section_tipo),
+			...configuredTargetSections(config),
+		]);
+		if (unreadable.size > 0) {
+			const targetNode = emission.nodes.targetFor(tipo, sectionTipo, mode);
+			if (targetNode !== undefined) {
+				await markExistenceOnlyInNode(emission.nodes, targetNode, unreadable);
+			}
+		}
 		const syntheticRecord = {
 			id: 0,
 			section_id: Number(sectionId),
@@ -794,6 +881,7 @@ export async function readRelationIndexData(
 			allowOwnConfigChildren: true,
 			depth: 0,
 			emitDdo,
+			...(unreadable.size > 0 ? { existenceOnlyTargets: unreadable } : {}),
 		});
 		for (const emitted of emission.items) {
 			const item = emitted as DataItem;

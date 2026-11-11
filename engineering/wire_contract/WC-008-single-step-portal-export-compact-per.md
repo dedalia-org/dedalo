@@ -37,3 +37,17 @@ Every target a compact cell resolves, at every datalist depth, and every paired 
 the export frontier's record key; an ungranted IMPLICIT child is dropped from the cell. A scoped
 caller's export of a hidden deep record now throws `perm.export_column_out_of_scope` naming the
 compact column. See `WC-2026-11-09-export-frontier-fanout`.
+
+## Addendum 2026-11-11 — the compact cell is a join of that reference's atoms
+
+The compact cell is no longer built by `resolve/relation_list.ts resolveRelationTargetValues`. Per
+reference, it is the `joinExportAtoms` fold (`src/diffusion/export/join_atoms.ts`) of the subset of
+grid atoms that reference produced in the shared fan-out — one walker for value, grid_value and the
+compact cell (`WC-2026-11-11-export-value-single-walker`, T0-9 D1). Consequences: the cell now
+follows the CALLER's `ddo_map` at every nested level (not each nested relation's own map) and its
+separators by precedence caller ddo → own `rc.show` → `properties` → defaults; the PHP `empty()`
+rule and empty record slots apply inside the cell; the eight newly resolved relation models
+(filter, filter_master, publication, select_lang, relation_parent/children/related/index) fill
+instead of staying blank. Still ONE cell per reference; the paired-dataframe fold of 2026-07-10 is
+unchanged in meaning. The breakdown parity pins run as the admin on the frozen store — no fixture
+edit. Gate: `test/unit/tool_export_value_relation_native.test.ts` (G5: value == join(atoms)).

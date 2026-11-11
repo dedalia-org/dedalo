@@ -428,6 +428,13 @@ export interface ExpandPortalOptions {
 	 * (tm_record/frame_as_of.ts). Never passed to a nested expansion.
 	 */
 	targetsAsOf?: TmAsOf;
+	/**
+	 * Target sections whose locators stay in the item's entries but are NOT
+	 * expanded — no child cell is emitted for them (T0-9 D9: a
+	 * component_relation_index pointer in a section the requester may not
+	 * read shows name + id only; RelationEmitContext.existenceOnlyTargets).
+	 */
+	existenceOnlyTargets?: ReadonlySet<string>;
 }
 
 /** A validated view order: the request's column + its wire direction. */
@@ -633,6 +640,7 @@ export async function expandPortal(
 	// Expand each paginated locator through the child ddos (record-major).
 	for (const locator of page) {
 		const targetSectionTipo = locator.section_tipo as string;
+		if (options.existenceOnlyTargets?.has(targetSectionTipo) === true) continue;
 		// CANONICAL address for every emission below (the child items, their
 		// row anchor and parent_section_id): the stored locator may still hold
 		// the legacy string form, so canonicalize ONCE here rather than pass

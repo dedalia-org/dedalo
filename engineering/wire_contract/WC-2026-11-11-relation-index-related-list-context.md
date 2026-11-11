@@ -82,3 +82,31 @@ from `[]` to that item — PHP's frozen body there is an error, so no fixture ch
 DB); context comparable in `test/parity/relation_index_get_data_differential.test.ts`
 (projection applies D2/D3); client: `component_relation_index` columns test on a pre-run
 pointer fixture (`client_situations_native.test.ts`).
+
+## Addendum 2026-11-11 — one readability predicate, every index, every reader (T0-9 D6/D9)
+
+- **D6 — the set is never filtered, anywhere.** Every reader of a `component_relation_index` gets
+  every pointing locator: the edit form (as above), the export walk, the diffusion hops and the
+  interactive flat reader (relation_list panel, Referencias) read it from ONE source,
+  `src/core/relations/locator_source.ts` (the computed inverse set, unpaginated for the
+  readers that need it whole). What is withheld is the CONTENT of a pointer in a section the
+  requester cannot read, decided per pointing SECTION by ONE shared predicate,
+  `pointingSectionReadable` (`getPermissions(section) >= 1`) — asked by the edit form
+  (`models/relation_index.ts readableRelatedList`, `existenceOnlySections`) and by the children
+  seam (`config_children.ts pointerIsExistenceOnly` → the address only), so the two cannot drift.
+- **D9 — configured indexes too.** The rule above (D2's existence-only section, blank columns) now
+  covers a `component_relation_index` WITH its own `request_config`, not only a config-less one: a
+  pointer in an unreadable section expands no child cell, and that section's `sqo.section_tipo`
+  entry ships `existence_only: true` (`emitOwnConfigIndexData` → `markExistenceOnlyInNode`). Edit
+  form wire change for configured index fields: their columns are blank for such pointers, and the
+  client renders the existence cell (section label + `section_id`).
+- **The interactive reader** (`resolve/relation_list.ts`) renders such a pointer as
+  `<section name> <id>`; the export does the same (D8, addendum to
+  `WC-2026-11-09-export-frontier-fanout`).
+- **Lang:** translatable related_list columns were read at `lg-nolan` and came back empty; they
+  are now read in the request's data lang (`currentDataLang()`, PHP `DEDALO_DATA_LANG` parity).
+
+Gates: `test/unit/tool_export_value_relation_native.test.ts` *D6* block (the full set for admin,
+system and a scoped persona; the interactive reader's name + id; the edit form agrees — same
+pointers, same columns withheld); `test/unit/relation_index_context_native.test.ts` *translatable
+related_list columns resolve in the DATA lang (never the nolan slice)*.

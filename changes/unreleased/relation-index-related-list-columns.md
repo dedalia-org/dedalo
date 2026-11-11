@@ -14,3 +14,6 @@ page. A column the user may not read is not shown, and neither is its value.
 The field always lists every record that points at the term, so "nobody points at this"
 can be trusted before deleting it. A pointing record from a section the user may not read is
 shown with its section's name and its id only, with blank columns.
+
+Columns holding translatable text (a title, a name) were blank in the edit form and in the list;
+they now show their value in the language you are working in.

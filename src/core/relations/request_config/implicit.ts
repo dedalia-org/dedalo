@@ -164,6 +164,83 @@ const NEVER_A_COLUMN_MODELS: ReadonlySet<string | null> = new Set([
 	LABEL_NODE_MODEL,
 ]);
 
+/** One map entry of an implicit relation walk (principal-free). */
+export interface ImplicitRelationLink {
+	tipo: string;
+	model: string;
+	/** The target section found BEFORE this node (null until one appears). */
+	sectionTipo: string | null;
+}
+
+/**
+ * THE implicit relation walk (PHP clean_and_extract_related + build_legacy_ddo_map),
+ * principal-free and ontology-only: the first 'section'-model relation node of
+ * `sourceTipo` is the TARGET SECTION (stripped); marker nodes, inert label
+ * nodes and the deprecated dd249 are skipped; everything else survives in
+ * ontology order (PHP keeps non-component nodes in the map). Shared by the
+ * edit/list builder below (which then applies the per-user STEP 5 filter) and
+ * the export/flat children seam (relations/config_children.ts, whose consumers
+ * filter per call — the export through its frontier, the interactive flat
+ * reader through filterAuthorizedRelated itself; one predicate).
+ */
+export async function implicitRelationWalk(
+	sourceTipo: string,
+): Promise<{ targetSectionTipo: string | null; links: ImplicitRelationLink[] }> {
+	const rows = (await sql`
+		SELECT relations FROM dd_ontology WHERE tipo = ${sourceTipo}
+		  AND jsonb_typeof(relations) = 'array'
+		LIMIT 1
+	`) as { relations: { tipo?: string }[] | null }[];
+	const relationNodes = rows[0]?.relations ?? [];
+	let targetSectionTipo: string | null = null;
+	const links: ImplicitRelationLink[] = [];
+	for (const link of relationNodes) {
+		if (typeof link.tipo !== 'string') continue;
+		const model = await getModelByTipo(link.tipo);
+		if (model === null) continue;
+		if (model === 'section' && targetSectionTipo === null) {
+			targetSectionTipo = link.tipo; // PHP clean_and_extract_related :508
+			continue;
+		}
+		// PHP clean_and_extract_related :531-538: marker nodes + deprecated skip.
+		// A model='label' node too: labels are inert program strings (owner
+		// decision 2026-10-12, label_node_guard.ts), no client module renders one,
+		// and resolving its column label crashed the dd1500/dd1560 lists.
+		if (NEVER_A_COLUMN_MODELS.has(model) || link.tipo === DEPRECATED_SECURITY_AREAS_TIPO) {
+			continue;
+		}
+		links.push({ tipo: link.tipo, model, sectionTipo: targetSectionTipo });
+	}
+	return { targetSectionTipo, links };
+}
+
+/**
+ * The COMPONENT children an implicit (config-less) relation component
+ * resolves per target, principal-free, in map order — the export / flat
+ * reader's half of buildImplicitComponentListConfig (same rules, principal-
+ * free: its consumers apply STEP 5 per call — the export's frontier, or
+ * filterAuthorizedRelated itself in resolve/relation_list.ts readableChildren):
+ *   component_filter → [dd156] (the project name at dd153, PHP :261-264);
+ *   every other model (component_filter_master included, D2) → the component
+ *   models of its own relation walk.
+ */
+export async function implicitComponentChildren(
+	ownerTipo: string,
+): Promise<{ tipo: string; model: string }[]> {
+	if ((await getModelByTipo(ownerTipo)) === 'component_filter') {
+		return [
+			{
+				tipo: PROJECTS_NAME_TIPO,
+				model: (await getModelByTipo(PROJECTS_NAME_TIPO)) ?? 'component_input_text',
+			},
+		];
+	}
+	const { links } = await implicitRelationWalk(ownerTipo);
+	return links
+		.filter((link) => link.model.startsWith('component_'))
+		.map((link) => ({ tipo: link.tipo, model: link.model }));
+}
+
 /**
  * Implicit config from a node's ontology relation nodes (PHP resolve_ar_related_*
  * + clean_and_extract_related + build_legacy_ddo_map): the first
@@ -187,7 +264,10 @@ export async function buildImplicitComponentListConfig(
 	}
 
 	// component_filter always targets the projects section (PHP :261-264).
-	if (ownerModel === 'component_filter' || ownerModel === 'component_filter_master') {
+	// component_filter_master does NOT (owner decision D2, T0-9 2026-11-11): its
+	// OWN ontology `relations` decide its target and columns (the walk below) —
+	// one derivation for the edit form and the export (implicitComponentChildren).
+	if (ownerModel === 'component_filter') {
 		// PHP STEP 5 filter_authorized_related applies to this branch too.
 		const projectsDdoMap = (
 			await filterAuthorizedRelated([PROJECTS_NAME_TIPO], SECTION_PROJECTS_TIPO)
@@ -221,37 +301,16 @@ export async function buildImplicitComponentListConfig(
 		];
 	}
 
-	const rows = (await sql`
-		SELECT relations FROM dd_ontology WHERE tipo = ${sourceTipo}
-		  AND jsonb_typeof(relations) = 'array'
-		LIMIT 1
-	`) as { relations: { tipo?: string }[] | null }[];
-	const relationNodes = rows[0]?.relations ?? [];
-
-	let targetSectionTipo: string | null = null;
+	const walk = await implicitRelationWalk(sourceTipo);
+	let targetSectionTipo = walk.targetSectionTipo;
 	const ddoMap: ProcessedDdo[] = [];
-	for (const link of relationNodes) {
-		if (typeof link.tipo !== 'string') continue;
-		const model = await getModelByTipo(link.tipo);
-		if (model === null) continue;
-		if (model === 'section' && targetSectionTipo === null) {
-			targetSectionTipo = link.tipo; // PHP clean_and_extract_related :508
-			continue;
-		}
-		// PHP clean_and_extract_related :531-538: marker nodes + deprecated skip.
-		// Everything else survives (PHP keeps non-component nodes in the map) —
-		// except a model='label' node: labels are inert program strings (owner
-		// decision 2026-10-12, label_node_guard.ts), no client module renders one,
-		// and resolving its column label crashed the dd1500/dd1560 lists.
-		if (NEVER_A_COLUMN_MODELS.has(model) || link.tipo === DEPRECATED_SECURITY_AREAS_TIPO) {
-			continue;
-		}
+	for (const link of walk.links) {
 		ddoMap.push({
 			tipo: link.tipo,
-			model,
+			model: link.model,
 			// Implicit legacy ddos carry a SCALAR section_tipo (build_legacy_ddo_map),
 			// unlike the explicit array form.
-			section_tipo: targetSectionTipo ?? context.ownerSectionTipo,
+			section_tipo: link.sectionTipo ?? context.ownerSectionTipo,
 			parent: context.ownerTipo,
 			mode: 'list', // PHP trait.request_config_v5.php:117 — non-section callers force list
 			label: await contextLabelOf(link.tipo),

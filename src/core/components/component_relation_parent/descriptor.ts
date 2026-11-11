@@ -22,6 +22,7 @@ export const component_relation_parent: ComponentModel = {
 	importAppend: 'items',
 	defaultRelationType: 'dd47',
 	resolveData: 'portal',
+	flatValue: 'datalist',
 	search: { status: 'ported' },
 	importConform: 'relation',
 };

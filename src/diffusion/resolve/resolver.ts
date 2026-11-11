@@ -58,10 +58,18 @@ import {
 } from '../../core/ontology/resolver.ts';
 import { getSectionMapValue } from '../../core/ontology/section_map.ts';
 import { getChildren } from '../../core/relations/children.ts';
-import { resolveIndexConfig } from '../../core/relations/models/relation_index.ts';
+import { pointerIsExistenceOnly } from '../../core/relations/config_children.ts';
+import {
+	componentLocators,
+	computedChildrenLocators,
+	computedIndexLocators,
+	type IndexQuestion,
+	locatorSourceOf,
+	readsComputedLocators,
+	relationIndexQuestion,
+} from '../../core/relations/locator_source.ts';
 import { getParents, getParentsRecursive } from '../../core/relations/parent.ts';
 import { readComponentItems, readStoredComponentItems } from '../../core/resolve/component_data.ts';
-import { parseInverseEntry } from '../../core/resolve/relation_index.ts';
 import {
 	findInverseReferenceLocators,
 	findInverseReferences,
@@ -271,7 +279,7 @@ export interface RunContext {
 	 * request_config per call when the component declares one (uncached,
 	 * ontology-query heavy) — one resolution per (component, section) per run
 	 * is the correct cost; the ontology is immutable for the run's duration. */
-	relationIndexConfigCache: Map<string, Awaited<ReturnType<typeof resolveIndexConfig>>>;
+	relationIndexConfigCache: Map<string, IndexQuestion>;
 	/** `${record}|${hop_tipo}|${relation_type}|${target_sections}` → computed
 	 * inverse-index locators (relation_index hops — see relationIndexLocators).
 	 * Keyed per hop tipo AND resolved filters: unlike relation_list, the query
@@ -1557,7 +1565,7 @@ async function relationIndexLocators(
 	const configKey = `${hop.tipo}|${record.section_tipo}`;
 	let config = ctx.relationIndexConfigCache.get(configKey);
 	if (config === undefined) {
-		config = await resolveIndexConfig(hop.tipo, record.section_tipo);
+		config = await relationIndexQuestion(hop.tipo, record.section_tipo);
 		ctx.relationIndexConfigCache.set(configKey, config);
 	}
 
@@ -1568,17 +1576,14 @@ async function relationIndexLocators(
 	const cached = ctx.relationIndexCache.get(cacheKey);
 	if (cached !== undefined) return cached;
 
-	const hits = await findInverseReferenceLocators(
-		[
-			{
-				type: config.relationType,
-				section_tipo: record.section_tipo,
-				section_id: record.section_id,
-			},
-		],
-		{ sectionTipos: config.targetSections, limit: false, order: 'section_id' },
-	);
-	const locators = hits.map((hit) => parseInverseEntry(hit) as StoredLocator);
+	// THE core locator source (relations/locator_source.ts) — one computation
+	// for this hop, the export walk and the flat reader; memoized here per run.
+	const locators = (await computedIndexLocators(
+		record.section_tipo,
+		record.section_id,
+		hop.tipo,
+		config,
+	)) as StoredLocator[];
 	ctx.relationIndexCache.set(cacheKey, locators);
 	return locators;
 }
@@ -1609,15 +1614,26 @@ async function relationChildrenLocators(
 	const cached = ctx.relationChildrenCache.get(cacheKey);
 	if (cached !== undefined) return cached;
 
-	const children = await getChildren(record.section_id, record.section_tipo, hop.tipo, 0, 0);
-	const locators: StoredLocator[] = children.map((child) => ({
-		section_tipo: child.section_tipo,
-		section_id: child.section_id,
-		from_component_tipo: child.from_component_tipo,
-		type: child.type,
-	}));
+	// THE core locator source (relations/locator_source.ts), memoized per run.
+	const locators = (await computedChildrenLocators(
+		record.section_tipo,
+		record.section_id,
+		hop.tipo,
+	)) as StoredLocator[];
 	ctx.relationChildrenCache.set(cacheKey, locators);
 	return locators;
+}
+
+/**
+ * A hop's locator source. A hop through a non-component model (a section, a
+ * legacy diffusion pseudo-model) keeps the stored-slice read it always had; a
+ * COMPONENT model answers through the core contract, which throws for a
+ * relation model that declares none.
+ */
+function hopLocatorSource(model: string): 'stored' | 'relation_children' | 'relation_index' {
+	return model.startsWith('component_') && getColumnNameByModel(model) === 'relation'
+		? locatorSourceOf(model)
+		: 'stored';
 }
 
 /**
@@ -1841,12 +1857,16 @@ async function resolveHop(
 	// component_relation_children = derived dd48 children. Every other relation
 	// model reads its stored slice of the record. ONLY the source differs —
 	// queueing, gates and child recursion below treat all hops identically.
+	// The COMPONENT half of the dispatch is the core locator source's
+	// (relations/locator_source.ts locatorSourceOf, keyed on the descriptor's
+	// resolveData contract); this resolver only memoizes the computed ones per run.
 	let rawLocators: StoredLocator[];
+	const source = hop.model === 'relation_list' ? null : hopLocatorSource(hop.model);
 	if (hop.model === 'relation_list') {
 		rawLocators = await relationListLocators(ctx, record, hop);
-	} else if (hop.model === 'component_relation_index') {
+	} else if (source === 'relation_index') {
 		rawLocators = await relationIndexLocators(ctx, record, hop);
-	} else if (hop.model === 'component_relation_children') {
+	} else if (source === 'relation_children') {
 		rawLocators = await relationChildrenLocators(ctx, record, hop);
 	} else {
 		const items = readComponentItems(record, hop.tipo, hop.model) as StoredLocator[] | null;
@@ -2687,10 +2707,23 @@ export interface ExportDisplayColumn {
  *             there (`frames`, the record being the frames' OWNER) is one the
  *             read emitted there. `[]` = the bare target identity (the leaf
  *             crossing; its reads are asked again by the projection).
+ *   existenceOf  (T0-9 D8, WC-2026-11-09-export-frontier-fanout addendum) the
+ *             crossing of an EXISTENCE-ONLY relation_index pointer (a section
+ *             the requester may not read — config_children.ts
+ *             pointerIsExistenceOnly): the walk reads NOTHING there and exports
+ *             only the pointer's address (section name + id). A record the
+ *             record key refuses passes iff the host read lists that pointer
+ *             among the entries of the index `existenceOf` (the edit form shows
+ *             every pointer, D6). Narrow by construction: it admits no read —
+ *             `reads` and `frames` must be empty, or nothing is admitted.
  */
 export type ExportCrossingReach =
 	| 'strict'
-	| { readonly reads: readonly string[]; readonly frames?: readonly DisplayedFrame[] };
+	| {
+			readonly reads: readonly string[];
+			readonly frames?: readonly DisplayedFrame[];
+			readonly existenceOf?: string;
+	  };
 
 /** One runtime (section, component) grant the export frontier allowed. */
 export interface ExportFrontierGrant {
@@ -2851,7 +2884,17 @@ async function displayAdmits(
 		lang: column.lang,
 	});
 	const display = await column.display;
-	if (display === null || !display.hasRecord(sectionTipo, sectionId)) return false;
+	if (display === null) return false;
+	// D8: an existence-only pointer reads nothing — its address is displayed
+	// when the read lists it among the index's own entries. Never with a read.
+	if (reach.existenceOf !== undefined) {
+		return (
+			reach.reads.length === 0 &&
+			(reach.frames ?? []).length === 0 &&
+			display.hasEntry(reach.existenceOf, sectionTipo, sectionId)
+		);
+	}
+	if (!display.hasRecord(sectionTipo, sectionId)) return false;
 	for (const componentTipo of reach.reads) {
 		if (display.hasComponent(sectionTipo, sectionId, componentTipo)) continue;
 		if (!(await holdsNoData(run, sectionTipo, sectionId, componentTipo))) return false;
@@ -2863,7 +2906,10 @@ async function displayAdmits(
  * True when `componentTipo` stores nothing on (section, record): the read
  * emits no item for an empty relation, and the walk reading it exports
  * nothing — so its absence from the display is not a refusal. Anything not
- * provably empty (no matrix record, no storage column) is NOT empty.
+ * provably empty (no matrix record, no storage column) is NOT empty — nor is
+ * a model that READS COMPUTED locators (component_relation_index / _children:
+ * locator_source.ts readsComputedLocators): it stores nothing under its tipo
+ * by definition, so an empty slot proves nothing about what it resolves.
  */
 async function holdsNoData(
 	run: ExportAtomRun,
@@ -2873,6 +2919,7 @@ async function holdsNoData(
 ): Promise<boolean> {
 	const model = await getModelByTipo(componentTipo);
 	if (model === null || getColumnNameByModel(model) === null) return false;
+	if (readsComputedLocators(model)) return false;
 	const record = await loadExportRecord(run, sectionTipo, sectionId);
 	if (record === null) return false;
 	// the value read's OWN door (alias data key included) — never a second
@@ -3082,10 +3129,28 @@ export async function prefetchExportRecords(
 	}
 }
 
-/** The raw stored 'relation' slice of one component (legacy hop contract). */
-function rawRelationSlice(record: MatrixRecord | null, componentTipo: string): StoredLocator[] {
-	const bag = (record?.columns.relation as Record<string, unknown[]> | null)?.[componentTipo];
-	return Array.isArray(bag) ? (bag as StoredLocator[]) : [];
+/**
+ * The locators one export step reads on its owner record — THE core locator
+ * source (relations/locator_source.ts componentLocators): the RAW stored slice
+ * (positions kept), or the computed set of a model that stores nothing
+ * (relation_children / relation_index). A missing owner has none.
+ */
+async function exportStepLocators(
+	owner: MatrixRecord | null,
+	ownerTipo: string,
+	ownerId: number | string,
+	step: ExportChainStep,
+): Promise<StoredLocator[]> {
+	if (owner === null) return [];
+	return (await componentLocators(
+		{
+			sectionTipo: ownerTipo,
+			sectionId: ownerId,
+			columns: owner.columns as Record<string, unknown>,
+		},
+		step.tipo,
+		step.model,
+	)) as StoredLocator[];
 }
 
 /** One pre-projection export atom: a leaf resolution site with provenance. */
@@ -3142,9 +3207,10 @@ export async function resolveRecordAtoms(
 		const hopOwners = [...previousOwners, { sectionTipo: ownerTipo, sectionId: ownerId }];
 
 		if (position < chain.length - 1) {
-			// Relation HOP: raw stored slice, recurse per valid locator, RAW index.
+			// Relation HOP: the step's locators (stored slice or computed), recurse
+			// per valid locator, RAW index.
 			const owner = await loadExportRecord(run, ownerTipo, ownerId);
-			const bag = rawRelationSlice(owner, step.tipo);
+			const bag = await exportStepLocators(owner, ownerTipo, ownerId, step);
 			for (let index = 0; index < bag.length; index++) {
 				const locator = bag[index];
 				if (typeof locator?.section_tipo !== 'string' || locator.section_id === undefined) {
@@ -3186,7 +3252,7 @@ export async function resolveRecordAtoms(
 		};
 		if (getColumnNameByModel(step.model) === 'relation') {
 			const owner = await loadExportRecord(run, ownerTipo, ownerId);
-			const bag = rawRelationSlice(owner, step.tipo);
+			const bag = await exportStepLocators(owner, ownerTipo, ownerId, step);
 			const locators: NonNullable<ExportLeafAtom['locators']> = [];
 			for (let index = 0; index < bag.length; index++) {
 				const locator = bag[index];
@@ -3201,8 +3267,13 @@ export async function resolveRecordAtoms(
 				// Inside a plain relation column's display walk (D4) the bare target
 				// identity leans on the display; what is READ there is asked again,
 				// per component, by the projection's own crossing.
+				// An EXISTENCE-ONLY relation_index pointer (D8) is crossed for its
+				// address alone — the projection emits it as name + id and reads
+				// nothing there (atoms.ts emitExistenceAtom).
+				const existence = await pointerIsExistenceOnly(step.tipo, locator.section_tipo);
 				await assertExportCrossing(run, locator.section_tipo, locator.section_id, undefined, {
 					reads: [],
+					...(existence ? { existenceOf: step.tipo } : {}),
 				});
 				locators.push({
 					sectionTipo: locator.section_tipo,

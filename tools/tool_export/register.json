@@ -754,6 +754,106 @@
           },
           {
             "lang": "lg-eng",
+            "name": "value_with_references",
+            "value": "Export calculated relations"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "value_with_references",
+            "value": "Exportar relaciones calculadas"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "value_with_references",
+            "value": "Exportar relacions calculades"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "value_with_references",
+            "value": "Exporter les relations calculées"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "value_with_references",
+            "value": "Esporta relazioni calcolate"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "value_with_references",
+            "value": "Berechnete Beziehungen exportieren"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "value_with_references",
+            "value": "Εξαγωγή υπολογισμένων σχέσεων"
+          },
+          {
+            "lang": "lg-por",
+            "name": "value_with_references",
+            "value": "Exportar relações calculadas"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "value_with_references",
+            "value": "Kalkulatutako erlazioak esportatu"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "value_with_references",
+            "value": "गणना गरिएका सम्बन्धहरू निर्यात गर्नुहोस्"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "references_not_in_raw",
+            "value": "Calculated relations are not exported in the Dédalo (Raw) format"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "references_not_in_raw",
+            "value": "Las relaciones calculadas no se exportan en el formato Dédalo (Raw)"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "references_not_in_raw",
+            "value": "Les relacions calculades no s'exporten en el format Dédalo (Raw)"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "references_not_in_raw",
+            "value": "Les relations calculées ne sont pas exportées au format Dédalo (Raw)"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "references_not_in_raw",
+            "value": "Le relazioni calcolate non vengono esportate nel formato Dédalo (Raw)"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "references_not_in_raw",
+            "value": "Berechnete Beziehungen werden im Format Dédalo (Raw) nicht exportiert"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "references_not_in_raw",
+            "value": "Οι υπολογισμένες σχέσεις δεν εξάγονται στη μορφή Dédalo (Raw)"
+          },
+          {
+            "lang": "lg-por",
+            "name": "references_not_in_raw",
+            "value": "As relações calculadas não são exportadas no formato Dédalo (Raw)"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "references_not_in_raw",
+            "value": "Kalkulatutako erlazioak ez dira Dédalo (Raw) formatuan esportatzen"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "references_not_in_raw",
+            "value": "Dédalo (Raw) ढाँचामा गणना गरिएका सम्बन्धहरू निर्यात हुँदैनन्"
+          },
+          {
+            "lang": "lg-eng",
             "name": "stop",
             "value": "Stop"
           },

@@ -110,9 +110,13 @@ import {
 	getModelByTipo,
 	getPropertiesByTipo,
 } from '../../core/ontology/resolver.ts';
+import {
+	configChildrenArePerLocator,
+	exportConfigChildren,
+	isImplicitConfigChild,
+} from '../../core/relations/config_children.ts';
 import type { EmissionContext } from '../../core/resolve/component_data.ts';
 import type { ExternalCellDegradation } from '../../core/resolve/relation_list.ts';
-import { resolveOwnConfigMap } from '../../core/section/list_definitions/section_list.ts';
 import type { FieldPlan } from '../plan/types.ts';
 import {
 	type ExportAtomRun,
@@ -375,28 +379,30 @@ async function isExternalModel(tipo: string): Promise<boolean> {
 }
 
 /**
- * The relation leaf's own-config children that are component_external — the
- * same child set relation_list.ts resolveRelationTargetValues and atoms.ts
- * fanOutRelation read (own request_config ddos parented to the component,
- * plus the implicit legacy relations).
+ * The relation leaf's config children that are component_external — the SAME
+ * child set relation_list.ts resolveRelationTargetValues and atoms.ts
+ * fanOutRelation read (THE core seam, relations/config_children.ts
+ * exportConfigChildren: direct children of the explicit map, else the implicit
+ * derivation — `implicit` names those, the frontier's key). A per-LOCATOR
+ * component (config-less relation_index) has no static child set: it predicts
+ * nothing, and its external cells (if any) fetch per record — the prefetch is
+ * an optimization, never a scope. (Children a CALLER map declares below the
+ * leaf are not predicted either: they fetch per record the same way.)
  */
 async function externalChildrenOf(
 	relationTipo: string,
 ): Promise<{ tipos: string[]; implicit: Set<string> }> {
-	const cell = await resolveOwnConfigMap(relationTipo);
 	const out: string[] = [];
 	const implicit = new Set<string>();
-	for (const child of cell.rawDdos ?? []) {
+	if (await configChildrenArePerLocator(relationTipo)) return { tipos: out, implicit };
+	for (const child of await exportConfigChildren(relationTipo)) {
 		if (typeof child?.tipo !== 'string') continue;
 		if (child.parent !== undefined && child.parent !== 'self' && child.parent !== relationTipo) {
 			continue;
 		}
-		if ((await isExternalModel(child.tipo)) && !out.includes(child.tipo)) out.push(child.tipo);
-	}
-	for (const tipo of cell.implicitRelations ?? []) {
-		if ((await isExternalModel(tipo)) && !out.includes(tipo)) {
-			out.push(tipo);
-			implicit.add(tipo);
+		if ((await isExternalModel(child.tipo)) && !out.includes(child.tipo)) {
+			out.push(child.tipo);
+			if (isImplicitConfigChild(child)) implicit.add(child.tipo);
 		}
 	}
 	return { tipos: out, implicit };

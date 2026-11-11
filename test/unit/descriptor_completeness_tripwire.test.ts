@@ -36,6 +36,7 @@ import { resolve } from 'node:path';
 import {
 	allComponentModels,
 	getComponentModel,
+	getFlatValueFamily,
 	getImportAppendPolicy,
 	getRenderClass,
 	getSearchBuilderFamily,
@@ -345,6 +346,35 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 				).toMatch(/^dd\d+$/);
 			}
 		}
+	});
+
+	/**
+	 * T0-9 (G7): a relation-column model WITHOUT a flat-value family has no
+	 * export 'value' / panel / Referencias text at all — resolveCellValue never
+	 * reaches the datalist branch and the column ships blank (filter,
+	 * publication, select_lang, relation_parent/children/related/index were all
+	 * blank on 2026-11-11). Exempt: the external family (its value is derived
+	 * from a remote row, flatValue 'external') and component_dataframe (a frame
+	 * is folded INTO its main's cell, never a column of its own). Aliases are
+	 * resolved through the registry (getFlatValueFamily follows one hop).
+	 */
+	test('every relation-column model declares a flat-value family (T0-9)', () => {
+		const NO_FLAT_VALUE_EXEMPT: ReadonlySet<string> = new Set([
+			'component_external',
+			'component_dataframe',
+		]);
+		const checked: string[] = [];
+		const missing: string[] = [];
+		for (const descriptor of descriptors) {
+			if (descriptor.column !== 'relation') continue;
+			if (NO_FLAT_VALUE_EXEMPT.has(descriptor.model)) continue;
+			if (getFlatValueFamily(descriptor.model) === 'external') continue;
+			checked.push(descriptor.model);
+			if (getFlatValueFamily(descriptor.model) === undefined) missing.push(descriptor.model);
+		}
+		// floor: the census really walked the relation family
+		expect(checked.length).toBeGreaterThanOrEqual(10);
+		expect(missing.sort(), 'relation-column models without flatValue').toEqual([]);
 	});
 
 	test('relation-only facets never appear on non-relation models', () => {

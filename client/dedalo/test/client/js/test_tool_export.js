@@ -39,7 +39,7 @@ import {get_instance} from '../../../core/common/js/instances.js'
 import {request_failed, response_data, ApiError} from '../../../core/common/js/api_error.js'
 import {create_job_follower_group} from '../../../core/common/js/job_follow.js'
 import {ui} from '../../../core/common/js/ui.js'
-import {apply_export_preset, edit_user_export_preset} from '../../../tools/tool_export/js/export_user_presets.js'
+import {apply_export_preset, build_export_config, edit_user_export_preset} from '../../../tools/tool_export/js/export_user_presets.js'
 import {
 	get_drop_index,
 	on_dragstart,
@@ -1518,6 +1518,199 @@ describe('TOOL_EXPORT PARENTS CHECKBOX (per data format)', function() {
 		assert_state('value', true)
 	})
 })
+
+describe('TOOL_EXPORT REFERENCES CHECKBOX (calculated relations, per data format)', function() {
+
+	this.timeout(60000)
+
+	const SECTION		= 'test3'
+	const RELATED		= 'test56' // component_relation_related dd621 MULTIDIRECTIONAL: has calculated relations
+	const UNIDIRECTIONAL	= 'test54' // component_relation_related dd620: none — no checkbox (server-confirmed)
+	const PORTAL		= 'test80' // component_portal (no references checkbox)
+	const LANG			= 'lg-eng'
+	const FORMAT_KEY	= 'selected_data_format_export'
+	const BREAKDOWN_KEY	= 'selected_breakdown_export'
+
+	let tool			= null
+	const stored		= new Map()
+
+	const container = document.getElementById('content') || document.body
+	const test_container = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'container tool_export_references_check',
+		parent			: container
+	})
+
+	const column_ddo = function(tipo, model, value_with_references) {
+		return {
+			id						: SECTION + '_' + tipo + '_list_' + LANG,
+			tipo					: tipo,
+			section_tipo			: SECTION,
+			model					: model,
+			parent					: SECTION,
+			lang					: LANG,
+			mode					: 'list',
+			label					: tipo,
+			value_with_parents		: false,
+			value_with_references	: value_with_references,
+			path					: [{
+				section_tipo	: SECTION,
+				component_tipo	: tipo,
+				model			: model,
+				name			: tipo
+			}]
+		}
+	}
+	const related_ddo = (flag) => column_ddo(RELATED, 'component_relation_related', flag)
+
+	const references_nodes = function() {
+		const label = tool.user_selection_list.querySelector('.export_component_references')
+		assert.ok(label, 'the related column renders its references checkbox')
+		return {
+			label	: label,
+			check	: label.querySelector('.export_component_references_check'),
+			note	: label.querySelector('.export_component_references_note')
+		}
+	}
+
+	const select_format = function(value) {
+		const select = tool.node.querySelector('.select_data_format_export')
+		select.value = value
+		select.dispatchEvent(new Event('change'))
+	}
+
+	const assert_state = function(format, enabled) {
+		const {label, check, note} = references_nodes()
+		assert.equal(tool.data_format, format, 'the tool follows the select')
+		assert.equal(check.disabled, !enabled, `${format}: checkbox ${enabled ? 'enabled' : 'disabled'}`)
+		assert.equal(label.classList.contains('disabled'), !enabled, `${format}: label marked`)
+		assert.ok(note, 'the note node exists')
+		assert.equal(note.classList.contains('hide'), enabled, `${format}: the 'not in Raw' note ${enabled ? 'hidden' : 'visible'}`)
+	}
+
+	before(async function() {
+		for (const key of [FORMAT_KEY, BREAKDOWN_KEY]) {
+			try {
+				stored.set(key, localStorage.getItem(key))
+			} catch (error) {
+				stored.set(key, null)
+			}
+		}
+		const api_response = await data_manager.request({body: {
+			action			: 'get_element_context',
+			prevent_lock	: true,
+			source			: {model: 'tool_export'}
+		}})
+		if (request_failed(api_response)) {
+			throw new Error('get_element_context refused: ' + api_response.error.code)
+		}
+		const tool_context = response_data(api_response)[0]
+		assert.ok(tool_context, 'the tool_export context is served')
+		const caller = {
+			id			: 'test_tool_export_references_caller',
+			id_base		: 'test_tool_export_references_caller',
+			model		: 'section',
+			type		: 'section',
+			tipo		: SECTION,
+			section_tipo: SECTION,
+			section_id	: null,
+			mode		: 'list',
+			lang		: LANG,
+			label		: SECTION,
+			status		: 'built',
+			rqo			: {
+				source	: {typo: 'source', type: 'section', model: 'section', tipo: SECTION, section_tipo: SECTION, section_id: null, mode: 'list', lang: LANG},
+				sqo		: {section_tipo: [SECTION], filter_by_locators: [{section_tipo: SECTION, section_id: 1}], limit: 10, offset: 0}
+			},
+			build		: async function() { return true },
+			get_total	: async function() { return 1 }
+		}
+		tool = await get_instance(Object.assign(
+			{caller: caller, caller_options: null},
+			tool_context,
+			{lang: LANG, type: 'tool', id_variant: 'test_tool_export_references'}
+		))
+		await tool.build(true)
+		// the IndexedDB selection must not change under this suite
+		tool.update_local_db_data = async function() { return true }
+		const wrapper = await tool.render()
+		test_container.replaceChildren(wrapper)
+		await new Promise(resolve => setTimeout(resolve, 300))
+		tool.user_selection_list.replaceChildren()
+	})
+
+	after(async function() {
+		if (tool && tool.status!=='destroyed') {
+			await tool.destroy(true, true, true)
+		}
+		test_container.remove()
+		for (const [key, value] of stored) {
+			try {
+				if (value===null) {
+					localStorage.removeItem(key)
+				}else{
+					localStorage.setItem(key, value)
+				}
+			} catch (error) {
+				// nothing to restore
+			}
+		}
+	})
+
+	it('gated by the SERVER: a dd621 related renders it (and no parents check); a dd620 related and a portal do not', async function() {
+		select_format('value')
+		tool.user_selection_list.replaceChildren()
+		const related = await tool.build_export_component(related_ddo(false))
+		assert.ok(related.querySelector('.export_component_references'), 'dd621 related: references checkbox')
+		assert.equal(related.querySelector('.export_component_parents'), null, 'related: no parents checkbox')
+		// same model, no calculated relations: the server says no (T0-9 D4 — the
+		// export would refuse the flag on it)
+		const unidirectional = await tool.build_export_component(column_ddo(UNIDIRECTIONAL, 'component_relation_related', false))
+		assert.equal(unidirectional.querySelector('.export_component_references'), null, 'dd620 related: no references checkbox')
+		const portal = await tool.build_export_component(column_ddo(PORTAL, 'component_portal', false))
+		assert.equal(portal.querySelector('.export_component_references'), null, 'portal: no references checkbox')
+	})
+
+	it('enabled in value and grid_value, disabled with a visible note in dedalo_raw; the check writes the ddo flag', async function() {
+		select_format('value')
+		tool.user_selection_list.replaceChildren()
+		const ddo = related_ddo(false)
+		tool.user_selection_list.appendChild(await tool.build_export_component(ddo))
+		assert_state('value', true)
+		const {check} = references_nodes()
+		assert.equal(check.checked, false, 'the ddo flag (off) is shown')
+		check.checked = true
+		check.dispatchEvent(new Event('change'))
+		assert.equal(ddo.value_with_references, true, 'checking writes ddo.value_with_references')
+
+		select_format('dedalo_raw')
+		assert_state('dedalo_raw', false)
+		assert.equal(references_nodes().check.checked, true, 'the flag is kept')
+
+		select_format('grid_value')
+		assert_state('grid_value', true)
+		select_format('value')
+	})
+
+	it('a preset round-trips the flag: applied → shown checked (disabled in raw) and saved back inside ar_ddo_to_export', async function() {
+		select_format('value')
+		await apply_export_preset({
+			self		: tool,
+			config		: {data_format: 'dedalo_raw', breakdown: 'default', ar_ddo_to_export: [related_ddo(true)]},
+			section_id	: null
+		})
+		assert_state('dedalo_raw', false)
+		assert.equal(references_nodes().check.checked, true, 'the preset flag is shown')
+		select_format('value')
+		assert_state('value', true)
+		const config = build_export_config(tool)
+		const saved = config.ar_ddo_to_export.find(el => el.tipo===RELATED)
+		assert.ok(saved, 'the related column is in the saved config')
+		assert.equal(saved.value_with_references, true, 'the flag rides the saved ddo')
+	})
+})
+
+
 
 describe('TOOL_EXPORT DROP MODEL (one zone, one marker)', function() {
 

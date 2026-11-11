@@ -184,6 +184,14 @@ export interface ExportColumnMeta {
 	 * (grid_value format; atoms.ts resolveParentsChain).
 	 */
 	valueWithParents?: boolean;
+	/**
+	 * Per-ddo value_with_references flag (T0-9 D4, the column's references
+	 * checkbox): a declared leaf component_relation_related with derived
+	 * relations (dd467 / dd621) also exports its CALCULATED locators (stored
+	 * excluded) as a sibling '#references' column (value + grid_value;
+	 * atoms.ts emitReferencesAtoms). dedalo_raw ignores it.
+	 */
+	valueWithReferences?: boolean;
 }
 
 /** One output field of one section (a field node of a table). */

@@ -430,6 +430,14 @@ export interface HostColumnDisplay {
 	 * owner with only the frames paired to the main items it shows.
 	 */
 	hasFrame(sectionTipo: string, sectionId: number | string, frame: DisplayedFrame): boolean;
+	/**
+	 * True when the read emitted an item of `componentTipo` whose ENTRIES list
+	 * the locator (sectionTipo, sectionId) — the pointer is SHOWN as an
+	 * address, whatever the read showed AT that record. Asked only for an
+	 * existence-only relation_index pointer (T0-9 D8, resolver.ts
+	 * ExportCrossingReach `existenceOf`): never a licence to read the record.
+	 */
+	hasEntry(componentTipo: string, sectionTipo: string, sectionId: number | string): boolean;
 }
 
 /** One dataframe entry as {@link HostColumnDisplay.hasFrame} is asked about it. */
@@ -510,6 +518,18 @@ function emittedAt(item: DisplayItem): string | null {
 	return displayKey(item.section_tipo, item.section_id);
 }
 
+/** The display key of every record an emitted item's entries name (its locators). */
+function emittedEntryTargets(item: DisplayItem): string[] {
+	const list = Array.isArray(item.entries) ? item.entries : [];
+	const out: string[] = [];
+	for (const entry of list) {
+		if (entry === null || typeof entry !== 'object') continue;
+		const target = frameTargetOf(entry as Record<string, unknown>);
+		if (target !== null) out.push(displayKey(target.sectionTipo, target.sectionId));
+	}
+	return out;
+}
+
 /** The dataframe entries an emitted item carries (entries with a pair key). */
 function emittedFrames(item: DisplayItem): DisplayedFrame[] {
 	const entries = Array.isArray(item.entries) ? item.entries : [];
@@ -555,6 +575,7 @@ export async function hostColumnDisplay(
 	const records = new Set<string>();
 	const shown = new Set<string>();
 	const frames = new Set<string>();
+	const entries = new Set<string>();
 	await forEachDisplayPage(host, targets, (items) => {
 		for (const item of items) {
 			const record = emittedAt(item);
@@ -562,6 +583,9 @@ export async function hostColumnDisplay(
 			records.add(record);
 			shown.add(`${record}\u0000${String(item.tipo)}`);
 			for (const frame of emittedFrames(item)) frames.add(frameKey(record, frame));
+			for (const target of emittedEntryTargets(item)) {
+				entries.add(`${String(item.tipo)}\u0000${target}`);
+			}
 		}
 	});
 	return {
@@ -570,6 +594,8 @@ export async function hostColumnDisplay(
 			shown.has(`${displayKey(sectionTipo, sectionId)}\u0000${componentTipo}`),
 		hasFrame: (sectionTipo, sectionId, frame) =>
 			frames.has(frameKey(displayKey(sectionTipo, sectionId), frame)),
+		hasEntry: (componentTipo, sectionTipo, sectionId) =>
+			entries.has(`${componentTipo}\u0000${displayKey(sectionTipo, sectionId)}`),
 	};
 }
 

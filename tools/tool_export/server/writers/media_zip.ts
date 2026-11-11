@@ -142,13 +142,13 @@ import {
 	storedMediaItemsOf,
 } from '../../../../src/core/media/tool_support.ts';
 import { getModelByTipo } from '../../../../src/core/ontology/resolver.ts';
-import { resolveOwnConfigMap } from '../../../../src/core/section/list_definitions/section_list.ts';
 import {
 	getRecordComponentPermission,
 	type Principal,
 	resolvePrincipal,
 } from '../../../../src/core/security/permissions.ts';
 import { principalCanAccessRecord } from '../../../../src/core/security/record_scope.ts';
+import { exportPathMayReachMedia } from '../../../../src/diffusion/api/export.ts';
 import { type ExportManifest, writeFully } from '../artifact_store.ts';
 import type { SpoolColLine } from '../spool_reader.ts';
 import { exportSqoSectionTargets } from '../tool_export.ts';
@@ -537,34 +537,18 @@ export function isDirectMediaColumn(col: SpoolColLine): boolean {
 
 /**
  * May a column of an export built WITHOUT capture hold related media its
- * cells cannot address? (an img/av cell, a path step through a media
- * component, a relation whose OWN config children include one.) Read only to
- * report the gap ('rerun_required') — never to archive anything. Shared with
- * the preview (`media_rerun_required`), so the client offers the build that
- * reports it.
+ * cells cannot address? (an img/av cell, or a declared path the export walk
+ * can follow to a media component.) Read only to report the gap
+ * ('rerun_required') — never to archive anything. The reach is the export
+ * walk's OWN child selection (src/diffusion export atoms.ts
+ * exportPathMayReachMedia — caller map, own config, frames, nested relations),
+ * never a second reading of the config. Shared with the preview
+ * (`media_rerun_required`), so the client offers the build that reports it.
  */
 export async function legacyColumnMayHoldMedia(col: SpoolColLine): Promise<boolean> {
 	if (col.cell_type === 'img' || col.cell_type === 'av') return true;
-	const path = Array.isArray(col.path) ? col.path : [];
-	for (const step of path) {
-		const tipo = step?.component_tipo;
-		if (typeof tipo !== 'string' || tipo === '') continue;
-		const model = await getModelByTipo(tipo);
-		if (typeof model === 'string' && isMediaModel(model)) return true;
-	}
-	const leaf = path[path.length - 1]?.component_tipo;
-	if (typeof leaf !== 'string' || leaf === '') return false;
-	const map = await resolveOwnConfigMap(leaf);
-	const children = [
-		...(map.rawDdos ?? []).map((ddo) => ddo?.tipo),
-		...(map.implicitRelations ?? []),
-	];
-	for (const tipo of children) {
-		if (typeof tipo !== 'string') continue;
-		const model = await getModelByTipo(tipo);
-		if (typeof model === 'string' && isMediaModel(model)) return true;
-	}
-	return false;
+	const path = Array.isArray(col.path) ? (col.path as { component_tipo?: unknown }[]) : [];
+	return exportPathMayReachMedia(path);
 }
 
 /** The media root, realpath'd (the symlink check compares real paths). */

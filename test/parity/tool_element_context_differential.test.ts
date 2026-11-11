@@ -107,6 +107,10 @@ describe.if(hasPhpCredentials())(
 						// 2026-10-29 addendum (WC-2026-08-23 addendum 2026-10-29): the
 						// data-lang selector's label, added with the export data-lang fix
 						'data_lang',
+						// 2026-11-11 (T0-9 D4, the calculated-relations `#references`
+						// column — its WC entry): the per-column references checkbox
+						'value_with_references',
+						'references_not_in_raw',
 					]);
 					type LabelRow = { name?: unknown };
 					const tsLabels = tsContext.labels as LabelRow[];

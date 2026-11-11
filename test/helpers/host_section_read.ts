@@ -35,6 +35,13 @@ export function hostReadContext(principal: Principal, requestId: string) {
 	};
 }
 
+/** One context entry of the read (only the fields the gates read). */
+export interface HostReadContextEntry {
+	tipo?: unknown;
+	section_tipo?: unknown;
+	request_config?: { sqo?: { section_tipo?: { tipo?: unknown; existence_only?: unknown }[] } }[];
+}
+
 /** The edit section read of `host`#`sectionId` as `principal` — its data items, sections row dropped. */
 export async function hostSectionReadItems(
 	principal: Principal,
@@ -43,6 +50,17 @@ export async function hostSectionReadItems(
 	lang: string,
 	requestId: string,
 ): Promise<HostReadItem[]> {
+	return (await hostSectionRead(principal, host, sectionId, lang, requestId)).data;
+}
+
+/** The edit section read of `host`#`sectionId` as `principal` — data items (sections row dropped) AND context. */
+export async function hostSectionRead(
+	principal: Principal,
+	host: string,
+	sectionId: number,
+	lang: string,
+	requestId: string,
+): Promise<{ data: HostReadItem[]; context: HostReadContextEntry[] }> {
 	clearFrontierIdentityCaches();
 	const rqo = {
 		action: 'read',
@@ -67,9 +85,15 @@ export async function hostSectionReadItems(
 		},
 	};
 	const result = await dispatchRqo(rqo as never, hostReadContext(principal, requestId) as never);
-	const body = result.body as { data?: { data?: HostReadItem[] }; error?: { code?: string } };
+	const body = result.body as {
+		data?: { data?: HostReadItem[]; context?: HostReadContextEntry[] };
+		error?: { code?: string };
+	};
 	if (body.error !== undefined) throw new Error(`section read refused: ${body.error.code}`);
-	return (body.data?.data ?? []).filter((item) => item.typo !== 'sections');
+	return {
+		data: (body.data?.data ?? []).filter((item) => item.typo !== 'sections'),
+		context: body.data?.context ?? [],
+	};
 }
 
 /** Every literal value an item carries (input_text entries: {value}). */

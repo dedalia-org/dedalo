@@ -88,6 +88,14 @@ const SECOND_POINTER_TO_PERSONA = 948313;
 /** The LIST-read hosts: one pointed at by test3 only (948342 → 948341); 948301 is pointed at by nothing. */
 const TEST3_ONLY_HOST_ID = 948341;
 const TEST3_POINTER_TO_TEST3_ONLY = 948342;
+/**
+ * The TRANSLATABLE-column host: one test3 pointer whose test52 (translatable
+ * input_text) value exists in lg-spa ONLY — a related_list cell read in the
+ * nolan slice comes back empty (the 2026-11-11 blank-column regression).
+ */
+const LANG_HOST_ID = 948361;
+const LANG_POINTER_ID = 948362;
+const LANG_POINTER_VALUE = 'relation_index translatable column value';
 
 interface ScratchRow {
 	readonly sectionTipo: string;
@@ -102,6 +110,8 @@ const scratchRows: ScratchRow[] = [
 	...TEST3_POINTERS_TO_PERSONA.map((sectionId) => ({ sectionTipo: HOST_SECTION, sectionId })),
 	{ sectionTipo: HOST_SECTION, sectionId: TEST3_ONLY_HOST_ID },
 	{ sectionTipo: HOST_SECTION, sectionId: TEST3_POINTER_TO_TEST3_ONLY },
+	{ sectionTipo: HOST_SECTION, sectionId: LANG_HOST_ID },
+	{ sectionTipo: HOST_SECTION, sectionId: LANG_POINTER_ID },
 	{ sectionTipo: SECOND_SECTION, sectionId: SECOND_POINTER_TO_MAIN },
 	{ sectionTipo: SECOND_SECTION, sectionId: SECOND_POINTER_TO_SOLE },
 	{ sectionTipo: SECOND_SECTION, sectionId: SECOND_POINTER_TO_PERSONA },
@@ -224,6 +234,11 @@ beforeAll(async () => {
 	await createScratchRecord(HOST_SECTION, TEST3_POINTER_TO_TEST3_ONLY, {
 		relation: dd96Pointer(TEST3_POINTER_SLOT, TEST3_ONLY_HOST_ID),
 	});
+	await createScratchRecord(HOST_SECTION, LANG_HOST_ID, {});
+	await createScratchRecord(HOST_SECTION, LANG_POINTER_ID, {
+		relation: dd96Pointer(TEST3_POINTER_SLOT, LANG_HOST_ID),
+		string: { [TEST3_COLUMN]: [{ id: 1, lang: 'lg-spa', value: LANG_POINTER_VALUE }] },
+	});
 }, 60000);
 
 afterAll(async () => {
@@ -265,9 +280,18 @@ interface Answer {
 	data: Item[];
 }
 
+/**
+ * The session's data language for the reads below (dispatch seeds
+ * currentDataLang() from it). Pinned to lg-spa — the lang the translatable
+ * fixture value lives in — so no gate borrows the install's menu default.
+ */
+const SESSION_DATA_LANG = 'lg-spa';
+
 async function requestContext(userId: number, username: string, isAdmin: boolean) {
 	const token = createSession(userId, username, isAdmin);
-	const session = getSession(token);
+	const stored = getSession(token);
+	const session =
+		stored === null || stored === undefined ? stored : { ...stored, dataLang: SESSION_DATA_LANG };
 	return {
 		requestId: 'relation_index_context_native',
 		clientIp: '127.0.0.1',
@@ -847,6 +871,44 @@ describe('section LIST read: one shared node for every row', () => {
 		expect(rowCells(TEST3_COLUMN, SOLE_HOST_ID)).toEqual([]);
 		expect(rowCells(TEST3_COLUMN, TEST3_ONLY_HOST_ID).length).toBeGreaterThan(0);
 		expect(rowCells(SECOND_COLUMN, TEST3_ONLY_HOST_ID)).toEqual([]);
+	});
+});
+
+describe('translatable related_list columns resolve in the DATA lang (never the nolan slice)', () => {
+	type LangCell = Item & { lang?: string; entries?: { value?: unknown; lang?: string }[] };
+	/** The ONE test52 related_list cell of the lang pointer, in `answer`. */
+	const langCell = (answer: Answer): LangCell => {
+		const cells = cellItems(answer, TEST3_COLUMN).filter(
+			(cell) => cell.section_tipo === HOST_SECTION && Number(cell.section_id) === LANG_POINTER_ID,
+		);
+		expect(cells.length).toBe(1);
+		return cells[0] as LangCell;
+	};
+	const expectSpanishValue = (cell: LangCell): void => {
+		expect(cell.lang).toBe(SESSION_DATA_LANG);
+		expect((cell.entries ?? []).map((entry) => entry.value)).toEqual([LANG_POINTER_VALUE]);
+	};
+
+	test('get_data door: the cell carries the lg-spa value (the reference)', async () => {
+		expectSpanishValue(langCell(await getData(LANG_HOST_ID, 'edit', { limit: 10, offset: 0 })));
+	});
+	test('section EDIT read: same lang + value as the get_data cell', async () => {
+		const reference = langCell(await getData(LANG_HOST_ID, 'edit', { limit: 10, offset: 0 }));
+		const cell = langCell(await sectionEdit(LANG_HOST_ID));
+		expectSpanishValue(cell);
+		expect({ lang: cell.lang, entries: cell.entries }).toEqual({
+			lang: reference.lang,
+			entries: reference.entries,
+		});
+	});
+	test('section LIST read: same lang + value as the get_data cell', async () => {
+		const reference = langCell(await getData(LANG_HOST_ID, 'list', { limit: 10, offset: 0 }));
+		const cell = langCell(await sectionListWithIndex([LANG_HOST_ID]));
+		expectSpanishValue(cell);
+		expect({ lang: cell.lang, entries: cell.entries }).toEqual({
+			lang: reference.lang,
+			entries: reference.entries,
+		});
 	});
 });
 

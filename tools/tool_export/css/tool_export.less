@@ -238,7 +238,9 @@
 						}
 
 						// per-component 'export parents' checkbox (relation components)
-						>.export_component_parents {
+						// and 'references' checkbox (component_relation_related — T0-9 D4)
+						>.export_component_parents,
+						>.export_component_references {
 							display: flex;
 							align-items: center;
 							gap: 0.25rem;
@@ -263,7 +265,8 @@
 								}
 							}
 
-							>.export_component_parents_note {
+							>.export_component_parents_note,
+							>.export_component_references_note {
 								font-style: italic;
 							}
 						}
@@ -299,7 +302,8 @@
 								-webkit-mask-repeat: no-repeat;
 										mask-repeat: no-repeat;
 							}
-							>.export_component_parents {
+							>.export_component_parents,
+							>.export_component_references {
 								min-height: 44px;
 								padding-right: 0.5rem;
 							}

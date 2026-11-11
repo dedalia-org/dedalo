@@ -93,10 +93,12 @@ import {
 	collectRawMediaAddresses,
 	createExportRun,
 	fieldHasValueParents,
+	fieldHasValueReferences,
 	PARENTS_SUB_ID,
-	resolveValueCell,
+	REFERENCES_SUB_ID,
 	resolveValueCellWithMedia,
 	segmentIdentityKey,
+	wireSegment,
 } from './atoms.ts';
 import type { ExportDdoInput } from './compile_columns.ts';
 import { compileExportPlan } from './compile_columns.ts';
@@ -107,6 +109,7 @@ import {
 	planExternalPrefetch,
 	prefetchExternalRowsForBatch,
 } from './external_prefetch.ts';
+import { joinExportAtoms } from './join_atoms.ts';
 import { ndjsonStream } from './ndjson_stream.ts';
 import { EXPORT_ROW_MEDIA, type ExportRowMediaAddress } from './row_media.ts';
 import {
@@ -190,6 +193,11 @@ type RecordEntry =
 			 * (atoms.ts fieldHasValueParents); `flat` null = no chain on any
 			 * target (the column still mints). Absent → byte-identical output. */
 			parents?: { flat: string | null };
+			/** T0-9 D4: the sibling calculated-relations cell — present ONLY when
+			 * the ddo's flag is set on a leaf that derives relations
+			 * (atoms.ts fieldHasValueReferences); `flat` null = nothing
+			 * calculated on this record (the column still mints). */
+			references?: { flat: string | null; media?: MediaReadAddress[] };
 	  }
 	| {
 			kind: 'raw';
@@ -473,7 +481,8 @@ function createTabulator(options: {
 			columnKey,
 			group,
 			atom.segments,
-			atom.segments,
+			// the protocol path: the join separators stay off the wire (atoms.ts wireSegment)
+			atom.segments.map(wireSegment),
 			suffixMap,
 			ddoIndex,
 			sortTail,
@@ -502,7 +511,7 @@ function createTabulator(options: {
 	): Promise<Record<string, unknown>[]> => {
 		recordsCount++;
 		const newColLines: Record<string, unknown>[] = [];
-		const cellGroups = new Map<number, Map<number, string[]>>();
+		const cellGroups = new Map<number, Map<number, GridAtom[]>>();
 		const rawCells: Record<string, string | number> = {};
 		let recordHeight = 1;
 		// The record's captured media addresses, per placed column (row_media.ts).
@@ -606,6 +615,47 @@ function createTabulator(options: {
 						rawCells[String(parentsColumn.i)] = entry.parents.flat;
 					}
 				}
+				if (!isRaw && entry.references !== undefined) {
+					// T0-9 D4 value format: the sibling calculated-relations column,
+					// after the term (and parents) column (sortKey [ddo, 1]) on EVERY
+					// record once the flag is set: the declared chain + a
+					// `sub_id:'references'` segment on the leaf → key
+					// `<top>#references`, header '<column> | references'.
+					const declared = declaredSegmentsOf(entry.declaredPath);
+					const leaf = declared[declared.length - 1] as ExportSegment;
+					const referencesSegments: ExportSegment[] = [
+						...declared,
+						{
+							section_tipo: leaf.section_tipo,
+							component_tipo: leaf.component_tipo,
+							model: null,
+							item_index: null,
+							section_id: null,
+							sub_id: REFERENCES_SUB_ID,
+						},
+					];
+					const referencesColumn = await registerColumn(
+						`${entry.topKey}#${REFERENCES_SUB_ID}`,
+						entry.topKey, // group: the term column's
+						referencesSegments,
+						referencesSegments,
+						new Map(),
+						entry.ddoIndex,
+						[1],
+						'text',
+						null, // model: the references segment's (null), as in grid_value
+						newColLines,
+					);
+					if (entry.references.flat !== null) {
+						rawCells[String(referencesColumn.i)] = entry.references.flat;
+					}
+					// its media is ITS OWN (read by the `#references` walk), credited
+					// to this column — or to none when the cell shows nothing
+					noteMedia(
+						entry.references.flat !== null ? referencesColumn.i : null,
+						entry.references.media,
+					);
+				}
 				continue;
 			}
 
@@ -621,7 +671,7 @@ function createTabulator(options: {
 						cellGroups.set(rowIndex, rowCells);
 					}
 					const bucket = rowCells.get(placement.column.i) ?? [];
-					bucket.push(atom.value);
+					bucket.push(atom);
 					rowCells.set(placement.column.i, bucket);
 				}
 			}
@@ -635,8 +685,18 @@ function createTabulator(options: {
 		} else {
 			for (let rowIndex = 0; rowIndex < recordHeight; rowIndex++) {
 				const cells: Record<string, string> = {};
-				for (const [ordinal, values] of cellGroups.get(rowIndex) ?? []) {
-					const joined = values.length === 1 ? (values[0] as string) : values.join(' | ');
+				for (const [ordinal, atoms] of cellGroups.get(rowIndex) ?? []) {
+					// PHP join_cell (export_tabulator.php :940-956): EVERY cell joins as
+					// the value format does — export_value::join, the LEAF segment's
+					// separator (number/text_area/… ', '; input_text/date/iri
+					// records_separator ?? ' | '; T0-9 D7), PHP empty() included (a
+					// lone '0' / '' atom is an empty cell). The ONE bypass is PHP's: a
+					// single section_id atom keeps its value as is (its int).
+					const single = atoms.length === 1 ? (atoms[0] as GridAtom) : null;
+					const joined =
+						single !== null && single.cellType === 'section_id'
+							? single.value
+							: joinExportAtoms(atoms);
 					if (joined !== '') cells[String(ordinal)] = joined;
 				}
 				lines.push({ t: 'row', rec: recId, sub: rowIndex, c: cells });
@@ -1353,53 +1413,41 @@ async function openExportGridInScope(
 			// grows a sibling chain cell, built IN the term cell's own fold so it
 			// mirrors the term cell's structure (atoms.ts ValueCells).
 			const withParents = fieldHasValueParents(field, leafModel);
-			let flat: string | null;
-			let media: MediaReadAddress[] | undefined;
-			let parentsFlat: string | null = null;
-			if (run.captureMedia === true || withParents) {
-				// (a non-capturing run reads no media: `media` comes back empty)
-				({
-					flat,
-					media,
-					parents: parentsFlat,
-				} = await resolveValueCellWithMedia(
-					run,
-					field,
-					record.section_tipo,
-					Number(record.section_id),
-					lang,
-					unresolved,
-					withParents,
-				));
-			} else {
-				flat = await resolveValueCell(
-					run,
-					field,
-					record.section_tipo,
-					Number(record.section_id),
-					lang,
-					unresolved,
-				);
-			}
-			// Column LABEL segments (PHP export_tabulator :295-302: with atoms the
-			// value column's path is atoms[0]->path — the declared chain EXTENDED by
-			// the fan-out segments, e.g. 'Denominación | Término'). TS's value cells
-			// join through resolveValueCell instead of atoms, so derive the label
-			// chain from the first grid atom only when the leaf fans out.
-			let labelSegments: ExportSegment[] | undefined;
-			if (flat !== null && getColumnNameByModel(leafModel) === 'relation') {
-				const labelAtoms = await collectGridAtoms(
-					run,
-					field,
-					record.section_tipo,
-					Number(record.section_id),
-					lang,
-					[], // label derivation never adds unresolved notes
-					false, // parents OFF — a '#parents' atom must never head the label chain
-				);
-				labelSegments = labelAtoms[0]?.segments;
-			}
+			// T0-9 D4: the per-ddo references flag grows a sibling cell of the
+			// leaf related's CALCULATED relations, folded by the same join.
+			const withReferences = await fieldHasValueReferences(field);
+			// ONE walk per cell (T0-9): the value fold, its WC-049 mirror, the
+			// captured media AND the column LABEL chain (PHP export_tabulator
+			// :295-302 — with atoms the value column's header is atoms[0]->path,
+			// the declared chain EXTENDED by the fan-out segments, e.g.
+			// 'Denominación | Término') all come from the cell's own atoms.
+			// (a non-capturing run reads no media: `media` comes back empty)
+			const {
+				flat,
+				media,
+				parents: parentsFlat,
+				references: referencesFlat,
+				referencesMedia,
+				labelSegments: walkedLabel,
+			} = await resolveValueCellWithMedia(
+				run,
+				field,
+				record.section_tipo,
+				Number(record.section_id),
+				lang,
+				unresolved,
+				withParents,
+				withReferences,
+			);
+			const labelSegments =
+				flat !== null && getColumnNameByModel(leafModel) === 'relation' ? walkedLabel : undefined;
 			const parents = withParents ? { flat: parentsFlat } : undefined;
+			const references = withReferences
+				? {
+						flat: referencesFlat ?? null,
+						...(referencesMedia.length > 0 ? { media: referencesMedia } : {}),
+					}
+				: undefined;
 			entries.push({
 				kind: 'value',
 				ddoIndex,
@@ -1411,6 +1459,7 @@ async function openExportGridInScope(
 				topModel,
 				...(media !== undefined && media.length > 0 ? { media } : {}),
 				...(parents !== undefined ? { parents } : {}),
+				...(references !== undefined ? { references } : {}),
 			});
 		}
 		return entries;

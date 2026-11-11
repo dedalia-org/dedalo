@@ -112,6 +112,14 @@ const REL_IA = 'zzed34';
 const REL_IAP = 'zzed35';
 /** component_alias of T_HIDDEN: stores nothing under its own tipo (WC-020). */
 const T_ALIAS = 'zzed41';
+/** Injected columns whose OWN config reads a COMPUTED relation (stores nothing). */
+const REL_IX = 'zzed36';
+const REL_IC = 'zzed37';
+/** T's computed relations: the inverse index (dd96) and the derived children. */
+const T_INDEX = 'zzed42';
+const T_CHILDREN = 'zzed43';
+/** A T portal storing dd96 pointers (what T_INDEX inverts). */
+const T_IPTR = 'zzed44';
 
 const LANG = 'lg-eng';
 const REFUSAL = 'perm.export_column_out_of_scope';
@@ -124,6 +132,8 @@ const VALUE = {
 	hidden: 'zzed hidden kestrel sentinel',
 	t3hidden: 'zzed three hidden',
 	t4hidden: 'zzed four hidden',
+	/** t#5: MY project, points at t#1 (dd96 + parent) — t#1's computed relations. */
+	t5computed: 'zzed five computed',
 };
 
 const identity = exportFrontierIdentity('export_relation_display', 933700);
@@ -301,6 +311,10 @@ const S = situation({
 									{ tipo: T_LABEL, parent: REL_IA, section_tipo: T },
 									{ tipo: REL_IAP, parent: 'self', section_tipo: 'self' },
 									{ tipo: T_LABEL, parent: REL_IAP, section_tipo: T },
+									{ tipo: REL_IX, parent: 'self', section_tipo: 'self' },
+									{ tipo: T_LABEL, parent: REL_IX, section_tipo: T },
+									{ tipo: REL_IC, parent: 'self', section_tipo: 'self' },
+									{ tipo: T_LABEL, parent: REL_IC, section_tipo: T },
 								],
 							},
 						},
@@ -322,6 +336,32 @@ const S = situation({
 			model: 'component_alias',
 			term: term('zz ed alias'),
 			properties: { alias_of: T_HIDDEN },
+		},
+		injectedColumn(REL_IX, 'component_autocomplete', 'zz ed injected index', 5, [T_LABEL, T_INDEX]),
+		injectedColumn(REL_IC, 'component_autocomplete', 'zz ed injected children', 6, [
+			T_LABEL,
+			T_CHILDREN,
+		]),
+		{
+			tipo: T_INDEX,
+			parent: T,
+			model: 'component_relation_index',
+			term: term('zz ed index'),
+			properties: requestConfig(T, [T_LABEL]),
+		},
+		{
+			tipo: T_CHILDREN,
+			parent: T,
+			model: 'component_relation_children',
+			term: term('zz ed children'),
+			properties: requestConfig(T, [T_LABEL]),
+		},
+		{
+			tipo: T_IPTR,
+			parent: T,
+			model: 'component_portal',
+			term: term('zz ed index pointer'),
+			properties: requestConfig(T, [T_LABEL]),
 		},
 	],
 });
@@ -402,6 +442,8 @@ async function writeRecords(variant: Variant = {}): Promise<void> {
 			[REL_IP]: [relationLocator(REL_IP, T, 1)],
 			[REL_IA]: [relationLocator(REL_IA, T, 1)],
 			[REL_IAP]: [relationLocator(REL_IAP, T, 1)],
+			[REL_IX]: [relationLocator(REL_IX, T, 1)],
+			[REL_IC]: [relationLocator(REL_IC, T, 1)],
 		},
 	);
 	await writeRecord(
@@ -529,6 +571,8 @@ const SCOPED_GRANTS: FrontierGrant[] = [
 	{ sectionTipo: HI, tipo: REL_IP, level: 2 },
 	{ sectionTipo: HI, tipo: REL_IA, level: 2 },
 	{ sectionTipo: HI, tipo: REL_IAP, level: 2 },
+	{ sectionTipo: HI, tipo: REL_IX, level: 2 },
+	{ sectionTipo: HI, tipo: REL_IC, level: 2 },
 ];
 
 /** (b): Gate B must admit a path into T, so the target fields are granted — the WALK refuses. */
@@ -545,12 +589,25 @@ const ADMIN_GRANTS: FrontierGrant[] = [
 		tipo,
 		level: 3,
 	})),
-	...[HI_FILTER, REL_I, REL_IP, REL_IA, REL_IAP].map((tipo) => ({
+	...[HI_FILTER, REL_I, REL_IP, REL_IA, REL_IAP, REL_IX, REL_IC].map((tipo) => ({
 		sectionTipo: HI,
 		tipo,
 		level: 3,
 	})),
-	...[T_FILTER, T_LABEL, T_HIDDEN, T_REL, T_PARENT, T_SELF, T_FREL, T_DF, T_ALIAS].map((tipo) => ({
+	...[
+		T_FILTER,
+		T_LABEL,
+		T_HIDDEN,
+		T_REL,
+		T_PARENT,
+		T_SELF,
+		T_FREL,
+		T_DF,
+		T_ALIAS,
+		T_INDEX,
+		T_CHILDREN,
+		T_IPTR,
+	].map((tipo) => ({
 		sectionTipo: T,
 		tipo,
 		level: 3,
@@ -902,6 +959,58 @@ describe.if(DB_READY)('a relation column exports exactly its display (D4)', () =
 					expect(await exportAnswer(identity.admin, { shape, host: HI, path })).toContain(
 						VALUE.hidden,
 					);
+				}
+			});
+		}
+
+		/**
+		 * A COMPUTED relation (component_relation_index / _children) stores
+		 * nothing under its own tipo, so its empty slot must never count as
+		 * "holds no data" (resolver.ts holdsNoData → locator_source.ts
+		 * readsComputedLocators): t#1 is displayed (label only), the injected
+		 * column's OWN config reads t#1's index / children, which the read never
+		 * showed — refused by the column, though t#5 (the computed target) is a
+		 * record the persona may read.
+		 */
+		const COMPUTED_CASES = [
+			{ column: REL_IX, label: 'zz ed injected index' },
+			{ column: REL_IC, label: 'zz ed injected children' },
+		];
+		for (const computed of COMPUTED_CASES) {
+			test(`${computed.label}: a displayed record read for a COMPUTED relation the read does NOT show → THROWS`, async () => {
+				await writeRecords();
+				await writeRecord(T, 5, T_FILTER, identity.myProject, text(T_LABEL, VALUE.t5computed), {
+					[T_PARENT]: [relationLocator(T_PARENT, T, 1, 'dd47')],
+					[T_IPTR]: [relationLocator(T_IPTR, T, 1, 'dd96')],
+				});
+				const path = [{ section_tipo: HI, component_tipo: computed.column }];
+				await identity.setScopedGrants([
+					...SCOPED_GRANTS,
+					{ sectionTipo: T, tipo: T, level: 1 },
+					{ sectionTipo: T, tipo: T_LABEL, level: 1 },
+				]);
+				try {
+					clearFrontierIdentityCaches();
+					expect(await isRecordInScope(T, 5, identity.scoped)).toBe(true);
+					expect(await isRecordInScope(T, 1, identity.scoped)).toBe(false);
+					const items = await sectionReadItems(identity.scoped, HI);
+					expect(displayedValues(items, computed.column, HI)).toEqual([VALUE.t1]);
+					for (const shape of ['value', 'fanout'] as Shape[]) {
+						expect(await exportAnswer(identity.scoped, { shape, host: HI, path })).toBe(
+							refusedBy(computed.label),
+						);
+					}
+					// non-vacuity: the export's own config DOES reach t#1's computed relation
+					for (const shape of ['value', 'fanout'] as Shape[]) {
+						expect(await exportAnswer(identity.admin, { shape, host: HI, path })).toContain(
+							VALUE.t5computed,
+						);
+					}
+				} finally {
+					await identity.setScopedGrants(SCOPED_GRANTS);
+					await sql.unsafe('DELETE FROM matrix_test WHERE section_tipo = $1 AND section_id = 5', [
+						T,
+					]);
 				}
 			});
 		}

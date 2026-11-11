@@ -109,6 +109,22 @@ async function columnCandidates(tipos: readonly string[]): Promise<Map<string, s
 }
 
 /**
+ * The section's related_list COLUMN tipos with their models, principal-free
+ * (the clean step only, ontology order) — the per-locator children of a
+ * config-less component_relation_index in the export / flat reader
+ * (relations/config_children.ts, tagged implicit), whose consumers filter per
+ * call with the SAME predicate authorizedColumns applies below: the export
+ * through its frontier, the interactive flat reader through
+ * filterAuthorizedRelated (resolve/relation_list.ts readableChildren).
+ */
+export async function sectionRelatedListColumns(
+	sectionTipo: string,
+): Promise<{ tipo: string; model: string }[]> {
+	const candidates = await columnCandidates(await sectionRelationListTipos(sectionTipo));
+	return [...candidates].map(([tipo, model]) => ({ tipo, model }));
+}
+
+/**
  * PHP STEP 5 filter_authorized_related: the columns the CURRENT principal may
  * read on the pointing section — the very predicate the implicit builders
  * apply (implicit.ts filterAuthorizedRelated, the frontier key). No principal
