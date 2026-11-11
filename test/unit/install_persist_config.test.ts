@@ -20,12 +20,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:tes
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import {
-	DEPRECATED_LANG_KEYS,
-	PHP_KEY_ALIASES,
-	parseEnvFile,
-	seedProcessEnv,
-} from '../../src/config/env.ts';
+import { PHP_KEY_ALIASES, parseEnvFile, seedProcessEnv } from '../../src/config/env.ts';
 import { isDedaloError } from '../../src/core/errors/index.ts';
 import { persistConfig } from '../../src/core/install/config_persist.ts';
 import { checkDirectories } from '../../src/core/install/directories.ts';
@@ -97,9 +92,6 @@ describe('persist_config (P2)', () => {
 		// No fallback spelling of any written key: the alias is for a .env carried
 		// over from PHP, never a second name the installer emits.
 		const aliasSpellings = new Set(Object.values(PHP_KEY_ALIASES));
-		// Non-vacuous for the deprecated lang spellings seeded above: still aliases.
-		expect(aliasSpellings.has('DEDALO_APPLICATION_LANG')).toBe(true);
-		expect(aliasSpellings.has('DEDALO_DATA_LANG')).toBe(true);
 		expect(Object.keys(parsed).filter((key) => aliasSpellings.has(key))).toEqual([]);
 		expect(parsed.DEDALO_SALT_STRING).toBe(result.generated.DEDALO_SALT_STRING);
 
@@ -188,44 +180,6 @@ describe('persist_config (P2)', () => {
 		// Keys the run does not own are still carried over verbatim.
 		expect(parsed.OPERATOR_KEPT).toBe('1');
 		expect(parsed.DEDALO_SALT_STRING).toBe('deadbeef');
-	});
-
-	test('a re-install DROPS every deprecated lang line (APPLICATION_LANG/DATA_LANG, both spellings) and writes the defaults', async () => {
-		const envPath = join(scratch, '.env');
-		// Each spelling carries a value DIFFERENT from the defaults the run writes.
-		const spellings = Object.entries(DEPRECATED_LANG_KEYS).flatMap(([key, { php }]) => [key, php]);
-		expect(spellings).toEqual([
-			'APPLICATION_LANG',
-			'DEDALO_APPLICATION_LANG',
-			'DATA_LANG',
-			'DEDALO_DATA_LANG',
-		]);
-		writeFileSync(
-			envPath,
-			[
-				...spellings.map((key) => `${key}=lg-cat`),
-				'DEDALO_SALT_STRING=deadbeef',
-				'OPERATOR_KEPT=1',
-				'',
-			].join('\n'),
-		);
-		expect(Object.keys(parseEnvFile(readFileSync(envPath, 'utf8')))).toEqual(
-			expect.arrayContaining(spellings),
-		);
-		const result = await persistConfig({
-			...BASE_CFG,
-			langs: ['lg-eng', 'lg-spa'],
-			app_lang_default: 'lg-eng',
-			data_lang_default: 'lg-spa',
-		});
-		expect(result.ok).toBe(true);
-		const parsed = parseEnvFile(readFileSync(envPath, 'utf8'));
-		for (const key of spellings) expect(parsed[key], `${key} must be dropped`).toBeUndefined();
-		expect(parsed.DEDALO_APPLICATION_LANGS_DEFAULT).toBe('lg-eng');
-		expect(parsed.DEDALO_DATA_LANG_DEFAULT).toBe('lg-spa');
-		expect(JSON.parse(parsed.PROJECTS_DEFAULT_LANGS as string)).toEqual(['lg-eng', 'lg-spa']);
-		// Ownership is scoped: unrelated operator lines still survive.
-		expect(parsed.OPERATOR_KEPT).toBe('1');
 	});
 
 	test('diffusion enabled → diffusion keys + internal token written', async () => {
@@ -461,11 +415,11 @@ describe('persist_config (P2)', () => {
 		});
 		expect(JSON.parse(parsed.PROJECTS_DEFAULT_LANGS as string)).toEqual(['lg-eng', 'lg-spa']);
 
-		// The scalar mandatory keys; the deprecated APPLICATION_LANG/DATA_LANG are NOT written.
+		// The scalar mandatory keys + the coherent APPLICATION_LANG/DATA_LANG mirror.
 		expect(parsed.DEDALO_APPLICATION_LANGS_DEFAULT).toBe('lg-eng');
 		expect(parsed.DEDALO_DATA_LANG_DEFAULT).toBe('lg-spa');
-		expect(parsed.APPLICATION_LANG).toBeUndefined();
-		expect(parsed.DATA_LANG).toBeUndefined();
+		expect(parsed.APPLICATION_LANG).toBe('lg-eng');
+		expect(parsed.DATA_LANG).toBe('lg-spa');
 		expect(parsed.DEDALO_STRUCTURE_LANG).toBe('lg-spa');
 	});
 
@@ -862,50 +816,6 @@ describe('--engine-only: the backup dir the engine checks is the one the .env re
 				{ label: 'Media', path: '/m', exists: true, writable: false },
 			]),
 		).toBe('Backups /b/db (missing), Media /m (not writable)');
-	});
-});
-
-/**
- * DEPRECATED LANG LINES IN AN OLD .env (transition release): the installer process is
- * booted from cliBootEnv, whose process-only APPLICATION_LANG/DATA_LANG pins mask a stale
- * line in either spelling — install-time readers (config.menu.*) see the plan defaults,
- * and no override warning prints for a line persist_config is about to drop.
- */
-describe('cliBootEnv masks a stale deprecated lang line in the existing .env', () => {
-	const root = mkdtempSync(join(tmpdir(), 'dedalo_install_langpin_'));
-	afterAll(() => rmSync(root, { recursive: true, force: true }));
-
-	test('APPLICATION_LANG / DEDALO_DATA_LANG in .env → config.menu serves the plan defaults', () => {
-		writeFileSync(join(root, '.env'), 'APPLICATION_LANG=lg-cat\nDEDALO_DATA_LANG=lg-cat\n');
-		const script = `
-const R = ${JSON.stringify(REPO)};
-const { buildInstallPlan, cliBootEnv } = await import(R + '/src/core/install/install_plan.ts');
-const { seedProcessEnv } = await import(R + '/src/config/env.ts');
-const plan = buildInstallPlan({ route: 'production', instance: 'zzpin', entity: 'zzpin', engine_only: true }, { salt: 's' });
-seedProcessEnv(cliBootEnv(plan));
-const { config } = await import(R + '/src/config/config.ts');
-console.log(JSON.stringify({ app: config.menu.applicationLang, data: config.menu.dataLang,
-	planApp: plan.langConfig.applicationLangsDefault, planData: plan.langConfig.dataLangDefault }));
-`;
-		// A minimal environment: never this process's suite keys or the live private dir.
-		const proc = Bun.spawnSync([process.execPath, '-e', script], {
-			cwd: REPO,
-			env: {
-				PATH: process.env.PATH ?? '',
-				HOME: process.env.HOME ?? '',
-				TMPDIR: process.env.TMPDIR ?? tmpdir(),
-				DEDALO_PRIVATE_DIR: root,
-			},
-			stdout: 'pipe',
-			stderr: 'pipe',
-		});
-		const stderr = proc.stderr.toString();
-		expect(proc.exitCode, stderr).toBe(0);
-		const out = JSON.parse(proc.stdout.toString().trim().split('\n').pop() ?? '{}');
-		expect(out.planApp).not.toBe('lg-cat');
-		expect(out.app).toBe(out.planApp);
-		expect(out.data).toBe(out.planData);
-		expect(stderr).not.toContain('overrides');
 	});
 });
 

@@ -315,19 +315,18 @@ Every constant it found is grouped. Values are never printed, so the report is s
 
 ### 5.2 Hand-set keys
 
-v6 computed some settings instead of stating them — the host from the request, the media and backup paths from the script's own location. A static reader cannot know what those evaluate to on your server, and **guessing would be worse than stopping**: it would write a plausible wrong path and look like it had worked. So they are listed as `NOT MIGRATABLE` and you set them by hand in `../private/.env`:
+v6 computed some settings instead of stating them — the host from the request, the media and backup paths from the script's own location, the interface language from a function call. A static reader cannot know what those evaluate to on your server, and **guessing would be worse than stopping**: it would write a plausible wrong path and look like it had worked. So they are listed as `NOT MIGRATABLE` and you set them by hand in `../private/.env`:
 
 | Key | What to set it to |
 | --- | --- |
 | `MEDIA_PATH` | the absolute media root on the **new** host — the directory holding `image/`, `av/`, `pdf/`, `3d/`, `svg/` |
 | `DEDALO_HOST`, `DEDALO_PROTOCOL` | the server's real public hostname and scheme |
 | `DEDALO_BACKUP_PATH`, `ONTOLOGY_DATA_IO_DIR`, `UPDATE_LOG_FILE` | paths on the new host |
+| `APPLICATION_LANG`, `DATA_LANG` | the defaults you used in v6 |
 | `DEDALO_FILTER_SECTION_TIPO_DEFAULT` | as in v6, if you set it |
 | `AREAS_DENY` | your denied areas, as a JSON array of tipos — v6 did not express them as a setting |
 
 `MEDIA_PATH` is the one that matters most: get it wrong and no media resolves, and writes made while it is wrong corrupt the media index.
-
-The v6 current-language constants `DEDALO_APPLICATION_LANG` / `DEDALO_DATA_LANG` are **not** migrated (unless your v6 config pinned one to a literal value different from its default — the report lists that one as `DEPRECATED, still honoured`, and the boot warns until you move the value to the `*_DEFAULT` key) and need no hand-set key: in v7 the current interface and data languages are session state. Their install-wide starting values are `DEDALO_APPLICATION_LANGS_DEFAULT` and `DEDALO_DATA_LANG_DEFAULT`, which the tool migrates from your v6 config — check they name the languages you want. Do not add `APPLICATION_LANG` / `DATA_LANG`: they are [deprecated](../development/internationalization.md#the-language-config-constants).
 
 ### 5.3 Try the candidate before you apply it
 

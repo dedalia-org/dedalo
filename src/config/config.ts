@@ -32,17 +32,8 @@
  */
 
 import { legacyAwareDefaultDir } from './catalog/media.ts';
-import {
-	declaredDataLangs,
-	langDefaultMembershipReports,
-	resolveCurrentDataLang,
-} from './data_langs.ts';
-import {
-	classifyDeprecatedLangKeys,
-	deprecatedLangBootLines,
-	RETIRED_ENV_KEYS,
-	readEnv,
-} from './env.ts';
+import { declaredDataLangs, resolveCurrentDataLang } from './data_langs.ts';
+import { RETIRED_ENV_KEYS, readEnv } from './env.ts';
 import { UNCONFIGURED } from './install_state.ts';
 import { resolveInstanceColor } from './instance_color.ts';
 import { isDiffusionLangCode } from './lang_code.ts';
@@ -117,15 +108,9 @@ export interface PhpReferenceConfig {
 
 /** Navigation-menu settings (PHP: area/menu constants, installation-specific). */
 export interface MenuConfig {
-	/**
-	 * Label language for area/section titles (APPLICATION_LANG). DEPRECATED key, still
-	 * honoured this release (DEPRECATED_LANG_KEYS, env.ts); next: lang.applicationLangsDefault.
-	 */
+	/** Label language for area/section titles (PHP DEDALO_APPLICATION_LANG). */
 	readonly applicationLang: string;
-	/**
-	 * Default DATA language for component values (DATA_LANG). DEPRECATED key, still
-	 * honoured this release (DEPRECATED_LANG_KEYS, env.ts); next: lang.dataLangDefault.
-	 */
+	/** Default DATA language for component values (PHP DEDALO_DATA_LANG). */
 	readonly dataLang: string;
 	/**
 	 * Couple the interface and data languages (PHP DEDALO_DATA_LANG_SYNC): when
@@ -1181,41 +1166,6 @@ if (currentDataLang.replaced && !UNCONFIGURED) {
 	);
 }
 
-// Interface languages: read once here, published as `lang.*` below and checked
-// for membership with the data default against the project languages.
-const applicationLangs = requireMap('DEDALO_APPLICATION_LANGS');
-const applicationLangsDefault = requireString('DEDALO_APPLICATION_LANGS_DEFAULT');
-const configuredApplicationLang = readString('APPLICATION_LANG');
-
-// APPLICATION_LANG / DATA_LANG are DEPRECATED (DEPRECATED_LANG_KEYS, env.ts): still
-// honoured this release; a value that differs from its *_DEFAULT key warns with the
-// exact edit, a redundant one stays quiet (the check_config widget lists it). An
-// UNCONFIGURED box emits nothing: its values are sentinels, not an operator's choice.
-const langDefaultsByKey: Record<string, string> = {
-	DEDALO_APPLICATION_LANGS_DEFAULT: applicationLangsDefault,
-	DEDALO_DATA_LANG_DEFAULT: dataLangDefault,
-};
-const servedLegacyLangs = { APPLICATION_LANG: configuredApplicationLang, DATA_LANG: currentDataLang.lang };
-/** Boot-time classification of the deprecated lang lines — the ONE computation; check_config reads it. */
-export const DEPRECATED_LANG_KEY_STATUSES = Object.freeze(
-	classifyDeprecatedLangKeys(
-		(key) => langDefaultsByKey[key] ?? '',
-		undefined,
-		(key) => servedLegacyLangs[key],
-	),
-);
-if (!UNCONFIGURED) {
-	for (const line of deprecatedLangBootLines(DEPRECATED_LANG_KEY_STATUSES)) console.error(line);
-	for (const report of langDefaultMembershipReports({
-		applicationLangs,
-		applicationLangsDefault,
-		projectLangs: projectsDefaultLangs,
-		dataLangDefault,
-	})) {
-		console.error(report);
-	}
-}
-
 const diffusionLangs = resolveDiffusionLangs(
 	readList('DEDALO_DIFFUSION_LANGS'),
 	projectsDefaultLangs,
@@ -1277,7 +1227,7 @@ export const config: DedaloConfig = Object.freeze({
 		password: readEnv('PHP_API_PASSWORD'),
 	}),
 	menu: Object.freeze({
-		applicationLang: configuredApplicationLang,
+		applicationLang: readString('APPLICATION_LANG'),
 		// Resolved against the declared data languages above, never the raw key.
 		dataLang: currentDataLang.lang,
 		dataLangSync: readString('DATA_LANG_SYNC') === 'true',
@@ -1303,8 +1253,8 @@ export const config: DedaloConfig = Object.freeze({
 		// required from ../private/.env (PHP key names), never hardcoded lists.
 		// The single-lang sentinels exist ONLY so `config` is importable on an
 		// unconfigured box (install_state.ts); the installer writes the real values.
-		applicationLangs,
-		applicationLangsDefault,
+		applicationLangs: requireMap('DEDALO_APPLICATION_LANGS'),
+		applicationLangsDefault: requireString('DEDALO_APPLICATION_LANGS_DEFAULT'),
 		// Both read once, above: they build INSTALLED_DATA_LANGS as well.
 		dataLangDefault,
 		dataLangSelector: readString('DEDALO_DATA_LANG_SELECTOR') === 'true',

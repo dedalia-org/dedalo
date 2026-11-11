@@ -26,7 +26,7 @@
  * migration runs on.
  */
 
-import { DEPRECATED_LANG_KEYS, PHP_KEY_ALIASES, RETIRED_ENV_KEYS } from './env.ts';
+import { PHP_KEY_ALIASES, RETIRED_ENV_KEYS } from './env.ts';
 
 export type MigrationClass = 'SAME' | 'ALIAS' | 'RENAMED' | 'RESHAPED' | 'DROPPED';
 
@@ -236,8 +236,6 @@ const RESHAPED: Readonly<Record<string, MigrationRule>> = {
 const DERIVED_PATH = 'derived: the v7 engine computes this path/URL itself';
 const PHP_ONLY = 'PHP-only: the TS engine has no such subsystem';
 const TS_STATE = 'runtime state: lives in ../private/ts_state.json, not .env';
-const DEPRECATED_LANG =
-	'per-request value in v6 (session ?? *_DEFAULT via fix_cascade_config_var), never operator config — the v7 defaults DEDALO_APPLICATION_LANGS_DEFAULT / DEDALO_DATA_LANG_DEFAULT carry it. DEPRECATED: a hand-set line is still honoured this release (with a boot warning when it differs from its default) and refuses the boot from the next';
 const NO_CONSUMER = 'no TS consumer (see the "NOT HONORED" block of sample.env)';
 
 const dropped = (names: readonly string[], reason: string): Record<string, MigrationRule> =>
@@ -582,41 +580,10 @@ function build(): Readonly<Record<string, MigrationRule>> {
 	}
 
 	Object.assign(map, RESHAPED, DROPPED);
-
-	// DEPRECATED lang keys (env.ts DEPRECATED_LANG_KEYS) override their derived ALIAS:
-	// v6's DEDALO_APPLICATION_LANG / DEDALO_DATA_LANG were per-request values, so a
-	// migrated install must never START carrying a line v7 is retiring.
-	for (const { php } of Object.values(DEPRECATED_LANG_KEYS)) {
-		map[php] = { cls: 'DROPPED', reason: DEPRECATED_LANG };
-	}
 	return Object.freeze(map);
 }
 
 export const V6_MIGRATION: Readonly<Record<string, MigrationRule>> = build();
-
-/**
- * The ONE carve-out from the DROPPED deprecated lang spellings (transition release):
- * a v6 LITERAL define of DEDALO_DATA_LANG (e.g. 'lg-cat') that is not provably equal to the
- * literal of its default key pinned what v6 served, so it migrates to the native
- * spelling — still honoured, and the boot warns with the edit. The stock runtime value
- * (fix_cascade_config_var), an empty one, or one equal to its default stays DROPPED.
- * Returns the native key to write, or undefined.
- */
-export function deprecatedLangPin(
-	name: string,
-	records: ReadonlyMap<string, { readonly kind: string; readonly value: unknown }>,
-): string | undefined {
-	for (const [key, { php, mustEqual }] of Object.entries(DEPRECATED_LANG_KEYS)) {
-		if (php !== name) continue;
-		const own = records.get(php);
-		if (own?.kind !== 'literal' || typeof own.value !== 'string' || own.value.trim() === '') {
-			return undefined;
-		}
-		const fallback = records.get(mustEqual);
-		return fallback?.kind === 'literal' && fallback.value === own.value ? undefined : key;
-	}
-	return undefined;
-}
 
 /**
  * Env keys the v7 engine reads that have NO v6 origin — nothing to migrate, but

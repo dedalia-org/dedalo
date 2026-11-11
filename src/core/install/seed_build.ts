@@ -630,6 +630,7 @@ async function stagePackages(
  */
 export const SEED_CHILD_CONFIG: Readonly<Record<string, string>> = Object.freeze({
 	ENTITY: 'dedalo_seed_build',
+	APPLICATION_LANG: 'lg-eng',
 	DEDALO_APPLICATION_LANGS: '{"lg-eng":"English"}',
 	DEDALO_APPLICATION_LANGS_DEFAULT: 'lg-eng',
 	DEDALO_DATA_LANG_DEFAULT: 'lg-eng',

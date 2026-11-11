@@ -1253,6 +1253,8 @@ function langSection(l: LangConfig): EnvSection {
 			entry('PROJECTS_DEFAULT_LANGS', JSON.stringify(l.projectsDefaultLangs), true),
 			entry('DEDALO_APPLICATION_LANGS_DEFAULT', l.applicationLangsDefault),
 			entry('DEDALO_DATA_LANG_DEFAULT', l.dataLangDefault),
+			entry('APPLICATION_LANG', l.applicationLangsDefault),
+			entry('DATA_LANG', l.dataLangDefault),
 			entry('DEDALO_STRUCTURE_LANG', l.structureLang),
 		],
 	};
@@ -1891,10 +1893,6 @@ export function cliBootEnv(plan: InstallPlan): Record<string, string> {
 		PROJECTS_DEFAULT_LANGS: JSON.stringify(l.projectsDefaultLangs),
 		DEDALO_APPLICATION_LANGS_DEFAULT: l.applicationLangsDefault,
 		DEDALO_DATA_LANG_DEFAULT: l.dataLangDefault,
-		// PROCESS-ONLY pins (langSection never persists them): they mask a stale
-		// deprecated APPLICATION_LANG/DATA_LANG line (either spelling) in an existing .env
-		// for the installer itself, which classifies them `redundant` (no boot warning).
-		// Deleted in the release that retires the readers (DEPRECATED_LANG_KEYS, env.ts).
 		APPLICATION_LANG: l.applicationLangsDefault,
 		DATA_LANG: l.dataLangDefault,
 		DEDALO_STRUCTURE_LANG: l.structureLang,

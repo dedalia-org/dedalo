@@ -146,36 +146,3 @@ export function resolveCurrentDataLang(
 	if (declared.has(configured)) return { lang: configured, replaced: false };
 	return { lang: dataLangDefault, replaced: true };
 }
-
-/**
- * The two "default is a member of its set" reports — REPORT, never throw (the
- * DEDALO_DIFFUSION_LANGS boot-report precedent in config.ts). An interface default
- * outside DEDALO_APPLICATION_LANGS is a language no menu offers back; a data default
- * outside the project languages still works (declaredDataLangs unions it in) but no
- * component language tab or translation tool (PROJECTS_DEFAULT_LANGS) offers it.
- * Returns the lines to print; empty when coherent.
- */
-export function langDefaultMembershipReports(source: {
-	readonly applicationLangs: Readonly<Record<string, string>>;
-	readonly applicationLangsDefault: string;
-	readonly projectLangs: readonly string[];
-	readonly dataLangDefault: string;
-}): string[] {
-	const reports: string[] = [];
-	if (!Object.hasOwn(source.applicationLangs, source.applicationLangsDefault)) {
-		reports.push(
-			`[config] DEDALO_APPLICATION_LANGS_DEFAULT = '${source.applicationLangsDefault}' is not a ` +
-				`key of DEDALO_APPLICATION_LANGS (${Object.keys(source.applicationLangs).join(', ')}) — ` +
-				'add it there or pick one of those.',
-		);
-	}
-	if (!source.projectLangs.includes(source.dataLangDefault)) {
-		reports.push(
-			`[config] DEDALO_DATA_LANG_DEFAULT = '${source.dataLangDefault}' is not in ` +
-				`PROJECTS_DEFAULT_LANGS (${source.projectLangs.join(', ')}) — it is still a declared ` +
-				'data language, but no component language tab or translation tool (PROJECTS_DEFAULT_LANGS) ' +
-				'offers it; add it to PROJECTS_DEFAULT_LANGS.',
-		);
-	}
-	return reports;
-}

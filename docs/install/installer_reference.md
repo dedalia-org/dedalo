@@ -1484,7 +1484,7 @@ owns are these:
 | --- | --- |
 | Database | `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_SOCKET` |
 | Entity / locale | `ENTITY`, `DEDALO_ENTITY_LABEL`, `DEDALO_TIMEZONE`, `DEDALO_LOCALE` |
-| Languages | `DEDALO_APPLICATION_LANGS`, `PROJECTS_DEFAULT_LANGS`, `DEDALO_APPLICATION_LANGS_DEFAULT`, `DEDALO_DATA_LANG_DEFAULT`, `DEDALO_STRUCTURE_LANG` (no longer `APPLICATION_LANG` / `DATA_LANG`: deprecated, see [Internationalization](../development/internationalization.md#the-language-config-constants)) |
+| Languages | `DEDALO_APPLICATION_LANGS`, `PROJECTS_DEFAULT_LANGS`, `DEDALO_APPLICATION_LANGS_DEFAULT`, `DEDALO_DATA_LANG_DEFAULT`, `APPLICATION_LANG`, `DATA_LANG`, `DEDALO_STRUCTURE_LANG` |
 | Secret | one generated secret, printed once |
 | Update servers | `ONTOLOGY_SERVERS`, `CODE_SERVERS` — the official master by default, `[]` with `--no-update-servers` |
 | Ontologies | `ACTIVE_ONTOLOGY_TLDS` — the core, the chosen domain ontologies and the ontologies they declare (minus declined optional ones), in install order; rewritten on every run |
