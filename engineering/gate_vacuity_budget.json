@@ -1,6 +1,6 @@
 {
 	"_": "SHRINK-ONLY budget for P2-19. silent_returns: test bodies that `return` before asserting anything — Bun counts each as a PASS. unfloored_emptiness: files asserting toEqual([]) with no corpus floor, which pass when the census feeding them read nothing. Both may only go DOWN. The honest idiom for a genuinely unrunnable test is test.skip with the reason in the test NAME. Regenerate with: bun run scripts/gate_vacuity_budget.ts --update (it REFUSES to raise).",
-	"silent_returns": 158,
+	"silent_returns": 155,
 	"unfloored_emptiness": 106,
-	"measured": "2026-10-21"
+	"measured": "2026-11-11"
 }
