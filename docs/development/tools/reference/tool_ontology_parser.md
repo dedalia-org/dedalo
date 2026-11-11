@@ -70,7 +70,7 @@ Filtering **hides** rows, it never re-renders them: every checkbox keeps its sta
 | Action | Permission | Reads from `options` | Returns |
 | --- | --- | --- | --- |
 | `get_ontologies` | `developer` | — | `{ result: ontologies[], errors }` |
-| `inspect_ontologies` | `developer` | `selected_ontologies` | `{ result, states: [{tld, drift, inSync, mainNodeOk, matrixNodes, storedNodes, foreignNodes, tldlessNodes, tldlessRecords}] }` |
+| `inspect_ontologies` | `developer` | `selected_ontologies` | `{ result, states: [{tld, drift, inSync, mainNodeOk, matrixNodes, storedNodes, foreignNodes, tldlessNodes, tldlessRecords, modelRuleViolationNodes, modelRuleViolations, …}] }` |
 | `repair_tlds` | `developer` | `selected_ontologies` | `{ result, msg, errors, ar_msg }` |
 | `regenerate_ontologies` | `developer` | `selected_ontologies` | `{ result, msg, errors, ar_msg }` |
 | `export_ontologies` | `developer` | `selected_ontologies` | `{ result, msg, errors, ar_msg }` |
@@ -98,6 +98,14 @@ one would MATERIALIZE a nameless node in the tree.
     not flip `inSync`. It was briefly modelled as a drift kind, which painted the panel red on
     any install carrying legacy shells while Regenerate reported success, with no action able
     to clear it.
+
+!!! info "`modelRuleViolations` — a node breaking a rule its model fixes"
+    Same warning-channel shape as `tldlessRecords` (never drift). Each entry is
+    `{source, tipo, model, rule, translatableStated, message}`; today the one rule is
+    `translatable_forbidden`: a `component_iri` node must declare `is_translatable = false`
+    (an unset `ontology8` reads as translatable, so it is reported too). The rule is the
+    descriptor facet `ontologyTranslatable` read by `src/core/ontology/model_rules.ts`. The
+    fix is the master ontology's; the engine never overrides the flag.
 
 !!! warning "Rebuild wipes the runtime nodes, not the source"
     A rebuild deletes the TLD's `dd_ontology` nodes and re-derives them from `matrix_ontology`. The editable **source records are never touched** — the projection is regenerated from them. It runs in one transaction, so a mid-run failure rolls the whole TLD back.

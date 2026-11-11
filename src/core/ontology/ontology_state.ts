@@ -101,6 +101,14 @@
  * update of its tld (with the dd_ontology CHECK constraints live, projecting the value would
  * roll the whole rebuild back).
  *
+ * MODEL-RULE VIOLATIONS (`modelRuleViolations`, 2026-11-11) — the same warning-channel shape.
+ * A node declaring what its MODEL forbids (today: a translatable `component_iri` — ontology8
+ * = yes, or UNSET, which the parser reads as translatable) is an ontology bug owned by the
+ * master ontology. The node is projected exactly as its source says (the engine never
+ * overrides the flag) and named here by its source record, with the rule and the fix
+ * (model_rules.ts — the rules are descriptor facets). Not drift: the projection agrees
+ * with its source.
+ *
  * SINGLE WRITER: nothing outside this module deletes a TLD's dd_ontology wholesale (rebuild,
  * retract, activation), and the re-derive has exactly ONE writer. The legacy
  * `regenerateRecordsInDdOntology` is retired onto `rebuildOntology`; the ontology update
@@ -136,6 +144,7 @@ import {
 	modelNameOf,
 	projectMachineName,
 } from './machine_name.ts';
+import { type ModelRuleViolation, modelRuleViolations } from './model_rules.ts';
 import { ONTOLOGY_MAIN_SECTION, ONTOLOGY_TLD, ONTOLOGY_TYPE_TLD } from './ontology_tipos.ts';
 import {
 	createDdOntologyRootNode,
@@ -220,6 +229,14 @@ export interface OntologyState {
 	 * (ontology/machine_name.ts) — the P1→P4 bridge, shrink-only to zero (G6).
 	 */
 	machineNameLegacyRungs: Record<MachineNameLegacyRung, number>;
+	/** Count of own nodes breaking at least one model rule (a WARNING channel, never drift). */
+	modelRuleViolationNodes: number;
+	/**
+	 * Every model-rule finding, by SOURCE record (model_rules.ts — e.g. a translatable
+	 * component_iri). Fixed in the MASTER ontology, never by the engine; see the module
+	 * header, MODEL-RULE VIOLATIONS.
+	 */
+	modelRuleViolations: ModelRuleViolation[];
 	drift: OntologyDriftItem[];
 	/** No drift and the main node is present → dd_ontology matches its source. */
 	inSync: boolean;
@@ -315,6 +332,8 @@ interface ParsedMatrixNodes {
 	machineNameDefects: MachineNameDefectRecord[];
 	/** Legacy-rung tally of `own` nodes, after the model fixpoint. */
 	machineNameLegacyRungs: Record<MachineNameLegacyRung, number>;
+	/** Model-rule findings of `own` nodes, judged AFTER the model fixpoint. */
+	modelRuleViolations: ModelRuleViolation[];
 }
 
 /**
@@ -331,6 +350,7 @@ async function parseMatrixNodes(tld: string): Promise<ParsedMatrixNodes> {
 	const tldless: TldlessRecord[] = [];
 	const invalidReferences: InvalidReferenceRecord[] = [];
 	const machineNames = new Map<string, MachineNameSource>();
+	const ruleSubjects = new Map<string, RuleSubjectFacts>();
 	const empty = (): ParsedMatrixNodes => ({
 		own,
 		foreign,
@@ -338,6 +358,7 @@ async function parseMatrixNodes(tld: string): Promise<ParsedMatrixNodes> {
 		invalidReferences,
 		machineNameDefects: [],
 		machineNameLegacyRungs: emptyRungTally(),
+		modelRuleViolations: [],
 	});
 	if (table === null) return empty();
 	// localontology0 records are OVERRIDES of other tlds' nodes, never nodes of
@@ -387,6 +408,7 @@ async function parseMatrixNodes(tld: string): Promise<ParsedMatrixNodes> {
 		}
 		own.set(node.tipo, node);
 		const source = `${sectionTipo}/${sectionId}`;
+		ruleSubjects.set(node.tipo, { source, translatableStated: parsed.translatableStated });
 		if (parsed.machineNameInput !== null) {
 			machineNames.set(node.tipo, {
 				source,
@@ -409,7 +431,46 @@ async function parseMatrixNodes(tld: string): Promise<ParsedMatrixNodes> {
 		}
 	}
 	resolveModelsAgainstParse(own, tld, machineNames);
-	return { own, foreign, tldless, invalidReferences, ...machineNameFindings(machineNames) };
+	return {
+		own,
+		foreign,
+		tldless,
+		invalidReferences,
+		...machineNameFindings(machineNames),
+		modelRuleViolations: modelRuleFindings(own, ruleSubjects),
+	};
+}
+
+/** What a model rule needs of a node beyond its parsed columns (see modelRuleFindings). */
+interface RuleSubjectFacts {
+	source: string;
+	translatableStated: boolean;
+}
+
+/**
+ * Every model-rule finding of the own nodes (model_rules.ts). Judged AFTER the model
+ * fixpoint, because the rule is the MODEL's: a node whose model the fixpoint resolved
+ * (a same-tld model the release adds) is judged by that model, exactly as it is stored.
+ */
+function modelRuleFindings(
+	own: ReadonlyMap<string, DdOntologyNode>,
+	facts: ReadonlyMap<string, RuleSubjectFacts>,
+): ModelRuleViolation[] {
+	const findings: ModelRuleViolation[] = [];
+	for (const node of own.values()) {
+		const fact = facts.get(node.tipo);
+		if (fact === undefined) continue;
+		findings.push(
+			...modelRuleViolations({
+				source: fact.source,
+				tipo: node.tipo,
+				model: node.model,
+				is_translatable: node.is_translatable === true,
+				translatableStated: fact.translatableStated,
+			}),
+		);
+	}
+	return findings;
 }
 
 /** The machine-name findings + legacy-rung tally of every own node (after the fixpoint). */
@@ -566,6 +627,26 @@ function machineNameNote(state: OntologyState): string {
 	return ` — ${state.machineNameDefectNodes} node(s) have a machine-name finding (fix the source record's machine name / use-machine-name): ${named}${rest > 0 ? ` (+${rest} more)` : ''}`;
 }
 
+/**
+ * The warning suffix naming nodes that break a model rule, or ''. Same cap as the notes
+ * above; the full list (each with its operator sentence) is `state.modelRuleViolations`.
+ * It is the line an ontology update reports for the tld (ontology_update.ts deriveReport
+ * carries the rebuild message), so the operator learns the fix belongs upstream.
+ */
+function modelRuleNote(state: OntologyState): string {
+	if (state.modelRuleViolationNodes === 0) return '';
+	const records = state.modelRuleViolations;
+	const named = records
+		.slice(0, TLDLESS_NAMED_LIMIT)
+		.map(
+			(item) =>
+				`${item.source} ${item.model} ${item.rule}${item.translatableStated ? '' : ' (ontology8 unset)'}`,
+		)
+		.join(', ');
+	const rest = records.length - TLDLESS_NAMED_LIMIT;
+	return ` — ${state.modelRuleViolationNodes} node(s) break a model rule (an ontology bug: fix it in the master ontology, the engine does not override it): ${named}${rest > 0 ? ` (+${rest} more)` : ''}`;
+}
+
 /** Read every dd_ontology row for the TLD, keyed by tipo. */
 async function storedNodes(tld: string): Promise<Map<string, DdOntologyRow>> {
 	const rows = (await sql.unsafe(
@@ -713,6 +794,8 @@ export async function inspectOntology(rawTld: string): Promise<OntologyState> {
 			machineNameDefectNodes: 0,
 			machineNameDefects: [],
 			machineNameLegacyRungs: emptyRungTally(),
+			modelRuleViolationNodes: 0,
+			modelRuleViolations: [],
 			drift: [],
 			inSync: false,
 		};
@@ -724,6 +807,7 @@ export async function inspectOntology(rawTld: string): Promise<OntologyState> {
 		invalidReferences,
 		machineNameDefects,
 		machineNameLegacyRungs,
+		modelRuleViolations: ruleViolations,
 	} = await parseMatrixNodes(tld);
 	const stored = await storedNodes(tld);
 	const mainTipo = `${tld}0`;
@@ -783,6 +867,8 @@ export async function inspectOntology(rawTld: string): Promise<OntologyState> {
 		machineNameDefectNodes: new Set(machineNameDefects.map((item) => item.tipo)).size,
 		machineNameDefects,
 		machineNameLegacyRungs,
+		modelRuleViolationNodes: new Set(ruleViolations.map((item) => item.tipo)).size,
+		modelRuleViolations: ruleViolations,
 		drift,
 		inSync: drift.length === 0 && mainNodeOk,
 	};
@@ -1033,7 +1119,7 @@ export async function rebuildOntology(
 	return {
 		ok: converged,
 		msg: converged
-			? `Ontology '${tld}' rebuilt${tldlessNote(state)}${invalidReferenceNote(state)}${machineNameNote(state)}`
+			? `Ontology '${tld}' rebuilt${tldlessNote(state)}${invalidReferenceNote(state)}${machineNameNote(state)}${modelRuleNote(state)}`
 			: state.foreignNodes > 0
 				? `Ontology '${tld}' rebuilt; ${state.foreignNodes} source record(s) declare another tld and were skipped`
 				: `Ontology '${tld}' rebuilt with drift`,

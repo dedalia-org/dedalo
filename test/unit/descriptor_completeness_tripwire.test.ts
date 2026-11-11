@@ -23,7 +23,13 @@
  *  6. every canonical model declares its CSV-import APPEND policy
  *     (`importAppend`), and the placement laws hold (media / derived /
  *     no-import models refuse with a reason, no monovalue model appends
- *     items, 'geo_layer' / 'text_paragraphs' stay on their one model family).
+ *     items, 'geo_layer' / 'text_paragraphs' stay on their one model family);
+ *  7. the ontology-node model rule `ontologyTranslatable` (OPTIONAL — omitted =
+ *     no rule; see its doc in components/types.ts) is stated by EXACTLY the
+ *     owner-approved set (component_iri, 2026-11-11), on canonical descriptors
+ *     only, and the ontology layer reads it alias-following through the
+ *     resolver seam (getComponentModelNodeRules) — dropping it silently would
+ *     disarm the health check's model rule.
  *
  * ALLOWLIST LIFECYCLE (DEC-12 refinement — who clears these and when):
  * entries here are cleared by whoever ports the missing behavior, in the
@@ -48,6 +54,7 @@ import {
 } from '../../src/core/components/registry.ts';
 import type { ComponentModel, ImportAppendPolicy } from '../../src/core/components/types.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
+import { getComponentModelNodeRules } from '../../src/core/ontology/resolver.ts';
 import { DATALIST_SOURCE_IMPLEMENTATIONS } from '../../src/core/relations/datalist.ts';
 import { TARGET_SOURCE_IMPLEMENTATIONS } from '../../src/core/relations/request_config/target_sources.ts';
 import { IMPORT_CONFORM } from '../../src/core/tools/import_conform.ts';
@@ -737,6 +744,31 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 		expect(text).toBe(
 			descriptors.filter((d) => d.column !== undefined && d.alias === undefined).length - 3,
 		);
+	});
+
+	test('ontologyTranslatable is stated by EXACTLY the owner-approved models, canonical only', () => {
+		const stating = descriptors.filter((d) => d.ontologyTranslatable !== undefined);
+		expect(stating.map((d) => d.model)).toEqual(['component_iri']);
+		for (const descriptor of stating) {
+			expect(isCanonical(descriptor), `${descriptor.model}: an alias stub states no rule`).toBe(
+				true,
+			);
+			expect(descriptor.ontologyTranslatable).toBe(false);
+		}
+	});
+
+	test('the ontology layer reads the node rule through the resolver seam, alias-following', () => {
+		expect(getComponentModelNodeRules('component_iri')?.ontologyTranslatable).toBe(false);
+		expect(getComponentModelNodeRules('component_input_text')?.ontologyTranslatable).toBe(
+			undefined,
+		);
+		// An alias stub is ruled by its canonical model: no alias may dodge a rule.
+		for (const alias of descriptors.filter((d) => d.alias !== undefined)) {
+			expect(getComponentModelNodeRules(alias.model)?.ontologyTranslatable).toBe(
+				getComponentModel(alias.alias as string)?.ontologyTranslatable,
+			);
+		}
+		expect(getComponentModelNodeRules('section')).toBe(undefined);
 	});
 
 	test('getRenderClass throws on an unregistered model (no silent default)', () => {

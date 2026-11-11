@@ -161,15 +161,23 @@ const paint_status = async function(self, container) {
 		const tldless_note = tldless
 			? ' — ' + tldless + ' record' + (tldless===1?'':'s') + ' without a tld (invisible in the tree)'
 			: ''
+		// MODEL RULES (2026-11-11): nodes declaring what their MODEL forbids (a
+		// translatable component_iri). An ONTOLOGY bug, fixed in the master ontology —
+		// never drift, and no button here clears it, so it is a warning alongside the
+		// state like the tld-less records. The affected nodes are NAMED (capped; the
+		// full list with each operator sentence rides state.modelRuleViolations).
+		const rule_violations	= Array.isArray(state.modelRuleViolations) ? state.modelRuleViolations : []
+		const rule_note			= render_model_rule_note(self, rule_violations)
 		const detail = (state.inSync
 			? 'in sync (' + state.matrixNodes + ' node' + (state.matrixNodes===1?'':'s') + ')'
-			: (reasons || 'out of sync')) + tldless_note
+			: (reasons || 'out of sync')) + tldless_note + rule_note
 
-		// In sync with a tld-less warning is 'warn', not 'failed': the projection IS
-		// correct, and the operator still needs to see the invisible records.
+		// In sync with a warning (tld-less records, model-rule violations) is 'warn', not
+		// 'failed': the projection IS correct, and the operator still needs to see them.
+		const has_warning = tldless > 0 || rule_violations.length > 0
 		const item = ui.create_dom_element({
 			element_type	: 'li',
-			class_name		: state.inSync ? (tldless ? 'check warn' : 'check ok') : 'check failed',
+			class_name		: state.inSync ? (has_warning ? 'check warn' : 'check ok') : 'check failed',
 			parent			: list
 		})
 		ui.create_dom_element({
@@ -184,8 +192,40 @@ const paint_status = async function(self, container) {
 			parent			: item
 		})
 		detail_node.appendChild(document.createTextNode(detail)) // SEC-031: text node, no innerHTML
+		// One line per finding: the server's operator sentence (what, where, the fix).
+		if (rule_violations.length > 0) {
+			item.title = rule_violations.map(v => String(v.message ?? '')).join('\n')
+		}
 	})
 }
+
+
+
+/**
+* RENDER_MODEL_RULE_NOTE
+* The warning suffix for the model-rule findings of one tld, or ''.
+* @param object self
+* @param array violations - state.modelRuleViolations ({source, tipo, model, rule, message})
+* @return string
+*/
+const MODEL_RULE_NAMED_LIMIT = 5
+const render_model_rule_note = function(self, violations) {
+	if (violations.length === 0) return ''
+	// Count NODES, not findings: one node may break several rules, and the label says "node(s)".
+	const nodes = new Map()
+	for (const v of violations) {
+		const tipo = String(v.tipo ?? '?')
+		if (!nodes.has(tipo)) nodes.set(tipo, String(v.model ?? '?'))
+	}
+	const named = [...nodes]
+		.slice(0, MODEL_RULE_NAMED_LIMIT)
+		.map(([tipo, model]) => tipo + ' (' + model + ')')
+		.join(', ')
+	const rest = nodes.size - MODEL_RULE_NAMED_LIMIT
+	return ' — ' + nodes.size + ' '
+		+ (self.get_tool_label('model_rule_violations') || 'node(s) break a model rule — fix them in the master ontology')
+		+ ': ' + named + (rest > 0 ? ' (+' + rest + ')' : '')
+}//end render_model_rule_note
 
 
 

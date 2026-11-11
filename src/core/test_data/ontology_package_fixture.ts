@@ -18,7 +18,8 @@
  * Each node becomes ONE matrix_ontology record line in MATRIX_COPY_COLUMNS
  * order, the shape the export writes and the import/parser read:
  *   relation.ontology15 = parent, ontology6 = model, ontology10 = relations,
- *   ontology30 = is_model (yes, when declared), string.ontology5 = term
+ *   ontology30 = is_model (yes, when declared), ontology8 = translatable (yes/no, only
+ *   when declared — absent, the parser's default-true rule applies), string.ontology5 = term
  *   (lg-spa), ontology7 = TLD (lg-nolan); every other column NULL. Values are
  *   encoded through the one COPY codec (src/core/db/copy_text.ts).
  */
@@ -34,8 +35,10 @@ import {
 	ONTOLOGY_PARENT,
 	ONTOLOGY_TERM,
 	ONTOLOGY_TLD,
+	ONTOLOGY_TRANSLATABLE,
 	RELATION_TYPE_LINK,
 	RELATION_TYPE_PARENT,
+	SI_NO_NO,
 	SI_NO_YES,
 	YES_NO_SECTION,
 } from '../ontology/ontology_tipos.ts';
@@ -55,6 +58,8 @@ export interface FixtureOntologyNode {
 	relations?: string[];
 	/** Declares the node a MODEL (ontology30 = yes). */
 	isModel?: boolean;
+	/** ontology8: true = yes, false = no. OMITTED = no ontology8 (reads as translatable). */
+	translatable?: boolean;
 }
 
 /** One fixture ontology (one TLD). */
@@ -110,17 +115,21 @@ function relationColumn(node: FixtureOntologyNode): Record<string, unknown[]> {
 			locatorTo(tipo, ONTOLOGY_CONNECTED_TO, RELATION_TYPE_LINK, index + 1),
 		);
 	}
-	if (node.isModel === true) column[ONTOLOGY_IS_MODEL] = [isModelLocator()];
+	if (node.isModel === true) column[ONTOLOGY_IS_MODEL] = [yesNoLocator(ONTOLOGY_IS_MODEL, true)];
+	if (node.translatable !== undefined) {
+		column[ONTOLOGY_TRANSLATABLE] = [yesNoLocator(ONTOLOGY_TRANSLATABLE, node.translatable)];
+	}
 	return column;
 }
 
-function isModelLocator(): Record<string, unknown> {
+/** A yes/no radio locator (the si/no section: yes = SI_NO_YES, no = the next record). */
+function yesNoLocator(componentTipo: string, yes: boolean): Record<string, unknown> {
 	return {
 		id: 1,
 		type: RELATION_TYPE_LINK,
-		section_id: SI_NO_YES,
+		section_id: yes ? SI_NO_YES : SI_NO_NO,
 		section_tipo: YES_NO_SECTION,
-		from_component_tipo: ONTOLOGY_IS_MODEL,
+		from_component_tipo: componentTipo,
 	};
 }
 

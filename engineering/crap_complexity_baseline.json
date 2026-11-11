@@ -335,7 +335,7 @@
 		"src/core/ontology/ontology_update.ts": 15,
 		"src/core/ontology/ontology_update_target.ts": 11,
 		"src/core/ontology/ontology_write.ts": 13,
-		"src/core/ontology/parser.ts": 17,
+		"src/core/ontology/parser.ts": 16,
 		"src/core/ontology/resolver.ts": 13,
 		"src/core/ontology/section_map.ts": 9,
 		"src/core/reconcile/registry.ts": 9,

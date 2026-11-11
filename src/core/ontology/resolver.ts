@@ -58,10 +58,18 @@ const NON_COMPONENT_COLUMN_MAP: Readonly<Record<string, string>> = {
  * misresolve an alias or column) with the one-line fix in the message.
  */
 
-/** The two descriptor fields this resolver consumes (alias map + column map). */
-type ComponentModelFieldsLookup = (
-	model: string,
-) => { readonly alias?: string; readonly column?: string } | undefined;
+/**
+ * The descriptor fields the ontology layer consumes: the alias map + column map
+ * (this resolver) and the ontology-node model rule `ontologyTranslatable`
+ * (ontology/model_rules.ts, through getComponentModelNodeRules below).
+ */
+interface ComponentModelFields {
+	readonly alias?: string;
+	readonly column?: string;
+	readonly ontologyTranslatable?: false;
+}
+
+type ComponentModelFieldsLookup = (model: string) => ComponentModelFields | undefined;
 
 let componentModelFieldsLookup: ComponentModelFieldsLookup | null = null;
 
@@ -70,9 +78,7 @@ export function registerComponentModelFieldsLookup(lookup: ComponentModelFieldsL
 	componentModelFieldsLookup = lookup;
 }
 
-function componentModelFields(
-	model: string,
-): { readonly alias?: string; readonly column?: string } | undefined {
+function componentModelFields(model: string): ComponentModelFields | undefined {
 	if (componentModelFieldsLookup === null) {
 		throw new Error(
 			'ontology/resolver: component-model lookup not registered — import ' +
@@ -81,6 +87,21 @@ function componentModelFields(
 		);
 	}
 	return componentModelFieldsLookup(model);
+}
+
+/**
+ * The model rules a component model fixes on its ONTOLOGY NODES, alias-following
+ * (an alias stub is ruled by its canonical model). Undefined = not a component
+ * model (a section, a grouper, a button…) — those carry no component rule. Read
+ * through the same registered lookup as the alias/column maps (the S2-20 seam
+ * above), so ontology/model_rules.ts never imports the component registry.
+ */
+export function getComponentModelNodeRules(
+	model: string,
+): Pick<ComponentModelFields, 'ontologyTranslatable'> | undefined {
+	const fields = componentModelFields(model);
+	if (fields?.alias === undefined) return fields;
+	return componentModelFields(fields.alias);
 }
 
 /** One resolved ontology node (the fields the engines consume). */

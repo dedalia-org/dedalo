@@ -463,6 +463,8 @@ const TRIPWIRES = [
 	'test/unit/create_door_census_tripwire.test.ts',
 	'test/unit/host_agent_requested_mode_tripwire.test.ts',
 	'test/unit/iri_label_unscoped_lookup_tripwire.test.ts',
+	'test/unit/ontology_model_rules_native.test.ts',
+	'test/unit/ontology_model_rules_shipped_tripwire.test.ts',
 ];
 
 // ---------------------------------------------------------------------------

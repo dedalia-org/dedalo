@@ -601,6 +601,12 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **The ontology status panel names URL components that are wrongly marked as translatable**
+
+    A URL component (`component_iri`) is never translatable: a URL has no language, and its versions in other languages are stored as language versions of one value. A URL node marked as translatable in the ontology — or with the *translatable* field left empty, which counts as translatable — made imports save plain cells in the importer's language, with no warning. The status panel of the ontology parser tool, and the message of every rebuild and ontology update, now name each such node as "node(s) break a model rule". It is an error in the master ontology: Dédalo reports it and does not ignore the setting, so it must be corrected there and reach the installation through an ontology update. The ontology shipped with this release has no such node. See [Ontology parser](./tools/using_ontology_parser.md).
+
+    Wire contract: `WC-2026-11-11-ontology-model-rules`.
+
 - **The publication host draft form can set a custom site home.**
 
     The **New publication host** form in the Publication hosts panel has a new optional field, **Site home**. Leave it empty for the default `/home/<domain>`; fill it when the site lives elsewhere, for example `/home/www/vhosts/museum.org`. It applies to the `home` layout only, and the form hides it for `system`. See [the site's home, or the system directories](./install/publication_host.md#the-sites-home-or-the-system-directories).
@@ -673,7 +679,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 31 entries"
+??? note "Wire contract — 32 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -701,6 +707,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-11-export-related-references-column`
     - `WC-2026-11-11-export-value-single-walker`
     - `WC-2026-11-11-iri-import-label-frame`
+    - `WC-2026-11-11-ontology-model-rules`
     - `WC-2026-11-11-pdf-transcription-restored`
     - `WC-2026-11-11-relation-index-related-list-context`
     - `WC-2026-11-11-relation-list-column-grants`

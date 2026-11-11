@@ -484,6 +484,23 @@ export interface ParsedOntologyNode {
 	machineNameInput: MachineNameInput | null;
 	/** The legacy rungs the derivation used (counted; empty = explicit data). */
 	machineNameRungs: MachineNameProjection['rungs'];
+	/**
+	 * Whether the canonical record STATES ontology8 at all. False = the node's
+	 * is_translatable came from the default-true rule (translatableFromItems) — kept
+	 * so a report can say "unset" instead of implying someone chose "yes"
+	 * (ontology/model_rules.ts). False when there is no node.
+	 */
+	translatableStated: boolean;
+}
+
+/**
+ * THE is_translatable rule, one home (the parser below, and any reader of raw
+ * ontology8 items — the shipped-release gate reads the vendored dumps with it):
+ * an UNSET ontology8 reads as TRUE (PHP parity — the historical default), a stated
+ * one is true only for the yes record (dd64/1).
+ */
+export function translatableFromItems(items: unknown[] | null): boolean {
+	return items === null ? true : isYesLocator(items);
 }
 
 /**
@@ -633,6 +650,7 @@ export async function parseSectionRecordToOntologyNodeWithDefects(
 		machineNameDefects: [],
 		machineNameInput: null,
 		machineNameRungs: [],
+		translatableStated: false,
 	});
 	// canonical record
 	const canonicalTable = await getMatrixTableFromTipo(sectionTipo);
@@ -701,7 +719,7 @@ export async function parseSectionRecordToOntologyNodeWithDefects(
 	// orphan existing values. (PHP read the override, whose create-door default
 	// is YES — every override silently made its node translatable.)
 	const translatableItems = await getComponentItems(canonicalRecord, ONTOLOGY_TRANSLATABLE);
-	const isTranslatable = translatableItems === null ? true : isYesLocator(translatableItems);
+	const isTranslatable = translatableFromItems(translatableItems);
 
 	// is_main
 	const isMain = tipo === `${tld}0`;
@@ -778,6 +796,7 @@ export async function parseSectionRecordToOntologyNodeWithDefects(
 		machineNameDefects,
 		machineNameInput,
 		machineNameRungs: machineName.rungs,
+		translatableStated: translatableItems !== null,
 	};
 }
 
