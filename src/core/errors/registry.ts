@@ -2444,8 +2444,7 @@ export const ERROR_REGISTRY = {
 		category: 'unavailable',
 		status: 503,
 		label_key: 'error_translation_empty_result',
-		message:
-			'The translation service returned no text: it probably does not support this language',
+		message: 'The translation service returned no text: it probably does not support this language',
 		severity: 'warn',
 		disclosure: 'public',
 		retryable: false,

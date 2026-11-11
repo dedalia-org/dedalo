@@ -22673,7 +22673,11 @@ body.inspector_resizing {
   .wrap_ts_object > .content_data > .elements_container > .link_children.open {
     position: absolute;
     top: 0;
-    left: -8px;
+    left: -4px;
+  }
+  .wrap_ts_object > .content_data > .elements_container > .button_show_component,
+  .wrap_ts_object > .content_data > .elements_container > .button_show_indexations {
+    min-width: 44px;
   }
   .wrap_ts_object > .content_data > .elements_container > .model_value {
     order: 1;
@@ -23424,7 +23428,7 @@ body.inspector_resizing {
 }
 .component_dataframe > .content_data > .content_value > .button.activate.has_value,
 .component_dataframe_mini > .content_data > .content_value > .button.activate.has_value {
-  background-color: var(--color_blue_3);
+  background-color: var(--color_blue_2);
   color: var(--fg_inverse);
 }
 .component_dataframe.list > .content_data > .content_value,

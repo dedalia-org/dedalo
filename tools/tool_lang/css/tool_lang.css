@@ -324,6 +324,12 @@
 .wrapper_tool.tool_lang > .content_data > .buttons_container > .automatic_translation_container > .icon.gear:hover {
   opacity: 1;
 }
+@media screen and (max-width: 600px) {
+  .wrapper_tool.tool_lang > .content_data > .buttons_container > .automatic_translation_container > .icon.gear {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
 @media screen and (max-width: 1024px) {
   .wrapper_tool.tool_lang > .content_data > .buttons_container > .automatic_translation_container {
     flex: 1 1 100%;

@@ -103,8 +103,13 @@ function validateModuleName(module: ToolServerModule, expectedName: string): voi
 		throw invalidToolModule(`tool.name '${module.name}' must match ^tool_[a-z0-9_]+$`);
 	}
 	const from = module.configFrom;
-	if (from !== undefined && (typeof from !== 'string' || !TOOL_NAME_PATTERN.test(from) || from === module.name)) {
-		throw invalidToolModule(`tool.configFrom must name another tool (^tool_[a-z0-9_]+$), got '${String(from)}'`);
+	if (
+		from !== undefined &&
+		(typeof from !== 'string' || !TOOL_NAME_PATTERN.test(from) || from === module.name)
+	) {
+		throw invalidToolModule(
+			`tool.configFrom must name another tool (^tool_[a-z0-9_]+$), got '${String(from)}'`,
+		);
 	}
 }
 

@@ -85,13 +85,24 @@ function assertWidgetTipos(tipo: string, sectionTipo: string): void {
 	});
 }
 
-/** The own-user-record admission: read level >= 1 on the dd128-aware resolver, else perm.denied. */
-async function ownUserRecordGrant(
+/**
+ * The read door: section >= 1 → info component pair grant → record scope.
+ * The actor's own user record: read level >= 1 on the dd128-aware resolver
+ * alone (Gate A), else perm.denied.
+ */
+async function widgetDataGrant(
 	principal: Parameters<typeof getRecordComponentPermission>[0],
 	tipo: string,
 	sectionTipo: string,
 	sectionId: number,
 ): Promise<{ componentTipo: string; sectionTipo: string; sectionId: number }> {
+	if (!isActorsOwnUserRecord(principal, sectionTipo, sectionId)) {
+		return authorizeRecordAccess(
+			principal,
+			{ section_tipo: sectionTipo, component_tipo: tipo, section_id: sectionId },
+			{ mode: 'read', level: 1, sectionFloor: 1, door: 'dd_component_info.get_widget_data' },
+		);
+	}
 	if ((await getRecordComponentPermission(principal, sectionTipo, tipo, sectionId)) < 1) {
 		throw new DedaloError('perm.denied', { coordinates: { section_tipo: sectionTipo, tipo } });
 	}
@@ -117,15 +128,7 @@ export const componentInfoApiActions: Record<string, ActionHandler> = {
 		const rawSectionId = widgetSectionId(source.section_id, sectionTipo);
 		assertWidgetTipos(tipo, sectionTipo);
 
-		// The read door: section >= 1 → info component pair grant → record scope.
-		// The actor's own user record: the dd128-aware component level alone (Gate A).
-		const grant = isActorsOwnUserRecord(principal, sectionTipo, rawSectionId)
-			? await ownUserRecordGrant(principal, tipo, sectionTipo, rawSectionId)
-			: await authorizeRecordAccess(
-					principal,
-					{ section_tipo: sectionTipo, component_tipo: tipo, section_id: rawSectionId },
-					{ mode: 'read', level: 1, sectionFloor: 1, door: 'dd_component_info.get_widget_data' },
-				);
+		const grant = await widgetDataGrant(principal, tipo, sectionTipo, rawSectionId);
 
 		// The component's ontology widget definitions (PHP resolves the instance
 		// in mode 'list' / lang NOLAN — only properties are needed here).

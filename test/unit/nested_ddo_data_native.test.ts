@@ -111,6 +111,7 @@ import {
 	type ElementNode,
 	ElementNodeRegistry,
 } from '../../src/core/relations/element_registry.ts';
+import { TM_SUBJECT_CELL_LIMIT } from '../../src/core/resolve/read_tm.ts';
 import { NodeContextSet } from '../../src/core/section/node_contexts.ts';
 import { type Principal, resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
@@ -2501,7 +2502,9 @@ describe('W3 nested ddo CONTEXT — order-independence, traversal order, page si
 		expect(at(FRAME_CA)).toBeLessThan(at(TEXT_A));
 	});
 
-	test('TM column: a config declaring sqo.limit 4 and show.sqo_config.limit 2 ships sqo.limit == the cell page (2)', async () => {
+	// WC-2026-11-10-tm-subject-cell-page: the row's SUBJECT cell pages to
+	// TM_SUBJECT_CELL_LIMIT; the column context keeps the list page (2).
+	test('TM column: a config declaring sqo.limit 4 and show.sqo_config.limit 2 ships sqo.limit 2; the subject cell pages to TM_SUBJECT_CELL_LIMIT', async () => {
 		await recordTimeMachine(
 			{
 				sectionTipo: HOST,
@@ -2526,7 +2529,7 @@ describe('W3 nested ddo CONTEXT — order-independence, traversal order, page si
 				.filter((item) => item.from_component_tipo === PORTAL_PL)
 				.map((item) => item.section_id),
 		);
-		expect(cellIds.size).toBe(2);
+		expect(cellIds.size).toBe(Math.min(TARGET_IDS.length, TM_SUBJECT_CELL_LIMIT));
 		const column = contextsOf(context, PORTAL_PL, 'dd15');
 		expect(column).toHaveLength(1);
 		expect(column[0]?.request_config?.[0]?.sqo?.limit).toBe(2);

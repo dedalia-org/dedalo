@@ -206,7 +206,7 @@ export const portalResolver: RelationModelResolver = {
 		// The LIST/TM cell page size follows the effective config (the section_list
 		// swap included — what resolveListCellMap used to read raw); the governing
 		// ddo's own `limit` still wins inside expandPortal.
-		const cellLimit = ddoMode === 'list' ? nodeListPageLimit(node) : null;
+		const cellLimit = ddoMode === 'list' ? listCellLimit(ddo, nodeListPageLimit(node)) : null;
 		await expandPortal(
 			record,
 			ddo,
@@ -234,3 +234,8 @@ export const portalResolver: RelationModelResolver = {
 		);
 	},
 };
+
+/** A LIST cell's page: a TM subject cell pages wider (read_tm.ts subjectCellLimit, WC-2026-11-10-tm-subject-cell-page), else the node's list page. */
+function listCellLimit(ddo: unknown, nodePage: number | null): number | null {
+	return (ddo as { tm_subject_limit?: number }).tm_subject_limit ?? nodePage;
+}

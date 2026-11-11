@@ -945,7 +945,12 @@
 				>.link_children.open { // .open carries a desktop top/left nudge
 					position: absolute; // `contain: content` makes the container its box
 					top: 0;
-					left: -8px;
+					left: -4px; // -8px put a root node's expander off the page edge
+				}
+				// a tap target on both sides, not only the height (tool_phone gate)
+				>.button_show_component,
+				>.button_show_indexations {
+					min-width: 44px;
 				}
 				>.model_value {
 					order: 1;

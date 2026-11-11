@@ -831,7 +831,11 @@ export function resolveOwnUserRecordPermission(
 	sectionId: number | string | null | undefined,
 ): number | null {
 	if (!isActorsOwnUserRecord(principal, sectionTipo, sectionId)) return null;
+	return ownUserRecordForcedLevel(principal, tipo);
+}
 
+/** The forced level of one dd128 component on the actor's own record, or null (fall through to the matrix). */
+function ownUserRecordForcedLevel(principal: Principal, tipo: string): number | null {
 	// Order matters: the security-administrator downgrade is UNCONDITIONAL in
 	// PHP — a global admin may not raise their own global-admin flag either.
 	if (tipo === GLOBAL_ADMIN_COMPONENT) return 1;

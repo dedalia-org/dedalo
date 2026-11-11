@@ -6,6 +6,7 @@
 
 // imports
 	import {ui} from '../../common/js/ui.js'
+	import {a11y} from '../../common/js/a11y.js'
 	import {render_value} from '../../common/js/utils/render_escape.js'
 	import {set_before_unload} from '../../common/js/events.js'
 
@@ -232,14 +233,16 @@ const get_content_data = function(self) {
 			const node = ui.create_dom_element({
 				element_type	: 'span',
 				class_name		: 'label_item sortable ' + class_name,
-				inner_html		: text,
+				text_content	: text,
 				parent			: header_row
 			})
 			node.dataset.key = key
-			node.addEventListener('click', () => {
-				sort.dir = (sort.key===key) ? -sort.dir : 1
-				sort.key = key
-				apply_sort()
+			a11y.make_activable(node, {
+				on_activate : () => {
+					sort.dir = (sort.key===key) ? -sort.dir : 1
+					sort.key = key
+					apply_sort()
+				}
 			})
 		}
 		// header_tipo

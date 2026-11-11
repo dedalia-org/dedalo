@@ -14,6 +14,7 @@
 import type { MatrixJsonbColumn } from '../db/matrix.ts';
 import { DedaloError, ok } from '../errors/index.ts';
 import type { ApiEnvelope } from '../errors/schema.ts';
+import { stripTags } from '../resolve/html_text.ts';
 import { currentDataLang } from '../resolve/request_lang.ts';
 import type { Principal } from '../security/permissions.ts';
 import { currentRequestContext } from '../security/request_context.ts';
@@ -165,7 +166,7 @@ export async function translateItems(
 }
 
 /** Visible text: markup removed, whitespace trimmed. */
-const visibleText = (value: string): string => value.replace(/<[^>]*>/g, '').trim();
+const visibleText = (value: string): string => stripTags(value).trim();
 
 /** True when a source with visible text came back with none. */
 export function isEmptyTranslation(source: string, result: string): boolean {
@@ -364,7 +365,11 @@ export async function translateAndWrite(
 	// The external call happens OUTSIDE the transaction — a translator server can
 	// take minutes, and holding a FOR UPDATE row lock across it would block every
 	// other writer of the record.
-	const { items: targetItems, error, emptyResult } = await translateItems(sourceSlice, input.provider, {
+	const {
+		items: targetItems,
+		error,
+		emptyResult,
+	} = await translateItems(sourceSlice, input.provider, {
 		uri: input.uri,
 		key: input.key,
 		sourceLang: input.sourceLang,

@@ -1123,10 +1123,16 @@ export const TM_SUBJECT_CELL_LIMIT = 10;
 /**
  * The row's SUBJECT relation column pages to TM_SUBJECT_CELL_LIMIT, not the list
  * page of 1: a history row is a version of that field; capped because portals can
- * hold hundreds of locators. Every other column keeps the list policy.
+ * hold hundreds of locators. Every other column keeps the list policy. A cell
+ * page only (models/portal.ts), never the governing `limit`: that one reaches the
+ * node and so the column context's sqo.limit, which the WC leaves untouched.
  */
-function subjectCellLimit(row: TmRow, tipo: string, isPortalFamily: boolean): { limit?: number } {
-	return isPortalFamily && tipo === row.tipo ? { limit: TM_SUBJECT_CELL_LIMIT } : {};
+function subjectCellLimit(
+	row: TmRow,
+	tipo: string,
+	isPortalFamily: boolean,
+): { tm_subject_limit?: number } {
+	return isPortalFamily && tipo === row.tipo ? { tm_subject_limit: TM_SUBJECT_CELL_LIMIT } : {};
 }
 
 /**

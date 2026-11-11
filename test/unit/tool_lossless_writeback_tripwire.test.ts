@@ -1574,8 +1574,7 @@ else {
 	const SERVER_PENDING_TETHERS: Record<
 		string,
 		{ behaviour: string } | ((action: string) => string[])
-	> = {
-	};
+	> = {};
 
 	/**
 	 * The BEHAVIOUR tether of every SERVER `refuses` cell — `<action> × <door>` → the title of

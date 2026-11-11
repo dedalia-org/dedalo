@@ -73,7 +73,9 @@ describe('tool loader', () => {
 
 	test('configFrom: tool_lang_multi uses tool_lang config; self/malformed refused', async () => {
 		expect((await getLoadedTool('tool_lang_multi'))?.module.configFrom).toBe('tool_lang');
-		const mod = (configFrom: unknown) => ({ tool: { name: 'tool_zzcfg', apiActions: {}, configFrom } });
+		const mod = (configFrom: unknown) => ({
+			tool: { name: 'tool_zzcfg', apiActions: {}, configFrom },
+		});
 		expect(validateToolModule(mod('tool_lang'), 'tool_zzcfg').configFrom).toBe('tool_lang');
 		for (const bad of ['tool_zzcfg', 'lang', 42]) {
 			expect(() => validateToolModule(mod(bad), 'tool_zzcfg')).toThrow(/configFrom/);

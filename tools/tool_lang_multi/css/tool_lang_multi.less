@@ -163,6 +163,12 @@
 				&:hover {
 					opacity: 1;
 				}
+
+				// phone: a tap target (@phone_hit_target, tool_responsive.less); mask stays centred
+				@media screen and (max-width: @width_break_point_phone) {
+					min-width: 44px;
+					min-height: 44px;
+				}
 			}
 
 			// collapsible configuration panel

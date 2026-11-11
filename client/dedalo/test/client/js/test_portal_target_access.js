@@ -34,8 +34,8 @@ import { view_line_edit_portal } from '../../../core/component_portal/js/view_li
  *      does not (unless the caller says so), an external engine always opens;
  *   2. the row pencil renders only on rows whose target is readable (line view,
  *      shared default render_column_id — whose context menu still opens a
- *      section absent from the sqo, and whose window refreshes the portal with
- *      destroy:false on return), and edit_record_handler refuses the unreadable
+ *      section absent from the sqo, and whose window refreshes the portal on
+ *      return, rebuilding row instances), and edit_record_handler refuses the unreadable
  *      target without opening a window;
  *   3. an EMBEDDED rendered portal whose refresh read is refused keeps its rows
  *      (same content node), is 'building' while the dispatch runs and
@@ -155,8 +155,9 @@ describe(`PORTAL TARGET ACCESS`, function () {
 			opened = [];
 			original_open = window.open;
 			window.open = (url, target) => {
-				opened.push({ url, target });
-				return { resizeTo() {}, focus() {} };
+				const win = { closed: false, resizeTo() {}, focus() {} };
+				opened.push({ url, target, win });
+				return win;
 			};
 		});
 		afterEach(() => {
@@ -221,7 +222,7 @@ describe(`PORTAL TARGET ACCESS`, function () {
 			assert.include(opened[0].url, 'tipo=test999');
 		});
 
-		it(`default render_column_id: the context-menu window refreshes the portal with destroy:false on return`, () => {
+		it(`default render_column_id: the context-menu window refreshes the portal on return (row instances rebuilt)`, async () => {
 			const self = stub_portal('default');
 			const refreshes = [];
 			self.refresh = async (options) => {
@@ -238,14 +239,14 @@ describe(`PORTAL TARGET ACCESS`, function () {
 				.querySelector('button.button_edit')
 				.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
 			assert.equal(opened.length, 1, 'opened');
-			// the user comes back to this window: open_window's on_blur fires once
+			// the user comes back to this window: open_window's focus fallback runs
+			// on_blur once, after its debounce (RECORD_SAVE_DEBOUNCE_MS = 150)
 			window.dispatchEvent(new Event('focus'));
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			opened[0].win.closed = true; // let the watcher tear itself down
 			assert.equal(refreshes.length, 1, 'the portal refreshed on return');
-			assert.strictEqual(
-				refreshes[0].destroy,
-				false,
-				'a refused re-read keeps LIVE rows, not inert ones',
-			);
+			// default destroy (true): kept row instances would show pre-edit data
+			assert.notStrictEqual(refreshes[0].destroy, false, 'row instances are rebuilt');
 			assert.strictEqual(refreshes[0].build_autoload, true);
 		});
 

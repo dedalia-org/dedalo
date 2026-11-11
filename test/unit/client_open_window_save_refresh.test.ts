@@ -345,7 +345,10 @@ else {
 					}
 				}
 			}
-			expect(refreshing.length, 'the scan found no refreshing callback (vacuous)').toBeGreaterThanOrEqual(10);
+			expect(
+				refreshing.length,
+				'the scan found no refreshing callback (vacuous)',
+			).toBeGreaterThanOrEqual(10);
 			expect(offenders).toEqual([]);
 		});
 	});
@@ -355,7 +358,11 @@ else {
 			const got: unknown[] = [];
 			const w = globals.window as Record<string, unknown>;
 			w.opener = { postMessage: (m: unknown) => got.push(m) };
-			util.broadcast_record_save('saving', { section_tipo: 'test3', section_id: 1, tipo: 'test52' });
+			util.broadcast_record_save('saving', {
+				section_tipo: 'test3',
+				section_id: 1,
+				tipo: 'test52',
+			});
 			util.broadcast_record_save('saved', { section_tipo: 'test3', section_id: 1, tipo: 'test52' });
 			expect(count('pagehide'), 'hooked once').toBe(1);
 			fire('pagehide', {});

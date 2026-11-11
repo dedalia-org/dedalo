@@ -106,6 +106,12 @@
 .wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > .icon.gear:hover {
   opacity: 1;
 }
+@media screen and (max-width: 600px) {
+  .wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > .icon.gear {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
 .wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > .configuration_container {
   position: absolute;
   top: 100%;
