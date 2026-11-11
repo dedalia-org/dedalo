@@ -351,7 +351,7 @@ search, `tool_export`, portals and the page shell (not the per-component views):
 | `render_server_response_error(errors)` | full-page error panel from a server `errors` array (the dispatcher uses this for `page_globals.api_errors`); handles `not_logged`, `invalid_page_element` and generic `data_manager` cases |
 | `render_stream(options)` | a live SSE/NDJSON progress panel (spinner + info + Stop), returning `update_info_node()` to drive on each chunk |
 | `render_error(error)` | a standard inline error block (`wrapper_error` → `error_wrap` → type/msg/info) from a single error or array |
-| `render_components_list(options)` | a draggable component/section-group picker for a section, with recursive portal/autocomplete drill-down |
+| `render_components_list(options)` | a draggable component/section-group picker for a section, with recursive portal/autocomplete drill-down; a relation pointing to several sections gets a section selector in the drilled level (one entry per real-section family when the caller sets `group_target_sections`, one per section otherwise — `get_target_choices`) |
 | `render_lang_behavior_check(self)` | the "search in all languages" toggle for translatable search components; mutates `self.data.q_lang` and publishes `change_search_element` |
 
 ## Related

@@ -21,7 +21,8 @@
 
 import { logSectionSuppressesSectionInfo } from '../concepts/section.ts';
 import { sql } from '../db/postgres.ts';
-import { getModelByTipo, getTranslatableByTipo } from '../ontology/resolver.ts';
+import { labelByTipo } from '../ontology/labels.ts';
+import { getModelByTipo, getSectionRealTipo, getTranslatableByTipo } from '../ontology/resolver.ts';
 import { resolveVirtualEditScope } from '../relations/request_config/implicit.ts';
 import { getPermissions, getSectionPermissions, type Principal } from '../security/permissions.ts';
 import { currentDataLang } from './request_lang.ts';
@@ -159,6 +160,81 @@ export async function sectionInfoComponents(
 	);
 }
 
+/** One family of a multi-target relation's targets (see groupTargetSections). */
+export interface TargetSectionGroup {
+	/** The REAL section the members share (a real target is its own group). */
+	tipo: string;
+	label: string | null;
+	/** The readable targets of the family, in the relation's target order. */
+	members: { tipo: string; label: string | null }[];
+}
+
+/**
+ * Group a relation's target sections by REAL section (getSectionRealTipo):
+ * virtual siblings (es1, fr1, … → hierarchy20) share their component tipos,
+ * so ONE field list serves the whole family, while a real target with its own
+ * components (tchi1) is a family of its own. Groups keep first-seen order.
+ *
+ * A member the principal may not read (section grant < 1) is OMITTED — the
+ * same "skipped, not denied" reading the element list applies to a section;
+ * a family left with no member is omitted whole. This is a picker hint only:
+ * the export re-authorizes every target it actually crosses (resolver.ts
+ * assertExportCrossing), so the list grants nothing.
+ */
+export async function groupTargetSections(
+	principal: Principal,
+	targets: readonly string[],
+): Promise<TargetSectionGroup[]> {
+	const groups = new Map<string, TargetSectionGroup>();
+	const seen = new Set<string>();
+	for (const target of targets) {
+		if (typeof target !== 'string' || target === '' || seen.has(target)) continue;
+		seen.add(target);
+		if ((await getSectionPermissions(principal, target)) < 1) continue;
+		const realTipo = await getSectionRealTipo(target);
+		let group = groups.get(realTipo);
+		if (group === undefined) {
+			group = { tipo: realTipo, label: await labelByTipo(realTipo), members: [] };
+			groups.set(realTipo, group);
+		}
+		group.members.push({ tipo: target, label: await labelByTipo(target) });
+	}
+	return [...groups.values()];
+}
+
+/**
+ * The relation-target stamp of one element's simple context (mutates `simple`):
+ * `target_section_tipo` (portal / dataframe / filter) and, for a MULTI-target
+ * relation, `target_section_groups` (see groupTargetSections).
+ */
+async function stampTargetSections(
+	simple: Record<string, unknown>,
+	element: { model: string; tipo: string; sectionTipo: string; principal: Principal },
+): Promise<void> {
+	const { model, tipo, sectionTipo, principal } = element;
+	// PHP top-level stamp: portal/dataframe/filter carry their target section.
+	// component_filter's target is the FIXED projects section (dd153), an
+	// ARRAY (PHP get_ar_target_section_tipo → ['dd153']); its request_config
+	// has no sqo target so the generic resolver returns [].
+	// The client (render_common.js get_target_choices) drills into every
+	// entry of target_section_tipo — it MUST be an ARRAY (the whole target
+	// set, PHP get_ar_target_section_tipo), never a scalar string, or the
+	// client would iterate its characters as bogus 1-char sections.
+	if (model === 'component_filter') {
+		simple.target_section_tipo = ['dd153']; // DEDALO_SECTION_PROJECTS_TIPO
+	} else if (model === 'component_portal' || model === 'component_dataframe') {
+		const { getElementTargetSectionTipos } = await import('../relations/request_config/build.ts');
+		simple.target_section_tipo = await getElementTargetSectionTipos(tipo, sectionTipo);
+	}
+	// A MULTI-TARGET relation (tch199 → every toponymy + tchi1): the
+	// field pickers (tool_export, search) need to offer every target,
+	// not `[0]` — WC-2026-11-11-section-elements-target-groups.
+	const targets = simple.target_section_tipo;
+	if (Array.isArray(targets) && targets.length > 1) {
+		simple.target_section_groups = await groupTargetSections(principal, targets as string[]);
+	}
+}
+
 /** Strip the fields PHP omits from a simple context (tools, buttons). */
 function toSimple(entry: StructureContextEntry): Record<string, unknown> {
 	const { tools, buttons, ...rest } = entry as StructureContextEntry & {
@@ -253,22 +329,7 @@ export async function buildSectionElementsContext(
 			if (entry === null) continue;
 			const simple = toSimple(entry);
 
-			// PHP top-level stamp: portal/dataframe/filter carry their target section.
-			// component_filter's target is the FIXED projects section (dd153), an
-			// ARRAY (PHP get_ar_target_section_tipo → ['dd153']); its request_config
-			// has no sqo target so the generic resolver returns [].
-			// The client (render_common.js:246) reads target_section_tipo[0] to drill
-			// into the related section — it MUST be an ARRAY (the whole target set,
-			// PHP get_ar_target_section_tipo), never a scalar string, or [0] indexes a
-			// single character and requests a bogus 1-char section → empty list.
-			if (model === 'component_filter') {
-				simple.target_section_tipo = ['dd153']; // DEDALO_SECTION_PROJECTS_TIPO
-			} else if (model === 'component_portal' || model === 'component_dataframe') {
-				const { getElementTargetSectionTipos } = await import(
-					'../relations/request_config/build.ts'
-				);
-				simple.target_section_tipo = await getElementTargetSectionTipos(tipo, sectionTipo);
-			}
+			await stampTargetSections(simple, { model, tipo, sectionTipo, principal });
 			contexts.push(simple);
 		}
 	}

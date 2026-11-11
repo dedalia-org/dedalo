@@ -104,6 +104,11 @@ import {
 	type RequestContext,
 	runWithRequestContext,
 } from '../../src/core/security/request_context.ts';
+import {
+	dropSituation,
+	ensureSituation,
+	situation,
+} from '../../src/core/test_data/situations/situation.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import type { ToolActionContext } from '../../src/core/tools/module.ts';
 import { exportGridUnified, openExportGrid } from '../../src/diffusion/export/index.ts';
@@ -1428,12 +1433,29 @@ describe('H. the doors re-ask the BUILD gates — same keys, same admin posture'
 
 	test('a grant on a section reached only at RUNTIME is re-asked: revoking it after the build closes the export', async () => {
 		// The declared path is test3.test80 → test3.test52 (Gate B asks test3
-		// only), but the portal's stored locator lands in `test2` — a section the
-		// declaration never names. The build's frontier authorized the RUNTIME
-		// pair (test2, test52) and read the value under it; the manifest records
-		// that pair (frontier_grants) and every later door re-asks it.
-		const RUNTIME_SECTION = 'test2';
-		const RUNTIME_FILTER = 'test41'; // test2's component_filter
+		// only), but the portal's stored locator lands in `zzrt1` — a VIRTUAL of
+		// test3 the declaration never names (so it lawfully holds test52; a
+		// section that does not hold the component is skipped by the walk, never
+		// crossed — WC-2026-11-11-section-elements-target-groups). The build's
+		// frontier authorized the RUNTIME pair (zzrt1, test52) and read the value
+		// under it; the manifest records that pair (frontier_grants) and every
+		// later door re-asks it.
+		const RUNTIME_SECTION = 'zzrt1';
+		const RUNTIME_FILTER = FILTER; // a virtual borrows test3's component_filter
+		const runtimeSituation = situation({
+			name: 'tool_export_job runtime virtual',
+			tld: 'zzrt',
+			nodes: [
+				{
+					tipo: RUNTIME_SECTION,
+					parent: 'test1',
+					model: 'section',
+					term: { 'lg-eng': 'zz runtime virtual of test3' },
+					relations: [{ tipo: 'test24' }, { tipo: SECTION }],
+				},
+			],
+		});
+		await ensureSituation(runtimeSituation);
 		const runtimeTable = await getMatrixTableFromTipo(RUNTIME_SECTION);
 		expect(runtimeTable, 'test2 must resolve to a matrix table').not.toBeNull();
 		const runtimeRow = {
@@ -1526,6 +1548,7 @@ describe('H. the doors re-ask the BUILD gates — same keys, same admin posture'
 			await setReaderGrants(readerGrants);
 			await deleteMatrixRecord(TABLE, SECTION, RUNTIME_SOURCE_ID);
 			await deleteMatrixRecord(runtimeRow.table, RUNTIME_SECTION, RUNTIME_TARGET_ID);
+			expect(await dropSituation(runtimeSituation)).toBe(0);
 		}
 	});
 

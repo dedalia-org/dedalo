@@ -96,6 +96,11 @@ export const tool_export = function () {
 	// section elements. Left list of available section components to export
 	this.section_elements = []
 	this.section_elements_components_exclude = ['component_password']
+	// group_target_sections. A relation pointing to several sections (tch199 →
+	// every toponymy + tchi1) is drilled per real-section FAMILY: the export walk
+	// follows every locator by component tipo, so a field picked in one virtual
+	// sibling covers the whole family (render_common.js get_target_choices)
+	this.group_target_sections = true
 
 	// export runtime. THE LIFETIME of everything the current export view keeps
 	// open (see reset_export_runtime): job streams hold an HTTP connection each

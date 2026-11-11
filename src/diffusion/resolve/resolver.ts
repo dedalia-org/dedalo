@@ -49,6 +49,7 @@ import { DedaloError } from '../../core/errors/index.ts';
 import { refuseLabelNode } from '../../core/ontology/label_node_guard.ts';
 import {
 	findFirstDescendantTipoByModel,
+	getAncestorSectionTipo,
 	getColumnNameByModel,
 	getMatrixTableFromTipo,
 	getModelByTipo,
@@ -56,6 +57,7 @@ import {
 	getPropertiesByTipo,
 	getSectionRealTipo,
 	hasLangVersions,
+	tipoBelongsToSection,
 } from '../../core/ontology/resolver.ts';
 import { getSectionMapValue } from '../../core/ontology/section_map.ts';
 import { getChildren } from '../../core/relations/children.ts';
@@ -3166,6 +3168,23 @@ async function exportStepLocators(
 	)) as StoredLocator[];
 }
 
+/**
+ * May a hop's target section hold `componentTipo` — false ONLY when the
+ * component is owned by a section (its ontology ancestry reaches one) and the
+ * target is outside that section's family (neither it nor a virtual of it).
+ * A component owned by no section (the section-info group's, shared by every
+ * section) or an empty tipo answers true: the walk keeps its old behaviour.
+ * Ontology-only (cached by the resolver), no record or principal read.
+ */
+async function exportTargetHoldsComponent(
+	targetSectionTipo: string,
+	componentTipo: string,
+): Promise<boolean> {
+	if (componentTipo === '') return true;
+	if ((await getAncestorSectionTipo(componentTipo)) === null) return true;
+	return tipoBelongsToSection(componentTipo, targetSectionTipo);
+}
+
 /** One pre-projection export atom: a leaf resolution site with provenance. */
 export interface ExportLeafAtom {
 	/** The compiled leaf step (tipo/model/declared section). */
@@ -3224,9 +3243,27 @@ export async function resolveRecordAtoms(
 			// per valid locator, RAW index.
 			const owner = await loadExportRecord(run, ownerTipo, ownerId);
 			const bag = await exportStepLocators(owner, ownerTipo, ownerId, step);
+			const nextTipo = (chain[position + 1] as ExportChainStep | undefined)?.tipo;
 			for (let index = 0; index < bag.length; index++) {
 				const locator = bag[index];
 				if (typeof locator?.section_tipo !== 'string' || locator.section_id === undefined) {
+					continue;
+				}
+				// A MULTI-TARGET relation (tch199 → toponymies + tchi1) points into
+				// sections that do not all HOLD the next step's component: a column
+				// picked in es1 (hierarchy25) meets tchi1 locators. Such a target has
+				// nothing to emit for it, and crossing it would ask the frontier for
+				// a `tchi1/hierarchy25` grant no profile can hold — refusing the whole
+				// export for a value that does not exist. It is SKIPPED, not crossed.
+				// Only a component OWNED by a section is tested: the shared
+				// section-info components (dd196's children) belong to no section and
+				// live in every one, so they keep crossing. A target that DOES hold
+				// the component is crossed and authorized as before (a missing grant
+				// there still refuses — WC-2026-11-11-section-elements-target-groups).
+				if (
+					nextTipo !== undefined &&
+					!(await exportTargetHoldsComponent(locator.section_tipo, nextTipo))
+				) {
 					continue;
 				}
 				// THE FRONTIER: this locator leaves the record the caller selected.
@@ -3237,12 +3274,7 @@ export async function resolveRecordAtoms(
 				// Number() made it 65686, and the leaf then asked the service for a
 				// different record). WC-2026-08-10-section-id-int-canonical.
 				const nextOwnerId = canonicalizeStoredSectionId(locator.section_id) as number | string;
-				await assertExportCrossing(
-					run,
-					locator.section_tipo,
-					nextOwnerId,
-					(chain[position + 1] as ExportChainStep | undefined)?.tipo,
-				);
+				await assertExportCrossing(run, locator.section_tipo, nextOwnerId, nextTipo);
 				await walk(
 					position + 1,
 					locator.section_tipo,

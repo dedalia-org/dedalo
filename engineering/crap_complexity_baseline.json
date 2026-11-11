@@ -368,7 +368,7 @@
 		"src/core/resolve/read_tm.ts": 17,
 		"src/core/resolve/related_sections.ts": 15,
 		"src/core/resolve/relation_list.ts": 40,
-		"src/core/resolve/section_elements_context.ts": 22,
+		"src/core/resolve/section_elements_context.ts": 19,
 		"src/core/resolve/security_access_datalist.ts": 20,
 		"src/core/resolve/structure_context.ts": 85,
 		"src/core/resolve/tm_filter.ts": 18,
