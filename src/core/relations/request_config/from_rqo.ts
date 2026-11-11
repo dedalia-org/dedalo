@@ -756,12 +756,11 @@ function isTargetIndependentDdo(candidate: unknown): boolean {
 	if (!isObjectBlock(candidate)) return false;
 	const declared = candidate.section_tipo;
 	if (!Array.isArray(declared) || isSourceArraySectionTipo(declared)) return false;
-	const named = new Set<string>();
-	for (const entry of declared) {
-		if (typeof entry !== 'string' || entry === '' || isSelfSectionTipoEntry(entry)) return false;
-		named.add(entry);
-	}
-	return named.size >= 2;
+	return declared.every(isPlainSectionEntry) && new Set(declared).size >= 2;
+}
+
+function isPlainSectionEntry(entry: unknown): boolean {
+	return typeof entry === 'string' && entry !== '' && !isSelfSectionTipoEntry(entry);
 }
 
 /**
@@ -799,23 +798,40 @@ async function buildRequestedMap(
 	const dropped: ReportedDdo[] = [];
 	const clamped: ReportedDdo[] = [];
 	for (const [index, candidate] of rawMap.entries()) {
-		const shared = outcomes !== undefined && isTargetIndependentDdo(candidate);
-		const cached = shared ? outcomes.get(index) : undefined;
-		const outcome =
-			cached ??
-			(await buildRequestedDdo(candidate, requestedSourceTipo, element, principal, verdicts));
-		if (shared && cached === undefined) outcomes.set(index, outcome);
-		if ('why' in outcome) {
-			if (cached === undefined) dropped.push({ tipo: rawTipoOf(candidate), why: outcome.why });
-			continue;
-		}
-		if (outcome.limitClamped && cached === undefined) {
-			clamped.push({ tipo: outcome.ddo.tipo, why: 'limit clamped' });
-		}
-		built.push(outcome.ddo);
+		const { outcome, fresh } = await sharedOrBuiltOutcome(candidate, index, outcomes, () =>
+			buildRequestedDdo(candidate, requestedSourceTipo, element, principal, verdicts),
+		);
+		// a shared outcome's drop / clamp was reported by the target that built it
+		if (fresh) noteOutcomeIssue(outcome, candidate, dropped, clamped);
+		if (!('why' in outcome)) built.push(outcome.ddo);
 	}
 	reportMapIssues(element.tipo, mapType, dropped, clamped);
 	return built;
+}
+
+/** A target-independent ddo's outcome from `outcomes` when built already; else built (and kept when shareable). */
+async function sharedOrBuiltOutcome(
+	candidate: unknown,
+	index: number,
+	outcomes: Map<number, RequestedDdoOutcome> | undefined,
+	build: () => Promise<RequestedDdoOutcome>,
+): Promise<{ outcome: RequestedDdoOutcome; fresh: boolean }> {
+	const shared = outcomes !== undefined && isTargetIndependentDdo(candidate);
+	const cached = shared ? outcomes.get(index) : undefined;
+	if (cached !== undefined) return { outcome: cached, fresh: false };
+	const outcome = await build();
+	if (shared) outcomes.set(index, outcome);
+	return { outcome, fresh: true };
+}
+
+function noteOutcomeIssue(
+	outcome: RequestedDdoOutcome,
+	candidate: unknown,
+	dropped: ReportedDdo[],
+	clamped: ReportedDdo[],
+): void {
+	if ('why' in outcome) dropped.push({ tipo: rawTipoOf(candidate), why: outcome.why });
+	else if (outcome.limitClamped) clamped.push({ tipo: outcome.ddo.tipo, why: 'limit clamped' });
 }
 
 /**

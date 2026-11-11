@@ -60,7 +60,10 @@ import {
 	type EmitScope,
 } from '../relations/element_registry.ts';
 import { emitDataframeItem, expandPortal } from '../relations/relation_core.ts';
-import type { RqoRequestConfigItem } from '../relations/request_config/from_rqo.ts';
+import type {
+	RqoRequestConfigItem,
+	StageOneTargetsScope,
+} from '../relations/request_config/from_rqo.ts';
 import {
 	buildDataItem,
 	type DataItem,
@@ -3173,20 +3176,12 @@ async function stageOneTargetSectionsMap(
 ): Promise<Ddo[]> {
 	const merged = new Map<string, Record<string, unknown>>();
 	let built = false;
-	const { buildTargetSectionShowMapFromRqo, newStageOneTargetsScope } = await import(
-		'../relations/request_config/from_rqo.ts'
-	);
+	const { newStageOneTargetsScope } = await import('../relations/request_config/from_rqo.ts');
 	// ONE scope for every target: the same client ddos, judged on the same
 	// sections, n² without it (from_rqo.ts StageOneTargetsScope).
 	const scope = newStageOneTargetsScope();
 	for (const target of stringSqoSections(rqo)) {
-		if ((await getModelByTipo(target)) !== 'section') continue;
-		const map = await buildTargetSectionShowMapFromRqo(
-			rqo,
-			{ kind: 'section', tipo: target, mode },
-			principal,
-			scope,
-		);
+		const map = await stageOneTargetMap(rqo, target, mode, principal, scope);
 		if (map === null) continue;
 		built = true;
 		for (const consolidated of map) {
@@ -3208,6 +3203,26 @@ function stringSqoSections(rqo: Rqo): string[] {
 			list.filter((target): target is string => typeof target === 'string' && target !== ''),
 		),
 	];
+}
+
+/** One target SECTION's stage-1 show map, or null (not a section, or the rqo does not target it). */
+async function stageOneTargetMap(
+	rqo: Rqo,
+	target: string,
+	mode: string,
+	principal: Principal | undefined,
+	scope: StageOneTargetsScope,
+): Promise<readonly unknown[] | null> {
+	if ((await getModelByTipo(target)) !== 'section') return null;
+	const { buildTargetSectionShowMapFromRqo } = await import(
+		'../relations/request_config/from_rqo.ts'
+	);
+	return buildTargetSectionShowMapFromRqo(
+		rqo,
+		{ kind: 'section', tipo: target, mode },
+		principal,
+		scope,
+	);
 }
 
 /** One target build's ddo into the merge: first-wins per (tipo, parent), sections unioned. */
