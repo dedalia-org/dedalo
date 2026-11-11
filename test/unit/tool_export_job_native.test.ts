@@ -1433,18 +1433,18 @@ describe('H. the doors re-ask the BUILD gates — same keys, same admin posture'
 
 	test('a grant on a section reached only at RUNTIME is re-asked: revoking it after the build closes the export', async () => {
 		// The declared path is test3.test80 → test3.test52 (Gate B asks test3
-		// only), but the portal's stored locator lands in `zzrt1` — a VIRTUAL of
+		// only), but the portal's stored locator lands in `zzejr1` — a VIRTUAL of
 		// test3 the declaration never names (so it lawfully holds test52; a
 		// section that does not hold the component is skipped by the walk, never
 		// crossed — WC-2026-11-11-section-elements-target-groups). The build's
-		// frontier authorized the RUNTIME pair (zzrt1, test52) and read the value
+		// frontier authorized the RUNTIME pair (zzejr1, test52) and read the value
 		// under it; the manifest records that pair (frontier_grants) and every
 		// later door re-asks it.
-		const RUNTIME_SECTION = 'zzrt1';
+		const RUNTIME_SECTION = 'zzejr1';
 		const RUNTIME_FILTER = FILTER; // a virtual borrows test3's component_filter
 		const runtimeSituation = situation({
 			name: 'tool_export_job runtime virtual',
-			tld: 'zzrt',
+			tld: 'zzejr',
 			nodes: [
 				{
 					tipo: RUNTIME_SECTION,

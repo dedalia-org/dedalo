@@ -63,7 +63,7 @@ const LABEL_TABLE = 'matrix_list';
 const USER = 987681; // this gate's own import dir
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
 /** Every label value this gate (or the import, for it) writes starts with this. */
-const LABEL_PREFIX = `zzt012${RUN}`;
+const LABEL_PREFIX = `zzilb012${RUN}`;
 
 const dir = resolve(config.media.rootPath ?? '', 'import/files', String(USER));
 const createdRecords: number[] = [];
@@ -589,11 +589,11 @@ async function installPersonas(): Promise<void> {
 	const grantRows = (grants: Record<string, unknown>[]) =>
 		grants.map((grant, index) => ({ id: index + 1, ...grant }));
 	await insert('matrix_profiles', 'dd234', NO_LABEL_PROFILE, {
-		string: { dd237: [{ id: 1, lang: 'lg-eng', value: 'zzt012 no-label profile' }] },
+		string: { dd237: [{ id: 1, lang: 'lg-eng', value: 'zzilb012 no-label profile' }] },
 		misc: { dd774: grantRows(test3Grants) },
 	});
 	await insert('matrix_profiles', 'dd234', LABEL_PROFILE, {
-		string: { dd237: [{ id: 1, lang: 'lg-eng', value: 'zzt012 label profile' }] },
+		string: { dd237: [{ id: 1, lang: 'lg-eng', value: 'zzilb012 label profile' }] },
 		misc: { dd774: grantRows([...test3Grants, ...labelGrants]) },
 	});
 	for (const [user, profile] of [
@@ -601,7 +601,7 @@ async function installPersonas(): Promise<void> {
 		[LABEL_USER, LABEL_PROFILE],
 	] as const) {
 		await insert('matrix_users', 'dd128', user, {
-			string: { dd132: [{ id: 1, lang: 'lg-nolan', value: `zzt012_user_${user}` }] },
+			string: { dd132: [{ id: 1, lang: 'lg-nolan', value: `zzilb012_user_${user}` }] },
 			relation: {
 				dd131: [personaLocator('dd131', 'dd64', 1)],
 				dd244: [personaLocator('dd244', 'dd64', 2)],

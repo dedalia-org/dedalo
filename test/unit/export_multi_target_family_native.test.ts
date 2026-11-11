@@ -23,12 +23,12 @@
  *      contributes nothing. That is what makes one choice per family correct.
  *   G3 the other family's field, declared through its own section, exports.
  *
- * SITUATION (built, torn down): scratch TLD `zzmt`.
- *   zzmt1  A (root)    zzmt2 portal P → [V1, V2, O]
- *   zzmt10 R (real)    zzmt11 term (input_text)
- *   zzmt20 V1 → R      (virtual: relations [matrix_test, R])
- *   zzmt30 V2 → R
- *   zzmt40 O (real)    zzmt41 name (input_text)
+ * SITUATION (built, torn down): scratch TLD `zzmtf`.
+ *   zzmtf1  A (root)    zzmtf2 portal P → [V1, V2, O]
+ *   zzmtf10 R (real)    zzmtf11 term (input_text)
+ *   zzmtf20 V1 → R      (virtual: relations [matrix_test, R])
+ *   zzmtf30 V2 → R
+ *   zzmtf40 O (real)    zzmtf41 name (input_text)
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -48,25 +48,25 @@ import { DB_READY } from '../helpers/db_ready.ts';
 import { exportFrontierIdentity, type FrontierGrant } from '../helpers/export_frontier_identity.ts';
 import { registerSessionCleanup } from '../helpers/session_cleanup.ts';
 
-const A = 'zzmt1';
-const P = 'zzmt2';
-const R = 'zzmt10';
-const R_TERM = 'zzmt11';
-const V1 = 'zzmt20';
-const V2 = 'zzmt30';
-const O = 'zzmt40';
-const O_NAME = 'zzmt41';
+const A = 'zzmtf1';
+const P = 'zzmtf2';
+const R = 'zzmtf10';
+const R_TERM = 'zzmtf11';
+const V1 = 'zzmtf20';
+const V2 = 'zzmtf30';
+const O = 'zzmtf40';
+const O_NAME = 'zzmtf41';
 /** One project component_filter per real section: the non-admin's record key. */
-const A_FILTER = 'zzmt3';
-const R_FILTER = 'zzmt12';
-const O_FILTER = 'zzmt42';
+const A_FILTER = 'zzmtf3';
+const R_FILTER = 'zzmtf12';
+const O_FILTER = 'zzmtf42';
 /** test24 — the matrix_test table node every scratch section names. */
 const MATRIX_TEST = 'test24';
 
 const LANG = 'lg-eng';
-const VALUE_V1 = 'zzmt alpha toponym';
-const VALUE_V2 = 'zzmt bravo toponym';
-const VALUE_O = 'zzmt charlie immovable';
+const VALUE_V1 = 'zzmtf alpha toponym';
+const VALUE_V2 = 'zzmtf bravo toponym';
+const VALUE_O = 'zzmtf charlie immovable';
 
 registerSessionCleanup();
 
@@ -94,7 +94,7 @@ const locator = (sectionTipo: string, sectionId: number, id: number) => ({
 
 const S = situation({
 	name: 'export multi-target family',
-	tld: 'zzmt',
+	tld: 'zzmtf',
 	nodes: [
 		{ tipo: A, parent: 'test1', model: 'section', term: term('zz mt root') },
 		filter(A_FILTER, A),

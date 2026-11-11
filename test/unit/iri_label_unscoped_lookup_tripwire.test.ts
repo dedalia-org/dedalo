@@ -34,13 +34,14 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { findSectionIdsByFoldedText } from '../../src/core/tools/import_code_lookup.ts';
-
-const REPO = join(import.meta.dir, '..', '..');
-const SCAN_ROOTS = ['src', 'tools', 'scripts'];
-const CORPUS_FLOOR = 500;
+import {
+	REPO_ROOT,
+	WRITE_PATH_CORPUS_FLOOR,
+	writePathSourceFiles,
+} from '../helpers/write_path_corpus.ts';
 
 interface Guarded {
 	/** The function name. */
@@ -74,15 +75,6 @@ const GUARDED: readonly Guarded[] = [
 	},
 ];
 
-function listTsFiles(dir: string, out: string[]): void {
-	for (const entry of readdirSync(dir)) {
-		if (entry === 'node_modules' || entry.startsWith('.')) continue;
-		const full = join(dir, entry);
-		if (statSync(full).isDirectory()) listTsFiles(full, out);
-		else if (/\.(ts|tsx|js|mjs)$/.test(entry)) out.push(full);
-	}
-}
-
 function stripComments(text: string): string {
 	return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
 }
@@ -92,12 +84,11 @@ interface SourceFile {
 	code: string;
 }
 
+/** The engine-process code (src/, tools/, scripts/ — the registered write-path corpus, tests excluded). */
 function loadCorpus(): SourceFile[] {
-	const files: string[] = [];
-	for (const root of SCAN_ROOTS) listTsFiles(join(REPO, root), files);
-	return files.map((file) => ({
-		path: relative(REPO, file),
-		code: stripComments(readFileSync(file, 'utf8')),
+	return writePathSourceFiles().map((path) => ({
+		path,
+		code: stripComments(readFileSync(join(REPO_ROOT, path), 'utf8')),
 	}));
 }
 
@@ -216,7 +207,7 @@ describe('iri_label_unscoped_lookup_tripwire', () => {
 	const corpus = loadCorpus();
 
 	test('the corpus is real (anti-vacuity floor)', () => {
-		expect(corpus.length).toBeGreaterThan(CORPUS_FLOOR);
+		expect(corpus.length).toBeGreaterThan(WRITE_PATH_CORPUS_FLOOR);
 		for (const guarded of GUARDED) {
 			expect(corpus.some((file) => file.path === guarded.definer)).toBe(true);
 		}

@@ -20,19 +20,19 @@
  * source; the source is what is wrong. A rebuild names the finding in its message (the same
  * message the ontology update reports per tld).
  *
- * THE SITUATION IS BUILT: scratch tld `zzmr`, four raw source records of `zzmr0`
+ * THE SITUATION IS BUILT: scratch tld `zzmrn`, four raw source records of `zzmrn0`
  * (test/helpers/machine_name_scratch.ts, suite DB only):
- *   zzmr1  component_iri, ontology8 = no   → healthy (the control)
- *   zzmr2  component_iri, ontology8 = yes  → violation, stated
- *   zzmr3  component_iri, NO ontology8     → violation: the parser defaults an unset
+ *   zzmrn1  component_iri, ontology8 = no   → healthy (the control)
+ *   zzmrn2  component_iri, ontology8 = yes  → violation, stated
+ *   zzmrn3  component_iri, NO ontology8     → violation: the parser defaults an unset
  *                                            ontology8 to TRUE, so this IS translatable
- *   zzmr4  component_input_text, no ontology8 → healthy: the rule is the MODEL's, not a
+ *   zzmrn4  component_input_text, no ontology8 → healthy: the rule is the MODEL's, not a
  *                                            blanket "every node non-translatable"
- * Everything `zzmr` is swept before and after (records, projection, registry row).
+ * Everything `zzmrn` is swept before and after (records, projection, registry row).
  *
  * MUTATIONS (each turns this gate red): drop the facet from component_iri's descriptor
  * (no finding); read the facet without following `ontologyTranslatable` (no finding); treat
- * an unset ontology8 as non-translatable (zzmr3 missed); file the finding as drift (inSync
+ * an unset ontology8 as non-translatable (zzmrn3 missed); file the finding as drift (inSync
  * false); drop the rebuild-message note.
  */
 
@@ -51,10 +51,10 @@ import {
 	sweepMachineNameScratch,
 } from '../helpers/machine_name_scratch.ts';
 
-const TLD = 'zzmr';
+const TLD = 'zzmrn';
 const SECTION = `${TLD}0`;
 
-/** zzmr's records, its projection and the registry row a rebuild ensures. */
+/** zzmrn's records, its projection and the registry row a rebuild ensures. */
 async function sweep(): Promise<void> {
 	await assertTestDatabase('ontology_model_rules_native sweep');
 	await sql.unsafe(
@@ -112,14 +112,14 @@ describe('ontology model rules — component_iri is never translatable', () => {
 		expect(findings).toEqual([
 			{
 				source: `${SECTION}/2`,
-				tipo: 'zzmr2',
+				tipo: 'zzmrn2',
 				model: 'component_iri',
 				rule: 'translatable_forbidden',
 				translatableStated: true,
 			},
 			{
 				source: `${SECTION}/3`,
-				tipo: 'zzmr3',
+				tipo: 'zzmrn3',
 				model: 'component_iri',
 				rule: 'translatable_forbidden',
 				translatableStated: false,
@@ -134,7 +134,7 @@ describe('ontology model rules — component_iri is never translatable', () => {
 			expect(item.message).toContain('ontology8');
 			expect(item.message).toContain(item.source);
 		}
-		const unset = (state.modelRuleViolations ?? []).find((item) => item.tipo === 'zzmr3');
+		const unset = (state.modelRuleViolations ?? []).find((item) => item.tipo === 'zzmrn3');
 		expect(unset?.message).toContain('unset');
 	});
 
@@ -149,10 +149,10 @@ describe('ontology model rules — component_iri is never translatable', () => {
 			[TLD, SECTION],
 		)) as { tipo: string; is_translatable: boolean }[];
 		expect(rows).toEqual([
-			{ tipo: 'zzmr1', is_translatable: false },
-			{ tipo: 'zzmr2', is_translatable: true },
-			{ tipo: 'zzmr3', is_translatable: true },
-			{ tipo: 'zzmr4', is_translatable: true },
+			{ tipo: 'zzmrn1', is_translatable: false },
+			{ tipo: 'zzmrn2', is_translatable: true },
+			{ tipo: 'zzmrn3', is_translatable: true },
+			{ tipo: 'zzmrn4', is_translatable: true },
 		]);
 	});
 

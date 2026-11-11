@@ -38,6 +38,7 @@ import { config } from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { readMatrixRecord } from '../../src/core/db/matrix.ts';
 import { getPoolStats, sql, withTransaction } from '../../src/core/db/postgres.ts';
+import { DedaloError } from '../../src/core/errors/index.ts';
 import { writeAtomically } from '../../src/core/media/atomic.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import { fileFingerprint, stillSameFile } from '../../src/core/media/file_fingerprint.ts';
@@ -76,7 +77,11 @@ import { assertTestDatabase } from '../../src/core/test_data/test_database_marke
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import type { ToolActionContext, ToolResponse } from '../../src/core/tools/module.ts';
 import { toolTimeMachineBulkRevert } from '../../tools/tool_time_machine/server/bulk_revert.ts';
-import { readProcessOptions, startOcrReporting } from '../../tools/tool_upload/server/index.ts';
+import {
+	ocrStartFailureMessage,
+	readProcessOptions,
+	startOcrReporting,
+} from '../../tools/tool_upload/server/index.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { scratchMediaRoot } from '../helpers/media_scratch_root.ts';
 import { refusalOf } from '../helpers/refusal.ts';
@@ -434,15 +439,18 @@ describe('gate 4: tool_upload process_options', () => {
 	});
 
 	test('an OCR submit that throws AFTER the move is a derivative error, never an error response', () => {
-		expect(startOcrReporting(null)).toEqual({ jobId: null, errors: [] });
-		expect(startOcrReporting(() => 'pdf_ocr_1')).toEqual({ jobId: 'pdf_ocr_1', errors: [] });
+		expect(startOcrReporting(null)).toEqual({ jobId: null, failureCode: null });
+		expect(startOcrReporting(() => 'pdf_ocr_1')).toEqual({ jobId: 'pdf_ocr_1', failureCode: null });
 		const failed = startOcrReporting(() => {
-			throw new Error('no PDF master on this server');
+			throw new DedaloError('media.action_failed', {
+				message: 'no PDF master on /secret/abs/path',
+			});
 		});
-		expect(failed.jobId).toBeNull();
-		expect(failed.errors).toEqual([
-			'the OCR job could not be started — no PDF master on this server',
-		]);
+		expect(failed).toEqual({ jobId: null, failureCode: 'media.action_failed' });
+		// the wire sentence names the CODE, never the raw (path-bearing) text
+		const sentence = ocrStartFailureMessage('media.action_failed');
+		expect(sentence).toBe('the OCR job could not be started (media.action_failed)');
+		expect(sentence).not.toContain('/secret');
 	});
 
 	test.if(HAVE_PDF_TOOLS)(

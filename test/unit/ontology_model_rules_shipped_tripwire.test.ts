@@ -28,7 +28,7 @@
  * NON-VACUITY: the walk is floored (files, node records, component_iri nodes actually
  * judged — a gate that saw no iri would pass forever), every model tipo must resolve to a
  * name (an unresolved model is a node the rule could not judge — loud, never skipped), and
- * a PLANTED control package (ontology_package_fixture.ts, scratch tld `zzri`, never
+ * a PLANTED control package (ontology_package_fixture.ts, scratch tld `zzris`, never
  * written anywhere) proves a translatable iri AND an ontology8-less iri are caught by the
  * same scan while a non-translatable one and a non-iri are not.
  */
@@ -228,14 +228,14 @@ describe('the shipped ontology release breaks no model rule', () => {
 		const inputText = await modelTipoNamed('component_input_text');
 		const planted = buildOntologyPackage([
 			{
-				tld: 'zzri',
-				name: 'zzri planted model-rule control',
+				tld: 'zzris',
+				name: 'zzris planted model-rule control',
 				typologyId: 15,
 				nodes: [
-					{ id: 1, parent: 'zzri0', model: iri, term: 'iri no', translatable: false },
-					{ id: 2, parent: 'zzri0', model: iri, term: 'iri yes', translatable: true },
-					{ id: 3, parent: 'zzri0', model: iri, term: 'iri unset' },
-					{ id: 4, parent: 'zzri0', model: inputText, term: 'text unset' },
+					{ id: 1, parent: 'zzris0', model: iri, term: 'iri no', translatable: false },
+					{ id: 2, parent: 'zzris0', model: iri, term: 'iri yes', translatable: true },
+					{ id: 3, parent: 'zzris0', model: iri, term: 'iri unset' },
+					{ id: 4, parent: 'zzris0', model: inputText, term: 'text unset' },
 				],
 			},
 		]);
@@ -244,8 +244,8 @@ describe('the shipped ontology release breaks no model rule', () => {
 		);
 		expect(scan.nodes).toBe(4);
 		expect(scan.violations.map((item) => [item.tipo, item.rule, item.translatableStated])).toEqual([
-			['zzri2', 'translatable_forbidden', true],
-			['zzri3', 'translatable_forbidden', false],
+			['zzris2', 'translatable_forbidden', true],
+			['zzris3', 'translatable_forbidden', false],
 		]);
 	});
 });

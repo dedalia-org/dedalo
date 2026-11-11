@@ -13,7 +13,7 @@ import { existsSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from '../../../src/config/config.ts';
 import { NO_LANG } from '../../../src/config/data_langs.ts';
-import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import { DedaloError, logError, ok, toDedaloError } from '../../../src/core/errors/index.ts';
 import {
 	installedTesseractModels,
 	requireTesseractModel,
@@ -209,20 +209,34 @@ function readOcrLang(raw: unknown): string {
  * Start the OCR job the ingest handed back. Past the move a refusal (no PDF
  * master, a model removed since the validation) must not turn a landed upload
  * into an error response: it becomes a derivative error, the upload stands.
+ * The raw failure text goes to the LOG (with its cause); the wire carries only
+ * the failure's error CODE, which the caller wraps in a deliberate sentence
+ * (SEC-17/18: exception text may embed absolute paths).
  */
 export function startOcrReporting(startOcr: (() => string) | null): {
 	jobId: string | null;
-	errors: string[];
+	failureCode: string | null;
 } {
-	if (startOcr === null) return { jobId: null, errors: [] };
+	if (startOcr === null) return { jobId: null, failureCode: null };
 	try {
-		return { jobId: startOcr(), errors: [] };
+		return { jobId: startOcr(), failureCode: null };
 	} catch (error) {
-		return {
-			jobId: null,
-			errors: [`the OCR job could not be started — ${(error as Error).message}`],
-		};
+		const typed = toDedaloError(error);
+		logError(
+			new DedaloError(typed.code, {
+				message: `tool_upload: the OCR job could not be started: ${typed.message}`,
+				coordinates: typed.coordinates,
+				cause: error,
+			}),
+			{ subsystem: 'tool_upload' },
+		);
+		return { jobId: null, failureCode: typed.code };
 	}
+}
+
+/** The derivative-error sentence for an OCR start that failed (code only, never raw text). */
+export function ocrStartFailureMessage(failureCode: string): string {
+	return `the OCR job could not be started (${failureCode})`;
 }
 
 async function processUploaded(ctx: ToolActionContext): Promise<ToolResponse> {
@@ -300,7 +314,9 @@ async function processUploaded(ctx: ToolActionContext): Promise<ToolResponse> {
 	// the payload as `derivative_errors` — the client half of this contract
 	// (render_tool_upload.js, which used to read response.msg) is the client
 	// sweeper's.
-	const derivativeErrors = [...result.derivativeErrors, ...ocrStart.errors].map(
+	const ocrErrors =
+		ocrStart.failureCode === null ? [] : [ocrStartFailureMessage(ocrStart.failureCode)];
+	const derivativeErrors = [...result.derivativeErrors, ...ocrErrors].map(
 		(message) =>
 			`${result.originalFileName}: imported, but a derivative could not be built — ${message}`,
 	);
