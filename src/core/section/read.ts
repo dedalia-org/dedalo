@@ -1248,7 +1248,13 @@ function sectionDerivedOptions(
 	const parentEntryOf = (parentTipo: string) =>
 		entries.find((existing) => existing.tipo === parentTipo);
 	return {
-		isOwnItem: (item) => String(item.from_component_tipo ?? item.tipo) === String(item.tipo),
+		// A column's own item: not created by another component. A cell an emitter
+		// bound to ANOTHER element's column (a relation_index related_list cell —
+		// its from_component_tipo echoes its own tipo, PHP wire) is not one: it
+		// gets its derived entry, parented to that element (bindContextParent).
+		isOwnItem: (item) =>
+			nodes.contextParentOf(item) === undefined &&
+			String(item.from_component_tipo ?? item.tipo) === String(item.tipo),
 		fallbackParent: (item) => String(item.tipo),
 		permissionsOf: async (item, parentTipo) => {
 			if (principal === undefined) return permissionsOf.capForReadTarget(3);

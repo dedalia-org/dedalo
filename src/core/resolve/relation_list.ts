@@ -51,8 +51,8 @@ import {
 import { getSectionMap } from '../ontology/section_map.ts';
 import { resolveLocatorLabels } from '../relations/datalist.ts';
 import { findInverseReferences } from '../search/search_related.ts';
-import { findSectionChildByModel } from '../section/list_definitions/node_find.ts';
 import { resolveOwnConfigMap } from '../section/list_definitions/section_list.ts';
+import { sectionRelationListTipos } from '../section/related_list.ts';
 import type { Principal } from '../security/permissions.ts';
 import { type EmissionContext, resolveComponentValue } from './component_data.ts';
 import { currentDataLang } from './request_lang.ts';
@@ -83,12 +83,11 @@ export async function getRelationListColumns(sectionTipo: string): Promise<strin
 	// Legacy: the section's relation_list ontology node — its `relations`
 	// links name the column tipos. Virtual-aware (a virtual without its own node
 	// inherits the real section's — PHP get_relation_list_obj's resolve_virtual
-	// retry, class.relation_list.php:305-321) and first by order_number: the ONE
-	// lookup, findSectionChildByModel (T0-7).
-	const node = await findSectionChildByModel(sectionTipo, 'relation_list');
-	return (node?.relations ?? [])
-		.map((link) => link.tipo)
-		.filter((tipo): tipo is string => typeof tipo === 'string');
+	// retry, class.relation_list.php:305-321) and first by order_number: THE
+	// section fact, section/related_list.ts sectionRelationListTipos (T0-7, T0-8 —
+	// the relation_index columns read the same lookup). Verbatim here: the
+	// grid resolves cell values through its own access checks (no ddo map).
+	return [...(await sectionRelationListTipos(sectionTipo))];
 }
 
 /**

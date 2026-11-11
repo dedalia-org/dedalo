@@ -1,0 +1,74 @@
+# WC-2026-11-11-relation-index-related-list-context — a config-less component_relation_index carries its pointing sections' related_list columns
+
+- **Date:** 2026-11-11 (RC-closure item T0-8, audit O12).
+- **Decision:** owner decisions T0-8 D1–D4 (2026-11-10, all option a); DEC-12 (gates in the same change).
+
+## What was wrong
+
+A `component_relation_index` with no `request_config` of its own (`hierarchy40` on every
+thesaurus term, `rsc1051`, `tch475`, `tch5`, `tchi41`; suite twins `test25`, `test149`)
+shipped `request_config: []`. The client builds the field's columns from
+`request_config[*].show.ddo_map` items whose `parent` is the field's tipo
+(`common.js get_columns_map`), so the field rendered rows with no columns. Its related_list
+cell contexts were self-parented (`get_data`) or absent (section read), and its data items
+carried no `parent`.
+
+## Shape before (PHP)
+
+`component_relation_index_json` + `get_section_datum_from_locator`: for each pointing
+section, the section is built in mode `related_list` and its config (the section's
+`relation_list` child — direct, then the real section's for a virtual one — authorized-filtered)
+is APPENDED to the field's own dedalo config; every returned context gets
+`parent = <index tipo>`. Frozen store, `get_data hierarchy40 @ cult1/1`, list:
+
+```json
+{"tipo":"hierarchy40","request_config":[{"api_engine":"dedalo","type":"main",
+  "sqo":{"section_tipo":[{"typo":"ddo","tipo":"cult1",…},{"typo":"ddo","tipo":"rsc205","model":"section",…}]},
+  "show":{"ddo_map":[
+    {"typo":"ddo","tipo":"rsc349","section_tipo":"rsc205","parent":"hierarchy40","mode":"related_list",…},
+    {"typo":"ddo","tipo":"rsc140","section_tipo":"rsc205","parent":"hierarchy40","mode":"related_list",…}],
+   "sqo_config":{"limit":2,"offset":0,…}}}]}
+```
+
+plus the pointing section's own context (`model: section`, `mode: related_list`,
+`parent: hierarchy40`) and its components' contexts, all parented to the index.
+
+## Shape after (TS)
+
+The PHP merge, built from ONE section-mode source (`sectionRelatedListConfig`) that also
+feeds the field's data, so a column and its cells cannot disagree, with four deliberate
+divergences from the frozen store:
+
+- **D1 — every mode.** The merge applies in `edit` too. Frozen PHP v7 shipped
+  `request_config: []` in edit (`relation_inverse_differential.json`, `hierarchy40 @ dz1/1024`),
+  so the term edit form had no columns; v6's controller is mode-agnostic.
+- **D2 — pointing sections only in `sqo.section_tipo`.** PHP prepended the field's own
+  section (a v5 fallback artefact, e.g. `cult1` above); TS lists only the sections that point
+  at the record AND that the viewer can read (level ≥ 1) AND that keep at least one authorized
+  related_list column. A section failing either adds no sqo entry (no label/color/matrix_table
+  leak), no ddo and no cell — and the client's next page, built from this sqo, passes the read
+  gate as an ordinary read. With no surviving section, `sqo.section_tipo` is `[]`.
+- **D3 — no pointing-section contexts.** The `model: section` / `mode: related_list` contexts
+  are not emitted; no portal-path client file reads them. The components' cell contexts are
+  emitted, parented to the index tipo, deduplicated by context key (PHP repeated them once
+  per locator pass).
+- **D4 — the full pointing set on every page.** PHP merged only the current page's sections
+  when `offset > 0`; TS carries every pointing section's columns on every page, so columns stay
+  stable while paging.
+
+Data items gain `parent = <index tipo>` (PHP `sub_value->parent`); `from_component_tipo`
+stays the item's own tipo.
+
+A config-less index with NO pointer still ships one base item instead of `[]`:
+`{api_engine:'dedalo', type:'main', sqo:{section_tipo:[]}, show:{ddo_map:[], sqo_config:{…}}}`
+(the TS-measured pin in `test/parity/relation_corpus_config.test.ts`, `testcult1020`, moves
+from `[]` to that item — PHP's frozen body there is an error, so no fixture changes).
+`context.target_sections` follows the merged sqo (the pointing sections). In list `get_data`,
+`sqo.limit` carries the page; `show.sqo_config.limit` keeps the base list value.
+
+## Gates
+
+`test/unit/relation_index_context_native.test.ts` (builds its own dd96 pointers on the suite
+DB); context comparable in `test/parity/relation_index_get_data_differential.test.ts`
+(projection applies D2/D3); client: `component_relation_index` columns test on a pre-run
+pointer fixture (`client_situations_native.test.ts`).

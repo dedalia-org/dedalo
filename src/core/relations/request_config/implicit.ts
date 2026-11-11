@@ -96,7 +96,7 @@ const DEAD_LEGACY_MODELS: ReadonlySet<string> = new Set([
  * name, dd153.dd156 (WC-2026-11-09-implicit-children-frontier-predicate). Before, this asked bare
  * `ddoIsAuthorized` and the export asked nothing at all.
  */
-async function filterAuthorizedRelated(
+export async function filterAuthorizedRelated(
 	componentTipos: string[],
 	targetSectionTipo: string,
 ): Promise<Set<string>> {
@@ -296,11 +296,18 @@ export async function buildImplicitComponentListConfig(
 			ddo.section_tipo = targetSectionTipo;
 		}
 	}
-	// A node with NO relation graph at all yields NO config (PHP omits the
-	// request_config — hierarchy40's source {mode:'external'} case: its data
-	// resolves at runtime through the inverse engine, not a config).
+	// A node with NO relation graph at all yields NO config — EXCEPT a
+	// config-less component_relation_index (hierarchy40's source
+	// {mode:'external'} case, suite twins test25 / test149): its data resolves at
+	// runtime through the inverse engine, and the pointing sections' related_list
+	// columns are merged into its OWN dedalo item at emission
+	// (relations/models/relation_index.ts mergeRelatedListIntoNode). PHP's merge
+	// needs that base item to exist (component_relation_index_json "update
+	// parents" + get_section_datum_from_locator append to the final dedalo
+	// request_config); without it the client's get_columns_map finds no
+	// show.ddo_map and renders no column (T0-8).
 	if (targetSectionTipo === null && ddoMap.length === 0) {
-		return [];
+		return configlessFallback(ownerModel, context.mode);
 	}
 	// PHP STEP 5 (filter_authorized_related :123-27): per-user drop against the
 	// resolved target section.
@@ -325,6 +332,48 @@ export async function buildImplicitComponentListConfig(
 		},
 	];
 }
+
+/**
+ * The BASE dedalo item of a config-less component_relation_index (see the
+ * caller): empty targets and columns — the pointing sections and their
+ * related_list ddos are appended per read, on the element node, never here
+ * (this config is cached and principal-independent) — plus the show.sqo_config
+ * the client paginator reads, sized as the data pages: one locator in a list
+ * cell (relation_core PORTAL_LIST_LIMIT), the component edit default 10
+ * otherwise (relation_index.ts resolveIndexConfig editLimit).
+ *
+ *   {api_engine:'dedalo', type:'main', sqo:{section_tipo:[]},
+ *    show:{ddo_map:[], sqo_config:{full_count:false, limit:1, offset:0, mode:'list', operator:'$or'}}, …}
+ */
+async function relationIndexBaseConfig(mode: string): Promise<ParsedRequestConfigItem> {
+	const { PORTAL_LIST_LIMIT } = await import('../relation_core.ts');
+	const limit = mode === 'list' ? PORTAL_LIST_LIMIT : RELATION_INDEX_EDIT_LIMIT;
+	return {
+		api_engine: 'dedalo',
+		type: 'main',
+		sqo: { section_tipo: [] },
+		show: {
+			ddo_map: [],
+			sqo_config: { full_count: false, limit, offset: 0, mode, operator: '$or' },
+		},
+		search: null,
+		choose: null,
+		hide: null,
+		api_config: null, // dedalo engine (PHP emits the key on every item)
+	} as unknown as ParsedRequestConfigItem;
+}
+
+/** A relation-graph-less node's config: none, except a relation_index's base item (see the caller). */
+async function configlessFallback(
+	ownerModel: string | null,
+	mode: string,
+): Promise<ParsedRequestConfigItem[]> {
+	if (ownerModel !== 'component_relation_index') return [];
+	return [await relationIndexBaseConfig(mode)];
+}
+
+/** relation_index's edit page size when its node declares none (models/relation_index.ts resolveIndexConfig). */
+const RELATION_INDEX_EDIT_LIMIT = 10;
 
 /** Model-name PREFIXES an edit-form child may have (PHP resolve_ar_related_edit). */
 const EDIT_CHILD_MODEL_PREFIXES = [

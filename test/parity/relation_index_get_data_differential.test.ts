@@ -74,10 +74,86 @@ function comparable(item: Record<string, unknown>): Record<string, unknown> {
 	};
 }
 
+/**
+ * The CONTEXT comparable (T0-8): what the client reads to build the index's
+ * columns (common.js get_columns_map — own dedalo `show.ddo_map` items whose
+ * parent is the index) and to bind each cell (the related_list cell contexts'
+ * tipo / section_tipo / parent). Deliberate divergences applied to the PHP
+ * side, ledgered in WC-2026-11-11-relation-index-related-list-context:
+ *  - D2: the index's OWN section is dropped from `sqo.section_tipo` (PHP
+ *    prepended it — a v5 fallback artefact; TS lists the pointing sections);
+ *  - D3: pointing-section contexts (model section) are not compared — TS emits
+ *    none;
+ *  - PHP repeated each cell context once per locator pass; TS dedupes by
+ *    context key — compared as a deduplicated set in first-seen order.
+ */
+interface ContextComparable {
+	sqoSections: string[];
+	ddoMap: { tipo: unknown; section_tipo: unknown; parent: unknown; mode: unknown }[];
+	cells: { tipo: unknown; section_tipo: unknown; parent: unknown }[];
+}
+
+type ContextEntry = Record<string, unknown> & {
+	request_config?: {
+		api_engine?: string;
+		sqo?: { section_tipo?: unknown[] };
+		show?: { ddo_map?: Record<string, unknown>[] };
+	}[];
+};
+
+/** The PHP index's install-term tipo: its own context entry's, before the clone map. */
+function installIndexTipoOf(body: unknown): string | null {
+	const context = ((body as { result?: { context?: ContextEntry[] } }).result?.context ??
+		[]) as ContextEntry[];
+	const own = context.find((entry) => entry.model === 'component_relation_index');
+	return typeof own?.tipo === 'string' ? own.tipo : null;
+}
+
+/** A `parent` naming the index (by its test-TLD tipo or its install-term one) → the test tipo. */
+function indexParentOf(parent: unknown, indexAliases: ReadonlySet<string>): unknown {
+	return typeof parent === 'string' && indexAliases.has(parent) ? INDEX_COMPONENT : parent;
+}
+
+function contextComparable(
+	context: ContextEntry[],
+	indexAliases: ReadonlySet<string> = new Set([INDEX_COMPONENT]),
+): ContextComparable {
+	const own = context.find(
+		(entry) => entry.tipo === INDEX_COMPONENT && entry.section_tipo === SECTION,
+	);
+	const dedalo = (own?.request_config ?? []).find(
+		(item) => (item.api_engine ?? 'dedalo') === 'dedalo',
+	);
+	const sqoSections = (dedalo?.sqo?.section_tipo ?? [])
+		.map((entry) => (typeof entry === 'string' ? entry : (entry as { tipo?: string })?.tipo))
+		.filter((tipo): tipo is string => typeof tipo === 'string' && tipo !== SECTION); // D2
+	const ddoMap = (dedalo?.show?.ddo_map ?? []).map((ddo) => ({
+		tipo: ddo.tipo,
+		section_tipo: ddo.section_tipo,
+		parent: indexParentOf(ddo.parent, indexAliases),
+		mode: ddo.mode,
+	}));
+	const seen = new Set<string>();
+	const cells: ContextComparable['cells'] = [];
+	for (const entry of context) {
+		if (entry.mode !== 'related_list' || entry.model === 'section') continue; // D3
+		const key = `${String(entry.tipo)}_${String(entry.section_tipo)}`;
+		if (seen.has(key)) continue; // PHP per-locator-pass repeats
+		seen.add(key);
+		cells.push({
+			tipo: entry.tipo,
+			section_tipo: entry.section_tipo,
+			parent: indexParentOf(entry.parent, indexAliases),
+		});
+	}
+	return { sqoSections, ddoMap, cells };
+}
+
 const results = new Map<
 	string,
 	{ php: Record<string, unknown>[]; ts: Record<string, unknown>[] }
 >();
+const contexts = new Map<string, { php: ContextComparable; ts: ContextComparable }>();
 
 beforeAll(async () => {
 	await ensureTestCorpus(CORPUS_SCOPE);
@@ -94,10 +170,13 @@ beforeAll(async () => {
 		// WC-2026-08-10-section-id-int-canonical: address keys compared by VALUE on BOTH sides (fixtures keep the PHP-era numeric strings).
 		// WC-2026-08-19-test-tld-replay: the frozen install-term body, read in
 		// test-TLD terms (the section-scoped component clone is the point).
-		const adopted = adoptTipoIdMap(
-			(await php.call(structuredClone(rqo))).body,
-			'relation_index_get_data_differential',
-		);
+		const rawPhpBody = (await php.call(structuredClone(rqo))).body;
+		// The install-term tipo of the index (read before the map is adopted):
+		// the section-scoped clone map rewrites the index's own entry but not the
+		// `parent` of ddos whose section is the POINTING one (rsc205), so the
+		// context projection names the index by role (indexAliasesOf).
+		const phpIndexTipo = installIndexTipoOf(structuredClone(rawPhpBody));
+		const adopted = adoptTipoIdMap(rawPhpBody, 'relation_index_get_data_differential');
 		expect(adopted.matched).toBe(true);
 		expect(adopted.rewrites.tipos).toBeGreaterThan(0);
 		expect(adopted.rewrites.ids).toBeGreaterThan(0);
@@ -124,6 +203,17 @@ beforeAll(async () => {
 			>[],
 		);
 		results.set(testCase.name, { php: phpData, ts: tsData });
+		contexts.set(testCase.name, {
+			php: contextComparable(
+				((adopted.body as { result?: { context?: unknown[] } }).result?.context ??
+					[]) as ContextEntry[],
+				new Set([INDEX_COMPONENT, ...(phpIndexTipo === null ? [] : [phpIndexTipo])]),
+			),
+			ts: contextComparable(
+				((tsResult.body as { data?: { context?: unknown[] } }).data?.context ??
+					[]) as ContextEntry[],
+			),
+		});
 	}
 }, 120000);
 
@@ -159,6 +249,16 @@ describe.if(hasPhpCredentials())(
 				expect(phpItems.length).toBeGreaterThan(1);
 				// ORDER matters here: the pool-accumulation duplicates are positional.
 				expect(tsItems).toEqual(phpItems);
+			});
+			test(`${testCase.name}: related_list column context matches PHP`, () => {
+				const pair = contexts.get(testCase.name);
+				expect(pair).toBeDefined();
+				// Non-vacuity on BOTH sides: the PHP store carries the merged map,
+				// and an empty TS map is the T0-8 bug itself.
+				expect(pair?.php.ddoMap.length ?? 0).toBeGreaterThan(0);
+				expect(pair?.php.cells.length ?? 0).toBeGreaterThan(0);
+				expect(pair?.ts.ddoMap.length ?? 0).toBeGreaterThan(0);
+				expect(pair?.ts).toEqual(pair?.php as ContextComparable);
 			});
 		}
 	},

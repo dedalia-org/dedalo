@@ -156,6 +156,16 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The Indexations field of a thesaurus term shows the columns of the records that point at it.**
+
+    The field that lists the records pointing at a term (Indexations on every thesaurus term, and
+    the similar "who points at me" fields of other sections) showed one row per record but no
+    columns, in the term's edit form and as a list column. Each pointing record now shows the
+    columns its section defines for this purpose (its related list), in both edit and list, on every
+    page. A column the user may not read is not shown, and neither is its value.
+
+    Wire contract: `WC-2026-11-11-relation-index-related-list-context`.
+
 - **Emptying a record's data no longer moves it out of your project.**
 
     Deleting a record's **data** (keeping the record) empties every field except its
@@ -377,7 +387,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 16 entries"
+??? note "Wire contract — 17 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -395,6 +405,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-10-tags-info-read-door`
     - `WC-2026-11-10-widget-data-read-door`
     - `WC-2026-11-10-wipe-filter-user-default`
+    - `WC-2026-11-11-relation-index-related-list-context`
 
 ## 7.0.0-beta.8 — 2026-11-08
 
