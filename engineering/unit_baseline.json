@@ -2964,6 +2964,11 @@
 			"skipped": 0,
 			"assertions": 44
 		},
+		"test/unit/lang_session_default_native.test.ts": {
+			"tests": 2,
+			"skipped": 0,
+			"assertions": 6
+		},
 		"test/unit/lang_versions_emit_native.test.ts": {
 			"tests": 11,
 			"skipped": 0,
