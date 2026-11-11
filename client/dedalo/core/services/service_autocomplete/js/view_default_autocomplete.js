@@ -1621,19 +1621,23 @@ export const render_search_syntax_help = function() {
 		e.stopPropagation()
 	})
 
+	// [typed, meaning, what it finds among: Vic, VIC, Vicenne, Saint-Victor].
+	// Lowercase samples show the case policy: every form ignores letter case
+	// except the quoted literal (and '==', left out: it is for import lookups).
 	const samples = [
-		['Vic',		get_label.contains || 'Contains'],
-		['Vic*',	get_label.begins_with || 'Begins with'],
-		['*Vic',	get_label.end_with || 'Ends with'],
-		['=Vic',	get_label.exactly || 'Exactly'],
-		["'Vic'",	get_label.literal || 'Literal'],
-		['-Vic',	get_label.does_not_contain || 'Does not contain']
+		['vic',		get_label.contains || 'Contains',				'Vic, VIC, Vicenne, Saint-Victor'],
+		['vic*',	get_label.begins_with || 'Begins with',			'Vic, VIC, Vicenne'],
+		['*vic',	get_label.end_with || 'Ends with',				'Vic, VIC'],
+		['=vic',	get_label.exactly || 'Exactly',					'Vic, VIC'],
+		['!=vic',	get_label.different_from || 'Different from',	'Vicenne, Saint-Victor'],
+		["'Vic'",	get_label.literal || 'Literal',					'Vic'],
+		['-cenne',	get_label.does_not_contain || 'Does not contain', 'Vic, VIC, Saint-Victor']
 	]
 	const list = ui.create_dom_element({
 		element_type	: 'dl',
 		parent			: details
 	})
-	for (const [sample, meaning] of samples) {
+	for (const [sample, meaning, finds] of samples) {
 		ui.create_dom_element({
 			element_type	: 'dt',
 			text_content	: sample,
@@ -1642,6 +1646,12 @@ export const render_search_syntax_help = function() {
 		ui.create_dom_element({
 			element_type	: 'dd',
 			text_content	: meaning,
+			parent			: list
+		})
+		ui.create_dom_element({
+			element_type	: 'dd',
+			class_name		: 'finds',
+			text_content	: '→ ' + finds,
 			parent			: list
 		})
 	}

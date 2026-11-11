@@ -50,12 +50,16 @@ async function runCount(q: string): Promise<number> {
 	return rows.reduce((sum, row) => sum + Number(row.full_count), 0);
 }
 
-async function groundTruthExact(term: string): Promise<number> {
+/** caseInsensitive: '=' (lower both sides); otherwise '==' (case-sensitive). */
+async function groundTruthExact(term: string, caseInsensitive = true): Promise<number> {
+	const cmp = caseInsensitive
+		? `lower(f_unaccent(e->>'value')) = lower(f_unaccent($3))`
+		: `f_unaccent(e->>'value') = f_unaccent($3)`;
 	const rows = (await sql.unsafe(
 		`SELECT count(*)::int AS c FROM matrix_hierarchy
 		 WHERE section_tipo = $1 AND EXISTS (
 			SELECT 1 FROM jsonb_array_elements(COALESCE(string->$2, data->$2)) e
-			WHERE f_unaccent(e->>'value') = f_unaccent($3))`,
+			WHERE ${cmp})`,
 		[SECTION, TERM, term],
 	)) as { c: number }[];
 	return rows[0]?.c as number;
@@ -107,11 +111,39 @@ describe("string '=' exact operator (WC-014)", () => {
 		expect(typeof builtSql).toBe('string'); // dropped leaf, valid SQL
 	});
 
-	test("'==' and quoted-literal exact shapes are unchanged (same result as '=')", async () => {
+	test("'=' ignores letter case: '=ea' finds 'Ea' (WC-014)", async () => {
+		if (!dbReady) return;
+		for (const name of SYNTHETIC_PROBE_TERMS) {
+			const truth = await groundTruthExact(name);
+			expect(truth).toBeGreaterThan(0);
+			expect(await runCount(`=${name.toLowerCase()}`)).toBe(truth);
+			expect(await runCount(`=${name.toUpperCase()}`)).toBe(truth);
+		}
+	}, 30000);
+
+	test("'==' and quoted literal stay CASE-SENSITIVE (import lookups rely on it)", async () => {
 		if (!dbReady) return;
 		const probe = SYNTHETIC_PROBE_TERMS[0] as string;
-		const viaEq = await runCount(`=${probe}`);
-		expect(await runCount(`==${probe}`)).toBe(viaEq);
-		expect(await runCount(`'${probe}'`)).toBe(viaEq);
+		const sensitive = await groundTruthExact(probe, false);
+		expect(sensitive).toBeGreaterThan(0);
+		expect(await runCount(`==${probe}`)).toBe(sensitive);
+		expect(await runCount(`'${probe}'`)).toBe(sensitive);
+		// a case-only variant: '==' finds only what equals it byte-for-case
+		const lower = probe.toLowerCase();
+		expect(await runCount(`==${lower}`)).toBe(await groundTruthExact(lower, false));
+		expect(await runCount(`'${lower}'`)).toBe(await groundTruthExact(lower, false));
+		expect(await runCount(`=${lower}`)).toBe(await groundTruthExact(lower));
 	});
+
+	test("'!=' is the complement of '=' whatever the letter case", async () => {
+		if (!dbReady) return;
+		const all = await runCount('*'); // records holding a value
+		for (const name of SYNTHETIC_PROBE_TERMS) {
+			const lower = name.toLowerCase();
+			const equal = await runCount(`=${lower}`);
+			expect(equal).toBeGreaterThan(0);
+			// every probe record holds ONE term value, so the two sets partition `all`
+			expect(await runCount(`!=${lower}`)).toBe(all - equal);
+		}
+	}, 30000);
 });

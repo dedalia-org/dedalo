@@ -11562,7 +11562,7 @@ dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_
 }
 .wrapper_service_autocomplete > .options_hidden > .search_operators_div > .search_syntax_help > dl {
   display: grid;
-  grid-template-columns: max-content 1fr;
+  grid-template-columns: max-content max-content 1fr;
   gap: 0.15rem 1rem;
   margin: 0.35rem 0 0 1rem;
 }
@@ -11571,6 +11571,9 @@ dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_
 }
 .wrapper_service_autocomplete > .options_hidden > .search_operators_div > .search_syntax_help > dl > dd {
   margin: 0;
+}
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div > .search_syntax_help > dl > dd.finds {
+  opacity: 0.65;
 }
 .wrapper_service_autocomplete > .autocomplete_input {
   background: var(--color_white) var(--search_icon_url);

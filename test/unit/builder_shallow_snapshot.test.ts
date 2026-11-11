@@ -7,7 +7,10 @@
  *    (test/fixtures/builder_shallow_snapshot.json, captured from the
  *    unmodified builders 2026-09-24) — sentence bytes, token values, compound
  *    structure, and thrown errors alike. The ONE exemption is number '!='
- *    (WC-2026-09-29-number-not-equal), asserted by its own leg below.
+ *    (WC-2026-09-29-number-not-equal), asserted by its own leg below. The
+ *    string '=' / '!=' plain comparison became case-insensitive (WC-014
+ *    amendment 2026-11-11): those cases must equal the snapshot with exactly
+ *    that one expression rewritten — nothing else may drift.
  * 2. Every classifier's twin/has is POSITIVE (classifies 'pos'), renders a
  *    real clause, and every internal mode is reachable only through the
  *    structured opts argument — no q string classifies into one.
@@ -47,6 +50,22 @@ import {
 
 const SNAPSHOT_PATH = new URL('../fixtures/builder_shallow_snapshot.json', import.meta.url);
 
+// WC-014 amendment 2026-11-11: '=' and '!=' compare lower(f_unaccent(..)) on both sides.
+const CASE_SENSITIVE_EQ = "f_unaccent(elem->>'value') = f_unaccent(_Q1_)";
+const CASE_FOLDED_EQ = "lower(f_unaccent(elem->>'value')) = lower(f_unaccent(_Q1_))";
+
+/** A string case whose effective q is the single '=' or '!=' (key: string|lang|op|q|flag). */
+function isStringCaseFoldCase(key: string): boolean {
+	if (!key.startsWith('string|')) return false;
+	const [, , op, q] = key.split('|');
+	try {
+		const kind = classifyString(q ?? '', op === 'null' ? null : (op ?? null)).op;
+		return kind === 'equal' || kind === 'different';
+	} catch {
+		return false;
+	}
+}
+
 describe('shallow builder SQL is byte-identical across the classifier refactor', () => {
 	test('every case except number != matches the pre-change snapshot', async () => {
 		const before = (await Bun.file(SNAPSHOT_PATH).json()) as Record<string, unknown>;
@@ -54,14 +73,23 @@ describe('shallow builder SQL is byte-identical across the classifier refactor',
 		expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
 		const drift: string[] = [];
 		let exempt = 0;
+		let caseFolded = 0;
 		for (const [key, value] of Object.entries(after)) {
 			if (isNumberNotEqualCase(key)) {
 				exempt++;
 				continue;
 			}
-			if (JSON.stringify(value) !== JSON.stringify(before[key])) drift.push(key);
+			let expected = JSON.stringify(before[key]);
+			if (isStringCaseFoldCase(key)) {
+				const rewritten = expected.replaceAll(CASE_SENSITIVE_EQ, CASE_FOLDED_EQ);
+				if (rewritten !== expected) caseFolded++;
+				expected = rewritten;
+			}
+			if (JSON.stringify(value) !== expected) drift.push(key);
 		}
 		expect(drift).toEqual([]);
+		// the case-fold rewrite really happened (not a vacuous pass)
+		expect(caseFolded).toBeGreaterThan(0);
 		// The exemption is a named, bounded set — not a hole.
 		expect(exempt).toBeGreaterThan(0);
 		expect(exempt).toBeLessThan(20);

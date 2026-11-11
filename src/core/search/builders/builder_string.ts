@@ -246,7 +246,8 @@ function differentMatchLogic(rest: string): string {
 			? `f_unaccent(elem->>'value') ~* ${anchoredRegexOperand('_Q1_', 'ends')}`
 			: hasTrail
 				? `f_unaccent(elem->>'value') ~* ${anchoredRegexOperand('_Q1_', 'begins')}`
-				: `f_unaccent(elem->>'value') = f_unaccent(_Q1_)`;
+				: // case-insensitive like the wildcard arms: '!=' is the complement of '=' (WC-014)
+					`lower(f_unaccent(elem->>'value')) = lower(f_unaccent(_Q1_))`;
 }
 
 /** The '-' match body (raw term, lang as bound _Q2_, no lang in the path). */
@@ -372,7 +373,8 @@ export function buildStringFragment(
 			);
 		}
 		case 'exact': {
-			// '==' — exactly equal (accent/case-insensitive)
+			// '==' — exactly equal: accent-insensitive, CASE-SENSITIVE (the import
+			// tools' find-or-create lookups rely on it: codes, URLs)
 			const qClean = effective.slice(2);
 			return withStorePrefilter(
 				context,
@@ -391,9 +393,14 @@ export function buildStringFragment(
 			// literals ('Ea') keep working as before on both engines.
 			const qClean = effective.slice(1).replaceAll("'", '');
 			if (qClean === '') return false;
+			// accent- AND case-insensitive (WC-014): '=vic' finds 'Vic'. Unlike '==',
+			// which stays case-sensitive for programmatic exact lookups.
 			return withStorePrefilter(
 				context,
-				existsEnvelope(context, `f_unaccent(elem->>'value') = f_unaccent(_Q1_)`),
+				existsEnvelope(
+					context,
+					`lower(f_unaccent(elem->>'value')) = lower(f_unaccent(_Q1_))`,
+				),
 				{ _Q1_: qClean },
 				qClean,
 			);

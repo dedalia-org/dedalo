@@ -184,12 +184,13 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
-- **A field's search options now explain the search operators, with a sample for each.**
+- **A field's search options now explain the search operators, with a sample for each and what it finds.**
 
     Open a field's search options (the gear next to the search box) and, below Max, a folded
-    "Search syntax" line lists what you can type: `Vic` contains, `Vic*` begins with, `*Vic`
-    ends with, `=Vic` exactly, `'Vic'` literal and `-Vic` does not contain. It stays closed until
-    you click it.
+    "Search syntax" line lists what you can type and what each form finds among Vic, VIC,
+    Vicenne and Saint-Victor: `vic` contains, `vic*` begins with, `*vic` ends with, `=vic`
+    exactly in any letter case, `!=vic` the opposite, `'Vic'` exactly as typed (letter case
+    included) and `-cenne` does not contain. It stays closed until you click it.
 
 - **Users see their own activity statistics in their profile.**
 
@@ -208,6 +209,15 @@ Merged since the last release; these ship with the next one.
     from leaving the record. The reload and add-point icons now explain themselves on hover.
 
 #### Fixed
+
+- **The `=` exact-match search now ignores letter case, so `=vic` finds "Vic".**
+
+    Typing `=` before a word searches for values that are exactly that word. It already ignored
+    accents but, by mistake, not capital letters: `=vic` did not find "Vic" — only `=Vic` did.
+    Now both work, and `!=vic` ("not exactly vic") excludes "Vic" too. The double `==` and the
+    quoted `'Vic'` forms still match capital letters exactly, because the import tools use them to
+    find a precise existing record. On a database created with the plain `C` locale, only Latin
+    letters are matched regardless of case; Cyrillic or Greek capitals still have to be typed.
 
 - **Date fields inside portal rows no longer stack their buttons**
 

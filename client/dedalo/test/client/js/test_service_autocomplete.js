@@ -1103,12 +1103,24 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 
 describe("search syntax help", function() {
 
-	it("is folded and lists one sample per operator", function() {
+	it("is folded and lists one sample per operator, with what it finds", function() {
 		const details = render_search_syntax_help()
 		assert.equal(details.tagName, 'DETAILS')
 		assert.equal(details.open, false, 'folded by default')
 		const samples = [...details.querySelectorAll('dt')].map(el => el.textContent)
-		assert.deepEqual(samples, ['Vic', 'Vic*', '*Vic', '=Vic', "'Vic'", '-Vic'])
-		assert.equal(details.querySelectorAll('dd').length, samples.length)
+		assert.deepEqual(samples, ['vic', 'vic*', '*vic', '=vic', '!=vic', "'Vic'", '-cenne'])
+		assert.equal(details.querySelectorAll('dd.finds').length, samples.length)
+		assert.equal(details.querySelectorAll('dd:not(.finds)').length, samples.length)
+	})
+
+	it("shows the case policy: '=vic' finds every case, only the quoted literal keeps it", function() {
+		const details = render_search_syntax_help()
+		const finds = (sample) => {
+			const dt = [...details.querySelectorAll('dt')].find(el => el.textContent === sample)
+			return dt.nextElementSibling.nextElementSibling.textContent
+		}
+		assert.equal(finds('=vic'), '→ Vic, VIC')
+		assert.equal(finds("'Vic'"), '→ Vic')
+		assert.equal(finds('!=vic').includes('Vic,'), false, "'!=' is the opposite of '='")
 	})
 })
