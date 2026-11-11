@@ -294,10 +294,28 @@
 				white-space: nowrap;
 			}
 			.tld_default,
-			.tld_clear {
+			.tld_clear,
+			.tld_fullscreen {
 				flex: 0 0 auto;
 				font-size: 0.74rem;
 				padding: 0.15rem 0.5rem;
+			}
+		}
+
+		// fullscreen (ui.enter_fullscreen): the list takes the whole viewport height
+		&.fullscreen {
+			margin: 0;
+			padding: 1rem 2.5rem 1rem 1rem;
+			box-sizing: border-box;
+			overflow: hidden;
+
+			.tld_fullscreen {
+				display: none;
+			}
+			.tld_list {
+				flex: 1 1 auto;
+				min-height: 0;
+				max-height: none;
 			}
 		}
 

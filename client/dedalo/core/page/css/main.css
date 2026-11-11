@@ -11568,6 +11568,28 @@ dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_
 .wrapper_service_autocomplete > .options_hidden > .search_operators_div > .max_container > .input_max {
   width: 3.8rem;
 }
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div > .search_syntax_help {
+  flex: 1 1 100%;
+}
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div > .search_syntax_help > summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div > .search_syntax_help > dl {
+  display: grid;
+  grid-template-columns: max-content max-content 1fr;
+  gap: 0.15rem 1rem;
+  margin: 0.35rem 0 0 1rem;
+}
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div > .search_syntax_help > dl > dt {
+  font-family: monospace;
+}
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div > .search_syntax_help > dl > dd {
+  margin: 0;
+}
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div > .search_syntax_help > dl > dd.finds {
+  opacity: 0.65;
+}
 .wrapper_service_autocomplete > .autocomplete_input {
   background: var(--color_white) var(--search_icon_url);
   background-position: bottom 6px right 8px;
@@ -11604,6 +11626,10 @@ dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_
   border-left: 1px solid var(--color_orange_dedalo);
   border-right: 1px solid var(--color_orange_dedalo);
   max-width: 100%;
+}
+.wrapper_service_autocomplete > .autocomplete_data.loading {
+  opacity: 1;
+  animation: autocomplete_loading_dim 0.2s ease-out 0.35s forwards;
 }
 .wrapper_service_autocomplete > .autocomplete_data .loading_label {
   padding: 0.5rem;
@@ -11665,6 +11691,11 @@ dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_
 dd-modal .wrapper_component.edit.active:not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)) {
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
+}
+@keyframes autocomplete_loading_dim {
+  to {
+    opacity: 0.4;
+  }
 }
 /**
 * service_upload
@@ -18908,10 +18939,25 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   white-space: nowrap;
 }
 .wrapper_widget.update_ontology .tld_catalog .tld_toolbar .tld_default,
-.wrapper_widget.update_ontology .tld_catalog .tld_toolbar .tld_clear {
+.wrapper_widget.update_ontology .tld_catalog .tld_toolbar .tld_clear,
+.wrapper_widget.update_ontology .tld_catalog .tld_toolbar .tld_fullscreen {
   flex: 0 0 auto;
   font-size: 0.74rem;
   padding: 0.15rem 0.5rem;
+}
+.wrapper_widget.update_ontology .tld_catalog.fullscreen {
+  margin: 0;
+  padding: 1rem 2.5rem 1rem 1rem;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.wrapper_widget.update_ontology .tld_catalog.fullscreen .tld_fullscreen {
+  display: none;
+}
+.wrapper_widget.update_ontology .tld_catalog.fullscreen .tld_list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
 }
 .wrapper_widget.update_ontology .tld_catalog .tld_list_head {
   font-size: 0.72rem;
@@ -28461,6 +28507,8 @@ body.inspector_resizing {
   flex-direction: column;
   max-height: 95vh;
   padding-right: 0.66rem;
+  padding-left: 3px;
+  margin-left: -3px;
   flex-basis: 25rem;
   transition: opacity 1s linear;
   padding-bottom: 1.5rem;

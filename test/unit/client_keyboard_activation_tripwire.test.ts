@@ -46,7 +46,7 @@ const MIN_POINTER_SITES = 400;
 const VENDOR_SEGMENTS = ['/lib/', '/vendor/'];
 
 /** Elements the browser already makes keyboard-activable. */
-const NATIVE_ACTIVABLE = new Set(['button', 'input', 'select', 'textarea', 'a']);
+const NATIVE_ACTIVABLE = new Set(['button', 'input', 'select', 'textarea', 'a', 'summary']);
 
 interface PointerSite {
 	file: string;

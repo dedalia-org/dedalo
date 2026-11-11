@@ -222,6 +222,39 @@ it the other relational components — `component_relation_parent`,
 `component_relation_children`, `component_relation_related`); the consumer
 passes `caller: self` so the service can call `caller.build_rqo_search()`.
 
+The search options panel (the gear next to the search box) holds the source and
+section selectors, the per-field inputs, the `or` / `and` **Search operators**
+select and **Max** (results per search, kept in `localStorage`). Under them, a
+folded **Search syntax** block (`render_search_syntax_help`, a native
+`<details>`, closed by default) lists what the box accepts, one sample each,
+with what it finds among four values — Vic, VIC, Vicenne, Saint-Victor. The
+samples are lowercase on purpose: every form ignores letter case except the
+quoted literal.
+
+| Type | Means | Finds |
+| --- | --- | --- |
+| `vic` | contains (default) | Vic, VIC, Vicenne, Saint-Victor |
+| `vic*` | begins with | Vic, VIC, Vicenne |
+| `*vic` | ends with | Vic, VIC |
+| `=vic` | exactly, any case | Vic, VIC |
+| `!=vic` | different from (opposite of `=`) | Vicenne, Saint-Victor |
+| `'Vic'` | literal: exactly as typed, case included | Vic |
+| `-cenne` | does not contain | Vic, VIC, Saint-Victor |
+
+`==vic` (exactly, case kept) also exists but is not listed: it is meant for
+the import tools' exact lookups.
+
+Letter case is folded by the database's `lower()`. On a database created with
+the plain `C` locale (check `datctype` / `datlocprovider` in `pg_database`) that
+folds only Latin letters, so `=москва` does not find "Москва" there; the default
+contains search has the same limit. `!=Vic` is the exact opposite of `=Vic`.
+`==Vic` and `'Vic'` match letter case exactly.
+
+The operators are parsed by the server's string search builder
+(`src/core/search/builders/builder_string.ts`), not by the client. Use an exact
+match to pick a short name drowned by contains-matches: results come in record
+order, limited to Max, not ranked by closeness.
+
 ### service_ckeditor
 
 Wraps a custom-built CKEditor (`lib/ckeditor`). It builds either a `ddEditor`

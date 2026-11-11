@@ -602,6 +602,16 @@ const build_tld_catalog = function (options) {
 		inner_html		: (get_label.update_ontology_clear || 'Clear'),
 		parent			: toolbar
 	})
+	// 200+ ontologies: the shared CSS fullscreen (Esc / exit button leaves it)
+	const fullscreen_button = ui.create_dom_element({
+		element_type	: 'button',
+		type			: 'button',
+		class_name		: 'light full_screen tld_fullscreen',
+		title			: (get_label.full_screen || 'Full screen'),
+		parent			: toolbar
+	})
+	fullscreen_button.setAttribute('aria-label', fullscreen_button.title)
+	fullscreen_button.addEventListener('click', () => ui.enter_fullscreen(node))
 	// where the default comes from — an administrator must know which it is
 	ui.create_dom_element({
 		element_type	: 'p',

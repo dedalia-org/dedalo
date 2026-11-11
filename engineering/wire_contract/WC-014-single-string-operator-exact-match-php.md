@@ -21,3 +21,16 @@
   in `test/unit/search_string_equal_operator.test.ts` (exact vs contains
   cardinality on es1 `Ea`/`Ye`/`Ibi`, bare-`=` no-crash, `==`/literal
   equivalence).
+- **Amended 2026-11-11 (owner-directed):** the case-insensitivity above was
+  never implemented — `=` compared `f_unaccent(a) = f_unaccent(b)`, so `=vic`
+  missed "Vic". `=` now compares `lower(f_unaccent(…))` on both sides. `==` and
+  `'quoted'` stay accent-insensitive but CASE-SENSITIVE on purpose: the
+  acquisition tools' find-or-create lookups (codes, lot URLs, identifiers) send
+  `==` and must not merge case variants. The plain `!=` arm folds case too, so
+  `!=x` stays the exact complement of `=x` (its wildcard arms already used
+  `~*`). Folding is Postgres `lower()`: on a libc `C`-ctype database only Latin
+  letters fold (Cyrillic/Greek do not) — the same limit as contains (`~*`).
+  Gates: `test/unit/search_string_equal_operator.test.ts` (`'=' ignores letter
+  case`, `'==' … stay CASE-SENSITIVE`, `'!=' is the complement of '='`) and
+  `builder_shallow_snapshot.test.ts` (string `=`/`!=` must equal the snapshot
+  with only that comparison rewritten).

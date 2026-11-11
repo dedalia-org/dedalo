@@ -122,7 +122,7 @@ Registered actions: `get_node_data`, `get_children_data`, `add_child`, `update_p
 
 ### dd_area_maintenance_api (maintenance and admin)
 
-Registered actions: `widget_request`, `get_widget_value`, `lock_components_actions`. The maintenance dashboard is a widget framework: each panel is one widget, executed through `widget_request` and loaded through `get_widget_value`. The widget registry and its per-widget action allowlists live in `src/core/area_maintenance/widgets/registry.ts`; the widget modules sit alongside it in `src/core/area_maintenance/widgets/`.
+Registered actions: `widget_request`, `get_widget_value`, `lock_components_actions`, `parse_simple_schema_changes_files`. The maintenance dashboard is a widget framework: each panel is one widget, executed through `widget_request` and loaded through `get_widget_value`. The widget registry and its per-widget action allowlists live in `src/core/area_maintenance/widgets/registry.ts`; the widget modules sit alongside it in `src/core/area_maintenance/widgets/`.
 
 Counter administration is a method of the `counters_status` widget, reached through `widget_request` — not a top-level action.
 

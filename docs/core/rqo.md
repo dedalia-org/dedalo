@@ -139,7 +139,7 @@ The API class that will handle the call. Only classes that are top-level KEYS of
 | `dd_ts_api` | Thesaurus tree operations (expand, move, indexation...) | `get_node_data`, `get_children_data`, `add_child`, `update_parent_data`, `save_order` |
 | `dd_utils_api` | Utilities: login/logout, uploads, locks, environment, system info | see `src/core/api/handlers/dd_utils_api.ts` for the exact action set |
 | `dd_diffusion_api` | Publishing and diffusion-process control | `diffuse`, `get_process_status`, `list_processes`, `cancel_process`, `get_diffusion_info`, `get_engine_advisory`, `retry_pending_deletions`, `validate`, `rebuild_media_index` |
-| `dd_area_maintenance_api` | Admin maintenance widgets | `widget_request`, `get_widget_value`, `lock_components_actions` |
+| `dd_area_maintenance_api` | Admin maintenance widgets | `widget_request`, `get_widget_value`, `lock_components_actions`, `parse_simple_schema_changes_files` |
 | `dd_component_portal_api` | Portal-specific endpoints | `delete_locator` |
 | `dd_component_text_area_api` | Transcription tag resolution/deletion (WC-077) | `get_tags_info`, `delete_tag` |
 | `dd_component_av_api`, `dd_component_3d_api` | Media posterframe / stream endpoints | posterframe generation (+ media streams for AV) |
@@ -626,7 +626,7 @@ The reverse path also exists: when a client sends `rqo->show` (e.g. time machine
 | 4 | Error-report intake window | gate 1c: an error-report action requires the receiver enabled + an allowed caller IP | The pre-auth intake stays closed outside its intended window |
 | 5 | Login + no-login allowlist | `dispatchRqo()` gate 2: `NO_LOGIN_ACTIONS` (`src/core/api/dispatch.ts`), keyed on the `dd_api:action` pair | Session required except the no-login actions |
 | 6 | CSRF token | `dispatchRqo()` gate 3: `CSRF_EXEMPT_ACTIONS` (`src/core/api/dispatch.ts`) — `verifyCsrf()` constant-time compare; on failure the response carries `errors:['csrf_failed']` plus the session's current token so the client's one-shot retry can succeed | Cross-site request forgery |
-| 7 | Maintenance permission | not a separate dispatch-level gate — each `dd_area_maintenance_api` handler (`widget_request`, `get_widget_value`, `lock_components_actions`) resolves the principal and checks permission itself, inside the handler | `dd_area_maintenance_api` requires maintenance-area perm ≥ 2 |
+| 7 | Maintenance permission | not a separate dispatch-level gate — each `dd_area_maintenance_api` handler (`widget_request`, `get_widget_value`, `lock_components_actions`, `parse_simple_schema_changes_files`) resolves the principal and checks permission itself, inside the handler | `dd_area_maintenance_api` requires maintenance-area perm ≥ 2 |
 | 8 | Permission checks | per handler in `ACTION_REGISTRY` (`getPermissions()`, `src/core/security/permissions.ts`); handlers return a `denied()` `ApiResult` directly | Section/element access levels |
 
 `NO_LOGIN_ACTIONS` and `CSRF_EXEMPT_ACTIONS` are keyed on the exact `${dd_api}:${action}` pair (so a same-named action on a different class does not inherit an exemption) and are **not identical**: every no-login action is also CSRF-exempt (the first call has no token yet), but `dd_utils_api:get_dedalo_files` is CSRF-exempt while still requiring a session — a service-worker call that is read-only but authenticated. Check the two `Set`s in `src/core/api/dispatch.ts` directly before relying on either.

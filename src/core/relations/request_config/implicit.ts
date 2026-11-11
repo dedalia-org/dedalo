@@ -38,6 +38,7 @@ import { sql } from '../../db/postgres.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
 import { LABEL_NODE_MODEL } from '../../ontology/label_node_guard.ts';
 import {
+	getChildTipoModels,
 	getModelByTipo,
 	getNode,
 	getSectionRealTipo,
@@ -496,12 +497,7 @@ export async function buildImplicitSectionEditConfig(
 	// An excluded tipo is skipped AND not recursed into — so excluding a grouper
 	// drops its whole subtree (matches PHP's flat exclude of the recursive children).
 	const collectChildren = async (parentTipo: string, collected: string[]): Promise<void> => {
-		const rows = (await sql`
-			SELECT tipo, model FROM dd_ontology
-			WHERE parent = ${parentTipo}
-			ORDER BY order_number, id
-		`) as { tipo: string; model: string | null }[];
-		for (const row of rows) {
+		for (const row of await getChildTipoModels(parentTipo)) {
 			if (excludeSet.has(row.tipo)) continue;
 			const model = (await getModelByTipo(row.tipo)) ?? row.model ?? '';
 			const matches = EDIT_CHILD_MODEL_PREFIXES.some((prefix) => model.startsWith(prefix));

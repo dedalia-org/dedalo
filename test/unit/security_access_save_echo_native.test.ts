@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { dispatchRqo, IDEMPOTENCY_MAX_BODY_BYTES } from '../../src/core/api/dispatch.ts';
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { listSchemaChangesFiles } from '../../src/core/ontology/schema_changes.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 import {
@@ -96,7 +97,7 @@ describe('dd774 save echo', () => {
 		const item = echoItem(response.body);
 		expect(Array.isArray(item.datalist)).toBe(true);
 		expect((item.datalist as unknown[]).length).toBeGreaterThan(0);
-		expect(item.changes_files).toEqual([]);
+		expect(item.changes_files).toEqual(listSchemaChangesFiles());
 	}, 60_000);
 
 	test('the save echo has value + parent locator, no datalist / changes_files, fits the replay cap', async () => {

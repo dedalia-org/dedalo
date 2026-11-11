@@ -126,6 +126,25 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Search-as-you-type keeps the previous results on screen while it looks for the new ones, and answers sooner.**
+
+    Before, every key you pressed in a field's search emptied the list of results and showed
+    "Searching.." until the new answer came, and the search waited about a third of a second
+    after your last key before asking. Now the previous results stay where they are while the
+    new search runs — they fade only if the answer is slow, and cannot be clicked until it
+    arrives — and the search starts after a shorter pause. A search you have already typed past
+    is cancelled instead of being downloaded for nothing.
+
+- **Search-as-you-type in a field that links to many sections answers several times faster.**
+
+    When you type into the search of a field that links to many sections — the ontology's
+    **Connected to**, which searches every ontology section — the server used to redo the same
+    column and permission work once for every section it searched, so each keystroke took about
+    a quarter of a second of server time before any result could appear, and slowed the server
+    for everyone else meanwhile. That work is now done once per search: on an installation with
+    226 ontology sections a search answers in about a fifth of the time. The results, and who may
+    see which columns, are exactly as before.
+
 - **A record that points at a term from a section you cannot read shows its section name and id, in the edit form, in panels and in exports.**
 
     Indexation fields (the fields that list the records pointing at a record) always list every
@@ -187,6 +206,14 @@ Merged since the last release; these ship with the next one.
     Before, on a phone the row of action buttons took most of the width, so a nested term was squeezed and its badges and expand arrow each wrapped onto a line of their own; deep branches could widen the page past the screen. Now each node is a compact block: the expand arrow leads the term, the model text sits on its own smaller line, the actions follow underneath, and a hairline separates nodes. On tablets and other touch screens the buttons are finger-sized and no longer wait for a hover to show, and the long model text moves under the term instead of crowding it.
 
 #### Added
+
+- **A field's search options now explain the search operators, with a sample for each and what it finds.**
+
+    Open a field's search options (the gear next to the search box) and, below Max, a folded
+    "Search syntax" line lists what you can type and what each form finds among Vic, VIC,
+    Vicenne and Saint-Victor: `vic` contains, `vic*` begins with, `*vic` ends with, `=vic`
+    exactly in any letter case, `!=vic` the opposite, `'Vic'` exactly as typed (letter case
+    included) and `-cenne` does not contain. It stays closed until you click it.
 
 - **Exports can include the calculated relations of a related-terms column, in a column of their own.**
 
@@ -355,6 +382,15 @@ Merged since the last release; these ship with the next one.
     they now show their value in the language you are working in.
 
     Wire contract: `WC-2026-11-11-relation-index-related-list-context`.
+
+- **The `=` exact-match search now ignores letter case, so `=vic` finds "Vic".**
+
+    Typing `=` before a word searches for values that are exactly that word. It already ignored
+    accents but, by mistake, not capital letters: `=vic` did not find "Vic" — only `=Vic` did.
+    Now both work, and `!=vic` ("not exactly vic") excludes "Vic" too. The double `==` and the
+    quoted `'Vic'` forms still match capital letters exactly, because the import tools use them to
+    find a precise existing record. On a database created with the plain `C` locale, only Latin
+    letters are matched regardless of case; Cyrillic or Greek capitals still have to be typed.
 
 - **SVG glyphs in text tags now resolve in lists and publications for vector components stored in sub-folders.** *(action needed)*
 
@@ -607,6 +643,12 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-11-ontology-model-rules`.
 
+- **Ontology update list can open full screen.**
+
+    The list of ontologies offered by a master server in Maintenance → Update ontology has a full
+    screen button, so the 200+ entries can be filtered and ticked using the whole screen height.
+    Press Esc or the exit button to return.
+
 - **The publication host draft form can set a custom site home.**
 
     The **New publication host** form in the Publication hosts panel has a new optional field, **Site home**. Leave it empty for the default `/home/<domain>`; fill it when the site lives elsewhere, for example `/home/www/vhosts/museum.org`. It applies to the `home` layout only, and the form hides it for `system`. See [the site's home, or the system directories](./install/publication_host.md#the-sites-home-or-the-system-directories).
@@ -618,6 +660,10 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-09-instance-identity`.
 
 #### Fixed
+
+- **The **Latest changes** list in a profile's permissions shows the ontology updates again.**
+
+    Every ontology update records which sections gained new children, so an administrator can review the new permissions those sections need. In a profile's **Access and permissions** panel, the **Latest changes** selector was always empty, and choosing an entry had nothing on the server to answer it. The selector now lists every recorded update, newest first. Choosing one shows each changed section with its path and its new children, and clicking a section opens it in the permissions tree. Only global administrators can open an entry, as before.
 
 - **Profile tool permissions list is readable on a phone.**
 

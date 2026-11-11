@@ -60,7 +60,10 @@ import {
 	type EmitScope,
 } from '../relations/element_registry.ts';
 import { emitDataframeItem, expandPortal } from '../relations/relation_core.ts';
-import type { RqoRequestConfigItem } from '../relations/request_config/from_rqo.ts';
+import type {
+	RqoRequestConfigItem,
+	StageOneTargetsScope,
+} from '../relations/request_config/from_rqo.ts';
 import {
 	buildDataItem,
 	type DataItem,
@@ -3179,8 +3182,12 @@ async function stageOneTargetSectionsMap(
 ): Promise<Ddo[]> {
 	const merged = new Map<string, Record<string, unknown>>();
 	let built = false;
+	const { newStageOneTargetsScope } = await import('../relations/request_config/from_rqo.ts');
+	// ONE scope for every target: the same client ddos, judged on the same
+	// sections, n² without it (from_rqo.ts StageOneTargetsScope).
+	const scope = newStageOneTargetsScope();
 	for (const target of stringSqoSections(rqo)) {
-		const map = await stageOneTargetMap(rqo, target, mode, principal);
+		const map = await stageOneTargetMap(rqo, target, mode, principal, scope);
 		if (map === null) continue;
 		built = true;
 		for (const consolidated of map) {
@@ -3210,16 +3217,18 @@ async function stageOneTargetMap(
 	target: string,
 	mode: string,
 	principal: Principal | undefined,
+	scope: StageOneTargetsScope,
 ): Promise<readonly unknown[] | null> {
 	if ((await getModelByTipo(target)) !== 'section') return null;
-	const { buildRequestConfigFromRqo } = await import('../relations/request_config/from_rqo.ts');
-	const items = await buildRequestConfigFromRqo(
+	const { buildTargetSectionShowMapFromRqo } = await import(
+		'../relations/request_config/from_rqo.ts'
+	);
+	return buildTargetSectionShowMapFromRqo(
 		rqo,
 		{ kind: 'section', tipo: target, mode },
 		principal,
+		scope,
 	);
-	if (items === null) return null;
-	return items[0]?.show.ddo_map ?? [];
 }
 
 /** One target build's ddo into the merge: first-wins per (tipo, parent), sections unioned. */

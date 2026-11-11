@@ -54,7 +54,6 @@ import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { z } from 'zod';
 import { config } from '../../config/config.ts';
-import { privateDir } from '../../config/env.ts';
 import {
 	readDdOntologyRow,
 	searchDdOntology,
@@ -107,6 +106,7 @@ import {
 } from './ontology_write.ts';
 import { getTermIdFromLocator } from './parser.ts';
 import { getOrderedSubtree } from './resolver.ts';
+import { SCHEMA_CHANGES_DIR } from './schema_changes.ts';
 import { LOCAL_ONTOLOGY_SECTION } from './tld.ts';
 import { reportOntologyProgress } from './update_progress.ts';
 
@@ -449,7 +449,7 @@ export function releaseOntologyImportLatch(): void {
 export function saveSimpleSchemaFile(
 	oldSchema: Record<string, string[]>,
 	newSchema: Record<string, string[]>,
-	dirPath: string = join(privateDir, 'backups', 'ontology', 'changes'),
+	dirPath: string = SCHEMA_CHANGES_DIR,
 ): { ok: boolean; msg: string; errors: string[]; filepath?: string } {
 	const changes: { tipo: string; children_added: string[] }[] = [];
 	for (const [tipo, children] of Object.entries(newSchema)) {

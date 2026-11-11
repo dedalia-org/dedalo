@@ -26,9 +26,10 @@ export const securityAccessEmitHook: ComponentEmitHook = {
 				'../../resolve/security_access_datalist.ts'
 			);
 			item.datalist = await getSecurityAccessDatalist();
-			// changes_files: ontology schema-change filenames (hierarchy::
-			// get_simple_schema_changes_files) — empty on this install; ledgered.
-			item.changes_files = [];
+			// changes_files: the "Latest changes" selector — ontology schema-change
+			// filenames, newest first (PHP hierarchy::get_simple_schema_changes_files).
+			const { listSchemaChangesFiles } = await import('../../ontology/schema_changes.ts');
+			item.changes_files = listSchemaChangesFiles();
 		}
 	},
 };

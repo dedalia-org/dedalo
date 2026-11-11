@@ -344,7 +344,8 @@ service_autocomplete.prototype.destroy = async function(delete_self=true, delete
 * for broad browser compatibility.
 *
 * ArrowDown/ArrowUp move the '.selected' CSS class between sibling list items.
-* Enter clicks the currently selected item, triggering its selection handler.
+* Enter clicks the currently selected item, triggering its selection handler —
+* except while the list is `.loading` (stale rows of the previous query).
 * All three keys call e.preventDefault() to prevent default browser behaviour
 * (e.g. scrolling the page, submitting a form).
 *
@@ -398,6 +399,12 @@ service_autocomplete.prototype.service_autocomplete_keys = function(e) {
 		const selected_node = self.datalist.querySelector('.selected')
 		if (selected_node) {
 			e.preventDefault()
+			// a `.loading` list holds the PREVIOUS query's rows while the new
+			// search runs; the mouse is locked out by pointer-events, and a
+			// programmatic click is not — so Enter must not pick a stale row
+			if (self.datalist.classList.contains('loading')) {
+				return true
+			}
 			selected_node.click()
 		}
 	}
@@ -451,10 +458,12 @@ service_autocomplete.prototype.render = async function(options={}) {
 * (!) The alert() call here is intentional UX for misconfigured deployments where
 *     the operator has not yet selected a search section from the UI.
 *
+* @param {Object} [options] - `{signal}`: an AbortSignal handed to the engine's
+*   request; aborting it answers `client.aborted` (silent by policy).
 * @returns {Promise<Object>} A promise resolving to the API response object:
 *   { result: { data: Array } } on success, { result: false } on configuration error
 */
-service_autocomplete.prototype.autocomplete_search = async function() {
+service_autocomplete.prototype.autocomplete_search = async function(options={}) {
 
 	const self = this
 
@@ -493,7 +502,8 @@ service_autocomplete.prototype.autocomplete_search = async function() {
 		}
 
 	// exec search self.search_engine = dedalo_engine || external_engine, the method that will called
-		const js_promise = self[engine]()
+	// options: {signal} — the caller's AbortSignal (a newer search aborts this one)
+		const js_promise = self[engine](options)
 
 
 	return js_promise
@@ -668,11 +678,12 @@ service_autocomplete.prototype.rebuild_search_query_object = async function(opti
 * An experimental filter_by_list_inverse block (commented out) explored inverting
 * the list filter to exclude already-linked records. Left in place for future reference.
 *
+* @param {Object} [options] - `{signal}`: the caller's AbortSignal for the read.
 * @returns {Promise<Object>} A promise resolving to the API response from data_manager.request:
 *   { result: { context: Array, data: Array }, msg: string }
 *   or { result: { data: [] }, msg: 'Empty result' } when filter_free is empty
 */
-service_autocomplete.prototype.dedalo_engine = async function() {
+service_autocomplete.prototype.dedalo_engine = async function(options={}) {
 
 	const self = this
 
@@ -765,7 +776,9 @@ service_autocomplete.prototype.dedalo_engine = async function() {
 	// API read request
 		const load_section_data_promise	= data_manager.request({
 			body		: rqo,
-			use_worker	: true
+			use_worker	: true,
+			// a newer keystroke aborts this read (client.aborted, silent by policy)
+			signal		: options.signal
 		})
 
 	// render section on load data
@@ -919,8 +932,8 @@ const get_filter_free_q = function(self) {
 * caller logged and swallowed: the curator saw an empty list and could not tell
 * "the catalogue is down" from "this install has not allowlisted the host".
 *
-* @param {Object|null} options - Unused; kept so the engine signature is uniform
-*   across dedalo_engine / external_engine.
+* @param {Object|null} options - `{signal}`: the caller's AbortSignal (a newer
+*   search aborts this one); the same signature as dedalo_engine.
 * @returns {Promise<Object>} the API response:
 *   { ok:true, data: { context: Array, data: Array } } on success,
 *   { ok:false, error: ApiError, source_status?: Object } on failure,
@@ -971,6 +984,7 @@ service_autocomplete.prototype.external_engine = async function(options) {
 			// the chip inside the datalist where the empty result is — the generic
 			// page toast would say the same thing a second time, out of context.
 			notices	: 'caller',
+			signal	: options?.signal,
 			body : {
 				dd_api	: 'dd_external_api',
 				action	: 'search',

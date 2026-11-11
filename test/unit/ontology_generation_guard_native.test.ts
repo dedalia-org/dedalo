@@ -13,7 +13,7 @@ import {
 	clearOntologyDerivedCaches,
 	currentOntologyGeneration,
 } from '../../src/core/ontology/cache_invalidation.ts';
-import { getNode } from '../../src/core/ontology/resolver.ts';
+import { getChildTipoModels, getNode } from '../../src/core/ontology/resolver.ts';
 import { buildStructureContextCore } from '../../src/core/resolve/structure_context.ts';
 
 const TIPO = 'dd1';
@@ -36,6 +36,21 @@ describe('ontology generation guard', () => {
 		expect(fresh).not.toBe(raced); // re-read, the raced row was not cached
 
 		const cached = await getNode(TIPO);
+		expect(cached).toBe(fresh); // control: no clear in between -> memoized
+	});
+
+	test('getChildTipoModels across a clear serves the list but does NOT memoize it', async () => {
+		await clearOntologyDerivedCaches();
+		const inflight = getChildTipoModels(TIPO); // SELECT in flight…
+		await clearOntologyDerivedCaches(); // …an ontology write clears the caches
+		const raced = await inflight;
+		expect(raced.length).toBeGreaterThan(0); // dd1 has children (anti-vacuity)
+
+		const fresh = await getChildTipoModels(TIPO);
+		expect(fresh).not.toBe(raced); // re-read, the raced list was not cached
+		expect(fresh).toEqual(raced);
+
+		const cached = await getChildTipoModels(TIPO);
 		expect(cached).toBe(fresh); // control: no clear in between -> memoized
 	});
 
