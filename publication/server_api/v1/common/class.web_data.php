@@ -30,6 +30,25 @@ class web_data {
 
 
 
+	/**
+	* SQL expression allow-lists (used by sanitize_sql_expression)
+	* Only these function names may be followed by '(' in client supplied
+	* ar_fields / group expressions. Never add functions able to delay or
+	* read data by themselves (SLEEP, BENCHMARK, IF, LOAD_FILE, REPEAT...).
+	*/
+	const SQL_EXPRESSION_FUNCTIONS = [
+		'CONCAT','CONCAT_WS','GROUP_CONCAT','MATCH','AGAINST','DISTINCT',
+		'IFNULL','COALESCE','LOWER','UPPER','TRIM','LENGTH','CHAR_LENGTH',
+		'YEAR','FLOOR','COUNT','MIN','MAX'
+	];
+	// bare words emitted as keywords (anything else becomes a backticked identifier)
+	const SQL_EXPRESSION_KEYWORDS = [
+		'AS','DISTINCT','IN','BOOLEAN','NATURAL','LANGUAGE','MODE','WITH',
+		'QUERY','EXPANSION','SEPARATOR','NULL'
+	];
+
+
+
 	// Version. Important!
 		// static $version = "1.0.33";	// 27-04-2021 last v5 version
 		static $version = "1.0.34";		// 25-03-2023 First v6 implementation
@@ -184,10 +203,9 @@ class web_data {
 		switch ($name) {
 
 			case 'table':
-				$value = is_array($value) ? implode(',', $value) : $value;
-				preg_match('/^[a-zA-Z|_|,]{2,}.*$/i', $value, $output_array);
-				if (empty($output_array[0])) {
-					debug_log(__METHOD__." test $name not passed! ".to_string($output_array), logger::ERROR);
+				// allow-list: one or more [A-Za-z0-9_]+ names (comma separated string or array)
+				if (web_data::sanitize_sql_table($value)===null) {
+					debug_log(__METHOD__." test $name not passed! ".json_encode($value), logger::ERROR);
 					return false;
 				}
 				break;
@@ -201,47 +219,36 @@ class web_data {
 				break;
 
 			case 'ar_fields':
-				$plain_fields = is_array($value)
-					? implode(',', $value)
-					: $value;
+				// Note: $is_literal no longer widens anything. Every field is parsed by
+				// sanitize_sql_field (allow-list tokenizer) that accepts quoted literals
+				// in any case and rebuilds them canonically.
+				// comma string is split outside parentheses and quotes ('a,CONCAT(b,c) AS d')
+				$ar_value = is_array($value)
+					? $value
+					: (is_string($value) ? web_data::split_sql_list($value) : null);
+				if ($ar_value===null) {
+					debug_log(__METHOD__." test $name not passed! (invalid type)", logger::ERROR);
+					return false;
+				}
+				foreach ($ar_value as $c_value) {
+					if (!is_string($c_value)) {
+						debug_log(__METHOD__." test $name not passed! (invalid field type)", logger::ERROR);
+						return false;
+					}
+				}
 
 				// equality check
-					if (web_data::find_equality($plain_fields)!==false) {
+					if (web_data::find_equality(implode(',', $ar_value))!==false) {
 						return false;
 					}
 
-				// valid chars check
-					$ar_value = !is_array($value) ? explode(',', $value) : $value;
+				// allow-list check
 					foreach ($ar_value as $c_value) {
-
-						if($is_literal===true) {
-							// free search case
-							preg_match('/^[\w|,|\+| |`|\'|\(|\)|\*|\\\|"]+$/iu', $c_value, $output_array);
-
-						}else if (strpos($c_value, 'CONCAT')===0) {
-							// added |\"|\[|\] to allow CONCAT sentences (14-10-2021)
-							# preg_match('/^[a-zA-Z0-9|_|,|\+| |`|\'|\"|\[|\]|\(|\)|\*]+$/i', $c_value, $output_array);
-							// added '/u' to allow all unicode chars (ñ for example)
-							// changed '[a-zA-Z0-9|_' to the equivalent '\w'
-							preg_match('/^[\w|,|\+| |`|\'|\"|\[|\]|\(|\)|\*]+$/iu', $c_value, $output_array);
-
-						}else{
-							# preg_match('/^[a-zA-Z0-9|_|,|\+| |`|\'|\(|\)|\*]+$/i', $c_value, $output_array);
-							// added '/u' to allow all unicode chars (ñ for example)
-							// changed '[a-zA-Z0-9|_' to the equivalent '\w'
-							preg_match('/^[\w|,|\+| |`|\'|\(|\)|\*]+$/iu', $c_value, $output_array);
-						}
-
-						if (empty($output_array[0])) {
-							debug_log(__METHOD__." test $name not passed! ".to_string($output_array), logger::ERROR);
+						if (web_data::sanitize_sql_field($c_value)===null) {
+							debug_log(__METHOD__." test $name not passed! ".json_encode($c_value), logger::ERROR);
 							return false;
 						}
 					}
-					// old
-						// preg_match('/^[a-zA-Z0-9|_|,|\+| |`|\'|\(|\)|\*]+$/i', $plain_fields, $output_array);
-						// if (empty($output_array[0])) {
-						// 	return false;
-						// }
 				break;
 
 			case 'sql_fullselect':
@@ -289,27 +296,18 @@ class web_data {
 				break;
 
 			case 'order':
-				preg_match('/^[a-z0-9|,| |`|_|\(|\)]+$/i', $value, $output_array);
-				if (empty($output_array[0])) {
-					debug_log(__METHOD__." test $name not passed! ".to_string($output_array), logger::ERROR);
+				// allow-list grammar (see sanitize_sql_order)
+				if (web_data::sanitize_sql_order($value)===null) {
+					debug_log(__METHOD__." test $name not passed! ".json_encode($value), logger::ERROR);
 					return false;
 				}
 				break;
 
 			case 'group':
-				if (strpos($value, 'CONCAT')===0) {
-					// added |\"|\[|\] to allow CONCAT sentences (28-03-2022)
-					preg_match('/^[\w|,|\+| |`|\'|\"|\[|\]|\(|\)|\*]+$/iu', $value, $output_array);
-					if (empty($output_array[0])) {
-						return false;
-					}
-				}else{
-
-					preg_match('/^[a-z| |`|,|_]+$/i', $value, $output_array);
-					if (empty($output_array[0])) {
-						debug_log(__METHOD__." test $name not passed! ".to_string($output_array), logger::ERROR);
-						return false;
-					}
+				// allow-list tokenizer (see sanitize_sql_group)
+				if (web_data::sanitize_sql_group($value)===null) {
+					debug_log(__METHOD__." test $name not passed! ".json_encode($value), logger::ERROR);
+					return false;
 				}
 				break;
 
@@ -339,6 +337,517 @@ class web_data {
 
 		return true;
 	}//end check_safe_value
+
+
+
+	/**
+	* SANITIZE_SQL_ORDER
+	* Allow-list parser for the ORDER BY clause body. Raw input is never passed
+	* through: the clause is rebuilt from the validated parts.
+	* Accepted: a leading 'ORDER BY' (stripped) and one or more comma separated items
+	* (column = name | `name` | name.name, ASCII [A-Za-z0-9_]+; dir = ASC | DESC):
+	* 	column [dir]
+	* 	LENGTH(column) [dir]					used by global_search_json ('LENGTH(sort_id), sort_id ASC')
+	* 	RAND()								used by get_thesaurus_random_term
+	* 	NULL [dir]							no sort (documented 'order=null')
+	* 	integer [dir]						column position ('1 DESC')
+	* 	FIELD(column, int[, int...]) [dir]	custom id order
+	* 	CAST(column AS SIGNED|UNSIGNED) [dir]
+	* 	column COLLATE name [dir]
+	* 	column IS [NOT] NULL [dir]
+	* @param mixed $order
+	* @return string|null $safe_order
+	* 	Canonical body like '`number` ASC' or null when invalid
+	*/
+	public static function sanitize_sql_order(mixed $order) : ?string {
+
+		if (!is_string($order)) {
+			return null;
+		}
+
+		// strip optional leading 'ORDER BY'
+			$order = trim( preg_replace('/^\s*ORDER\s+BY\s+/i', '', $order) );
+			if ($order==='') {
+				return null;
+			}
+
+		$ident	= '(?:`[A-Za-z0-9_]+`|[A-Za-z0-9_]+)';
+		$column	= '('.$ident.')(?:\s*\.\s*('.$ident.'))?';
+		$dir	= '(?:\s+(ASC|DESC))?';
+
+		$ar_safe = [];
+		foreach (web_data::split_sql_list($order) as $item) {
+
+			// RAND()
+			if (preg_match('/^RAND\s*\(\s*\)$/iD', $item)===1) {
+				$ar_safe[] = 'RAND()';
+				continue;
+			}
+
+			// NULL [ASC|DESC] (no sort) and integer [ASC|DESC] (column position). Never quoted
+			if (preg_match('/^(NULL|[0-9]+)'.$dir.'$/iD', $item, $m)===1) {
+				$ar_safe[] = strtoupper($m[1])
+					. (!empty($m[2]) ? ' '.strtoupper($m[2]) : '');
+				continue;
+			}
+
+			// LENGTH(column) [ASC|DESC]
+			if (preg_match('/^LENGTH\s*\(\s*'.$column.'\s*\)'.$dir.'$/iD', $item, $m)===1) {
+				$ar_safe[] = 'LENGTH('.web_data::quote_sql_column($m[1], $m[2] ?? '').')'
+					. (!empty($m[3]) ? ' '.strtoupper($m[3]) : '');
+				continue;
+			}
+
+			// FIELD(column, int[, int...]) [ASC|DESC]
+			if (preg_match('/^FIELD\s*\(\s*'.$column.'((?:\s*,\s*[0-9]+)+)\s*\)'.$dir.'$/iD', $item, $m)===1) {
+				$ar_int = array_map('trim', explode(',', ltrim(trim($m[3]), ',')));
+				$ar_safe[] = 'FIELD('.web_data::quote_sql_column($m[1], $m[2] ?? '').', '.implode(', ', $ar_int).')'
+					. (!empty($m[4]) ? ' '.strtoupper($m[4]) : '');
+				continue;
+			}
+
+			// CAST(column AS SIGNED|UNSIGNED [INTEGER]) [ASC|DESC]
+			if (preg_match('/^CAST\s*\(\s*'.$column.'\s+AS\s+(SIGNED|UNSIGNED)(?:\s+INTEGER)?\s*\)'.$dir.'$/iD', $item, $m)===1) {
+				$ar_safe[] = 'CAST('.web_data::quote_sql_column($m[1], $m[2] ?? '').' AS '.strtoupper($m[3]).')'
+					. (!empty($m[4]) ? ' '.strtoupper($m[4]) : '');
+				continue;
+			}
+
+			// column COLLATE name [ASC|DESC]
+			if (preg_match('/^'.$column.'\s+COLLATE\s+([A-Za-z0-9_]+)'.$dir.'$/iD', $item, $m)===1) {
+				$ar_safe[] = web_data::quote_sql_column($m[1], $m[2] ?? '').' COLLATE '.$m[3]
+					. (!empty($m[4]) ? ' '.strtoupper($m[4]) : '');
+				continue;
+			}
+
+			// column IS [NOT] NULL [ASC|DESC]
+			if (preg_match('/^'.$column.'\s+IS\s+(NOT\s+)?NULL'.$dir.'$/iD', $item, $m)===1) {
+				$ar_safe[] = web_data::quote_sql_column($m[1], $m[2] ?? '').' IS '.(!empty($m[3]) ? 'NOT ' : '').'NULL'
+					. (!empty($m[4]) ? ' '.strtoupper($m[4]) : '');
+				continue;
+			}
+
+			// column [ASC|DESC]
+			if (preg_match('/^'.$column.$dir.'$/iD', $item, $m)===1) {
+				$ar_safe[] = web_data::quote_sql_column($m[1], $m[2] ?? '')
+					. (!empty($m[3]) ? ' '.strtoupper($m[3]) : '');
+				continue;
+			}
+
+			return null;
+		}
+
+		return implode(', ', $ar_safe);
+	}//end sanitize_sql_order
+
+
+
+	/**
+	* SPLIT_SQL_LIST
+	* Splits a client comma list on the commas that are outside parentheses,
+	* quotes and backticks, so that 'a, CONCAT(b,c) AS d' gives two items.
+	* It does not validate anything: every item must still pass its allow-list.
+	* Unbalanced input is returned as one item (that the allow-lists reject).
+	* @param string $value
+	* @return array $ar_items
+	* 	Trimmed items
+	*/
+	public static function split_sql_list(string $value) : array {
+
+		$ar_items	= [];
+		$current	= '';
+		$depth		= 0;
+		$quote		= null;
+		$length		= strlen($value);
+
+		for ($i=0; $i < $length; $i++) {
+			$char = $value[$i];
+
+			if ($quote!==null) {
+				$current .= $char;
+				if ($char==='\\' && $quote!=='`' && $i+1 < $length) {
+					$current .= $value[++$i];
+				}else if ($char===$quote) {
+					$quote = null; // a doubled quote just reopens on the next char
+				}
+				continue;
+			}
+
+			if ($char==='\'' || $char==='"' || $char==='`') {
+				$quote = $char;
+			}else if ($char==='(') {
+				$depth++;
+			}else if ($char===')') {
+				$depth--;
+				if ($depth<0) {
+					return [trim($value)];
+				}
+			}else if ($char===',' && $depth===0) {
+				$ar_items[] = trim($current);
+				$current = '';
+				continue;
+			}
+			$current .= $char;
+		}
+
+		if ($quote!==null || $depth!==0) {
+			return [trim($value)];
+		}
+		$ar_items[] = trim($current);
+
+		return $ar_items;
+	}//end split_sql_list
+
+
+
+	/**
+	* QUOTE_SQL_COLUMN
+	* Backtick quotes an already validated ([A-Za-z0-9_]+, optionally backticked)
+	* column name with optional table qualifier
+	* @param string $first
+	* @param string $second = ''
+	* @return string
+	*/
+	private static function quote_sql_column(string $first, string $second='') : string {
+
+		$first = '`'.trim($first, '`').'`';
+
+		return ($second!=='')
+			? $first.'.`'.trim($second, '`').'`'
+			: $first;
+	}//end quote_sql_column
+
+
+
+	/**
+	* SANITIZE_SQL_TABLE
+	* Allow-list for table names: one or more [A-Za-z0-9_]+ names given
+	* as comma separated string or array
+	* @param mixed $table
+	* @return array|null $ar_tables
+	* 	Clean table names or null when invalid
+	*/
+	public static function sanitize_sql_table(mixed $table) : ?array {
+
+		if (is_string($table)) {
+			$table = explode(',', $table);
+		}
+		if (!is_array($table) || empty($table)) {
+			return null;
+		}
+
+		$ar_tables = [];
+		foreach ($table as $name) {
+			if (!is_string($name)) {
+				return null;
+			}
+			$name = trim($name);
+			if (preg_match('/^[A-Za-z0-9_]+$/D', $name)!==1) {
+				return null;
+			}
+			$ar_tables[] = $name;
+		}
+
+		return $ar_tables;
+	}//end sanitize_sql_table
+
+
+
+	/**
+	* SANITIZE_SQL_FIELD
+	* Validates and rebuilds one SELECT field.
+	* '*' is kept, plain names are backticked and anything else is parsed
+	* as expression by sanitize_sql_expression (CONCAT, DISTINCT x AS y, MATCH ... AGAINST ...)
+	* @param mixed $field
+	* @param bool|null &$needs_alias = null
+	* 	Out: true when the field is a single expression without alias (MySQL would
+	* 	name the result column after the rebuilt text, not the client text)
+	* @return string|null $safe_field
+	*/
+	public static function sanitize_sql_field(mixed $field, ?bool &$needs_alias=null) : ?string {
+
+		$needs_alias = false;
+
+		if (!is_string($field)) {
+			return null;
+		}
+
+		$field = trim($field);
+		if ($field==='*') {
+			return '*';
+		}
+		if (preg_match('/^[\p{L}\p{N}_]+$/uD', $field)===1) {
+			return '`'.$field.'`';
+		}
+
+		return web_data::sanitize_sql_expression($field, false, $needs_alias);
+	}//end sanitize_sql_field
+
+
+
+	/**
+	* SANITIZE_SQL_GROUP
+	* Validates and rebuilds the GROUP BY clause body.
+	* A leading 'GROUP BY' is stripped.
+	* @param mixed $group
+	* @return string|null $safe_group
+	*/
+	public static function sanitize_sql_group(mixed $group) : ?string {
+
+		if (!is_string($group)) {
+			return null;
+		}
+
+		$group = trim( preg_replace('/^\s*GROUP\s+BY\s+/i', '', $group) );
+		if ($group==='') {
+			return null;
+		}
+
+		return web_data::sanitize_sql_expression($group, true);
+	}//end sanitize_sql_group
+
+
+
+	/**
+	* SANITIZE_SQL_EXPRESSION
+	* Allow-list tokenizer for client SQL expressions (ar_fields items and group).
+	* Accepted tokens:
+	* 	names ([\p{L}\p{N}_]+ or backticked), always re-emitted backticked
+	* 	keywords in SQL_EXPRESSION_KEYWORDS (re-emitted upper case)
+	* 	function names in SQL_EXPRESSION_FUNCTIONS, only when followed by '('
+	* 	single or double quoted string literals (MySQL backslash rules), re-emitted
+	* 	canonically single quoted so that they are safe in any sql_mode
+	* 	integers, ',' '(' ')' '*' '+' and white space
+	* Rejected: SELECT, any other function call, comments, ';', '@', '.', '=', '-',
+	* '/', '\' outside literals, control chars and unbalanced parentheses.
+	* @param string $expression
+	* @param bool $is_group = false
+	* 	group mode rejects literals containing ' AS ' (count_records splits GROUP BY lines on it)
+	* @param bool|null &$needs_alias = null
+	* 	Out: true when there is no top level AS or ',' and the expression is not
+	* 	a bare (DISTINCT) column
+	* @return string|null $safe_expression
+	*/
+	public static function sanitize_sql_expression(string $expression, bool $is_group=false, ?bool &$needs_alias=null) : ?string {
+
+		$needs_alias = false;
+
+		$length	= strlen($expression);
+		$offset	= 0;
+		$tokens	= []; // array of [type, sql]
+		$depth	= 0;
+
+		while ($offset < $length) {
+
+			$char = $expression[$offset];
+
+			// white space
+				if (preg_match('/\G[ \t\r\n]+/', $expression, $m, 0, $offset)===1) {
+					$offset += strlen($m[0]);
+					continue;
+				}
+
+			// punctuation
+				if ($char==='(') {
+					$prev = end($tokens);
+					// '(' after a name/literal is a function call: only allowed functions
+					if ($prev!==false && $prev[0]!=='function' && in_array($prev[0], ['identifier','literal','number','keyword'], true)) {
+						return null;
+					}
+					$depth++;
+					$tokens[] = ['open', '('];
+					$offset++;
+					continue;
+				}
+				if ($char===')') {
+					$depth--;
+					if ($depth<0) {
+						return null;
+					}
+					$tokens[] = ['close', ')'];
+					$offset++;
+					continue;
+				}
+				if ($char===',' || $char==='*' || $char==='+') {
+					$tokens[] = ['punct', $char];
+					$offset++;
+					continue;
+				}
+
+			// backticked name (no backtick, space or control chars inside)
+				if ($char==='`') {
+					if (preg_match('/\G`([\p{L}\p{N}_]+)`/u', $expression, $m, 0, $offset)!==1) {
+						return null;
+					}
+					$tokens[] = ['identifier', '`'.$m[1].'`'];
+					$offset += strlen($m[0]);
+					continue;
+				}
+
+			// quoted string literal. Possessive quantifier: no backtracking to a shorter
+			// literal than the one MySQL would read
+				if ($char==='\'' || $char==='"') {
+					$q = $char;
+					$pattern = '/\G'.$q.'((?:[^'.$q.'\\\\\x00-\x1F\x7F]|\\\\[^\x00-\x1F\x7F]|'.$q.$q.')*+)'.$q.'/u';
+					if (preg_match($pattern, $expression, $m, 0, $offset)!==1) {
+						return null;
+					}
+					$literal = web_data::quote_sql_literal(
+						web_data::decode_sql_literal($m[1], $q)
+					);
+					if ($is_group===true && stripos($literal, ' AS ')!==false) {
+						return null;
+					}
+					$tokens[] = ['literal', $literal];
+					$offset += strlen($m[0]);
+					continue;
+				}
+
+			// words: names, keywords, functions, integers
+				if (preg_match('/\G[\p{L}\p{N}_]+/u', $expression, $m, 0, $offset)===1) {
+					$word	= $m[0];
+					$upper	= strtoupper($word);
+					$offset += strlen($word);
+
+					if ($upper==='SELECT') {
+						return null;
+					}
+
+					// next non blank char
+					$next = (preg_match('/\G[ \t\r\n]*(.)/s', $expression, $n, 0, $offset)===1)
+						? $n[1]
+						: '';
+					$prev = end($tokens);
+
+					if ($next==='(') {
+						if (!in_array($upper, web_data::SQL_EXPRESSION_FUNCTIONS, true)) {
+							return null;
+						}
+						$tokens[] = ['function', $upper];
+					}else if (preg_match('/^[0-9]+$/D', $word)===1) {
+						$tokens[] = ['number', $word];
+					}else if (in_array($upper, web_data::SQL_EXPRESSION_KEYWORDS, true)
+						&& !($prev!==false && $prev[0]==='keyword' && $prev[1]==='AS')) {
+						$tokens[] = ['keyword', $upper];
+					}else{
+						// alias after AS or plain column
+						$tokens[] = ['identifier', '`'.$word.'`'];
+					}
+					continue;
+				}
+
+			// anything else (';', '-', '#', '/', '@', '.', '=', '\', unicode punctuation...) or invalid UTF-8
+				return null;
+		}
+
+		if ($depth!==0 || empty($tokens)) {
+			return null;
+		}
+
+		// rebuild
+			$sql		= '';
+			$prev		= null;
+			$level		= 0;
+			$is_named	= false; // top level AS or ','
+			foreach ($tokens as $token) {
+				[$type, $value] = $token;
+				if ($type==='open') {
+					$level++;
+				}else if ($type==='close') {
+					$level--;
+				}else if ($level===0 && ($value===',' || ($type==='keyword' && $value==='AS'))) {
+					$is_named = true;
+				}else if ($level===0 && $type==='identifier' && $prev!==null
+					&& in_array($prev[0], ['identifier','close','literal','number'], true)) {
+					$is_named = true; // implicit alias ('name n')
+				}
+				$no_space = $prev===null
+					|| $type==='close'
+					|| $value===','
+					|| $prev[0]==='open'
+					|| ($type==='open' && $prev[0]==='function');
+				$sql .= ($no_space ? '' : ' ') . $value;
+				$prev = $token;
+			}
+
+		// alias need
+			$ar_core = ($tokens[0][0]==='keyword' && $tokens[0][1]==='DISTINCT')
+				? array_slice($tokens, 1)
+				: $tokens;
+			$is_column = count($ar_core)===1 && $ar_core[0][0]==='identifier';
+			$needs_alias = !$is_named && !$is_column;
+
+		return $sql;
+	}//end sanitize_sql_expression
+
+
+
+	/**
+	* DECODE_SQL_LITERAL
+	* Decodes the inner text of a MySQL quoted literal (backslash escapes and doubled quotes)
+	* @param string $inner
+	* @param string $quote
+	* @return string $value
+	*/
+	private static function decode_sql_literal(string $inner, string $quote) : string {
+
+		$map = [
+			'0' => "\0", 'b' => "\x08", 'n' => "\n", 'r' => "\r", 't' => "\t", 'Z' => "\x1A",
+			'%' => '\\%', '_' => '\\_' // MySQL keeps the backslash for these two
+		];
+
+		return preg_replace_callback(
+			'/\\\\(.)|'.$quote.$quote.'/su',
+			function($m) use($map, $quote) {
+				if (!isset($m[1])) {
+					return $quote; // doubled quote
+				}
+				return $map[$m[1]] ?? $m[1];
+			},
+			$inner
+		);
+	}//end decode_sql_literal
+
+
+
+	/**
+	* QUOTE_SQL_LITERAL
+	* Encodes a value as single quoted MySQL literal that can not be broken
+	* out of with or without NO_BACKSLASH_ESCAPES and ANSI_QUOTES and that
+	* never contains raw line breaks (count_records works line by line)
+	* @param string $value
+	* @return string $literal
+	*/
+	private static function quote_sql_literal(string $value) : string {
+
+		return '\'' . strtr($value, [
+			'\\'	=> '\\\\',
+			'\''	=> '\'\'',
+			"\0"	=> '\\0',
+			"\x08"	=> '\\b',
+			"\n"	=> '\\n',
+			"\r"	=> '\\r',
+			"\t"	=> '\\t',
+			"\x1A"	=> '\\Z'
+		]) . '\'';
+	}//end quote_sql_literal
+
+
+
+	/**
+	* SANITIZE_SQL_COMMENT
+	* Reduces a client value (like options->caller) to chars safe inside a '-- ' SQL comment
+	* @param mixed $value
+	* @return string
+	*/
+	public static function sanitize_sql_comment(mixed $value) : string {
+
+		if (!is_string($value)) {
+			return '';
+		}
+
+		return substr( preg_replace('/[^A-Za-z0-9_\-\.:]/', '_', $value), 0, 128 );
+	}//end sanitize_sql_comment
 
 
 
@@ -405,7 +914,7 @@ class web_data {
 						$response->result = false;
 						$response->msg    = "Error on sql request. Illegal table (1)";
 						if(SHOW_DEBUG===true) {
-							$response->msg   .= " : $sql_options->table";
+							$response->msg   .= " : ".to_string($sql_options->table);
 						}
 						return $response;
 					}
@@ -482,7 +991,7 @@ class web_data {
 						$response->result = false;
 						$response->msg    = "Error on sql request. Illegal order (1)";
 						if(SHOW_DEBUG===true) {
-							$response->msg   .= " : $sql_options->order";
+							$response->msg   .= " : ".to_string($sql_options->order);
 						}
 						return $response;
 					}
@@ -494,7 +1003,7 @@ class web_data {
 						$response->result = false;
 						$response->msg    = "Error on sql request. Illegal group (1)";
 						if(SHOW_DEBUG===true) {
-							$response->msg   .= " : $sql_options->group";
+							$response->msg   .= " : ".to_string($sql_options->group);
 						}
 						return $response;
 					}
@@ -561,8 +1070,8 @@ class web_data {
 
 			// fields. Convert text ar_fields to array
 				if (!is_array($sql_options->ar_fields)) {
-					$sql_options->ar_fields = explode(',', $sql_options->ar_fields );
-					$sql_options->ar_fields = array_map('trim', $sql_options->ar_fields);
+					// same split as check_safe_value (outside parentheses and quotes)
+					$sql_options->ar_fields = web_data::split_sql_list( (string)$sql_options->ar_fields );
 				}
 
 			// strQuery
@@ -570,7 +1079,8 @@ class web_data {
 
 			// info query
 				$strQuery .= '-- '  .__METHOD__;
-				$strQuery .= ' -- caller: ' . $sql_options->caller;
+				// caller is client controlled: keep it inside the one line SQL comment
+				$strQuery .= ' -- caller: ' . web_data::sanitize_sql_comment($sql_options->caller);
 
 			// With prepare statement
 				// $stmt = mysqli_prepare($link, "INSERT INTO table VALUES ('PHP', ?, ?)");
@@ -712,17 +1222,50 @@ class web_data {
 
 					foreach ($request_options as $key => $value) {if (property_exists($sql_options, $key)) $sql_options->$key = $value;}
 
+			// safe values (same allow-lists as get_rows_data)
+				// ar_fields: comma string or JSON array string are accepted like in get_rows_data
+				if (is_string($sql_options->ar_fields)) {
+					$decoded_array = (strpos($sql_options->ar_fields, '[')===0)
+						? json_decode($sql_options->ar_fields)
+						: null;
+					$sql_options->ar_fields = is_array($decoded_array)
+						? $decoded_array
+						: web_data::split_sql_list($sql_options->ar_fields);
+				}
+				$ar_table = web_data::sanitize_sql_table($sql_options->table);
+				if ($ar_table===null || count($ar_table)!==1) {
+					$response->msg = "Error on sql request. Illegal table (bibliography_rows)";
+					return $response;
+				}
+				if (empty($sql_options->ar_fields) || !self::check_safe_value('ar_fields', $sql_options->ar_fields)) {
+					$response->msg = "Error on sql request. Illegal ar_fields (bibliography_rows)";
+					return $response;
+				}
+				if (!empty($sql_options->lang) && !self::check_safe_value('lang', $sql_options->lang)) {
+					$response->msg = "Error on sql request. Illegal lang (bibliography_rows)";
+					return $response;
+				}
+				if (!empty($sql_options->db_name) && !self::check_safe_value('db_name', $sql_options->db_name)) {
+					$response->msg = "Error on sql request. Illegal db_name (bibliography_rows)";
+					return $response;
+				}
+				$safe_fields = implode(',', array_map(function($field_name){
+					return web_data::safe_field_name($field_name);
+				}, $sql_options->ar_fields));
+				$safe_table = '`'.$ar_table[0].'`';
+				$safe_lang  = is_string($sql_options->lang) ? $sql_options->lang : '';
+
 			// strQuery
 				$strQuery = '';
 
 			// select
-				$strQuery .= PHP_EOL . 'SELECT '.implode(',', $sql_options->ar_fields).', 0 as ordinal';
+				$strQuery .= PHP_EOL . 'SELECT '.$safe_fields.', 0 as ordinal';
 
 			// from
-				$strQuery .= PHP_EOL . 'FROM '.$sql_options->table;
+				$strQuery .= PHP_EOL . 'FROM '.$safe_table;
 
 			// where base
-				$where_base = 'WHERE `lang`=\''.$sql_options->lang.'\' ';
+				$where_base = 'WHERE `lang`=\''.$safe_lang.'\' ';
 
 			// authors conditions union
 				if ($sql_options->use_union===true) {
@@ -743,10 +1286,10 @@ class web_data {
 						$strQuery .= PHP_EOL . 'UNION ALL';
 
 					// select 2
-						$strQuery .= PHP_EOL . 'SELECT '.implode(',', $sql_options->ar_fields).', 1 as ordinal';
+						$strQuery .= PHP_EOL . 'SELECT '.$safe_fields.', 1 as ordinal';
 
 					// from 2
-						$strQuery .= PHP_EOL . 'FROM '.$sql_options->table;
+						$strQuery .= PHP_EOL . 'FROM '.$safe_table;
 
 					// where
 						$strQuery .= PHP_EOL . $where_base;
@@ -1331,14 +1874,21 @@ class web_data {
 		*/
 		protected static function safe_field_name($field_name) {
 
-			$safe_name = ($field_name==='*'
-							|| strpos($field_name, 'DISTINCT')!==false
-							|| strpos($field_name, 'CONCAT')!==false
-							|| strpos($field_name, 'MATCH')!==false
-							|| strpos($field_name, ' AS ')!==false
-						)
-						? $field_name
-						: '`'.$field_name.'`';
+			// quoting is decided by the parsed result (see sanitize_sql_field), never by substrings
+			$safe_name = web_data::sanitize_sql_field($field_name, $needs_alias);
+			if ($safe_name===null) {
+				throw new InvalidArgumentException('Illegal field name');
+			}
+
+			// un-aliased expression: MySQL names the column after the SQL text, which is now
+			// rebuilt. exec_query reads $row[<client text>], so keep that name as alias.
+			// Backticks are doubled. Skipped for control chars or names over the 256 limit
+			if ($needs_alias===true) {
+				$alias = trim($field_name);
+				if (strlen($alias)<=256 && preg_match('/[\x00-\x1F\x7F]/', $alias)!==1) {
+					$safe_name .= ' AS `'.str_replace('`', '``', $alias).'`';
+				}
+			}
 
 			return $safe_name;
 		}//end safe_field_name
@@ -1351,8 +1901,13 @@ class web_data {
 		*/
 		private static function build_sql_from($table) {
 
+			$ar_tables = web_data::sanitize_sql_table($table);
+			if ($ar_tables===null || count($ar_tables)!==1) {
+				throw new InvalidArgumentException('Illegal table');
+			}
+
 			$sql  = '';
-			$sql .= 'FROM '.trim($table);
+			$sql .= 'FROM `'.$ar_tables[0].'`';
 
 			return $sql;
 		}//end build_sql_from
@@ -1647,11 +2202,14 @@ class web_data {
 		*/
 		private static function build_sql_group($group) {
 
-			# Prevent duplications
-			$group = str_ireplace('GROUP BY', '', $group);
+			// rebuilt from allow-listed tokens (leading 'GROUP BY' is stripped)
+			$safe_group = web_data::sanitize_sql_group($group);
+			if ($safe_group===null) {
+				throw new InvalidArgumentException('Illegal group');
+			}
 
 			$sql  = '';
-			$sql .= 'GROUP BY '.$group;
+			$sql .= 'GROUP BY '.$safe_group;
 
 			return $sql;
 		}//end build_sql_group
@@ -1664,11 +2222,14 @@ class web_data {
 		*/
 		private static function build_sql_order($order) {
 
-			# Prevent duplications
-			$order = str_ireplace('ORDER BY', '', $order);
+			// rebuilt from allow-listed parts (leading 'ORDER BY' is stripped)
+			$safe_order = web_data::sanitize_sql_order($order);
+			if ($safe_order===null) {
+				throw new InvalidArgumentException('Illegal order');
+			}
 
 			$sql  = '';
-			$sql .= 'ORDER BY '.$order;
+			$sql .= 'ORDER BY '.$safe_order;
 
 			return $sql;
 		}//end build_sql_order
@@ -1887,7 +2448,9 @@ class web_data {
 			$ar_clean = [];
 			foreach ($ar_lines as $key => $line) {
 				switch (true) {
-					case (strpos($line, 'GROUP BY')!==false):
+					// clauses are matched at line start only, so that quoted literals
+					// containing these words can never cut a line
+					case (strpos(ltrim($line), 'GROUP BY')===0):
 						// add edited line
 						# alias case (like  floor(YEAR(fecha_inicio)/10)*10 as decade)
 						if (strpos($line, ' AS ')!==false) {
@@ -1896,9 +2459,9 @@ class web_data {
 							$ar_clean[] = $ar_parts[0];
 						}
 						break;
-					case (strpos($line, 'LIMIT')!==false):
-					case (strpos($line, 'OFFSET')!==false):
-					case (strpos($line, 'ORDER BY')!==false):
+					case (strpos(ltrim($line), 'LIMIT')===0):
+					case (strpos(ltrim($line), 'OFFSET')===0):
+					case (strpos(ltrim($line), 'ORDER BY')===0):
 						// ignore line
 						// $ar_lines[$key] = '';
 						break;
