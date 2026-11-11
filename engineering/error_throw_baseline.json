@@ -50,7 +50,6 @@
 		"src/core/search/search_related.ts": 2,
 		"src/core/test_data/seed.ts": 1,
 		"src/core/ts_object/ts_api.ts": 4,
-		"src/diffusion/export/atoms.ts": 1,
 		"src/diffusion/jobs/schema.ts": 1,
 		"src/diffusion/parsers/registry.ts": 3,
 		"src/diffusion/resolve/record_ir.ts": 1,
@@ -68,7 +67,7 @@
 		"src/server.ts": 1
 	},
 	"summary": {
-		"files": 64,
-		"total": 121
+		"files": 63,
+		"total": 120
 	}
 }
