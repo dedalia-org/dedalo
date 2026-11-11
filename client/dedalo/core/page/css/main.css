@@ -11590,6 +11590,10 @@ dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_
   border-right: 1px solid var(--color_orange_dedalo);
   max-width: 100%;
 }
+.wrapper_service_autocomplete > .autocomplete_data.loading {
+  opacity: 1;
+  animation: autocomplete_loading_dim 0.2s ease-out 0.35s forwards;
+}
 .wrapper_service_autocomplete > .autocomplete_data .loading_label {
   padding: 0.5rem;
   background-color: var(--color_white);
@@ -11650,6 +11654,11 @@ dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_
 dd-modal .wrapper_component.edit.active:not(.hilite_element):has( > .wrapper_service_autocomplete.active:not(.search)) {
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
+}
+@keyframes autocomplete_loading_dim {
+  to {
+    opacity: 0.4;
+  }
 }
 /**
 * service_upload

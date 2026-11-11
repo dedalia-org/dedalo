@@ -412,6 +412,16 @@
 		border-right: 1px solid @color_orange_dedalo;
 		max-width: 100%;
 
+		// the previous results while a newer search is in flight
+		// (view_default_autocomplete input_handler). The global `.loading` dim
+		// would blink the rows on every fast answer; the input lock is immediate
+		// (global rule), the dim waits for a search that is actually slow — the
+		// same deferral as relation_list.less / paginator.less.
+		&.loading {
+			opacity: 1;
+			animation: autocomplete_loading_dim 0.2s ease-out 0.35s forwards;
+		}
+
 		.loading_label {
 			padding: 0.5rem;
 			background-color: @color_white;
@@ -507,4 +517,8 @@
 dd-modal .wrapper_component.edit.active:not(.hilite_element):has(>.wrapper_service_autocomplete.active:not(.search)) {
 	border-bottom-left-radius: 8px;
 	border-bottom-right-radius: 8px;
+}
+
+@keyframes autocomplete_loading_dim {
+	to { opacity: 0.4; }
 }

@@ -410,6 +410,40 @@ const render_source_selector = function(self) {
 
 
 /**
+* SEARCH_DEBOUNCE_MS
+* Pause after the last keystroke before a search is sent (a cached query skips
+* it). Was 320 ms while one search cost ~265 ms of server time on a portal over
+* every ontology section; that read now answers in ~50 ms, so the pause is the
+* larger part of the wait and is shortened.
+*/
+const SEARCH_DEBOUNCE_MS = 150
+
+
+
+/**
+* NEXT_SEARCH_SIGNAL
+* Abort the autocomplete request still in flight and answer the AbortSignal of
+* the one about to start. Its result would be dropped anyway (the _search_seq
+* token); aborting it frees the browser connection at once. The server read is
+* NOT cancelled — the engine has no request.signal handling (data_manager.js
+* module header) — so this saves the transfer, not the query.
+*
+* @param {Object} self - The service_autocomplete instance
+* @returns {AbortSignal}
+*/
+export const next_search_signal = function(self) {
+
+	if (self._search_abort) {
+		self._search_abort.abort()
+	}
+	self._search_abort = new AbortController()
+
+	return self._search_abort.signal
+}//end next_search_signal
+
+
+
+/**
 * RENDER_SEARCH_INPUT
 * Create the text input element that drives the autocomplete search.
 *
@@ -418,10 +452,14 @@ const render_source_selector = function(self) {
 *    (Escape, Arrows, Ctrl, Meta, Alt, Shift, CapsLock, Enter) are ignored.
 *  - 'paste' fires input_handler immediately and sets is_searching to true to
 *    prevent a duplicate search from the subsequent keyup event.
-*  - input_handler debounces the API call: 320 ms by default, collapsed to 1 ms
-*    when the query is already cached (self.search_cache.has(q)).
+*  - input_handler debounces the API call: SEARCH_DEBOUNCE_MS by default,
+*    collapsed to 1 ms when the query is already cached (self.search_cache.has(q)).
 *  - A spinner `<div>` is inserted after the input while the request is in
 *    flight and removed on completion or error.
+*  - The PREVIOUS results stay while the next search runs, marked `.loading`
+*    (pointer lock at once, dim deferred in service_autocomplete.less) — never
+*    blanked on every keystroke; "Searching.." shows only over an empty list.
+*  - A search that starts aborts the one still in flight (next_search_signal).
 *  - self.split_q() is called to distribute multi-field queries across
 *    self.filter_free_nodes when a separator is detected.
 *  - Results are cached in self.search_cache keyed by the raw query string q.
@@ -433,8 +471,9 @@ const render_source_selector = function(self) {
 *
 * @param {Object} self - The service_autocomplete instance
 * @returns {HTMLElement} The configured `<input type="text">` element
+* Exported for the client suite (a real keystroke against a stub service).
 */
-const render_search_input = function(self) {
+export const render_search_input = function(self) {
 
 	// search field
 		const search_input = ui.create_dom_element({
@@ -546,23 +585,29 @@ const render_search_input = function(self) {
 						clearTimeout(timeout);
 					}
 
-				// datalist container node
+				// datalist container node. The previous results STAY until the new ones
+				// replace them (render_datalist), marked stale: blanking the list on
+				// every keystroke made each search look slower than it was. Only an
+				// empty list says "Searching..".
 					const datalist = self.datalist
-					while (datalist.firstChild) {
-						datalist.removeChild(datalist.firstChild);
+					let loading_label = datalist.querySelector(':scope > .loading_label')
+					if (!loading_label && !datalist.firstChild) {
+						loading_label = ui.create_dom_element({
+							element_type	: 'div',
+							class_name		: 'loading_label',
+							inner_html		: get_label.searching || 'Searching..',
+							parent			: datalist
+						})
 					}
-					const loading_label = ui.create_dom_element({
-						element_type	: 'div',
-						class_name		: 'loading_label',
-						inner_html		: get_label.searching || 'Searching..',
-						parent			: datalist
-					})
+					if (!loading_label) {
+						datalist.classList.add('loading')
+					}
 
 				// search fire is delayed to enable multiple simultaneous selections
 				// get final value (input events are fired one by one)
 					const ms = self.search_cache.has(q) || is_paste===true
 						? 1
-						: 320 * 1
+						: SEARCH_DEBOUNCE_MS
 					timeout = setTimeout(async()=>{
 
 						// request sequence token. A slower in-flight request must not
@@ -736,13 +781,16 @@ export const execute_search_render = async function(self, options) {
 	const search_input	= options.search_input
 
 	try {
+		// the search still in flight is superseded by this one: abort it
+			const signal = next_search_signal(self)
+
 		// api_response. Get from cache if exists. A cache hit is replayed as a
 		// plain SUCCESS envelope: only clean, non-degraded answers are ever
 		// cached (see the cache-write guard below), so it carries no notice.
 			const cached = q.length ? self.search_cache.get(q) : undefined
 			const api_response = cached
 				? { ok : true, data : cached, result : cached }
-				: await self.autocomplete_search()
+				: await self.autocomplete_search({signal})
 
 		// a newer search superseded this one: drop the stale response
 			if (my_seq !== self._search_seq) {
@@ -799,6 +847,9 @@ export const execute_search_render = async function(self, options) {
 			if (loading_label && loading_label.parentNode) {
 				loading_label.remove()
 			}
+			if (self.datalist) {
+				self.datalist.classList.remove('loading')
+			}
 			search_input.classList.remove('searching')
 			if (spinner) {
 				spinner.remove()
@@ -828,7 +879,7 @@ export const run_search = async function(self) {
 	self._search_seq = my_seq
 
 	try {
-		const api_response = await self.autocomplete_search()
+		const api_response = await self.autocomplete_search({signal : next_search_signal(self)})
 
 		// a newer search superseded this one: drop the stale response
 		if (my_seq !== self._search_seq) {

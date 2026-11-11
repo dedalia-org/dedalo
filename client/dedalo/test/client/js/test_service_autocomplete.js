@@ -17,7 +17,9 @@ import {
 	render_datalist,
 	execute_search_render,
 	render_search_notice,
-	run_search
+	run_search,
+	render_search_input,
+	next_search_signal
 } from '../../../core/services/service_autocomplete/js/view_default_autocomplete.js'
 import {data_manager} from '../../../core/common/js/data_manager.js'
 import {response_data} from '../../../core/common/js/api_error.js'
@@ -547,6 +549,154 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 			assert.equal(datalist.childNodes.length, 0, 'latest (empty) response clears the datalist')
 		})
 	})//end describe run_search stale guard
+
+
+
+	// ───────────────────────────────────────────────────────────
+	// PERCEIVED LATENCY (rewrite plan 2026-11-11, step 3). A keystroke used to
+	// blank the list to "Searching.." at once, so every search looked as slow
+	// as the debounce + the request. The previous rows now STAY, marked
+	// `.loading` (input locked, dim deferred), until the new answer replaces
+	// them; and a search that starts aborts the one still in flight.
+	// ───────────────────────────────────────────────────────────
+
+	describe("typing keeps the previous results and aborts a superseded search", function() {
+
+		/** A stub service around a real search input; its searches wait for `answer`. */
+		const make_typing_service = function(datalist) {
+			const calls = []
+			const self = {
+				list_name			: 'test_autocomplete_list',
+				_search_seq			: 0,
+				ar_instances		: [],
+				search_cache		: new Map(),
+				filter_free_nodes	: [],
+				datalist			: datalist,
+				split_q				: service_autocomplete.prototype.split_q,
+				autocomplete_search	: function(options) {
+					return new Promise((resolve) => calls.push({options, resolve}))
+				}
+			}
+			const search_input = render_search_input(self)
+			const wrapper = document.createElement('div')
+			wrapper.appendChild(search_input)
+			const type = (value) => {
+				search_input.value = value
+				search_input.dispatchEvent(new KeyboardEvent('keyup', {key: value.slice(-1)}))
+			}
+			return {self, calls, search_input, type}
+		}
+		const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+		it("keeps the previous rows, marked loading, until the new answer lands", async function() {
+
+			const datalist = document.createElement('ul')
+			const previous_row = document.createElement('li')
+			datalist.appendChild(previous_row)
+			const {calls, search_input, type} = make_typing_service(datalist)
+
+			type('ac')
+			assert.equal(datalist.firstChild, previous_row, 'the previous row must stay while typing')
+			assert.equal(datalist.querySelector('.loading_label'), null, 'no "Searching.." over existing rows')
+			assert.equal(datalist.classList.contains('loading'), true, 'the stale rows are marked loading')
+			assert.equal(search_input.classList.contains('searching'), true)
+
+			await wait(400) // past the debounce
+			assert.equal(calls.length, 1, 'one search after the debounce')
+			assert.equal(calls[0].options.signal instanceof AbortSignal, true, 'the search carries an AbortSignal')
+			assert.equal(datalist.firstChild, previous_row, 'still the previous row while the request is in flight')
+
+			calls[0].resolve({ ok: true, data: { data: [] } })
+			await wait(50)
+			assert.equal(datalist.classList.contains('loading'), false, 'the loading mark is cleared')
+			assert.equal(datalist.childNodes.length, 0, 'the new (empty) answer replaced the rows')
+			assert.equal(search_input.classList.contains('searching'), false)
+		})
+
+		it("an empty list says Searching.. and is not dimmed", async function() {
+
+			const datalist = document.createElement('ul')
+			const {calls, type} = make_typing_service(datalist)
+
+			type('a')
+			type('ac') // a second key must not stack a second label
+			assert.equal(datalist.querySelectorAll('.loading_label').length, 1, 'exactly one "Searching.." label')
+			assert.equal(datalist.classList.contains('loading'), false, 'nothing stale to dim')
+
+			await wait(400)
+			calls[0].resolve({ ok: true, data: { data: [] } })
+			await wait(50)
+			assert.equal(datalist.querySelector('.loading_label'), null, 'the label goes when the answer lands')
+		})
+
+		it("a search that starts aborts the one in flight; the stale answer never renders", async function() {
+
+			const datalist = document.createElement('ul')
+			const previous_row = document.createElement('li')
+			datalist.appendChild(previous_row)
+			const {calls, type} = make_typing_service(datalist)
+
+			type('ac')
+			await wait(400)
+			type('acr')
+			await wait(400)
+			assert.equal(calls.length, 2, 'two searches')
+			assert.equal(calls[0].options.signal.aborted, true, 'the first search was aborted by the second')
+			assert.equal(calls[1].options.signal.aborted, false, 'the latest search is live')
+
+			// the aborted one answers (client.aborted) — it must not touch the list
+			calls[0].resolve({ ok: false, error: { code: 'client.aborted' } })
+			await wait(50)
+			assert.equal(datalist.firstChild, previous_row, 'an aborted answer never renders')
+			assert.equal(datalist.querySelector('.search_notice'), null, 'an aborted answer shows no failure notice')
+			assert.equal(datalist.classList.contains('loading'), true, 'still waiting for the live search')
+
+			calls[1].resolve({ ok: true, data: { data: [] } })
+			await wait(50)
+			assert.equal(datalist.classList.contains('loading'), false)
+		})
+
+		it("next_search_signal aborts the previous controller only", function() {
+			const self = {}
+			const first = next_search_signal(self)
+			const second = next_search_signal(self)
+			assert.equal(first.aborted, true)
+			assert.equal(second.aborted, false)
+		})
+
+		it("dedalo_engine and external_engine hand the signal to data_manager.request", async function() {
+
+			const controller = new AbortController()
+			const real_request = data_manager.request
+			const seen = []
+			data_manager.request = async function(options) {
+				seen.push(options.signal)
+				return { ok : true, data : { data: [] } }
+			}
+			try {
+				const external = new service_autocomplete()
+				external.tipo			= 'test61'
+				external.section_tipo	= 'test3'
+				external.rqo_search		= { sqo_options : { filter_free : { $and: [ { q: 'x' } ] } } }
+				await external.external_engine({signal: controller.signal})
+
+				const internal = new service_autocomplete()
+				internal.ar_search_section_tipo	= ['test3']
+				internal.ar_filter_by_list		= []
+				internal.rqo_search = {
+					source		: {},
+					sqo			: {},
+					sqo_options	: { filter_free : { $and: [ { q: 'x', path: [] } ] } }
+				}
+				await internal.dedalo_engine({signal: controller.signal})
+			} finally {
+				data_manager.request = real_request
+			}
+			assert.equal(seen.length, 2, 'both engines sent a request')
+			assert.equal(seen[0], controller.signal, 'external_engine forwards the signal')
+			assert.equal(seen[1], controller.signal, 'dedalo_engine forwards the signal')
+		})
+	})//end describe typing keeps the previous results
 
 
 	// ───────────────────────────────────────────────────────────
