@@ -422,4 +422,89 @@ describe(`COMPONENT_RELATION_INDEX COLUMNS FROM THE POINTING SECTION`, async fun
 
 
 
+
+// ─────────────────────────────────────────────
+// 5. EVERY INVERSE RELATION RENDERS (owner rule 2026-11-11)
+// ─────────────────────────────────────────────
+// Whoever reads the index sees ALL its inverse relations (a record is deleted
+// on the strength of "nobody points at it"). A caller row from a section the
+// viewer CANNOT read arrives as EXISTENCE ONLY: its sqo section item states
+// `permissions: 0` + the section label, and no column ddo / cell of it ships
+// (server gate: test/unit/relation_index_context_native.test.ts, RULE test).
+// The client must render that row with the section NAME + section_id and
+// BLANK columns. The suite session reads everything, so the unreadable shape
+// is STATED on the built context the way the server states it for a viewer
+// without the grant: the pointing section's sqo item reduced to existence
+// only, its cells removed from the datum.
+
+describe(`COMPONENT_RELATION_INDEX EVERY INVERSE RELATION RENDERS`, async function() {
+
+	this.timeout(30000)
+
+	const pointer_label		= 'zz suite relation_index pointer'
+	const existence_label	= 'zz unreadable section name'
+
+	// state test3 (the pointing section) unreadable on a built instance
+	const state_unreadable = function(instance) {
+		for (const item of (instance.context.request_config || [])) {
+			const sections = item?.sqo?.section_tipo
+			if (!Array.isArray(sections)) continue
+			item.sqo.section_tipo = sections.map(el => (el && el.tipo===section_tipo)
+				? {typo: 'ddo', tipo: el.tipo, model: 'section', permissions: 0, label: existence_label, existence_only: true}
+				: el
+			)
+		}
+		// no content of an unreadable section ever ships: drop its cells
+		instance.datum.data = instance.datum.data.filter(el => el.mode!=='related_list')
+	}
+
+	for (const mode of ['edit', 'list']) {
+		for (const view of ['line', 'default']) {
+
+			it(`${model} ${mode}/${view}: one visible row per entry; an unreadable caller shows name + section_id, blank columns`, async function() {
+
+				// readable control: one row per entry, no existence cell
+				const readable = await get_relation_index_instance(mode, view)
+				let entries = []
+				try {
+					entries = readable.data?.entries || []
+					assert.isAbove(entries.length, 0, 'the runner must install relation_index_pointer_fixture')
+					const node = await readable.render()
+					const rows = [...node.querySelectorAll('.section_record')]
+					assert.equal(rows.length, entries.length, `rendered rows must equal entries (readable ${mode}/${view})`)
+					assert.equal(node.querySelectorAll('.target_existence').length, 0, 'a readable row has no existence cell')
+				} finally {
+					await readable.destroy(true, true, true)
+				}
+
+				// unreadable: same entries, existence only
+				const instance = await get_relation_index_instance(mode, view)
+				try {
+					state_unreadable(instance)
+					const node = await instance.render()
+					const rows = [...node.querySelectorAll('.section_record')]
+					assert.equal(rows.length, entries.length, `rendered rows must equal entries (unreadable ${mode}/${view})`)
+					for (const row of rows) {
+						const existence = row.querySelector('.target_existence')
+						assert.isNotNull(existence, `every unreadable row must carry its existence cell; got ${row.outerHTML.slice(0, 300)}`)
+						assert.include(existence.textContent, existence_label, 'the section NAME')
+						assert.isTrue(
+							entries.some(entry => existence.textContent.includes(String(entry.section_id))),
+							`the section_id; got '${existence.textContent}'`
+						)
+						// blank columns: no content of the section
+						assert.notInclude(row.textContent, pointer_label, 'no component value of an unreadable section')
+						// never a record opener
+						assert.equal(row.querySelectorAll('.button_edit').length, 0, 'no open-record button')
+					}
+				} finally {
+					await instance.destroy(true, true, true)
+				}
+			})
+		}
+	}
+})//end describe COMPONENT_RELATION_INDEX EVERY INVERSE RELATION RENDERS
+
+
+
 // @license-end

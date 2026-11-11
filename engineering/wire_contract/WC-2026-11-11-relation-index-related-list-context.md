@@ -43,11 +43,21 @@ divergences from the frozen store:
   `request_config: []` in edit (`relation_inverse_differential.json`, `hierarchy40 @ dz1/1024`),
   so the term edit form had no columns; v6's controller is mode-agnostic.
 - **D2 — pointing sections only in `sqo.section_tipo`.** PHP prepended the field's own
-  section (a v5 fallback artefact, e.g. `cult1` above); TS lists only the sections that point
-  at the record AND that the viewer can read (level ≥ 1) AND that keep at least one authorized
-  related_list column. A section failing either adds no sqo entry (no label/color/matrix_table
-  leak), no ddo and no cell — and the client's next page, built from this sqo, passes the read
-  gate as an ordinary read. With no surviving section, `sqo.section_tipo` is `[]`.
+  section (a v5 fallback artefact, e.g. `cult1` above); TS lists every section that points at
+  the record. A section the viewer cannot read (level < 1) ships EXISTENCE ONLY —
+  `{typo, tipo, model, permissions: 0, label, existence_only: true}`, no buttons/color/matrix_table — and contributes
+  no ddo, no cell context and no data item. The client's next page carries this sqo; the read
+  gate admits it through the host-component admission (`security/host_component_read.ts`),
+  which accepts a config-less index's OWN pointing sections as its targets (any other section
+  stays refused) — the inverse read never consults `sqo.section_tipo`.
+  **The inverse SET is never filtered** (owner decision 2026-11-11): the field's `entries`
+  and `pagination.total` carry every pointing locator, readable or not — a user decides
+  whether a record may be deleted on "nobody points at it", so a hidden pointer would make
+  that decision wrong. Only an unreadable section's CONTENT (its column values) is withheld:
+  its row shows, at minimum, the caller's `section_id` and its section's NAME, with blank
+  columns. The client renders that existence cell (`.target_existence`, label + `.section_id`)
+  ONLY for a target the server marks `existence_only: true`; an ordinary portal whose target
+  grant is 0 (WC-2026-11-09-component-get-data-host-gate) renders as before.
 - **D3 — no pointing-section contexts.** The `model: section` / `mode: related_list` contexts
   are not emitted; no portal-path client file reads them. The components' cell contexts are
   emitted, parented to the index tipo, deduplicated by context key (PHP repeated them once

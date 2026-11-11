@@ -69,7 +69,11 @@
 	import {place_list_after} from '../../common/js/common.js'
 	import {ui} from '../../common/js/ui.js'
 	import {bind_edit_in_list} from '../../component_common/js/component_common.js'
-	import {render_list_after, render_column_component_info} from './render_edit_component_portal.js'
+	import {
+		render_list_after,
+		render_column_component_info,
+		add_existence_column
+	} from './render_edit_component_portal.js'
 
 
 
@@ -274,6 +278,10 @@ const rebuild_columns_map = async function(self) {
 			})
 		}
 		columns_map.push(...base_columns_map)
+
+	// existence column (add_existence_column): only when the context carries a
+	// target section marked existence only — readable-only portals unchanged
+		add_existence_column(self, columns_map)
 
 
 	// fixed as calculated

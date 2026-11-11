@@ -84,7 +84,8 @@
 		add_wrapper_events,
 		get_buttons_by_permissions,
 		render_list_after,
-		can_open_target
+		can_open_target,
+		render_target_existence
 	} from './render_edit_component_portal.js'
 	import {bind_row_drag, can_reorder, can_drag_out} from './drag_and_drop.js'
 
@@ -462,6 +463,17 @@ view_line_edit_portal.render_column_id = function(options) {
 				parent			: button_edit
 			})
 	}//end if (open_allowed)
+
+	// existence. A row whose target section the server marked EXISTENCE ONLY
+	// (a relation_index caller the user cannot read) carries no column content:
+	// it identifies itself by the section's name + section_id
+	// (render_target_existence; null = any other row, unchanged)
+		if (!open_allowed) {
+			const existence = render_target_existence(self, section_tipo, section_id)
+			if (existence) {
+				fragment.appendChild(existence)
+			}
+		}
 
 	// button_tree ontology only
 		const is_ontology = get_section_id_from_tipo(self.section_tipo) === '0'

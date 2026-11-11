@@ -47,14 +47,37 @@
  *     doors (the count door has no Gate A);
  *   - every `sqo.section_tipo` is a DEDALO target of that derived node — EXACT
  *     (writer_chain_scope.ts dedaloTargetsOf, never the virtual ↔ real
- *     equivalence);
+ *     equivalence). A CONFIG-LESS component_relation_index's targets are the
+ *     sections pointing at THIS host record (models/relation_index.ts
+ *     hostPointingSections — the set its read merges into the context, an
+ *     unreadable one as existence only; its inverse read never consults the
+ *     sqo sections, so admitting them reaches no record beyond the host's own
+ *     inverse locators, which the index shows to its reader by owner rule);
  *   - the sqo is a plain page of the host: `filter_by_locators` is EXACTLY the
  *     host locator, and no key beyond the page / order vocabulary carries a
  *     value (no filter, no mode — never a TM or related read —, no select…).
  *     The count door counts under this same sqo, so a count can only ever
  *     reach the host locator.
  *
- * Gate: test/unit/component_get_data_target_grant_native.test.ts.
+ * THE ONE CARVE-OUT FROM "a column of the host map" (configlessIndexTargets,
+ * owner rule 2026-11-11 — whoever reads a relation_index sees ALL its inverse
+ * relations): a CONFIG-LESS component_relation_index that is NOT a column of
+ * the host map in that mode (a top-level list instance, a preset column) is
+ * admitted on the principal's own component grant at the host section
+ * (getPermissions(principal, section, tipo) >= 1 — Gate A's check, which the
+ * count door lacks) instead of the chain, with its targets = the host record's
+ * pointing sections. Every other fact above still holds (component source,
+ * accessible real host record, exact host pin, page vocabulary). It is NOT a
+ * widening: that index has no config to inject (nothing the chain would
+ * select), and its inverse read never consults `sqo.section_tipo` — it can
+ * return only the host's own inverse locators, which the index shows its
+ * reader anyway. Any other model, an index WITH a request_config (its targets
+ * live in that config: hostPointingSections answers []), or no component grant
+ * stays refused. The carve-out is the READ door's only: hostColumnDisplay (the
+ * export display) stays on the chain-verified column.
+ *
+ * Gates: test/unit/component_get_data_target_grant_native.test.ts,
+ * test/unit/relation_index_context_native.test.ts (the carve-out).
  */
 
 import type { Ddo } from '../concepts/ddo.ts';
@@ -284,6 +307,7 @@ async function derivedTargetsOf(
 	principal: Principal,
 	host: HostComponent,
 	model: string,
+	door: HostDoor,
 ): Promise<string[] | null> {
 	const { resolveCallerChain } = await import('../relations/caller_chain.ts');
 	const chain = await resolveCallerChain({
@@ -293,7 +317,9 @@ async function derivedTargetsOf(
 		lang: host.lang,
 		principal,
 	});
-	if (chain === null) return null;
+	if (chain === null) {
+		return door === 'read' ? configlessIndexTargets(principal, host, model) : null;
+	}
 	const { resolveElement } = await import('../relations/element_node.ts');
 	const { ElementNodeRegistry } = await import('../relations/element_registry.ts');
 	const node = await resolveElement({
@@ -313,7 +339,35 @@ async function derivedTargetsOf(
 		principal,
 	});
 	const { dedaloTargetsOf } = await import('./writer_chain_scope.ts');
-	return dedaloTargetsOf(node);
+	const targets = await dedaloTargetsOf(node);
+	if (model !== 'component_relation_index') return targets;
+	// A config-less index's targets are merged PER READ from the host record's
+	// pointing sections (models/relation_index.ts hostPointingSections) — the
+	// fresh node above carries only its empty base item.
+	const { hostPointingSections } = await import('../relations/models/relation_index.ts');
+	const pointing = await hostPointingSections(host.tipo, host.sectionTipo, host.sectionId);
+	return [...new Set([...targets, ...pointing])];
+}
+
+/**
+ * A config-less component_relation_index that is NOT a column of the host
+ * section's map in this mode (a top-level instance: a list cell from a
+ * preset, the client's own instance) — its read depends on no chain (no
+ * config to inject, targets 'all'), so the chain is not what verifies it: the
+ * principal's own grant on the component at the host section is. Its targets
+ * are then the host record's pointing sections; any other model — or no grant
+ * — stays refused (null).
+ */
+async function configlessIndexTargets(
+	principal: Principal,
+	host: HostComponent,
+	model: string,
+): Promise<string[] | null> {
+	if (model !== 'component_relation_index') return null;
+	const { getPermissions } = await import('./permissions.ts');
+	if ((await getPermissions(principal, host.sectionTipo, host.tipo)) < 1) return null;
+	const { hostPointingSections } = await import('../relations/models/relation_index.ts');
+	return hostPointingSections(host.tipo, host.sectionTipo, host.sectionId);
 }
 
 /**
@@ -345,7 +399,7 @@ export async function admitHostComponentRead(
 ): Promise<HostComponentRead | null> {
 	const host = await addressedHost(request);
 	if (host === null || request.sqo === undefined) return null;
-	const targets = await hostColumnTargets(principal, host);
+	const targets = await hostColumnTargets(principal, host, 'read');
 	if (targets === null) return null;
 	const { getSectionTipos } = await import('../concepts/sqo.ts');
 	const requested = getSectionTipos(request.sqo);
@@ -496,7 +550,7 @@ export async function hostColumnDisplay(
 		});
 	}
 	const host: HostComponent = { ...column, mode: 'edit' };
-	const targets = await hostColumnTargets(principal, host);
+	const targets = await hostColumnTargets(principal, host, 'display');
 	if (targets === null) return null;
 	const records = new Set<string>();
 	const shown = new Set<string>();
@@ -568,15 +622,29 @@ async function forEachDisplayPage(
 }
 
 /**
+ * Which door asks for a host column's targets:
+ *   - 'read'    — Gate B's get_data/count admission (admitHostComponentRead):
+ *                 the chain-verified column, OR the config-less relation_index
+ *                 carve-out (configlessIndexTargets);
+ *   - 'display' — the export's display carve-out (hostColumnDisplay): the
+ *                 CHAIN-VERIFIED column only. A record's export shows what its
+ *                 section read shows; an index outside the host map is not
+ *                 shown there, so it is never displayed either.
+ */
+type HostDoor = 'read' | 'display';
+
+/**
  * The column node's targets when the principal can access the host record and
- * the tipo is a component of the host section with a node in its map — else null.
+ * the tipo is a component of the host section with a node in its map (or, at
+ * the 'read' door only, a config-less index the principal reads) — else null.
  */
 async function hostColumnTargets(
 	principal: Principal,
 	host: HostComponent,
+	door: HostDoor,
 ): Promise<string[] | null> {
 	const { principalCanAccessRecord } = await import('./record_scope.ts');
 	if (!(await principalCanAccessRecord(host.sectionTipo, host.sectionId, principal))) return null;
 	const model = await hostComponentModel(host);
-	return model === null ? null : derivedTargetsOf(principal, host, model);
+	return model === null ? null : derivedTargetsOf(principal, host, model, door);
 }

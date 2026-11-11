@@ -383,32 +383,29 @@ function pointingSectionsOf(counted: {
 
 /** Per-emission memory of each pointing section's related_list for the
  * current viewer (EmissionContext scratch: request- AND principal-scoped, like
- * SOLVED_SECTIONS — an emission never outlives its request). `null` = the
+ * SOLVED_SECTIONS — an emission never outlives its request). `[]` = the
  * section contributes NO column (unreadable, or nothing authorised). */
 const RELATED_LISTS = Symbol('relation_index.relatedLists');
 
 /**
- * Each READABLE pointing section's related_list ddo map, read ONCE per
- * emission (memoised in the scratch) from THE section-mode builder
- * (section/related_list.ts sectionRelatedListConfig). Both the data cells and
- * the context merge are fed from this map, so a column the viewer may not
- * read has neither a ddo nor a data cell.
+ * EVERY pointing section → its related_list ddo map for the current viewer,
+ * read ONCE per emission (memoised in the scratch) from THE section-mode
+ * builder (section/related_list.ts sectionRelatedListConfig). Both the data
+ * cells and the context merge are fed from this map, so a column the viewer
+ * may not read has neither a ddo nor a data cell.
  *
- * A section is KEPT only when the viewer may read it — the very check Gate B
- * applies to every `sqo.section_tipo` of the client's paging request
- * (dd_core_api ungrantedTargetSections: getPermissions(principal, s, s) >= 1)
- * — AND it leaves at least one authorised column. Merging any other section
- * would (a) make the client's page-2 get_data (common.js build_rqo_show copies
- * the context's sqo.section_tipo) a perm.denied, and (b) disclose the
- * label/color/matrix_table of a section the viewer cannot read.
+ * OWNER RULE (2026-11-11): whoever may read the index sees ALL its inverse
+ * relations — a record is deleted on the strength of "nobody points at it".
+ * So every pointing section stays a KEY of the map (its existence reaches
+ * `sqo.section_tipo`, the row renders), and only the CONTENT is withheld: a
+ * section the viewer may not read (getPermissions(principal, s, s) < 1, Gate
+ * B's own check) maps to `[]` — no column, no cell.
  */
 async function relatedListsOf(
 	emission: EmissionContext,
 	sections: readonly string[],
 ): Promise<RelatedLists> {
-	let memo = emission.scratch.get(RELATED_LISTS) as
-		| Map<string, RelatedListDdo[] | null>
-		| undefined;
+	let memo = emission.scratch.get(RELATED_LISTS) as Map<string, RelatedListDdo[]> | undefined;
 	if (memo === undefined) {
 		memo = new Map();
 		emission.scratch.set(RELATED_LISTS, memo);
@@ -416,23 +413,21 @@ async function relatedListsOf(
 	const lists: RelatedLists = new Map();
 	for (const section of sections) {
 		if (!memo.has(section)) memo.set(section, await readableRelatedList(section));
-		const ddos = memo.get(section);
-		if (ddos) lists.set(section, ddos);
+		lists.set(section, memo.get(section) ?? []);
 	}
 	return lists;
 }
 
-/** One pointing section's related_list for the current viewer, or null when it contributes no column. */
-async function readableRelatedList(section: string): Promise<RelatedListDdo[] | null> {
+/** One pointing section's related_list for the current viewer ([] when it may not read the section). */
+async function readableRelatedList(section: string): Promise<RelatedListDdo[]> {
 	const { currentPrincipal } = await import('../../security/request_context.ts');
 	const principal = currentPrincipal();
 	if (principal !== undefined) {
 		const { getPermissions } = await import('../../security/permissions.ts');
-		if ((await getPermissions(principal, section, section)) < 1) return null;
+		if ((await getPermissions(principal, section, section)) < 1) return [];
 	}
 	const { sectionRelatedListConfig } = await import('../../section/related_list.ts');
-	const ddos = await sectionRelatedListConfig(section);
-	return ddos.length > 0 ? ddos : null;
+	return sectionRelatedListConfig(section);
 }
 
 /**
@@ -501,7 +496,31 @@ async function appendSqoSections(item: InjectableConfigItem, sections: string[])
 	const missing = sections.filter((section) => !known.has(section));
 	if (missing.length === 0) return;
 	const { buildSqoSectionTipoDdos } = await import('../request_config/explicit.ts');
-	sqo.section_tipo = [...current, ...(await buildSqoSectionTipoDdos(missing))];
+	const enriched = await buildSqoSectionTipoDdos(missing);
+	sqo.section_tipo = [...current, ...enriched.map(existenceOnlyWhenUnreadable)];
+}
+
+/** What a pointing section the viewer may NOT read keeps of its enriched sqo ddo. */
+const EXISTENCE_KEYS = ['typo', 'tipo', 'model', 'permissions', 'label'] as const;
+
+/**
+ * A pointing section the viewer may not read (stated `permissions` < 1) ships
+ * as EXISTENCE ONLY: its tipo, model, the stated grant, its label and the
+ * explicit marker `existence_only: true` — never its buttons, color or
+ * matrix_table. The MARKER (not the grant) is what the client keys the
+ * existence cell on (render_edit_component_portal.js unreadable_target): every
+ * relation component's sqo carries real grants, and an ordinary portal with a
+ * 0-grant target must keep its look (WC-2026-11-09-component-get-data-host-gate).
+ * A readable section's ddo is returned unchanged.
+ */
+function existenceOnlyWhenUnreadable<T>(ddo: T): T {
+	const permissions = Number((ddo as { permissions?: unknown }).permissions);
+	if (!(permissions < 1)) return ddo;
+	const source = ddo as Record<string, unknown>;
+	const reduced: Record<string, unknown> = {};
+	for (const key of EXISTENCE_KEYS) if (key in source) reduced[key] = source[key];
+	reduced.existence_only = true;
+	return reduced as T;
 }
 
 /** Append every related_list ddo, re-parented to the index, once per (tipo, section_tipo). */
@@ -542,6 +561,34 @@ async function mergeIntoGetDataTarget(
 	if (targetNode === undefined) return;
 	emission.nodes.bindItem(item, targetNode);
 	await mergeRelatedListIntoNode(emission.nodes, targetNode, target.tipo, lists);
+}
+
+/**
+ * The sections whose records point at ONE host record through a CONFIG-LESS
+ * index (`tipo` @ `sectionTipo`/`sectionId`) — exactly the `sqo.section_tipo`
+ * set the read merges into the index context (pointingSectionsOf over the same
+ * count), readable or not. Gate B's host-component admission
+ * (security/host_component_read.ts) takes them as the index's targets, so the
+ * client's page-2 get_data built from that context — which carries an
+ * unreadable pointing section as existence only — is admitted as the HOST read
+ * it is: the inverse read never consults `sqo.section_tipo`, and every locator
+ * it can return is the host's own (the owner rule: all inverse relations are
+ * visible to whoever reads the index). An index WITH a request_config has its
+ * targets in that config (no merge): [].
+ */
+export async function hostPointingSections(
+	tipo: string,
+	sectionTipo: string,
+	sectionId: number,
+): Promise<string[]> {
+	const config = await resolveIndexConfig(tipo, sectionTipo);
+	if (config.hasRequestConfig) return [];
+	const { countInverseReferences } = await import('../../search/search_related.ts');
+	const counted = await countInverseReferences(
+		[{ type: config.relationType, section_tipo: sectionTipo, section_id: sectionId }],
+		{ sectionTipos: config.targetSections, groupBy: ['section_tipo'] },
+	);
+	return pointingSectionsOf(counted);
 }
 
 /**

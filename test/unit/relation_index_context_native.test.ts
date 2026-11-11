@@ -27,7 +27,7 @@
  * after): dd96 pointers from scratch test3 rows (test54 slot) and from a
  * scratch row of a second pointing section, test1068 (relation_list test1087
  * → [test1071]), at three hosts:
- *   test3/1                 ← 3 test3 rows + 1 test1068 row (two sections)
+ *   test3/MAIN_HOST_ID      ← 3 test3 rows + 1 test1068 row (two sections)
  *   test3/SOLE_HOST_ID      ← 1 test1068 row only (D2: own section test3 absent)
  *   test3/CRAWL_RECORD_IN_A ← 2 test3 rows in the editor persona's project
  * The suite DB holds no dd96 reference of its own, so every count is ours.
@@ -44,6 +44,7 @@ import { createSession, getSession } from '../../src/core/security/session_store
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { clearAclIdentityCaches } from '../helpers/acl_identity_fixture.ts';
 import {
+	CRAWL_DENIED_SECTION,
 	CRAWL_EDITOR_PROFILE_ID,
 	CRAWL_EDITOR_USER_ID,
 	CRAWL_EDITOR_USERNAME,
@@ -71,8 +72,14 @@ const TEST3_POINTER_SLOT = 'test54';
 const SECOND_POINTER_SLOT = 'test1083';
 
 /** Scratch ids (explicit; the suite DB is the isolation, not the band). */
-const TEST3_POINTERS_TO_1 = [948301, 948302, 948303];
-const SECOND_POINTER_TO_1 = 948311;
+/**
+ * The two-section host is a SCRATCH record, never test3/1: the client suite's
+ * own pointer fixture (relation_index_pointer_fixture.ts, 952081 → test3/1)
+ * survives a crashed client run, and every count below must be ours alone.
+ */
+const MAIN_HOST_ID = 948351;
+const TEST3_POINTERS_TO_MAIN = [948301, 948302, 948303];
+const SECOND_POINTER_TO_MAIN = 948311;
 const SOLE_HOST_ID = 948321;
 const SECOND_POINTER_TO_SOLE = 948312;
 const TEST3_POINTERS_TO_PERSONA = [948331, 948332];
@@ -89,12 +96,13 @@ interface ScratchRow {
 
 let secondTable = 'matrix_test';
 const scratchRows: ScratchRow[] = [
-	...TEST3_POINTERS_TO_1.map((sectionId) => ({ sectionTipo: HOST_SECTION, sectionId })),
+	{ sectionTipo: HOST_SECTION, sectionId: MAIN_HOST_ID },
+	...TEST3_POINTERS_TO_MAIN.map((sectionId) => ({ sectionTipo: HOST_SECTION, sectionId })),
 	{ sectionTipo: HOST_SECTION, sectionId: SOLE_HOST_ID },
 	...TEST3_POINTERS_TO_PERSONA.map((sectionId) => ({ sectionTipo: HOST_SECTION, sectionId })),
 	{ sectionTipo: HOST_SECTION, sectionId: TEST3_ONLY_HOST_ID },
 	{ sectionTipo: HOST_SECTION, sectionId: TEST3_POINTER_TO_TEST3_ONLY },
-	{ sectionTipo: SECOND_SECTION, sectionId: SECOND_POINTER_TO_1 },
+	{ sectionTipo: SECOND_SECTION, sectionId: SECOND_POINTER_TO_MAIN },
 	{ sectionTipo: SECOND_SECTION, sectionId: SECOND_POINTER_TO_SOLE },
 	{ sectionTipo: SECOND_SECTION, sectionId: SECOND_POINTER_TO_PERSONA },
 ];
@@ -182,13 +190,16 @@ beforeAll(async () => {
 	secondTable = (await getMatrixTableFromTipo(SECOND_SECTION)) ?? 'matrix_test';
 	await sweep(); // a crashed run's leftovers
 	await installCrawlPersonaFixture();
-	for (const id of TEST3_POINTERS_TO_1) {
-		await createScratchRecord(HOST_SECTION, id, { relation: dd96Pointer(TEST3_POINTER_SLOT, 1) });
+	await createScratchRecord(HOST_SECTION, MAIN_HOST_ID, {});
+	for (const id of TEST3_POINTERS_TO_MAIN) {
+		await createScratchRecord(HOST_SECTION, id, {
+			relation: dd96Pointer(TEST3_POINTER_SLOT, MAIN_HOST_ID),
+		});
 	}
 	await createScratchRecord(
 		SECOND_SECTION,
-		SECOND_POINTER_TO_1,
-		{ relation: dd96Pointer(SECOND_POINTER_SLOT, 1) },
+		SECOND_POINTER_TO_MAIN,
+		{ relation: dd96Pointer(SECOND_POINTER_SLOT, MAIN_HOST_ID) },
 		{ table: secondTable },
 	);
 	await createScratchRecord(HOST_SECTION, SOLE_HOST_ID, {});
@@ -277,6 +288,16 @@ async function call(rqo: Record<string, unknown>, as = ROOT): Promise<Answer> {
 	const body = result.body as { error?: unknown; data?: { context?: Entry[]; data?: Item[] } };
 	expect(body.error ?? null).toBeNull();
 	return { context: body.data?.context ?? [], data: body.data?.data ?? [] };
+}
+
+/** The error code a request answers with (null = served). */
+async function errorCodeOf(rqo: Record<string, unknown>, as = ROOT): Promise<string | null> {
+	const result = await dispatchRqo(
+		rqo as never,
+		(await requestContext(as.userId, as.username, as.isAdmin)) as never,
+	);
+	const error = (result.body as { error?: { code?: string } | null }).error;
+	return error?.code ?? null;
 }
 
 function getData(
@@ -397,32 +418,40 @@ function clientPage(
 		? item.sqo.section_tipo.map((ddo) => String(ddo.tipo))
 		: [HOST_SECTION];
 	const limit = sqoConfig?.limit ?? 10;
-	return call(
-		{
-			action: 'read',
-			dd_api: 'dd_core_api',
-			prevent_lock: true,
-			options: {},
-			source: {
-				typo: 'source',
-				type: 'component',
-				action: 'get_data',
-				model: 'component_relation_index',
-				tipo: INDEX,
-				section_tipo: HOST_SECTION,
-				section_id: hostId,
-				mode,
-				lang: 'lg-spa',
-			},
-			sqo: {
-				section_tipo: sections,
-				limit,
-				offset: limit * pageIndex,
-				filter_by_locators: [{ section_tipo: HOST_SECTION, section_id: hostId }],
-			},
+	return call(clientPageRqo(sections, hostId, mode, limit, limit * pageIndex), as);
+}
+
+/** The page rqo build_rqo_show produces (see clientPage). */
+function clientPageRqo(
+	sections: readonly string[],
+	hostId: number,
+	mode: 'list' | 'edit',
+	limit: number,
+	offset: number,
+): Record<string, unknown> {
+	return {
+		action: 'read',
+		dd_api: 'dd_core_api',
+		prevent_lock: true,
+		options: {},
+		source: {
+			typo: 'source',
+			type: 'component',
+			action: 'get_data',
+			model: 'component_relation_index',
+			tipo: INDEX,
+			section_tipo: HOST_SECTION,
+			section_id: hostId,
+			mode,
+			lang: 'lg-spa',
 		},
-		as,
-	);
+		sqo: {
+			section_tipo: sections,
+			limit,
+			offset,
+			filter_by_locators: [{ section_tipo: HOST_SECTION, section_id: hostId }],
+		},
+	};
 }
 
 // ── projections ─────────────────────────────────────────────────────────────
@@ -487,6 +516,15 @@ function expectColumn(answer: Answer, entry: Entry, columnTipo: string, section:
 	}
 }
 
+/** A served page of the index: its own item is there, at `offset`. */
+function expectIndexPage(answer: Answer, offset: number): void {
+	const ownItem = answer.data.find((item) => item.tipo === INDEX) as
+		| { pagination?: { offset?: number } }
+		| undefined;
+	expect(ownItem).toBeDefined();
+	expect(ownItem?.pagination?.offset).toBe(offset);
+}
+
 /** D3: no pointing-section (model section) context entry anywhere in a get_data answer. */
 function expectNoSectionContexts(answer: Answer): void {
 	expect(answer.context.filter((entry) => entry.model === 'section')).toEqual([]);
@@ -496,8 +534,8 @@ function expectNoSectionContexts(answer: Answer): void {
 
 describe('relation_index (config-less) carries its related_list columns', () => {
 	for (const mode of ['list', 'edit'] as const) {
-		test(`get_data ${mode} on test25@test3/1: merged ddo_map, enriched sqo, cells parented to the index`, async () => {
-			const answer = await getData(1, mode, { limit: 10, offset: 0 });
+		test(`get_data ${mode} on test25@test3/MAIN_HOST: merged ddo_map, enriched sqo, cells parented to the index`, async () => {
+			const answer = await getData(MAIN_HOST_ID, mode, { limit: 10, offset: 0 });
 			const entry = indexEntry(answer, mode);
 			// Non-vacuity FIRST: an empty map is the bug itself.
 			expect(ddoMapOf(entry).length).toBeGreaterThan(0);
@@ -513,8 +551,8 @@ describe('relation_index (config-less) carries its related_list columns', () => 
 		});
 	}
 
-	test('section EDIT read of test3/1: the column entry carries the map and the cell context exists', async () => {
-		const answer = await sectionEdit(1);
+	test('section EDIT read of test3/MAIN_HOST: the column entry carries the map and the cell context exists', async () => {
+		const answer = await sectionEdit(MAIN_HOST_ID);
 		const entry = indexEntry(answer, 'edit');
 		expect(ddoMapOf(entry).length).toBeGreaterThan(0);
 		expectColumn(answer, entry, TEST3_COLUMN, HOST_SECTION);
@@ -522,8 +560,8 @@ describe('relation_index (config-less) carries its related_list columns', () => 
 	});
 
 	test('offset > 0: the page still carries the FULL pointing-section map (D4)', async () => {
-		const first = await getData(1, 'list', { limit: 1, offset: 0 });
-		const later = await getData(1, 'list', { limit: 1, offset: 2 });
+		const first = await getData(MAIN_HOST_ID, 'list', { limit: 1, offset: 0 });
+		const later = await getData(MAIN_HOST_ID, 'list', { limit: 1, offset: 2 });
 		const firstEntry = indexEntry(first, 'list');
 		const laterEntry = indexEntry(later, 'list');
 		expect(ddoMapOf(laterEntry).length).toBeGreaterThan(0);
@@ -537,7 +575,7 @@ describe('relation_index (config-less) carries its related_list columns', () => 
 	});
 
 	test('two pointing sections: both sections, no duplicate column, ddo order follows the sqo sections', async () => {
-		const answer = await getData(1, 'edit', { limit: 10, offset: 0 });
+		const answer = await getData(MAIN_HOST_ID, 'edit', { limit: 10, offset: 0 });
 		const entry = indexEntry(answer, 'edit');
 		const ddoMap = ddoMapOf(entry);
 		expect(ddoMap.length).toBeGreaterThan(0);
@@ -574,9 +612,8 @@ describe('relation_index (config-less) carries its related_list columns', () => 
 				| undefined;
 			expect(ownItem?.entries?.length ?? 0).toBeGreaterThan(0);
 			const editorEntry = indexEntry(asEditor, 'edit');
-			// … but test3 leaves it NO authorised column, so test3 is not merged at
-			// all (a section contributes to sqo only with ≥1 readable column) …
-			expect(sqoSectionsOf(editorEntry)).toEqual([]);
+			// … every pointing section still EXISTS in the context (owner rule) …
+			expect([...sqoSectionsOf(editorEntry)].sort()).toEqual([HOST_SECTION, SECOND_SECTION].sort());
 			// … and the column it holds no grant on has neither ddo, nor context, nor cell.
 			expect(ddoMapOf(editorEntry).map((ddo) => ddo.tipo)).not.toContain(TEST3_COLUMN);
 			expect(cellEntries(asEditor, TEST3_COLUMN)).toEqual([]);
@@ -595,7 +632,7 @@ describe('relation_index (config-less) carries its related_list columns', () => 
 			expect(asEditor.data.some((item) => item.tipo === INDEX)).toBe(true);
 			const editorEntry = indexEntry(asEditor, 'edit');
 			expect(ddoMapOf(editorEntry).map((ddo) => ddo.tipo)).not.toContain(TEST3_COLUMN);
-			expect(sqoSectionsOf(editorEntry)).toEqual([]);
+			expect([...sqoSectionsOf(editorEntry)].sort()).toEqual([HOST_SECTION, SECOND_SECTION].sort());
 			expect(cellEntries(asEditor, TEST3_COLUMN)).toEqual([]);
 			expect(cellItems(asEditor, TEST3_COLUMN)).toEqual([]);
 		});
@@ -603,28 +640,172 @@ describe('relation_index (config-less) carries its related_list columns', () => 
 });
 
 describe('the merged context is safe to page from (Gate B)', () => {
-	test('a pointer from a section the editor cannot read: left out of sqo AND ddo_map; the page-2 request is admitted', async () => {
-		// Control: root sees BOTH pointing sections of the persona record.
-		const asRoot = await getData(CRAWL_RECORD_IN_A, 'list', { limit: 1, offset: 0 });
+	test('RULE: whoever reads the index sees ALL its inverse relations — an unreadable caller shows as section_id + section label, no content; page 2 admitted', async () => {
+		// Control: root sees BOTH pointing sections of the persona record, with content.
+		const asRoot = await getData(CRAWL_RECORD_IN_A, 'list', { limit: 10, offset: 0 });
 		const rootEntry = indexEntry(asRoot, 'list');
 		expect([...sqoSectionsOf(rootEntry)].sort()).toEqual([HOST_SECTION, SECOND_SECTION].sort());
 		expectColumn(asRoot, rootEntry, SECOND_COLUMN, SECOND_SECTION);
-
-		const asEditor = await getData(CRAWL_RECORD_IN_A, 'list', { limit: 1, offset: 0 }, EDITOR);
-		const editorEntry = indexEntry(asEditor, 'list');
-		expect(sqoSectionsOf(editorEntry)).toEqual([HOST_SECTION]);
-		expect(ddoMapOf(editorEntry).map((ddo) => ddo.section_tipo)).not.toContain(SECOND_SECTION);
-		expect(cellItems(asEditor, SECOND_COLUMN)).toEqual([]);
-		// the unreadable section's label/color/matrix_table never ship either
-		expect(JSON.stringify(dedaloItem(editorEntry).sqo)).not.toContain(SECOND_SECTION);
-		const page2 = await clientPage(editorEntry, CRAWL_RECORD_IN_A, 'list', 1, EDITOR);
-		// non-vacuity: the unreadable section IS among the editor's counted pointers
-		// (the inverse count is not section-scoped), so its absence above is the filter
-		const editorOwn = asEditor.data.find((item) => item.tipo === INDEX) as
-			| { pagination?: { total?: number } }
+		const rootOwn = asRoot.data.find((item) => item.tipo === INDEX) as
+			| {
+					entries?: { section_tipo: string; section_id: unknown }[];
+					pagination?: { total?: number };
+			  }
 			| undefined;
+
+		const asEditor = await getData(CRAWL_RECORD_IN_A, 'list', { limit: 10, offset: 0 }, EDITOR);
+		const editorEntry = indexEntry(asEditor, 'list');
+		const editorOwn = asEditor.data.find((item) => item.tipo === INDEX) as
+			| {
+					entries?: { section_tipo: string; section_id: unknown }[];
+					pagination?: { total?: number };
+			  }
+			| undefined;
+		// locators and total are NEVER principal-scoped: the editor's equal root's
 		expect(editorOwn?.pagination?.total).toBe(3);
-		expect(page2.data.some((item) => item.tipo === INDEX)).toBe(true);
+		expect(editorOwn?.pagination?.total).toBe(rootOwn?.pagination?.total as number);
+		expect(editorOwn?.entries).toEqual(rootOwn?.entries as never);
+		const unreadable = (editorOwn?.entries ?? []).filter(
+			(entry) => entry.section_tipo === SECOND_SECTION,
+		);
+		expect(unreadable.map((entry) => Number(entry.section_id))).toEqual([
+			SECOND_POINTER_TO_PERSONA,
+		]);
+
+		// EXISTENCE: per unreadable locator the client has its section_id (the
+		// entry above) AND its section's NAME — the sqo entry, stated grant 0 …
+		const sqoEntries = (dedaloItem(editorEntry).sqo?.section_tipo ?? []) as Record<
+			string,
+			unknown
+		>[];
+		const existence = sqoEntries.find((entry) => entry.tipo === SECOND_SECTION);
+		expect(existence).toBeDefined();
+		expect(existence?.permissions).toBe(0);
+		expect(typeof existence?.label).toBe('string');
+		expect(String(existence?.label).length).toBeGreaterThan(0);
+		// … and NOTHING else of the section: no buttons / color / matrix_table …
+		// the client keys the existence cell on this marker, never on the grant
+		expect(existence?.existence_only).toBe(true);
+		expect(Object.keys(existence ?? {}).sort()).toEqual([
+			'existence_only',
+			'label',
+			'model',
+			'permissions',
+			'tipo',
+			'typo',
+		]);
+		// … no column ddo, no cell context, no data item of that section at all.
+		expect(ddoMapOf(editorEntry).map((ddo) => ddo.section_tipo)).not.toContain(SECOND_SECTION);
+		expect(cellEntries(asEditor, SECOND_COLUMN)).toEqual([]);
+		expect(asEditor.data.filter((item) => item.section_tipo === SECOND_SECTION)).toEqual([]);
+		expect(asEditor.context.filter((entry) => entry.section_tipo === SECOND_SECTION)).toEqual([]);
+		// readable rows are unchanged: test3's column and cells are there
+		expectColumn(asEditor, editorEntry, TEST3_COLUMN, HOST_SECTION);
+
+		// the page-2 request the client builds from THIS context (it carries the
+		// existence-only section) is admitted, in both modes
+		for (const mode of ['list', 'edit'] as const) {
+			const first = await getData(CRAWL_RECORD_IN_A, mode, { limit: 1, offset: 0 }, EDITOR);
+			const entry = indexEntry(first, mode);
+			await clientPage(entry, CRAWL_RECORD_IN_A, mode, 1, EDITOR);
+			// … and a page that HAS rows (limit 1: edit's own limit of 10 leaves its page 2 empty)
+			expectIndexPage(
+				await call(clientPageRqo(sqoSectionsOf(entry), CRAWL_RECORD_IN_A, mode, 1, 1), EDITOR),
+				1,
+			);
+		}
+	});
+
+	test('the admission is no door: a section that does NOT point at the host stays refused for the editor', async () => {
+		// control: the host's own pointing set is admitted (test1068 unreadable, pointing)
+		expect(
+			await errorCodeOf(
+				clientPageRqo([HOST_SECTION, SECOND_SECTION], CRAWL_RECORD_IN_A, 'edit', 10, 10),
+				EDITOR,
+			),
+		).toBeNull();
+		// an unreadable section that points at nothing here (the persona's denied section)
+		for (const mode of ['list', 'edit'] as const) {
+			expect(
+				await errorCodeOf(
+					clientPageRqo([HOST_SECTION, CRAWL_DENIED_SECTION], CRAWL_RECORD_IN_A, mode, 10, 0),
+					EDITOR,
+				),
+			).toBe('perm.denied');
+		}
+	});
+
+	/** The admitted page-2 rqo (the host's own pointing set), then one fact changed. */
+	const pointingPage = (mode: 'list' | 'edit') =>
+		clientPageRqo([HOST_SECTION, SECOND_SECTION], CRAWL_RECORD_IN_A, mode, 10, 0) as {
+			action: string;
+			source: Record<string, unknown>;
+			sqo: Record<string, unknown>;
+		};
+
+	test('the carve-out is the config-less INDEX only: a non-index component (outside or inside the map) with the same sqo is refused', async () => {
+		for (const mode of ['list', 'edit'] as const) {
+			// control: the index itself is admitted
+			expect(await errorCodeOf(pointingPage(mode), EDITOR)).toBeNull();
+			// test101 (component_filter, a test3 component the editor holds a grant
+			// on, OUTSIDE the host map: no chain) — the very case the carve-out
+			// branch is reached for; the same pointing sections would be its
+			// "targets" if the carve-out ignored the model (mutation-checked)
+			const outsideMap = pointingPage(mode);
+			outsideMap.source = {
+				...outsideMap.source,
+				tipo: CRAWL_FILTER_COMPONENT,
+				model: 'component_filter',
+			};
+			expect(await errorCodeOf(outsideMap, EDITOR)).toBe('perm.denied');
+			// test52 (component_input_text, IN the map: the chain-verified path)
+			const inMap = pointingPage(mode);
+			inMap.source = { ...inMap.source, tipo: TEST3_COLUMN, model: 'component_input_text' };
+			expect(await errorCodeOf(inMap, EDITOR)).toBe('perm.denied');
+		}
+	});
+
+	test('the carve-out needs the EXACT host pin: another record or another section in filter_by_locators is refused', async () => {
+		for (const mode of ['list', 'edit'] as const) {
+			for (const pin of [
+				// another record the editor CAN access (project A), same section
+				{ section_tipo: HOST_SECTION, section_id: TEST3_POINTERS_TO_PERSONA[0] },
+				// the same id under another section
+				{ section_tipo: SECOND_SECTION, section_id: CRAWL_RECORD_IN_A },
+			]) {
+				const rqo = pointingPage(mode);
+				rqo.sqo = { ...rqo.sqo, filter_by_locators: [pin] };
+				expect(await errorCodeOf(rqo, EDITOR)).toBe('perm.denied');
+			}
+		}
+	});
+
+	test('an index WITH its own request_config takes its targets from that config: no pointing-section carve-out', async () => {
+		// test198 (component_relation_index, source.request_config → self) is the
+		// test TLD's one configured index; it sits under a diffusion_domain, not
+		// in a section, so the door itself refuses it earlier (no host component).
+		// The carve-out's own answer for it is pinned here: no pointing targets,
+		// even for a record that IS pointed at.
+		const { hostPointingSections } = await import(
+			'../../src/core/relations/models/relation_index.ts'
+		);
+		expect(await hostPointingSections(INDEX, HOST_SECTION, CRAWL_RECORD_IN_A)).toEqual(
+			expect.arrayContaining([HOST_SECTION, SECOND_SECTION]),
+		);
+		expect(await hostPointingSections('test198', HOST_SECTION, CRAWL_RECORD_IN_A)).toEqual([]);
+	});
+
+	test('the COUNT door decides like the read: the pointing set admitted, a non-pointing section refused', async () => {
+		for (const mode of ['list', 'edit'] as const) {
+			const admitted = { ...pointingPage(mode), action: 'count' };
+			expect(await errorCodeOf(admitted, EDITOR)).toBeNull();
+			const refusedRqo = pointingPage(mode);
+			refusedRqo.sqo = { ...refusedRqo.sqo, section_tipo: [HOST_SECTION, CRAWL_DENIED_SECTION] };
+			expect(await errorCodeOf({ ...refusedRqo, action: 'count' }, EDITOR)).toBe('perm.denied');
+			const nonIndex = pointingPage(mode);
+			nonIndex.source = { ...nonIndex.source, tipo: TEST3_COLUMN, model: 'component_input_text' };
+			expect(await errorCodeOf({ ...nonIndex, action: 'count' }, EDITOR)).toBe('perm.denied');
+		}
 	});
 
 	for (const as of [ROOT, EDITOR]) {
@@ -634,14 +815,15 @@ describe('the merged context is safe to page from (Gate B)', () => {
 				const entry = indexEntry(first, mode);
 				expect(sqoSectionsOf(entry)).toContain(HOST_SECTION);
 				expectColumn(first, entry, TEST3_COLUMN, HOST_SECTION);
-				// admitted (call() fails on any error envelope) — in edit mode the
-				// limit is 10, so page 2 is legitimately empty; list (limit 1) has rows
-				const page2 = await clientPage(entry, CRAWL_RECORD_IN_A, mode, 1, as);
-				if (mode === 'edit') continue;
-				const ownItem = page2.data.find((item) => item.tipo === INDEX) as
-					| { pagination?: { offset?: number } }
-					| undefined;
-				expect(ownItem?.pagination?.offset).toBe(1);
+				// admitted (call() fails on any error envelope) as the client builds
+				// it — edit's limit is 10, so that page 2 is legitimately empty …
+				await clientPage(entry, CRAWL_RECORD_IN_A, mode, 1, as);
+				// … and a limit-1 page 2 of the same sections carries the index row
+				const page2 = await call(
+					clientPageRqo(sqoSectionsOf(entry), CRAWL_RECORD_IN_A, mode, 1, 1),
+					as,
+				);
+				expectIndexPage(page2, 1);
 				// the page-2 context still carries the column (D4)
 				expectColumn(page2, indexEntry(page2, mode), TEST3_COLUMN, HOST_SECTION);
 			}
@@ -652,7 +834,7 @@ describe('the merged context is safe to page from (Gate B)', () => {
 describe('section LIST read: one shared node for every row', () => {
 	test('rows with no / different pointing sets merge into ONE column entry carrying the union', async () => {
 		// 948301: pointed at by nothing (the FIRST row) · SOLE_HOST: test1068 only · TEST3_ONLY: test3 only
-		const hostIds = [TEST3_POINTERS_TO_1[0] as number, SOLE_HOST_ID, TEST3_ONLY_HOST_ID];
+		const hostIds = [TEST3_POINTERS_TO_MAIN[0] as number, SOLE_HOST_ID, TEST3_ONLY_HOST_ID];
 		const answer = await sectionListWithIndex(hostIds);
 		const entry = indexEntry(answer, 'list'); // exactly ONE merged entry
 		expect([...sqoSectionsOf(entry)].sort()).toEqual([HOST_SECTION, SECOND_SECTION].sort());

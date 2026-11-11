@@ -395,7 +395,12 @@ async function ungrantedTargetSections(
  * every sqo section a target of that column node, the sqo pinning exactly the
  * host); the verdict then carries the SERVER-DERIVED rqo the read serves
  * (re-rooted at the host map, client show / callers dropped), so the answer
- * is the slice the host read embeds. Same function at both doors.
+ * is the slice the host read embeds. Same function at both doors. ONE
+ * carve-out from "a column of the host map": a CONFIG-LESS
+ * component_relation_index outside that map is admitted on the principal's
+ * component grant (Gate A's check) with the host record's pointing sections as
+ * its targets — not a widening, its inverse read never consults
+ * `sqo.section_tipo` (host_component_read.ts header, configlessIndexTargets).
  */
 async function gateReadTargets(
 	rqo: Pick<Rqo, 'sqo' | 'source' | 'show' | 'search' | 'choose'>,
