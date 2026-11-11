@@ -451,6 +451,7 @@ export const ACTION_IDEMPOTENCY: ReadonlyMap<string, ActionIdempotency> = new Ma
 	['dd_area_maintenance_api:widget_request', 'mutating'],
 	['dd_area_maintenance_api:get_widget_value', 'mutating'],
 	['dd_area_maintenance_api:lock_components_actions', 'mutating'],
+	['dd_area_maintenance_api:parse_simple_schema_changes_files', 'idempotent'],
 	// ── dd_diffusion_api ───────────────────────────────────────────────────
 	['dd_diffusion_api:diffuse', 'mutating'],
 	['dd_diffusion_api:cancel_process', 'mutating'],

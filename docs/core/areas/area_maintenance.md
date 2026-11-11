@@ -107,13 +107,14 @@ Adding a widget is **one new module file plus one import line** in
 
 ## Dispatch and its four gates
 
-`dd_area_maintenance_api` exposes exactly three actions:
+`dd_area_maintenance_api` exposes exactly four actions:
 
 | action | what it does |
 | --- | --- |
 | `widget_request` | Dispatch `source.action` to a method in the named widget's `apiActions`. |
 | `get_widget_value` | Call the named widget's `getValue`. The panel-load and dynamic-refresh path. |
-| `lock_components_actions` | The one area-level (non-widget) action: `get_active_users` / `force_unlock_all_components`. |
+| `lock_components_actions` | Area-level (non-widget) action: `get_active_users` / `force_unlock_all_components`. |
+| `parse_simple_schema_changes_files` | Area-level (non-widget) read: one ontology schema-change file for the `component_security_access` **Latest changes** selector. |
 
 `dispatchWidgetRequest` (`registry.ts`) applies four gates, in order:
 

@@ -126,7 +126,7 @@ handler bodies live in `src/core/api/handlers/<class>.ts`.
 | `dd_utils_api` | Utilities: `login`, `quit`, `change_lang`, locks, uploads, `get_system_info`, `get_login_context`, `get_record_info` (a record's created / modified / published metadata — [inspector](../ui/inspector.md)), the SQO→SQL dev console, and the update-server surfaces. |
 | `dd_tools_api` | `user_tools` and `tool_request` (per-tool action dispatch). |
 | `dd_ts_api` | Tree operations: `get_node_data`, `get_children_data`, `add_child`, `update_parent_data`, `save_order`. |
-| `dd_area_maintenance_api` | The maintenance widgets: `widget_request`, `get_widget_value`, `lock_components_actions` — admin-gated inside the dispatcher. |
+| `dd_area_maintenance_api` | The maintenance widgets: `widget_request`, `get_widget_value`, `lock_components_actions`, `parse_simple_schema_changes_files` — admin-gated inside the dispatcher. |
 | `dd_diffusion_api` | The diffusion engine: `diffuse`, `validate`, `get_process_status`, `list_processes`, `cancel_process`, `get_diffusion_info`, `get_engine_advisory`, `retry_pending_deletions`, `rebuild_media_index`. |
 | `dd_component_portal_api` | `delete_locator` (bulk locator removal). |
 | `dd_component_text_area_api` | Transcription tags: `get_tags_info` (resolve a text's marks into the records they point at), `delete_tag` (remove one tag's marks from every language of the text). |

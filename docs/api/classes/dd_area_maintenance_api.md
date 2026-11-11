@@ -2,9 +2,9 @@
 
 > See also: [JSON API v1](../dedalo_api_v1.md) · [dd_utils_api](dd_utils_api.md) · [dispatch](dispatch.md)
 
-The maintenance area's server surface: run a maintenance widget's method, load a panel's value, and administer component locks.
+The maintenance area's server surface: run a maintenance widget's method, load a panel's value, administer component locks, and read an ontology schema-change file.
 
-Registered actions (`src/core/api/handlers/dd_area_maintenance_api.ts`): `widget_request`, `get_widget_value`, `lock_components_actions`. Widget dispatch and the widget catalog live in `src/core/area_maintenance/widgets/registry.ts`; the widget modules sit alongside it.
+Registered actions (`src/core/api/handlers/dd_area_maintenance_api.ts`): `widget_request`, `get_widget_value`, `lock_components_actions`, `parse_simple_schema_changes_files`. Widget dispatch and the widget catalog live in `src/core/area_maintenance/widgets/registry.ts`; the widget modules sit alongside it.
 
 ## How to call
 
@@ -12,7 +12,7 @@ Registered actions (`src/core/api/handlers/dd_area_maintenance_api.ts`): `widget
 
 ## Notes
 
-- **All three actions are global-admin only.** The maintenance area is an admin surface and the gate runs before anything else; a non-admin gets `perm.denied` (HTTP 403).
+- **All four actions are global-admin only.** The maintenance area is an admin surface and the gate runs before anything else; a non-admin gets `perm.denied` (HTTP 403).
 - The dashboard is a **widget** framework: each panel is one widget, run through `widget_request` (execute) or `get_widget_value` (load). There is no generic class dispatcher — a maintenance operation is always a method of a named widget, and only the methods that widget's module registers are reachable.
 - Envelope: **v2**. A widget answers with its **payload**; the handler is the one site that turns it into a body, so success is `{ ok: true, request_id, data, … }` where `data` is the widget's value. The names the maintenance panels read by their own name — `msg`, `errors`, and each widget's own extras — ride at the top level as **extension keys**, and an absent `msg` or an empty `errors` emits no key at all. A refusal is `{ ok: false, request_id, error: { code, category, message, label_key, retryable } }`. There is no `result` key; the v1 `{ result, msg, errors }` shape was removed on 2026-08-16.
 
@@ -21,7 +21,7 @@ Registered actions (`src/core/api/handlers/dd_area_maintenance_api.ts`): `widget
 | code | status | when |
 | --- | --- | --- |
 | `perm.denied` | 403 | the caller is not a global admin. |
-| `request.invalid_options` | 400 | `options` is present and is not an object (`widget_request`). |
+| `request.invalid_options` | 400 | `options` is present and is not an object (`widget_request`); `filename` is not a bare `simple_schema_changes_<YYYY-MM-DD_HH-MM-SS>.json` name (`parse_simple_schema_changes_files`). |
 | `maintenance.widget_unknown` | 400 | `source.model` names no widget in the catalog (or is not a valid identifier). |
 | `maintenance.widget_unavailable` | 503 | the widget exists but deliberately answers no panel-load (`get_widget_value`). |
 | `tool.method_not_allowed` | 400 | the method is not registered by that widget's module. Resolution is an own-property lookup with a function guard, so an inherited `Object` member can never reflect as a handler. |
@@ -147,3 +147,24 @@ Per-component focus/blur soft-locks are **not** here: they are `dd_utils_api::up
 
 !!! note
     The lock key store keeps `section_id` as text — a named exemption of the int-canonical rule, because the key is a composite shared with the previous engine's own event store. It is canonicalized to an int on the way out, so what reaches the wire is always a record address.
+
+## parse_simple_schema_changes_files
+
+### Purpose
+
+Read one ontology schema-change file for the **Latest changes** selector of `component_security_access` (the profile permissions tree). Every ontology update writes one additions-only diff to `<private>/backups/ontology/changes/`; the component's edit read lists those filenames, newest first, in `changes_files`.
+
+### Request
+
+```json
+{
+  "dd_api": "dd_area_maintenance_api",
+  "action": "parse_simple_schema_changes_files",
+  "options": { "filename": "simple_schema_changes_2026-11-10_09-20-42.json" }
+}
+```
+
+### Response
+
+`data` is one entry per section that gained children: `{ section: {tipo, label}, parents: [{tipo, label}], children: [{tipo, label}] }`. `parents` runs from the farthest ancestor to the nearest, with the root `dd0` left out; labels are in the application language. A missing, empty or unreadable file answers `[]`.
+

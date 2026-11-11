@@ -282,7 +282,7 @@ export async function buildMaintenanceDataItem(): Promise<Record<string, unknown
  * global-admin surface (`perm.denied`, 403 — the message names nothing,
  * it is shown to the refused user).
  */
-function requireMaintenanceAdmin(principal: Principal): void {
+export function requireMaintenanceAdmin(principal: Principal): void {
 	if (!principal.isGlobalAdmin) {
 		throw new DedaloError('perm.denied', {
 			message: 'maintenance widgets are an admin surface',

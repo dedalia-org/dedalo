@@ -71,4 +71,18 @@ export const areaMaintenanceApiActions: Record<string, ActionHandler> = {
 		);
 		return widgetEnvelope(out, context.requestId);
 	},
+	parse_simple_schema_changes_files: async (rqo, context) => {
+		// component_security_access "Latest changes": one ontology schema-change
+		// file, labelled (PHP dd_area_maintenance_api::parse_simple_schema_changes_files).
+		// Admin-gated like every maintenance action (PHP: the whole api needed dd88).
+		const principal = requirePrincipal(context);
+		const { requireMaintenanceAdmin } = await import('../../area_maintenance/widgets/registry.ts');
+		requireMaintenanceAdmin(principal);
+		const { parseSchemaChangesFile } = await import('../../ontology/schema_changes.ts');
+		const options = (rqo.options ?? {}) as { filename?: unknown };
+		return widgetEnvelope(
+			{ data: await parseSchemaChangesFile(options.filename) },
+			context.requestId,
+		);
+	},
 };

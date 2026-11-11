@@ -445,6 +445,13 @@ export const READ_DOOR_POSTURE: ReadonlyMap<string, ReadDoorPosture> = new Map<
 		'dd_area_maintenance_api:lock_components_actions',
 		{ posture: 'mutating', reason: 'lock-state maintenance.' },
 	],
+	[
+		'dd_area_maintenance_api:parse_simple_schema_changes_files',
+		{
+			posture: 'structure_only',
+			reason: 'one ontology schema-change file: tipos + labels, global-admin only; no record data.',
+		},
+	],
 	// ── dd_diffusion_api ─────────────────────────────────────────────────────
 	['dd_diffusion_api:diffuse', { posture: 'mutating', reason: 'enqueues a publication run.' }],
 	['dd_diffusion_api:cancel_process', { posture: 'mutating', reason: 'cancels a run.' }],
