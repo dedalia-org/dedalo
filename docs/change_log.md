@@ -24,6 +24,16 @@ Merged since the last release; these ship with the next one.
 
 #### Security
 
+- **The References panel and related-record lists show only the columns the user may read.**
+
+    The References panel of a record, and the related-record lists that the transcription, indexation
+    and print tools and the persons list of a text field use, show columns from each section that points
+    at the record. They used to show every column, even a field the user has no access to in that
+    section. Now a column the user may not read is left out, as the related records list in the edit
+    form already did. The rows themselves are unchanged. Users with full access see no change.
+
+    Wire contract: `WC-2026-11-11-relation-list-column-grants`.
+
 - **The "+" of a portal (and Duplicate, add term, the assistant) now needs permission to create in the target section.** *(action needed)*
 
     Before, anyone who could edit a portal (or a selector, or a children field) could create
@@ -551,7 +561,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 25 entries"
+??? note "Wire contract — 26 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -578,6 +588,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-11-export-related-references-column`
     - `WC-2026-11-11-export-value-single-walker`
     - `WC-2026-11-11-relation-index-related-list-context`
+    - `WC-2026-11-11-relation-list-column-grants`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

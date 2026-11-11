@@ -11,6 +11,12 @@
  *      (request_config/implicit.ts filterAuthorizedRelated — ONE predicate,
  *      the ALS principal, per call); a global admin sees it; the record's
  *      ADDRESS (an explicit child) always shows.
+ *   A6 STEP 5 on the TOP-LEVEL columns — the pointing section's relation_list
+ *      columns themselves: an ungranted column has neither a context column nor
+ *      a data cell in the panel (buildRelationList) nor the related_search
+ *      payload (buildRelatedSections) — resolve/relation_list.ts
+ *      authorizedRelationListColumns, the same predicate
+ *      (WC-2026-11-11-relation-list-column-grants).
  *   A2 CYCLE — config-less relation_index columns listed in their own
  *      section's relation_list, on records that point at each other (and at
  *      themselves): the reader terminates; the repeated record resolves to
@@ -28,6 +34,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { isDirectConfigChild } from '../../src/core/relations/config_children.ts';
+import { buildRelatedSections } from '../../src/core/resolve/related_sections.ts';
 import {
 	buildRelationList,
 	clearFieldsSeparatorCache,
@@ -396,6 +403,73 @@ describe.if(DB_READY)('T0-9 round A — the interactive flat reader', () => {
 					?.value;
 			expect(panelCell(await panel(identity.admin, T, 4))).toBe('psc four, psc secret four');
 			expect(panelCell(await panel(identity.scoped, T, 4))).toBe('psc four');
+		});
+	});
+
+	describe('A6 — STEP 5 on the panel TOP-LEVEL columns (the pointing section relation_list)', () => {
+		// T#3 points at T#2 (T_PTR): its row's columns are T's relation_list
+		// [T_LABEL, T_SECRET]. The edit form's related_list drops a column the
+		// viewer may not read (section/related_list.ts sectionRelatedListConfig);
+		// the panel applies the same predicate — neither a context column nor a
+		// data cell for it. The ROW itself always shows (the referencing record
+		// is in the persona's projects).
+		const columnsOf = (result: Awaited<ReturnType<typeof panel>>) =>
+			result.context
+				.filter((entry) => entry.section_tipo === T)
+				.map((entry) => entry.component_tipo);
+		const cellsOf = (result: Awaited<ReturnType<typeof panel>>) =>
+			result.data
+				.filter((entry) => entry.section_tipo === T && entry.section_id === 3)
+				.map((entry) => entry.component_tipo);
+
+		test('admin: both columns (non-vacuity)', async () => {
+			const result = await panel(identity.admin, T, 2);
+			expect(columnsOf(result)).toEqual(['id', T_LABEL, T_SECRET]);
+			expect(cellsOf(result)).toEqual(['id', T_LABEL, T_SECRET]);
+			const secret = result.data.find(
+				(entry) => entry.section_id === 3 && entry.component_tipo === T_SECRET,
+			);
+			expect(secret?.value).toBe('psc secret three');
+		});
+
+		test('root: both columns', async () => {
+			expect(columnsOf(await panel(root, T, 2))).toEqual(['id', T_LABEL, T_SECRET]);
+		});
+
+		test('scoped persona without a T_SECRET grant: no column, no cell, row kept', async () => {
+			const result = await panel(identity.scoped, T, 2);
+			expect(columnsOf(result)).toEqual(['id', T_LABEL]);
+			expect(cellsOf(result)).toEqual(['id', T_LABEL]);
+			expect(JSON.stringify(result)).not.toContain('psc secret three');
+		});
+
+		test('related_search payload (buildRelatedSections): the same columns, same rule', async () => {
+			const related = (principal: Principal) => {
+				clearFieldsSeparatorCache();
+				clearFrontierIdentityCaches();
+				return runWithRequestContext(
+					{ principal, session: null, requestId: 't09-related', clientIp: '' },
+					() =>
+						runWithRequestLangs({ applicationLang: LANG, dataLang: LANG }, () =>
+							buildRelatedSections([{ section_tipo: T, section_id: 2 }], {
+								callerTipo: T_PTR,
+								principal,
+								lang: LANG,
+							}),
+						),
+				);
+			};
+			const columnTipos = (result: Awaited<ReturnType<typeof related>>) =>
+				result.context
+					.filter((entry) => entry.section_tipo === T && entry.model !== 'section')
+					.map((entry) => entry.tipo);
+			const admin = await related(identity.admin);
+			expect(columnTipos(admin)).toEqual([T_LABEL, T_SECRET]); // non-vacuity
+			expect(JSON.stringify(admin)).toContain('psc secret three');
+			const scoped = await related(identity.scoped);
+			expect(columnTipos(scoped)).toEqual([T_LABEL]);
+			expect(scoped.data.some((entry) => entry.tipo === T_SECRET)).toBe(false);
+			expect(JSON.stringify(scoped)).not.toContain('psc secret three');
 		});
 	});
 

@@ -94,9 +94,30 @@ export async function getRelationListColumns(sectionTipo: string): Promise<strin
 	// inherits the real section's — PHP get_relation_list_obj's resolve_virtual
 	// retry, class.relation_list.php:305-321) and first by order_number: THE
 	// section fact, section/related_list.ts sectionRelationListTipos (T0-7, T0-8 —
-	// the relation_index columns read the same lookup). Verbatim here: the
-	// grid resolves cell values through its own access checks (no ddo map).
+	// the relation_index columns read the same lookup). Verbatim here — the
+	// PRINCIPAL-FREE fact; the readers filter it with
+	// authorizedRelationListColumns below.
 	return [...(await sectionRelationListTipos(sectionTipo))];
+}
+
+/**
+ * The grid columns of one referencing section the CURRENT requester may read
+ * (STEP 5 on the TOP-LEVEL columns): a column the requester holds no grant on
+ * has neither a context column nor a data cell — the edit form's related_list
+ * rule (section/related_list.ts sectionRelatedListConfig) through the SAME
+ * predicate the children below use (request_config/implicit.ts
+ * filterAuthorizedRelated: the ALS principal, per call; no principal = an
+ * internal resolution = no filter). Ontology order kept. PHP's grid read every
+ * column unfiltered (class.relation_list.php get_ar_data) — deliberate
+ * tightening, WC-2026-11-11-relation-list-column-grants. Every reader of the
+ * pointing section's relation_list columns (the relation_list panel, the
+ * related_search payload) goes through here.
+ */
+export async function authorizedRelationListColumns(sectionTipo: string): Promise<string[]> {
+	const declared = await getRelationListColumns(sectionTipo);
+	if (declared.length === 0) return declared;
+	const allowed = await filterAuthorizedRelated(declared, sectionTipo);
+	return declared.filter((tipo) => allowed.has(tipo));
 }
 
 /**
@@ -1303,7 +1324,7 @@ export async function buildRelationList(
 		// First sight of a section: emit its context columns (id + grid columns).
 		let columns = columnsBySection.get(hit.section_tipo);
 		if (columns === undefined) {
-			columns = await getRelationListColumns(hit.section_tipo);
+			columns = await authorizedRelationListColumns(hit.section_tipo);
 			columnsBySection.set(hit.section_tipo, columns);
 			const sectionLabel = await termByTipo(hit.section_tipo, lang);
 			context.push({

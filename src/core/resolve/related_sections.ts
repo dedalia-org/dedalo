@@ -32,7 +32,7 @@ import { termByTipo } from '../ontology/labels.ts';
 import { getModelByTipo } from '../ontology/resolver.ts';
 import { findInverseReferences } from '../search/search_related.ts';
 import type { Principal } from '../security/permissions.ts';
-import { getRelationListColumns, resolveCellValue } from './relation_list.ts';
+import { authorizedRelationListColumns, resolveCellValue } from './relation_list.ts';
 import { currentDataLang } from './request_lang.ts';
 
 export interface RelatedSectionsResult {
@@ -121,7 +121,8 @@ export async function buildRelatedSections(
 		// First sight of a section: SECTION context entry, then its columns.
 		let columns = columnsBySection.get(record.section_tipo);
 		if (columns === undefined) {
-			columns = await getRelationListColumns(record.section_tipo);
+			// Only the columns the requester may read (STEP 5, the panel's rule).
+			columns = await authorizedRelationListColumns(record.section_tipo);
 			columnsBySection.set(record.section_tipo, columns);
 			context.push({
 				model: 'section',
