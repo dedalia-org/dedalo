@@ -397,10 +397,7 @@ export function buildStringFragment(
 			// which stays case-sensitive for programmatic exact lookups.
 			return withStorePrefilter(
 				context,
-				existsEnvelope(
-					context,
-					`lower(f_unaccent(elem->>'value')) = lower(f_unaccent(_Q1_))`,
-				),
+				existsEnvelope(context, `lower(f_unaccent(elem->>'value')) = lower(f_unaccent(_Q1_))`),
 				{ _Q1_: qClean },
 				qClean,
 			);

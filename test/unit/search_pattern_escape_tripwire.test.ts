@@ -292,7 +292,12 @@ describe('search terms are literal — the escape census', () => {
 		for (const q of [`==${TERM}`, `=${TERM}`, `'${TERM}'`]) {
 			const built = asFragment(buildStringFragment(q, null, false, context()));
 			expect(built.sentence).not.toContain('~*');
-			expect(built.sentence).toContain("f_unaccent(elem->>'value') = f_unaccent(_Q1_)");
+			// '=' ignores letter case (WC-014 amend); '==' and the quoted literal do not
+			expect(built.sentence).toContain(
+				q.startsWith('=') && !q.startsWith('==')
+					? "lower(f_unaccent(elem->>'value')) = lower(f_unaccent(_Q1_))"
+					: "f_unaccent(elem->>'value') = f_unaccent(_Q1_)",
+			);
 			expect(built.sentence).not.toContain(REGEX_LITERAL_FN);
 			expect(built.tokenValues._Q1_).toBe(TERM);
 		}

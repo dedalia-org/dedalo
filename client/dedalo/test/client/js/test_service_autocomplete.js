@@ -699,7 +699,7 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 			const row = document.createElement('li')
 			row.classList.add('selected')
 			let clicks = 0
-			row.addEventListener('click', () => clicks++)
+			row.click = () => clicks++ // the service selects via .click(); a stub, not a pointer listener
 			datalist.appendChild(row)
 			const self = { datalist }
 			const enter = () => service_autocomplete.prototype.service_autocomplete_keys.call(
