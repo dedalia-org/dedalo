@@ -23,16 +23,20 @@ import { CLIENT_MAX_LIMIT } from '../../src/core/concepts/sqo.ts';
 import * as ddOntology from '../../src/core/db/dd_ontology.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { getModelByTipo } from '../../src/core/ontology/resolver.ts';
+import * as explicit from '../../src/core/relations/request_config/explicit.ts';
 import {
 	CLIENT_SOURCE_ARRAY_MAX,
 	isActiveTldTipo,
 } from '../../src/core/relations/request_config/explicit.ts';
 import {
 	buildRequestConfigFromRqo,
+	buildTargetSectionShowMapFromRqo,
 	type InheritedDdo,
+	newStageOneTargetsScope,
 	type RqoElement,
 } from '../../src/core/relations/request_config/from_rqo.ts';
 import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
+import * as permissions from '../../src/core/security/permissions.ts';
 import { type Principal, resolvePrincipal } from '../../src/core/security/permissions.ts';
 import {
 	ACL_DENIED_COMPONENT,
@@ -679,6 +683,128 @@ describe.if(dbReady)('buildRequestConfigFromRqo — stage 1', () => {
 			expect(lines.filter((line) => line.startsWith('[request_config/explicit]'))).toEqual([]);
 			expect(lines.join('|')).toContain('removed 303 client show ddo(s)');
 		} finally {
+			warn.mockRestore();
+		}
+	});
+});
+
+/**
+ * THE PER-TARGET LOOP of a component-sourced read (section/read.ts
+ * stageOneTargetSectionsMap — the service_autocomplete picker): one SECTION
+ * build per sqo target, each judging the same client ddos. It used to run the
+ * whole buildRequestConfigFromRqo per target (show + search + an sqo enriching
+ * EVERY target) and keep only the show map: n² on an `ontology_sections` portal
+ * (226 targets — ~265 ms of pure JS per keystroke). The loop now builds the show
+ * map alone through ONE shared scope (newStageOneTargetsScope).
+ *
+ * The law this gate holds: for EVERY target and EVERY principal, the scoped
+ * build answers exactly what the full build's show map answers — the same
+ * drops, the same narrowing, the same consolidation — and the grant work is
+ * linear in the targets, not quadratic.
+ */
+describe.if(dbReady)('stage 1 per-target loop — same drops, linear work', () => {
+	const TARGET_COUNT = 40;
+	let targets: string[] = [];
+
+	beforeAll(async () => {
+		if (!dbReady) return;
+		const rows = await sql<{ tipo: string }[]>`
+			SELECT tipo FROM dd_ontology
+			WHERE tld = 'test' AND model = 'section' AND tipo NOT IN (${SECTION}, ${OTHER_SECTION})
+			ORDER BY tipo LIMIT ${TARGET_COUNT - 2}`;
+		// the readable section in the MIDDLE: a scope filled by an unreadable
+		// target first must still answer the readable one right
+		const rest = rows.map((row) => row.tipo);
+		targets = [...rest.slice(0, 10), SECTION, OTHER_SECTION, ...rest.slice(10)];
+	});
+
+	/** The autocomplete's shape plus every target-DEPENDENT spelling beside it. */
+	const loopRqo = () => ({
+		source: { tipo: COMPONENT, section_tipo: SECTION },
+		sqo: { section_tipo: targets },
+		show: {
+			ddo_map: [
+				// target-independent: every target named (the autocomplete columns)
+				{ tipo: GRANTED, parent: COMPONENT, section_tipo: targets },
+				{ tipo: DENIED, parent: COMPONENT, section_tipo: targets },
+				{ tipo: GRANTED, parent: GRANTED, section_tipo: [OTHER_SECTION, SECTION] },
+				// a parent that IS one target: direct child of that target alone
+				{ tipo: GRANTED, parent: SECTION, section_tipo: [SECTION, OTHER_SECTION] },
+				// target-dependent: 'self', absent, one section twice, self in a list, source array
+				{ tipo: GRANTED, parent: 'self', section_tipo: 'self' },
+				{ tipo: GRANTED, parent: COMPONENT },
+				{ tipo: GRANTED, parent: COMPONENT, section_tipo: [SECTION, SECTION] },
+				{ tipo: GRANTED, parent: COMPONENT, section_tipo: [OTHER_SECTION, 'self'] },
+				{
+					tipo: GRANTED,
+					parent: COMPONENT,
+					section_tipo: [{ source: 'section', value: [SECTION, OTHER_SECTION] }],
+				},
+			],
+		},
+		search: { ddo_map: [{ tipo: GRANTED, parent: COMPONENT, section_tipo: targets }] },
+	});
+	const elementOf = (tipo: string) => ({ kind: 'section' as const, tipo, mode: 'list' });
+
+	test('preconditions: enough targets, mixed grants (anti-vacuity)', async () => {
+		expect(targets).toHaveLength(TARGET_COUNT);
+		const full = await build(loopRqo(), elementOf(SECTION), nonAdmin);
+		const tipos = full?.[0]?.show.ddo_map.map((ddo) => ddo.tipo) ?? [];
+		// the restricted principal keeps some ddos and loses DENIED: both branches run
+		expect(tipos.length).toBeGreaterThan(0);
+		expect(tipos).not.toContain(DENIED);
+	});
+
+	for (const who of ['restricted', 'root', 'internal'] as const) {
+		test(`${who}: every target's scoped show map equals the full build's, one scope for the loop`, async () => {
+			const principal = who === 'restricted' ? nonAdmin : who === 'root' ? root : undefined;
+			const rqo = loopRqo();
+			const scope = newStageOneTargetsScope();
+			const warn = spyOn(console, 'warn').mockImplementation(() => {});
+			try {
+				// every target, plus one the rqo does not name (both answer null)
+				for (const tipo of [...targets, 'test0']) {
+					const scoped = await withLangs(() =>
+						buildTargetSectionShowMapFromRqo(rqo, elementOf(tipo), principal, scope),
+					);
+					const full = await build(rqo, elementOf(tipo), principal);
+					expect({ tipo, map: scoped }).toEqual({
+						tipo,
+						map: full === null ? null : (full[0]?.show.ddo_map ?? null),
+					});
+				}
+				expect(rqo).toEqual(loopRqo()); // the rqo is never mutated
+			} finally {
+				warn.mockRestore();
+			}
+		});
+	}
+
+	test('the loop is linear: one verdict per (section, tipo), no sqo enrichment — the full build was n²', async () => {
+		const rqo = loopRqo();
+		const authorize = spyOn(permissions, 'ddoIsAuthorized');
+		const enrich = spyOn(explicit, 'buildSqoSectionTipoDdos');
+		const warn = spyOn(console, 'warn').mockImplementation(() => {});
+		try {
+			const scope = newStageOneTargetsScope();
+			for (const tipo of targets) {
+				await withLangs(() =>
+					buildTargetSectionShowMapFromRqo(rqo, elementOf(tipo), nonAdmin, scope),
+				);
+			}
+			const scopedCalls = authorize.mock.calls.length;
+			// every grant asked at most once: (section, tipo) pairs are 2 tipos × the targets
+			expect(scopedCalls).toBeLessThanOrEqual(2 * TARGET_COUNT);
+			expect(enrich).not.toHaveBeenCalled();
+
+			// control: the full per-target build the loop used to run
+			authorize.mockClear();
+			for (const tipo of targets) await build(rqo, elementOf(tipo), nonAdmin);
+			expect(authorize.mock.calls.length).toBeGreaterThanOrEqual(TARGET_COUNT * TARGET_COUNT);
+			expect(enrich).toHaveBeenCalledTimes(TARGET_COUNT);
+		} finally {
+			authorize.mockRestore();
+			enrich.mockRestore();
 			warn.mockRestore();
 		}
 	});

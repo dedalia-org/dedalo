@@ -636,15 +636,32 @@ function judgedSectionsOf(
 	return typeof entry === 'string' ? [entry] : null;
 }
 
+/**
+ * ddoIsAuthorized verdicts of ONE principal, keyed `section\u0000componentTipo`,
+ * for ONE build scope (never module state). A component-sourced read builds the
+ * same client ddos once per target section, each judged on every section it
+ * names — n targets × n sections per ddo without the memo (226² on an
+ * `ontology_sections` portal, the autocomplete hot path). Same verdicts, read
+ * once: the permission table it answers from is itself a cross-request cache.
+ */
+export type GrantVerdicts = Map<string, boolean>;
+
 /** Every section readable for `componentTipo` (an empty / unjudgeable list is not). */
 async function allReadable(
 	principal: Principal,
 	sections: readonly string[] | null,
 	componentTipo: string,
+	verdicts: GrantVerdicts,
 ): Promise<boolean> {
 	if (sections === null || sections.length === 0) return false;
 	for (const section of sections) {
-		if (!(await ddoIsAuthorized(principal, section, componentTipo))) return false;
+		const key = `${section}\u0000${componentTipo}`;
+		let verdict = verdicts.get(key);
+		if (verdict === undefined) {
+			verdict = await ddoIsAuthorized(principal, section, componentTipo);
+			verdicts.set(key, verdict);
+		}
+		if (!verdict) return false;
 	}
 	return true;
 }
@@ -660,10 +677,11 @@ async function readableSectionTipoOf(
 	element: RqoElement,
 	isDirectChild: boolean,
 	principal: Principal,
+	verdicts: GrantVerdicts,
 ): Promise<{ readonly sectionTipo: ConsolidatedDdo['section_tipo'] } | null> {
 	const declared = ddo.section_tipo;
 	const readableEntry = (entry: unknown): Promise<boolean> =>
-		allReadable(principal, judgedSectionsOf(entry, element, isDirectChild), ddo.tipo);
+		allReadable(principal, judgedSectionsOf(entry, element, isDirectChild), ddo.tipo, verdicts);
 	if (!Array.isArray(declared)) {
 		return (await readableEntry(declared)) ? { sectionTipo: declared } : null;
 	}
@@ -693,6 +711,7 @@ async function buildRequestedDdo(
 	requestedSourceTipo: unknown,
 	element: RqoElement,
 	principal: Principal | undefined,
+	verdicts: GrantVerdicts,
 ): Promise<
 	{ readonly ddo: ConsolidatedDdo; readonly limitClamped: boolean } | { readonly why: string }
 > {
@@ -710,30 +729,89 @@ async function buildRequestedDdo(
 		return consolidated;
 	}
 	const isDirectChild = isDirectChildParent(ddo.parent, requestedSourceTipo, element);
-	const readable = await readableSectionTipoOf(ddo, element, isDirectChild, principal);
+	const readable = await readableSectionTipoOf(ddo, element, isDirectChild, principal, verdicts);
 	if (readable === null) return { why: 'no read grant' };
 	ddo.section_tipo = readable.sectionTipo;
 	return consolidated;
 }
 
-/** Validate + consolidate + authorize one client map. */
+type RequestedDdoOutcome = Awaited<ReturnType<typeof buildRequestedDdo>>;
+
+/**
+ * Whether a client ddo builds the SAME for every SECTION element of one mode:
+ * its section_tipo is an array naming at least two distinct plain sections —
+ * no 'self' (any spelling), no source array. Then nothing the build reads
+ * depends on which section it runs for:
+ *  - consolidateSectionDirectChild acts only on a declaration naming exactly
+ *    ONE section (the element) — never on two or more;
+ *  - resolveDeclaredSourceArray returns a non-source array untouched;
+ *  - judgedSectionsOf maps a plain string entry to itself (only an absent or
+ *    'self' entry stands for the element);
+ *  - validation, refusal, label and mode never read the element tipo.
+ * The per-target loop of a component-sourced read builds such a ddo ONCE
+ * (StageOneTargetsScope) — the `ontology_sections` autocomplete sends five, each
+ * naming all 226 targets.
+ */
+function isTargetIndependentDdo(candidate: unknown): boolean {
+	if (!isObjectBlock(candidate)) return false;
+	const declared = candidate.section_tipo;
+	if (!Array.isArray(declared) || isSourceArraySectionTipo(declared)) return false;
+	const named = new Set<string>();
+	for (const entry of declared) {
+		if (typeof entry !== 'string' || entry === '' || isSelfSectionTipoEntry(entry)) return false;
+		named.add(entry);
+	}
+	return named.size >= 2;
+}
+
+/**
+ * What the per-target loop of ONE component-sourced read shares across its
+ * targets (one principal, one mode, one show map — never module state):
+ *  - `verdicts`: every ddoIsAuthorized answer (GrantVerdicts);
+ *  - `outcomes`: a target-independent ddo's built outcome, by its index in the
+ *    show map (isTargetIndependentDdo). The SAME object is answered for every
+ *    target: callers copy before they change it (read.ts mergeTargetDdo does).
+ */
+export interface StageOneTargetsScope {
+	readonly verdicts: GrantVerdicts;
+	readonly outcomes: Map<number, RequestedDdoOutcome>;
+}
+
+export function newStageOneTargetsScope(): StageOneTargetsScope {
+	return { verdicts: new Map(), outcomes: new Map() };
+}
+
+/**
+ * Validate + consolidate + authorize one client map. With `outcomes` (the
+ * show map of a per-target loop, StageOneTargetsScope) a target-independent
+ * ddo is built once and its drop / clamp reported once.
+ */
 async function buildRequestedMap(
 	rawMap: readonly unknown[],
 	mapType: 'show' | 'search',
 	requestedSourceTipo: unknown,
 	element: RqoElement,
 	principal: Principal | undefined,
+	verdicts: GrantVerdicts,
+	outcomes?: Map<number, RequestedDdoOutcome>,
 ): Promise<ConsolidatedDdo[]> {
 	const built: ConsolidatedDdo[] = [];
 	const dropped: ReportedDdo[] = [];
 	const clamped: ReportedDdo[] = [];
-	for (const candidate of rawMap) {
-		const outcome = await buildRequestedDdo(candidate, requestedSourceTipo, element, principal);
+	for (const [index, candidate] of rawMap.entries()) {
+		const shared = outcomes !== undefined && isTargetIndependentDdo(candidate);
+		const cached = shared ? outcomes.get(index) : undefined;
+		const outcome =
+			cached ??
+			(await buildRequestedDdo(candidate, requestedSourceTipo, element, principal, verdicts));
+		if (shared && cached === undefined) outcomes.set(index, outcome);
 		if ('why' in outcome) {
-			dropped.push({ tipo: rawTipoOf(candidate), why: outcome.why });
+			if (cached === undefined) dropped.push({ tipo: rawTipoOf(candidate), why: outcome.why });
 			continue;
 		}
-		if (outcome.limitClamped) clamped.push({ tipo: outcome.ddo.tipo, why: 'limit clamped' });
+		if (outcome.limitClamped && cached === undefined) {
+			clamped.push({ tipo: outcome.ddo.tipo, why: 'limit clamped' });
+		}
 		built.push(outcome.ddo);
 	}
 	reportMapIssues(element.tipo, mapType, dropped, clamped);
@@ -807,16 +885,18 @@ export async function buildRequestConfigFromRqo(
 	element: RqoElement,
 	principal: Principal | undefined,
 ): Promise<RqoRequestConfigItem[] | null> {
-	if (!isObjectLike(rqo)) return null;
-	const request = rqo as RqoShape;
-	// PHP `empty($requested_show)` on a decoded OBJECT: only an absent show is
-	// "empty" — an object with an empty (or no) ddo_map still builds the item.
-	if (!rqoTargetsElement(request, element.tipo) || !isObjectBlock(request.show)) return null;
-
-	// the gate passed, so source is an object
-	const requestedSourceTipo = (request.source as { tipo?: unknown }).tipo;
+	const request = stageOneRequest(rqo, element);
+	if (request === null) return null;
+	const verdicts: GrantVerdicts = new Map();
 	const mapOf = (block: Record<string, unknown>, mapType: 'show' | 'search') =>
-		buildRequestedMap(blockDdoMap(block), mapType, requestedSourceTipo, element, principal);
+		buildRequestedMap(
+			blockDdoMap(block),
+			mapType,
+			requestedSourceTipoOf(request),
+			element,
+			principal,
+			verdicts,
+		);
 	const item: RqoRequestConfigItem = {
 		api_engine: 'dedalo',
 		type: 'main',
@@ -827,4 +907,54 @@ export async function buildRequestConfigFromRqo(
 		item.search = { ddo_map: await mapOf(request.search, 'search') };
 	if (isObjectBlock(request.sqo)) item.sqo = await buildRequestedSqo(request.sqo, element.tipo);
 	return [item];
+}
+
+/**
+ * The stage-1 gate: the rqo as a request that targets `element` and carries a
+ * show OBJECT, or null. PHP `empty($requested_show)` on a decoded OBJECT: only
+ * an absent show is "empty" — an object with an empty (or no) ddo_map still
+ * builds the item.
+ */
+function stageOneRequest(
+	rqo: unknown,
+	element: RqoElement,
+): (RqoShape & { show: Record<string, unknown> }) | null {
+	if (!isObjectLike(rqo)) return null;
+	const request = rqo as RqoShape;
+	if (!rqoTargetsElement(request, element.tipo) || !isObjectBlock(request.show)) return null;
+	return request as RqoShape & { show: Record<string, unknown> };
+}
+
+/** The gate passed, so source is an object. */
+function requestedSourceTipoOf(request: RqoShape): unknown {
+	return (request.source as { tipo?: unknown }).tipo;
+}
+
+/**
+ * Stage 1's SHOW map of one target SECTION in the per-target loop of a
+ * component-sourced read (section/read.ts stageOneTargetSectionsMap) — equal to
+ * `buildRequestConfigFromRqo(rqo, element, principal)[0].show.ddo_map` (null when
+ * that answers null), without the search map or the sqo, both of which that
+ * loop threw away (the sqo enriched every target section once PER target).
+ * One `scope` (newStageOneTargetsScope) serves every target of the loop: with
+ * n targets each named by the ddos, the build was n² — the autocomplete hot path.
+ * Gate: test/unit/request_config_from_rqo.test.ts (per-target equality + bound).
+ */
+export async function buildTargetSectionShowMapFromRqo(
+	rqo: unknown,
+	element: RqoElement & { kind: 'section' },
+	principal: Principal | undefined,
+	scope: StageOneTargetsScope,
+): Promise<ConsolidatedDdo[] | null> {
+	const request = stageOneRequest(rqo, element);
+	if (request === null) return null;
+	return buildRequestedMap(
+		blockDdoMap(request.show),
+		'show',
+		requestedSourceTipoOf(request),
+		element,
+		principal,
+		scope.verdicts,
+		scope.outcomes,
+	);
 }
