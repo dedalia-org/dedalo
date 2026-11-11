@@ -19,8 +19,8 @@
  * This is the locked client template (layer 1: module-load + construct + wiring).
  */
 
-import {tool_upload} from '../../../tools/tool_upload/js/tool_upload.js'
 import {get_content_data} from '../../../core/services/service_upload/js/render_edit_service_upload.js'
+import {tool_upload} from '../../../tools/tool_upload/js/tool_upload.js'
 
 
 

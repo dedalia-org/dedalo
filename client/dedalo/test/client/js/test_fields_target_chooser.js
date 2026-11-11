@@ -2,7 +2,10 @@
 /*global it, describe, assert */
 /*eslint no-undef: "error"*/
 
-import { get_target_choices, render_components_list } from '../../../core/common/js/render_common.js';
+import {
+	get_target_choices,
+	render_components_list,
+} from '../../../core/common/js/render_common.js';
 
 // The FIELDS picker (render_common.js render_components_list, shared by search and
 // tool_export) drilled a relation into `target_section_tipo[0]` ONLY: a relation
@@ -58,7 +61,9 @@ const make_caller = (group_target_sections) => {
 		requested,
 		group_target_sections,
 		calculate_component_path: (element, path) =>
-			path.concat([{ section_tipo: element.section_tipo, component_tipo: element.tipo, name: element.label }]),
+			path.concat([
+				{ section_tipo: element.section_tipo, component_tipo: element.tipo, name: element.label },
+			]),
 		get_section_id: () => 'tmp_export_1',
 		get_section_elements_context: async ({ section_tipo }) => {
 			requested.push(section_tipo);
@@ -77,11 +82,21 @@ const root_elements = [root_section, root_group, portal_element];
 const drill = async (caller) => {
 	const target_div = document.createElement('div');
 	document.body.appendChild(target_div);
-	render_components_list({ self: caller, section_tipo: 'test3', target_div, path: [], section_elements: root_elements });
+	render_components_list({
+		self: caller,
+		section_tipo: 'test3',
+		target_div,
+		path: [],
+		section_elements: root_elements,
+	});
 	const row = target_div.querySelector('li.has_subquery');
 	row.click();
 	// the click handler awaits the (stub) fetch
-	for (let i = 0; i < 10 && !target_div.querySelector('.target_list_container .component_label'); i++) {
+	for (
+		let i = 0;
+		i < 10 && !target_div.querySelector('.target_list_container .component_label');
+		i++
+	) {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 	}
 	return { target_div, drilled: target_div.querySelector('ul.target_list_container') };
@@ -133,7 +148,10 @@ describe('FIELDS_TARGET_CHOOSER : get_target_choices', () => {
 
 	it('a family with no member is ignored', () => {
 		const choices = get_target_choices(
-			{ ...portal_element, target_section_groups: [{ tipo: 'x', label: 'x', members: [] }, groups[1]] },
+			{
+				...portal_element,
+				target_section_groups: [{ tipo: 'x', label: 'x', members: [] }, groups[1]],
+			},
 			{ group_target_sections: true },
 		);
 		assert.deepEqual(
@@ -157,11 +175,19 @@ describe('FIELDS_TARGET_CHOOSER : the drilled level offers every target', () => 
 				section_elements: [
 					root_section,
 					root_group,
-					{ ...portal_element, target_section_tipo: ['testother'], target_section_groups: undefined },
+					{
+						...portal_element,
+						target_section_tipo: ['testother'],
+						target_section_groups: undefined,
+					},
 				],
 			});
 			target_div.querySelector('li.has_subquery').click();
-			const name = await settle(target_div, '.target_list_container .section_bar_section_name', 'Immovables');
+			const name = await settle(
+				target_div,
+				'.target_list_container .section_bar_section_name',
+				'Immovables',
+			);
 			assert.ok(name, 'the plain level name renders');
 			assert.equal(target_div.querySelector('select.section_chooser'), null);
 		} finally {
@@ -204,7 +230,11 @@ describe('FIELDS_TARGET_CHOOSER : the drilled level offers every target', () => 
 				],
 			);
 			const reselect = drilled.querySelector('select.section_chooser');
-			assert.equal(reselect.options[reselect.selectedIndex].textContent, 'Immovables', 'the chooser shows the choice');
+			assert.equal(
+				reselect.options[reselect.selectedIndex].textContent,
+				'Immovables',
+				'the chooser shows the choice',
+			);
 		} finally {
 			target_div.remove();
 		}
