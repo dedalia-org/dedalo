@@ -133,6 +133,7 @@ export function clearOntologyCaches(): void {
 	relatedTipoByExactModelCache.clear();
 	sectionRealTipoCache.clear();
 	ancestorSectionCache.clear();
+	childTipoModelsCache.clear();
 }
 registerOntologyCacheClearer(clearOntologyCaches);
 
@@ -642,6 +643,38 @@ export async function getChildrenNodes(parentTipo: string): Promise<OntologySubt
 		FROM dd_ontology WHERE parent = ${parentTipo}
 	`) as Parameters<typeof toSubtreeNode>[0][];
 	return rows.map(toSubtreeNode).sort(compareSiblingOrder);
+}
+
+/** One direct child as the edit walk reads it (getChildTipoModels). */
+export interface ChildTipoModel {
+	readonly tipo: string;
+	readonly model: string | null;
+}
+
+/**
+ * CHILDREN-OF, lean: the direct children's (tipo, model) in `order_number, id`
+ * order — the order the implicit edit walk has always used (implicit.ts
+ * buildImplicitSectionEditConfig; NOT compareSiblingOrder's tipo tie). The walk
+ * ran one raw SELECT per visited node on EVERY section edit config build — 33
+ * per autocomplete keystroke on an `ontology_sections` portal, warm. Cached;
+ * hub-cleared on any dd_ontology write. The answer is frozen: callers never
+ * mutate it.
+ */
+const childTipoModelsCache = createOntologyCache<string, readonly ChildTipoModel[]>();
+
+export async function getChildTipoModels(parentTipo: string): Promise<readonly ChildTipoModel[]> {
+	const cached = childTipoModelsCache.get(parentTipo);
+	if (cached !== undefined) return cached;
+	const rows = (await sql`
+		SELECT tipo, model FROM dd_ontology
+		WHERE parent = ${parentTipo}
+		ORDER BY order_number, id
+	`) as { tipo: string; model: string | null }[];
+	const children = Object.freeze(
+		rows.map((row) => Object.freeze({ tipo: row.tipo, model: row.model })),
+	);
+	cacheWrite(childTipoModelsCache, parentTipo, children);
+	return children;
 }
 
 /**
