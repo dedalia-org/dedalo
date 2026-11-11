@@ -58,6 +58,16 @@ class v6_to_v7 {
 	*/
 	public static string $table_matrix_time_machine = 'matrix_time_machine';
 
+	/**
+	* Review-only hook for the deep preflight, set by set_machine_name_review().
+	* When set, reformat_matrix_data() in review mode (save = false) applies the
+	* migrate_ontology_machine_names() rules IN MEMORY to the rows of these tables before
+	* converting them, so the review converts the same input the real run does (where the
+	* machine-name step has already written the values). Never read on a save pass.
+	* @var object|null $machine_name_review { tables: string[], classification: object }
+	*/
+	public static ?object $machine_name_review = null;
+
 
 
 	/**
@@ -441,6 +451,837 @@ class v6_to_v7 {
 
 
 	/**
+	 * MACHINE NAMES (owner decisions 2026-11-03 / 2026-11-04)
+	 * Every v7 ontology node carries two more components:
+	 * - ontology43 machine name: component_input_text, non-translatable, stored lg-nolan.
+	 * - ontology44 use machine name: component_radio_button over dd64 (1 = Yes, 2 = No).
+	 * Both are defined by the master ontology in v6 too, definition-only (no v6 code reads
+	 * them), so an install that ran its ontology update has them in jer_dd and the normal
+	 * conversion (migrate_component_data) types their values like any other component.
+	 */
+	public const MACHINE_NAME_TIPO		= 'ontology43';
+	public const USE_MACHINE_NAME_TIPO	= 'ontology44';
+	// dd64 section_id of the flag locator. String: the v6 locator shape (intify_section_id_locators converts it later).
+	public const MACHINE_NAME_YES		= '1';
+	public const MACHINE_NAME_NO		= '2';
+	// component_autocomplete_hi 'overwrite': marks a localontology0 record as the override of a main node
+	public const ONTOLOGY_OVERWRITE_TIPO	= 'ontology42';
+	// root of the model definitions: every strict descendant is a name
+	public const MODELS_ROOT_TIPO		= 'dd2';
+
+	/**
+	 * MACHINE_NAME_MODELS
+	 * Closed list of instance models whose term is a NAME read by code (a table, a field, a
+	 * domain, an RDF/OWL term), never a label shown to people. Strict descendants of dd2 (the
+	 * model definitions themselves) are names too, whatever their model. Everything else is a
+	 * label, including the mixed diffusion models (diffusion_element and its alias,
+	 * diffusion_group / section / component / head) and the xml / rdf / head / body /
+	 * structure_data containers.
+	 * (!) DUPLICATE. The source of truth is the v7 engine (src/core/ontology/, NAME_MODELS), which re-checks
+	 * every node after the upgrade, so a drifted copy here surfaces there as named defects.
+	 * Each name verified as a model node under dd2 in the v6 ontology (tipo in the comment).
+	 */
+	public const MACHINE_NAME_MODELS = [
+		'database',				// dd1259
+		'database_alias',		// dd1025
+		'table',				// dd1229
+		'table_alias',			// dd347
+		'matrix_table',			// dd626
+		'field_int',			// dd1230
+		'field_text',			// dd1231
+		'field_mediumtext',		// dd1232
+		'field_enum',			// dd1233
+		'field_date',			// dd1234
+		'field_varchar',		// dd1235
+		'field_year',			// dd1236
+		'field_boolean',		// dd523
+		'field_decimal',		// dd525
+		'field_datetime',		// dd527
+		'field_point',			// dd615
+		'diffusion_domain',		// dd17
+		'rdf:predicate',		// dd246
+		'rdf:subject',			// dd248
+		'rdf:object',			// dd250
+		'owl:ObjectProperty',	// dd350
+		'owl:Class'				// dd526
+	];
+
+
+
+	/**
+	 * MIGRATE_ONTOLOGY_MACHINE_NAMES
+	 *
+	 * Fills ontology43 / ontology44 on every v6 ontology record, in the v6 shape, BEFORE
+	 * reformat_matrix_data(), so the conversion that follows types them like any other
+	 * component (no hand-written v7 shape, no ORPHAN_TIPO: both are in jer_dd).
+	 * Legacy data is fixed here, in the v6 upgrade; v7 converts nothing (owner decisions
+	 * 2026-11-03 / 2026-11-04). v6 itself never moves ontology5 lg-spa: its model names are
+	 * read from jer_dd, which this step does not touch.
+	 *
+	 * Rules, per record:
+	 * 1. Classify against v6 jer_dd: NAME = strict descendant of dd2, or a node whose model
+	 *    is in MACHINE_NAME_MODELS. An override is classified by the merged model (its own
+	 *    ontology6 when set, else the main node's).
+	 * 2. Values already present (master ontology, operator) are kept, never overwritten. One
+	 *    that disagrees with the classification is reported (MACHINE_NAME_FLAG_MISMATCH).
+	 *    Only gaps are filled, and a name only on a NAME node: a stored Yes on a LABEL node
+	 *    without a name keeps ontology5 untouched (MACHINE_NAME_MISSING, error).
+	 * 3. NAME, no value: ontology43 lg-nolan = ontology5 lg-spa, the lg-spa item is REMOVED
+	 *    from ontology5 (other langs stay as labels, differing ones reported), flag = Yes.
+	 * 4. NAME without lg-spa: one distinct value in the other langs is moved
+	 *    (MACHINE_NAME_FROM_<LANG>); several are never picked: flag = Yes, no name,
+	 *    MACHINE_NAME_AMBIGUOUS (error).
+	 * 5. Several distinct lg-spa items (ontology5 is multi-value): MACHINE_NAME_AMBIGUOUS.
+	 * 6. Every other record without a value: explicit flag = No.
+	 * 7. localontology0 overrides follow the same rules on the override record, but state only
+	 *    what they override: an override without its own term or model is left alone (the
+	 *    merge falls back to the main node), the flag gap is filled only when it overrides
+	 *    the model, and only an lg-spa override value moves. A non-spa one is reported. An
+	 *    override that makes a LABEL main node a name without an lg-spa term of its own
+	 *    leaves the merged node without a name: MACHINE_NAME_MISSING (error).
+	 * 8. Time Machine: the ontology5 lg-spa rows of every node left with a machine name and no
+	 *    lg-spa label are re-keyed to ontology43 / lg-nolan, in the v6 TM shape, so history
+	 *    restores into the new component. Done HERE, not in reformat_matrix_time_machine_data:
+	 *    the classification is only computed here, a key change is valid on any TM payload
+	 *    shape, and the TM conversion then types the rows from the ontology like any other.
+	 *    Only while the TM table is still v6-shaped (legacy 'dato' column).
+	 * 9. No TM rows are written for the move itself (raw SQL, like every sibling step).
+	 *    Findings go through v6_to_v7_normalize::add with severity + code.
+	 *
+	 * Idempotent: a second run finds every value present and changes nothing.
+	 * Findings are DATA: an ambiguous name fails the preflight (exit 6, through the report
+	 * groups) but does not fail this step. Only a database failure does (stop_on_error).
+	 *
+	 * @param array $ar_tables Tables holding ontology records (matrix_ontology).
+	 * @param bool $save If true, saves changes to DB. If false, only performs a data review.
+	 * @return object Standard response object.
+	 */
+	public static function migrate_ontology_machine_names( array $ar_tables, bool $save ) : object {
+
+		$response = new stdClass();
+			$response->result	= false;
+			$response->msg		= 'Error. Request failed';
+			$response->errors	= [];
+
+		debug_log(__METHOD__ . PHP_EOL
+			. ' ))))))))))))))))))))))))))))))))))))))))))))))))))))))) ' . PHP_EOL
+			. ' MIGRATING ONTOLOGY MACHINE NAMES ... ' . PHP_EOL
+			. ' migrate_ontology_machine_names - tables: ' . json_handler::encode($ar_tables) . ' save: ' . json_handler::encode($save) . PHP_EOL
+			. ' ))))))))))))))))))))))))))))))))))))))))))))))))))))))) ' . PHP_EOL
+			, logger::WARNING
+		);
+
+		// classification source: the v6 jer_dd, read once
+		$classification = v6_to_v7::get_machine_name_classification();
+		if ($classification === null) {
+			$response->errors[] = 'Failed to read ' . static::$table_jer_dd . ' to classify the ontology nodes';
+			return $response;
+		}
+
+		// both components must be defined, or their values would be dropped as orphan tipos
+		$missing = array_values(array_filter(
+			[self::MACHINE_NAME_TIPO, self::USE_MACHINE_NAME_TIPO],
+			static fn(string $tipo) : bool => !isset($classification->nodes[$tipo])
+		));
+		if (!empty($missing)) {
+			$response->errors[] = 'Ontology node(s) ' . implode(', ', $missing) . ' missing from '
+				. static::$table_jer_dd . ': run the ontology update first';
+			return $response;
+		}
+
+		// A re-run after drop_legacy_datos_column has no v6 shape left to fill.
+		$ar_tables = array_values(array_filter(
+			$ar_tables,
+			static fn(string $table) : bool => DBi::check_column_exists($table, 'datos')
+		));
+		if (empty($ar_tables)) {
+			$response->result	= true;
+			$response->msg		= 'Nothing to do: no table carries the legacy datos column';
+			return $response;
+		}
+
+		// Findings sink. Kept apart from $response so a data finding (an ambiguous name) is
+		// reported without failing the step; $response->errors holds database failures only.
+		$findings = new stdClass();
+			$findings->errors = [];
+
+		$stats = (object)[
+			'records'	=> 0,
+			'updated'	=> 0,
+			'names'		=> 0,
+			'flags'		=> 0,
+			'tm_rows'	=> 0
+		];
+		// [section_tipo, section_id] of the nodes whose ontology5 lg-spa history is re-keyed
+		$tm_keys = [];
+
+		// CLI process data initialization
+		if ( running_in_cli()===true ) {
+			if (!isset(common::$pdata)) {
+				common::$pdata = new stdClass();
+			}
+			common::$pdata->table = '';
+			common::$pdata->memory = '';
+			common::$pdata->counter = 0;
+		}
+		// resolved once: before pre_update there is no dd_ontology to resolve labels against
+		$processing_label = label::get_label('processing') ?? 'Processing';
+
+		$conn = DBi::_getConnection();
+		$ar_escaped_tables = [];
+
+		update::tables_rows_iterator(
+			$ar_tables,
+			function($row, $table, $max) use ($response, $findings, $save, $conn, $classification, $stats, $processing_label, &$tm_keys, &$ar_escaped_tables) {
+
+				$id				= $row['id'];
+				$section_tipo	= $row['section_tipo'] ?? null;
+				$section_id		= $row['section_id'] ?? null;
+
+				// CLI process data status
+				if ( running_in_cli()===true ) {
+					common::$pdata->msg	= $processing_label . ': ' . __METHOD__
+						. ' | table: '			. $table
+						. ' | id: '				. $id .' - ' . $max
+						. ' | section_tipo: '	. $section_tipo
+						. ' | section_id: '		. ($section_id ?? '');
+					common::$pdata->memory = (common::$pdata->counter % 5000 === 0)
+						? dd_memory_usage()
+						: common::$pdata->memory;
+					common::$pdata->table = $table;
+					common::$pdata->section_tipo = $section_tipo;
+					common::$pdata->counter++;
+					print_cli(common::$pdata);
+				}
+
+				// rows without a section carry no ontology node; obsolete ones are deleted by
+				// reformat_matrix_data, never converted
+				if (empty($section_tipo) || $section_id === null || $section_id === '' || v6_to_v7::is_obsolete_ontology_row($section_tipo)) {
+					return;
+				}
+
+				$datos = (isset($row['datos'])) ? json_handler::decode($row['datos']) : null;
+				if (!is_object($datos)) {
+					return;
+				}
+				$stats->records++;
+
+				$outcome = self::apply_machine_name_rules(
+					$datos,
+					$table,
+					$section_tipo,
+					$section_id,
+					$classification,
+					$findings
+				);
+
+				if ($outcome->rekey_tm === true) {
+					$tm_keys[] = [$section_tipo, (int)$section_id];
+				}
+
+				if ($outcome->changed !== true) {
+					return;
+				}
+				$stats->updated++;
+				$stats->names += $outcome->name_written ? 1 : 0;
+				$stats->flags += $outcome->flag_written ? 1 : 0;
+
+				if (!isset($ar_escaped_tables[$table])) {
+					$ar_escaped_tables[$table] = pg_escape_identifier($conn, $table);
+				}
+
+				if ($save) {
+					$result = matrix_db_manager::exec_search(
+						'UPDATE ' . $ar_escaped_tables[$table] . ' SET datos = $1 WHERE id = $2',
+						[json_handler::encode($datos), $id],
+						false
+					);
+				} else {
+					$result = true;
+				}
+
+				if($result===false) {
+					$msg = "Failed Update machine names ($table) $id";
+					debug_log(__METHOD__
+						." ERROR: $msg "
+						, logger::ERROR
+					);
+					$response->errors[] = "Error on SQL execution for ID $id. Table: $table";
+				}
+			}//end callback function
+		);
+
+		// Time Machine re-key (rule 8). Pure key change: tipo + lang, value untouched.
+		$tm_table = static::$table_matrix_time_machine;
+		if (!empty($tm_keys) && DBi::check_table_exists($tm_table)) {
+
+			if (!DBi::check_column_exists($tm_table, 'dato')) {
+				// Restructured by a previous run's later steps, which only ran after this
+				// step completed (stop_on_error): the re-key is already done.
+				debug_log(__METHOD__
+					. " Time Machine table is no longer v6-shaped. Re-key skipped (done by a previous run)"
+					, logger::WARNING
+				);
+			}else{
+
+				$escaped_tm_table = pg_escape_identifier($conn, $tm_table);
+				$where = 'tipo = $1 AND lang = $2'
+					. ' AND (section_tipo, section_id) IN (SELECT * FROM unnest($3::text[], $4::int[]))';
+
+				foreach (array_chunk($tm_keys, 1000) as $chunk) {
+
+					$params = [
+						DEDALO_ONTOLOGY_TERM_TIPO,
+						'lg-spa',
+						'{' . implode(',', array_map(static fn(array $key) : string => '"' . addcslashes($key[0], '"\\') . '"', $chunk)) . '}',
+						'{' . implode(',', array_map(static fn(array $key) : string => (string)$key[1], $chunk)) . '}'
+					];
+
+					if ($save) {
+						$result = matrix_db_manager::exec_search(
+							'UPDATE ' . $escaped_tm_table . ' SET tipo = $5, lang = $6 WHERE ' . $where,
+							[...$params, self::MACHINE_NAME_TIPO, DEDALO_DATA_NOLAN],
+							false
+						);
+						$affected = ($result !== false) ? pg_affected_rows($result) : 0;
+					} else {
+						$result = matrix_db_manager::exec_search(
+							'SELECT count(*) AS total FROM ' . $escaped_tm_table . ' WHERE ' . $where,
+							$params,
+							false
+						);
+						$affected = ($result !== false) ? (int)(pg_fetch_assoc($result)['total'] ?? 0) : 0;
+					}
+
+					if($result===false) {
+						$msg = "Failed Time Machine re-key ($tm_table)";
+						debug_log(__METHOD__
+							." ERROR: $msg "
+							, logger::ERROR
+						);
+						$response->errors[] = $msg;
+						continue;
+					}
+					$stats->tm_rows += $affected;
+				}
+			}
+		}
+
+		$summary = 'records: ' . $stats->records
+			. ' | updated: ' . $stats->updated
+			. ' | machine names set: ' . $stats->names
+			. ' | flags set: ' . $stats->flags
+			. ' | time machine rows re-keyed: ' . $stats->tm_rows
+			. ' | findings needing attention: ' . count($findings->errors)
+			. ($save ? '' : ' (review only, nothing saved)');
+
+		$response->result	= empty($response->errors);
+		$response->msg		= empty($response->errors)
+			? 'Request done successfully. ' . $summary
+			: 'Request done with errors (' . count($response->errors) . '). ' . $summary;
+
+		return $response;
+	}//end migrate_ontology_machine_names
+
+
+
+	/**
+	 * SET_MACHINE_NAME_REVIEW
+	 *
+	 * Arms (or, with null, disarms) the review-only hook $machine_name_review, so a review
+	 * pass of reformat_matrix_data() converts the ontology records as the real run will
+	 * find them: after migrate_ontology_machine_names(). The rules then also report their
+	 * findings inside that pass, which starts by resetting the groups.
+	 *
+	 * @param array|null $ar_tables Tables holding ontology records, or null to disarm.
+	 * @return bool False when jer_dd cannot be read (the hook stays disarmed).
+	 */
+	public static function set_machine_name_review( ?array $ar_tables ) : bool {
+
+		self::$machine_name_review = null;
+		if ($ar_tables === null) {
+			return true;
+		}
+
+		$classification = v6_to_v7::get_machine_name_classification();
+		if ($classification === null) {
+			return false;
+		}
+
+		self::$machine_name_review = (object)[
+			'tables'			=> array_values($ar_tables),
+			'classification'	=> $classification
+		];
+
+		return true;
+	}//end set_machine_name_review
+
+
+
+	/**
+	 * GET_MACHINE_NAME_CLASSIFICATION
+	 *
+	 * Reads the v6 jer_dd once and classifies every node for migrate_ontology_machine_names().
+	 * Uses the legacy columns only ("terminoID", parent, modelo, model, term, esmodelo),
+	 * which exist before and after pre_update(), so the plain preflight can run it too.
+	 * The dd2 subtree is one recursive query (UNION also stops on a parent cycle). A model
+	 * node has no 'model' text, so an instance's model falls back to its model node's term.
+	 *
+	 * @return object|null {
+	 *   nodes: array<string,int>        tipo => 0 label | 1 dd2 descendant | 2 name by model
+	 *   models: array<string,string>    tipo => model name
+	 *   model_names: array<string,string>  model node tipo => model name (its lg-spa term)
+	 * } null when jer_dd cannot be read
+	 */
+	public static function get_machine_name_classification() : ?object {
+
+		$table = pg_escape_identifier(DBi::_getConnection(), static::$table_jer_dd);
+
+		$sql_query = '
+			WITH RECURSIVE dd2_tree AS (
+				SELECT "terminoID" AS tipo FROM ' . $table . ' WHERE parent = $1
+				UNION
+				SELECT j."terminoID" FROM ' . $table . ' j JOIN dd2_tree t ON j.parent = t.tipo
+			)
+			SELECT j."terminoID" AS tipo,
+				(d.tipo IS NOT NULL) AS is_dd2_descendant,
+				COALESCE(NULLIF(j.model, \'\'), m.term->>\'lg-spa\') AS model,
+				j.esmodelo::text AS esmodelo,
+				j.term->>\'lg-spa\' AS term_spa
+			FROM ' . $table . ' j
+			LEFT JOIN ' . $table . ' m ON m."terminoID" = j.modelo
+			LEFT JOIN dd2_tree d ON d.tipo = j."terminoID"
+		';
+		$result = matrix_db_manager::exec_search($sql_query, [self::MODELS_ROOT_TIPO], false);
+		if ($result === false) {
+			debug_log(__METHOD__
+				." ERROR: Failed to read jer_dd"
+				, logger::ERROR
+			);
+			return null;
+		}
+
+		$classification = (object)[
+			'nodes'			=> [],
+			'models'		=> [],
+			'model_names'	=> []
+		];
+		while ($row = pg_fetch_assoc($result)) {
+
+			$tipo = $row['tipo'];
+			if (empty($tipo)) {
+				continue;
+			}
+			$model = $row['model'];
+
+			$classification->nodes[$tipo] = ($row['is_dd2_descendant'] === 't')
+				? 1
+				: (in_array($model, self::MACHINE_NAME_MODELS, true) ? 2 : 0);
+
+			if (!empty($model)) {
+				$classification->models[$tipo] = $model;
+			}
+			if ($row['esmodelo'] === 'si' && !empty($row['term_spa'])) {
+				$classification->model_names[$tipo] = $row['term_spa'];
+			}
+		}
+		pg_free_result($result);
+
+		return $classification;
+	}//end get_machine_name_classification
+
+
+
+	/**
+	 * APPLY_MACHINE_NAME_RULES
+	 *
+	 * Applies the migrate_ontology_machine_names() rules to ONE record, mutating its v6
+	 * `datos` in place. Writes are v6-shaped: ontology43 as a literal
+	 * {"dato":{"lg-nolan":[name]}}, ontology44 as a dd64 locator appended to `relations`
+	 * (ids and meta are added later by process_matrix_row_data).
+	 *
+	 * @param object $datos v6 record blob (mutated)
+	 * @param string $table
+	 * @param string $section_tipo
+	 * @param mixed $section_id
+	 * @param object $classification get_machine_name_classification()
+	 * @param object $findings findings sink (v6_to_v7_normalize::add)
+	 * @return object { changed: bool, name_written: bool, flag_written: bool, rekey_tm: bool }
+	 */
+	private static function apply_machine_name_rules( object $datos, string $table, string $section_tipo, mixed $section_id, object $classification, object $findings ) : object {
+
+		$outcome = (object)[
+			'changed'		=> false,
+			'name_written'	=> false,
+			'flag_written'	=> false,
+			'rekey_tm'		=> false
+		];
+
+		// locators this step reads
+		$flag_locator = $model_locator = $parent_locator = $main_locator = null;
+		foreach ((isset($datos->relations) && is_array($datos->relations)) ? $datos->relations : [] as $locator) {
+			if (!is_object($locator) || !isset($locator->from_component_tipo)) {
+				continue;
+			}
+			switch ($locator->from_component_tipo) {
+				case self::USE_MACHINE_NAME_TIPO:	$flag_locator	= $flag_locator ?? $locator;	break;
+				case DEDALO_ONTOLOGY_MODEL_TIPO:	$model_locator	= $model_locator ?? $locator;	break;
+				case DEDALO_ONTOLOGY_PARENT_TIPO:	$parent_locator	= $parent_locator ?? $locator;	break;
+				case self::ONTOLOGY_OVERWRITE_TIPO:	$main_locator	= $main_locator ?? $locator;	break;
+			}
+		}
+
+		$components		= (isset($datos->components) && is_object($datos->components)) ? $datos->components : null;
+		$term			= $components->{DEDALO_ONTOLOGY_TERM_TIPO}->dato ?? null;
+		$term			= is_object($term) ? $term : null;
+		$existing_name	= self::machine_name_first_value($components->{self::MACHINE_NAME_TIPO}->dato ?? null);
+		$existing_flag	= isset($flag_locator) ? (string)($flag_locator->section_id ?? '') : null;
+
+		// node identity: tld (ontology7) + section_id. An override names its main node.
+		$tld = self::machine_name_lang_values($components->{DEDALO_ONTOLOGY_TLD_TIPO}->dato ?? null, DEDALO_DATA_NOLAN)[0]
+			?? self::tld_from_section_tipo($section_tipo);
+		$own_tipo		= $tld . $section_id;
+		$main_tipo		= isset($main_locator) ? self::locator_to_tipo($main_locator) : null;
+		$is_override	= ($main_tipo !== null);
+		$node_tipo		= $main_tipo ?? $own_tipo;
+
+		// An override states only what it overrides: without its own term or model, the merge
+		// falls back to the main node, which carries the values.
+		if ($is_override && $term === null && $model_locator === null) {
+			return $outcome;
+		}
+
+		// 1. classify. jer_dd first; the record's own ontology6 / ontology15 for a node jer_dd
+		// does not hold (an uncompiled local TLD) and for an override (merged model).
+		$known		= isset($classification->nodes[$node_tipo]);
+		$model_tipo	= isset($model_locator) ? self::locator_to_tipo($model_locator) : null;
+		$own_model	= ($model_tipo !== null) ? ($classification->model_names[$model_tipo] ?? null) : null;
+		$model		= $is_override
+			? ($own_model ?? ($classification->models[$node_tipo] ?? null))
+			: ($classification->models[$node_tipo] ?? $own_model);
+		$parent_tipo = isset($parent_locator) ? self::locator_to_tipo($parent_locator) : null;
+		$under_dd2	= (($classification->nodes[$node_tipo] ?? 0) === 1)
+			|| ((!$known || $is_override) && $parent_tipo !== null
+				&& ($parent_tipo === self::MODELS_ROOT_TIPO || ($classification->nodes[$parent_tipo] ?? 0) === 1));
+		$is_name	= $under_dd2 || in_array($model, self::MACHINE_NAME_MODELS, true);
+
+		$ctx = [
+			'table'			=> $table,
+			'section_tipo'	=> $section_tipo,
+			'section_id'	=> $section_id,
+			'tipo'			=> $node_tipo,
+			'model'			=> (string)$model
+		];
+		$label = ($is_override ? 'override of ' : '') . $node_tipo . ' (' . $table . '/' . $section_tipo . '/' . $section_id . ')';
+
+		// 2. values already present win; a disagreement is reported, never corrected.
+		// MACHINE_NAME_FLAG_MISMATCH is a WARNING in the plan; the normalize scale has no warning
+		// level, and NOTICE is the non-blocking one.
+		$classified_flag = $is_name ? self::MACHINE_NAME_YES : self::MACHINE_NAME_NO;
+		$valid_flag = in_array($existing_flag, [self::MACHINE_NAME_YES, self::MACHINE_NAME_NO], true);
+		$stated_flag = $valid_flag
+			? $existing_flag
+			: (($existing_flag === null && $existing_name !== null) ? self::MACHINE_NAME_YES : null);
+		if (($existing_flag !== null && !$valid_flag) || ($stated_flag !== null && $stated_flag !== $classified_flag)) {
+			v6_to_v7_normalize::add(
+				$findings,
+				'MACHINE_NAME_FLAG_MISMATCH',
+				v6_to_v7_normalize::SEVERITY_NOTICE,
+				$ctx,
+				'Machine name value kept as is on ' . $label . ': stored flag ' . json_handler::encode($existing_flag)
+					. ', machine name ' . json_handler::encode($existing_name)
+					. ', the classification says ' . ($is_name ? 'Yes (name)' : 'No (label)')
+			);
+		}
+		$flag = $stated_flag ?? $classified_flag;
+
+		// 6. fill the flag gap (an override only when it overrides the model)
+		if ($existing_flag === null && (!$is_override || $model_locator !== null)) {
+			if (!isset($datos->relations) || !is_array($datos->relations)) {
+				$datos->relations = [];
+			}
+			$datos->relations[] = (object)[
+				'type'					=> DEDALO_RELATION_TYPE_LINK,
+				'section_id'			=> $flag,
+				'section_tipo'			=> DEDALO_SECTION_SI_NO_TIPO,
+				'from_component_tipo'	=> self::USE_MACHINE_NAME_TIPO
+			];
+			$outcome->changed		= true;
+			$outcome->flag_written	= true;
+			if ($flag === self::MACHINE_NAME_NO) {
+				v6_to_v7_normalize::add(
+					$findings,
+					'MACHINE_NAME_FLAG_NO_SET',
+					v6_to_v7_normalize::SEVERITY_FIXED,
+					array_merge($ctx, ['tipo' => '', 'model' => '']),
+					'Use machine name set to No on a label node'
+				);
+			}
+		}
+
+		if ($flag !== self::MACHINE_NAME_YES) {
+			return $outcome;
+		}
+
+		$spa = self::machine_name_lang_values($term, 'lg-spa');
+
+		if ($existing_name === null && !$is_name) {
+
+			// Yes only by a stored flag the classification contradicts (reported above): rule 3
+			// derives names for NAME nodes only, so ontology5 stays as it is and a human decides.
+			v6_to_v7_normalize::add(
+				$findings,
+				'MACHINE_NAME_MISSING',
+				v6_to_v7_normalize::SEVERITY_ERROR,
+				$ctx,
+				'Machine name not set on ' . $label . ': stored flag Yes on a node classified as a label. No name derived, the term is kept: set it by hand',
+				$term
+			);
+
+		}else if ($existing_name === null) {
+
+			// 3-5, 7. derive the name from ontology5
+			$name			= null;
+			$source_langs	= [];
+			if (count($spa) === 1) {
+				$name			= $spa[0];
+				$source_langs	= ['lg-spa'];
+			}else if (count($spa) > 1) {
+				v6_to_v7_normalize::add(
+					$findings,
+					'MACHINE_NAME_AMBIGUOUS',
+					v6_to_v7_normalize::SEVERITY_ERROR,
+					$ctx,
+					'Machine name not set on ' . $label . ': several lg-spa terms ' . json_handler::encode($spa) . '. Never picked: keep one',
+					$spa
+				);
+			}else{
+				// no lg-spa: the other langs
+				$other_values = [];
+				foreach (($term !== null ? get_object_vars($term) : []) as $lang => $_) {
+					$values = self::machine_name_lang_values($term, (string)$lang);
+					if (!empty($values)) {
+						$other_values[$lang] = $values;
+					}
+				}
+				$distinct = array_values(array_unique(array_merge(...array_values($other_values))));
+
+				if ($is_override) {
+					if (!empty($distinct)) {
+						v6_to_v7_normalize::add(
+							$findings,
+							'MACHINE_NAME_OVERRIDE_NOT_SPA',
+							v6_to_v7_normalize::SEVERITY_NOTICE,
+							$ctx,
+							'Override term kept as a label on ' . $label . ': only an lg-spa override value becomes a machine name',
+							$other_values
+						);
+					}
+					// The merged node takes this override's Yes; only a NAME main node brings
+					// the machine name (moved on its own record). A label main node has none.
+					if (($classification->nodes[$node_tipo] ?? 0) === 0) {
+						v6_to_v7_normalize::add(
+							$findings,
+							'MACHINE_NAME_MISSING',
+							v6_to_v7_normalize::SEVERITY_ERROR,
+							$ctx,
+							'Machine name not set on ' . $label . ': the override makes the node a name (model ' . json_handler::encode($model) . ') but has no lg-spa term, and the main node is a label. Set it by hand',
+							$other_values
+						);
+					}
+				}else if (count($distinct) === 1) {
+					$name			= $distinct[0];
+					$source_langs	= array_keys($other_values);
+					$first_lang		= (string)$source_langs[0];
+					v6_to_v7_normalize::add(
+						$findings,
+						'MACHINE_NAME_FROM_' . strtoupper(str_replace('-', '_', $first_lang)),
+						v6_to_v7_normalize::SEVERITY_NOTICE,
+						$ctx,
+						'Machine name of ' . $label . ' taken from ' . implode(', ', $source_langs) . ' (no lg-spa term): ' . json_handler::encode($name),
+						$other_values
+					);
+				}else if (count($distinct) > 1) {
+					v6_to_v7_normalize::add(
+						$findings,
+						'MACHINE_NAME_AMBIGUOUS',
+						v6_to_v7_normalize::SEVERITY_ERROR,
+						$ctx,
+						'Machine name not set on ' . $label . ': no lg-spa term and several distinct terms ' . json_handler::encode($other_values) . '. Never picked: set it by hand',
+						$other_values
+					);
+				}else{
+					v6_to_v7_normalize::add(
+						$findings,
+						'MACHINE_NAME_MISSING',
+						v6_to_v7_normalize::SEVERITY_ERROR,
+						$ctx,
+						'Machine name not set on ' . $label . ': the node is a name but has no term at all'
+					);
+				}
+			}
+
+			if ($name !== null) {
+
+				// D3: the other langs stay as labels; the ones that differ are reported
+				if ($source_langs === ['lg-spa'] && $term !== null) {
+					$strays = [];
+					foreach (get_object_vars($term) as $lang => $_) {
+						if ($lang === 'lg-spa') {
+							continue;
+						}
+						$values = array_values(array_diff(self::machine_name_lang_values($term, (string)$lang), [$name]));
+						if (!empty($values)) {
+							$strays[$lang] = $values;
+						}
+					}
+					if (!empty($strays)) {
+						v6_to_v7_normalize::add(
+							$findings,
+							'MACHINE_NAME_LABEL_KEPT',
+							v6_to_v7_normalize::SEVERITY_NOTICE,
+							$ctx,
+							'Other-language terms of ' . $label . ' kept as labels (they differ from the machine name ' . json_handler::encode($name) . ')',
+							$strays
+						);
+					}
+				}
+
+				// move: out of the label, into the machine name
+				foreach ($source_langs as $lang) {
+					unset($term->{$lang});
+				}
+				if ($components === null) {
+					$components = $datos->components = new stdClass();
+				}
+				$components->{self::MACHINE_NAME_TIPO} = (object)[
+					'inf'	=> 'Machine name [component_input_text]',
+					'dato'	=> (object)[DEDALO_DATA_NOLAN => [$name]]
+				];
+				$existing_name			= $name;
+				$outcome->changed		= true;
+				$outcome->name_written	= true;
+				v6_to_v7_normalize::add(
+					$findings,
+					'MACHINE_NAME_MOVED',
+					v6_to_v7_normalize::SEVERITY_FIXED,
+					array_merge($ctx, ['tipo' => '']),
+					'Machine name set from the term, and removed from the label (' . implode(', ', $source_langs) . ')'
+				);
+			}
+
+		}else if (!empty($spa)) {
+
+			// a name already set (master ontology, operator): complete the move (D16) when the
+			// lg-spa label is that same name; a different one is a label, kept and reported.
+			if ($spa === [$existing_name]) {
+				unset($term->{'lg-spa'});
+				$outcome->changed = true;
+			}else{
+				v6_to_v7_normalize::add(
+					$findings,
+					'MACHINE_NAME_LABEL_DIFFERS',
+					v6_to_v7_normalize::SEVERITY_NOTICE,
+					$ctx,
+					'lg-spa term of ' . $label . ' kept as a label: it differs from the stored machine name ' . json_handler::encode($existing_name),
+					$spa
+				);
+			}
+		}
+
+		// 8. history: a node holding a machine name and no lg-spa label had its name in
+		// ontology5 lg-spa. Recomputed from the state, so a re-run completes an interrupted one.
+		$outcome->rekey_tm = ($existing_name !== null) && empty(self::machine_name_lang_values($term, 'lg-spa'));
+
+		return $outcome;
+	}//end apply_machine_name_rules
+
+
+
+	/**
+	 * MACHINE_NAME_LANG_VALUES
+	 * Distinct, trimmed, non-empty string values of one lang of a v6 literal `dato`.
+	 * @param mixed $dato {lang: string[]|string}
+	 * @param string $lang
+	 * @return array<int,string>
+	 */
+	private static function machine_name_lang_values( mixed $dato, string $lang ) : array {
+
+		if (!is_object($dato) || !isset($dato->{$lang})) {
+			return [];
+		}
+
+		$values = [];
+		foreach ((array)$dato->{$lang} as $value) {
+			if (is_string($value) || is_int($value) || is_float($value)) {
+				$value = trim((string)$value);
+				if ($value !== '') {
+					$values[] = $value;
+				}
+			}
+		}
+
+		return array_values(array_unique($values));
+	}//end machine_name_lang_values
+
+
+
+	/**
+	 * MACHINE_NAME_FIRST_VALUE
+	 * First non-empty value of a v6 literal `dato`, lg-nolan first.
+	 * @param mixed $dato
+	 * @return string|null
+	 */
+	private static function machine_name_first_value( mixed $dato ) : ?string {
+
+		if (!is_object($dato)) {
+			return null;
+		}
+
+		$langs = array_unique([DEDALO_DATA_NOLAN, ...array_map('strval', array_keys(get_object_vars($dato)))]);
+		foreach ($langs as $lang) {
+			$values = self::machine_name_lang_values($dato, $lang);
+			if (!empty($values)) {
+				return $values[0];
+			}
+		}
+
+		return null;
+	}//end machine_name_first_value
+
+
+
+	/**
+	 * TLD_FROM_SECTION_TIPO
+	 * The tld of an ontology record section: 'dd0' → 'dd' (the main section is tld + '0').
+	 * @param string $section_tipo
+	 * @return string
+	 */
+	private static function tld_from_section_tipo( string $section_tipo ) : string {
+
+		return (string)preg_replace('/0$/', '', $section_tipo);
+	}//end tld_from_section_tipo
+
+
+
+	/**
+	 * LOCATOR_TO_TIPO
+	 * Node tipo addressed by an ontology locator: {section_tipo:'dd0', section_id:'1231'} → 'dd1231'.
+	 * @param object $locator
+	 * @return string|null
+	 */
+	private static function locator_to_tipo( object $locator ) : ?string {
+
+		if (empty($locator->section_tipo) || !isset($locator->section_id) || $locator->section_id === '') {
+			return null;
+		}
+
+		return self::tld_from_section_tipo((string)$locator->section_tipo) . $locator->section_id;
+	}//end locator_to_tipo
+
+
+
+	/**
 	 * REFORMAT_MATRIX_DATA
 	 *
 	 * Converts legacy v6 data format (single 'datos' JSON blob) to the new v7 columnar data format.
@@ -531,9 +1372,52 @@ class v6_to_v7 {
 					print_cli(common::$pdata);
 				}
 
+				// Obsolete v4/v5 ontology sections: DELETE, never translated (owner decision).
+				if (v6_to_v7::is_obsolete_ontology_row($section_tipo)) {
+					if ($save) {
+						pg_query_params(
+							$conn,
+							'DELETE FROM ' . pg_escape_identifier($conn, $table) . ' WHERE id = $1',
+							[$id]
+						);
+					}
+					v6_to_v7_normalize::add(
+						$response,
+						'OBSOLETE_ONTOLOGY_ROW_DELETED',
+						v6_to_v7_normalize::SEVERITY_FIXED,
+						[
+							'table'			=> $table,
+							'section_tipo'	=> $section_tipo,
+							'section_id'	=> $section_id,
+							'tipo'			=> '',
+							'model'			=> ''
+						],
+						'Row deleted: section ' . $section_tipo . ' is an obsolete v4/v5 ontology definition'
+					);
+					return;
+				}
+
 				// datos properties
 				// Rows without a 'datos' value (already migrated or empty) are skipped silently.
 				if( isset($datos) ){
+
+					// review only: the machine-name values the real run writes first
+					// (set_machine_name_review). Its findings are data, kept out of
+					// $response->errors exactly as migrate_ontology_machine_names() does.
+					if (!$save && self::$machine_name_review !== null && is_object($datos)
+						&& in_array($table, self::$machine_name_review->tables, true)
+						&& !empty($section_tipo) && $section_id !== '') {
+						$machine_name_findings = new stdClass();
+							$machine_name_findings->errors = [];
+						self::apply_machine_name_rules(
+							$datos,
+							$table,
+							$section_tipo,
+							$section_id,
+							self::$machine_name_review->classification,
+							$machine_name_findings
+						);
+					}
 
 					$processed_data = self::process_matrix_row_data(
 						$datos,
@@ -1028,6 +1912,27 @@ class v6_to_v7 {
 					return;
 				}
 
+				// Obsolete v4/v5 ontology sections: DELETE, never translated (owner decision).
+				if (v6_to_v7::is_obsolete_ontology_row($section_tipo)) {
+					if ($save) {
+						tm_db_manager::delete( (int)$id );
+					}
+					v6_to_v7_normalize::add(
+						$response,
+						'OBSOLETE_ONTOLOGY_TM_ROW_DELETED',
+						v6_to_v7_normalize::SEVERITY_FIXED,
+						[
+							'table'			=> $table,
+							'section_tipo'	=> $section_tipo,
+							'section_id'	=> $row['section_id'] ?? '',
+							'tipo'			=> (string)$tipo,
+							'model'			=> ''
+						],
+						'Time-machine row deleted: section ' . $section_tipo . ' is an obsolete v4/v5 ontology definition'
+					);
+					return;
+				}
+
 				// Test TLD rows: DELETE, before anything is migrated. The `test` TLD is the
 				// Dédalo test suite's fixture namespace; its history has no place in an
 				// installation, component and section rows alike (owner decision 2026-10-24).
@@ -1349,6 +2254,24 @@ class v6_to_v7 {
 	 * Each entry names the component's ONE target section and its relation type, so the
 	 * conversion is exact, never inferred.
 	 */
+	public const OBSOLETE_ONTOLOGY_SECTIONS = [
+		// v4/v5 ontology definitions. v6 and v7 define the ontology by ontology TLD, so
+		// every row of these sections is noise: not translated, deleted (owner decision).
+		'dd1500',
+		'dd1560',
+		'dd1266'
+	];
+
+	/**
+	 * IS_OBSOLETE_ONTOLOGY_ROW
+	 * True when a row belongs to a section listed in OBSOLETE_ONTOLOGY_SECTIONS.
+	 * @param mixed $section_tipo Row section_tipo (may be null on malformed rows)
+	 * @return bool
+	 */
+	public static function is_obsolete_ontology_row( mixed $section_tipo ) : bool {
+		return in_array($section_tipo, self::OBSOLETE_ONTOLOGY_SECTIONS, true);
+	}//end is_obsolete_ontology_row
+
 	public const STALE_ONTOLOGY_TM_TIPOS = [
 		// Ontology section → component tipos whose TM rows there are old ontology node
 		// JSON (2021-02..2024-09), not data of any current component of dd1500:

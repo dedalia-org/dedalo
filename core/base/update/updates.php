@@ -56,7 +56,7 @@ $updates = new stdClass();
 // 		$alert->command .= "
 // 			<h1>🧐 IMPORTANT! Please read carefully before applying this update:</h1>
 // 			<p>
-// 				Review the config definition. The master server has moved to: <strong>v6.master.dedalo.dev</strong>
+// 				Review the config definition. The master server has moved to: <strong>master6.dedalo.dev</strong>
 // 			</p>
 // 			<p>
 // 				As part of the major update of Dédalo (v7), the master server becomes a specific domain for each version, adding a sub-domain for every major version: v6, v7, etc.
@@ -74,7 +74,7 @@ $updates = new stdClass();
 // 					define('ONTOLOGY_SERVERS',	[
 // 						[
 // 							'name'	=> 'Official Dédalo Ontology server',
-// 							'url'	=> 'https://v6.master.dedalo.dev/dedalo/core/api/v1/json/',
+// 							'url'	=> 'https://master6.dedalo.dev/dedalo/core/api/v1/json/',
 // 							'code'	=> 'x3a0B4Y020Eg9w'
 // 						]
 // 					]);
@@ -82,7 +82,7 @@ $updates = new stdClass();
 // 					define('CODE_SERVERS',	[
 // 						[
 // 							'name'	=> 'Official Dédalo code server',
-// 							'url'	=> 'https://v6.master.dedalo.dev/dedalo/core/api/v1/json/',
+// 							'url'	=> 'https://master6.dedalo.dev/dedalo/core/api/v1/json/',
 // 							'code'	=> 'x3a0B4Y020Eg9w'
 // 						]
 // 					]);

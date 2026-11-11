@@ -21,6 +21,9 @@
 * the descriptor reads to align itself — see engine/core/base/update/updates.php.
 * Without the export nothing changes: the descriptor keeps its literal minimum.
 *
+* A version is not enough on its own: check_ontology_prerequisites() also verifies the
+* OUTCOME of the ontology update the migration needs (ontology43 / ontology44 in jer_dd).
+*
 * @package Dédalo
 * @subpackage close_v6_prepare_v7
 */
@@ -102,6 +105,60 @@ final class prepare_v7_version_gate {
 
 		return $response;
 	}//end check
+
+
+	/**
+	* CHECK_ONTOLOGY_PREREQUISITES
+	* An OUTCOME check, not a version one: the machine-name components (ontology43 / ontology44)
+	* reach a v6 install through an ontology update, not a data update, so a data version alone
+	* proves nothing. Without them in jer_dd, migrate_ontology_machine_names cannot run and their
+	* values would be dropped as orphan tipos. A refusal, never forceable (no flag skips it).
+	* Reads the legacy "terminoID" column, present before and after pre_update.
+	* @return object - { result: bool, missing: string[], msg: string }
+	*/
+	public static function check_ontology_prerequisites() : object {
+
+		$response = new stdClass();
+			$response->result	= false;
+			$response->missing	= [];
+			$response->msg		= '';
+
+		if (!class_exists('matrix_db_manager') || !class_exists('v6_to_v7')) {
+			$response->msg = 'Engine not booted: matrix_db_manager/v6_to_v7 not available.';
+			return $response;
+		}
+
+		$required	= [v6_to_v7::MACHINE_NAME_TIPO, v6_to_v7::USE_MACHINE_NAME_TIPO];
+		$jer_dd		= v6_to_v7::$table_jer_dd;
+
+		$result = matrix_db_manager::exec_search(
+			'SELECT "terminoID" FROM "' . $jer_dd . '" WHERE "terminoID" = ANY($1)',
+			['{' . implode(',', $required) . '}']
+		);
+		if ($result === false) {
+			$response->missing	= $required;
+			$response->msg		= 'NOT eligible. Cannot read ' . $jer_dd . ' to check the ontology nodes '
+				. implode(', ', $required) . '.';
+			return $response;
+		}
+
+		$found = [];
+		while ($row = pg_fetch_assoc($result)) {
+			$found[] = $row['terminoID'];
+		}
+
+		$response->missing = array_values(array_diff($required, $found));
+		if (!empty($response->missing)) {
+			$response->msg = 'NOT eligible. Ontology node(s) ' . implode(', ', $response->missing)
+				. ' missing from ' . $jer_dd . ': run the ontology update first, then re-run.';
+			return $response;
+		}
+
+		$response->result	= true;
+		$response->msg		= 'Ontology nodes present: ' . implode(', ', $required) . '.';
+
+		return $response;
+	}//end check_ontology_prerequisites
 
 
 	/**

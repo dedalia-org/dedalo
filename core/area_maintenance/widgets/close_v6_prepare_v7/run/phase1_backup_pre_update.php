@@ -19,7 +19,8 @@
 *
 * Exit codes: 0 ok · 2 usage/boot · 3 not eligible · 4 backup failed ·
 *             5 pre_update failed · 6 preflight data errors ·
-*             9 died on an uncaught throwable (see prepare_v7_fail_loud)
+*             9 died on an uncaught throwable (see prepare_v7_fail_loud) ·
+*             10 ontology update missing (ontology43/44 not in jer_dd)
 *
 * @package Dédalo
 * @subpackage close_v6_prepare_v7
@@ -62,6 +63,17 @@ if ($gate->aligned === true) {
 	prepare_v7_version_gate::apply_update_from($gate);
 	$log('descriptor update_from aligned to ' . implode('.', $gate->current)
 		. ' (declared minimum: ' . implode('.', $gate->expected) . ').');
+}
+
+// 1b. ontology prerequisites ----------------------------------------------------
+// The machine-name components arrive by an ontology update, not a data update: check the
+// outcome, before any write. A refusal, never forceable.
+$ontology_gate = prepare_v7_version_gate::check_ontology_prerequisites();
+$log('ontology prerequisites: ' . $ontology_gate->msg);
+if ($ontology_gate->result !== true) {
+	$log('ABORT: the v6 ontology update has not been run (ontology43/ontology44 missing).');
+	$log('  Run the ontology update in the v6 Maintenance area first, then re-run.');
+	exit(10);
 }
 
 // 2. DB connectivity sanity ----------------------------------------------------
@@ -176,7 +188,28 @@ if ($is_dry) {
 			. 'diagnostic view of the raw data; the migration always runs with them enabled.');
 	}
 
+	// The machine-name step runs BEFORE reformat_matrix_data, here as in the real run. Its
+	// review saves nothing, so the review pass below is armed to apply the same rules in
+	// memory (set_machine_name_review): it converts the ontology records as the real run
+	// will find them, and reports the machine-name findings itself (reformat_matrix_data()
+	// starts by resetting the groups). Same tables as the descriptor declares.
+	$machine_name_vars = prepare_v7_script_vars('migrate_ontology_machine_names');
+	if (isset($machine_name_vars[0]) && is_array($machine_name_vars[0])) {
+		$machine_names = v6_to_v7::migrate_ontology_machine_names($machine_name_vars[0], false); // false = no save
+		$log('ontology machine names: ' . ($machine_names->msg ?? 'n/a'));
+		foreach (array_slice((array)($machine_names->errors ?? []), 0, 20) as $e) {
+			$log('  · ' . $e);
+		}
+		if ($machine_names->result === true && !v6_to_v7::set_machine_name_review($machine_name_vars[0])) {
+			$log('WARNING: jer_dd could not be read; the data review converts the ontology records without their machine-name values.');
+		}
+	}else{
+		$machine_names = null;
+		$log('WARNING: the descriptor declares no migrate_ontology_machine_names step.');
+	}
+
 	$review = v6_to_v7::reformat_matrix_data($ar_tables, false); // false = no save
+	v6_to_v7::set_machine_name_review(null);
 
 	if (!$ontology_ready) {
 		@ini_set('log_errors', (string)$log_errors);
@@ -231,6 +264,12 @@ if ($is_dry) {
 	// Machine-readable sidecar for the widget, so it renders counts instead of re-parsing
 	// the log text. Written on every review; absent means "no review has run".
 	prepare_v7_write_review_json($paths['var_dir'] . '/data_review.json', $report, $ontology_ready);
+
+	// The machine-name step could not run at all (not a data finding): nothing to review.
+	if ($machine_names !== null && ($machine_names->result ?? false) !== true) {
+		$log('PREFLIGHT FAILED: the ontology machine-name review could not run (see above).');
+		exit(6);
+	}
 
 	// Only findings that need a human decision fail the preflight. Repaired values and
 	// dropped-and-reported ones are informational.
@@ -332,7 +371,7 @@ function prepare_v7_log_summary(callable $log, object $report, string $note) : v
 
 	$sections = [
 		['severity' => 'error',  'total' => $report->errors,  'title' => 'NEEDS ATTENTION', 'hint' => 'review before migrating'],
-		['severity' => 'notice', 'total' => $report->notices, 'title' => 'NOTICES',         'hint' => 'cannot be migrated; these values will be dropped'],
+		['severity' => 'notice', 'total' => $report->notices, 'title' => 'NOTICES',         'hint' => 'dropped, or kept as they are and only reported; nothing to repair'],
 		['severity' => 'fixed',  'total' => $report->fixed,   'title' => 'AUTO-FIXED',      'hint' => 'applied automatically during migration, no action needed']
 	];
 
