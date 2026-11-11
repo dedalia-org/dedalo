@@ -1591,9 +1591,63 @@ const render_operator_selector = function(self) {
 			}
 		}
 
+	// search syntax help (folded)
+		operator_selector.appendChild( render_search_syntax_help() )
+
 
 	return operator_selector
 }//end render_operator_selector
+
+
+
+/**
+* RENDER_SEARCH_SYNTAX_HELP
+* Folded (<details>) cheat sheet of the q operators the string search accepts
+* (src/core/search/builders/builder_string.ts), one typed sample per operator.
+* @returns {HTMLElement} details.search_syntax_help
+*/
+export const render_search_syntax_help = function() {
+
+	const details = ui.create_dom_element({
+		element_type	: 'details',
+		class_name		: 'search_syntax_help'
+	})
+	const summary = ui.create_dom_element({
+		element_type	: 'summary',
+		inner_html		: get_label.search_syntax || 'Search syntax',
+		parent			: details
+	})
+	summary.addEventListener('click', function(e) {
+		e.stopPropagation()
+	})
+
+	const samples = [
+		['Vic',		get_label.contains || 'Contains'],
+		['Vic*',	get_label.begins_with || 'Begins with'],
+		['*Vic',	get_label.end_with || 'Ends with'],
+		['=Vic',	get_label.exactly || 'Exactly'],
+		["'Vic'",	get_label.literal || 'Literal'],
+		['-Vic',	get_label.does_not_contain || 'Does not contain']
+	]
+	const list = ui.create_dom_element({
+		element_type	: 'dl',
+		parent			: details
+	})
+	for (const [sample, meaning] of samples) {
+		ui.create_dom_element({
+			element_type	: 'dt',
+			text_content	: sample,
+			parent			: list
+		})
+		ui.create_dom_element({
+			element_type	: 'dd',
+			text_content	: meaning,
+			parent			: list
+		})
+	}
+
+	return details
+}//end render_search_syntax_help
 
 
 

@@ -11553,6 +11553,25 @@ dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_
 .wrapper_service_autocomplete > .options_hidden > .search_operators_div > .max_container > .input_max {
   width: 3.8rem;
 }
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div > .search_syntax_help {
+  flex: 1 1 100%;
+}
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div > .search_syntax_help > summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div > .search_syntax_help > dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.15rem 1rem;
+  margin: 0.35rem 0 0 1rem;
+}
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div > .search_syntax_help > dl > dt {
+  font-family: monospace;
+}
+.wrapper_service_autocomplete > .options_hidden > .search_operators_div > .search_syntax_help > dl > dd {
+  margin: 0;
+}
 .wrapper_service_autocomplete > .autocomplete_input {
   background: var(--color_white) var(--search_icon_url);
   background-position: bottom 6px right 8px;

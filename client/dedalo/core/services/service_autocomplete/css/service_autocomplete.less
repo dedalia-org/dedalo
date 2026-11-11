@@ -358,6 +358,30 @@
 					width: 3.8rem;
 				}
 			}
+
+			// search_syntax_help: folded cheat sheet, own full-width row
+			>.search_syntax_help {
+				flex: 1 1 100%;
+
+				>summary {
+					cursor: pointer;
+					width: fit-content;
+				}
+
+				>dl {
+					display: grid;
+					grid-template-columns: max-content 1fr;
+					gap: 0.15rem 1rem;
+					margin: 0.35rem 0 0 1rem;
+
+					>dt {
+						font-family: monospace;
+					}
+					>dd {
+						margin: 0;
+					}
+				}
+			}
 		}//end search_operators_div
 
 	}//end >.options_hidden

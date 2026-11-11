@@ -18,6 +18,7 @@ import {
 	execute_search_render,
 	render_search_notice,
 	run_search,
+	render_search_syntax_help,
 	render_search_input,
 	next_search_signal
 } from '../../../core/services/service_autocomplete/js/view_default_autocomplete.js'
@@ -1097,3 +1098,17 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 
 
 // @license-end
+
+
+
+describe("search syntax help", function() {
+
+	it("is folded and lists one sample per operator", function() {
+		const details = render_search_syntax_help()
+		assert.equal(details.tagName, 'DETAILS')
+		assert.equal(details.open, false, 'folded by default')
+		const samples = [...details.querySelectorAll('dt')].map(el => el.textContent)
+		assert.deepEqual(samples, ['Vic', 'Vic*', '*Vic', '=Vic', "'Vic'", '-Vic'])
+		assert.equal(details.querySelectorAll('dd').length, samples.length)
+	})
+})

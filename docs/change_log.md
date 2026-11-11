@@ -184,6 +184,13 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **A field's search options now explain the search operators, with a sample for each.**
+
+    Open a field's search options (the gear next to the search box) and, below Max, a folded
+    "Search syntax" line lists what you can type: `Vic` contains, `Vic*` begins with, `*Vic`
+    ends with, `=Vic` exactly, `'Vic'` literal and `-Vic` does not contain. It stays closed until
+    you click it.
+
 - **Users see their own activity statistics in their profile.**
 
     The user profile panel (opened from your name in the menu) now shows your own activity

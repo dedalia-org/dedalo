@@ -222,6 +222,26 @@ it the other relational components — `component_relation_parent`,
 `component_relation_children`, `component_relation_related`); the consumer
 passes `caller: self` so the service can call `caller.build_rqo_search()`.
 
+The search options panel (the gear next to the search box) holds the source and
+section selectors, the per-field inputs, the `or` / `and` **Search operators**
+select and **Max** (results per search, kept in `localStorage`). Under them, a
+folded **Search syntax** block (`render_search_syntax_help`, a native
+`<details>`, closed by default) lists what the box accepts, one sample each:
+
+| Type | Finds |
+| --- | --- |
+| `Vic` | contains (default) |
+| `Vic*` | begins with |
+| `*Vic` | ends with |
+| `=Vic` | exactly (accents ignored; letter case counts) |
+| `'Vic'` | literal: exactly as typed |
+| `-Vic` | does not contain |
+
+The operators are parsed by the server's string search builder
+(`src/core/search/builders/builder_string.ts`), not by the client. Use an exact
+match to pick a short name drowned by contains-matches: results come in record
+order, limited to Max, not ranked by closeness.
+
 ### service_ckeditor
 
 Wraps a custom-built CKEditor (`lib/ckeditor`). It builds either a `ddEditor`
