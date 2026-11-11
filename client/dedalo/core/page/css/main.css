@@ -28470,6 +28470,8 @@ body.inspector_resizing {
   flex-direction: column;
   max-height: 95vh;
   padding-right: 0.66rem;
+  padding-left: 3px;
+  margin-left: -3px;
   flex-basis: 25rem;
   transition: opacity 1s linear;
   padding-bottom: 1.5rem;

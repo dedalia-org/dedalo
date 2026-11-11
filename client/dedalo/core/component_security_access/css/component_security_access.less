@@ -50,6 +50,10 @@
 				flex-direction: column;
 				max-height: 95vh;
 				padding-right: .66rem;
+				// room for the selector's focus ring (2px --shadow-focus), which
+				// overflow:auto would clip; the negative margin keeps the alignment
+				padding-left: 3px;
+				margin-left: -3px;
 				flex-basis: 25rem;
 				transition: opacity 1s linear;
 				padding-bottom: 1.5rem;
