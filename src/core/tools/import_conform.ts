@@ -1121,7 +1121,7 @@ function conformIriRecord(record: string, fieldsSeparator: string): ConformedIri
  */
 function splitJsonLabel(raw: Record<string, unknown>): ConformedIriItem {
 	const { label_id: labelId, ...item } = raw;
-	if (labelId === undefined || labelId === null || labelId === '') {
+	if (isAbsentLabelId(labelId)) {
 		return { item, label: null, error: null };
 	}
 	const sectionId = labelRecordId(labelId);
@@ -1136,6 +1136,11 @@ function splitJsonLabel(raw: Record<string, unknown>): ConformedIriItem {
 		return { item: null, label: null, error: LABEL_NEEDS_IRI };
 	}
 	return { item, label: { section_id: sectionId }, error: null };
+}
+
+/** A `label_id` key that names no label at all (missing, null or empty). */
+function isAbsentLabelId(labelId: unknown): boolean {
+	return labelId === undefined || labelId === null || labelId === '';
 }
 
 function isBlankIriField(value: unknown): boolean {
@@ -1265,6 +1270,18 @@ function conformIriFlatJson(
 	return okWithLabels(collector.items, collector.intents);
 }
 
+/**
+ * Whether a non-empty plain string has any IRI shape: a records separator, a
+ * fields separator or a protocol. Anything else is malformed data.
+ */
+function looksLikeIriPlain(
+	value: string,
+	recordsSeparator: string,
+	fieldsSeparator: string,
+): boolean {
+	return value.includes(recordsSeparator) || value.includes(fieldsSeparator) || hasProtocol(value);
+}
+
 /** The plain-string branch ('<record> | <record>', each '<label>, <iri>'). */
 function conformIriPlain(
 	value: string,
@@ -1277,9 +1294,7 @@ function conformIriPlain(
 	}
 	if (value === '') return ok(null);
 
-	const hasRecords = value.includes(recordsSeparator);
-	const hasFields = value.includes(fieldsSeparator);
-	if (!hasRecords && !hasFields && !hasProtocol(value)) {
+	if (!looksLikeIriPlain(value, recordsSeparator, fieldsSeparator)) {
 		return fail(ctx, `IGNORED: malformed data ${asText(value)}`, value);
 	}
 	const collector = new IriItemCollector(null);

@@ -618,6 +618,33 @@ async function assertNoDerivedField(
 }
 
 /**
+ * Report a record whose transaction rolled back. The row is rolled back, so the
+ * run continues and REPORTS it — an engine fault used to escape here and discard
+ * the whole report, `createdIds` included, leaving the operator with records
+ * they could not find.
+ */
+function reportRolledBackRecord(
+	failed: ConformFailure[],
+	record: MappedRecord,
+	sectionTipo: string,
+	error: unknown,
+	recordFailed: readonly ConformFailure[],
+): void {
+	const sectionId = record.sectionId ?? 0;
+	failed.push({
+		section_id: sectionId,
+		data: '',
+		component_tipo: sectionTipo,
+		msg: `IGNORED: the record was not written — ${error instanceof Error ? error.message : String(error)}`,
+	});
+	// …and the record's OTHER issues (a conform refusal of another field …),
+	// addressed like the rollback line: a created id was rolled back with it.
+	for (const issue of recordFailed) {
+		failed.push({ ...issue, section_id: sectionId });
+	}
+}
+
+/**
  * Execute an import of mapped records into `sectionTipo`. Creates a record per
  * mapped record when sectionId is null. Each field's flat values are conformed
  * (wrapping into {value} items for value-property models) and merged into a single
@@ -683,20 +710,7 @@ export async function importMappedRecords(
 				}
 				failed.push(...outcome.failed);
 			} catch (error) {
-				// The row is rolled back, so the run continues and REPORTS it — an engine
-				// fault used to escape here and discard the whole report, `createdIds`
-				// included, leaving the operator with records they could not find.
-				failed.push({
-					section_id: record.sectionId ?? 0,
-					data: '',
-					component_tipo: sectionTipo,
-					msg: `IGNORED: the record was not written — ${error instanceof Error ? error.message : String(error)}`,
-				});
-				// …and the record's OTHER issues (a conform refusal of another field …),
-				// addressed like the rollback line: a created id was rolled back with it.
-				for (const issue of recordFailed) {
-					failed.push({ ...issue, section_id: record.sectionId ?? 0 });
-				}
+				reportRolledBackRecord(failed, record, sectionTipo, error, recordFailed);
 			}
 		}
 	});

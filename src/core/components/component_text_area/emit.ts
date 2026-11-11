@@ -95,6 +95,22 @@ function sliceHasText(items: unknown[], lang: string): boolean {
 	);
 }
 
+/**
+ * One stored item as served: its media src rebased and, in list mode, rendered
+ * to the list string. Returns the SAME item reference when nothing changed, so
+ * the caller can hand back the untouched value.
+ */
+async function serveTextItem(item: unknown, context: EmitHookContext): Promise<unknown> {
+	const text = itemText(item);
+	if (text === null) return item;
+	// Stored media src are relative; this client may load media from another
+	// origin (TODO-067, WC-042 — same rebase as the svg tags below).
+	const rebased = appServedMediaSrc(text);
+	const next = context.ddoMode === 'list' ? await renderListString(rebased, context) : rebased;
+	if (next === text) return item;
+	return { ...(item as object), value: next };
+}
+
 export const textAreaEmitHook: ComponentEmitHook = {
 	/**
 	 * ORIGINAL-LANGUAGE forcing for LIST values (PHP get_list_value :2519-2525):
@@ -155,21 +171,9 @@ export const textAreaEmitHook: ComponentEmitHook = {
 		let changed = false;
 		const served: unknown[] = [];
 		for (const item of value) {
-			const text = itemText(item);
-			if (text === null) {
-				served.push(item);
-				continue;
-			}
-			// Stored media src are relative; this client may load media from another
-			// origin (TODO-067, WC-042 — same rebase as the svg tags below).
-			const rebased = appServedMediaSrc(text);
-			const next = context.ddoMode === 'list' ? await renderListString(rebased, context) : rebased;
-			if (next === text) {
-				served.push(item);
-				continue;
-			}
-			changed = true;
-			served.push({ ...(item as object), value: next });
+			const next = await serveTextItem(item, context);
+			if (next !== item) changed = true;
+			served.push(next);
 		}
 		// Unchanged (non-list, no media src to rebase) → the value itself, untouched.
 		return changed ? served : value;

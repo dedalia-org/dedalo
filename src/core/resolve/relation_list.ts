@@ -1131,25 +1131,52 @@ async function resolveIriCellItems(
 	// the label, and "no frame ⇒ no title") lives in ONE place,
 	// components/component_iri/resolve_title.ts. Only the order and this
 	// path's own record seam are local.
-	const iriItems = ((record.columns.iri as Record<string, unknown[]> | null)?.[componentTipo] ??
-		[]) as { iri?: unknown; id?: number | string }[];
 	const titles = await resolveIriTitles(record, componentTipo, (frame) =>
 		resolveIriFrameTitle(frame, lang, unresolved, opts),
 	);
-	// The glue: caller ddo → properties → ', ' (PHP component_iri :354-358).
-	const glue =
-		opts?.iriFieldsSeparator ??
-		(await componentSeparators(componentTipo, false)).fields ??
-		IRI_FIELDS_SEPARATOR;
+	const glue = await iriFieldsGlue(componentTipo, opts);
 	const parts: string[] = [];
-	for (const item of iriItems) {
-		const fields: string[] = [];
-		if (typeof item?.iri === 'string' && item.iri !== '') fields.push(item.iri);
-		const title = titles.get(String(item?.id));
-		if (title !== undefined) fields.push(title);
-		if (fields.length > 0) parts.push(fields.join(glue));
+	for (const item of storedIriItems(record, componentTipo)) {
+		const part = joinIriItemFields(item, titles.get(String(item?.id)), glue);
+		if (part !== null) parts.push(part);
 	}
 	return parts.length > 0 ? parts : null;
+}
+
+/** One stored component_iri item (raw: either key may be missing). */
+type StoredIriItem = { iri?: unknown; id?: number | string };
+
+/** The stored iri items of `componentTipo` on the record ([] when none). */
+function storedIriItems(record: MatrixRecord, componentTipo: string): StoredIriItem[] {
+	return ((record.columns.iri as Record<string, unknown[]> | null)?.[componentTipo] ??
+		[]) as StoredIriItem[];
+}
+
+/** The glue: caller ddo → properties → ', ' (PHP component_iri :354-358). */
+async function iriFieldsGlue(
+	componentTipo: string,
+	opts: CellValueResolveOptions,
+): Promise<string> {
+	return (
+		opts?.iriFieldsSeparator ??
+		(await componentSeparators(componentTipo, false)).fields ??
+		IRI_FIELDS_SEPARATOR
+	);
+}
+
+/**
+ * One item's cell text: the non-empty iri FIRST, then its title, glued; null
+ * when the item has neither (the item contributes nothing).
+ */
+function joinIriItemFields(
+	item: StoredIriItem,
+	title: string | undefined,
+	glue: string,
+): string | null {
+	const fields: string[] = [];
+	if (typeof item?.iri === 'string' && item.iri !== '') fields.push(item.iri);
+	if (title !== undefined) fields.push(title);
+	return fields.length > 0 ? fields.join(glue) : null;
 }
 
 /** PHP component_iri::get_export_value value+title glue default (:358). */

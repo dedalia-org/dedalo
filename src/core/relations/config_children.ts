@@ -164,19 +164,35 @@ export async function exportConfigChildren(
 	) {
 		return addressChildren(locatorSectionTipo);
 	}
-	const perLocator = await configChildrenArePerLocator(tipo);
-	if (perLocator && locatorSectionTipo === undefined) {
-		throw new DedaloError('engine.uncovered_scope', {
-			message: `exportConfigChildren: '${tipo}' resolves its children per locator — the locator section is required`,
-			coordinates: { tipo },
-		});
+	if (await configChildrenArePerLocator(tipo)) {
+		const sectionTipo = requireLocatorSection(tipo, locatorSectionTipo);
+		return memoizedChildren(`${tipo}|${sectionTipo}`, () =>
+			relationIndexLocatorChildren(sectionTipo),
+		);
 	}
-	const cacheKey = perLocator ? `${tipo}|${locatorSectionTipo}` : tipo;
+	return memoizedChildren(tipo, () => staticChildren(tipo));
+}
+
+/**
+ * The locator section a per-locator component needs: present ⇒ returned;
+ * absent ⇒ THROWS (never an empty map — see exportConfigChildren).
+ */
+function requireLocatorSection(tipo: string, locatorSectionTipo: string | undefined): string {
+	if (locatorSectionTipo !== undefined) return locatorSectionTipo;
+	throw new DedaloError('engine.uncovered_scope', {
+		message: `exportConfigChildren: '${tipo}' resolves its children per locator — the locator section is required`,
+		coordinates: { tipo },
+	});
+}
+
+/** Serve `cacheKey` from childrenCache, computing + storing it on a miss. */
+async function memoizedChildren(
+	cacheKey: string,
+	compute: () => Promise<readonly RawConfigDdo[]>,
+): Promise<readonly RawConfigDdo[]> {
 	const cached = childrenCache.get(cacheKey);
 	if (cached !== undefined) return cached;
-	const children = perLocator
-		? await relationIndexLocatorChildren(locatorSectionTipo as string)
-		: await staticChildren(tipo);
+	const children = await compute();
 	childrenCache.set(cacheKey, children);
 	return children;
 }

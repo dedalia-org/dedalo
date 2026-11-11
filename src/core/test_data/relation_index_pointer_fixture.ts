@@ -92,7 +92,7 @@ export function pointerRelationColumn(): Record<string, unknown[]> {
 			{
 				id: 1,
 				type: INDEX_RELATION_TYPE,
-				section_id: String(SUITE_INDEX_TARGET.section_id),
+				section_id: SUITE_INDEX_TARGET.section_id,
 				section_tipo: SUITE_INDEX_TARGET.section_tipo,
 				from_component_tipo: POINTER_COMPONENT_TIPO,
 			},

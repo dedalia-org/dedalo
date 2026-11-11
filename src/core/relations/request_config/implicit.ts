@@ -187,32 +187,49 @@ export interface ImplicitRelationLink {
 export async function implicitRelationWalk(
 	sourceTipo: string,
 ): Promise<{ targetSectionTipo: string | null; links: ImplicitRelationLink[] }> {
+	let targetSectionTipo: string | null = null;
+	const links: ImplicitRelationLink[] = [];
+	for (const node of await ontologyRelationNodes(sourceTipo)) {
+		const link = await modelledLink(node);
+		if (link === null) continue;
+		if (link.model === 'section' && targetSectionTipo === null) {
+			targetSectionTipo = link.tipo; // PHP clean_and_extract_related :508
+			continue;
+		}
+		if (isNeverAColumn(link)) continue;
+		links.push({ tipo: link.tipo, model: link.model, sectionTipo: targetSectionTipo });
+	}
+	return { targetSectionTipo, links };
+}
+
+/** The ontology `relations` array of `sourceTipo` ([] when absent / not an array). */
+async function ontologyRelationNodes(sourceTipo: string): Promise<{ tipo?: string }[]> {
 	const rows = (await sql`
 		SELECT relations FROM dd_ontology WHERE tipo = ${sourceTipo}
 		  AND jsonb_typeof(relations) = 'array'
 		LIMIT 1
 	`) as { relations: { tipo?: string }[] | null }[];
-	const relationNodes = rows[0]?.relations ?? [];
-	let targetSectionTipo: string | null = null;
-	const links: ImplicitRelationLink[] = [];
-	for (const link of relationNodes) {
-		if (typeof link.tipo !== 'string') continue;
-		const model = await getModelByTipo(link.tipo);
-		if (model === null) continue;
-		if (model === 'section' && targetSectionTipo === null) {
-			targetSectionTipo = link.tipo; // PHP clean_and_extract_related :508
-			continue;
-		}
-		// PHP clean_and_extract_related :531-538: marker nodes + deprecated skip.
-		// A model='label' node too: labels are inert program strings (owner
-		// decision 2026-10-12, label_node_guard.ts), no client module renders one,
-		// and resolving its column label crashed the dd1500/dd1560 lists.
-		if (NEVER_A_COLUMN_MODELS.has(model) || link.tipo === DEPRECATED_SECURITY_AREAS_TIPO) {
-			continue;
-		}
-		links.push({ tipo: link.tipo, model, sectionTipo: targetSectionTipo });
-	}
-	return { targetSectionTipo, links };
+	return rows[0]?.relations ?? [];
+}
+
+/** A relation node with its model resolved; null when the tipo is not a string or has no model. */
+async function modelledLink(node: {
+	tipo?: string;
+}): Promise<{ tipo: string; model: string } | null> {
+	if (typeof node.tipo !== 'string') return null;
+	const model = await getModelByTipo(node.tipo);
+	return model === null ? null : { tipo: node.tipo, model };
+}
+
+/**
+ * Is this (non-target) relation node skipped from the map? PHP
+ * clean_and_extract_related :531-538: marker nodes + deprecated skip. A
+ * model='label' node too: labels are inert program strings (owner decision
+ * 2026-10-12, label_node_guard.ts), no client module renders one, and
+ * resolving its column label crashed the dd1500/dd1560 lists.
+ */
+function isNeverAColumn(link: { tipo: string; model: string }): boolean {
+	return NEVER_A_COLUMN_MODELS.has(link.model) || link.tipo === DEPRECATED_SECURITY_AREAS_TIPO;
 }
 
 /**

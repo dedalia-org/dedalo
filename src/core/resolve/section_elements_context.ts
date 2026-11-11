@@ -188,18 +188,38 @@ export async function groupTargetSections(
 	const groups = new Map<string, TargetSectionGroup>();
 	const seen = new Set<string>();
 	for (const target of targets) {
-		if (typeof target !== 'string' || target === '' || seen.has(target)) continue;
-		seen.add(target);
+		if (!isFirstSighting(target, seen)) continue;
 		if ((await getSectionPermissions(principal, target)) < 1) continue;
-		const realTipo = await getSectionRealTipo(target);
-		let group = groups.get(realTipo);
-		if (group === undefined) {
-			group = { tipo: realTipo, label: await labelByTipo(realTipo), members: [] };
-			groups.set(realTipo, group);
-		}
+		const group = await familyGroup(groups, await getSectionRealTipo(target));
 		group.members.push({ tipo: target, label: await labelByTipo(target) });
 	}
 	return [...groups.values()];
+}
+
+/**
+ * Is `target` a usable target seen for the first time? (non-empty string, not
+ * yet in `seen`) — records it in `seen` when so.
+ */
+function isFirstSighting(target: unknown, seen: Set<string>): target is string {
+	if (typeof target !== 'string' || target === '' || seen.has(target)) return false;
+	seen.add(target);
+	return true;
+}
+
+/** The group of the real section `realTipo`, created (labelled, empty) on first use. */
+async function familyGroup(
+	groups: Map<string, TargetSectionGroup>,
+	realTipo: string,
+): Promise<TargetSectionGroup> {
+	const existing = groups.get(realTipo);
+	if (existing !== undefined) return existing;
+	const group: TargetSectionGroup = {
+		tipo: realTipo,
+		label: await labelByTipo(realTipo),
+		members: [],
+	};
+	groups.set(realTipo, group);
+	return group;
 }
 
 /**

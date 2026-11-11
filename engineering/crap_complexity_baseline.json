@@ -4,9 +4,9 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 903,
-		"functions": 15698,
-		"functionsOverCap": 658,
+		"files": 918,
+		"functions": 16045,
+		"functionsOverCap": 654,
 		"filesOverCap": 257
 	},
 	"ledger": [
@@ -190,6 +190,11 @@
 			"generated": "2026-11-05",
 			"functionsOverCap": 658,
 			"filesOverCap": 257
+		},
+		{
+			"generated": "2026-11-11",
+			"functionsOverCap": 654,
+			"filesOverCap": 257
 		}
 	],
 	"files": {
@@ -254,9 +259,9 @@
 		"src/core/components/component_text_area/emit.ts": 8,
 		"src/core/components/component_text_area/original_lang.ts": 9,
 		"src/core/components/component_text_area/tag_delete.ts": 13,
-		"src/core/components/component_text_area/tag_endpoint.ts": 9,
+		"src/core/components/component_text_area/tag_endpoint.ts": 8,
 		"src/core/components/component_text_area/tag_grammar.ts": 31,
-		"src/core/components/component_text_area/tag_html.ts": 9,
+		"src/core/components/component_text_area/tag_html.ts": 7,
 		"src/core/components/component_text_area/tags_info.ts": 15,
 		"src/core/components/component_text_area/tags_persons.ts": 23,
 		"src/core/components/registry.ts": 7,
@@ -344,18 +349,18 @@
 		"src/core/relations/dataframe.ts": 9,
 		"src/core/relations/datalist.ts": 19,
 		"src/core/relations/filter_projects.ts": 15,
-		"src/core/relations/models/portal.ts": 12,
-		"src/core/relations/models/relation_index.ts": 19,
+		"src/core/relations/models/portal.ts": 8,
+		"src/core/relations/models/relation_index.ts": 16,
 		"src/core/relations/models/relation_related.ts": 7,
 		"src/core/relations/order_locators.ts": 7,
 		"src/core/relations/parent.ts": 8,
 		"src/core/relations/related.ts": 14,
-		"src/core/relations/relation_core.ts": 47,
+		"src/core/relations/relation_core.ts": 31,
 		"src/core/relations/request_config/build.ts": 20,
 		"src/core/relations/request_config/explicit.ts": 26,
 		"src/core/relations/request_config/external.ts": 8,
 		"src/core/relations/request_config/filters.ts": 30,
-		"src/core/relations/request_config/implicit.ts": 27,
+		"src/core/relations/request_config/implicit.ts": 19,
 		"src/core/relations/request_config/presets.ts": 18,
 		"src/core/relations/save.ts": 24,
 		"src/core/relations/select_lang.ts": 9,
@@ -367,7 +372,7 @@
 		"src/core/resolve/optimize_tc.ts": 14,
 		"src/core/resolve/read_tm.ts": 17,
 		"src/core/resolve/related_sections.ts": 15,
-		"src/core/resolve/relation_list.ts": 40,
+		"src/core/resolve/relation_list.ts": 38,
 		"src/core/resolve/section_elements_context.ts": 19,
 		"src/core/resolve/security_access_datalist.ts": 20,
 		"src/core/resolve/structure_context.ts": 85,

@@ -46,6 +46,7 @@
  */
 
 import { getFlatValueFamily, getResolveDataId } from '../components/registry.ts';
+import type { RelationResolverId } from '../components/types.ts';
 import { compareLocators } from '../concepts/locator.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { getColumnNameByModel } from '../ontology/resolver.ts';
@@ -63,6 +64,23 @@ export interface SourcedLocator {
 export type LocatorSource = 'stored' | 'relation_children' | 'relation_index';
 
 /**
+ * Every resolver id's locator source. Typed as a full Record so a NEW resolver
+ * id fails tsc here until it declares its source (the former switch's `never`
+ * check); read through a Map so a runtime id outside the type misses cleanly.
+ */
+const LOCATOR_SOURCE_TABLE: Readonly<Record<RelationResolverId, LocatorSource>> = {
+	relation_children: 'relation_children',
+	relation_index: 'relation_index',
+	portal: 'stored',
+	filter: 'stored',
+	select_family: 'stored',
+	relation_related: 'stored',
+};
+const LOCATOR_SOURCE_BY_RESOLVER: ReadonlyMap<string, LocatorSource> = new Map(
+	Object.entries(LOCATOR_SOURCE_TABLE),
+);
+
+/**
  * The locator source of a relation-column MODEL, from its descriptor. A
  * relation-column model without `resolveData` is covered only when its value is
  * DERIVED (`flatValue: 'external'`, the component_external family: its column is
@@ -71,30 +89,26 @@ export type LocatorSource = 'stored' | 'relation_children' | 'relation_index';
  */
 export function locatorSourceOf(model: string): LocatorSource {
 	const resolverId = getResolveDataId(model);
-	switch (resolverId) {
-		case 'relation_children':
-			return 'relation_children';
-		case 'relation_index':
-			return 'relation_index';
-		case 'portal':
-		case 'filter':
-		case 'select_family':
-		case 'relation_related':
-			return 'stored';
-		case undefined:
-			if (getFlatValueFamily(model) === 'external') return 'stored';
-			throw new DedaloError('engine.uncovered_scope', {
-				message: `locatorSourceOf: model '${model}' declares no resolveData (no locator source)`,
-				coordinates: { model },
-			});
-		default: {
-			const unknownId: never = resolverId;
-			throw new DedaloError('engine.uncovered_scope', {
-				message: `locatorSourceOf: resolver id '${String(unknownId)}' of '${model}' has no locator source`,
-				coordinates: { model },
-			});
-		}
-	}
+	if (resolverId === undefined) return derivedModelLocatorSource(model);
+	const source = LOCATOR_SOURCE_BY_RESOLVER.get(resolverId);
+	if (source !== undefined) return source;
+	throw new DedaloError('engine.uncovered_scope', {
+		message: `locatorSourceOf: resolver id '${String(resolverId)}' of '${model}' has no locator source`,
+		coordinates: { model },
+	});
+}
+
+/**
+ * A model WITHOUT `resolveData`: covered only when its value is derived
+ * (`flatValue: 'external'` → its inert column, read as the stored slice);
+ * anything else THROWS (a relation model must declare its data contract).
+ */
+function derivedModelLocatorSource(model: string): LocatorSource {
+	if (getFlatValueFamily(model) === 'external') return 'stored';
+	throw new DedaloError('engine.uncovered_scope', {
+		message: `locatorSourceOf: model '${model}' declares no resolveData (no locator source)`,
+		coordinates: { model },
+	});
 }
 
 /**

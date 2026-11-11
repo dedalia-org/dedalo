@@ -138,14 +138,8 @@ export const portalResolver: RelationModelResolver = {
 			scope,
 			emitDdo,
 		} = context;
-		const {
-			depthBoundNotice,
-			MAX_DDO_DEPTH,
-			nodeListPageLimit,
-			occurrenceKey,
-			recordCycleNotice,
-			resolveEmittedElement,
-		} = await import('../element_node.ts');
+		const elementNode = await import('../element_node.ts');
+		const { nodeListPageLimit, occurrenceKey, resolveEmittedElement } = elementNode;
 
 		// THE ELEMENT'S NODE (relations/element_node.ts): its EFFECTIVE config —
 		// the own config (the ONE base resolver: override → alias → section_list
@@ -188,20 +182,16 @@ export const portalResolver: RelationModelResolver = {
 		const owner = configOwnerOf(row);
 		const path = scope?.path ?? [];
 		const occurrence = occurrenceKey(owner, ddo.tipo);
-		const isCycle = path.includes(occurrence);
-		if (isCycle) {
-			emission.nodes.addNotices([await recordCycleNotice(owner, ddo.tipo, path.length)]);
-		}
-		// DEPTH BOUND (element_node.ts MAX_DDO_DEPTH): the children would sit one
-		// hop deeper than the bound. A chain the ONTOLOGY drives (own configs,
-		// a derived map) is ordinary data — stop here with a typed notice, the
-		// rest of the read completes. A CLIENT-map-driven chain goes on to
-		// emitDdoData's loud refusal (the request asked for it).
-		const atDepthBound = !isCycle && depth + 1 > MAX_DDO_DEPTH && node.childOrigin !== 'client';
-		if (atDepthBound && node.children.length > 0) {
-			emission.nodes.addNotices([await depthBoundNotice(owner, ddo.tipo, depth)]);
-		}
-		const children = isCycle || atDepthBound ? [] : (node.children as unknown as Ddo[]);
+		const children = await boundedPortalChildren(
+			elementNode,
+			emission,
+			node,
+			owner,
+			ddo.tipo,
+			path,
+			occurrence,
+			depth,
+		);
 
 		// The LIST/TM cell page size follows the effective config (the section_list
 		// swap included — what resolveListCellMap used to read raw); the governing
@@ -241,4 +231,36 @@ export const portalResolver: RelationModelResolver = {
 /** A LIST cell's page: a TM subject cell pages wider (read_tm.ts subjectCellLimit, WC-2026-11-10-tm-subject-cell-page), else the node's list page. */
 function listCellLimit(ddo: unknown, nodePage: number | null): number | null {
 	return (ddo as { tm_subject_limit?: number }).tm_subject_limit ?? nodePage;
+}
+
+/**
+ * Decides the children a portal expands: none at a RECORD CYCLE or at the
+ * DEPTH BOUND (each stop adds its typed notice), else the node's children.
+ *
+ * DEPTH BOUND (element_node.ts MAX_DDO_DEPTH): the children would sit one
+ * hop deeper than the bound. A chain the ONTOLOGY drives (own configs,
+ * a derived map) is ordinary data — stop here with a typed notice, the
+ * rest of the read completes. A CLIENT-map-driven chain goes on to
+ * emitDdoData's loud refusal (the request asked for it).
+ */
+async function boundedPortalChildren(
+	elementNode: typeof import('../element_node.ts'),
+	emission: RelationEmitContext['emission'],
+	node: Awaited<ReturnType<typeof import('../element_node.ts')['resolveEmittedElement']>>,
+	owner: ReturnType<typeof configOwnerOf>,
+	tipo: string,
+	path: readonly string[],
+	occurrence: string,
+	depth: number,
+): Promise<Ddo[]> {
+	if (path.includes(occurrence)) {
+		emission.nodes.addNotices([await elementNode.recordCycleNotice(owner, tipo, path.length)]);
+		return [];
+	}
+	const atDepthBound = depth + 1 > elementNode.MAX_DDO_DEPTH && node.childOrigin !== 'client';
+	if (!atDepthBound) return node.children as unknown as Ddo[];
+	if (node.children.length > 0) {
+		emission.nodes.addNotices([await elementNode.depthBoundNotice(owner, tipo, depth)]);
+	}
+	return [];
 }

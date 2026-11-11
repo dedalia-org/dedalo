@@ -168,14 +168,7 @@ async function emitOwnConfigIndexData(
 
 	// The page limit mirrors expandPortal's mode chains EXACTLY, then is pinned
 	// onto the delegated ddo so the pre-fetched page and the portal slice agree.
-	let rawLimit: number;
-	if (ddoMode === 'list') {
-		const { resolveListCellMap } = await import('../../section/list_definitions/section_list.ts');
-		rawLimit = ddo.limit ?? (await resolveListCellMap(ddo.tipo)).cellLimit ?? PORTAL_LIST_LIMIT;
-	} else {
-		rawLimit = ddo.limit ?? config.editLimit;
-	}
-	const limit = inversePageLimit(rawLimit, ddo.tipo);
+	const limit = inversePageLimit(await ownConfigRawLimit(ddo, ddoMode, config), ddo.tipo);
 
 	const filter = {
 		type: config.relationType,
@@ -220,13 +213,34 @@ async function emitOwnConfigIndexData(
 		ddo: { ...ddo, limit } as Ddo,
 		...(unreadable.size > 0 ? { existenceOnlyTargets: unreadable } : {}),
 	});
-	for (let i = before; i < emission.items.length; i++) {
-		const item = emission.items[i] as DataItem;
-		if (item.tipo === ddo.tipo) {
-			item.pagination = { total: counted.total, limit, offset: 0 };
-			break;
-		}
+	const indexItem = findIndexItem(emission, before, ddo.tipo);
+	if (indexItem !== undefined) {
+		indexItem.pagination = { total: counted.total, limit, offset: 0 };
 	}
+}
+
+/** Decides the configured index's raw page limit by mode: ddo limit → list-cell limit → list default (list), ddo limit → edit limit (edit). */
+async function ownConfigRawLimit(
+	ddo: Ddo,
+	ddoMode: string,
+	config: RelationIndexConfig,
+): Promise<number> {
+	if (ddoMode !== 'list') return ddo.limit ?? config.editLimit;
+	const { resolveListCellMap } = await import('../../section/list_definitions/section_list.ts');
+	return ddo.limit ?? (await resolveListCellMap(ddo.tipo)).cellLimit ?? PORTAL_LIST_LIMIT;
+}
+
+/** The FIRST emitted item (from index `from` on) that is the index component `tipo` itself — the one its pagination/id stamp targets. */
+function findIndexItem(
+	emission: EmissionContext,
+	from: number,
+	tipo: string,
+): DataItem | undefined {
+	for (let i = from; i < emission.items.length; i++) {
+		const item = emission.items[i] as DataItem;
+		if (item.tipo === tipo) return item;
+	}
+	return undefined;
 }
 
 /**
@@ -558,11 +572,16 @@ function existenceOnlyWhen<T>(ddo: T, unreadable: ReadonlySet<string>): T {
 	if (tipo === undefined || !unreadable.has(tipo) || typeof ddo !== 'object' || ddo === null) {
 		return ddo;
 	}
-	const source = ddo as Record<string, unknown>;
-	const reduced: Record<string, unknown> = {};
-	for (const key of EXISTENCE_KEYS) if (key in source) reduced[key] = source[key];
+	const reduced = pickExistenceKeys(ddo as Record<string, unknown>);
 	reduced.existence_only = true;
 	return reduced as T;
+}
+
+/** The EXISTENCE_KEYS a ddo carries — everything else of an unreadable section is withheld. */
+function pickExistenceKeys(source: Record<string, unknown>): Record<string, unknown> {
+	const reduced: Record<string, unknown> = {};
+	for (const key of EXISTENCE_KEYS) if (key in source) reduced[key] = source[key];
+	return reduced;
 }
 
 /** The configured target sections of an index (its request_config sqo), [] for 'all'. */
@@ -846,52 +865,13 @@ export async function readRelationIndexData(
 	// synthetic record holding the computed page (see emitOwnConfigIndexData);
 	// no representative seeding, no pool quirk (PHP get_subdatum branch).
 	if (config.hasRequestConfig) {
-		const emission = new EmissionContext([], nodes === undefined ? {} : { nodes });
-		// D9: the configured index's existence-only pointers (emitOwnConfigIndexData)
-		const unreadable = await existenceOnlySections([
-			...page.map((hit) => hit.section_tipo),
-			...configuredTargetSections(config),
-		]);
-		if (unreadable.size > 0) {
-			const targetNode = emission.nodes.targetFor(tipo, sectionTipo, mode);
-			if (targetNode !== undefined) {
-				await markExistenceOnlyInNode(emission.nodes, targetNode, unreadable);
-			}
-		}
-		const syntheticRecord = {
-			id: 0,
-			section_id: Number(sectionId),
-			section_tipo: sectionTipo,
-			columns: { relation: { [tipo]: page.map(parseInverseEntry) } },
-			rawText: {},
-		};
-		await portalResolver.emitDdoItems({
-			ddo: { tipo, section_tipo: sectionTipo, mode, limit } as Ddo,
-			ddoMap: [],
-			record: syntheticRecord,
-			row: { section_tipo: sectionTipo, section_id: Number(sectionId) },
-			model: 'component_relation_index',
-			dataTipo: tipo,
-			ddoMode: mode,
-			ddoLang: 'lg-nolan',
-			defaultMode: mode,
-			defaultLang: requestLang,
-			callerTipo: tipo,
-			emission,
-			allowOwnConfigChildren: true,
-			depth: 0,
-			emitDdo,
-			...(unreadable.size > 0 ? { existenceOnlyTargets: unreadable } : {}),
-		});
-		for (const emitted of emission.items) {
-			const item = emitted as DataItem;
-			if (item.tipo !== tipo) continue;
-			// get_data echoes the source's RAW (string) id + the FULL count.
-			item.section_id = sectionId;
-			item.pagination = { total: counted.total, limit, offset };
-			break;
-		}
-		return emission.items as DataItem[];
+		return readOwnConfigIndexData(
+			{ tipo, sectionTipo, sectionId, limit, offset, requestLang, emitDdo, mode, nodes },
+			config,
+			page,
+			counted.total,
+			parseInverseEntry,
+		);
 	}
 
 	const emission = new EmissionContext([], nodes === undefined ? {} : { nodes });
@@ -924,60 +904,161 @@ export async function readRelationIndexData(
 		pool.push({ sectionTipo: targetSection, sectionId: targetId });
 	};
 	if (offset === 0) {
-		for (const group of counted.totals_group ?? []) {
-			const pointingSection = group.key[0];
-			if (pointingSection === undefined) continue;
-			const table = await getMatrixTableFromTipo(pointingSection);
-			if (table === null) continue;
-			const representative = await getRepresentativeSectionId(table, pointingSection);
-			if (representative !== null) poolAdd(pointingSection, representative);
-		}
+		await seedRepresentatives(counted.totals_group, poolAdd, getRepresentativeSectionId);
 	}
 	for (const hit of page) {
 		poolAdd(hit.section_tipo, hit.section_id);
 		// One FULL pool dump per locator pass (the PHP instance-cache quirk).
 		for (const entry of pool) {
-			const table = await getMatrixTableFromTipo(entry.sectionTipo);
-			if (table === null) continue;
-			const targetRecord = await memoizedReadMatrixRecord(
-				table,
-				entry.sectionTipo,
-				entry.sectionId,
-			);
-			if (targetRecord === null) continue;
-			const childTipos = relatedListTiposOf(relatedLists, entry.sectionTipo);
-			const plans = await relatedListChildPlans(childTipos);
-			for (const childTipo of childTipos) {
-				const plan = plans.get(childTipo) as RelatedListChildPlan;
-				const before = emission.items.length;
-				await emitDdo(
-					{
-						tipo: childTipo,
-						section_tipo: entry.sectionTipo,
-						parent: tipo,
-						mode: plan.mode,
-					} as Ddo,
-					[],
-					targetRecord,
-					{ section_tipo: entry.sectionTipo, section_id: entry.sectionId },
-					plan.mode,
-					requestLang,
-					entry.sectionTipo, // parent_tipo = the pointing SECTION here
-					emission,
-					// OWN CHILDREN exactly where PHP expands them (RelatedListChildPlan).
-					plan.ownChildren,
-					1,
-				);
-				stampDirectRelatedListCell(emission, before, childTipo, entry.sectionTipo, tipo);
-				for (let i = before; i < emission.items.length; i++) {
-					const child = emission.items[i] as DataItem & { parent?: string };
-					// PHP sub_value->parent: every item of the dump (grandchildren
-					// too) belongs to the index — the section path stamps the same.
-					child.parent = tipo;
-					emission.markStamped(child);
-				}
-			}
+			await emitPoolEntry(emission, entry, relatedLists, tipo, requestLang, emitDdo);
 		}
 	}
 	return emission.items as DataItem[];
+}
+
+/** readRelationIndexData's request, threaded to its own-config strategy. */
+interface IndexDataRequest {
+	tipo: string;
+	sectionTipo: string;
+	sectionId: string;
+	limit: number;
+	offset: number;
+	requestLang: string;
+	emitDdo: EmitDdoFn;
+	mode: string;
+	nodes: ElementNodeRegistry | undefined;
+}
+
+/**
+ * Own-request_config strategy of readRelationIndexData: delegate to the portal
+ * machinery over a synthetic record holding the computed page (see
+ * emitOwnConfigIndexData); no representative seeding, no pool quirk (PHP
+ * get_subdatum branch).
+ */
+async function readOwnConfigIndexData<Hit extends { section_tipo: string }>(
+	request: IndexDataRequest,
+	config: RelationIndexConfig,
+	page: Hit[],
+	total: number,
+	parseInverseEntry: (hit: Hit) => unknown,
+): Promise<DataItem[]> {
+	const { tipo, sectionTipo, sectionId, limit, offset, requestLang, emitDdo, mode, nodes } =
+		request;
+	const emission = new EmissionContext([], nodes === undefined ? {} : { nodes });
+	// D9: the configured index's existence-only pointers (emitOwnConfigIndexData)
+	const unreadable = await existenceOnlySections([
+		...page.map((hit) => hit.section_tipo),
+		...configuredTargetSections(config),
+	]);
+	await markGetDataTargetExistenceOnly(emission, request, unreadable);
+	const syntheticRecord = {
+		id: 0,
+		section_id: Number(sectionId),
+		section_tipo: sectionTipo,
+		columns: { relation: { [tipo]: page.map(parseInverseEntry) } },
+		rawText: {},
+	};
+	await portalResolver.emitDdoItems({
+		ddo: { tipo, section_tipo: sectionTipo, mode, limit } as Ddo,
+		ddoMap: [],
+		record: syntheticRecord,
+		row: { section_tipo: sectionTipo, section_id: Number(sectionId) },
+		model: 'component_relation_index',
+		dataTipo: tipo,
+		ddoMode: mode,
+		ddoLang: 'lg-nolan',
+		defaultMode: mode,
+		defaultLang: requestLang,
+		callerTipo: tipo,
+		emission,
+		allowOwnConfigChildren: true,
+		depth: 0,
+		emitDdo,
+		...(unreadable.size > 0 ? { existenceOnlyTargets: unreadable } : {}),
+	});
+	const indexItem = findIndexItem(emission, 0, tipo);
+	if (indexItem !== undefined) {
+		// get_data echoes the source's RAW (string) id + the FULL count.
+		indexItem.section_id = sectionId;
+		indexItem.pagination = { total, limit, offset };
+	}
+	return emission.items as DataItem[];
+}
+
+/** D9 on the get_data path: marks the `unreadable` sections existence-only in the TARGET node the door pinned, when there is one. */
+async function markGetDataTargetExistenceOnly(
+	emission: EmissionContext,
+	request: Pick<IndexDataRequest, 'tipo' | 'sectionTipo' | 'mode'>,
+	unreadable: ReadonlySet<string>,
+): Promise<void> {
+	if (unreadable.size === 0) return;
+	const targetNode = emission.nodes.targetFor(request.tipo, request.sectionTipo, request.mode);
+	if (targetNode === undefined) return;
+	await markExistenceOnlyInNode(emission.nodes, targetNode, unreadable);
+}
+
+/** offset 0 only: seeds the pool with each pointing section's representative record (get_related_section_context). */
+async function seedRepresentatives(
+	totalsGroup: { key: (string | undefined)[] }[] | undefined,
+	poolAdd: (targetSection: string, targetId: number) => void,
+	getRepresentativeSectionId: (table: string, sectionTipo: string) => Promise<number | null>,
+): Promise<void> {
+	for (const group of totalsGroup ?? []) {
+		const pointingSection = group.key[0];
+		if (pointingSection === undefined) continue;
+		const table = await getMatrixTableFromTipo(pointingSection);
+		if (table === null) continue;
+		const representative = await getRepresentativeSectionId(table, pointingSection);
+		if (representative !== null) poolAdd(pointingSection, representative);
+	}
+}
+
+/** Emits ONE pool record's related_list children (mode 'related_list', stamped with the TARGET record and the index as parent). */
+async function emitPoolEntry(
+	emission: EmissionContext,
+	entry: { sectionTipo: string; sectionId: number },
+	relatedLists: Parameters<typeof relatedListTiposOf>[0],
+	tipo: string,
+	requestLang: string,
+	emitDdo: EmitDdoFn,
+): Promise<void> {
+	const table = await getMatrixTableFromTipo(entry.sectionTipo);
+	if (table === null) return;
+	const targetRecord = await memoizedReadMatrixRecord(table, entry.sectionTipo, entry.sectionId);
+	if (targetRecord === null) return;
+	const childTipos = relatedListTiposOf(relatedLists, entry.sectionTipo);
+	const plans = await relatedListChildPlans(childTipos);
+	for (const childTipo of childTipos) {
+		const plan = plans.get(childTipo) as RelatedListChildPlan;
+		const before = emission.items.length;
+		await emitDdo(
+			{
+				tipo: childTipo,
+				section_tipo: entry.sectionTipo,
+				parent: tipo,
+				mode: plan.mode,
+			} as Ddo,
+			[],
+			targetRecord,
+			{ section_tipo: entry.sectionTipo, section_id: entry.sectionId },
+			plan.mode,
+			requestLang,
+			entry.sectionTipo, // parent_tipo = the pointing SECTION here
+			emission,
+			// OWN CHILDREN exactly where PHP expands them (RelatedListChildPlan).
+			plan.ownChildren,
+			1,
+		);
+		stampDirectRelatedListCell(emission, before, childTipo, entry.sectionTipo, tipo);
+		markPoolDumpParent(emission, before, tipo);
+	}
+}
+
+/** PHP sub_value->parent: every item of the dump (grandchildren too) belongs to the index — the section path stamps the same. */
+function markPoolDumpParent(emission: EmissionContext, from: number, tipo: string): void {
+	for (let i = from; i < emission.items.length; i++) {
+		const child = emission.items[i] as DataItem & { parent?: string };
+		child.parent = tipo;
+		emission.markStamped(child);
+	}
 }

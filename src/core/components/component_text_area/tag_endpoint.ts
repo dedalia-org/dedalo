@@ -152,7 +152,7 @@ async function resolveLocatorTag(tag: LocatorTag, request: Request): Promise<Res
 					...typed.coordinates,
 					component_tipo: tag.component_tipo,
 					section_tipo: tag.section_tipo,
-					section_id: String(tag.section_id),
+					section_id: tag.section_id,
 				},
 				cause: error,
 			}),
