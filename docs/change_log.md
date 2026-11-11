@@ -274,6 +274,25 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-11-export-value-single-walker`.
 
+- **Importing a URI with a label now saves the label, and a text label is found or created.**
+
+    Before, a URI imported with a label id (`8, https://dedalo.dev`, or `label_id` in a JSON cell)
+    was stored without its label: the label never appeared. A URI imported with a label text
+    (`Dédalo, https://dedalo.dev`) was refused.
+
+    Now both forms save the label exactly as the editor does. A text label is matched against the
+    existing labels ignoring case, accents and surrounding white space (spaces, tabs, line breaks, non-breaking spaces), as a whole value. When several
+    labels match, the one with the lowest id is used and the import reports the others. When none
+    matches, a new label is created in your default project. Importing the same file again creates
+    no second label.
+
+    Some cells are now refused and reported instead of imported: a label id that does not exist, a
+    label without a URI, and a label you have no permission to create. Saving a URI value that carries
+    `label_id` directly (for example through the API) is refused too: the label belongs to the URI's
+    label field. See [Importing data](./core/importing_data.md#uri).
+
+    Wire contract: `WC-2026-11-11-iri-import-label-frame`.
+
 - **A Word or OpenDocument file uploaded to a PDF field is no longer published as its PDF.**
 
     A PDF field keeps the authored document (`.doc`, `.odt`, `.pages`…) and its PDF
@@ -654,7 +673,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 29 entries"
+??? note "Wire contract — 31 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -681,9 +700,11 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-11-export-inverse-callers`
     - `WC-2026-11-11-export-related-references-column`
     - `WC-2026-11-11-export-value-single-walker`
+    - `WC-2026-11-11-iri-import-label-frame`
     - `WC-2026-11-11-pdf-transcription-restored`
     - `WC-2026-11-11-relation-index-related-list-context`
     - `WC-2026-11-11-relation-list-column-grants`
+    - `WC-2026-11-11-section-elements-target-groups`
     - `WC-2026-11-11-svg-tag-url-full-media-path`
 
 ## 7.0.0-beta.8 — 2026-11-08
