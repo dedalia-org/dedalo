@@ -4,13 +4,19 @@
  * GENERATED SCAFFOLD (probe_emit_catalog.ts). Hand-edit from here on.
  */
 
-import type { CatalogEntry } from '../catalog_types.ts';
+import type { CatalogEntry, CatalogGet } from '../catalog_types.ts';
 
 export const LANGS_KEYS = {
 	APPLICATION_LANG: {
 		type: 'string',
 		scope: 'operator',
-		default: 'lg-spa',
+		// Unset = the install's interface default: it is the language an anonymous caller
+		// (login form) and a session without a choice get, so a literal here overrode
+		// DEDALO_APPLICATION_LANGS_DEFAULT (beta7 served lg-spa with the default lg-eng).
+		default: (get: CatalogGet) => get('DEDALO_APPLICATION_LANGS_DEFAULT'),
+		defaultDoc: 'the value of `DEDALO_APPLICATION_LANGS_DEFAULT`',
+		// An uncommented empty stub (`APPLICATION_LANG=`) must mean the default, not ''.
+		emptyIsUnset: true,
 		heading: 'Defining application language',
 		typeLabel: 'string',
 		doc: `This parameter defines the language will us Dédalo for the user interface.
@@ -33,7 +39,10 @@ APPLICATION_LANG="lg-spa"
 	DATA_LANG: {
 		type: 'string',
 		scope: 'operator',
-		default: 'lg-spa',
+		// Unset = the install's data default (same trap as APPLICATION_LANG above).
+		default: (get: CatalogGet) => get('DEDALO_DATA_LANG_DEFAULT'),
+		defaultDoc: 'the value of `DEDALO_DATA_LANG_DEFAULT`',
+		emptyIsUnset: true,
 		heading: 'Defining data language',
 		typeLabel: 'string',
 		doc: `It defines the data language used by Dédalo to process and render textual information.

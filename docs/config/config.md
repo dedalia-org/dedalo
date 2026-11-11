@@ -225,7 +225,7 @@ APPLICATION_LANG="lg-spa"
 > You can set this as a fixed value, but it is recommended you do not — to change the
 > default interface language, use `DEDALO_APPLICATION_LANGS_DEFAULT` instead.
 
-*Default: lg-spa*
+*Default: the value of `DEDALO_APPLICATION_LANGS_DEFAULT`*
 
 ---
 
@@ -245,7 +245,7 @@ DATA_LANG="lg-spa"
 > default data language, use [DEDALO_DATA_LANG_DEFAULT](#defining-default-data-language)
 > instead.
 
-*Default: lg-spa*
+*Default: the value of `DEDALO_DATA_LANG_DEFAULT`*
 
 ---
 

@@ -475,6 +475,14 @@ Merged since the last release; these ship with the next one.
 
     Every ontology update records which sections gained new children, so an administrator can review the new permissions those sections need. In a profile's **Access and permissions** panel, the **Latest changes** selector was always empty, and choosing an entry had nothing on the server to answer it. The selector now lists every recorded update, newest first. Choosing one shows each changed section with its path and its new children, and clicking a section opens it in the permissions tree. Only global administrators can open an entry, as before.
 
+- **The login page now opens in the installation's default interface language.**
+
+    When `DEDALO_APPLICATION_LANG` was not set in `.env`, the login page and any session that
+    had not picked a language used Spanish (`lg-spa`), ignoring
+    `DEDALO_APPLICATION_LANGS_DEFAULT`. An unset `DEDALO_APPLICATION_LANG` now means the value
+    of `DEDALO_APPLICATION_LANGS_DEFAULT`, and an unset `DEDALO_DATA_LANG` means the value of
+    `DEDALO_DATA_LANG_DEFAULT`. An installation that sets either key explicitly is unchanged.
+
 - **Profile tool permissions list is readable on a phone.**
 
     The tools list in a profile (and any check box shown as a tools list) now uses one column on
