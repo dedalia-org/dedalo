@@ -1182,7 +1182,7 @@ Row 1 will be saved as `[{"value":{"config":{"a":1}}}]`, row 4 as `[{"value":42}
 
 ### URI
 
-Component: `component_iri`. The component does not use languages; the main format to import is the array of `dd_iri` objects.
+Component: `component_iri`. The component is never translatable: a URI has no language, and its value is stored as `lg-nolan`. It can still hold language-specific URIs as language versions (see the *Languages* subsection below). The main format to import is the array of `dd_iri` objects.
 
 !!! info "Data format in version 6.8.0"
     The data version for the iri component changed in version 6.8.0. The `title` property is deprecated and may be removed in future versions.
@@ -1238,7 +1238,7 @@ To import multiple values in the same component/field, add new object to the arr
 
 #### Languages
 
-The import marks this data as `lg-nolan` because the component interprets that the URI has no language by default. But sometimes you will handle multilingual URIs, such as Wikipedia articles, so in those cases you can identify the language of the URI in this way:
+The import saves a plain URI as `lg-nolan`: the component is never translatable, so a URI has no language. But sometimes you will handle language-specific URIs, such as Wikipedia articles, so in those cases you can import them as language versions of the field, identifying the language of each URI in this way:
 
 ```json
 {
