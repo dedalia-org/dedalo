@@ -266,15 +266,21 @@ then be enough to drive the host. With mTLS it is useless without the engine's c
   `src/core/area_maintenance/widgets/publication_hosts.ts`, wire entry
   `engineering/wire_contract/WC-2026-10-03-publication-hosts-widget.md`). For each host it
   shows the checks `registry`, `secrets`, `reachable`, `pairing`, `agent_version`,
-  `bun_version`, `media_mode`, `media_mount`, `media_read_only`, `rules_hash`, `api_v1` and
-  `api_v2`, the expected vs reported rule hash (§5.1), the expected vs reported Bun version
+  `bun_version`, `media_mode`, `media_mount`, `media_read_only`, `media_web_traversable`,
+  `rules_hash`, `api_v1` and `api_v2`, the expected vs reported rule hash (§5.1), the expected vs reported Bun version
   (row field `bun: {expected, reported}`), and each API's current/previous release.
   `bun_version` (`src/core/publication_host/host_status.ts`) compares the agent's `status`
   `bun_version` with the work host's pin (repo-root `.bun-version`, read by the update
   panel's `bunPinOf`): exact equality is `ok`; any difference (patch, minor, a prerelease or
   build tail) is `blocked`, as is a value not shaped like a Bun version (`malformed`); an
   unreachable or unproved agent (`status_unavailable`), an empty value (`not_reported`) and
-  an unpinned work host (`unpinned`) are `unknown`. `reported` is null unless the status is
+  an unpinned work host (`unpinned`) are `unknown`. `media_web_traversable` reads the probe's
+  `web_traversable` (§6): `false` in COPY mode is `blocked` `not_web_traversable` (the agent
+  owns those levels; a dir dark to the web server's user makes every published file 404
+  while the agent itself reads it fine); `false` in SHARED mode is `unknown`
+  `unverified_owner_group` (the read-only export is the work host's, and the web user may
+  reach it as its owner or group, which o+x does not show); `null` on a serving host is
+  `unknown` `unmeasured`, mode `none` is `ok`. `reported` is null unless the status is
   trusted and shaped, so agent text never reaches the row. Exact equality because the
   engine and the agent share Bun-coupled behaviour (`Bun.sql`, `Bun.serve`). A
   failure minted before anything was dialled (the local token-vs-registry pairing check,
@@ -567,6 +573,30 @@ truth, the `media_index` law.
   starts no unit while an immediate withdrawal begun before it is in flight, so the round
   that verifies a withdrawn marker always runs after its pending record
   (`media_copy_worker.ts`, gate `media_copy_worker_native`).
+- **Modes are applied, never requested** (agent, 2026-11-10, T0-6). The agent runs under
+  `UMask=0027`, so a mode passed to `mkdir`/`writeFile` is cut to 0750/0640 — and a 0750
+  dir has no search bit for the web server's user (`www-data`/`nginx`/`apache`, not in the
+  agent's group): Rule B's `-f` marker stat fails and every published file 404s. The agent
+  therefore APPLIES modes (create, then `fchmod` on an `O_NOFOLLOW` handle, agent
+  `media/fs_modes.ts`): every public media dir level it mints, `.publication/` and
+  `.publication/pub/` 0755; `pub/` markers 0644; `.publication/copy/` (incoming files, the
+  sha index) 0700. Agent-owned levels keep these EXACT modes. A level the agent does not
+  own is never chmod'ed and is judged by NEED (`fs_modes.ts meetsNeed`): a public dir needs
+  o+x (0775, 0711 serve), the private `.publication/copy/` must grant no group/other bit, a
+  marker is only stat'ed. One that fails its need refuses the put/mark 409
+  `media_level_foreign` (§6). On every copy-mode boot, AFTER the listener is up, the agent
+  REPAIRS the tree: a streaming async walk (`opendir`, each inode on its own `O_NOFOLLOW`
+  descriptor; directories only plus the `pub/` markers, links never followed nor descended)
+  — agent-owned dirs to 0755, `.publication/copy/` and below to 0700, markers to 0644. It
+  runs beside puts and marks safely: every writer applies the SAME constant to the same
+  path, so no interleaving narrows a mode; a marker unlinked mid-walk is skipped. When the
+  walk ends: one audit row `media.repair {root, dirs_fixed, markers_fixed, foreign,
+  foreign_more, failed, failed_more}` (lists capped at the first 20 paths, the rest
+  counted; outcome `failed` while a foreign or unopenable entry remains) — written only
+  when something was fixed or listed. Never a boot refusal: a foreign dark dir is listed
+  (and is the probe's problem), an unopenable one is `failed` with its errno. Idempotent —
+  a healthy tree costs one readdir per dir and no write. The probe's `web_traversable` (§6)
+  and the panel's `media_web_traversable` check keep a dark tree visible.
 - **Never through a link** (built, phase 5): a file is opened only when no link lies
   between the media root's realpath and it. A public quality folder reached through a link
   (itself or a directory above it, e.g. `av/` on another volume) stays desired — its keys
@@ -588,16 +618,16 @@ are spelled out one per API (the copy-mode media path travels in the query of
 |---|---|---|
 | (pairing) | `GET /health` | liveness + `instance_fingerprint` (§2.3); unauthenticated |
 | `status` | `GET /v1/status` | agent + Bun version, platform, fingerprint, per-API `current`/`previous` release, applied rule hash, media probe, state-root free bytes |
-| `media.probe` | `GET /v1/media/probe` | mount present, read-only, `pub/` readable, marker count |
+| `media.probe` | `GET /v1/media/probe` | mount present, read-only, `pub/` readable (as the agent), `web_traversable` (every dir from the media root to `.publication/pub` grants o+x, so the web server can stat a marker: `false` = a dark dir, with a `problems[]` line naming it — in copy mode every published file 404s; in shared mode the line is advisory, owner/group access not verified; `null` = not measured — mode `none`, root absent; mode bits only, ACLs/SELinux are not judged), marker count. The engine REQUIRES every field: a probe or status from an agent that predates one is unreadable (`agent_client.ts isMediaProbe`) — engine and agent ship from one tree, no skew window is carried (TS-era beta) |
 | `rules.apply {server, text, hash}` | `POST /v1/rules/apply` | write the include, `configtest`, reload; on a failed configtest restore the previous file, re-run configtest, never reload |
 | `rules.map {text, hash}` | `POST /v1/rules/map` | nginx only (§9.7). Validate the pushed http{} map against the closed map grammar, write THIS instance's contribution (one envelope) into the host-wide sticky `contrib/` store, start the root map renderer (`dedalo-pubhost-map.service`) and answer from its `result.json`: `{hash, host_hash, contributions, reloaded}`. The agent never writes the live map. `map_unmanaged` (409) when the host's `web.nginx_map` is `none`; `server_mismatch` on apache |
 | `release.install {api: v1, release, sha256, bundle}` | `POST /v1/releases/v1` | §3 install of a v1 release; the bundle is the request body; a release the host already holds is promoted with NO body (D9: recorded sha = `X-Bundle-Sha256`, body unread) — an absent body (`Content-Length: 0`, `req.body === null`) is refused `body_invalid` only when the release must be staged |
 | `release.install {api: v2, release, sha256, bundle}` | `POST /v1/releases/v2` | §3 install of a v2 release, auto-rollback on failed health; the bundle is the request body; a release the host already holds is promoted with NO body (D9: recorded sha = `X-Bundle-Sha256`, body unread) — an absent body (`Content-Length: 0`, `req.body === null`) is refused `body_invalid` only when the release must be staged |
 | `release.rollback {api: v1}` | `POST /v1/releases/v1/rollback` | swap v1 `current` back to the previous release |
 | `release.rollback {api: v2}` | `POST /v1/releases/v2/rollback` | swap v2 `current` back to the previous release, restart, health |
-| `media.put {path, sha256, size}` | `PUT /v1/media/file` | `copy` mode only. `?path=` relative to `MEDIA_ROOT`; headers `X-Sha256`, `X-Size`, `X-Dedalo-Actor`; the raw file is the body. Shape-checked (≥ type/quality/file, no hidden segment, grammar-valid name, no working file, never under `original`/`modified`, confined); streamed to `.publication/copy/incoming/`, size + sha256 verified, then an atomic rename that happens ONLY while `pub/<key>` exists (re-checked under the key lock `media.mark` takes). The same bytes already present answer `unchanged`, body unread |
+| `media.put {path, sha256, size}` | `PUT /v1/media/file` | `copy` mode only. `?path=` relative to `MEDIA_ROOT`; headers `X-Sha256`, `X-Size`, `X-Dedalo-Actor`; the raw file is the body. Shape-checked (≥ type/quality/file, no hidden segment, grammar-valid name, no working file, never under `original`/`modified`, confined); streamed to `.publication/copy/incoming/`, size + sha256 verified, then an atomic rename that happens ONLY while `pub/<key>` exists (re-checked under the key lock `media.mark` takes). The same bytes already present answer `unchanged`, body unread. Every dir level it walks gets its mode applied (§5.2); a level another user owns whose mode fails the need is refused 409 `media_level_foreign` (never chmod'ed; the engine's sentence names the operator fix) |
 | `media.delete {paths}` | `POST /v1/media/delete` | `copy` mode only. 1–1000 relative paths, shape only: a stray, a master, a hidden entry or a symlink that landed must stay removable (a link is unlinked as itself, its target never touched); only the agent's top-level `.publication/` and instance marker are refused, and one refused path refuses the request. Answers `deleted` / `absent` / `failed` per path; verification is the next `media.manifest` |
-| `media.mark {key, published}` | `POST /v1/media/mark` | `copy` mode only. Writes / removes `MEDIA_ROOT/.publication/pub/<key>` (`^[a-z0-9]+_[0-9]+$`), the marker the gate stats. Once `published:false` has answered, no put for that key can land |
+| `media.mark {key, published}` | `POST /v1/media/mark` | `copy` mode only. Writes / removes `MEDIA_ROOT/.publication/pub/<key>` (`^[a-z0-9]+_[0-9]+$`), the marker the gate stats. Once `published:false` has answered, no put for that key can land. `.publication/` and `pub/` 0755, the marker 0644, applied; a foreign level failing the need is refused 409 `media_level_foreign` as for `media.put` |
 | `media.manifest {cursor, limit}` | `GET /v1/media/manifest` | `copy` mode only. One path-ordered walk of `MEDIA_ROOT` minus the agent's top-level `.publication/` and instance marker: regular files with no hidden segment as `entries` `{path, size, sha256}`; EVERY other non-directory entry (symlinks, never followed; fifos, sockets, devices; hidden files; files under hidden directories) as `irregular` paths, on the page where they fall. `limit` 1–5000 (default 1000) counts both; opaque `next`; `markers` (every `pub/` key) on the first page only. The disk is the truth: a sha comes from the agent's index (`.publication/copy/sha_index.ndjson`) only while size and mtime match, else it is re-hashed. An unreadable directory fails the call, never hides files |
 
 Errors are `application/problem+json` (RFC 9457, type base
@@ -1067,9 +1097,12 @@ inside the CI image's container, with no privileged sibling and no SELinux kerne
   `systemd-analyze verify` with no warning naming a rendered unit. Its `--record` writes the EL
   drill record (`el_drill_record.json` under `engineering/`: ONE inputs digest, one entry per EL
   major, each its own run — commit, time, legs, measured types and floors — so recording one
-  major never rewrites another's measurements); the root ratchet `test/unit/publication_host_el_drill_record.test.ts`
+  major never rewrites another's measurements). A host entry also proves its bytes, not its
+  commit: `legs_inputs` (sha256 of the drill script and of every file a leg declares it proves,
+  `Leg.inputs`), `legs_digest` over them, `sha` = the BASE HEAD only, and `tree_dirty` (those files
+  differed from HEAD at the run); the root ratchet `test/unit/publication_host_el_drill_record.test.ts`
   then turns any change to an EL-relevant input (`EL_DRILL_INPUTS`, `src/provision/selinux.ts`)
-  red until the drill runs again, and names each supported major not yet recorded
+  or to a leg input red until the drill runs again, and names each supported major not yet recorded
   (`PENDING_EL_HOSTS`, shrink-only). `--capture <dir>` keeps the raw discovery outputs (the argv
   init's exec door runs) for the typed EL fixtures. Recorded: RHEL 9.8 and RHEL 10.2 (aarch64, enforcing), 2026-10-09.
   **fapolicyd** (default rules, measured RHEL 9.8): root may execute an untrusted Bun, but that

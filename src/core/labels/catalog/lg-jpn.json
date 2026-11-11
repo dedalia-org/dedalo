@@ -707,6 +707,7 @@
 	"publication_hosts_check_media_mode": "メディアモード",
 	"publication_hosts_check_media_mount": "メディアのマウント",
 	"publication_hosts_check_media_read_only": "メディア読み取り専用",
+	"publication_hosts_check_media_web_traversable": "Web サーバーからメディアに到達可能",
 	"publication_hosts_check_nginx_map": "ホストのメディアマップ",
 	"publication_hosts_check_pairing": "ペアリング",
 	"publication_hosts_check_public_gate": "公開ゲート",

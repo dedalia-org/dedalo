@@ -51,6 +51,7 @@ function agentStatus(server: string, media: Partial<MediaProbe> = {}): AgentStat
 			present: true,
 			read_only: true,
 			pub_readable: true,
+			web_traversable: true,
 			pub_markers: 0,
 			problems: [],
 			...media,

@@ -81,10 +81,12 @@ import {
 	getRecordComponentPermission,
 	getSectionPermissions,
 	inheritSubdatumPermission,
+	isFixedDataframeSlot,
 	metadataComponentTipos,
 	type Principal,
 	resolveComponentContextPermission,
 } from '../security/permissions.ts';
+import { sourceComponentLevel } from '../security/write_door.ts';
 import type { TargetSearchScope } from '../security/writer_chain_scope.ts';
 import type { LaneValue, RowLaneState } from '../tm_record/lane_state.ts';
 import {
@@ -4394,6 +4396,15 @@ async function getDataMainLevel(
 	principal: Principal | undefined,
 ): Promise<number> {
 	if (principal === undefined) return 3;
+	// A FIXED dataframe slot read DIRECTLY (source.tipo = dd560) is stamped at its
+	// main's level, the bound Gate A admitted it on (T0-4) — never its own 2.
+	if (target.mode !== 'search' && isFixedDataframeSlot(target.tipo)) {
+		return sourceComponentLevel(
+			principal,
+			{ ...source, section_tipo: target.sectionTipo, tipo: target.tipo },
+			'read.get_data',
+		);
+	}
 	return resolveComponentContextPermission(
 		principal,
 		target.sectionTipo,
@@ -4454,8 +4465,12 @@ function requestedView(source: { view?: unknown }): string | null {
  * component_iri label dataframe (dd560): the list/text render resolves the title
  * frame via get_dataframe, which requires the dataframe's OWN structure context in
  * datum.context (dataframe.js:249 returns null — then a null.render() crash —
- * without it). PHP class.component_iri::get_properties injects the dd560 slot
- * with the caller's edit rights (at least 2) and the 'line' view.
+ * without it). Frozen PHP class.component_iri::get_properties injects the dd560
+ * slot with mode 'edit' and the 'line' view ONLY — no level: PHP's 2 came from
+ * resolve_component_read_permission (dd560 → 2). The level here is the MAIN's
+ * (T0-4, owner decision 1: the frame IS its main's level — main 1 → frame 1,
+ * main 2 → frame 2), the same answer the section read's caller chain gives
+ * (own 2 in getRecordComponentPermission, capped by inheritSubdatumPermission).
  *
  * Two shapes:
  *  - the literal emission DID emit a dd560 frame for the IRI (every non-search
@@ -4463,7 +4478,7 @@ function requestedView(source: { view?: unknown }): string | null {
  *    bound to its frame node): the entry is built FROM THAT NODE (data and
  *    context, one node), the PHP injection kept as overrides — the view
  *    defaults to 'line' when the governing line declares none, and the level
- *    is max(main, 2). The derived pass then dedupes the frame item into it.
+ *    is the main's. The derived pass then dedupes the frame item into it.
  *  - no frame item (search mode emits none): the synthetic `own` entry, the
  *    one case OWN_CONTEXT_REASONS['iri-label-dataframe'] names.
  */
@@ -4483,9 +4498,9 @@ async function appendIriLabelFrameContext(
 		mode: frame.mode,
 		lang: target.lang,
 		requestedLang: null,
-		// The dd560 label frame is system-managed and always writable through its
-		// IRI (PHP component_iri injection carries the caller's edit rights).
-		permissions: Math.max(mainLevel, 2),
+		// The dd560 label frame's level IS its IRI's (T0-4) — never raised above
+		// a read-only main (the former max(main, 2) was a TS invention, F2).
+		permissions: mainLevel,
 		parent: target.tipo,
 		view: frame.view,
 		isTemporal: isTemporalSource(source),

@@ -11,7 +11,11 @@
  * tree a copy-mode agent writes (ReadWritePaths=), and `.publication/` is never served
  * (rule 0 of the publication_host profile) and is a RESERVED_TOP_LEVEL entry (never listed,
  * never deletable). `.publication/` itself stays traversable (0755) because the web server
- * stats `.publication/pub/<key>`; `.publication/copy/` is 0700.
+ * stats `.publication/pub/<key>`; `.publication/copy/` is 0700, the index file 0600.
+ *
+ * MODES ARE APPLIED, NOT REQUESTED (fs_modes.ts): the unit's UMask=0027 turned a requested
+ * 0755 `.publication/` into 0750 — the web user could not stat a marker and every file 404'd.
+ * Both levels are asserted on every append, so an operator-widened `copy/` is pulled back.
  *
  * FORMAT: append-only NDJSON — {"p":path,"s":size,"m":mtimeMs,"h":sha256} records a file,
  * {"p":path,"d":1} forgets one. Loaded once per root by replay; compacted (tmp + rename)
@@ -19,9 +23,10 @@
  * one agent process, so an append and a compaction can never interleave.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from '../config';
+import { PRIVATE_DIR_MODE, PUBLIC_DIR_MODE, ensureDirExact, writePrivateSync } from './fs_modes';
 
 export interface ShaRecord {
   size: number;
@@ -46,8 +51,8 @@ const states = new Map<string, IndexState>();
 
 /** `.publication/` traversable for the gate, `.publication/copy/` private to the agent. */
 export function ensureCopyStateDir(root: string): void {
-  mkdirSync(join(root, '.publication'), { recursive: true, mode: 0o755 });
-  mkdirSync(join(root, COPY_STATE_DIR), { recursive: true, mode: 0o700 });
+  ensureDirExact(root, '.publication', PUBLIC_DIR_MODE);
+  ensureDirExact(join(root, '.publication'), 'copy', PRIVATE_DIR_MODE);
 }
 
 function isRecord(value: Record<string, unknown>): boolean {
@@ -98,14 +103,14 @@ function serialize(path: string, record: ShaRecord): string {
 function compact(state: IndexState): void {
   const tmp = `${state.file}.compact`;
   const body = [...state.entries].map(([path, record]) => `${serialize(path, record)}\n`).join('');
-  writeFileSync(tmp, body, { mode: 0o600 });
+  writePrivateSync(tmp, body, 'replace');
   renameSync(tmp, state.file);
   state.lines = state.entries.size;
 }
 
 function append(root: string, state: IndexState, line: string): void {
   ensureCopyStateDir(root);
-  appendFileSync(state.file, `${line}\n`, { mode: 0o600 });
+  writePrivateSync(state.file, `${line}\n`, 'append');
   state.lines++;
   if (state.lines > state.entries.size * 2 + COMPACT_SLACK) compact(state);
 }

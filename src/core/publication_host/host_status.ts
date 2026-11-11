@@ -54,6 +54,7 @@ export const HOST_CHECK_IDS = Object.freeze([
 	'media_mode',
 	'media_mount',
 	'media_read_only',
+	'media_web_traversable',
 	'rules_hash',
 	'api_v1',
 	'api_v2',
@@ -330,6 +331,28 @@ function mediaReadOnlyCheck(status: AgentStatus | null): HostCheck {
 	return check('media_read_only', state, media.read_only ? 'read_only' : 'writable');
 }
 
+/**
+ * Can the WEB SERVER traverse the tree (agent `web_traversable`, T0-6: every dir root →
+ * `.publication/pub` grants o+x)? COPY mode: the agent mints and owns those levels, so a dark
+ * one (no o+x) means the Rule B `-f` marker stat fails for the web user and EVERY published
+ * file 404s while the agent itself reads fine — blocked, never healthy. SHARED mode: the
+ * export is the work host's, read-only, and the web user may legitimately reach it as its
+ * owner or group (mode bits for others are not the whole story) — unknown
+ * `unverified_owner_group`, never a hard block. Unmeasured (root absent: media_mount already
+ * blocks) is unknown, never assumed.
+ */
+function mediaWebTraversableCheck(status: AgentStatus | null): HostCheck {
+	const id = 'media_web_traversable';
+	if (status === null) return unavailable(id);
+	const { mode, web_traversable: traversable } = status.media;
+	if (mode === 'none') return check(id, 'ok', 'none');
+	if (traversable === null) return check(id, 'unknown', 'unmeasured');
+	if (traversable) return check(id, 'ok', 'traversable');
+	return mode === 'copy'
+		? check(id, 'blocked', 'not_web_traversable')
+		: check(id, 'unknown', 'unverified_owner_group');
+}
+
 function compareRuleHashes(
 	reported: string | null,
 	expected: Extract<ExpectedRulesOutcome, { ok: true }>,
@@ -389,6 +412,7 @@ export function buildHostChecks(input: HostStatusInput): HostCheck[] {
 		mediaModeCheck(trusted),
 		mediaMountCheck(trusted),
 		mediaReadOnlyCheck(trusted),
+		mediaWebTraversableCheck(trusted),
 		rulesHashCheck(trusted, expected),
 		apiCheck('v1', trusted, engineVersion),
 		apiCheck('v2', trusted, engineVersion),

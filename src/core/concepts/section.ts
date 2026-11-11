@@ -129,6 +129,20 @@ export const ACTIVITY_WHEN_TIPO = 'dd547';
 export const TIME_MACHINE_SECTION_TIPO = 'dd15';
 
 /**
+ * The Time Machine NOTES section (rsc832, PHP DEDALO_TIME_MACHINE_NOTES_SECTION_TIPO,
+ * dd_tipos.php:220) and its two load-bearing components: the note TEXT (rsc329,
+ * component_text_area) and the Code (rsc835, component_number) = the id of the
+ * matrix_time_machine row the note annotates. A note's creator is its dd200.
+ * Here (a kernel leaf), not in tm_record/, because security/permissions.ts rules
+ * on them (T0-4) and must not import the TM read graph (import_scc_tripwire).
+ */
+export const TM_NOTES_SECTION_TIPO = 'rsc832';
+/** The note text (component_text_area) — see {@link TM_NOTES_SECTION_TIPO}. */
+export const TM_NOTES_TEXT = 'rsc329';
+/** The note Code (component_number) = the annotated TM row id — see {@link TM_NOTES_SECTION_TIPO}. */
+export const TM_NOTES_CODE_TIPO = 'rsc835';
+
+/**
  * The ONLY dd15 list columns that may carry a sort icon — the TM twin of the
  * dd542 policy above (WC-044's family; see engineering/wire_contract/).
  *

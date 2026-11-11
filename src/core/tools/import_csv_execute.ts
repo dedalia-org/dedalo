@@ -37,7 +37,7 @@ import {
 	readMatrixKeyForUpdate,
 } from '../db/matrix_write.ts';
 import { withTransaction } from '../db/postgres.ts';
-import { DedaloError, isDedaloError } from '../errors/index.ts';
+import { DedaloError } from '../errors/index.ts';
 import {
 	getColumnNameByModel,
 	getMatrixTableFromTipo,
@@ -62,9 +62,14 @@ import {
 	saveComponentData,
 } from '../section/record/save_component.ts';
 import type { Principal } from '../security/permissions.ts';
-import { authorizeRecordAccess, authorizeSectionTarget } from '../security/write_door.ts';
+import {
+	authorizeRecordAccess,
+	authorizeSectionTarget,
+	type FrameOf,
+} from '../security/write_door.ts';
 import type { PlannedColumn, PlannedRecord } from './import_csv.ts';
 import { groupItemsByLang } from './import_data.ts';
+import { isFieldWriteRefusal } from './import_field_refusal.ts';
 import type { ImportFileReport, ImportProgressFrame, ImportRowIssue } from './import_wire.ts';
 
 /**
@@ -422,13 +427,7 @@ async function writeFramesAppend(
 
 /** A dataframe SLOT column's frames as PendingFrames (append mode — every one must be paired). */
 function slotColumnFrames(column: PlannedColumn): PendingFrame[] {
-	const result = column.conform.result;
-	const frames = Array.isArray(result)
-		? result
-		: result === null || result === undefined
-			? []
-			: [result];
-	return frames.map((raw) => pairableFrame(raw, column.tipo));
+	return conformFrames(column).map((raw) => pairableFrame(raw, column.tipo));
 }
 
 /** One slot-column frame as a PendingFrame; a frame that cannot be paired refuses the row. */
@@ -905,9 +904,8 @@ async function columnAuthorized(
 	row: number,
 	ctx: RowWriteContext & { failed: ImportRowIssue[] },
 ): Promise<boolean> {
-	const tipos = [column.tipo, ...legacyFrameSlots(column)];
-	for (const tipo of new Set(tipos)) {
-		const refusal = await componentRefusal(ctx, tipo);
+	for (const { tipo, frameOf } of columnDoorTargets(column)) {
+		const refusal = await componentRefusal(ctx, tipo, frameOf);
 		if (refusal === null) continue;
 		ctx.failed.push({
 			section_id: ctx.sectionId,
@@ -921,45 +919,104 @@ async function columnAuthorized(
 	return true;
 }
 
-/** The slots a legacy {data, dataframe} envelope's frames name (their own components). */
-function legacyFrameSlots(column: PlannedColumn): string[] {
-	const slots: string[] = [];
-	for (const frame of column.dataframe ?? []) {
-		const slot = isObject(frame) ? frame.from_component_tipo : undefined;
-		if (typeof slot === 'string' && slot !== '') slots.push(slot);
+/**
+ * Every (component, main) pair a column writes, as the write door must be asked
+ * it: the column's own component, then each slot its legacy {data, dataframe}
+ * envelope's frames name — PAIRED WITH THE FRAMES' MAIN (T0-4: a FIXED slot,
+ * dd560, is judged against its main and the door refuses one asked without it).
+ * A legacy frame's main is its own `main_component_tipo`, else this column's
+ * data tipo (parseLegacyFrames' rule); a slot COLUMN's frames each name theirs
+ * (pairableFrame refuses one that does not). `frameOf` is ignored by the door
+ * for a slot that is not fixed.
+ */
+function columnDoorTargets(column: PlannedColumn): { tipo: string; frameOf?: FrameOf }[] {
+	const targets = new Map<string, { tipo: string; frameOf?: FrameOf }>();
+	for (const [tipo, mainTipo] of [...ownColumnPairs(column), ...legacyFramePairs(column)]) {
+		const key = `${tipo}|${mainTipo ?? ''}`;
+		if (targets.has(key)) continue;
+		targets.set(key, mainTipo === null ? { tipo } : { tipo, frameOf: { mainTipo } });
 	}
-	return slots;
+	return [...targets.values()];
+}
+
+/** The column's own component, once per main its frames name when it is a slot column (else unpaired). */
+function ownColumnPairs(column: PlannedColumn): [string, string | null][] {
+	const mains = column.model === DATAFRAME_MODEL ? frameMains(conformFrames(column), null) : [];
+	if (mains.length === 0) return [[column.tipo, null]];
+	return mains.map((main): [string, string] => [column.tipo, main]);
+}
+
+/** Each slot the column's legacy {data, dataframe} envelope frames name, with that frame's main. */
+function legacyFramePairs(column: PlannedColumn): [string, string | null][] {
+	const pairs: [string, string | null][] = [];
+	for (const frame of column.dataframe ?? []) {
+		const slot = frameSlotOf(frame);
+		if (slot === null) continue;
+		pairs.push([slot, frameMains([frame], dataTipoOf(column))[0] ?? null]);
+	}
+	return pairs;
+}
+
+/** A legacy frame's slot tipo (`from_component_tipo`), or null when it names none. */
+function frameSlotOf(frame: unknown): string | null {
+	const slot = isObject(frame) ? frame.from_component_tipo : undefined;
+	return typeof slot === 'string' && slot !== '' ? slot : null;
+}
+
+/** A slot column's conformed frames as a list (the shape slotColumnFrames reads). */
+function conformFrames(column: PlannedColumn): unknown[] {
+	const result = column.conform.result;
+	if (Array.isArray(result)) return result;
+	return result === null || result === undefined ? [] : [result];
+}
+
+/** The distinct mains a list of frames names (`fallback` for a frame naming none). */
+function frameMains(frames: readonly unknown[], fallback: string | null): string[] {
+	const mains = new Set<string>();
+	for (const frame of frames) {
+		const main = isObject(frame) ? frame.main_component_tipo : undefined;
+		if (typeof main === 'string' && main !== '') mains.add(main);
+		else if (fallback !== null) mains.add(fallback);
+	}
+	return [...mains];
 }
 
 /** The door's refusal sentence for one component of the row's record, or null. */
 async function componentRefusal(
 	ctx: RowWriteContext,
 	componentTipo: string,
+	frameOf?: FrameOf,
 ): Promise<string | null> {
 	try {
-		if (ctx.isNew) {
-			await authorizeSectionTarget(
-				ctx.principal,
-				{ section_tipo: ctx.sectionTipo, tipo: componentTipo },
-				{ level: 2, door: 'import_csv.column' },
-			);
-		} else {
-			await authorizeRecordAccess(
-				ctx.principal,
-				{ section_tipo: ctx.sectionTipo, component_tipo: componentTipo, section_id: ctx.sectionId },
-				{ mode: 'write', level: 2, sectionFloor: 1, door: 'import_csv.column' },
-			);
-		}
+		await authorizeRowComponent(ctx, componentTipo, frameOf);
 		return null;
 	} catch (error) {
-		if (
-			isDedaloError(error) &&
-			(error.code.startsWith('perm.') || error.code === 'request.invalid')
-		) {
+		if (isFieldWriteRefusal(error)) {
 			return `IGNORED: not writable by the importer (${error.code}) — the column was NOT written`;
 		}
 		throw error;
 	}
+}
+
+/** Ask the write door for one component: the section pair for a NEW row record, the record door otherwise. */
+async function authorizeRowComponent(
+	ctx: RowWriteContext,
+	componentTipo: string,
+	frameOf?: FrameOf,
+): Promise<void> {
+	if (ctx.isNew) {
+		await authorizeSectionTarget(
+			ctx.principal,
+			{ section_tipo: ctx.sectionTipo, tipo: componentTipo },
+			{ level: 2, door: 'import_csv.column', frameOf },
+		);
+		return;
+	}
+	await authorizeRecordAccess(
+		ctx.principal,
+		{ section_tipo: ctx.sectionTipo, component_tipo: componentTipo, section_id: ctx.sectionId },
+		{ mode: 'write', level: 2, sectionFloor: 1, door: 'import_csv.column', frameOf },
+	);
 }
 
 /**

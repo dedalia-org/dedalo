@@ -71,6 +71,7 @@ import { canonicalStoredItems } from '../../../src/core/section/record/value_sha
 import {
 	getPermissions,
 	getRecordComponentPermission,
+	isFixedDataframeSlot,
 	type Principal,
 } from '../../../src/core/security/permissions.ts';
 import { principalCanAccessRecord } from '../../../src/core/security/record_scope.ts';
@@ -228,6 +229,17 @@ async function propagateComponentData(ctx: ToolActionContext): Promise<ToolRespo
 		throw invalidRequest(
 			'Missing/invalid parameters: section_tipo, component_tipo, action(replace|delete|add), sqo',
 		);
+	}
+
+	// A FIXED dataframe slot (dd560, the IRI label frame) is written only through
+	// its MAIN, paired per record (id_key): a batch names no main, so its level
+	// would be the slot's bare own 2 — refused loudly, nothing searched or
+	// written (T0-4, write_door frameOf). Propagate the IRI itself instead.
+	if (isFixedDataframeSlot(componentTipo)) {
+		throw new DedaloError('request.invalid_source', {
+			coordinates: { section_tipo: sectionTipo, tipo: componentTipo },
+			message: `'${componentTipo}' is a fixed dataframe slot — written only through its main, never propagated`,
+		});
 	}
 
 	// Tipo-pair WRITE gate (PHP assert_tipo_permission(section_tipo, component_tipo, 2)).

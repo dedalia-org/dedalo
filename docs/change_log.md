@@ -18,6 +18,7 @@ Merged since the last release; these ship with the next one.
 !!! warning "Action needed when you update"
 
     - The "+" of a portal (and Duplicate, add term, the assistant) now needs permission to create in the target section.
+    - A publication host in copy mode no longer answers "not found" for every published file.
 
 ### For users
 
@@ -40,7 +41,7 @@ Merged since the last release; these ship with the next one.
     term** in a section that has no **New** button.
 
     Creating a record with **New** in a section's list, the records a feature creates for you in
-    its own section — notes on a text, Time Machine notes, indexation notes, references,
+    its own section — notes on a text, indexation notes, references,
     dataframe annotations, presets — and the records an import tool creates (import files,
     numismatic acquisition, poster frame) still need only write access to that section, as
     before. A portal create made by such a tool is also limited to the sections the portal links
@@ -132,6 +133,32 @@ Merged since the last release; these ship with the next one.
     language which sections appear in the list (those the logged-in administrator's own profile
     lets them edit) and why one may be missing.
 
+- **IRI labels follow their IRI's permission; Time Machine notes belong to the change they annotate.**
+
+    **IRI labels.** Before, only root could save the label of an IRI link; every other user got
+    a permission error and saw the label read-only. Now the label has the same permission as its
+    IRI field: whoever can edit the IRI can edit its label, and whoever can only read the IRI
+    reads its label. When an import carries IRI labels, they are imported for users who can
+    edit the IRI; for others the label column is reported as ignored and the rest of the row is
+    still imported.
+
+    **Time Machine notes.** Before, any user allowed to edit the notes section could rewrite
+    anyone's note. Now a note belongs to the change it annotates:
+
+    - Only the author of a change can add a note to it, from the component history in the
+      inspector or from the Time Machine. The note is linked to the change automatically.
+    - The author can edit and delete their own note. Everyone else — administrators and root
+      included — can read it.
+    - A user who cannot see a section's history cannot see its notes either. Before, any logged-in
+      user could read every note's text through the raw record view, the assistant's record tools
+      or an export; now notes are reached through the Time Machine only.
+    - A note cannot be duplicated.
+    - Users given a specific permission on the Time Machine notes section keep working with it
+      like any other section (for audits and exports); their changes are recorded in its
+      history.
+
+    Wire contract: `WC-2026-11-10-iri-frame-and-tm-note-levels`.
+
 - **The Ontology and Thesaurus trees are now usable on phones and tablets.**
 
     Before, on a phone the row of action buttons took most of the width, so a nested term was squeezed and its badges and expand arrow each wrapped onto a line of their own; deep branches could widen the page past the screen. Now each node is a compact block: the expand arrow leads the term, the model text sits on its own smaller line, the actions follow underneath, and a hairline separates nodes. On tablets and other touch screens the buttons are finger-sized and no longer wait for a hover to show, and the long model text moves under the term instead of crowding it.
@@ -208,6 +235,18 @@ Merged since the last release; these ship with the next one.
     indexes built before this change keep the old (empty) text for these fields until reindexed.
 
     Wire contract: `WC-2026-11-10-related-list-cells`, `WC-2026-11-10-tm-subject-cell-page`.
+
+- **The References panel and delete dialogs show the columns of thesaurus terms and other virtual sections again.**
+
+    When a record is referenced by a record of a virtual section — every thesaurus term, and
+    sections such as the ones built on Images, Audiovisual or Documents — the **References** panel
+    of the inspector, the delete dialog and the "who points at me" lists of the transcription,
+    indexation and print tools showed only the record id for those references. They now show the
+    same columns as the section they are built on, unless the virtual section defines its own
+    list of columns.
+
+    When a section defines more than one list of columns, the first one in ontology order is now
+    always used.
 
 - **Profiles: the permissions tree uses the full width and reads well on phones.**
 
@@ -404,6 +443,27 @@ Merged since the last release; these ship with the next one.
     label wraps instead of pushing the info button down, and the opened description is easier to
     read.
 
+- **A publication host in copy mode no longer answers "not found" for every published file.** *(action needed)*
+
+    On a publication host declared in copy mode, the agent created its folders without the
+    execute bit for others, so the web server could not reach the publication markers or the
+    files: every published media file answered "not found", while the **Publication hosts**
+    panel showed the host as healthy. The agent now sets the permissions it needs itself
+    (folders `0755`, markers and files `0644`, its own working folder `0700`), whatever the
+    service's `umask`, and repairs a copy it created earlier each time it starts in copy mode
+    (in the background, while it already serves; one `media.repair` line in its audit log). A
+    folder owned by another user is never changed: copying into it is refused with a message
+    naming the fix. The panel gains the check **Media reachable by the web server**: in copy mode
+    it turns red when a directory on the way to the published files is closed to the web server;
+    in shared mode it shows unknown, since the web server may reach the work system's media as
+    its owner or group.
+
+    Action needed: update the agent on every publication host together with the work system,
+    then restart it (see [publication host](./install/publication_host.md#copy-mode-a-verified-copy-of-the-published-media)).
+    Until a host runs the updated agent, the panel cannot read its status.
+
+    Wire contract: `WC-2026-10-03-publication-hosts-widget`.
+
 - **Publication host install accepts passwords with accented letters (ñ, ç, ü…) and any language's letters.**
 
     When the publication host install asks for the database password and the v1
@@ -435,7 +495,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 21 entries"
+??? note "Wire contract — 22 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -447,6 +507,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-10-add-new-element-create-gate`
     - `WC-2026-11-10-hierarchy-rebuild-ownership`
     - `WC-2026-11-10-indexation-grid-read-door`
+    - `WC-2026-11-10-iri-frame-and-tm-note-levels`
     - `WC-2026-11-10-own-user-activity-read`
     - `WC-2026-11-10-portal-get-data-children-lang`
     - `WC-2026-11-10-related-list-cells`

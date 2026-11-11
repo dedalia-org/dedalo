@@ -199,6 +199,13 @@ const CENSUS: Readonly<Record<string, Readonly<Record<string, CensusRow>>>> = {
 			reason:
 				'the user-activity stats writer: its own hard-bound stats section (UA_SECTION, dd1521) as userId -1, run by the maintenance aggregation — no user names the section.',
 		},
+		'src/core/tm_record/tm_note_create.ts#createTmNote': {
+			verdict: 'system',
+			binding: 'module-constant',
+			sectionArgs: ['TM_NOTES_SECTION_TIPO'],
+			reason:
+				'create_tm_note (T0-4 part B): the ONE door that mints a Time Machine note — the section is the engine constant TM_NOTES_SECTION_TIPO (imported), never named by the payload. Its admission is its own, NOT a create rule: the bound TM row exists (request.invalid_data), the caller has TM access to the row’s section (canAccessTimeMachineList) AND is the row’s author (perm.denied) — no section-level create is asked, by owner decision Q-a/Q-b 2026-11-10 (a generic create makes a Code-less record, which is no TM note). Outcome gate: test/unit/tm_note_create_native.test.ts (every refusal leaves the notes row set unchanged).',
+		},
 		'src/core/install/hierarchy_activate.ts#createRegistryRow': {
 			verdict: 'system',
 			binding: 'module-constant',

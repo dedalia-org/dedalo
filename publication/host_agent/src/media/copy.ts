@@ -16,6 +16,17 @@
  * atomic; `.publication/` is never served) → size + sha256 verified → per-key lock: marker
  * re-checked, confined mkdir, rename, sha index. The temp file is removed on every path.
  *
+ * MODES ARE APPLIED, NOT REQUESTED (fs_modes.ts, T0-6). The unit runs the agent under
+ * UMask=0027, so a mode passed to mkdir/writeFile landed `mode & ~0027`: media dirs,
+ * `.publication/` and `pub/` came out 0750, the web user (not in the agent's group) could not
+ * stat a marker nor traverse a dir, and every published file 404'd. Every level a put or a
+ * mark walks is now asserted on a descriptor — media dirs, `.publication`, `pub` 0755, the
+ * marker and the landed file 0644, `copy/` and `incoming/` 0700, a temp body 0600 — existing
+ * levels included, so a put repairs the chain it lands in (the after-listen pass, repair.ts,
+ * repairs the rest). A symlinked level is refused, never followed; a level the agent does not
+ * own is never chmodded — judged by need (o+x public, nothing for others private), and one that
+ * fails it refuses the put/mark 409 `media_level_foreign`.
+ *
  * CONFINEMENT: the grammar refuses absolute, `.`/`..` and empty segments (and, for a put,
  * hidden ones; for a delete, the reserved top-level names); then the REAL path of the
  * deepest existing ancestor must lie inside the real root BEFORE anything is created, and
@@ -47,15 +58,12 @@ import { type Dirent, type Stats, existsSync, statSync } from 'node:fs';
 import {
   type FileHandle,
   lstat,
-  mkdir,
-  open,
   readdir,
   realpath,
   rename,
   rm,
   stat,
   unlink,
-  writeFile,
 } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { type AuditAction, audit } from '../audit';
@@ -68,6 +76,15 @@ import {
   RESERVED_TOP_LEVEL,
   classifyMediaPath,
 } from './grammar';
+import {
+  PRIVATE_DIR_MODE,
+  PRIVATE_FILE_MODE,
+  PUBLIC_DIR_MODE,
+  PUBLIC_FILE_MODE,
+  createFileExact,
+  ensureDirExact,
+  escapesRoot,
+} from './fs_modes';
 import { PUB_DIR } from './probe';
 import { COPY_STATE_DIR, ensureCopyStateDir, forgetSha, lookupSha, recordSha } from './sha_index';
 
@@ -176,16 +193,10 @@ async function deepestExisting(dir: string): Promise<string> {
   return current;
 }
 
-function escapes(path: string): RefusedError {
-  return new RefusedError(`${path} resolves outside the copy root; nothing was changed`, 'media_path_refused', {
-    path_reason: 'escapes_root',
-  });
-}
-
 async function assertConfined(root: string, dir: string, path: string): Promise<void> {
   const realRoot = await realpath(root);
   const realDir = await realpath(await deepestExisting(dir)).catch(() => null);
-  if (realDir === null || !inside(realRoot, realDir)) throw escapes(path);
+  if (realDir === null || !inside(realRoot, realDir)) throw escapesRoot(path);
 }
 
 function pathRefused(label: string, verdict: MediaPathVerdict, extensions: Record<string, unknown> = {}): RefusedError {
@@ -312,7 +323,7 @@ async function isUnchanged(root: string, finalPath: string, req: PutRequest): Pr
 
 async function receive(root: string, req: PutRequest): Promise<string> {
   ensureCopyStateDir(root);
-  await mkdir(join(root, INCOMING_DIR), { recursive: true, mode: 0o700 });
+  ensureDirExact(join(root, COPY_STATE_DIR), 'incoming', PRIVATE_DIR_MODE);
   const temp = join(root, INCOMING_DIR, `${randomBytes(12).toString('hex')}.part`);
   try {
     assertReceived(await writeBody(temp, req.body, req.size), req);
@@ -336,7 +347,7 @@ async function writeBody(
   body: ReadableStream<Uint8Array> | null,
   cap: number,
 ): Promise<{ bytes: number; sha256: string }> {
-  const handle = await open(temp, 'wx', 0o600);
+  const handle = await createFileExact(temp, PRIVATE_FILE_MODE);
   const hasher = new Bun.CryptoHasher('sha256');
   let bytes = 0;
   try {
@@ -350,7 +361,7 @@ async function writeBody(
         await writeAll(handle, chunk);
       }
     }
-    await handle.chmod(0o644);
+    await handle.chmod(PUBLIC_FILE_MODE);
     await handle.sync();
   } finally {
     await handle.close();
@@ -372,7 +383,7 @@ async function land(root: string, key: string, finalPath: string, temp: string, 
   assertMarked(root, key, req.path);
   const dir = dirname(finalPath);
   await assertConfined(root, dir, req.path);
-  await mkdir(dir, { recursive: true, mode: 0o755 });
+  ensureDirExact(root, dirname(req.path), PUBLIC_DIR_MODE);
   await assertConfined(root, dir, req.path);
   const replaced = await exists(finalPath);
   await rename(temp, finalPath);
@@ -480,9 +491,8 @@ async function setMarker(root: string, key: string, published: boolean): Promise
     await unlink(marker);
     return true;
   }
-  await mkdir(join(root, '.publication'), { recursive: true, mode: 0o755 });
-  await mkdir(dirname(marker), { recursive: true, mode: 0o755 });
-  await writeFile(marker, '', { mode: 0o644 });
+  ensureDirExact(root, PUB_DIR, PUBLIC_DIR_MODE);
+  await (await createFileExact(marker, PUBLIC_FILE_MODE)).close();
   return true;
 }
 

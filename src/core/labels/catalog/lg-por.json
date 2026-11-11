@@ -707,6 +707,7 @@
 	"publication_hosts_check_media_mode": "Modo de média",
 	"publication_hosts_check_media_mount": "Montagem de média",
 	"publication_hosts_check_media_read_only": "Média só de leitura",
+	"publication_hosts_check_media_web_traversable": "Média acessível ao servidor web",
 	"publication_hosts_check_nginx_map": "Mapa de mídia do servidor",
 	"publication_hosts_check_pairing": "Emparelhamento",
 	"publication_hosts_check_public_gate": "Filtro público",

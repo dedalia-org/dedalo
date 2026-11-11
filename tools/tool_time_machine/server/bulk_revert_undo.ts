@@ -630,7 +630,17 @@ async function authorizeKeyWrite(
 		await authorizeRecordAccess(
 			context.principal,
 			{ section_tipo: sectionTipo, component_tipo: componentTipo, section_id: sectionId },
-			{ mode: 'write', level: 2, sectionFloor: 1, door: 'tool_time_machine.bulk_revert_process' },
+			{
+				mode: 'write',
+				level: 2,
+				sectionFloor: 1,
+				door: 'tool_time_machine.bulk_revert_process',
+				// A FIXED dataframe slot (dd560) is judged against its main (T0-4): the
+				// key's main for a slot of it; a key that IS the slot (a slot-keyed
+				// history row) rewrites the whole slot — bound by every main.
+				frameOf:
+					componentTipo === reportKey.tipo ? { everyMain: true } : { mainTipo: reportKey.tipo },
+			},
 		);
 	} catch (error) {
 		if (

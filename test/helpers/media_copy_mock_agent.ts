@@ -122,6 +122,7 @@ function mediaBody(state: State) {
 		present: state.mode !== 'none',
 		read_only: state.mode === 'none' ? null : state.mode === 'shared',
 		pub_readable: state.mode !== 'none',
+		web_traversable: state.mode !== 'none' ? true : null,
 		pub_markers: state.markers.size,
 		problems: [],
 	};

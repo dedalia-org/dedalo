@@ -707,6 +707,7 @@
 	"publication_hosts_check_media_mode": "媒体模式",
 	"publication_hosts_check_media_mount": "媒体挂载",
 	"publication_hosts_check_media_read_only": "媒体只读",
+	"publication_hosts_check_media_web_traversable": "Web 服务器可访问媒体",
 	"publication_hosts_check_nginx_map": "主机媒体映射",
 	"publication_hosts_check_pairing": "配对",
 	"publication_hosts_check_public_gate": "公共访问控制",

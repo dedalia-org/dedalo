@@ -55,6 +55,7 @@ function status(
 			present: root !== null,
 			read_only: mode === 'shared',
 			pub_readable: root !== null,
+			web_traversable: root !== null ? true : null,
 			pub_markers: 0,
 			problems: [],
 		},

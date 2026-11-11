@@ -48,7 +48,7 @@
 import { getImportAppendPolicy, isDerivedModel } from '../components/registry.ts';
 import { BULK_PROCESS_TIPOS } from '../concepts/section.ts';
 import { withTransaction } from '../db/postgres.ts';
-import { DedaloError, isDedaloError } from '../errors/dedalo_error.ts';
+import { DedaloError } from '../errors/dedalo_error.ts';
 import { resolveDataTipo } from '../ontology/alias.ts';
 import { getModelByTipo, getTranslatableByTipo } from '../ontology/resolver.ts';
 import { currentDataLang } from '../resolve/request_lang.ts';
@@ -58,6 +58,7 @@ import type { Principal } from '../security/permissions.ts';
 import { authorizeRecordAccess, authorizeSectionTarget } from '../security/write_door.ts';
 import { withLiveBulkRun } from './bulk_run_registry.ts';
 import { type ConformFailure, conformImportData, groupItemsByLang } from './import_data.ts';
+import { isFieldWriteRefusal } from './import_field_refusal.ts';
 
 export interface MappedField {
 	component_tipo: string;
@@ -153,29 +154,36 @@ async function fieldRefusal(
 	matchedId: number | null,
 ): Promise<string | null> {
 	try {
-		if (matchedId === null) {
-			await authorizeSectionTarget(
-				principal,
-				{ section_tipo: sectionTipo, tipo: componentTipo },
-				{ level: 2, door: 'import_execute.field' },
-			);
-		} else {
-			await authorizeRecordAccess(
-				principal,
-				{ section_tipo: sectionTipo, component_tipo: componentTipo, section_id: matchedId },
-				{ mode: 'write', level: 2, sectionFloor: 1, door: 'import_execute.field' },
-			);
-		}
+		await authorizeImportField(principal, sectionTipo, componentTipo, matchedId);
 		return null;
 	} catch (error) {
-		if (
-			isDedaloError(error) &&
-			(error.code.startsWith('perm.') || error.code === 'request.invalid')
-		) {
+		if (isFieldWriteRefusal(error)) {
 			return `IGNORED: not writable by the importer (${error.code}) — the field was NOT written`;
 		}
 		throw error;
 	}
+}
+
+/** Ask the write door for one field: the section pair for a NEW record, the record door for a matched one. */
+async function authorizeImportField(
+	principal: Principal,
+	sectionTipo: string,
+	componentTipo: string,
+	matchedId: number | null,
+): Promise<void> {
+	if (matchedId === null) {
+		await authorizeSectionTarget(
+			principal,
+			{ section_tipo: sectionTipo, tipo: componentTipo },
+			{ level: 2, door: 'import_execute.field' },
+		);
+		return;
+	}
+	await authorizeRecordAccess(
+		principal,
+		{ section_tipo: sectionTipo, component_tipo: componentTipo, section_id: matchedId },
+		{ mode: 'write', level: 2, sectionFloor: 1, door: 'import_execute.field' },
+	);
 }
 
 /**

@@ -707,6 +707,7 @@
 	"publication_hosts_check_media_mode": "मिडिया मोड",
 	"publication_hosts_check_media_mount": "मिडिया माउन्ट",
 	"publication_hosts_check_media_read_only": "मिडिया पढ्न मात्र",
+	"publication_hosts_check_media_web_traversable": "वेब सर्भरले मिडिया पुग्न सक्छ",
 	"publication_hosts_check_nginx_map": "होस्ट मिडिया नक्सा",
 	"publication_hosts_check_pairing": "जोडी",
 	"publication_hosts_check_public_gate": "सार्वजनिक गेट",

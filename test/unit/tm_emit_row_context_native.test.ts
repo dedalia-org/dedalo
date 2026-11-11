@@ -599,7 +599,10 @@ describe('emitTmRow — the TM annotation column', () => {
 		expect(note.parent_section_id).toBe(NOTE_RECORD_ID);
 		expect(note.parent_section_tipo).toBe(NOTES_SECTION_TIPO);
 		expect(note.matrix_id).toBe(notedRowId);
-		expect(note.created_by_user_id).toBe(-1);
+		// T0-4 F5: two users, two keys — the TM row's author (root minted the row)
+		// and the NOTE record's dd200 creator (this scratch note carries none → null).
+		expect(note.tm_user_id).toBe(-1);
+		expect(note.created_by_user_id).toBeNull();
 		expect(note.lang).toBe(LANG); // the note column carries the DATA lang
 		const entries = note.entries as Item[];
 		// Lang-filtered to the request lang (the lg-eng twin is dropped) and the

@@ -150,7 +150,8 @@ const ACTION_REGISTRY: Record<string, Record<string, ActionHandler>> = {
 	dd_diffusion_api: diffusionApiActions,
 	dd_component_portal_api: componentPortalApiActions,
 	// Transcription tags (WC-077): get_tags_info (read the resolved tag payload)
-	// + delete_tag (remove one tag's marks from every lang of the text).
+	// + delete_tag (remove one tag's marks from every lang of the text); and
+	// create_tm_note (T0-4: the one door that creates a TM note bound to its row).
 	dd_component_text_area_api: componentTextAreaApiActions,
 	dd_component_av_api: componentAvApiActions,
 	dd_component_info: componentInfoApiActions,
@@ -467,6 +468,10 @@ export const ACTION_IDEMPOTENCY: ReadonlyMap<string, ActionIdempotency> = new Ma
 	['dd_component_portal_api:delete_locator', 'mutating'],
 	['dd_component_text_area_api:delete_tag', 'mutating'],
 	['dd_component_text_area_api:get_tags_info', 'idempotent'],
+	// Creates at most ONE note per TM row (an existing binding is ANSWERED, under
+	// a per-row advisory lock), so a replay converges — but it is a write whose
+	// first answer (`created: true`) a replay would misreport.
+	['dd_component_text_area_api:create_tm_note', 'mutating'],
 	['dd_component_av_api:create_posterframe', 'mutating'],
 	['dd_component_av_api:delete_posterframe', 'mutating'],
 	['dd_component_av_api:download_fragment', 'mutating'],

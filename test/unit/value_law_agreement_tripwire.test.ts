@@ -260,7 +260,9 @@ describe('DATA-33 — getSectionRealTipo is the ONE virtual→real law', () => {
 			'src/core/ontology/section_map.ts',
 			'src/core/section/buttons.ts',
 			'src/core/ts_object/ts_object.ts',
-			'src/core/resolve/relation_index.ts',
+			// (relation_index.ts LEFT this list with T0-7: getRelatedListChildTipos
+			// now DELEGATES to section/list_definitions/node_find.ts — listed above —
+			// the ONE virtual-aware relation_list node lookup)
 			// the record wipe AND the covered-slot recompute share ONE section census
 			'src/core/section/record/declared_components.ts',
 			'src/core/identify/profile.ts',

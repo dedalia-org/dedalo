@@ -49,7 +49,7 @@
 	import {dd_request_idle_callback} from '../../common/js/events.js'
 	import {data_manager} from '../../common/js/data_manager.js'
 	import {dd_console} from '../../common/js/utils/index.js'
-	import {common, create_source} from '../../common/js/common.js'
+	import {common} from '../../common/js/common.js'
 	import {tr} from '../../common/js/tr.js'
 	import {ui} from '../../common/js/ui.js'
 	import {render_value} from '../../common/js/utils/render_escape.js'
@@ -1509,29 +1509,27 @@ component_text_area.prototype.updated_layer_data = function(options) {
 
 /**
 * ADD_COMPONENT_HISTORY_NOTE
-* Creates a new record in matrix_notes and set 'code' field value with received
-* matrix_id from time_machine
+* Creates (or reuses) the Time Machine note bound to one TM row, in ONE server
+* request: dd_component_text_area_api 'create_tm_note' with the row's matrix_id
+* (T0-4). The server creates the notes record AND writes its Code (the TM row
+* id) in one transaction, and answers the note that already binds the row
+* instead of a duplicate. The client never writes the Code.
 *
-* Enforces an ownership rule: only the user who originally created the time-machine
-* row (identified by self.caller.locator.user_id) may attach a note. If the current
-* page_globals.user_id differs, a 'warning' notification is published and null is returned.
-*
-* On success:
-* 1. Creates a new section record in notes_section_tipo via 'create' API action.
-* 2. Saves the matrix_id into the code component (hard-coded tipo 'rsc835') of that record.
+* AUTHORIZATION IS THE SERVER'S: only the author of the change (the TM row's
+* user), holding Time Machine access to its section, may create its note — the
+* server refuses anyone else (perm.denied). The author comparison below is UX
+* only: it spares a doomed request and shows the reason at once.
 *
 * @param {Object} options - Note creation options
-* @param {number} options.matrix_id - The time-machine matrix record id to link
-* @param {string} options.notes_section_tipo - Section tipo of the notes matrix (e.g. 'rsc834')
-* @returns {Promise<string|null>} The new section_id string on success, or null on any failure
+* @param {number} options.matrix_id - The time-machine row id to bind the note to
+* @returns {Promise<number|null>} The note's section_id on success, or null on any failure
 */
 component_text_area.prototype.add_component_history_note = async function(options) {
 
 	const self = this
 
 	// options
-		const notes_section_tipo	= options.notes_section_tipo
-		const matrix_id				= options.matrix_id
+		const matrix_id = options.matrix_id
 
 	// check
 		if (!matrix_id) {
@@ -1539,13 +1537,11 @@ component_text_area.prototype.add_component_history_note = async function(option
 			return null
 		}
 
-	// check user creator
-		// created_by_user_id: component text area note creation if is already created
-		const created_by_user_id = self.data.created_by_user_id
+	// check user creator (UX only — the server enforces it)
 		// user_id: current logged user
-		const user_id			= page_globals.user_id
-		// tm_user_id: column userID from time machine record
-		const tm_user_id		= parseInt(self.caller.locator.user_id)
+		const user_id		= page_globals.user_id
+		// tm_user_id: the TM row's author (served on the note cell; the row locator as fallback)
+		const tm_user_id	= parseInt(self.data?.tm_user_id ?? self.caller?.locator?.user_id)
 
 		if (user_id!==tm_user_id) {
 			event_manager.publish('notification', {
@@ -1556,19 +1552,21 @@ component_text_area.prototype.add_component_history_note = async function(option
 			return null
 		}
 
-	// create new notes record
-		const rqo = {
-			action	: 'create',
-			source	: {
-				section_tipo : notes_section_tipo
-			}
-		}
+	// create (or reuse) the note bound to the TM row — one request
 		const api_response = await data_manager.request({
-			body : rqo
+			body : {
+				action	: 'create_tm_note',
+				dd_api	: 'dd_component_text_area_api', // component_text_area
+				options	: {
+					matrix_id : matrix_id
+				}
+			}
 		})
-		const created_section_id = response_data(api_response)
-		if (!created_section_id || created_section_id<1) {
-			console.error('Error on create matrix note record. api_response:', api_response);
+		const note_section_id = request_failed(api_response)
+			? null
+			: response_data(api_response)?.section_id
+		if (!note_section_id || note_section_id<1) {
+			console.error('Error on create the time machine note. api_response:', api_response);
 			event_manager.publish('notification', {
 				msg			: request_failed(api_response)
 					? error_text(api_response.error)
@@ -1578,58 +1576,14 @@ component_text_area.prototype.add_component_history_note = async function(option
 			})
 			return null
 		}
-		const new_section_id = created_section_id || null
-		if (!new_section_id) {
-			console.error('Error on create the note record:', api_response);
-			return null
-		}
 
-	// set code (component_number) value wit matrix_id
-		const code_tipo	= 'rsc835'
-		const source	= create_source({ // source object
-			type			: 'component',
-			action			: 'save',
-			model			: null,
-			tipo			: code_tipo,
-			section_tipo	: notes_section_tipo,
-			section_id		: new_section_id,
-			mode			: 'list',
-			view			: null,
-			lang			: page_globals.dedalo_data_nolan
-		}, null)
-		const code_rqo = {
-			action	: 'save',
-			source	: source,
-			data : {
-				section_id			: new_section_id,
-				section_tipo		: notes_section_tipo,
-				tipo				: code_tipo,
-				lang				: page_globals.dedalo_data_nolan,
-				// from_component_tipo	: code_tipo,
-				value				: null,
-				changed_data : [{
-					action	: 'insert',
-					key		: 0,
-					value	: {value: matrix_id}
-				}]
-			}
-		}
-		const code_api_response = await data_manager.request({
-			body : code_rqo
-		})
-		const code_section_id = response_data(code_api_response)
-		if (!code_section_id || code_section_id<1) {
-			console.error('Error on set matrix note code. code_api_response:', code_api_response);
-			return null
-		}
-
-	// All is OK
+	// debug
 		if(SHOW_DEBUG===true) {
-			console.log(`Created a new record in ${notes_section_tipo}:`, new_section_id, matrix_id );
+			console.log(`Time machine note for matrix_id ${matrix_id}:`, note_section_id);
 		}
 
 
-	return new_section_id
+	return note_section_id
 }//end add_component_history_note
 
 

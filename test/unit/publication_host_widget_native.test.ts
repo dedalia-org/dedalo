@@ -148,6 +148,7 @@ function mediaProbe(over: Partial<MediaProbe> = {}): MediaProbe {
 		present: true,
 		read_only: true,
 		pub_readable: true,
+		web_traversable: true,
 		pub_markers: 3,
 		problems: [],
 		...over,
@@ -1136,6 +1137,17 @@ describe('probe and rollback_api', () => {
 		expect(response.msg).toBe("Media probe on 'pub_a' found 1 problem(s).");
 	});
 
+	test('probe carries web_traversable as the agent measured it (false = a dark dir, every file 404s)', async () => {
+		for (const web_traversable of [true, false, null]) {
+			const h = harness([record('pub_a')], {
+				hostMediaProbe: async () => mediaProbe({ mode: 'copy', web_traversable }),
+			});
+			const response = await run(h, 'probe', { name: 'pub_a' });
+			const bound = (response.data as { probe: MediaProbe }).probe;
+			expect(bound.web_traversable).toBe(web_traversable);
+		}
+	});
+
 	test('probe output is BOUNDED: known fields only, problems capped in count and length, printable only, a bad root is malformed', async () => {
 		const hostile = {
 			...mediaProbe({
@@ -1151,7 +1163,16 @@ describe('probe and rollback_api', () => {
 		const response = await run(h, 'probe', { name: 'pub_a' });
 		const probe = (response.data as { probe: Record<string, unknown> }).probe;
 		expect(Object.keys(probe).sort()).toEqual(
-			['mode', 'pub_markers', 'pub_readable', 'present', 'problems', 'read_only', 'root'].sort(),
+			[
+				'mode',
+				'pub_markers',
+				'pub_readable',
+				'present',
+				'problems',
+				'read_only',
+				'root',
+				'web_traversable',
+			].sort(),
 		);
 		expect(probe.root).toBe('malformed');
 		const problems = probe.problems as string[];

@@ -21,14 +21,20 @@
  */
 
 import { readString } from '../../config/readers.ts';
+import { allComponentModels, getComponentModel } from '../components/registry.ts';
 import { AREA_ONTOLOGY_TIPO } from '../concepts/area.ts';
 import {
 	AUDIT_TIPOS,
 	isConsultationOnlySection,
 	TIME_MACHINE_SECTION_TIPO,
+	TM_NOTES_CODE_TIPO,
+	TM_NOTES_SECTION_TIPO,
+	TM_NOTES_TEXT,
 } from '../concepts/section.ts';
 import { classifyWireSectionId } from '../concepts/section_id.ts';
+import { readMatrixRecord } from '../db/matrix.ts';
 import { sql } from '../db/postgres.ts';
+import { readTimeMachineRow } from '../db/time_machine.ts';
 import { isErrorInDomain } from '../errors/dedalo_error.ts';
 import { createDataCache } from '../ontology/cache_factory.ts';
 import { THESAURUS_SECTION } from '../ontology/ontology_tipos.ts';
@@ -606,25 +612,45 @@ export async function getPermissionGrant(
 ): Promise<PermissionGrant> {
 	const ruled = await ruleOrderGrant(principal, parentTipo, tipo);
 	if (ruled !== null) return ruled;
+	const aliased = await aliasTargetGrant(principal, parentTipo, tipo);
+	if (aliased !== null) return aliased;
+	return matrixGrant(principal, parentTipo, tipo);
+}
 
-	// component_alias (WC-020): ACL grants live on REAL components — an alias
-	// is a view of its target with the target's exact rights (no privilege
-	// change in either direction; without the hop a non-admin could never be
-	// granted a config node and every alias would vanish from their reads).
-	{
-		const { resolveAliasTargetTipo } = await import('../ontology/alias.ts');
-		const aliasTarget = await resolveAliasTargetTipo(tipo).catch(() => null);
-		if (aliasTarget !== null) {
-			return getPermissionGrant(principal, parentTipo, aliasTarget);
-		}
-	}
+/**
+ * component_alias (WC-020): ACL grants live on REAL components — an alias is a
+ * view of its target with the target's exact rights (no privilege change in
+ * either direction; without the hop a non-admin could never be granted a config
+ * node and every alias would vanish from their reads). Null when `tipo` is not
+ * an alias.
+ */
+async function aliasTargetGrant(
+	principal: Principal,
+	parentTipo: string,
+	tipo: string,
+): Promise<PermissionGrant | null> {
+	const { resolveAliasTargetTipo } = await import('../ontology/alias.ts');
+	const aliasTarget = await resolveAliasTargetTipo(tipo).catch(() => null);
+	return aliasTarget === null ? null : getPermissionGrant(principal, parentTipo, aliasTarget);
+}
 
-	// Matrix lookup.
+/** The profile matrix, then the rsc832 / public-list fallbacks for a matrix 0. */
+async function matrixGrant(
+	principal: Principal,
+	parentTipo: string,
+	tipo: string,
+): Promise<PermissionGrant> {
 	const table = await getPermissionsTable(principal.userId);
 	const level = table.get(`${parentTipo}_${tipo}`) ?? 0;
 
+	if (level !== 0) return { level, basis: 'profile' };
+	// The TM NOTES section (rsc832) is NOT public (T0-4): its matrix_notes table
+	// is a public-list table, but a note's text is not a list value — the
+	// fallback below gave every user read on every note at every door built on
+	// this function. Its own rule instead: tmNotesSectionGrant.
+	if (parentTipo === TM_NOTES_SECTION_TIPO) return tmNotesSectionGrant(principal);
 	// List/dd/notes fallback: publicly readable list values.
-	if (level === 0 && (await isPublicListSection(parentTipo))) return RULE_READ;
+	if (await isPublicListSection(parentTipo)) return RULE_READ;
 	return { level, basis: 'profile' };
 }
 
@@ -883,6 +909,248 @@ export function isSelfServiceAccountWrite(
 	return SELF_EDITABLE_COMPONENTS.has(componentTipo);
 }
 
+// ── FIXED DATAFRAME SLOTS: the frame's level IS its main's (T0-4, owner
+//    decision 1, 2026-11-10) ─────────────────────────────────────────────────
+//
+// A FIXED dataframe slot is one a component MODEL always pairs with — the
+// descriptor's `fixedDataframeTipos` (component_iri → dd560, its label frame;
+// src/core/components/component_iri/descriptor.ts). The slot is a `dd` node,
+// never a child of a user section, so no profile carries a dd774 row for it and
+// the matrix answers 0: every non-superuser was refused the IRI label save and
+// read it floored to 1 (U08). PHP answered a flat 2 (class.component_common.php
+// :3607-3610) — and with it let a user who may only READ the IRI write its label
+// (F1). The owner's rule instead: main read (1) → frame read, main write (2) →
+// frame write, main 0 → 0, on read AND write, at every RECORD-ADDRESSED door
+// (the section read's caller chain, get_data, save, the importers that know the
+// frames' main). A section-level / ddo door with no main to bound it (read_raw,
+// tool_export, MCP read) asks getPermissions, where no profile holds a dd560 row:
+// 0 for every non-superuser — refused there, fail-closed, never raised.
+//
+// HOW. The slot's OWN level is FIXED_FRAME_OWN_LEVEL (2): it never lowers its
+// main, and it never raises it either, because
+//   - READ: every frame is emitted under its main (the caller), and the node
+//     chain caps a child at its caller (`inheritSubdatumPermission`) — so
+//     min(main, 2) is exactly the main's level;
+//   - WRITE: the write door (write_door.ts `authorizeRecordAccess`, `frameOf`)
+//     judges a fixed-slot write AGAINST ITS MAIN — min(2, the main's level) —
+//     and refuses a fixed-slot write that names no valid main
+//     (`request.invalid_source`): the 2 here is never a write grant on its own.
+// A SHARED slot (frozen PHP: dd560 is used by component_iri and component_portal,
+// F7) is honoured by the descriptor test: any main whose model declares the slot.
+
+/** The own level of a fixed dataframe slot — the main bounds it (see above). */
+export const FIXED_FRAME_OWN_LEVEL = 2;
+
+/** Is `tipo` a FIXED dataframe slot of any component model (descriptor `fixedDataframeTipos`)? */
+export function isFixedDataframeSlot(tipo: string): boolean {
+	return allComponentModels().some((model) => model.fixedDataframeTipos?.includes(tipo) === true);
+}
+
+/** Does component MODEL `model` declare `slotTipo` among its fixed dataframe slots? */
+export function modelDeclaresFixedSlot(model: string | null, slotTipo: string): boolean {
+	if (model === null) return false;
+	return getComponentModel(model)?.fixedDataframeTipos?.includes(slotTipo) === true;
+}
+
+// ── TIME MACHINE NOTES: two paths, two authorities (T0-4, owner decisions 2 + 3
+//    and Q-a…Q-d, 2026-11-10) ─────────────────────────────────────────────────
+//
+// A TM note is an rsc832 record: its text rsc329, its Code rsc835 = the id of
+// the matrix_time_machine row it annotates (written by the server alone, at
+// creation — tm_record/tm_note_create.ts), its creator = its dd200 relation
+// (PHP section_record::get_created_by_user_id; `data.created_by_user_id` is a
+// mirror, never the authority).
+//
+//   AUDIT path — a PROFILE grant on rsc832 (getPermissionGrant basis 'profile'):
+//     the notes section is an ordinary section — the matrix decides (edit,
+//     delete, export) and rsc832's own Time Machine records the edits.
+//   TM path — everyone (root and global admins INCLUDED: the 'superuser' and
+//     'rule' bases are no specific grant). Access to the note
+//     FOLLOWS access to the change it annotates: the note bound to a TM row
+//     whose section the caller has TM access to (canAccessTimeMachineList — a
+//     global admin passes) → the CREATOR 2 on the text, everyone else 1; the
+//     Code is 1 for everyone (users never write it); no TM access → 0; a record
+//     with no Code is no note → 0; a creator who lost TM access → 0.
+//   level = max(profile, TM path). No record (a node stamp) → the profile alone.
+//
+// Diverges from PHP (everyone 1, the creator 2, no TM coupling, no audit path):
+// the owner's rule. Only the notes section's RECORD-ADDRESSED COMPONENTS: every
+// section-level / ddo door (no record named — Gate B, read_raw, MCP, export, RAG)
+// asks getPermissions, whose rsc832 answer is the bare matrix plus ONE rule,
+// `tmNotesSectionGrant` (no public-list read: rsc832 lives in matrix_notes, a
+// PUBLIC-LIST table, whose 'rule' read fallback served every note's text to
+// every user at those doors until T0-4 fix 1). The creator's own delete is a
+// named admission at the delete door (`isTmNoteCreatorWithAccess`). Gate:
+// subdatum_own_level_ported_native.
+
+/**
+ * What a note RECORD says about its own access — its creator and the TM row its
+ * Code binds. Only what an rsc832 write changes: the bound row's VISIBILITY and
+ * section are read on every ask (tmNotePathFacts), never remembered here.
+ */
+interface TmNoteFacts {
+	/** dd200[0].section_id, or null. */
+	readonly creatorId: number | null;
+	/** The Code (rsc835) = the annotated matrix_time_machine row id, or null (no Code). */
+	readonly tmRowId: number | null;
+}
+
+/**
+ * Note facts by note section_id, as PROMISES (an eviction mid-read drops the
+ * in-flight entry instead of letting a stale answer land after it). DATA-derived
+ * and keyed by the record only — the principal is compared OUTSIDE the cache
+ * (module_state_tripwire: no principal-keyed module state). Evicted on any
+ * rsc832 write or delete (the save-event channel, deferred to COMMIT): the
+ * creator and the Code change only by record writes. The TM ROW is NOT cached
+ * (T0-4 fix 7): it is hidden or purged by writes that are no rsc832 write, so a
+ * cached "bound section" kept granting the note after its change was gone — one
+ * primary-key read per ask instead. TTL backstop as the per-user caches.
+ */
+const tmNoteFactsCache = createDataCache<number, CacheEntry<Promise<TmNoteFacts>>>(
+	(cache, sectionTipo) => {
+		if (sectionTipo === TM_NOTES_SECTION_TIPO) cache.clear();
+	},
+);
+
+/** Clear the TM-note facts cache (tests; the save event is the production eviction). */
+export function clearTmNoteFactsCache(): void {
+	tmNoteFactsCache.clear();
+}
+
+/** The first locator's section_id of a relation item list, as an int (else null). */
+function firstLocatorId(items: unknown): number | null {
+	const first = Array.isArray(items)
+		? (items[0] as { section_id?: unknown } | undefined)
+		: undefined;
+	if (first?.section_id === undefined || first.section_id === null) return null;
+	const id = Number(first.section_id);
+	return Number.isInteger(id) ? id : null;
+}
+
+/** The first item's `value` of a component_number item list, as a positive int (else null). */
+function firstNumberValue(items: unknown): number | null {
+	const first = Array.isArray(items) ? (items[0] as { value?: unknown } | undefined) : undefined;
+	const value = Number(first?.value);
+	return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+/** Read one note record's facts from the db layer (one record read). */
+async function readTmNoteFacts(noteId: number): Promise<TmNoteFacts> {
+	const table = await getMatrixTableFromTipo(TM_NOTES_SECTION_TIPO);
+	const record =
+		table === null ? null : await readMatrixRecord(table, TM_NOTES_SECTION_TIPO, noteId);
+	if (record === null) return { creatorId: null, tmRowId: null };
+	const relation = record.columns.relation as Record<string, unknown> | null | undefined;
+	const numbers = record.columns.number as Record<string, unknown> | null | undefined;
+	return {
+		creatorId: firstLocatorId(relation?.[AUDIT_TIPOS.createdByUser]),
+		tmRowId: firstNumberValue(numbers?.[TM_NOTES_CODE_TIPO]),
+	};
+}
+
+/** The cached {@link readTmNoteFacts} (see {@link tmNoteFactsCache}). */
+function tmNoteFacts(noteId: number): Promise<TmNoteFacts> {
+	const cached = readFresh(tmNoteFactsCache, noteId);
+	if (cached !== undefined) return cached;
+	const pending = readTmNoteFacts(noteId);
+	storeEntry(tmNoteFactsCache, noteId, pending);
+	// A failed read is not an answer: drop it (only if it is still the entry).
+	pending.catch(() => {
+		if (tmNoteFactsCache.get(noteId)?.value === pending) tmNoteFactsCache.delete(noteId);
+	});
+	return pending;
+}
+
+/** A positive int record id, or null (absent / synthetic / garbage → no record). */
+function noteRecordId(sectionId: number | string | null | undefined): number | null {
+	if (sectionId === null || sectionId === undefined || sectionId === '') return null;
+	const id = Number(sectionId);
+	return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+/**
+ * Whether `principal` reaches note `noteId` on the TM PATH at all: the note is
+ * BOUND (a Code naming a VISIBLE TM row — read now, never cached: fix 7) and the
+ * caller has TM access to that row's section. Returns the facts when it does,
+ * else null.
+ */
+async function tmNotePathFacts(principal: Principal, noteId: number): Promise<TmNoteFacts | null> {
+	const facts = await tmNoteFacts(noteId);
+	if (facts.tmRowId === null) return null;
+	const row = await readTimeMachineRow(facts.tmRowId);
+	if (row === null) return null;
+	// Dynamic import breaks the cycle: time_machine_list.ts imports THIS module
+	// (CONVENTIONS §2 rationale 1 — the same seam timeMachineReadFloor uses).
+	const { canAccessTimeMachineList } = await import(
+		'../section/list_definitions/time_machine_list.ts'
+	);
+	return (await canAccessTimeMachineList(principal, row.section_tipo)) ? facts : null;
+}
+
+/**
+ * The TM-PATH level of one note component (see the block above): 0 without TM
+ * access to the bound row (or no binding); the creator 2 on the TEXT; 1 for
+ * everything else — the Code included, for everyone.
+ */
+async function tmNotePathLevel(
+	principal: Principal,
+	componentTipo: string,
+	noteId: number,
+): Promise<number> {
+	const facts = await tmNotePathFacts(principal, noteId);
+	if (facts === null) return 0;
+	return componentTipo === TM_NOTES_TEXT && facts.creatorId === principal.userId ? 2 : 1;
+}
+
+/** The notes-section component level: max(profile grant, TM path) — the block above. */
+async function tmNoteComponentLevel(
+	principal: Principal,
+	componentTipo: string,
+	sectionId: number | string | null | undefined,
+): Promise<number> {
+	const grant = await getPermissionGrant(principal, TM_NOTES_SECTION_TIPO, componentTipo);
+	const profileLevel = grant.basis === 'profile' ? grant.level : 0;
+	const noteId = noteRecordId(sectionId);
+	if (noteId === null) return profileLevel;
+	return Math.max(profileLevel, await tmNotePathLevel(principal, componentTipo, noteId));
+}
+
+/**
+ * Whether `principal` is the CREATOR of note `noteId` with TM access to its
+ * bound row — the delete door's named admission (owner Q-a: the creator deletes
+ * their own note on the TM path; everyone else at section level).
+ */
+export async function isTmNoteCreatorWithAccess(
+	principal: Principal,
+	noteId: number,
+): Promise<boolean> {
+	const facts = await tmNotePathFacts(principal, noteId);
+	return facts !== null && facts.creatorId === principal.userId;
+}
+
+const TM_NOTES_DENIED: PermissionGrant = Object.freeze({ level: 0, basis: 'profile' });
+
+/**
+ * THE NOTES SECTION'S MATRIX FALLBACK — what `getPermissionGrant` answers on a
+ * (rsc832, any tipo) pair the caller's profile holds at 0, in place of the
+ * public-list read every other matrix_notes section keeps (T0-4 fix 1). ONE
+ * predicate, so every door built on getPermissions / ddoIsAuthorized /
+ * pairGranted (Gate B, read_raw, raw_view, MCP read/search, tool_export, RAG,
+ * identify, the section read's per-ddo filter) answers the same:
+ *   - a global admin: read (1, basis 'rule') — the read the public-list rule
+ *     gave them before, kept UNCHANGED pending an owner decision (a global admin
+ *     has TM access to every section by flag, so the TM path would grant them
+ *     every BOUND note anyway; this rule also shows them unbound records);
+ *   - everyone else: 0 — the notes section is reached as a section only through
+ *     a PROFILE grant (the AUDIT path). The TM path reaches one note through its
+ *     record-addressed component (getRecordComponentPermission →
+ *     tmNoteComponentLevel), never through a section-level door.
+ * Root (-1) never gets here: the superuser rule answers 3 first.
+ */
+function tmNotesSectionGrant(principal: Principal): PermissionGrant {
+	return principal.isGlobalAdmin ? RULE_READ : TM_NOTES_DENIED;
+}
+
 /**
  * THE RECORD-ADDRESSED COMPONENT PERMISSION — `getPermissions` with the dd128
  * own-record rule already applied (P1-2, closes SEC-03).
@@ -906,6 +1174,19 @@ export function isSelfServiceAccountWrite(
  * A door with no record address (section-level gates, batch gates) cannot consult the
  * rule even in principle and keeps calling `getPermissions` — those are the ENUMERATED
  * exemptions in `test/unit/dd128_write_census_tripwire.test.ts`.
+ *
+ * A FIXED dataframe slot (dd560, the IRI label frame) answers FIXED_FRAME_OWN_LEVEL
+ * after the dd128 rule and before the matrix: its main bounds it — the read chain's
+ * caller cap, the write door's `frameOf`, the direct-read doors' `sourceComponentLevel`
+ * (write_door.ts) (T0-4; see the block above).
+ *
+ * A component of the TM NOTES section (rsc832), RECORD-ADDRESSED, answers
+ * max(profile grant, TM path) here — not the bare matrix (T0-4; see the TM NOTES
+ * block above): the creator edits their own note's text, everyone with TM access
+ * to the annotated change reads it, nobody else (root and global admins on the TM
+ * path too). A section-level / ddo door (no record) answers getPermissions'
+ * rsc832 rule instead (`tmNotesSectionGrant`: the profile grant; a global admin
+ * reads; root 3).
  */
 export async function getRecordComponentPermission(
 	principal: Principal,
@@ -920,11 +1201,31 @@ export async function getRecordComponentPermission(
 		sectionId,
 	);
 	if (ownRecordLevel !== null) return ownRecordLevel;
+	// A TM note's component: max(profile grant, TM path) — the section tipo
+	// itself (a section-level question) stays the matrix's.
+	if (sectionTipo === TM_NOTES_SECTION_TIPO && componentTipo !== TM_NOTES_SECTION_TIPO) {
+		return tmNoteComponentLevel(principal, componentTipo, sectionId);
+	}
+	// The IRI label frame (and any fixed dataframe slot): never lowers its main.
+	if (isFixedDataframeSlot(componentTipo)) return FIXED_FRAME_OWN_LEVEL;
+	return matrixLevelWithOwnFloor(principal, sectionTipo, componentTipo, sectionId);
+}
+
+/**
+ * The matrix level, floored at 1 on the actor's OWN guarded dd128 fields. A
+ * global admin skips the guarded downgrade (PHP), so the matrix decides — and
+ * most profiles grant 0 on dd128, which refused tool_user_admin's read-only
+ * section id / username / profile rows on the admin's OWN record (TODO-071).
+ * Your own guarded fields are always readable: a floor, never a cap (a matrix 2
+ * stays 2).
+ */
+async function matrixLevelWithOwnFloor(
+	principal: Principal,
+	sectionTipo: string,
+	componentTipo: string,
+	sectionId: number | string | null | undefined,
+): Promise<number> {
 	const level = await getPermissions(principal, sectionTipo, componentTipo);
-	// A global admin skips the guarded downgrade (PHP), so the matrix decides — and most
-	// profiles grant 0 on dd128, which refused tool_user_admin's read-only section id /
-	// username / profile rows on the admin's OWN record (TODO-071). Your own guarded
-	// fields are always readable: a floor, never a cap (a matrix 2 stays 2).
 	if (
 		level < 1 &&
 		SELF_ELEVATION_GUARDED.has(componentTipo) &&
@@ -949,7 +1250,11 @@ export async function getRecordComponentPermission(
  * `resolveOwnUserRecordPermission` first (PHP's forced read on the
  * security-administrator flag, the self-elevation guards on
  * profile/developer/username/section_id, and the forced write on the
- * self-editable name/email/password/image) before falling through to the matrix.
+ * self-editable name/email/password/image) before falling through to the matrix;
+ * a fixed dataframe slot (dd560) answers 2 there, bounded by its main's level
+ * through the caller chain, and a TM-notes (rsc832) component answers max(profile,
+ * TM path) — a node stamp (no section_id) the profile alone (T0-4). SEARCH mode is
+ * untouched (matrix).
  */
 export async function resolveComponentContextPermission(
 	principal: Principal,

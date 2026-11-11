@@ -6,6 +6,7 @@
  * test/unit/publication_host_init_pair_native.test.ts.
  */
 import { describe, expect, test } from 'bun:test';
+import { AUDIT_ACTION_ORIGIN, type AuditAction } from '../src/audit';
 import type { SyncSpawner, SyncSpawnOptions } from '../src/exec';
 import { initExec } from '../src/exec';
 import type { ExecResult, PairInvocation } from '../src/provision/exec_contract';
@@ -440,12 +441,23 @@ describe('the package after the pairing: engineContactSince + writtenPackageItem
     expect(engineContactSince('', since)).toBeNull();
     const before = line('2026-10-09T09:59:59.999Z', 'rules.apply');
     const auto = line('2026-10-10T00:00:00.000Z', 'release.auto_rollback');
-    expect(engineContactSince([before, auto, '{"torn', 'not json'].join('\n'), since)).toBeNull();
+    const repair = line('2026-10-10T00:00:01.000Z', 'media.repair');
+    expect(engineContactSince([before, auto, repair, '{"torn', 'not json'].join('\n'), since)).toBeNull();
     expect(engineContactSince([before, auto, line('2026-10-09T10:00:00.001Z', 'rules.map')].join('\n'), since)).toEqual({
       action: 'rules.map',
       ts: '2026-10-09T10:00:00.001Z',
     });
     expect(engineContactSince(line(since, 'rules.apply'), since)).toBeNull(); // the same instant is not after
+  });
+
+  test('EVERY agent-origin audit action (AUDIT_ACTION_ORIGIN) proves nothing; every engine-origin one is the proof', () => {
+    const actions = Object.keys(AUDIT_ACTION_ORIGIN) as AuditAction[];
+    const after = '2026-10-10T00:00:00.000Z';
+    expect(actions.filter(action => AUDIT_ACTION_ORIGIN[action] === 'agent').sort()).toEqual(['media.repair', 'release.auto_rollback']);
+    for (const action of actions) {
+      const contact = engineContactSince(line(after, action), since);
+      expect([action, contact === null]).toEqual([action, AUDIT_ACTION_ORIGIN[action] === 'agent']);
+    }
   });
 
   test('gone → right; stale or asked → the remove decision (remove by default, keep skips); else right naming the decide', () => {

@@ -21,7 +21,7 @@ Global administrators have no bypass, and even root cannot use **+**, **Duplicat
 term** in a section that has no **New** button.
 
 Creating a record with **New** in a section's list, the records a feature creates for you in
-its own section — notes on a text, Time Machine notes, indexation notes, references,
+its own section — notes on a text, indexation notes, references,
 dataframe annotations, presets — and the records an import tool creates (import files,
 numismatic acquisition, poster frame) still need only write access to that section, as
 before. A portal create made by such a tool is also limited to the sections the portal links

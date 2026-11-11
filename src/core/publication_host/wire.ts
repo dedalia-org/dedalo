@@ -177,6 +177,8 @@ export const AGENT_REASON_SENTENCES: Readonly<Record<string, string>> = Object.f
 		'The publication host refused a media file whose record is not marked published there. Nothing was changed.',
 	key_invalid:
 		'The publication host refused a publication marker key outside the media grammar. Nothing was changed.',
+	media_level_foreign:
+		"A folder under the publication host's media copy is owned by another user and its permissions do not fit: published folders must be open to the web server, the agent's own working folder closed to others. The agent never changes a folder it does not own, so an operator must fix that folder's owner or permissions on the host. Nothing was copied.",
 	// the host web lock around every configtest and reload (publication/host_agent/src/rules/apply.ts)
 	host_busy:
 		'Another configuration test or reload is running on the publication host. Try again when it finishes; nothing was changed.',
@@ -243,6 +245,7 @@ const REASON_CODES: Readonly<Record<string, PublicationHostCode>> = Object.freez
 	hash_mismatch: 'publication_host.rejected',
 	key_unpublished: 'publication_host.rejected',
 	key_invalid: 'publication_host.rejected',
+	media_level_foreign: 'publication_host.rejected',
 });
 
 /** Agent-supplied text for a LOG line: control characters flattened, capped. Never for the wire. */

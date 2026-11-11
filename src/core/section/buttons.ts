@@ -19,6 +19,7 @@ import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts'
 import { labelByTipo } from '../ontology/labels.ts';
 import { getNode, getSectionRealTipo } from '../ontology/resolver.ts';
 import { getPermissions, type Principal } from '../security/permissions.ts';
+import { findSectionChildByModel } from './list_definitions/node_find.ts';
 
 /** One emitted button DDO (PHP dd_object type='button' — null keys dropped). */
 export interface ButtonContext {
@@ -201,27 +202,22 @@ export async function buildSectionButtons(
 
 /**
  * A section's relation_list child tipo (PHP config.relation_list_tipo,
- * class.common.php:2094). PHP resolves it with resolve_virtual=true
- * (get_ar_children_tipo_by_model_name_in_section), so a VIRTUAL section
- * (getSectionRealTipo → real section) inherits the real section's relation_list
- * node — e.g. rsc167 (virtual of rsc2) resolves rsc17 under rsc2.
+ * class.common.php:2094). A VIRTUAL section without its own node inherits the
+ * real section's (rsc167, virtual of rsc2, resolves rsc17 under rsc2); first
+ * by order_number. The node lookup is THE one, findSectionChildByModel (T0-7);
+ * this keeps only the tipo + its cache.
+ *
+ * Own node FIRST — deliberately unlike PHP's class.common.php:2077, which calls
+ * resolve_virtual=true directly and so would stamp the REAL section's node even
+ * for a virtual declaring its own; that would key the References trigger off a
+ * different node than the grid columns (getRelationListColumns, own-first).
  */
 export async function sectionRelationListTipo(sectionTipo: string): Promise<string | null> {
 	// has() (not get()) — a resolved NULL is a valid cached value here.
 	if (relationListTipoCache.has(sectionTipo)) {
 		return relationListTipoCache.get(sectionTipo) ?? null;
 	}
-	const read = async (parent: string) =>
-		(await sql`
-			SELECT tipo FROM dd_ontology WHERE parent = ${parent} AND model = 'relation_list' LIMIT 1
-		`) as { tipo: string }[];
-	let rows = await read(sectionTipo);
-	if (rows.length === 0) {
-		// virtual section: borrow the REAL section's relation_list (getSectionRealTipo)
-		const real = await getSectionRealTipo(sectionTipo);
-		if (real !== sectionTipo) rows = await read(real);
-	}
-	const resolved = rows[0]?.tipo ?? null;
+	const resolved = (await findSectionChildByModel(sectionTipo, 'relation_list'))?.tipo ?? null;
 	relationListTipoCache.set(sectionTipo, resolved);
 	return resolved;
 }

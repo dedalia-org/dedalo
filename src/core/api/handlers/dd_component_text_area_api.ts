@@ -2,7 +2,7 @@
  * dd_component_text_area_api handlers (PHP
  * core/api/v1/common/class.dd_component_text_area_api.php).
  *
- * Both PHP actions are ported (WC-077):
+ * Both PHP actions are ported (WC-077), plus one TS-native action:
  *  - `get_tags_info` — READ: resolve a transcription's marks into the records
  *    they point at (tool_tr_print's feed). AUTHZ (WC-077 AUTHZ-01 as amended
  *    by WC-2026-11-10-tags-info-read-door): the write door's READ mode first —
@@ -250,6 +250,30 @@ export const componentTextAreaApiActions: Record<string, ActionHandler> = {
 					removed_count: outcome.removedCount,
 				},
 			}),
+		};
+	},
+
+	/**
+	 * CREATE (or answer) the Time Machine note bound to one TM row — the ONE
+	 * door that makes an rsc832 note (T0-4 part B; tm_record/tm_note_create.ts).
+	 * `options.matrix_id` is the row id the TM cell served. The admission is the
+	 * action's own and is decided inside the module, BEFORE anything is written:
+	 * a well-formed id (else request.invalid_data) naming a row that exists, whose
+	 * author is the caller, who has TM access to its section — else ONE
+	 * perm.denied, whichever half failed (no existence oracle on TM row ids). No rsc832 section grant
+	 * is asked — that is the point: a generic section-level create makes a
+	 * Code-less record, which is no TM note. Answers `{ section_id }` — the new
+	 * note's, or the note that already binds the row (never a duplicate); the
+	 * owned extension key `created` says which.
+	 */
+	create_tm_note: async (rqo, context) => {
+		const principal = requirePrincipal(context);
+		const options = (rqo.options ?? {}) as { matrix_id?: unknown };
+		const { createTmNote } = await import('../../tm_record/tm_note_create.ts');
+		const { sectionId, created } = await createTmNote(principal, options.matrix_id);
+		return {
+			status: 200,
+			body: ok({ section_id: sectionId }, { requestId: context.requestId, extend: { created } }),
 		};
 	},
 };

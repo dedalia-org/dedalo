@@ -210,6 +210,11 @@ const CENSUS: Record<string, CensusRow> = {
 		reason:
 			'the thesaurus tree mutators (persistTreeKeys, CLOSURE_PLAN Step 5): every key they write is HARD-BOUND to a section’s component_relation_parent (getParentTipo), its section_map order number, or add_child’s section_map thesaurus defaults — the users section declares no parent component (relation_children_write_through_native asserts getParentTipo(dd128) is null), so no dd128 component is reachable. Their one caller, ts_object/ts_api.ts, gates at the section level (its own row).',
 	},
+	'src/core/tm_record/tm_note_create.ts': {
+		verdict: 'not-dd128',
+		reason:
+			'create_tm_note (T0-4 part B): its two writes are HARD-BOUND to the engine’s TM-notes section — createSectionRecord(TM_NOTES_SECTION_TIPO) and saveComponentData of its Code component (TM_NOTES_CODE_TIPO), both module constants; no section or component reaches it from the payload (only the TM row id, re-proved against matrix_time_machine), so no dd128 component is reachable. Admission: TM access + authorship of the change (tm_note_create_native).',
+	},
 	'src/core/ontology/machine_name_reconcile.ts': {
 		verdict: 'system',
 		reason:

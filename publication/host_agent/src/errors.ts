@@ -61,6 +61,9 @@ export const REASON_CODES = Object.freeze([
   'size_mismatch',
   'key_unpublished',
   'key_invalid',
+  // a level under the copy root the agent does not own, whose mode fails what the web server
+  // needs (src/media/fs_modes.ts meetsNeed): 409 ConflictError, never chmodded by the agent.
+  'media_level_foreign',
   // The host web lock (src/rules/apply.ts withHostWebLock, spec S12) around every
   // configtest+reload: host_busy = a holder past the 30 s wait, host_lock_missing = the
   // root-created lock file is absent (run `provision apply`). Both 503 HostActionFailedError.
