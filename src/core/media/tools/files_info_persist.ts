@@ -216,9 +216,7 @@ export async function transformStoredMediaItems(
 	if (table === null) return { action: 'missing', affected: 0 };
 	try {
 		return await withTransaction(async (): Promise<MediaItemsTransformResult> => {
-			if (options.lockWait === 'per-record') {
-				await sql.unsafe(`SET LOCAL lock_timeout = '${perRecordLockWaitMs()}ms'`, []);
-			}
+			if (options.lockWait === 'per-record') await setPerRecordLockWait();
 			const stored = await readMatrixKeyForUpdate(
 				table,
 				target.sectionTipo,
@@ -254,8 +252,35 @@ async function runPostWriteHook(
 	if (options.onWrite !== undefined) await options.onWrite(items);
 }
 
+/** `SET LOCAL lock_timeout` to the per-record bound — inside the caller's own transaction. */
+async function setPerRecordLockWait(): Promise<void> {
+	await sql.unsafe(`SET LOCAL lock_timeout = '${perRecordLockWaitMs()}ms'`, []);
+}
+
+/**
+ * THE PER-RECORD LOCK-WAIT UNIT for a sweep's row-locked work that is not a
+ * media-key transform (T0-11: the PDF transcription's fill_empty save): its own
+ * REQUEST-pool transaction whose lock waits are bounded by perRecordLockWaitMs —
+ * the same unit transformStoredMediaItems runs in. A lock not granted in time
+ * surfaces as the caller's error (isLockTimeout → `locked`), never a stalled
+ * sweep. REFUSED inside a caller's transaction: the `SET LOCAL` would bind the
+ * caller's whole transaction, and the row lock would be held to its COMMIT.
+ */
+export async function withPerRecordLockWait<T>(work: () => Promise<T>): Promise<T> {
+	if (isInTransaction()) {
+		throw new DedaloError('internal.invariant', {
+			message:
+				"withPerRecordLockWait: refusing to run inside a caller's transaction — its SET LOCAL lock_timeout would bind that transaction; call it outside one",
+		});
+	}
+	return await withTransaction(async () => {
+		await setPerRecordLockWait();
+		return await work();
+	});
+}
+
 /** The row lock was not granted within the wait (raw SQLSTATE 55P03, or its typed twin). */
-function isLockTimeout(error: unknown): boolean {
+export function isLockTimeout(error: unknown): boolean {
 	if (sqlStateOf(error) === '55P03') return true;
 	return error instanceof DedaloError && error.code === 'db.lock_timeout';
 }

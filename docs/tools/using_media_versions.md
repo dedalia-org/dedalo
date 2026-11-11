@@ -80,7 +80,7 @@ offers the rebuild again — it does not go back to looking empty.
 | Conform headers (audiovisual only) | Rewrites an audiovisual file's headers so it seeks/plays correctly in the browser. |
 | Delete quality / Delete version | Removes a whole quality, or one specific file of a quality. |
 | Delete normalized files | When ticked before regenerating, clears the existing derived files first, so they are rebuilt from the preserved master rather than kept. Your uploaded original is never touched. |
-| Regenerate | Rebuilds the derived files that are MISSING — the web-sized versions, the thumbnail, the alternative formats — and then writes correct file information back to the record. Files that are already there are never re-encoded, so pressing it twice is harmless. Anything it could not rebuild (a format this server has no encoder for, a record whose master is not on this machine) is reported instead of passing in silence. |
+| Regenerate | Rebuilds the derived files that are MISSING — the web-sized versions, the thumbnail, the alternative formats — and then writes correct file information back to the record. Files that are already there are never re-encoded, so pressing it twice is harmless. Anything it could not rebuild (a format this server has no encoder for, a record whose master is not on this machine) is reported instead of passing in silence. For a PDF, it also fills the linked transcription field from the PDF's text when that field is empty in your data language; a transcription that already holds text is kept, never overwritten, and no OCR runs. |
 
 ## Tips and gotchas
 

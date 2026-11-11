@@ -337,6 +337,8 @@ export interface MediaBinariesConfig {
 	readonly pdftohtml: string;
 	readonly pdfinfo: string;
 	readonly ocrmypdf: string; // PDF_OCR_ENGINE
+	/** Tesseract's CLI (DEDALO_TESSERACT_PATH) — asked only `--list-langs` (system_info). */
+	readonly tesseract: string;
 	/**
 	 * Ghostscript's CLI (DEDALO_GS_PATH) — the ONLY PDF rasterizer in the engine.
 	 * ImageMagick is not used for this: it can only read a PDF by spawning gs as a
@@ -990,6 +992,7 @@ function buildMediaConfig(): MediaConfig {
 			pdftohtml: readString('DEDALO_PDFTOHTML_PATH'),
 			pdfinfo: readString('DEDALO_PDFINFO_PATH'),
 			ocrmypdf: readString('PDF_OCR_ENGINE'),
+			tesseract: readString('DEDALO_TESSERACT_PATH'),
 			ghostscript: readString('DEDALO_GS_PATH'),
 			file: readString('DEDALO_FILE_BIN_PATH'),
 			rsvgConvert: readString('DEDALO_RSVG_CONVERT_PATH'),

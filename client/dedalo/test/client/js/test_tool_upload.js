@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global it, describe, assert */
+/*global it, describe, assert, page_globals */
 /*eslint no-undef: "error"*/
 'use strict';
 
@@ -20,6 +20,7 @@
  */
 
 import {tool_upload} from '../../../tools/tool_upload/js/tool_upload.js'
+import {get_content_data} from '../../../core/services/service_upload/js/render_edit_service_upload.js'
 
 
 
@@ -63,6 +64,67 @@ describe('TOOL_UPLOAD CLIENT TEST', function() {
 		assert.equal(typeof tool_upload.prototype.init, 'function', 'expected init defined')
 		assert.equal(typeof tool_upload.prototype.build, 'function', 'expected build defined')
 		assert.equal(typeof tool_upload.prototype.process_uploaded_file_controller, 'function', 'expected process_uploaded_file_controller defined')
+	})
+
+})
+
+
+
+/**
+* SERVICE_UPLOAD OCR OPTIONS (T0-11 D3)
+* The upload's OCR panel offers ONLY the langs the server measured it can OCR
+* (system_info.pdf_ocr_langs), shows only when pdf_ocr_engine is true AND that
+* list is not empty, and seeds process_options.ocr_lang from the shown option
+* (it stayed null until a click before). Fixture-free: get_content_data over a
+* plain self carrying the system_info fields service_upload.build copies.
+*/
+describe('SERVICE_UPLOAD OCR OPTIONS', function() {
+
+	const fake_self = function(overrides) {
+		return Object.assign({
+			caller						: {model : 'component_pdf'},
+			allowed_extensions			: ['pdf'],
+			max_size_bytes				: 1024*1024*1024,
+			upload_service_chunk_files	: false,
+			sys_get_temp_dir			: '/tmp',
+			upload_tmp_dir				: '/tmp',
+			upload_tmp_perms			: 0,
+			session_cache_expire		: 180,
+			max_concurrent				: 2,
+			pdf_ocr_engine				: true,
+			pdf_ocr_langs				: []
+		}, overrides)
+	}
+
+	// the first app lang the page knows, so the label lookup is exercised
+	const app_langs		= page_globals.dedalo_application_langs || []
+	const first_lang	= app_langs[0] ? app_langs[0].value : 'lg-eng'
+
+	it('offers only pdf_ocr_langs and seeds ocr_lang from the shown option', function() {
+		const self		= fake_self({pdf_ocr_langs : [first_lang, 'lg-zzz']})
+		const node		= get_content_data(self)
+		const select	= node.querySelector('.ocr_options_container select')
+		assert.ok(select, 'expected the OCR select')
+		const values = [...select.options].map(el => el.value)
+		assert.deepEqual(values, [first_lang, 'lg-zzz'], 'expected exactly pdf_ocr_langs, in order')
+		assert.equal(self.process_options.ocr_lang, select.value, 'expected ocr_lang = the shown option')
+		assert.ok(values.includes(self.process_options.ocr_lang), 'expected ocr_lang not null')
+	})
+
+	it("updates ocr_lang on 'change' (keyboard selection included)", function() {
+		const self		= fake_self({pdf_ocr_langs : [first_lang, 'lg-zzz']})
+		const node		= get_content_data(self)
+		const select	= node.querySelector('.ocr_options_container select')
+		select.value = 'lg-zzz'
+		select.dispatchEvent(new Event('change'))
+		assert.equal(self.process_options.ocr_lang, 'lg-zzz')
+	})
+
+	it('no OCR panel without an installed lang, or without the engine', function() {
+		const no_langs = get_content_data(fake_self({pdf_ocr_langs : []}))
+		assert.equal(no_langs.querySelector('.ocr_options_container'), null, 'expected no panel without langs')
+		const no_engine = get_content_data(fake_self({pdf_ocr_engine : false, pdf_ocr_langs : [first_lang]}))
+		assert.equal(no_engine.querySelector('.ocr_options_container'), null, 'expected no panel without engine')
 	})
 
 })

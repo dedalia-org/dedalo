@@ -97,7 +97,14 @@ decides *which CLI command builds it*, and the OS does the work.
 - **Generate previews & clips** — extract a poster frame at a timecode and cut
   a fragment between in/out timecodes.
 - **Extract PDF text/HTML and run OCR** — `pdftotext`/`pdftohtml` extraction
-  with UTF-8 cleanup, `pdfinfo` page counts, `ocrmypdf` forced OCR.
+  with UTF-8 cleanup (optionally keeping the form-feed page breaks the
+  transcription's page tags need), `pdfinfo` page counts, `ocrmypdf` forced
+  OCR. The OCR language is a Dédalo code (`lg-spa`), mapped to its Tesseract
+  model by `src/core/media/engine/ocr_langs.ts` — the same map the installer
+  reads to install the language packs; a language with no model is refused
+  with `request.invalid_options`. The OCR itself runs as the `pdf_ocr` media
+  job (`src/core/media/pdf_ocr.ts`); see
+  [component_pdf › Transcription and OCR](../components/component_pdf.md#transcription-and-ocr).
 - **Run every binary through one spawn discipline** — argv arrays over
   `Bun.spawn`, never a shell string (see [Statelessness & execution](#statelessness--execution)).
 
@@ -294,6 +301,7 @@ All binary paths and engine defaults come from the typed config catalog
 | `PDF_AUTOMATIC_TRANSCRIPTION_ENGINE` | `config.media.binaries.pdftotext` | `pdftotext` binary path |
 | `DEDALO_PDFTOHTML_PATH` / `DEDALO_PDFINFO_PATH` | `config.media.binaries.{pdftohtml,pdfinfo}` | Poppler binary paths |
 | `PDF_OCR_ENGINE` | `config.media.binaries.ocrmypdf` | `ocrmypdf` binary path |
+| `DEDALO_TESSERACT_PATH` | `config.media.binaries.tesseract` | `tesseract` binary path, asked only `--list-langs` (default: beside `ocrmypdf`) |
 | `DEDALO_IMAGE_THUMB_WIDTH` / `_HEIGHT` | `config.media.thumb.{width,height}` | thumbnail bounding box |
 | `DEDALO_IMAGE_PRINT_DPI` | `config.media.imagePrintDpi` | PDF cover rasterization density |
 

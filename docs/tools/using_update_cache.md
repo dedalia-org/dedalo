@@ -43,13 +43,18 @@ Update cache is a **section-level** tool: you open it on a section, and it lists
 !!! note "Media components"
     Selecting a media component **repairs its media**: the tool rebuilds the standard derivatives (default quality and thumbnail — for images also the display envelope) from the original file where it is present on the server, then re-scans the disk and updates the record's stored file index (`files_info`). This is the fix when an image exists on disk but does not show in the application. Records whose original is not on the server keep their stored index untouched — the tool never removes entries just because the files are not present on this machine (a partial media copy must not erase the record's knowledge of its files). The file index is written from the record as it stands at that moment, so a file someone uploads to the same record while the tool runs is kept, not undone. Records deleted while the tool runs, and records another user keeps busy for more than a few seconds, are reported at the end (nothing is written to them) and the run carries on with the next record. Audio/video derivatives are not re-transcoded here; for higher image tiers, deletes and av versions use [Media versions](using_media_versions.md).
 
+!!! note "PDF components also fill empty transcriptions"
+    For a PDF component, the run also copies the PDF's text into the record's linked transcription field — but **only when that field is empty** in your current data language. A transcription that already holds text is never overwritten, even if it differs from the PDF. The text comes from the text layer the PDF already carries; this tool never runs OCR. The final summary counts the transcriptions filled, those kept because they had text, and the PDFs without a text layer (nothing written for them).
+
+    This is how to fill the transcriptions of PDFs that were uploaded before Dédalo did it automatically: run Update cache over the section holding them, with the PDF component ticked. Nothing does this on its own; it is your decision when to run it. See [component_pdf › Transcription and OCR](../core/components/component_pdf.md#transcription-and-ocr).
+
 ## Tips and gotchas
 
 !!! warning "This re-saves real records in bulk"
     Update cache writes to every matched record. It does not change the visible value, but it is still a large write operation: it needs write permission on the section, runs as a background job, and can take a long time on big sections. Narrow the scope with a filter when you can.
 
 !!! info "A run can be reverted, and records only what it changed"
-    Each run is one bulk process. A record where the component holds no value is skipped, and a re-save that leaves a component exactly as it was writes nothing to its history; one that does change the stored form writes a normal history entry and records the value it replaced, so the whole run can be reverted from the [Time machine](using_time_machine.md#reverting-a-batch-run). The media repair is the exception: the refreshed file index is derived from the files on disk, and files moved aside are not moved back, so that part of a run is not reverted.
+    Each run is one bulk process. A record where the component holds no value is skipped, and a re-save that leaves a component exactly as it was writes nothing to its history; one that does change the stored form writes a normal history entry and records the value it replaced, so the whole run can be reverted from the [Time machine](using_time_machine.md#reverting-a-batch-run). The media repair is the exception: the refreshed file index is derived from the files on disk, and files moved aside are not moved back, so that part of a run is not reverted. The PDF transcriptions the run filled **are** part of the run, so a revert empties them again.
 
 !!! tip "Value change vs. cache refresh"
     If you want the value to *change* across records, this is the wrong tool — use [Propagate component data](using_propagate_component_data.md). Update cache only refreshes the stored/derived form of the value that is already there.
@@ -58,4 +63,5 @@ Update cache is a **section-level** tool: you open it on a section, and it lists
 
 - **[Propagate component data](using_propagate_component_data.md)** — change a component's value across matched records (this tool only re-derives it).
 - **[Media versions](using_media_versions.md)** — rebuild media file qualities and versions.
+- **[Upload](using_upload.md)** — how a PDF's transcription is written, and replaced, when the PDF is uploaded.
 - **[Developer reference](../development/tools/reference/tool_update_cache.md)** — internals, API actions and options.

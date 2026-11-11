@@ -197,7 +197,7 @@ derivation choreography lives in `processing.ts`.
 | --- | --- | --- | --- |
 | [image](../core/components/component_image.md) | `imagemagick.ts` (`buildImageVersion` / `buildThumbVersion`) | `original, modified, …, 1.5MB, thumb` (`DEDALO_IMAGE_AR_QUALITY`) | pixel-budget resize (never upscale) + CMYK→sRGB + flatten/alpha; `DEDALO_IMAGE_ALTERNATIVE_EXTENSIONS` (e.g. `avif`) per quality |
 | [av](../core/components/component_av.md) | `ffmpeg.ts` (+ `buildThumbVersion`) | `original, 1080, 720, 576, 404, 240, audio` (`DEDALO_AV_AR_QUALITY`) | one `ffmpeg_profiles.ts` argv recipe per quality; `404` is the default streamed quality; `qt-faststart` for streaming |
-| [pdf](../core/components/component_pdf.md) | `pdf.ts` (`buildPdfCover`) | `original, web` (`DEDALO_PDF_AR_QUALITY`) | `web` copy served by pdf.js; raster page/cover alternatives; optional `pdftotext` / `ocrmypdf` |
+| [pdf](../core/components/component_pdf.md) | `pdf.ts` (`buildPdfCover`) | `original, web` (`DEDALO_PDF_AR_QUALITY`) | `web` copy served by pdf.js; raster page/cover alternatives; the `pdftotext` text written into the related `component_text_area` on upload of an `original`; optional `ocrmypdf` text layer on the `web` copy as the `pdf_ocr` media job ([details](../core/components/component_pdf.md#transcription-and-ocr)) |
 
 The per-type `regenerate*` / `buildImageVersion` / `buildPdfCover` functions in
 `processing.ts` build a single quality from the best available source

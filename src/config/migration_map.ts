@@ -706,6 +706,10 @@ export const NEW_IN_V7: readonly string[] = [
 	// DELEGATE. v7 spawns gs itself (src/core/media/engine/ghostscript.ts) and the
 	// hardened policy denies the delegate, so there is no v6 constant for this.
 	'DEDALO_GS_PATH',
+	// The Tesseract CLI (T0-11 D3). NEW_IN_V7 by construction: v6 only ran
+	// ocrmypdf and never asked which language models the host has; v7 lists them
+	// (`tesseract --list-langs`) so the upload offers only an OCR it can run.
+	'DEDALO_TESSERACT_PATH',
 	'DEDALO_SVG_THUMB_DPI',
 	// The ImageMagick resource bound (audit MEDIA-01). NEW_IN_V7 by construction:
 	// v6 passed no `-limit` and shipped no policy at all, so there is no v6

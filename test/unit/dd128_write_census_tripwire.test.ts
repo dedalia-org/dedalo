@@ -392,6 +392,11 @@ const CENSUS: Record<string, CensusRow> = {
 		reason:
 			'every ontology-declared companion (target_filename / target_duration) is asked of authorizeRecordAccess AS THE UPLOADER (write, level 2, section floor 1, dd128-aware pair, write scope) before saveComponentData, which the grant addresses; a refusal is a message, never a write (req 10). Matrix engine:media_ingest.companion_writes DD1725 leg (a scratch media component whose target_filename names dd1725).',
 	},
+	'src/core/media/ingest/pdf_transcription.ts': {
+		verdict: 'not-dd128',
+		reason:
+			'T0-11 PDF transcription: its one write is HARD-BOUND BY MODEL — the target is relatedTipoByExactModel(pdf, component_text_area), never a payload tipo — and none of the dd128 own-record components the rule protects (dd1725 select, dd515 radio, dd132 input_text, dd330 section_id) is a component_text_area, so the DD1725 leg is unreachable by construction (no probe can be aimed at it). It still asks authorizeRecordAccess AS THE ACTOR (door media_ingest.transcription — write, level 2, section floor 1, dd128-aware pair, write scope) before saveComponentData, the companion_writes.ts posture.',
+	},
 	'tools/tool_import_files/server/index.ts': {
 		verdict: 'delegates',
 		reason:

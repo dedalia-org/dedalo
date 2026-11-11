@@ -19,6 +19,7 @@ import {
 	type ScanContext,
 	scanContextFromItem,
 } from '../../../src/core/media/files_info.ts';
+import { transcribeStoredPdf } from '../../../src/core/media/ingest/pdf_transcription.ts';
 import { buildMediaIdentifier, type MediaIdentity } from '../../../src/core/media/path.ts';
 import { regenerateMissingDerivatives } from '../../../src/core/media/repair.ts';
 import {
@@ -320,13 +321,42 @@ export async function syncFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 		}),
 		identity,
 	);
+	// THE PDF TRANSCRIPTION (T0-11, decision D2 = b): AFTER the file pass and the
+	// re-index (outside its row lock — the text_area save is its own locked
+	// transaction), FILL ONLY IF EMPTY. A curated transcription is never replaced
+	// by a "Regenerate files" click; no OCR from here. Its failure is a value
+	// beside the success, like a rebuild failure.
+	const transcription =
+		spec.model === 'component_pdf'
+			? await transcribeStoredPdf({
+					componentTipo: identity.componentTipo,
+					sectionTipo: identity.sectionTipo,
+					sectionId: identity.sectionId,
+					items: mediaContext.items,
+					pathOpts,
+					userId: ctx.userId,
+				})
+			: null;
+	// A transcription failure travels on the rebuild-failure channel the panel reads.
+	// `locked` (a curator held the text_area past the per-record wait) too: nothing
+	// was written, and the panel must say so.
+	if (transcription?.status === 'failed' || transcription?.status === 'locked') {
+		rebuildErrors.push(...transcription.messages);
+	}
+	const transcriptionNote =
+		transcription?.status === 'written'
+			? ' — the empty transcription was filled from the PDF text'
+			: transcription?.status === 'kept'
+				? ' — the transcription was kept (not empty — never overwritten)'
+				: '';
 	// A derivative that could not be rebuilt is reported BESIDE the success: the
 	// re-index really did happen, and telling the operator the whole thing failed
 	// would be as wrong as the old silence.
-	const note =
+	const note = `${transcriptionNote}${
 		rebuildErrors.length === 0
 			? ''
-			: ` — but ${rebuildErrors.length} file(s) could NOT be rebuilt: ${rebuildErrors.join('; ')}`;
+			: ` — but ${rebuildErrors.length} file(s) could NOT be rebuilt: ${rebuildErrors.join('; ')}`
+	}`;
 	return ok(
 		{
 			summary:
@@ -336,6 +366,7 @@ export async function syncFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 						`Success. Request done${note}`,
 			errors: rebuildErrors,
 			files_info: freshFilesInfo,
+			transcription: transcription?.status ?? null,
 		},
 		{ requestId: toolRequestId(ctx) },
 	);

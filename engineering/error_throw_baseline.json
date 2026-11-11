@@ -26,7 +26,6 @@
 		"src/core/media/av_versions.ts": 3,
 		"src/core/media/engine/ffmpeg.ts": 7,
 		"src/core/media/engine/imagemagick.ts": 6,
-		"src/core/media/engine/pdf.ts": 1,
 		"src/core/media/engine/probe.ts": 4,
 		"src/core/media/engine/spawn.ts": 4,
 		"src/core/media/engine/svg.ts": 3,
@@ -69,7 +68,7 @@
 		"src/server.ts": 1
 	},
 	"summary": {
-		"files": 65,
-		"total": 122
+		"files": 64,
+		"total": 121
 	}
 }

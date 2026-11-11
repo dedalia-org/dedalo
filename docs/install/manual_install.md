@@ -177,6 +177,7 @@ The installer installs only the packages that are missing, and adds a repository
 DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get update
 DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get install -y --no-install-recommends \
   git unzip gzip file ca-certificates curl rsync diffutils postgresql-18 postgresql-client-18 ffmpeg imagemagick poppler-utils ocrmypdf librsvg2-bin \
+  tesseract-ocr-osd tesseract-ocr-spa tesseract-ocr-eng \
   nginx certbot                       # or: apache2 certbot   (certbot: Let's Encrypt only)
 /usr/bin/systemctl enable --now postgresql.service nginx      # or: apache2
 ```
@@ -190,6 +191,7 @@ DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get install -y --no-install-recommen
 DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get update
 DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get install -y --no-install-recommends \
   git unzip gzip file ca-certificates curl rsync diffutils postgresql-18 postgresql-client-18 ffmpeg imagemagick poppler-utils ocrmypdf librsvg2-bin \
+  tesseract-ocr-osd tesseract-ocr-spa tesseract-ocr-eng \
   nginx certbot                       # or: apache2 certbot   (certbot: Let's Encrypt only)
 /usr/bin/systemctl enable --now postgresql.service nginx      # or: apache2
 ```
@@ -208,10 +210,12 @@ DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get install -y --no-install-recommen
 test -e /var/lib/pgsql/18/data/PG_VERSION || \
   PGSETUP_INITDB_OPTIONS='--auth-local=peer --auth-host=scram-sha-256' /usr/pgsql-18/bin/postgresql-18-setup initdb
 /usr/bin/systemctl enable --now postgresql-18.service nginx   # or: httpd
-/usr/bin/dnf install -y ocrmypdf                   # optional: a failure only leaves PDF OCR off
+/usr/bin/dnf install -y ocrmypdf tesseract-osd tesseract-langpack-spa tesseract-langpack-eng   # optional: a failure only leaves PDF OCR off
 ```
 
-`ocrmypdf` is optional on the RHEL family. EPEL 10 has no build for `aarch64` (`No match for argument: ocrmypdf`), and without it automatic OCR of PDFs stays off.
+`ocrmypdf` and its language packs are optional on the RHEL family. EPEL 10 has no build for `aarch64` (`No match for argument: ocrmypdf`), and without it OCR of PDFs stays off; uploads still extract the text a PDF already carries.
+
+The Tesseract packs (`tesseract-ocr-*` on Debian and Ubuntu, `tesseract-langpack-*` on the RHEL family) are one per **working language**, plus the orientation model `osd`. The commands above show Spanish and English; name one pack per language in your `PROJECTS_DEFAULT_LANGS`. The model is the language code without `lg-` (`lg-fra` → `tesseract-ocr-fra`), with two exceptions: Valencian uses the Catalan model (`cat`), and Chinese uses Simplified Chinese (`chi_sim`, packaged as `tesseract-ocr-chi-sim` / `tesseract-langpack-chi_sim`). A language Tesseract has no model for gets no pack, and uploads in it are not offered OCR. The full mapping and the reasons are in [Production › `host_packages`](production.md#host_packages-packages-and-repositories).
 
 With Apache on Debian and Ubuntu, enable its modules now (the package enables none of them): `a2enmod ssl headers http2 rewrite proxy proxy_http && systemctl restart apache2`. On the RHEL family, the `httpd`, `mod_ssl` and `mod_http2` packages load them all.
 
@@ -220,9 +224,9 @@ What the media tools are for, and why SVG goes through `rsvg-convert` and never 
 Two things the installer leaves to you:
 
 - **Operating system updates.** The installer never runs `apt-get upgrade` or `dnf upgrade`. Keep the host updated the way you keep your other servers updated.
-- **OCR languages.** For OCR in a language other than English, install its Tesseract pack (`tesseract-ocr-spa`, `tesseract-langpack-spa`…).
+- **OCR languages added later.** A working language you add after the install needs its Tesseract pack installed by hand, as above. The upload panel offers OCR in it as soon as the pack is installed; no restart is needed.
 
-**Verify:** `command -v ffmpeg ffprobe qt-faststart pdftotext rsvg-convert` finds every tool. With nginx, `nginx -v` prints 1.25.1 or newer; an older nginx rejects the site's `http2 on;`. If `qt-faststart` is somewhere else, set `DEDALO_AV_FASTSTART_PATH` in `.env` after [`host_engine`](#manual-host_engine). `$PGBIN/psql --version` prints 18, and `systemctl is-active $PGSVC` prints `active`.
+**Verify:** `command -v ffmpeg ffprobe qt-faststart pdftotext rsvg-convert` finds every tool, and `tesseract --list-langs` lists one model per working language, plus `osd`. With nginx, `nginx -v` prints 1.25.1 or newer; an older nginx rejects the site's `http2 on;`. If `qt-faststart` is somewhere else, set `DEDALO_AV_FASTSTART_PATH` in `.env` after [`host_engine`](#manual-host_engine). `$PGBIN/psql --version` prints 18, and `systemctl is-active $PGSVC` prints `active`.
 
 ## `host_identity` — the service account and the directories {#manual-host_identity}
 

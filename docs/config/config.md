@@ -2221,6 +2221,22 @@ PDF_OCR_ENGINE="/usr/bin/ocrmypdf"
 
 ---
 
+### PDF
+
+DEDALO_TESSERACT_PATH `string`
+
+This parameter defines the path to the `tesseract` program in the server, the [Tesseract](https://github.com/tesseract-ocr/tesseract) OCR engine that ocrmypdf runs to recognise the text of a scanned PDF. Dédalo asks it only one question: which language models are installed (`tesseract --list-langs`). The upload panel offers OCR only in the working languages whose model is installed, so a curator can never pick a language the OCR cannot read.
+
+Tesseract is installed together with ocrmypdf, in the same directory, so the path is derived from PDF_OCR_ENGINE and no configuration is needed. Set this key only when the two programs live in different directories. A language model is a separate system package — `tesseract-ocr-spa` on Debian and Ubuntu, `tesseract-langpack-spa` on the RHEL family, `brew install tesseract-lang` on macOS; the Dédalo installer installs one for each working language. Without the program, or without any model for a working language, PDF uploads keep working and their text is still extracted; only the OCR option is not offered.
+
+```bash
+DEDALO_TESSERACT_PATH="/usr/bin/tesseract"
+```
+
+*Default: `tesseract` in the directory of PDF_OCR_ENGINE*
+
+---
+
 ## Menu variables {#menu}
 
 ### Defining denied areas

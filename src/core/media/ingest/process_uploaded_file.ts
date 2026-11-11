@@ -31,9 +31,11 @@ import {
 	mediaTypeOf,
 } from '../../concepts/media.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
+import { currentDataLang } from '../../resolve/request_lang.ts';
 // The av encoder lives in ../av_versions.ts — ONE encoder for ingest and for the
 // media-versions tool's per-quality build (see that module's header).
 import { submitAvTranscode } from '../av_versions.ts';
+import { fileFingerprint, stillSameFile } from '../file_fingerprint.ts';
 import { moveToDeleted } from '../file_ops.ts';
 import { type FileInfoEntry, scanContextFromItem, scanFilesInfo } from '../files_info.ts';
 import { completeMediaPathOptions } from '../ontology_path.ts';
@@ -45,6 +47,7 @@ import {
 	mediaThumbLocation,
 	posterframeLocation,
 } from '../path.ts';
+import { stopLiveOcr, submitPdfOcr } from '../pdf_ocr.ts';
 import {
 	buildMasterNormalizedCopy,
 	noteOutrankingMaster,
@@ -59,10 +62,25 @@ import { readStoredMediaItems } from '../tool_support.ts';
 import { type AddFileInput, addFile, stagingDir } from './add_file.ts';
 import { writeMediaCompanions } from './companion_writes.ts';
 import { fireMediaIngestEvent } from './ingest_event.ts';
+import { type PdfTranscriptionOutcome, transcribePdf } from './pdf_transcription.ts';
 import { forgetStagedDisplayName, readStagedDisplayName } from './staged_name_record.ts';
 
 export interface IngestInput extends Omit<AddFileInput, 'spec'> {
 	spec: MediaTypeSpec;
+	/**
+	 * The upload's processing options (tool_upload `process_options`, validated
+	 * there — T0-11). Only a component_pdf MASTER upload reads them: `ocr` hands
+	 * back the OCR job (pdf_ocr.ts) in `ocrLang` (a Dédalo `lg-xxx`; absent → the
+	 * request's data lang) when the ingested master is a `.pdf` — a non-PDF master
+	 * gets a notice and no job. Every other caller passes nothing: OCR off.
+	 */
+	processOptions?: IngestProcessOptions;
+}
+
+/** See IngestInput.processOptions. */
+export interface IngestProcessOptions {
+	ocr?: boolean;
+	ocrLang?: string;
 }
 
 /**
@@ -169,6 +187,22 @@ export interface IngestResult {
 	 */
 	derivativeErrors: string[];
 	/**
+	 * NON-failures the operator must still see (T0-11 decision D1 = c): today the
+	 * PDF transcription's "replaced N chars of existing transcription" — the
+	 * upload did what it should, and it overwrote curated text Time Machine
+	 * keeps. A sibling of `derivativeErrors`, not part of it: a replacement is not
+	 * an error, and a tool that renders the two alike tells the curator something
+	 * failed when nothing did.
+	 */
+	notices: string[];
+	/**
+	 * For a `.pdf` master uploaded with `processOptions.ocr`: START the OCR job of
+	 * THAT file (pdf_ocr.ts; throws on a refusal). DEFERRED for startTranscode's reason — the job writes
+	 * files_info back onto the record, so the caller starts it AFTER its own
+	 * persist commits. null otherwise.
+	 */
+	startOcr: (() => string) | null;
+	/**
 	 * For av: START the transcode. DEFERRED on purpose — the job writes its
 	 * finished files_info back onto the record, so it must not be racing the
 	 * caller's own persist of the ingest-time scan. Call it AFTER that persist
@@ -254,6 +288,155 @@ async function noteMasterCopy(
 	}
 }
 
+/** What the PDF text pass of one ingest produced (see transcribeUploadedPdf). */
+interface UploadedPdfText {
+	errors: string[];
+	notices: string[];
+	startOcr: (() => string) | null;
+}
+
+/**
+ * The PDF text of a new PDF MASTER (T0-11): ALWAYS transcribed now, in
+ * `overwrite` mode (D1 = c), from the master JUST INGESTED (`masterFile` — never
+ * the default tier, which a failed rebuild may leave holding the previous
+ * document). With `processOptions.ocr` the OCR job is handed back too; it
+ * overwrites again when it finishes (pdf_ocr.ts). Non-fatal: failures are values.
+ */
+async function transcribeUploadedPdf(
+	input: IngestInput,
+	pathOpts: MediaPathOptions,
+	isMaster: boolean,
+	masterFile: string,
+): Promise<UploadedPdfText> {
+	const { spec, identity, userId } = input;
+	// A PDF MASTER only: a file parked in a derivative tier says nothing new.
+	if (spec.model !== 'component_pdf' || !isMaster) {
+		return { errors: [], notices: [], startOcr: null };
+	}
+	// The master's identity AS INGESTED, captured once: the transcription's
+	// staleness check and the OCR job (submitPdfOcr) both bind to it.
+	const fingerprint = fileFingerprint(masterFile);
+	const transcription = await transcribePdf({
+		spec,
+		identity,
+		pathOpts,
+		userId,
+		mode: 'overwrite',
+		source: masterFile,
+		// Bound to the master AS INGESTED, before the extraction: a second upload
+		// landing meanwhile makes this (older) text `superseded`, never last-wins.
+		stillCurrent: stillSameFile(masterFile, fingerprint),
+	});
+	if (input.processOptions?.ocr !== true) return { ...uploadText(transcription), startOcr: null };
+	return ocrHandoff(input, pathOpts, { file: masterFile, fingerprint }, transcription);
+}
+
+/**
+ * The transcription outcome on the upload's two channels: a `superseded` text (a
+ * newer upload of this record landed while it was extracted) is a NOTICE —
+ * nothing failed, the newer master's text is the one that stands.
+ */
+function uploadText(transcription: PdfTranscriptionOutcome): Omit<UploadedPdfText, 'startOcr'> {
+	if (transcription.status === 'superseded') {
+		return { errors: [], notices: [...transcription.notices, ...transcription.messages] };
+	}
+	return { errors: transcription.messages, notices: transcription.notices };
+}
+
+/**
+ * The OCR the upload asked for: handed back unstarted with the JUST-INGESTED
+ * master (never re-resolved — pdf_ocr.ts PdfOcrRequest.master), or, for a master
+ * that is not a PDF, a notice and no job.
+ */
+function ocrHandoff(
+	input: IngestInput,
+	pathOpts: MediaPathOptions,
+	master: { file: string; fingerprint: string | null },
+	transcription: PdfTranscriptionOutcome,
+): UploadedPdfText {
+	const refused = ocrRefusal(master.file, transcription);
+	if (refused !== null) {
+		const text = uploadText(transcription);
+		return { errors: text.errors, notices: [...text.notices, refused], startOcr: null };
+	}
+	const { spec, identity, userId } = input;
+	// The lang is read NOW (the request's), not inside the deferred call.
+	const ocrLang = input.processOptions?.ocrLang ?? currentDataLang();
+	return {
+		...ocrPendingText(transcription),
+		startOcr: (): string =>
+			submitPdfOcr({
+				spec,
+				identity,
+				pathOpts,
+				userId,
+				ocrLang,
+				master: master.file,
+				masterFingerprint: master.fingerprint,
+			}),
+	};
+}
+
+/**
+ * Why no OCR is handed back for this upload, or null: a master that is not a
+ * PDF, or one a NEWER upload already replaced (its transcription came back
+ * `superseded`) — starting it would OCR the newer upload's file and stop that
+ * upload's own job. Exported as the seam its gate drives (the superseded race is
+ * not reproducible on demand).
+ */
+export function ocrRefusal(
+	masterFile: string,
+	transcription: PdfTranscriptionOutcome,
+): string | null {
+	if (!masterFile.toLowerCase().endsWith('.pdf')) {
+		return 'OCR needs a PDF master — the uploaded file is not a PDF, no OCR was started';
+	}
+	if (transcription.status === 'superseded') {
+		return 'OCR not started — a newer upload of this record replaced the master meanwhile (its own OCR request stands)';
+	}
+	return null;
+}
+
+/**
+ * A NEW MASTER of a component_pdf — a PDF or not — supersedes any OCR still
+ * running on the old one: stopped BEFORE the move, so a job on the old file
+ * cannot pass its final check in the window the move and the derivative builds
+ * open (a `.doc` over a `.pdf` leaves the old PDF on disk, so the job's own
+ * fingerprint check would never see that change).
+ */
+function supersedeLiveOcr(
+	spec: MediaTypeSpec,
+	identity: MediaIdentity,
+	quality: string | undefined,
+): void {
+	if (spec.model === 'component_pdf' && isMasterTier(spec, quality)) stopLiveOcr(spec, identity);
+}
+
+/**
+ * The upload's text outcome while an OCR is pending, said honestly: an image-only
+ * master's "no text layer" is not a failure then (the OCR is what writes it), and
+ * text written now is announced as provisional.
+ */
+function ocrPendingText(transcription: PdfTranscriptionOutcome): Omit<UploadedPdfText, 'startOcr'> {
+	const target = transcription.targetTipo ?? 'transcription';
+	if (transcription.status === 'no_text') {
+		return {
+			errors: [],
+			notices: [
+				`transcription '${target}': no text layer yet — the OCR job writes it when it finishes`,
+			],
+		};
+	}
+	if (transcription.status !== 'written') return uploadText(transcription);
+	return {
+		errors: [],
+		notices: [
+			...transcription.notices,
+			`transcription '${target}': written from the uploaded PDF's own text layer — the OCR job replaces it when it finishes`,
+		],
+	};
+}
+
 export async function processUploadedFile(input: IngestInput): Promise<IngestResult> {
 	const { spec, identity } = input;
 	// RECORD-SCOPED PATH OPTIONS. `properties.additional_path` names a sibling
@@ -289,6 +472,7 @@ export async function processUploadedFile(input: IngestInput): Promise<IngestRes
 	// file, and the record is dropped with it.
 	const stagingRoot = stagingDir(input.userId, input.keyDir, pathOpts.mediaRoot);
 	const recordedFileName = readStagedDisplayName(stagingRoot, input.tmpName);
+	supersedeLiveOcr(spec, identity, quality);
 	const added = addFile({ ...input, pathOpts, quality, recordedFileName });
 	// The staged file is gone (add_file renamed it into the media tree), so its
 	// name record describes nothing. Dropped here rather than by the sweeper so an
@@ -427,6 +611,23 @@ export async function processUploadedFile(input: IngestInput): Promise<IngestRes
 		})),
 	);
 
+	// THE PDF TRANSCRIPTION (T0-11; PHP regenerate_component → get_text_from_pdf).
+	// A new PDF MASTER is a new statement about the document, so its text is
+	// written into the related text_area — OVERWRITING (decision D1 = c; a
+	// non-empty slice it replaced comes back as a NOTICE, Time Machine keeps the
+	// previous version). Master tier only, as PHP (original quality only); a file
+	// parked in a derivative tier says nothing new about the document's text.
+	//
+	// With OCR requested the text is STILL written now (from the master just
+	// ingested), and the OCR job (pdf_ocr.ts, started by the caller after its
+	// persist) overwrites it when it finishes — so a failed or stopped OCR never
+	// leaves the previous document's text standing.
+	//
+	// Non-fatal like every pass past the move: failures join derivativeErrors.
+	const pdfText = await transcribeUploadedPdf(input, pathOpts, isMaster, added.originalFilePath);
+	derivativeErrors.push(...pdfText.errors);
+	const { notices, startOcr } = pdfText;
+
 	// The stored cues (external_source, the original/modified normalized-name
 	// twins) still describe this component — an upload into any other tier does
 	// not invalidate them, and dropping them loses the raw-original twin from the
@@ -530,6 +731,8 @@ export async function processUploadedFile(input: IngestInput): Promise<IngestRes
 		extension: added.extension,
 		filesInfo,
 		derivativeErrors,
+		notices,
+		startOcr,
 		startTranscode,
 	};
 }

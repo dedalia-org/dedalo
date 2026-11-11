@@ -45,6 +45,7 @@ import {
 } from '../../src/core/install/host/host_executor.ts';
 import { instancePaths } from '../../src/core/install/host/layout.ts';
 import { OS_ROWS, type OsRowId, osRowById } from '../../src/core/install/host/os_support.ts';
+import { ocrModelPlanFor } from '../../src/core/install/host/production/packages.ts';
 import { fcontextEscape } from '../../src/core/install/host/production/selinux.ts';
 import {
 	type CommandRunner,
@@ -57,6 +58,7 @@ import { IMAGE_BUILDER } from '../../src/core/install/host/stack/image.ts';
 import { stackPlanFacts } from '../../src/core/install/host/stack/preflight.ts';
 import { ROOT_RUN_SCRIPTS } from '../../src/core/install/host/systemd/render.ts';
 import { buildInstallPlan, type InstallPlan } from '../../src/core/install/install_plan.ts';
+import { INSTALL_LANG_CODES } from '../../src/core/install/lang_catalog.ts';
 import type { OntologyCatalog } from '../../src/core/install/ontology_choice.ts';
 import type { RunIo } from '../../src/core/install/run_events.ts';
 import { buildPlanFile, type PlanFile, type Secrets } from '../../src/core/install/run_files.ts';
@@ -423,8 +425,13 @@ export function hostFiles(
 function installedAfter(variant: HostVariant): RecordedResponse[] {
 	const row = osRowById(variant.os);
 	const web = row.web[variant.web].package;
+	// Every Tesseract pack the installer may name (T0-11 D3) — a superset of any plan's.
+	const ocrPacks = ocrModelPlanFor(INSTALL_LANG_CODES).models.map((model) =>
+		row.packages.ocrLangpacks.packageOf(model),
+	);
 	const names = [
 		...row.packages.base,
+		...ocrPacks,
 		...web,
 		...row.packages.certbot,
 		...row.packages.localCa,

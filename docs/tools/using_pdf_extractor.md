@@ -20,7 +20,8 @@ Concrete scenario: a documentary archive holds scanned-and-OCR'd journal article
 
 When *not* to use it:
 
-- The PDF is a photographed or scanned image with no text layer — extraction will be empty; the file needs OCR first.
+- The PDF is a photographed or scanned image with no text layer — extraction will be empty; the file needs OCR first (re-upload it with **OCR** ticked, see [Upload](using_upload.md#pdfs-the-transcription-and-ocr)).
+- You only want the PDF's text in the record's transcription field — an upload already writes it there.
 - You want a transcript of audio or video — that is the transcription tooling, not this tool.
 
 ## Where to find it

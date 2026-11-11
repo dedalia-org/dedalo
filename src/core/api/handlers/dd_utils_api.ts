@@ -421,7 +421,7 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 		// Authenticated read (the router's session+CSRF gate already ran); returns
 		// the upload-limit negotiation payload the client reads before transfer.
 		const { buildSystemInfo } = await import('./system_info.ts');
-		return { status: 200, body: ok(buildSystemInfo(), { requestId: context.requestId }) };
+		return { status: 200, body: ok(await buildSystemInfo(), { requestId: context.requestId }) };
 	},
 	join_chunked_files_uploaded: async (rqo, context) => {
 		// Assemble a chunked upload (PHP dd_utils_api::join_chunked_files_uploaded).

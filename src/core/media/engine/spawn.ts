@@ -39,6 +39,7 @@
  */
 
 import { existsSync } from 'node:fs';
+import { delimiter } from 'node:path';
 
 /** Result of a spawned command. */
 export interface SpawnResult {
@@ -105,6 +106,14 @@ export interface SpawnOptions {
 	onStdout?: (chunk: string) => void;
 	/** Extra environment variables merged OVER process.env (e.g. MAGICK_CONFIGURE_PATH). */
 	env?: Record<string, string>;
+	/**
+	 * A directory put FIRST on the child's inherited PATH (the rest kept), so a
+	 * binary the child itself looks up resolves to the configured one — ocrmypdf
+	 * finds `tesseract` by PATH, and must find the one system_info probed
+	 * (config.media.binaries.tesseract, T0-11). Composed HERE because this is the
+	 * one allowlisted reader of the inherited env.
+	 */
+	pathPrepend?: string;
 }
 
 /**
@@ -115,6 +124,20 @@ export interface SpawnOptions {
  * (module header).
  */
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
+ * The child's environment: the inherited env (allowlisted passthrough,
+ * config_env_tripwire S2-21), per-call overrides on top, and `pathPrepend` put
+ * first on PATH with the rest kept.
+ */
+function childEnv(options: SpawnOptions): Record<string, string> {
+	const baseEnv = process.env as Record<string, string>;
+	const merged = options.env !== undefined ? { ...baseEnv, ...options.env } : baseEnv;
+	const prepend = options.pathPrepend;
+	if (prepend === undefined || prepend === '') return merged;
+	const inherited = merged.PATH ?? '';
+	return { ...merged, PATH: inherited === '' ? prepend : `${prepend}${delimiter}${inherited}` };
+}
 
 /**
  * Run a binary with an argv array. `argv[0]` is the absolute binary path; the
@@ -149,12 +172,12 @@ export async function runBinary(
 
 	// Subprocess env passthrough (allowlisted, config_env_tripwire S2-21): media
 	// binaries inherit the whole env, plus any per-call overrides (MAGICK_CONFIGURE_PATH).
-	const baseEnv = process.env as Record<string, string>;
+	const env = childEnv(options);
 	const child = Bun.spawn(finalArgv as string[], {
 		stdout: 'pipe',
 		stderr: 'pipe',
 		cwd: options.cwd,
-		env: options.env !== undefined ? { ...baseEnv, ...options.env } : baseEnv,
+		env,
 	});
 
 	let capExpired = false;

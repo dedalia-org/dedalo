@@ -298,7 +298,7 @@
 		"src/core/media/engine/imagemagick.ts": 10,
 		"src/core/media/engine/mime.ts": 41,
 		"src/core/media/engine/probe.ts": 8,
-		"src/core/media/engine/spawn.ts": 12,
+		"src/core/media/engine/spawn.ts": 11,
 		"src/core/media/engine/verify_content.ts": 16,
 		"src/core/media/file_date.ts": 9,
 		"src/core/media/file_ops.ts": 18,

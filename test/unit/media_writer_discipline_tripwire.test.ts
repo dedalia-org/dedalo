@@ -839,8 +839,6 @@ const READ_ONLY_PROBE: Record<string, string> = {
  * Fixing one MUST delete its entry.
  */
 const SPAWN_OK_RATCHET: Record<string, string> = {
-	'src/core/media/engine/pdf.ts::extractText':
-		'KNOWN-OPEN (B2 class): `if (/error/i.test(result.stderr) && result.exitCode !== 0)` — a SIGKILLed pdftotext with empty stderr does not throw, and the truncated outFile is then read and persisted as the PDF text. Needs assertSpawnOk PLUS the PHP output-contains-error rule as an ADDITIONAL failure condition',
 	'src/core/media/engine/svg.ts::rasterizeSvg':
 		'KNOWN-OPEN (B2 class): branches on exitCode only, so a killed rsvg-convert (exitCode null, existsSync true) passes the existence check with a truncated PNG, which the thumb recipe then reduces into a served derivative. Needs assertSpawnOk before the existence check',
 };

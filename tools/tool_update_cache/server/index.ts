@@ -21,6 +21,11 @@
  *   the wrong tree) is repaired by exactly this. AV derivatives are an ASYNC
  *   transcode (jobs.ts) — update_cache refreshes the av files_info from disk
  *   but does not enqueue transcodes (that is tool_media_versions' job).
+ *   A component_pdf then FILLS its related text_area's transcription when that
+ *   slice is EMPTY (T0-11 D2 = b, ingest/pdf_transcription.ts transcribeStoredPdf)
+ *   — under this run's bulk id, so a revert clears the fill; a curated slice is
+ *   kept and counted. No OCR from a sweep. This is also the operator's backfill
+ *   (D4): a sweep over the pdf sections fills exactly the empty transcriptions.
  * - Every other model regenerates via re-save (set_data of the current value),
  *   re-running the save path's derivation.
  */
@@ -118,6 +123,9 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 		'../../../src/core/media/tools/files_info_persist.ts'
 	);
 	const { resolveMediaPathOptions } = await import('../../../src/core/media/ontology_path.ts');
+	const { transcribeStoredPdf } = await import(
+		'../../../src/core/media/ingest/pdf_transcription.ts'
+	);
 
 	// Matched records: the client SQO, REQUIRED (no limit; pagination stripped so
 	// the whole matched set — not just the visible page — is processed). There is
@@ -238,6 +246,19 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 	let mediaNotWritten = 0;
 	/** Non-media re-saves that wrote nothing (vanished, locked, refused by the save door). */
 	const resaveErrors: string[] = [];
+	/**
+	 * PDF TRANSCRIPTIONS (T0-11, decision D2 = b): FILL ONLY IF EMPTY. A filled
+	 * slice joins this run's undo log (bulk revert clears it); a curated one is
+	 * KEPT and counted. A PDF with no text layer is counted, not an error — a
+	 * sweep over scanned PDFs must not drown the run's real failures.
+	 */
+	const transcriptions: TranscriptionTally = {
+		written: 0,
+		kept: 0,
+		no_text: 0,
+		locked: 0,
+		errors: [],
+	};
 	/** Of those, the ones the SAVE DOOR refused (ok:false — rolled back whole). */
 	let refusedResaves = 0;
 	/** Row × component targets the WRITE DOOR refused (nothing written to them). */
@@ -386,6 +407,22 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 					}
 					mediaHeld += heldShrinks;
 					regenerated += 1;
+					// THE TRANSCRIPTION, AFTER the file pass and OUTSIDE the media row
+					// lock: the text_area save is its own transaction (locked read-decide-
+					// write, pdf_transcription.ts), never nested inside
+					// transformStoredMediaItems. As the caller's grant, in this run.
+					if (model === 'component_pdf') {
+						const transcription = await transcribeStoredPdf({
+							componentTipo: tipo,
+							sectionTipo: row.section_tipo,
+							sectionId: row.section_id,
+							items: storedItems,
+							pathOpts,
+							userId: grant.userId,
+							bulkProcessId,
+						});
+						tallyTranscription(transcriptions, transcription, `${tipo}#${row.section_id}`);
+					}
 					continue;
 				}
 				// THE RE-SAVE IS A LOCKED READ-MODIFY-WRITE
@@ -436,7 +473,7 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 		refusedTargets.length > 0
 			? ` ${refusedTargets.length} target(s) the caller may not write were skipped (nothing written to them).`
 			: '';
-	const msg = `${summaryMsg}${refusedNote}${derivedNote}${refusedResaves > 0 ? ` ${refusedResaves} re-save(s) refused by the save door (nothing written to them).` : ''}${rebuildFailures > 0 ? ` ${rebuildFailures} media derivative rebuild(s) failed (files_info still refreshed).` : ''}${mediaHeld > 0 ? ` ${mediaHeld} stored media index(es) kept (files not on this server — shrink held).` : ''}${vanished > 0 ? ` ${vanished} record(s) deleted during the run (nothing written).` : ''}${lockedOut > 0 ? ` ${lockedOut} record(s) stayed locked (nothing written).` : ''}`;
+	const msg = `${summaryMsg}${refusedNote}${derivedNote}${refusedResaves > 0 ? ` ${refusedResaves} re-save(s) refused by the save door (nothing written to them).` : ''}${rebuildFailures > 0 ? ` ${rebuildFailures} media derivative rebuild(s) failed (files_info still refreshed).` : ''}${mediaHeld > 0 ? ` ${mediaHeld} stored media index(es) kept (files not on this server — shrink held).` : ''}${vanished > 0 ? ` ${vanished} record(s) deleted during the run (nothing written).` : ''}${lockedOut > 0 ? ` ${lockedOut} record(s) stayed locked (nothing written).` : ''}${transcriptionNote(transcriptions)}`;
 	// Final frame: the client renders the summary from the last pfile data.
 	publish({
 		msg,
@@ -451,7 +488,7 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 	return ok(
 		{
 			summary: msg,
-			errors: [...mediaErrors, ...resaveErrors, ...refusedTargets],
+			errors: [...mediaErrors, ...resaveErrors, ...refusedTargets, ...transcriptions.errors],
 			regenerated,
 			refused: refusedTargets.length,
 			derived_skipped: derivedSkipped,
@@ -463,9 +500,56 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 			media_held: mediaHeld,
 			vanished,
 			locked: lockedOut,
+			transcriptions_filled: transcriptions.written,
+			transcriptions_kept: transcriptions.kept,
+			transcriptions_no_text: transcriptions.no_text,
+			transcriptions_locked: transcriptions.locked,
+			transcription_errors: transcriptions.errors.length,
 		},
 		{ requestId: toolRequestId(ctx) },
 	);
+}
+
+/** The run's PDF-transcription counts (pdf_transcription.ts statuses) + failure lines. */
+interface TranscriptionTally {
+	written: number;
+	kept: number;
+	no_text: number;
+	/** The text_area row was held past the per-record lock wait — nothing written. */
+	locked: number;
+	errors: string[];
+}
+
+/** Count one transcribeStoredPdf outcome; a failure keeps its messages, prefixed `tipo#id`. */
+function tallyTranscription(
+	tally: TranscriptionTally,
+	outcome: { status: string; messages: string[] },
+	where: string,
+): void {
+	const { status } = outcome;
+	if (status === 'written' || status === 'kept' || status === 'no_text' || status === 'locked') {
+		tally[status] += 1;
+	} else if (status === 'failed') {
+		tally.errors.push(...outcome.messages.map((message) => `${where}: ${message}`));
+	}
+}
+
+/** The run summary's PDF-transcription sentence ('' when no pdf was transcribed). */
+function transcriptionNote(tally: TranscriptionTally): string {
+	const parts: string[] = [];
+	if (tally.written > 0)
+		parts.push(`${tally.written} empty transcription(s) filled from the PDF text`);
+	if (tally.kept > 0)
+		parts.push(`${tally.kept} transcription(s) kept (not empty — never overwritten)`);
+	if (tally.no_text > 0)
+		parts.push(`${tally.no_text} PDF(s) without a text layer (nothing written)`);
+	if (tally.locked > 0)
+		parts.push(
+			`${tally.locked} transcription(s) locked by another session (nothing written; run again)`,
+		);
+	if (tally.errors.length > 0)
+		parts.push(`${tally.errors.length} transcription failure(s) (nothing written)`);
+	return parts.length === 0 ? '' : ` ${parts.join('; ')}.`;
 }
 
 /** What one locked non-media re-save did (resaveUnderRowLock). */

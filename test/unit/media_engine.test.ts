@@ -653,8 +653,14 @@ describe('pdf argv recipes (PHP component_pdf)', () => {
 	});
 
 	test('ocr: --pdfa-image-compression lossless -l <lang> --force-ocr', () => {
-		const s = buildOcrArgv('/s.pdf', '/s.pdf', 'spa').join(' ');
+		const s = buildOcrArgv('/s.pdf', '/o.pdf', 'lg-spa').join(' ');
 		expect(s).toContain('--pdfa-image-compression lossless -l spa --force-ocr');
+		// The model comes from the ONE map (ocr_langs.ts): Valencian shares Catalan's,
+		// and a Dédalo lang with no model — or a bare Tesseract code — is refused.
+		expect(buildOcrArgv('/s.pdf', '/o.pdf', 'lg-vlca')).toContain('cat');
+		for (const lang of ['lg-xxx', 'spa', 'eng+spa']) {
+			expect(() => buildOcrArgv('/s.pdf', '/o.pdf', lang)).toThrow(/Tesseract language model/);
+		}
 	});
 
 	// THE OCR DOOR ON A REAL BINARY. The argv leg above pins the recipe's spelling; this
@@ -699,7 +705,10 @@ describe('pdf argv recipes (PHP component_pdf)', () => {
 				};
 				// Control: the fixture really is image-only.
 				expect(textOf()).not.toContain('HERITAGE');
-				const ocr = Bun.spawnSync(buildOcrArgv(pdf, pdf, 'eng'), { stderr: 'pipe', env: spawnEnv });
+				const ocr = Bun.spawnSync(buildOcrArgv(pdf, pdf, 'lg-eng'), {
+					stderr: 'pipe',
+					env: spawnEnv,
+				});
 				expect(ocr.exitCode, ocr.stderr.toString()).toBe(0);
 				expect(textOf()).toContain('HERITAGE LEDGER');
 			} finally {
