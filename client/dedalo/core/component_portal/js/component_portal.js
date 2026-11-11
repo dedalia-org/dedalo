@@ -3283,9 +3283,10 @@ component_portal.prototype.delete_linked_record = async function(options) {
 *
 *   - **Dédalo engine**: opens the record's edit page via `DEDALO_CORE_URL/page/?tipo=…`.
 *     `session_save: false` prevents the new window from overwriting the calling
-*     window's section navigation session.  The `on_blur` handler fires when the edit
-*     window loses focus (i.e. the user returns to the original window) and triggers
-*     a portal refresh so changes are reflected immediately.
+*     window's section navigation session.  The `on_blur` handler (open_window's
+*     save watch) refreshes the portal after EACH save the edit window announces,
+*     on the next return to this window, and after the edit window closes with a
+*     save still in flight — so the refresh follows the write instead of racing it.
 *
 * The `fn_window_blur` / `get_edit_caller` inner function climbs the caller chain to
 * find the nearest edit-mode component instance to refresh.  It was deliberately limited
@@ -3423,13 +3424,24 @@ component_portal.prototype.edit_record_handler = async function(options) {
 				}
 				const edit_caller = get_edit_caller(self)
 				if (edit_caller) {
-					edit_caller.refresh({
-						destroy			: false,
+					// returned: open_window's watch waits for it before a next run
+					// destroy (default true): kept child instances would keep the
+					// pre-edit data and the row would render the old value
+					return edit_caller.refresh({
 						build_autoload	: true
 					})
-					.then(function(){
+					.then(function(result){
 						// fire window_blur event
 						event_manager.publish('window_blur_'+self.id, self)
+						// the targets' data changed: notify ontology client observers
+						// of the refreshed component (e.g. numisdata595 observing numisdata77)
+						if (result!==false) {
+							event_manager.publish('update_value_'+edit_caller.id_base, {
+								caller : edit_caller
+							})
+						}
+						// false = refresh refused: open_window's watch retries once
+						return result
 					})
 				}
 			}//end fn_window_blur

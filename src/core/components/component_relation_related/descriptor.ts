@@ -1,8 +1,8 @@
 /**
  * component_relation_related — symmetric "related records" relation (PHP
  * core/component_relation_related). Stores its locators in the `relation` column;
- * uses the dedicated related resolver (related grid item in list, portal
- * otherwise).
+ * uses the dedicated related resolver (the portal path in every mode, list
+ * included — own item even when empty + computed back-references).
  */
 import type { ComponentModel } from '../types.ts';
 

@@ -55,7 +55,8 @@
 		render_error_toast,
 		render_error_inline,
 		render_error_panel,
-		render_error_modal
+		render_error_modal,
+		severity_type
 	} from './render_api_error.js'
 
 
@@ -189,7 +190,8 @@ const deduped_toast = (api_error, entry) => {
 		return false
 	}
 	recent_toasts.set(key, now)
-	render_error_toast(api_error, entry.severity ? {type: entry.severity==='warning' ? 'warning' : 'error'} : {})
+	// the ONE severity → bubble mapping (an 'info' entry used to paint as an error)
+	render_error_toast(api_error, entry.severity ? {type: severity_type({severity: entry.severity})} : {})
 	return true
 }//end deduped_toast
 

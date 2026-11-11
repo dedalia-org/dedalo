@@ -7,7 +7,15 @@
 // imports
 	import {ui} from '../../../core/common/js/ui.js'
 	import {request_failed, response_data} from '../../../core/common/js/api_error.js'
-	import {handle_api_error} from '../../../core/common/js/error_dispatch.js'
+	import {handle_api_error, handle_api_notice} from '../../../core/common/js/error_dispatch.js'
+	import {register_error_policy} from '../../../core/common/js/error_policy.js'
+
+
+
+// error policy. "Nothing was restored" is information, not a warning (registry severity 'info').
+register_error_policy({
+	'tool.restore_unchanged' : {action:'toast', severity:'info'}
+})
 
 
 
@@ -282,7 +290,7 @@ const get_content_data = async function(self) {
 					inner_html		: self.get_tool_label('apply_and_save') || 'Apply and save',
 					parent			: tool_bar
 				})
-				self.button_apply.addEventListener('click', function(){
+				self.button_apply.addEventListener('click', async function(){
 
 					// CONFIRM before overwriting (DATA-03). 'Apply and save' writes the
 					// historical snapshot straight onto the live record — it was the ONE
@@ -330,31 +338,65 @@ const get_content_data = async function(self) {
 						+ `A component with per-language text keeps its other languages: only the one named here is replaced. Any other component (lg-nolan: relations included) is replaced in full, with its dataframes.\n\n`
 						+ `Continue?`
 
-					if (!confirm(apply_confirm_msg)) {
-						return
-					}
-
-					self.apply_value({
+					const apply_options = {
 						section_id		: self.main_element.section_id,
 						section_tipo	: self.main_element.section_tipo,
 						tipo			: self.main_element.tipo,
 						lang			: self.main_element.lang,
 						matrix_id		: self.selected_matrix_id
-					})
+					}
+					const show_failure_or_notices = (response) => {
+						if (request_failed(response)) {
+							handle_api_error(response.error, {wrapper: self.node})
+							return true
+						}
+						const notices = Array.isArray(response?.notices) ? response.notices : []
+						for (const notice of notices) {
+							handle_api_notice(notice, {wrapper: self.node})
+						}
+						return notices.length > 0
+					}
+
+					// DRY RUN first (the server's own change law, rolled back): a version equal to
+					// the current value would overwrite nothing, so there is nothing to confirm —
+					// the notice says so instead (WC-2026-11-10-tm-restore-unchanged-notice).
+					// Locked while the probe is in flight: a second click (or another row
+					// picked meanwhile) must not stack probes and confirms.
+					if (self.button_apply.classList.contains('lock')) {
+						return
+					}
+					self.button_apply.classList.add('lock')
+					const probe = await self.apply_value({...apply_options, dry_run: true, notices: 'caller'})
+					self.button_apply.classList.remove('lock')
+					// another row was picked meanwhile: this probe no longer speaks for the selection
+					if (self.selected_matrix_id !== apply_options.matrix_id) {
+						return
+					}
+					if (response_data(probe)?.changed !== true) {
+						if (!show_failure_or_notices(probe)) {
+							console.warn('apply_value dry_run: unexpected response', probe)
+						}
+						return
+					}
+
+					if (!confirm(apply_confirm_msg)) {
+						return
+					}
+
+					self.apply_value({...apply_options, notices: 'caller'})
 					.then(function(response){
-						// envelope v2: apply_value answers `data===true`
+						// envelope v2: apply_value answers `data===true`. A notice (the record
+						// changed to the same value between dry run and apply) keeps the window open.
+						if (show_failure_or_notices(response)) {
+							return
+						}
 						if (response_data(response)===true) {
-							// success case
 							if (window.opener) {
 								// close this window when was opened from another
 								window.close()
 							}
 						}else{
-							// error case
 							console.warn('response:',response);
-							if (request_failed(response)) {
-								handle_api_error(response.error, {wrapper: self.node});
-							}
 						}
 					})
 				})

@@ -225,6 +225,10 @@ const NON_PICKER_WINDOW_OPENER = new Set([
 	// opened ('viewer'), so it may resize itself to the media ratio — no pick, no
 	// cross-window write (052e8242fd).
 	'client/dedalo/core/component_av/js/view_viewer_edit_av.js',
+	// broadcast_record_save: a child window tells its opener (same-origin postMessage)
+	// that a component save started/landed, so open_window's on_blur refreshes after
+	// the write — a save notice, never a pick nor a cross-window write.
+	'client/dedalo/core/common/js/utils/util.js',
 ]);
 
 // ---------------------------------------------------------------------------

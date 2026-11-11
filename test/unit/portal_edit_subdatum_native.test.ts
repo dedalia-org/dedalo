@@ -37,9 +37,11 @@
  *      offset}, and the expanded children are the paged targets'.
  *  (e) INSTANCE LANG on the get_data path: with a real request data lang the
  *      TRANSLATABLE children resolve in it while the non-translatable ones
- *      are nolan-forced (read.ts:1864). The differential's own get_data rqos
- *      asked for lg-nolan, where both halves of that rule collapse onto the
- *      same value — so this read exists to keep the rule under assertion.
+ *      are nolan-forced (read.ts:1864). The client's paging/refresh rqos ask
+ *      for the portal's own lg-nolan: the translatable children then resolve
+ *      in the session's ACTIVE data lang, never lg-nolan (contracts b/d —
+ *      WC-2026-11-10-portal-get-data-children-lang; the retired differential
+ *      pinned PHP's lg-nolan children, whose values all fell to fallback).
  *
  * COMPARISON SURFACE: the differential's normalize() built a NINE-key object
  * per item — tipo, section_tipo, section_id, mode, lang, from_component_tipo,
@@ -70,7 +72,11 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { dispatchRqo } from '../../src/core/api/dispatch.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
-import { createSession, getSession } from '../../src/core/security/session_store.ts';
+import {
+	createSession,
+	getSession,
+	setSessionLangs,
+} from '../../src/core/security/session_store.ts';
 import {
 	dropSituation,
 	ensureSituation,
@@ -234,9 +240,15 @@ const S = situation({
 
 let tsContext: Record<string, unknown>;
 
+/** The session data lang the paging reads run under (the values live in it). */
+const SESSION_DATA_LANG = 'lg-eng';
+
 beforeAll(async () => {
 	await ensureSituation(S);
 	const token = createSession(-1, 'root', true);
+	// The session's ACTIVE data lang — what a lg-nolan get_data's translatable
+	// children resolve in (WC-2026-11-10-portal-get-data-children-lang).
+	setSessionLangs(token, { dataLang: SESSION_DATA_LANG });
 	const session = getSession(token);
 	tsContext = {
 		requestId: 'portal-edit-subdatum',
@@ -325,12 +337,12 @@ const nestedLocator = {
 };
 
 /**
- * A translatable child's entries: the request lang's slice, or NOTHING when
- * the request asks for lg-nolan (the value lives in lg-eng — the engine then
- * serves an empty `entries` plus a fallback_value, outside this surface).
+ * A translatable child's entries: the resolved lang's slice (the values live
+ * in lg-eng; any other lang gets an empty `entries` plus a fallback_value,
+ * outside this surface).
  */
 const translatedEntries = (lang: string, value: string) =>
-	lang === 'lg-nolan' ? [] : [{ id: 1, lang, value }];
+	lang === 'lg-eng' ? [{ id: 1, lang, value }] : [];
 
 /**
  * The six items one paginated locator's target emits, in ddo_map order:
@@ -514,7 +526,7 @@ describe('portal subdatum in EDIT mode — get_data client paging (contract b)',
 			const pageSize = Math.min(expectedLimit, TARGET_COUNT - offset);
 			expectSequence(data, [
 				getDataPortalItem(offset, pageSize, expectedLimit),
-				...getDataSubdatum(offset, pageSize, 'lg-nolan'),
+				...getDataSubdatum(offset, pageSize, SESSION_DATA_LANG),
 			]);
 			expect(data.length).toBe(1 + pageSize * 6);
 		}
@@ -609,7 +621,7 @@ describe('portal subdatum in EDIT mode — get_data context (contract c)', () =>
 describe('portal subdatum in EDIT mode — offset paging (contract d)', () => {
 	test('window [offset, offset+limit), paginated_key continuity, FULL total', async () => {
 		const { data } = await callRqo(getDataRqo(5, 5));
-		expectSequence(data, [getDataPortalItem(5, 5, 5), ...getDataSubdatum(5, 5, 'lg-nolan')]);
+		expectSequence(data, [getDataPortalItem(5, 5, 5), ...getDataSubdatum(5, 5, SESSION_DATA_LANG)]);
 		expect(data.length).toBe(1 + 5 * 6);
 	}, 60000);
 });

@@ -563,6 +563,10 @@ export const render_open_list_with_direct_relations = ( options ) => {
 				text_content	: text,
 				parent			: target_sections_block
 			})
+			// loading keeps the previous height (no shrink-then-grow bounce)
+			if (class_name!=='loading') {
+				freeze_height()
+			}
 		}
 
 	// render_targets. The answer for the current scope.
@@ -698,7 +702,7 @@ export const render_open_list_with_direct_relations = ( options ) => {
 			state.targets	= null
 			state.source	= null
 			update_open_state()
-			unfreeze_height()
+			cancel_freeze()
 
 			if (!source) {
 				state.targets = []
@@ -785,17 +789,16 @@ export const render_open_list_with_direct_relations = ( options ) => {
 		}
 		button_open.addEventListener('mouseup', perform_open)
 
-	// height freeze. Once a target list is rendered the dialog keeps its height,
-	// so it does not re-centre on every filter keystroke. The CSS max-height still
-	// caps it. Released before each re-load (the next answer may be shorter).
+	// height freeze. Once an answer is rendered the dialog keeps its height, so
+	// the footer does not move on every filter keystroke nor while a scope flip
+	// loads. The CSS max-height still caps it; each answer re-measures.
 		let modal_content_node = null
-		const unfreeze_height = () => {
-			if (modal_content_node) {
-				modal_content_node.style.height = ''
-			}
-		}
+		let freeze_frame = null
+		// a flip in the same frame as an answer must not measure the loading message
+		const cancel_freeze = () => cancelAnimationFrame(freeze_frame)
 		const freeze_height = () => {
-			requestAnimationFrame(() => {
+			cancel_freeze()
+			freeze_frame = requestAnimationFrame(() => {
 				if (!modal_content_node) {
 					return
 				}

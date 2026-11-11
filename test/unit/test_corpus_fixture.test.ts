@@ -524,7 +524,7 @@ describe('test corpus — the test* hierarchy registry rows', () => {
 		expect(items.length).toBeGreaterThan(mine.length);
 	});
 
-	test('inspectHierarchy still reports these rows unusable — the H1/H4/H5 hardcodes', async () => {
+	test('inspectHierarchy still reports these rows unusable — the source check (H1/H4/H5 cleared by C1)', async () => {
 		// NOT a wish: a PIN on the reason `ensureHierarchy` is bypassed (see the
 		// ensure.ts header). `inspectHierarchy` judges a hierarchy against the
 		// `<tld>0/1/2` convention rather than against its own registry row, so a
@@ -540,16 +540,25 @@ describe('test corpus — the test* hierarchy registry rows', () => {
 			.filter((check) => !check.ok)
 			.map((check) => check.id)
 			.sort();
-		// ontology  = H1 (no `testmint2` node / records 1&2 of `testmint0`)
-		// targets   = H4 (no `hierarchy58`; the check defaults it to `<tld>2`)
-		// root_model= H5 (no `<tld>2` general-term MODEL root)
-		// source    = a case the check does not model at all: our terms section
-		//             is a REAL `matrix_test` section, so there is no "real
-		//             section it is a virtual clone of" (`hierarchy109`) to name.
-		expect(failing).toEqual(['ontology', 'root_model', 'source', 'targets']);
+		// ontology / targets / root_model (H1/H4/H5) pass since 7ae3d3e0c9 (owner
+		// decision C1: a root-only row with hierarchy58 UNSET has no model root).
+		// source = a case the check does not model at all: our terms section
+		//          is a REAL `matrix_test` section, so there is no "real
+		//          section it is a virtual clone of" (`hierarchy109`) to name.
+		expect(failing).toEqual(['source']);
 		expect(state.usable).toBe(false);
 		// The checks that DO pass are the ones the runtime actually needs.
-		for (const id of ['registry', 'tld', 'typology', 'active', 'thesaurus', 'root_term']) {
+		for (const id of [
+			'registry',
+			'tld',
+			'typology',
+			'active',
+			'thesaurus',
+			'root_term',
+			'ontology',
+			'targets',
+			'root_model',
+		]) {
 			expect(state.checks.find((check) => check.id === id)?.ok).toBe(true);
 		}
 	});

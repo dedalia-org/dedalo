@@ -20,6 +20,7 @@ The tool supports the same two engine families as `tool_lang`: a **server** engi
 ```ts
 export const tool: ToolServerModule = {
 	name: 'tool_lang_multi',
+	configFrom: 'tool_lang', // the client context carries tool_lang's engine list
 	apiActions: {
 		automatic_translation: {
 			permission: null,
@@ -29,14 +30,14 @@ export const tool: ToolServerModule = {
 };
 ```
 
-Because it calls `runAutomaticTranslation(ctx, 'tool_lang')` (`src/core/tools/translation.ts`), the server behavior — the imperative `record`/2 permission gate, the source-value read, the target-value write, and the config resolution — is **identical** to `tool_lang`'s, and the engine list is read from `tool_lang`'s configuration (dd996 / dd1633), not from `tool_lang_multi`. The "multi" is a **client-side affordance**: the browser fires one `automatic_translation` request per target language. See [tool_lang](tool_lang.md) for the full description of the core gate and provider seam.
+Because it calls `runAutomaticTranslation(ctx, 'tool_lang')` (`src/core/tools/translation.ts`), the server behavior — the imperative `record`/2 permission gate, the source-value read, the target-value write, and the config resolution — is **identical** to `tool_lang`'s, and the engine list is read from `tool_lang`'s configuration (dd996 / dd1633), not from `tool_lang_multi`. `configFrom: 'tool_lang'` makes the client context carry the same engine list (`tool_lang`'s `client:true` config keys); without engines the translate buttons are not rendered. The "multi" is a **client-side affordance**: the browser fires one `automatic_translation` request per target language. See [tool_lang](tool_lang.md) for the full description of the core gate and provider seam.
 
 **Client** (`tools/tool_lang_multi/js/`):
 
 - `tool_lang_multi.js` is the instance. `init()` clones `page_globals.dedalo_projects_default_langs`, sorts the caller's language to the front, and adds a synthetic `lg-nolan` entry when the caller component is no-lang. `build()` resolves the `ddo_map` `main_element` role and restores the last-used engine from local DB (`translator_engine_select` in the `status` table). `get_component(lang)` clones the `main_element` context per language so each column is an isolated editable instance.
-- `render_tool_lang_multi.js` builds the grid: a top bar (translate-all button + engine `<select>` with a device checkbox for the browser engine), a shared status banner, and one column per language. The **focused** column becomes the translation source (`set_source_lang`, wired on `focusin`/`input`), highlighted with the `source` / `bold` CSS classes.
+- `render_tool_lang_multi.js` builds the grid: a top bar (translate-all button + the engine picker shared with `tool_lang`, `tools/tool_lang/js/translator_engine_select.js`), a shared status banner, and one column per language. The **edited** column becomes the translation source (`set_source_lang`, wired on `input` only — focusing a column does not, so its own translate button can target it), highlighted with the `source` / `bold` CSS classes. `resolve_source_lang(exclude)` falls back to the first language with text when the current source is empty ("empty" strips markup, like the server). Each column's own translate button (in the component's button bar) translates the source into that language; it refuses a blank source and asks before overwriting text. A column being translated is dimmed with a spinner (`set_slot_busy`, `.translating`).
 - `translate_target()` dispatches per target: a browser engine runs `run_browser_translation()` (the shared worker); a server engine calls `automatic_translation()`, which builds the `dd_tools_api` `tool_request` and refreshes the target column on response.
-- `automatic_translation_all()` translates the source into every other language. It offers an overwrite/skip modal (Alt+click overwrites without asking), aborts early if the columns are still loading or the source is empty, and schedules work by engine type: the **browser** engine runs one language at a time (single shared worker/GPU); the **server** engine runs in bounded-concurrency batches of `SERVER_CONCURRENCY` (4). `destroy()` calls `dispose_browser_worker()` to release the ONNX model.
+- `automatic_translation_all()` translates the source into every other language. It offers an overwrite/skip modal (Alt+click overwrites without asking), aborts early if the columns are still loading or the source is empty, counts a refused language (e.g. `translation.empty_result`) as failed and names it in the summary, and schedules work by engine type: the **browser** engine runs one language at a time (single shared worker/GPU); the **server** engine runs in bounded-concurrency batches of `SERVER_CONCURRENCY` (4). `destroy()` calls `dispose_browser_worker()` to release the ONNX model.
 
 ## Actions & options
 

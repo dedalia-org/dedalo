@@ -14,6 +14,7 @@
 import type { MatrixJsonbColumn } from '../db/matrix.ts';
 import { DedaloError, ok } from '../errors/index.ts';
 import type { ApiEnvelope } from '../errors/schema.ts';
+import { stripTags } from '../resolve/html_text.ts';
 import { currentDataLang } from '../resolve/request_lang.ts';
 import type { Principal } from '../security/permissions.ts';
 import { currentRequestContext } from '../security/request_context.ts';
@@ -131,7 +132,7 @@ export async function translateItems(
 	sourceItems: readonly unknown[],
 	provider: TranslationProvider,
 	cfg: TranslateItemsConfig,
-): Promise<{ items: TranslatedItem[]; error: string | null }> {
+): Promise<{ items: TranslatedItem[]; error: string | null; emptyResult?: true }> {
 	const out: TranslatedItem[] = [];
 	for (const item of sourceItems) {
 		const text =
@@ -149,9 +150,27 @@ export async function translateItems(
 		if (res.text.startsWith('Sorry. Quota exceeded')) {
 			return { items: [], error: 'Sorry. Quota exceeded' };
 		}
+		// A service that does not know the language pair answers 200 with NO text
+		// (Babel/Apertium for a missing direction). That is not a translation: refuse
+		// it, so the target language keeps what it holds instead of being blanked.
+		if (isEmptyTranslation(text, res.text)) {
+			return {
+				items: [],
+				error: `empty translation for ${cfg.sourceLang} → ${cfg.targetLang}`,
+				emptyResult: true,
+			};
+		}
 		out.push(targetItem(item, res.text, cfg.targetLang));
 	}
 	return { items: out, error: null };
+}
+
+/** Visible text: markup removed, whitespace trimmed. */
+const visibleText = (value: string): string => stripTags(value).trim();
+
+/** True when a source with visible text came back with none. */
+export function isEmptyTranslation(source: string, result: string): boolean {
+	return visibleText(source) !== '' && visibleText(result) === '';
 }
 
 /**
@@ -296,7 +315,13 @@ export async function translateAndWrite(
 		uri: string;
 		key: string;
 	},
-): Promise<{ ok: boolean; msg: string; count: number; providerError?: boolean }> {
+): Promise<{
+	ok: boolean;
+	msg: string;
+	count: number;
+	providerError?: boolean;
+	emptyResult?: true;
+}> {
 	// THE EFFECT IS BUILT FROM THE GRANT (closure Step 3 req 10): the record, the
 	// component and the audit actor are the write door's authorized coordinates —
 	// a branded RecordGrant only security/write_door.ts mints — never raw request
@@ -340,7 +365,11 @@ export async function translateAndWrite(
 	// The external call happens OUTSIDE the transaction — a translator server can
 	// take minutes, and holding a FOR UPDATE row lock across it would block every
 	// other writer of the record.
-	const { items: targetItems, error } = await translateItems(sourceSlice, input.provider, {
+	const {
+		items: targetItems,
+		error,
+		emptyResult,
+	} = await translateItems(sourceSlice, input.provider, {
 		uri: input.uri,
 		key: input.key,
 		sourceLang: input.sourceLang,
@@ -348,7 +377,14 @@ export async function translateAndWrite(
 	});
 	// `providerError` is what lets the caller route this sentence into the
 	// declared `provider_message` detail instead of onto the wire (WC-2026-08-09).
-	if (error !== null) return { ok: false, msg: error, count: 0, providerError: true };
+	// An empty result is the service's answer, not its failure: its own code.
+	if (error !== null)
+		return {
+			ok: false,
+			msg: error,
+			count: 0,
+			...(emptyResult === true ? { emptyResult } : { providerError: true }),
+		};
 
 	return await withTransaction(async () => {
 		// TAKE THE ROW LOCK. The merge base must be the row as it stands NOW, not
@@ -546,7 +582,14 @@ export async function runAutomaticTranslation(
  * table/column, a record deleted under the lock — is an engine-side save
  * failure.
  */
-function translationFailure(outcome: { msg: string; providerError?: boolean }): DedaloError {
+export function translationFailure(outcome: {
+	msg: string;
+	providerError?: boolean;
+	emptyResult?: true;
+}): DedaloError {
+	if (outcome.emptyResult === true) {
+		return new DedaloError('translation.empty_result', { message: outcome.msg });
+	}
 	return outcome.providerError === true
 		? new DedaloError('translation.provider_failed', {
 				details: { provider_message: outcome.msg },

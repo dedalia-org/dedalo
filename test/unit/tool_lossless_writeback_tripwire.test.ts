@@ -651,15 +651,6 @@ else {
 	 * the bare name is ambiguous); client doors are the tokens above.
 	 */
 	/**
-	 * The closure item of the translation empty-body defect (found 2026-09-30 by deriving
-	 * the server doors). CLOSURE_PLAN Step 2 has NO such item yet: its insertion is an
-	 * integrator request (the plan is integrator-owned) — until it lands this names the
-	 * finding, not an existing plan row.
-	 */
-	const TRANSLATION_EMPTY_BODY =
-		'TOOLS-6 finding 2026-09-30 (proposed CLOSURE_PLAN Step 2 item TRANSLATION-EMPTY-BODY, integrator request): the server translation must refuse an EMPTY provider body (server twin of CLI-14 LEG 2)';
-
-	/**
 	 * The BYPASS REASONS (see the bypass rule): why a tool write may reach the matrix past
 	 * every record-write chokepoint. Each names the off-chokepoint WRITER the derivation
 	 * lands on (the `bypass:` path of a red names it too) and the write_obligations
@@ -1498,20 +1489,22 @@ else {
 		'tools/tool_lang/server/index.ts :: tool.apiActions.automatic_translation': {
 			doors: {
 				runAutomaticTranslation: {
-					verdict: 'PENDING',
-					closes: TRANSLATION_EMPTY_BODY,
+					verdict: 'refuses',
+					evidence: 'src/core/tools/translation.ts#translateItems',
+					must_contain: 'isEmptyTranslation(',
 					reason:
-						'the SERVER half of CLI-14’s tool: translateAndWrite replaces the target language’s items (possibly a human translation) with the provider’s output, under the row lock, with a TM row. A failed call or "Quota exceeded" is refused (translateItems answers items: [] and nothing is written) — but an HTTP 200 with an EMPTY body is accepted as a translation and written, blanking the target language: the exact shape the browser path refuses (LEG 2). Pinned by the empty-body tether (WRITEBACK_TETHERS.emptyBody).',
+						'the SERVER half of CLI-14’s tool: translateAndWrite replaces the target language’s items (possibly a human translation) with the provider’s output, under the row lock, with a TM row. A failed call, "Quota exceeded" — and, since 2026-11-10, a source with text answered by NO text (an HTTP 200 empty body: the service does not support the language pair) — is refused in translateItems (items: [], translation.empty_result on the wire) and nothing is written. Behaviour-tethered by the empty-body tether, with its counterfactual (a real body IS written).',
 				},
 			},
 		},
 		'tools/tool_lang_multi/server/index.ts :: tool.apiActions.automatic_translation': {
 			doors: {
 				runAutomaticTranslation: {
-					verdict: 'PENDING',
-					closes: TRANSLATION_EMPTY_BODY,
+					verdict: 'refuses',
+					evidence: 'src/core/tools/translation.ts#translateItems',
+					must_contain: 'isEmptyTranslation(',
 					reason:
-						'the same engine as tool_lang (PHP tool_lang_multi delegates), once per target language: a provider’s EMPTY 200 body is written over that language’s items instead of being refused — see the tool_lang cell and the empty-body tether below.',
+						'the same engine as tool_lang (PHP tool_lang_multi delegates), once per target language: an EMPTY provider body for a source with text is refused (translation.empty_result) — the language keeps its items; see the tool_lang cell and the empty-body tether.',
 				},
 			},
 		},
@@ -1526,8 +1519,10 @@ else {
 	 * cells). Each cell names its defect and closure item in `closes`; any further raise
 	 * needs one named pre-existing defect and its closure item. 4 → 3 (CLOSURE_PLAN
 	 * Step 2): updateCache writes through the locked media-key transform (TOOLS-5).
+	 * 3 → 1 (2026-11-10): the server translation refuses an empty provider body
+	 * (translation.empty_result) — both automatic_translation cells are `refuses`.
 	 */
-	const PENDING_COUNT = 3;
+	const PENDING_COUNT = 1;
 
 	/**
 	 * PINNED, EQUALITY. Tool cells whose door is ITSELF a RAW `matrix_write.ts` primitive or
@@ -1579,12 +1574,7 @@ else {
 	const SERVER_PENDING_TETHERS: Record<
 		string,
 		{ behaviour: string } | ((action: string) => string[])
-	> = {
-		'tools/tool_lang/server/index.ts :: tool.apiActions.automatic_translation × runAutomaticTranslation':
-			{ behaviour: WRITEBACK_TETHERS.emptyBody },
-		'tools/tool_lang_multi/server/index.ts :: tool.apiActions.automatic_translation × runAutomaticTranslation':
-			{ behaviour: WRITEBACK_TETHERS.emptyBody },
-	};
+	> = {};
 
 	/**
 	 * The BEHAVIOUR tether of every SERVER `refuses` cell — `<action> × <door>` → the title of
@@ -1600,6 +1590,10 @@ else {
 			WRITEBACK_TETHERS.deleteIfSafe,
 		'tools/tool_transcription/server/index.ts :: backgroundTranscriberPoll × saveTranscriptionResult':
 			WRITEBACK_TETHERS.transcription,
+		'tools/tool_lang/server/index.ts :: tool.apiActions.automatic_translation × runAutomaticTranslation':
+			WRITEBACK_TETHERS.emptyBody,
+		'tools/tool_lang_multi/server/index.ts :: tool.apiActions.automatic_translation × runAutomaticTranslation':
+			WRITEBACK_TETHERS.emptyBody,
 	};
 
 	/**

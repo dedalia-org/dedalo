@@ -1155,7 +1155,12 @@ const follow_export_job = function(self, lane_job_id, expected_job_id) {
 				return
 			}
 			state.following = false
-			finish_export_job(self, frame)
+			finish_export_job(self, frame).then(() => {
+				// a live run that ended: bring the now-enabled downloads into view
+				if (self.export_state===state && state.status==='ended') {
+					soft_scroll_to(self.export_buttons_options)
+				}
+			})
 		}
 	})
 
@@ -1306,6 +1311,59 @@ const find_manifest_of_lane_job = async function(self, state) {
 		failed	: null
 	}
 }//end find_manifest_of_lane_job
+
+
+
+/**
+ * SOFT_SCROLL_TO
+ * Ease the nearest scrolling ancestor until node's top sits near the viewport
+ * top — slower and gentler than native 'smooth', whose pace cannot be set.
+ * Reduced motion: jumps.
+ * @param {HTMLElement|null} node
+ * @param {number} [duration=1200] ms
+ * @returns {void}
+ */
+const soft_scroll_to = function(node, duration=1200) {
+
+	if (!node?.isConnected) {
+		return
+	}
+
+	// nearest ancestor that actually scrolls (the tool may live in a modal/window)
+	let scroller = node.parentElement
+	while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) {
+		scroller = scroller.parentElement
+	}
+	scroller = scroller || document.scrollingElement || document.documentElement
+
+	const top_of	= (el) => el===document.scrollingElement || el===document.documentElement ? 0 : el.getBoundingClientRect().top
+	// a sticky tool header (phone tier, tool_responsive.less) covers the scroller's top
+	const header	= scroller.querySelector('.tool_header')
+	const covered	= header && /sticky|fixed/.test(getComputedStyle(header).position) ? header.offsetHeight : 0
+	const start		= scroller.scrollTop
+	const max		= scroller.scrollHeight - scroller.clientHeight
+	const target	= Math.max(0, Math.min(max, start + node.getBoundingClientRect().top - top_of(scroller) - covered - 16))
+	const distance	= target - start
+	if (Math.abs(distance) < 2) {
+		return
+	}
+
+	if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+		scroller.scrollTop = target
+		return
+	}
+
+	const ease = (t) => t<0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2 // easeInOutCubic
+	const t0 = performance.now()
+	const step = (now) => {
+		const t = Math.min(1, (now - t0) / duration)
+		scroller.scrollTop = start + distance * ease(t)
+		if (t < 1) {
+			requestAnimationFrame(step)
+		}
+	}
+	requestAnimationFrame(step)
+}//end soft_scroll_to
 
 
 

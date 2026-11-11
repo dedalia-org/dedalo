@@ -1,7 +1,7 @@
 /**
  * The component_section_id child of a section's ontology subtree (PHP
  * get_ar_children_tipo_by_model_name_in_section with recursion) — the id
- * column component the relation_related list subdatum emits per target.
+ * column component (request_config filters resolve a term's id through it).
  */
 
 import { createOntologyCache } from './cache_factory.ts';

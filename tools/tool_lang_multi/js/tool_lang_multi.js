@@ -347,7 +347,9 @@ tool_lang_multi.prototype.automatic_translation = async function(translator, sou
 				failed
 					? error_text(api_response.error)
 					: (self.get_tool_label('translation_completed') || 'Translation completed'),
-				failed ? 'error' : 'ok'
+				failed ? 'error' : 'ok',
+				'component_message',
+				true // one current message per slot, not a growing list
 			)
 
 		// reload target lang
@@ -369,7 +371,7 @@ tool_lang_multi.prototype.automatic_translation = async function(translator, sou
 /**
 * SET_SOURCE_LANG
 * Set the active source language (the component the user is editing) and update
-* the visual highlight. Falls back to DEDALO_DATA_LANG when none is focused.
+* the visual highlight. Falls back to DEDALO_DATA_LANG when none was edited.
 *
 * Iterates over self.lang_containers (populated by render_tool_lang_multi) and
 * toggles the 'source' CSS class on the container and the 'bold' class on its
@@ -379,7 +381,7 @@ tool_lang_multi.prototype.automatic_translation = async function(translator, sou
 * No-ops when `lang` is already the active source (avoids redundant DOM writes)
 * or when `lang` is falsy.
 *
-* Called automatically on 'focusin' and 'input' events of each language component
+* Called automatically on 'input' (edit) events of each language component
 * (wired in create_target_component inside render_tool_lang_multi.js).
 *
 * @param {string} lang - Language code to set as source (e.g. 'lg-eng').
@@ -411,6 +413,68 @@ tool_lang_multi.prototype.set_source_lang = function(lang) {
 
 	return true
 }//end set_source_lang
+
+
+
+/**
+* SET_SLOT_BUSY
+* Mark a language slot as translating (or done): the 'translating' class
+* (dims + locks the component, hides its action pill — see the tool CSS) and the
+* core spinner node, added once and removed after.
+* @param {HTMLElement|null} container - the slot (target_component_container)
+* @param {boolean} busy
+* @returns {void}
+*/
+tool_lang_multi.prototype.set_slot_busy = function(container, busy) {
+
+	if (!container) {
+		return
+	}
+	container.classList.toggle('translating', busy)
+	const spinner = container.querySelector(':scope > .spinner')
+	if (busy && !spinner) {
+		ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'spinner medium',
+			parent			: container
+		})
+	}else if (!busy && spinner) {
+		spinner.remove()
+	}
+}//end set_slot_busy
+
+
+
+/**
+* RESOLVE_SOURCE_LANG
+* The lang to translate FROM: the current source (last edited lang, else the caller's
+* lang) when it has content; otherwise the first configured lang that has some
+* (e.g. tool opened in English on a record written only in Spanish), which then
+* becomes the highlighted source so the user sees what was used.
+* @param {string|null} [exclude] - lang never chosen as fallback (the target)
+* @returns {string} source lang
+*/
+tool_lang_multi.prototype.resolve_source_lang = function(exclude=null) {
+
+	const self = this
+
+	const current	= self.source_lang || self.lang
+	const has_text	= (lang) => {
+		const component = self.lang_components ? self.lang_components[lang] : null
+		return !!component && !is_component_empty(component)
+	}
+	if (has_text(current)) {
+		return current
+	}
+
+	const fallback = self.langs.find(el => el.value!==exclude && has_text(el.value))
+	if (!fallback) {
+		return current
+	}
+	self.set_source_lang(fallback.value)
+
+	return fallback.value
+}//end resolve_source_lang
 
 
 
@@ -543,7 +607,7 @@ tool_lang_multi.prototype.translate_target = async function(options) {
 		const target_lang		= options.target_lang
 		const target_component	= options.target_component
 		const container			= options.container || null
-		const source_lang		= options.source_lang || self.source_lang || self.lang
+		const source_lang		= options.source_lang || self.resolve_source_lang(target_lang)
 		const translator_engine	= options.translator_engine || (self.context?.config?.translator_engine?.value ?? [])
 
 	// resolve selected engine
@@ -554,7 +618,7 @@ tool_lang_multi.prototype.translate_target = async function(options) {
 
 			const source_component = self.lang_components ? self.lang_components[source_lang] : null
 			if (!source_component) {
-				ui.show_message(self.status_container, self.get_tool_label('empty_source') || 'Source component not available', 'error')
+				ui.show_message(self.status_container, self.get_tool_label('empty_source') || 'Source component not available', 'error', 'component_message', true)
 				return Promise.reject('Source component not available')
 			}
 
@@ -621,7 +685,7 @@ tool_lang_multi.prototype.automatic_translation_all = async function(options={})
 			}
 			clearTimeout(self.status_hide_timeout)
 			self.status_container.classList.remove('hide')
-			ui.show_message(self.status_container, message, msg_type)
+			ui.show_message(self.status_container, message, msg_type, 'component_message', true)
 		}
 
 	// engines from tool config
@@ -640,8 +704,9 @@ tool_lang_multi.prototype.automatic_translation_all = async function(options={})
 			return false
 		}
 
-	// source. The focused component lang, else DEDALO_DATA_LANG (self.lang)
-		const source_lang		= self.source_lang || self.lang
+	// source. The last edited lang, else DEDALO_DATA_LANG (self.lang), else
+	// the first lang with content (resolve_source_lang)
+		const source_lang		= self.resolve_source_lang()
 		const source_component	= self.lang_components ? self.lang_components[source_lang] : null
 		if (!source_component || is_component_empty(source_component)) {
 			show_status(self.get_tool_label('empty_source') || 'Source text is empty', 'error')
@@ -687,9 +752,7 @@ tool_lang_multi.prototype.automatic_translation_all = async function(options={})
 					return null
 				}
 
-			if (container) {
-				container.classList.add('loading')
-			}
+			self.set_slot_busy(container, true)
 
 			let ok = true
 			try {
@@ -703,18 +766,19 @@ tool_lang_multi.prototype.automatic_translation_all = async function(options={})
 						container			: container
 					})
 				}else{
-					await self.automatic_translation(translator_name, source_lang, lang.value, container)
+					// a refusal (e.g. translation.empty_result: the engine does not
+					// support this lang) resolves, it does not throw: count it here
+					const api_response = await self.automatic_translation(translator_name, source_lang, lang.value, container)
+					ok = !request_failed(api_response)
 				}
 			} catch (error) {
 				console.error('automatic_translation_all error for', lang.value, error)
 				ok = false
 			}
 
-			if (container) {
-				container.classList.remove('loading')
-			}
+			self.set_slot_busy(container, false)
 
-			return { lang: lang.value, ok: ok }
+			return { lang: lang.value, label: lang.label, ok: ok }
 		}//end translate_one
 
 	// schedule. The browser engine reuses a single GPU/worker, so it must run
@@ -746,12 +810,20 @@ tool_lang_multi.prototype.automatic_translation_all = async function(options={})
 	// ui.show_message); re-hide the now-empty status area shortly after so it
 	// does not leave a lingering blank row.
 		const ok_count			= results.filter(r => r.ok).length
+		const failed_labels		= results.filter(r => !r.ok).map(r => r.label)
 		const completed_label	= self.get_tool_label('translation_completed') || 'Translation completed'
 		if (self.status_container) {
-			ui.show_message(self.status_container, `${completed_label} (${ok_count}/${results.length})`, 'ok')
-			self.status_hide_timeout = setTimeout(() => {
-				self.status_container.classList.add('hide')
-			}, 10500)
+			// failures are named (each failed slot also carries its own error banner)
+			const summary = failed_labels.length > 0
+				? `${completed_label} (${ok_count}/${results.length}) — ✕ ${failed_labels.join(', ')}`
+				: `${completed_label} (${ok_count}/${results.length})`
+			ui.show_message(self.status_container, summary, failed_labels.length > 0 ? 'warning' : 'ok', 'component_message', true)
+			// a summary naming failures stays until the user dismisses it
+			if (failed_labels.length===0) {
+				self.status_hide_timeout = setTimeout(() => {
+					self.status_container.classList.add('hide')
+				}, 10500)
+			}
 		}
 
 	return results
@@ -790,60 +862,89 @@ const ask_overwrite_mode = (self) => {
 			resolve(mode)
 		}
 
+		// Same shape and look as ui.confirm (dd_confirm: header > label, body.content,
+		// footer.content), but with two choices — ui.confirm is yes/no only.
 		// header
 			const header = ui.create_dom_element({
 				element_type	: 'div',
-				inner_html		: self.get_tool_label('automatic_translation') || 'Automatic translation'
+				class_name		: 'header'
+			})
+			ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'label',
+				text_content	: self.get_tool_label('automatic_translation') || 'Automatic translation',
+				parent			: header
 			})
 
 		// body
 			const body = ui.create_dom_element({
 				element_type	: 'div',
-				class_name		: 'tool_lang_multi_modal_body'
-			})
-			ui.create_dom_element({
-				element_type	: 'p',
-				inner_html		: self.get_tool_label('translate_all_confirm') || 'Translate the source text into all languages?',
-				parent			: body
+				class_name		: 'body content',
+				text_content	: self.get_tool_label('translate_all_confirm') || 'Translate the source text into all languages?'
 			})
 
 		// footer
 			const footer = ui.create_dom_element({
 				element_type	: 'div',
-				class_name		: 'content footer distribute'
+				class_name		: 'footer content'
 			})
 			// skip non-empty
 				const button_skip = ui.create_dom_element({
 					element_type	: 'button',
 					class_name		: 'secondary skip',
-					inner_html		: self.get_tool_label('skip_non_empty') || 'Skip non-empty',
+					text_content	: self.get_tool_label('skip_non_empty') || 'Skip non-empty',
 					parent			: footer
 				})
 				button_skip.addEventListener('click', function(e){
 					e.stopPropagation()
 					finish('skip')
-					modal.on_close()
+					modal.close()
 				})
 			// overwrite all
 				const button_overwrite = ui.create_dom_element({
 					element_type	: 'button',
 					class_name		: 'warning overwrite',
-					inner_html		: self.get_tool_label('overwrite') || 'Overwrite all',
+					text_content	: self.get_tool_label('overwrite') || 'Overwrite all',
 					parent			: footer
 				})
 				button_overwrite.addEventListener('click', function(e){
 					e.stopPropagation()
 					finish('overwrite')
-					modal.on_close()
+					modal.close()
 				})
 
-		// modal. on_close (X / overlay) resolves null when no choice was made
+		// modal. Any other close (X / overlay / Esc) resolves null: no choice made
 			const modal = ui.attach_to_modal({
 				header		: header,
 				body		: body,
 				footer		: footer,
 				size		: 'small',
-				on_close	: () => finish(null)
+				minimizable	: false,
+				transient	: true,
+				callback	: (dd_modal) => {
+					dd_modal.classList.add('dd_confirm')
+					requestAnimationFrame(() => button_skip.focus())
+				}
+			})
+
+		// gesture guard (same as ui.confirm): dd-modal dismisses on mousedown, so the
+		// second mousedown of a double click on the opening button would hit the
+		// overlay and cancel unseen. Overlay mousedowns inside 400ms are swallowed.
+			const opened_at		= performance.now()
+			const gesture_guard	= (e) => {
+				if ((performance.now() - opened_at) >= 400) {
+					document.removeEventListener('mousedown', gesture_guard, true)
+					return
+				}
+				if (e.composedPath()[0]===modal.get_modal_node()) {
+					e.stopPropagation()
+				}
+			}
+			document.addEventListener('mousedown', gesture_guard, true)
+
+			modal.addEventListener('dd-modal-close', () => {
+				document.removeEventListener('mousedown', gesture_guard, true)
+				finish(null)
 			})
 	})
 }//end ask_overwrite_mode

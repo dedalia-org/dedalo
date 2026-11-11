@@ -716,9 +716,10 @@ const lanesWanted = (steps: readonly Step[]) =>
  * contract outcome from the steps' own literal states: the row's lane from the
  * state at it (an lg-nolan row of a translatable main: no value), the frames
  * as of it, every other lane exactly as it was before the apply. Then the
- * restore's OWN rows follow the write rule: the row's lane (a save always
- * writes its own lane), plus an lg-nolan row exactly when the frame lane (the
- * frames, or a transliterable main's lg-nolan base) changed — nothing else.
+ * restore's OWN rows follow the write rule: a restore that changed nothing
+ * writes nothing (history records changes, not clicks); otherwise the row's
+ * lane, plus an lg-nolan row exactly when the frame lane (the frames, or a
+ * transliterable main's lg-nolan base) changed — nothing else.
  */
 async function applyEveryRow(
 	main: Main,
@@ -746,12 +747,16 @@ async function applyEveryRow(
 		const frameLaneChanged =
 			JSON.stringify(before.frames) !== JSON.stringify(after.frames) ||
 			(opts.nolanHoldsValue && JSON.stringify(before[NOLAN]) !== JSON.stringify(after[NOLAN]));
-		// a save ALWAYS writes its own lane (the restored row's), plus the
-		// lg-nolan lane only when the frame lane changed
+		const ownLaneChanged = JSON.stringify(before[entry.lane]) !== JSON.stringify(after[entry.lane]);
+		// a no-op restore writes nothing; a changing one writes its own lane (the
+		// restored row's), plus the lg-nolan lane only when the frame lane changed
 		rules.got.push({ ...tag, written: [...written].sort() });
 		rules.want.push({
 			...tag,
-			written: [...new Set([entry.lane, ...(frameLaneChanged ? [NOLAN] : [])])].sort(),
+			written:
+				ownLaneChanged || frameLaneChanged
+					? [...new Set([entry.lane, ...(frameLaneChanged ? [NOLAN] : [])])].sort()
+					: [],
 		});
 	}
 	expect(states.got).toEqual(states.want);

@@ -37,6 +37,12 @@
 					background-color: @color_white;
 					font-weight: 500;
 					font-size: 0.95rem;
+
+					// a frame exists: filled chip (a rating colour, inline, overrides it)
+					&.has_value {
+						background-color: var(--color_blue_2);
+						color: var(--fg_inverse);
+					}
 				}
 
 				// button add specifics

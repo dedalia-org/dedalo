@@ -279,9 +279,18 @@ async function plannedSlotWrites(
 		const recorded = frames.filter((frame) => !keep(frame) && !stale(frame));
 		const next = restoreSlot(live, mainTipo, recorded, keep);
 		if (canonicalJson(next) === canonicalJson(live)) continue; // [] ≡ absent: nothing changes
+		// Same entries, reordered only (restoreSlot moves `recorded` to the first own frame): frame
+		// order is not state (frameStateKey), so live positions stay and the restore is a no-op.
+		if (Array.isArray(live) && sameEntries(next, live)) continue;
 		writes.push({ slotTipo, next: next.length > 0 ? next : null, written: recorded });
 	}
 	return writes;
+}
+
+/** Order-free equality of two slot contents. */
+function sameEntries(left: readonly unknown[], right: readonly unknown[]): boolean {
+	const key = (entries: readonly unknown[]) => canonicalJson(entries.map(canonicalJson).sort());
+	return left.length === right.length && key(left) === key(right);
 }
 
 /**

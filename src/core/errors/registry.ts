@@ -2438,6 +2438,17 @@ export const ERROR_REGISTRY = {
 		retryable: true,
 		details_keys: ['provider_message'],
 	},
+	// The service answered, with no text: it does not translate this language pair
+	// (Babel/Apertium for a missing direction). Refused, never written as a blank.
+	'translation.empty_result': {
+		category: 'unavailable',
+		status: 503,
+		label_key: 'error_translation_empty_result',
+		message: 'The translation service returned no text: it probably does not support this language',
+		severity: 'warn',
+		disclosure: 'public',
+		retryable: false,
+	},
 	'translation.not_configured': {
 		category: 'unavailable',
 		status: 503,
@@ -2652,6 +2663,20 @@ export const ERROR_REGISTRY = {
 		label_key: 'error_tool_snapshot_unrestorable',
 		message: 'The history entry stores a value that is not a valid link and cannot be restored',
 		severity: 'warn',
+		disclosure: 'public',
+		retryable: false,
+	},
+	/**
+	 * A NOTICE, never thrown: tool_time_machine.apply_value restored a version
+	 * equal to the live value, so it wrote nothing (no TM row, no stamp, no
+	 * activity). `conflict`: the record already holds the requested state.
+	 */
+	'tool.restore_unchanged': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_tool_restore_unchanged',
+		message: 'The selected version equals the current value; nothing was restored',
+		severity: 'info',
 		disclosure: 'public',
 		retryable: false,
 	},

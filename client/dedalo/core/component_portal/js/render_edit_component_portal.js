@@ -383,13 +383,9 @@ export const render_column_id = function(options) {
 				name		: `record_view_${section_id}`,
 				features	: features,
 				on_blur : () => {
-					// refresh current instance. destroy:false like the left-click
-					// path (edit_record_handler): the build tears down its own
-					// dependencies only after a successful read, so a REFUSED read
-					// (the target became unreadable) keeps live rows, not inert ones
-					self.refresh({
-						destroy			: false,
-						build_autoload	: true
+					// refresh current instance
+					return self.refresh({
+						build_autoload : true
 					})
 				}
 			})

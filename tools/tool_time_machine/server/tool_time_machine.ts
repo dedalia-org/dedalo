@@ -75,7 +75,7 @@ import {
 	recordTimeMachine,
 	type TmCoords,
 } from '../../../src/core/db/time_machine.ts';
-import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import { DedaloError, ok, specOf } from '../../../src/core/errors/index.ts';
 import { restoreDeletedSectionMediaFiles } from '../../../src/core/media/file_ops.ts';
 import {
 	effectiveSaveLang,
@@ -86,6 +86,7 @@ import {
 import {
 	heldItemIds,
 	mainIdentity,
+	mainStateChanged,
 	readMainState,
 	recordMainHistory,
 	rowSlotTipos,
@@ -543,6 +544,12 @@ export async function toolTimeMachineApplyValue(context: ToolActionContext): Pro
 
 	// SECTION restore: overwrite the whole record from the snapshot columns.
 	if (model === 'section') {
+		// dry_run is a COMPONENT-restore probe only: never let it reach a real write.
+		if (options.dry_run === true) {
+			throw new DedaloError('request.invalid_options', {
+				publicMessage: 'dry_run is not supported for a section restore',
+			});
+		}
 		// THE WRITE DOOR of every component the restore CHANGES (cross-write:r3):
 		// the declarative 'tipo' gate read the (section, section) pair, which names
 		// no component — so on dd128 the own-record downgrade never applied, and a
@@ -644,11 +651,20 @@ export async function toolTimeMachineApplyValue(context: ToolActionContext): Pro
 	// What the restore WRITES, computed under the row lock below.
 	let restoredValue: unknown = null;
 
-	await withTransaction(async () => {
+	// A restore that changes nothing writes nothing (history records changes,
+	// not clicks): thrown inside the transaction so every write rolls back.
+	class RolledBack extends Error {
+		constructor(readonly changed: boolean) {
+			super('tool_time_machine.apply_value rolled back');
+		}
+	}
+	// `dry_run`: the SAME restore, always rolled back, answering whether it would change
+	// anything — the client asks before its overwrite confirm (WC-2026-11-10-tm-restore-unchanged-notice).
+	const dryRun = options.dry_run === true;
+	const outcome = await withTransaction(async () => {
 		// THE ROW LOCK, FIRST AND UNCONDITIONALLY (P1-9 / DATA-30): everything the
 		// plan depends on is read INSIDE the transaction and BEHIND the lock.
 		await readMatrixKeyForUpdate(table, sectionTipo, sectionId, column as MatrixJsonbColumn, tipo);
-		const before = await readMainState(writeTarget, identity);
 		// THE STATE AT THE ROW (two lanes — tm_record/lane_state.ts, the reader
 		// the preview shares): the row's own lane value, and the frame state AS OF
 		// the row (the row itself when it is one — an lg-nolan row, a PHP row
@@ -665,6 +681,9 @@ export async function toolTimeMachineApplyValue(context: ToolActionContext): Pro
 		// restore instead of leaving the record half-restored.
 		const frameImage = await canonicalImage(state.frameImage);
 		const framePlan = await planRowFrames(tipo, frameImage, writeTarget);
+		// Read like-for-like with `after` (same slot list), so the no-op test compares equal sets.
+		const planSlots = framePlan.map((restore) => restore.slotTipo);
+		const before = await readMainState(writeTarget, identity, planSlots);
 		restoredValue = restoredLaneValue(before.value, state, identity);
 		// Frames FIRST (PHP restores the slots before saving the main) — THIS
 		// main's frames only (a shared slot's other mains stay live, as the
@@ -722,18 +741,30 @@ export async function toolTimeMachineApplyValue(context: ToolActionContext): Pro
 		// lg-nolan row (lg-nolan value + every slot's frames after the restore)
 		// when the restore changed it — so reverting the restore brings the frames
 		// back with it. A frames-only restore's door lane is the frame lane.
-		const after = await readMainState(
-			writeTarget,
-			identity,
-			framePlan.map((restore) => restore.slotTipo),
-		);
+		const after = await readMainState(writeTarget, identity, planSlots);
+		const laneIdentity = { ...identity, lang: state.own.recorded ? state.rowLane : NOLAN };
+		const changed = mainStateChanged(before, after, laneIdentity);
+		if (dryRun || !changed) throw new RolledBack(changed);
 		await recordMainHistory(
 			writeTarget,
-			{ ...identity, lang: state.own.recorded ? state.rowLane : NOLAN },
+			laneIdentity,
 			{ before, after },
 			{ userId, timestamp: dbTimestamp(), bulkId: null },
 		);
+		return { rolledBack: false, changed: true };
+	}).catch((error) => {
+		if (error instanceof RolledBack) return { rolledBack: true, changed: error.changed };
+		throw error;
 	});
+	if (outcome.rolledBack) {
+		// Still a success (the record holds the asked state), with a coded notice so the user
+		// learns nothing was (or would be) written (ERRORS_SPEC §3 notices).
+		const code = 'tool.restore_unchanged' as const;
+		const { label_key, retryable } = specOf(code);
+		const notices = outcome.changed ? undefined : [{ code, label_key, retryable }];
+		const data = dryRun ? { changed: outcome.changed } : true;
+		return ok(data, { requestId: toolRequestId(context), notices });
+	}
 	await logRecoverActivity(
 		context,
 		'RECOVER COMPONENT',
