@@ -60,14 +60,17 @@ All language behaviour is configured by the `lang` domain of the typed config ca
 | `DEDALO_STRUCTURE_LANG` | interface | The ontology *authoring* language. Fixed at `lg-spa` — the master language of every ontology term. Do not change it. |
 | `DEDALO_APPLICATION_LANGS` | interface | The map of `lg-* => name` the application UI can be displayed in (the interface-language picker's options). |
 | `DEDALO_APPLICATION_LANGS_DEFAULT` | interface | Fallback application language when none is chosen (e.g. `lg-eng`). |
-| `DEDALO_APPLICATION_LANG` | interface | The **current** interface language, resolved **per request** from the caller's session (see [request-scoped resolution](#request-scoped-language-resolution)); the install default (`APPLICATION_LANG`) applies when the user has not overridden it. Labels resolve to this. |
+| `DEDALO_APPLICATION_LANG` | interface | **Deprecated as a config key** (still honoured this release, see below) — the **current** interface language, session state resolved **per request** (see [request-scoped resolution](#request-scoped-language-resolution)); `DEDALO_APPLICATION_LANGS_DEFAULT` applies when the user has not chosen one. Labels resolve to this. |
 | `DEDALO_DATA_LANG_DEFAULT` | data | The installation's primary content language; the first fallback step when a value's own language is empty. |
-| `DEDALO_DATA_LANG` | data | The **current** data language the cataloguer is editing/reading; also resolved **per request** from the session (install default `DATA_LANG`). Translatable components resolve in this language by default. |
+| `DEDALO_DATA_LANG` | data | **Deprecated as a config key** (still honoured this release, see below) — the **current** data language the cataloguer is editing/reading, session state resolved **per request**; `DEDALO_DATA_LANG_DEFAULT` applies when the user has not chosen one. Translatable components resolve in this language by default. |
 | `DEDALO_DATA_LANG_SELECTOR` | data | Whether the data-language picker is shown in the [menu](../core/ui/menu.md). |
-| `DEDALO_DATA_LANG_SYNC` | both | When `true`, forces `DEDALO_APPLICATION_LANG` and `DEDALO_DATA_LANG` to move together. |
+| `DEDALO_DATA_LANG_SYNC` | both | When `true`, a change to either the interface or the data language selection moves the other with it. |
 | `DEDALO_DATA_NOLAN` | data | The `lg-nolan` sentinel (above). Do not change it. |
 | `DEDALO_PROJECTS_DEFAULT_LANGS` | data | The list of `lg-*` codes the project actually catalogues in. This is the set of per-value slots offered for translatable components and the option list of [`component_select_lang`](../core/components/component_select_lang.md). |
 | `DEDALO_DIFFUSION_LANGS` | data | The languages published to diffusion targets. **Derived** from `DEDALO_PROJECTS_DEFAULT_LANGS` (verbatim, order included) when unset or empty; set it only to publish a narrower set than the project catalogues in. Accepts a JSON array or a comma-separated list. Every entry must be a `lg-xxx` code that is **one of the project languages** — a code outside them is reported at boot and refuses the publication plan. |
+
+!!! warning "`APPLICATION_LANG` / `DATA_LANG` are deprecated"
+    The keys `APPLICATION_LANG` and `DATA_LANG` (and their older spellings `DEDALO_APPLICATION_LANG` / `DEDALO_DATA_LANG`) used to set the install-wide starting value of the two current languages. They duplicate `DEDALO_APPLICATION_LANGS_DEFAULT` / `DEDALO_DATA_LANG_DEFAULT` and are being retired. This release still honours them; when one differs from its `*_DEFAULT` key the server logs a warning at every boot, and the [`check_config` maintenance widget](../core/areas/area_maintenance.md) lists every such line. The fix is the same for both: set the `*_DEFAULT` key to the value you want and delete the old line. From the next release a line that differs from its default refuses the boot.
 
 !!! info "Two pickers, two constants"
     `DEDALO_APPLICATION_LANG` (interface) and `DEDALO_DATA_LANG` (data) are the two values driven by the two selectors in the top menu. Confusing them is the single most common i18n mistake: a missing field *label* is an `DEDALO_APPLICATION_LANGS` / ontology-term problem; a missing field *value* is a `DEDALO_PROJECTS_DEFAULT_LANGS` / per-value-slot problem.
@@ -204,9 +207,9 @@ A museum catalogues *Objects* in Spanish, English and Catalan, and wants to publ
 ```shell
 # project content languages (the per-value slots + component_select_lang options)
 PROJECTS_DEFAULT_LANGS=["lg-spa","lg-eng","lg-cat"]
-# install defaults for the two current-language values (overridable per session)
-DATA_LANG=lg-spa            # primary content language (DEDALO_DATA_LANG default)
-APPLICATION_LANG=lg-eng     # default UI language (DEDALO_APPLICATION_LANG default)
+# starting values of the two current languages (each user can change them per session)
+DEDALO_DATA_LANG_DEFAULT=lg-spa            # primary content language
+DEDALO_APPLICATION_LANGS_DEFAULT=lg-eng    # default UI language
 ```
 
 This single change makes the three per-value slots appear on every translatable component and the three choices appear in `component_select_lang` option lists. No table or schema change — languages are data and config.

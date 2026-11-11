@@ -323,8 +323,8 @@ restart crash-loops.
   the map/array as **RAW compact `JSON.stringify`** (NOT `envQuote`):
   `parseEnvFile` strips surrounding quotes but does not unescape inner `\"`, so
   an `envQuote`'d JSON value would not round-trip through `JSON.parse`. Scalars
-  (`*_DEFAULT`, `APPLICATION_LANG`, `DATA_LANG`,
-  `DEDALO_STRUCTURE_LANG`) use `envQuote`.
+  (`*_DEFAULT`, `DEDALO_STRUCTURE_LANG`) use `envQuote`. The
+  deprecated `APPLICATION_LANG` / `DATA_LANG` are no longer written.
 - The **CLI** (`scripts/install.ts`) presets the lang env vars from the plan's
   `deriveLangConfig` result (`cliBootEnv`) BEFORE importing config (with ENTITY/DB
   set, config would otherwise throw at import) — `deriveLangConfig` is pure

@@ -17,6 +17,7 @@
  * a deliberate, named widening of the boundary, not an ambient permission.
  */
 
+import type { DeprecatedLangKeyStatus } from '../../../config/env.ts';
 import { isDiffusionLangCode } from '../../../config/lang_code.ts';
 import { describePgTransport, resolvePgTransport } from '../../../config/pg_transport.ts';
 import { sql } from '../../db/postgres.ts';
@@ -256,6 +257,19 @@ async function auditDiffusionLangCoherence(): Promise<{
 }
 
 /**
+ * The deprecated session-language lines this install still carries
+ * (DEPRECATED_LANG_KEYS, env.ts): an `override` (also warned at every boot) and a
+ * `redundant` / `ignored` one (equal to its default, or already overruled by it —
+ * reported ONLY here, never per boot). Each
+ * row carries its exact operator action. Unset keys are omitted.
+ */
+async function auditDeprecatedLangKeys(): Promise<DeprecatedLangKeyStatus[]> {
+	const { deprecatedLangWidgetRows } = await import('../../../config/env.ts');
+	const { DEPRECATED_LANG_KEY_STATUSES } = await import('../../../config/config.ts');
+	return deprecatedLangWidgetRows(DEPRECATED_LANG_KEY_STATUSES);
+}
+
+/**
  * computeCheckConfig — config-source health + live DB probes. Returns the INNER
  * result payload the client stores as `self.value` (db_status + config_sources +
  * state) plus the soft errors that colour the envelope msg. Shared by getValue
@@ -294,6 +308,7 @@ async function computeCheckConfig(): Promise<{
 			dev_mode: boolean;
 		};
 		diffusion_langs: DiffusionLangCoherence | null;
+		deprecated_lang_keys: DeprecatedLangKeyStatus[];
 		state: unknown;
 	};
 	errors: string[];
@@ -479,6 +494,7 @@ async function computeCheckConfig(): Promise<{
 			db_info: dbInfo,
 			runtime_mode: runtimeMode,
 			diffusion_langs: coherence.row,
+			deprecated_lang_keys: await auditDeprecatedLangKeys(),
 			state,
 		},
 		errors,

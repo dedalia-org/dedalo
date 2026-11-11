@@ -9,7 +9,7 @@
 
 import { chmodSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PHP_KEY_ALIASES } from '../../config/env.ts';
+import { DEPRECATED_LANG_KEYS, PHP_KEY_ALIASES } from '../../config/env.ts';
 import { DedaloError } from '../errors/index.ts';
 import { DirectoryBarrier, syncCreatedLevels, writeFileDurably } from '../files/durable.ts';
 import { setServerState } from '../resolve/server_state.ts';
@@ -139,13 +139,19 @@ function renderEnvEntry(item: InstallPlan['env'][number]['entries'][number]): st
 	return `${item.key}=${item.raw ? item.value : envQuote(item.value)}`;
 }
 
-/** The keys this run owns: the plan's canonical keys plus their PHP_KEY_ALIASES spellings. */
+/**
+ * The keys this run owns: the plan's canonical keys plus their PHP_KEY_ALIASES
+ * spellings, plus every spelling of the DEPRECATED lang keys (APPLICATION_LANG /
+ * DATA_LANG, env.ts). The plan no longer writes those; owning them DROPS a stale
+ * override line on (re-)install, so the fresh *_DEFAULT keys are what serves.
+ */
 function ownedEnvKeys(planKeys: readonly string[]): Set<string> {
 	const owned = new Set(planKeys);
 	for (const key of planKeys) {
 		const alias = PHP_KEY_ALIASES[key];
 		if (alias !== undefined) owned.add(alias);
 	}
+	for (const [key, { php }] of Object.entries(DEPRECATED_LANG_KEYS)) owned.add(key).add(php);
 	return owned;
 }
 

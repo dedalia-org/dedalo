@@ -19,7 +19,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseEnvFile } from '../../src/config/env.ts';
-import { encodeEnvValue, V6_MIGRATION } from '../../src/config/migration_map.ts';
+import { deprecatedLangPin, encodeEnvValue, V6_MIGRATION } from '../../src/config/migration_map.ts';
 import { extractDefines } from '../../src/config/php_defines.ts';
 
 const FIXTURE_DIR = join(import.meta.dir, '..', 'fixtures', 'v6_config');
@@ -255,6 +255,13 @@ describe('the mapping applied to a REAL v6 config (the vendored fixture)', () =>
 		expect(V6_MIGRATION.MYSQL_DEDALO_PASSWORD_CONN?.target).toBe('DEDALO_DIFFUSION_DB_PASSWORD');
 	});
 
+	test('the stock runtime DEDALO_*_LANG defines stay DROPPED (no pin)', () => {
+		for (const key of ['DEDALO_APPLICATION_LANG', 'DEDALO_DATA_LANG']) {
+			expect(extracted.records.get(key)?.kind).toBe('runtime');
+			expect(deprecatedLangPin(key, extracted.records)).toBeUndefined();
+		}
+	});
+
 	test('derived paths are DROPPED with a reason, never migrated as literals', () => {
 		for (const key of ['DEDALO_ROOT_PATH', 'DEDALO_CORE_URL', 'DEDALO_API_URL']) {
 			const rule = V6_MIGRATION[key];
@@ -288,5 +295,30 @@ describe('the .env writer MERGES (../private/.env is append-only)', () => {
 		expect(after.DB_NAME).toBe('dedalo');
 		expect(readFileSync(target, 'utf8')).toContain('# operator notes'); // comments kept
 		expect(existsSync(target)).toBe(true);
+	});
+});
+
+describe('deprecated lang pins (transition release: v6 literal values are honoured)', () => {
+	const defines = (body: string) =>
+		extractDefines([{ path: 'config.php', content: `<?php\n${body}\n` }]).records;
+
+	test('a literal that differs from its default migrates to the native spelling', () => {
+		const records = defines(
+			"define('DEDALO_DATA_LANG_DEFAULT', 'lg-spa');\ndefine('DEDALO_DATA_LANG', 'lg-cat');",
+		);
+		expect(V6_MIGRATION.DEDALO_DATA_LANG?.cls).toBe('DROPPED');
+		expect(deprecatedLangPin('DEDALO_DATA_LANG', records)).toBe('DATA_LANG');
+	});
+
+	test('a literal equal to its default is redundant → stays DROPPED', () => {
+		const records = defines(
+			"define('DEDALO_APPLICATION_LANGS_DEFAULT', 'lg-eng');\ndefine('DEDALO_APPLICATION_LANG', 'lg-eng');",
+		);
+		expect(deprecatedLangPin('DEDALO_APPLICATION_LANG', records)).toBeUndefined();
+	});
+
+	test('only the deprecated spellings are ever pinned', () => {
+		const records = defines("define('DEDALO_DATA_LANG_DEFAULT', 'lg-spa');");
+		expect(deprecatedLangPin('DEDALO_DATA_LANG_DEFAULT', records)).toBeUndefined();
 	});
 });

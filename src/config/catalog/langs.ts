@@ -19,16 +19,15 @@ export const LANGS_KEYS = {
 		emptyIsUnset: true,
 		heading: 'Defining application language',
 		typeLabel: 'string',
-		doc: `This parameter defines the language will us Dédalo for the user interface.
+		typeSuffix: '*deprecated; use `DEDALO_APPLICATION_LANGS_DEFAULT`*',
+		doc: `**Deprecated.** The interface language a user works in is session state: it is chosen at login or in the menu and kept in the user's session. A session without a choice (and the login form) uses \`DEDALO_APPLICATION_LANGS_DEFAULT\`.
 
-This is a dynamic parameter and it can be changed when the user login, or in application menu. When the language is changed it is saved into the user's session and it is read to maintain coherence in the diary workflow. If the user's session does not have defined the application language then Dédalo will use the application default language definition.
+This release still honours the line. A value that differs from \`DEDALO_APPLICATION_LANGS_DEFAULT\` is reported at every boot: set \`DEDALO_APPLICATION_LANGS_DEFAULT\` to that value and delete this line — from the next release such a line refuses the boot. A value equal to the default is redundant; the maintenance panel (Check config) lists it for deletion.
 
 \`\`\`bash
+# do not set — use DEDALO_APPLICATION_LANGS_DEFAULT
 APPLICATION_LANG="lg-spa"
-\`\`\`
-
-> You can set this as a fixed value, but it is recommended you do not — to change the
-> default interface language, use \`DEDALO_APPLICATION_LANGS_DEFAULT\` instead.`,
+\`\`\``,
 	},
 	// APPLICATION_LANGS was DELETED here (2026-07-13) — it was never a real key. Nothing set
 	// it; three call sites read it and CSV-split it, which (the real UI-language key,
@@ -45,17 +44,15 @@ APPLICATION_LANG="lg-spa"
 		emptyIsUnset: true,
 		heading: 'Defining data language',
 		typeLabel: 'string',
-		doc: `It defines the data language used by Dédalo to process and render textual information.
+		typeSuffix: '*deprecated; use `DEDALO_DATA_LANG_DEFAULT`*',
+		doc: `**Deprecated.** The data language a user edits and reads in is session state: the user changes it in the menu at any moment and it is kept in the user's session. A session without a choice uses [DEDALO_DATA_LANG_DEFAULT](#defining-default-data-language).
 
-This is a dynamic parameter that can be changed by the user in any moment. Dédalo is a real multi-language application, it can manage information in multiple languages and process it as unique information block (the field store any translated version of his data). The user can translate any information directly or using specific tools. This parameter define the current language used.
+This release still honours the line. A value that differs from \`DEDALO_DATA_LANG_DEFAULT\` is reported at every boot: set \`DEDALO_DATA_LANG_DEFAULT\` to that value and delete this line — from the next release such a line refuses the boot. A value equal to the default is redundant; the maintenance panel (Check config) lists it for deletion.
 
 \`\`\`bash
+# do not set — use DEDALO_DATA_LANG_DEFAULT
 DATA_LANG="lg-spa"
-\`\`\`
-
-> You can set this as a fixed value, but it is recommended you do not — to change the
-> default data language, use [DEDALO_DATA_LANG_DEFAULT](#defining-default-data-language)
-> instead.`,
+\`\`\``,
 	},
 	DATA_LANG_SYNC: {
 		type: 'boolean',
@@ -65,7 +62,7 @@ DATA_LANG="lg-spa"
 		typeLabel: 'bool',
 		doc: `Defines whether the application language and data language selection remain synchronized.
 
-When set to ' true', it forces to keep DEDALO_APPLICATION_LANG and DEDALO_DATA_LANG synchronized across changes.
+When set to 'true', it keeps the interface language and the data language selections synchronized: changing one changes the other.
 The default value is 'false', which allows the application language and data language to be selected independently.
 
 \`\`\`bash
@@ -188,7 +185,7 @@ DEDALO_LANG_EQUIVALENCES='[["lg-cat","lg-vlca"]]'
 		typeLabel: 'bool',
 		doc: `It defines if the menu show or hide the data language selector.
 
-When the selector is showed the user can change the data language independently of the interface language. If the selector is hide the data language is synchronous to the interface language a change in the interface language will be a change in the data language.
+When the selector is shown the user can change the data language independently of the interface language. Hiding it does NOT synchronize the two languages — only [DATA_LANG_SYNC](#defining-data-language-sync) does: with the selector hidden and the sync off, the data language stays at the session's choice, or at \`DEDALO_DATA_LANG_DEFAULT\` for a session without one.
 
 \`\`\`bash
 DEDALO_DATA_LANG_SELECTOR=true
@@ -269,7 +266,7 @@ DEDALO_STRUCTURE_LANG="lg-spa"
 		typeLabel: 'array',
 		doc: `This parameter defines the languages that will use for export and publish data.
 
-**Required** — the server refuses to boot without it. The installer writes it, in its legacy spelling \`DEDALO_PROJECTS_DEFAULT_LANGS\`, from the working languages picked (\`lg-eng\`, \`lg-spa\` by default).
+**Required** — the server refuses to boot without it. The installer writes it as \`PROJECTS_DEFAULT_LANGS\` from the working languages picked (\`lg-eng\`, \`lg-spa\` by default).
 
 This definition control the amount of languages that will be processed to export data or publish data in the publication process.
 

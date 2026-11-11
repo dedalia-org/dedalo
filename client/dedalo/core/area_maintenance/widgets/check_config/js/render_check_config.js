@@ -416,6 +416,29 @@ const render_config_vars_status = function (self) {
 			add_status_row(mode_readout, 'Dev mode', runtime_mode.dev_mode ? 'On' : 'Off', runtime_mode.dev_mode ? 'state_warning' : 'mono')
 		}
 
+	// ---- deprecated config lines (APPLICATION_LANG / DATA_LANG and their legacy
+	// spellings): an override warns (it refuses the boot from the next release), a
+	// redundant line is a calm cleanup item. Each row carries its exact action. ----
+		const deprecated_lang_keys = value.deprecated_lang_keys || []
+		if (deprecated_lang_keys.length > 0) {
+			ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'dd_eyebrow',
+				inner_html		: 'Deprecated config lines',
+				parent			: status_sections
+			})
+			const deprecated_readout = ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'dd_readout',
+				parent			: status_sections
+			})
+			for (const item of deprecated_lang_keys) {
+				// spelling comes from the server's fixed key table, never from input
+				add_status_row(deprecated_readout, item.spelling, item.action,
+					item.state==='override' ? 'state_warning' : 'mono')
+			}
+		}
+
 	// ---- private config sources (../private) ----
 		const config_sources = value.config_sources || []
 		ui.create_dom_element({

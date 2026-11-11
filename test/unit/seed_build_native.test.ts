@@ -330,6 +330,10 @@ describe('seed compiler — pure halves', () => {
 		);
 		expect(env.PATH).toBe('/usr/bin');
 		for (const [key, value] of Object.entries(SEED_CHILD_CONFIG)) expect(env[key]).toBe(value);
+		// The deprecated APPLICATION_LANG is neither pinned nor inherited: the
+		// child's interface language is DEDALO_APPLICATION_LANGS_DEFAULT.
+		expect(env.APPLICATION_LANG).toBeUndefined();
+		expect(env.DEDALO_APPLICATION_LANGS_DEFAULT).toBe('lg-eng');
 		expect(env.DB_NAME).toBe('dedalo_seed_build_1');
 		expect(env.DEDALO_PRIVATE_DIR).toBe('/scratch/private');
 		expect(env.MEDIA_PATH).toBe('/scratch/media');

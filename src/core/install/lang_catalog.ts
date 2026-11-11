@@ -69,9 +69,9 @@ export interface DerivedLangConfig {
 	applicationLangs: Record<string, string>;
 	/** ordered codes (DEDALO_PROJECTS_DEFAULT_LANGS / PROJECTS_DEFAULT_LANGS). */
 	projectsDefaultLangs: string[];
-	/** DEDALO_APPLICATION_LANGS_DEFAULT + DEDALO_APPLICATION_LANG. */
+	/** DEDALO_APPLICATION_LANGS_DEFAULT. */
 	applicationLangsDefault: string;
-	/** DEDALO_DATA_LANG_DEFAULT + DEDALO_DATA_LANG. */
+	/** DEDALO_DATA_LANG_DEFAULT. */
 	dataLangDefault: string;
 	/** DEDALO_STRUCTURE_LANG — the ontology LABEL-FALLBACK lang (labels.ts; never a name). */
 	structureLang: string;

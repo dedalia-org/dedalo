@@ -28,7 +28,12 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { parseEnvFile, privateDir } from '../src/config/env.ts';
-import { encodeEnvValue, type MigrationRule, V6_MIGRATION } from '../src/config/migration_map.ts';
+import {
+	deprecatedLangPin,
+	encodeEnvValue,
+	type MigrationRule,
+	V6_MIGRATION,
+} from '../src/config/migration_map.ts';
 import { type DefineRecord, extractDefines } from '../src/config/php_defines.ts';
 
 const SOURCE_FILES = ['config.php', 'config_db.php', 'config_areas.php', 'config_core.php'];
@@ -92,11 +97,21 @@ function main(): void {
 	const notMigratable: string[] = []; // a real target, but the value is runtime-computed
 	const droppedByReason = new Map<string, string[]>();
 	const unknown: string[] = [];
+	const deprecatedPins: string[] = []; // v6 literal lang pins carried for the transition release
 
 	for (const [name, record] of extracted.records) {
 		const rule = V6_MIGRATION[name];
 		if (rule === undefined) {
 			unknown.push(name);
+			continue;
+		}
+		// A v6 literal pin of a deprecated lang key that differs from its default: still
+		// honoured this release, so it is carried (the boot then warns with the edit).
+		const pin = deprecatedLangPin(name, extracted.records);
+		if (pin !== undefined) {
+			const value = encodeEnvValue(record.value) as string;
+			planned.push({ key: pin, value, from: name, rule: { cls: 'ALIAS', target: pin } });
+			deprecatedPins.push(`${name} → ${pin}`);
 			continue;
 		}
 		if (rule.cls === 'DROPPED') {
@@ -165,6 +180,12 @@ function main(): void {
 		const names = byClass(cls);
 		if (names.length === 0) continue;
 		console.log(`\x1b[1m${cls}\x1b[0m (${names.length}): ${names.join(', ')}\n`);
+	}
+
+	if (deprecatedPins.length > 0) {
+		console.log(
+			`\x1b[33mDEPRECATED, still honoured this release\x1b[0m (${deprecatedPins.length}): ${deprecatedPins.join(', ')}\n   v6 pinned a value that differs from its default key. It is carried so the install\n   serves what v6 served, and the boot warns: move the value to the default key\n   (DEDALO_APPLICATION_LANGS_DEFAULT / DEDALO_DATA_LANG_DEFAULT) and delete the line\n   before the next release, which refuses it.\n`,
+		);
 	}
 
 	for (const [reason, names] of droppedByReason) {

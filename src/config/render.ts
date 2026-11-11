@@ -21,6 +21,7 @@
 
 import { CONFIG_CATALOG, DOMAINS, isOperatorFacing, KEY_DOMAIN } from './catalog/index.ts';
 import type { CatalogEntry } from './catalog_types.ts';
+import { DEPRECATED_LANG_KEYS } from './env.ts';
 import { V6_MIGRATION } from './migration_map.ts';
 
 const BAR = '═'.repeat(78);
@@ -232,9 +233,27 @@ export function renderSampleEnv(): string {
 		}
 	}
 
+	// DEPRECATED lang spellings are DROPPED for the migration but still HONOURED this
+	// release, so they get their own block — never "Setting one does nothing".
+	const deprecated = Object.entries(DEPRECATED_LANG_KEYS).flatMap(([key, { php, mustEqual }]) => [
+		[key, mustEqual],
+		[php, mustEqual],
+	]);
+	out.push('');
+	out.push(`# ${BAR}`);
+	out.push('#  DEPRECATED — still honoured this release, refuses the boot from the next');
+	out.push(
+		...comment(
+			'The current interface/data language is session state. A line that differs from its default overrides it (boot warning); an equal one is redundant (listed by the check_config widget). Delete the line; when its value differs and is served, move it to the default key first (the boot warning names the edit).',
+		),
+	);
+	out.push(`# ${BAR}`);
+	for (const [key, mustEqual] of deprecated) out.push(`#   ${key} — set ${mustEqual} instead`);
+
 	// The "NOT HONORED" block migration_map.ts:194 has always pointed at. It did not exist.
+	const honoured = new Set(deprecated.map(([key]) => key));
 	const dropped = Object.entries(V6_MIGRATION)
-		.filter(([, rule]) => rule.cls === 'DROPPED')
+		.filter(([key, rule]) => rule.cls === 'DROPPED' && !honoured.has(key))
 		.sort(([a], [b]) => a.localeCompare(b));
 	if (dropped.length > 0) {
 		out.push('');

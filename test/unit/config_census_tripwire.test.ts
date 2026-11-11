@@ -30,8 +30,10 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CONFIG_CATALOG } from '../../src/config/catalog/index.ts';
+import { DEPRECATED_LANG_KEYS, PHP_KEY_ALIASES } from '../../src/config/env.ts';
 import { NEW_IN_V7, V6_MIGRATION } from '../../src/config/migration_map.ts';
 import { extractDefines } from '../../src/config/php_defines.ts';
+import { renderSampleEnv } from '../../src/config/render.ts';
 import { envKeysReadInSrc } from '../helpers/env_key_scan.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
@@ -53,7 +55,11 @@ describe('config census: the engine, the migration map, and v6 agree', () => {
 	test('every key the engine READS is classified in migration_map.ts', () => {
 		const read = envKeysReadInSrc();
 		const known = keysTheMapKnows();
-		const unclassified = [...read].filter((k) => !known.has(k)).sort();
+		// DEPRECATED_LANG_KEYS are still READ (transition release) but deliberately never
+		// emitted — their own gate below proves the migration drops them.
+		const unclassified = [...read]
+			.filter((k) => !known.has(k) && !(k in DEPRECATED_LANG_KEYS))
+			.sort();
 
 		// A key the engine reads but the map has never heard of: the migration would
 		// silently fail to carry it, and the docs would never mention it.
@@ -116,6 +122,33 @@ describe('config census: the engine, the migration map, and v6 agree', () => {
 			.map(([name]) => name)
 			.sort();
 		expect(reasonless).toEqual([]);
+	});
+
+	test('a DEPRECATED lang key is never emitted — its v6 spelling is DROPPED', () => {
+		// v6's DEDALO_APPLICATION_LANG / DEDALO_DATA_LANG were per-request values; the v7
+		// *_DEFAULT keys carry them. Emitting either spelling would plant a line the next
+		// release refuses — so the DROPPED rule must override the ALIAS derived from env.ts.
+		// (Sole carve-out, in the migrator: a v6 LITERAL pin differing from its default is
+		// still honoured this release — deprecatedLangPin, migration_map.ts.)
+		const targets = keysTheMapKnows();
+		const problems: string[] = [];
+		for (const [key, { php }] of Object.entries(DEPRECATED_LANG_KEYS)) {
+			if (targets.has(key)) problems.push(`${key} is a migration target`);
+			if (targets.has(php)) problems.push(`${php} is a migration target`);
+			if (V6_MIGRATION[php]?.cls !== 'DROPPED') problems.push(`${php} is not DROPPED`);
+		}
+		expect(problems, problems.join('\n  ')).toEqual([]);
+	});
+
+	test('sample.env NOT HONORED never lists a spelling readEnv still honours', () => {
+		// "Setting one does nothing" is false for a live PHP alias (the deprecated lang
+		// spellings render under their own DEPRECATED block instead).
+		const text = renderSampleEnv();
+		const block = text.slice(text.indexOf('#  NOT HONORED'));
+		const listed = [...block.matchAll(/^# {3}(\S+) — /gm)].map((m) => m[1] as string);
+		expect(listed.length).toBeGreaterThan(0);
+		const live = new Set([...Object.keys(PHP_KEY_ALIASES), ...Object.values(PHP_KEY_ALIASES)]);
+		expect(listed.filter((key) => live.has(key))).toEqual([]);
 	});
 
 	test('a RENAMED source is never also emitted — that would refuse the boot', () => {

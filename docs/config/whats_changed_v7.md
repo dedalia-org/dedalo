@@ -101,8 +101,6 @@ fallback, so a migrated `.env` needs no edit; the v7 name wins when both are set
 | `DEDALO_PASSWORD_CONN` | `DB_PASSWORD` |
 | `DEDALO_SOCKET_CONN` | `DB_SOCKET` |
 | `DEDALO_MEDIA_PATH` | `MEDIA_PATH` |
-| `DEDALO_APPLICATION_LANG` | `APPLICATION_LANG` |
-| `DEDALO_DATA_LANG` | `DATA_LANG` |
 | `DEDALO_DATA_LANG_SYNC` | `DATA_LANG_SYNC` |
 | `DEDALO_DATA_NOLAN` | `DATA_NOLAN` |
 | `DEDALO_PROJECTS_DEFAULT_LANGS` | `PROJECTS_DEFAULT_LANGS` |
@@ -224,6 +222,24 @@ client honors.
     of** the server: how many reverse-proxy hops to trust when reading
     `X-Forwarded-For` to identify the client. Setting one where you meant the other
     is a security bug, not a migration.
+
+**It was never configuration — the `*_DEFAULT` keys carry it**
+
+`DEDALO_APPLICATION_LANG`, `DEDALO_DATA_LANG` — in v6 these were per-request
+values (the session's choice, falling back to `DEDALO_APPLICATION_LANGS_DEFAULT` /
+`DEDALO_DATA_LANG_DEFAULT` through `fix_cascade_config_var`), never operator
+config. In v7 the current interface and data language are session state, and the
+defaults are [`DEDALO_APPLICATION_LANGS_DEFAULT`](config.md) and
+[`DEDALO_DATA_LANG_DEFAULT`](config.md). The migration does not carry them — except a
+v6 config that pinned one to a literal value different from its default: that one is
+carried as `APPLICATION_LANG` / `DATA_LANG`, so the install serves what v6 served, and the
+boot warns.
+
+!!! warning "Deprecated — a hand-set line refuses the boot from the next release"
+    This release still honours a hand-set `APPLICATION_LANG` / `DATA_LANG` (or its
+    `DEDALO_*` spelling). When it differs from its default the boot warns: set the
+    `*_DEFAULT` key to that value and delete the line. When it equals its default it
+    is redundant — the maintenance area's config check lists it for deletion.
 
 **Retired after the cutover**
 
