@@ -50,6 +50,7 @@ import {
 import { stopLiveOcr, submitPdfOcr } from '../pdf_ocr.ts';
 import {
 	buildMasterNormalizedCopy,
+	nonSourceOriginalNotice,
 	noteOutrankingMaster,
 	regenerate3d,
 	regenerateImage,
@@ -288,6 +289,32 @@ async function noteMasterCopy(
 	}
 }
 
+/**
+ * The derivative pass of a pdf MASTER upload.
+ *
+ * A NON-PDF ORIGINAL (.doc/.odt…) IS NOT A DERIVATIVE SOURCE (owner decision
+ * 2026-11-11, D1 = b — it coexists with the PDF rendition, v6 law;
+ * DERIVATIVE_SOURCE_BY_MODEL). Nothing derived changed, so nothing is rebuilt (v6
+ * process_uploaded_file returned before regenerate for the same reason) and the
+ * operator is told which PDF still drives the view, or that none does. Rebuilding
+ * here copied the leftover PDF — or, with none, the .doc bytes themselves — into
+ * web/<id>.pdf.
+ *
+ * A cover format this host cannot encode is non-fatal (regeneratePdf `errors`),
+ * and must reach the caller: without it the upload would be reported as a
+ * complete success while the configured cover was never written.
+ */
+async function rebuildPdfDerivatives(
+	spec: MediaTypeSpec,
+	identity: MediaIdentity,
+	pathOpts: MediaPathOptions,
+	uploadedExtension: string,
+): Promise<{ errors: string[]; notices: string[] }> {
+	const notice = nonSourceOriginalNotice(spec, identity, pathOpts, uploadedExtension);
+	if (notice !== null) return { errors: [], notices: [notice] };
+	return { errors: (await regeneratePdf(spec, identity, pathOpts)).errors, notices: [] };
+}
+
 /** What the PDF text pass of one ingest produced (see transcribeUploadedPdf). */
 interface UploadedPdfText {
 	errors: string[];
@@ -498,6 +525,9 @@ export async function processUploadedFile(input: IngestInput): Promise<IngestRes
 	// file into an INDEXED file, and is precisely what a derivative throw used to
 	// skip. See IngestResult.derivativeErrors for the full rationale.
 	const derivativeErrors: string[] = [];
+	// Non-failures of the derivative pass (the non-PDF original notice); joined
+	// to the transcription's notices in the result.
+	const masterNotices: string[] = [];
 	try {
 		if (isMaster) {
 			// THE SURPRISE, SAID OUT LOUD: the retouched master outranks the original
@@ -539,13 +569,12 @@ export async function processUploadedFile(input: IngestInput): Promise<IngestRes
 					);
 					break;
 				}
-				case 'component_pdf':
-					// Same channel as the image twins above: a cover format this host
-					// cannot encode is non-fatal, and without this line the upload would
-					// be reported as a complete success while the configured cover was
-					// never written.
-					derivativeErrors.push(...(await regeneratePdf(spec, identity, pathOpts)).errors);
+				case 'component_pdf': {
+					const pdf = await rebuildPdfDerivatives(spec, identity, pathOpts, added.extension);
+					derivativeErrors.push(...pdf.errors);
+					masterNotices.push(...pdf.notices);
 					break;
+				}
 				case 'component_svg':
 					// Same channel again: the web copy landed, but a host with no SVG
 					// rasterizer cannot build the thumb, and an upload reported as a
@@ -731,7 +760,7 @@ export async function processUploadedFile(input: IngestInput): Promise<IngestRes
 		extension: added.extension,
 		filesInfo,
 		derivativeErrors,
-		notices,
+		notices: [...masterNotices, ...notices],
 		startOcr,
 		startTranscode,
 	};
