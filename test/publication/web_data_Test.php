@@ -460,4 +460,269 @@ final class web_data_test extends TestCase {
 
 
 
+	/* SQL_FILTER
+	----------------------------------------------------------------------- */
+
+	public static function provider_filter_legit_unchanged() : array {
+		// shapes built by internal callers or sent by frontends: must pass untouched
+		return [
+			'equal int'				=> ['section_id = 12'],
+			'equal string'			=> ["term_id = 'ts1_10' AND lang = 'lg-spa'"],
+			'in list'				=> ['section_id IN (1,2,3)'],
+			'not in'				=> ['section_id NOT IN (1, 2)'],
+			'or group'				=> ["(section_id=1 OR section_id=2) AND lang = 'lg-eng'"],
+			'like json'				=> ["`indexation` LIKE '%\"type\":\"dd96\",\"tag_id\":\"3\",\"section_id\":\"5\"%' "],
+			'like plain'			=> ["audiovisual LIKE '%\"5\"%' "],
+			'publication suffix'	=> ["section_id = 1 AND publication = 'si'"],
+			'leading and'			=> [" AND publication = 'yes'"],
+			'match against'			=> ["MATCH (rsc36) AGAINST ('+roma*' IN BOOLEAN MODE)"],
+			'match natural'			=> ["MATCH (`rsc36`) AGAINST ('roma' IN NATURAL LANGUAGE MODE)"],
+			'match expansion'		=> ["MATCH (rsc36) AGAINST ('roma' WITH QUERY EXPANSION)"],
+			'ranges'				=> ['date_in >= 100 AND date_out <= 200'],
+			'not null'				=> ["material IS NOT NULL AND material != ''"],
+			'diff'					=> ['a <> 1 OR a <=> NULL'],
+			'negative decimal'		=> ['-1 < x AND y = 1.5'],
+			'between cast'			=> ['CAST(number AS UNSIGNED) BETWEEN 1 AND 10'],
+			'find in set'			=> ["FIND_IN_SET('3', ref_ids)"],
+			'json contains'			=> ["JSON_CONTAINS(mint_data, '\"12\"')"],
+			'lower like'			=> ["LOWER(name) LIKE '%ab%'"],
+			'collate'				=> ["name LIKE '%ab%' COLLATE utf8mb4_general_ci"],
+			'regexp'				=> ["`date` REGEXP '^1[0-9]{3}$'"],
+			'year'					=> ['YEAR(date_in) = 1900'],
+			'qualified'				=> ['t.section_id = 1'],
+			'qualified reserved'	=> ['t.`order` = 1 AND t.select = 2'],
+			'case'					=> ['CASE WHEN a = 1 THEN 1 ELSE 0 END = 1'],
+			'double quoted'			=> ['name = "Roma"'],
+			'national'				=> ["name = N'Roma'"],
+			'hex value'				=> ['name = 0x526f6d61'],
+			'unicode'				=> ["name LIKE '%Ñoño%' AND `año` = 1"],
+			'multiline'				=> ["section_id = 1\nAND lang = 'lg-spa'"],
+			'and or ops'			=> ['a = 1 && b = 2 || c = 3'],
+			'if'					=> ['IF(a = 1, 1, 0) = 1'],
+			'timestampdiff'			=> ['TIMESTAMPDIFF(YEAR, d, NOW()) > 1'],
+			'current date'			=> ['CURRENT_DATE > d AND CURRENT_TIMESTAMP() > d'],
+			'member of'				=> ["'1' MEMBER OF(j)"],
+			'json arrow'			=> ["j->>'$.a' = 'x'"],
+			'mariadb plain names'	=> ['rank = 1 AND system = 2 AND `row` = 3'],
+			'extract'				=> ['EXTRACT(YEAR FROM date) = 1936'],
+			'trim leading'			=> ["TRIM(LEADING '0' FROM code) = '12'"],
+			'substring from for'	=> ["SUBSTRING(name FROM 1 FOR 2) = 'Jo'"],
+			'interval unit'			=> ['DATE_ADD(d, INTERVAL 1 DAY_HOUR) > d'],
+			'form feed'				=> ["a = 1\fAND b = 2"],
+			'empty'					=> [''],
+		];
+	}//end provider_filter_legit_unchanged
+
+
+
+	#[DataProvider('provider_filter_legit_unchanged')]
+	public function test_sanitize_sql_filter_keeps_legit(string $filter) : void {
+
+		$this->assertSame($filter, web_data::sanitize_sql_filter($filter));
+	}//end test_sanitize_sql_filter_keeps_legit
+
+
+
+	public static function provider_filter_rewritten() : array {
+		// literals with escapes or control chars: same value, sql_mode independent form
+		return [
+			'backslash quote'		=> ["name LIKE '%l\\'Escala%'", "name LIKE '%l''Escala%'"],
+			'doubled quote'			=> ["name = 'it''s'", "name = 'it''s'"],
+			'double quoted escape'	=> ['name = "a\\"b"', "name = 'a\"b'"],
+			'raw newline'			=> ["name = 'a\nb'", "name = 'a\\nb'"],
+			'like escape kept'		=> ["name LIKE '%a\\_b%'", "name LIKE '%a\\\\_b%'"],
+			// MySQL reads one literal: kept one literal under any sql_mode
+			'quote smuggling'		=> ["x = 'a\\' OR SLEEP(1) #'", "x = 'a'' OR SLEEP(1) #'"],
+			'quote smuggling name'	=> ["x = 'a\\' OR SLEEP(1) OR 'b", "x = 'a'' OR SLEEP(1) OR 'b"],
+		];
+	}//end provider_filter_rewritten
+
+
+
+	#[DataProvider('provider_filter_rewritten')]
+	public function test_sanitize_sql_filter_rewrites_escaped_literals(string $filter, string $expected) : void {
+
+		$this->assertSame($expected, web_data::sanitize_sql_filter($filter));
+	}//end test_sanitize_sql_filter_rewrites_escaped_literals
+
+
+
+	public static function provider_filter_injections() : array {
+		return [
+			'sleep'					=> ['section_id = 1 OR SLEEP(5)'],
+			'sleep spaced'			=> ['section_id = 1 OR SLEEP (5)'],
+			'report subquery'		=> ['section_id=1 AND (SELECT 1 FROM (SELECT SLEEP(10))A)'],
+			'select paren'			=> ['section_id IN (SELECT(1))'],
+			'benchmark'				=> ['BENCHMARK(1000000,SHA1(1))'],
+			'if sleep'				=> ['IF(1,SLEEP(1),3) = 2'],
+			'table subquery'		=> ['section_id IN (TABLE t)'],
+			'values row'			=> ['section_id IN (VALUES ROW(1))'],
+			'union'					=> ['section_id = 1 UNION ALL SELECT 1'],
+			'into outfile'			=> ["x = 1 INTO OUTFILE '/tmp/a'"],
+			'limit'					=> ['x = 1 LIMIT 1'],
+			'order'					=> ['x = 1 ORDER BY 1'],
+			'for update'			=> ['x = 1 FOR UPDATE'],
+			'for update parens'		=> ['(x = 1) FOR UPDATE OR (1)'],
+			'from top level'		=> ['x = 1 FROM t'],
+			'from as call'			=> ['x = (FROM(1))'],
+			'exists'				=> ['EXISTS (x)'],
+			'comment dash'			=> ['x = 1 -- '],
+			'comment hash'			=> ['x = 1 # a'],
+			'comment c'				=> ['x/**/= 1'],
+			'comment exec'			=> ['x = 1 /*!50000 OR 1*/'],
+			'semicolon'				=> ['x = 1; DROP TABLE t'],
+			'global var'			=> ['x = @@version'],
+			'user var'				=> ['x = @a'],
+			'assign'				=> ['x := 1'],
+			'backtick call'			=> ['`SLEEP`(1) = 0'],
+			'qualified call'		=> ['sys.format_bytes(1) = 1'],
+			'qualified spaced call'	=> ['mysql . sleep (1) = 0'],
+			'odbc escape'			=> ['x = {fn sleep(1)}'],
+			'unclosed quote'		=> ["x = 'unclosed"],
+			'open paren'			=> ['(x = 1'],
+			'close paren'			=> ['x = 1)'],
+			'close reopen'			=> ['x = 1) OR (1'],
+			'database'				=> ['x = DATABASE()'],
+			'user'					=> ['x = USER()'],
+			'version'				=> ['x = VERSION()'],
+			'current user'			=> ['x = CURRENT_USER'],
+			'extractvalue'			=> ["x = EXTRACTVALUE(1,'a')"],
+			'repeat'				=> ["x = REPEAT('a', 999999999)"],
+			'lpad'					=> ["x = LPAD('a', 999999999, 'b')"],
+			'json table'			=> ['x = JSON_TABLE(1)'],
+			'get lock'				=> ["GET_LOCK('a', 10)"],
+			'load file'				=> ["LOAD_FILE('/etc/passwd') IS NULL"],
+			'nbsp'					=> ["x\u{00A0}= 1"],
+			'nul'					=> ["x = 1\x00"],
+			'backslash outside'		=> ['x = 1 \\ 2'],
+			'question'				=> ['x = ?'],
+			'invalid utf8'			=> ["x = '\xff'"],
+			'array'					=> [['x = 1']],
+			'null'					=> [null],
+		];
+	}//end provider_filter_injections
+
+
+
+	#[DataProvider('provider_filter_injections')]
+	public function test_sanitize_sql_filter_rejects_injection(mixed $filter) : void {
+
+		$this->assertNull(web_data::sanitize_sql_filter($filter));
+	}//end test_sanitize_sql_filter_rejects_injection
+
+
+
+	public function test_sanitize_sql_filter_number_as_before() : void {
+
+		// JSON body numbers were accepted before
+		$this->assertSame('1936', web_data::sanitize_sql_filter(1936));
+		$this->assertTrue(web_data::check_safe_value('sql_filter', 1936));
+	}//end test_sanitize_sql_filter_number_as_before
+
+
+
+	public function test_check_safe_value_sql_filter_legacy_accepts_search_text() : void {
+
+		// raw thesaurus search text 'q' (escaped later): only the legacy deny-list applies
+		foreach (["O'Brien", 'Col·lecció', 'Real Madrid', 'carta(s)', '¿Dónde?', 'Vic; Osona', 'C:\\temp', '#memoria', 1936] as $q) {
+			$this->assertTrue(web_data::check_safe_value('sql_filter_legacy', $q), json_encode($q));
+		}
+		$this->assertFalse(web_data::check_safe_value('sql_filter_legacy', 'a sleep(1)'));
+		$this->assertFalse(web_data::check_safe_value('sql_filter_legacy', ['x']));
+	}//end test_check_safe_value_sql_filter_legacy_accepts_search_text
+
+
+
+	public function test_check_safe_value_sql_filter_layers() : void {
+
+		// legit
+		$this->assertTrue(web_data::check_safe_value('sql_filter', "section_id IN (1,2) AND lang = 'lg-spa'"));
+		// legacy deny-list still applies (nothing rejected before is accepted now)
+		$this->assertFalse(web_data::check_safe_value('sql_filter', "name = 'username'"));
+		// new allow-list
+		$this->assertFalse(web_data::check_safe_value('sql_filter', 'x = 1 OR BENCHMARK(1,1)'));
+		$this->assertFalse(web_data::check_safe_value('sql_filter', 'x = 1 OR SELECT(1)'));
+		// invalid type (JSON body) no longer raises a TypeError
+		$this->assertFalse(web_data::check_safe_value('sql_filter', ['x = 1']));
+	}//end test_check_safe_value_sql_filter_layers
+
+
+
+	/* SQL_FULLSELECT
+	----------------------------------------------------------------------- */
+
+	public function test_sanitize_sql_fullselect_accepts_documented_shape() : void {
+
+		$this->assertSame(
+			'SELECT `id`,`section_id`,`titulo`,`mupreva830` FROM `publicaciones` UNION SELECT `id`,`section_id`,`titulo`,`mupreva830` FROM `publicaciones_externas`',
+			web_data::sanitize_sql_fullselect('SELECT id,section_id,titulo,mupreva830 FROM publicaciones UNION SELECT id,section_id,titulo,mupreva830 FROM publicaciones_externas')
+		);
+		$this->assertSame(
+			'SELECT * FROM `t1` UNION ALL SELECT * FROM `t2`',
+			web_data::sanitize_sql_fullselect("select * from t1\nunion all\nselect * from `t2`")
+		);
+		$this->assertSame(
+			'SELECT `a` FROM `t` AS `x`',
+			web_data::sanitize_sql_fullselect('SELECT a FROM t AS x')
+		);
+		$this->assertSame(
+			"SELECT `a`,CONCAT(`b`, ' ', `c`) AS `d` FROM `t`",
+			web_data::sanitize_sql_fullselect("SELECT a, CONCAT(b,' ',c) AS d FROM t")
+		);
+		// check_safe_value keeps the legacy deny-list: ' union ' was already rejected before this fix
+		$this->assertTrue(web_data::check_safe_value('sql_fullselect', 'SELECT id, section_id FROM t1'));
+		$this->assertFalse(web_data::check_safe_value('sql_fullselect', 'SELECT id FROM t1 UNION SELECT id FROM t2'));
+	}//end test_sanitize_sql_fullselect_accepts_documented_shape
+
+
+
+	public static function provider_fullselect_injections() : array {
+		return [
+			'sleep field'			=> ['SELECT SLEEP(10) FROM t'],
+			'where'					=> ['SELECT a FROM t WHERE 1'],
+			'subquery table'		=> ['SELECT a FROM (SELECT 1) x'],
+			'semicolon'				=> ['SELECT a FROM t; DROP TABLE t'],
+			'schema table'			=> ['SELECT a FROM t UNION SELECT b FROM information_schema.tables'],
+			'db table'				=> ['SELECT a FROM other_db.t'],
+			'alias injection'		=> ['SELECT a FROM t x WHERE 1'],
+			'comment'				=> ['SELECT a FROM t -- '],
+			'join'					=> ['SELECT a FROM t JOIN u'],
+			'no from'				=> ['SELECT 1'],
+			'not select'			=> ['DELETE FROM t'],
+			'field subquery'		=> ['SELECT (SELECT 1) FROM t'],
+			'empty'					=> [''],
+			'array'					=> [['SELECT a FROM t']],
+		];
+	}//end provider_fullselect_injections
+
+
+
+	#[DataProvider('provider_fullselect_injections')]
+	public function test_sanitize_sql_fullselect_rejects_injection(mixed $value) : void {
+
+		$this->assertNull(web_data::sanitize_sql_fullselect($value));
+	}//end test_sanitize_sql_fullselect_rejects_injection
+
+
+
+	/* PROCESS_RESULT
+	----------------------------------------------------------------------- */
+
+	public function test_is_allowed_process_result_fn() : void {
+
+		$this->assertTrue(web_data::is_allowed_process_result_fn('process_result::break_down_totals'));
+		$this->assertTrue(web_data::is_allowed_process_result_fn('process_result::add_parents_and_children_recursive'));
+		$this->assertTrue(web_data::is_allowed_process_result_fn('PROCESS_RESULT::sum_totals'));
+		$this->assertTrue(web_data::is_allowed_process_result_fn('process_result::Break_Down_Totals'));
+
+		$this->assertFalse(web_data::is_allowed_process_result_fn('web_data::get_rows_data'));
+		$this->assertFalse(web_data::is_allowed_process_result_fn('process_result::__construct'));
+		$this->assertFalse(web_data::is_allowed_process_result_fn('system'));
+		$this->assertFalse(web_data::is_allowed_process_result_fn('process_result::sum_totals::x'));
+		$this->assertFalse(web_data::is_allowed_process_result_fn(['process_result', 'sum_totals']));
+		$this->assertFalse(web_data::is_allowed_process_result_fn(null));
+	}//end test_is_allowed_process_result_fn
+
+
+
 }//end class web_data_test

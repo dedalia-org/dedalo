@@ -33,12 +33,17 @@ abstract class process_result {
 				// row
 				foreach ($columns as $column_obj) {
 
-					$column_name = $column_obj->name;
+					$column_name = $column_obj->name ?? null;
+					// column names come from the request: plain names only
+					if (!is_string($column_name) || preg_match('/^[A-Za-z0-9_]+$/D', $column_name)!==1) {
+						continue;
+					}
 
 					if (isset($row[$column_name])) {
 						$value = json_decode($row[$column_name]);
 						if (!empty($value)) {
-							foreach ($value as $section_id) {
+							foreach ((array)$value as $section_id) {
+								$section_id = (int)$section_id;
 								if (!in_array($section_id, $ar_section_id)) {
 									$ar_section_id[] = $section_id;
 								}
@@ -46,7 +51,7 @@ abstract class process_result {
 						}
 					}
 
-					$ar_parent_sentences[] = $column_name . ' LIKE \'%"'. $row['section_id'] .'"%\'';
+					$ar_parent_sentences[] = '`'.$column_name.'` LIKE \'%"'. (int)$row['section_id'] .'"%\'';
 				}
 			}//foreach ($ar_data as $key => $row)
 
@@ -125,6 +130,7 @@ abstract class process_result {
 						$value = json_decode($row[$column_name]);
 						if (!empty($value)) {
 							foreach ((array)$value as $section_id) {
+								$section_id = (int)$section_id; // goes into 'section_id IN (...)'
 								if (!in_array($section_id, $ar_section_id)) {
 									$ar_section_id[] = $section_id;
 								}

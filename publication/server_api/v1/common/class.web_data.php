@@ -47,6 +47,111 @@ class web_data {
 		'QUERY','EXPANSION','SEPARATOR','NULL'
 	];
 
+	/**
+	* SQL filter allow-lists (used by sanitize_sql_filter)
+	* Functions that may be called in a client supplied sql_filter (WHERE body).
+	* Pure scalar functions only: never add functions able to delay, lock, read
+	* files, inspect the server or build huge values (SLEEP, BENCHMARK, GET_LOCK,
+	* LOAD_FILE, REPEAT, LPAD, RPAD, SPACE, DATABASE, USER, VERSION, EXTRACTVALUE,
+	* UPDATEXML, JSON_TABLE...).
+	*/
+	const SQL_FILTER_FUNCTIONS = [
+		// string
+		'CONCAT','CONCAT_WS','LOWER','UPPER','LCASE','UCASE','TRIM','LTRIM','RTRIM',
+		'LENGTH','CHAR_LENGTH','CHARACTER_LENGTH','OCTET_LENGTH','SUBSTRING','SUBSTR','MID',
+		'SUBSTRING_INDEX','LEFT','RIGHT','REPLACE','REVERSE','LOCATE','POSITION','INSTR','EXTRACT',
+		'FIND_IN_SET','FIELD','ELT','STRCMP','SOUNDEX','ASCII','ORD','HEX','UNHEX','CHAR',
+		'FORMAT','CAST','CONVERT',
+		// regular expressions
+		'REGEXP_LIKE','REGEXP_REPLACE','REGEXP_SUBSTR','REGEXP_INSTR',
+		// full text
+		'MATCH','AGAINST',
+		// null handling and comparison
+		'IF','IFNULL','NVL','NVL2','COALESCE','NULLIF','ISNULL','GREATEST','LEAST',
+		// numeric
+		'ABS','ROUND','FLOOR','CEIL','CEILING','MOD','SIGN','RAND','POW','POWER','SQRT',
+		'EXP','LOG','LN','PI','CONV','BIN','OCT',
+		// date
+		'YEAR','MONTH','DAY','DAYOFMONTH','DAYOFWEEK','DAYOFYEAR','WEEK','QUARTER',
+		'HOUR','MINUTE','SECOND','DATE','TIME','NOW','CURDATE','CURTIME','DATE_FORMAT',
+		'STR_TO_DATE','DATEDIFF','UNIX_TIMESTAMP','FROM_UNIXTIME','DATE_ADD','DATE_SUB',
+		'TIMESTAMPDIFF','TIMESTAMPADD','LAST_DAY','WEEKDAY','WEEKOFYEAR','YEARWEEK',
+		'MONTHNAME','DAYNAME','TO_DAYS','FROM_DAYS','MAKEDATE','ADDDATE','SUBDATE',
+		'TIME_FORMAT','TIMESTAMP','UTC_DATE','UTC_TIME','UTC_TIMESTAMP',
+		// json
+		'JSON_CONTAINS','JSON_CONTAINS_PATH','JSON_EXTRACT','JSON_UNQUOTE','JSON_SEARCH',
+		'JSON_LENGTH','JSON_OVERLAPS','JSON_VALUE','JSON_KEYS','JSON_TYPE','JSON_VALID',
+		'JSON_ARRAY','JSON_OBJECT','JSON_QUOTE','JSON_DEPTH','JSON_QUERY','JSON_EXISTS'
+	];
+	// reserved words that are valid inside a WHERE expression (operators, CASE, CAST types, full text modifiers)
+	const SQL_FILTER_KEYWORDS = [
+		'AND','OR','NOT','XOR','LIKE','REGEXP','RLIKE','IN','IS','NULL','BETWEEN','TRUE','FALSE',
+		'BINARY','COLLATE','DIV','MOD','CASE','WHEN','THEN','ELSE','AS','CHAR','DECIMAL',
+		'INT','INTEGER','UNSIGNED','DOUBLE','FLOAT','USING','INTERVAL','WITH','NATURAL',
+		'OF', // MEMBER OF
+		'CURRENT_DATE','CURRENT_TIME','CURRENT_TIMESTAMP','LOCALTIME','LOCALTIMESTAMP',
+		'UTC_DATE','UTC_TIME','UTC_TIMESTAMP'
+	];
+	// reserved words accepted only inside parentheses (function arguments like
+	// EXTRACT(YEAR FROM x), TRIM(LEADING '0' FROM x), SUBSTRING(x FROM 1 FOR 2),
+	// DATE_ADD(x, INTERVAL 1 DAY_HOUR)), where they can not open a clause (FOR UPDATE...)
+	const SQL_FILTER_INNER_KEYWORDS = [
+		'FROM','FOR','LEADING','TRAILING','BOTH',
+		'DAY_HOUR','DAY_MICROSECOND','DAY_MINUTE','DAY_SECOND','HOUR_MICROSECOND',
+		'HOUR_MINUTE','HOUR_SECOND','MINUTE_MICROSECOND','MINUTE_SECOND',
+		'SECOND_MICROSECOND','YEAR_MONTH'
+	];
+	// MySQL 8 / MariaDB reserved words. Outside back quotes they are parsed as keywords,
+	// so a sql_filter using one not listed in SQL_FILTER_KEYWORDS is rejected (they can
+	// not be valid unquoted column names either, so no working filter is affected).
+	// Words MySQL reserves but MariaDB accepts as plain column names (RANK, SYSTEM, ROW,
+	// WINDOW, ...) are left out for compatibility: they can not open a clause here
+	const SQL_RESERVED_WORDS = [
+		'ACCESSIBLE','ADD','ALL','ALTER','ANALYZE','AND','AS','ASC','ASENSITIVE','BEFORE',
+		'BETWEEN','BIGINT','BINARY','BLOB','BOTH','BY','CALL','CASCADE','CASE','CHANGE','CHAR',
+		'CHARACTER','CHECK','COLLATE','COLUMN','CONDITION','CONSTRAINT','CONTINUE','CONVERT',
+		'CREATE','CROSS','CUME_DIST','CURRENT_DATE','CURRENT_ROLE','CURRENT_TIME',
+		'CURRENT_TIMESTAMP','CURRENT_USER','CURSOR','DATABASE','DATABASES','DAY_HOUR',
+		'DAY_MICROSECOND','DAY_MINUTE','DAY_SECOND','DEC','DECIMAL','DECLARE','DEFAULT',
+		'DELAYED','DELETE','DELETE_DOMAIN_ID','DENSE_RANK','DESC','DESCRIBE','DETERMINISTIC',
+		'DISTINCT','DISTINCTROW','DIV','DO_DOMAIN_IDS','DOUBLE','DROP','DUAL','EACH','ELSE',
+		'ELSEIF','ENCLOSED','ESCAPED','EXCEPT','EXISTS','EXIT','EXPLAIN','FALSE','FETCH',
+		'FIRST_VALUE','FLOAT','FLOAT4','FLOAT8','FOR','FORCE','FOREIGN','FROM','FULLTEXT',
+		'GRANT','GROUP','GROUPING','HAVING',
+		'HIGH_PRIORITY','HOUR_MICROSECOND','HOUR_MINUTE','HOUR_SECOND','IF','IGNORE',
+		'IGNORE_DOMAIN_IDS','IN','INDEX','INFILE','INNER','INOUT','INSENSITIVE','INSERT','INT',
+		'INT1','INT2','INT3','INT4','INT8','INTEGER','INTERSECT','INTERVAL','INTO',
+		'IO_AFTER_GTIDS','IO_BEFORE_GTIDS','IS','ITERATE','JOIN','JSON_TABLE','KEY','KEYS',
+		'KILL','LAST_VALUE','LATERAL','LEADING','LEAVE','LEFT','LIKE','LIMIT',
+		'LINEAR','LINES','LOAD','LOCALTIME','LOCALTIMESTAMP','LOCK','LONG','LONGBLOB',
+		'LONGTEXT','LOOP','LOW_PRIORITY','MASTER_BIND','MASTER_SSL_VERIFY_SERVER_CERT','MATCH',
+		'MAXVALUE','MEDIUMBLOB','MEDIUMINT','MEDIUMTEXT','MIDDLEINT',
+		'MINUTE_MICROSECOND','MINUTE_SECOND','MOD','MODIFIES','NATURAL','NOT',
+		'NO_WRITE_TO_BINLOG','NTH_VALUE','NTILE','NULL','NUMERIC','OF','OFFSET','ON','OPTIMIZE',
+		'OPTIMIZER_COSTS','OPTIONALLY','OR','ORDER','OUT','OUTER','OUTFILE','OVER',
+		'PAGE_CHECKSUM','PARSE_VCOL_EXPR','PARTITION','PERCENT_RANK','PRECISION','PRIMARY',
+		'PROCEDURE','PURGE','RANGE','READ','READS','READ_WRITE','REAL','RECURSIVE',
+		'REFERENCES','REF_SYSTEM_ID','REGEXP','RELEASE','RENAME','REPEAT','REPLACE','REQUIRE',
+		'RESIGNAL','RESTRICT','RETURN','RETURNING','REVOKE','RIGHT','RLIKE','ROWS',
+		'ROW_NUMBER','SCHEMA','SCHEMAS','SECOND_MICROSECOND','SELECT','SENSITIVE','SEPARATOR',
+		'SET','SHOW','SIGNAL','SMALLINT','SPATIAL','SPECIFIC','SQL','SQLEXCEPTION',
+		'SQLSTATE','SQLWARNING','SQL_BIG_RESULT','SQL_CALC_FOUND_ROWS','SQL_SMALL_RESULT','SSL',
+		'STARTING','STATS_AUTO_RECALC','STATS_PERSISTENT','STATS_SAMPLE_PAGES',
+		'STRAIGHT_JOIN','TABLE','TERMINATED','THEN','TINYBLOB','TINYINT','TINYTEXT',
+		'TO','TRAILING','TRIGGER','TRUE','UNDO','UNION','UNIQUE','UNLOCK','UNSIGNED','UPDATE',
+		'USAGE','USE','USING','UTC_DATE','UTC_TIME','UTC_TIMESTAMP','VALUES','VARBINARY',
+		'VARCHAR','VARCHARACTER','VARYING','WHEN','WHERE','WHILE','WITH',
+		'WRITE','XOR','YEAR_MONTH','ZEROFILL'
+	];
+	// process_result methods callable from the request option process_result->fn
+	const PROCESS_RESULT_FUNCTIONS = [
+		'add_parents_and_children_recursive',
+		'add_parents_or_children',
+		'break_down_totals',
+		'sum_totals',
+		'resolve_indexation_fragments'
+	];
+
 
 
 	// Version. Important!
@@ -253,8 +358,19 @@ class web_data {
 
 			case 'sql_fullselect':
 
+				if (!is_string($value)) {
+					debug_log(__METHOD__." test $name not passed! (invalid type)", logger::ERROR);
+					return false;
+				}
+
 				// equality check
 					if (web_data::find_equality($value)!==false) {
+						return false;
+					}
+
+				// allow-list: SELECT <fields> FROM <table> [UNION ...] rebuilt from parsed parts
+					if (web_data::sanitize_sql_fullselect($value)===null) {
+						debug_log(__METHOD__." test $name not passed! ".json_encode($value), logger::ERROR);
 						return false;
 					}
 
@@ -266,15 +382,35 @@ class web_data {
 				break;
 
 			case 'sql_filter':
+			case 'sql_filter_legacy':
+				// 'sql_filter'			: full check of a WHERE body (legacy deny-list + allow-list tokenizer)
+				// 'sql_filter_legacy'	: legacy deny-list only. For raw user text that is escaped
+				//						  before being placed in a literal (thesaurus search 'q')
+
+				// numbers (JSON body) are accepted as before
+				if (is_int($value) || is_float($value)) {
+					$value = (string)$value;
+				}
+				if (!is_string($value)) {
+					debug_log(__METHOD__." test $name not passed! (invalid type)", logger::ERROR);
+					return false;
+				}
 
 				// equality check
 					if (web_data::find_equality($value)!==false) {
 						return false;
 					}
 
+				// legacy deny-list (kept: nothing rejected before is accepted now)
 				preg_match_all("/select |delete|update|insert|includes|wlwmanifest|truncate|extractvalue|\*{2,}|MD5|DBMS_PIPE| union |set names|where|having|user|\-\-|delay|sleep|outfile|\@\@|information_schema| if | if\(|mysql/i", $value, $output_array);
 				if (!empty($output_array[0])) {
 					debug_log(__METHOD__." test $name not passed! ".to_string($output_array), logger::ERROR);
+					return false;
+				}
+
+				// allow-list tokenizer (functions, reserved words, comments, quoting)
+				if ($name==='sql_filter' && web_data::sanitize_sql_filter($value)===null) {
+					debug_log(__METHOD__." test $name not passed! ".json_encode($value), logger::ERROR);
 					return false;
 				}
 				break;
@@ -851,6 +987,266 @@ class web_data {
 
 
 
+	/**
+	* SANITIZE_SQL_FILTER
+	* Allow-list validation of a client supplied WHERE body (sql_filter).
+	* Compatibility first: the filter text is kept as is, only quoted literals
+	* containing escapes ('\' or doubled quotes) are rewritten to an equivalent
+	* canonical single quoted form whose boundaries are the same for any sql_mode.
+	* Accepted tokens:
+	* 	white space, quoted literals, back quoted names, numbers, plain names,
+	* 	( ) , . and the operators = < > ! + - * / % & | ^ ~
+	* Rejected:
+	* 	- any call to a function not in SQL_FILTER_FUNCTIONS (SLEEP, BENCHMARK, IF...),
+	* 	  calls on back quoted or qualified names (stored functions)
+	* 	- reserved words not in SQL_FILTER_KEYWORDS (SELECT, UNION, FROM, INTO, LIMIT...)
+	* 	- comments ('--', '#', '/*'), ';', '@', ':', '?', '\', braces, control chars
+	* 	- unbalanced parentheses or quotes, invalid UTF-8
+	* Without sub-queries, server functions or comments a filter can only test
+	* columns of the queried publication table.
+	* @param mixed $filter
+	* @return string|null $safe_filter
+	* 	null when invalid
+	*/
+	public static function sanitize_sql_filter(mixed $filter) : ?string {
+
+		// numbers (JSON body) are accepted as before
+		if (is_int($filter) || is_float($filter)) {
+			$filter = (string)$filter;
+		}
+		if (!is_string($filter)) {
+			return null;
+		}
+		if ($filter==='' || preg_match('//u', $filter)!==1) {
+			return $filter==='' ? '' : null; // invalid UTF-8
+		}
+
+		$length		= strlen($filter);
+		$offset		= 0;
+		$depth		= 0;
+		$output		= '';
+		$prev		= null; // type of previous significant token: word|function|name|literal|dot|open|close|op
+
+		while ($offset < $length) {
+
+			$char = $filter[$offset];
+
+			// white space (MySQL also skips \v and \f)
+				if (preg_match('/\G[ \t\r\n\x0B\x0C]+/', $filter, $m, 0, $offset)===1) {
+					$output .= $m[0];
+					$offset += strlen($m[0]);
+					continue;
+				}
+
+			// parentheses
+				if ($char==='(') {
+					// only allowed functions, keywords or operators may precede '('
+					if (in_array($prev, ['name','literal','dot','close'], true)) {
+						return null;
+					}
+					$depth++;
+					$output .= $char;
+					$offset++;
+					$prev = 'open';
+					continue;
+				}
+				if ($char===')') {
+					$depth--;
+					if ($depth<0) {
+						return null;
+					}
+					$output .= $char;
+					$offset++;
+					$prev = 'close';
+					continue;
+				}
+
+			// quoted literal (default sql_mode reading, possessive: no shorter literal than MySQL reads)
+				if ($char==='\'' || $char==='"') {
+					$q = $char;
+					$pattern = '/\G'.$q.'((?:[^'.$q.'\\\\\x00]|\\\\[^\x00]|'.$q.$q.')*+)'.$q.'/su';
+					if (preg_match($pattern, $filter, $m, 0, $offset)!==1) {
+						return null;
+					}
+					// rewrite only when escapes are present (boundaries could differ with
+					// NO_BACKSLASH_ESCAPES or ANSI_QUOTES). Plain literals are kept untouched
+					// (raw line breaks are escaped too: count_records works line by line)
+					$output .= (strpos($m[1], '\\')!==false || strpos($m[1], $q.$q)!==false || preg_match('/[\x00-\x1F]/', $m[1])===1)
+						? web_data::quote_sql_literal( web_data::decode_sql_literal($m[1], $q) )
+						: $m[0];
+					$offset += strlen($m[0]);
+					$prev = 'literal';
+					continue;
+				}
+
+			// back quoted name (doubled back quotes are part of the name, as MySQL reads them)
+				if ($char==='`') {
+					if (preg_match('/\G`(?:[^`\x00-\x1F]|``)+`/u', $filter, $m, 0, $offset)!==1) {
+						return null;
+					}
+					$output .= $m[0];
+					$offset += strlen($m[0]);
+					$prev = 'name';
+					continue;
+				}
+
+			// words: keywords, functions, names, numbers (1, 1e5, 0x1F)
+				if (preg_match('/\G[\p{L}\p{N}_$]+/u', $filter, $m, 0, $offset)===1) {
+					$word	= $m[0];
+					$upper	= strtoupper($word);
+					$offset += strlen($word);
+
+					// next non blank char
+					$next = (preg_match('/\G[ \t\r\n\x0B\x0C]*(.)/s', $filter, $n, 0, $offset)===1)
+						? $n[1]
+						: '';
+
+					if ($prev!=='dot' && in_array($upper, web_data::SQL_FILTER_KEYWORDS, true)) {
+						$prev = 'word';
+					}else if ($prev!=='dot' && $depth>0 && $next!=='(' && in_array($upper, web_data::SQL_FILTER_INNER_KEYWORDS, true)) {
+						$prev = 'word';
+					}else if ($next==='(') {
+						// function call: allowed built-in functions only (never qualified: db.fn())
+						if ($prev==='dot' || !in_array($upper, web_data::SQL_FILTER_FUNCTIONS, true)) {
+							return null;
+						}
+						$prev = 'function';
+					}else if ($prev!=='dot' && in_array($upper, web_data::SQL_RESERVED_WORDS, true)) {
+						return null;
+					}else{
+						$prev = 'name';
+					}
+					$output .= $word;
+					continue;
+				}
+
+			// qualified names and decimals ('t.column', '1.5')
+				if ($char==='.') {
+					$output .= $char;
+					$offset++;
+					$prev = 'dot';
+					continue;
+				}
+
+			// operators and comma. Comments are rejected ('--', '/*')
+				if (strpos(',=<>!+-*/%&|^~', $char)!==false) {
+					$pair = substr($filter, $offset, 2);
+					if ($pair==='--' || $pair==='/*' || $pair==='*/') {
+						return null;
+					}
+					$output .= $char;
+					$offset++;
+					$prev = 'op';
+					continue;
+				}
+
+			// anything else: ';', '#', '@', ':', '?', '\', braces, control and unicode punctuation chars
+				return null;
+		}
+
+		if ($depth!==0) {
+			return null;
+		}
+
+		return $output;
+	}//end sanitize_sql_filter
+
+
+
+	/**
+	* SANITIZE_SQL_FULLSELECT
+	* Validates and rebuilds a client supplied full select. Supported shape (the documented one):
+	* 	SELECT <fields> FROM <table> [UNION [ALL|DISTINCT] SELECT <fields> FROM <table>]...
+	* Fields are rebuilt by sanitize_sql_field and tables by sanitize_sql_table.
+	* The WHERE part is appended later from sql_filter (see get_rows_data)
+	* @param mixed $fullselect
+	* @return string|null $safe_fullselect
+	* 	null when invalid
+	*/
+	public static function sanitize_sql_fullselect(mixed $fullselect) : ?string {
+
+		if (!is_string($fullselect) || trim($fullselect)==='') {
+			return null;
+		}
+
+		// whole separator captured (an optional inner group would be dropped when unmatched)
+		$ar_parts = preg_split('/(\s+UNION(?:\s+(?:ALL|DISTINCT))?\s+)/i', trim($fullselect), -1, PREG_SPLIT_DELIM_CAPTURE);
+		if ($ar_parts===false) {
+			return null;
+		}
+
+		$sql = '';
+		for ($i=0; $i < count($ar_parts); $i++) {
+
+			$part = $ar_parts[$i];
+
+			// union separator at odd positions
+			if ($i % 2 === 1) {
+				$modifier = preg_match('/(ALL|DISTINCT)\s*$/i', $part, $u)===1
+					? ' '.strtoupper($u[1])
+					: '';
+				$sql .= ' UNION' . $modifier . ' ';
+				continue;
+			}
+
+			// table with optional alias ('FROM t', 'FROM t a', 'FROM t AS a'). No 'db.table':
+			// it would allow reading other databases of the server
+			if (preg_match('/^SELECT\s+(.+?)\s+FROM\s+(\S+)(?:\s+(?:AS\s+)?([A-Za-z0-9_]+))?$/isD', trim($part), $m)!==1) {
+				return null;
+			}
+			$alias = $m[3] ?? '';
+
+			$ar_fields = web_data::split_sql_list($m[1]);
+			if (empty($ar_fields)) {
+				return null;
+			}
+			$ar_safe_fields = [];
+			foreach ($ar_fields as $field) {
+				$safe_field = web_data::sanitize_sql_field($field);
+				if ($safe_field===null) {
+					return null;
+				}
+				$ar_safe_fields[] = $safe_field;
+			}
+
+			$ar_tables = web_data::sanitize_sql_table( trim($m[2], '`') );
+			if ($ar_tables===null || count($ar_tables)!==1) {
+				return null;
+			}
+
+			$sql .= 'SELECT ' . implode(',', $ar_safe_fields) . ' FROM `' . $ar_tables[0] . '`'
+				. ($alias!=='' ? ' AS `'.$alias.'`' : '');
+		}
+
+		return $sql;
+	}//end sanitize_sql_fullselect
+
+
+
+	/**
+	* IS_ALLOWED_PROCESS_RESULT_FN
+	* Request option process_result->fn is passed to call_user_func.
+	* Only 'process_result::<method>' with a method in PROCESS_RESULT_FUNCTIONS is accepted
+	* @param mixed $fn
+	* @return bool
+	*/
+	public static function is_allowed_process_result_fn(mixed $fn) : bool {
+
+		if (!is_string($fn)) {
+			return false;
+		}
+
+		$ar_call = explode('::', $fn);
+		if (count($ar_call)!==2 || strtolower($ar_call[0])!=='process_result') {
+			return false;
+		}
+
+		// PHP method names are case insensitive
+		return in_array(strtolower($ar_call[1]), web_data::PROCESS_RESULT_FUNCTIONS, true);
+	}//end is_allowed_process_result_fn
+
+
+
 	/* ROWS_DATA (SQL)
 	----------------------------------------------------------------------- */
 
@@ -938,10 +1334,12 @@ class web_data {
 						$response->result = false;
 						$response->msg    = "Error on sql request. Illegal sql_fullselect option (1)";
 						if(SHOW_DEBUG===true) {
-							$response->msg   .= " : $sql_options->sql_fullselect";
+							$response->msg   .= " : ".json_encode($sql_options->sql_fullselect);
 						}
 						return $response;
 					}
+					// use the rebuilt select, never the client text
+					$sql_options->sql_fullselect = self::sanitize_sql_fullselect($sql_options->sql_fullselect);
 				}
 
 			// section_id
@@ -967,10 +1365,12 @@ class web_data {
 						$response->result = false;
 						$response->msg    = "Error on sql request. Illegal sql_filter option (1)";
 						if(SHOW_DEBUG===true) {
-							$response->msg   .= " : $sql_options->sql_filter";
+							$response->msg   .= " : ".json_encode($sql_options->sql_filter);
 						}
 						return $response;
 					}
+					// literals with escapes are rewritten to a canonical form (same value)
+					$sql_options->sql_filter = self::sanitize_sql_filter($sql_options->sql_filter);
 				}
 
 			// lang check
@@ -1248,6 +1648,15 @@ class web_data {
 				if (!empty($sql_options->db_name) && !self::check_safe_value('db_name', $sql_options->db_name)) {
 					$response->msg = "Error on sql request. Illegal db_name (bibliography_rows)";
 					return $response;
+				}
+				// sql_filter: allow-list only (no legacy deny-list here: it was never applied
+				// to bibliography and would reject literals like 'Usera')
+				if (!empty($sql_options->sql_filter)) {
+					$sql_options->sql_filter = web_data::sanitize_sql_filter($sql_options->sql_filter);
+					if ($sql_options->sql_filter===null) {
+						$response->msg = "Error on sql request. Illegal sql_filter (bibliography_rows)";
+						return $response;
+					}
 				}
 				$safe_fields = implode(',', array_map(function($field_name){
 					return web_data::safe_field_name($field_name);
@@ -1802,21 +2211,22 @@ class web_data {
 					$process_result = is_string($process_result) && !empty($process_result)
 						? json_decode($process_result)
 						: $process_result;
-					if (isset($process_result->fn)) {
-						$ar_call = explode('::', $process_result->fn);
-						if(true===method_exists($ar_call[0],$ar_call[1])) {
+					if (is_object($process_result) && isset($process_result->fn)) {
+						// allow-list: only 'process_result::<method>' (PROCESS_RESULT_FUNCTIONS)
+						if(true===web_data::is_allowed_process_result_fn($process_result->fn)) {
 
 							// exec method in class 'process_result' like process_result::break_down_totals
-							$user_func_response = call_user_func($process_result->fn, $ar_data, $process_result, $sql_options);
+							$ar_call = explode('::', $process_result->fn);
+							$user_func_response = call_user_func(['process_result', strtolower($ar_call[1])], $ar_data, $process_result, $sql_options);
 
 							// overwrite ar_data (!)
 							$ar_data = $user_func_response->ar_data;
 
 						}else{
-							debug_log(__METHOD__." Method received to process_result ('$process_result->fn') do not exists! Ignored process (1). ".to_string(), logger::ERROR);
+							debug_log(__METHOD__." Method received to process_result (".json_encode($process_result->fn).") is not allowed! Ignored process (1). ", logger::ERROR);
 						}
 					}else{
-						debug_log(__METHOD__." Method received to process_result ('$process_result->fn') do not exists! Ignored process (2). ".to_string(), logger::ERROR);
+						debug_log(__METHOD__." Method received to process_result do not exists! Ignored process (2). ", logger::ERROR);
 					}
 				}
 
@@ -3832,7 +4242,7 @@ class web_data {
 				foreach ($request_options as $key => $value) {if (property_exists($options, $key)) $options->$key = $value;}
 
 			// check vars
-				if(!empty($options->q) && !self::check_safe_value('sql_filter', $options->q)) {
+				if(!empty($options->q) && !self::check_safe_value('sql_filter_legacy', $options->q)) {
 					die("Error. Illegal q: ".$options->q);
 				}
 				if(!empty($options->table) && !self::check_safe_value('table', $options->table)) {
@@ -6254,6 +6664,15 @@ class web_data {
 			$options->term_id 	= null;
 			$options->lang 		= null;
 			foreach ($request_options as $key => $value) {if (property_exists($options, $key)) $options->$key = $value;}
+
+		// term_id. Interpolated into sql_filter: term ids only ('ts1_10', 'es1_1')
+			if (is_int($options->term_id)) {
+				$options->term_id = (string)$options->term_id;
+			}
+			if (!is_string($options->term_id) || preg_match('/^[A-Za-z0-9_]+$/D', $options->term_id)!==1) {
+				$response->msg = __METHOD__ .' Error. Illegal term_id';
+				return $response;
+			}
 
 		// search
 			$search_options = new stdClass();
