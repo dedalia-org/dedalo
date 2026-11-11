@@ -344,7 +344,8 @@ service_autocomplete.prototype.destroy = async function(delete_self=true, delete
 * for broad browser compatibility.
 *
 * ArrowDown/ArrowUp move the '.selected' CSS class between sibling list items.
-* Enter clicks the currently selected item, triggering its selection handler.
+* Enter clicks the currently selected item, triggering its selection handler —
+* except while the list is `.loading` (stale rows of the previous query).
 * All three keys call e.preventDefault() to prevent default browser behaviour
 * (e.g. scrolling the page, submitting a form).
 *
@@ -398,6 +399,12 @@ service_autocomplete.prototype.service_autocomplete_keys = function(e) {
 		const selected_node = self.datalist.querySelector('.selected')
 		if (selected_node) {
 			e.preventDefault()
+			// a `.loading` list holds the PREVIOUS query's rows while the new
+			// search runs; the mouse is locked out by pointer-events, and a
+			// programmatic click is not — so Enter must not pick a stale row
+			if (self.datalist.classList.contains('loading')) {
+				return true
+			}
 			selected_node.click()
 		}
 	}

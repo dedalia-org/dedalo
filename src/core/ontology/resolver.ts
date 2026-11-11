@@ -665,6 +665,7 @@ const childTipoModelsCache = createOntologyCache<string, readonly ChildTipoModel
 export async function getChildTipoModels(parentTipo: string): Promise<readonly ChildTipoModel[]> {
 	const cached = childTipoModelsCache.get(parentTipo);
 	if (cached !== undefined) return cached;
+	const generation = currentOntologyGeneration();
 	const rows = (await sql`
 		SELECT tipo, model FROM dd_ontology
 		WHERE parent = ${parentTipo}
@@ -673,7 +674,11 @@ export async function getChildTipoModels(parentTipo: string): Promise<readonly C
 	const children = Object.freeze(
 		rows.map((row) => Object.freeze({ tipo: row.tipo, model: row.model })),
 	);
-	cacheWrite(childTipoModelsCache, parentTipo, children);
+	// an ontology write cleared the caches while this SELECT was in flight: the
+	// list may be pre-write — serve it, never memoize it (getNode's guard)
+	if (generation === currentOntologyGeneration()) {
+		cacheWrite(childTipoModelsCache, parentTipo, children);
+	}
 	return children;
 }
 

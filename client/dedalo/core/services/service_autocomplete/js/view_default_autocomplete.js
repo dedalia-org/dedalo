@@ -587,20 +587,27 @@ export const render_search_input = function(self) {
 
 				// datalist container node. The previous results STAY until the new ones
 				// replace them (render_datalist), marked stale: blanking the list on
-				// every keystroke made each search look slower than it was. Only an
-				// empty list says "Searching..".
+				// every keystroke made each search look slower than it was. A list
+				// with no ROWS (empty, or only a notice) says "Searching.." instead.
 					const datalist = self.datalist
-					let loading_label = datalist.querySelector(':scope > .loading_label')
-					if (!loading_label && !datalist.firstChild) {
-						loading_label = ui.create_dom_element({
-							element_type	: 'div',
-							class_name		: 'loading_label',
-							inner_html		: get_label.searching || 'Searching..',
-							parent			: datalist
-						})
-					}
-					if (!loading_label) {
+					let loading_label = null
+					if (datalist.querySelector(':scope > li') !== null) {
 						datalist.classList.add('loading')
+					} else {
+						loading_label = datalist.querySelector(':scope > .loading_label')
+						for (const child of [...datalist.children]) {
+							if (child !== loading_label) {
+								child.remove()
+							}
+						}
+						if (!loading_label) {
+							loading_label = ui.create_dom_element({
+								element_type	: 'div',
+								class_name		: 'loading_label',
+								inner_html		: get_label.searching || 'Searching..',
+								parent			: datalist
+							})
+						}
 					}
 
 				// search fire is delayed to enable multiple simultaneous selections
@@ -1643,10 +1650,15 @@ export const render_datalist = async function(self, result) {
 	// datalist container node
 		const datalist = self.datalist
 
-	// clean the last list
+	// clean the last list. The rows it replaces are the only thing the
+	// `.loading` mark (render_search_input) stood for: drop it HERE, the one
+	// place every search path renders through — the typed search's cleanup
+	// skips when a control search (run_search) superseded it, which left the
+	// new rows locked (pointer-events) and dimmed.
 		while (datalist.firstChild) {
 			datalist.removeChild(datalist.firstChild)
 		}
+		datalist.classList.remove('loading')
 
 	// destroy the previous batch of section_record instances before building a new
 	// list. render_datalist runs on every keystroke / option change with a fresh

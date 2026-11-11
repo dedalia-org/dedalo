@@ -656,6 +656,64 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 			assert.equal(datalist.classList.contains('loading'), false)
 		})
 
+		it("a control search (run_search) that supersedes the typed one leaves no lock", async function() {
+
+			const datalist = document.createElement('ul')
+			datalist.appendChild(document.createElement('li'))
+			const {self, calls, type} = make_typing_service(datalist)
+
+			type('ac')
+			await wait(400)
+			assert.equal(datalist.classList.contains('loading'), true, 'typed search in flight')
+
+			// a section checkbox / operator / filter field fires run_search now
+			const control = run_search(self)
+			assert.equal(calls.length, 2, 'the control search was sent')
+			calls[1].resolve({ ok: true, data: { data: [] } })
+			await control
+			// the typed search answers late: it is stale and skips its own cleanup
+			calls[0].resolve({ ok: true, data: { data: [] } })
+			await wait(50)
+			assert.equal(datalist.classList.contains('loading'), false,
+				'the rows the control search rendered must not stay locked')
+		})
+
+		it("a list holding only a notice says Searching.. instead of dimming it", function() {
+
+			const datalist = document.createElement('ul')
+			const notice = document.createElement('div')
+			notice.className = 'search_notice'
+			datalist.appendChild(notice)
+			const {type} = make_typing_service(datalist)
+
+			type('ac')
+			assert.equal(notice.parentNode, null, 'the old notice goes')
+			assert.equal(datalist.querySelectorAll('.loading_label').length, 1, 'one "Searching.." label')
+			assert.equal(datalist.classList.contains('loading'), false, 'no rows, nothing to dim')
+		})
+
+		it("Enter does not pick a stale row while the list is loading", function() {
+
+			const datalist = document.createElement('ul')
+			const row = document.createElement('li')
+			row.classList.add('selected')
+			let clicks = 0
+			row.addEventListener('click', () => clicks++)
+			datalist.appendChild(row)
+			const self = { datalist }
+			const enter = () => service_autocomplete.prototype.service_autocomplete_keys.call(
+				self, new KeyboardEvent('keydown', {key: 'Enter', cancelable: true})
+			)
+
+			datalist.classList.add('loading')
+			enter()
+			assert.equal(clicks, 0, 'a stale (loading) row must not be selected')
+
+			datalist.classList.remove('loading')
+			enter()
+			assert.equal(clicks, 1, 'control: a current row is selected by Enter')
+		})
+
 		it("next_search_signal aborts the previous controller only", function() {
 			const self = {}
 			const first = next_search_signal(self)
