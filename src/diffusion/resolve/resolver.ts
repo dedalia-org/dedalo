@@ -104,9 +104,10 @@ import type {
 	ProjectedRow,
 } from '../project/lang_ladder.ts';
 import { NOLAN_KEY, projectRecordRows } from '../project/lang_ladder.ts';
-import type { IconographyOptions } from './ddo_fns.ts';
+import type { IconographyOptions, SvgTagPathMemo } from './ddo_fns.ts';
 import {
 	buildGeojsonLayers,
+	createSvgTagPathMemo,
 	iconographyOptionsOf,
 	joinIconographyScenes,
 	parseTagValueToHtml,
@@ -297,6 +298,9 @@ export interface RunContext {
 	sectionLabelCache: Map<string, Record<string, string> | null>;
 	/** text_area tipo → PAIRED component_geolocation tipo (get_geojson_data). */
 	geoPairCache: Map<string, string | null>;
+	/** svg tag locator → media-root-relative path (parse_tag_to_html, T0-10).
+	 * RUN-SCOPED: the path reads the ontology and an `additional_path` value. */
+	svgTagPathMemo: SvgTagPathMemo;
 	/** PHP is_used bitmask twin: records already emitted top-level this run. */
 	usedRecords: Set<string>;
 	/** PHP $datum_unresolved: `${level}:${section_tipo}` → queued ids (FIFO). */
@@ -806,6 +810,8 @@ export interface ComponentFnEnv {
 	langs: readonly string[];
 	/** text_area tipo → its PAIRED component_geolocation tipo (run-cached). */
 	pairedGeolocationTipo: (textAreaTipo: string) => Promise<string | null>;
+	/** The run's svg tag path memo (parse_tag_to_html — RunContext.svgTagPathMemo). */
+	svgTagPathMemo: SvgTagPathMemo;
 }
 
 /**
@@ -888,7 +894,7 @@ export async function resolveComponentFnAtoms(
 				if (typeof raw !== 'string' || raw === '' || raw === '0') continue;
 				out.push({
 					kind: 'scalar',
-					value: parseTagValueToHtml(raw),
+					value: await parseTagValueToHtml(raw, env.svgTagPathMemo),
 					lang: !item.lang || item.lang === 'lg-nolan' ? null : item.lang,
 					meta,
 				});
@@ -913,7 +919,7 @@ export async function resolveComponentFnAtoms(
 			return subtitlesUrlAtoms(record.section_id, env.langs, meta);
 
 		case 'get_diffusion_v5_references_html':
-			return v5ReferencesHtmlAtoms(record, step, meta);
+			return v5ReferencesHtmlAtoms(record, step, meta, env.svgTagPathMemo);
 
 		default:
 			throw new DedaloError('diffusion.unported_fn', {
@@ -964,6 +970,7 @@ async function v5ReferencesHtmlAtoms(
 	record: MatrixRecord,
 	step: Extract<ResolveStep, { kind: 'component' }>,
 	meta: ValueMeta,
+	svgTagPathMemo: SvgTagPathMemo,
 ): Promise<MetaValueIR[]> {
 	const stored = (readComponentItems(record, step.tipo, step.model) ?? []) as {
 		value?: unknown;
@@ -1035,7 +1042,7 @@ async function v5ReferencesHtmlAtoms(
 
 		out.push({
 			kind: 'scalar',
-			value: parseTagValueToHtml(value),
+			value: await parseTagValueToHtml(value, svgTagPathMemo),
 			lang: !item.lang || item.lang === 'lg-nolan' ? null : item.lang,
 			meta,
 		});
@@ -1750,6 +1757,7 @@ async function walkChainLevel(
 						{
 							langs: ctx.plan.langPolicy.langs,
 							pairedGeolocationTipo: (textAreaTipo) => pairedGeolocationTipoOf(ctx, textAreaTipo),
+							svgTagPathMemo: ctx.svgTagPathMemo,
 						},
 						record,
 						step,
@@ -2545,6 +2553,7 @@ export async function* resolvePublication(
 		typologyElementCache: new Map(),
 		sectionLabelCache: new Map(),
 		geoPairCache: new Map(),
+		svgTagPathMemo: createSvgTagPathMemo(),
 		// A resumed run starts from the replayed ledger state (copies — the
 		// caller's ResumeState is never mutated).
 		usedRecords: new Set(options.resume?.used ?? []),

@@ -17,6 +17,7 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - SVG glyphs in text tags now resolve in lists and publications for vector components stored in sub-folders.
     - The "+" of a portal (and Duplicate, add term, the assistant) now needs permission to create in the target section.
     - A publication host in copy mode no longer answers "not found" for every published file.
 
@@ -254,6 +255,17 @@ Merged since the last release; these ship with the next one.
     they now show their value in the language you are working in.
 
     Wire contract: `WC-2026-11-11-relation-index-related-list-context`.
+
+- **SVG glyphs in text tags now resolve in lists and publications for vector components stored in sub-folders.** *(action needed)*
+
+    A text that embeds a vector drawing (an `[svg]` tag, e.g. a countermark or an epigraphy glyph)
+    showed a broken image in list views and in published pages whenever the drawing's field stores
+    its files in numbered sub-folders, in a per-record folder, or under a section-specific media
+    path. The edit view was not affected. The glyph address is now built exactly like the field's
+    own file address everywhere. Pages published before this update keep the old, broken address:
+    re-publish the affected sections to refresh them.
+
+    Wire contract: `WC-2026-11-11-svg-tag-url-full-media-path`.
 
 - **Date fields inside portal rows no longer stack their buttons**
 
@@ -561,7 +573,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 26 entries"
+??? note "Wire contract — 27 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -589,6 +601,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-11-export-value-single-walker`
     - `WC-2026-11-11-relation-index-related-list-context`
     - `WC-2026-11-11-relation-list-column-grants`
+    - `WC-2026-11-11-svg-tag-url-full-media-path`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

@@ -16,15 +16,20 @@
  *   3-level portal walk (record → scene records → inner autocomplete_hi terms)
  *   joined per lang with the ddo separators.
  *
- * Everything here is PURE (no I/O): the resolver reads the matrix slices and
- * resolves terms/ontology pairs, this module owns the byte-level shaping.
+ * Everything here is PURE (no I/O) except parse_tag_to_html's svg marks, whose
+ * URL is the locator's media path (core media/tag_locator.ts — ontology reads,
+ * plus one record read where `additional_path` is declared). The resolver reads
+ * the matrix slices and resolves terms/ontology pairs, this module owns the
+ * byte-level shaping.
  */
 
 // The tag→HTML converter LIVES IN CORE (the list emit hook needs it and core
 // must never import src/diffusion/**); re-exported here so diffusion consumers
 // keep their historical import site.
 import {
-	addTagImgOnTheFly,
+	createSvgTagPathMemo,
+	renderTagsWithResolvedSvg,
+	type SvgTagPathMemo,
 	type TagRenderOptions,
 } from '../../core/components/component_text_area/tag_html.ts';
 import { decodeHtmlEntities } from './default_value.ts';
@@ -42,8 +47,9 @@ import {
 
 export {
 	addTagImgOnTheFly,
+	createSvgTagPathMemo,
 	type SvgTagLocator,
-	svgUrlFromTagLocator,
+	type SvgTagPathMemo,
 	type TagRenderOptions,
 } from '../../core/components/component_text_area/tag_html.ts';
 
@@ -55,8 +61,16 @@ export {
  * exactly this: the fn output goes through the decode pass), so published
  * attributes carry the raw single-quoted locator text the old engine emitted.
  */
-export function parseTagValueToHtml(raw: string, options: TagRenderOptions = {}): string {
-	return decodeHtmlEntities(addTagImgOnTheFly(raw, options));
+export async function parseTagValueToHtml(
+	raw: string,
+	memo: SvgTagPathMemo = createSvgTagPathMemo(),
+	options: Omit<TagRenderOptions, 'svgUrl'> = {},
+): Promise<string> {
+	// PUBLISHED audience: svg glyphs root on `/dedalo/<mediaDir>`, never on the
+	// application's origin (WC-042); the path is the locator's full media path
+	// (T0-10). `memo` is the run's (RunContext.svgTagPathMemo) — a bare call gets
+	// a throwaway one.
+	return decodeHtmlEntities(await renderTagsWithResolvedSvg(raw, 'published', memo, options));
 }
 
 // ---------------------------------------------------------------------------

@@ -86,6 +86,7 @@ import type {
 	VirtualDiffusionTree,
 	VirtualTreeNode,
 } from '../../src/diffusion/plan/virtual_tree.ts';
+import { createSvgTagPathMemo } from '../../src/diffusion/resolve/ddo_fns.ts';
 import { defaultPublicationValue } from '../../src/diffusion/resolve/default_value.ts';
 import { leafMergeColumns, resolveComponentFnAtoms } from '../../src/diffusion/resolve/resolver.ts';
 
@@ -507,6 +508,7 @@ function recordOf(sectionId: number, columns: MatrixRecord['columns'] = {}): Mat
 const fnEnv = {
 	langs: ['lg-spa', 'lg-eng'],
 	pairedGeolocationTipo: async () => null,
+	svgTagPathMemo: createSvgTagPathMemo(),
 };
 
 const componentStep = (

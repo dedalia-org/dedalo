@@ -12,7 +12,7 @@
  *    one resolves against the APP origin, which in `publication` access mode
  *    serves no media — every glyph 404s silently, with a broken-image
  *    placeholder and nothing in the log (measured: :3500 → 404, :8080 → 200);
- *  - PUBLICATION / DIFFUSION (the default resolver, svgUrlFromTagLocator) must
+ *  - PUBLICATION / DIFFUSION (ddo_fns.ts parseTagValueToHtml, the parse_tag_to_html door) must
  *    keep the root-relative `/dedalo/<mediaDir>/…` form — WC-042 lists it under
  *    "Deliberately NOT on it": published data must not embed this app's origin.
  *
@@ -26,13 +26,14 @@
  *
  * WHY THROUGH readSection AND NOT THE HELPER. The bug was the WIRING (emit.ts
  * passing no options and so inheriting the publication resolver), not the URL
- * builder. A gate on `appServedSvgUrlFromTagLocator` would pin a pure function
- * while the consuming call stayed revertible with the suite green. So the child
- * BUILDS a scratch `zz` situation (section + translatable text_area +
- * section_list naming it), stores a real `[svg-…]` marker, and reads it back
- * through `readSection` in LIST mode — the engine's own app-serving path, emit
- * hook included. It renders the SAME marker through `addTagImgOnTheFly` with no
- * options in the same process to obtain the publication audience under the very
+ * builder. A gate on the base alone would pin a pure function while the
+ * consuming call stayed revertible with the suite green. So the child BUILDS a
+ * scratch `zz` situation (section + translatable text_area + the component_svg
+ * the marker points at + section_list naming the text_area), stores a real
+ * `[svg-…]` marker, and reads it back through `readSection` in LIST mode — the
+ * engine's own app-serving path, emit hook included. It renders the SAME marker
+ * through diffusion's `parseTagValueToHtml` in the same process to
+ * obtain the publication audience under the very
  * same config, which is what makes "the two audiences diverge" an outcome
  * rather than two separate readings of one constant.
  */
@@ -43,7 +44,7 @@ import { describe, expect, test } from 'bun:test';
 const SPLIT_ORIGIN_BASE = 'http://media.example.test:8080/dedalo/media/';
 
 /** The image id the stored marker's locator resolves to (component_section_id). */
-const IMAGE_FILE = 'zzsvgaud2_zzsvgaud1_59.svg';
+const IMAGE_FILE = 'zzsvgaud4_zzsvgaud1_59.svg';
 
 /**
  * The child program. Plain JS in a string (no ${…}, no backticks): it is handed
@@ -61,16 +62,17 @@ const { insertMatrixRecordWithCounter, deleteMatrixRecord } = await import(
 );
 const { getMatrixTableFromTipo } = await import('./src/core/ontology/resolver.ts');
 const { readSection } = await import('./src/core/section/read.ts');
-const { addTagImgOnTheFly } = await import(
-  './src/core/components/component_text_area/tag_html.ts'
-);
+const { parseTagValueToHtml } = await import('./src/diffusion/resolve/ddo_fns.ts');
 
 const SECTION = 'zzsvgaud1';
 const TEXT_AREA = 'zzsvgaud2';
 const LIST = 'zzsvgaud3';
+// The media component the marker points at (T0-10: the URL is the locator's own
+// media model — a non-media component_tipo resolves to no URL at all).
+const SVG = 'zzsvgaud4';
 // A real stored marker: TR grammar, locator with single quotes (PHP form).
 const TAG =
-  "<p>[svg-n-1-glyph-data:{'section_tipo':'zzsvgaud1','section_id':59,'component_tipo':'zzsvgaud2'}:data]</p>";
+  "<p>[svg-n-1-glyph-data:{'section_tipo':'zzsvgaud1','section_id':59,'component_tipo':'zzsvgaud4'}:data]</p>";
 
 function srcOf(html, where) {
   const img = /<img[^>]*class="svg"[^>]*>/.exec(String(html === null ? '' : html));
@@ -86,6 +88,7 @@ const S = situation({
   nodes: [
     { tipo: SECTION, model: 'section', parent: 'dd14' },
     { tipo: TEXT_AREA, model: 'component_text_area', parent: SECTION, is_translatable: true },
+    { tipo: SVG, model: 'component_svg', parent: SECTION },
     // Without a section_list naming the column, the list read emits no
     // component at all and there would be nothing to assert on.
     { tipo: LIST, model: 'section_list', parent: SECTION, relations: [{ tipo: TEXT_AREA }] },
@@ -119,10 +122,12 @@ try {
     JSON.stringify({
       webBase: config.media.webBase,
       mediaDir: config.mediaDir,
-      // THE APP-SERVING PATH: readSection -> emit hook -> addTagImgOnTheFly.
+      // THE APP-SERVING PATH: readSection -> emit hook -> renderTagsWithResolvedSvg.
       appSrc: srcOf(listValue, 'the list read'),
-      // THE PUBLICATION PATH: the same marker, default resolver, same config.
-      pubSrc: srcOf(addTagImgOnTheFly(TAG), 'the publication rendering'),
+      // THE PUBLICATION PATH: the same marker through diffusion's own
+      // parse_tag_to_html door, same config — so the AUDIENCE that door picks is
+      // under test, not a value this probe chose.
+      pubSrc: srcOf(await parseTagValueToHtml(TAG), 'the publication rendering'),
     }),
   );
 } finally {

@@ -24,12 +24,8 @@
  */
 
 import { config } from '../../../config/config.ts';
-import { mediaTypeOf } from '../../concepts/media.ts';
-import { isValidTipo } from '../../concepts/ontology.ts';
-import { DedaloError, toErrorEnvelope } from '../../errors/index.ts';
-import { resolveMediaPathOptions } from '../../media/ontology_path.ts';
-import { buildMediaLocation } from '../../media/path.ts';
-import { getModelByTipo } from '../../ontology/resolver.ts';
+import { DedaloError, logError, toDedaloError, toErrorEnvelope } from '../../errors/index.ts';
+import { resolveTagLocatorMediaPath } from '../../media/tag_locator.ts';
 import { getSession, SESSION_COOKIE } from '../../security/session_store.ts';
 import { type LocatorTag, parseTagId, safeDecodeTagId } from './tag_grammar.ts';
 import { renderDrawTag, renderSpriteTag } from './tag_render.ts';
@@ -127,37 +123,41 @@ async function resolveLocatorTag(tag: LocatorTag, request: Request): Promise<Res
 	// ACL: authenticated only. The redirect target enforces media-protection again.
 	if (!hasValidSession(request)) return notFound();
 
-	// §7.6 identifier gate before any ontology/path work.
-	if (!isValidTipo(tag.section_tipo) || !isValidTipo(tag.component_tipo)) return notFound();
-	const sectionId = Number(tag.section_id);
-	if (!Number.isInteger(sectionId) || sectionId <= 0) return notFound();
-
 	try {
-		const model = await getModelByTipo(tag.component_tipo);
-		const spec = model !== null ? mediaTypeOf(model) : null;
-		if (spec === null) return notFound(); // not a resolvable media component
-
-		const pathOptions = await resolveMediaPathOptions(tag.component_tipo, tag.section_tipo);
-		const location = buildMediaLocation(
-			spec,
-			{
-				componentTipo: tag.component_tipo,
-				sectionTipo: tag.section_tipo,
-				sectionId,
-				lang: null, // media locator files (svg/image) are non-translatable (PHP DEDALO_DATA_NOLAN)
-			},
-			spec.defaultQuality,
-			spec.defaultExtension,
-			pathOptions,
-		);
+		// The ONE tag-locator resolver (T0-10): §7.6 shape gate, the locator's own
+		// media model, RECORD-scoped path options (additional_path included).
+		// Null = malformed or non-media — the same generic miss.
+		const relativePath = await resolveTagLocatorMediaPath({
+			section_tipo: tag.section_tipo,
+			section_id: tag.section_id,
+			component_tipo: tag.component_tipo,
+		});
+		if (relativePath === null) return notFound();
 		// Media web base: the redirect target is fetched by the BROWSER, so it must
 		// point at wherever media is actually served (split-origin dev included).
-		const mediaUrl = `${config.media.webBase}${location.relativePath}`;
+		const mediaUrl = `${config.media.webBase}${relativePath}`;
 		return new Response(null, {
 			status: 302,
 			headers: { Location: mediaUrl, 'Cache-Control': PRIVATE_CACHE },
 		});
-	} catch {
+	} catch (error) {
+		// Still the generic miss on the wire (no existence leak), but a path that
+		// could not be built (no media root, a refused additional_path value) is
+		// an operator problem, so it is reported — never a silent 404.
+		const typed = toDedaloError(error);
+		logError(
+			new DedaloError(typed.code, {
+				message: `tag endpoint media path unresolved: ${typed.message}`,
+				coordinates: {
+					...typed.coordinates,
+					component_tipo: tag.component_tipo,
+					section_tipo: tag.section_tipo,
+					section_id: String(tag.section_id),
+				},
+				cause: error,
+			}),
+			{ subsystem: 'component_text_area' },
+		);
 		return notFound();
 	}
 }

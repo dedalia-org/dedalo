@@ -12,88 +12,252 @@
  */
 
 import { config } from '../../../config/config.ts';
-import { mediaTypeOf } from '../../concepts/media.ts';
+import { DedaloError, logError, toDedaloError } from '../../errors/index.ts';
+import {
+	resolveTagLocatorMediaPath,
+	type TagLocator,
+	tagLocatorIdentity,
+} from '../../media/tag_locator.ts';
 import { escapeHtml } from '../../security/html_escape.ts';
 
 /** A tag-embedded svg locator ({'section_tipo':…} with single quotes). */
-export interface SvgTagLocator {
-	section_tipo?: unknown;
-	section_id?: unknown;
-	component_tipo?: unknown;
-	[extra: string]: unknown;
+export type SvgTagLocator = TagLocator;
+
+/**
+ * WHO READS the rendered URL — the only thing the two svg URLs differ in (WC-042).
+ *
+ * - `served`: a cell THIS ENGINE SERVES TO ITS OWN BROWSER (the list read),
+ *   rooted on `config.media.webBase` like every other media URL the client
+ *   receives. An install may serve media from ANOTHER ORIGIN
+ *   (`DEDALO_MEDIA_WEB_BASE`, app on :3500, Apache media on :8080); a
+ *   root-relative src would resolve against the APP origin, which in
+ *   `publication` access mode serves no media — every glyph 404s in silence
+ *   (2026-09-01, tool_numisdata_epigraphy).
+ * - `published`: a diffusion cell — the same-origin relative
+ *   `/dedalo/<mediaDir>/…`, deliberately NOT webBase: published data must not
+ *   embed the application's origin.
+ *
+ * With the key unset `webBase` IS `/dedalo/<mediaDir>`, so a same-origin install
+ * gets byte-identical output for both.
+ */
+export type SvgTagAudience = 'served' | 'published';
+
+/**
+ * The caller-owned svg tag memo: ONE per read / per diffusion job — never module
+ * state (the path depends on the ontology and on a record's `additional_path`
+ * value, both editable). `paths`: locator key → media-root-relative path (null =
+ * no URL). `loggedOnce`: install-wide failure codes already reported through this
+ * memo (`media.not_configured` fails EVERY locator; one line per read/run says
+ * it, a line per glyph would bury it).
+ */
+export interface SvgTagPathMemo {
+	readonly paths: Map<string, string | null>;
+	readonly loggedOnce: Set<string>;
+}
+
+/** A fresh memo — one per read (emission scratch) or per diffusion run. */
+export function createSvgTagPathMemo(): SvgTagPathMemo {
+	return { paths: new Map(), loggedOnce: new Set() };
+}
+
+/** Bound on one memo's paths (same posture as the per-read record cache). */
+const SVG_TAG_MEMO_LIMIT = 8000;
+
+/**
+ * Bound on DISTINCT locators one text may send to the resolver. The DOS-01
+ * source cap bounds BYTES (16 KB), not locators: ~200 distinct section_ids fit
+ * in it, and a locator whose component declares `additional_path` costs one
+ * record read — so a single cell could fan out into hundreds of reads. Real
+ * transcripts carry a handful of glyphs; marks past the bound render `src=""`
+ * and the text gets ONE warning with the counts (degraded, never silent).
+ */
+export const SVG_TAG_RESOLUTIONS_PER_TEXT = 64;
+
+/** Codes that fail every locator alike — logged once per memo, not per mark. */
+const INSTALL_WIDE_CODES: ReadonlySet<string> = new Set(['media.not_configured']);
+
+/** The svg mark pattern (groups: 2 type, 3 state, 4 id, 6 label, 7 locator data). */
+const SVG_MARK_PATTERN = /(\[(svg)-([a-z])-([0-9]{1,6})(-([^-]{0,22}))?-data:(.*?):data\])/g;
+
+/**
+ * Parse a mark's locator text (single quotes, PHP form). Null on a parse
+ * failure — the caller drops the tag (PHP's null callback → '').
+ */
+function parseSvgTagLocator(locatorText: string): SvgTagLocator | null {
+	try {
+		const parsed: unknown = JSON.parse(locatorText.replace(/'/g, '"'));
+		return parsed !== null && typeof parsed === 'object' ? (parsed as SvgTagLocator) : null;
+	} catch {
+		return null; // probe catch: unparseable data IS the answer
+	}
+}
+
+/** The memo key of a locator, or null when it fails the shape gate. */
+function svgTagMemoKey(locator: SvgTagLocator): string | null {
+	const identity = tagLocatorIdentity(locator);
+	return identity === null
+		? null
+		: `${identity.componentTipo}|${identity.sectionTipo}|${identity.sectionId}`;
+}
+
+/** The base an audience prepends to the shared media-root-relative path. */
+function svgTagBase(audience: SvgTagAudience): string {
+	return audience === 'served' ? config.media.webBase : `/dedalo/${config.mediaDir}`;
 }
 
 /**
- * The MEDIA-ROOT-RELATIVE tail of a tag locator's svg file, leading slash —
- * `${folder}/${default quality}/${component_tipo}_${section_tipo}_${section_id}.svg`
- * (PHP component_svg::get_url_from_locator :426-462 + get_url :233-250). PURE
- * twin: the PHP ontology-model guards (component_tipo must be a component,
- * section_tipo a section) become shape checks — a malformed locator yields null
- * exactly like the PHP guard path.
- *
- * Split out from the two URL builders below because they differ ONLY in the
- * base. Keeping one tail is what makes "same file, two audiences" true by
- * construction instead of by two copies staying in step.
+ * Resolve ONE distinct locator. A failure (no media root, a refused
+ * `additional_path` value, an ontology read error) degrades THIS mark to
+ * `src=""` — a list cell or a published row must not fail for one glyph — and
+ * is reported through logError with the locator's coordinates (CONVENTIONS §1).
  */
-function svgTagRelativePath(locator: SvgTagLocator): string | null {
-	const { component_tipo, section_tipo, section_id } = locator;
-	if (typeof component_tipo !== 'string' || component_tipo === '') return null;
-	if (typeof section_tipo !== 'string' || section_tipo === '') return null;
-	if (section_id === undefined || section_id === null || section_id === '') return null;
-	const spec = mediaTypeOf('component_svg');
-	if (spec === null) return null;
-	const imageId = `${component_tipo}_${section_tipo}_${section_id}`;
-	return `${spec.folder}/${spec.defaultQuality}/${imageId}.${spec.defaultExtension}`;
+async function resolveOne(
+	key: string,
+	locator: SvgTagLocator,
+	memo: SvgTagPathMemo,
+): Promise<string | null> {
+	try {
+		return await resolveTagLocatorMediaPath(locator);
+	} catch (error) {
+		const typed = toDedaloError(error);
+		if (INSTALL_WIDE_CODES.has(typed.code)) {
+			if (memo.loggedOnce.has(typed.code)) return null;
+			memo.loggedOnce.add(typed.code);
+		}
+		const [componentTipo = '', sectionTipo = '', sectionId = ''] = key.split('|');
+		logError(
+			new DedaloError(typed.code, {
+				message: `svg tag media path unresolved, src="": ${typed.message}`,
+				coordinates: {
+					...typed.coordinates,
+					component_tipo: componentTipo,
+					section_tipo: sectionTipo,
+					section_id: sectionId,
+				},
+				cause: error,
+			}),
+			{ subsystem: 'component_text_area' },
+		);
+		return null;
+	}
 }
 
 /**
- * The svg URL for a PUBLISHED cell — the same-origin relative form
- * `/dedalo/<mediaDir>/…`, deliberately NOT rooted on `config.media.webBase`
- * (WC-042: published data must not embed the application's origin, which on a
- * dev machine is a localhost port).
- *
- * This is the DEFAULT resolver, so anything that renders a tag without saying
- * which audience it is for gets the publication shape. See
- * {@link appServedSvgUrlFromTagLocator} for the other audience and why the
- * distinction is load-bearing.
+ * Resolve every distinct svg locator of ONE text into a per-text map, seeded
+ * from the shared memo. Rendering reads only this map, so a shared-memo bound
+ * can never drop a key mid-text; new paths are written back after, and the
+ * shared memo is cleared only BETWEEN texts.
  */
-export function svgUrlFromTagLocator(locator: SvgTagLocator): string | null {
-	const tail = svgTagRelativePath(locator);
-	return tail === null ? null : `/dedalo/${config.mediaDir}${tail}`;
+async function resolveTextLocators(
+	text: string,
+	memo: SvgTagPathMemo,
+): Promise<Map<string, string | null>> {
+	const local = new Map<string, string | null>();
+	const fresh = new Map<string, string | null>();
+	let overCap = 0;
+	for (const [key, locator] of distinctSvgLocators(text)) {
+		if (memo.paths.has(key)) {
+			local.set(key, memo.paths.get(key) ?? null);
+		} else if (fresh.size >= SVG_TAG_RESOLUTIONS_PER_TEXT) {
+			local.set(key, null);
+			overCap++;
+		} else {
+			const path = await resolveOne(key, locator, memo);
+			local.set(key, path);
+			fresh.set(key, path);
+		}
+	}
+	reportOverCap(overCap, fresh.size);
+	writeBack(memo, fresh);
+	return local;
+}
+
+/** Every distinct, shape-valid svg locator of a text, keyed, in document order. */
+function distinctSvgLocators(text: string): Map<string, SvgTagLocator> {
+	const found = new Map<string, SvgTagLocator>();
+	for (const match of text.matchAll(SVG_MARK_PATTERN)) {
+		const locator = parseSvgTagLocator(match[7] ?? '');
+		const key = locator === null ? null : svgTagMemoKey(locator);
+		if (locator !== null && key !== null && !found.has(key)) found.set(key, locator);
+	}
+	return found;
+}
+
+/** ONE warning per text whose distinct locators exceeded the bound. */
+function reportOverCap(overCap: number, resolved: number): void {
+	if (overCap === 0) return;
+	console.warn(
+		`[component_text_area] svg tag locators over the per-text bound, src="" for ${overCap} distinct locator(s) (resolved ${resolved}, bound ${SVG_TAG_RESOLUTIONS_PER_TEXT})`,
+	);
+}
+
+/** Write a text's new paths back; the shared memo is cleared only here, BETWEEN texts. */
+function writeBack(memo: SvgTagPathMemo, fresh: Map<string, string | null>): void {
+	if (memo.paths.size + fresh.size > SVG_TAG_MEMO_LIMIT) memo.paths.clear();
+	for (const [key, path] of fresh) memo.paths.set(key, path);
 }
 
 /**
- * The svg URL for a cell THIS ENGINE SERVES TO ITS OWN BROWSER — rooted on
- * `config.media.webBase`, exactly like every other media URL the client
- * receives (`media/path.ts` mediaThumbUrl/subtitlesUrl, `tag_endpoint.ts`,
- * the DEDALO_MEDIA_URL global).
- *
- * WHY THE TWO DIFFER, since one function served both for six weeks and the
- * asymmetry is the whole bug (2026-09-01, tool_numisdata_epigraphy): an install
- * may serve media from a DIFFERENT ORIGIN than the application
- * (`DEDALO_MEDIA_WEB_BASE`, e.g. app on :3500, Apache media on :8080). A
- * root-relative src then resolves against the APP origin, which in
- * `publication` access mode does not serve media at all — so every glyph in
- * every text_area list cell 404s, silently, with a broken-image placeholder
- * and nothing in the log. The published audience must keep the relative form;
- * the served audience must not.
- *
- * NO-OP where the two audiences coincide: with the key unset `webBase` IS
- * `/dedalo/<mediaDir>` (src/config/config.ts), so a same-origin install — and
- * the whole test suite, which pins the key — gets byte-identical output. That
- * is also why this needs a SPLIT-ORIGIN gate: an assertion phrased in terms of
- * webBase passes with the defect intact.
+ * addTagImgOnTheFly with every svg mark's URL RESOLVED (T0-10): the locator's
+ * own media component, full path grammar (`initial_media_path`, the
+ * `max_items_folder` bucket, the record's `additional_path`), via the one core
+ * resolver. The renderer itself stays synchronous (one regex pass), so this
+ * pre-scans the svg marks, resolves each DISTINCT locator once (through the
+ * caller's memo), and hands the renderer a synchronous lookup.
  */
-export function appServedSvgUrlFromTagLocator(locator: SvgTagLocator): string | null {
-	const tail = svgTagRelativePath(locator);
-	return tail === null ? null : `${config.media.webBase}${tail}`;
+export async function renderTagsWithResolvedSvg(
+	text: string,
+	audience: SvgTagAudience,
+	memo: SvgTagPathMemo,
+	options: Omit<TagRenderOptions, 'svgUrl'> = {},
+): Promise<string> {
+	const local = await resolveTextLocators(text, memo);
+	const base = svgTagBase(audience);
+	return addTagImgOnTheFly(text, {
+		...options,
+		svgUrl: (locator) => {
+			const key = svgTagMemoKey(locator);
+			if (key === null) return null;
+			if (!local.has(key)) {
+				// The pre-scan and the render use ONE pattern, so every key the
+				// render meets was resolved. A miss is a breach — reported, src="".
+				logError(
+					new DedaloError('internal.invariant', {
+						message: 'svg tag rendered with a locator the pre-scan did not resolve',
+						coordinates: { key },
+					}),
+					{ subsystem: 'component_text_area' },
+				);
+				return null;
+			}
+			const path = local.get(key) ?? null;
+			return path === null ? null : `${base}${path}`;
+		},
+	});
 }
 
 export interface TagRenderOptions {
 	/** PHP $options->tag_url default '../component_text_area/tag'. */
 	tagUrl?: string;
-	/** svg tag URL resolver — defaults to the pure grammar twin above. */
+	/**
+	 * svg tag URL lookup — SYNCHRONOUS; the async resolution happens before the
+	 * render ({@link renderTagsWithResolvedSvg}, which every svg-rendering caller
+	 * goes through). Without one, an svg mark is refused loudly.
+	 */
 	svgUrl?: (locator: SvgTagLocator) => string | null;
+}
+
+/**
+ * The default lookup: there is none. A sync renderer cannot resolve a media
+ * path (ontology + record reads), and a grammar guess is the second producer
+ * T0-10 deleted — so a caller that renders an svg mark without resolving it is
+ * a wiring bug, refused loudly instead of emitting a wrong URL.
+ */
+function unresolvedSvgUrl(): never {
+	throw new DedaloError('internal.invariant', {
+		message:
+			'addTagImgOnTheFly: svg mark rendered without a resolved lookup — use renderTagsWithResolvedSvg',
+	});
 }
 
 /**
@@ -106,7 +270,7 @@ export interface TagRenderOptions {
  */
 export function addTagImgOnTheFly(text: string, options: TagRenderOptions = {}): string {
 	const tagUrl = `${options.tagUrl ?? '../component_text_area/tag'}/?id=`;
-	const svgUrl = options.svgUrl ?? svgUrlFromTagLocator;
+	const svgUrl = options.svgUrl ?? unresolvedSvgUrl;
 	let out = text;
 
 	// INDEX IN (groups: 2 type, 3 state, 4 id, 6 label, 7 data)
@@ -169,16 +333,9 @@ export function addTagImgOnTheFly(text: string, options: TagRenderOptions = {}):
 	// is a locator with single quotes; on parse failure PHP's callback returns
 	// null and the tag is removed (preg_replace_callback null → '').
 	out = out.replace(
-		/(\[(svg)-([a-z])-([0-9]{1,6})(-([^-]{0,22}))?-data:(.*?):data\])/g,
+		SVG_MARK_PATTERN,
 		(_m, _g1, g2: string, g3: string, g4: string, _g5, g6: string | undefined, g7: string) => {
-			const locatorText = g7.replace(/'/g, '"');
-			let locator: SvgTagLocator | null = null;
-			try {
-				const parsed: unknown = JSON.parse(locatorText);
-				if (parsed !== null && typeof parsed === 'object') locator = parsed as SvgTagLocator;
-			} catch {
-				locator = null;
-			}
+			const locator = parseSvgTagLocator(g7);
 			if (locator === null) return '';
 			const url = svgUrl(locator);
 			// PHP: $data = str_replace('"','\'',$_7) — safe single-quote form.

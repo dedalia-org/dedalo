@@ -11,17 +11,23 @@
 import { describe, expect, test } from 'bun:test';
 import { textAreaEmitHook } from '../../src/core/components/component_text_area/emit.ts';
 import type { EmitHookContext } from '../../src/core/components/emit_hooks.ts';
+import { EmissionContext } from '../../src/core/resolve/component_data.ts';
 
-/** The hook only reads ddoMode — a minimal context is honest here. */
-const ctx = (ddoMode: string): EmitHookContext => ({ ddoMode }) as EmitHookContext;
+/**
+ * The hook reads ddoMode and (for svg marks) the per-read memo on the
+ * emission's scratch — a minimal context is honest here.
+ */
+const ctx = (ddoMode: string): EmitHookContext =>
+	({ ddoMode, emission: new EmissionContext() }) as EmitHookContext;
 
-const transform = (value: unknown[] | null, mode = 'list'): unknown[] | null =>
-	// text_area's transformValue is declared and sync — the casts are honest
-	textAreaEmitHook.transformValue?.(value, ctx(mode)) as unknown[] | null;
+const transform = async (value: unknown[] | null, mode = 'list'): Promise<unknown[] | null> =>
+	// text_area's transformValue is declared (async since T0-10: svg marks resolve
+	// their media path) — the cast is honest
+	(await textAreaEmitHook.transformValue?.(value, ctx(mode))) as unknown[] | null;
 
 describe('text_area list emit — tag→img before truncation', () => {
-	test('geo tag renders to the oracle-exact img (fixture bytes)', () => {
-		const out = transform([{ value: '[geo-n-1--data:[1]:data] Puig de la Nau' }]);
+	test('geo tag renders to the oracle-exact img (fixture bytes)', async () => {
+		const out = await transform([{ value: '[geo-n-1--data:[1]:data] Puig de la Nau' }]);
 		expect(out).toEqual([
 			{
 				value:
@@ -30,9 +36,9 @@ describe('text_area list emit — tag→img before truncation', () => {
 		]);
 	});
 
-	test('conversion happens BEFORE truncation: img is uncounted markup and survives', () => {
+	test('conversion happens BEFORE truncation: img is uncounted markup and survives', async () => {
 		const longText = 'palabra '.repeat(40).trim(); // 319 plain chars > 130
-		const out = transform([{ value: `[geo-n-1--data:[1]:data] ${longText}` }]) as {
+		const out = (await transform([{ value: `[geo-n-1--data:[1]:data] ${longText}` }])) as {
 			value: string;
 		}[];
 		const value = (out[0] as { value: string }).value;
@@ -45,17 +51,17 @@ describe('text_area list emit — tag→img before truncation', () => {
 		expect(value.replace(/<.*?>/g, '').length).toBeLessThanOrEqual(130);
 	});
 
-	test('tag-free values still truncate to 130 plain chars', () => {
-		const out = transform([{ value: 'ab '.repeat(100) }]) as { value: string }[];
+	test('tag-free values still truncate to 130 plain chars', async () => {
+		const out = (await transform([{ value: 'ab '.repeat(100) }])) as { value: string }[];
 		const value = (out[0] as { value: string }).value;
 		expect(value.endsWith('...')).toBe(true);
 		expect(value.replace(/<.*?>/g, '').length).toBeLessThanOrEqual(130);
 	});
 
-	test('non-list mode and non-string/empty values pass through unchanged', () => {
+	test('non-list mode and non-string/empty values pass through unchanged', async () => {
 		const items = [{ value: '[geo-n-1--data:[1]:data]' }];
-		expect(transform(items, 'edit')).toBe(items);
+		expect(await transform(items, 'edit')).toBe(items);
 		const mixed = [null, 7, { value: '' }, { other: 1 }];
-		expect(transform(mixed)).toEqual(mixed);
+		expect(await transform(mixed)).toEqual(mixed);
 	});
 });
