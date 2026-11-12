@@ -187,6 +187,16 @@ The **term-string cache lives entirely in `ts_object/term_resolver.ts`**, not in
   every `dd_ontology` write fans out to. `clearSectionMapCache()` registers with
   the same hub.
 
+- A term part whose component is **not a plain text component** — a relation
+  (portal, autocomplete), a select, the record's own section id, a date — is
+  read as that component's flat display value (relations show their targets'
+  terms, joined with `' | '`). A term that reaches into **other records** this
+  way (anything but text parts and the section id) is **never cached**: it
+  would go stale when a target is renamed, and a relation without its own
+  `request_config` shows only the target components the requesting user may
+  read. Records whose terms quote each other end the loop: a term met again
+  on its own resolution path contributes nothing there.
+
 So the data flow is: **`section_map.ts` (raw map) → `term_resolver.ts`'s own
 scope walk (which key wins, and what the separator is) → joined string,
 cached in `term_resolver.ts`.**

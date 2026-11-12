@@ -412,6 +412,18 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-select-dataframe-subdatum`.
 
+- **Thesaurus labels drawn from a linked term, a list value or the record id are no longer blank or truncated.**
+
+    A section's display term can be built from a field that links to another record (for
+    example a catalogue entry labelled by its linked type), from a list value, or from the
+    record's own id. Those parts used to come out empty: such a record showed a blank label
+    wherever it was referenced — portal and autocomplete chips, the thesaurus tree, the graph
+    view, export parent chains, person and info tags — and a term combining several fields
+    lost the linked part. They now show the linked record's term, the list value or the id,
+    exactly as the field itself shows them, and a renamed linked record is reflected at once.
+
+    Wire contract: `WC-2026-11-10-section-terms-read-door`.
+
 - **Time Machine keeps the previous value on the first edit of imported data.**
 
     Editing a value that had no history yet — imported from a file, migrated from Dédalo

@@ -65,3 +65,17 @@ page's default `api_notices` subscriber like any narrowed read. No client change
 - `test/parity/section_terms_differential.test.ts` — corpus-bound red set unchanged
   (`engineering/parity_baseline.json`); the frozen capture runs as the superuser. No fixture edit,
   no re-harvest.
+
+## Addendum 2026-11-12 — a term part drawn from a non-literal component (T1-32 / O10)
+
+The `data` values for a section whose section_map `term` names a relation (autocomplete_hi —
+the Catalog shape —, autocomplete, portal), a select, or the record's own `component_section_id`
+were `''` (whole term) or missing that part: the term resolver read only literal string `value`
+items. They now carry the component's flat display value (PHP `get_value`), read through the
+interactive flat reader `resolveCellValue` — PHP parity restored, no new divergence. Admission is
+unchanged and covers it: the term component's grant is asked (step 2), and a relation component
+quotes its targets' terms through its subdatum exactly as it displays them; an implicit-config
+relation narrows its target children by the REQUEST principal. Such record-crossing terms are
+never served from nor stored in the shared term cache (a target rename and a per-principal
+narrowing would otherwise serve stale / cross-user). Gate:
+`test/unit/term_resolver_model_flat_native.test.ts` (incl. the `get_section_terms` leg).
