@@ -1,4 +1,4 @@
-# IRI value (`iri` column)
+# IRI values
 
 > Part of the [data model](index.md) family — the typed JSONB storage shapes
 > Dédalo writes into the `matrix` table. See

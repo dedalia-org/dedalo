@@ -1,4 +1,4 @@
-# Data model: `misc`, `meta` and `relation_search`
+# Misc, meta and relation_search values
 
 > See also: [Sections — typed-column storage](../sections/index.md#storage-detail-the-data-column-is-split-into-typed-jsonb-columns) · [Components](../components/index.md) · [Locator](../locator.md) · [Glossary](../glossary.md)
 

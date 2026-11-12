@@ -1,4 +1,4 @@
-# Adding or installing new hierarchies
+# Installing hierarchies
 
 > See also: [Management and maintenance](index.md) · [Thesaurus dependencies](../config/thesaurus_dependencies.md)
 

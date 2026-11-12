@@ -1,4 +1,4 @@
-# Backup Dédalo best practices – what to backup and how often
+# Backup best practices
 
 > See also: [Backup and restore](backup.md) · [Management and maintenance](index.md)
 

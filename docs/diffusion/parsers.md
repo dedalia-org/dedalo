@@ -1,4 +1,4 @@
-# Diffusion parsers — cookbook & reference
+# Diffusion parsers
 
 > See also: [The native diffusion engine](native_engine.md) · [Ontology](../core/ontology/index.md)
 

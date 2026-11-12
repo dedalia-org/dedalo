@@ -1,4 +1,4 @@
-# Media protection (media file access control)
+# Media protection
 
 > See also: [Configuration](config.md) · [Reverse proxy](../install/reverse_proxy.md) · [area_maintenance](../core/areas/area_maintenance.md) · [media_protection (internals)](../core/system/media_protection.md)
 

@@ -1,4 +1,4 @@
-# Dédalo diffusion data flow
+# Diffusion data flow
 
 > See also: [The diffusion engine](native_engine.md) · [Diffusion (system overview)](../core/system/diffusion.md) · [Publication API](publication_api/index.md) · [Glossary: diffusion](../core/glossary.md#diffusion)
 

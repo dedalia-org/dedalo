@@ -1,4 +1,4 @@
-# RAG — Install, Connect, Configure & Cookbook
+# RAG setup and cookbook
 
 > **The operational companion to [Retrieval-Augmented Generation & Semantic Search](rag.md).**
 > That document explains *what* the RAG subsystem is and *why* (Parts I–IV, for

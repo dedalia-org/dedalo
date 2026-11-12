@@ -1,4 +1,4 @@
-# Changing the parameters of Dédalo API server config file
+# Publication API v1 server config
 
 !!! warning "Legacy (v1) API"
     This page documents the **v1 PHP Publication API**, kept in Dédalo v7 for backward compatibility

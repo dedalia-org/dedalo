@@ -1,4 +1,4 @@
-# Set up Dédalo Publication API configuration files
+# Publication API v1 configuration files
 
 !!! warning "Legacy (v1) API"
     This page documents the **v1 PHP Publication API**, kept in Dédalo v7 for backward compatibility

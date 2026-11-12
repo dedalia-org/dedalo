@@ -1,4 +1,4 @@
-# dd_date — the `date` data object
+# Date values
 
 > See also: [Sections — typed-column storage](../sections/index.md#storage-detail-the-data-column-is-split-into-typed-jsonb-columns) · [component_date](../components/component_date.md) · [Components index](../components/index.md)
 

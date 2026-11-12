@@ -1,4 +1,4 @@
-# Request Config - Practical Examples
+# Request config examples
 
 A cookbook of real Dédalo v7 ontology `request_config` JSON, organized by scenario. Each entry keeps the scenario, the JSON, and an explanation of every non-obvious key.
 

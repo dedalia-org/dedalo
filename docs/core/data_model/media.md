@@ -1,4 +1,4 @@
-# Data type: media
+# Media values
 
 > The value shape stored in the `media` typed column — per-quality file
 > descriptors that point a record at its binaries on disk through a

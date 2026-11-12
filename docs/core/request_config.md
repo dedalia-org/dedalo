@@ -1,4 +1,4 @@
-# Request Config Architecture
+# Request config
 
 `src/core/relations/request_config/{build,explicit,implicit,filters,external,presets}.ts`
 implements the system; the pure contract (schemas + the strategy-selection rule)

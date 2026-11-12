@@ -1,4 +1,4 @@
-# String values (the `string` column)
+# String values
 
 > See also: [Sections — typed-column storage](../sections/index.md) · [`component_input_text`](../components/component_input_text.md) · [`component_text_area`](../components/component_text_area.md) · [`component_email`](../components/component_email.md) · [`component_password`](../components/component_password.md)
 

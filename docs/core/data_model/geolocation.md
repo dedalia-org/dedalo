@@ -1,4 +1,4 @@
-# Geolocation values — the `geo` column
+# Geolocation values
 
 > **Data model series.** This page documents a Dédalo v7 **data type** — the
 > JSON value shape as it is *stored*, independent of the component that produces

@@ -1,4 +1,4 @@
-# Dédalo v7 — Configuration Administrator Guide
+# How configuration works
 
 > How Dédalo v7 loads its configuration, where every value lives, and how you change it.
 > Coming from v6? Start with **[What changed in v7](whats_changed_v7.md)**, then **[§9 Migrating a v6 install](#9-migrating-a-v6-install)**.

@@ -1,4 +1,4 @@
-# How do I backup and restore the Dédalo data?
+# Backup and restore
 
 > See also: [Backup best practices](backup_best_practises.md) · [Management and maintenance](index.md)
 

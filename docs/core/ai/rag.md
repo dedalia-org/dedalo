@@ -1,4 +1,4 @@
-# Retrieval-Augmented Generation (RAG) & Semantic Search
+# RAG and semantic search
 
 > See also: **[RAG install, connect, configure & cookbook](rag_cookbook.md)** (the hands-on operational guide) · **[AI Assistant](assistant/index.md)** (the in-app chat agent that consumes this layer) · [Architecture overview](../architecture_overview.md) · [Search Query Object (SQO)](../sqo.md) · [Exporting data](../exporting_data.md) · [Glossary](../glossary.md) · [Ontology](../ontology/index.md)
 
