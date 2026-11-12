@@ -113,7 +113,7 @@ import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 import cloneMapJson from '../../src/core/test_data/test_tld_tipo_map.json';
 import { ensureCanonicalTest3 } from '../helpers/test_data.ts';
-import { stripRenderClass } from '../parity/normalize.ts';
+import { normalizeSectionIdTypes, stripRenderClass } from '../parity/normalize.ts';
 import golden from './fixtures/info_widget_native/entries.golden.json';
 
 /** Seed-shipped tipo, spelled so the census sees a reference, not a binding. */
@@ -280,6 +280,18 @@ const locatorOf = (sectionTipo: string, sectionId: number | string, from: string
 	from_component_tipo: from,
 });
 
+/**
+ * The INT-canonical locator (WC-2026-08-10-section-id-int-canonical) — what every
+ * TS writer and the v6 migration store. The NUMISDATA seeds (archive / coin /
+ * hoard / period registry) use it since T1-11: the PHP-era string shape above
+ * kept those goldens green while the widgets were dead on int data (strict
+ * `=== '2'` / `::text` row ids). The other widgets' seeds keep the legacy shape.
+ */
+const intLocatorOf = (sectionTipo: string, sectionId: number, from: string, id = 1) => ({
+	...locatorOf(sectionTipo, sectionId, from, id),
+	section_id: sectionId,
+});
+
 /** Every seeded scratch row — (section_tipo, section_id); the TABLE is resolved. */
 const SCRATCH_ROWS: { sectionTipo: string; sectionId: number }[] = [
 	{ sectionTipo: ARCHIVE, sectionId: IW.archive },
@@ -365,7 +377,7 @@ async function seedScratch(): Promise<void> {
 	await insertRow(ARCHIVE, IW.archive, {
 		relation: {
 			[ARCHIVE_COINS]: [IW.coinA, IW.coinB, IW.coinC, IW.coinD].map((coin, index) =>
-				locatorOf(COIN, coin, ARCHIVE_COINS, index + 1),
+				intLocatorOf(COIN, coin, ARCHIVE_COINS, index + 1),
 			),
 		},
 	});
@@ -377,8 +389,8 @@ async function seedScratch(): Promise<void> {
 	// get_coins_by_period (HOARD host); branch table in the header.
 	await insertRow(COIN, IW.coinA, {
 		relation: {
-			[COIN_USED]: [locatorOf(MINT, 1, COIN_USED)],
-			[COIN_PERIOD]: [locatorOf(PERIOD, 187, COIN_PERIOD)],
+			[COIN_USED]: [intLocatorOf(MINT, 1, COIN_USED)],
+			[COIN_PERIOD]: [intLocatorOf(PERIOD, 187, COIN_PERIOD)],
 		},
 		number: {
 			[COIN_WEIGHT]: [
@@ -390,15 +402,15 @@ async function seedScratch(): Promise<void> {
 	});
 	await insertRow(COIN, IW.coinB, {
 		relation: {
-			[COIN_USED]: [locatorOf(MINT, 1, COIN_USED)],
-			[COIN_PERIOD]: [locatorOf(PERIOD, 1, COIN_PERIOD)],
+			[COIN_USED]: [intLocatorOf(MINT, 1, COIN_USED)],
+			[COIN_PERIOD]: [intLocatorOf(PERIOD, 1, COIN_PERIOD)],
 		},
 		number: { [COIN_WEIGHT]: [{ id: 1, value: 5.0 }] },
 	});
 	await insertRow(COIN, IW.coinC, {
 		relation: {
-			[COIN_USED]: [locatorOf(MINT, 2, COIN_USED)],
-			[COIN_DUPLICATED]: [locatorOf(MINT, 2, COIN_DUPLICATED)],
+			[COIN_USED]: [intLocatorOf(MINT, 2, COIN_USED)],
+			[COIN_DUPLICATED]: [intLocatorOf(MINT, 2, COIN_DUPLICATED)],
 		},
 		number: { [COIN_WEIGHT]: [{ id: 1, value: 99 }] },
 	});
@@ -407,7 +419,7 @@ async function seedScratch(): Promise<void> {
 	await insertRow(HOARD, IW.hoard, {
 		relation: {
 			[HOARD_COINS]: [IW.coinA, IW.coinB, IW.coinC, IW.coinD].map((coin, index) =>
-				locatorOf(COIN, coin, HOARD_COINS, index + 1),
+				intLocatorOf(COIN, coin, HOARD_COINS, index + 1),
 			),
 		},
 	});
@@ -462,7 +474,7 @@ async function seedScratch(): Promise<void> {
 	await insertRow(HIERARCHY_REGISTRY, IW.periodRegistry, {
 		string: { hierarchy53: [{ id: 1, lang: 'lg-nolan', value: PERIOD }] },
 		relation: {
-			hierarchy45: [locatorOf(PERIOD, PERIOD_TERM_MATCHED, 'hierarchy45')],
+			hierarchy45: [intLocatorOf(PERIOD, PERIOD_TERM_MATCHED, 'hierarchy45')],
 		},
 	});
 	// The four ACTIVE hierarchy rows behind the media_icons descriptor grid's
@@ -812,6 +824,12 @@ async function expectCaseGolden(
 		expectGridCells?: boolean;
 		/** the INDEXATION grid's host section: strip + assert the post-capture drift */
 		postCaptureGridHost?: string;
+		/**
+		 * The golden's record addresses are PHP-era STRINGS; the engine emits INT
+		 * (WC-2026-08-10). Normalize the GOLDEN side only (contraction posture) —
+		 * an engine that re-emits "187" goes red.
+		 */
+		intGoldenIds?: boolean;
 	} = {},
 ): Promise<void> {
 	let renderClasses = 0;
@@ -830,10 +848,11 @@ async function expectCaseGolden(
 			expect(stripped).toBeGreaterThan(0);
 		}
 		renderClasses += stripRenderClass(entries);
+		const expected = adoptedGolden(golden.cases[caseName][mode], {
+			expectPreserved: options.expectPreservedToolScope,
+		});
 		expect(entries).toEqual(
-			adoptedGolden(golden.cases[caseName][mode], {
-				expectPreserved: options.expectPreservedToolScope,
-			}) as never,
+			(options.intGoldenIds === true ? normalizeSectionIdTypes(expected) : expected) as never,
 		);
 	}
 	if (driftTipos !== null) {
@@ -964,11 +983,64 @@ describe('component_info widget read-time compute (TS-native, oracle-captured go
 	}, 30000);
 
 	test('get_coins_by_period: direct grouping (use_parent false)', async () => {
-		await expectCaseGolden('coins_direct', LOCATION, IW.hoard, COINS_DIRECT);
+		// int-canonical seeds (T1-11): the term is matched and emitted with an INT
+		// section_id — WC-2026-11-12-numisdata-widgets-locator-law.
+		await expectCaseGolden('coins_direct', LOCATION, IW.hoard, COINS_DIRECT, {
+			intGoldenIds: true,
+		});
 	}, 30000);
 
 	test('get_coins_by_period: parent roll-up (use_parent true)', async () => {
+		// No hierarchy27 model is seeded here, so nothing can match: the golden
+		// (all '?') holds. It is ALSO the oracle record of the frozen PHP v7
+		// is_object() regression — see the array-model case below.
 		await expectCaseGolden('coins_rollup', LOCATION, IW.hoard, COINS_ROLLUP);
+	}, 30000);
+
+	test('get_coins_by_period: roll-up honours an ARRAY-stored hierarchy27 model (v6)', async () => {
+		// The v7 relation bag stores hierarchy27 as an ARRAY of locators; v6 read
+		// its first locator, frozen PHP v7's is_object() never matched (every coin
+		// fell to '?'). WC-2026-11-12-numisdata-widgets-locator-law. The widget
+		// config's target_model_section_id is 1. The model section has no `test`
+		// twin and the widget reads only the locator's section_id, so the locator
+		// points into PERIOD itself.
+		const table = await tableOf(PERIOD);
+		const model = [intLocatorOf(PERIOD, 1, 'hierarchy27')];
+		await sql.unsafe(
+			`UPDATE ${table} SET relation = $3::text::jsonb WHERE section_tipo = $1 AND section_id = $2`,
+			[PERIOD, PERIOD_TERM_MATCHED, JSON.stringify({ hierarchy27: model })],
+		);
+		try {
+			for (const mode of ['list', 'edit'] as const) {
+				const entries = await tsEntries(readRqo(LOCATION, IW.hoard, COINS_ROLLUP, mode));
+				expect(entries).toEqual([
+					[
+						{
+							widget: 'get_coins_by_period',
+							key: 0,
+							widget_id: 'period',
+							id: 'period',
+							value: [
+								{
+									section_id: PERIOD_TERM_MATCHED,
+									section_tipo: PERIOD,
+									parent: null,
+									label: 'Periodo',
+									count: 1,
+									model_section_id: 1,
+								},
+								{ section_id: null, section_tipo: null, parent: null, label: '?', count: 2 },
+							],
+						},
+					],
+				]);
+			}
+		} finally {
+			await sql.unsafe(
+				`UPDATE ${table} SET relation = NULL WHERE section_tipo = $1 AND section_id = $2`,
+				[PERIOD, PERIOD_TERM_MATCHED],
+			);
+		}
 	}, 30000);
 
 	test('media_icons + descriptors: icon rows, tool_context, term grid', async () => {

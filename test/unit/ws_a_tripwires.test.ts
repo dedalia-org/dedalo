@@ -913,8 +913,9 @@ const INLINE_SECTION_ID_MATCH_RATCHET = new Set<string>([
 	// 'current'/'self' IPO sentinel checks moved with their widgets (net zero
 	// — same code, new homes; the one info_widgets.ts entry became these five).
 	// calculation.ts retired 2026-11-12 (T1-1): the scope check reads a local.
-	'src/core/components/component_info/widgets/numisdata/get_archive_weights.ts',
-	'src/core/components/component_info/widgets/numisdata/get_coins_by_period.ts',
+	// numisdata/get_archive_weights.ts + get_coins_by_period.ts retired
+	// 2026-11-12 (T1-11): flag + term/tree/parent matching via compareLocators
+	// (widget_common isFlagSet) — WC-2026-11-12-numisdata-widgets-locator-law.
 	'src/core/components/component_info/widgets/oh/media_icons.ts',
 	'src/core/components/component_info/widgets/state/state.ts',
 	// SHRUNK 2026-09-05 (PERF-07): the two search builders' entries are GONE.

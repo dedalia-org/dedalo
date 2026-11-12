@@ -12,6 +12,7 @@
  * tripwire).
  */
 
+import { compareLocators, type Locator } from '../../../concepts/locator.ts';
 import { isMatrixTable } from '../../../db/matrix.ts';
 import { memoizedReadMatrixRecord } from '../../../db/record_memo.ts';
 import { DedaloError } from '../../../errors/dedalo_error.ts';
@@ -149,6 +150,23 @@ function isLegacyStateEntry(entry: unknown): boolean {
  */
 export function isLegacyStateResidue(items: unknown[]): boolean {
 	return items.length > 0 && items.every(isLegacyStateEntry);
+}
+
+/**
+ * The numisdata FLAG convention (PHP get_archive_weights / get_coins_by_period
+ * `'2'`): a yes/no flag component is "set" when its FIRST locator's section_id
+ * is 2. Value-based, by the locator law (WC-2026-11-12-numisdata-widgets-locator-law):
+ * stored locators are INT since WC-2026-08-10-section-id-int-canonical and
+ * legacy string ones survive, so 2, "2" and "02" are all the flag. section_tipo
+ * is NOT compared — PHP never did, and the vocabulary section is install-defined.
+ */
+export const FLAG_SET_SECTION_ID = 2;
+
+/** Whether a flag component's items say "set" (first locator section_id == 2). */
+export function isFlagSet(items: readonly unknown[]): boolean {
+	return compareLocators(items[0] as Locator, { section_id: FLAG_SET_SECTION_ID } as Locator, [
+		'section_id',
+	]);
 }
 
 /**

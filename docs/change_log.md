@@ -298,6 +298,20 @@ Merged since the last release; these ship with the next one.
     in the requested view, in edit and list alike, and a child's own `view` is honoured when
     the field asks for none.
 
+- **Archive weight statistics and coins-by-period counts are correct again**
+
+    The weight and diameter statistics of a numismatic archive counted coins marked as not used or
+    as duplicated. They now leave those coins out, as intended.
+
+    The coins-by-period summary of a hoard or find put every coin under **?**. It now groups the
+    coins by their period again, and the "group by parent" variant adds them up under the era the
+    thesaurus model marks.
+
+    Nothing in the database needs repairing: these values are computed when the record is shown.
+    Published values are refreshed by the republish described in the entry on information fields.
+
+    Wire contract: `WC-2026-11-12-numisdata-widgets-locator-law`.
+
 - **A select with a dataframe (such as the uncertainty of a coin's discovery method) shows and saves its frame again.**
 
     A select field whose configuration declares a dataframe slot showed no frame widget in the edit form, so its
@@ -905,7 +919,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 42 entries"
+??? note "Wire contract — 43 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -946,6 +960,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-image-id-media-file-stem`
     - `WC-2026-11-12-info-live-publication-export`
     - `WC-2026-11-12-marc21-config-map-and-transforms`
+    - `WC-2026-11-12-numisdata-widgets-locator-law`
     - `WC-2026-11-12-rdf-graph-interpretation`
     - `WC-2026-11-12-select-dataframe-subdatum`
     - `WC-2026-11-12-zotero-csl-json-import`
