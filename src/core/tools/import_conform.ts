@@ -56,6 +56,12 @@ export interface ImportConformContext {
 	wrapped: boolean;
 	/** The column map's decimal separator (component_number: ',' or '.'). */
 	decimal?: string;
+	/**
+	 * The value is TEXT, not a cell (ConformInput.literal — MARC21): the CSV-cell
+	 * grammar guard (isPlainBracketString) does not apply, so a MARC supplied
+	 * title '["Cartas"] : selección' is stored as-is, as PHP stored it.
+	 */
+	literal?: boolean;
 }
 
 /** A cell pre-decoded once by the caller (PHP is_json + json_handler::decode). */
@@ -729,7 +735,7 @@ const conformInputText: ImportConformFn = async (value, json, ctx) => {
 		return ok(null);
 	}
 
-	if (!isPlainBracketString(value)) {
+	if (ctx.literal !== true && !isPlainBracketString(value)) {
 		return fail(ctx, `IGNORED: malformed data ${asText(value)}`, value);
 	}
 	// '0' is a legitimate text value.
@@ -800,7 +806,7 @@ const conformTextArea: ImportConformFn = async (value, json, ctx) => {
 		return ok(null);
 	}
 
-	if (!isPlainBracketString(value)) {
+	if (ctx.literal !== true && !isPlainBracketString(value)) {
 		return fail(ctx, `IGNORED: malformed data ${asText(value)}`, value);
 	}
 	if (value === '') return ok(null);

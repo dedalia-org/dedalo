@@ -292,6 +292,7 @@ export async function conformImportData(input: ConformInput): Promise<ConformRes
 			lang: input.lang ?? 'lg-nolan',
 			wrapped: input.wrapped ?? false,
 			decimal: input.decimal,
+			literal: input.literal,
 		};
 		return IMPORT_CONFORM[conformId](input.importValue, json, ctx);
 	}

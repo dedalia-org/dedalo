@@ -49,9 +49,12 @@ imported nothing. v6 (`class.tool_import_marc21.php :21-330`) is.
   (first run of digits); `date_format:'year'` → `[{start:{year}}]`;
   `dd_data_map[code]` → the mapped data. `dd_action` writes its companions right
   after an entry that yielded a value. Entries save in map order, so a tipo
-  bound twice keeps the last non-empty one.
+  bound twice keeps the last non-empty one; a text the strip empties (`':'`,
+  `'.'`) yields nothing — no field, no companion.
 - **Literal text:** a transformed text value is conformed as TEXT, never
-  JSON-decoded (`MappedField.literal`); structured outputs (dates, locators,
+  JSON-decoded (`MappedField.literal`) and never refused by the CSV-cell
+  bracket guard (`'["Cartas"] : selección'` is stored as-is, as PHP did);
+  structured outputs (dates, locators,
   Values items) are JSON and pass the normal conform validation.
 - **Values form:** every non-empty `input_component` field is applied to every
   imported record, after its mapped fields (a Values value wins), inside that

@@ -865,6 +865,50 @@ describe('import_files: server config + ported value semantics (T1-6)', () => {
 		expect(await itemsOf('g8n', RADIO)).toEqual([]);
 	});
 
+	test('G9b: a literal is TEXT — a JSON-looking bracket title is stored, not refused as malformed', async () => {
+		stage('g9b.mrc', [
+			rec('g9b', title('["Cartas"] : selección'), {
+				tag: '246',
+				subfields: [['a', '[Carta a "La Barraca"]']],
+			}),
+		]);
+		const report = await run(
+			configWith(titleEntry, { info: 'Variant', field: '246', subfield: 'a', tipo: NOTE }),
+			'g9b.mrc',
+		);
+		expect(report.failed).toEqual([]);
+		expect(await valuesOf('g9b', TITLE)).toEqual(['["Cartas"] : selección']);
+		expect(await valuesOf('g9b', NOTE)).toEqual(['<p>[Carta a "La Barraca"]</p>']);
+	});
+
+	test('G5b: a value the strip empties yields nothing — no clear of a twice-bound tipo, no dd_action', async () => {
+		stage('g5b.mrc', [
+			rec(
+				'g5b',
+				{ tag: '260', subfields: [['a', 'Madrid']] },
+				{ tag: '264', subfields: [['a', ':']] },
+				{ tag: '020', subfields: [['a', '.']] },
+			),
+		]);
+		const report = await run(
+			configWith(
+				{ info: 'Place', field: '260', subfield: 'a', tipo: TITLE },
+				{ info: 'Place (RDA)', field: '264', subfield: 'a', tipo: TITLE },
+				{
+					info: 'ISBN',
+					field: '020',
+					subfield: 'a',
+					tipo: NOTE,
+					dd_action: { [RADIO]: [{ section_tipo: 'dd64', section_id: '2' }] },
+				},
+			),
+			'g5b.mrc',
+		);
+		expect(report.failed).toEqual([]);
+		expect(await valuesOf('g5b', TITLE)).toEqual(['Madrid']);
+		expect(await itemsOf('g5b', RADIO)).toEqual([]);
+	});
+
 	test('G10: conditional — the guarded occurrence, else the unconditional first (PHP fallback)', async () => {
 		const copy = (shelf: string, library: string): FieldSpec => ({
 			tag: '945',
@@ -991,43 +1035,25 @@ describe('parseMarcConfig refuses a malformed server config (T1-6)', () => {
 		);
 	});
 
-	test('the shipped register map (dd1633 shape) parses', () => {
-		const parsed = parseMarcConfig({
-			main,
-			map: [
-				{
-					info: 'ISBN',
-					tipo: 'test52',
-					field: '020',
-					dd_action: { test87: [] },
-					skip_on_empty: true,
-				},
-				{
-					info: 'Indexations',
-					tipo: 'test17',
-					field: ['600', '650'],
-					row_separator: '</p><p>',
-					field_multiple: true,
-					subfield_separator: ' - ',
-				},
-				{
-					info: 'Barcode',
-					tipo: 'test52',
-					field: '945',
-					subfield: 'i',
-					marc21_conditional: { value: '193', subfield: 'j' },
-				},
-				{
-					info: 'Date',
-					tipo: 'test145',
-					field: '260',
-					subfield: 'c',
-					date_format: 'year',
-					partial_left_content: 4,
-				},
-			],
-		});
-		expect(parsed.entries).toHaveLength(4);
+	/**
+	 * The SHIPPED default — the dd1633 value of tools/tool_import_marc21/register.json,
+	 * exactly as an install without a dd996 override receives it — must survive the
+	 * strict parser. A hand-built copy proved nothing: a documentation key or a
+	 * '4' partial_left_content added to the real file refused every MARC21 import
+	 * of every such install while the copy stayed green (T1-6 review).
+	 */
+	test('the shipped register map (register.json dd1633) parses', async () => {
+		const register = (await Bun.file(
+			resolve(import.meta.dir, '../../tools/tool_import_marc21/register.json'),
+		).json()) as { misc?: { dd1633?: { value?: unknown }[] } };
+		const shipped = mustGet(
+			register.misc?.dd1633?.[0]?.value,
+			'register.json misc.dd1633[0].value',
+		);
+		const shippedMap = (shipped as { map?: unknown[] }).map ?? [];
+		expect(shippedMap.length).toBeGreaterThan(0);
+		const parsed = parseMarcConfig(shipped as Record<string, unknown>);
+		expect(parsed.entries).toHaveLength(shippedMap.length);
 		expect(parsed.idSpec).toEqual({ field: '907', subfield: 'a' });
 	});
 
@@ -1049,5 +1075,3 @@ describe('parseMarcConfig refuses a malformed server config (T1-6)', () => {
 		]);
 	});
 });
-
-const main = [{ name: 'field_to_section_id', value: { field: '907', subfield: 'a' } }];

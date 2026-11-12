@@ -367,24 +367,41 @@ export interface MarcMappedField {
 	refusal?: string;
 }
 
+type MarcYield = Exclude<MarcTransformed, { kind: 'refused' }>;
+
+/** The entry's own field: literal TEXT, or structured JSON. */
+function ownField(entry: MarcMapEntry, transformed: MarcYield): MarcMappedField {
+	return transformed.kind === 'literal'
+		? { component_tipo: entry.component_tipo, values: [transformed.text], literal: true }
+		: { component_tipo: entry.component_tipo, values: [transformed.json] };
+}
+
+/** PHP `!empty($value)`: an empty text, a structured clear ('[]', a dd_data_map 'und') yielded nothing. */
+function yieldedValue(transformed: MarcYield): boolean {
+	return transformed.kind === 'literal' ? transformed.text !== '' : transformed.json !== '[]';
+}
+
+/** The entry's dd_action companions (none when it declares none). */
+function companionFields(entry: MarcMapEntry): MarcMappedField[] {
+	if (entry.dd_action === undefined) return [];
+	return Object.entries(entry.dd_action).map(([tipo, data]) => ({
+		component_tipo: tipo,
+		values: [JSON.stringify(data)],
+	}));
+}
+
 /** The fields one map entry contributes: its own value, then its dd_action companions. */
 function entryFields(raw: string, entry: MarcMapEntry): MarcMappedField[] {
 	const transformed = transformMarcValue(raw, entry);
 	if (transformed.kind === 'refused') {
 		return [{ component_tipo: entry.component_tipo, values: [raw], refusal: transformed.reason }];
 	}
-	const own: MarcMappedField =
-		transformed.kind === 'literal'
-			? { component_tipo: entry.component_tipo, values: [transformed.text], literal: true }
-			: { component_tipo: entry.component_tipo, values: [transformed.json] };
-	// PHP `!empty($value)`: a structured clear ('[]', a dd_data_map 'und') fires no companion.
-	const yielded = transformed.kind === 'literal' || transformed.json !== '[]';
-	if (!yielded || entry.dd_action === undefined) return [own];
-	const companions = Object.entries(entry.dd_action).map(([tipo, data]) => ({
-		component_tipo: tipo,
-		values: [JSON.stringify(data)],
-	}));
-	return [own, ...companions];
+	// A text the strip emptied (264$a ':', 020$a '.') yields NOTHING: no field
+	// (an empty literal would CLEAR the component, defeating "last non-empty
+	// wins" for a tipo bound twice) and no dd_action companion.
+	if (transformed.kind === 'literal' && transformed.text === '') return [];
+	const own = ownField(entry, transformed);
+	return yieldedValue(transformed) ? [own, ...companionFields(entry)] : [own];
 }
 
 /**
