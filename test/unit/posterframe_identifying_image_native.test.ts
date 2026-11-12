@@ -26,7 +26,9 @@
  *   zzpf11  VIRTUAL, exclude_elements → [zzpf2] (the GROUPER, not the portal)
  *   zzpf12  VIRTUAL, exclude_elements → [zzpf2, zzpf5]
  *   zzpf14  VIRTUAL with an OWN identifying portal zzpf15 (never part of scope)
- * One record per hit section, each pointing its zzpf6 at the AV record.
+ * One record per hit section, each pointing its zzpf6 at the AV record, plus a
+ * SECOND zzpf1 record (§SECOND_HIT_ID) so one section answers two hits — the
+ * per-section memo is only observable with more hits than distinct sections.
  */
 
 import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
@@ -59,6 +61,8 @@ const HAVE_BOTH = HAVE_FFMPEG && existsSync(resolveMagick());
 
 const AV_ID = 1;
 const HIT_ID = 7;
+/** A second hit in zzpf1: hits (6) > distinct sections (5). */
+const SECOND_HIT_ID = 8;
 const HIT_SECTIONS = ['zzpf1', 'zzpf10', 'zzpf11', 'zzpf12', 'zzpf14'] as const;
 const avLocator = { type: 'dd151', section_tipo: 'zzpf20', section_id: AV_ID };
 
@@ -209,6 +213,11 @@ const s = situation({
 			section_id: HIT_ID,
 			columns: { relation: { zzpf6: [{ ...avLocator, from_component_tipo: 'zzpf6' }] } },
 		})),
+		{
+			section_tipo: 'zzpf1',
+			section_id: SECOND_HIT_ID,
+			columns: { relation: { zzpf6: [{ ...avLocator, from_component_tipo: 'zzpf6' }] } },
+		},
 	],
 });
 
@@ -357,7 +366,15 @@ describe.if(DB_READY)('tool_posterframe identifying image — virtual edit scope
 		const spy = spyOn(implicit, 'editScopeComponents');
 		try {
 			const run = await handler('get_ar_identifying_image');
-			await run(ctx({ section_tipo: 'zzpf20', section_id: AV_ID }));
+			const body = (await run(ctx({ section_tipo: 'zzpf20', section_id: AV_ID }))) as {
+				data: Descriptor[];
+			};
+			// Non-vacuity: more hits than sections, so a per-hit walk would differ.
+			expect(body.data.length).toBe(HIT_SECTIONS.length + 1);
+			expect(body.data.filter((d) => d.section_tipo === 'zzpf1').map((d) => d.section_id)).toEqual([
+				HIT_ID,
+				SECOND_HIT_ID,
+			]);
 			const walked = spy.mock.calls.map((call) => call[0]);
 			expect(walked.length).toBe(HIT_SECTIONS.length);
 			expect(new Set(walked).size).toBe(walked.length);
