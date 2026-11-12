@@ -1702,7 +1702,7 @@ async function applySaveComponentData(
 	// behind the enforcing CSP; sits here at the write engine so EVERY door
 	// (client API, MCP, change-plan, import) funnels through it, exactly like the
 	// password hash gate below.
-	const changedData = await applyWriteValueGates(model, request.changedData);
+	const changedData = await applyWriteValueGates(model, componentTipo, request.changedData);
 	const mappedColumn = getColumnNameByModel(model);
 	if (mappedColumn === null || !MATRIX_JSONB_COLUMNS.includes(mappedColumn as MatrixJsonbColumn)) {
 		return { ok: false, message: `no matrix column for model '${model}'` };

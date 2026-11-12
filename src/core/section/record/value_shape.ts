@@ -41,7 +41,10 @@
  * normalized by validateRelationInsert (relations/save.ts), which only ever
  * ran on an object — a bare scalar slipped past it raw.
  *
- * Pure: the answer depends only on the column and the incoming changes.
+ * Pure: the answer depends only on the column and the incoming changes. The
+ * shape is all it checks: a number's node-declared type / precision (which
+ * needs the ontology) is applied AFTER this law, by the write value gates
+ * (write_value_gates.ts → component_number/number_format.ts, T1-40).
  *
  * THE RE-SAVE DOORS (canonicalStoredItems, below). A door that reads STORED
  * items and sends them back through set_data (tool_update_cache regenerate,

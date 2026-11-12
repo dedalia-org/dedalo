@@ -186,10 +186,10 @@ async function gateTranslatedItems(
 	model: string,
 	sourceSlice: readonly unknown[],
 	targetItems: readonly TranslatedItem[],
-	direction: { sourceLang: string; targetLang: string },
+	direction: { sourceLang: string; targetLang: string; componentTipo: string },
 ): Promise<{ items: unknown[]; emptyMsg: string | null }> {
 	const { gateComponentItems } = await import('../section/record/write_value_gates.ts');
-	const items = await gateComponentItems(model, targetItems);
+	const items = await gateComponentItems(model, direction.componentTipo, targetItems);
 	const emptied = items.some((item, index) =>
 		isEmptyTranslation(sourceText(sourceSlice[index]), sourceText(item)),
 	);

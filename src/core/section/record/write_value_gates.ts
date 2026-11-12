@@ -18,6 +18,13 @@
  * for a class — it has no matrix column either, so the graceful `no matrix
  * column` refusal downstream stays the answer, as it was before.
  *
+ * T1-40 / O06, OX2 — a component_number value is formatted as its node declares
+ * (`properties.type` / `precision`: int truncates, float rounds; untyped kept;
+ * a non-integer precision refused loudly) — PHP `component_number::set_data` →
+ * `set_format_form_type`. The law is `components/component_number/number_format.ts`;
+ * it is keyed on the matrix COLUMN the model stores in ('number'), and read off
+ * the DATA tipo the value is stored under (an alias writes with its target's format).
+ *
  * WHO CALLS IT. Not the record chokepoint (`persistRecordKeys` writes keys whose
  * model it does not know — relations, counters, ontology rows, TM replays), but
  * every writer that KNOWS it is storing a component value: the save door
@@ -29,14 +36,21 @@
  * reasoned exemption.
  */
 
+import {
+	formatNumberItems,
+	numberFormatOf,
+} from '../../components/component_number/number_format.ts';
 import { getComponentModel, getRenderClass } from '../../components/registry.ts';
+import { getColumnNameByModel, getPropertiesByTipo } from '../../ontology/resolver.ts';
 
 /**
  * Gate a list of changes (each carrying a `value`: one item or an item array)
- * for `model`. Returns new changes; the input is never mutated.
+ * for `model`, stored under `componentTipo` (the DATA tipo). Returns new
+ * changes; the input is never mutated.
  */
 export async function applyWriteValueGates<T extends { value: unknown }>(
 	model: string,
+	componentTipo: string,
 	changes: readonly T[],
 ): Promise<T[]> {
 	if (model === 'component_password') {
@@ -50,7 +64,25 @@ export async function applyWriteValueGates<T extends { value: unknown }>(
 		const { relativizeMediaSrc } = await import('../../media/web_base_src.ts');
 		return mapRichTextChanges(changes, (value) => relativizeMediaSrc(sanitizeRichText(value)));
 	}
+	if (getColumnNameByModel(model) === 'number') {
+		return await formatNumberChanges(componentTipo, changes);
+	}
 	return [...changes];
+}
+
+/** T1-40 — every number item of `changes` formatted as `componentTipo` declares. */
+async function formatNumberChanges<T extends { value: unknown }>(
+	componentTipo: string,
+	changes: readonly T[],
+): Promise<T[]> {
+	const format = numberFormatOf(await getPropertiesByTipo(componentTipo), componentTipo);
+	return changes.map((change) => {
+		if (Array.isArray(change.value)) {
+			return { ...change, value: formatNumberItems(change.value, format) };
+		}
+		const [item] = formatNumberItems([change.value], format);
+		return { ...change, value: item };
+	});
 }
 
 /**
@@ -60,8 +92,9 @@ export async function applyWriteValueGates<T extends { value: unknown }>(
  */
 export async function gateComponentItems(
 	model: string,
+	componentTipo: string,
 	items: readonly unknown[],
 ): Promise<unknown[]> {
-	const [gated] = await applyWriteValueGates(model, [{ value: [...items] }]);
+	const [gated] = await applyWriteValueGates(model, componentTipo, [{ value: [...items] }]);
 	return (gated?.value ?? []) as unknown[];
 }

@@ -108,3 +108,8 @@ callers (`render_draw.js`) pass a single locator to `set_data`, which it accepts
 A write that stores a shape no reader serves is a silent loss: the value is either
 invisible or destroys its sibling language on the next save, while the caller was told it
 succeeded. Refusing is the only answer that keeps the stored data readable.
+
+## Addendum 2026-11-12 — number values are also FORMATTED at the door
+
+After the shape law accepts a number item, the write value gates format it as its node declares
+(`properties.type` / `precision`; T1-40): WC-2026-11-12-number-type-precision-on-save.

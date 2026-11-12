@@ -1126,6 +1126,29 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-marc21-config-map-and-transforms`.
 
+- **Number fields are now stored with the type and decimals their definition declares, whichever way the value arrives.**
+
+    A number field defined as an integer (`type: int`) or with a fixed number of decimals
+    (`type: float`, `precision`) was only formatted while typing in the edit form. A value that
+    arrived any other way — a CSV or RDF import, the AI assistant, Propagate, an API call — was
+    stored exactly as sent: `3.14159` in a 2-decimal field, `3.7` in an integer field.
+
+    Now the server formats every value before storing it: an integer field drops the decimals
+    (`3.7` → `3`), a decimal field rounds half away from zero (`85.3568` → `85.36`,
+    `1.005` → `1.01`). The import preview shows the value that will be stored. A field with no
+    `type` is stored as given, as before. `0` is kept as `0` in the thesaurus order.
+
+    A field whose definition has a `precision` that is not a whole number (for example `"2"` in
+    quotes) is now reported as an ontology error: saving it is refused, and an import marks the
+    cell as failed.
+
+    Values already stored are shown as they were stored: values imported or written by the
+    assistant before this release may hold extra decimals, and changing a field's `precision`
+    does not change existing values. **Update cache → regenerate** on a section re-stores its
+    number values formatted.
+
+    Wire contract: `WC-2026-11-12-number-type-precision-on-save`.
+
 - **RDF publication produces real Linked Data (Nomisma).** *(action needed)*
 
     RDF publication (Nomisma and other Linked-Data services) now publishes each
@@ -1263,7 +1286,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 58 entries"
+??? note "Wire contract — 59 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1310,6 +1333,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-lang-fallback-judges-emptiness`
     - `WC-2026-11-12-locator-target-deleted-refused`
     - `WC-2026-11-12-marc21-config-map-and-transforms`
+    - `WC-2026-11-12-number-type-precision-on-save`
     - `WC-2026-11-12-numisdata-widgets-locator-law`
     - `WC-2026-11-12-posterframe-identifying-image-scope`
     - `WC-2026-11-12-rdf-graph-interpretation`

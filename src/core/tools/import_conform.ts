@@ -28,6 +28,13 @@
  * asymmetry is deliberate, not an omission.
  */
 
+import {
+	formatNumber,
+	formatNumberItems,
+	type NumberFormat,
+	numberFormatOf,
+	numberFormatRefusal,
+} from '../components/component_number/number_format.ts';
 import type { ImportConformId } from '../components/types.ts';
 import { hasCoordinate, isCoordinateInRange, toCoordinate } from '../concepts/geo_coordinate.ts';
 import { trimMatchText } from '../concepts/match_text.ts';
@@ -312,9 +319,11 @@ function validateDateItems(value: unknown, ctx: ImportConformContext, raw: strin
  * PHP component_number::string_to_number (:395-443). The DECIMAL separator comes
  * from the column map (the "Decimal" dropdown in the mapper UI), NOT from a
  * locale: ',' means '1.234,56' (thousands '.'), anything else means '1,234.56'.
- * Currency symbols and units are stripped.
+ * Currency symbols and units are stripped. The node's type/precision (an 'int'
+ * truncation, a float rounding) is the format law's job, applied after
+ * (T1-40 — `formatNumberItems`), exactly as PHP's set_data applied it.
  */
-function stringToNumber(raw: string, decimal: string | undefined, type: string): number | null {
+function stringToNumber(raw: string, decimal: string | undefined): number | null {
 	let text = raw;
 	if (decimal === ',') {
 		text = text.replaceAll('.', '');
@@ -324,7 +333,7 @@ function stringToNumber(raw: string, decimal: string | undefined, type: string):
 	}
 	text = text.replace(/[^-.,0-9]/g, '');
 	if (text === '') return null;
-	const parsed = type === 'int' ? Number.parseInt(text, 10) : Number.parseFloat(text);
+	const parsed = Number.parseFloat(text);
 	return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -364,11 +373,34 @@ function numberItems(items: unknown[]): { items: unknown[]; bad: unknown } {
 	return { items: out, bad: null };
 }
 
+/**
+ * The number node's format (T1-40), or the cell failure naming the node when
+ * its ontology declares a precision the law refuses — the import reports it per
+ * cell instead of aborting the run (the save door would throw
+ * `ontology.invalid_node` on the same node).
+ */
+async function numberFormatFor(
+	ctx: ImportConformContext,
+): Promise<{ format: NumberFormat } | { failure: string }> {
+	const { getPropertiesByTipo } = await import('../ontology/resolver.ts');
+	const properties = await getPropertiesByTipo(ctx.componentTipo);
+	const refusal = numberFormatRefusal(properties, ctx.componentTipo);
+	if (refusal !== null) return { failure: `IGNORED: ${refusal}` };
+	return { format: numberFormatOf(properties, ctx.componentTipo) };
+}
+
 const conformNumber: ImportConformFn = async (value, json, ctx) => {
+	if (!json.isJson && isEmptyString(value)) return ok(null);
+	const resolved = await numberFormatFor(ctx);
+	if ('failure' in resolved) return fail(ctx, resolved.failure, value);
+	const { format } = resolved;
+
+	// The preview is what will be stored: every item formatted as the node
+	// declares (the save door re-applies the same law, idempotently).
 	const conformed = (items: unknown[]): ConformResult => {
 		const { items: out, bad } = numberItems(items);
 		if (bad !== null) return fail(ctx, `IGNORED: malformed data ${asText(bad)}`, value);
-		return ok(out);
+		return ok(formatNumberItems(out, format));
 	};
 
 	if (json.isJson) {
@@ -387,16 +419,11 @@ const conformNumber: ImportConformFn = async (value, json, ctx) => {
 		return ok(null);
 	}
 
-	// '0' is a legitimate number — the ONE value PHP's empty() would swallow.
-	if (isEmptyString(value)) return ok(null);
-
-	const { getPropertiesByTipo } = await import('../ontology/resolver.ts');
-	const properties = (await getPropertiesByTipo(ctx.componentTipo)) as { type?: unknown } | null;
-	const type = typeof properties?.type === 'string' ? properties.type : 'float';
-
-	const parsed = stringToNumber(value, ctx.decimal, type);
+	// '0' is a legitimate number — the ONE value PHP's empty() would swallow
+	// (the empty-string check above lets it through).
+	const parsed = stringToNumber(value, ctx.decimal);
 	if (parsed === null) return fail(ctx, `IGNORED: malformed data ${asText(value)}`, value);
-	return ok([{ value: parsed }]);
+	return ok([{ value: formatNumber(parsed, format) }]);
 };
 
 // ---------------------------------------------------------------------------
