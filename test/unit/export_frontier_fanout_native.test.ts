@@ -54,6 +54,11 @@
  *   zzxg20 C         zzxg21 filter · zzxg22 label · zzxg23 autocomplete R2 → E [zzxg32]
  *   zzxg30 E         zzxg31 filter · zzxg32 label · zzxg33 image (the media-ZIP probe)
  *   zzxg40 D         zzxg41 filter · zzxg42 label
+ *   zzxg50 H         zzxg51 filter · zzxg52 label · zzxg53 relation_parent ·
+ *                    zzxg54 section_map (term [zzxg52, zzxg55]) · zzxg55
+ *                    autocomplete_hi → D [zzxg42] — a hierarchy whose TERM crosses
+ *                    into another record (T1-32 review: the parents chain's term
+ *                    read must carry the run's frontier); A's zzxg8 → H [zzxg52]
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -103,6 +108,15 @@ const E_IMAGE_PATH = '/image/1.5MB/0/zzxg_hidden.jpg';
 const D = 'zzxg40';
 const D_FILTER = 'zzxg41';
 const D_LABEL = 'zzxg42';
+/** A's leaf into the term-crossing hierarchy H. */
+const HL = 'zzxg8';
+const H = 'zzxg50';
+const H_FILTER = 'zzxg51';
+const H_LABEL = 'zzxg52';
+const H_PARENT = 'zzxg53';
+const H_MAP = 'zzxg54';
+/** H's TERM part that crosses into D (a relation — T1-32 model-flat term). */
+const H_TREL = 'zzxg55';
 
 const SENTINEL_ALPHA = 'zzxg alpha kestrel manuscript';
 const SENTINEL_BRAVO = 'zzxg bravo obsidian reliquary';
@@ -117,6 +131,9 @@ const ID = new (class {
 	readonly d = 1;
 	/** The b record's PARENT (a B record too) — the WC-049 parents-chain probe. */
 	readonly bParent = 2;
+	/** H records: h is A's HL target, hParent its ancestor (term crosses into d). */
+	readonly h = 1;
+	readonly hParent = 2;
 	/** A C record no row holds — the dangling deep locator. */
 	readonly missingC = 999;
 })();
@@ -244,6 +261,36 @@ const S = situation({
 		section(D, 'zz fan d'),
 		filter(D_FILTER, D),
 		label(D_LABEL, D),
+		{
+			tipo: HL,
+			parent: A,
+			model: 'component_autocomplete',
+			term: term('zz fan hier'),
+			properties: requestConfig(H, [H_LABEL]),
+		},
+		section(H, 'zz fan h'),
+		filter(H_FILTER, H),
+		label(H_LABEL, H),
+		{
+			tipo: H_PARENT,
+			parent: H,
+			model: 'component_relation_parent',
+			term: term('zz fan h parent'),
+		},
+		{
+			tipo: H_TREL,
+			parent: H,
+			model: 'component_autocomplete_hi',
+			term: term('zz fan h term rel'),
+			properties: requestConfig(D, [D_LABEL]),
+		},
+		{
+			tipo: H_MAP,
+			parent: H,
+			model: 'section_map',
+			term: term('zz fan h map'),
+			properties: { thesaurus: { term: [H_LABEL, H_TREL], parent: H_PARENT } },
+		},
 	],
 });
 
@@ -261,6 +308,7 @@ const CHAIN: Record<
 			[P]: [relationLocator(P, B, ID.b, 1)],
 			[Q]: [relationLocator(Q, B, ID.b, 1)],
 			[SEL]: [relationLocator(SEL, B, ID.b, 1)],
+			[HL]: [relationLocator(HL, H, ID.h, 1)],
 			[IRI_FRAME]: [
 				{
 					id: 1,
@@ -302,6 +350,20 @@ const CHAIN: Record<
 	},
 	e: { section: E, id: ID.e, filter: E_FILTER, label: E_LABEL },
 	d: { section: D, id: ID.d, filter: D_FILTER, label: D_LABEL },
+	h: {
+		section: H,
+		id: ID.h,
+		filter: H_FILTER,
+		label: H_LABEL,
+		relation: { [H_PARENT]: [{ ...relationLocator(H_PARENT, H, ID.hParent), type: 'dd47' }] },
+	},
+	hParent: {
+		section: H,
+		id: ID.hParent,
+		filter: H_FILTER,
+		label: H_LABEL,
+		relation: { [H_TREL]: [relationLocator(H_TREL, D, ID.d)] },
+	},
 };
 
 /** Lawful values each chain record holds while it sits in MY project. */
@@ -311,6 +373,8 @@ const LAWFUL: Record<string, string> = {
 	e: 'zzxg value e',
 	d: 'zzxg value d',
 	bParent: 'zzxg value parent',
+	h: 'zzxg value h',
+	hParent: 'zzxg value hparent',
 };
 
 async function writeRecord(
@@ -443,6 +507,7 @@ const SCOPED_GRANTS = [
 	{ sectionTipo: A, tipo: Q, level: 2 },
 	{ sectionTipo: A, tipo: SEL, level: 2 },
 	{ sectionTipo: A, tipo: IRI, level: 2 },
+	{ sectionTipo: A, tipo: HL, level: 2 },
 ];
 
 /** The admin: level 3 on every section and component of the situation. */
@@ -571,6 +636,48 @@ describe.if(DB_READY)('the export frontier covers the fan-out (T0-1 / S02)', () 
 				expect(adminBravo).toContain(SENTINEL_BRAVO);
 				const column = shape === 'compact' ? 'zz fan compact' : 'zz fan main';
 				expect(scopedAlpha).toBe(`REFUSED:${REFUSAL}:${JSON.stringify({ column })}`);
+				expect(scopedBravo).toBe(scopedAlpha);
+			});
+		}
+	});
+
+	/**
+	 * T1-32 review — an ANCESTOR's TERM that crosses into ANOTHER record (a
+	 * relation term part, the numisdata651 shape). The parents chain asks the
+	 * ancestor STRICT, then reads its term; the term's relation part reads d.
+	 * Before the fix the term resolver read d with NO frontier: the scoped
+	 * export carried a hidden record's value no other door would let out.
+	 */
+	describe('the WC-049 PARENTS chain: an ancestor TERM crossing into another record', () => {
+		const writeHierarchy = async () => {
+			await writeRecord('h', identity.myProject, LAWFUL.h as string);
+			await writeRecord('hParent', identity.myProject, LAWFUL.hParent as string);
+		};
+
+		for (const shape of ['value', 'fanout'] as const) {
+			test(`${shape}: LAWFUL — an in-scope term target exports inside the chain`, async () => {
+				await resetChain();
+				await writeHierarchy();
+				const answer = await exportAnswer(identity.scoped, shape, true, HL);
+				expect(answer.startsWith('OK:'), answer).toBe(true);
+				expect(answer).toContain(LAWFUL.hParent as string);
+				expect(answer).toContain(LAWFUL.d as string);
+			});
+
+			test(`${shape}: REFUSES — a hidden term target throws by the column (STRICT); admin sees it`, async () => {
+				await resetChain();
+				await writeHierarchy();
+				const answers: Record<string, string[]> = { scoped: [], admin: [] };
+				for (const sentinel of [SENTINEL_ALPHA, SENTINEL_BRAVO]) {
+					await writeRecord('d', identity.otherProject, sentinel);
+					answers.scoped?.push(await exportAnswer(identity.scoped, shape, true, HL));
+					answers.admin?.push(await exportAnswer(identity.admin, shape, true, HL));
+				}
+				const [scopedAlpha, scopedBravo] = answers.scoped as [string, string];
+				const [adminAlpha, adminBravo] = answers.admin as [string, string];
+				expect(adminAlpha).toContain(SENTINEL_ALPHA);
+				expect(adminBravo).toContain(SENTINEL_BRAVO);
+				expect(scopedAlpha).toBe(`REFUSED:${REFUSAL}:${JSON.stringify({ column: 'zz fan hier' })}`);
 				expect(scopedBravo).toBe(scopedAlpha);
 			});
 		}

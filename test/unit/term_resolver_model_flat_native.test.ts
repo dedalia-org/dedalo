@@ -14,6 +14,11 @@
  * on those records AND on the request principal (implicit-config narrowing), so
  * it is never served from — nor stored in — the content-keyed process cache.
  *
+ * FRONTIER law (T1-32 review): a frontier-armed caller (the export) threads its
+ * CellFrontier into the term read; every record the term crosses into and
+ * every implicit child it reads there is asked of it — refusal skips, a throw
+ * propagates. (End-to-end twin: export_frontier_fanout_native, parents chain.)
+ *
  * Situation: `zztrm` scratch TLD on matrix_test, built by ensureSituation and
  * dropped after (residue asserted 0). Identity: exportFrontierIdentity at its
  * own explicit ids (935100+), swept strictly.
@@ -23,6 +28,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { ApiRequestContext } from '../../src/core/api/handler_context.ts';
 import { coreApiActions } from '../../src/core/api/handlers/dd_core_api.ts';
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
+import type { CellFrontier } from '../../src/core/resolve/relation_list.ts';
 import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { type Principal, resolvePrincipal } from '../../src/core/security/permissions.ts';
@@ -86,6 +92,10 @@ const C1_REL = 'zztrm82';
 const C2 = 'zztrm90';
 const C2_NAME = 'zztrm91';
 const C2_REL = 'zztrm92';
+// H7 — term = [portal with NO config children → H1] (relation_list's no-children
+// branch: the label is H1's TERM via datalist resolveLocatorLabels, which crosses on to T)
+const H7 = 'zztrm100';
+const H7_SEL = 'zztrm101';
 
 const term = (value: string) => ({ [LANG]: value });
 const section = (tipo: string) => ({
@@ -202,6 +212,7 @@ function records() {
 				relation: { [C2_REL]: link(C2_REL, C1, [1]) },
 			},
 		},
+		{ section_tipo: H7, section_id: 1, columns: { relation: { [H7_SEL]: link(H7_SEL, H1, [1]) } } },
 	];
 }
 
@@ -256,6 +267,23 @@ const S = situation({
 		input(C2_NAME, C2),
 		relation(C2_REL, C2, 'component_portal', { properties: termConfig(C1) }),
 		sectionMap('zztrm99', C2, [C2_NAME, C2_REL]),
+
+		section(H7),
+		// a ddo with NO parent is no config child (D11) → the no-children branch;
+		// the label pick (datalist) still takes it, and it is H1's term tipo
+		relation(H7_SEL, H7, 'component_portal', {
+			properties: {
+				source: {
+					request_config: [
+						{
+							sqo: { section_tipo: [{ value: [H1], source: 'section' }] },
+							show: { ddo_map: [{ tipo: H1_REL, section_tipo: H1 }] },
+						},
+					],
+				},
+			},
+		}),
+		sectionMap('zztrm109', H7, [H7_SEL]),
 	],
 	records: records(),
 });
@@ -285,6 +313,27 @@ function termAs(principal: Principal, sectionTipo: string, sectionId: number) {
 		{ principal, session: null, requestId: 't1-32-term', clientIp: '' },
 		() => termOf(sectionTipo, sectionId, true),
 	);
+}
+
+/** A recording frontier: refuses (false) or throws on the listed `tipo#id` crossings. */
+function spyFrontier(
+	refuse: readonly string[] = [],
+	mode: 'skip' | 'throw' = 'skip',
+	implicit?: readonly string[],
+): { frontier: CellFrontier; asked: string[] } {
+	const asked: string[] = [];
+	const frontier: CellFrontier = {
+		crossRecord: async (sectionTipo, sectionId) => {
+			const key = `${sectionTipo}#${String(sectionId)}`;
+			asked.push(key);
+			if (!refuse.includes(key)) return true;
+			if (mode === 'throw') throw new Error(`frontier refused ${key}`);
+			return false;
+		},
+		implicitChildren: async (_sectionTipo, tipos) =>
+			new Set(implicit === undefined ? tipos : tipos.filter((tipo) => implicit.includes(tipo))),
+	};
+	return { frontier, asked };
 }
 
 /** Fails loudly instead of hanging the run (the cycle leg's red is a non-terminating read). */
@@ -398,6 +447,72 @@ describe.if(DB_READY)('T1-32 — term parts drawn from non-literal components', 
 		const value = await bounded(termOf(C1, 1));
 		// C1 → C2's term ('Cycle B' + its relation back to C1, cut on the path).
 		expect(value).toBe('Cycle A, Cycle B');
+	});
+
+	describe("FRONTIER: a frontier-armed caller's term read asks its frontier (T1-32 review)", () => {
+		const armed = (sectionTipo: string, sectionId: number, frontier: CellFrontier) =>
+			runWithRequestContext(
+				{ principal: root, session: null, requestId: 't1-32-frontier', clientIp: '' },
+				() =>
+					runWithRequestLangs({ applicationLang: LANG, dataLang: LANG }, () =>
+						getTermByLocator(
+							{ section_tipo: sectionTipo, section_id: sectionId },
+							LANG,
+							true,
+							'thesaurus',
+							{
+								frontier,
+							},
+						),
+					),
+			);
+
+		test('every crossed target is asked; a refused target is skipped', async () => {
+			const open = spyFrontier();
+			expect(await armed(H1, 2, open.frontier)).toBe('Target one | Target two');
+			expect(open.asked).toEqual([`${T}#1`, `${T}#2`]);
+			const narrowed = spyFrontier([`${T}#1`]);
+			expect(await armed(H1, 2, narrowed.frontier)).toBe('Target two');
+		});
+
+		test("a throwing frontier (the export's law) propagates — nothing is read past it", async () => {
+			const strict = spyFrontier([`${T}#2`], 'throw');
+			await expect(armed(H4, 1, strict.frontier)).rejects.toThrow(`frontier refused ${T}#2`);
+		});
+
+		test('implicit children answer to the frontier, not to the ambient principal', async () => {
+			// root sees T_SECRET ambiently; the frontier allows only T_TERM
+			const only = spyFrontier([], 'skip', [T_TERM]);
+			expect(await armed(H6, 1, only.frontier)).toBe('Target one');
+			expect(only.asked).toEqual([`${T}#1`]);
+		});
+
+		test('nested crossings (a target term crossing back) are asked at every depth', async () => {
+			const deep = spyFrontier();
+			expect(await bounded(armed(C1, 1, deep.frontier))).toBe('Cycle A, Cycle B');
+			expect(deep.asked).toContain(`${C2}#1`);
+			expect(deep.asked).toContain(`${C1}#1`);
+		});
+
+		test("a label read through the target's TERM (no-children branch) carries the frontier on", async () => {
+			const open = spyFrontier();
+			expect(await armed(H7, 1, open.frontier)).toBe('Target one');
+			// H1#1 asked by the branch itself; T#1 only if the label's term read got the frontier
+			expect(open.asked).toEqual([`${H1}#1`, `${T}#1`]);
+			const strict = spyFrontier([`${T}#1`], 'throw');
+			await expect(armed(H7, 1, strict.frontier)).rejects.toThrow(`frontier refused ${T}#1`);
+		});
+
+		test('getDdoValueByLocator (the M badge reader) threads the frontier too', async () => {
+			const strict = spyFrontier([`${T}#1`], 'throw');
+			await expect(
+				runWithRequestLangs({ applicationLang: LANG, dataLang: LANG }, () =>
+					getDdoValueByLocator({ section_tipo: H1, section_id: 1 }, [H1_REL], ', ', LANG, {
+						frontier: strict.frontier,
+					}),
+				),
+			).rejects.toThrow(`frontier refused ${T}#1`);
+		});
 	});
 
 	test('get_section_terms (the graph door) returns the relation-drawn term', async () => {

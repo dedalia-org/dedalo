@@ -335,7 +335,11 @@ async function resolveParentsChain(
 		// project-gated table is not.
 		// STRICT (D4): the parents chain is beyond any column's display.
 		await exportCrossRecord(run.atoms, ancestor.section_tipo, ancestor.section_id, 'strict');
-		const term = await getTermByLocator(ancestor, lang, true);
+		// …and a TERM that crosses into other records (a relation term part,
+		// T1-32) reads them under the SAME strict frontier (T1-32 review).
+		const term = await getTermByLocator(ancestor, lang, true, 'thesaurus', {
+			frontier: strictCellOpts(run).frontier,
+		});
 		if (term !== null && term !== '') parts.push(term);
 	}
 	const chain = parts.length > 0 ? parts.join(PARENTS_SEPARATOR) : null;

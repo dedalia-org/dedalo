@@ -54,7 +54,11 @@ import type { SearchStatement } from '../search/search_statement.ts';
 import { registerSectionDataListener } from '../section_record/save_event.ts';
 import type { Principal } from '../security/permissions.ts';
 import { currentPrincipal } from '../security/request_context.ts';
-import { getTermByLocator, getTermTipos } from '../ts_object/term_resolver.ts';
+import {
+	getTermByLocator,
+	getTermTipos,
+	type TermReadOptions,
+} from '../ts_object/term_resolver.ts';
 import type { FilterDatalistItem } from './filter_projects.ts';
 import { buildRequestConfigForElement } from './request_config/build.ts';
 import { extractSqoSectionTipos, type RequestConfigContext } from './request_config/explicit.ts';
@@ -896,6 +900,8 @@ async function getTargetSectionDatalist(
  * datalist (which enumerates every target-section record; unbounded
  * hierarchies reach 200K+ rows). Labels return in alphabetical order,
  * matching the datalist-ordered output of get_list_value.
+ * `termOpts` = a frontier-armed caller's frontier, threaded into a label read
+ * through the term resolver (its term may cross further — T1-32 review).
  */
 export async function resolveLocatorLabels(
 	componentTipo: string,
@@ -903,6 +909,7 @@ export async function resolveLocatorLabels(
 	ownerSectionTipo: string,
 	lang: string,
 	storedLocators: { section_tipo?: unknown; section_id?: unknown }[],
+	termOpts: TermReadOptions = {},
 ): Promise<string[]> {
 	if (storedLocators.length === 0) return [];
 	const context: RequestConfigContext = {
@@ -932,6 +939,8 @@ export async function resolveLocatorLabels(
 				{ section_tipo: targetSection, section_id: targetId },
 				lang,
 				true,
+				'thesaurus',
+				termOpts,
 			);
 			if (term !== null && term !== '') labels.push(term);
 			continue;

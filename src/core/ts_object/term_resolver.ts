@@ -27,6 +27,13 @@
  * depends on the targets' data and, for an implicit request_config, on the
  * request principal — see {@link termCrossesRecords}.
  *
+ * THE CALLER'S FRONTIER (T1-32 review): a record-crossing term reads OTHER
+ * records, so a frontier-armed caller (the export: parents chain, a relation
+ * label resolved through the term) hands its `CellFrontier` in
+ * {@link TermReadOptions}; every crossing and implicit child the term's flat
+ * read makes is then asked of it, exactly as the caller's own cell read would.
+ * Absent = the interactive contract (ALS principal narrows implicit children).
+ *
  * PHP anchors: get_term_data_by_locator (:95), get_term_by_locator (:188),
  * invalidate_node (:304). section_map scope resolution mirrors
  * class.section_map.php resolve_key_scope/get_term_tipos/get_fields_separator.
@@ -47,7 +54,24 @@ import {
 } from '../ontology/resolver.ts';
 import { getSectionMap } from '../ontology/section_map.ts';
 import { getTldFromTipo } from '../ontology/tld.ts';
+import type { CellFrontier, CellValueResolveOptions } from '../resolve/relation_list.ts';
 import { currentDataLang } from '../resolve/request_lang.ts';
+
+/**
+ * What a frontier-armed caller threads into a term read. `frontier` = the
+ * caller's CellFrontier (relation_list.ts): the term's record-crossing parts
+ * ask it for every target record and implicit child, so a term never reads
+ * what the caller's own cell read would refuse. The HOST record is not asked —
+ * the caller authorized it before asking for its term.
+ */
+export interface TermReadOptions {
+	frontier?: CellFrontier;
+}
+
+/** The flat-reader options a term part passes on (only the frontier, never the caller's sinks). */
+function cellOptsOf(opts: TermReadOptions): CellValueResolveOptions | undefined {
+	return opts.frontier === undefined ? undefined : { frontier: opts.frontier };
+}
 
 /** section_map::DEFAULT_FIELDS_SEPARATOR. */
 const DEFAULT_FIELDS_SEPARATOR = ', ';
@@ -292,6 +316,7 @@ async function modelFlatFragment(
 	sectionId: number | string,
 	tipo: string,
 	lang: string,
+	opts: TermReadOptions,
 ): Promise<string> {
 	// CONVENTIONS §2 rationale 1 (cycle-breaking at the term chokepoint):
 	// relation_list → relations/datalist → term_resolver is a static edge, and a
@@ -301,7 +326,17 @@ async function modelFlatFragment(
 	// relation_cycle cut) are not surfaced here: how a term reports them is the
 	// pending owner decision T1-32 O1 (throw vs '' + log).
 	const unresolved: string[] = [];
-	return (await resolveCellValue(sectionTipo, sectionId, tipo, lang, unresolved)) ?? '';
+	return (
+		(await resolveCellValue(
+			sectionTipo,
+			sectionId,
+			tipo,
+			lang,
+			unresolved,
+			undefined,
+			cellOptsOf(opts),
+		)) ?? ''
+	);
 }
 
 /** The value of one term component in `lang` with main-lang fallback. */
@@ -310,9 +345,10 @@ async function termComponentValue(
 	sectionId: number | string,
 	tipo: string,
 	lang: string,
+	opts: TermReadOptions,
 ): Promise<string> {
 	if ((await modelFlatFamily(tipo)) !== null) {
-		return modelFlatFragment(sectionTipo, sectionId, tipo, lang);
+		return modelFlatFragment(sectionTipo, sectionId, tipo, lang, opts);
 	}
 	const items = await readComponentItems(sectionTipo, sectionId, tipo);
 	if (items.length === 0) return '';
@@ -360,7 +396,8 @@ export async function getTermDataByLocator(
  * the request-scope cache. When no term tipos resolve, returns the deterministic
  * locator-string fallback `${section_tipo}_${section_id}[_component_tipo[_tag_id]]`
  * so orphan locators always render something. Writes the cache unless the term
- * crosses into other records (termCrossesRecords).
+ * crosses into other records (termCrossesRecords). A frontier-armed caller
+ * passes its frontier in `opts` (TermReadOptions).
  */
 export async function getTermByLocator(
 	locator: TermLocator,
@@ -370,6 +407,7 @@ export async function getTermByLocator(
 	lang: string = currentDataLang(),
 	fromCache = false,
 	scope: string | null = 'thesaurus',
+	opts: TermReadOptions = {},
 ): Promise<string | null> {
 	const sectionTipo = locator.section_tipo;
 	if (typeof sectionTipo !== 'string') return null;
@@ -388,7 +426,7 @@ export async function getTermByLocator(
 		termTipos.length === 0
 			? locatorStringFallback(locator, sectionTipo)
 			: await joinCrossingGuarded(cacheable, cacheUid, async () =>
-					(await termParts(sectionTipo, sectionId ?? '', termTipos, lang)).join(
+					(await termParts(sectionTipo, sectionId ?? '', termTipos, lang, opts)).join(
 						await getFieldsSeparator(sectionTipo, scope),
 					),
 				);
@@ -410,10 +448,11 @@ async function termParts(
 	sectionId: number | string,
 	termTipos: readonly string[],
 	lang: string,
+	opts: TermReadOptions,
 ): Promise<string[]> {
 	const fragments: string[] = [];
 	for (const tipo of termTipos) {
-		const current = await termComponentValue(sectionTipo, sectionId, tipo, lang);
+		const current = await termComponentValue(sectionTipo, sectionId, tipo, lang, opts);
 		if (current !== '') fragments.push(current);
 	}
 	return fragments;
@@ -467,13 +506,15 @@ async function joinCrossingGuarded(
  * Shares termByLocatorCache under a `ddo:<tipos>` scope key so it inherits the
  * per-section-tipo eviction on save/delete and the ontology-hub clear; a private
  * cache here would serve renamed models stale forever. A tipo list crossing into
- * other records bypasses the cache (termCrossesRecords, T1-32).
+ * other records bypasses the cache (termCrossesRecords, T1-32) and asks a
+ * frontier-armed caller's `opts.frontier` for every crossing (TermReadOptions).
  */
 export async function getDdoValueByLocator(
 	locator: TermLocator,
 	tipos: string[],
 	fieldsSeparator: string = DEFAULT_FIELDS_SEPARATOR,
 	lang: string = currentDataLang(),
+	opts: TermReadOptions = {},
 ): Promise<string> {
 	const sectionTipo = locator.section_tipo;
 	const sectionId = locator.section_id;
@@ -489,7 +530,7 @@ export async function getDdoValueByLocator(
 	const value = await joinCrossingGuarded(cacheable, cacheUid, async () => {
 		const fragments: string[] = [];
 		for (const tipo of tipos) {
-			const current = await ddoComponentValue(sectionTipo, sectionId, tipo, lang);
+			const current = await ddoComponentValue(sectionTipo, sectionId, tipo, lang, opts);
 			if (current !== '') fragments.push(current);
 		}
 		return fragments.join(fieldsSeparator);
@@ -504,9 +545,10 @@ async function ddoComponentValue(
 	sectionId: number | string,
 	tipo: string,
 	lang: string,
+	opts: TermReadOptions,
 ): Promise<string> {
 	if ((await modelFlatFamily(tipo)) !== null) {
-		return modelFlatFragment(sectionTipo, sectionId, tipo, lang);
+		return modelFlatFragment(sectionTipo, sectionId, tipo, lang, opts);
 	}
 	const items = await readComponentItems(sectionTipo, sectionId, tipo);
 	if (items.length === 0) return '';

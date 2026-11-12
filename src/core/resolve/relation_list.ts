@@ -694,9 +694,16 @@ async function expandRelationTargets(
 			) {
 				continue;
 			}
-			const labels = await resolveLocatorLabels(componentTipo, properties, sectionTipo, lang, [
-				locator,
-			]);
+			// The label may be the target's TERM, which may cross further (T1-32):
+			// the caller's frontier rides along (T1-32 review).
+			const labels = await resolveLocatorLabels(
+				componentTipo,
+				properties,
+				sectionTipo,
+				lang,
+				[locator],
+				{ frontier: opts?.frontier },
+			);
 			targets.push({
 				index,
 				sectionTipo: typeof locator?.section_tipo === 'string' ? locator.section_tipo : null,
