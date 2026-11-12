@@ -163,14 +163,16 @@ shared by `area_thesaurus` and `area_ontology`.
 - Pagination totals use `countChildrenOrNull` (`src/core/relations/children.ts`)
   — a SQL count instead of loading every child row.
 
-!!! note "What a tree node does not resolve"
+!!! note "What a tree node resolves"
     Node reads cover the term/string family, the `is_descriptor` relations, the
-    `component_relation_index` counts (the "U" button, below) and
-    `link_children` resolution. Two element behaviours are deliberately out of
-    scope: a `component_relation_related` element does not get its inverse
-    references merged in, and a `component_svg` element does not resolve to a
-    file URL. The indexation *grid* is a separate subsystem — the node builder
-    produces counts only (see [dd_grid](../system/dd_grid.md)).
+    `component_relation_index` counts (the "U" button, below), `link_children`
+    resolution and a `component_svg` element's file URL. A
+    `component_relation_related` element carries its stored links plus the
+    records of the same section that point at this one (one hop), unless the
+    relation is unidirectional — so an equivalence (`EQ`) icon shows on both
+    terms, not only on the one where the link was entered. The indexation
+    *grid* is a separate subsystem — the node builder produces counts only (see
+    [dd_grid](../system/dd_grid.md)).
 
 ### Client
 

@@ -437,6 +437,10 @@ Merged since the last release; these ship with the next one.
     history is kept, and a deleted one cannot be recovered from the Time Machine (statistics can
     always be rebuilt from the activity log). History already recorded for them is left as it is.
 
+- **The thesaurus tree shows the equivalence (EQ) icon on both terms of an equivalence, not only on the one where it was entered.**
+
+    Before, only the term that stored a related link showed its icon (for example `EQ`); the term it pointed at, in the same thesaurus, showed nothing. Now the target term shows the icon too, for bidirectional and multidirectional relations. Unidirectional relations (`TR`) are unchanged: they show only on the term that stores them.
+
 - **Search, export and cache-update field lists no longer offer obsolete field types.**
 
     Ontologies carried over from older versions still hold field types this version does not implement (for example the old security-areas field of the Profiles section). They were offered in the search panel's field list, in the export field picker and in the cache-update tool, where choosing one did nothing or broke the panel. They are no longer listed, and neither is anything nested inside them. Edit forms already left them out; they now apply the same rule, which also covers two never-implemented field types it used to miss.
