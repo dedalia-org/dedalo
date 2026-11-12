@@ -35,9 +35,9 @@ import { siteNames } from '../web/site.ts';
 import { certDirCommand, inCheckout, rememberNewVolumes, stackCreated } from './common.ts';
 import { dockerCommand, dockerProbe, stackExec } from './compose.ts';
 import { STACK_BINARIES, stackFactsOf } from './facts.ts';
+import { certbotImage } from './images.ts';
 import {
 	CERT_DIR,
-	CERTBOT_IMAGE,
 	CONTAINER,
 	LE_CERT_NAME,
 	LE_VOLUME,
@@ -68,7 +68,7 @@ function letsEncryptCommands(ctx: HostPlanCtx): HostCommand[] {
 				`${LE_VOLUME}:${CONTAINER.letsencrypt}`,
 				'-v',
 				`${LE_WEBROOT_VOLUME}:${CONTAINER.acmeWebroot}`,
-				CERTBOT_IMAGE,
+				certbotImage(ctx),
 				'certonly',
 				'--standalone',
 				...(answers.letsencrypt_staging ? ['--staging'] : []),
@@ -186,7 +186,7 @@ async function letsEncryptIssued(ctx: HostCtx): Promise<boolean> {
 				`${LE_VOLUME}:${CONTAINER.letsencrypt}:ro`,
 				'--entrypoint',
 				'test',
-				CERTBOT_IMAGE,
+				certbotImage(ctx),
 				'-s',
 				`${CONTAINER.letsencrypt}/live/${LE_CERT_NAME}/fullchain.pem`,
 			],

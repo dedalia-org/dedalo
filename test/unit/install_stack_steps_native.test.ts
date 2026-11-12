@@ -72,6 +72,7 @@ import {
 	probeImageAvailability,
 	registryHostOf,
 } from '../../src/core/install/host/stack/image_verify.ts';
+import { stackServiceImage } from '../../src/core/install/host/stack/images.ts';
 import {
 	BUILD_DURATION,
 	imageRefOf,
@@ -153,6 +154,11 @@ import { escapeRegExp } from '../helpers/regex_escape.ts';
 // next commit `.dev`) and the image decisions follow its kind: these cases are written for
 // a STABLE installer, so they pin one (test/helpers/installer_identity.ts).
 pinInstallerIdentity(PINNED_IDENTITY.stable);
+
+/** The stacks' pinned images, read from the stack file (T1-17 — never a literal copy). */
+const PG_IMAGE = stackServiceImage(REPO_ROOT, 'docker-compose.yml', 'postgres');
+const NGINX_IMAGE = stackServiceImage(REPO_ROOT, 'docker-compose.yml', 'nginx');
+const CERTBOT_IMAGE = stackServiceImage(REPO_ROOT, 'docker-compose.yml', 'certbot');
 
 const scratchBase = mkdtempSync(join(tmpdir(), 'dedalo_install_stack_steps_'));
 afterAll(() => rmSync(scratchBase, { recursive: true, force: true }));
@@ -1061,8 +1067,7 @@ describe('abort removes only what this install created (f)', () => {
 		expect(removed[0]).not.toContain('dedalo_unrelated');
 		// The images stay, and the abort says which (C3-52).
 		const said = aborted.transcript.lines.join('\n');
-		for (const image of ['postgres:18', 'nginx:alpine', 'docker image rm'])
-			expect(said).toContain(image);
+		for (const image of [PG_IMAGE, NGINX_IMAGE, 'docker image rm']) expect(said).toContain(image);
 		const fs = hostFs(host.root);
 		expect(fs.exists(join(REPO_ROOT, '.dedalo.env'))).toBe(false);
 		expect(fs.exists(join(REPO_ROOT, 'compose.override.yaml'))).toBe(false);
@@ -1244,15 +1249,10 @@ describe('an abort of a live stack keeps PostgreSQL up; --resume puts the rest b
 			`${compose} rm --stop --force dedalo nginx backup certbot`,
 		);
 		const ctx = stackPlanCtx(DOCKER_LE);
-		expect(stackImages(ctx)).toContain('certbot/certbot');
+		expect(stackImages(ctx)).toContain(CERTBOT_IMAGE);
 		// Every image was pulled on this machine: the served abort names them all (but postgres's rm).
 		const kept = aborted.transcript.lines.join('\n');
-		for (const image of [
-			'postgres:18',
-			'nginx:alpine',
-			'certbot/certbot',
-			imageRefOf(ctx.answers),
-		]) {
+		for (const image of [PG_IMAGE, NGINX_IMAGE, CERTBOT_IMAGE, imageRefOf(ctx.answers)]) {
 			expect(kept).toContain(image);
 		}
 	});
@@ -1337,12 +1337,12 @@ describe('stack served = the engine container ever started or the engine answere
  */
 describe('campaign 3e: an abort names only what exists; a failure block names the salt read command', () => {
 	const compose = composePrefix('trial');
-	/** `up -d dedalo` killed before it created anything; nginx:alpine never pulled. */
+	/** `up -d dedalo` killed before it created anything; nginx never pulled. */
 	const neverCreated: RecordedResponse[] = [
 		{ match: `${compose} up -d dedalo`, exit: 1, stderr: 'context canceled' },
 		{ match: `${compose} exec -T dedalo curl`, exit: 7, stdout: '000' },
 		{ match: `${compose} ps --all --services`, stdout: 'postgres\n' },
-		{ match: `${DOCKER} image inspect --format {{.Id}} nginx:alpine`, exit: 1 },
+		{ match: `${DOCKER} image inspect --format {{.Id}} ${NGINX_IMAGE}`, exit: 1 },
 	];
 
 	test('E4 unserved: no container named that never existed, no image named that is not here', async () => {
@@ -1356,8 +1356,8 @@ describe('campaign 3e: an abort names only what exists; a failure block names th
 		expect(said).not.toContain('stopped and removed');
 		expect(timesLogged(host, `${compose} rm --stop --force`)).toBe(0);
 		const rm = said.split('\n').find((line) => line.includes('docker image rm')) ?? '';
-		expect(rm).toContain('postgres:18');
-		expect(rm).not.toContain('nginx:alpine');
+		expect(rm).toContain(PG_IMAGE);
+		expect(rm).not.toContain(NGINX_IMAGE);
 	});
 
 	test('E4 CONTROL: a completed (served) stack aborts naming the containers and images that are there', async () => {
@@ -1367,7 +1367,7 @@ describe('campaign 3e: an abort names only what exists; a failure block names th
 		const said = (await runHost(host, laterRequest('abort', plan))).transcript.lines.join('\n');
 		expect(said).toContain('stopped and removed dedalo, nginx, backup');
 		expect(said).toContain('docker image rm');
-		expect(said).toContain('nginx:alpine');
+		expect(said).toContain(NGINX_IMAGE);
 	});
 
 	test('E3: past the engine steps the ✖ hint names the salt read command (never the value); before them it does not', async () => {
@@ -1989,8 +1989,8 @@ describe('a served abort says how the stack is removed, per route, and names the
 			// campaign 3c D8: PostgreSQL keeps running on its image — the command never names it.
 			const rm = said.match(/docker image rm [^;\n]*/g) ?? [];
 			expect(rm.length).toBeGreaterThan(0);
-			for (const command of rm) expect(command).not.toContain('postgres:18');
-			expect(said).toContain('postgres:18 runs the kept database');
+			for (const command of rm) expect(command).not.toContain(PG_IMAGE);
+			expect(said).toContain(`${PG_IMAGE} runs the kept database`);
 			expect(said).not.toContain("the database step's undo");
 			// the closing sentence points to the same section
 			expect(

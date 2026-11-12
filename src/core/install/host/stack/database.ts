@@ -17,15 +17,8 @@ import { hostRefuse } from '../refuse.ts';
 import { pollUntil, rememberNewVolumes, stackCreated } from './common.ts';
 import { composeCommand, composeProbe, dockerCommand, dockerProbe } from './compose.ts';
 import { stackFactsOf } from './facts.ts';
-import {
-	CERTBOT_IMAGE,
-	DATABASE_VOLUME,
-	ENV_FILE,
-	imageRefOf,
-	POSTGRES_IMAGE,
-	STACK_SERVICE_IMAGES,
-	stackFileOf,
-} from './layout.ts';
+import { certbotImage, postgresImage, serviceImages } from './images.ts';
+import { DATABASE_VOLUME, ENV_FILE, imageRefOf, stackFileOf } from './layout.ts';
 
 /** `pg_isready` inside the postgres container. */
 export function readyProbe(ctx: HostPlanCtx): HostCommand & { kind: 'exec' } {
@@ -101,10 +94,16 @@ async function removeCreatedVolumes(ctx: HostCtx): Promise<string> {
 	return `; volumes removed: ${names.join(', ')}`;
 }
 
-/** Every image this stack can use (the Dédalo image, the service images, certbot on Let's Encrypt). */
+/**
+ * Every image this stack can use (the Dédalo image, the service images, certbot
+ * on Let's Encrypt) — the service and certbot pins read from the route's stack
+ * file (images.ts), so a probe or `docker image rm` names the exact reference
+ * compose pulled (`name:version@sha256:…`; measured on Docker 29: inspect and
+ * rm both resolve that form).
+ */
 export function stackImages(ctx: HostPlanCtx): string[] {
 	const le = ctx.answers.route === 'docker' && ctx.answers.tls_mode === 'letsencrypt';
-	return [imageRefOf(ctx.answers), ...STACK_SERVICE_IMAGES, ...(le ? [CERTBOT_IMAGE] : [])];
+	return [imageRefOf(ctx.answers), ...serviceImages(ctx), ...(le ? [certbotImage(ctx)] : [])];
 }
 
 /** `docker image inspect` of one image: present on this machine? */
@@ -135,22 +134,27 @@ export async function presentImages(ctx: HostCtx): Promise<string[]> {
  * `images` are the ones PRESENT (presentImages — campaign 3e E4). `postgresRuns`:
  * a SERVED abort keeps PostgreSQL running with the data, so its image cannot
  * be removed yet — the command names only what `docker image rm` can remove
- * now, and says when the rest goes (campaign 3c D8).
+ * now, and says when the rest goes (campaign 3c D8). `runningPostgres` is the
+ * postgres image when it keeps running (postgresImage), null otherwise.
  */
-export function keptImagesLine(images: readonly string[], postgresRuns = false): string {
+export function keptImagesLine(
+	images: readonly string[],
+	runningPostgres: string | null = null,
+): string {
 	if (images.length === 0) return 'no image of this stack is on this machine';
-	const removable = postgresRuns ? images.filter((image) => image !== POSTGRES_IMAGE) : images;
+	const removable =
+		runningPostgres === null ? images : images.filter((image) => image !== runningPostgres);
 	const remove =
 		removable.length === 0 ? '' : ` — remove them with: docker image rm ${removable.join(' ')}`;
 	const kept = `the images are kept (${images.join(', ')})${remove}`;
-	return postgresRuns && images.includes(POSTGRES_IMAGE)
-		? `${kept}; ${POSTGRES_IMAGE} runs the kept database — it goes with the instance (see that section)`
+	return runningPostgres !== null && images.includes(runningPostgres)
+		? `${kept}; ${runningPostgres} runs the kept database — it goes with the instance (see that section)`
 		: kept;
 }
 
 /** The kept images of this stack, measured on the machine (keptImagesLine). */
 export async function keptImages(ctx: HostCtx, postgresRuns = false): Promise<string> {
-	return keptImagesLine(await presentImages(ctx), postgresRuns);
+	return keptImagesLine(await presentImages(ctx), postgresRuns ? postgresImage(ctx) : null);
 }
 
 export const stack_database: HostStepDefinition = {

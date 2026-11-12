@@ -76,6 +76,7 @@ import {
 	siteCommands,
 	siteText,
 } from '../../src/core/install/host/production/web.ts';
+import { stackServiceImage } from '../../src/core/install/host/stack/images.ts';
 import {
 	backupStores,
 	instanceDropins,
@@ -823,7 +824,8 @@ describe('nginx: the host-wide catch-all (g — campaign 3 C3-30)', () => {
 		expect(catchAllWrites(productionPlanCtx(files))).toHaveLength(1);
 	});
 
-	const NGINX_IMAGE = 'nginx:alpine';
+	/** The full stack's own pinned nginx (T1-17: the stack file is the one spelling). */
+	const NGINX_IMAGE = stackServiceImage(REPO_ROOT, 'docker-compose.yml', 'nginx');
 	/** Run nginx in `image` over `files` (conf.d), then `requests` (one wget each); answers stdout. */
 	function realNginx(files: Record<string, string>, requests: Record<string, string>): string {
 		const dir = mkdtempSync(join(tmpdir(), 'dedalo_catch_all_'));

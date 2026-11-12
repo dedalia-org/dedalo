@@ -134,3 +134,20 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 3
+
+  # THE OPERATOR STACKS (docker-compose.yml, docker-compose.simple.yml: postgres, nginx,
+  # certbot, mariadb, pgvector — T1-17, 2026-11-12). Every third-party image there is
+  # pinned `name:<version>@sha256:<index digest>`: the version for the reader and for this
+  # entry to follow, the digest so two installs of one release run the same bytes. This is
+  # the pins' updater: digest refreshes of the same version and version bumps. Dependabot
+  # discovers `docker-compose.simple.yml` (its FILENAME_REGEX allows a `.<name>` infix).
+  # The installer READS these pins from the stack files (src/core/install/host/stack/
+  # images.ts), so a merged PR is the whole bump — no TypeScript copy to move with it.
+  # A postgres/pgvector/mariadb MAJOR changes the on-disk data format; reviewing such a PR
+  # is a migration decision, not a routine merge. Gate: operator_image_pin_tripwire.
+  - package-ecosystem: docker-compose
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3

@@ -589,6 +589,10 @@ HERMETIC_TRIPWIRES=(
 	#     component client trees + src/; imports no src/ module (verified with
 	#     DB_HOST=127.0.0.1 DB_PORT=59999).
 	test/unit/media_url_version_tripwire.test.ts
+	# --- 2026-11-12 (T1-17, operator image pins). DB-free: git ls-files + the stack files,
+	#     Dockerfiles and dependabot.yml parsed, the installer's pure plan renders (verified
+	#     with DB_HOST=127.0.0.1 DB_PORT=59999).
+	test/unit/operator_image_pin_tripwire.test.ts
 )
 
 # THE SERIAL LANE — tripwires that cannot share the machine with another test file, run

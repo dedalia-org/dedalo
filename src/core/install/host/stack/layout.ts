@@ -71,8 +71,6 @@ export const TRIAL_CONF = 'nginx.simple.conf';
 export const LE_CERT_NAME = 'dedalo';
 export const LE_VOLUME = `${STACK_PROJECT}_letsencrypt`;
 export const LE_WEBROOT_VOLUME = `${STACK_PROJECT}_certbot_www`;
-/** The image certbot runs from (the simple stack's renewal service uses the same). */
-export const CERTBOT_IMAGE = 'certbot/certbot';
 /** The local build's repository (deploy/compose.build.yml tags the build with it). */
 export const LOCAL_REPOSITORY = 'localhost/dedalo';
 /** The label the release workflow stamps with the version it publishes under. */
@@ -104,18 +102,11 @@ export const CONTAINER_MEDIA_RULES = Object.freeze({
 	map: `${CONTAINER.media}/dedalo_media_protection_map.nginx.conf`,
 });
 
-/**
- * The images the stack files run besides the Dédalo image (both stack files'
- * `image:` lines — gate: install_stack_nginx_native). An abort names them:
- * they stay on the machine as a cache.
+/*
+ * The stack's third-party images (postgres, nginx, certbot, the opt-in
+ * services) are NOT spelled here: the stack files pin them and images.ts reads
+ * them (T1-17 — gate: operator_image_pin_tripwire).
  */
-export const STACK_SERVICE_IMAGES: readonly string[] = Object.freeze([
-	'postgres:18',
-	'nginx:alpine',
-]);
-
-/** PostgreSQL's image — the one a served abort keeps RUNNING (its container holds the data). */
-export const POSTGRES_IMAGE = STACK_SERVICE_IMAGES[0] as string;
 
 /**
  * The trial nginx's volumes (docker-compose.simple.yml's nginx volumes WITHOUT

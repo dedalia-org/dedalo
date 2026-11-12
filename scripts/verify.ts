@@ -469,6 +469,8 @@ const TRIPWIRES = [
 	'test/unit/datalist_projects_scope_native.test.ts',
 	'test/unit/datalist_record_filter_native.test.ts',
 	'test/unit/component_value_gate_census_tripwire.test.ts',
+	// T1-17 / S11 — operator images pinned tag@digest, updated by Dependabot, derived by the installer (2026-11-12).
+	'test/unit/operator_image_pin_tripwire.test.ts',
 ];
 
 // ---------------------------------------------------------------------------

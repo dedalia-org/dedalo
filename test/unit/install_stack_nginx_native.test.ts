@@ -52,11 +52,11 @@ import {
 	renderStackNginx,
 } from '../../src/core/install/host/stack/files.ts';
 import { imageLabel } from '../../src/core/install/host/stack/image.ts';
+import { serviceImages, stackServiceImage } from '../../src/core/install/host/stack/images.ts';
 import {
 	CERT_DIR,
 	CONTAINER,
 	CONTAINER_MEDIA_RULES,
-	STACK_SERVICE_IMAGES,
 	TRIAL_NGINX_VOLUMES,
 } from '../../src/core/install/host/stack/layout.ts';
 import { composeAtLeast, MIN_COMPOSE } from '../../src/core/install/host/stack/preflight.ts';
@@ -194,7 +194,8 @@ describe("the full stack's nginx site includes the engine's own rule files (C3-2
 		expect(site).not.toContain('/srv/dedalo/media/dedalo_media_protection');
 	});
 
-	const NGINX_IMAGE = 'nginx:alpine';
+	/** The full stack's own pinned nginx (T1-17: never a second spelling). */
+	const NGINX_IMAGE = stackServiceImage(REPO_ROOT, 'docker-compose.yml', 'nginx');
 	test.skipIf(!dockerReady(NGINX_IMAGE))(
 		`nginx -t in ${NGINX_IMAGE} over rule files the engine wrote accepts the site (skipped without Docker or the image)`,
 		() => {
@@ -372,7 +373,8 @@ describe('a long-running shell loop stops on SIGTERM (C3-59)', () => {
 			'docker-compose.simple.yml backup',
 			'docker-compose.simple.yml certbot',
 			'docker-compose.yml backup',
-			"the Let's Encrypt override certbot",
+			// T1-17: the full stack's renewal lives in the stack file (the override only enables it).
+			'docker-compose.yml certbot',
 		]);
 	});
 
@@ -389,15 +391,21 @@ describe('a long-running shell loop stops on SIGTERM (C3-59)', () => {
 
 describe('the abort names the images it keeps (C3-52)', () => {
 	test("the service images are the stack files' own (no profile, not the Dédalo image)", () => {
-		for (const file of ['docker-compose.yml', 'docker-compose.simple.yml']) {
+		const routes = {
+			'docker-compose.yml': DOCKER_PLANS[1] as Record<string, unknown>,
+			'docker-compose.simple.yml': TRIAL,
+		};
+		for (const [file, variant] of Object.entries(routes)) {
 			const images = Object.values(servicesOf(readFileSync(join(REPO_ROOT, file), 'utf8')))
 				.filter((spec) => spec.profiles === undefined)
 				.map((spec) => String(spec.image ?? ''))
 				.filter((image) => image !== '' && !image.includes('DEDALO_IMAGE'));
-			expect([file, [...new Set(images)].sort()]).toEqual([file, [...STACK_SERVICE_IMAGES].sort()]);
+			const derived = serviceImages(stackPlanCtx(variant));
+			expect(images.length).toBeGreaterThanOrEqual(2);
+			expect([file, [...new Set(images)].sort()]).toEqual([file, [...derived].sort()]);
 		}
 		const kept = stackImages(stackPlanCtx(TRIAL));
-		for (const image of STACK_SERVICE_IMAGES) expect(kept).toContain(image);
+		for (const image of serviceImages(stackPlanCtx(TRIAL))) expect(kept).toContain(image);
 		expect(kept.join(' ')).not.toContain('certbot');
 	});
 });

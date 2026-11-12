@@ -212,7 +212,7 @@ sh install.sh --route docker --resume                              # fix the cau
 sh install.sh --route docker --abort --confirm-database dedalo     # undo this install
 ```
 
-`--abort` stops the stack and removes only what this install created: the files it wrote, the certificates it made, and the volumes it created (the database volume only with `--confirm-database`). The images are kept, and the abort names those it finds on the machine (of `postgres:18`, `nginx:alpine` and the Dédalo image: an install stopped early may never have pulled `nginx:alpine`) with the `docker image rm` command that reclaims the space — on a completed install without `postgres:18`, whose container keeps running with the data until you remove the instance. A **completed** install is a live instance: `--abort` then undoes only the steps after `stack_engine` — it removes the `dedalo`, `nginx` and `backup` containers (and `certbot`) that exist, while PostgreSQL keeps running with the data — and `--resume` starts them again. An install stopped inside `stack_up` before the `dedalo` container ever started has not served, and `--abort` removes it whole, database included. Removing a completed install is a job by hand: [Removing the stack](#removing-the-stack). See [Resume and abort](installer_reference.md#resuming-an-install-resume).
+`--abort` stops the stack and removes only what this install created: the files it wrote, the certificates it made, and the volumes it created (the database volume only with `--confirm-database`). The images are kept, and the abort names those it finds on the machine (of the stack's PostgreSQL and nginx images and the Dédalo image: an install stopped early may never have pulled nginx) with the `docker image rm` command that reclaims the space — on a completed install without the PostgreSQL image, whose container keeps running with the data until you remove the instance. A **completed** install is a live instance: `--abort` then undoes only the steps after `stack_engine` — it removes the `dedalo`, `nginx` and `backup` containers (and `certbot`) that exist, while PostgreSQL keeps running with the data — and `--resume` starts them again. An install stopped inside `stack_up` before the `dedalo` container ever started has not served, and `--abort` removes it whole, database included. Removing a completed install is a job by hand: [Removing the stack](#removing-the-stack). See [Resume and abort](installer_reference.md#resuming-an-install-resume).
 
 A `--resume` runs in line mode, not on the full screen, and asks again on the terminal for the secrets the remaining steps need.
 
@@ -228,12 +228,15 @@ docker compose -f docker-compose.yml -f compose.override.yaml --env-file .dedalo
 
 | Service | Image | Role |
 | --- | --- | --- |
-| `postgres` | `postgres:18` | the system of record |
+| `postgres` | `postgres:18.x` | the system of record |
 | `dedalo` | `${DEDALO_IMAGE}:${DEDALO_VERSION}` — a published image, or one built here from `Dockerfile` | the engine; publishes its client into the `client` volume at every start |
 | `backup` | the same image as `dedalo` | the scheduled backups ([backups](#backups-from-a-container)) |
-| `nginx` | `nginx:alpine` | TCP, TLS, client statics (from the `client` volume), **the media gate** |
-| `mariadb` | `mariadb:11` — profile `diffusion` | the publication target |
-| `pgvector` | `pgvector/pgvector:pg18` — profile `rag` | the vector store |
+| `nginx` | `nginx:1.x-alpine` | TCP, TLS, client statics (from the `client` volume), **the media gate** |
+| `mariadb` | `mariadb:11.x` — profile `diffusion` | the publication target |
+| `pgvector` | `pgvector/pgvector:0.x-pg18` — profile `rag` | the vector store |
+| `certbot` | `certbot/certbot:v5.x` — on with Let's Encrypt | renews the certificate |
+
+Every image that is not Dédalo's own is **pinned** in the stack file as `name:<version>@sha256:<digest>`: the readable version plus the exact bytes. Two installs of the same release run the same PostgreSQL, nginx and certbot, and a tag that moves upstream changes nothing on your machine. The pins move with Dédalo releases: update the checkout and run `ddc up -d` to pull them. The installer reads the images from the stack file, so it pulls, checks and names exactly these.
 
 The two optional services are behind compose profiles, so they do **not** start unless you ask for them (`ddc --profile diffusion up -d`, `ddc --profile rag up -d`).
 
@@ -648,7 +651,7 @@ rm -r deploy/certs .dedalo-install
 Check that nothing is left: `docker volume ls | grep dedalo_` prints nothing. The images and caches stay until you remove them — several gigabytes:
 
 ```shell
-docker image rm <image>:<version> postgres:18 nginx:alpine   # add certbot/certbot with Let's Encrypt
+docker image rm <image>:<version> $(grep -hoE '(postgres|nginx|certbot/certbot):[^ ]+@sha256:[0-9a-f]+' docker-compose.yml)   # the pinned images; certbot exists only with Let's Encrypt
 docker builder prune -af                                     # a local build's cache (about 3 GB)
 rm -rf ~/.cache/dedalo-install ~/.bun/install/cache          # the installer's Bun and its package cache
 rm -rf node_modules                                          # the installer's packages in this checkout (about 400 MB)
