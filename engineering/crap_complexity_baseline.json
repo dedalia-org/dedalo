@@ -5,8 +5,8 @@
 	"root": "src/core",
 	"summary": {
 		"files": 925,
-		"functions": 16259,
-		"functionsOverCap": 649,
+		"functions": 16266,
+		"functionsOverCap": 648,
 		"filesOverCap": 256
 	},
 	"ledger": [
@@ -214,6 +214,11 @@
 		{
 			"generated": "2026-11-12",
 			"functionsOverCap": 649,
+			"filesOverCap": 256
+		},
+		{
+			"generated": "2026-11-12",
+			"functionsOverCap": 648,
 			"filesOverCap": 256
 		}
 	],

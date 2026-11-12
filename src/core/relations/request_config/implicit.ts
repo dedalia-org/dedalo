@@ -48,7 +48,9 @@ import {
 	getChildTipoModels,
 	getModelByTipo,
 	getNode,
+	getOrderedSubtree,
 	getSectionRealTipo,
+	type OntologySubtreeNode,
 	relatedTipoByExactModel,
 } from '../../ontology/resolver.ts';
 import { contextLabelOf, resolveDefaultView } from '../../resolve/structure_context.ts';
@@ -551,6 +553,30 @@ export async function resolveVirtualEditScope(
 		if (typeof rel?.tipo === 'string') excludeSet.add(rel.tipo);
 	}
 	return { realTipo: candidate, excludeSet };
+}
+
+/**
+ * The VIRTUAL EDIT SCOPE's component nodes — what a record of `sectionTipo`
+ * actually holds (PHP get_ar_children_tipo_by_model_name_in_section with
+ * resolve_virtual=true, class.section.php:900-987): the REAL section's subtree
+ * (DFS pre-order, getOrderedSubtree containment — nested sections/areas are not
+ * crossed) MINUS the virtual's FIRST exclude_elements subtrees. An excluded tipo
+ * is skipped AND its subtree pruned (excluding a grouper drops its children).
+ * A virtual's own children are never part of it. Full nodes, properties included.
+ */
+export async function editScopeComponents(sectionTipo: string): Promise<OntologySubtreeNode[]> {
+	const { realTipo, excludeSet } = await resolveVirtualEditScope(sectionTipo);
+	const pruned = new Set<string>();
+	const out: OntologySubtreeNode[] = [];
+	// Pre-order: a node's parent is always seen before it — one pass prunes whole subtrees.
+	for (const node of await getOrderedSubtree(realTipo)) {
+		if (excludeSet.has(node.tipo) || (node.parent !== null && pruned.has(node.parent))) {
+			pruned.add(node.tipo);
+			continue;
+		}
+		if (node.model?.startsWith('component') === true) out.push(node);
+	}
+	return out;
 }
 
 export async function buildImplicitSectionEditConfig(

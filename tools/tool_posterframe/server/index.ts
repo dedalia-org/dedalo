@@ -22,12 +22,9 @@ import type { MediaIdentity } from '../../../src/core/media/path.ts';
 import { resolveMediaToolContext } from '../../../src/core/media/tool_support.ts';
 import { createIdentifyingImageCore } from '../../../src/core/media/tools/posterframe.ts';
 import { termByTipo } from '../../../src/core/ontology/labels.ts';
-import {
-	getNode,
-	getOrderedSubtree,
-	getTranslatableByTipo,
-} from '../../../src/core/ontology/resolver.ts';
-import { getMainRelatedSectionTipo } from '../../../src/core/relations/request_config/implicit.ts';
+import { getTranslatableByTipo } from '../../../src/core/ontology/resolver.ts';
+import { getElementTargetSectionTipos } from '../../../src/core/relations/request_config/build.ts';
+import { editScopeComponents } from '../../../src/core/relations/request_config/implicit.ts';
 import { toolAddNewElementAccess } from '../../../src/core/relations/save.ts';
 import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
 import { findInverseReferences } from '../../../src/core/search/search_related.ts';
@@ -61,16 +58,6 @@ function posterframeFailed(reason: string): DedaloError {
 		coordinates: { tool: 'tool_posterframe' },
 		message: reason,
 	});
-}
-
-/**
- * All component_portal tipos declared in a section's ontology subtree
- * (virtual-unaware structural walk). Canonical accessor (S2-19/T3): the
- * section-bounded subtree walk lives in ontology/resolver.ts.
- */
-async function portalTiposInSection(sectionTipo: string): Promise<string[]> {
-	const nodes = await getOrderedSubtree(sectionTipo);
-	return nodes.filter((node) => node.model === 'component_portal').map((node) => node.tipo);
 }
 
 /**
@@ -119,8 +106,14 @@ async function createIdentifyingImage(ctx: ToolActionContext): Promise<ToolRespo
 	}
 
 	// Resolve the portal's target section, then create + persist a new record
-	// through the portal (PHP add_new_element + Save).
-	const portalTargetSectionTipo = await getMainRelatedSectionTipo(host.componentTipo);
+	// through the portal (PHP add_new_element + Save). The target is PHP
+	// get_ar_target_section_tipo() in mode 'edit' — the portal's request_config
+	// sqo.section_tipo (implicit relations walk for a config-less portal), the
+	// SAME law the save's target_sections membership validates. Never the bare
+	// ontology relations: a portal declaring its target only in request_config
+	// (isad66) has none.
+	const portalTargetSectionTipo =
+		(await getElementTargetSectionTipos(host.componentTipo, host.sectionTipo, 'edit'))[0] ?? null;
 	if (portalTargetSectionTipo === null) {
 		throw new DedaloError('tool.unsupported_target', {
 			publicMessage: 'The portal has no target section',
@@ -245,32 +238,55 @@ async function getArIdentifyingImage(ctx: ToolActionContext): Promise<ToolRespon
 	// tenants' projects) that reference the target. Global admins are unscoped.
 	const { scopeInverseReferenceHits } = await import('../../../src/core/security/record_scope.ts');
 	const hits = await scopeInverseReferenceHits(rawHits, ctx.principal);
+	// One scope walk per DISTINCT hit section (request-local — no module state):
+	// every hit of a section answers the same portal + label.
+	const bySection = new Map<string, Promise<IdentifyingPortal | null>>();
 	const descriptors: Record<string, unknown>[] = [];
 	for (const hit of hits) {
-		const descriptor = await identifyingImageFromSection(hit.section_tipo, hit.section_id);
-		if (descriptor !== null) descriptors.push(descriptor);
+		let portal = bySection.get(hit.section_tipo);
+		if (portal === undefined) {
+			portal = identifyingPortalOfSection(hit.section_tipo);
+			bySection.set(hit.section_tipo, portal);
+		}
+		const found = await portal;
+		if (found === null) continue;
+		descriptors.push({
+			section_id: hit.section_id,
+			section_tipo: hit.section_tipo,
+			component_portal: found.componentPortal,
+			component_image: found.componentImage,
+			label: found.label,
+		});
 	}
 	// An EMPTY selection is an empty ARRAY, not `false` (the legacy body's
 	// "nothing found" sentinel): the client iterates `.length`.
 	return ok(descriptors, { requestId: toolRequestId(ctx) });
 }
 
-/** First portal in the section whose ontology properties declare an identifying_image. */
-async function identifyingImageFromSection(
-	sectionTipo: string,
-	sectionId: number,
-): Promise<Record<string, unknown> | null> {
-	const portalTipos = await portalTiposInSection(sectionTipo);
-	for (const portalTipo of portalTipos) {
-		const node = await getNode(portalTipo);
-		const props = (node?.properties ?? null) as { identifying_image?: string } | null;
+/** A section's identifying portal: the portal, its image component, the section label. */
+interface IdentifyingPortal {
+	componentPortal: string;
+	componentImage: string;
+	label: string;
+}
+
+/**
+ * The FIRST component_portal of the section's VIRTUAL EDIT SCOPE whose ontology
+ * properties declare an identifying_image (PHP
+ * get_ar_children_tipo_by_model_name_in_section(…, resolve_virtual=true),
+ * class.tool_posterframe.php:462-467): for a virtual section (tch1, rsc197…)
+ * the REAL section's portals minus its exclude_elements subtrees — never the
+ * virtual's own children. The label stays the HIT section's (the virtual's) term.
+ */
+async function identifyingPortalOfSection(sectionTipo: string): Promise<IdentifyingPortal | null> {
+	for (const node of await editScopeComponents(sectionTipo)) {
+		if (node.model !== 'component_portal') continue;
+		const props = (node.properties ?? null) as { identifying_image?: unknown } | null;
 		const identifyingImage = props?.identifying_image;
 		if (typeof identifyingImage === 'string' && identifyingImage !== '') {
 			return {
-				section_id: sectionId,
-				section_tipo: sectionTipo,
-				component_portal: portalTipo,
-				component_image: identifyingImage,
+				componentPortal: node.tipo,
+				componentImage: identifyingImage,
 				label: await termByTipo(sectionTipo, config.menu.applicationLang),
 			};
 		}

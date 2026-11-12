@@ -260,9 +260,10 @@ registerOntologyCacheClearer(clearRecordDefaultsCache);
  * A virtual section (`rsc170` → `rsc2`, `es1` → `hierarchy20`) borrows the REAL
  * section's components MINUS the tipos named by its FIRST `exclude_elements`
  * child; its own children are exclude_elements / section_list / buttons and are
- * never part of a record. resolveVirtualEditScope is the canonical resolver for
- * exactly that (the same one the edit form and the elements context use), so
- * the seed and the form can never disagree about which components a record has.
+ * never part of a record. editScopeComponents (beside resolveVirtualEditScope,
+ * the canonical resolver the edit form and the elements context use) is the one
+ * walk of exactly that, so the seed and the form can never disagree about which
+ * components a record has.
  *
  * The earlier shape here — walk the section's own subtree, and only fall back
  * to the real section `if (own.length === 0)` — was the classic
@@ -277,31 +278,15 @@ registerOntologyCacheClearer(clearRecordDefaultsCache);
 async function sectionComponents(
 	sectionTipo: string,
 ): Promise<{ tipo: string; model: string; properties: Record<string, unknown> | null }[]> {
-	const { getOrderedSubtree } = await import('../../ontology/resolver.ts');
 	// SANCTIONED SEAM: request_config/implicit.ts is a heavy relations module and
 	// the create door is imported by it transitively — a static edge would fuse
 	// the two into one import component (the SCC defect class).
-	const { resolveVirtualEditScope } = await import('../../relations/request_config/implicit.ts');
-	const { realTipo, excludeSet } = await resolveVirtualEditScope(sectionTipo);
-
-	const nodes = await getOrderedSubtree(realTipo);
-	const pruned = new Set<string>();
-	const out: { tipo: string; model: string; properties: Record<string, unknown> | null }[] = [];
-	// getOrderedSubtree emits DEPTH-FIRST PRE-ORDER, so a node's parent is always
-	// seen before it — one pass is enough to prune whole excluded subtrees.
-	for (const node of nodes) {
-		if (excludeSet.has(node.tipo) || (node.parent !== null && pruned.has(node.parent))) {
-			pruned.add(node.tipo);
-			continue;
-		}
-		if (node.model?.startsWith('component') !== true) continue;
-		out.push({
-			tipo: node.tipo,
-			model: node.model,
-			properties: (node.properties as Record<string, unknown> | null) ?? null,
-		});
-	}
-	return out;
+	const { editScopeComponents } = await import('../../relations/request_config/implicit.ts');
+	return (await editScopeComponents(sectionTipo)).map((node) => ({
+		tipo: node.tipo,
+		model: node.model as string,
+		properties: (node.properties as Record<string, unknown> | null) ?? null,
+	}));
 }
 
 /** PHP `property_exists($el,'id') && id!==null && id!==''` (set_data :994-996). */

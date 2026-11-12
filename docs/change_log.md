@@ -312,6 +312,12 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-numisdata-widgets-locator-law`.
 
+- **The posterframe tool offers identifying images for records of virtual sections, and creates them through portals whose target is set only in their configuration.**
+
+    When a video was referenced by a record of a virtual section (Objects, Inventory, Photography, Documents, People…), the posterframe tool's identifying-image selector silently left that record out. It is offered again, using the portal of the real section the virtual one is built on, minus the elements the virtual section excludes. Creating an identifying image through a portal whose target section is set only in its configuration (Archives) failed with "The tool cannot operate on this target"; it now creates the image in the configured section.
+
+    Wire contract: `WC-2026-11-12-posterframe-identifying-image-scope`.
+
 - **A select with a dataframe (such as the uncertainty of a coin's discovery method) shows and saves its frame again.**
 
     A select field whose configuration declares a dataframe slot showed no frame widget in the edit form, so its
@@ -919,7 +925,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 43 entries"
+??? note "Wire contract — 44 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -961,6 +967,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-info-live-publication-export`
     - `WC-2026-11-12-marc21-config-map-and-transforms`
     - `WC-2026-11-12-numisdata-widgets-locator-law`
+    - `WC-2026-11-12-posterframe-identifying-image-scope`
     - `WC-2026-11-12-rdf-graph-interpretation`
     - `WC-2026-11-12-select-dataframe-subdatum`
     - `WC-2026-11-12-zotero-csl-json-import`

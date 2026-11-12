@@ -539,7 +539,7 @@ describe('virtual sections inherit the REAL section defaults', () => {
 			join(REPO_ROOT, 'src/core/section/record/record_defaults.ts'),
 			'utf-8',
 		);
-		expect(source).toContain('resolveVirtualEditScope');
+		expect(source).toContain('editScopeComponents');
 		expect(source).not.toContain('if (own.length > 0) return own');
 	});
 });
