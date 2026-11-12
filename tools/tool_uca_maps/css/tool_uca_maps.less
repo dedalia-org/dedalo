@@ -7,6 +7,7 @@
 // imports
 @import (once) '../../../client/dedalo/core/page/css/layout/vars';
 @import (once, reference) '../../../client/dedalo/core/page/css/layout/fonts';
+@import (once, reference) '../../../client/dedalo/core/tools_common/css/tool_mixins';
 
 // local vars
 // THE TOOL'S PALETTE: every paint is a token, or a retune cannot reach it
@@ -89,23 +90,18 @@
 
 // Shared per-panel action-button chrome. Mixins, not a shared class: each
 // panel scopes `button` to its own root, so a stray `<button>` never picks it up.
+// Colour comes from core's .tool_action_button() (fill, ink and hover as one
+// set): the panels carry `data-tool`, so the generated tokens reach them.
 .uca-maps-panel-action-button() {
+	.tool_action_button();
 	flex: 0 0 auto;
 	white-space: nowrap;
-	// the brand orange with its own ink (--fg_on_brand, vars_tokens.less).
-	// Not yet .tool_action_button(): its generated tokens do not reach a panel
-	// hanging from the map, outside .wrapper_tool.tool_uca_maps
-	background-color: @tool_color;
-	color: var(--fg_on_brand);
 	border: none;
 	border-radius: 0.2rem;
 	padding: 0.3rem 0.6rem;
 	font-size: 1rem;
 	cursor: pointer;
 
-	&:hover {
-		filter: brightness(0.92);
-	}
 	&:disabled {
 		opacity: 0.4;
 		cursor: default;
@@ -114,12 +110,18 @@
 
 // the smaller, muted secondary variant (▲/▼/✕/Add on a list row). The fill is
 // --bg_fill_inverse, the neutral built to carry inverse ink at AA in both
-// themes, so the ink is named here instead of inherited from the panel.
+// themes, so the ink is named here instead of inherited from the panel. Its
+// hover stays neutral: the tool hover fill was tuned for the tool ink, not this.
 .uca-maps-panel-secondary-button() {
 	padding: 0.15rem 0.4rem;
 	font-size: @uca_maps_text_small;
 	background-color: var(--bg_fill_inverse);
 	color: var(--fg_inverse);
+
+	&:hover {
+		background-color: var(--bg_fill_inverse);
+		filter: brightness(0.92);
+	}
 }//end uca-maps-panel-secondary-button
 
 // a bare icon as a button (v6's `<img>` with a pointer cursor): the eye of
@@ -1339,8 +1341,11 @@
 		border-radius: 0.2rem;
 		cursor: pointer;
 
+		// neutral: the panel's `button` rule brings the tool's action hover,
+		// which would fill this frame in orange behind the symbol
 		&:hover,
 		&[aria-expanded="true"] {
+			background: none;
 			border-color: @tool_color;
 		}
 
@@ -1393,6 +1398,12 @@
 		>svg {
 			width: 1rem;
 			height: 1rem;
+		}
+
+		// neutral, as the symbol button; before the pressed rule, which wins
+		&:hover {
+			background: none;
+			border-color: var(--border_default);
 		}
 
 		&[aria-pressed="true"] {

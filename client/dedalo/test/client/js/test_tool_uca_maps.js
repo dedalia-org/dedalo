@@ -3934,7 +3934,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isOk(image_btn, 'expected the map-image download button')
 			assert.isOk(object_btn, 'expected the object section\'s Add button')
 			assert.isOk(delete_btn, 'expected the property row\'s ✕')
-			assert.equal(getComputedStyle(xyz_add).backgroundColor, hue, 'expected the action fill on the tool hue')
+			// the fill is the generated one (the hue clamped for its ink), not the raw hue
+			const fill_probe = document.createElement('div')
+			fill_probe.style.cssText = 'background-color: var(--tool_fill)'
+			tool.xyz_panel.appendChild(fill_probe)
+			assert.notEqual(getComputedStyle(fill_probe).backgroundColor, 'rgba(0, 0, 0, 0)', 'expected the generated tool fill to resolve, or the equality proves nothing')
+			assert.equal(getComputedStyle(xyz_add).backgroundColor, getComputedStyle(fill_probe).backgroundColor, 'expected the action fill on the generated tool fill')
+			fill_probe.remove()
 			assert.equal(getComputedStyle(xyz_add).cursor, 'pointer')
 			assert.equal(chrome(image_btn), chrome(xyz_add), 'expected the map-image button on the shared action chrome')
 			assert.equal(chrome(object_btn), chrome(xyz_add), 'expected the object section\'s buttons on the shared action chrome')
@@ -4311,6 +4317,56 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isOk(tool.roman_dropdown.querySelector('.uca-maps-roman-result-name'), 'expected a suggestion drawn')
 			assert.match(dropdown.fontFamily, page_font, 'expected the Roma suggestions in core\'s page font, not Leaflet\'s')
 			assert.equal(dropdown.fontSize, root.fontSize, 'expected the Roma suggestions at the page\'s base size')
+		})
+	})
+
+	// Every box the tool hangs from the map sits outside .wrapper_tool, so only
+	// the `data-tool` scope gives it the generated tokens: without it the action
+	// buttons lose their fill and a checkbox falls back to the app's accent.
+	it('with the tool CSS, every box on the map carries the tool scope: buttons and checkboxes take the tool fill', async function() {
+
+		await with_tool_css(async () => {
+			mount_roman(WITH_PLEIADES)
+			const panels = [
+				['attach_console',						'panel_node',			'map_control'],
+				['attach_map_image_download_control',	'map_image_panel',		'map_image_control'],
+				['attach_object_viewer',				'object_viewer_panel',	'object_viewer_control'],
+				['attach_xyz_basemaps',					'xyz_panel',			'xyz_control'],
+				['attach_wms_services',					'wms_panel',			'wms_control'],
+				['attach_file_upload',					'upload_panel',			'upload_control'],
+				['attach_place_search',					'place_search_panel',	'place_search_control'],
+				['attach_legend',						'legend_panel',			'legend_control'],
+				['attach_roman_empire',					'roman_panel',			'roman_control']
+			]
+			for (const [attach] of panels) {
+				tool[attach]()
+			}
+
+			// the generated values, read under a scope of their own
+			const probe = document.createElement('div')
+			probe.setAttribute('data-tool', 'tool_uca_maps')
+			probe.style.cssText = 'background-color: var(--tool_fill); color: var(--tool_on_fill)'
+			document.body.appendChild(probe)
+			const fill	= getComputedStyle(probe).backgroundColor
+			const ink	= getComputedStyle(probe).color
+			probe.remove()
+			assert.notEqual(fill, 'rgba(0, 0, 0, 0)', 'expected main.css\'s generated tokens loaded, or this proves nothing')
+
+			const bar = geolocation.map.getContainer().querySelector('.uca-maps-toolbar')
+			for (const [label, node] of [['bar', bar], ['roman_dropdown', tool.roman_dropdown], ...panels.map(([, key]) => [key, tool[key]])]) {
+				assert.equal(node.getAttribute('data-tool'), 'tool_uca_maps', label + ': expected the tool scope')
+				assert.isNull(node.closest('.wrapper_tool'), label + ': expected outside .wrapper_tool, or the scope is not what paints it')
+
+				const checkbox = document.createElement('input')
+				checkbox.type = 'checkbox'
+				node.appendChild(checkbox)
+				assert.equal(getComputedStyle(checkbox).accentColor, fill, label + ': expected a checkbox in the tool fill')
+				checkbox.remove()
+			}
+
+			const add = tool.xyz_panel.querySelector('.uca-maps-xyz-add-button')
+			assert.equal(getComputedStyle(add).backgroundColor, fill, 'expected an action button in the generated fill')
+			assert.equal(getComputedStyle(add).color, ink, 'expected an action button in the fill\'s own ink')
 		})
 	})
 
@@ -8508,6 +8564,55 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 		assert.isTrue(uploaded.ok)
 		assert.notProperty(element, 'symbol', 'expected the symbol dropped once an image replaces it')
+	})
+
+	// the panel's `button` rule carries the tool's action hover; the symbol
+	// and shape buttons are neutral frames and must not fill in orange under
+	// the pointer. A script cannot hover, so the sheet's :hover rules are
+	// replayed under a class of the same specificity.
+	it('with the tool CSS, the legend\'s symbol and shape buttons keep a neutral hover', async function() {
+
+		await with_tool_css(async () => {
+			tool.attach_legend()
+			tool.legend_control.getContainer().click()
+			const panel = tool.legend_panel
+			panel.querySelector('.uca-maps-legend-add-column').click()
+			panel.querySelector('.uca-maps-legend-add-element').click()
+			const symbol_btn = panel.querySelector('.uca-maps-legend-symbol-button')
+			symbol_btn.click()
+			const shape_btn	= panel.querySelector('.uca-maps-legend-symbol-shape:not([aria-pressed="true"])')
+			const action_btn	= panel.querySelector('.uca-maps-legend-add-column')
+			assert.isOk(shape_btn, 'expected an unpressed shape button')
+
+			const sheet = [...document.styleSheets].find((s) => s.href && s.href.includes('/tool_uca_maps.css'))
+			const hover_rules = [...sheet.cssRules]
+				.filter((rule) => rule instanceof CSSStyleRule && rule.selectorText.includes(':hover'))
+				.map((rule) => rule.cssText.replace(/:hover/g, '.uca-test-hover'))
+			assert.isAbove(hover_rules.length, 0, 'expected the sheet\'s hover rules')
+			const style = document.createElement('style')
+			// core buttons ease their background: read mid-transition, the hover is invisible
+			style.textContent = hover_rules.join('\n') + '\n.uca-test-hover { transition: none !important; }'
+			document.head.appendChild(style)
+			try {
+				const probe = document.createElement('div')
+				probe.style.cssText = 'background-color: var(--tool_fill_hover)'
+				panel.appendChild(probe)
+				const fill_hover = getComputedStyle(probe).backgroundColor
+				probe.remove()
+
+				// positive control: the replay does reach the action hover
+				action_btn.classList.add('uca-test-hover')
+				assert.equal(getComputedStyle(action_btn).backgroundColor, fill_hover, 'expected the replayed hover on an action button, or this proves nothing')
+
+				for (const [label, node] of [['symbol', symbol_btn], ['shape', shape_btn]]) {
+					node.classList.add('uca-test-hover')
+					assert.equal(getComputedStyle(node).backgroundColor, 'rgba(0, 0, 0, 0)', label + ': expected no fill under the pointer')
+				}
+			} finally {
+				style.remove()
+				for (const node of [action_btn, symbol_btn, shape_btn]) node.classList.remove('uca-test-hover')
+			}
+		})
 	})
 
 	it('the symbol opens its own editor, and each gesture repaints the row in place', function() {

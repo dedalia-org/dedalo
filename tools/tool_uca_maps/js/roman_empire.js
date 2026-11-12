@@ -22,6 +22,7 @@ import {
 	create_toolbar_button,
 	create_toolbar_panel,
 	is_toolbar_panel_visible,
+	mark_tool_scope,
 	register_toolbar_node,
 	remove_toolbar_button,
 	remove_toolbar_panel,
@@ -120,6 +121,7 @@ export const attach_roman_empire = function(self) {
 	self.roman_dropdown			= document.createElement('ul')
 	self.roman_dropdown.className	= 'uca-maps-roman-dropdown'
 	self.roman_dropdown.hidden		= true
+	mark_tool_scope(self.roman_dropdown)
 	L.DomEvent.disableClickPropagation(self.roman_dropdown)
 	L.DomEvent.disableScrollPropagation(self.roman_dropdown)
 	self.geolocation.map.getContainer().appendChild(self.roman_dropdown)

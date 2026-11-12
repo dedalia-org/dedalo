@@ -21,6 +21,21 @@ const TOOLBAR_BUTTON_ACTIVE_CLASS = 'uca-maps-toolbar-button-active'
 
 
 /**
+* MARK_TOOL_SCOPE
+* Stamps the box-free `data-tool` scope (scripts/tool_colors.ts) on a node that
+* hangs from the map, outside any .wrapper_tool: only there do the generated
+* colour tokens and the checkbox/radio accent reach it.
+*
+* @param {HTMLElement} node
+* @returns {void}
+*/
+export const mark_tool_scope = function(node) {
+	node.setAttribute('data-tool', 'tool_uca_maps')
+}//end mark_tool_scope
+
+
+
+/**
 * REGISTER_TOOLBAR_NODE
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} node
@@ -86,6 +101,7 @@ const get_toolbar_bar = function(self) {
 		options : { position: 'topleft' },
 		onAdd : function() {
 			const container = L.DomUtil.create('div', 'leaflet-bar uca-maps-toolbar')
+			mark_tool_scope(container)
 			// prevent map drag/zoom/click from reaching the map through the bar
 			L.DomEvent.disableClickPropagation(container)
 			L.DomEvent.disableScrollPropagation(container)
@@ -166,6 +182,7 @@ export const create_toolbar_panel = function(self, {class_name, on_hide, centere
 
 	const panel = document.createElement('div')
 	panel.className	= 'uca-maps-panel ' + class_name
+	mark_tool_scope(panel)
 	panel.hidden	= true
 	panel._on_hide	= on_hide || null
 
