@@ -174,10 +174,10 @@ All properties are optional and live in the ontology node `properties` JSON. `co
 - **Values:** an object keyed by CSS selector (e.g. `.wrapper_component`), each a map of declarations.
 - **Effect:** style stamped on the rendered wrapper. Commonly used to set the grid span of the field.
 
-### has_dataframe
+### Dataframe (a slot in `show.ddo_map`)
 
-- **Values:** `true` | `false` (default `false`).
-- **Effect:** marks the component as paired with a [component_dataframe](component_dataframe.md). When the RQO `show.ddo_map` contains a `component_dataframe` entry, the server builds the dataframe subdatum and the `default` edit view attaches a dataframe control to the selected value (pairing key is the value item `id`, never the target `section_id`). Changing the select value fires an explicit `delete_dataframe` unlink before the new value is saved. See the *dedalo-dataframe* skill.
+- **Values:** a `component_dataframe` ddo in the `show.ddo_map` of `source.request_config`, naming the host section as its `section_tipo` — for example `numisdata291` (discovery method, in the coins section `numisdata4`) declares `{"tipo":"numisdata872","view":"default","section_tipo":"numisdata4"}`, the uncertainty rating of the chosen method.
+- **Effect:** pairs each selected value with a [component_dataframe](component_dataframe.md) frame. In edit (any mode but `list` and `search`) and when the select holds a value, the server sends, after the select's own item, one frame item per selected value (paired by the value item `id`, never the target `section_id`), the frame's own fields and their context; the `default` edit view then attaches the dataframe control to the selected value. An empty select sends no frame; the first pick's save response carries an empty one, so the control appears at once. Changing the select value fires an explicit `delete_dataframe` unlink before the new value is saved. `has_dataframe` is **not** needed here: that flag is a switch for literal mains only.
 
 !!! note "Standard context properties"
     Like every component, `component_select` also honours the generic ontology context blocks carried into the datum `context`: `properties`, `request_config` (RQO) and `view` (the render view to use). Observer/observable wiring, when needed, is configured in `properties` like any other component (see the index page *Observers and observables* section). Any other custom key seen in production should be verified in the ontology.

@@ -883,6 +883,17 @@ function skipsPortalChild(
 	return true;
 }
 
+/**
+ * The key a frame pairs with on a RELATION main (PHP get_subdatum dataframe
+ * branch, class.common.php ~2425-2440: `$locator->id ?? $locator->section_id`):
+ * the stored item's `id`, the legacy target section_id for an id-less item.
+ * ONE rule for every relation main — the portal expansion and the select
+ * family (models/select_family.ts) both pair through it.
+ */
+export function mainItemPairId(locator: { id?: unknown; section_id?: unknown }): number | string {
+	return (locator.id as number | string | undefined) ?? (locator.section_id as number | string);
+}
+
 /** Emits ONE child ddo at a locator's target: a dataframe pairs with the MAIN record, every other model resolves at the target record. */
 async function emitPortalChild(
 	expansion: PortalExpansion,
@@ -915,7 +926,7 @@ async function emitPortalChild(
 			childDdo,
 			expansion.record,
 			portalDdo.tipo,
-			(locator.id as number | string | undefined) ?? (locator.section_id as number | string),
+			mainItemPairId(locator),
 			childDdo.mode ?? portalMode,
 			row,
 			childrenLang,
