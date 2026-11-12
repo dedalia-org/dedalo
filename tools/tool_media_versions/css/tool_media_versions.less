@@ -108,6 +108,19 @@
 		>.main_element_container {
 			width: 100%;
 
+			position: relative;
+
+			// thumb quality: plain image overlaid on the component's media box (any
+			// media model); the box keeps its space so nothing moves
+			&.showing_thumb>.wrapper_component>.content_data>.content_value {
+				visibility: hidden;
+			}
+			>.thumb_preview {
+				position: absolute;
+				// shrink to fit when larger; never enlarge (real size, centered)
+				object-fit: scale-down;
+			}
+
 			.wrapper_component {
 
 				>.content_data {

@@ -126,6 +126,10 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Media versions: the thumb opens in the tool's preview, like the other qualities.**
+
+    In the Media versions tool, viewing the `thumb` quality used to open the file in a new browser window. It now shows in the tool's own preview, in the same place and at the same height as the other qualities, for every media type (audiovisual, image, PDF, SVG, 3D). A thumb smaller than the preview is shown at its real size, centred, never enlarged.
+
 - **Search-as-you-type keeps the previous results on screen while it looks for the new ones, and answers sooner.**
 
     Before, every key you pressed in a field's search emptied the list of results and showed

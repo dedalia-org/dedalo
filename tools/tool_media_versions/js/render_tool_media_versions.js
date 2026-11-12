@@ -579,8 +579,8 @@ const render_versions_grid = function(self) {
 * Renders the file-preview cell for a given quality level.
 *
 * When the file exists and has a path, renders a media icon button:
-*  - For 'thumb': opens the thumbnail in a new window (thumbnails use a different
-*    extension and are not renderable by the embedded media component).
+*  - For 'thumb': shows the thumbnail (always a jpg) as a plain image inside
+*    main_element_container, hiding the component view (which cannot render it).
 *  - For other qualities: switches the main_element to the selected quality and
 *    refreshes the inline preview in place.
 * When the file exists but has no path, renders a dash placeholder.
@@ -622,13 +622,45 @@ const render_file = function(quality, self) {
 				button_file_av.addEventListener('click', async function(e) {
 					e.stopPropagation()
 
-					// thumb open a new window always (is not compatible with all media components view)
+					// thumb: the component views (av player, pdf viewer, 3d scene, svg)
+					// cannot render it, but it is always a jpg for every media model, so
+					// it is shown as a plain image in the same preview container
+					const container = self.main_element_container
+					// preserve the preview height across quality changes (no layout jump)
+					const height = container.offsetHeight
+					if (height > 0) {
+						container.style.minHeight = height + 'px'
+					}
 					if (quality==='thumb') {
-						const file_url = DEDALO_MEDIA_URL + file_info.file_path
-						open_window({
-							url : file_url
+						container.thumb_preview?.remove()
+						container.thumb_preview = ui.create_dom_element({
+							element_type	: 'img',
+							class_name		: 'thumb_preview',
+							src				: DEDALO_MEDIA_URL + file_info.file_path + '?t=' + Date.now(),
+							parent			: container
 						})
+						// overlay the component's media box so the thumb sits exactly where
+						// the other qualities render (label and layout stay untouched)
+						const media_box = self.main_element.node?.querySelector(':scope > .content_data > .content_value')
+							|| self.main_element.node
+						if (media_box) {
+							const box	= media_box.getBoundingClientRect()
+							const base	= container.getBoundingClientRect()
+							Object.assign(container.thumb_preview.style, {
+								top		: (box.top - base.top) + 'px',
+								left	: (box.left - base.left) + 'px',
+								width	: box.width + 'px',
+								height	: box.height + 'px'
+							})
+						}
+						container.thumb_preview.alt = 'thumb'
+						container.classList.add('showing_thumb')
 						return
+					}
+					if (container.thumb_preview) {
+						container.thumb_preview.remove()
+						container.thumb_preview = null
+						container.classList.remove('showing_thumb')
 					}
 
 					self.node.classList.add('loading')
