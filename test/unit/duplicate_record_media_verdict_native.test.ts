@@ -50,6 +50,10 @@
  *      regenerate_component parity; needs ImageMagick).
  *   M  a hostile `svg_file_data` is refused through the one envelope write door:
  *      no envelope, no stored payload, an `envelope` verdict, counted and logged.
+ *   N  the vector editor's `lib_data` raster layer (layer 0's `<image>`, the href
+ *      the editor loads its raster from) is repointed at the clone, drawing
+ *      layers kept — in the row AND its history; with no media root it names no
+ *      record at all (T1-22 review).
  *
  * SITUATION: a `zzdm` scratch section (→ matrix_test) with its OWN counter (the
  * clone's id is therefore known before the duplicate — case C plants at it), a
@@ -377,6 +381,57 @@ async function annotatedSource(): Promise<{ source: number; svg: string }> {
 	seedText(await envelopePath(source), svg);
 	await setSvgFileData(source, svg);
 	return { source, svg };
+}
+
+/** A vector-editor layer set (vector_editor.js save_data): the raster layer 0 + one drawing layer. */
+function editorLayers(rasterUrl: string, hrefKey: 'href' | 'xlink:href'): unknown[] {
+	return [
+		{
+			name: 'layer_0',
+			layer_id: 0,
+			user_layer_name: 'raster',
+			layer_data: [
+				{
+					element: 'image',
+					attr: {
+						x: '0',
+						y: '0',
+						id: 'main_image',
+						width: '100',
+						height: '50',
+						[hrefKey]: rasterUrl,
+					},
+					children: [],
+				},
+			],
+		},
+		{
+			name: 'layer_1',
+			layer_id: 1,
+			user_layer_name: 'drawing',
+			layer_data: [{ element: 'path', attr: { d: LAYER, stroke: '#ff0000' }, children: [] }],
+		},
+	];
+}
+
+/** Set the stored plain-image item's `lib_data` (the vector editor's layers). */
+async function setLibData(sectionId: number, libData: unknown): Promise<void> {
+	await sql.unsafe(
+		`UPDATE "${TABLE}" SET media = jsonb_set(media, $3::text[], $4::text::jsonb)
+		  WHERE section_tipo = $1 AND section_id = $2`,
+		[SECTION, sectionId, `{${PLAIN},0,lib_data}`, JSON.stringify(libData)],
+	);
+}
+
+/** The raster `<image>` attrs of a stored layer set's layer 0. */
+function rasterAttrs(libData: unknown): Record<string, unknown> {
+	const layer = (libData as { layer_id?: unknown; layer_data?: unknown[] }[]).find(
+		(entry) => entry.layer_id === 0,
+	);
+	const element = (layer?.layer_data ?? []).find(
+		(entry) => (entry as { element?: unknown }).element === 'image',
+	) as { attr?: Record<string, unknown> } | undefined;
+	return element?.attr ?? {};
 }
 
 function seedText(path: string, content: string): void {
@@ -906,6 +961,54 @@ describe('duplicate with media: a verdict, and a clone that never indexes the so
 			(await storedItem(result.sectionId))?.svg_file_data,
 			'the hostile payload rides the clone’s row',
 		).toBeUndefined();
+	}, 60_000);
+
+	test('N the vector editor’s raster layer (lib_data layer 0 <image>) is repointed at the clone, drawing kept; row, history, rootless', async () => {
+		for (const hrefKey of ['href', 'xlink:href'] as const) {
+			const { source } = await plainSource();
+			await setLibData(source, editorLayers(await rasterUrlOf(source), hrefKey));
+
+			const clone = await duplicateSectionRecord(SECTION, source, USER_ID);
+
+			const libData = (await storedItem(clone))?.lib_data;
+			expect(Array.isArray(libData), 'the clone lost its lib_data').toBe(true);
+			expect(
+				rasterAttrs(libData)[hrefKey],
+				`the clone’s editor raster (${hrefKey}) still loads the SOURCE’s image (T1-22 review)`,
+			).toBe(await rasterUrlOf(clone));
+			expect(JSON.stringify(libData), 'the copy dropped the drawing layer').toContain(LAYER);
+			expect(
+				namesRecord(JSON.stringify(libData), PLAIN, source),
+				'the clone’s STORED lib_data names the SOURCE raster',
+			).toBe(false);
+			expect(
+				namesRecord(await historyText(clone, PLAIN), PLAIN, source),
+				'the clone’s HISTORY names the SOURCE raster',
+			).toBe(false);
+			const sourceAttrs = rasterAttrs((await storedItem(source))?.lib_data);
+			expect(sourceAttrs[hrefKey], 'the duplicate touched the SOURCE lib_data').toBe(
+				await rasterUrlOf(source),
+			);
+
+			const rootless = await duplicateSectionRecordWithVerdict(
+				SECTION,
+				source,
+				USER_ID,
+				undefined,
+				undefined,
+				{ mediaRoot: null },
+			);
+			const rootlessItem = await storedItem(rootless.sectionId);
+			expect(
+				namesRecord(JSON.stringify(rootlessItem ?? null), PLAIN, source),
+				'with no media root, the clone’s STORED lib_data still names the SOURCE raster',
+			).toBe(false);
+			expect(
+				namesRecord(await historyText(rootless.sectionId, PLAIN), PLAIN, source),
+				'with no media root, the clone’s HISTORY names the SOURCE raster',
+			).toBe(false);
+			expect(JSON.stringify(rootlessItem?.lib_data)).toContain(LAYER);
+		}
 	}, 60_000);
 
 	test('the cleanup sweep finds a file this gate seeds — its afterAll is never blind', async () => {
