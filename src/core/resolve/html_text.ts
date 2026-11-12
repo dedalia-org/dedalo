@@ -208,3 +208,48 @@ export function decodeHtmlSpecialChars(text: string, options: EntityDecodeOption
 				: decodeNamedRef(match, body, options),
 	);
 }
+
+/**
+ * The LEGACY CLIENT entity map (keyed by entity BODY) — exactly the 11 spellings the old browser export
+ * (flat_table) decoded and PHP export_tabulator::clean_text_value kept as a
+ * `strtr` (tools/tool_export/class.export_tabulator.php :1020-1032). NOT the
+ * htmlspecialchars set: `&nbsp;` and `&apos;` are in it, while `&#x27;`,
+ * `&#039;` or `&AMP;` are NOT — a byte port, so {@link decodeHtmlSpecialChars}
+ * (a superset) would change exported cells. `&nbsp;` becomes a plain U+0020.
+ */
+const LEGACY_CLIENT_ENTITIES: Readonly<Record<string, string>> = Object.freeze({
+	nbsp: ' ',
+	amp: '&',
+	'#38': '&',
+	lt: '<',
+	'#60': '<',
+	gt: '>',
+	'#62': '>',
+	apos: "'",
+	'#39': "'",
+	quot: '"',
+	'#34': '"',
+});
+
+/**
+ * One alternation over the map's entity BODIES (`&body;`): a single
+ * left-to-right pass, as `strtr` — the keys are exact spellings, no numeric
+ * normalisation (`&#038;` / `&#x26;` are not in the map, so they stay).
+ */
+const LEGACY_CLIENT_ENTITY_PATTERN = new RegExp(
+	`&(${Object.keys(LEGACY_CLIENT_ENTITIES).join('|')});`,
+	'g',
+);
+
+/**
+ * Single-pass decode of {@link LEGACY_CLIENT_ENTITIES} (PHP `strtr`): `&amp;lt;`
+ * decodes to `&lt;` — never to `<`; anything outside the map is left verbatim.
+ * The export text-cell cleanup's decode (diffusion/export/clean_text.ts).
+ */
+export function decodeLegacyClientEntities(text: string): string {
+	if (!text.includes('&')) return text;
+	return text.replace(
+		LEGACY_CLIENT_ENTITY_PATTERN,
+		(entity, body: string) => LEGACY_CLIENT_ENTITIES[body] ?? entity,
+	);
+}

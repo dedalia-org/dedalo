@@ -349,6 +349,31 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-duplicate-image-svg-envelope`.
 
+- **JSON and geolocation columns are no longer blank in exports.**
+
+    A JSON field or a geolocation field added to an export came out as an empty column, in every
+    format. The same fields were also blank in the relation list panel and the references list.
+
+    The cell now holds the field's value as JSON, one entry per stored value, separated by commas. A
+    geolocation cell holds the map view (latitude, longitude, zoom) and the drawn features. It does not
+    include the map's tile sources or its legend; the raw export format still carries those. Earlier
+    exports with these columns were incomplete: export again to get the values.
+
+    Wire contract: `WC-2026-11-12-export-json-geolocation-cells`.
+
+- **Exported text cells read as plain text — paragraphs become line breaks, HTML entities are decoded.**
+
+    A rich-text field (a description, a transcription) reached the export files, the preview and the
+    NDJSON download with its paragraph markup and escaped characters: `<p>Coins &amp; medals</p>`.
+
+    Every exported cell is now cleaned as the earlier versions of Dédalo did: each paragraph starts a
+    new line inside the cell, the outer paragraph marks are removed, and the common HTML entities
+    (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`, `&nbsp;` and their numeric forms) become the characters
+    they stand for. Other markup, such as tags, is left as it is. The raw export format is not cleaned:
+    it stays an exact copy of the stored value for re-import.
+
+    Wire contract: `WC-2026-11-12-export-text-cell-clean`.
+
 - **Images named by their "Filename" field open, upload and regenerate under that name again.**
 
     An image component can take its file name from another field of the record (in the core
@@ -1234,7 +1259,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 56 entries"
+??? note "Wire contract — 58 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1273,6 +1298,8 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-db-bounds-on-by-default`
     - `WC-2026-11-12-diffusion-map-target-section-tipo`
     - `WC-2026-11-12-duplicate-image-svg-envelope`
+    - `WC-2026-11-12-export-json-geolocation-cells`
+    - `WC-2026-11-12-export-text-cell-clean`
     - `WC-2026-11-12-global-table-maps`
     - `WC-2026-11-12-image-id-media-file-stem`
     - `WC-2026-11-12-info-live-publication-export`

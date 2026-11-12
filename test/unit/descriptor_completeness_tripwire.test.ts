@@ -409,14 +409,6 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 			'a frame is folded INTO its main’s cell, never a value column of its own (dedalo_raw mints its slot column from the stored slice)',
 		],
 		[
-			'component_geolocation',
-			'no flat text value: geo exports through its own geo / geojson diffusion functions; the value cell is ledgered unresolved',
-		],
-		[
-			'component_json',
-			'an opaque config blob: no flat text value; the value cell is ledgered unresolved (dedalo_raw exports the stored slice)',
-		],
-		[
 			'component_password',
 			'a secret: never exported as a value (the tool_export client excludes it from the pickable elements)',
 		],

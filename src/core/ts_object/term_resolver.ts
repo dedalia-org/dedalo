@@ -273,7 +273,7 @@ async function readComponentItems(
  * into other records (relation targets, iri frames, inverse referrers) or into
  * request state (info widgets, media export base) — see termCrossesRecords.
  */
-const RECORD_LOCAL_FAMILIES: ReadonlySet<string> = new Set(['string', 'section_id']);
+const RECORD_LOCAL_FAMILIES: ReadonlySet<string> = new Set(['string', 'section_id', 'json']);
 
 /**
  * The tipo's flat-value family when it is NOT read as literal items: a declared

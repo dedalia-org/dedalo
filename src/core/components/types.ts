@@ -189,6 +189,12 @@ export type CalculationDataId = 'number' | 'date' | 'info' | 'relation';
  *   a flat cell is every output's values joined
  *   (WC-2026-11-12-info-live-publication-export). Its own family for the same
  *   reason as 'external'/'inverse'.
+ * - 'json': each stored item encoded as JSON, one per item (PHP
+ *   component_common::get_export_value base — json_encode($item); component_json
+ *   and component_geolocation have no override). A geolocation entry is encoded
+ *   as a LIST ROW serves it (geo/entry_siblings.ts servedGeoEntry 'list': no
+ *   `sources` / `legend`); `JSON.stringify` bytes, not PHP's escapes
+ *   (WC-2026-11-12-export-json-geolocation-cells).
  * Models with no family declared are LEDGERED unresolved by the consumers
  * (value null + a note, never a guessed string).
  */
@@ -201,7 +207,8 @@ export type FlatValueFamily =
 	| 'media'
 	| 'external'
 	| 'inverse'
-	| 'info';
+	| 'info'
+	| 'json';
 
 /**
  * RENDER CLASS (audit P2-6 / CARRY-01 — XSS-03): what the client may DO with

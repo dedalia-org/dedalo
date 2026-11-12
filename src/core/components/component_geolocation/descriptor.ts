@@ -22,4 +22,5 @@ export const component_geolocation: ComponentModel = {
 	importConform: 'geolocation',
 	itemGate: 'geo_entry', // sources/legend: validation + server-issued source ids (src/core/geo/entry_gate.ts)
 	emitHook: 'geo', // sources/legend on the way OUT: legend re-validated, dropped from list rows (src/core/geo/entry_siblings.ts)
+	flatValue: 'json', // export/panel cell = the list-served entry as JSON (PHP get_export_value base)
 };

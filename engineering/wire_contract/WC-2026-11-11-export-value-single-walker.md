@@ -167,3 +167,10 @@ Children / Related / Index column must not ship blank.
   (cycle), A4 (D11), A5 (D12); `relation_list_cell_families_native` keeps the no-children datalist
   branch covered (`test70`); `tool_export_media_zip_native` R11 asserts hop 16 is reached (the
   chain's only media sits there).
+
+## Addendum 2026-11-12 — the literal leaf families include `json` (T1-39)
+
+`atoms.ts LITERAL_ITEM_FAMILIES` gained `json` (`component_json`, `component_geolocation`): one atom
+per stored item, the item's JSON — PHP's base `get_export_value`. See
+`WC-2026-11-12-export-json-geolocation-cells`. The tabulator now cleans every non-raw cell after
+the join (`WC-2026-11-12-export-text-cell-clean`).

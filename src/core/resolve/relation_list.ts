@@ -44,6 +44,7 @@ import { dataframeEntryMatches } from '../concepts/subdatum.ts';
 import { type MatrixRecord, readMatrixRecordBatch } from '../db/matrix.ts';
 import { sql } from '../db/postgres.ts';
 import { memoizedReadMatrixRecord } from '../db/record_memo.ts';
+import { servedGeoEntry } from '../geo/entry_siblings.ts';
 import { createOntologyCache } from '../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
 import { termByTipo } from '../ontology/labels.ts';
@@ -1111,8 +1112,38 @@ export async function resolveCellItems(
 		return parts.length > 0 ? parts : null;
 	}
 
+	if (family === 'json') {
+		return jsonCellItems(record, componentTipo, model, lang, opts);
+	}
+
 	if (!unresolved.includes(model)) unresolved.push(model);
 	return null;
+}
+
+/**
+ * {@link resolveCellItems}' json branch (component_json, component_geolocation):
+ * each stored item encoded as JSON — PHP component_common::get_export_value
+ * base, `json_encode($item)` per item (neither model overrides it). Read through
+ * THE value door (alias-aware; a non-translatable model's items verbatim). A
+ * geolocation entry is encoded as a LIST ROW serves it: the map definition
+ * (`sources` / `legend`, TS-only, up to a quarter-megabyte of legend icons) has
+ * no consumer in a flat cell — dedalo_raw stays the lossless form
+ * (WC-2026-11-12-export-json-geolocation-cells).
+ */
+async function jsonCellItems(
+	record: MatrixRecord,
+	componentTipo: string,
+	model: string,
+	lang: string,
+	opts: CellValueResolveOptions | undefined,
+): Promise<string[] | null> {
+	const items = shownItems(await resolveComponentValue(record, componentTipo, model, lang)) ?? [];
+	const parts = items.map((item) =>
+		item === null || item === undefined
+			? ''
+			: JSON.stringify(model === 'component_geolocation' ? servedGeoEntry(item, 'list') : item),
+	);
+	return keptItems(parts, opts);
 }
 
 /** {@link resolveCellItems}' info branch: every declared output's live values. */

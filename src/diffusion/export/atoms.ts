@@ -1307,10 +1307,19 @@ export function recordInverseCallerGrants(
  * The literal flat families whose items become ONE ATOM EACH (PHP
  * component_common::get_export_value :1901-1928 and every literal override —
  * input_text :58, text_area :195, date :266, iri :350, section_id :162 — add
- * one atom per data item). Media keeps its single URL atom (PHP
+ * one atom per data item; the 'json' family is the base itself, :1913-1928).
+ * Media keeps its single URL atom (PHP
  * component_media_common :340 export_value::from_scalar), relations fan out.
  */
-const LITERAL_ITEM_FAMILIES: ReadonlySet<string> = new Set(['string', 'date', 'iri', 'section_id']);
+const LITERAL_ITEM_FAMILIES: ReadonlySet<string> = new Set([
+	'string',
+	'date',
+	'iri',
+	'section_id',
+	// component_json / component_geolocation: PHP's BASE get_export_value — one
+	// json_encode atom per item (WC-2026-11-12-export-json-geolocation-cells)
+	'json',
+]);
 
 /**
  * Models whose LEAF segment glues its items with the RECORDS separator (PHP
