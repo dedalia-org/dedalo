@@ -854,6 +854,10 @@ const NOT_HERMETIC: ReadonlyMap<string, string> = new Map([
 		"It installs the authz door fixture's scratch projects, profiles and users on the suite database, runs the mapped and CSV importers as those users so they create (or are refused) real test3 records, and measures every refusal on the stored rows and the section's row count, so it cannot run without a live suite Postgres.",
 	],
 	[
+		'test/unit/boot_marker_native.test.ts',
+		'It spawns the REAL server (src/server.ts) supervised on a scratch socket and watches the boot marker appear before the socket binds and vanish once /health answers — a boot runs the schema migrations and /health pings the database, so it cannot run without a live suite Postgres.',
+	],
+	[
 		'test/unit/install_ontology_door_native.test.ts',
 		"It drives the installer's ontology door (stage + import through the update panel's shared lower layer) against the suite Postgres, serving its zz packages from a loopback ontology-master stand-in, and measures dd_ontology / matrix_ontology / registry / matrix_dd rows and their census around every case, so it cannot run without a live suite Postgres.",
 	],

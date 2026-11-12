@@ -47,6 +47,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NOT_INSTALLED_EXIT_CODE } from '../../src/config/install_state.ts';
 import { certificatePaths, siteText } from '../../src/core/install/host/production/web.ts';
+import { bootMarkerPath, writeBootMarker } from '../../src/core/update/boot_marker.ts';
 import { RESTART_EXIT_CODE } from '../../src/core/update/restart.ts';
 import { HOST_VARIANTS, productionPlanCtx, REPO_ROOT } from '../helpers/install_host_scratch.ts';
 
@@ -1009,7 +1010,10 @@ describe('restart supervisor contract', () => {
 		},
 	];
 
-	function runGrace(f: Fixture, item: GraceCase): { exitCode: number | null; calls: string } {
+	async function runGrace(
+		f: Fixture,
+		item: GraceCase,
+	): Promise<{ exitCode: number | null; calls: string }> {
 		writeFileSync(join(f.root, 'active_state'), `${item.state}\n`);
 		writeFileSync(join(f.root, 'entered'), `${item.entered}\n`);
 		writeFileSync(
@@ -1029,27 +1033,32 @@ describe('restart supervisor contract', () => {
 		rmSync(uptime, { force: true });
 		if (item.uptime !== null) writeFileSync(uptime, `${item.uptime}.42 1234.56\n`);
 		const socketDir = join(f.root, 'run');
-		mkdirSync(socketDir, { recursive: true });
-		rmSync(join(socketDir, 'booting'), { force: true });
-		if (item.marker) writeFileSync(join(socketDir, 'booting'), `${process.pid}\n`);
+		mkdirSync(socketDir, { recursive: true, mode: 0o750 });
+		const socket = join(socketDir, 'dedalo_ts.sock');
+		rmSync(bootMarkerPath(socket), { force: true });
+		// The marker is planted by THE ENGINE'S OWN PRODUCER (T1-26, core/update/boot_marker.ts):
+		// producer and consumer share one name and one format, measured end to end.
+		if (item.marker)
+			expect((await writeBootMarker(socket, { supervised: true })).outcome).toBe('written');
 		const flags = item.flags
 			? ['--service', 'dedalo-ts@demo.service', '--grace', '900', '--uptime-file', uptime]
 			: [];
-		return runWatchdog(f, false, ['--socket', join(socketDir, 'dedalo_ts.sock'), ...flags]);
+		return runWatchdog(f, false, ['--socket', socket, ...flags]);
 	}
 
-	test('watchdog boot grace: a booting server is skipped, a dead one restarted — every branch', () => {
+	test('watchdog boot grace: a booting server is skipped, a dead one restarted — every branch', async () => {
 		const f = makeFixture();
 		try {
 			plantTree(f.appDir, 'live-tree');
-			const seen = GRACE_CASES.map((item) => {
-				const run = runGrace(f, item);
-				return {
+			const seen: { name: string; restarted: boolean; exit: number | null }[] = [];
+			for (const item of GRACE_CASES) {
+				const run = await runGrace(f, item);
+				seen.push({
 					name: item.name,
 					restarted: run.calls.includes('systemctl start dedalo-ts-restart.service'),
 					exit: run.exitCode,
-				};
-			});
+				});
+			}
 			expect(seen).toEqual(
 				GRACE_CASES.map((item) => ({
 					name: item.name,

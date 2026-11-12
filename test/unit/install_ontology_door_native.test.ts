@@ -84,6 +84,7 @@ import { getTldFromTipo } from '../../src/core/ontology/tld.ts';
 import {
 	buildOntologyPackage,
 	type FixtureOntologyTld,
+	stampOntologyDigests,
 } from '../../src/core/test_data/ontology_package_fixture.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { DEDALO_VERSION_MAJOR_MINOR } from '../../src/core/update/version.ts';
@@ -503,9 +504,11 @@ describe('the installer ontology door (suite DB, zz TLDs)', () => {
 			expect(stopped.code).toBe('install.step_failed');
 			expect(stopped.message).toContain('nothing was installed');
 
-			// a corrupt COPY arity
+			// a corrupt COPY arity (re-stamped: the package's digest names these bytes,
+			// so the refusal measured is the SHAPE check's, not the digest's — T1-26)
 			const files = buildOntologyPackage([zzja(), zzjb()]);
 			files.set('zzja.copy.gz', gzipSync(Buffer.from('a\tb\tc\nd\te\tf\n')));
+			stampOntologyDigests(files);
 			const corrupt = writePackage(join(scratchDir('corrupt'), 'ontology'), files);
 			const local = await resolveOntologyCatalog(
 				{ kind: 'local', path: corrupt },

@@ -50,6 +50,24 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=dedalo-%i
 LimitNOFILE=65536
+# Sandbox baseline (T1-26 / S15): mirrors deploy/dedalo-ts.service, whose comments
+# give each line's reason and the deliberate exclusions.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+PrivateDevices=yes
+ProtectProc=invisible
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target

@@ -471,6 +471,10 @@ const TRIPWIRES = [
 	'test/unit/component_value_gate_census_tripwire.test.ts',
 	// T1-17 / S11 — operator images pinned tag@digest, updated by Dependabot, derived by the installer (2026-11-12).
 	'test/unit/operator_image_pin_tripwire.test.ts',
+	// T1-26 / S15 — the installer verifies every ontology file against its source's digest (2026-11-12).
+	'test/unit/install_ontology_digest_native.test.ts',
+	// T1-26 / S15 — the engine writes the boot marker its watchdog's grace reads (2026-11-12).
+	'test/unit/boot_marker_native.test.ts',
 ];
 
 // ---------------------------------------------------------------------------

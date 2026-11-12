@@ -90,6 +90,30 @@ Reference units in `deploy/`:
   watchdog when a pending update never confirms). Publishing a release:
   `engineering/RELEASE.md`.
 
+**The boot marker (T1-26 / S15).** Boot migrations and the search-store backfill
+run before the socket binds. Under a declared supervisor, `startServer` writes
+`<socket dir>/booting` = its pid before that work (`src/core/update/boot_marker.ts`)
+and removes it once the socket listens or the process exits; the watchdog's
+`--service/--grace` skip extends while that pid lives (bounded by four graces). It
+is written only in a socket directory that is not world-writable (the unit's
+`RuntimeDirectory`, never a shared `/tmp`), never over a live foreign marker, and
+never by a smoke boot. Gate: `boot_marker_native`.
+
+**The sandbox baseline (T1-26 / S15).** Both engine units
+(`deploy/dedalo-ts.service`, `deploy/systemd/dedalo-ts@.service`) carry a
+path-independent systemd sandbox: `NoNewPrivileges`, an empty
+`CapabilityBoundingSet`, `RestrictSUIDSGID`, `LockPersonality`,
+`RestrictRealtime`, `RestrictNamespaces`, `ProtectKernel{Tunables,Modules,Logs}`,
+`ProtectControlGroups`, `ProtectClock`, `ProtectHostname`, `PrivateDevices`,
+`ProtectProc=invisible`, `SystemCallArchitectures=native`,
+`RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`. Deliberately absent
+(the unit's comment says why): `MemoryDenyWriteExecute` (JSC JIT), `ProcSubset`
+(`/proc/cpuinfo`), `PrivateTmp` (runners outlive a restart in the temp dir),
+`ProtectHome` (an instance may live under `/home`), `ProtectSystem`/path lists
+(an open owner decision), `SystemCallFilter` (needs a measured syscall set). A code
+update never rewrites `/etc/systemd`: a host installed earlier keeps its old unit
+until the operator replaces it. Gate: `install_host_render_tripwire` (h).
+
 **Supervision is DECLARED, never inferred (2026-10-08).** A code update exits the
 process after the swap and needs something to start it again, so it refuses
 unless the process says a supervisor exists: `DEDALO_SUPERVISED=true`, read from
@@ -195,7 +219,7 @@ stamped `# dedalo-install <i> <answers digest>`):
   only after the first boot recorded every migration (a watchdog armed with the
   service killed a first boot mid-migration — campaign 2 L7). The watchdog
   script also skips while the unit is activating or younger than its grace, and
-  while the engine's boot marker names a live pid; its timer waits
+  while the engine's boot marker (§2) names a live pid; its timer waits
   `OnActiveSec=60` before the first check.
 - `dedalo-backup@<i>.service`: the drop-in lists the store lines and declares
   `DEDALO_BACKUP_EXPECTED_STORES` DERIVED from them, every `Environment=` value

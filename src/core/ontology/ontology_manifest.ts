@@ -21,9 +21,11 @@
  * `info.files_sha256` — `{"<name>.copy.gz": "<hex sha256>"}`, every served
  * file's digest (U-41, WC-2026-10-30-ontology-file-digests) — rides out on
  * each ontology as `sha256` (matrix_dd: `matrixDdSha256`), and the stager
- * verifies the fetched bytes against it before extract. ABSENT (an older
- * master, the vendored install manifest) = unverified, accepted with a warning
- * by the update; a MALFORMED map refuses the manifest.
+ * verifies the fetched bytes against it before extract — the update's stager
+ * AND the installer's stage_ontologies (T1-26), whose vendored release reads its
+ * own ontology.json's map through the same reader (ontology_file_digests.ts). ABSENT (an older
+ * master, a hand-built package) = unverified, accepted with a warning by both;
+ * a MALFORMED map refuses the manifest.
  *
  * TWO SOURCES, ONE PARSER:
  *   - a local directory in the server export layout (`ontology.json` +
@@ -54,6 +56,7 @@ import {
 	manifestFileItemSchema,
 } from './data_io_import.ts';
 import { normalizeOntologyDependencies, type OntologyDependency } from './ontology_dependencies.ts';
+import { filesSha256Schema } from './ontology_file_digests.ts';
 
 /** Total deadline of the manifest request. */
 export const MANIFEST_TIMEOUT_MS = 30_000;
@@ -78,7 +81,7 @@ export const ontologyManifestSchema = z.object({
 		.object({
 			version: z.string().optional(),
 			active_ontologies: z.array(activeOntologySchema).optional(),
-			files_sha256: z.record(z.string(), z.string().regex(/^[0-9a-f]{64}$/)).optional(),
+			files_sha256: filesSha256Schema.optional(),
 		})
 		.passthrough()
 		.nullable(),

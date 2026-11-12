@@ -34,6 +34,10 @@
  *      `/bin/false` (fail-closed, never as root); a custom layout's drop-ins
  *      carry exactly its user, group, folder, .env, HOME and the rollback/
  *      watchdog paths. (c) runs over the default AND a custom layout.
+ *  (h) THE ENGINE UNIT'S SANDBOX BASELINE (T1-26 / S15): the EFFECTIVE instance
+ *      server unit (every OS row) and deploy/dedalo-ts.service carry the
+ *      path-independent systemd sandbox (SANDBOX_BASELINE) and none of the
+ *      deliberately excluded keys (SANDBOX_EXCLUDED); positive controls.
  *  (e) THE ENGINE'S MEDIA RULES REACH ROOT'S NGINX ONLY AS VALIDATED COPIES
  *      (deploy/dedalo-media-rules.sh, EXECUTED): every rule file the engine
  *      generates (protection.ts, every mode) is accepted and copied byte-equal;
@@ -603,6 +607,94 @@ test('the templates the step renders are the repository files (deploy/systemd/*@
 			source.replace(/@@PG_SERVICE@@/g, row.pgService),
 		);
 	}
+});
+
+// ── (h) the engine unit's sandbox baseline (T1-26 / S15) ──────────────────────
+
+/**
+ * The path-independent systemd sandbox every engine unit carries — the single-instance
+ * deploy/dedalo-ts.service and the instance template (whose comments give each line's
+ * reason). The EFFECTIVE value is measured (template + drop-in, as systemd merges):
+ * a drop-in that resets or widens a line is red here.
+ */
+const SANDBOX_BASELINE: Readonly<Record<string, string>> = Object.freeze({
+	NoNewPrivileges: 'yes',
+	CapabilityBoundingSet: '',
+	RestrictSUIDSGID: 'yes',
+	LockPersonality: 'yes',
+	RestrictRealtime: 'yes',
+	RestrictNamespaces: 'yes',
+	ProtectKernelTunables: 'yes',
+	ProtectKernelModules: 'yes',
+	ProtectKernelLogs: 'yes',
+	ProtectControlGroups: 'yes',
+	ProtectClock: 'yes',
+	ProtectHostname: 'yes',
+	PrivateDevices: 'yes',
+	ProtectProc: 'invisible',
+	SystemCallArchitectures: 'native',
+	RestrictAddressFamilies: 'AF_UNIX AF_INET AF_INET6 AF_NETLINK',
+});
+
+/**
+ * Deliberately ABSENT, each for a measured engine need (the unit's comment says which):
+ * JSC's JIT (MemoryDenyWriteExecute), /proc/cpuinfo (ProcSubset), runners surviving a
+ * restart in the temp dir (PrivateTmp), an instance under /home (ProtectHome); the
+ * writable-path policy (ProtectSystem/ReadWritePaths) is an owner decision.
+ */
+const SANDBOX_EXCLUDED: readonly string[] = Object.freeze([
+	'MemoryDenyWriteExecute',
+	'ProcSubset',
+	'PrivateTmp',
+	'ProtectHome',
+	'ProtectSystem',
+	'ReadWritePaths',
+	'ReadOnlyPaths',
+	'InaccessiblePaths',
+]);
+
+/** The sandbox verdict of a merged unit: missing/different baseline lines and excluded keys present. */
+function sandboxFaults(unit: ReadonlyMap<string, string[]>): string[] {
+	const faults: string[] = [];
+	for (const [key, expected] of Object.entries(SANDBOX_BASELINE)) {
+		const values = unit.get(`Service.${key}`);
+		if (values === undefined || values.length !== 1 || values[0] !== expected) {
+			faults.push(`${key}=${expected} (found ${JSON.stringify(values ?? null)})`);
+		}
+	}
+	for (const key of SANDBOX_EXCLUDED) {
+		if (unit.has(`Service.${key}`)) faults.push(`${key} must not be set`);
+	}
+	return faults;
+}
+
+describe("the engine unit's sandbox baseline (h)", () => {
+	for (const row of OS_ROWS) {
+		test(`${row.id}: the EFFECTIVE instance server unit (template + drop-in) carries the baseline, nothing excluded`, () => {
+			const ctx = productionPlanCtx({ os: row.id, web: 'nginx', tls: 'letsencrypt' });
+			expect(sandboxFaults(effective(ctx, 'dedalo-ts@.service'))).toEqual([]);
+		});
+	}
+
+	test('the single-instance deploy/dedalo-ts.service carries the same baseline, nothing excluded', () => {
+		const single = readFileSync(join(REPO_ROOT, 'deploy/dedalo-ts.service'), 'utf8');
+		expect(sandboxFaults(mergedUnit(single, []))).toEqual([]);
+	});
+
+	test('positive controls: a dropped line, a widening drop-in, an excluded key — each caught', () => {
+		const single = readFileSync(join(REPO_ROOT, 'deploy/dedalo-ts.service'), 'utf8');
+		expect(sandboxFaults(mergedUnit(single.replace(/^NoNewPrivileges=yes\n/m, ''), []))).toEqual([
+			'NoNewPrivileges=yes (found null)',
+		]);
+		expect(
+			sandboxFaults(
+				mergedUnit(single, ['[Service]\nCapabilityBoundingSet=CAP_NET_BIND_SERVICE\n']),
+			),
+		).toEqual(['CapabilityBoundingSet= (found ["CAP_NET_BIND_SERVICE"])']);
+		expect(sandboxFaults(mergedUnit(single, ['[Service]\nMemoryDenyWriteExecute=yes\n']))).toEqual([
+			'MemoryDenyWriteExecute must not be set',
+		]);
+	});
 });
 
 // ── (e) the media rules, copied validated (deploy/dedalo-media-rules.sh) ─────

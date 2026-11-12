@@ -593,6 +593,11 @@ HERMETIC_TRIPWIRES=(
 	#     Dockerfiles and dependabot.yml parsed, the installer's pure plan renders (verified
 	#     with DB_HOST=127.0.0.1 DB_PORT=59999).
 	test/unit/operator_image_pin_tripwire.test.ts
+	# --- 2026-11-12 (T1-26, installer ontology digests). DB-free: stage_ontologies into
+	#     mkdtemp dirs from fixture packages (a loopback stand-in or a local dir) and the
+	#     vendored release; never touches the database (verified with DB_HOST=127.0.0.1
+	#     DB_PORT=59999: 8 pass / 0 fail).
+	test/unit/install_ontology_digest_native.test.ts
 )
 
 # THE SERIAL LANE — tripwires that cannot share the machine with another test file, run

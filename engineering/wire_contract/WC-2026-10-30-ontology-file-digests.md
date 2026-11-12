@@ -31,3 +31,19 @@
   destructive SQL (U-41: what decides what is installed comes from the master).
 - **Gate reconciliation:** TS-only and additive; the frozen store holds no ontology-export or
   update-door interaction. No re-harvest.
+- **Addendum 2026-11-12 (T1-26 / S15 — the installer is a consumer too):** the installer's
+  `stage_ontologies` (`src/core/install/ontology_install.ts`) obeys items 3–4 for EVERY file it
+  stages — server (`downloadRemoteOntologyFile` with `expectedSha256`), local package and vendored
+  release (`digestRefusal` after the copy), `matrix_dd.copy.gz` included — before the COPY shape
+  check decompresses anything. Digests come from the source's own manifest only: the master's
+  `info.files_sha256`, the local package's `ontology.json`, the release's vendored
+  `install/import/ontology/<major.minor>/ontology.json` (read through the one leaf reader
+  `src/core/ontology/ontology_file_digests.ts`; it DOES carry `files_sha256` — item 4's "the
+  vendored ontology.json" no longer describes the shipped release). Mismatch refuses
+  `install.step_failed` (`<name>: sha256 mismatch — the file is not the one its source manifest
+  names; nothing was installed`), the file deleted, no `staged.json`. Absent digests: staged
+  UNVERIFIED with one warning per origin (`staged.json.warnings`, `StageOntologiesResult.warnings`)
+  naming every unverified file; a MALFORMED vendored map offers no vendored ontology (one catalog
+  warning). The installer's internal types (`OntologyCatalogEntry`, `OntologyMatrixDd`,
+  `OntologyInstallItem`) carry an optional `sha256`. No HTTP wire change. Gate:
+  `test/unit/install_ontology_digest_native.test.ts`.

@@ -3,7 +3,8 @@
  * which ontologies an installation carries beyond the core the seed ships, the
  * ORDER they are imported in, and the THESAURI their declarations require.
  * PURE AND CONFIG-FREE, like the plan that uses it (install_plan.ts): it imports
- * only the core TLD list, the dependency normalizer (a leaf), the install paths
+ * only the core TLD list, the dependency normalizer and the file-digest reader
+ * (leaves), the install paths
  * and the vendored thesaurus manifest reader (hierarchy_meta.ts), so the CLI can decide its plan before
  * it seeds the process environment config.ts freezes.
  *
@@ -61,6 +62,7 @@ import {
 	ONTOLOGY_DEPENDENCY_MAINS,
 	type OntologyDependency,
 } from '../ontology/ontology_dependencies.ts';
+import { type FilesSha256, parseFilesSha256 } from '../ontology/ontology_file_digests.ts';
 import {
 	type HierarchyMeta,
 	hierarchyChoiceView,
@@ -136,10 +138,18 @@ export interface OntologyCatalogEntry {
 	origin: OntologyOrigin;
 	/** An absolute path (vendored/local) or a URL (server). */
 	file: string;
+	/**
+	 * The source manifest's sha256 of `file` (`info.files_sha256`, U-41) — the
+	 * stager verifies the bytes against it (T1-26); absent = the source publishes
+	 * none (staged UNVERIFIED, with a warning).
+	 */
+	sha256?: string;
 }
 export interface OntologyMatrixDd {
 	origin: 'local' | 'server';
 	file: string;
+	/** As OntologyCatalogEntry.sha256. */
+	sha256?: string;
 }
 export interface OntologyCatalog {
 	source: OntologySource;
@@ -154,6 +164,8 @@ export interface OntologyInstallItem {
 	typology_id: number | string | null;
 	name_data: unknown;
 	dependencies: OntologyDependency[] | null;
+	/** As OntologyCatalogEntry.sha256. */
+	sha256?: string;
 }
 export interface OntologyInstallRequest {
 	source: OntologySourceView;
@@ -242,18 +254,27 @@ export function vendoredInfoFrom(parsed: unknown): VendoredInfo {
 }
 
 /**
- * The vendored ontology.json, by TLD. Empty when the file is absent or
- * unreadable — every entry then falls back to its TLD as its name.
+ * The vendored release's file digests (its ontology.json `files_sha256`, U-41):
+ * `digests` undefined = the release publishes none (staged UNVERIFIED, warned);
+ * `{ok:false}` = a malformed map — a release defect: no vendored entry is
+ * offered (vendoredOntologyCatalog), as a malformed map refuses a manifest.
  */
-async function readVendoredInfo(): Promise<VendoredInfo> {
+export type VendoredDigests = ReturnType<typeof parseFilesSha256>;
+
+/**
+ * The vendored ontology.json, by TLD, + its file digests. Empty info when the
+ * file is absent or unreadable — every entry then falls back to its TLD as its
+ * name (and no digest is published: unverified, warned).
+ */
+async function readVendoredRelease(): Promise<{ info: VendoredInfo; digests: VendoredDigests }> {
+	let parsed: unknown;
 	try {
-		return vendoredInfoFrom(
-			JSON.parse(await readFile(join(VENDORED_ONTOLOGY_DIR, 'ontology.json'), 'utf8')),
-		);
+		parsed = JSON.parse(await readFile(join(VENDORED_ONTOLOGY_DIR, 'ontology.json'), 'utf8'));
 	} catch {
 		// absent or malformed: names fall back to the TLD (vendoredEntry)
-		return new Map();
+		return { info: new Map(), digests: { ok: true, digests: undefined } };
 	}
+	return { info: vendoredInfoFrom(parsed), digests: parseFilesSha256(parsed) };
 }
 
 /**
@@ -262,7 +283,9 @@ async function readVendoredInfo(): Promise<VendoredInfo> {
  * server's routes are served from the one event loop — a synchronous
  * read per entry per call stalled every request (sync_io_on_request_path_tripwire).
  */
-const VENDORED_INFO: VendoredInfo = await readVendoredInfo();
+const VENDORED_RELEASE = await readVendoredRelease();
+const VENDORED_INFO: VendoredInfo = VENDORED_RELEASE.info;
+const VENDORED_DIGESTS: VendoredDigests = VENDORED_RELEASE.digests;
 
 function typologyIdOf(value: unknown): number | string | null {
 	return typeof value === 'number' || typeof value === 'string' ? value : null;
@@ -288,9 +311,15 @@ function vendoredDependencies(
 	return dependencies;
 }
 
-/** One vendored entry: metadata AND declared dependencies from the vendored ontology.json. */
-function vendoredEntry(tld: string, warnings: string[], info: VendoredInfo): OntologyCatalogEntry {
+/** One vendored entry: metadata, declared dependencies AND file digest from the vendored ontology.json. */
+function vendoredEntry(
+	tld: string,
+	warnings: string[],
+	info: VendoredInfo,
+	digests: FilesSha256 | undefined,
+): OntologyCatalogEntry {
 	const meta = info.get(tld) ?? {};
+	const sha256 = digests?.[`${tld}.copy.gz`];
 	return {
 		tld,
 		name: stringOr(meta.name, tld),
@@ -300,19 +329,31 @@ function vendoredEntry(tld: string, warnings: string[], info: VendoredInfo): Ont
 		dependencies: vendoredDependencies(tld, warnings, info),
 		origin: 'vendored',
 		file: join(VENDORED_ONTOLOGY_DIR, `${tld}.copy.gz`),
+		...(sha256 === undefined ? {} : { sha256 }),
 	};
 }
 
 /**
  * The built-in catalog: the vendored domain ontologies whose file is present
- * (a missing file is a warning, and the TLD is not offered). `info` defaults to
- * the vendored ontology.json (a gate passes its own — vendoredInfoFrom).
+ * (a missing file is a warning, and the TLD is not offered). `info` and
+ * `digests` default to the vendored ontology.json (a gate passes its own —
+ * vendoredInfoFrom / parseFilesSha256). A MALFORMED digest map offers NOTHING
+ * (a warning naming it): the release's integrity statement is unreadable.
  */
-export function vendoredOntologyCatalog(info: VendoredInfo = VENDORED_INFO): OntologyCatalog {
+export function vendoredOntologyCatalog(
+	info: VendoredInfo = VENDORED_INFO,
+	digests: VendoredDigests = VENDORED_DIGESTS,
+): OntologyCatalog {
 	const entries: OntologyCatalogEntry[] = [];
 	const warnings: string[] = [];
+	if (!digests.ok) {
+		warnings.push(
+			`the built-in ontology.json: ${digests.reason} — no built-in ontology is offered (a damaged release: reinstall it)`,
+		);
+		return { source: { kind: 'none' }, entries, matrixDd: null, warnings };
+	}
 	for (const tld of VENDORED_DOMAIN_TLDS) {
-		const entry = vendoredEntry(tld, warnings, info);
+		const entry = vendoredEntry(tld, warnings, info, digests.digests);
 		if (existsSync(entry.file)) entries.push(entry);
 		else warnings.push(`the built-in ontology file ${tld}.copy.gz is missing`);
 	}
@@ -904,6 +945,7 @@ function installItem(entry: OntologyCatalogEntry): OntologyInstallItem {
 		typology_id: entry.typology_id,
 		name_data: entry.name_data,
 		dependencies: entry.dependencies,
+		...(entry.sha256 === undefined ? {} : { sha256: entry.sha256 }),
 	};
 }
 

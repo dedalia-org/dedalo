@@ -136,6 +136,47 @@ KillSignal=SIGTERM
 # unit stop, and is left to the stale-heartbeat sweep + attempt budget.
 KillMode=process
 
+# SANDBOX BASELINE (T1-26 / S15). Path-independent: none of these depends on where
+# the instance, its media or its backups live, so the same block holds on every
+# host (deploy/systemd/dedalo-ts@.service carries it byte-for-byte; gate:
+# install_host_render_tripwire). Each was checked against what the engine and the
+# tools it spawns do (media converters, OCR, pg_dump/psql, mariadb, git, tar,
+# bun install for a code update) — none needs a privilege these remove.
+# No setuid/setgid escalation, by the engine or anything it runs; no capabilities.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictSUIDSGID=yes
+# No personality switch, no realtime scheduling, no new namespaces.
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+# The kernel's tunables, modules, log, control groups, clock and hostname are
+# read-only or out of reach.
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+# A minimal /dev (null, zero, random, urandom, tty, shm): no physical device.
+PrivateDevices=yes
+# Other users' processes are invisible in /proc.
+ProtectProc=invisible
+# Native syscalls only; sockets: unix (the socket, Postgres), IP (ontology
+# masters, harvest, mail, MariaDB over TCP), netlink (interface enumeration).
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+# Deliberately NOT in the baseline:
+#   MemoryDenyWriteExecute  Bun's JavaScriptCore JIT writes executable memory.
+#   ProcSubset=pid          the maintenance system-info widget reads /proc/cpuinfo.
+#   PrivateTmp              diffusion runners (KillMode=process) survive a restart
+#                           and work in the temp dir; systemd removes a private
+#                           /tmp at stop, under them. Pending a host measurement.
+#   ProtectHome             the instance directory may sit under /home.
+#   ProtectSystem           an owner decision (which paths stay writable).
+#   SystemCallFilter        pending a measured syscall set per supported OS.
+#   network restrictions    the engine is a network client (see above).
+
 # Log capture (audit S2-37): stdout/stderr → journald. The structured access
 # log (DEDALO_ACCESS_LOG=true) emits one JSON line per request here.
 StandardOutput=journal

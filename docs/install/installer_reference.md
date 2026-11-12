@@ -299,8 +299,12 @@ installer's own affordances.
    reading permission bits — a network mount can lie about the bits.
 11. **`stage_ontologies`** — fetches (update server) or copies (built-in `oh`,
    `--ontology-source`) every chosen domain ontology file, dependencies first,
-   into the staging directory, and verifies each one (decompression and row
-   format) **before the database is touched**. Apart from the developer
+   into the staging directory, and verifies each one **before the database is
+   touched**: first against the sha256 its source publishes (the server's
+   manifest, the package's or the release's `ontology.json`), then decompression
+   and row format. A file that does not match its digest stops the install; a
+   source that publishes no digests is installed with a warning naming every
+   unverified file. Apart from the developer
    route's development dependencies, this is the install's only network phase: an unreachable server or a damaged file stops the install
    here, with the database still empty.
 12. **`install_db_from_default_file`** — restores the database from the core-only
@@ -649,7 +653,8 @@ changed, and names the directory or file in the way.
 
 The ontology files are fetched and verified by `stage_ontologies`, **before the
 seed is restored**: a source that is unreachable, refuses the access code or
-serves a damaged file stops the install with the database untouched. The
+serves a damaged file, or a file whose bytes are not the ones its source's
+digest names (`sha256 mismatch`), stops the install with the database untouched. The
 staged files wait in `../private/install/ontology_staging/` (with a
 `staged.json` recording each file's checksum) and are deleted after a successful
 import; after a failure they stay there for diagnosis, and the next run starts

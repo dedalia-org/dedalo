@@ -110,6 +110,7 @@ import {
 import { startToolBootHooks, toolHttpRouteFor } from './core/tools/loader.ts';
 import { safeRealpath } from './core/tools/paths.ts';
 import { serveToolsRequest } from './core/tools/serving.ts';
+import { writeBootMarker } from './core/update/boot_marker.ts';
 import {
 	bootSchemaMoved,
 	bootSchemaStateName,
@@ -1830,6 +1831,17 @@ export async function startServer() {
 		);
 	}
 
+	// THE BOOT MARKER (T1-26 / S15, core/update/boot_marker.ts): everything from here
+	// to the socket bind (module warm-up, boot migrations, the search-store backfill)
+	// can outlast the watchdog's fixed grace; `<socket dir>/booting` holding our pid
+	// extends it while we live. Removed once the socket listens, and on any exit
+	// (a refused boot included); a smoke boot never writes it (it is not the unit's
+	// process). Written only under a supervisor, in a non-world-writable dir.
+	const socketPath = config.server.unixSocketPath;
+	const bootMarker = smokeBoot ? null : await writeBootMarker(socketPath);
+	const clearBootMarker = bootMarker?.outcome === 'written' ? bootMarker.clear : () => undefined;
+	process.on('exit', clearBootMarker);
+
 	// Freeze ONTOLOGY_DATA_IO_DIR's legacy-vs-modern decision in ts_state.json — at
 	// BOOT, its sticky home, and not at config import, where an installer's machine
 	// preflight (pg_bin.ts) loads config and a refused install must write nothing.
@@ -2386,7 +2398,6 @@ export async function startServer() {
 	// serves; a no-op outside containers (key unset) and in a smoke boot. Never fatal: it logs and the API still serves.
 	await publishClientAtBoot({ smokeBoot });
 
-	const socketPath = config.server.unixSocketPath;
 	// A previous unclean shutdown leaves the socket file behind; Bun cannot
 	// bind over it. Removing a STALE socket at boot is the standard fix — but
 	// first PROBE it (S2-17b): if something answers, another instance is live
@@ -2462,6 +2473,8 @@ export async function startServer() {
 	}
 
 	console.log(`Dédalo TS server listening on unix socket ${socketPath} (entity: ${config.entity})`);
+	// The pre-bind work is over: the watchdog's probe answers from here on.
+	clearBootMarker();
 
 	// ONLINE MIGRATIONS (migrate.ts runOnlineMigrations): the CONCURRENTLY index
 	// builds that must never hold the listener — a full-heap build pre-listen
