@@ -40,12 +40,15 @@
  *
  * Media-file duplication (engineering/MEDIA_SPEC.md Phase B; CLOSURE_PLAN Step 2
  * CORE-5, WC-2026-09-30-media-key-locked-transform): the clone NEVER stores the
- * source's index. Its media items are inserted with `files_info: []` (an
- * external item keeps its URL entries), so neither the committed row nor its
- * history can name the SOURCE record's files, even if the process dies right
- * after the insert. The files are then copied through the record-scoped walk
- * (media/file_ops.ts duplicateSectionMediaFiles — the `additional_path` bucket
- * of THIS record honoured), and the clone's index is re-scanned AT THE CLONE'S
+ * source's index. Its media items are inserted with `files_info: []` and no
+ * `svg_file_data` (an external item keeps its URL entries), so neither the
+ * committed row nor its history can name the SOURCE record's files, even if the
+ * process dies right after the insert. The files are then copied through the
+ * record-scoped walk (media/file_ops.ts duplicateSectionMediaFiles — the
+ * `additional_path` bucket of THIS record honoured); a component_image's SVG
+ * envelope is rebuilt for the clone, layers kept and its raster href repointed
+ * (media/svg_overlay.ts duplicateSvgEnvelope — T1-22 / OX3,
+ * WC-2026-11-12-duplicate-image-svg-envelope), and the clone's index is re-scanned AT THE CLONE'S
  * IDENTITY through the one locked media-key writer (files_info_persist.ts
  * transformStoredMediaItems), always, even after a failed copy; the written
  * items feed the history rows. A copy that is not complete — a refused bucket,
@@ -121,7 +124,7 @@
 
 import { config } from '../../../config/config.ts';
 import { incrementCounter } from '../../api/counters.ts';
-import { isMediaModel, mediaTypeOf } from '../../concepts/media.ts';
+import { isMediaModel, type MediaTypeSpec, mediaTypeOf } from '../../concepts/media.ts';
 import { isConsultationOnlySection, TM_NOTES_SECTION_TIPO } from '../../concepts/section.ts';
 import { isConvertibleSectionIdString, isSectionId } from '../../concepts/section_id.ts';
 import { isDataframeEntry } from '../../concepts/subdatum.ts';
@@ -132,6 +135,8 @@ import { DedaloError } from '../../errors/dedalo_error.ts';
 import { logError } from '../../errors/log.ts';
 import { type ComponentMediaCopy, duplicateSectionMediaFiles } from '../../media/file_ops.ts';
 import { resolveMediaPathOptions } from '../../media/ontology_path.ts';
+import type { MediaPathOptions } from '../../media/path.ts';
+import { duplicateSvgEnvelope, svgFileDataOf } from '../../media/svg_overlay.ts';
 import type { StoredMediaItem } from '../../media/tools/files_info_persist.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from '../../ontology/resolver.ts';
 import {
@@ -216,9 +221,12 @@ export interface MediaCopyVerdict {
 	 * Where it stopped: `no_media_root` (no media root to copy under), `copy`
 	 * (the walk or a file copy failed), `rescan` (the clone's index could not be
 	 * re-scanned), `missing` / `locked` (the clone's row, at the write-back),
-	 * `count` (fewer files copied than the source claimed or held).
+	 * `envelope` (a component_image's SVG envelope could not be rebuilt for the
+	 * clone — e.g. the source's drawing was refused by the envelope write door),
+	 * `count` (fewer files copied than the source claimed or held). Precedence:
+	 * copy > rescan|missing|locked > envelope > count.
 	 */
-	stage?: 'no_media_root' | 'copy' | 'rescan' | 'missing' | 'locked' | 'count';
+	stage?: 'no_media_root' | 'copy' | 'rescan' | 'missing' | 'locked' | 'envelope' | 'count';
 }
 
 /** Why a component stopped — for the LOG line only, never a verdict field (SEC-18). */
@@ -675,8 +683,10 @@ function isExternalItem(item: unknown): boolean {
 /**
  * The copied media items WITHOUT the source's index: each non-external item's
  * `files_info` emptied (an external item keeps its URL entries — they name no
- * file of either record). What the source index claimed — its existing,
- * non-external entries — is recorded in `claimed`.
+ * file of either record) and its `svg_file_data` dropped (the rendered drawing
+ * embeds the SOURCE raster's URL; step 4b writes the clone's own back). What the
+ * source index claimed — its existing, non-external entries — is recorded in
+ * `claimed`.
  */
 function stripSourceIndex(
 	items: readonly unknown[],
@@ -687,7 +697,8 @@ function stripSourceIndex(
 	const stripped = items.map((item) => {
 		if (item === null || typeof item !== 'object' || isExternalItem(item)) return item;
 		count += claimedFileCount((item as { files_info?: unknown }).files_info);
-		return { ...(item as Record<string, unknown>), files_info: [] };
+		const { svg_file_data: _sourceDrawing, ...kept } = item as Record<string, unknown>;
+		return { ...kept, files_info: [] };
 	});
 	claimed.set(tipo, count);
 	return stripped;
@@ -1142,6 +1153,12 @@ async function duplicateRecordMedia(input: RecordMediaCopy): Promise<MediaCopyVe
  * options, so a named bucket is the clone's own; no shrink hold — this is a
  * fresh copy, not a partial-media box's valid index), and the written items
  * replace the copied ones in `values` and `copied` (the history reads them).
+ *
+ * BEFORE the transform, a component_image's envelope is rebuilt for the clone
+ * (cloneImageEnvelopes); the transform then gives each item whose source carried
+ * `svg_file_data` the clone's own envelope content, so the row and its history
+ * name the clone's raster. A failed envelope is the `envelope` stage — below
+ * any rescan failure, which it never masks.
  */
 async function reindexCloneMedia(
 	input: RecordMediaCopy,
@@ -1162,13 +1179,16 @@ async function reindexCloneMedia(
 			input.newSectionId,
 		);
 		const pathOpts = { ...resolved, mediaRoot: input.mediaRoot ?? undefined };
+		const envelopes = await cloneImageEnvelopes(input, component.tipo, spec, pathOpts);
 		const { rescanMediaItems } = await import('../../media/repair.ts');
 		const { transformStoredMediaItems } = await import('../../media/tools/files_info_persist.ts');
 		const outcome = await transformStoredMediaItems(
 			identityBase,
 			(locked) => ({
-				write: rescanMediaItems(locked, { spec, identityBase, pathOpts, holdShrink: false })
-					.items as StoredMediaItem[],
+				write: withCloneDrawings(
+					rescanMediaItems(locked, { spec, identityBase, pathOpts, holdShrink: false }).items,
+					envelopes.drawings,
+				) as StoredMediaItem[],
 			}),
 			// The duplicate's own clone, which the interactive caller waits for.
 			{ lockWait: 'request' },
@@ -1182,10 +1202,115 @@ async function reindexCloneMedia(
 			input.values.media = media;
 			component.items = outcome.items as CopiedComponent['items'];
 		}
-		return {};
+		return envelopes.failure === undefined ? {} : { stage: 'envelope', cause: envelopes.failure };
 	} catch (error) {
 		return { stage: 'rescan', cause: error };
 	}
+}
+
+/** What cloneImageEnvelopes did: the clone's drawing per item lang, and the first failure. */
+interface CloneEnvelopes {
+	/** lang (null = untranslatable) → the clone's envelope content, for items whose source carried `svg_file_data`. */
+	drawings: Map<string | null, string>;
+	failure?: unknown;
+}
+
+/** A media item that can carry a drawing: an object, and not an external one. */
+function isDrawableItem(item: unknown): item is Record<string, unknown> {
+	return item !== null && typeof item === 'object' && !isExternalItem(item);
+}
+
+/** The drawable media items the SOURCE record stores under `tipo` (none when absent). */
+function sourceDrawableItems(input: RecordMediaCopy, tipo: string): Record<string, unknown>[] {
+	const items = (input.sourceColumns.media as Record<string, unknown> | null | undefined)?.[tipo];
+	return Array.isArray(items) ? items.filter(isDrawableItem) : [];
+}
+
+/** The component and both records' path options of one envelope rebuild. */
+interface EnvelopeRebuild {
+	tipo: string;
+	spec: MediaTypeSpec;
+	sourcePathOpts: MediaPathOptions;
+	targetPathOpts: MediaPathOptions;
+}
+
+/**
+ * Step 4b, component_image only: rebuild the SVG envelope of each drawable
+ * item lang for the clone (media/svg_overlay.ts duplicateSvgEnvelope — the
+ * source's file, else its `svg_file_data`, else the default; href repointed at
+ * the clone). Never a throw: the first failure is answered (the `envelope`
+ * verdict) and the other langs still get theirs.
+ */
+async function cloneImageEnvelopes(
+	input: RecordMediaCopy,
+	tipo: string,
+	spec: MediaTypeSpec,
+	targetPathOpts: MediaPathOptions,
+): Promise<CloneEnvelopes> {
+	const result: CloneEnvelopes = { drawings: new Map() };
+	const items = spec.model === 'component_image' ? sourceDrawableItems(input, tipo) : [];
+	if (items.length === 0) return result;
+	try {
+		// The SOURCE's own record-scoped options: its bucket is its own.
+		const resolved = await resolveMediaPathOptions(tipo, input.sectionTipo, input.sourceSectionId);
+		const rebuild: EnvelopeRebuild = {
+			tipo,
+			spec,
+			sourcePathOpts: { ...resolved, mediaRoot: targetPathOpts.mediaRoot },
+			targetPathOpts,
+		};
+		for (const item of items) await cloneItemEnvelope(input, rebuild, item, result);
+	} catch (error) {
+		result.failure = error;
+	}
+	return result;
+}
+
+/** One item lang's envelope (cloneImageEnvelopes); its failure is recorded, never thrown. */
+async function cloneItemEnvelope(
+	input: RecordMediaCopy,
+	rebuild: EnvelopeRebuild,
+	item: Record<string, unknown>,
+	result: CloneEnvelopes,
+): Promise<void> {
+	// One identifier on disk per lang — the same fan-out as persistSvgEnvelopesForKeys.
+	const lang = (item.lang as string | null | undefined) ?? null;
+	const base = { componentTipo: rebuild.tipo, sectionTipo: input.sectionTipo, lang };
+	const svgFileData = svgFileDataOf(item);
+	try {
+		const written = await duplicateSvgEnvelope(
+			rebuild.spec,
+			{
+				source: {
+					identity: { ...base, sectionId: input.sourceSectionId },
+					pathOpts: rebuild.sourcePathOpts,
+				},
+				target: {
+					identity: { ...base, sectionId: input.newSectionId },
+					pathOpts: rebuild.targetPathOpts,
+				},
+			},
+			svgFileData,
+		);
+		if (svgFileData !== null && written.content !== null) {
+			result.drawings.set(lang, written.content);
+		}
+	} catch (error) {
+		result.failure ??= error;
+	}
+}
+
+/** The rescanned clone items, each non-external one given the clone's drawing for its lang (when there is one). */
+function withCloneDrawings(
+	items: unknown[],
+	drawings: ReadonlyMap<string | null, string>,
+): unknown[] {
+	if (drawings.size === 0) return items;
+	return items.map((item) => {
+		if (!isDrawableItem(item)) return item;
+		const drawing = drawings.get((item.lang as string | null | undefined) ?? null);
+		return drawing === undefined ? item : { ...item, svg_file_data: drawing };
+	});
 }
 
 /**

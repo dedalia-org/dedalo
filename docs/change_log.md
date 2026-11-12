@@ -295,6 +295,21 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-calculation-widget-port`.
 
+- **A duplicated record's image opens in the edit view again, with its drawing layers.**
+
+    Before, duplicating a record copied its image files but the copy's image field showed only the
+    empty placeholder in the edit view, and a later save of the copy's drawing could show the
+    original record's picture.
+
+    Now the copy gets its own image wrapper: every drawing layer of the original is kept, and it
+    points at the copy's own picture. If the original's drawing cannot be copied (it is not a
+    valid drawing), the duplicate still succeeds and the problem is logged.
+
+    **Action needed:** records duplicated before this fix: run **Update cache** (regenerate) on
+    them to get the image back in the edit view.
+
+    Wire contract: `WC-2026-11-12-duplicate-image-svg-envelope`.
+
 - **Images named by their "Filename" field open, upload and regenerate under that name again.**
 
     An image component can take its file name from another field of the record (in the core
@@ -1024,7 +1039,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 47 entries"
+??? note "Wire contract — 48 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1061,6 +1076,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-calculation-widget-port`
     - `WC-2026-11-12-datalist-principal-record-scope`
     - `WC-2026-11-12-diffusion-map-target-section-tipo`
+    - `WC-2026-11-12-duplicate-image-svg-envelope`
     - `WC-2026-11-12-global-table-maps`
     - `WC-2026-11-12-image-id-media-file-stem`
     - `WC-2026-11-12-info-live-publication-export`

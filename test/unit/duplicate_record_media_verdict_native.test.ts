@@ -34,6 +34,23 @@
  *   H  a re-minted dataframe FRAME TARGET's verdict names its own record, never
  *      the host clone's (the recursion shares one verdict list).
  *
+ * THE component_image SVG ENVELOPE (T1-22 / OX3, WC-2026-11-12-duplicate-image-svg-envelope):
+ * the edit view loads the image through its envelope (`base_svg_url`), and the
+ * clone used to get none — its edit view showed the placeholder — while its row
+ * carried the SOURCE's `svg_file_data` verbatim, an `<image>` href naming the
+ * source's raster that every later media save re-wrote as the clone's envelope.
+ *   I  an annotated envelope on disk is copied to the clone, layers kept, its
+ *      raster href repointed at the clone; `base_svg_url` answers.
+ *   J  the clone's stored item and history never name the source's raster in
+ *      `svg_file_data` — with a media root (it names the clone) and without one
+ *      (it is dropped, the same law as `files_info: []`).
+ *   K  the envelope file lost, `svg_file_data` kept: the clone's envelope is
+ *      built from it, repointed.
+ *   L  neither: the clone gets the DEFAULT envelope sized from its raster (PHP
+ *      regenerate_component parity; needs ImageMagick).
+ *   M  a hostile `svg_file_data` is refused through the one envelope write door:
+ *      no envelope, no stored payload, an `envelope` verdict, counted and logged.
+ *
  * SITUATION: a `zzdm` scratch section (→ matrix_test) with its OWN counter (the
  * clone's id is therefore known before the duplicate — case C plants at it), a
  * plain component_image, and a bucketed component_image whose
@@ -43,12 +60,14 @@
  */
 
 import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
-import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { getCounters } from '../../src/core/api/counters.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { resolveMagick } from '../../src/core/media/engine/imagemagick.ts';
+import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import { scanFilesInfo } from '../../src/core/media/files_info.ts';
 import { resolveMediaPathOptions } from '../../src/core/media/ontology_path.ts';
 import {
@@ -56,6 +75,11 @@ import {
 	type MediaIdentity,
 	type MediaPathOptions,
 } from '../../src/core/media/path.ts';
+import {
+	baseSvgUrl,
+	defaultRasterUrl,
+	svgOverlayLocation,
+} from '../../src/core/media/svg_overlay.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import {
@@ -70,6 +94,7 @@ import {
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
+import { magickTestEnv } from '../helpers/magick_test_env.ts';
 import { scratchMediaRoot } from '../helpers/media_scratch_root.ts';
 import { sweepSeededMediaEntries } from '../helpers/media_seed_sweep.ts';
 
@@ -288,6 +313,98 @@ async function plainSource(): Promise<{ source: number; path: string }> {
 	expect(index.filter((entry) => entry.file_exist === true)).toHaveLength(1);
 	await setMedia(source, PLAIN, index);
 	return { source, path };
+}
+
+// ---------------------------------------------------------------------------
+// The SVG envelope (cases I–M)
+// ---------------------------------------------------------------------------
+
+/** Case L builds a real raster; gated with `test.if` and the reason in the NAME. */
+const HAVE_MAGICK = existsSync(resolveMagick());
+
+/** The drawing layer's path data: the scholarship a copy must keep. */
+const LAYER = 'M10,10 L40,40';
+
+/** A minimal annotated envelope: the raster group + one drawing layer. */
+function annotatedEnvelope(rasterUrl: string): string {
+	return (
+		`<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
+		`width="100" height="50" viewBox="0,0,100,50">` +
+		`<g id="raster"><image width="100" height="50" xlink:href="${rasterUrl}"/></g>` +
+		`<g id="layer_1" class="annotation"><path d="${LAYER}" stroke="#ff0000"/></g></svg>`
+	);
+}
+
+/** The plain image's default-quality raster URL at a record (what its envelope must embed). */
+async function rasterUrlOf(sectionId: number): Promise<string> {
+	return defaultRasterUrl(image, identity(PLAIN, sectionId), await optsFor(PLAIN, sectionId));
+}
+
+/** The plain image's envelope path at a record. */
+async function envelopePath(sectionId: number): Promise<string> {
+	return svgOverlayLocation(image, identity(PLAIN, sectionId), await optsFor(PLAIN, sectionId))
+		.absolutePath;
+}
+
+/** The plain image's envelope text at a record, or null when there is none. */
+async function envelopeText(sectionId: number): Promise<string | null> {
+	const path = await envelopePath(sectionId);
+	return existsSync(path) ? readFileSync(path, 'utf8') : null;
+}
+
+/** Set the stored plain-image item's `svg_file_data` (the client's rendered drawing). */
+async function setSvgFileData(sectionId: number, svg: string): Promise<void> {
+	await sql.unsafe(
+		`UPDATE "${TABLE}" SET media = jsonb_set(media, $3::text[], to_jsonb($4::text))
+		  WHERE section_tipo = $1 AND section_id = $2`,
+		[SECTION, sectionId, `{${PLAIN},0,svg_file_data}`, svg],
+	);
+}
+
+/** The stored plain-image item of a record. */
+async function storedItem(sectionId: number): Promise<Record<string, unknown> | undefined> {
+	const rows = (await sql.unsafe(
+		`SELECT media->$3 AS items FROM "${TABLE}" WHERE section_tipo = $1 AND section_id = $2`,
+		[SECTION, sectionId, PLAIN],
+	)) as { items: Record<string, unknown>[] | null }[];
+	return rows[0]?.items?.[0];
+}
+
+/** A plain source with a file, an annotated envelope ON DISK and the same drawing as `svg_file_data`. */
+async function annotatedSource(): Promise<{ source: number; svg: string }> {
+	const { source } = await plainSource();
+	const svg = annotatedEnvelope(await rasterUrlOf(source));
+	seedText(await envelopePath(source), svg);
+	await setSvgFileData(source, svg);
+	return { source, svg };
+}
+
+function seedText(path: string, content: string): void {
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, content);
+}
+
+/** The clone's envelope is the annotated drawing, pointed at the CLONE's raster. */
+async function expectCloneEnvelope(clone: number, source: number): Promise<string> {
+	const text = await envelopeText(clone);
+	expect(
+		text,
+		'the clone has NO svg envelope — its image edit view shows the placeholder (T1-22 / OX3)',
+	).not.toBeNull();
+	const svg = text as string;
+	expect(svg, 'the copy dropped the drawing layer').toContain('id="layer_1"');
+	expect(svg).toContain(LAYER);
+	expect(svg, 'the clone’s envelope does not embed the clone’s raster').toContain(
+		`xlink:href="${await rasterUrlOf(clone)}"`,
+	);
+	expect(namesRecord(svg, PLAIN, source), 'the clone’s envelope names the SOURCE raster').toBe(
+		false,
+	);
+	expect(
+		baseSvgUrl(image, identity(PLAIN, clone), await optsFor(PLAIN, clone)),
+		'the read offers no base_svg_url for the clone',
+	).not.toBeNull();
+	return svg;
 }
 
 beforeAll(async () => {
@@ -666,14 +783,142 @@ describe('duplicate with media: a verdict, and a clone that never indexes the so
 		).toMatchObject({ sectionTipo: FRAME_SECTION, sectionId: minted, stage: 'count' });
 	}, 60_000);
 
+	test('I an annotated envelope on disk is copied to the clone: layers kept, raster href repointed; no verdict', async () => {
+		const { source, svg } = await annotatedSource();
+		const incomplete = counter(INCOMPLETE);
+
+		const result = await duplicateSectionRecordWithVerdict(SECTION, source, USER_ID);
+
+		await expectCloneEnvelope(result.sectionId, source);
+		expect(verdictOf(result.media, PLAIN)).toMatchObject({ incomplete: false });
+		expect(verdictOf(result.media, PLAIN).stage).toBeUndefined();
+		expect(counter(INCOMPLETE)).toBe(incomplete);
+		expect(await envelopeText(source), 'the duplicate touched the SOURCE envelope').toBe(svg);
+	}, 60_000);
+
+	test('J the clone’s stored item and history never name the source raster in svg_file_data (with and without a media root)', async () => {
+		const { source } = await annotatedSource();
+
+		const clone = await duplicateSectionRecord(SECTION, source, USER_ID);
+
+		const stored = await storedItem(clone);
+		const data = stored?.svg_file_data;
+		expect(typeof data, 'the clone’s item lost its svg_file_data').toBe('string');
+		expect(
+			namesRecord(String(data), PLAIN, source),
+			'the clone’s STORED svg_file_data names the SOURCE raster — copied verbatim (T1-22 / OX3)',
+		).toBe(false);
+		expect(namesRecord(String(data), PLAIN, clone)).toBe(true);
+		expect(String(data)).toContain(LAYER);
+		expect(
+			namesRecord(await historyText(clone, PLAIN), PLAIN, source),
+			'the clone’s HISTORY names the SOURCE raster',
+		).toBe(false);
+
+		const rootless = await duplicateSectionRecordWithVerdict(
+			SECTION,
+			source,
+			USER_ID,
+			undefined,
+			undefined,
+			{ mediaRoot: null },
+		);
+		const rootlessItem = await storedItem(rootless.sectionId);
+		expect(
+			namesRecord(JSON.stringify(rootlessItem ?? null), PLAIN, source),
+			'with no media root, the clone’s STORED item still names the SOURCE raster',
+		).toBe(false);
+		expect(rootlessItem?.svg_file_data).toBeUndefined();
+	}, 60_000);
+
+	test('K the envelope file lost, svg_file_data kept: the clone’s envelope is built from it, repointed', async () => {
+		const { source } = await plainSource();
+		await setSvgFileData(source, annotatedEnvelope(await rasterUrlOf(source)));
+		expect(await envelopeText(source), 're-read this gate: the source has an envelope').toBeNull();
+
+		const result = await duplicateSectionRecordWithVerdict(SECTION, source, USER_ID);
+
+		const svg = await expectCloneEnvelope(result.sectionId, source);
+		expect((await storedItem(result.sectionId))?.svg_file_data).toBe(svg);
+		expect(verdictOf(result.media, PLAIN).incomplete).toBe(false);
+	}, 60_000);
+
+	test.if(HAVE_MAGICK)(
+		'L no envelope and no svg_file_data: the clone gets the DEFAULT envelope sized from its raster (needs ImageMagick)',
+		async () => {
+			const source = await createSectionRecord(SECTION, USER_ID);
+			const opts = await optsFor(PLAIN, source);
+			const raster = buildMediaLocation(
+				image,
+				identity(PLAIN, source),
+				image.defaultQuality,
+				image.defaultExtension,
+				opts,
+			).absolutePath;
+			mkdirSync(dirname(raster), { recursive: true });
+			await runBinary([resolveMagick(), '-size', '100x50', 'xc:green', raster], {
+				nice: false,
+				env: magickTestEnv(),
+			});
+			expect(existsSync(raster), 'magick wrote no raster').toBe(true);
+			await setMedia(source, PLAIN, scanFilesInfo(image, identity(PLAIN, source), opts, {}));
+
+			const result = await duplicateSectionRecordWithVerdict(SECTION, source, USER_ID);
+			const clone = result.sectionId;
+
+			const text = await envelopeText(clone);
+			expect(
+				text,
+				'the clone has NO svg envelope (PHP regenerate gave it the default one)',
+			).not.toBeNull();
+			expect(text).toContain('<g id="raster">');
+			expect(text).toContain('width="100"');
+			expect(text).toContain('height="50"');
+			expect(text).toContain(`xlink:href="${await rasterUrlOf(clone)}"`);
+			expect(verdictOf(result.media, PLAIN).incomplete).toBe(false);
+			expect((await storedItem(clone))?.svg_file_data).toBeUndefined();
+		},
+		60_000,
+	);
+
+	test('M a hostile svg_file_data is REFUSED: no clone envelope, no stored payload, an `envelope` verdict counted and logged', async () => {
+		const { source } = await plainSource();
+		await setSvgFileData(
+			source,
+			'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+		);
+		const [incomplete, logged] = [counter(INCOMPLETE), counter(LOGGED)];
+
+		const { result, log } = await capturingLog(() =>
+			duplicateSectionRecordWithVerdict(SECTION, source, USER_ID),
+		);
+
+		expect(result.sectionId).toBeGreaterThan(0);
+		expect(
+			verdictOf(result.media, PLAIN),
+			'a refused envelope is silent — the clone’s image is short of its wrapper and nothing says so',
+		).toMatchObject({ stage: 'envelope', incomplete: true });
+		expect(log).toContain('stage=envelope');
+		expect(counter(INCOMPLETE) - incomplete).toBe(1);
+		expect(counter(LOGGED) - logged).toBeGreaterThanOrEqual(1);
+		expect(await envelopeText(result.sectionId)).toBeNull();
+		expect(
+			(await storedItem(result.sectionId))?.svg_file_data,
+			'the hostile payload rides the clone’s row',
+		).toBeUndefined();
+	}, 60_000);
+
 	test('the cleanup sweep finds a file this gate seeds — its afterAll is never blind', async () => {
 		// Last in the file: it sweeps every zzdm file the cases above wrote too.
 		const record = await createSectionRecord(SECTION, USER_ID);
 		const path = fileAt(PLAIN, record, await optsFor(PLAIN, record));
 		seed(path);
+		const envelope = await envelopePath(record);
+		seedText(envelope, annotatedEnvelope(await rasterUrlOf(record)));
 		expect(existsSync(path)).toBe(true);
 		const swept = sweep(config.media.rootPath);
 		expect(swept.length).toBeGreaterThan(0);
 		expect(existsSync(path), 'the sweep walked past a file this gate seeded').toBe(false);
+		expect(existsSync(envelope), 'the sweep walked past an envelope this gate seeded').toBe(false);
 	});
 });

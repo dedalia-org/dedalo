@@ -146,3 +146,7 @@ item after a full delete, and the editor opened after a later upload.
 Gate: `test/unit/media_drawing_reset.test.ts` (DB + TM row), the pure
 `resetDrawing` cases in `test/unit/files_info_persist.test.ts`, and the
 `noMediaFilesLeft` census in `test/unit/media_two_masters.test.ts`.
+
+**Amended 2026-11-12 (T1-22):** a DUPLICATE keeps the layers too — the clone's envelope is
+the source's (file, else `svg_file_data`) with only the raster href repointed at the clone
+(`WC-2026-11-12-duplicate-image-svg-envelope`).

@@ -218,10 +218,86 @@ export function repointEnvelopeRaster(
 		let next = tag;
 		next = next.replace(/\swidth="[^"]*"/i, ` width="${String(width)}"`);
 		next = next.replace(/\sheight="[^"]*"/i, ` height="${String(height)}"`);
-		next = next.replace(/\s(xlink:href|href)="[^"]*"/gi, ` $1="${rasterUrl}"`);
 		return next;
 	});
-	return out;
+	return repointEnvelopeHref(out, rasterUrl);
+}
+
+/**
+ * Re-point ONLY the raster `<image>`'s `xlink:href`/`href` (the FIRST `<image>`,
+ * the envelope's raster group), every other byte kept. The href half of
+ * repointEnvelopeRaster, for a caller whose raster cannot have changed size — a
+ * duplicate's byte copy (duplicateSvgEnvelope) — so no dimension read is needed.
+ */
+export function repointEnvelopeHref(content: string, rasterUrl: string): string {
+	return replaceFirstHtmlTag(content, /<image\b/iy, (tag) =>
+		tag.replace(/\s(xlink:href|href)="[^"]*"/gi, ` $1="${rasterUrl}"`),
+	);
+}
+
+/** The two records of a duplicate's envelope copy, each with its OWN record-scoped path options. */
+export interface EnvelopeCopyEnds {
+	source: { identity: MediaIdentity; pathOpts: MediaPathOptions };
+	target: { identity: MediaIdentity; pathOpts: MediaPathOptions };
+}
+
+/**
+ * A DUPLICATE'S ENVELOPE (T1-22 / OX3,
+ * `engineering/wire_contract/WC-2026-11-12-duplicate-image-svg-envelope.md`).
+ * The clone's media files are a byte copy, but the envelope is no file slot
+ * (managedFileSlots): it names its record's raster inside, so it is REBUILT for
+ * the clone, never copied as is — before this, the clone got none at all and its
+ * edit view showed the placeholder (PHP gave it the default one through
+ * regenerate_component). Three sources, in this order:
+ *
+ *  1. the SOURCE's envelope ON DISK — it is what the record displays, and the
+ *     repair sweep repoints the file, never `svg_file_data`; a default
+ *     (never-annotated) envelope exists only there;
+ *  2. the source item's `svg_file_data` — the envelope file was lost, the
+ *     client's rendered drawing survives in the row;
+ *  3. neither — the DEFAULT envelope sized from the clone's raster
+ *     (createDefaultSvgFile, the PHP regenerate parity).
+ *
+ * 1 and 2 keep every layer (WC-2026-08-09: a derivative pass never destroys what
+ * a person authored) and only re-point the raster href at the CLONE's raster —
+ * href only: the raster is a byte copy, its size cannot have changed. They are
+ * written through writeSvgEnvelope, the ONE envelope write door (atomic,
+ * confined, size cap, ENVELOPE_REFUSALS): a hostile planted payload is refused
+ * there, loudly, and the caller turns the throw into a verdict.
+ *
+ * Nothing is written for a clone that holds no media file (policy 2026-10-23:
+ * no wrapper for an empty record — the retireOverlayIfNoMediaFiles rule). Answers
+ * the written path (null = nothing written) and the content written from 1/2
+ * (null for the default) — the clone's `svg_file_data` is that content, so its
+ * row names its own raster, never the source's.
+ */
+export async function duplicateSvgEnvelope(
+	spec: MediaTypeSpec,
+	ends: EnvelopeCopyEnds,
+	svgFileData: string | null,
+): Promise<{ path: string | null; content: string | null }> {
+	if (spec.model !== 'component_image') return { path: null, content: null };
+	const { source, target } = ends;
+	if (!identityHasMediaFiles(spec, target.identity, target.pathOpts)) {
+		return { path: null, content: null };
+	}
+	const authored =
+		readEnvelope(svgOverlayLocation(spec, source.identity, source.pathOpts).absolutePath) ??
+		svgFileData;
+	if (authored === null) {
+		return {
+			path: await createDefaultSvgFile(spec, target.identity, target.pathOpts),
+			content: null,
+		};
+	}
+	const content = repointEnvelopeHref(
+		authored,
+		defaultRasterUrl(spec, target.identity, target.pathOpts),
+	);
+	return {
+		path: await writeSvgEnvelope(spec, target.identity, target.pathOpts, content),
+		content,
+	};
 }
 
 // ---------------------------------------------------------------------------
