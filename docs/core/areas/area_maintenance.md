@@ -199,7 +199,7 @@ read-only panel: it reports state through `getValue` or an eager catalog value.
 | `export_hierarchy` | data | `sync_hierarchy_active_status`, `export_hierarchy` (an explicit list of section tipos of ACTIVE hierarchies; the core `lg` is refused), `export_hierarchy_json` (writes the `hierarchy.json` manifest: active hierarchies + the sha256 of the data files present) — everything lands in the engine's own `install/import/hierarchy`, the directory `add_hierarchy` imports from; see [moving a hierarchy between installations](../../management/install_new_hierarchies.md#moving-a-hierarchy-between-installations) |
 | `add_hierarchy` | data | `install_hierarchies`, `reset_hierarchies` — import + activate the selected TLDs; `reset` is the destructive re-import |
 | `move_tld`, `move_locator`, `move_to_portal`, `move_to_table`, `move_lang` | migration | one transform action each, named after the widget; the panel value carries the explanation body and the JSON definition files to pick from, so both halves of the `getValue` pair are wired |
-| `check_config` | config | `set_maintenance_mode`, `set_recovery_mode`, `set_notification` |
+| `check_config` | config | `set_maintenance_mode`, `set_notification` |
 | `config_areas` | config | `save_config_areas` |
 | `menu_skip_tipos` | config | `save_menu_skip_tipos` |
 | `update_ontology` | config | `update_ontology` — PULL: replace the selected (common/shared) ontologies from a master; the local ontology is kept |
@@ -296,7 +296,7 @@ over a panel showing drift.
 their changes to the **server-state store** (`../private/ts_state.json`, via
 `src/core/resolve/server_state.ts`) rather than to `../private/.env`, which is
 append-only and therefore cannot hold a UI-settable value. The store holds
-maintenance mode, recovery mode, the login notification, the area deny/allow
+maintenance mode, the login notification, the area deny/allow
 lists, the menu skip tipos and the media-access override. A `null` entry means
 "no override" — the static configuration wins.
 

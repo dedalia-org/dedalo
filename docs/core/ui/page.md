@@ -111,7 +111,7 @@ The two systemic pieces around the context:
 
 - **`page_globals`** — the global object created in `index.js` (api_errors,
   request_message, `csrf_token`), then enriched by `set_environment()` with the
-  server environment (version, data_version, langs, `is_logged`, `recovery_mode`,
+  server environment (version, data_version, langs, `is_logged`,
   `maintenance_mode`, `dedalo_notification`, `user_id`, …). Many `page` behaviours
   branch on these flags. It does NOT carry the label dictionary: its
   `labels_version` drives a separate `load_labels()` fetch of `get_label`.

@@ -770,7 +770,6 @@ export const build_map_view = function(self, widgets, opts={}) {
 		const entity	= String(G.dedalo_entity || G.dedalo_db_name || '').trim()
 		const code_ver	= String(G.dedalo_version || '').trim()
 		const maint		= truthy(G.maintenance_mode)
-		const recov		= truthy(G.recovery_mode)
 		// node titles — resolved here, at render time (see map_tool_desc)
 		const NODE_TITLE = {
 			clients	: get_label.maintenance_map_node_clients || 'Clients',
@@ -789,9 +788,8 @@ export const build_map_view = function(self, widgets, opts={}) {
 			clients:{ status:'ok',   state: get_label.maintenance_map_connected || 'Connected',
 					  sub: user ? ('@'+user) : (get_label.maintenance_map_sessions || 'sessions') },
 			web:	{ status:'ok',   state: runtime || NODE_TITLE.web,  sub: (typeof location!=='undefined' && location.host) || 'http' },
-			core:	{ status:(maint||recov) ? 'warn' : 'ok',
+			core:	{ status:maint ? 'warn' : 'ok',
 					  state: maint ? (get_label.maintenance_map_maintenance_mode || 'Maintenance mode')
-						: recov ? (get_label.maintenance_map_recovery_mode || 'Recovery mode')
 						: (code_ver ? ('v'+code_ver) : NODE_TITLE.core),
 					  sub: entity || (get_label.maintenance_map_engine || 'engine') },
 			tools:	{ status:'idle', state: NODE_TITLE.tools,  sub: get_label.maintenance_map_registry || 'registry' },

@@ -639,6 +639,24 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-10-hierarchy-rebuild-ownership`.
 
+#### Removed
+
+- **The "recovery mode" switch is gone; a damaged ontology is now repaired from the command line.**
+
+    The **Recovery mode** button in *Maintenance → Check config* promised to run Dédalo on a
+    backup copy of the ontology. It only showed a red banner: the main ontology was still the one
+    in use. And when the ontology is really broken, the maintenance area cannot open to reach the
+    button anyway. The button, the banner and the *Recovery mode* line of the runtime status are
+    removed.
+
+    To repair a damaged ontology, stop Dédalo and run `bun scripts/ontology_recover.ts` from the
+    installation directory. It rebuilds the ontology from its source records and, if needed,
+    first puts back the core ontology saved in the recovery file
+    (*Maintenance → Build database version*). Without `--apply` it only reports what it would do.
+    See [Recovery mode](./management/recovery_mode.md).
+
+    Wire contract: `WC-2026-11-12-recovery-mode-retired`.
+
 #### Added
 
 - **The ontology status panel names URL components that are wrongly marked as translatable**
@@ -737,7 +755,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 32 entries"
+??? note "Wire contract — 33 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -771,6 +789,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-11-relation-list-column-grants`
     - `WC-2026-11-11-section-elements-target-groups`
     - `WC-2026-11-11-svg-tag-url-full-media-path`
+    - `WC-2026-11-12-recovery-mode-retired`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

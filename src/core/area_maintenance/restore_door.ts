@@ -215,7 +215,7 @@ export function restoreDatabaseNames(
 	return names;
 }
 
-interface ForeignBackend {
+export interface ForeignBackend {
 	pid: number;
 	application_name: string;
 	usename: string;
@@ -228,7 +228,7 @@ interface ForeignBackend {
  * signals them away and waits (CountOtherDBBackends), while a client session
  * makes it fail — so a client is what the door refuses on.
  */
-async function foreignBackends(
+export async function foreignBackends(
 	admin: DbConnDescriptor,
 	maintenanceDatabase: string,
 	database: string,
@@ -365,7 +365,7 @@ async function verifyPhase(
 	return { ...verdict, bin: pgRestoreBin };
 }
 
-function describeBackend(b: ForeignBackend): string {
+export function describeBackend(b: ForeignBackend): string {
 	return `pid ${b.pid} (${b.usename}${b.application_name ? `, ${b.application_name}` : ''})`;
 }
 

@@ -30,8 +30,6 @@
 * -----------------------------------------------------------------------
 *   - Maintenance mode  — toggles `DEDALO_MAINTENANCE_MODE`; non-root users are
 *                         kicked out and cannot log in while this is active.
-*   - Recovery mode     — toggles the Ontology backup table as the active Ontology
-*                         table, useful after a failed migration.
 *   - Notification      — sets or clears a `DEDALO_NOTIFICATION` banner that is
 *                         injected into every user's page via the component
 *                         activation/deactivation API (`update_lock_components_state`).
@@ -45,7 +43,7 @@
 *     db_info        : {Object?} TS-native, OPTIONAL: { identity, server, schema_ok,
 *                                ontology_rows, matrix_tables, migration_level,
 *                                migration_latest, pool:{in_use,max,waiters} }
-*     runtime_mode   : {Object?} TS-native, OPTIONAL: { maintenance, recovery,
+*     runtime_mode   : {Object?} TS-native, OPTIONAL: { maintenance,
 *                                notification, diffusion_native, dev_mode }
 *   }
 * The two OPTIONAL blocks are rendered only when present (the PHP oracle payload
@@ -69,7 +67,6 @@
 *   add_status_row              — one key/value row in a .dd_readout grid
 *   render_config_vars_status   — DB connection + config-source status cards
 *   render_maintenance_mode     — maintenance mode toggle form
-*   render_recovery_mode        — recovery mode toggle form
 *   render_notification         — notification banner form
 *
 * Server peer:  core/area_maintenance/widgets/check_config/class.check_config.php
@@ -154,8 +151,7 @@ render_check_config.prototype.list = async function(options) {
 * Layout:
 *   - Root-only section (guarded by `page_globals.is_root === true`):
 *       1. Maintenance mode toggle form
-*       2. Recovery mode toggle form
-*       3. Notification banner form
+*       2. Notification banner form
 *   - Config vars status cards (always visible):
 *       A div wrapping the output of `render_config_vars_status`, which shows the
 *       database connection status and the ../private config-source presence.
@@ -173,17 +169,13 @@ const get_content_data_edit = async function(self) {
 			class_name	 : 'content_data'
 		})
 
-	// maintenance_mode, recovery_mode, notification
+	// maintenance_mode, notification
 	// root only
 		if (page_globals.is_root===true) {
 
 			// maintenance_mode
 				const maintenance_mode_container = render_maintenance_mode(self)
 				content_data.appendChild(maintenance_mode_container)
-
-			// recovery_mode
-				const recovery_mode_container = render_recovery_mode(self)
-				content_data.appendChild(recovery_mode_container)
 
 			// notification
 				const notification_container = render_notification(self)
@@ -388,9 +380,9 @@ const render_config_vars_status = function (self) {
 			}
 		}
 
-	// ---- runtime mode (maintenance / recovery / notification / engine flags) ----
+	// ---- runtime mode (maintenance / notification / engine flags) ----
 	// TS-native enrichment (WC-027): a read-only "what mode am I in" strip, visible to
-	// EVERY admin (the root-only forms above only TOGGLE the first three). Guarded on
+	// EVERY admin (the root-only forms above only TOGGLE the first two). Guarded on
 	// `runtime_mode`, so the PHP client renders unchanged.
 		const runtime_mode = value.runtime_mode
 		if (runtime_mode) {
@@ -405,11 +397,10 @@ const render_config_vars_status = function (self) {
 				class_name		: 'dd_readout',
 				parent			: status_sections
 			})
-			// an ACTIVE maintenance/recovery/notification is an unusual state worth a
+			// an ACTIVE maintenance/notification is an unusual state worth a
 			// warning chip; OFF is the calm normal (neutral mono chip).
 			const on_off = (active) => active ? 'state_warning' : 'mono'
 			add_status_row(mode_readout, 'Maintenance mode', runtime_mode.maintenance ? 'On' : 'Off', on_off(runtime_mode.maintenance))
-			add_status_row(mode_readout, 'Recovery mode', runtime_mode.recovery ? 'On' : 'Off', on_off(runtime_mode.recovery))
 			add_status_row(mode_readout, 'Notification', runtime_mode.notification ? 'Active' : 'Off', on_off(runtime_mode.notification))
 			// engine flags are neutral facts, not alarms → mono chip
 			add_status_row(mode_readout, 'Diffusion engine', runtime_mode.diffusion_native ? 'Native (TS)' : 'PHP', 'mono')
@@ -578,121 +569,6 @@ const render_maintenance_mode = (self) => {
 
 	return maintenance_mode_container
 }//end render_maintenance_mode
-
-
-
-/**
-* RENDER_RECOVERY_MODE
-* Creates the form nodes to switch between recovery modes
-*
-* Renders a labelled container with a submit form (built via `self.caller.init_form`)
-* that toggles the server-side recovery mode flag. In recovery mode the Ontology
-* backup table is used instead of the main Ontology table, allowing the system to
-* stay operational after a failed migration.
-*
-* Behaviour
-* ---------
-* - The submit button label reflects the current state: "Activate" when the mode is
-*   off, "Deactivate" when on.
-* - When recovery mode is currently OFF the submit button receives the CSS class
-*   `danger` (red) as a visual warning.
-* - On successful API response (a truthy payload) `page_globals.recovery_mode`
-*   is updated in-place, the page is refreshed via `dd_request_idle_callback`, and the
-*   URL is cleaned up by stripping any `recovery` query parameter that may have been
-*   injected by a previous recovery-triggered redirect — otherwise the recovery param
-*   would re-trigger recovery mode on the next page load.
-* - The `trigger` object (rather than `on_submit`) is used, so `build_form` handles the
-*   API call internally; `on_done` is the post-response hook.
-*
-* Guard: if `self.caller.init_form` is falsy the form block is silently skipped.
-*
-* @param {Object} self - The `check_config` widget instance; `self.caller` must expose
-*   `init_form` (the `build_form` wrapper set up in `area_maintenance`)
-* @returns {HTMLElement} The assembled recovery_mode_container div
-*/
-const render_recovery_mode = (self) => {
-
-	const recovery_mode_container = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'container recovery_mode_container',
-	})
-
-	// label
-	ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'label',
-		inner_html		: 'recovery mode',
-		parent			: recovery_mode_container
-	})
-
-	// body_response warning
-	const recovery_mode_body_response = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'body_response'
-	})
-
-	// form
-	if (self.caller?.init_form) {
-		const submit_label = page_globals.recovery_mode===true
-			? 'Deactivate recovery mode'
-			: 'Activate recovery mode'
-		const new_recovery_mode = !page_globals.recovery_mode
-		const form_container = self.caller.init_form({
-			submit_label	: submit_label,
-			confirm_text	: get_label.sure || 'Sure?',
-			body_info		: recovery_mode_container,
-			body_response	: recovery_mode_body_response,
-			trigger : {
-				dd_api	: 'dd_area_maintenance_api',
-				action	: 'widget_request',
-				source	: {
-					type : 'widget',
-					model : 'check_config',
-					action : 'set_recovery_mode'
-				},
-				options	: {
-					value : new_recovery_mode
-
-				}
-			},
-			on_done : (api_response) => {
-				if (response_data(api_response)) {
-					dd_request_idle_callback(
-						() => {
-							// update page_globals value
-							page_globals.recovery_mode = new_recovery_mode
-							// render the page again
-							window.dd_page.refresh({
-								build_autoload	: false,
-								destroy			: false
-							})
-							// refresh URL (remove possible recovery param to prevent infinite loop)
-							const URL = window.location.href.split("recovery")[0];
-							window.history.pushState({}, document.title, URL );
-						}
-					)
-				}
-			}
-		})
-		if (page_globals.recovery_mode===false) {
-			form_container.button_submit.classList.add('danger')
-		}
-	}
-
-	// warning_message
-	const warning_message = ui.create_dom_element({
-		element_type	: 'div',
-		inner_html		: "Warning! On true, Ontology backup table will be used instead the main Ontology table.",
-		class_name		: 'warning_message',
-		parent			: recovery_mode_container
-	})
-
-	// add recovery_mode_body_response at end
-	recovery_mode_container.appendChild(recovery_mode_body_response)
-
-
-	return recovery_mode_container
-}//end render_recovery_mode
 
 
 

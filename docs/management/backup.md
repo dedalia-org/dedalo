@@ -322,5 +322,5 @@ entirely, in `../private/` (a sibling of the install tree — see the
 `check_config` widget's `computeCheckConfig`, in
 `src/core/area_maintenance/widgets/check_config.ts`, which reports these exact
 sources): `.env` (credentials/config), `ts_state.json` (maintenance mode,
-recovery mode, notification and menu overrides) and the sessions database.
+notification and menu overrides) and the sessions database.
 Back these up together, e.g. `tar cvfz dedalo_configuration.tar.gz ../private`.

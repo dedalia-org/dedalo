@@ -173,7 +173,6 @@ else {
 		globals.page_globals = {
 			dedalo_data_lang: 'lg-eng',
 			stream_readers: [],
-			recovery_mode: false,
 			request_message: null,
 		};
 		globals.SHOW_DEBUG = false;

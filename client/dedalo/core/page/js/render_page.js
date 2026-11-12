@@ -12,8 +12,8 @@
 * - Builds the outermost page wrapper (div.wrapper.<type>) with a versioned class.
 * - Drives async rendering of every page element declared in `self.context`
 *   (areas, menus, tools, …) via `ui.load_item_with_spinner`.
-* - Shows environment-status banners: version-mismatch recovery, maintenance mode,
-*   and recovery mode, all gated by `page_globals` flags set by the PHP API.
+* - Shows environment-status banners: version-mismatch recovery and maintenance
+*   mode, gated by `page_globals` flags set by the server.
 * - Publishes the `render_page` event once all context elements have resolved.
 * - Exports `render_notification_msg` for use by `page.js` when the
 *   `dedalo_notification` event arrives (from config or lock events).
@@ -134,9 +134,8 @@ render_page.prototype.edit = async function(options) {
 *    schema `data_version`. If they diverge the
 *    function returns early with the maintenance/update widget so the user can
 *    upgrade the database — no page elements are rendered.
-* 2. **Status banners**: prepends recovery-mode and maintenance-mode banners when
-*    the corresponding `page_globals` flags are set. Both can appear simultaneously
-*    (recovery mode is more severe: the ontology may be corrupted).
+* 2. **Status banner**: prepends the maintenance-mode banner when
+*    `page_globals.maintenance_mode` is set.
 * 3. **Boot notification**: if `page_globals.dedalo_notification` is defined and
 *    the user is logged in, publishes the `dedalo_notification` event inside a
 *    `requestAnimationFrame` so that `self.node` (set in `edit()` after this
@@ -192,12 +191,6 @@ const get_content_data = async function(self) {
 			const update_data_node = await render_update_data_maintenance()
 			content_data.appendChild(update_data_node)
 			return content_data
-		}
-
-	// dedalo_recovery_mode. maintenance_msg (defined in config and get from environment)
-		if(page_globals.recovery_mode===true){
-			const recovery_container = render_recovery_msg()
-			content_data.prepend(recovery_container)
 		}
 
 	// dedalo_maintenance_mode. maintenance_msg (defined in config and get from environment)
@@ -342,38 +335,6 @@ const render_maintenance_msg = function() {
 
 	return maintenance_container
 }//end render_maintenance_msg
-
-
-
-/**
-* RENDER_RECOVERY_MSG
-* Builds and returns a high-visibility error banner shown when
-* `page_globals.recovery_mode === true`, indicating the main ontology may be
-* corrupted. The banner uses both the `recovery_container` and `error` CSS classes
-* so it is rendered in a distinct error style separate from the maintenance banner.
-* The message text is taken from `get_label.site_in_recovery_mode` with fallback.
-* Prepended to `content_data` before any page elements are rendered.
-* @returns {HTMLElement} div.recovery_container.error containing the warning message.
-*/
-const render_recovery_msg = function() {
-
-	// recovery_container
-	const recovery_container = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'recovery_container error'
-	})
-
-	// recovery_msg
-	ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'recovery_msg',
-		inner_html		: '<span style="font-size:2rem"> 🥵 </span> ' + (get_label.site_in_recovery_mode || 'WARNING: The system is in recovery mode, your main ontology is probably damaged!'),
-		parent			: recovery_container
-	})
-
-
-	return recovery_container
-}//end render_recovery_msg
 
 
 

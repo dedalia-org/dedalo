@@ -1,7 +1,7 @@
 /**
  * TS-NATIVE runtime state (the TS equivalent of PHP's config_core.php custom
- * overrides — DEDALO_MAINTENANCE_MODE_CUSTOM / DEDALO_NOTIFICATION_CUSTOM /
- * recovery mode). The PHP widgets write the PHP install's config file; a
+ * overrides — DEDALO_MAINTENANCE_MODE_CUSTOM / DEDALO_NOTIFICATION_CUSTOM).
+ * The PHP widgets write the PHP install's config file; a
  * coexisting TS server must not touch that, so the TS server keeps its OWN
  * state in <private>/ts_state.json and honors it in its own login flow:
  * maintenance mode refuses non-superuser logins.
@@ -14,7 +14,6 @@ import { DedaloError } from '../errors/dedalo_error.ts';
 
 export interface ServerState {
 	maintenance_mode: boolean;
-	recovery_mode: boolean;
 	/** Login-page notification message; false/'' disables it. */
 	notification: string | boolean;
 	/** Runtime area deny/allow lists; null = the static config defaults. */
@@ -52,7 +51,6 @@ export interface ServerState {
 
 const DEFAULT_STATE: ServerState = {
 	maintenance_mode: false,
-	recovery_mode: false,
 	notification: false,
 	areas_deny: null,
 	areas_allow: null,
@@ -125,7 +123,12 @@ export function statePath(): string {
 export function getServerState(): ServerState {
 	try {
 		const raw = readFileSync(statePath(), 'utf8');
-		return { ...DEFAULT_STATE, ...(JSON.parse(raw) as Partial<ServerState>) };
+		// `recovery_mode` is RETIRED (WC-2026-11-12-recovery-mode-retired): a file written
+		// before keeps it, so it is dropped here — the next setServerState rewrites it clean.
+		const { recovery_mode: _retired, ...stored } = JSON.parse(raw) as Partial<ServerState> & {
+			recovery_mode?: unknown;
+		};
+		return { ...DEFAULT_STATE, ...stored };
 	} catch {
 		return { ...DEFAULT_STATE };
 	}

@@ -196,27 +196,26 @@ const client_failure = (api_error) => ({
 *     5 000 ms timeout) — every default is overridable per call.
 *  2. CSRF header from `page_globals.csrf_token` unless the caller set one.
 *  3. `cache_handler.handler==='localdb'` → IndexedDB short-circuit on a hit.
-*  4. `page_globals.recovery_mode` → `recovery_mode:true` in the body.
-*  5. URL / body validation → a `client.*` failure envelope, no network.
-*  6. `fetch_api`: fetch never throws on status → body read ONCE → JSON →
+*  4. URL / body validation → a `client.*` failure envelope, no network.
+*  5. `fetch_api`: fetch never throws on status → body read ONCE → JSON →
 *     `normalize_api_error` → retry ONLY when `api_error.retryable` or the
 *     server sent `Retry-After` (no status list, no 401/403 carve-outs — an
 *     auth/permission answer is an envelope like any other and is dispatched
 *     on its CODE). The mid-attempt health probe only extends the deadline;
 *     what the user sees of a wait is the `request_activity` state (elapsed
 *     time, one page-level cue — see request_activity.js).
-*  7. Refresh `page_globals.csrf_token` from every envelope (success or
+*  6. Refresh `page_globals.csrf_token` from every envelope (success or
 *     failure) and publish `session_activity` (WC-051) — when the session is
 *     the page user's (settle_session_identity 'adopt'). Otherwise the token is
 *     not taken; a non-login-door call answers `client.aborted`
 *     (`details.reason:'page_identity_revoked'`) and the page reloads.
-*  8. `auth.csrf_failed` → resend exactly once
-*     (`_csrf_retried`) — reached only after step 7 adopted the token.
-*  9. Failure: attach `error` = the ApiError to the envelope (or synthesise
+*  7. `auth.csrf_failed` → resend exactly once
+*     (`_csrf_retried`) — reached only after step 6 adopted the token.
+*  8. Failure: attach `error` = the ApiError to the envelope (or synthesise
 *     `{ok:false, error}` when no JSON), publish `'api_error'`, toast TRANSPORT
 *     failures (the user must learn the network is down even when no caller
 *     handles the failure), resolve the envelope.
-* 10. Success: publish `'api_notices'` when the envelope carries any, write
+*  9. Success: publish `'api_notices'` when the envelope carries any, write
 *     through to IndexedDB on idle when cached; resolve the envelope.
 *
 * @param {Object} options - Request configuration
@@ -541,7 +540,7 @@ const normalize_retries = (value, fallback) => {
 
 /**
 * EXECUTE_REQUEST
-* The single-request execution body behind `data_manager.request` (steps 1-10 of
+* The single-request execution body behind `data_manager.request` (steps 1-9 of
 * the algorithm documented there). Module-private: every caller goes through
 * `request`, which decides whether to coalesce; the internal CSRF resend
 * re-enters `request` with `_csrf_retried` set, which routes straight back here.
@@ -645,14 +644,6 @@ const execute_request = async function(options) {
 		const action		= body?.action || 'load';
 		const source_model	= body?.source?.model || ''
 		console.warn(`> data_manager request ${method}:`, action.toUpperCase(), source_model, debug_redacted(merged_options));
-	}
-
-	// recovery mode. Auto add if environment recovery_mode is true
-	// On set to true, it is passed across all API request calls preserving the mode
-	if (window.page_globals.recovery_mode && body) {
-		if (typeof body === 'object') {
-			body.recovery_mode = true;
-		}
 	}
 
 	window.page_globals.request_message = null;

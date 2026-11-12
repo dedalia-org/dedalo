@@ -150,7 +150,6 @@ export const DOOR_CLASSES: Readonly<Record<string, DoorDeclaration>> = Object.fr
 		...A,
 		reason: 'the switch the destructive class requires',
 	},
-	'check_config.set_recovery_mode': A,
 	'check_config.set_notification': A,
 	'runtime_info.clear_cache_files': A,
 	'runtime_info.clear_session_files': A,

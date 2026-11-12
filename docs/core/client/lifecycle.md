@@ -168,8 +168,7 @@ walks the `ddo_map` (`get_ar_inverted_paths`) into a `filter_free`. See
 
 - serializes `options.body` to JSON and attaches `X-Dedalo-Csrf-Token` from
   `page_globals.csrf_token` (without overwriting a caller-set header);
-- injects `recovery_mode` from page_globals and resets
-  `page_globals.api_errors` / `request_message`;
+- resets `page_globals.api_errors` / `request_message`;
 - dispatches through `_fetch_with_retry_and_timeout` (default **5 retries,
   500 ms base delay, 5 s timeout**) with exponential backoff and a per-attempt
   `AbortController`; a mid-attempt `check_server_health` probe cancels the abort

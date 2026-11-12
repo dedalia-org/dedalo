@@ -1262,6 +1262,58 @@ export async function dropRecoverySlice(): Promise<boolean> {
 	return true;
 }
 
+/** What `swapRecoverySliceIntoDdOntology` replaced. */
+export interface RecoverySliceSwap {
+	/** The tlds whose dd_ontology rows were replaced by the slice's. */
+	tlds: string[];
+	/** Rows inserted from the slice. */
+	rows: number;
+}
+
+/**
+ * Replace, per tld the restored `dd_ontology_recovery` slice holds, every
+ * dd_ontology row of that tld with the slice's (scripts/ontology_recover.ts —
+ * the offline repair of a projection too damaged for the parser to re-derive it).
+ * ONE transaction under the tlds' projection locks: a failure (a row the live
+ * CHECKs refuse) writes nothing. Ids are NOT copied — the sequence assigns them,
+ * so a slice row can never collide with an id another tld took since the dump.
+ * Columns are the INTERSECTION of both tables: a dump from an older schema leaves
+ * a newer column at its default. The slice table is dropped IN the same
+ * transaction (DDL is transactional): a rollback leaves it for the caller to drop.
+ * Call under the recovery-slice lock (recovery_file.ts restoreAndSwapRecoverySlice).
+ */
+export async function swapRecoverySliceIntoDdOntology(): Promise<RecoverySliceSwap> {
+	return withTransaction(async () => {
+		const found = (await sql.unsafe(
+			'SELECT DISTINCT tld FROM "dd_ontology_recovery" WHERE tld IS NOT NULL ORDER BY tld',
+			[],
+		)) as { tld: string }[];
+		const tlds = assertSafeTlds(found.map((row) => row.tld));
+		await lockOntologyProjection(tlds);
+		const shared = (await sql.unsafe(
+			`SELECT a.column_name FROM information_schema.columns a
+			   JOIN information_schema.columns b
+			     ON b.table_schema = a.table_schema AND b.column_name = a.column_name
+			    AND b.table_name = 'dd_ontology_recovery'
+			  WHERE a.table_schema = current_schema() AND a.table_name = 'dd_ontology'
+			    AND a.column_name <> 'id'
+			  ORDER BY a.ordinal_position`,
+			[],
+		)) as { column_name: string }[];
+		const columns = shared.map((row) => `"${row.column_name.replaceAll('"', '""')}"`).join(', ');
+		const inList = tlds.map((tld) => `'${tld}'`).join(',');
+		await sql.unsafe(`DELETE FROM dd_ontology WHERE tld IN (${inList})`, []);
+		const inserted = (await guardedWrite('dd_ontology', () =>
+			sql.unsafe(
+				`INSERT INTO dd_ontology (${columns}) SELECT ${columns} FROM "dd_ontology_recovery" WHERE tld IN (${inList}) RETURNING 1`,
+				[],
+			),
+		)) as unknown[];
+		await sql.unsafe('DROP TABLE "dd_ontology_recovery"', []);
+		return { tlds, rows: inserted.length };
+	});
+}
+
 // --- Report + repair primitives (reconcile `ontology_identifiers`) -------------
 
 /** One stored dd_ontology row that breaks the identifier grammar. */

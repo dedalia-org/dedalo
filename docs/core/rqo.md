@@ -160,7 +160,7 @@ The API class method to execute. The core action set (`ACTION_REGISTRY['dd_core_
 
 | Action | Purpose | `result` shape |
 |--------|---------|----------------|
-| `start` | First-load bootstrap. Resolves the URL element (section / section_tool / area_* / tool_* / component_*) to its structure context plus environment. Handles recovery mode and not-logged (login context). | `{context: array, data: []}`; always also `response.environment` |
+| `start` | First-load bootstrap. Resolves the URL element (section / section_tool / area_* / tool_* / component_*) to its structure context plus environment. Handles not-logged (login context). | `{context: array, data: []}`; always also `response.environment` |
 | `read` | Fetch context+data for a source element. Sub-dispatches on `source->action` (see below). | `{context: array, data: array}` |
 | `read_raw` | Unrendered JSONB straight from the matrix table, by `options->type` (`section` / `component` / `target_section`). Used by `tool_export`. | `result: array` of raw rows; plus `response.table` |
 | `relation_targets` | Which sections the records of a source set point at, and how many records of each — the census behind "Open relationships". Input in `options.source` (a [`referenced_by` source set](sqo.md#relationship-filter-leaves-referenced_by)). Read-only. | `data: [{tipo, label, total}]` |

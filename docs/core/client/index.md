@@ -80,7 +80,7 @@ sequenceDiagram
 The literal seed object in `index.js` sets only `api_errors`, `request_message`
 and `csrf_token` (plus `window.get_label` and the debug flags). The richer
 `page_globals` fields the rest of the client reads — `dedalo_data_lang`,
-`recovery_mode`, `fallback_image`, `stream_readers`, `api_errors`, plus the
+`fallback_image`, `stream_readers`, `api_errors`, plus the
 `DEDALO_API_URL` / `DEDALO_TOOLS_URLS` globals — are injected from the server
 `start` response by `page`'s `set_environment()`. The CSRF token starts `null` so
 the very first `start` request goes out unauthenticated (the server exempts
@@ -183,8 +183,7 @@ events include `activate_component` / `deactivate_component`, `change_value` /
 ### 4. data_manager — RQO transport and caching
 
 `data_manager.request(options)` (in `data_manager.js`) serializes `options.body`
-to JSON, attaches the CSRF header, injects `recovery_mode` from page_globals,
-resets `page_globals.api_errors`, and dispatches via
+to JSON, attaches the CSRF header, resets `page_globals.api_errors`, and dispatches via
 `_fetch_with_retry_and_timeout` (default 5 retries, 500 ms base, 5 s timeout).
 That driver does exponential backoff with a per-attempt `AbortController`,
 schedules a mid-attempt `check_server_health` probe that cancels the abort when

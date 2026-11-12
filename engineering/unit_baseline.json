@@ -3934,6 +3934,11 @@
 			"skipped": 0,
 			"assertions": 108
 		},
+		"test/unit/ontology_recover_native.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 22
+		},
 		"test/unit/ontology_recovery_file_deadline_native.test.ts": {
 			"tests": 2,
 			"skipped": 0,

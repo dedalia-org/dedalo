@@ -845,7 +845,6 @@ const REQUEST_BOUNDED: Readonly<Record<string, string>> = {
 	'make_backup.make_psql_backup': 'spawns pg_dump as a child process; the pool only starts it',
 	'make_backup.get_dedalo_backup_files': 'lists the backup directory; no statement',
 	'check_config.set_maintenance_mode': 'one config-state write',
-	'check_config.set_recovery_mode': 'one config-state write',
 	'check_config.set_notification': 'one config-state write',
 	'config_areas.save_config_areas': 'one config record write',
 	'menu_skip_tipos.save_menu_skip_tipos': 'one config record write',

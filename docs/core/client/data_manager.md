@@ -53,7 +53,7 @@ flowchart TD
     A["caller instance<br/>(section / component / tool)"] -- "build_rqo_show() / build_rqo_search()" --> B["data_manager.request({body: rqo})"]
     B --> C{cache_handler<br/>localdb?}
     C -->|hit| H["return cached response<br/>(no network)"]
-    C -->|miss / none| D["attach X-Dedalo-Csrf-Token<br/>inject recovery_mode<br/>JSON.stringify(body)"]
+    C -->|miss / none| D["attach X-Dedalo-Csrf-Token<br/>JSON.stringify(body)"]
     D --> E["fetch_api (api_transport.js)<br/>POST api/v1/json/<br/>read body once → JSON → normalize_api_error"]
     E -->|"api_error.retryable or Retry-After"| E
     E --> F["refresh page_globals.csrf_token<br/>publish session_activity"]
@@ -72,31 +72,28 @@ A `request` call runs this sequence:
 3. **Cache short-circuit** — when `options.cache_handler.handler === 'localdb'`,
    read the response from the IndexedDB `data` store and return it without a
    network call on a hit.
-4. **Recovery mode** — if `page_globals.recovery_mode` is set, inject
-   `recovery_mode: true` into the body so the server skips non-essential side
-   effects.
-5. **Validate** — an empty URL or an unserialisable body resolves a client
+4. **Validate** — an empty URL or an unserialisable body resolves a client
    failure envelope (`client.network`) without touching the network.
-6. **Dispatch** through `fetch_api` (`core/common/js/api_transport.js`): fetch
+5. **Dispatch** through `fetch_api` (`core/common/js/api_transport.js`): fetch
    never throws on status; the body is read **once**, parsed when it is JSON,
    and passed to `normalize_api_error`. A failure is retried **only** when
    `api_error.retryable` is true or the server sent `Retry-After` (honoured
    over the backoff) — there is no status list and no 401/403 carve-out: an
    auth or permission answer is an envelope like any other, dispatched on its
    code.
-7. **Refresh** — copy any `csrf_token` (present on success **and** failure
+6. **Refresh** — copy any `csrf_token` (present on success **and** failure
    envelopes) back into `page_globals.csrf_token` and publish
    `session_activity`.
-8. **CSRF retry** — if `error.code === 'auth.csrf_failed'` and the call has not
+7. **CSRF retry** — if `error.code === 'auth.csrf_failed'` and the call has not
    already retried, resend it once with the fresh token (the `_csrf_retried`
    flag guards against an infinite loop).
-9. **Failure** — attach the `ApiError` under `envelope.error` (or synthesise
+8. **Failure** — attach the `ApiError` under `envelope.error` (or synthesise
    `{ok:false, error}` when no JSON arrived), stamp `ApiError.tool` with the tool
    a `tool_request` addressed (so `error_text` can find that tool's refusal
    labels; see [errors](../system/errors.md#a-tools-refusal-reason)), publish the `api_error` event on
    the [event bus](../ui/index.md), toast transport failures (network,
    timeout, foreign status page), and return the envelope.
-10. **Success / cache write** — return the envelope; when cached, write it back
+9. **Success / cache write** — return the envelope; when cached, write it back
     to IndexedDB on idle (`dd_request_idle_callback`).
 
 The return is **always an object**: the envelope v2. On success it is
@@ -412,7 +409,7 @@ All in `core/common/js/data_manager.js` unless noted.
 | symbol | kind | role |
 | --- | --- | --- |
 | `data_manager` | exported namespace object | owns all client→server communication |
-| `data_manager.request(options)` | method | the central dispatcher (CSRF, recovery_mode, cache short-circuit, parse, CSRF retry, error surfacing) |
+| `data_manager.request(options)` | method | the central dispatcher (CSRF, cache short-circuit, parse, CSRF retry, error surfacing) |
 | `data_manager.url` / `data_manager.health_url` | getters | API endpoint (`DEDALO_API_URL` → fallback `../api/v1/json/`) and `/health` (origin root) |
 | `fetch_api(url, init, options)` | `api_transport.js` | the only native `fetch` for regular requests (page, cache Worker, Service Worker); read-once body, normalise, retry on `retryable`/`Retry-After`, timeout + health probe |
 | `check_server_health()` | exported | cache-busted probe of `/health`; distinguishes "busy" from "down" |
