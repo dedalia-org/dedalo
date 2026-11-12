@@ -3,14 +3,13 @@
  * component_info::get_data → widget_common::get_instance → <widget>::get_data).
  *
  * A component_info (and component_calculation / component_state, which map to
- * component_info at runtime) has NO stored row data of its own by default; the
- * section read serves the STORED misc value when the client save cycle has
- * persisted one (use_db_data — PHP get_db_data reads parent::get_data first),
- * and falls back to LIVE widget compute when the row holds nothing — null, [],
- * or (the one divergence) an array every entry of which is positively
- * identified v5-era `misc` residue
- * (WC-2026-08-09-info-legacy-stored-value-fallthrough). This
- * registry is that fallback: it resolves the ontology `properties.widgets`
+ * component_info at runtime) has NO stored value: every door — the section
+ * read, diffusion (diffusion/resolve/info_value.ts), the export walk and the
+ * flat readers (computeInfoOutputs) — serves the LIVE widget compute, and a
+ * stored `misc` slot is never served
+ * (WC-2026-09-03-info-stored-value-never-served, which repealed PHP's
+ * use_db_data stored-wins rule). This
+ * registry is that compute: it resolves the ontology `properties.widgets`
  * definitions (widget_name + ipo Input-Process-Output blocks) and dispatches
  * BY NAME to the per-discipline widget modules under widgets/<tld>/ — the
  * flat item arrays the PHP widget classes produce, insertion-ordered
@@ -92,6 +91,122 @@ export function widgetComputeData(
 		};
 	}
 	return descriptor.computeData;
+}
+
+/**
+ * The widget's get_data_parsed face (PHP widget_common::get_data_parsed — the
+ * grid / export face; mdcat sum_dates humanizes its intervals there): its
+ * `computeDataParsed`, else its computeData. An unported stub throws.
+ */
+export function widgetComputeDataParsed(
+	descriptor: InfoWidgetDescriptor,
+): (ipo: unknown[], context: WidgetContext) => Promise<WidgetItem[]> {
+	if ('unported' in descriptor) return widgetComputeData(descriptor);
+	return descriptor.computeDataParsed ?? descriptor.computeData;
+}
+
+/** One declared widget output of a component_info and the values it resolved. */
+export interface InfoWidgetOutput {
+	widgetName: string;
+	/** Position of its ipo block in the widget's `ipo` array (the item `key`). */
+	ipoKey: number;
+	/** The ontology output id — the export column's `sub_id`. */
+	outputId: string;
+	/** Every matching item's `value`, in item order (possibly none). */
+	values: unknown[];
+}
+
+/**
+ * Does one computed item belong to (ipo block `ipoKey`, output `outputId`)?
+ * The output id is carried as `id` (stored / calculation) or `widget_id`
+ * (live weights / state — WC-026 dualises both); `key` names the ipo block
+ * when the widget emits it (the parsed faces of some widgets — sum_dates —
+ * carry neither `key` nor `widget`, and are attributed by the per-widget loop).
+ */
+export function infoItemMatchesOutput(item: unknown, ipoKey: number, outputId: string): boolean {
+	if (!isPlainItem(item)) return false;
+	if (item.key !== undefined && item.key !== ipoKey) return false;
+	return item.id === outputId || item.widget_id === outputId;
+}
+
+function isPlainItem(item: unknown): item is Record<string, unknown> {
+	return item !== null && typeof item === 'object' && !Array.isArray(item);
+}
+
+/** The component's ontology-declared widgets, or null when it declares none. */
+async function declaredWidgets(componentTipo: string): Promise<WidgetDef[] | null> {
+	const node = await getNode(componentTipo);
+	const widgets = (node?.properties as { widgets?: WidgetDef[] } | null)?.widgets;
+	return Array.isArray(widgets) && widgets.length > 0 ? widgets : null;
+}
+
+/** One widget's parsed items; an async widget yields none (computeInfoWidgets' skip). */
+function widgetParsedItems(
+	descriptor: InfoWidgetDescriptor,
+	ipo: unknown[],
+	context: WidgetContext,
+): Promise<WidgetItem[]> {
+	if (descriptor.isAsync === true) return Promise.resolve([]);
+	return widgetComputeDataParsed(descriptor)(ipo, context);
+}
+
+/**
+ * EVERY declared output of one component_info, with its LIVE parsed values
+ * (PHP component_info::get_export_value :778-823 — get_data_parsed, then one
+ * atom per `widgets[].ipo[].output[]`, in declaration order). Each widget is
+ * computed on its own, so an output only ever matches its own widget's items
+ * (PHP matched on id alone across every widget). Async widgets are skipped
+ * exactly as computeInfoWidgets skips them — their outputs stay declared, with
+ * no value. Null when the component declares no widgets.
+ */
+export async function computeInfoOutputs(
+	componentTipo: string,
+	context: WidgetContext,
+): Promise<InfoWidgetOutput[] | null> {
+	const widgets = await declaredWidgets(componentTipo);
+	if (widgets === null) return null;
+	const outputs: InfoWidgetOutput[] = [];
+	for (const widget of widgets) {
+		const widgetName = widget.widget_name ?? '';
+		const ipo = Array.isArray(widget.ipo) ? widget.ipo : [];
+		const items = await widgetParsedItems(getInfoWidget(widgetName), ipo, context);
+		outputs.push(...declaredOutputs(widgetName, ipo, items));
+	}
+	return outputs;
+}
+
+/** The declared outputs of one widget's ipo blocks, each with its matched values. */
+function declaredOutputs(
+	widgetName: string,
+	ipo: unknown[],
+	items: WidgetItem[],
+): InfoWidgetOutput[] {
+	const outputs: InfoWidgetOutput[] = [];
+	for (const [ipoKey, block] of ipo.entries()) {
+		const declared = (block as { output?: unknown } | null)?.output;
+		if (!Array.isArray(declared)) continue;
+		for (const output of declared) {
+			const outputId = (output as { id?: unknown } | null)?.id;
+			if (typeof outputId !== 'string' || outputId === '') continue;
+			const values = items
+				.filter((item) => infoItemMatchesOutput(item, ipoKey, outputId))
+				.map((item) => item.value);
+			outputs.push({ widgetName, ipoKey, outputId, values });
+		}
+	}
+	return outputs;
+}
+
+/**
+ * An output value as a flat export string (PHP get_export_value: objects and
+ * arrays JSON-encoded). Null / undefined → '' (no value); booleans and
+ * numbers by their JS string form.
+ */
+export function infoOutputValueString(value: unknown): string {
+	if (value === null || value === undefined) return '';
+	if (typeof value === 'string') return value;
+	if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+	return JSON.stringify(value);
 }
 
 /**

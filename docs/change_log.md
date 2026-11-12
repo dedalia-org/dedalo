@@ -693,6 +693,22 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Information fields (calculated widgets) are published and exported with their current value.**
+
+    Publication columns that read an information field — for example the weight and diameter
+    totals of numismatic coin types — were published empty on every record. They now publish what
+    the field shows in the record today.
+
+    **Export** now includes information fields too. In **value** format the column holds every
+    result of the field. In **grid value** format each result the field declares gets its own
+    column, named after it. In **Dédalo raw** format the cell holds the values computed now; an old
+    stored copy is never exported.
+
+    **Action needed:** publish again the tables that carry information-field columns. Nothing in
+    the database needs repairing.
+
+    Wire contract: `WC-2026-11-12-info-live-publication-export`.
+
 - **The **Latest changes** list in a profile's permissions shows the ontology updates again.**
 
     Every ontology update records which sections gained new children, so an administrator can review the new permissions those sections need. In a profile's **Access and permissions** panel, the **Latest changes** selector was always empty, and choosing an entry had nothing on the server to answer it. The selector now lists every recorded update, newest first. Choosing one shows each changed section with its path and its new children, and clicking a section opens it in the permissions tree. Only global administrators can open an entry, as before.
@@ -765,7 +781,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 35 entries"
+??? note "Wire contract — 36 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -801,6 +817,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-11-svg-tag-url-full-media-path`
     - `WC-2026-11-12-calculation-widget-port`
     - `WC-2026-11-12-datalist-principal-record-scope`
+    - `WC-2026-11-12-info-live-publication-export`
     - `WC-2026-11-12-select-dataframe-subdatum`
 
 ## 7.0.0-beta.8 — 2026-11-08

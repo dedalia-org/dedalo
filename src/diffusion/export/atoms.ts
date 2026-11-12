@@ -68,6 +68,10 @@
  *   (request isolation, no module state).
  */
 
+import {
+	computeInfoOutputs,
+	infoOutputValueString,
+} from '../../core/components/component_info/widgets/registry.ts';
 import { resolveInverseEntries } from '../../core/components/component_inverse/emit.ts';
 import { getFlatValueFamily } from '../../core/components/registry.ts';
 import { isMediaModel } from '../../core/concepts/media.ts';
@@ -100,6 +104,7 @@ import {
 } from '../../core/resolve/relation_list.ts';
 import { runWithRequestLangs } from '../../core/resolve/request_lang.ts';
 import type { RawConfigDdo } from '../../core/section/list_definitions/section_list.ts';
+import { currentPrincipal } from '../../core/security/request_context.ts';
 import { getTermByLocator } from '../../core/ts_object/term_resolver.ts';
 import type { FieldPlan } from '../plan/types.ts';
 import type { ExportAtomRun, ExportCrossingReach } from '../resolve/resolver.ts';
@@ -724,7 +729,9 @@ async function resolveValueCellInScope(
 
 /** Is this atom a D4 calculated-relations atom (under a '#references' segment)? */
 function isReferencesAtom(atom: GridAtom): boolean {
-	return atom.segments.some((segment) => segment.sub_id === REFERENCES_SUB_ID);
+	return atom.segments.some(
+		(segment, index) => segment.sub_id === REFERENCES_SUB_ID && !isInfoOutputSegment(atom, index),
+	);
 }
 
 /** A '#references' atom shaped as the main cell's (its references segment
@@ -732,13 +739,16 @@ function isReferencesAtom(atom: GridAtom): boolean {
 function stripReferencesSegment(atom: GridAtom): GridAtom {
 	return {
 		...atom,
-		segments: atom.segments.filter((segment) => segment.sub_id !== REFERENCES_SUB_ID),
+		segments: atom.segments.filter(
+			(segment, index) => segment.sub_id !== REFERENCES_SUB_ID || isInfoOutputSegment(atom, index),
+		),
 	};
 }
 
 /** Is this atom a WC-049 parents atom (its last segment the '#parents' sub-column)? */
 function isParentsAtom(atom: GridAtom): boolean {
-	return atom.segments[atom.segments.length - 1]?.sub_id === PARENTS_SUB_ID;
+	const last = atom.segments.length - 1;
+	return atom.segments[last]?.sub_id === PARENTS_SUB_ID && !isInfoOutputSegment(atom, last);
 }
 
 /** The ONE segment a WC-008 compact column's atoms carry (its label chain). */
@@ -1073,6 +1083,10 @@ async function emitPlainAtom(
 		await emitInverseAtoms(ctx, sectionTipo, sectionId, componentTipo, model, segments);
 		return;
 	}
+	if (family === 'info') {
+		await emitInfoAtoms(ctx, sectionTipo, sectionId, componentTipo, model, segments);
+		return;
+	}
 	if (family !== undefined && LITERAL_ITEM_FAMILIES.has(family)) {
 		await emitLiteralItemAtoms(ctx, sectionTipo, sectionId, componentTipo, model, segments);
 		return;
@@ -1177,6 +1191,74 @@ async function emitInverseAtoms(
 		});
 	}
 	recordInverseCallerGrants(ctx.run.atoms, disclosed);
+}
+
+/**
+ * component_info (DERIVED widget outputs —
+ * WC-2026-11-12-info-live-publication-export): ONE atom per value of every DECLARED widget output, in
+ * declaration order, under a sub-segment `{section_tipo: host, component_tipo:
+ * info, sub_id: <output id>}` (PHP component_info::get_export_value :778-823),
+ * so grid_value gives each output its own column and the value format joins
+ * them. The values are the LIVE parsed compute (get_data_parsed), never the
+ * stored `misc` slot (WC-2026-09-03). An output with no value keeps ONE ''
+ * slot atom (PHP's null atom: the column set does not depend on the record).
+ * Every matching item is kept (PHP's array_find kept the first) and an
+ * output only matches its own widget's items.
+ *
+ * Identity: the run's frontier principal (explicit — an export job may run
+ * detached from the request ALS), else the ambient one; mode 'edit' (PHP
+ * tool_export instances its columns in edit mode).
+ */
+async function emitInfoAtoms(
+	ctx: WalkContext,
+	sectionTipo: string,
+	sectionId: number | string,
+	componentTipo: string,
+	model: string,
+	segments: ExportSegment[],
+): Promise<void> {
+	const address = canonicalizeStoredSectionId(sectionId);
+	if (!isSectionId(address)) return;
+	const principal = ctx.run.atoms.frontier?.principal ?? currentPrincipal();
+	const outputs = await computeInfoOutputs(componentTipo, {
+		sectionTipo,
+		sectionId: address,
+		mode: 'edit',
+		lang: ctx.lang,
+		userId: principal?.userId,
+		isAdmin: principal?.isGlobalAdmin,
+	});
+	for (const output of outputs ?? []) {
+		const outputSegments: ExportSegment[] = [
+			...segments,
+			{
+				section_tipo: sectionTipo,
+				component_tipo: componentTipo,
+				model: null,
+				item_index: null,
+				section_id: null,
+				sub_id: output.outputId,
+			},
+		];
+		const values = output.values.length > 0 ? output.values : [null];
+		for (const value of values) {
+			ctx.atoms.push({
+				value: infoOutputValueString(value),
+				cellType: cellTypeOfModel(model),
+				model,
+				segments: outputSegments,
+			});
+		}
+	}
+}
+
+/**
+ * Is segment `index` of `atom` a component_info OUTPUT sub-segment? Its
+ * `sub_id` is an ontology output id, so it may spell a reserved sub-column
+ * ('parents', 'references') without being one.
+ */
+function isInfoOutputSegment(atom: GridAtom, index: number): boolean {
+	return index === atom.segments.length - 1 && getFlatValueFamily(atom.model) === 'info';
 }
 
 /**

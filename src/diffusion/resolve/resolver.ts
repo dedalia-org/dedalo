@@ -39,8 +39,9 @@
  * (REWRITE_SPEC §4 / DIFFUSION_SPEC §2.7).
  */
 
+import { config } from '../../config/config.ts';
 import { resolveIriTitles } from '../../core/components/component_iri/resolve_title.ts';
-import { isDerivedModel } from '../../core/components/registry.ts';
+import { getFlatValueFamily, isDerivedModel } from '../../core/components/registry.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../../core/concepts/section_id.ts';
 import type { Sqo } from '../../core/concepts/sqo.ts';
 import type { MatrixRecord } from '../../core/db/matrix.ts';
@@ -122,6 +123,7 @@ import {
 	type RunLedgerEvent,
 	recordKey,
 } from './frontier_ledger.ts';
+import { type InfoPublicationEnv, infoPublicationAtoms } from './info_value.ts';
 import type { FieldIR, RecordIR, ResolvedLink } from './record_ir.ts';
 import type { RewriterEnv } from './rewriters.ts';
 import { buildRewriterFns } from './rewriters.ts';
@@ -304,6 +306,10 @@ export interface RunContext {
 	/** svg tag locator → media-root-relative path (parse_tag_to_html, T0-10).
 	 * RUN-SCOPED: the path reads the ontology and an `additional_path` value. */
 	svgTagPathMemo: SvgTagPathMemo;
+	/** `${section_tipo}|${section_id}|${tipo}` → the LIVE component_info items
+	 * (info_value.ts — bounded; every field over one info component computes
+	 * its widgets once per record per run). */
+	infoItemsCache: Map<string, unknown[] | null>;
 	/** PHP is_used bitmask twin: records already emitted top-level this run. */
 	usedRecords: Set<string>;
 	/** PHP $datum_unresolved: `${level}:${section_tipo}` → queued ids (FIFO). */
@@ -364,6 +370,17 @@ export function getBoundedRunMemo<K, V>(map: Map<K, V>, key: K): V | undefined {
 }
 
 const RECORD_KEY = recordKey;
+
+/** The run's component_info env (info_value.ts): main lang, run principal, run memo. */
+function infoEnvOf(ctx: RunContext): InfoPublicationEnv {
+	return {
+		lang: ctx.plan.langPolicy.mainLang ?? config.lang.dataLangDefault,
+		principal: ctx.options.principal,
+		readMemo: (key) => getBoundedRunMemo(ctx.infoItemsCache, key),
+		writeMemo: (key, items) =>
+			setBoundedRunMemo(ctx.infoItemsCache, key, items, RECORD_CACHE_LIMIT),
+	};
+}
 
 /**
  * THE run-state mutators (DIFF-1): every change to the frontier and the used
@@ -1752,6 +1769,18 @@ async function walkChainLevel(
 		if (step.sectionTipo !== '' && step.sectionTipo !== record.section_tipo) continue;
 
 		if (step.kind === 'component') {
+			// component_info: the LIVE widget compute (PHP component_info::
+			// get_diffusion_data overrides the common door — no fn, no stored
+			// slice). WC-2026-11-12-info-live-publication-export.
+			if (getFlatValueFamily(step.model) === 'info') {
+				atoms.push(
+					...(await infoPublicationAtoms(infoEnvOf(ctx), record, step.tipo, {
+						sourceId: step.ddoId,
+						tipo: step.tipo,
+					})),
+				);
+				continue;
+			}
 			// Custom ddo fn dispatch (component_common :3274-3326). ONE door, and
 			// it either resolves or throws — see resolveComponentFnAtoms.
 			if (step.fn !== undefined) {
@@ -2557,6 +2586,7 @@ export async function* resolvePublication(
 		sectionLabelCache: new Map(),
 		geoPairCache: new Map(),
 		svgTagPathMemo: createSvgTagPathMemo(),
+		infoItemsCache: new Map(),
 		// A resumed run starts from the replayed ledger state (copies — the
 		// caller's ResumeState is never mutated).
 		usedRecords: new Set(options.resume?.used ?? []),
@@ -2933,8 +2963,11 @@ async function holdsNoData(
 	if (model === null || getColumnNameByModel(model) === null) return false;
 	if (readsComputedLocators(model)) return false;
 	// A DERIVED model (component_inverse's backlinks, …) stores nothing under
-	// its tipo: its value is computed, so an empty slot proves nothing.
-	if (isDerivedModel(model)) return false;
+	// its tipo: its value is computed, so an empty slot proves nothing. Nor
+	// does component_info's `misc` slot (its value is the live widget compute,
+	// WC-2026-09-03 — keyed on the family: its derived facet is owner decision
+	// T1-2 D3).
+	if (isDerivedModel(model) || getFlatValueFamily(model) === 'info') return false;
 	const record = await loadExportRecord(run, sectionTipo, sectionId);
 	if (record === null) return false;
 	// the value read's OWN door (alias data key included) — never a second

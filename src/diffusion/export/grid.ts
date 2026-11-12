@@ -50,6 +50,8 @@
  */
 
 import { isDiffusionLangCode } from '../../config/lang_code.ts';
+import { computeInfoWidgets } from '../../core/components/component_info/widgets/registry.ts';
+import { normalizeWidgetEntryKeys } from '../../core/components/component_info/widgets/widget_common.ts';
 import { resolveInverseEntries } from '../../core/components/component_inverse/emit.ts';
 import { getFlatValueFamily, isDerivedModel } from '../../core/components/registry.ts';
 import { CLIENT_MAX_LIMIT, getSectionTipos, sanitizeClientSqo } from '../../core/concepts/sqo.ts';
@@ -74,6 +76,7 @@ import {
 } from '../../core/security/frontier_scope.ts';
 import { getPermissions, type Principal } from '../../core/security/permissions.ts';
 import {
+	currentPrincipal,
 	currentRequestContext,
 	type RequestContext,
 	runWithRequestContext,
@@ -1732,6 +1735,11 @@ async function computedRawSlice(
 	componentTipo: string,
 	model: string,
 ): Promise<unknown[] | undefined> {
+	// component_info: the LIVE computed items (PHP get_raw_export_value wraps
+	// get_data — the live compute), never its stored `misc` slot
+	// (WC-2026-09-03). Checked before the derived gate: the model's derived
+	// facet is an open owner decision (T1-2 D3); its family is not.
+	if (getFlatValueFamily(model) === 'info') return liveInfoRawItems(run, record, componentTipo);
 	if (!isDerivedModel(model)) return undefined;
 	if (getFlatValueFamily(model) === 'inverse') {
 		const entries = await resolveInverseEntries(record.section_tipo, Number(record.section_id), {
@@ -1752,6 +1760,24 @@ async function computedRawSlice(
 		);
 	}
 	return undefined;
+}
+
+/** A component_info's live items for its dedalo_raw cell (computedRawSlice). */
+async function liveInfoRawItems(
+	run: ExportRun,
+	record: { section_id: number; section_tipo: string },
+	componentTipo: string,
+): Promise<unknown[]> {
+	const principal = run.atoms.frontier?.principal ?? currentPrincipal();
+	const computed = await computeInfoWidgets(componentTipo, {
+		sectionTipo: record.section_tipo,
+		sectionId: Number(record.section_id),
+		mode: 'edit',
+		lang: currentDataLang(),
+		userId: principal?.userId,
+		isAdmin: principal?.isGlobalAdmin,
+	});
+	return computed === null ? [] : normalizeWidgetEntryKeys(computed);
 }
 
 /**

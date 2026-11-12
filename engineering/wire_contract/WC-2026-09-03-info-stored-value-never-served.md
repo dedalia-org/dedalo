@@ -73,3 +73,11 @@
   the modern / mixed / unclassifiable rows assert `served === control` where
   they asserted `served === stored`; the classifier test and the legacy
   fall-through tests are unchanged; the counter test covers both counters.
+
+## Addendum — the diffusion and export doors (2026-11-12, T1-2)
+
+The rule now holds on every door, not only the section read: diffusion publishes the live compute
+(`src/diffusion/resolve/info_value.ts`; `defaultPublicationValue` refuses `component_info` with
+`internal.invariant`, so the stored slice can never be published), and tool_export / the flat
+readers / `dedalo_raw` compute live through the `info` flatValue family. See
+`WC-2026-11-12-info-live-publication-export`.

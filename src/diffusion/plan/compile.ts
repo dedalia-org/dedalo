@@ -70,7 +70,7 @@
 
 import { config } from '../../config/config.ts';
 import { readEnv } from '../../config/env.ts';
-import { getComponentModel } from '../../core/components/registry.ts';
+import { getComponentModel, getFlatValueFamily } from '../../core/components/registry.ts';
 import { getPopulatedTlds } from '../../core/db/dd_ontology.ts';
 import { DedaloError } from '../../core/errors/dedalo_error.ts';
 import { nameOrLabelOf } from '../../core/ontology/labels.ts';
@@ -429,7 +429,14 @@ async function compileSourceChain(
 				sectionTipo: ddo.sectionTipo ?? '',
 			};
 			if (parent !== undefined) step.parent = parent;
-			if (ddo.fn !== undefined) step.fn = ddo.fn;
+			if (ddo.fn !== undefined && getFlatValueFamily(model) === 'info') {
+				// PHP component_info::get_diffusion_data OVERRIDES the common one, so
+				// a ddo fn on an info component never runs: the live compute is the
+				// value (resolve/info_value.ts). Kept out of the step, never silent.
+				diagnostics.warnings.push(`info-fn-ignored:${ddo.fn}@${fieldTipo}`);
+			} else if (ddo.fn !== undefined) {
+				step.fn = ddo.fn;
+			}
 			if (ddo.id !== undefined) step.ddoId = ddo.id;
 			if (ddo.lang !== undefined) step.pinLang = ddo.lang;
 			// PHP $ddo->options (media quality/extension, fn arguments). Carried

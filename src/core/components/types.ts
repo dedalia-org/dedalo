@@ -182,6 +182,13 @@ export type CalculationDataId = 'number' | 'date' | 'info' | 'relation';
  *   (WC-2026-11-11-export-inverse-callers); a flat cell is the ids joined. Its
  *   own family for the same reason
  *   as 'external': there is no stored value to slice.
+ * - 'info': DERIVED widget outputs (component_info and its state/calculation
+ *   aliases) — the LIVE widget compute (WC-2026-09-03: the stored `misc` slot
+ *   is never the value). The export walk emits one atom per declared widget
+ *   output under a `sub_id: <output id>` sub-segment (PHP get_export_value);
+ *   a flat cell is every output's values joined
+ *   (WC-2026-11-12-info-live-publication-export). Its own family for the same
+ *   reason as 'external'/'inverse'.
  * Models with no family declared are LEDGERED unresolved by the consumers
  * (value null + a note, never a guessed string).
  */
@@ -193,7 +200,8 @@ export type FlatValueFamily =
 	| 'iri'
 	| 'media'
 	| 'external'
-	| 'inverse';
+	| 'inverse'
+	| 'info';
 
 /**
  * RENDER CLASS (audit P2-6 / CARRY-01 — XSS-03): what the client may DO with
@@ -482,8 +490,11 @@ export interface ComponentModel {
 	 *   - the CSV import REFUSES a column mapped to it in any mode (its
 	 *     `importAppend` refusal names what to import instead).
 	 * A derived model must refuse append. Declared `true` only; omitted = the
-	 * component stores what it serves. component_info is audited OUT: its
-	 * widget values are stored mirrors the read and search consult. Pinned by
+	 * component stores what it serves. component_info is NOT declared derived
+	 * (owner decision T1-2 D3 open) although its `misc` slot is never served
+	 * (WC-2026-09-03): the consumers that must not trust that slot (export
+	 * dedalo_raw, the D4 holdsNoData probe, diffusion) key on its `info`
+	 * flatValue family instead. Pinned by
 	 * descriptor_completeness_tripwire (the set of record, the append law).
 	 */
 	readonly derived?: true;

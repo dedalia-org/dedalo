@@ -14,6 +14,7 @@ export const component_info: ComponentModel = {
 	},
 	importValueProperty: true,
 	emitHook: 'info',
+	flatValue: 'info', // the LIVE widget outputs (WC-2026-11-12-info-live-publication-export)
 	calculationData: 'info', // PHP get_calculation_data (components/calculation_data.ts)
 	sortable: false, // PHP component_info::get_sortable() → false (also covers state/calculation aliases)
 };

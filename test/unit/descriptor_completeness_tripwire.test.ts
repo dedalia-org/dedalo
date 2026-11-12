@@ -280,7 +280,7 @@ function appendKind(
  */
 const NOT_DERIVED_BY_FACET: Readonly<Record<string, string>> = {
 	component_info:
-		'its widget values are STORED mirrors (the observer cascade / reconcile write them) that list and search read — the stored key is its value',
+		'owner decision T1-2 D3 open: its stored misc is never served (WC-2026-09-03 — no observer writes it, the read and export compute live) but the facet also flips update_cache / CSV-import refusal; the export/D4/diffusion consumers key on its `info` flatValue family meanwhile',
 };
 
 /** The derived-value models, read from the descriptor FACTS (+ the extra hand list). */
@@ -401,10 +401,6 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 		[
 			'component_dataframe',
 			'a frame is folded INTO its main’s cell, never a value column of its own (dedalo_raw mints its slot column from the stored slice)',
-		],
-		[
-			'component_info',
-			'PHP exports per-widget sub_id columns (component_info::get_export_value) — not ported yet; ledgered T0-9 residue',
 		],
 		[
 			'component_geolocation',

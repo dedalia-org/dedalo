@@ -31,6 +31,10 @@ import {
 	resolvePeriodLabels,
 } from '../components/component_date/date_value.ts';
 import type { ExternalSourceStatus } from '../components/component_external/value.ts';
+import {
+	computeInfoOutputs,
+	infoOutputValueString,
+} from '../components/component_info/widgets/registry.ts';
 import { resolveInverseEntries } from '../components/component_inverse/emit.ts';
 import { type IriLabelFrame, resolveIriTitles } from '../components/component_iri/resolve_title.ts';
 import { getFlatValueFamily } from '../components/registry.ts';
@@ -64,6 +68,7 @@ import { filterAuthorizedRelated } from '../relations/request_config/implicit.ts
 import { findInverseReferences } from '../search/search_related.ts';
 import { sectionRelationListTipos } from '../section/related_list.ts';
 import type { Principal } from '../security/permissions.ts';
+import { currentPrincipal } from '../security/request_context.ts';
 import { type EmissionContext, resolveComponentValue } from './component_data.ts';
 import { currentDataLang } from './request_lang.ts';
 
@@ -985,6 +990,15 @@ export async function resolveCellItems(
 		return parts.length > 0 ? parts : null;
 	}
 
+	// INFO (component_info + aliases): DERIVED — the LIVE widget outputs, never
+	// the `misc` slot (WC-2026-09-03), so no record load. One item per output
+	// value, in declaration order (PHP get_export_value), under the ALS
+	// principal (this is the request-path flat reader; media_icons is
+	// user-scoped) in 'list' mode (PHP relation_list instances its columns so).
+	if (getFlatValueFamily(model) === 'info') {
+		return resolveInfoCellItems(sectionTipo, address, componentTipo, lang, opts);
+	}
+
 	const table = await getMatrixTableFromTipo(sectionTipo);
 	if (table === null) return null;
 	// The loader seam consults AFTER the null-table early-return (parity
@@ -1099,6 +1113,28 @@ export async function resolveCellItems(
 
 	if (!unresolved.includes(model)) unresolved.push(model);
 	return null;
+}
+
+/** {@link resolveCellItems}' info branch: every declared output's live values. */
+async function resolveInfoCellItems(
+	sectionTipo: string,
+	sectionId: number,
+	componentTipo: string,
+	lang: string,
+	opts?: CellValueResolveOptions,
+): Promise<string[] | null> {
+	const principal = currentPrincipal();
+	const outputs = await computeInfoOutputs(componentTipo, {
+		sectionTipo,
+		sectionId,
+		mode: 'list',
+		lang,
+		userId: principal?.userId,
+		isAdmin: principal?.isGlobalAdmin,
+	});
+	if (outputs === null) return null;
+	const parts = outputs.flatMap((output) => output.values.map(infoOutputValueString));
+	return keptItems(parts, opts);
 }
 
 /**

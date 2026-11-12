@@ -13,9 +13,10 @@
  * diffusion face) humanizes the intervals with the localized year/month/day
  * labels; the PHP-hardcoded 'indeterminat' suffix is preserved verbatim.
  *
- * No instance in THIS install's ontology declares it (the PHP
- * get_widget_data path is equally unreachable here) — shape gate:
- * test/unit/info_widget_ports.test.ts against the PHP class contract.
+ * Declared by mdcat812 in the vendored ontology (published by mdcat1181) —
+ * shape gate: test/unit/info_widget_ports.test.ts against the PHP class
+ * contract; the parsed face reaches the export through
+ * registry.ts widgetComputeDataParsed.
  * (Ontology typo 'estitmated' preserved verbatim — it is the wire id.)
  */
 

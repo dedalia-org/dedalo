@@ -38,6 +38,7 @@
  */
 
 import { config } from '../../config/config.ts';
+import { getFlatValueFamily } from '../../core/components/registry.ts';
 import { mediaTypeOf } from '../../core/concepts/media.ts';
 import type { MatrixRecord } from '../../core/db/matrix.ts';
 import { DedaloError } from '../../core/errors/index.ts';
@@ -69,7 +70,7 @@ export interface ValueProvenance {
 }
 
 /** Build the meta bag off a provenance descriptor. */
-function metaFrom(provenance: ValueProvenance): ValueMeta {
+export function metaFrom(provenance: ValueProvenance): ValueMeta {
 	const meta: ValueMeta = { tipo: provenance.tipo };
 	if (provenance.sourceId !== undefined) meta.sourceId = provenance.sourceId;
 	if (provenance.sectionId !== undefined) meta.sectionId = provenance.sectionId;
@@ -220,6 +221,15 @@ export function defaultPublicationValue(
 	provenance: ValueProvenance,
 	ddoOptions?: Record<string, unknown>,
 ): MetaValueIR[] {
+	// component_info is DERIVED at read time (WC-2026-09-03): its stored `misc`
+	// slot is never its value, so no caller may publish it. The resolver routes
+	// the model to info_value.ts (the live compute) before reaching here.
+	if (getFlatValueFamily(model) === 'info') {
+		throw new DedaloError('internal.invariant', {
+			message: `defaultPublicationValue: '${componentTipo}' (${model}) is derived — publish it through info_value.ts, never its stored slice`,
+			coordinates: { tipo: componentTipo, model },
+		});
+	}
 	const meta = metaFrom(provenance);
 	const mediaSpec = mediaTypeOf(model);
 	// Validated BEFORE the empty-slice return: an option the engine does not

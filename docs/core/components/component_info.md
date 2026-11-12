@@ -411,13 +411,33 @@ widget → the widget's own `wrapper_widget` node. `content_data` uses
 handling — there is nothing to import; the value is recomputed each load. See
 [importing data](../importing_data.md).
 
-**Export / grid.** The intended contract is **one atom per widget IPO `output`
-entry**, built by walking each output `id`. The current grid/export consumer
-for widgets is partial — the shared dd_grid cell tree is built by
-`widgets/grid.ts` (`buildPortalGridValue`, consumed by `descriptors`), and
-`sum_dates` ships a `computeDataParsed` humanizer as its grid/export face; the
-full one-column-per-`output` consumer is not universally wired. Check the code
-before relying on an exact column layout. See [exporting data](../exporting_data.md).
+**Export.** `component_info` declares the `info` flat-value family: every
+export format computes the widgets **live** (the same rule as the read — a
+stored `misc` array is never exported). The walk visits every widget, every
+`ipo` block and every declared `output` in declaration order, and takes the
+widget's grid/export face (`computeDataParsed` when the widget has one —
+`sum_dates` humanizes its intervals there — else `computeData`). An output
+collects the widget's own items whose `id` or `widget_id` equals the output
+`id` (and whose `key`, when present, is that `ipo` block):
+
+- **value** — one column (the component's label); the cell joins every
+  output's values;
+- **grid value** — one column per declared output, keyed by the output `id`
+  (`<section>_<info>.<section>_<info>#<output id>`, label
+  `<component label> | <output id>`); an output with no value keeps its
+  column with an empty cell;
+- **Dédalo raw** — `{"dedalo_data": [...]}` holding the live computed items;
+- the relation_list panel shows every output's values.
+
+Async widgets (`user_activity`) are skipped exactly as in the read, so their
+outputs export empty. See [exporting data](../exporting_data.md).
+
+**Publication.** A diffusion field that reads a `component_info` publishes the
+live compute too: one language-neutral item per computed entry, the whole
+`{widget, key, id, widget_id, value}` object, which `parser_info::widget`
+selects from (see [diffusion parsers](../../diffusion/parsers.md)). The compute
+runs once per record per publication run, as the user who started it.
+Ledgered in `WC-2026-11-12-info-live-publication-export`.
 
 ## Honest notes on known limitations
 
