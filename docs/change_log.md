@@ -386,6 +386,14 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-posterframe-identifying-image-scope`.
 
+- **Layout-only panels (`section_group_div`) render again without a header.**
+
+    An edit form group whose ontology model is `section_group_div` is meant to be a
+    plain layout block. It was shown as a labelled, collapsible panel with a header,
+    like any other group. It now renders as an unlabelled block again, and its
+    contents are always shown, even if the panel had been collapsed before this
+    update. See [section_group](./core/sections/section_group.md).
+
 - **A select with a dataframe (such as the uncertainty of a coin's discovery method) shows and saves its frame again.**
 
     A select field whose configuration declares a dataframe slot showed no frame widget in the edit form, so its

@@ -123,15 +123,21 @@ The `type: 'grouper'` marker (`elementTypeOf()`,
 CSS and edit-mode nesting on — the edit view nests components into a grouper
 only when `parent_instance.type === 'grouper'`.
 
-!!! warning "`section_group_div` currently renders with a label"
-    The client (`render_section_group.js`) selects its unlabelled `<div>`
-    variant on `self.context.add_label === false`. The server does **not** stamp
-    `add_label` on a grouper context at all, so that strict check never matches
-    and a `section_group_div` node renders through the labelled, collapsible
-    header path like any other `section_group`.
+### `section_group_div` — the unlabelled variant
 
-    If your ontology uses `section_group_div` expecting an unlabelled block, this
-    is why you see a header.
+A node whose ontology model is `section_group_div` is served as a
+`section_group` (`model: 'section_group'`, `legacy_model: 'section_group_div'`).
+The server stamps `add_label` on every `section_group` context
+(`buildCore`, `src/core/resolve/structure_context.ts`): `true` for a plain
+group, `false` for a `section_group_div`. The client (`render_section_group.js`)
+keys on `add_label === false` and renders a plain `<div>` with no header, no
+collapse toggle and no top margin (`no_margin`); its content is always shown,
+whatever collapse state the browser remembers for that panel. It is still a
+grouper: its children nest under it exactly as under a labelled group.
+
+No other model carries `add_label`, and the search panel's element list omits it
+(that list never emits a `section_group_div` at all — it walks through it to its
+children).
 
 ## How it fits with the rest of Dédalo
 

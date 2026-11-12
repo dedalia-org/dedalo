@@ -45,7 +45,8 @@ export const GROUPER_MODELS: readonly string[] = [
 
 /**
  * Legacy grouper alias (PHP common::$ar_temp_map_models, class.common.php:430):
- * section_group_div renders as a section_group (with add_label=false, :3892).
+ * section_group_div renders as a section_group (with add_label=false — PHP
+ * section_group_json.php:92-107; TS emitter: resolve/structure_context.ts buildCore).
  */
 export const GROUPER_MODEL_ALIASES: Readonly<Record<string, string>> = {
 	section_group_div: 'section_group',

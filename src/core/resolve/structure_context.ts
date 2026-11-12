@@ -103,6 +103,16 @@ export interface StructureContextCore {
 	 * request-invariant, so it lives in the cached core.
 	 */
 	declared_order?: { tipo: string; direction: 'ASC' | 'DESC' }[];
+	/**
+	 * Grouper label switch (PHP section_group_json.php:92-107, v6 :29-34) —
+	 * present on `section_group` entries ONLY: `false` iff the STORED model is
+	 * `section_group_div` (aliased to section_group at runtime, GROUPER_MODEL_ALIASES),
+	 * `true` otherwise. The client (render_section_group.js) keys `=== false` →
+	 * unlabelled `no_margin` div, no collapse header. Absent on every other
+	 * model and stripped from the search-panel element list (PHP builds those
+	 * via get_structure_context_simple, never the json controller).
+	 */
+	add_label?: boolean;
 }
 
 /**
@@ -516,6 +526,9 @@ async function buildCore(
 		// component entry — request-invariant, so it lives in the cached core.
 		...(getComponentModel(model) !== undefined ? { render_class: getRenderClass(model) } : {}),
 		...(declaredOrder !== null ? { declared_order: declaredOrder } : {}),
+		// grouper label switch (PHP section_group_json.php:92-107): a pure
+		// function of the stored model, so it lives in the cached core.
+		...(model === 'section_group' ? { add_label: legacyModel !== 'section_group_div' } : {}),
 		configSourceProperties,
 		ownConfigProperties: effectiveProperties,
 		structuralView,

@@ -23,7 +23,9 @@
 * `section_group_<section_tipo>_<tipo>`, guaranteeing uniqueness across all
 * group instances on a given page.
 *
-* Context shape expected on `self.context` (populated by `section_group_json.php`):
+* Context shape expected on `self.context` (populated by the server's
+* src/core/resolve/structure_context.ts buildCore — `add_label` is stamped on
+* every section_group entry, false iff the stored model is section_group_div):
 *   {
 *     label     : string,               // display label for the header
 *     add_label : boolean,              // false → section_group_div variant
@@ -116,13 +118,21 @@ render_section_group.prototype.edit = async function(options) {
 			return content_data
 		}
 
+	// section_group_div variant: no header, so no collapse toggle — it must never
+		// consult a persisted collapse state (a stale 'collapsed' row, e.g. written
+		// while the div wrongly rendered a header, would hide its content with no
+		// way to reopen it). Always open.
+		const is_div = self.context.add_label===false
+
 	// content data state. Needed to prevent blink components show on page load
 		// Reads the persisted collapse state from IndexedDB.
 		// A missing record (undefined/null/false) means "open" (the default state).
-		const ui_status = await data_manager.get_local_db_data(
-			collapsed_id,
-			collapsed_table
-		)
+		const ui_status = is_div
+			? null
+			: await data_manager.get_local_db_data(
+				collapsed_id,
+				collapsed_table
+			  )
 		if (!ui_status) {
 			// No stored state (or stored state is falsy) → show content_data as open.
 			content_data.classList.remove('hide')
@@ -137,7 +147,7 @@ render_section_group.prototype.edit = async function(options) {
 	// header (label)
 		// section_group_div variant: context.add_label is explicitly false on the server.
 		// In that case the group renders without a header and without top margin.
-		if (self.context.add_label===false) {
+		if (is_div) {
 			wrapper.classList.add('no_margin')
 		}else{
 

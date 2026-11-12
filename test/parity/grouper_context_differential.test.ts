@@ -64,7 +64,9 @@ function isGrouper(entry: Record<string, unknown>): boolean {
 function grouperKey(entry: Record<string, unknown>): string {
 	// `type` is load-bearing: the client nests components into a grouper only
 	// when the grouper entry's type === 'grouper' (view_default_edit_section_record).
-	return `${entry.tipo}|${entry.model}|${entry.type}|${entry.label ?? ''}|${entry.parent_grouper ?? ''}`;
+	// `add_label` too (T1-28): false marks a section_group_div (render_section_group.js
+	// `=== false` → unlabelled div); left out of the key, its absence rode unseen.
+	return `${entry.tipo}|${entry.model}|${entry.type}|${entry.label ?? ''}|${entry.parent_grouper ?? ''}|${entry.add_label}`;
 }
 
 describe.if(hasPhpCredentials())('grouper context differential (SECTION_SPEC §8)', () => {

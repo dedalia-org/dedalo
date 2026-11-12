@@ -266,9 +266,13 @@ async function stampTargetSections(
 	}
 }
 
-/** Strip the fields PHP omits from a simple context (tools, buttons). */
+/**
+ * Strip the fields PHP omits from a simple context (tools, buttons, add_label —
+ * PHP builds these via get_structure_context_simple, class.common.php:3951,
+ * never section_group_json.php, the only add_label emitter).
+ */
 function toSimple(entry: StructureContextEntry): Record<string, unknown> {
-	const { tools, buttons, ...rest } = entry as StructureContextEntry & {
+	const { tools, buttons, add_label, ...rest } = entry as StructureContextEntry & {
 		tools?: unknown;
 		buttons?: unknown;
 	};
