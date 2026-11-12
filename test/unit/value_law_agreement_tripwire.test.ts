@@ -267,7 +267,11 @@ describe('DATA-33 — getSectionRealTipo is the ONE virtual→real law', () => {
 			'src/core/section/record/declared_components.ts',
 			'src/core/identify/profile.ts',
 			'src/core/identify/profile_source.ts',
-			'src/core/relations/request_config/implicit.ts',
+			// (implicit.ts LEFT this list with T1-23: the virtual edit scope moved to
+			// ontology/virtual_scope.ts — listed here — the ONE exclude_elements law
+			// the edit config, the elements context, the birth defaults and the
+			// record wipe scope all read)
+			'src/core/ontology/virtual_scope.ts',
 			// (explicit.ts LEFT this list with T0-2: its button lookup now DELEGATES
 			// to section/buttons.ts sectionButtonRows — listed above — the ONE
 			// virtual-aware + exclude_elements-aware button resolution; it no

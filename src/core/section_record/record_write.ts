@@ -1663,9 +1663,10 @@ export async function prepareBirthColumns(
 }
 
 /**
- * Every COVERED OBSERVER slot a section DECLARES (the one section census the
- * wipe shares — section/record/declared_components.ts: own ∪ real subtree,
- * crossing nested sections), whatever a given row stores. A record that
+ * Every COVERED OBSERVER slot a section DECLARES (the one section census —
+ * section/record/declared_components.ts: own ∪ real subtree, crossing nested
+ * sections; the wipe's scope is filtered from it, so wipe ⊆ recompute), whatever
+ * a given row stores. A record that
  * CONTINUES at its address after a gap (an undelete, a wiped record restored)
  * may have referencers that re-appeared while it was gone — a referencer
  * undeleted first carries its locator onto the missing record — so its mirrors

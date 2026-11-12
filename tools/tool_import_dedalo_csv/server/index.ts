@@ -176,7 +176,7 @@ function safeImportFile(dir: string, fileName: string): string {
  * for one — which is silent here, because the client renders an empty <select> and
  * simply auto-detects nothing (an empty array is truthy, so its `!ar_components`
  * error branch never fires). resolveVirtualEditScope is the canonical resolver the
- * rest of the engine already uses for exactly this (relations/request_config).
+ * rest of the engine already uses for exactly this (ontology/virtual_scope.ts).
  *
  * SECTION INFO (dd199/dd200/dd197/dd201 audit stamps, dd271, dd1223-5, dd1596).
  * Appended only when the section has components of its own and does not
@@ -192,9 +192,7 @@ async function sectionComponentTipos(
 	principal: Principal,
 ): Promise<{ tipo: string; model: string }[]> {
 	const { getOrderedSubtree } = await import('../../../src/core/ontology/resolver.ts');
-	const { resolveVirtualEditScope } = await import(
-		'../../../src/core/relations/request_config/implicit.ts'
-	);
+	const { resolveVirtualEditScope } = await import('../../../src/core/ontology/virtual_scope.ts');
 	const { realTipo, excludeSet } = await resolveVirtualEditScope(sectionTipo);
 	const nodes = await getOrderedSubtree(realTipo);
 	const own = nodes

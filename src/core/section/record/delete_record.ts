@@ -53,6 +53,7 @@ import { applyOwnFramePolicies } from '../../relations/dataframe.ts';
 import {
 	attributeSlotMains,
 	historyMainsOf,
+	isFrameEntry,
 	type MainIdentity,
 	type MainState,
 	mainIdentity,
@@ -872,6 +873,19 @@ async function wipeDeclaredSlotsOfMains(
 	return [...written.values()];
 }
 
+/**
+ * A dataframe slot's stored entries include a frame whose main the virtual
+ * section EXCLUDES (an explicit `main_component_tipo` in `excluded`) — the wipe
+ * keeps those frames (an excluded main is never torn from them).
+ */
+function holdsExcludedMainFrames(stored: unknown, excluded: ReadonlySet<string>): boolean {
+	if (excluded.size === 0 || !Array.isArray(stored)) return false;
+	return stored.some((entry) => {
+		const main = isFrameEntry(entry) ? entry.main_component_tipo : undefined;
+		return typeof main === 'string' && excluded.has(main);
+	});
+}
+
 /** The running state of wipeDeclaredSlotsOfMains: the in-memory relation bag and what it wrote. */
 interface SlotStrip {
 	bag: Record<string, unknown>;
@@ -975,7 +989,9 @@ async function recordWipeHistory(
 
 /**
  * delete_data mode (PHP section_record::delete_data): keep the row, EMPTY
- * every component child of the section that has stored data —
+ * every component of the section's WIPE SCOPE that has stored data (a virtual
+ * section's FIRST exclude_elements subtrees are left untouched, with an
+ * excluded main's frames wherever they are stored — wipeScopeComponents) —
  *   - per component: a Time Machine pair (backfill row with the OLD full
  *     value at NOW-60s when the tipo+lang has no TM history yet, then the
  *     save row with the new value), and the column KEY REMOVED
@@ -1020,15 +1036,17 @@ export async function deleteSectionData(
 		});
 	}
 	const { getModelByTipo, getColumnNameByModel } = await import('../../ontology/resolver.ts');
-	const { declaredSectionComponents } = await import('./declared_components.ts');
+	const { wipeScopeComponents } = await import('./declared_components.ts');
 	const { persistRelationRemovalKeys, persistModifiedStamp } = await import(
 		'../../section_record/index.ts'
 	);
 	const { dbTimestamp: stamp } = await import('./create_record.ts');
 
-	// The components the wipe may empty: THE ONE section census
-	// (declared_components.ts — own ∪ real subtree, crossing nested sections),
-	// shared with the covered-slot restore so a slot the wipe empties is one the
+	// The components the wipe may empty: THE WIPE SCOPE (declared_components.ts
+	// wipeScopeComponents — the one section census, own ∪ real subtree crossing
+	// nested sections, MINUS a virtual section's exclude_elements subtrees: PHP
+	// delete_data never empties what the section hides). Filtered from the census
+	// the covered-slot restore recomputes, so a slot the wipe empties is one the
 	// restore recomputes. A virtual section that declares a component of its own
 	// still stores its real section's.
 	/**
@@ -1051,7 +1069,7 @@ export async function deleteSectionData(
 			{ actor: userId, now },
 		);
 
-	const components = await declaredSectionComponents(sectionTipo);
+	const { components, excluded } = await wipeScopeComponents(sectionTipo);
 
 	const backfillStamp = backfillTimestamp(now);
 	const nowStamp = stamp(now);
@@ -1121,6 +1139,9 @@ export async function deleteSectionData(
 				) {
 					continue;
 				}
+				// A slot in scope that also holds an EXCLUDED main's frames is not emptied
+				// wholesale: wipeDeclaredSlotsOfMains strips only each wiped main's own.
+				if (model === 'component_dataframe' && holdsExcludedMainFrames(stored, excluded)) continue;
 
 				// component_filter takes the WIPER's default projects (PHP
 				// get_default_data_for_user, a fresh counter id) instead of emptying.

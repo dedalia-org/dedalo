@@ -23,7 +23,7 @@ import { logSectionSuppressesSectionInfo } from '../concepts/section.ts';
 import { sql } from '../db/postgres.ts';
 import { labelByTipo } from '../ontology/labels.ts';
 import { getModelByTipo, getSectionRealTipo, getTranslatableByTipo } from '../ontology/resolver.ts';
-import { resolveVirtualEditScope } from '../relations/request_config/implicit.ts';
+import { resolveVirtualEditScope } from '../ontology/virtual_scope.ts';
 import { getPermissions, getSectionPermissions, type Principal } from '../security/permissions.ts';
 import { currentDataLang } from './request_lang.ts';
 import { buildStructureContext, type StructureContextEntry } from './structure_context.ts';

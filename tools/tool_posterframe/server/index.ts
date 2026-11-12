@@ -23,8 +23,8 @@ import { resolveMediaToolContext } from '../../../src/core/media/tool_support.ts
 import { createIdentifyingImageCore } from '../../../src/core/media/tools/posterframe.ts';
 import { termByTipo } from '../../../src/core/ontology/labels.ts';
 import { getTranslatableByTipo } from '../../../src/core/ontology/resolver.ts';
+import { editScopeComponents } from '../../../src/core/ontology/virtual_scope.ts';
 import { getElementTargetSectionTipos } from '../../../src/core/relations/request_config/build.ts';
-import { editScopeComponents } from '../../../src/core/relations/request_config/implicit.ts';
 import { toolAddNewElementAccess } from '../../../src/core/relations/save.ts';
 import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
 import { findInverseReferences } from '../../../src/core/search/search_related.ts';

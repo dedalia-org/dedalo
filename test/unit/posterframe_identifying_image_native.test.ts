@@ -41,7 +41,7 @@ import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import { buildMediaLocation } from '../../src/core/media/path.ts';
 import { resolveMediaToolContext } from '../../src/core/media/tool_support.ts';
 import { termByTipo } from '../../src/core/ontology/labels.ts';
-import * as implicit from '../../src/core/relations/request_config/implicit.ts';
+import * as virtualScope from '../../src/core/ontology/virtual_scope.ts';
 import { type Principal, resolvePrincipal } from '../../src/core/security/permissions.ts';
 import {
 	dropSituation,
@@ -363,7 +363,7 @@ describe.if(DB_READY)('tool_posterframe identifying image — virtual edit scope
 	});
 
 	test('one scope walk per distinct hit section, not per hit', async () => {
-		const spy = spyOn(implicit, 'editScopeComponents');
+		const spy = spyOn(virtualScope, 'editScopeComponents');
 		try {
 			const run = await handler('get_ar_identifying_image');
 			const body = (await run(ctx({ section_tipo: 'zzpf20', section_id: AV_ID }))) as {

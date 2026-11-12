@@ -106,6 +106,7 @@ import { DedaloError } from '../../errors/dedalo_error.ts';
 import { createOntologyCache } from '../../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../../ontology/cache_invalidation.ts';
 import { DATA_NOLAN, ONTOLOGY_TLD } from '../../ontology/ontology_tipos.ts';
+import { editScopeComponents } from '../../ontology/virtual_scope.ts';
 
 /** DEDALO_RELATION_TYPE_FILTER — the projects-filter locator type. */
 export const RELATION_TYPE_FILTER = 'dd675';
@@ -260,8 +261,8 @@ registerOntologyCacheClearer(clearRecordDefaultsCache);
  * A virtual section (`rsc170` → `rsc2`, `es1` → `hierarchy20`) borrows the REAL
  * section's components MINUS the tipos named by its FIRST `exclude_elements`
  * child; its own children are exclude_elements / section_list / buttons and are
- * never part of a record. editScopeComponents (beside resolveVirtualEditScope,
- * the canonical resolver the edit form and the elements context use) is the one
+ * never part of a record. editScopeComponents (ontology/virtual_scope.ts, the
+ * one home of the exclude_elements law the edit form and the elements context use) is the one
  * walk of exactly that, so the seed and the form can never disagree about which
  * components a record has.
  *
@@ -278,10 +279,6 @@ registerOntologyCacheClearer(clearRecordDefaultsCache);
 async function sectionComponents(
 	sectionTipo: string,
 ): Promise<{ tipo: string; model: string; properties: Record<string, unknown> | null }[]> {
-	// SANCTIONED SEAM: request_config/implicit.ts is a heavy relations module and
-	// the create door is imported by it transitively — a static edge would fuse
-	// the two into one import component (the SCC defect class).
-	const { editScopeComponents } = await import('../../relations/request_config/implicit.ts');
 	return (await editScopeComponents(sectionTipo)).map((node) => ({
 		tipo: node.tipo,
 		model: node.model as string,
