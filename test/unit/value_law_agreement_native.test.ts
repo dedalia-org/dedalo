@@ -35,6 +35,7 @@ import {
 	INT4_MIN,
 	isConvertibleSectionIdString,
 	sectionIdAddressSqlPredicate,
+	sectionIdAddressSqlValue,
 } from '../../src/core/concepts/section_id.ts';
 import {
 	backfillSearchStoreTables,
@@ -593,6 +594,25 @@ describe('DATA-26 — the SQL record-address predicate agrees with the app rule'
 		// and the DATA-26 class itself is refused
 		expect(rows.find(({ v }) => v === '001338683')?.ok).toBe(false);
 		expect(rows.find(({ v }) => v === '1338683')?.ok).toBe(true);
+	});
+
+	test('the VALUE form (hop joins, T1-36) answers the address or NULL, and never raises', async () => {
+		// One statement over the whole corpus: a single unguarded cast of 'Q42'
+		// or a past-int4 value would abort it (22P02 / 22003).
+		const rows = (await sql.unsafe(
+			`SELECT v, ${sectionIdAddressSqlValue('v')} AS address
+			 FROM jsonb_array_elements_text($1::text::jsonb) AS t(v)`,
+			[JSON.stringify(CORPUS)],
+		)) as { v: string; address: number | null }[];
+		expect(rows.length).toBe(CORPUS.length);
+		for (const { v, address } of rows) {
+			expect(address, JSON.stringify(v)).toBe(jsIndexable(v) ? Number(v) : null);
+		}
+		// the DATA-26 class reaches no record; its unpadded twin reaches its own
+		expect(rows.find(({ v }) => v === '001338683')?.address).toBeNull();
+		expect(rows.find(({ v }) => v === '1338683')?.address).toBe(1338683);
+		expect(rows.filter(({ address }) => address !== null).length).toBeGreaterThanOrEqual(7);
+		expect(rows.filter(({ address }) => address === null).length).toBeGreaterThanOrEqual(10);
 	});
 
 	test('the LIVE trigger indexes the address and skips the zero-padded twin (rolled back)', async () => {

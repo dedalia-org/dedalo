@@ -33,6 +33,7 @@
  */
 
 import { isConsultationOnlySection } from '../concepts/section.ts';
+import { sectionIdAddressSqlValue } from '../concepts/section_id.ts';
 import { sql } from '../db/postgres.ts';
 import { createDataCache } from '../ontology/cache_factory.ts';
 import { resolveLangItems } from '../resolve/lang_fallback.ts';
@@ -199,6 +200,9 @@ export async function getProfileGrantedToolIds(userId: number): Promise<Set<numb
 	const cached = profileToolGrantsCache.get(userId);
 	if (cached !== undefined) return cached;
 	const allowedIds = new Set<number>();
+	// The user's dd1725 profile locator id goes through the address law: a
+	// non-address id reaches no profile (fail-closed) instead of a wrong one or
+	// a 22P02 (DATA-26, T1-36).
 	// KEPT UNION on grants[].section_id: the profile's dd1067 locators are raw
 	// stored jsonb — a pre-sweep install holds the string form; each is
 	// Number()-ed into the allowed-id set below.
@@ -206,7 +210,7 @@ export async function getProfileGrantedToolIds(userId: number): Promise<Set<numb
 		`SELECT p.relation->'${PROFILE_TOOLS_COMPONENT}' AS grants
 		 FROM matrix_profiles p
 		 WHERE p.section_tipo = '${PROFILE_SECTION_TIPO}' AND p.section_id = (
-			SELECT (u.relation->'dd1725'->0->>'section_id')::int
+			SELECT ${sectionIdAddressSqlValue("u.relation->'dd1725'->0->>'section_id'")}
 			FROM matrix_users u WHERE u.section_id = $1
 		 )`,
 		[userId],

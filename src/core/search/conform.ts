@@ -22,6 +22,7 @@
 
 import { readString } from '../../config/readers.ts';
 import { getSearchBuilderFamily } from '../components/registry.ts';
+import { sectionIdAddressSqlValue } from '../concepts/section_id.ts';
 import { isReferencedByLeaf, type SqoFilterLeaf, type SqoFilterNode } from '../concepts/sqo.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { createOntologyCache } from '../ontology/cache_factory.ts';
@@ -343,8 +344,14 @@ export async function buildJoinChain(
 		// single projected column in the collapsed 'order' one.
 		const locatorRef = purpose === 'order' ? `${relationAlias}.value` : relationAlias;
 		// ON-clause conjuncts: the locator identity, then the caller's record ACL.
+		// The id is read through the ONE address law (DATA-26, T1-36): a stored
+		// locator id that is not a record address (zero-padded external id,
+		// opaque 'Q42') reaches NO record — never the record of its numeric value,
+		// never a 22P02 aborting the whole search. Same answer as the relation
+		// index (the reverse shape) and identify's JS twin. The fossil here was
+		// PHP trait.where.php's `NULLIF((…->>'section_id'), '')::bigint`.
 		const onParts = [
-			`${joinAlias}.section_id = NULLIF((${locatorRef}->>'section_id'), '')::bigint`,
+			`${joinAlias}.section_id = ${sectionIdAddressSqlValue(`${locatorRef}->>'section_id'`)}`,
 			`${joinAlias}.section_tipo = (${locatorRef}->>'section_tipo')::text`,
 		];
 		let acl = '';

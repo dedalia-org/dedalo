@@ -39,8 +39,11 @@ const TWIN_SAME_TABLE = 'zzsd5';
 const TWIN_OTHER_TABLE = 'zzsd6';
 /** The id every source section holds — the cross-section identity case. */
 const SHARED_ID = 900950;
+/** zzsd6 records whose locator id is zero-padded / opaque (T1-36). */
+const PADDED_ID = 900952;
+const OPAQUE_ID = 900953;
 
-const target = (sectionId: number) => ({
+const target = (sectionId: number | string) => ({
 	section_tipo: TARGET,
 	section_id: sectionId,
 	type: 'dd151',
@@ -128,6 +131,18 @@ const S = situation({
 			section_tipo: TWIN_OTHER_TABLE,
 			section_id: SHARED_ID,
 			columns: { relation: { [PORTAL]: [target(900901), target(900902)] } },
+		},
+		// T1-36: stored locator ids that are NOT record addresses (external ids
+		// kept verbatim, WC-2026-08-10) — they reach no record.
+		{
+			section_tipo: TWIN_OTHER_TABLE,
+			section_id: PADDED_ID,
+			columns: { relation: { [PORTAL]: [{ ...target(0), section_id: '000900901' }] } },
+		},
+		{
+			section_tipo: TWIN_OTHER_TABLE,
+			section_id: OPAQUE_ID,
+			columns: { relation: { [PORTAL]: [{ ...target(0), section_id: 'Q42' }] } },
 		},
 	],
 });
@@ -225,5 +240,65 @@ describe('multi-section search over a deep path: one row per record identity', (
 		const sqo = sanitizeClientSqo({ section_tipo: [SOURCE, TWIN_SAME_TABLE] });
 		// SOURCE holds 900950 + 900951, the twin 900950: three identities.
 		expect(await fullCount(sqo)).toBe(3);
+	});
+});
+
+/** A single-leaf SQO over the deep path with the given q (no split). */
+function leafSqo(sectionTipos: string[], q: string) {
+	return sanitizeClientSqo(
+		structuredClone({
+			section_tipo: sectionTipos,
+			limit: 50,
+			offset: 0,
+			filter: {
+				$and: [
+					{
+						q,
+						path: [
+							{ section_tipo: SOURCE, component_tipo: PORTAL },
+							{ section_tipo: TARGET, component_tipo: TERM },
+						],
+					},
+				],
+			},
+		}),
+	);
+}
+
+// TODO-011 — negations over a UNION (two tables). A negation always takes the
+// FORWARD (correlated) shape, whose hop join reads the stored locator id: a
+// zero-padded id must not reach the record of its numeric value, an opaque one
+// must not fail the statement (T1-36, DATA-26).
+describe('multi-section UNION, negated deep leaves (TODO-011, T1-36)', () => {
+	const UNION = [SOURCE, TWIN_OTHER_TABLE];
+	const cases: [string, string[]][] = [
+		[
+			'-Needle',
+			[`${SOURCE}:900951`, `${TWIN_OTHER_TABLE}:${PADDED_ID}`, `${TWIN_OTHER_TABLE}:${OPAQUE_ID}`],
+		],
+		['!*', [`${TWIN_OTHER_TABLE}:${PADDED_ID}`, `${TWIN_OTHER_TABLE}:${OPAQUE_ID}`]],
+		['!=Needle one', [`${SOURCE}:900951`]],
+	];
+
+	test('anti-vacuity: the negation is a UNION of two tables, each branch correlated', async () => {
+		const { sql: builtSql } = await buildSearchSql(leafSqo(UNION, '-Needle'), { idsOnly: true });
+		expect([...builtSql.matchAll(/FROM (\w+) AS mix/g)].map((match) => match[1])).toEqual([
+			'matrix_test',
+			'matrix',
+		]);
+		expect(builtSql).toContain('NOT EXISTS (SELECT 1 FROM');
+	});
+
+	for (const [q, expected] of cases) {
+		test(`'${q}': each identity once, full_count = the identities`, async () => {
+			const rows = identities(await run(leafSqo(UNION, q)));
+			expect(rows.sort()).toEqual([...expected].sort());
+			expect(await fullCount(leafSqo(UNION, q))).toBe(expected.length);
+		});
+	}
+
+	test('positive stays the complement: no non-address locator reaches Needle', async () => {
+		const rows = identities(await run(leafSqo(UNION, 'Needle')));
+		expect(rows.sort()).toEqual([`${SOURCE}:${SHARED_ID}`, `${TWIN_OTHER_TABLE}:${SHARED_ID}`]);
 	});
 });

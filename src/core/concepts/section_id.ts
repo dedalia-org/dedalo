@@ -77,6 +77,22 @@ export function sectionIdAddressSqlPredicate(textExpression: string): string {
 	);
 }
 
+/**
+ * The record address a locator-id text names, or NULL — the VALUE form of the
+ * predicate above, for every SQL that must turn a stored locator id into a
+ * `section_id` (the search hop join, a user's profile locator…). The `::int`
+ * runs only on text the predicate admitted (inside the CASE, so it is total:
+ * a `pred AND col = cast` would NOT be — SQL `AND` has no evaluation order),
+ * and int4 matches the `integer` store columns. A non-address id (zero-padded
+ * external id, opaque 'Q42', '', past int4) reaches NO record — the same answer
+ * the relation index gives (it skips the same class) and identify's JS twin.
+ * Never a raw `(…->>'section_id')::int` elsewhere: value_law_agreement_tripwire
+ * censuses every cast (DATA-26, T1-36).
+ */
+export function sectionIdAddressSqlValue(textExpression: string): string {
+	return `(CASE WHEN ${sectionIdAddressSqlPredicate(textExpression)} THEN (${textExpression})::int END)`;
+}
+
 /** The int4 range the matrix `section_id` columns hold — the SQL side's bound. */
 export const INT4_MIN = -2147483648;
 export const INT4_MAX = 2147483647;

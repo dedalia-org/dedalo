@@ -36,6 +36,7 @@
  * (assertTestDatabase, the marker owner's API) before reading or writing.
  */
 
+import { sectionIdAddressSqlValue } from '../concepts/section_id.ts';
 import { sql } from '../db/postgres.ts';
 import { CANONICAL_SECTION_TIPO, CANONICAL_TABLE } from './manifest.ts';
 import { assertTestDatabase } from './test_database_marker.ts';
@@ -81,8 +82,7 @@ export async function sweepRecordsCreatedSince(
 		`DELETE FROM matrix_activity
 		 WHERE section_tipo = 'dd542'
 		   AND misc->'dd551'->0->'value'->>'section_tipo' = $1
-		   AND (misc->'dd551'->0->'value'->>'section_id') ~ '^[0-9]+$'
-		   AND (misc->'dd551'->0->'value'->>'section_id')::bigint > $2`,
+		   AND ${sectionIdAddressSqlValue("misc->'dd551'->0->'value'->>'section_id'")} > $2`,
 		[sectionTipo, mark],
 	);
 	return {

@@ -315,6 +315,18 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-lang-fallback-judges-emptiness`.
 
+- **Searching or sorting through a link to external records no longer fails or matches the wrong record.**
+
+    A portal can link records of an external service whose identifiers are kept exactly as the
+    service writes them — a zero-padded catalogue number such as `001338683`, or an identifier
+    with letters such as `Q42`. A search through such a field ("does not contain", "is empty", or
+    any search over the linked record's fields) and a sort by a linked field used to fail with an
+    error when an identifier contained letters, and to read an unrelated local record when it was
+    zero-padded. Now such a link reaches no local record: "does not contain" and "is empty" count
+    the record as having nothing linked there, and a sort places it with the empty values.
+
+    Wire contract: `WC-2026-11-12-search-hop-join-record-address`.
+
 - **Deleting a record's data no longer empties fields its section hides.**
 
     On sections built on another one (image, audiovisual or document resources, thesaurus instances…), "delete data" also emptied the fields the section does not show, and moved their files aside. Those fields now stay as they are; only the fields the section shows are emptied. Fields already emptied this way by an earlier delete can be restored one by one from the Time Machine, which kept their previous value.
@@ -1207,7 +1219,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 54 entries"
+??? note "Wire contract — 55 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1255,6 +1267,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-numisdata-widgets-locator-law`
     - `WC-2026-11-12-posterframe-identifying-image-scope`
     - `WC-2026-11-12-rdf-graph-interpretation`
+    - `WC-2026-11-12-search-hop-join-record-address`
     - `WC-2026-11-12-section-id-open-between`
     - `WC-2026-11-12-select-dataframe-subdatum`
     - `WC-2026-11-12-tool-configuration-override`
