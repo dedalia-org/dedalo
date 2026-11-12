@@ -2533,6 +2533,8 @@ describe.if(DB_READY)('map tile proxy — gates, door and memory, end to end', (
 		const origin = siteKey(new URL('https://slow.example.org/'));
 		const pending = ask(stored(12), { signal: controller.signal });
 		await until(() => interactiveState(origin).inFlight === 1, 'the hop is in flight');
+		// abort only once the peer HAS it: a late arrival would land in the next test's peer.received
+		await until(() => peer.received.length === 1, 'the hop reached the provider');
 		controller.abort();
 		const response = await pending;
 		await expectOneRefusal(response, 'external.transport', 503);

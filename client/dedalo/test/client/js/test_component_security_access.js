@@ -471,7 +471,9 @@ describe(`COMPONENT_SECURITY_ACCESS DATA OPERATIONS`, function() {
 			assert.equal(cs(save_buttons).gridRowStart, cs(tree).gridRowStart, 'save buttons expected in the tree row')
 
 			const root_px = parseFloat(cs(desktop.doc.documentElement).fontSize)
-			assert.isAtMost(changes.getBoundingClientRect().width, 20 * root_px + 1, 'changes column capped at 20rem')
+			// the box bleeds left by its negative margin (focus-ring room): measure the column, not the bleed
+			const changes_column = changes.getBoundingClientRect().width + parseFloat(cs(changes).marginLeft)
+			assert.isAtMost(changes_column, 20 * root_px + 1, 'changes column capped at 20rem')
 			const cd_right = content_data.getBoundingClientRect().right - parseFloat(cs(content_data).paddingRight)
 			assert.approximately(tree.getBoundingClientRect().right, cd_right, 1, 'tree expected to reach the right edge')
 		}finally{
