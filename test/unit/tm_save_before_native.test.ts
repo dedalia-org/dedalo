@@ -29,6 +29,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { TM_EXCLUDED_SECTIONS } from '../../src/core/concepts/section.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { recordEpoch } from '../../src/core/db/record_generation.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { historyStamp, recordMainHistory } from '../../src/core/relations/dataframe_slots.ts';
 import { deletePortalLocator } from '../../src/core/relations/save.ts';
@@ -346,6 +347,39 @@ describe('a change of an un-historied lane records the lane as it stood first', 
 			[SPA, ['S1']],
 		]);
 		expectBackfillOf(shown[0], shown[1]);
+	});
+
+	test("(D2) a lane holding only a DEAD GENERATION's visible rows has no history: backfilled", async () => {
+		// The epoch half of the probe (P0-14 × T1-21): a record reborn at a dead
+		// one's address inherits none of its history, so the dead rows must not
+		// answer "already historied" — else the first edit of the reborn record
+		// overwrites its value with no save-before (the probe's epoch fence is
+		// what time_machine.ts's exemption in tm_epoch_tripwire would hide).
+		const dead = await rec();
+		await setText(dead, TEXT, SPA, [text(1, SPA, 'DEAD')]);
+		expect(visible(await rowsOf(dead, TEXT)).length).toBeGreaterThan(0);
+		// Force the pre-P0-14 damaged state: the id is free again and the counter lags.
+		await sql.unsafe(`DELETE FROM "${TABLE}" WHERE section_tipo = $1 AND section_id = $2`, [
+			SECTION,
+			dead,
+		]);
+		await sql.unsafe('UPDATE matrix_counter SET value = $2 WHERE tipo = $1', [SECTION, dead - 1]);
+		const reborn = await rec();
+		expect(reborn).toBe(dead); // the same address — that is the situation
+		const epoch = await recordEpoch(SECTION, reborn);
+		expect(epoch).toBeGreaterThan(0); // the birth opened a generation fence
+		// The reborn record holds S0 with no history of its own (an import).
+		await setText(reborn, TEXT, SPA, [text(1, SPA, 'S0')], { saveTm: false });
+		await setText(reborn, TEXT, SPA, [text(1, SPA, 'S1')]);
+		const own = visible(await rowsOf(reborn, TEXT)).filter((row) => row.id >= epoch);
+		expect(own.map((row) => [row.lang, values(row)])).toEqual([
+			[SPA, ['S0']],
+			[SPA, ['S1']],
+		]);
+		expectBackfillOf(own[0], own[1]);
+		// CONTROL: the dead generation's row is still there, only fenced.
+		const deadRows = visible(await rowsOf(reborn, TEXT)).filter((row) => row.id < epoch);
+		expect(deadRows.map((row) => values(row))).toEqual([['DEAD']]);
 	});
 
 	test('(F) under a bulk run: the backfill is VISIBLE, no bulk id; the run keeps its own rows and reverts to S0', async () => {

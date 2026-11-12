@@ -30,7 +30,11 @@ import {
 } from '../../src/core/db/matrix_write.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { recordEpoch } from '../../src/core/db/record_generation.ts';
-import { readTimeMachineHistory, recordTimeMachine } from '../../src/core/db/time_machine.ts';
+import {
+	hasVisibleLaneHistory,
+	readTimeMachineHistory,
+	recordTimeMachine,
+} from '../../src/core/db/time_machine.ts';
 import { isDedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { countTimeMachineData, readTimeMachineData } from '../../src/core/resolve/read_tm.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
@@ -189,6 +193,37 @@ describe('record generation (P0-14, second half)', () => {
 		expect(served.map((row) => (row.data as { value?: unknown } | null)?.value)).toEqual([
 			'mine-1',
 		]);
+	});
+
+	test('the backfill write-gate probe sees only the living generation', async () => {
+		// hasVisibleLaneHistory is THE probe every backfill door asks (the history
+		// writer's save-before, the delete and observer backfills; T1-21). A dead
+		// generation's rows answering it would SUPPRESS the reborn record's own
+		// backfill. time_machine.ts is exempt from tm_epoch_tripwire's per-statement
+		// census, so this OUTCOME is the probe's epoch gate.
+		const coords = { sectionTipo: TIPO, sectionId: 0, componentTipo: COMPONENT };
+		const dead = await mint();
+		await writeHistory(dead, 'dead-1');
+		// CONTROL: the probe does see a living record's own history.
+		expect(await hasVisibleLaneHistory({ ...coords, sectionId: dead }, 'lg-nolan', false)).toBe(
+			true,
+		);
+		expect(await hasVisibleLaneHistory({ ...coords, sectionId: dead }, 'lg-nolan', true)).toBe(
+			true,
+		);
+		const reborn = await forceRemintOf(dead);
+		expect(reborn).toBe(dead);
+		// Both lane shapes (one lang / any tag) answer NO for the reborn record.
+		expect(await hasVisibleLaneHistory({ ...coords, sectionId: reborn }, 'lg-nolan', false)).toBe(
+			false,
+		);
+		expect(await hasVisibleLaneHistory({ ...coords, sectionId: reborn }, 'lg-nolan', true)).toBe(
+			false,
+		);
+		await writeHistory(reborn, 'mine-1');
+		expect(await hasVisibleLaneHistory({ ...coords, sectionId: reborn }, 'lg-nolan', false)).toBe(
+			true,
+		);
 	});
 
 	test('a RESTORE from a dead generation is refused, not performed', async () => {
