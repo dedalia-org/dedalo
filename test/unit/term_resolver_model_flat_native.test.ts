@@ -19,6 +19,10 @@
  * every implicit child it reads there is asked of it — refusal skips, a throw
  * propagates. (End-to-end twin: export_frontier_fanout_native, parents chain.)
  *
+ * JSON PARTS (T1-39 review): a component_json / component_geolocation term part
+ * renders each item's JSON (geolocation: the list-served entry), and such a
+ * term is record-local — served from the cache.
+ *
  * Situation: `zztrm` scratch TLD on matrix_test, built by ensureSituation and
  * dropped after (residue asserted 0). Identity: exportFrontierIdentity at its
  * own explicit ids (935100+), swept strictly.
@@ -96,6 +100,25 @@ const C2_REL = 'zztrm92';
 // branch: the label is H1's TERM via datalist resolveLocatorLabels, which crosses on to T)
 const H7 = 'zztrm100';
 const H7_SEL = 'zztrm101';
+// H8 — term = [input, component_json, component_geolocation] (T1-39 review: the
+// 'json' flat family — each item's JSON, record-local so the term is cacheable)
+const H8 = 'zztrm110';
+const H8_NAME = 'zztrm111';
+const H8_JSON = 'zztrm112';
+const H8_GEO = 'zztrm113';
+const H8_JSON_ITEMS = [{ id: 1, lang: 'lg-nolan', value: { k: 'v' } }];
+const H8_GEO_ITEMS = [
+	{
+		// keys in jsonb's stored order (shorter first): the term reads it back so
+		id: 1,
+		lat: 41.38,
+		lon: 2.17,
+		lang: 'lg-nolan',
+		zoom: 12,
+		lib_data: [],
+		sources: [{ type: 'xyz', url: 'https://tiles.example.org/{z}/{x}/{y}.png' }],
+	},
+];
 
 const term = (value: string) => ({ [LANG]: value });
 const section = (tipo: string) => ({
@@ -213,6 +236,15 @@ function records() {
 			},
 		},
 		{ section_tipo: H7, section_id: 1, columns: { relation: { [H7_SEL]: link(H7_SEL, H1, [1]) } } },
+		{
+			section_tipo: H8,
+			section_id: 1,
+			columns: {
+				string: { [H8_NAME]: text('Named') },
+				misc: { [H8_JSON]: H8_JSON_ITEMS },
+				geo: { [H8_GEO]: H8_GEO_ITEMS },
+			},
+		},
 	];
 }
 
@@ -284,6 +316,12 @@ const S = situation({
 			},
 		}),
 		sectionMap('zztrm109', H7, [H7_SEL]),
+
+		section(H8),
+		input(H8_NAME, H8),
+		{ tipo: H8_JSON, parent: H8, model: 'component_json', term: term('zz trm json') },
+		{ tipo: H8_GEO, parent: H8, model: 'component_geolocation', term: term('zz trm geo') },
+		sectionMap('zztrm119', H8, [H8_NAME, H8_JSON, H8_GEO]),
 	],
 	records: records(),
 });
@@ -393,6 +431,62 @@ describe.if(DB_READY)('T1-32 — term parts drawn from non-literal components', 
 
 	test('component_section_id part → the record id (ontology-node shape)', async () => {
 		expect(await termOf(H5, 7)).toBe('Name, 7');
+	});
+
+	describe("JSON PARTS: the 'json' flat family in a term (T1-39 review)", () => {
+		// the item's JSON (PHP get_value → to_flat_string = json_encode($item));
+		// a geolocation entry as a LIST ROW serves it — no `sources` / `legend`
+		const { sources: _sources, ...geoServed } = H8_GEO_ITEMS[0] as Record<string, unknown>;
+		const EXPECTED = `Named, ${JSON.stringify(H8_JSON_ITEMS[0])}, ${JSON.stringify(geoServed)}`;
+
+		test('a json / geolocation term part renders the item JSON, never blank', async () => {
+			clearTermCache();
+			expect(await termOf(H8, 1)).toBe(EXPECTED);
+		});
+
+		test('getDdoValueByLocator (ddo_map label) renders the same JSON parts', async () => {
+			const value = await runWithRequestLangs({ applicationLang: LANG, dataLang: LANG }, () =>
+				getDdoValueByLocator({ section_tipo: H8, section_id: 1 }, [H8_JSON, H8_GEO], ', ', LANG),
+			);
+			expect(value).toBe(`${JSON.stringify(H8_JSON_ITEMS[0])}, ${JSON.stringify(geoServed)}`);
+		});
+
+		test('RECORD-LOCAL: a json term is served from the cache (never recomputed per call)', async () => {
+			clearTermCache();
+			expect(await termOf(H8, 1, true)).toBe(EXPECTED);
+			// a write the cache's per-section eviction does NOT see (raw SQL on the
+			// scratch record): a cached term keeps answering the stored value; a
+			// term wrongly judged record-crossing would recompute and see it
+			const { sql } = await import('../../src/core/db/postgres.ts');
+			await assertTestDatabase('term_resolver_model_flat_native');
+			const changed = [{ id: 1, lang: 'lg-nolan', value: { k: 'changed' } }];
+			await sql.unsafe(
+				`UPDATE matrix_test SET misc = jsonb_set(misc, '{${H8_JSON}}', $1::text::jsonb)
+				 WHERE section_tipo = $2 AND section_id = 1`,
+				[JSON.stringify(changed), H8],
+			);
+			try {
+				// non-vacuity: an uncached read DOES see the raw change
+				expect(await termOf(H8, 1)).toContain('"changed"');
+				clearTermCache();
+				expect(await termOf(H8, 1, true)).toContain('"changed"');
+				await sql.unsafe(
+					`UPDATE matrix_test SET misc = jsonb_set(misc, '{${H8_JSON}}', $1::text::jsonb)
+					 WHERE section_tipo = $2 AND section_id = 1`,
+					[JSON.stringify(H8_JSON_ITEMS), H8],
+				);
+				// the cached read still answers the stored-at-cache-time value
+				expect(await termOf(H8, 1, true)).toContain('"changed"');
+				expect(await termOf(H8, 1)).toBe(EXPECTED);
+			} finally {
+				await sql.unsafe(
+					`UPDATE matrix_test SET misc = jsonb_set(misc, '{${H8_JSON}}', $1::text::jsonb)
+					 WHERE section_tipo = $2 AND section_id = 1`,
+					[JSON.stringify(H8_JSON_ITEMS), H8],
+				);
+				clearTermCache();
+			}
+		});
 	});
 
 	test('getDdoValueByLocator (the M badge reader) resolves a relation tipo too', async () => {

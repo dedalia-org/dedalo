@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import { cleanupInertJson } from '../../src/core/resolve/relation_list.ts';
 import { cleanTextValue } from '../../src/diffusion/export/clean_text.ts';
 
 describe('cleanTextValue — PHP export_tabulator_Test::test_clean_text_value', () => {
@@ -59,5 +60,36 @@ describe('cleanTextValue — the edges of the port', () => {
 	test('short-circuit: nothing to clean ⇒ the same string', () => {
 		expect(cleanTextValue('')).toBe('');
 		expect(cleanTextValue('a > b')).toBe('a > b');
+	});
+});
+
+describe('cleanupInertJson — a json export cell the cleanup cannot rewrite (T1-39 review)', () => {
+	// every rule of the cleanup, inside JSON strings (and a backslash before a
+	// `/`, which must stay one escaped backslash + one escaped slash)
+	const ITEMS: unknown[] = [
+		{ html: '<p>a</p><p>b</p>' },
+		{ q: 'say &quot;hi&quot; &amp; &lt;x&gt; &amp;lt;' },
+		{ tail: 'x</p>', lead: '<p>y' },
+		'<p>only</p>',
+		{ path: 'C:\\dir\\/x', url: 'https://example.org/a/b' },
+		[{ type: 'Feature', properties: { popup: '<p>x</p><p>y &quot;z&quot;</p>' } }],
+	];
+	test('the plain encoding IS rewritten by the cleanup (the defect, non-vacuity)', () => {
+		const plain = JSON.stringify(ITEMS[0]);
+		expect(cleanTextValue(plain)).not.toBe(plain);
+		expect(() => JSON.parse(cleanTextValue(JSON.stringify(ITEMS[1])))).toThrow();
+	});
+	for (const item of ITEMS) {
+		test(`inert + lossless: ${JSON.stringify(item).slice(0, 40)}`, () => {
+			const cell = cleanupInertJson(item);
+			expect(cell).not.toContain('</');
+			expect(cell).not.toContain('&');
+			expect(cleanTextValue(cell)).toBe(cell);
+			expect(JSON.parse(cell)).toEqual(item);
+		});
+	}
+	test('joined beside cleaned text atoms (the tabulator cleans the JOIN)', () => {
+		const cell = `<p>t &amp; u</p>, ${cleanupInertJson(ITEMS[0])}`;
+		expect(cleanTextValue(cell)).toBe(`t & u</p>, ${cleanupInertJson(ITEMS[0])}`);
 	});
 });

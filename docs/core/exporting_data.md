@@ -596,7 +596,9 @@ the walk rather than an override method.
   `component_relation_index`), which owns no stored value: its cell wraps the
   computed value, and the import skips derived models.
 - `component_json` and `component_geolocation` are the `json` flatValue family:
-  one atom per stored item, its JSON (`JSON.stringify`). A geolocation entry is
+  one atom per stored item, its JSON — `JSON.stringify` with every `/` written
+  `\/` and every `&` written `\u0026`, so the text cleanup below never rewrites
+  it and the cell always parses back to the stored item. A geolocation entry is
   encoded as a list row serves it — the view and `lib_data`, without the map
   `sources` / `legend`, which only `dedalo_raw` carries
   (`WC-2026-11-12-export-json-geolocation-cells`).

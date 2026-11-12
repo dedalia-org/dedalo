@@ -65,7 +65,15 @@ const LANG = 'lg-eng';
 const USER_ID = -1;
 const ROOT: Principal = { userId: USER_ID, isGlobalAdmin: true, isDeveloper: true };
 
-const JSON_VALUE = { a: 'b', n: [1, 2] };
+// the stored strings hold what the text cleanup rewrites (`</p><p>`, entities, a
+// `/`): a JSON cell must survive it byte-for-byte as JSON (T1-39 review)
+const JSON_VALUE = {
+	a: 'b',
+	n: [1, 2],
+	html: '<p>a</p><p>b &amp; c</p>',
+	quote: 'say &quot;hi&quot;',
+	url: 'https://example.org/x',
+};
 const PNG_URI =
 	'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const GEO_ENTRY = {
@@ -73,7 +81,18 @@ const GEO_ENTRY = {
 	lon: 2.17,
 	zoom: 12,
 	alt: 16,
-	lib_data: [{ type: 'FeatureCollection', features: [] }],
+	lib_data: [
+		{
+			type: 'FeatureCollection',
+			features: [
+				{
+					type: 'Feature',
+					geometry: { type: 'Point', coordinates: [2.17, 41.38] },
+					properties: { popup: '<p>x</p><p>y &quot;z&quot;</p>' },
+				},
+			],
+		},
+	],
 	sources: [
 		{
 			type: 'xyz',
@@ -185,6 +204,17 @@ function unresolvedOf(grid: Grid): unknown {
 	return grid.meta?.unresolved ?? [];
 }
 
+/**
+ * An exported json/geolocation cell (T1-39 review): the item's JSON with `/` →
+ * `\/` (PHP json_encode's default) and `&` → `\u0026`, so the tabulator's
+ * text cleanup (`</p><p>` → newline, entity decode) finds nothing to rewrite —
+ * and it PARSES back to the stored item exactly.
+ */
+function expectJsonCell(cell: unknown, item: unknown): void {
+	expect(cell).toBe(JSON.stringify(item).replaceAll('/', '\\/').replaceAll('&', '\\u0026'));
+	expect(JSON.parse(String(cell))).toEqual(item);
+}
+
 describe.if(DB_READY)('tool_export coverage residue (T1-39)', () => {
 	test('situation: the stored items are what the cases assume (non-vacuity)', async () => {
 		const json = await storedItems('misc', JSON_TIPO);
@@ -201,8 +231,8 @@ describe.if(DB_READY)('tool_export coverage residue (T1-39)', () => {
 		const geo = (await storedItems('geo', GEO)) as Record<string, unknown>[];
 		const { sources: _s, legend: _l, ...geoServed } = geo[0] as Record<string, unknown>;
 		const grid = await gridOf('value');
-		expect(cellOf(grid, JSON_TIPO)).toBe(JSON.stringify(json[0]));
-		expect(cellOf(grid, GEO)).toBe(JSON.stringify(geoServed));
+		expectJsonCell(cellOf(grid, JSON_TIPO), json[0]);
+		expectJsonCell(cellOf(grid, GEO), geoServed);
 		expect(cellOf(grid, TEXT_AREA)).toBe(TEXT_CLEAN);
 		expect(cellOf(grid, INPUT)).toBe('x');
 		expect(JSON.stringify(unresolvedOf(grid))).not.toContain('component_json');
@@ -214,8 +244,8 @@ describe.if(DB_READY)('tool_export coverage residue (T1-39)', () => {
 		const geo = (await storedItems('geo', GEO)) as Record<string, unknown>[];
 		const { sources: _s, legend: _l, ...geoServed } = geo[0] as Record<string, unknown>;
 		const grid = await gridOf('grid_value');
-		expect(cellOf(grid, JSON_TIPO)).toBe(JSON.stringify(json[0]));
-		expect(cellOf(grid, GEO)).toBe(JSON.stringify(geoServed));
+		expectJsonCell(cellOf(grid, JSON_TIPO), json[0]);
+		expectJsonCell(cellOf(grid, GEO), geoServed);
 		expect(cellOf(grid, TEXT_AREA)).toBe(TEXT_CLEAN);
 		expect(cellOf(grid, INPUT)).toBe('x');
 		expect(JSON.stringify(unresolvedOf(grid))).not.toContain('component_json');
@@ -276,6 +306,12 @@ describe.if(DB_READY)('tool_export coverage residue (T1-39)', () => {
 		expect(textCol).toBeDefined();
 		const previewRow = preview.rows.find((row) => String(row.rec) === String(recordId));
 		expect(previewRow?.c?.[String(textCol?.i)]).toBe(TEXT_CLEAN);
+		// the json cell crosses the same cleanup and still parses to the stored item
+		const jsonCol = preview.cols.find((col) => col.key === `${SECTION}_${JSON_TIPO}`);
+		expect(jsonCol).toBeDefined();
+		expect(JSON.parse(String(previewRow?.c?.[String(jsonCol?.i)]))).toEqual(
+			(await storedItems('misc', JSON_TIPO))[0],
+		);
 
 		const file = await runBuildExportFile({
 			store,
@@ -289,6 +325,10 @@ describe.if(DB_READY)('tool_export coverage residue (T1-39)', () => {
 		// the CSV quotes a field holding a newline: the cleaned text, verbatim
 		expect(csv).toContain(`"${TEXT_CLEAN}"`);
 		expect(csv).not.toContain('&amp;');
-		expect(csv).not.toContain('<p>');
+		expect(csv).not.toContain('&quot;');
+		// the stored markup never reaches the file (the json cell's own `<p>` does,
+		// inside its JSON string — asserted by parse above)
+		expect(csv).not.toContain(TEXT_STORED);
+		expect(csv).not.toContain('<p>a &');
 	});
 });

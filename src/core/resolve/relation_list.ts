@@ -215,6 +215,19 @@ export interface CellValueResolveOptions {
 	 */
 	keepEmptyItems?: boolean;
 	/**
+	 * The EXPORT TABULATOR's json-cell bytes (T1-39 review). The tabulator
+	 * cleans every value / grid_value cell AFTER the join
+	 * (diffusion/export/clean_text.ts: `</p><p>` → a newline, the legacy entity
+	 * map decoded) — run over a JSON item holding markup or an entity, that
+	 * cleanup wrote a raw newline / an unescaped `"` INTO a JSON string and the
+	 * cell no longer parsed. Set (only by the export run, atoms.ts
+	 * createExportRun, threaded down every nested read), the json family
+	 * encodes each item with {@link cleanupInertJson}: the same JSON data, in
+	 * bytes the cleanup provably cannot rewrite. Absent (every interactive
+	 * reader — none of them cleans) = plain `JSON.stringify`.
+	 */
+	jsonCleanupInert?: boolean;
+	/**
 	 * INTERNAL — the cycle guard's PATH (see {@link withCycleGuard}): the
 	 * (record × component) expansions open above this call. Minted by the first
 	 * guarded expansion and threaded down through the same options object;
@@ -1138,12 +1151,28 @@ async function jsonCellItems(
 	opts: CellValueResolveOptions | undefined,
 ): Promise<string[] | null> {
 	const items = shownItems(await resolveComponentValue(record, componentTipo, model, lang)) ?? [];
+	const encode = opts?.jsonCleanupInert === true ? cleanupInertJson : JSON.stringify;
 	const parts = items.map((item) =>
 		item === null || item === undefined
 			? ''
-			: JSON.stringify(model === 'component_geolocation' ? servedGeoEntry(item, 'list') : item),
+			: encode(model === 'component_geolocation' ? servedGeoEntry(item, 'list') : item),
 	);
 	return keptItems(parts, opts);
+}
+
+/**
+ * JSON that the export text cleanup (diffusion/export/clean_text.ts
+ * cleanTextValue) cannot rewrite (T1-39 review): `JSON.stringify`, then every
+ * `/` written `\/` (PHP json_encode's own default) and every `&` written
+ * `\u0026`. Both characters occur in JSON text only inside a string, where
+ * both escapes are valid — so the value parses to the SAME data — and with no
+ * `</` (every `/` now follows a `\`) and no `&` left the cleanup's every rule
+ * is a no-op on it: no `</p><p>` / trailing `</p>`, no entity, no leading
+ * `<p>` (JSON never starts with `<`). Its bytes therefore survive the
+ * join + cleanup verbatim, beside text atoms that ARE cleaned.
+ */
+export function cleanupInertJson(value: unknown): string {
+	return JSON.stringify(value).replaceAll('/', '\\/').replaceAll('&', '\\u0026');
 }
 
 /** {@link resolveCellItems}' info branch: every declared output's live values. */

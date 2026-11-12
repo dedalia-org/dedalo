@@ -255,6 +255,10 @@ export function createExportRun(
 		cellOpts: {
 			loadRecord: (tableName, sectionTipo, sectionId) =>
 				loadExportRecordFromTable(atoms, tableName, sectionTipo, sectionId),
+			// every cell of this run is CLEANED by the tabulator (clean_text.ts):
+			// json items are encoded in bytes the cleanup cannot rewrite, at any
+			// depth (T1-39 review; WC-2026-11-12-export-json-geolocation-cells)
+			jsonCleanupInert: true,
 			// THE FRONTIER OF EVERY NESTED CELL READ (T0-1). Inert until the door
 			// sets `atoms.frontier` (grid.ts, non-admins): both functions read the
 			// run's scope at CALL time, and with none they cross everything —
