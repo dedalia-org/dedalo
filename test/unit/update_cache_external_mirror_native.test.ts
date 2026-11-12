@@ -29,8 +29,11 @@
  *      `external_withheld` + an error line naming `law_refused`, never counted
  *      `regenerated`;
  *   E6 a second sweep over a fresh mirror writes nothing (no-drift);
- *   E7 a row held FOR UPDATE past the per-record bound is that record's
- *      `locked` — nothing written, the mirror stays stale;
+ *   E7 the refresh waits the PER-RECORD bound (perRecordLockWaitMs), not the
+ *      read door's EXTERNAL_REFRESH_LOCK_TIMEOUT: a row held for a time
+ *      BETWEEN the two is waited out and refreshed (never `locked`); a row
+ *      held past the per-record bound is that record's `locked` — nothing
+ *      written, the mirror stays stale;
  *   E8 a record whose section does not HOST the observer: withheld
  *      `target_not_host`, no slot born;
  *   E9 a record deleted while the sweep waited on its lock: `vanished`,
@@ -50,6 +53,7 @@ import { sql, withTransaction } from '../../src/core/db/postgres.ts';
 import { perRecordLockWaitMs } from '../../src/core/media/tools/files_info_persist.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
+import { EXTERNAL_REFRESH_LOCK_TIMEOUT } from '../../src/core/section/record/external_refresh.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import {
@@ -439,7 +443,33 @@ describe('update_cache recomputes an external mirror by its law', () => {
 		]);
 	}, 120_000);
 
-	test('E7 a row held past the per-record bound is `locked`, nothing written', async () => {
+	test('E7 a row held BETWEEN the read-door and per-record bounds is waited out and refreshed', async () => {
+		// The WC promises update_cache's refresh waits perRecordLockWaitMs(), not
+		// the read door's shorter EXTERNAL_REFRESH_LOCK_TIMEOUT. Holding the row
+		// for the midpoint tells the two apart: the read-door bound gives up
+		// (`locked`, stale), the per-record bound waits it out (refreshed).
+		const readDoorMs = Number(/^(\d+)s$/.exec(EXTERNAL_REFRESH_LOCK_TIMEOUT)?.[1]) * 1_000;
+		const perRecordMs = perRecordLockWaitMs();
+		expect(
+			perRecordMs - readDoorMs,
+			'FLOOR: the two bounds must be >= 1s apart, or this gate cannot tell them apart',
+		).toBeGreaterThanOrEqual(1_000);
+		await setSourceRaw(1);
+		const term = await bornTerm();
+		const want = await setSourceRaw(4);
+		const before = (await tmRows(TERM_SECTION, term, MIRROR)).length;
+		const result = await sweepAgainstHolder(term, () =>
+			Bun.sleep(Math.round((readDoorMs + perRecordMs) / 2)),
+		);
+		expect(result.errors).toEqual([]);
+		expect(result.locked).toBe(0);
+		expect(result.regenerated).toBe(1);
+		expect(result.external_refreshed).toBe(1);
+		expect(ids(await relationKey(TERM_SECTION, term, MIRROR))).toEqual(want);
+		expect((await tmRows(TERM_SECTION, term, MIRROR)).length).toBe(before + 1);
+	}, 120_000);
+
+	test('E7b a row held past the per-record bound is `locked`, nothing written', async () => {
 		await setSourceRaw(1);
 		const term = await bornTerm();
 		await setSourceRaw(4);
@@ -448,6 +478,11 @@ describe('update_cache recomputes an external mirror by its law', () => {
 		const result = await sweepAgainstHolder(term, () => Bun.sleep(perRecordLockWaitMs() + 2_000));
 		expect(result.locked).toBe(1);
 		expect(result.regenerated).toBe(0);
+		expect(result.external_refreshed).toBe(0);
+		expect(result.external_withheld).toBe(0);
+		expect(result.errors).toEqual([
+			`${MIRROR}#${term}: the record stayed locked past the lock timeout — nothing written`,
+		]);
 		expect(await relationKey(TERM_SECTION, term, MIRROR)).toEqual(stale);
 		expect((await tmRows(TERM_SECTION, term, MIRROR)).length).toBe(before);
 	}, 120_000);

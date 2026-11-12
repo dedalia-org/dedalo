@@ -48,8 +48,9 @@
 - **Gate reconciliation:** `update_cache_external_mirror_native` (E1 source_overwrite
   stale ⇒ recomputed, one TM row; E6 converged ⇒ zero writes; E2 absent slot computed; E3
   law (c) referencer appended; E4 alias ⇒ target slot, no alias key; E4b broken alias
-  refuses before any write; E5 refused law withheld, slot untouched; E7 lock bound ⇒
-  `locked`; E8 non-host ⇒ `target_not_host`; E9 deleted while waiting ⇒ `vanished`, not
+  refuses before any write; E5 refused law withheld, slot untouched; E7 a row held
+  BETWEEN the read-door bound and `perRecordLockWaitMs()` is waited out and refreshed (pins
+  the per-record bound); E7b held past it ⇒ `locked`, the exact error line; E8 non-host ⇒ `target_not_host`; E9 deleted while waiting ⇒ `vanished`, not
   recreated; E10 no run bulk id on the refresh rows). `write_obligations_tripwire` B4:
   `runExternalRefresh` callers = `maybeRefreshExternal` + `refreshExternalForRow`.
   `tool_lossless_writeback_tripwire`: cell `refreshExternalForRow × runExternalRefresh`
