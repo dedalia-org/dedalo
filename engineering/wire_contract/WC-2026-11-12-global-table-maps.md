@@ -58,7 +58,11 @@
   neither a source-table column nor `section_id`/`lang`, is NOT written (whole map — the
   pre-port behaviour) and reported as `global_table_maps_unruled:<table tipo>><global tipo>:
   <columns>`. Real cases in the vendored ontology: `filter_date` on mdcat260 / mdcat1133 /
-  mdcat1332 → mdcat4500; sources `coins`, `types` on numisdata701.
+  mdcat1332 → mdcat4500; sources `coins`, `types` on numisdata701. Its table still belongs to
+  the WITHDRAW set (`DiffusionSqlTarget.global_tables`: delete door, retry queue, reconcile
+  ghosts + apply, lang sweep) — v6 wrote such maps, so a migrated install holds their rows — but
+  the reconcile reports MISSING for a global table only where the compiled plan writes it
+  (`globalWrittenProbe`), so an unruled map is never drift a republish cannot clear (T1-3 review).
 - **Legacy tables:** a pre-existing global table whose `section_id` is INT cannot hold the
   composite key → MariaDB error, loud run failure; the operator drops / recreates it.
 
@@ -77,5 +81,9 @@ meanwhile.
   stale-lang rows removed, refresh, idempotence); the delete door (confirmed / pending when only
   the global row fails); the reconcile ghost + apply. Mutation-verified RED: no global DELETE in
   `removeRecords`, key without the section prefix, target confirmed on its source row alone,
-  reconcile without the global branch.
+  reconcile without the global branch. T1-3 review: an unruled map (zzdif102 → zzdif120,
+  undeclared target) — the target still names its table, a full publish leaves no MISSING there
+  while a removed ruled row is MISSING, an earlier engine's row is a ghost the apply withdraws;
+  `listDeclaredPublicationTables` declares a global node outside the domain subtree (hermetic
+  tree; RED with the maps loop removed).
 - Fixtures: no frozen parity fixture covers a global table — no fixture edit, no re-harvest.

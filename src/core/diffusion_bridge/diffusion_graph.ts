@@ -366,6 +366,16 @@ async function elementProperties(
  * fallback). Lockstep with the plan compiler (plan/global_tables.ts): a target
  * that is not a `table` node, or whose name the chokepoint rejects, was never
  * published and is skipped here.
+ *
+ * DELIBERATELY A SUPERSET of what the compiler writes in one respect: a map
+ * naming an unknown column (the UNRULED T1-3 D1 case, not written while D1 is
+ * open) still names its table here. This is the WITHDRAW set — v6 wrote such
+ * maps (skipping the unknown column), so a migrated install holds their rows,
+ * and a record delete / reconcile apply must still withdraw them. A DELETE on
+ * a row publish never wrote is a no-op. The reconcile's MISSING side does not
+ * read this set for globals: it asks the compiled plan
+ * (public_tier_reconcile.ts globalWrittenProbe), so the superset never shows
+ * as drift no republish clears.
  */
 async function globalTablesOfNode(
 	graph: DiffusionGraph,

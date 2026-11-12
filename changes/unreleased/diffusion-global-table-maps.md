@@ -19,4 +19,5 @@ also reports and removes their stale rows.
 **After updating:** republish the elements that declare global tables, then run the
 `public_tier` reconcile with apply to withdraw the rows of records deleted in the meantime.
 A map that names a column existing in neither table is not written yet; `validate` lists it
-as a `global_table_maps_unruled:` warning.
+as a `global_table_maps_unruled:` warning; the reconcile does not count its records as missing,
+but still removes rows an earlier version left in that table.

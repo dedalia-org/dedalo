@@ -68,7 +68,7 @@ import {
 import { DedaloError } from '../../../core/errors/index.ts';
 import { globalTableMapsOfNode, globalTableNamesOf } from '../../plan/global_tables.ts';
 import { escapeSqlIdentifier, requireSqlIdentifier } from '../../plan/identifier.ts';
-import { buildVirtualDiffusionTree } from '../../plan/virtual_tree.ts';
+import { buildVirtualDiffusionTree, type VirtualDiffusionTree } from '../../plan/virtual_tree.ts';
 import {
 	getTargetPool,
 	isMissingDatabaseError,
@@ -286,8 +286,11 @@ export async function listMariadbTargetDatabases(): Promise<{
  * install declares no published table, and therefore that nothing here may be
  * deleted.
  */
-export async function listDeclaredPublicationTables(): Promise<Set<string>> {
-	const tree = await buildVirtualDiffusionTree();
+export async function listDeclaredPublicationTables(
+	/** The domain tree to read (default: the configured domain's — injected by the gate). */
+	injectedTree?: VirtualDiffusionTree,
+): Promise<Set<string>> {
+	const tree = injectedTree ?? (await buildVirtualDiffusionTree());
 	const declared = new Set<string>();
 	if (tree === null) return declared;
 	for (const node of tree.nodes) {
@@ -321,7 +324,7 @@ export const DEFAULT_LANG_SWEEP_DEPENDENCIES: LangSweepDependencies = Object.fre
 		return { unsafe: (sql, params = []) => pool.unsafe(boundSqlTargetStatement(sql), params) };
 	},
 	listTargetDatabases: listMariadbTargetDatabases,
-	listDeclaredTables: listDeclaredPublicationTables,
+	listDeclaredTables: () => listDeclaredPublicationTables(),
 	policyLangs: (): string[] => [...config.diffusion.langs],
 });
 

@@ -53,7 +53,10 @@ import {
 	registerNativeDiffusionSqlDelete,
 	resetNativeDiffusionSqlDeleteForTests,
 } from '../../src/core/diffusion_bridge/diffusion_delete.ts';
-import { clearDiffusionTargetsCache } from '../../src/core/diffusion_bridge/diffusion_map.ts';
+import {
+	clearDiffusionTargetsCache,
+	getAllSectionDiffusionTargets,
+} from '../../src/core/diffusion_bridge/diffusion_map.ts';
 import {
 	globalRowKey,
 	globalRowKeyLikePattern,
@@ -78,6 +81,7 @@ import type { ProjectedRow } from '../../src/diffusion/project/lang_ladder.ts';
 import { runJob } from '../../src/diffusion/runner.ts';
 import { closeAllTargetPools, getTargetPool } from '../../src/diffusion/targets/mariadb/db.ts';
 import { executeSqlDeleteTargets } from '../../src/diffusion/targets/mariadb/delete_record.ts';
+import { listDeclaredPublicationTables } from '../../src/diffusion/targets/mariadb/lang_sweep.ts';
 import {
 	scanPublicTier,
 	unpublishGhosts,
@@ -98,6 +102,9 @@ import {
 	ZZDIF_GLOBAL_SEPARATOR,
 	ZZDIF_GLOBAL_TABLE,
 	ZZDIF_GLOBAL_TABLE_TIPO,
+	ZZDIF_GLOBAL_UNRULED_COLUMN,
+	ZZDIF_GLOBAL_UNRULED_TABLE,
+	ZZDIF_GLOBAL_UNRULED_TABLE_TIPO,
 	ZZDIF_LINKED_IDS,
 	ZZDIF_LINKED_SECTION,
 	ZZDIF_PUBLISHABLE_ID,
@@ -386,6 +393,18 @@ describe('B — compile laws (hermetic)', () => {
 		expect(await globalTableNamesOf(tree.index, titleMap('ddgtm20'))).toEqual(['gt_global']);
 		expect(await globalTableNamesOf(tree.index, titleMap('ddgtm30'))).toEqual([]);
 	});
+
+	test('listDeclaredPublicationTables declares a global node OUTSIDE the domain subtree', async () => {
+		// ddgtm20 lives only in the index, not in tree.nodes: the walk over the
+		// domain's table nodes alone cannot find it — only the maps can.
+		const tree = makeTree([sourceTable({ global_table_maps: titleMap('ddgtm20') })]);
+		expect(tree.nodes.some((node) => node.tipo === 'ddgtm20')).toBe(false);
+		const declared = await listDeclaredPublicationTables(tree);
+		expect([...declared].sort()).toEqual(['gt_global', 'gt_source']);
+		// A map to a non-table node declares nothing (publish never creates it).
+		const decoy = makeTree([sourceTable({ global_table_maps: titleMap('ddgtm30') })]);
+		expect([...(await listDeclaredPublicationTables(decoy))]).toEqual(['gt_source']);
+	});
 });
 
 // ── C: the pure row derivation ──────────────────────────────────────────────────
@@ -566,7 +585,12 @@ async function clearActivity(): Promise<void> {
 }
 
 async function dropTables(): Promise<void> {
-	for (const table of [ZZDIF_GLOBAL_PRIMARY_TABLE, ZZDIF_GLOBAL_LINKED_TABLE, ZZDIF_GLOBAL_TABLE])
+	for (const table of [
+		ZZDIF_GLOBAL_PRIMARY_TABLE,
+		ZZDIF_GLOBAL_LINKED_TABLE,
+		ZZDIF_GLOBAL_TABLE,
+		ZZDIF_GLOBAL_UNRULED_TABLE,
+	])
 		await pool().unsafe(`DROP TABLE IF EXISTS \`${table}\``, []);
 }
 
@@ -634,12 +658,16 @@ afterAll(async () => {
 }, 120_000);
 
 describe('A — compile on the zzdif global element (real dd_ontology rows)', () => {
-	test('both source sections carry the compiled global table; no global_table_maps warning', async () => {
+	test('both source sections carry the compiled global table; only the UNRULED map warns', async () => {
 		const tree = await buildVirtualDiffusionTree(ZZDIF_DOMAIN_NAME);
 		if (tree === null) throw new Error('zzdif domain not found');
 		const plan = await compileElementPlan(ZZDIF_GLOBAL_ELEMENT, { tree });
-		expect(plan.warnings.filter((warning) => warning.startsWith('global_table_maps'))).toEqual([]);
+		expect(plan.warnings.filter((warning) => warning.startsWith('global_table_maps'))).toEqual([
+			`global_table_maps_unruled:zzdif102>${ZZDIF_GLOBAL_UNRULED_TABLE_TIPO}: target '${ZZDIF_GLOBAL_UNRULED_COLUMN}'`,
+		]);
 		const primary = plan.sections.find((section) => section.sectionTipo === ZZDIF_SECTION);
+		// The unruled map is NOT compiled: one global table, the ruled one.
+		expect(primary?.globalTables?.length).toBe(1);
 		const global = primary?.globalTables?.[0];
 		expect(global?.tableTipo).toBe(ZZDIF_GLOBAL_TABLE_TIPO);
 		expect(global?.schema.tableName).toBe(ZZDIF_GLOBAL_TABLE);
@@ -800,5 +828,60 @@ describe('F — the public-tier reconcile finds and removes a global ghost', () 
 		expect(applied.failed).toEqual([]);
 		expect(applied.removed).toBe(1);
 		expect(await globalKeys()).not.toContain(ghostKey);
+	});
+});
+
+describe('G — an UNRULED map (T1-3 D1): withdrawn, never owed', () => {
+	const unruledKey = `${ZZDIF_GLOBAL_DATABASE}|${ZZDIF_GLOBAL_UNRULED_TABLE}`;
+	const globalKey = `${ZZDIF_GLOBAL_DATABASE}|${ZZDIF_GLOBAL_TABLE}`;
+
+	test('the target still names its table (the WITHDRAW set is a superset)', async () => {
+		clearDiffusionTargetsCache();
+		const targets = (await getAllSectionDiffusionTargets()).get(ZZDIF_SECTION) ?? [];
+		const primary = targets.find((target) => target.table_name === ZZDIF_GLOBAL_PRIMARY_TABLE);
+		expect(primary?.global_tables).toEqual([ZZDIF_GLOBAL_TABLE, ZZDIF_GLOBAL_UNRULED_TABLE]);
+	});
+
+	test('the reconcile reports no MISSING for it after a full publish; the ruled table still does', async () => {
+		await runElement(ZZDIF_SECTION);
+		// Non-vacuity: a ruled global row removed behind publish's back IS missing.
+		const removedId = ZZDIF_PUBLISHABLE_ID;
+		await pool().unsafe(`DELETE FROM \`${ZZDIF_GLOBAL_TABLE}\` WHERE section_id = ?`, [
+			globalRowKey(ZZDIF_SECTION, removedId),
+		]);
+		clearDiffusionTargetsCache();
+		const scan = await scanPublicTier([ZZDIF_SECTION]);
+		expect(scan.missing.filter((entry) => entry.target === unruledKey)).toEqual([]);
+		expect(
+			scan.missing.filter((entry) => entry.target === globalKey).map((entry) => entry.section_id),
+		).toEqual([removedId]);
+		await runElement(ZZDIF_SECTION);
+	}, 120_000);
+
+	test('a row an earlier engine left in it is still a ghost the apply withdraws', async () => {
+		await pool().unsafe(
+			`CREATE TABLE IF NOT EXISTS \`${ZZDIF_GLOBAL_UNRULED_TABLE}\` (section_id VARCHAR(64), lang VARCHAR(16), title TEXT)`,
+			[],
+		);
+		const ghostKey = globalRowKey(ZZDIF_SECTION, ZZDIF_UNPUBLISHABLE_ID);
+		await pool().unsafe(
+			`INSERT INTO \`${ZZDIF_GLOBAL_UNRULED_TABLE}\` (section_id, lang, title) VALUES (?, ?, 'v6 row')`,
+			[ghostKey, config.diffusion.langs[0] ?? null],
+		);
+		clearDiffusionTargetsCache();
+		const ghosts = (await scanPublicTier([ZZDIF_SECTION])).ghosts.filter(
+			(ghost) => ghost.target === unruledKey,
+		);
+		expect(ghosts.map((ghost) => [ghost.section_id, ghost.reason])).toEqual([
+			[ZZDIF_UNPUBLISHABLE_ID, 'unpublishable'],
+		]);
+		const applied = await unpublishGhosts(ghosts);
+		expect(applied.failed).toEqual([]);
+		expect(applied.removed).toBe(1);
+		const left = (await pool().unsafe(
+			`SELECT section_id FROM \`${ZZDIF_GLOBAL_UNRULED_TABLE}\``,
+			[],
+		)) as unknown[];
+		expect(left).toEqual([]);
 	});
 });

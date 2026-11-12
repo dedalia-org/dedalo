@@ -66,6 +66,10 @@
  *             zzdif111 'section_id' varchar 64 | zzdif112 'ref_section_id' | zzdif113 'ref_section_tipo'
  *             zzdif114 'ref_table' | zzdif115 'link' | zzdif116 'title' | zzdif117 'title_code'
  *             zzdif118 'both' | zzdif119 'sort_id'
+ *           zzdif120 table 'zzdif_global_unruled' (aggregate) ← zzdif102's SECOND map,
+ *             zzdif121 'section_id' | zzdif122 'title'       naming an UNDECLARED target
+ *                                                          column (UNRULED T1-3 D1: never
+ *                                                          written, still withdrawn)
  *
  *   The GLOBAL-TABLE element (2026-11-12, T1-3) is v6 `global_table_maps`: every
  *   published row of zzdif1 / zzdif20 also lands in `zzdif_global` under
@@ -163,6 +167,11 @@ export const ZZDIF_GLOBAL_TABLE_TIPO = 'zzdif110';
 export const ZZDIF_GLOBAL_TABLE = 'zzdif_global';
 /** The `format: 'string'` separator of its `title_code` map. */
 export const ZZDIF_GLOBAL_SEPARATOR = ' · ';
+/** The aggregate table only an UNRULED map (T1-3 D1: unknown target column) names. */
+export const ZZDIF_GLOBAL_UNRULED_TABLE_TIPO = 'zzdif120';
+export const ZZDIF_GLOBAL_UNRULED_TABLE = 'zzdif_global_unruled';
+/** The column zzdif102's unruled map targets — zzdif120 does NOT declare it. */
+export const ZZDIF_GLOBAL_UNRULED_COLUMN = 'filter_date';
 /** The parser fn no registry entry exists for — the loud-failure subject. */
 export const ZZDIF_UNKNOWN_PARSER_FN = 'parser_zzdif::no_such_fn';
 
@@ -608,6 +617,12 @@ function buildSituation(): Situation {
 								{ target_column: 'sort_id', source_columns: ['section_id'] },
 							],
 						},
+						{
+							table_tipo: ZZDIF_GLOBAL_UNRULED_TABLE_TIPO,
+							columns_map: [
+								{ target_column: ZZDIF_GLOBAL_UNRULED_COLUMN, source_columns: ['title'] },
+							],
+						},
 					],
 				},
 				order_number: 1,
@@ -684,6 +699,28 @@ function buildSituation(): Situation {
 				...(properties !== null ? { properties } : {}),
 				order_number: position + 1,
 			})),
+			{
+				tipo: ZZDIF_GLOBAL_UNRULED_TABLE_TIPO,
+				parent: 'zzdif101',
+				model: 'table',
+				term: { 'lg-spa': ZZDIF_GLOBAL_UNRULED_TABLE },
+				order_number: 4,
+			},
+			{
+				tipo: 'zzdif121',
+				parent: ZZDIF_GLOBAL_UNRULED_TABLE_TIPO,
+				model: 'field_varchar',
+				term: { 'lg-spa': 'section_id' },
+				properties: { varchar: 64 },
+				order_number: 1,
+			},
+			{
+				tipo: 'zzdif122',
+				parent: ZZDIF_GLOBAL_UNRULED_TABLE_TIPO,
+				model: 'field_text',
+				term: { 'lg-spa': 'title' },
+				order_number: 2,
+			},
 		],
 		records: [
 			{
