@@ -100,6 +100,7 @@ import type { Principal } from '../../security/permissions.ts';
 import { currentPrincipal } from '../../security/request_context.ts';
 import type { AppendMergeResult, RelationAppendValidator } from './append_merge.ts';
 import { beginSaveHistory, finishSaveHistory } from './bulk_capture.ts';
+import { iriLabelIdRefusal } from './iri_label_guard.ts';
 import { applyItemGate } from './item_gates.ts';
 import { valueShapeRefusal } from './value_shape.ts';
 
@@ -1117,6 +1118,12 @@ export async function saveComponentData(request: SaveRequest): Promise<SaveResul
 		});
 	}
 
+	// THE IRI LABEL LAW (iri_label_guard.ts; T0-12 §3.6, decision D1): an item of
+	// the `iri` column never carries `label_id` — the label is its dd560 frame.
+	// Same pre-transaction reasoning, and AFTER the shape law (items are objects
+	// by then). Covers set_data, insert/update and the appendImport set_data.
+	assertNoIriLabelId(effectiveRequest, dataModel);
+
 	// APPEND BACKSTOP (plan §4), same pre-transaction reasoning: the policy is a
 	// property of the model, the shape a property of the request. The tool
 	// refuses per column first; this holds for any other caller.
@@ -1212,6 +1219,30 @@ export async function saveComponentData(request: SaveRequest): Promise<SaveResul
 // ---------------------------------------------------------------------------
 
 /** The refusal in flight — thrown inside the transaction, caught right here. */
+/**
+ * Throw `request.invalid` when an `iri`-column item carries `label_id`
+ * (iri_label_guard.ts). A THROW, not `ok:false`, for the remove-sentinel reason:
+ * the dispatch handler would wrap an ok:false in an operator-only 500, and the
+ * refusal is only useful if the caller is told where the label belongs. The
+ * code's disclosure is public, so `publicMessage` reaches the curator.
+ */
+function assertNoIriLabelId(request: SaveRequest, dataModel: string | null): void {
+	const column = dataModel === null ? null : getColumnNameByModel(dataModel);
+	const refusal = iriLabelIdRefusal(column, request.changedData);
+	if (refusal === null) return;
+	const message = `${dataModel ?? 'unknown model'} '${request.componentTipo}': ${refusal}`;
+	throw new DedaloError('request.invalid', {
+		message: `saveComponentData: ${message}`,
+		publicMessage: message,
+		coordinates: {
+			tipo: request.componentTipo,
+			model: dataModel ?? 'unknown',
+			section_tipo: request.sectionTipo,
+			section_id: request.sectionId,
+		},
+	});
+}
+
 class SaveRefusedRollback extends DedaloError {
 	readonly result: SaveResult;
 

@@ -201,7 +201,14 @@ Retrieve system and server information.
 
 ### Returns
 
-`{ ok: true, request_id, data: <SystemInfo> }`. The payload (`src/core/api/handlers/system_info.ts`) is the upload-limit negotiation the client reads before it can transfer a file. The numbers come from the media/upload config catalog — there is no runtime `.ini` to consult. Shape: `{ max_size_bytes, sys_get_temp_dir, upload_tmp_dir, upload_tmp_perms, session_cache_expire, upload_service_chunk_files, pdf_ocr_engine }`.
+`{ ok: true, request_id, data: <SystemInfo> }`. The payload (`src/core/api/handlers/system_info.ts`) is the upload-limit negotiation the client reads before it can transfer a file. The numbers come from the media/upload config catalog — there is no runtime `.ini` to consult. Shape: `{ max_size_bytes, sys_get_temp_dir, upload_tmp_dir, upload_tmp_perms, session_cache_expire, upload_service_chunk_files, pdf_ocr_engine, pdf_ocr_langs }`.
+
+The two OCR fields are **measured on the host at each call**, not read from configuration:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `pdf_ocr_engine` | boolean | `true` when the `ocrmypdf` binary (`PDF_OCR_ENGINE`) exists and is executable. A configured path alone is not enough: every install has a default path. |
+| `pdf_ocr_langs` | string[] | The application languages (`lg-*`, in `DEDALO_APPLICATION_LANGS` order) whose Tesseract model is installed, as listed by `tesseract --list-langs` (`DEDALO_TESSERACT_PATH`). `[]` when `pdf_ocr_engine` is `false`. The upload panel offers OCR only in these languages. |
 
 ### Example Request
 
@@ -225,7 +232,8 @@ Retrieve system and server information.
     "upload_tmp_perms": 16877,
     "session_cache_expire": 180,
     "upload_service_chunk_files": 20,
-    "pdf_ocr_engine": true
+    "pdf_ocr_engine": true,
+    "pdf_ocr_langs": ["lg-spa", "lg-eng"]
   }
 }
 ```

@@ -31,6 +31,7 @@ import {
 	resolvePeriodLabels,
 } from '../components/component_date/date_value.ts';
 import type { ExternalSourceStatus } from '../components/component_external/value.ts';
+import { resolveInverseEntries } from '../components/component_inverse/emit.ts';
 import { type IriLabelFrame, resolveIriTitles } from '../components/component_iri/resolve_title.ts';
 import { getFlatValueFamily } from '../components/registry.ts';
 import { mediaTypeOf } from '../concepts/media.ts';
@@ -49,10 +50,19 @@ import {
 	getNode,
 } from '../ontology/resolver.ts';
 import { getSectionMap } from '../ontology/section_map.ts';
+import {
+	configChildrenArePerLocator,
+	configChildrenArePerTarget,
+	exportConfigChildren,
+	isDirectConfigChild,
+	isImplicitConfigChild,
+	pointerIsExistenceOnly,
+} from '../relations/config_children.ts';
 import { resolveLocatorLabels } from '../relations/datalist.ts';
+import { componentLocators } from '../relations/locator_source.ts';
+import { filterAuthorizedRelated } from '../relations/request_config/implicit.ts';
 import { findInverseReferences } from '../search/search_related.ts';
-import { findSectionChildByModel } from '../section/list_definitions/node_find.ts';
-import { resolveOwnConfigMap } from '../section/list_definitions/section_list.ts';
+import { sectionRelationListTipos } from '../section/related_list.ts';
 import type { Principal } from '../security/permissions.ts';
 import { type EmissionContext, resolveComponentValue } from './component_data.ts';
 import { currentDataLang } from './request_lang.ts';
@@ -83,12 +93,32 @@ export async function getRelationListColumns(sectionTipo: string): Promise<strin
 	// Legacy: the section's relation_list ontology node — its `relations`
 	// links name the column tipos. Virtual-aware (a virtual without its own node
 	// inherits the real section's — PHP get_relation_list_obj's resolve_virtual
-	// retry, class.relation_list.php:305-321) and first by order_number: the ONE
-	// lookup, findSectionChildByModel (T0-7).
-	const node = await findSectionChildByModel(sectionTipo, 'relation_list');
-	return (node?.relations ?? [])
-		.map((link) => link.tipo)
-		.filter((tipo): tipo is string => typeof tipo === 'string');
+	// retry, class.relation_list.php:305-321) and first by order_number: THE
+	// section fact, section/related_list.ts sectionRelationListTipos (T0-7, T0-8 —
+	// the relation_index columns read the same lookup). Verbatim here — the
+	// PRINCIPAL-FREE fact; the readers filter it with
+	// authorizedRelationListColumns below.
+	return [...(await sectionRelationListTipos(sectionTipo))];
+}
+
+/**
+ * The grid columns of one referencing section the CURRENT requester may read
+ * (STEP 5 on the TOP-LEVEL columns): a column the requester holds no grant on
+ * has neither a context column nor a data cell — the edit form's related_list
+ * rule (section/related_list.ts sectionRelatedListConfig) through the SAME
+ * predicate the children below use (request_config/implicit.ts
+ * filterAuthorizedRelated: the ALS principal, per call; no principal = an
+ * internal resolution = no filter). Ontology order kept. PHP's grid read every
+ * column unfiltered (class.relation_list.php get_ar_data) — deliberate
+ * tightening, WC-2026-11-11-relation-list-column-grants. Every reader of the
+ * pointing section's relation_list columns (the relation_list panel, the
+ * related_search payload) goes through here.
+ */
+export async function authorizedRelationListColumns(sectionTipo: string): Promise<string[]> {
+	const declared = await getRelationListColumns(sectionTipo);
+	if (declared.length === 0) return declared;
+	const allowed = await filterAuthorizedRelated(declared, sectionTipo);
+	return declared.filter((tipo) => allowed.has(tipo));
 }
 
 /**
@@ -146,9 +176,11 @@ export interface CellValueResolveOptions {
 	 * value crosses into OTHER records — a relation's targets at every depth,
 	 * dataframe frame targets, iri label frames — and reads an IMPLICIT config's
 	 * child components there. Armed, every such crossing is asked HERE before
-	 * a single byte of the target is read; absent, nothing is asked (the
-	 * interactive callers — relation_list panel, Referencias, related labels —
-	 * are byte-unchanged, and their own doors scope their output).
+	 * a single byte of the target is read; absent (the interactive callers —
+	 * relation_list panel, Referencias, related labels), no RECORD crossing is
+	 * asked (their own doors scope their output), but the IMPLICIT children
+	 * still answer to the edit form's STEP 5 filter for the ALS principal
+	 * (readableChildren — the same predicate the frontier key binds).
 	 *
 	 * A seam of FUNCTIONS, not a scope object: the caller owns the law (the
 	 * export binds the frontier's THROW, diffusion/export/atoms.ts), and this
@@ -156,6 +188,70 @@ export interface CellValueResolveOptions {
 	 * asked — the caller authorized it before asking for its value.
 	 */
 	frontier?: CellFrontier;
+	/**
+	 * The CALLER ddo's fields_separator for a component_iri cell's value+title
+	 * glue (PHP component_iri::get_export_value :354-358: ddo.fields_separator
+	 * ?? properties.fields_separator ?? ', '). Set by the export walk for the
+	 * iri leaf it reads; absent (every interactive reader, which has no ddo) the
+	 * component's own `properties.fields_separator` ?? ', ' applies (T0-9 D7).
+	 */
+	iriFieldsSeparator?: string;
+	/**
+	 * T0-9 D3 — the EXPORT LEAF's empty-item rule (PHP get_export_value: one
+	 * atom per stored data item, an empty value included — component_input_text
+	 * :96-107, component_date :296-303; a media component ALWAYS one atom,
+	 * '' when it has no URL — component_media_common :340-372). Set by the
+	 * export walk ONLY on the literal / media leaf it reads (atoms.ts
+	 * emitLiteralItemAtoms / emitPlainAtom), so the records join keeps the
+	 * item's slot ('a |  | c'). Honoured by the string, date and media
+	 * families; a component with NO stored item still resolves null (PHP: no
+	 * atom). Absent (every interactive reader) = empties dropped.
+	 */
+	keepEmptyItems?: boolean;
+	/**
+	 * INTERNAL — the cycle guard's PATH (see {@link withCycleGuard}): the
+	 * (record × component) expansions open above this call. Minted by the first
+	 * guarded expansion and threaded down through the same options object;
+	 * a caller never sets it.
+	 */
+	cycleTrail?: Set<string>;
+}
+
+/**
+ * THE CYCLE GUARD of the flat reader. A value crosses into other records
+ * (relation targets, iri label frames) and re-enters resolveCellValue there;
+ * the per-locator children of a config-less relation_index are its pointing
+ * section's relation_list columns, which may list that very index — so records
+ * that point at each other (or at themselves) recursed without end. Same law
+ * as the export walk's relation_cycle trail (diffusion/export/atoms.ts
+ * fanOutRelation): no depth ceiling (a long chain of DISTINCT records is
+ * walked); the SAME component expanded again on the SAME record along the
+ * current path resolves to nothing and is NOTED `relation_cycle:<tipo>` in
+ * `unresolved` — never a silent cut. Path-scoped (added on entry, removed on
+ * exit), so a record reached twice on sibling paths resolves both times.
+ */
+async function withCycleGuard<T>(
+	sectionTipo: string,
+	address: number,
+	componentTipo: string,
+	unresolved: string[],
+	opts: CellValueResolveOptions | undefined,
+	empty: T,
+	expand: (guardedOpts: CellValueResolveOptions) => Promise<T>,
+): Promise<T> {
+	const trail = opts?.cycleTrail ?? new Set<string>();
+	const key = `${sectionTipo}\u0000${address}\u0000${componentTipo}`;
+	if (trail.has(key)) {
+		const note = `relation_cycle:${componentTipo}`;
+		if (!unresolved.includes(note)) unresolved.push(note);
+		return empty;
+	}
+	trail.add(key);
+	try {
+		return await expand(opts?.cycleTrail === trail ? opts : { ...opts, cycleTrail: trail });
+	} finally {
+		trail.delete(key);
+	}
 }
 
 /**
@@ -210,20 +306,29 @@ export interface ConfigChild {
 }
 
 /**
- * The children the caller may read at `targetSection`: every explicit child,
- * and the implicit ones the armed frontier allows. Order-preserving. Unarmed
- * = every child (the interactive callers).
+ * The children the caller may read at `targetSection`: every explicit child
+ * (read at the subdatum floor, as the edit form shows it), and the IMPLICIT
+ * ones the requester may read there. Order-preserving.
+ *
+ * ONE PREDICATE for the implicit set: armed, the frontier's key (the export
+ * binds frontier_scope.ts frontierAllowedComponents); unarmed (the interactive
+ * callers — relation_list panel, Referencias, related labels), the edit form's
+ * OWN STEP 5 filter, request_config/implicit.ts filterAuthorizedRelated —
+ * the same frontierAllowedComponents for the ALS principal, asked per call
+ * (no principal = an internal resolution = no filter, as the edit form).
  */
 async function readableChildren<T extends ConfigChild>(
 	children: readonly T[],
 	targetSection: string,
 	opts: CellValueResolveOptions | undefined,
 ): Promise<T[]> {
-	const frontier = opts?.frontier;
-	if (frontier === undefined) return [...children];
 	const implicitTipos = children.filter((child) => child.implicit).map((child) => child.tipo);
 	if (implicitTipos.length === 0) return [...children];
-	const allowed = await frontier.implicitChildren(targetSection, implicitTipos);
+	const frontier = opts?.frontier;
+	const allowed =
+		frontier === undefined
+			? await filterAuthorizedRelated(implicitTipos, targetSection)
+			: await frontier.implicitChildren(targetSection, implicitTipos);
 	return children.filter((child) => !child.implicit || allowed.has(child.tipo));
 }
 
@@ -240,7 +345,7 @@ export interface MediaReadAddress {
  * with a non-empty file_path, any quality) — the data-exact test for "this
  * component holds media on this record".
  */
-export function mediaItemsHoldAFile(items: unknown): boolean {
+function mediaItemsHoldAFile(items: unknown): boolean {
 	if (!Array.isArray(items)) return false;
 	return items.some((item) => {
 		const filesInfo = (item as { files_info?: unknown } | null)?.files_info;
@@ -329,18 +434,21 @@ export interface RelationTargetValue {
 
 /**
  * The children a relation's flat value resolves per locator target, in map
- * order (PHP field-dimension order = ddo order): the own config's ddo_map
- * direct children, then the implicit legacy map (section_list node relations,
- * components only). Dataframe children are FLAGGED — they resolve as frame
- * fields folded into the flat cell. ONE derivation for resolveRelationTargetValues
- * and the export's dedalo_raw media walk (src/diffusion/export/atoms.ts), so
- * both read the same components.
+ * order (PHP field-dimension order = ddo order): the direct children of THE
+ * export children seam (relations/config_children.ts exportConfigChildren —
+ * explicit map, per-locator relation_index map, or the edit form's implicit
+ * derivation). Dataframe children are FLAGGED — they resolve as frame fields
+ * folded into the flat cell. The export walk (src/diffusion/export/atoms.ts
+ * fanOutRelation) reads the SAME seam, under the caller's map when one is
+ * declared. `locatorSectionTipo` = the target section, required for a
+ * per-locator component (configChildrenArePerLocator).
  */
-export async function relationTargetChildren(
+async function relationTargetChildren(
 	componentTipo: string,
+	locatorSectionTipo?: string,
 ): Promise<(ConfigChild & { isDataframe: boolean })[]> {
 	const children: (ConfigChild & { isDataframe: boolean })[] = [];
-	for (const child of await ownConfigChildren(componentTipo)) {
+	for (const child of await ownConfigChildren(componentTipo, locatorSectionTipo)) {
 		children.push({
 			...child,
 			isDataframe: (await getModelByTipo(child.tipo)) === 'component_dataframe',
@@ -351,41 +459,26 @@ export async function relationTargetChildren(
 
 /**
  * The components a dataframe's frames resolve at each FRAME TARGET record
- * (the frame's own config ddo_map direct children, then its implicit map) —
- * ONE derivation for resolveDataframeFlatValue and the export's dedalo_raw
- * media walk.
+ * (the frame's own config ddo_map direct children, then its implicit map).
  */
-export function dataframeFrameChildren(frameTipo: string): Promise<ConfigChild[]> {
+function dataframeFrameChildren(frameTipo: string): Promise<ConfigChild[]> {
 	return ownConfigChildren(frameTipo);
 }
 
-/** {@link dataframeFrameChildren}'s tipos (an ontology-only reach test needs no origin). */
-export async function dataframeFrameChildTipos(frameTipo: string): Promise<string[]> {
-	return (await ownConfigChildren(frameTipo)).map((child) => child.tipo);
-}
-
 /**
- * A component's own-config children, in map order: the ddo_map entries whose
- * parent is the component ('self', its tipo, or unset), then the implicit
- * legacy map's COMPONENTS — each tagged with the map it came from, because
- * the two answer to different keys (CellFrontier.implicitChildren).
+ * A component's config children, in map order: the direct children of
+ * exportConfigChildren (config_children.ts isDirectConfigChild — parent
+ * 'self' or the owner's tipo; no parent = no child, D11) — each tagged with
+ * the map it came from, because the two answer to different keys
+ * (readableChildren).
  */
-async function ownConfigChildren(ownerTipo: string): Promise<ConfigChild[]> {
-	const cell = await resolveOwnConfigMap(ownerTipo);
-	const children: ConfigChild[] = (cell.rawDdos ?? [])
-		.filter((child) => typeof child?.tipo === 'string' && isOwnMapChild(child.parent, ownerTipo))
-		.map((child) => ({ tipo: child.tipo as string, implicit: false }));
-	for (const relTipo of cell.implicitRelations ?? []) {
-		if ((await getModelByTipo(relTipo))?.startsWith('component_') === true) {
-			children.push({ tipo: relTipo, implicit: true });
-		}
-	}
-	return children;
-}
-
-/** Is a ddo_map entry with this `parent` a direct child of `ownerTipo`? */
-function isOwnMapChild(parent: unknown, ownerTipo: string): boolean {
-	return parent === undefined || parent === 'self' || parent === ownerTipo;
+async function ownConfigChildren(
+	ownerTipo: string,
+	locatorSectionTipo?: string,
+): Promise<ConfigChild[]> {
+	return (await exportConfigChildren(ownerTipo, locatorSectionTipo))
+		.filter((child) => typeof child?.tipo === 'string' && isDirectConfigChild(child, ownerTipo))
+		.map((child) => ({ tipo: child.tipo as string, implicit: isImplicitConfigChild(child) }));
 }
 
 /**
@@ -395,8 +488,14 @@ function isOwnMapChild(parent: unknown, ownerTipo: string): boolean {
  * flattens as its children's values joined by the COMPONENT's
  * fields_separator (rsc368's ' | ', rsc139's ', '); without config children,
  * the target label resolves via the datalist — in STORED locator order.
- * resolveCellValue joins the flattened parts with its itemSeparator; the
- * export compact-portal cells (WC-008) consume the targets individually.
+ * resolveCellValue joins the flattened parts with its itemSeparator.
+ *
+ * THE INTERACTIVE FLAT READER (relation_list panel, Referencias, related
+ * labels — no caller map by definition). The EXPORT does not read through
+ * here for a relation leaf: its value cells and WC-008 compact cells are folds
+ * over the export walk's own atoms (src/diffusion/export/join_atoms.ts, T0-9
+ * owner decision D1) — the caller map, the PHP separator precedence and the
+ * PHP join rules live there.
  */
 export async function resolveRelationTargetValues(
 	sectionTipo: string,
@@ -407,10 +506,33 @@ export async function resolveRelationTargetValues(
 	unresolved: string[],
 	opts?: CellValueResolveOptions,
 ): Promise<RelationTargetValue[]> {
-	const model = await getModelByTipo(componentTipo);
-	if (model === null) return [];
 	const address = matrixRecordAddress(sectionId);
 	if (address === null) return [];
+	return withCycleGuard(sectionTipo, address, componentTipo, unresolved, opts, [], (guarded) =>
+		expandRelationTargets(
+			sectionTipo,
+			sectionId,
+			address,
+			componentTipo,
+			lang,
+			unresolved,
+			guarded,
+		),
+	);
+}
+
+/** resolveRelationTargetValues inside its cycle guard (`opts` carries the trail). */
+async function expandRelationTargets(
+	sectionTipo: string,
+	sectionId: number | string,
+	address: number,
+	componentTipo: string,
+	lang: string,
+	unresolved: string[],
+	opts: CellValueResolveOptions,
+): Promise<RelationTargetValue[]> {
+	const model = await getModelByTipo(componentTipo);
+	if (model === null) return [];
 	const table = await getMatrixTableFromTipo(sectionTipo);
 	if (table === null) return [];
 	// The loader seam consults AFTER the null-table early-return (parity
@@ -418,23 +540,26 @@ export async function resolveRelationTargetValues(
 	const record = await (opts?.loadRecord ?? memoizedReadMatrixRecord)(table, sectionTipo, address);
 	if (record === null) return [];
 
-	const column = getColumnNameByModel(model) ?? 'relation';
-	const columnData = record.columns[column as keyof typeof record.columns] as Record<
-		string,
-		unknown[]
-	> | null;
-	const locators = (columnData?.[componentTipo] ?? []) as {
-		section_tipo?: unknown;
-		section_id?: unknown;
-		id?: number | string;
-		main_component_tipo?: string;
-	}[];
+	// THE locator source (relations/locator_source.ts): the stored slice, or the
+	// computed set of a model that stores nothing (relation_children /
+	// relation_index) — keyed on the descriptor's resolveData contract.
+	const locators = await componentLocators(
+		{ sectionTipo, sectionId: address, columns: record.columns as Record<string, unknown> },
+		componentTipo,
+		model,
+	);
 	if (locators.length === 0) return [];
 
-	const children = await relationTargetChildren(componentTipo);
+	// A per-locator component (config-less relation_index) has no static
+	// children: they are derived per target section below. ANY relation_index
+	// (D9) asks per pointer whether it is existence only (config_children.ts
+	// pointerIsExistenceOnly, the edit form's predicate).
+	const perLocator = await configChildrenArePerLocator(componentTipo);
+	const perTarget = await configChildrenArePerTarget(componentTipo);
+	const children = perLocator ? null : await relationTargetChildren(componentTipo);
 
 	const targets: RelationTargetValue[] = [];
-	if (children.length > 0) {
+	if (children === null || children.length > 0) {
 		// (single-child configs degrade to exactly the label value, so the
 		// pinned label gates — numisdata30 'Emporion', numisdata585 — hold)
 		const fieldsSeparator = await componentFieldsSeparator(componentTipo);
@@ -449,7 +574,15 @@ export async function resolveRelationTargetValues(
 			// The children THIS caller may read at THIS target: explicit ones at the
 			// subdatum floor, implicit ones per the frontier's component key (D1) —
 			// decided first, so the crossing can name what it reads there.
-			const targetChildren = await readableChildren(children, targetSection, opts);
+			const existenceOnly =
+				perTarget && (await pointerIsExistenceOnly(componentTipo, targetSection));
+			const targetChildren = await readableChildren(
+				children === null || existenceOnly
+					? await relationTargetChildren(componentTipo, targetSection)
+					: children,
+				targetSection,
+				opts,
+			);
 			if (opts?.frontier !== undefined) {
 				const reads = targetChildren
 					.filter((child) => !child.isDataframe)
@@ -473,6 +606,18 @@ export async function resolveRelationTargetValues(
 								outerOnMedia(read);
 							},
 						};
+			// EXISTENCE ONLY (T0-9 D6 — the edit form's rule, one predicate): a
+			// pointer in a section the requester may not read shows its section
+			// NAME + section_id and nothing of its content — never dropped.
+			if (existenceOnly) {
+				targets.push({
+					index,
+					sectionTipo: targetSection,
+					sectionId: targetId as number | string,
+					parts: [`${await termByTipo(targetSection, lang)} ${String(targetId)}`],
+				});
+				continue;
+			}
 			const fieldParts: string[] = [];
 			for (const child of targetChildren) {
 				if (child.isDataframe) {
@@ -748,6 +893,40 @@ export async function resolveCellValue(
 	sectionTipo: string,
 	/**
 	 * The record's id, RAW: a matrix address (int, or its unswept convertible
+	 * string form) or an EXTERNAL remote id kept VERBATIM ('000065686').
+	 */
+	sectionId: number | string,
+	componentTipo: string,
+	lang: string,
+	unresolved: string[],
+	/** Multi-item join (default ' | ', the relation_list panel glue). */
+	itemSeparator: string = RECORDS_SEPARATOR,
+	opts?: CellValueResolveOptions,
+): Promise<string | null> {
+	const items = await resolveCellItems(
+		sectionTipo,
+		sectionId,
+		componentTipo,
+		lang,
+		unresolved,
+		itemSeparator,
+		opts,
+	);
+	return items === null ? null : items.join(itemSeparator);
+}
+
+/**
+ * {@link resolveCellValue} BEFORE the multi-item join: one string per data
+ * item (empties dropped), null when nothing resolves. The export walk emits a
+ * literal's items as ONE ATOM EACH (PHP component_common::get_export_value —
+ * one atom per data item), so the value fold joins them with the leaf
+ * segment's separator, never a pre-join. `itemSeparator` only reaches the
+ * external family, whose remote value arrives already joined (one item).
+ */
+export async function resolveCellItems(
+	sectionTipo: string,
+	/**
+	 * The record's id, RAW: a matrix address (int, or its unswept convertible
 	 * string form) or an EXTERNAL remote id kept VERBATIM ('000065686'). The
 	 * external family consumes it as the remote id; every other family reads
 	 * the matrix address and resolves null for a non-address.
@@ -756,11 +935,10 @@ export async function resolveCellValue(
 	componentTipo: string,
 	lang: string,
 	unresolved: string[],
-	/** Multi-item join for DEFAULT-separator levels — the export-atoms rule
-	 * flips ' | ' (first indexed level) to ', ' (deeper levels). */
+	/** The external family's remote multi-value join (one item comes back). */
 	itemSeparator: string = RECORDS_SEPARATOR,
 	opts?: CellValueResolveOptions,
-): Promise<string | null> {
+): Promise<string[] | null> {
 	const model = await getModelByTipo(componentTipo);
 	if (model === null) return null;
 
@@ -770,7 +948,7 @@ export async function resolveCellValue(
 	// lookup would return null for every cell of a live section_list (zenon8
 	// lists zenon3..zenon6), which is a silent blank, not an absence.
 	if (getFlatValueFamily(model) === 'external') {
-		return resolveExternalCellValue(
+		const external = await resolveExternalCellValue(
 			model,
 			sectionTipo,
 			sectionId,
@@ -779,12 +957,34 @@ export async function resolveCellValue(
 			itemSeparator,
 			opts,
 		);
+		return external === null ? null : [external];
 	}
 
 	// Every other family reads the MATRIX record: a non-address (an external
 	// remote id reaching a stored-family column) addresses no row.
 	const address = matrixRecordAddress(sectionId);
 	if (address === null) return null;
+
+	// INVERSE (component_inverse): DERIVED — the host record's backlinks, never
+	// its empty `misc` slot, so no record load. One item per backlink locator
+	// (the caller record's id), in the edit view's order (section_id ASC) and
+	// under the edit view's scope: the ALS principal (this is the request-path
+	// flat reader), unreadable owners dropped (scopeInverseReferenceHits). A
+	// malformed backlink (no owner section / component) is skipped, as PHP
+	// component_inverse::get_export_value does.
+	if (getFlatValueFamily(model) === 'inverse') {
+		const parts = (await resolveInverseEntries(sectionTipo, address))
+			.filter(
+				(entry) =>
+					typeof entry.from_section_tipo === 'string' &&
+					entry.from_section_tipo !== '' &&
+					typeof entry.from_component_tipo === 'string' &&
+					entry.from_component_tipo !== '',
+			)
+			.map((entry) => String(entry.from_section_id));
+		return parts.length > 0 ? parts : null;
+	}
+
 	const table = await getMatrixTableFromTipo(sectionTipo);
 	if (table === null) return null;
 	// The loader seam consults AFTER the null-table early-return (parity
@@ -800,7 +1000,7 @@ export async function resolveCellValue(
 	if (family === 'section_id') {
 		// The record's own section_id (PHP component_section_id::get_value): the
 		// numeric id as a flat string. Used as an rsc424 relation_list column (rsc559).
-		return String(address);
+		return [String(address)];
 	}
 
 	if (family === 'string') {
@@ -813,10 +1013,10 @@ export async function resolveCellValue(
 		const items = (value && value.length > 0 ? value : (fallbackValue ?? [])) as {
 			value?: unknown;
 		}[];
-		const parts = items
-			.map((item) => (item?.value === undefined || item.value === null ? '' : String(item.value)))
-			.filter((part) => part !== '');
-		return parts.length > 0 ? parts.join(itemSeparator) : null;
+		const parts = items.map((item) =>
+			item?.value === undefined || item.value === null ? '' : String(item.value),
+		);
+		return keptItems(parts, opts);
 	}
 
 	if (family === 'date') {
@@ -833,40 +1033,20 @@ export async function resolveCellValue(
 		const dateMode = dateModeOf((await getNode(componentTipo))?.properties);
 		const periodLabels = dateMode === 'period' ? await resolvePeriodLabels() : undefined;
 		const { value } = await resolveComponentValue(record, componentTipo, model, lang);
-		const parts = ((value ?? []) as unknown[])
-			.map((item) =>
-				item === null || item === undefined || typeof item !== 'object'
-					? ''
-					: dateItemToValue(item as Record<string, unknown>, dateMode, { periodLabels }),
-			)
-			.filter((part) => part !== '');
-		return parts.length > 0 ? parts.join(itemSeparator) : null;
+		const parts = ((value ?? []) as unknown[]).map((item) =>
+			item === null || item === undefined || typeof item !== 'object'
+				? ''
+				: dateItemToValue(item as Record<string, unknown>, dateMode, { periodLabels }),
+		);
+		return keptItems(parts, opts);
 	}
 
 	if (family === 'iri') {
-		// Flat iri: the iri value + its label-dataframe field joined ', ' per item
-		// ('Les dracmes empuritanes, Zenon'). v6 get_grid_value :466-483 — iri
-		// FIRST, then the title, the opposite order from get_diffusion_value.
-		//
-		// The title itself is the dd560 label and NEVER the stored `title` key:
-		// that rule (which frames pair with which item, which components carry
-		// the label, and "no frame ⇒ no title") lives in ONE place,
-		// components/component_iri/resolve_title.ts. Only the order and this
-		// path's own record seam are local.
-		const iriItems = ((record.columns.iri as Record<string, unknown[]> | null)?.[componentTipo] ??
-			[]) as { iri?: unknown; id?: number | string }[];
-		const titles = await resolveIriTitles(record, componentTipo, (frame) =>
-			resolveIriFrameTitle(frame, lang, unresolved, opts),
+		// An iri title is read on its label FRAME's record — a crossing, so the
+		// cycle guard applies (an iri whose label component is itself an iri).
+		return withCycleGuard(sectionTipo, address, componentTipo, unresolved, opts, null, (guarded) =>
+			resolveIriCellItems(record, componentTipo, lang, unresolved, guarded),
 		);
-		const parts: string[] = [];
-		for (const item of iriItems) {
-			const fields: string[] = [];
-			if (typeof item?.iri === 'string' && item.iri !== '') fields.push(item.iri);
-			const title = titles.get(String(item?.id));
-			if (title !== undefined) fields.push(title);
-			if (fields.length > 0) parts.push(fields.join(', '));
-		}
-		return parts.length > 0 ? parts.join(itemSeparator) : null;
 	}
 
 	if (family === 'datalist') {
@@ -879,7 +1059,7 @@ export async function resolveCellValue(
 			opts,
 		);
 		const parts = targets.flatMap((target) => target.parts);
-		return parts.length > 0 ? parts.join(itemSeparator) : null;
+		return parts.length > 0 ? parts : null;
 	}
 
 	// MEDIA components: the export cell is the ABSOLUTE URL of the model's
@@ -911,19 +1091,159 @@ export async function resolveCellValue(
 				parts.push(`${mediaBase}${entry.file_path}`);
 			}
 		}
-		return parts.length > 0 ? parts.join(itemSeparator) : null;
+		// D3: the export leaf's media atom exists even without a URL (PHP
+		// from_scalar($path, '')) — the reached component keeps its slot.
+		if (parts.length === 0 && opts?.keepEmptyItems === true) return [''];
+		return parts.length > 0 ? parts : null;
 	}
 
 	if (!unresolved.includes(model)) unresolved.push(model);
 	return null;
 }
 
+/**
+ * A literal family's items (one per stored data item): empties dropped for
+ * every interactive reader; KEPT for the export leaf (opts.keepEmptyItems, T0-9
+ * D3). No stored item ⇒ null either way (PHP: no atom).
+ */
+function keptItems(parts: string[], opts: CellValueResolveOptions | undefined): string[] | null {
+	const kept = opts?.keepEmptyItems === true ? parts : parts.filter((part) => part !== '');
+	return kept.length > 0 ? kept : null;
+}
+
+/**
+ * Flat iri: the iri value + its label-dataframe field joined per item
+ * (resolveCellItems' iri branch, inside its cycle guard).
+ */
+async function resolveIriCellItems(
+	record: MatrixRecord,
+	componentTipo: string,
+	lang: string,
+	unresolved: string[],
+	opts: CellValueResolveOptions,
+): Promise<string[] | null> {
+	// (default ', ')
+	// ('Les dracmes empuritanes, Zenon'). v6 get_grid_value :466-483 — iri
+	// FIRST, then the title, the opposite order from get_diffusion_value.
+	//
+	// The title itself is the dd560 label and NEVER the stored `title` key:
+	// that rule (which frames pair with which item, which components carry
+	// the label, and "no frame ⇒ no title") lives in ONE place,
+	// components/component_iri/resolve_title.ts. Only the order and this
+	// path's own record seam are local.
+	const titles = await resolveIriTitles(record, componentTipo, (frame) =>
+		resolveIriFrameTitle(frame, lang, unresolved, opts),
+	);
+	const glue = await iriFieldsGlue(componentTipo, opts);
+	const parts: string[] = [];
+	for (const item of storedIriItems(record, componentTipo)) {
+		const part = joinIriItemFields(item, titles.get(String(item?.id)), glue);
+		if (part !== null) parts.push(part);
+	}
+	return parts.length > 0 ? parts : null;
+}
+
+/** One stored component_iri item (raw: either key may be missing). */
+type StoredIriItem = { iri?: unknown; id?: number | string };
+
+/** The stored iri items of `componentTipo` on the record ([] when none). */
+function storedIriItems(record: MatrixRecord, componentTipo: string): StoredIriItem[] {
+	return ((record.columns.iri as Record<string, unknown[]> | null)?.[componentTipo] ??
+		[]) as StoredIriItem[];
+}
+
+/** The glue: caller ddo → properties → ', ' (PHP component_iri :354-358). */
+async function iriFieldsGlue(
+	componentTipo: string,
+	opts: CellValueResolveOptions,
+): Promise<string> {
+	return (
+		opts?.iriFieldsSeparator ??
+		(await componentSeparators(componentTipo, false)).fields ??
+		IRI_FIELDS_SEPARATOR
+	);
+}
+
+/**
+ * One item's cell text: the non-empty iri FIRST, then its title, glued; null
+ * when the item has neither (the item contributes nothing).
+ */
+function joinIriItemFields(
+	item: StoredIriItem,
+	title: string | undefined,
+	glue: string,
+): string | null {
+	const fields: string[] = [];
+	if (typeof item?.iri === 'string' && item.iri !== '') fields.push(item.iri);
+	if (title !== undefined) fields.push(title);
+	return fields.length > 0 ? fields.join(glue) : null;
+}
+
+/** PHP component_iri::get_export_value value+title glue default (:358). */
+const IRI_FIELDS_SEPARATOR = ', ';
+
 /** The component's declared show.fields_separator (?? ', ', PHP default). */
 const cellFieldsSeparatorCache = createOntologyCache<string, string>();
 
-/** Drop the ontology-derived fields_separator cache. */
+/** A component's OWN declared separators (null = none declared). */
+export interface ComponentSeparators {
+	readonly fields: string | null;
+	readonly records: string | null;
+}
+
+/** `${tipo}|${withShow}` → its declared separators (ontology-derived). */
+const componentSeparatorsCache = createOntologyCache<string, ComponentSeparators>();
+
+/** Drop the ontology-derived separator caches. */
 export function clearFieldsSeparatorCache(): void {
 	cellFieldsSeparatorCache.clear();
+	componentSeparatorsCache.clear();
+}
+
+/**
+ * The separators a component DECLARES for the export join (PHP
+ * get_export_value precedence below the caller ddo): a relation reads its own
+ * request_config `show` first (`withShow` — component_relation_common :763),
+ * then its `properties` (every model — component_common
+ * build_export_path_segment); null where nothing is declared (the join's
+ * defaults then apply). The caller-ddo rung is the caller's (the export walk
+ * holds the map entry). Ontology-derived, principal-free.
+ */
+export async function componentSeparators(
+	componentTipo: string,
+	withShow: boolean,
+): Promise<ComponentSeparators> {
+	const cacheKey = `${componentTipo}|${withShow ? 1 : 0}`;
+	const cached = componentSeparatorsCache.get(cacheKey);
+	if (cached !== undefined) return cached;
+	const properties = ((await getNode(componentTipo))?.properties ?? null) as {
+		source?: { request_config?: unknown };
+		fields_separator?: unknown;
+		records_separator?: unknown;
+	} | null;
+	let show: { fields_separator?: unknown; records_separator?: unknown } | undefined;
+	const rcs = properties?.source?.request_config;
+	if (withShow && Array.isArray(rcs)) {
+		const { selectConfigItemForConcern } = await import(
+			'../relations/request_config/engine_select.ts'
+		);
+		const main = await selectConfigItemForConcern(
+			rcs as never,
+			'listColumns',
+			'resolve/relation_list.componentSeparators',
+		);
+		show = (main as { show?: typeof show } | null | undefined)?.show;
+	}
+	const pick = (...candidates: unknown[]): string | null => {
+		for (const candidate of candidates) if (typeof candidate === 'string') return candidate;
+		return null;
+	};
+	const separators: ComponentSeparators = {
+		fields: pick(show?.fields_separator, properties?.fields_separator),
+		records: pick(show?.records_separator, properties?.records_separator),
+	};
+	componentSeparatorsCache.set(cacheKey, separators);
+	return separators;
 }
 registerOntologyCacheClearer(clearFieldsSeparatorCache);
 /** Exported for the export projection (P6): same separator, ONE cache. */
@@ -1053,7 +1373,7 @@ export async function buildRelationList(
 		// First sight of a section: emit its context columns (id + grid columns).
 		let columns = columnsBySection.get(hit.section_tipo);
 		if (columns === undefined) {
-			columns = await getRelationListColumns(hit.section_tipo);
+			columns = await authorizedRelationListColumns(hit.section_tipo);
 			columnsBySection.set(hit.section_tipo, columns);
 			const sectionLabel = await termByTipo(hit.section_tipo, lang);
 			context.push({

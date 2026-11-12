@@ -234,6 +234,39 @@ export const NO_ALTERNATE_BUILDER_REASON: Readonly<Record<MediaModel, string | n
 		'the 3d derivative is likewise a naive copy (regenerate3d in core/media/processing.ts) because the format converters are ledgered PHP-dead — nothing in this engine can transcode a mesh',
 };
 
+/**
+ * WHICH MASTER FILES MAY BE A DERIVATIVE SOURCE — the census `resolveMaster`
+ * (core/media/processing.ts) filters its walk through.
+ *
+ *  - `any_upload`: every allowlisted raw is something this type's builders can
+ *    read (ImageMagick a tif/psd, ffmpeg a mov, the svg/3d byte copies).
+ *  - `default_extension`: ONLY the type's default format is. component_pdf's
+ *    original tier holds the AUTHORED document (`.doc`, `.odt`, `.pages`…) side by
+ *    side with its PDF RENDITION — the v6 coexistence law the owner kept on
+ *    2026-11-11 (frozen component_pdf::rename_old_files :663, v6 :570) — and every
+ *    pdf builder (web byte copy, page-1 thumb, covers, transcription) reads PDF
+ *    only. Walking the allowlist here copied `.doc` bytes into `web/<id>.pdf`.
+ *    An original with no PDF beside it has NO derivative source: the record shows
+ *    no web copy, honestly, and the ingest says why.
+ */
+export const DERIVATIVE_SOURCE_BY_MODEL: Readonly<
+	Record<MediaModel, 'any_upload' | 'default_extension'>
+> = {
+	component_image: 'any_upload',
+	component_av: 'any_upload',
+	component_pdf: 'default_extension',
+	component_svg: 'any_upload',
+	component_3d: 'any_upload',
+};
+
+/** True when a master file of `extension` may feed this type's derivative builders. */
+export function isDerivativeSourceExtension(spec: MediaTypeSpec, extension: string): boolean {
+	return (
+		DERIVATIVE_SOURCE_BY_MODEL[spec.model] === 'any_upload' ||
+		extension.toLowerCase() === spec.defaultExtension.toLowerCase()
+	);
+}
+
 /** The thumb quality name from config (shared across types). */
 export function thumbQuality(): string {
 	return config.media.thumb.quality;

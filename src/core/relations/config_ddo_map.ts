@@ -56,6 +56,8 @@
 export interface ConfigDdoMapSource {
 	readonly show?: { ddo_map?: unknown } | null;
 	readonly hide?: { ddo_map?: unknown } | null;
+	/** Read only by the skip log (logsEmptyShowMap): does the item target any section? */
+	readonly sqo?: { section_tipo?: unknown } | null;
 }
 
 /** A raw ddo entry — shape is the caller's business; only `tipo` is assumed. */
@@ -116,6 +118,33 @@ export interface FlattenConfigDdoMapsOptions {
 	 * the dedup slot of a later item's show ddo it collides with.
 	 */
 	readonly includeHideDdos?: boolean;
+	/**
+	 * The owner's model, when the caller has it — read ONLY to recognise the
+	 * relation_index base placeholder (logsEmptyShowMap). Unknown = every
+	 * empty map is logged (the safe side: noise, never a silenced drop).
+	 */
+	readonly ownerModel?: string | null;
+}
+
+/**
+ * Whether an item skipped for its empty show map is LOGGED: whenever the
+ * caller opted in — the drop an operator must see (permissions emptied a map)
+ * — EXCEPT the one placeholder identified explicitly: the base item of a
+ * config-less component_relation_index (implicit.ts relationIndexBaseConfig:
+ * an owner of THAT model whose item targets no section and shows nothing),
+ * whose targets and columns are merged in per read, on the element node.
+ * "Targets nothing" alone is not the test: a config-less portal whose target
+ * section is unresolved also carries `sqo.section_tipo: []`, and its drop must
+ * stay visible.
+ */
+function logsEmptyShowMap(
+	item: ConfigDdoMapSource | null | undefined,
+	options: FlattenConfigDdoMapsOptions,
+): boolean {
+	if (options.logEmptyShowMap !== true) return false;
+	if (options.ownerModel !== 'component_relation_index') return true;
+	const targets = item?.sqo?.section_tipo;
+	return !Array.isArray(targets) || targets.length > 0;
 }
 
 /** Flatten EVERY config item's show (+ hide, unless refused) maps into one deduped list. */
@@ -133,7 +162,7 @@ export function flattenConfigDdoMaps(
 			// PHP :2317-2326 — the whole item is skipped, hide map included. The
 			// usual cause is step-11 permission drops emptying the map, which an
 			// operator must be able to see.
-			if (options.logEmptyShowMap === true) {
+			if (logsEmptyShowMap(item, options)) {
 				console.warn(
 					`[relations/config_ddo_map] ${options.ownerTipo}: request_config item with an empty show.ddo_map ignored (its hide map too) — PHP class.common.php:2317`,
 				);

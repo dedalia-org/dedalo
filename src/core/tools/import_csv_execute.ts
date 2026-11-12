@@ -70,6 +70,17 @@ import {
 import type { PlannedColumn, PlannedRecord } from './import_csv.ts';
 import { groupItemsByLang } from './import_data.ts';
 import { isFieldWriteRefusal } from './import_field_refusal.ts';
+import {
+	appendLabelKey,
+	IRI_LABEL_SLOT,
+	type LabelLocks,
+	type LabelledIriItem,
+	labelFrame,
+	labelledItemsOf,
+	lockLabelTexts,
+	preallocateLabelledIds,
+	resolveIriLabels,
+} from './import_iri_label.ts';
 import type { ImportFileReport, ImportProgressFrame, ImportRowIssue } from './import_wire.ts';
 
 /**
@@ -169,6 +180,18 @@ interface RowWriteContext {
 	row: number;
 	/** The file's warnings channel (IGNORED frames are reported as they arise). */
 	warnings: ImportRowIssue[];
+	/** The file's failures channel (a refused column is reported and skipped). */
+	failed: ImportRowIssue[];
+	/**
+	 * Warnings that only hold if the row COMMITS (an iri label resolved to the
+	 * lowest of several records) — flushed with `skipped`, after the commit.
+	 */
+	deferredWarnings: ImportRowIssue[];
+	/**
+	 * The row's iri label locks (T0-12), taken FIRST in the row's transaction —
+	 * before the create and every column write (`rowLabelledItems`).
+	 */
+	labelLocks: LabelLocks;
 	/**
 	 * This row's APPEND main saves: column tipo → file item id (String()) →
 	 * final stored id. Pass 2 re-pairs frame `id_key`s through it.
@@ -643,8 +666,16 @@ function isFileItemId(id: unknown): boolean {
 	return typeof id === 'string' && id !== '';
 }
 
-/** REPLACE write of a column's data (the pre-append behaviour, unchanged). */
-async function writeReplaceData(column: PlannedColumn, ctx: RowWriteContext): Promise<void> {
+/**
+ * REPLACE write of a column's data (the pre-append behaviour, unchanged).
+ * `groups`: the lang groups to save — the conform result's by default, the
+ * id-prepared ones for a labelled iri column (replaceLabelledIri).
+ */
+async function writeReplaceData(
+	column: PlannedColumn,
+	ctx: RowWriteContext,
+	groups: ReadonlyMap<string, unknown[]> = groupItemsByLang(column.conform.result, column.lang),
+): Promise<void> {
 	const base = {
 		componentTipo: column.tipo,
 		sectionTipo: ctx.sectionTipo,
@@ -653,7 +684,6 @@ async function writeReplaceData(column: PlannedColumn, ctx: RowWriteContext): Pr
 		bulkProcessId: ctx.bulkProcessId,
 		skipModifiedStamp: ctx.skipModifiedStamp,
 	};
-	const groups = groupItemsByLang(column.conform.result, column.lang);
 	if (groups.size === 0) {
 		// An explicit CLEAR (empty cell).
 		await saveOrRefuse({
@@ -677,8 +707,12 @@ async function writeReplaceData(column: PlannedColumn, ctx: RowWriteContext): Pr
  * append never clears. The file-id → final-id maps of every lang save are
  * merged under the column tipo for pass 2.
  */
-async function writeAppendData(column: PlannedColumn, ctx: RowWriteContext): Promise<void> {
-	const groups = await appendLangGroups(column);
+async function writeAppendData(
+	column: PlannedColumn,
+	ctx: RowWriteContext,
+	langGroups?: [string, unknown[]][],
+): Promise<void> {
+	const groups = langGroups ?? (await appendLangGroups(column));
 	if (groups.length === 0) return;
 	const shared = await resolveSharedIds(column, groups, ctx);
 	// Keyed by the DATA tipo: a frame's main_component_tipo names it (stored
@@ -742,6 +776,10 @@ function mergeFirstIds(
 
 /** A column's data write, by mode and by kind (main data vs dataframe slot). */
 async function writeColumnData(column: PlannedColumn, ctx: RowWriteContext): Promise<void> {
+	if (hasIriLabels(column)) {
+		await writeLabelledIriColumn(column, ctx);
+		return;
+	}
 	if (column.mode !== 'append') {
 		await assertReplaceSlotSparesAppendMains(column, ctx);
 		await writeReplaceData(column, ctx);
@@ -752,6 +790,168 @@ async function writeColumnData(column: PlannedColumn, ctx: RowWriteContext): Pro
 		return;
 	}
 	await writeAppendData(column, ctx);
+}
+
+// ---------------------------------------------------------------------------
+// component_iri LABELS (T0-12): conform states each label as an intent
+// (`conform.derivedFrames`); the row resolves it (import_iri_label.ts), saves
+// the main data with every labelled item's FINAL id known, then writes one
+// dd560 frame per labelled item — the editor's stored shape.
+// ---------------------------------------------------------------------------
+
+/** A column whose conform carries iri label intents. */
+function hasIriLabels(column: PlannedColumn): boolean {
+	return (column.conform.derivedFrames?.length ?? 0) > 0;
+}
+
+/**
+ * Every labelled iri item of the ROW (each conform-clean column's label
+ * intents) — what `lockLabelTexts` locks before the row writes anything. A
+ * column later skipped (unauthorized) only locks a label it does not use.
+ */
+function rowLabelledItems(record: PlannedRecord): LabelledIriItem[] {
+	return record.columns
+		.filter((column) => column.conform.errors.length === 0 && hasIriLabels(column))
+		.flatMap((column) => labelledItemsOf(column.conform.result, column.conform.derivedFrames));
+}
+
+/** One labelled item's frame to write: the main item it pairs with and its dd1706 record. */
+interface LabelPairing {
+	idKey: number;
+	labelId: number;
+}
+
+/**
+ * A labelled iri column: resolve the labels (a refusal — unknown label id, a
+ * label the importer may not create — refuses the COLUMN: reported, nothing
+ * written, never an iri written label-less), save the data by mode, then the
+ * frames.
+ */
+async function writeLabelledIriColumn(column: PlannedColumn, ctx: RowWriteContext): Promise<void> {
+	const labelled = labelledItemsOf(column.conform.result, column.conform.derivedFrames);
+	const resolution = await resolveIriLabels(labelled, {
+		principal: ctx.principal,
+		userId: ctx.userId,
+		bulkProcessId: ctx.bulkProcessId,
+		componentTipo: column.tipo,
+		locks: ctx.labelLocks,
+	});
+	if (!resolution.ok) {
+		ctx.failed.push(rowIssue(ctx, column.tipo, resolution.refusal));
+		return;
+	}
+	for (const warning of resolution.warnings) {
+		ctx.deferredWarnings.push(rowIssue(ctx, column.tipo, warning));
+	}
+	const idOf =
+		column.mode === 'append'
+			? await appendLabelledIri(column, ctx, labelled)
+			: await replaceLabelledIri(column, ctx, labelled);
+	const pairings = labelled.map(({ item }) => ({
+		idKey: pairedLabelItemId(idOf, item, column),
+		labelId: resolution.labelOf.get(item) as number,
+	}));
+	await writeLabelFrames(pairings, column, ctx);
+}
+
+/** A report line about this row's column. */
+function rowIssue(ctx: RowWriteContext, tipo: string, msg: string): ImportRowIssue {
+	return { section_id: ctx.sectionId, component_tipo: tipo, msg, data: null, row: ctx.row };
+}
+
+/** A labelled item's final id, or a refusal (the item did not land, so its label has nothing to frame). */
+function pairedLabelItemId(
+	idOf: ReadonlyMap<object, unknown>,
+	item: object,
+	column: PlannedColumn,
+): number {
+	const id = Number(idOf.get(item));
+	if (Number.isSafeInteger(id) && id >= 1) return id;
+	throw rowRefusal(
+		`a labelled iri item of '${column.tipo}' has no stored item id to pair its label frame with`,
+		column.tipo,
+	);
+}
+
+/** REPLACE: pre-allocate the labelled items' ids in the row tx, then the usual per-lang replace save. */
+async function replaceLabelledIri(
+	column: PlannedColumn,
+	ctx: RowWriteContext,
+	labelled: readonly LabelledIriItem[],
+): Promise<Map<object, number>> {
+	const { groups, idOf } = await preallocateLabelledIds(
+		groupItemsByLang(column.conform.result, column.lang),
+		labelled,
+		{
+			table: ctx.table,
+			sectionTipo: ctx.sectionTipo,
+			sectionId: ctx.sectionId,
+			dataTipo: dataTipoOf(column),
+		},
+	);
+	await writeReplaceData(column, ctx, groups);
+	return idOf;
+}
+
+/**
+ * APPEND: a labelled item without a file id carries an import-local key
+ * (`appendLabelKey`) into the append save, whose `appendedIdMap` then names its
+ * final id — the new item's, or the EXISTING item's when it was a duplicate.
+ */
+async function appendLabelledIri(
+	column: PlannedColumn,
+	ctx: RowWriteContext,
+	labelled: readonly LabelledIriItem[],
+): Promise<Map<object, unknown>> {
+	const labelledItems = new Set<object>(labelled.map(({ item }) => item));
+	const keyOf = new Map<object, string>();
+	const keyed = (lang: string, item: unknown, index: number): unknown => {
+		if (!isObject(item) || !labelledItems.has(item)) return item;
+		if (isFileItemId(item.id)) {
+			keyOf.set(item, String(item.id));
+			return item;
+		}
+		const key = appendLabelKey(lang, index);
+		keyOf.set(item, key);
+		return { ...item, id: key };
+	};
+	const groups = (await appendLangGroups(column)).map(([lang, items]): [string, unknown[]] => [
+		lang,
+		items.map((item, index) => keyed(lang, item, index)),
+	]);
+	await writeAppendData(column, ctx, groups);
+	const idMap = ctx.appendedIds.get(dataTipoOf(column));
+	return new Map([...keyOf].map(([item, key]) => [item, idMap?.get(key)]));
+}
+
+/**
+ * One dd560 save per labelled item, through the ENGINE with the caller pairing
+ * (main = the column's data tipo, id_key = the item's final id): the insert law
+ * normalizes the frame (dd490, server-stamped pairing, INT section_id, own id).
+ * REPLACE replaces THAT item's frames only (the paired merge keeps every other
+ * item's — another language slice's labels survive). APPEND merges: the same
+ * label is skipped, a DIFFERENT label on a duplicate item exceeds the slot's
+ * `data_limit` and refuses the row (loud).
+ */
+async function writeLabelFrames(
+	pairings: readonly LabelPairing[],
+	column: PlannedColumn,
+	ctx: RowWriteContext,
+): Promise<void> {
+	for (const { idKey, labelId } of pairings) {
+		await saveOrRefuse({
+			componentTipo: IRI_LABEL_SLOT,
+			sectionTipo: ctx.sectionTipo,
+			sectionId: ctx.sectionId,
+			lang: 'lg-nolan',
+			changedData: [{ action: 'set_data', id: null, value: [labelFrame(labelId)] }],
+			callerDataframe: { main_component_tipo: dataTipoOf(column), id_key: idKey },
+			userId: ctx.userId,
+			bulkProcessId: ctx.bulkProcessId,
+			skipModifiedStamp: ctx.skipModifiedStamp,
+			...(column.mode === 'append' ? { appendImport: true as const } : {}),
+		});
+	}
 }
 
 /** A legacy envelope's frames, by the carrying column's mode. */
@@ -902,7 +1102,7 @@ type RowMetadata = { createdDate?: string; createdByUserId?: number };
 async function columnAuthorized(
 	column: PlannedColumn,
 	row: number,
-	ctx: RowWriteContext & { failed: ImportRowIssue[] },
+	ctx: RowWriteContext,
 ): Promise<boolean> {
 	for (const { tipo, frameOf } of columnDoorTargets(column)) {
 		const refusal = await componentRefusal(ctx, tipo, frameOf);
@@ -931,7 +1131,11 @@ async function columnAuthorized(
  */
 function columnDoorTargets(column: PlannedColumn): { tipo: string; frameOf?: FrameOf }[] {
 	const targets = new Map<string, { tipo: string; frameOf?: FrameOf }>();
-	for (const [tipo, mainTipo] of [...ownColumnPairs(column), ...legacyFramePairs(column)]) {
+	for (const [tipo, mainTipo] of [
+		...ownColumnPairs(column),
+		...legacyFramePairs(column),
+		...iriLabelPairs(column),
+	]) {
 		const key = `${tipo}|${mainTipo ?? ''}`;
 		if (targets.has(key)) continue;
 		targets.set(key, mainTipo === null ? { tipo } : { tipo, frameOf: { mainTipo } });
@@ -944,6 +1148,11 @@ function ownColumnPairs(column: PlannedColumn): [string, string | null][] {
 	const mains = column.model === DATAFRAME_MODEL ? frameMains(conformFrames(column), null) : [];
 	if (mains.length === 0) return [[column.tipo, null]];
 	return mains.map((main): [string, string] => [column.tipo, main]);
+}
+
+/** A labelled iri column writes the label slot (dd560), framing its own data tipo (T0-12, T0-4). */
+function iriLabelPairs(column: PlannedColumn): [string, string | null][] {
+	return hasIriLabels(column) ? [[IRI_LABEL_SLOT, dataTipoOf(column)]] : [];
 }
 
 /** Each slot the column's legacy {data, dataframe} envelope frames name, with that frame's main. */
@@ -1028,7 +1237,7 @@ async function authorizeRowComponent(
  */
 async function writeRowPassOne(
 	record: PlannedRecord,
-	ctx: RowWriteContext & { failed: ImportRowIssue[] },
+	ctx: RowWriteContext,
 	metadata: RowMetadata,
 	publishColumn: (tipo: string) => void,
 ): Promise<PlannedColumn[]> {
@@ -1052,7 +1261,7 @@ async function writeRowPassOne(
 async function columnWritable(
 	column: PlannedColumn,
 	row: number,
-	ctx: RowWriteContext & { failed: ImportRowIssue[] },
+	ctx: RowWriteContext,
 ): Promise<boolean> {
 	return (await columnAuthorized(column, row, ctx)) && collectConformIssues(column, row, ctx);
 }
@@ -1061,11 +1270,7 @@ async function columnWritable(
  * A column's conform issues into the row report: errors to `failed` (false —
  * the column is skipped), warnings to `warnings` (true — it is written).
  */
-function collectConformIssues(
-	column: PlannedColumn,
-	row: number,
-	ctx: RowWriteContext & { failed: ImportRowIssue[] },
-): boolean {
+function collectConformIssues(column: PlannedColumn, row: number, ctx: RowWriteContext): boolean {
 	if (column.conform.errors.length > 0) {
 		for (const error of column.conform.errors) ctx.failed.push({ ...error, row });
 		return false;
@@ -1188,7 +1393,7 @@ export async function executeCsvImport(request: CsvExecuteRequest): Promise<Impo
 		);
 
 		const isNew = !existing.has(sectionId);
-		const ctx: RowWriteContext & { failed: ImportRowIssue[] } = {
+		const ctx: RowWriteContext = {
 			failed,
 			table,
 			sectionTipo,
@@ -1200,6 +1405,8 @@ export async function executeCsvImport(request: CsvExecuteRequest): Promise<Impo
 			skipModifiedStamp: carriesModifiedMetadata,
 			row: record.row,
 			warnings,
+			deferredWarnings: [],
+			labelLocks: new Map(),
 			appendedIds: new Map(),
 			appendMains: appendMainsOf(record),
 			skipped: new Map(),
@@ -1210,6 +1417,9 @@ export async function executeCsvImport(request: CsvExecuteRequest): Promise<Impo
 			const publishColumn = (tipo: string): void => publish(record, tipo, false);
 			// ONE transaction for the row: create + every component + its frames.
 			await withTransaction(async () => {
+				// FIRST, before any other lock or write of the row: every iri label
+				// lock of the row, once, in sorted fold order (no crossed-order deadlock).
+				ctx.labelLocks = await lockLabelTexts(rowLabelledItems(record));
 				if (isNew) {
 					// THE WRITE DOOR (req 10): a create at the section level — refused,
 					// the row rolls back and is reported like any row failure.
@@ -1257,6 +1467,7 @@ export async function executeCsvImport(request: CsvExecuteRequest): Promise<Impo
 					row: record.row,
 				});
 			}
+			warnings.push(...ctx.deferredWarnings);
 
 			if (ctx.isNew) {
 				created.push(sectionId);

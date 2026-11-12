@@ -167,6 +167,13 @@ export type SearchBuilderFamily = 'string' | 'number' | 'date' | 'iri' | 'sectio
  *   family, not 'string', because 'string' means "lang-slice the stored jsonb
  *   value", and this model stores none: declaring 'string' would resolve every
  *   cell to a silent null while claiming a value exists.
+ * - 'inverse': DERIVED backlinks (component_inverse) — the caller records' ids.
+ *   The export walk emits one atom per caller under a caller-pair sub-segment
+ *   (from_section_tipo, from_component_tipo) carrying the caller's position as
+ *   item_index, so breakdown spreads callers
+ *   (WC-2026-11-11-export-inverse-callers); a flat cell is the ids joined. Its
+ *   own family for the same reason
+ *   as 'external': there is no stored value to slice.
  * Models with no family declared are LEDGERED unresolved by the consumers
  * (value null + a note, never a guessed string).
  */
@@ -177,7 +184,8 @@ export type FlatValueFamily =
 	| 'date'
 	| 'iri'
 	| 'media'
-	| 'external';
+	| 'external'
+	| 'inverse';
 
 /**
  * RENDER CLASS (audit P2-6 / CARRY-01 — XSS-03): what the client may DO with
@@ -274,6 +282,26 @@ export interface ComponentModel {
 	 * flag. Only these lang-filter their data items. Consumed by component_data.
 	 */
 	readonly classSupportsTranslation?: boolean;
+	/**
+	 * MODEL RULE on the ontology NODE flag (`dd_ontology.is_translatable`, source
+	 * ontology8): the value every node of this model MUST declare. Only `false` exists —
+	 * "this model is never translatable" — and today only component_iri states it (an IRI
+	 * has no language; per-language IRIs are language VERSIONS, base value lg-nolan).
+	 *
+	 * NOT the same question as classSupportsTranslation: that one says whether the CLASS
+	 * lang-filters its items (component_iri does — its language versions); this one says
+	 * what the ontology node may declare. A node that breaks it is an ONTOLOGY bug, fixed in
+	 * the master ontology: the engine never overrides the flag, it REPORTS the node
+	 * (ontology/model_rules.ts → OntologyState.modelRuleViolations, the health check every
+	 * install runs; the shipped release is gated by
+	 * test/unit/ontology_model_rules_shipped_tripwire.test.ts).
+	 *
+	 * OPTIONAL by design: omitted = no model rule, the node's flag is the ontology
+	 * author's choice (the case of every other model). A required facet would make ~70
+	 * descriptors restate "no rule" — no information, nothing a gate could check. The set
+	 * of models that DO state it is pinned by descriptor_completeness_tripwire.
+	 */
+	readonly ontologyTranslatable?: false;
 	/**
 	 * The relation resolver implementing this model's row-emission particularity
 	 * (only relation-column models), named as DATA (S2-20): the ID is resolved

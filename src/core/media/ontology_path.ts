@@ -31,6 +31,7 @@
  */
 
 import { readMatrixRecord } from '../db/matrix.ts';
+import { DedaloError } from '../errors/index.ts';
 import { getMatrixTableFromTipo, getModelByTipo, getNode } from '../ontology/resolver.ts';
 import { readComponentItems } from '../resolve/component_data.ts';
 import type { MediaIdentity, MediaPathOptions } from './path.ts';
@@ -50,7 +51,9 @@ import type { MediaIdentity, MediaPathOptions } from './path.ts';
  * came off it the same day, which is the intended lifecycle of an entry.
  * `section/record/duplicate_record.ts` and `media/repair.ts` came off it with
  * CLOSURE_PLAN Step 2 (CORE-5 / TOOLS-5): the duplicate copies through the
- * record-scoped walk, the repair resolves per record.)
+ * record-scoped walk, the repair resolves per record.
+ * `component_text_area/tag_endpoint.ts` came off it with T0-10: it resolves
+ * through the record-scoped `media/tag_locator.ts`.)
  */
 export const SECTION_SCOPED_PATH_OPTION_CALLERS: ReadonlyArray<{
 	readonly file: string;
@@ -65,10 +68,6 @@ export const SECTION_SCOPED_PATH_OPTION_CALLERS: ReadonlyArray<{
 		file: 'src/core/section/indexation_grid.ts',
 		reason:
 			'NOT migration debt: the grid resolves properties.additional_path ITSELF (mediaCellUrl), because its export grammar deliberately omits initial_media_path and is oracle-pinned — it reads this resolver only for the parts it shares. Its own resolution must stay in step with normalizeAdditionalPath',
-	},
-	{
-		file: 'src/core/components/component_text_area/tag_endpoint.ts',
-		reason: 'holds tag.section_id',
 	},
 	{
 		file: 'src/core/api/handlers/media_action_context.ts',
@@ -205,6 +204,15 @@ export function normalizeAdditionalPath(raw: string): string {
 	if (value === '') return '';
 	if (value.includes('\0')) {
 		throw new Error('additional_path value contains a NUL byte');
+	}
+	// The folder reaches HTML attributes VERBATIM: a glyph URL is an `<img src>`,
+	// and the published render html-entity-decodes its whole output (PHP parity),
+	// so an escaped quote comes back as a real one and closes the attribute.
+	// No legitimate folder name needs these characters (T0-10).
+	if (/["<>]/.test(value)) {
+		throw new DedaloError('media.invalid_identifier', {
+			message: `additional_path value '${raw}' contains a character refused in a media path (" < >)`,
+		});
 	}
 	if (!value.startsWith('/')) value = `/${value}`;
 	if (value.endsWith('/')) value = value.slice(0, -1);

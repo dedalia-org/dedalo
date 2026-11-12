@@ -18,14 +18,18 @@
  *                            on the node's date_mode; the shape corpus itself
  *                            lives in date_flat_value_native.test.ts;
  *   - family 'iri'         → the bare iri (the stored `title` must NOT leak);
- *   - family 'media'       → exportBase + the default-quality file_path, and a
- *                            media model with no default quality → ledgered;
+ *   - family 'media'       → exportBase + the default-quality file_path (pdf
+ *                            and 3d; exportBase unset → ledgered);
  *   - family 'datalist'    → the two halves of resolveRelationTargetValues:
  *                            the CONFIG-CHILDREN branch (skips invalid
  *                            locators, joins by the component's
- *                            fields_separator, stored order) and the
- *                            no-children DATALIST branch (keeps every locator
- *                            slot, labels via resolveLocatorLabels);
+ *                            fields_separator, stored order — test80, and
+ *                            test101 component_filter → dd156 since T0-9) and
+ *                            the no-children DATALIST branch (keeps every
+ *                            locator slot, labels via resolveLocatorLabels —
+ *                            test70, a filter_master with no config and no
+ *                            relations, the one playground relation left
+ *                            without children);
  *   - an uncovered model   → null + a LEDGERED `unresolved` entry, never a
  *                            guessed string;
  *   - the `loadRecord` seam, including the parity keystone that it is
@@ -39,6 +43,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { config } from '../../src/config/config.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { exportConfigChildren } from '../../src/core/relations/config_children.ts';
 import {
 	resolveCellValue,
 	resolveRelationTargetValues,
@@ -129,11 +134,19 @@ beforeAll(async () => {
 
 	// The relation owner. test80 is a component_portal whose ontology config
 	// declares ONE child (test52) — the config-children branch. test101 is a
-	// component_filter with NO config children — the datalist branch. Both
-	// carry a deliberately INVALID first locator in the test101 slot.
+	// component_filter (children dd156 since T0-9 — the children branch too).
+	// test70 is a component_filter_master with NO `relations` and no config —
+	// NO children at all, the DATALIST branch. test101 and test70 carry a
+	// deliberately INVALID first locator.
+	const projectSlots = (from: string) =>
+		JSON.stringify([
+			// no section_tipo — a corrupt/half-written locator slot
+			{ id: 1, type: 'dd675', section_id: '1' },
+			{ id: 2, type: 'dd675', section_id: '1', section_tipo: 'dd153', from_component_tipo: from },
+		]);
 	await sql.unsafe(
 		`INSERT INTO matrix_test (section_id, section_tipo, relation)
-		 VALUES ($1, $2, jsonb_build_object('test80', $3::text::jsonb, 'test101', $4::text::jsonb))`,
+		 VALUES ($1, $2, jsonb_build_object('test80', $3::text::jsonb, 'test101', $4::text::jsonb, 'test70', $5::text::jsonb))`,
 		[
 			IDS.owner,
 			SECTION,
@@ -154,17 +167,8 @@ beforeAll(async () => {
 					from_component_tipo: 'test80',
 				},
 			]),
-			JSON.stringify([
-				// no section_tipo — a corrupt/half-written locator slot
-				{ id: 1, type: 'dd675', section_id: '1' },
-				{
-					id: 2,
-					type: 'dd675',
-					section_id: '1',
-					section_tipo: 'dd153',
-					from_component_tipo: 'test101',
-				},
-			]),
+			projectSlots('test101'),
+			projectSlots('test70'),
 		],
 	);
 }, 60000);
@@ -328,12 +332,37 @@ describe('resolveCellValue — per-family dispatch', () => {
 		}
 	});
 
-	test('a media model with no declared default quality is LEDGERED, never guessed', async () => {
-		// test26 is a component_3d — a media model the media CONTRACT declares
-		// no default quality for, so the cell is null and the model ledgered.
+	test("component_3d is family 'media': exportBase + its default-quality file_path", async () => {
+		// test26 is the test3 component_3d. Until 2026-11-11 it declared NO
+		// flatValue, so it fell through to the generic "uncovered model" ledger
+		// (null) — this gate then claimed the media contract has no default
+		// quality for 3d, which was never true (DEDALO_3D_QUALITY_DEFAULT). Every
+		// media model declares one, so the cell composes like any media model.
+		const { mediaTypeOf } = await import('../../src/core/concepts/media.ts');
+		const quality = mediaTypeOf('component_3d')?.defaultQuality;
+		expect(quality).toBeDefined();
+		const rows = (await sql.unsafe(
+			`SELECT media->'test26' AS items FROM matrix_test WHERE section_tipo = $1 AND section_id = 1`,
+			[SECTION],
+		)) as { items: { files_info?: { quality?: string; file_path?: string }[] }[] | null }[];
+		const path =
+			(rows[0]?.items?.[0]?.files_info ?? []).find((info) => info?.quality === quality)
+				?.file_path ?? '';
+		if (path === '') {
+			throw new Error(
+				`fixture missing: test3/1 test26 has no '${quality}' files_info — gate cannot assert`,
+			);
+		}
 		const unresolved: string[] = [];
-		expect(await resolveCellValue(SECTION, 1, 'test26', 'lg-eng', unresolved)).toBeNull();
-		expect(unresolved).toEqual(['component_3d']);
+		const value = await resolveCellValue(SECTION, 1, 'test26', 'lg-eng', unresolved);
+		const exportBase = config.media.exportBase;
+		if (exportBase === undefined || exportBase === '') {
+			expect(value).toBeNull();
+			expect(unresolved).toContain('component_3d');
+		} else {
+			expect(value).toBe(`${exportBase}${path}`);
+			expect(unresolved).toEqual([]);
+		}
 	});
 
 	test('an uncovered model is LEDGERED (null + unresolved), and ledgered ONCE', async () => {
@@ -489,12 +518,15 @@ describe('resolveRelationTargetValues — per-target halves', () => {
 		}
 	});
 
-	test('DATALIST branch (no config children): every locator slot survives, labelled', async () => {
-		// test101 is a component_filter: no config ddo_map and no COMPONENT
-		// implicit relations, so the target label comes from the datalist.
-		// Unlike the children branch, this half pushes a target for EVERY
-		// stored slot — the invalid first locator keeps index 0 with a null
-		// sectionTipo and no parts.
+	test('component_filter: children dd156, invalid slot skipped, the cell resolves (T0-9)', async () => {
+		// T0-9 D2/D5 (owner, 2026-11-11): a config-less component_filter's
+		// children are the edit form's own — dd156 (the project name at dd153,
+		// relations/config_children.ts) — so test101 takes the CHILDREN branch:
+		// a target per VALID slot (the invalid first locator is skipped, its
+		// index consumed), and component_filter IS a flat-value family now
+		// ('datalist'): resolveCellValue resolves the cell instead of ledgering it.
+		// (Until T0-9 test101 had no children and took the label branch, which
+		// pushes a target for every stored slot.)
 		const unresolved: string[] = [];
 		const targets = await resolveRelationTargetValues(
 			SECTION,
@@ -503,24 +535,40 @@ describe('resolveRelationTargetValues — per-target halves', () => {
 			'lg-eng',
 			unresolved,
 		);
-		expect(targets.length).toBe(2);
-		expect(targets[0]?.index).toBe(0);
-		expect(targets[0]?.sectionTipo).toBeNull();
-		expect(targets[0]?.parts).toEqual([]);
-		expect(targets[1]).toEqual({
-			index: 1,
-			sectionTipo: 'dd153',
-			sectionId: '1',
-			parts: ['General project'],
-		});
-		// resolveRelationTargetValues resolves the targets, but component_filter
-		// is NOT a flat-value family — resolveCellValue still ledgers it.
+		expect(targets).toEqual([
+			{ index: 1, sectionTipo: 'dd153', sectionId: '1', parts: ['General project'] },
+		]);
 		expect(unresolved).toEqual([]);
 		const cellUnresolved: string[] = [];
-		expect(
-			await resolveCellValue(SECTION, IDS.owner, 'test101', 'lg-eng', cellUnresolved),
-		).toBeNull();
-		expect(cellUnresolved).toEqual(['component_filter']);
+		expect(await resolveCellValue(SECTION, IDS.owner, 'test101', 'lg-eng', cellUnresolved)).toBe(
+			'General project',
+		);
+		expect(cellUnresolved).toEqual([]);
+	});
+
+	test('DATALIST branch (no children: test70 filter_master): every locator slot survives, labelled', async () => {
+		// precondition, measured: the derivation gives test70 NO children (no
+		// config, no `relations` — D2 reads only its own relations), so this IS
+		// the no-children branch and not the children one
+		expect(await exportConfigChildren('test70')).toEqual([]);
+		// Unlike the children branch, this half pushes a target for EVERY stored
+		// slot — the invalid first locator keeps index 0 with a null sectionTipo
+		// and no parts.
+		const unresolved: string[] = [];
+		const targets = await resolveRelationTargetValues(
+			SECTION,
+			IDS.owner,
+			'test70',
+			'lg-eng',
+			unresolved,
+		);
+		expect(targets.length).toBe(2);
+		expect(targets[0]).toEqual({ index: 0, sectionTipo: null, sectionId: '1', parts: [] });
+		// the valid slot is kept too; its label is EMPTY — resolveLocatorLabels
+		// has nothing to show for a node with no config and no relations (the
+		// slot, not the label, is what this branch pins)
+		expect(targets[1]).toEqual({ index: 1, sectionTipo: 'dd153', sectionId: '1', parts: [] });
+		expect(unresolved).toEqual([]);
 	});
 
 	test('DATALIST branch: the canonical playground record resolves its label', async () => {

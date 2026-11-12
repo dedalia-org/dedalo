@@ -33,6 +33,7 @@ import type { HostExecutorOptions } from './host_executor.ts';
 import { type HostReviewBlock, hostReview } from './host_table.ts';
 import { type InstancePaths, instancePaths, pathsFor } from './layout.ts';
 import { OS_ROWS, osRowById } from './os_support.ts';
+import { ocrLangsTold } from './production/packages.ts';
 import { operatorTodo, webServerClash } from './production/preflight.ts';
 import { institutionCertVerdict } from './production/tls.ts';
 import { plannedDefaultTold } from './production/web.ts';
@@ -94,6 +95,8 @@ export function reviewTodo(
 		// Another web server on this host: host_preflight refuses it — said BEFORE `yes` (campaign 3b N3).
 		...webServerClash(ctx, fs),
 		...operatorTodo(ctx),
+		// A working language Tesseract has no model for: OCR not offered in it (T0-11 D3).
+		...ocrLangsTold(ctx),
 		// nginx installed by this run: its package's default site, said before `yes` (campaign 3e E5).
 		...plannedDefaultTold(ctx),
 		...(cert === null

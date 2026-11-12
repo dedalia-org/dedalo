@@ -19,7 +19,11 @@ import { equivalentLangsOf } from '../../resolve/lang_alias.ts';
 import { truncateHtml } from '../../resolve/truncate_html.ts';
 import type { ComponentEmitHook, EmitHookContext } from '../emit_hooks.ts';
 import { getOriginalLang } from './original_lang.ts';
-import { addTagImgOnTheFly, appServedSvgUrlFromTagLocator } from './tag_html.ts';
+import {
+	createSvgTagPathMemo,
+	renderTagsWithResolvedSvg,
+	type SvgTagPathMemo,
+} from './tag_html.ts';
 
 /** text_area list values are HTML-truncated (PHP get_list_value max_chars=130). */
 const TEXT_AREA_LIST_MAX_CHARS = 130;
@@ -27,25 +31,36 @@ const TEXT_AREA_LIST_MAX_CHARS = 130;
 /** Max raw chars any list-preview text processor sees (DOS-01). */
 const LIST_SOURCE_CAP = 16 * 1024;
 
+/**
+ * The per-read svg-tag path memo, on the emission's scratch (one per read —
+ * never module state; see EmissionContext). A list of N records whose
+ * transcripts point at the same few glyph records resolves each locator once.
+ */
+const SVG_TAG_MEMO = Symbol('component_text_area.svg_tag_memo');
+
+function svgTagMemoOf(context: EmitHookContext): SvgTagPathMemo {
+	let memo = context.emission.scratch.get(SVG_TAG_MEMO) as SvgTagPathMemo | undefined;
+	if (memo === undefined) {
+		memo = createSvgTagPathMemo();
+		context.emission.scratch.set(SVG_TAG_MEMO, memo);
+	}
+	return memo;
+}
+
 /** The list rendering of one stored string: tags → <img>, then HTML-truncate. */
-function renderListString(value: string): string {
+async function renderListString(value: string, context: EmitHookContext): Promise<string> {
 	// DOS-01 (2026-07-28 audit): bound the input BEFORE the tag processors —
 	// addTagImgOnTheFly's mark/HTML regexes, like truncateHtml, are super-linear
 	// on adversarial CKEditor markup (a 200 KB value froze the loop ~19 s). This
 	// is a ≤130-char preview, so capping a large prefix loses no preview content.
+	// The svg pre-scan runs on the capped slice too.
 	const capped = value.length > LIST_SOURCE_CAP ? value.slice(0, LIST_SOURCE_CAP) : value;
-	// THE AUDIENCE. addTagImgOnTheFly's default svg resolver emits the PUBLICATION
-	// shape (a root-relative /dedalo/<mediaDir>/… url — WC-042: published data must
-	// not embed this application's origin). This path is the other audience: the
-	// list value the engine serves to ITS OWN client. On a split-origin install
-	// (DEDALO_MEDIA_WEB_BASE — app on one port, media web server on another) the
-	// relative url resolves against the APP origin, which in `publication` access
-	// mode serves no media at all, so every glyph in the cell 404s in silence.
-	// Byte-identical when the two coincide; see appServedSvgUrlFromTagLocator.
-	return truncateHtml(
-		TEXT_AREA_LIST_MAX_CHARS,
-		addTagImgOnTheFly(capped, { svgUrl: appServedSvgUrlFromTagLocator }),
-	);
+	// THE AUDIENCE: this is the list value the engine serves to ITS OWN client,
+	// so svg glyph URLs root on config.media.webBase (split-origin installs —
+	// WC-042; see SvgTagAudience). The path itself is the locator's full media
+	// path (T0-10, WC-2026-11-11-svg-tag-url-full-media-path).
+	const rendered = await renderTagsWithResolvedSvg(capped, 'served', svgTagMemoOf(context));
+	return truncateHtml(TEXT_AREA_LIST_MAX_CHARS, rendered);
 }
 
 /** The non-empty stored string of one item, or null when there is nothing to render. */
@@ -53,6 +68,20 @@ function itemText(item: unknown): string | null {
 	if (item === null || typeof item !== 'object') return null;
 	const text = (item as { value?: unknown }).value;
 	return typeof text === 'string' && text !== '' ? text : null;
+}
+
+/** LIST fallback entries with their text rendered (non-text entries untouched). */
+async function renderListEntries(entries: unknown[], context: EmitHookContext): Promise<unknown[]> {
+	const rendered: unknown[] = [];
+	for (const entry of entries) {
+		const text = itemText(entry);
+		rendered.push(
+			text === null
+				? entry
+				: { ...(entry as object), value: await renderListString(text, context) },
+		);
+	}
+	return rendered;
 }
 
 /** True when a lang slice holds at least one item with real text. */
@@ -64,6 +93,22 @@ function sliceHasText(items: unknown[], lang: string): boolean {
 			typeof (item as { value?: unknown }).value === 'string' &&
 			(item as { value: string }).value !== '',
 	);
+}
+
+/**
+ * One stored item as served: its media src rebased and, in list mode, rendered
+ * to the list string. Returns the SAME item reference when nothing changed, so
+ * the caller can hand back the untouched value.
+ */
+async function serveTextItem(item: unknown, context: EmitHookContext): Promise<unknown> {
+	const text = itemText(item);
+	if (text === null) return item;
+	// Stored media src are relative; this client may load media from another
+	// origin (TODO-067, WC-042 — same rebase as the svg tags below).
+	const rebased = appServedMediaSrc(text);
+	const next = context.ddoMode === 'list' ? await renderListString(rebased, context) : rebased;
+	if (next === text) return item;
+	return { ...(item as object), value: next };
 }
 
 export const textAreaEmitHook: ComponentEmitHook = {
@@ -118,20 +163,18 @@ export const textAreaEmitHook: ComponentEmitHook = {
 		return originalLang === null ? null : { related_component_lang: originalLang };
 	},
 
-	transformValue(value: unknown[] | null, context: EmitHookContext): unknown[] | null {
+	async transformValue(
+		value: unknown[] | null,
+		context: EmitHookContext,
+	): Promise<unknown[] | null> {
 		if (!Array.isArray(value)) return value;
 		let changed = false;
-		const served = value.map((item) => {
-			const text = itemText(item);
-			if (text === null) return item;
-			// Stored media src are relative; this client may load media from another
-			// origin (TODO-067, WC-042 — same rebase as the svg tags below).
-			const rebased = appServedMediaSrc(text);
-			const next = context.ddoMode === 'list' ? renderListString(rebased) : rebased;
-			if (next === text) return item;
-			changed = true;
-			return { ...(item as object), value: next };
-		});
+		const served: unknown[] = [];
+		for (const item of value) {
+			const next = await serveTextItem(item, context);
+			if (next !== item) changed = true;
+			served.push(next);
+		}
 		// Unchanged (non-list, no media src to rebase) → the value itself, untouched.
 		return changed ? served : value;
 	},
@@ -145,12 +188,7 @@ export const textAreaEmitHook: ComponentEmitHook = {
 		// surfaces through the cross-lang fallback used to reach the client with
 		// raw [TC_…]/[index-…] literals — text without its tag representation.
 		if (context.ddoMode === 'list' && Array.isArray(item.fallback_value)) {
-			item.fallback_value = item.fallback_value.map((entry) => {
-				if (entry === null || typeof entry !== 'object') return entry;
-				const typedEntry = entry as { value?: unknown };
-				if (typeof typedEntry.value !== 'string' || typedEntry.value === '') return entry;
-				return { ...typedEntry, value: renderListString(typedEntry.value) };
-			});
+			item.fallback_value = await renderListEntries(item.fallback_value, context);
 		}
 
 		// EDIT items of a text_area whose ontology declares

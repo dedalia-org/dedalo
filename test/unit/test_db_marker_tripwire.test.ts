@@ -448,6 +448,20 @@ const DOORS: readonly { name: string; run: () => Promise<unknown> }[] = [
 			(await import('../../src/core/test_data/projects_fixture.ts')).removeSuiteProjectsFixture(),
 	},
 	{
+		name: 'ensureSuiteIndexPointerFixture',
+		run: async () =>
+			(
+				await import('../../src/core/test_data/relation_index_pointer_fixture.ts')
+			).ensureSuiteIndexPointerFixture(),
+	},
+	{
+		name: 'removeSuiteIndexPointerFixture',
+		run: async () =>
+			(
+				await import('../../src/core/test_data/relation_index_pointer_fixture.ts')
+			).removeSuiteIndexPointerFixture(),
+	},
+	{
 		name: 'ensureSuiteLoginPassword',
 		run: async () =>
 			(await import('../../src/core/test_data/suite_login.ts')).ensureSuiteLoginPassword(

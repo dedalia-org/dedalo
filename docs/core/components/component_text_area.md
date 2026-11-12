@@ -471,6 +471,14 @@ See [Exporting data](../exporting_data.md).
   `tool_lang_multi`, `tool_propagate_component_data` and `tool_time_machine` are
   read-only ontology-driven context; whether the underlying tools themselves are
   implemented server-side is tracked per-tool elsewhere, out of scope for this page.
+- **Filled from a PDF.** A text area that a [component_pdf](component_pdf.md)
+  names in its ontology `relations` (core: `rsc37` → `rsc38`, `rsc209` →
+  `rsc210`, `rsc165` → `rsc166`) receives the PDF's text, one page tag per
+  page, in the user's current data language. A new PDF uploaded to the
+  `original` quality, with or without OCR, **replaces** text already in that
+  language (the upload shows a notice; Time Machine keeps the previous
+  version); `tool_update_cache` and **Regenerate files** fill it only when it
+  is empty. See [component_pdf › Transcription and OCR](component_pdf.md#transcription-and-ocr).
 - **Observer example (AV sync) — not ported.** The `[TC_…]` time-code →
   `component_av` jump relies on the client-side observer wiring plus the
   transcription tag machinery above; since the tag layer is unported, this

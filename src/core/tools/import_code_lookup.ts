@@ -323,6 +323,55 @@ export async function findSectionIdsByCodes(
 }
 
 /**
+ * EVERY record of `target.sectionTipo` whose `target.componentTipo` holds a
+ * value equal to `text` under the MATCH FOLD — `lower(f_unaccent(<match trim>(…)))`
+ * on BOTH sides, computed by Postgres (db/matrix.ts
+ * `readSectionIdsByFoldedValue`) — whole value, never a substring; ascending
+ * by section_id; none is `[]`.
+ *
+ * Not the engine search, deliberately: the search has no whole-value folded
+ * leaf ('=' / '==' are case-SENSITIVE `f_unaccent(a) = f_unaccent(b)`), so a
+ * case-insensitive lookup through it can only NARROW with a substring leaf —
+ * which the candidate cap then turns into a refusal the moment enough values
+ * CONTAIN the text. One exact predicate in the record store's read home is
+ * the whole answer, with no cap to hit.
+ *
+ * (!) UNSCOPED — A NAMED EXEMPTION. No principal, no record gate, no projects
+ * filter. It exists for a shared VOCABULARY a caller LINKS to and never writes
+ * into (T0-12: the component_iri label section dd1706; a scoped lookup there
+ * forks the vocabulary per project). `unscopedReason` is REQUIRED and must
+ * name why the call site may see past the importer's scope — an empty reason
+ * is refused. Ids only; no stored value leaves this function. Its callers are
+ * allow-listed by `test/unit/iri_label_unscoped_lookup_tripwire.test.ts`.
+ */
+export async function findSectionIdsByFoldedText(
+	target: ImportCodeTarget,
+	text: string,
+	unscopedReason: string,
+): Promise<number[]> {
+	if (unscopedReason.trim() === '') {
+		throw new DedaloError('internal.invariant', {
+			message: 'findSectionIdsByFoldedText: an UNSCOPED lookup needs its named reason',
+			coordinates: { section_tipo: target.sectionTipo, component_tipo: target.componentTipo },
+		});
+	}
+	const { getColumnNameByModel, getMatrixTableFromTipo, getModelByTipo } = await import(
+		'../ontology/resolver.ts'
+	);
+	const { readSectionIdsByFoldedValue } = await import('../db/matrix.ts');
+	const table = await getMatrixTableFromTipo(target.sectionTipo);
+	const model = await getModelByTipo(target.componentTipo);
+	const column = model === null ? null : getColumnNameByModel(model);
+	if (table === null || column !== 'string') {
+		throw new DedaloError('internal.invariant', {
+			message: `findSectionIdsByFoldedText: ${target.sectionTipo}/${target.componentTipo} is not a string-family component of a matrix section`,
+			coordinates: { section_tipo: target.sectionTipo, component_tipo: target.componentTipo },
+		});
+	}
+	return readSectionIdsByFoldedValue(table, target.sectionTipo, column, target.componentTipo, text);
+}
+
+/**
  * The search leaf that narrows to one identifier. q_operator '=' is the engine's
  * EXACT-match operator (the single-char twin of '=='; '==' for an IRI or HTML
  * component, see codeQueryFor); the value travels as `q`, never glued into the

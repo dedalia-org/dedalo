@@ -13,6 +13,10 @@
  * at a section carrying a component_relation_parent) for the per-column
  * parents-checkbox gate (WC-049).
  *
+ * components_with_references: ontology-only lookup (which components derive
+ * calculated relations — dd467/dd621 related) for the per-column references
+ * checkbox (T0-9 D4); compileExportPlan refuses the flag elsewhere.
+ *
  * THE SERVER-BUILT EXPORT (export_job.ts, preview.ts — tool_export at scale):
  *  - build_export_artifact  BACKGROUND, lane 'export': the same producer and
  *    the same SQO section gate as get_export_grid, written into the job's spool;
@@ -49,7 +53,11 @@ import {
 	toolExportListJobs,
 } from './export_job.ts';
 import { toolExportGetPreview } from './preview.ts';
-import { toolExportComponentsWithParent, toolExportGetExportGrid } from './tool_export.ts';
+import {
+	toolExportComponentsWithParent,
+	toolExportComponentsWithReferences,
+	toolExportGetExportGrid,
+} from './tool_export.ts';
 
 export const tool: ToolServerModule = {
 	name: 'tool_export',
@@ -59,6 +67,11 @@ export const tool: ToolServerModule = {
 			permission: 'section',
 			minLevel: 1,
 			handler: toolExportComponentsWithParent,
+		},
+		components_with_references: {
+			permission: 'section',
+			minLevel: 1,
+			handler: toolExportComponentsWithReferences,
 		},
 		build_export_artifact: {
 			permission: 'section',

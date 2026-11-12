@@ -23,7 +23,13 @@
  *  6. every canonical model declares its CSV-import APPEND policy
  *     (`importAppend`), and the placement laws hold (media / derived /
  *     no-import models refuse with a reason, no monovalue model appends
- *     items, 'geo_layer' / 'text_paragraphs' stay on their one model family).
+ *     items, 'geo_layer' / 'text_paragraphs' stay on their one model family);
+ *  7. the ontology-node model rule `ontologyTranslatable` (OPTIONAL — omitted =
+ *     no rule; see its doc in components/types.ts) is stated by EXACTLY the
+ *     owner-approved set (component_iri, 2026-11-11), on canonical descriptors
+ *     only, and the ontology layer reads it alias-following through the
+ *     resolver seam (getComponentModelNodeRules) — dropping it silently would
+ *     disarm the health check's model rule.
  *
  * ALLOWLIST LIFECYCLE (DEC-12 refinement — who clears these and when):
  * entries here are cleared by whoever ports the missing behavior, in the
@@ -36,6 +42,7 @@ import { resolve } from 'node:path';
 import {
 	allComponentModels,
 	getComponentModel,
+	getFlatValueFamily,
 	getImportAppendPolicy,
 	getRenderClass,
 	getSearchBuilderFamily,
@@ -47,6 +54,7 @@ import {
 } from '../../src/core/components/registry.ts';
 import type { ComponentModel, ImportAppendPolicy } from '../../src/core/components/types.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
+import { getComponentModelNodeRules } from '../../src/core/ontology/resolver.ts';
 import { DATALIST_SOURCE_IMPLEMENTATIONS } from '../../src/core/relations/datalist.ts';
 import { TARGET_SOURCE_IMPLEMENTATIONS } from '../../src/core/relations/request_config/target_sources.ts';
 import { IMPORT_CONFORM } from '../../src/core/tools/import_conform.ts';
@@ -347,6 +355,143 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 		}
 	});
 
+	/**
+	 * T0-9 (G7): a relation-column model WITHOUT a flat-value family has no
+	 * export 'value' / panel / Referencias text at all — resolveCellValue never
+	 * reaches the datalist branch and the column ships blank (filter,
+	 * publication, select_lang, relation_parent/children/related/index were all
+	 * blank on 2026-11-11). Exempt: the external family (its value is derived
+	 * from a remote row, flatValue 'external') and component_dataframe (a frame
+	 * is folded INTO its main's cell, never a column of its own). Aliases are
+	 * resolved through the registry (getFlatValueFamily follows one hop).
+	 */
+	test('every relation-column model declares a flat-value family (T0-9)', () => {
+		const NO_FLAT_VALUE_EXEMPT: ReadonlySet<string> = new Set([
+			'component_external',
+			'component_dataframe',
+		]);
+		const checked: string[] = [];
+		const missing: string[] = [];
+		for (const descriptor of descriptors) {
+			if (descriptor.column !== 'relation') continue;
+			if (NO_FLAT_VALUE_EXEMPT.has(descriptor.model)) continue;
+			if (getFlatValueFamily(descriptor.model) === 'external') continue;
+			checked.push(descriptor.model);
+			if (getFlatValueFamily(descriptor.model) === undefined) missing.push(descriptor.model);
+		}
+		// floor: the census really walked the relation family
+		expect(checked.length).toBeGreaterThanOrEqual(10);
+		expect(missing.sort(), 'relation-column models without flatValue').toEqual([]);
+	});
+
+	/**
+	 * T0-9 (G7) widened 2026-11-11 (WC-2026-11-11-export-inverse-callers): ANY
+	 * canonical model can be an export LEAF (a ddo path ends on whatever
+	 * component the user picks), and a leaf whose model declares no flat-value
+	 * family resolves to a ledgered null in every value cell. component_inverse
+	 * (column `misc`, DERIVED) sat outside the relation-column census above, so
+	 * its column shipped blank. The census is now EVERY canonical model; the
+	 * models that still declare no family are named below WITH the reason, and
+	 * the list may only shrink (an entry that gained a family is stale → red).
+	 * Relation-column and DERIVED models may never be exempted for "unported":
+	 * their exemptions are structural (a frame is folded into its main; the
+	 * external family is checked by its own 'external' family).
+	 */
+	const NO_FLAT_VALUE_LEAF_EXEMPT: ReadonlyMap<string, string> = new Map([
+		[
+			'component_dataframe',
+			'a frame is folded INTO its main’s cell, never a value column of its own (dedalo_raw mints its slot column from the stored slice)',
+		],
+		[
+			'component_info',
+			'PHP exports per-widget sub_id columns (component_info::get_export_value) — not ported yet; ledgered T0-9 residue',
+		],
+		[
+			'component_geolocation',
+			'no flat text value: geo exports through its own geo / geojson diffusion functions; the value cell is ledgered unresolved',
+		],
+		[
+			'component_json',
+			'an opaque config blob: no flat text value; the value cell is ledgered unresolved (dedalo_raw exports the stored slice)',
+		],
+		[
+			'component_password',
+			'a secret: never exported as a value (the tool_export client excludes it from the pickable elements)',
+		],
+		[
+			'component_security_access',
+			'an ACL matrix blob (misc column): no flat text value; ledgered unresolved',
+		],
+		[
+			'component_filter_records',
+			'a saved record-filter blob (misc column): no flat text value; ledgered unresolved',
+		],
+	]);
+
+	/** The canonical models with no flat-value family, minus the named exemptions. */
+	function leafModelsWithoutFlatValue(
+		models: readonly ComponentModel[],
+		familyOf: (model: string) => string | undefined,
+	): { checked: string[]; missing: string[] } {
+		const checked: string[] = [];
+		const missing: string[] = [];
+		for (const descriptor of models) {
+			if (!isCanonical(descriptor)) continue; // an alias resolves through its target
+			if (NO_FLAT_VALUE_LEAF_EXEMPT.has(descriptor.model)) continue;
+			checked.push(descriptor.model);
+			if (familyOf(descriptor.model) === undefined) missing.push(descriptor.model);
+		}
+		return { checked, missing: missing.sort() };
+	}
+
+	test('every canonical model the export reaches as a LEAF declares a flat-value family (T0-9, derived included)', () => {
+		const { checked, missing } = leafModelsWithoutFlatValue(descriptors, getFlatValueFamily);
+		expect(missing, 'canonical leaf models without flatValue (and not exempted)').toEqual([]);
+		// floor: the census walked every relation-column AND every derived model
+		const mustCover = descriptors
+			.filter(
+				(d) =>
+					isCanonical(d) &&
+					(d.column === 'relation' || isDerivedModel(d.model)) &&
+					d.model !== 'component_dataframe',
+			)
+			.map((d) => d.model)
+			.sort();
+		expect(mustCover).toContain('component_inverse');
+		expect(mustCover.filter((model) => !checked.includes(model))).toEqual([]);
+		expect(checked.length).toBeGreaterThanOrEqual(25);
+	});
+
+	test('the leaf exemptions are live, reasoned, and never cover a derived or relation model by "unported"', () => {
+		for (const [model, reason] of NO_FLAT_VALUE_LEAF_EXEMPT) {
+			const descriptor = getComponentModel(model);
+			expect(descriptor, `${model}: exempted but not registered`).toBeDefined();
+			expect(isCanonical(descriptor as ComponentModel), `${model}: exempt alias`).toBe(true);
+			// shrink-only: a model that gained a family must leave the list
+			expect(getFlatValueFamily(model), `${model}: exempt but declares a family — stale`).toBe(
+				undefined,
+			);
+			expect(reason.length, `${model}: exemption without a reason`).toBeGreaterThan(20);
+			expect(isDerivedModel(model), `${model}: a DERIVED model may not be exempted`).toBe(false);
+			// the ONE structural relation-column exemption: a frame folds into its main
+			if (model !== 'component_dataframe') {
+				expect(
+					(descriptor as ComponentModel).column,
+					`${model}: a RELATION-column model may not be exempted`,
+				).not.toBe('relation');
+			}
+		}
+	});
+
+	test('positive control: component_inverse WITHOUT its flatValue reddens the leaf census', () => {
+		const real = leafModelsWithoutFlatValue(descriptors, getFlatValueFamily).missing;
+		const { missing } = leafModelsWithoutFlatValue(descriptors, (model) =>
+			model === 'component_inverse' ? undefined : getFlatValueFamily(model),
+		);
+		// exactly one more model missing than the real census: component_inverse
+		expect(missing.filter((model) => !real.includes(model))).toEqual(['component_inverse']);
+	});
+
 	test('relation-only facets never appear on non-relation models', () => {
 		for (const descriptor of descriptors) {
 			if (descriptor.column === 'relation') continue;
@@ -599,6 +744,31 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 		expect(text).toBe(
 			descriptors.filter((d) => d.column !== undefined && d.alias === undefined).length - 3,
 		);
+	});
+
+	test('ontologyTranslatable is stated by EXACTLY the owner-approved models, canonical only', () => {
+		const stating = descriptors.filter((d) => d.ontologyTranslatable !== undefined);
+		expect(stating.map((d) => d.model)).toEqual(['component_iri']);
+		for (const descriptor of stating) {
+			expect(isCanonical(descriptor), `${descriptor.model}: an alias stub states no rule`).toBe(
+				true,
+			);
+			expect(descriptor.ontologyTranslatable).toBe(false);
+		}
+	});
+
+	test('the ontology layer reads the node rule through the resolver seam, alias-following', () => {
+		expect(getComponentModelNodeRules('component_iri')?.ontologyTranslatable).toBe(false);
+		expect(getComponentModelNodeRules('component_input_text')?.ontologyTranslatable).toBe(
+			undefined,
+		);
+		// An alias stub is ruled by its canonical model: no alias may dodge a rule.
+		for (const alias of descriptors.filter((d) => d.alias !== undefined)) {
+			expect(getComponentModelNodeRules(alias.model)?.ontologyTranslatable).toBe(
+				getComponentModel(alias.alias as string)?.ontologyTranslatable,
+			);
+		}
+		expect(getComponentModelNodeRules('section')).toBe(undefined);
 	});
 
 	test('getRenderClass throws on an unregistered model (no silent default)', () => {

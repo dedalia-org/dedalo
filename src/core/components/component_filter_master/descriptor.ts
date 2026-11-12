@@ -12,6 +12,7 @@ export const component_filter_master: ComponentModel = {
 	importAppend: 'items',
 	defaultRelationType: 'dd675',
 	resolveData: 'filter',
+	flatValue: 'datalist',
 	search: { status: 'ported' },
 	importConform: 'relation',
 };

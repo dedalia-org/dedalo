@@ -12,6 +12,7 @@ export const component_publication: ComponentModel = {
 	monovalue: true,
 	defaultRelationType: 'dd151',
 	resolveData: 'select_family',
+	flatValue: 'datalist',
 	search: { status: 'ported' },
 	importConform: 'relation',
 };

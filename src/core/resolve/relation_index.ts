@@ -22,10 +22,7 @@
  */
 
 import { sql } from '../db/postgres.ts';
-import { createOntologyCache } from '../ontology/cache_factory.ts';
-import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
 import type { InverseReferenceLocatorHit } from '../search/search_related.ts';
-import { findSectionChildByModel } from '../section/list_definitions/node_find.ts';
 
 /** PHP parse_data: raw breakdown hit → client locator entry. */
 export function parseInverseEntry(hit: InverseReferenceLocatorHit): Record<string, unknown> {
@@ -55,34 +52,19 @@ export function parseInverseEntry(hit: InverseReferenceLocatorHit): Record<strin
 	return entry;
 }
 
-const relatedListCache = createOntologyCache<string, string[]>();
-
-/** Drop the ontology-derived related_list child-tipos cache. */
-export function clearRelatedListCache(): void {
-	relatedListCache.clear();
-}
-registerOntologyCacheClearer(clearRelatedListCache);
-
 /**
- * The section's related_list component tipos (PHP
- * resolve_ar_related_related_list, trait.request_config_v5.php:295-330): the
- * relation nodes of the section's relation_list ontology child — own first,
- * then through the VIRTUAL section's real section (rsc205 → rsc3 → rsc133 →
- * [rsc349, rsc140, rsc224]), first by order_number. The node lookup is THE one,
- * findSectionChildByModel (T0-7); this keeps only the relations + its cache.
- * No section_map scope here (PHP applies that to the References grid only).
+ * The section's related_list component tipos — THE section-mode fact, owned by
+ * section/related_list.ts (sectionRelationListTipos: the relation_list child,
+ * own first then the virtual's real one, first by order_number — the one
+ * lookup, T0-7 — cached there and registered with the ontology hub). Kept
+ * under this name for its callers; the relation_index DATA path reads the
+ * principal-filtered map (sectionRelatedListConfig) instead, so its cells and
+ * its merged columns cannot disagree (T0-8).
  */
-export async function getRelatedListChildTipos(sectionTipo: string): Promise<string[]> {
-	const cached = relatedListCache.get(sectionTipo);
-	if (cached !== undefined) return cached;
-
-	const node = await findSectionChildByModel(sectionTipo, 'relation_list');
-	const tipos = (node?.relations ?? [])
-		.map((link) => link.tipo)
-		.filter((tipo): tipo is string => typeof tipo === 'string');
-	relatedListCache.set(sectionTipo, tipos);
-	return tipos;
-}
+export {
+	clearRelatedListCache,
+	sectionRelationListTipos as getRelatedListChildTipos,
+} from '../section/related_list.ts';
 
 /**
  * The representative record of a pointing section (PHP

@@ -26,7 +26,6 @@
 		"src/core/media/av_versions.ts": 3,
 		"src/core/media/engine/ffmpeg.ts": 7,
 		"src/core/media/engine/imagemagick.ts": 6,
-		"src/core/media/engine/pdf.ts": 1,
 		"src/core/media/engine/probe.ts": 4,
 		"src/core/media/engine/spawn.ts": 4,
 		"src/core/media/engine/svg.ts": 3,
@@ -51,7 +50,6 @@
 		"src/core/search/search_related.ts": 2,
 		"src/core/test_data/seed.ts": 1,
 		"src/core/ts_object/ts_api.ts": 4,
-		"src/diffusion/export/atoms.ts": 1,
 		"src/diffusion/jobs/schema.ts": 1,
 		"src/diffusion/parsers/registry.ts": 3,
 		"src/diffusion/resolve/record_ir.ts": 1,
@@ -69,7 +67,7 @@
 		"src/server.ts": 1
 	},
 	"summary": {
-		"files": 65,
-		"total": 122
+		"files": 63,
+		"total": 120
 	}
 }

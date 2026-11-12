@@ -3,8 +3,8 @@
 	"rule": "SHRINK-ONLY red baseline for the test/parity tier, keyed per FILE and per TEST NAME (the name is the full describe chain + test name, ' > '-joined, exactly as bun prints it). A failing test that is not listed here is a REGRESSION and fails the gate — that is the whole point: the known reds must never hide the next real one. A LISTED test that now PASSES is ALSO a gate failure. A stale entry is the ratchet quietly stopping; re-freeze so the win is locked in. Likewise a listed test that no longer exists (renamed, deleted, moved file) or is now SKIPPED: it is no longer the red it was frozen as, so the entry is stale. Keying per NAME and not per count is deliberate: a file that stops failing test A and starts failing test B has an unchanged count, and that is exactly the regression a count-only ratchet would miss. The generator REFUSES to add a failing test without --allow-regression, and the commit message MUST then say why the new red is acceptable. `measured` is the frozen debt AND the size: this tier does not grow, so tier_files/tier_tests/tier_pass/tier_skip are all asserted exactly — which is what makes silencing a GREEN gate with `.skip` arithmetic (pass falls by one, skip rises by one) instead of invisible. `per_file` is the PER-FILE FLOOR: for every file of the tier, the cases it ran, the cases it skipped and the `expect` calls that EXECUTED (bun's own file-level JUnit attributes). Skips may only shrink; cases and assertions may only rise — a drop, or a skip that appears, is a regression the generator refuses without --allow-regression, because a test that returns before its first assertion is a PASS with assertions=0 and this count is the only thing that notices. An unrecorded file, or a recorded file that no longer reports, is stale: re-freeze. DO NOT hand-edit. Regenerate with: bun run scripts/parity_baseline.ts Why the reds are permanent (AGENTS.md 'THE VERIFICATION STORY'): the 76 harvested gates were recorded against ONE installation's records and the PHP oracle is decommissioned, so a re-harvest is impossible. The corpus-bound gates are being replaced by generic-`test`-TLD twins — retirement map in engineering/ORACLE_HARVEST.md. Every retirement should LOWER the numbers here.",
 	"measured": {
 		"tier_files": 78,
-		"tier_tests": 381,
-		"tier_pass": 268,
+		"tier_tests": 383,
+		"tier_pass": 270,
 		"tier_skip": 12,
 		"failing_files": 30,
 		"failing_tests": 101
@@ -424,9 +424,9 @@
 			"assertions": 230
 		},
 		"test/parity/relation_index_get_data_differential.test.ts": {
-			"tests": 2,
+			"tests": 4,
 			"skipped": 0,
-			"assertions": 10
+			"assertions": 20
 		},
 		"test/parity/relation_inverse_differential.test.ts": {
 			"tests": 4,

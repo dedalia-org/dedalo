@@ -1,9 +1,6 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global get_label, DEDALO_CORE_URL */
+/*global get_label, page_globals, DEDALO_CORE_URL */
 /*eslint no-undef: "error"*/
-// (!) page_globals is used at line ~161 (dedalo_application_langs) but is NOT listed in
-//     the /*global*/ declaration above. ESLint will flag it as an undeclared global.
-//     Add page_globals to the /*global*/ block to suppress the no-undef warning.
 
 
 
@@ -28,8 +25,11 @@
 *                                   key_dir if not set directly on self.
 *   self.allowed_extensions       — {Array<string>} extensions accepted by the server
 *                                   (e.g. ['jpg','png','pdf']).
-*   self.pdf_ocr_engine           — {string|null} truthy when the server has a PDF OCR
-*                                   engine configured; controls OCR panel visibility.
+*   self.pdf_ocr_engine           — {boolean} true when the server's ocrmypdf binary is
+*                                   present and executable.
+*   self.pdf_ocr_langs            — {Array<string>} application langs whose Tesseract
+*                                   model is installed; the OCR panel shows only when
+*                                   pdf_ocr_engine is true AND this list is not empty.
 *   self.max_size_bytes           — {number} PHP upload_max_filesize in bytes; populated
 *                                   by service_upload.build via get_system_info API.
 *   self.upload_service_chunk_files — {number|null} MB per chunk (from server config);
@@ -41,7 +41,7 @@
 *   self.max_concurrent           — {number} maximum simultaneous XHR connections.
 *   self.process_options          — {Object} set here; mutated by OCR controls.
 *     .ocr      {boolean} whether OCR should be applied after upload (PDF only).
-*     .ocr_lang {string|null} BCP-47 language tag chosen by the user; null = not set.
+*     .ocr_lang {string|null} Dédalo lang code (`lg-spa`) chosen by the user; null = no OCR panel.
 *   self.form                     — {HTMLElement} set here; the <form> element.
 *   self.filedrag                 — {HTMLElement} set here; the drag-and-drop label.
 *   self.progress_bar_container   — {HTMLElement} set here; outer progress wrapper.
@@ -232,12 +232,14 @@ export const get_content_data = function(self) {
 		})
 
 
-	// OCR options — only shown when the upload accepts PDF files AND the server has
-	// an OCR engine configured (self.pdf_ocr_engine is truthy).
+	// OCR options — only shown when the upload accepts PDF files AND the server
+	// MEASURED an OCR it can run: the ocrmypdf binary (pdf_ocr_engine) and at least
+	// one application language whose Tesseract model is installed (pdf_ocr_langs).
 	// The OCR checkbox and language selector update self.process_options so that
 	// after upload the server knows whether to start an OCR pipeline and which
 	// language model to use.
-	if(self.allowed_extensions.includes('pdf') && self.pdf_ocr_engine) {
+	const ocr_langs = Array.isArray(self.pdf_ocr_langs) ? self.pdf_ocr_langs : []
+	if(self.allowed_extensions.includes('pdf') && self.pdf_ocr_engine===true && ocr_langs.length>0) {
 
 		// OCR_options
 			const ocr_options_container = ui.create_dom_element({
@@ -287,26 +289,32 @@ export const get_content_data = function(self) {
 
 			combobox_label.prepend(combobox_input)
 
-		// input Languages (from dedalo config)
-			// page_globals.dedalo_application_langs is a window-level array injected by
-			// the PHP template.  Each entry has shape {value: string, label: string}.
-			// (!) page_globals is NOT listed in the /*global*/ declaration at the top of
-			//     this file; ESLint will report a no-undef error on this line.
-			page_globals.dedalo_application_langs.forEach((lang) => {
+		// options: ONLY the langs the server can OCR (pdf_ocr_langs, in its order),
+		// labelled from page_globals.dedalo_application_langs ([{value, label}]).
+			const application_langs = (page_globals && Array.isArray(page_globals.dedalo_application_langs))
+				? page_globals.dedalo_application_langs
+				: []
+			ocr_langs.forEach((lang_code) => {
+				const found = application_langs.find(el => el.value===lang_code)
 				ui.create_dom_element({
 					element_type	: 'option',
-					value			: lang.value,
-					text_content	: lang.label,
+					value			: lang_code,
+					text_content	: found ? found.label : lang_code,
 					parent			: combobox_input
 				});
 			});
 
-			// (!) The event type is 'click' instead of 'change'.  Using 'click' means
-			//     the value is updated only on mouse interaction; keyboard navigation
-			//     through the <select> options does NOT trigger the handler until the
-			//     user clicks.  Consider changing to 'change' in a future pass.
-			combobox_input.addEventListener('click', function(e) {
-				self.process_options.ocr_lang = combobox_input.value;
+		// initial value: the current data lang when OCR can read it, else the first
+		// offered — so process_options.ocr_lang always names the shown option.
+			const data_lang = page_globals ? page_globals.dedalo_data_lang : null
+			combobox_input.value = ocr_langs.includes(data_lang)
+				? data_lang
+				: ocr_langs[0]
+			self.process_options.ocr_lang = combobox_input.value
+
+			// 'change' (not 'click'): keyboard selection updates the value too.
+			combobox_input.addEventListener('change', function() {
+				self.process_options.ocr_lang = combobox_input.value
 			})
 	}
 

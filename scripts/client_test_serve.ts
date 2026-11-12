@@ -74,6 +74,14 @@ const { ensureNestedPortalFixture, removeNestedPortalFixture } = await import(
 // Armed BEFORE the ensure: its node upserts commit before its last check can
 // throw, so a failed ensure may still leave rows the sweep must take.
 let nestedPortalFixtureInstalled = false;
+// The dd96 pointer test_component_relation_index.js needs (a scratch test3
+// record indexing test3/1 — src/core/test_data/relation_index_pointer_fixture.ts):
+// same lifecycle. This server does NOT reseed test3, so nothing wipes it under
+// the page; the sweep below removes it on exit.
+const { ensureSuiteIndexPointerFixture, removeSuiteIndexPointerFixture } = await import(
+	'../src/core/test_data/relation_index_pointer_fixture.ts'
+);
+let indexPointerFixtureInstalled = false;
 
 /**
  * Sweep every fixture this run installed (each once, guarded by its flag). The
@@ -100,6 +108,15 @@ const sweepFixtures = async (): Promise<void> => {
 			console.error(`nested portal fixture sweep failed: ${(err as Error).message}`);
 		}
 	}
+	if (indexPointerFixtureInstalled) {
+		indexPointerFixtureInstalled = false;
+		try {
+			await removeSuiteIndexPointerFixture();
+			console.log('Relation index pointer fixture: swept.');
+		} catch (err) {
+			console.error(`relation index pointer fixture sweep failed: ${(err as Error).message}`);
+		}
+	}
 };
 
 // Everything between the first install and the signal handlers can throw (the
@@ -110,6 +127,9 @@ try {
 	nestedPortalFixtureInstalled = true;
 	await ensureNestedPortalFixture();
 	console.log('Nested portal fixture (verified caller chain for test80): ensured.');
+	await ensureSuiteIndexPointerFixture();
+	indexPointerFixtureInstalled = true;
+	console.log('Relation index pointer fixture (dd96 test3 -> test3/1): ensured.');
 	const port = await findFreePort(preferredPort);
 	const expected = await localSuiteFingerprint();
 	server = await startClientTestServer({ suiteDb, expectedFingerprint: expected, port });
@@ -120,7 +140,9 @@ try {
 
 console.log(`\nClient tests on the SUITE database ('${suiteDb}'):`);
 console.log(`  ${server.origin}/dedalo/test/client/index.html`);
-console.log('\nCtrl-C stops the server and sweeps the projects and nested portal fixtures.');
+console.log(
+	'\nCtrl-C stops the server and sweeps the projects, nested portal and relation index pointer fixtures.',
+);
 
 let stopping = false;
 const stop = async (): Promise<void> => {

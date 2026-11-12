@@ -977,6 +977,56 @@
           },
           {
             "lang": "lg-eng",
+            "name": "model_rule_violations",
+            "value": "node(s) break a model rule — fix them in the master ontology"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "model_rule_violations",
+            "value": "nodo(s) incumplen una regla de su modelo — corríjalos en la ontología maestra"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "model_rule_violations",
+            "value": "node(s) incompleixen una regla del seu model — corregiu-los a l'ontologia mestra"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "model_rule_violations",
+            "value": "nodo batzuek beren ereduaren arau bat hausten dute — zuzendu itzazu ontologia nagusian"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "model_rule_violations",
+            "value": "nœud(s) enfreignent une règle de leur modèle — corrigez-les dans l'ontologie maîtresse"
+          },
+          {
+            "lang": "lg-por",
+            "name": "model_rule_violations",
+            "value": "nó(s) violam uma regra do seu modelo — corrija-os na ontologia mestra"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "model_rule_violations",
+            "value": "Knoten verletzen eine Regel ihres Modells — korrigieren Sie sie in der Master-Ontologie"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "model_rule_violations",
+            "value": "nodo/i violano una regola del loro modello — correggili nell'ontologia master"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "model_rule_violations",
+            "value": "κόμβοι παραβιάζουν έναν κανόνα του μοντέλου τους — διορθώστε τους στην κύρια οντολογία"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "model_rule_violations",
+            "value": "नोड(हरू)ले आफ्नो मोडेलको नियम तोड्छन् — तिनलाई मास्टर ओन्टोलोजीमा सच्याउनुहोस्"
+          },
+          {
+            "lang": "lg-eng",
             "name": "status_unavailable",
             "value": "Status unavailable"
           },

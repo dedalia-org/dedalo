@@ -210,6 +210,11 @@ const CENSUS: Record<string, CensusRow> = {
 		reason:
 			'the thesaurus tree mutators (persistTreeKeys, CLOSURE_PLAN Step 5): every key they write is HARD-BOUND to a section’s component_relation_parent (getParentTipo), its section_map order number, or add_child’s section_map thesaurus defaults — the users section declares no parent component (relation_children_write_through_native asserts getParentTipo(dd128) is null), so no dd128 component is reachable. Their one caller, ts_object/ts_api.ts, gates at the section level (its own row).',
 	},
+	'src/core/tools/import_iri_label.ts': {
+		verdict: 'not-dd128',
+		reason:
+			'the component_iri label resolver of the import executors (T0-12): its writes are HARD-BOUND to the label vocabulary — createSectionRecord(dd1706) and saveComponentData of its value dd1715, both module constants; no section or component reaches it from the file (only the label text). The create is asked of authorizeSectionTarget (dd1706 + dd1715, level 2) as the importer first; a refusal refuses the field (import_iri_label_native case 11).',
+	},
 	'src/core/tm_record/tm_note_create.ts': {
 		verdict: 'not-dd128',
 		reason:
@@ -391,6 +396,11 @@ const CENSUS: Record<string, CensusRow> = {
 		verdict: 'delegates',
 		reason:
 			'every ontology-declared companion (target_filename / target_duration) is asked of authorizeRecordAccess AS THE UPLOADER (write, level 2, section floor 1, dd128-aware pair, write scope) before saveComponentData, which the grant addresses; a refusal is a message, never a write (req 10). Matrix engine:media_ingest.companion_writes DD1725 leg (a scratch media component whose target_filename names dd1725).',
+	},
+	'src/core/media/ingest/pdf_transcription.ts': {
+		verdict: 'not-dd128',
+		reason:
+			'T0-11 PDF transcription: its one write is HARD-BOUND BY MODEL — the target is relatedTipoByExactModel(pdf, component_text_area), never a payload tipo — and none of the dd128 own-record components the rule protects (dd1725 select, dd515 radio, dd132 input_text, dd330 section_id) is a component_text_area, so the DD1725 leg is unreachable by construction (no probe can be aimed at it). It still asks authorizeRecordAccess AS THE ACTOR (door media_ingest.transcription — write, level 2, section floor 1, dd128-aware pair, write scope) before saveComponentData, the companion_writes.ts posture.',
 	},
 	'tools/tool_import_files/server/index.ts': {
 		verdict: 'delegates',

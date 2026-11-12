@@ -23,7 +23,11 @@
 import { existsSync } from 'node:fs';
 import { copyFile } from 'node:fs/promises';
 import { config } from '../../config/config.ts';
-import { canonicalCoverExtension, type MediaTypeSpec } from '../concepts/media.ts';
+import {
+	canonicalCoverExtension,
+	isDerivativeSourceExtension,
+	type MediaTypeSpec,
+} from '../concepts/media.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { withTempSibling, writeAtomically } from './atomic.ts';
 import { rasterizePdfPage } from './engine/ghostscript.ts';
@@ -293,6 +297,11 @@ export async function buildThumbAtomically(
  * raw upload extension, then the normalized default extension, then the
  * allowlist. Returns the absolute path or null when no master is present.
  *
+ * ONLY FILES A BUILDER CAN READ ARE CANDIDATES (DERIVATIVE_SOURCE_BY_MODEL,
+ * concepts/media.ts): for component_pdf that is the `.pdf` RENDITION alone — the
+ * authored `.doc`/`.odt` beside it is an original, never a source. null then
+ * means "no derivative source", not "no original".
+ *
  * PRECEDENCE IS THE POINT, and it is surprising: for component_image the
  * RETOUCHED master ('modified') OUTRANKS the original, so while a retouch
  * exists EVERY derived tier is built from it — including the tiers rebuilt when
@@ -341,8 +350,11 @@ function resolveMaster(
 	pathOpts: MediaPathOptions,
 	rawExtension: string | null | undefined,
 ): { quality: string; path: string } | null {
+	// Filtered through DERIVATIVE_SOURCE_BY_MODEL: a pdf record's authored
+	// `.doc`/`.odt` original is never a source, even when the caller names it as
+	// the raw just uploaded — its PDF rendition (or nothing) is.
 	const candidates = [rawExtension, spec.defaultExtension, ...spec.allowedExtensions].filter(
-		(e): e is string => typeof e === 'string' && e !== '',
+		(e): e is string => typeof e === 'string' && e !== '' && isDerivativeSourceExtension(spec, e),
 	);
 	for (const quality of spec.masterQualities) {
 		for (const extension of candidates) {
@@ -1395,6 +1407,30 @@ export interface RegeneratePdfResult {
 	created: string[];
 	/** NON-FATAL cover failures, each naming the config key that asked for the format. */
 	errors: string[];
+}
+
+/**
+ * What the operator must hear when a NON-PDF original (`.doc`, `.odt`…) lands in
+ * a pdf record's master tier (owner decision 2026-11-11, D1 = b — coexistence):
+ * nothing derived is rebuilt from it, so either the PDF rendition beside it
+ * still drives the web copy, thumb and covers — possibly depicting an earlier
+ * version of the document — or there is no rendition and no web copy at all.
+ * null when the upload IS a derivative source (or the type is not pdf-like).
+ */
+export function nonSourceOriginalNotice(
+	spec: MediaTypeSpec,
+	identity: MediaIdentity,
+	pathOpts: MediaPathOptions,
+	uploadedExtension: string,
+): string | null {
+	if (isDerivativeSourceExtension(spec, uploadedExtension)) return null;
+	const stored = `${buildMediaIdentifier(identity)}.${uploadedExtension.toLowerCase()}`;
+	const rendition = resolveMaster(spec, identity, pathOpts, null);
+	if (rendition === null) {
+		return `${stored} stored as the original; there is no PDF rendition beside it, so the record has no web copy, thumbnail or cover — upload a PDF of the document to build them.`;
+	}
+	const name = rendition.path.slice(rendition.path.lastIndexOf('/') + 1);
+	return `${stored} stored as the original beside the PDF rendition ${name} (${rendition.quality}), which still drives the web copy, thumbnail and covers — upload a new PDF if it depicts an earlier version of the document.`;
 }
 
 /**

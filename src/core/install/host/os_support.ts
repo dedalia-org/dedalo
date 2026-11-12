@@ -20,6 +20,7 @@
  * PURE: data and parsers only.
  */
 
+import { debianTesseractPackage, rhelTesseractPackage } from '../../media/engine/ocr_langs.ts';
 import { hostRefuse } from './refuse.ts';
 
 /** os-release(5) values this module reads. */
@@ -167,6 +168,16 @@ export interface RowPackages {
 	readonly optional: readonly string[];
 	/** SELinux management (semanage). */
 	readonly selinuxTools: readonly string[];
+	/**
+	 * The Tesseract language packs (T0-11 D3): one per working language plus
+	 * `osd`, named by the ONE map (media/engine/ocr_langs.ts). `lane` follows
+	 * ocrmypdf's — `base` where ocrmypdf is mandatory (apt), `optional` where it
+	 * is (EL: a pack without ocrmypdf is no OCR, and its failure only warns).
+	 */
+	readonly ocrLangpacks: {
+		readonly lane: 'base' | 'optional';
+		readonly packageOf: (model: string) => string;
+	};
 }
 
 const SHARED_BINARIES = {
@@ -241,6 +252,7 @@ const APT_PACKAGES: RowPackages = Object.freeze({
 	localCa: Object.freeze(['openssl']),
 	optional: Object.freeze([]),
 	selinuxTools: Object.freeze([]),
+	ocrLangpacks: Object.freeze({ lane: 'base', packageOf: debianTesseractPackage }),
 });
 
 /** Debian-layout web servers (nginx conf.d; Apache sites-available + a2ensite). */
@@ -361,6 +373,7 @@ export const OS_ROWS: readonly OsRow[] = Object.freeze([
 			// Not in EPEL 10 at every point release (campaign 2 L28): warned, never fatal.
 			optional: Object.freeze(['ocrmypdf']),
 			selinuxTools: Object.freeze(['policycoreutils-python-utils']),
+			ocrLangpacks: Object.freeze({ lane: 'optional', packageOf: rhelTesseractPackage }),
 		}),
 		certbotTimer: 'certbot-renew.timer',
 		selinux: true,

@@ -304,6 +304,22 @@ render_tool_upload.prototype.upload_done = async function (options) {
 			render_error_inline(self.process_file, entry)
 		}
 
+	// ingest_notices (T0-11). What the upload did that the curator must know and
+	// that is NOT a failure — e.g. "replaced N chars of existing transcription"
+	// (Time Machine keeps the previous version). Plain text lines BESIDE the
+	// success, never through the error renderer: nothing here went wrong.
+		const ingest_notices = Array.isArray(response_data_value.ingest_notices)
+			? response_data_value.ingest_notices
+			: []
+		for (const entry of ingest_notices) {
+			ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'process_file_notice',
+				text_content	: String(entry), // textContent, never an HTML sink
+				parent			: self.process_file
+			})
+		}
+
 	// HAND THE TRANSCODE TO THE TRAY. The server has been returning `job_id` here
 	// all along and this client dropped it, which is why uploading a video looked
 	// finished while ffmpeg still had an hour of work to do: the UPLOAD was

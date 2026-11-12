@@ -9,7 +9,7 @@
 	import {place_list_after} from '../../common/js/common.js'
 	import {apply_table_semantics} from '../../section_record/js/record_window.js'
 	import {ui} from '../../common/js/ui.js'
-	import {render_list_after} from './render_edit_component_portal.js'
+	import {render_list_after, add_existence_column} from './render_edit_component_portal.js'
 	import {set_element_css} from '../../page/js/css.js'
 	import {bind_edit_in_list} from '../../component_common/js/component_common.js'
 
@@ -82,6 +82,10 @@ view_default_list_portal.render = async function(self, options) {
 
 	// view
 		const children_view	= self.context.children_view || self.context.view || 'default'
+
+	// existence column (add_existence_column): only when the context carries a
+	// target section marked existence only — readable-only portals unchanged
+		self.columns_map = add_existence_column(self, self.columns_map || [])
 
 	// rows. The page's locator entries; instances are built by the row window
 		const rows = self.data?.entries || []

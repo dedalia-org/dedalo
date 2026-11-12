@@ -11,10 +11,19 @@
 
 import { existsSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { config } from '../../../src/config/config.ts';
 import { NO_LANG } from '../../../src/config/data_langs.ts';
-import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import { DedaloError, logError, ok, toDedaloError } from '../../../src/core/errors/index.ts';
+import {
+	installedTesseractModels,
+	requireTesseractModel,
+} from '../../../src/core/media/engine/ocr_langs.ts';
 import { sanitizeSegment, stagingDir } from '../../../src/core/media/ingest/add_file.ts';
-import { processUploadedFile } from '../../../src/core/media/ingest/process_uploaded_file.ts';
+import {
+	type IngestProcessOptions,
+	isMasterTier,
+	processUploadedFile,
+} from '../../../src/core/media/ingest/process_uploaded_file.ts';
 import { buildMediaIdentifier } from '../../../src/core/media/path.ts';
 import { resolveMediaToolContext } from '../../../src/core/media/tool_support.ts';
 import {
@@ -94,9 +103,146 @@ async function processUploadedJson(
 	);
 }
 
+/** The keys `process_options` may carry (service_upload's OCR controls). */
+const PROCESS_OPTION_KEYS: ReadonlySet<string> = new Set(['ocr', 'ocr_lang']);
+
+/** A caller fault in `process_options` — refused, never coerced. */
+function invalidProcessOptions(reason: string): DedaloError {
+	return new DedaloError('request.invalid_options', {
+		message: `tool_upload process_options: ${reason}`,
+		publicMessage: `Invalid upload processing options: ${reason}`,
+	});
+}
+
+/** Where readProcessOptions learns what the target is and what this host can OCR. */
+export interface ProcessOptionsContext {
+	/** The target component's model: OCR exists for `component_pdf` only. */
+	model: string | null;
+	/**
+	 * Whether the upload lands in a MASTER tier (isMasterTier): OCR reads the
+	 * ingested master, so an upload into a derivative tier cannot be OCR'd.
+	 */
+	masterTier: boolean;
+	/** The Tesseract models INSTALLED here (default: `tesseract --list-langs`). */
+	installedModels?: () => Promise<ReadonlySet<string>>;
+}
+
+/**
+ * Validate the client's `process_options` (T0-11 — the OCR checkbox the server
+ * used to drop silently). Absent / null → no options. Only `ocr` (boolean) and
+ * `ocr_lang` (read only when `ocr` is true, and then ALWAYS resolved: null = the
+ * request's data lang) are accepted. Refused as `request.invalid_options` BEFORE
+ * anything is moved — a ticked box must either work or be refused, never be
+ * ignored: an unknown key, a non-boolean `ocr`, and with OCR on: a target that
+ * is not a `component_pdf` master tier, a language with no Tesseract model in the ONE map,
+ * or one whose model is not INSTALLED on this host.
+ */
+export async function readProcessOptions(
+	raw: unknown,
+	context: ProcessOptionsContext,
+): Promise<IngestProcessOptions> {
+	const read = readProcessOptionsShape(raw);
+	if (read.ocr !== true) return read;
+	assertOcrTarget(context);
+	const lang = readOcrLang(
+		raw === null || raw === undefined ? null : (raw as Record<string, unknown>).ocr_lang,
+	);
+	const installed = await (
+		context.installedModels ?? (() => installedTesseractModels(config.media.binaries.tesseract))
+	)();
+	const model = requireTesseractModel(lang);
+	if (!installed.has(model)) {
+		throw invalidProcessOptions(
+			`OCR in '${lang}' needs the Tesseract model '${model}', which is not installed on this server`,
+		);
+	}
+	return { ...read, ocrLang: lang };
+}
+
+/** OCR is asked of a PDF component's MASTER tier, or refused — never silently ignored. */
+function assertOcrTarget(context: ProcessOptionsContext): void {
+	if (context.model !== 'component_pdf') {
+		throw invalidProcessOptions(
+			`'ocr' applies to PDF components only (this target is '${context.model ?? 'unknown'}')`,
+		);
+	}
+	if (!context.masterTier) {
+		throw invalidProcessOptions(
+			"'ocr' needs an upload into a master tier (the original) — a derivative tier is never OCR'd",
+		);
+	}
+}
+
+/** The shape half of readProcessOptions: keys, and `ocr` a boolean. */
+function readProcessOptionsShape(raw: unknown): IngestProcessOptions {
+	if (raw === undefined || raw === null) return {};
+	if (typeof raw !== 'object' || Array.isArray(raw)) {
+		throw invalidProcessOptions('expected an object');
+	}
+	const options = raw as Record<string, unknown>;
+	const unknown = Object.keys(options).filter((key) => !PROCESS_OPTION_KEYS.has(key));
+	if (unknown.length > 0) {
+		throw invalidProcessOptions(`unknown key(s) ${unknown.map((key) => `'${key}'`).join(', ')}`);
+	}
+	if (options.ocr === undefined || options.ocr === null) return {};
+	if (typeof options.ocr !== 'boolean') throw invalidProcessOptions("'ocr' must be a boolean");
+	// ocr_lang is read ONLY when OCR is asked for (readProcessOptions): the client
+	// sends the selected language whenever the OCR panel shows, checkbox ticked or
+	// not, and an untouched selector must never refuse an ordinary upload.
+	return { ocr: options.ocr };
+}
+
+/**
+ * The OCR language, RESOLVED here — before the move: absent/null is the
+ * request's data lang (the default the ingest would otherwise apply AFTER the
+ * file moved, where an unusable data lang could only fail as a stranded upload).
+ */
+function readOcrLang(raw: unknown): string {
+	const lang = raw === undefined || raw === null ? currentDataLang() : raw;
+	if (typeof lang !== 'string' || !/^lg-[a-z]+$/.test(lang)) {
+		throw invalidProcessOptions("'ocr_lang' must be a Dédalo language code (lg-xxx)");
+	}
+	return lang;
+}
+
+/**
+ * Start the OCR job the ingest handed back. Past the move a refusal (no PDF
+ * master, a model removed since the validation) must not turn a landed upload
+ * into an error response: it becomes a derivative error, the upload stands.
+ * The raw failure text goes to the LOG (with its cause); the wire carries only
+ * the failure's error CODE, which the caller wraps in a deliberate sentence
+ * (SEC-17/18: exception text may embed absolute paths).
+ */
+export function startOcrReporting(startOcr: (() => string) | null): {
+	jobId: string | null;
+	failureCode: string | null;
+} {
+	if (startOcr === null) return { jobId: null, failureCode: null };
+	try {
+		return { jobId: startOcr(), failureCode: null };
+	} catch (error) {
+		const typed = toDedaloError(error);
+		logError(
+			new DedaloError(typed.code, {
+				message: `tool_upload: the OCR job could not be started: ${typed.message}`,
+				coordinates: typed.coordinates,
+				cause: error,
+			}),
+			{ subsystem: 'tool_upload' },
+		);
+		return { jobId: null, failureCode: typed.code };
+	}
+}
+
+/** The derivative-error sentence for an OCR start that failed (code only, never raw text). */
+export function ocrStartFailureMessage(failureCode: string): string {
+	return `the OCR job could not be started (${failureCode})`;
+}
+
 async function processUploaded(ctx: ToolActionContext): Promise<ToolResponse> {
 	const componentTipo = String(ctx.options.tipo ?? ctx.options.component_tipo ?? '');
-	if ((await getModelByTipo(componentTipo)) === 'component_json') {
+	const model = await getModelByTipo(componentTipo);
+	if (model === 'component_json') {
 		return processUploadedJson(ctx, componentTipo);
 	}
 	const { spec, identity, pathOpts } = await resolveMediaToolContext(ctx.options);
@@ -106,6 +252,12 @@ async function processUploaded(ctx: ToolActionContext): Promise<ToolResponse> {
 	// caller.context.target_quality, else features.default_target_quality).
 	// null/absent means the original tier; processUploadedFile validates it.
 	const quality = typeof ctx.options.quality === 'string' ? ctx.options.quality : undefined;
+	// Validated BEFORE the move: a refused option must leave the staged upload
+	// untouched. '' is "unset" (the ingest's own normalisation).
+	const processOptions = await readProcessOptions(ctx.options.process_options, {
+		model,
+		masterTier: isMasterTier(spec, quality === '' ? undefined : quality),
+	});
 	const result = await processUploadedFile({
 		spec,
 		identity,
@@ -115,6 +267,7 @@ async function processUploaded(ctx: ToolActionContext): Promise<ToolResponse> {
 		tmpName: String(fileData.tmp_name ?? ''),
 		extension: String(fileData.extension ?? ''),
 		quality,
+		processOptions,
 	});
 	// Persist the fresh files_info + the name keys to the record so the client
 	// renders the NEW image (not the stale/placeholder). Without this the upload
@@ -132,7 +285,8 @@ async function processUploaded(ctx: ToolActionContext): Promise<ToolResponse> {
 	});
 	// AFTER the persist commits: the transcode writes its own files_info back,
 	// and must not race the write above (see IngestResult.startTranscode).
-	const jobId = result.startTranscode?.() ?? null;
+	const ocrStart = startOcrReporting(result.startOcr);
+	const jobId = result.startTranscode?.() ?? ocrStart.jobId;
 
 	// Activity audit (PHP logger 'UPLOAD COMPLETE' code 11,
 	// tool_upload :49). PHP serializes the whole file_data blob into the
@@ -160,10 +314,16 @@ async function processUploaded(ctx: ToolActionContext): Promise<ToolResponse> {
 	// the payload as `derivative_errors` — the client half of this contract
 	// (render_tool_upload.js, which used to read response.msg) is the client
 	// sweeper's.
-	const derivativeErrors = result.derivativeErrors.map(
+	const ocrErrors =
+		ocrStart.failureCode === null ? [] : [ocrStartFailureMessage(ocrStart.failureCode)];
+	const derivativeErrors = [...result.derivativeErrors, ...ocrErrors].map(
 		(message) =>
 			`${result.originalFileName}: imported, but a derivative could not be built — ${message}`,
 	);
+	// NOTICES (T0-11 D1 = c): what the ingest did that the curator must know and
+	// that is NOT a failure — the transcription it replaced. Rendered apart from
+	// derivative_errors (render_tool_upload.js), so nothing reads as broken.
+	const ingestNotices = result.notices.map((message) => `${result.originalFileName}: ${message}`);
 	// `job_id` stays a TOP-LEVEL extension key (the transcode poll handle the
 	// client reads by name); the rest is payload.
 	return ok(
@@ -172,6 +332,7 @@ async function processUploaded(ctx: ToolActionContext): Promise<ToolResponse> {
 			extension: result.extension,
 			files_info: result.filesInfo,
 			derivative_errors: derivativeErrors,
+			ingest_notices: ingestNotices,
 		},
 		{ requestId: toolRequestId(ctx), extend: { job_id: jobId } },
 	);

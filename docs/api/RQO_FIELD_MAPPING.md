@@ -372,7 +372,7 @@ Unauthenticated (`session === null`) `start` returns the **login element context
 
 ### get_system_info()
 **Purpose**: The upload / import / media-edit init call — the client reads it before it can transfer a file.
-**RQO fields used**: none. The payload comes from the media/upload config catalog; there is no runtime `.ini` to consult.
+**RQO fields used**: none. The payload comes from the media/upload config catalog; there is no runtime `.ini` to consult. The two OCR fields are measured on the host: `pdf_ocr_engine` is `true` when the `ocrmypdf` binary is present and executable, and `pdf_ocr_langs` lists the application languages whose Tesseract model is installed (`[]` without `ocrmypdf`). See [dd_utils_api](classes/dd_utils_api.md#get_system_info).
 
 **Example request**:
 ```json
@@ -391,7 +391,8 @@ Unauthenticated (`session === null`) `start` returns the **login element context
     "upload_tmp_perms": 16877,
     "session_cache_expire": 180,
     "upload_service_chunk_files": 20,
-    "pdf_ocr_engine": true
+    "pdf_ocr_engine": true,
+    "pdf_ocr_langs": ["lg-spa", "lg-eng"]
   }
 }
 ```

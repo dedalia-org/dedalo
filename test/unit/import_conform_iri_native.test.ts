@@ -1,6 +1,13 @@
 /**
  * component_iri IMPORT CONFORM gate — `conformIri` + `conformIriRecord`
- * (`src/core/tools/import_conform.ts:988-1113`).
+ * (`src/core/tools/import_conform.ts`).
+ *
+ * T0-12: a LABEL never lands on the item. Conform returns the clean item and,
+ * beside it, a typed intent (`derivedFrames`: slot dd560, the item's position,
+ * the dd1706 record id or label text) that the executor resolves and writes as
+ * the item's dd560 frame inside the row transaction. A label with no iri (and
+ * no deprecated title) is refused. The write half is gated by
+ * `import_iri_label_native.test.ts`.
  *
  * WHY THIS FILE EXISTS: this parser is DATA-CORRUPTION class. A wrong conform
  * does not error — it quietly writes the wrong thing into every affected cell
@@ -18,7 +25,16 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { sql } from '../../src/core/db/postgres.ts';
 import { clearOntologyCaches } from '../../src/core/ontology/resolver.ts';
-import { conformImportData } from '../../src/core/tools/import_data.ts';
+import { conformImportData, type IriLabelIntent } from '../../src/core/tools/import_data.ts';
+
+/** A flat-cell label intent at `item`. */
+function intent(
+	item: number,
+	target: IriLabelIntent['target'],
+	lang: string | null = null,
+): IriLabelIntent {
+	return { slot: 'dd560', lang, item, target };
+}
 
 /** The scratch component_iri node carrying NON-default separators. */
 const CONFIGURED_TIPO = 'test9761';
@@ -72,26 +88,31 @@ describe('conformIriRecord — the per-record arms', () => {
 		expect(out.result).toEqual([{ iri: 'https://a.test/1' }]);
 	});
 
-	test('an all-digits label token becomes label_id as an INT, never an iri', async () => {
-		// Corruption prevented: reordering the numeric arm after hasProtocol, or
-		// dropping the parseInt, stores a dd1706 label id as a STRING (or as an
-		// iri) in every labelled cell of the import — silently.
+	test('an all-digits label token becomes an INT record-id INTENT, never a key of the item', async () => {
+		// Corruption prevented: the stray `label_id` key on the stored item (T0-12),
+		// or a dd1706 label id stored as a STRING (or as an iri).
 		const out = await conform('273418, https://a.test/coin');
 		expect(out.errors).toHaveLength(0);
-		expect(out.result).toEqual([{ label_id: 273418, iri: 'https://a.test/coin' }]);
-		const first = (out.result as { label_id: unknown }[])[0];
-		expect(typeof first?.label_id).toBe('number');
+		expect(out.result).toEqual([{ iri: 'https://a.test/coin' }]);
+		expect(out.derivedFrames).toEqual([intent(0, { section_id: 273418 })]);
 	});
 
-	test('a TEXT label is REFUSED with the dd1706 message, not imported label-less', async () => {
-		// Corruption prevented: accepting the cell would store the iri WITHOUT its
-		// label, and the operator would never be told the label was dropped.
+	test('a TEXT label becomes a find-or-create INTENT (no write at conform time)', async () => {
 		const out = await conform('nomisma, https://a.test/coin');
+		expect(out.errors).toHaveLength(0);
+		expect(out.result).toEqual([{ iri: 'https://a.test/coin' }]);
+		expect(out.derivedFrames).toEqual([intent(0, { label: 'nomisma' })]);
+	});
+
+	test('a record with a label and NO iri is REFUSED — a label needs an iri', async () => {
+		const out = await conform('nomisma, not-a-url');
 		expect(out.result).toBeNull();
-		expect(out.errors).toHaveLength(1);
-		expect(out.errors[0]?.msg).toBe(
-			"IGNORED: an iri text label ('nomisma') needs a lookup-or-create in the label section (dd1706), which is not ported — import the label's record id instead",
-		);
+		expect(out.errors[0]?.msg).toContain('a label needs an iri');
+	});
+
+	test('an unlabelled cell carries no intent at all', async () => {
+		const out = await conform('https://a.test/1');
+		expect(out.derivedFrames).toBeUndefined();
 	});
 
 	test('an EMPTY record inside a multi-record cell fails the whole cell', async () => {
@@ -113,7 +134,8 @@ describe('conformIriRecord — the per-record arms', () => {
 
 	test('a THIRD field is ignored — only fields[0] and fields[1] are read', async () => {
 		const out = await conform('12, https://a.test/real, https://a.test/ignored');
-		expect(out.result).toEqual([{ label_id: 12, iri: 'https://a.test/real' }]);
+		expect(out.result).toEqual([{ iri: 'https://a.test/real' }]);
+		expect(out.derivedFrames).toEqual([intent(0, { section_id: 12 })]);
 	});
 
 	/**
@@ -125,7 +147,8 @@ describe('conformIriRecord — the per-record arms', () => {
 	test('each field is TRIMMED — a padded label id is still an INT, not a text label', async () => {
 		const out = await conform('42 ,  https://a.test/pad ');
 		expect(out.errors).toHaveLength(0);
-		expect(out.result).toEqual([{ label_id: 42, iri: 'https://a.test/pad' }]);
+		expect(out.result).toEqual([{ iri: 'https://a.test/pad' }]);
+		expect(out.derivedFrames).toEqual([intent(0, { section_id: 42 })]);
 	});
 });
 
@@ -140,9 +163,11 @@ describe('the plain-string branch — the DEFAULT separators are the human CSV c
 		expect(out.result).toHaveLength(3);
 		expect(out.result).toEqual([
 			{ iri: 'https://a.test/1' },
-			{ label_id: 42, iri: 'https://a.test/2' },
+			{ iri: 'https://a.test/2' },
 			{ iri: 'https://a.test/3' },
 		]);
+		// the intent indexes the item it labels; a url in field 1 is no label
+		expect(out.derivedFrames).toEqual([intent(1, { section_id: 42 })]);
 	});
 
 	test('a cell with neither separator nor protocol is REFUSED', async () => {
@@ -188,11 +213,11 @@ describe('the protocol allowlist — http/https ONLY', () => {
 	});
 
 	test('a javascript: URI hiding in the SECOND field is not adopted as the iri', async () => {
-		// The record still parses (field 1 is a label id), but the javascript:
-		// token must NOT become item.iri.
+		// The javascript: token must NOT become item.iri — and the label alone is
+		// no item (T0-12): the cell is refused.
 		const out = await conform('42, javascript:alert(1)');
-		expect(out.errors).toHaveLength(0);
-		expect(out.result).toEqual([{ label_id: 42 }]);
+		expect(out.result).toBeNull();
+		expect(out.errors[0]?.msg).toContain('a label needs an iri');
 	});
 
 	test('file:// and ftp:// are refused too', async () => {
@@ -219,14 +244,18 @@ describe('the LANG-KEYED json branch — the most common real CSV shape', () => 
 		});
 	});
 
-	test('a lang-keyed iri is TRIMMED and its sibling keys survive', async () => {
-		const out = await conform('{"lg-eng":[{"iri":" https://a.test/1 ","label_id":9}]}');
-		expect(out.result).toEqual({ 'lg-eng': [{ iri: 'https://a.test/1', label_id: 9 }] });
+	test('a lang-keyed iri is TRIMMED, its sibling keys survive, its label_id becomes an intent', async () => {
+		const out = await conform('{"lg-eng":[{"iri":" https://a.test/1 ","label_id":9,"title":"T"}]}');
+		expect(out.result).toEqual({ 'lg-eng': [{ iri: 'https://a.test/1', title: 'T' }] });
+		expect(out.derivedFrames).toEqual([intent(0, { section_id: 9 }, 'lg-eng')]);
 	});
 
 	test('a lang-keyed STRING item goes through conformIriRecord', async () => {
-		const out = await conform('{"lg-eng":["42, https://a.test/3"]}');
-		expect(out.result).toEqual({ 'lg-eng': [{ label_id: 42, iri: 'https://a.test/3' }] });
+		const out = await conform('{"lg-eng":["https://a.test/2", "42, https://a.test/3"]}');
+		expect(out.result).toEqual({
+			'lg-eng': [{ iri: 'https://a.test/2' }, { iri: 'https://a.test/3' }],
+		});
+		expect(out.derivedFrames).toEqual([intent(1, { section_id: 42 }, 'lg-eng')]);
 	});
 
 	test('a non-string iri is REFUSED with the type message', async () => {
@@ -243,10 +272,25 @@ describe('the LANG-KEYED json branch — the most common real CSV shape', () => 
 });
 
 describe('the flat json branch — the arms the existing gate does not reach', () => {
-	test('an object with NO iri key survives untouched (a label-only frame)', async () => {
+	test('a label-ONLY object (no iri, no title) is REFUSED', async () => {
+		// Corruption prevented: the old arm stored `{label_id:5}` — a literal item
+		// with no iri carrying a key no reader reads.
 		const out = await conform('[{"label_id":5}]');
+		expect(out.result).toBeNull();
+		expect(out.errors[0]?.msg).toContain('a label needs an iri');
+	});
+
+	test('a title-only labelled object is kept (deprecated title, D5) with its intent', async () => {
+		const out = await conform('[{"label_id":"5","title":"T"}]');
 		expect(out.errors).toHaveLength(0);
-		expect(out.result).toEqual([{ label_id: 5 }]);
+		expect(out.result).toEqual([{ title: 'T' }]);
+		expect(out.derivedFrames).toEqual([intent(0, { section_id: 5 })]);
+	});
+
+	test('a label_id that is not a record id is REFUSED, never stored', async () => {
+		const out = await conform('[{"iri":"https://a.test/1","label_id":"nomisma"}]');
+		expect(out.result).toBeNull();
+		expect(out.errors[0]?.msg).toContain('is not a label record id');
 	});
 
 	test('a non-string iri in the flat branch is refused', async () => {
@@ -270,10 +314,8 @@ describe('the flat json branch — the arms the existing gate does not reach', (
 	test('a json array of STRING records goes through conformIriRecord', async () => {
 		const out = await conform('["42, https://a.test/s1", "https://a.test/s2"]');
 		expect(out.errors).toHaveLength(0);
-		expect(out.result).toEqual([
-			{ label_id: 42, iri: 'https://a.test/s1' },
-			{ iri: 'https://a.test/s2' },
-		]);
+		expect(out.result).toEqual([{ iri: 'https://a.test/s1' }, { iri: 'https://a.test/s2' }]);
+		expect(out.derivedFrames).toEqual([intent(0, { section_id: 42 })]);
 	});
 });
 
@@ -283,10 +325,8 @@ describe('the ONTOLOGY-CONFIGURED separators bind — not the defaults', () => {
 		// correctly-authored cell of a configured component as one garbage record.
 		const out = await conform('https://a.test/1;;700::https://a.test/2', CONFIGURED_TIPO);
 		expect(out.errors).toHaveLength(0);
-		expect(out.result).toEqual([
-			{ iri: 'https://a.test/1' },
-			{ label_id: 700, iri: 'https://a.test/2' },
-		]);
+		expect(out.result).toEqual([{ iri: 'https://a.test/1' }, { iri: 'https://a.test/2' }]);
+		expect(out.derivedFrames).toEqual([intent(1, { section_id: 700 })]);
 	});
 
 	test('the DEFAULT separators are inert on a configured component', async () => {

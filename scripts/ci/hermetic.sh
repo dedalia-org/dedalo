@@ -299,6 +299,10 @@ HERMETIC_TRIPWIRES=(
 	#     publication/host_agent/src/media/*.ts through Bun.Transpiler only (no module
 	#     imported, no DB). Verified DB-less (DB_HOST=127.0.0.1 DB_PORT=59999).
 	test/unit/host_agent_requested_mode_tripwire.test.ts
+	# --- 2026-11-11: T0-12 D6b, the unscoped folded-lookup caller census -- source
+	#     scan + one runtime refusal that throws before any resolver/DB import.
+	#     Verified DB-less (DB_HOST=127.0.0.1 DB_PORT=59999: 9 pass / 0 fail).
+	test/unit/iri_label_unscoped_lookup_tripwire.test.ts
 	test/unit/sw_tombstone_tripwire.test.ts
 	test/unit/date_flat_value_single_source_tripwire.test.ts
 	test/unit/error_throw_ratchet.test.ts

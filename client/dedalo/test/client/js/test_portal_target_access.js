@@ -15,6 +15,7 @@ import { ui } from '../../../core/common/js/ui.js';
 import { buttons } from '../../../core/component_portal/js/buttons.js';
 import { component_portal } from '../../../core/component_portal/js/component_portal.js';
 import {
+	add_existence_column,
 	can_open_target,
 	render_column_id,
 } from '../../../core/component_portal/js/render_edit_component_portal.js';
@@ -265,6 +266,96 @@ describe(`PORTAL TARGET ACCESS`, function () {
 			assert.isOk(new_window, 'the readable target opens');
 			assert.equal(opened.length, 1);
 			assert.include(opened[0].url, `tipo=${READABLE}`);
+		});
+	});
+
+	// The EXISTENCE cell (owner rule 2026-11-11, component_relation_index) is
+	// keyed on the server's explicit `existence_only: true` marker — NEVER on the
+	// grant: an ordinary portal whose target the user holds 0 on (the stub's
+	// test2, permissions 0, no marker) keeps its look exactly
+	// (WC-2026-11-09-component-get-data-host-gate: its rows may show content).
+	describe(`existence cell: only on the server's existence_only marker`, function () {
+		const marked_portal = (view) => {
+			const self = stub_portal(view);
+			self.context.request_config[0].sqo.section_tipo[0] = {
+				tipo: UNREADABLE,
+				permissions: 0,
+				model: 'section',
+				label: 'zz existence name',
+				existence_only: true,
+			};
+			return self;
+		};
+
+		it(`a plain portal with a 0-grant target: no existence column`, () => {
+			const self = stub_portal('default');
+			const columns_map = [{ id: 'content_column' }];
+			add_existence_column(self, columns_map);
+			assert.deepEqual(
+				columns_map.map((column) => column.id),
+				['content_column'],
+				'no column added for a 0-grant target without the marker',
+			);
+		});
+
+		it(`a plain portal with a 0-grant target: the ID cell is unchanged`, () => {
+			for (const show_section_id of [false, true]) {
+				const self = stub_portal('default');
+				self.show_interface = { show_section_id };
+				const cell = render_column_id({
+					caller: self,
+					section_id: '7',
+					section_tipo: UNREADABLE,
+					drag: false,
+				});
+				assert.isNull(cell.querySelector('.target_existence'), 'no existence cell');
+				assert.equal(
+					cell.querySelector('.section_id')?.textContent,
+					show_section_id ? '7' : undefined,
+					'the id exactly as show_section_id says',
+				);
+			}
+			const line = view_line_edit_portal.render_column_id({
+				caller: stub_portal('line'),
+				section_id: '7',
+				section_tipo: UNREADABLE,
+			});
+			assert.isNull(line.querySelector('.target_existence'), 'line view: no existence cell');
+		});
+
+		it(`a marked target: one existence column, name + id in the ID cell (both views)`, () => {
+			const columns_map = [{ id: 'content_column' }];
+			add_existence_column(marked_portal('default'), columns_map);
+			add_existence_column(marked_portal('default'), columns_map); // idempotent
+			assert.equal(columns_map.length, 2, 'one existence column');
+			for (const cell of [
+				render_column_id({
+					caller: marked_portal('default'),
+					section_id: '7',
+					section_tipo: UNREADABLE,
+					drag: false,
+				}),
+				view_line_edit_portal.render_column_id({
+					caller: marked_portal('line'),
+					section_id: '7',
+					section_tipo: UNREADABLE,
+				}),
+			]) {
+				const existence = cell.querySelector('.target_existence');
+				assert.isNotNull(existence, 'existence cell');
+				assert.include(existence.textContent, 'zz existence name');
+				assert.equal(existence.querySelector('.section_id')?.textContent, '7');
+				assert.isNull(cell.querySelector('button.button_edit'), 'never an opener');
+			}
+			// the readable row of the same portal is unchanged
+			const readable = render_column_id({
+				caller: marked_portal('default'),
+				section_id: '7',
+				section_tipo: READABLE,
+				drag: false,
+			});
+			assert.isNull(readable.querySelector('.target_existence'));
+			assert.isNotNull(readable.querySelector('button.button_edit'));
 		});
 	});
 

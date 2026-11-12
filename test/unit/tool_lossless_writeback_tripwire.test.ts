@@ -732,6 +732,11 @@ else {
 					reason:
 						'mints the dd800 bulk-process record of the run (created in the same transaction as its label, before any record is touched). Nothing stored is replaced.',
 				},
+				transcribeStoredPdf: {
+					verdict: 'derived-state',
+					reason:
+						'T0-11 D2 = b: the PDF transcription is DERIVED from the record’s PDF (pdftotext) and written ONLY into an EMPTY lang slice — the emptiness is re-read UNDER the row lock in the transaction that writes (pdf_transcription.ts writeLocked: readMatrixKeyForUpdate, then readComponentItems), so a curated or concurrently committed transcription is kept, never transformed or replaced. Gate: pdf_transcription_native (gate 6). Under the run’s bulkProcessId: a bulk revert clears the fill.',
+				},
 			},
 		},
 
@@ -1359,6 +1364,11 @@ else {
 					bypass_reason: BYPASS.filesInfo,
 					reason:
 						'the operator’s explicit sync_files repair of THIS record: reconciles files_info against a fresh disk scan under the row lock, minting the item only when the component has none and files exist. Filesystem-derived state.',
+				},
+				transcribeStoredPdf: {
+					verdict: 'derived-state',
+					reason:
+						'T0-11 D2 = b: the PDF transcription is DERIVED from the record’s PDF (pdftotext) and written ONLY into an EMPTY lang slice — the emptiness is re-read UNDER the row lock in the transaction that writes (pdf_transcription.ts writeLocked: readMatrixKeyForUpdate, then readComponentItems), so a curated or concurrently committed transcription is kept, never transformed or replaced. Gate: pdf_transcription_native (gate 6).',
 				},
 			},
 		},

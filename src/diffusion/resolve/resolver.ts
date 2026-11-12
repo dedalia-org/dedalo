@@ -40,6 +40,7 @@
  */
 
 import { resolveIriTitles } from '../../core/components/component_iri/resolve_title.ts';
+import { isDerivedModel } from '../../core/components/registry.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../../core/concepts/section_id.ts';
 import type { Sqo } from '../../core/concepts/sqo.ts';
 import type { MatrixRecord } from '../../core/db/matrix.ts';
@@ -48,6 +49,7 @@ import { DedaloError } from '../../core/errors/index.ts';
 import { refuseLabelNode } from '../../core/ontology/label_node_guard.ts';
 import {
 	findFirstDescendantTipoByModel,
+	getAncestorSectionTipo,
 	getColumnNameByModel,
 	getMatrixTableFromTipo,
 	getModelByTipo,
@@ -55,13 +57,22 @@ import {
 	getPropertiesByTipo,
 	getSectionRealTipo,
 	hasLangVersions,
+	tipoBelongsToSection,
 } from '../../core/ontology/resolver.ts';
 import { getSectionMapValue } from '../../core/ontology/section_map.ts';
 import { getChildren } from '../../core/relations/children.ts';
-import { resolveIndexConfig } from '../../core/relations/models/relation_index.ts';
+import { pointerIsExistenceOnly } from '../../core/relations/config_children.ts';
+import {
+	componentLocators,
+	computedChildrenLocators,
+	computedIndexLocators,
+	type IndexQuestion,
+	locatorSourceOf,
+	readsComputedLocators,
+	relationIndexQuestion,
+} from '../../core/relations/locator_source.ts';
 import { getParents, getParentsRecursive } from '../../core/relations/parent.ts';
 import { readComponentItems, readStoredComponentItems } from '../../core/resolve/component_data.ts';
-import { parseInverseEntry } from '../../core/resolve/relation_index.ts';
 import {
 	findInverseReferenceLocators,
 	findInverseReferences,
@@ -96,9 +107,10 @@ import type {
 	ProjectedRow,
 } from '../project/lang_ladder.ts';
 import { NOLAN_KEY, projectRecordRows } from '../project/lang_ladder.ts';
-import type { IconographyOptions } from './ddo_fns.ts';
+import type { IconographyOptions, SvgTagPathMemo } from './ddo_fns.ts';
 import {
 	buildGeojsonLayers,
+	createSvgTagPathMemo,
 	iconographyOptionsOf,
 	joinIconographyScenes,
 	parseTagValueToHtml,
@@ -271,7 +283,7 @@ export interface RunContext {
 	 * request_config per call when the component declares one (uncached,
 	 * ontology-query heavy) — one resolution per (component, section) per run
 	 * is the correct cost; the ontology is immutable for the run's duration. */
-	relationIndexConfigCache: Map<string, Awaited<ReturnType<typeof resolveIndexConfig>>>;
+	relationIndexConfigCache: Map<string, IndexQuestion>;
 	/** `${record}|${hop_tipo}|${relation_type}|${target_sections}` → computed
 	 * inverse-index locators (relation_index hops — see relationIndexLocators).
 	 * Keyed per hop tipo AND resolved filters: unlike relation_list, the query
@@ -289,6 +301,9 @@ export interface RunContext {
 	sectionLabelCache: Map<string, Record<string, string> | null>;
 	/** text_area tipo → PAIRED component_geolocation tipo (get_geojson_data). */
 	geoPairCache: Map<string, string | null>;
+	/** svg tag locator → media-root-relative path (parse_tag_to_html, T0-10).
+	 * RUN-SCOPED: the path reads the ontology and an `additional_path` value. */
+	svgTagPathMemo: SvgTagPathMemo;
 	/** PHP is_used bitmask twin: records already emitted top-level this run. */
 	usedRecords: Set<string>;
 	/** PHP $datum_unresolved: `${level}:${section_tipo}` → queued ids (FIFO). */
@@ -798,6 +813,8 @@ export interface ComponentFnEnv {
 	langs: readonly string[];
 	/** text_area tipo → its PAIRED component_geolocation tipo (run-cached). */
 	pairedGeolocationTipo: (textAreaTipo: string) => Promise<string | null>;
+	/** The run's svg tag path memo (parse_tag_to_html — RunContext.svgTagPathMemo). */
+	svgTagPathMemo: SvgTagPathMemo;
 }
 
 /**
@@ -880,7 +897,7 @@ export async function resolveComponentFnAtoms(
 				if (typeof raw !== 'string' || raw === '' || raw === '0') continue;
 				out.push({
 					kind: 'scalar',
-					value: parseTagValueToHtml(raw),
+					value: await parseTagValueToHtml(raw, env.svgTagPathMemo),
 					lang: !item.lang || item.lang === 'lg-nolan' ? null : item.lang,
 					meta,
 				});
@@ -905,7 +922,7 @@ export async function resolveComponentFnAtoms(
 			return subtitlesUrlAtoms(record.section_id, env.langs, meta);
 
 		case 'get_diffusion_v5_references_html':
-			return v5ReferencesHtmlAtoms(record, step, meta);
+			return v5ReferencesHtmlAtoms(record, step, meta, env.svgTagPathMemo);
 
 		default:
 			throw new DedaloError('diffusion.unported_fn', {
@@ -956,6 +973,7 @@ async function v5ReferencesHtmlAtoms(
 	record: MatrixRecord,
 	step: Extract<ResolveStep, { kind: 'component' }>,
 	meta: ValueMeta,
+	svgTagPathMemo: SvgTagPathMemo,
 ): Promise<MetaValueIR[]> {
 	const stored = (readComponentItems(record, step.tipo, step.model) ?? []) as {
 		value?: unknown;
@@ -1027,7 +1045,7 @@ async function v5ReferencesHtmlAtoms(
 
 		out.push({
 			kind: 'scalar',
-			value: parseTagValueToHtml(value),
+			value: await parseTagValueToHtml(value, svgTagPathMemo),
 			lang: !item.lang || item.lang === 'lg-nolan' ? null : item.lang,
 			meta,
 		});
@@ -1557,7 +1575,7 @@ async function relationIndexLocators(
 	const configKey = `${hop.tipo}|${record.section_tipo}`;
 	let config = ctx.relationIndexConfigCache.get(configKey);
 	if (config === undefined) {
-		config = await resolveIndexConfig(hop.tipo, record.section_tipo);
+		config = await relationIndexQuestion(hop.tipo, record.section_tipo);
 		ctx.relationIndexConfigCache.set(configKey, config);
 	}
 
@@ -1568,17 +1586,14 @@ async function relationIndexLocators(
 	const cached = ctx.relationIndexCache.get(cacheKey);
 	if (cached !== undefined) return cached;
 
-	const hits = await findInverseReferenceLocators(
-		[
-			{
-				type: config.relationType,
-				section_tipo: record.section_tipo,
-				section_id: record.section_id,
-			},
-		],
-		{ sectionTipos: config.targetSections, limit: false, order: 'section_id' },
-	);
-	const locators = hits.map((hit) => parseInverseEntry(hit) as StoredLocator);
+	// THE core locator source (relations/locator_source.ts) — one computation
+	// for this hop, the export walk and the flat reader; memoized here per run.
+	const locators = (await computedIndexLocators(
+		record.section_tipo,
+		record.section_id,
+		hop.tipo,
+		config,
+	)) as StoredLocator[];
 	ctx.relationIndexCache.set(cacheKey, locators);
 	return locators;
 }
@@ -1609,15 +1624,26 @@ async function relationChildrenLocators(
 	const cached = ctx.relationChildrenCache.get(cacheKey);
 	if (cached !== undefined) return cached;
 
-	const children = await getChildren(record.section_id, record.section_tipo, hop.tipo, 0, 0);
-	const locators: StoredLocator[] = children.map((child) => ({
-		section_tipo: child.section_tipo,
-		section_id: child.section_id,
-		from_component_tipo: child.from_component_tipo,
-		type: child.type,
-	}));
+	// THE core locator source (relations/locator_source.ts), memoized per run.
+	const locators = (await computedChildrenLocators(
+		record.section_tipo,
+		record.section_id,
+		hop.tipo,
+	)) as StoredLocator[];
 	ctx.relationChildrenCache.set(cacheKey, locators);
 	return locators;
+}
+
+/**
+ * A hop's locator source. A hop through a non-component model (a section, a
+ * legacy diffusion pseudo-model) keeps the stored-slice read it always had; a
+ * COMPONENT model answers through the core contract, which throws for a
+ * relation model that declares none.
+ */
+function hopLocatorSource(model: string): 'stored' | 'relation_children' | 'relation_index' {
+	return model.startsWith('component_') && getColumnNameByModel(model) === 'relation'
+		? locatorSourceOf(model)
+		: 'stored';
 }
 
 /**
@@ -1734,6 +1760,7 @@ async function walkChainLevel(
 						{
 							langs: ctx.plan.langPolicy.langs,
 							pairedGeolocationTipo: (textAreaTipo) => pairedGeolocationTipoOf(ctx, textAreaTipo),
+							svgTagPathMemo: ctx.svgTagPathMemo,
 						},
 						record,
 						step,
@@ -1841,12 +1868,16 @@ async function resolveHop(
 	// component_relation_children = derived dd48 children. Every other relation
 	// model reads its stored slice of the record. ONLY the source differs —
 	// queueing, gates and child recursion below treat all hops identically.
+	// The COMPONENT half of the dispatch is the core locator source's
+	// (relations/locator_source.ts locatorSourceOf, keyed on the descriptor's
+	// resolveData contract); this resolver only memoizes the computed ones per run.
 	let rawLocators: StoredLocator[];
+	const source = hop.model === 'relation_list' ? null : hopLocatorSource(hop.model);
 	if (hop.model === 'relation_list') {
 		rawLocators = await relationListLocators(ctx, record, hop);
-	} else if (hop.model === 'component_relation_index') {
+	} else if (source === 'relation_index') {
 		rawLocators = await relationIndexLocators(ctx, record, hop);
-	} else if (hop.model === 'component_relation_children') {
+	} else if (source === 'relation_children') {
 		rawLocators = await relationChildrenLocators(ctx, record, hop);
 	} else {
 		const items = readComponentItems(record, hop.tipo, hop.model) as StoredLocator[] | null;
@@ -2525,6 +2556,7 @@ export async function* resolvePublication(
 		typologyElementCache: new Map(),
 		sectionLabelCache: new Map(),
 		geoPairCache: new Map(),
+		svgTagPathMemo: createSvgTagPathMemo(),
 		// A resumed run starts from the replayed ledger state (copies — the
 		// caller's ResumeState is never mutated).
 		usedRecords: new Set(options.resume?.used ?? []),
@@ -2687,10 +2719,23 @@ export interface ExportDisplayColumn {
  *             there (`frames`, the record being the frames' OWNER) is one the
  *             read emitted there. `[]` = the bare target identity (the leaf
  *             crossing; its reads are asked again by the projection).
+ *   existenceOf  (T0-9 D8, WC-2026-11-09-export-frontier-fanout addendum) the
+ *             crossing of an EXISTENCE-ONLY relation_index pointer (a section
+ *             the requester may not read — config_children.ts
+ *             pointerIsExistenceOnly): the walk reads NOTHING there and exports
+ *             only the pointer's address (section name + id). A record the
+ *             record key refuses passes iff the host read lists that pointer
+ *             among the entries of the index `existenceOf` (the edit form shows
+ *             every pointer, D6). Narrow by construction: it admits no read —
+ *             `reads` and `frames` must be empty, or nothing is admitted.
  */
 export type ExportCrossingReach =
 	| 'strict'
-	| { readonly reads: readonly string[]; readonly frames?: readonly DisplayedFrame[] };
+	| {
+			readonly reads: readonly string[];
+			readonly frames?: readonly DisplayedFrame[];
+			readonly existenceOf?: string;
+	  };
 
 /** One runtime (section, component) grant the export frontier allowed. */
 export interface ExportFrontierGrant {
@@ -2851,7 +2896,17 @@ async function displayAdmits(
 		lang: column.lang,
 	});
 	const display = await column.display;
-	if (display === null || !display.hasRecord(sectionTipo, sectionId)) return false;
+	if (display === null) return false;
+	// D8: an existence-only pointer reads nothing — its address is displayed
+	// when the read lists it among the index's own entries. Never with a read.
+	if (reach.existenceOf !== undefined) {
+		return (
+			reach.reads.length === 0 &&
+			(reach.frames ?? []).length === 0 &&
+			display.hasEntry(reach.existenceOf, sectionTipo, sectionId)
+		);
+	}
+	if (!display.hasRecord(sectionTipo, sectionId)) return false;
 	for (const componentTipo of reach.reads) {
 		if (display.hasComponent(sectionTipo, sectionId, componentTipo)) continue;
 		if (!(await holdsNoData(run, sectionTipo, sectionId, componentTipo))) return false;
@@ -2863,7 +2918,10 @@ async function displayAdmits(
  * True when `componentTipo` stores nothing on (section, record): the read
  * emits no item for an empty relation, and the walk reading it exports
  * nothing — so its absence from the display is not a refusal. Anything not
- * provably empty (no matrix record, no storage column) is NOT empty.
+ * provably empty (no matrix record, no storage column) is NOT empty — nor is
+ * a model that READS COMPUTED locators (component_relation_index / _children:
+ * locator_source.ts readsComputedLocators): it stores nothing under its tipo
+ * by definition, so an empty slot proves nothing about what it resolves.
  */
 async function holdsNoData(
 	run: ExportAtomRun,
@@ -2873,6 +2931,10 @@ async function holdsNoData(
 ): Promise<boolean> {
 	const model = await getModelByTipo(componentTipo);
 	if (model === null || getColumnNameByModel(model) === null) return false;
+	if (readsComputedLocators(model)) return false;
+	// A DERIVED model (component_inverse's backlinks, …) stores nothing under
+	// its tipo: its value is computed, so an empty slot proves nothing.
+	if (isDerivedModel(model)) return false;
 	const record = await loadExportRecord(run, sectionTipo, sectionId);
 	if (record === null) return false;
 	// the value read's OWN door (alias data key included) — never a second
@@ -3082,10 +3144,45 @@ export async function prefetchExportRecords(
 	}
 }
 
-/** The raw stored 'relation' slice of one component (legacy hop contract). */
-function rawRelationSlice(record: MatrixRecord | null, componentTipo: string): StoredLocator[] {
-	const bag = (record?.columns.relation as Record<string, unknown[]> | null)?.[componentTipo];
-	return Array.isArray(bag) ? (bag as StoredLocator[]) : [];
+/**
+ * The locators one export step reads on its owner record — THE core locator
+ * source (relations/locator_source.ts componentLocators): the RAW stored slice
+ * (positions kept), or the computed set of a model that stores nothing
+ * (relation_children / relation_index). A missing owner has none.
+ */
+async function exportStepLocators(
+	owner: MatrixRecord | null,
+	ownerTipo: string,
+	ownerId: number | string,
+	step: ExportChainStep,
+): Promise<StoredLocator[]> {
+	if (owner === null) return [];
+	return (await componentLocators(
+		{
+			sectionTipo: ownerTipo,
+			sectionId: ownerId,
+			columns: owner.columns as Record<string, unknown>,
+		},
+		step.tipo,
+		step.model,
+	)) as StoredLocator[];
+}
+
+/**
+ * May a hop's target section hold `componentTipo` — false ONLY when the
+ * component is owned by a section (its ontology ancestry reaches one) and the
+ * target is outside that section's family (neither it nor a virtual of it).
+ * A component owned by no section (the section-info group's, shared by every
+ * section) or an empty tipo answers true: the walk keeps its old behaviour.
+ * Ontology-only (cached by the resolver), no record or principal read.
+ */
+async function exportTargetHoldsComponent(
+	targetSectionTipo: string,
+	componentTipo: string,
+): Promise<boolean> {
+	if (componentTipo === '') return true;
+	if ((await getAncestorSectionTipo(componentTipo)) === null) return true;
+	return tipoBelongsToSection(componentTipo, targetSectionTipo);
 }
 
 /** One pre-projection export atom: a leaf resolution site with provenance. */
@@ -3142,12 +3239,31 @@ export async function resolveRecordAtoms(
 		const hopOwners = [...previousOwners, { sectionTipo: ownerTipo, sectionId: ownerId }];
 
 		if (position < chain.length - 1) {
-			// Relation HOP: raw stored slice, recurse per valid locator, RAW index.
+			// Relation HOP: the step's locators (stored slice or computed), recurse
+			// per valid locator, RAW index.
 			const owner = await loadExportRecord(run, ownerTipo, ownerId);
-			const bag = rawRelationSlice(owner, step.tipo);
+			const bag = await exportStepLocators(owner, ownerTipo, ownerId, step);
+			const nextTipo = (chain[position + 1] as ExportChainStep | undefined)?.tipo;
 			for (let index = 0; index < bag.length; index++) {
 				const locator = bag[index];
 				if (typeof locator?.section_tipo !== 'string' || locator.section_id === undefined) {
+					continue;
+				}
+				// A MULTI-TARGET relation (tch199 → toponymies + tchi1) points into
+				// sections that do not all HOLD the next step's component: a column
+				// picked in es1 (hierarchy25) meets tchi1 locators. Such a target has
+				// nothing to emit for it, and crossing it would ask the frontier for
+				// a `tchi1/hierarchy25` grant no profile can hold — refusing the whole
+				// export for a value that does not exist. It is SKIPPED, not crossed.
+				// Only a component OWNED by a section is tested: the shared
+				// section-info components (dd196's children) belong to no section and
+				// live in every one, so they keep crossing. A target that DOES hold
+				// the component is crossed and authorized as before (a missing grant
+				// there still refuses — WC-2026-11-11-section-elements-target-groups).
+				if (
+					nextTipo !== undefined &&
+					!(await exportTargetHoldsComponent(locator.section_tipo, nextTipo))
+				) {
 					continue;
 				}
 				// THE FRONTIER: this locator leaves the record the caller selected.
@@ -3158,12 +3274,7 @@ export async function resolveRecordAtoms(
 				// Number() made it 65686, and the leaf then asked the service for a
 				// different record). WC-2026-08-10-section-id-int-canonical.
 				const nextOwnerId = canonicalizeStoredSectionId(locator.section_id) as number | string;
-				await assertExportCrossing(
-					run,
-					locator.section_tipo,
-					nextOwnerId,
-					(chain[position + 1] as ExportChainStep | undefined)?.tipo,
-				);
+				await assertExportCrossing(run, locator.section_tipo, nextOwnerId, nextTipo);
 				await walk(
 					position + 1,
 					locator.section_tipo,
@@ -3186,7 +3297,7 @@ export async function resolveRecordAtoms(
 		};
 		if (getColumnNameByModel(step.model) === 'relation') {
 			const owner = await loadExportRecord(run, ownerTipo, ownerId);
-			const bag = rawRelationSlice(owner, step.tipo);
+			const bag = await exportStepLocators(owner, ownerTipo, ownerId, step);
 			const locators: NonNullable<ExportLeafAtom['locators']> = [];
 			for (let index = 0; index < bag.length; index++) {
 				const locator = bag[index];
@@ -3201,8 +3312,13 @@ export async function resolveRecordAtoms(
 				// Inside a plain relation column's display walk (D4) the bare target
 				// identity leans on the display; what is READ there is asked again,
 				// per component, by the projection's own crossing.
+				// An EXISTENCE-ONLY relation_index pointer (D8) is crossed for its
+				// address alone — the projection emits it as name + id and reads
+				// nothing there (atoms.ts emitExistenceAtom).
+				const existence = await pointerIsExistenceOnly(step.tipo, locator.section_tipo);
 				await assertExportCrossing(run, locator.section_tipo, locator.section_id, undefined, {
 					reads: [],
+					...(existence ? { existenceOf: step.tipo } : {}),
 				});
 				locators.push({
 					sectionTipo: locator.section_tipo,

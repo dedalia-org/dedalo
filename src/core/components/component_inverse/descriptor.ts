@@ -14,6 +14,7 @@ export const component_inverse: ComponentModel = {
 	render: 'text',
 	derived: true, // owns no stored value (types.ts `derived`)
 	emitHook: 'inverse',
+	flatValue: 'inverse', // caller ids; export emits one column per caller pair
 	importAppend: {
 		refuse:
 			'derived: the value is the computed backlinks of other records, there is no stored data to append to',

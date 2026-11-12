@@ -96,6 +96,11 @@ export const tool_export = function () {
 	// section elements. Left list of available section components to export
 	this.section_elements = []
 	this.section_elements_components_exclude = ['component_password']
+	// group_target_sections. A relation pointing to several sections (tch199 →
+	// every toponymy + tchi1) is drilled per real-section FAMILY: the export walk
+	// follows every locator by component tipo, so a field picked in one virtual
+	// sibling covers the whole family (render_common.js get_target_choices)
+	this.group_target_sections = true
 
 	// export runtime. THE LIFETIME of everything the current export view keeps
 	// open (see reset_export_runtime): job streams hold an HTTP connection each
@@ -123,10 +128,11 @@ export const tool_export = function () {
 	tool_export.prototype.edit							= render_tool_export.prototype.edit
 	tool_export.prototype.build_export_component		= render_tool_export.prototype.build_export_component
 	tool_export.prototype.component_has_parent_targets	= render_tool_export.prototype.component_has_parent_targets
+	tool_export.prototype.component_has_calculated_relations	= render_tool_export.prototype.component_has_calculated_relations
 	tool_export.prototype.update_parents_checks_state	= render_tool_export.prototype.update_parents_checks_state
 	tool_export.prototype.update_lang_state			= render_tool_export.prototype.update_lang_state
 	tool_export.prototype.sync_ar_ddo_to_export			= render_tool_export.prototype.sync_ar_ddo_to_export
-	// server round-trip helper (components_with_parent action — WC-049)
+	// server round-trip helper (components_with_parent — WC-049; components_with_references — T0-9 D4)
 	tool_export.prototype.tool_request					= tool_common.prototype.tool_request
 	// get and render list of components from common
 	tool_export.prototype.get_section_elements_context	= common.prototype.get_section_elements_context

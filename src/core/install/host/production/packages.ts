@@ -8,6 +8,12 @@
  * semanage on the RHEL family — only what the frozen facts say is MISSING, so
  * a host that has them all runs no package command.
  *
+ * OCR LANGUAGES (T0-11 D3): one Tesseract language pack per WORKING language
+ * (the answers' `langs`, written as PROJECTS_DEFAULT_LANGS) plus `osd`, named
+ * by the ONE map the OCR door reads (media/engine/ocr_langs.ts), in ocrmypdf's
+ * lane (row.packages.ocrLangpacks). A working language Tesseract has no model
+ * for is TOLD (Review to-do + run warning) — never fatal, never guessed.
+ *
  * REPOSITORIES: PostgreSQL 18 from PGDG where the release does not ship it
  * (Debian 13, EL 10 — Ubuntu 26.04 ships it: no third-party repository, A10);
  * EL adds EPEL (ImageMagick, certbot), CRB, RPM Fusion free (ffmpeg). Each is
@@ -18,18 +24,79 @@
  * removed under its packages would leave them without security updates).
  */
 
+import { TESSERACT_OSD_MODEL, tesseractModelFor } from '../../../media/engine/ocr_langs.ts';
 import { normalizeInstallAnswers } from '../../install_plan.ts';
+import { deriveLangConfig } from '../../lang_catalog.ts';
 import type { PlanFile } from '../../run_files_core.ts';
 import type { ExecCommand, HostCtx, HostPlanCtx, HostStepDefinition } from '../contract.ts';
 import { executeCommands, runExec } from '../execute.ts';
 import { packageFacts } from '../facts.ts';
 import { exec, probeOk, ran, remember, systemctl, verdictOf, webFlavor } from './common.ts';
 
+/** The working languages this install configures (absent answer → the default set). */
+function workingLangs(ctx: HostPlanCtx): string[] {
+	return deriveLangConfig({ langs: ctx.answers.langs }).projectsDefaultLangs;
+}
+
+/**
+ * The OCR models a set of working languages needs (+ osd, once each), and the
+ * languages Tesseract has no model for. Pure over the codes: every language the
+ * install catalog offers has a model today (gate: install_host_ocr_langpacks_native),
+ * so `unmapped` guards a catalog that grows one Tesseract cannot read.
+ */
+export function ocrModelPlanFor(langs: readonly string[]): {
+	models: string[];
+	unmapped: string[];
+} {
+	const models: string[] = [];
+	const unmapped: string[] = [];
+	for (const lang of langs) {
+		const model = tesseractModelFor(lang);
+		if (model === null) unmapped.push(lang);
+		else if (!models.includes(model)) models.push(model);
+	}
+	return { models: [...models, TESSERACT_OSD_MODEL], unmapped };
+}
+
+/** ocrModelPlanFor over this install's working languages. */
+export function ocrModelPlan(ctx: HostPlanCtx): { models: string[]; unmapped: string[] } {
+	return ocrModelPlanFor(workingLangs(ctx));
+}
+
+/** The Tesseract language packages of this row for the working languages. */
+export function ocrLangPackages(ctx: HostPlanCtx): string[] {
+	return ocrModelPlan(ctx).models.map((model) => ctx.row.packages.ocrLangpacks.packageOf(model));
+}
+
+/** The told line for working languages OCR cannot read (none when every one has a model). */
+export function ocrLangsToldFor(unmapped: readonly string[]): string[] {
+	return unmapped.length === 0
+		? []
+		: [
+				`OCR of PDFs: no Tesseract language model exists for ${unmapped.join(', ')} — uploads in ${unmapped.length === 1 ? 'that language' : 'those languages'} are not offered OCR (text extraction still works)`,
+			];
+}
+
+/** ocrLangsToldFor over this install's working languages (Review to-do + run warning). */
+export function ocrLangsTold(ctx: HostPlanCtx): string[] {
+	return ocrLangsToldFor(ocrModelPlan(ctx).unmapped);
+}
+
+/** The packages of the warn-only optional lane (EL: ocrmypdf and its language packs — optionalTransactions). */
+export function optionalPackages(ctx: HostPlanCtx): string[] {
+	const { packages } = ctx.row;
+	return [
+		...packages.optional,
+		...(packages.ocrLangpacks.lane === 'optional' ? ocrLangPackages(ctx) : []),
+	];
+}
+
 /** The packages this instance needs on this row. */
 export function desiredPackages(ctx: HostPlanCtx): string[] {
 	const { row, answers } = ctx;
 	return [
 		...row.packages.base,
+		...(row.packages.ocrLangpacks.lane === 'base' ? ocrLangPackages(ctx) : []),
 		...webFlavor(ctx).package,
 		...(answers.tls_mode === 'letsencrypt' ? row.packages.certbot : []),
 		...(answers.tls_mode === 'local_ca' ? row.packages.localCa : []),
@@ -205,31 +272,59 @@ export function packageCommands(ctx: HostPlanCtx): ExecCommand[] {
 	return [...refreshCommands(ctx, missing), ...repos, ...install, ...start];
 }
 
-/** EL's optional packages: their own transaction, a failure only warns (L28). */
-function optionalCommand(ctx: HostPlanCtx): ExecCommand | null {
-	const optional = ctx.row.packages.optional.filter((name) => !ctx.facts.packages.includes(name));
-	if (optional.length === 0) return null;
-	return exec(
-		ctx,
-		'dnf',
-		['install', '-y', ...optional],
-		`install ${optional.join(', ')} (optional — a failure only warns)`,
+/** One warn-only optional transaction: what it installs and what its failure costs. */
+interface OptionalTransaction {
+	packages: string[];
+	command: ExecCommand;
+	/** The warning when it fails (the run continues — L28). */
+	warning: string;
+}
+
+/**
+ * EL's optional packages, each failure only warns (L28) — in SEPARATE
+ * transactions: ocrmypdf (+ the row's other optional packages) in one, then ONE
+ * PER LANGUAGE PACK. dnf refuses a whole transaction when one name has no match,
+ * so a single transaction let one missing langpack (a language EPEL does not
+ * package) silently cost ocrmypdf itself — OCR off for every language.
+ */
+export function optionalTransactions(ctx: HostPlanCtx): OptionalTransaction[] {
+	const missing = (names: readonly string[]) =>
+		names.filter((name) => !ctx.facts.packages.includes(name));
+	const { packages } = ctx.row;
+	const groups: { packages: string[]; warning: string }[] = [
 		{
-			okExit: [0, 1],
+			packages: missing(packages.optional),
+			warning: `${packages.optional.join(', ')} could not be installed — OCR of PDFs stays off until it is`,
 		},
-	);
+		...missing(packages.ocrLangpacks.lane === 'optional' ? ocrLangPackages(ctx) : []).map(
+			(name) => ({
+				packages: [name],
+				warning: `${name} could not be installed — OCR in that language stays off until it is (the other languages are unaffected)`,
+			}),
+		),
+	];
+	return groups
+		.filter((group) => group.packages.length > 0)
+		.map((group) => ({
+			...group,
+			command: exec(
+				ctx,
+				'dnf',
+				['install', '-y', ...group.packages],
+				`install ${group.packages.join(', ')} (optional — a failure only warns)`,
+				{ okExit: [0, 1] },
+			),
+		}));
 }
 
 async function runPackages(ctx: HostCtx) {
 	await executeCommands(packageCommands(ctx), ctx);
-	const optional = optionalCommand(ctx);
-	const result = optional === null ? null : await runExec(optional, ctx);
-	const warnings =
-		result !== null && result.exitCode !== 0
-			? [
-					`${ctx.row.packages.optional.join(', ')} could not be installed — OCR of PDFs stays off until it is`,
-				]
-			: [];
+	const warnings: string[] = [];
+	for (const optional of optionalTransactions(ctx)) {
+		const result = await runExec(optional.command, ctx);
+		if (result !== null && result.exitCode !== 0) warnings.push(optional.warning);
+	}
+	warnings.push(...ocrLangsTold(ctx));
 	return ran(`${missingPackages(ctx).length} package(s) installed`, { warnings });
 }
 
@@ -253,10 +348,10 @@ export const host_packages: HostStepDefinition = {
 	kind: 'action',
 	needs: [],
 	label: packagesLabel,
-	commands: (ctx) => {
-		const optional = optionalCommand(ctx);
-		return [...packageCommands(ctx), ...(optional === null ? [] : [optional])];
-	},
+	commands: (ctx) => [
+		...packageCommands(ctx),
+		...optionalTransactions(ctx).map((optional) => optional.command),
+	],
 	verify: async (ctx) => {
 		const installed = await packageFacts(ctx.runner, ctx.row);
 		const missing = desiredPackages(ctx).filter((name) => !installed.includes(name));

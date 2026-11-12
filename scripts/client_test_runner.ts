@@ -276,6 +276,31 @@ async function removeNestedPortalFixture(): Promise<void> {
 	log('Nested portal fixture (verified caller chain for test80): swept.');
 }
 
+/**
+ * Provision the dd96 POINTER `test_component_relation_index.js` needs — a
+ * scratch test3 record whose index locator targets test3/1, so the config-less
+ * `test25` has a pointing section to take its columns from and a row to render
+ * (src/core/test_data/relation_index_pointer_fixture.ts). It is a test3 ROW, so
+ * its place in `main` is load-bearing: AFTER the pre-run reseed (which deletes
+ * every test3 row), BEFORE the run-created sweep is armed (which deletes every
+ * test3 row above its mark), and swept BEFORE the post-run reseed.
+ */
+async function ensureSuiteIndexPointerFixture(): Promise<void> {
+	const { ensureSuiteIndexPointerFixture: ensure } = await import(
+		'../src/core/test_data/relation_index_pointer_fixture.ts'
+	);
+	await ensure();
+	log('Relation index pointer fixture (dd96 test3 -> test3/1): ensured.');
+}
+
+async function removeSuiteIndexPointerFixture(): Promise<void> {
+	const { removeSuiteIndexPointerFixture: remove } = await import(
+		'../src/core/test_data/relation_index_pointer_fixture.ts'
+	);
+	await remove();
+	log('Relation index pointer fixture (dd96 test3 -> test3/1): swept.');
+}
+
 async function removeSuiteProjectsFixture(): Promise<void> {
 	const { removeSuiteProjectsFixture: remove } = await import(
 		'../src/core/test_data/projects_fixture.ts'
@@ -495,6 +520,8 @@ async function openTarget(options: {
 let projectsFixtureInstalled = false;
 /** Did THIS run install the nesting situation? (swept only then, like the projects row). */
 let nestedPortalFixtureInstalled = false;
+/** Did THIS run install the relation_index dd96 pointer? (swept only then). */
+let indexPointerFixtureInstalled = false;
 /**
  * The run-created sweep, armed at the test3 counter when the run started (after
  * the pre-run reseed): every section_id above its mark is a record THIS run
@@ -524,6 +551,15 @@ function sweepOnSignal(): void {
 		process.on(signal, () => {
 			void (async () => {
 				error(`${signal} — sweeping scratch fixtures before exit.`);
+				// The pointer is a test3 row at or below the run's mark: swept by its
+				// own door (the run-created sweep never reaches it).
+				if (indexPointerFixtureInstalled) {
+					try {
+						await removeSuiteIndexPointerFixture();
+					} catch (err) {
+						error(`relation index pointer sweep on ${signal} failed: ${(err as Error).message}`);
+					}
+				}
 				try {
 					await sweepRunCreatedRecords();
 				} catch (err) {
@@ -772,6 +808,11 @@ async function main(): Promise<ScrapedRun> {
 			await reseedCanonicalTest3('pre-run');
 			await ensureMapOfGrapesFixture();
 		}
+		// A test3 ROW, so installed AFTER the reseed (which deletes every test3 row)
+		// and BEFORE the sweep is armed (which deletes every test3 row above its
+		// mark) — installed whatever `--no-reseed` says, like the situations below.
+		await ensureSuiteIndexPointerFixture();
+		indexPointerFixtureInstalled = true;
 		// Measured AFTER the reseed (which may raise the counter), before any suite runs.
 		{
 			const { armRunCreatedSweep } = await import('../src/core/test_data/run_created_records.ts');
@@ -940,6 +981,15 @@ async function main(): Promise<ScrapedRun> {
 	} finally {
 		if (browser) {
 			await browser.close();
+		}
+		// BEFORE the post-run reseed, which deletes every test3 row and would make
+		// this sweep refuse ("deleted 0 rows").
+		if (indexPointerFixtureInstalled) {
+			try {
+				await removeSuiteIndexPointerFixture();
+			} catch (err) {
+				error(`post-run relation index pointer sweep failed: ${(err as Error).message}`);
+			}
 		}
 		// Whatever the reseed flag says: these rows are the run's own.
 		try {

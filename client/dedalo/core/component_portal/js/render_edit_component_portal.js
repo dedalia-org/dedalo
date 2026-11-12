@@ -283,6 +283,162 @@ export const can_open_target = function(self, section_tipo, options={}) {
 
 
 /**
+* UNREADABLE_TARGET
+* The sqo section item of a row's target section that the SERVER marked
+* EXISTENCE ONLY (`existence_only: true`), or null for any other row.
+*
+* The server ships such an item for component_relation_index only (owner rule
+* 2026-11-11: whoever reads the index sees ALL its inverse relations — a
+* pointing section the viewer cannot read arrives as
+* `{typo, tipo, model, permissions:0, label, existence_only:true}`, no columns,
+* no cells), so the row identifies itself with render_target_existence.
+* (!) Keyed on the MARKER, never on the grant: every relation component's sqo
+* items carry the viewer's real grant, and an ordinary portal whose target the
+* viewer holds 0 on keeps its own look (its rows may show full content).
+*
+* @param {Object} self - The component_portal (or subclass) instance.
+* @param {string} section_tipo - The row's target section tipo.
+* @returns {Object|null}
+*/
+export const unreadable_target = function(self, section_tipo) {
+
+	const request_config = self?.context?.request_config
+	if (!Array.isArray(request_config)) {
+		return null
+	}
+	for (const item of request_config) {
+		if (item?.api_engine && item.api_engine!=='dedalo') {
+			continue
+		}
+		const sqo_sections = Array.isArray(item?.sqo?.section_tipo) ? item.sqo.section_tipo : []
+		const target = sqo_sections.find(el => el && typeof el==='object' && el.tipo===section_tipo)
+		if (target) {
+			return target.existence_only===true ? target : null
+		}
+	}
+
+	return null
+}//end unreadable_target
+
+
+
+/**
+* HAS_UNREADABLE_TARGET
+* True when any dedalo sqo section of the portal context is marked existence
+* only (unreadable_target) — views that add an existence column only for such
+* contexts keep every readable-only portal's layout unchanged.
+*
+* @param {Object} self - The component_portal (or subclass) instance.
+* @returns {boolean}
+*/
+export const has_unreadable_target = function(self) {
+
+	const request_config = Array.isArray(self?.context?.request_config) ? self.context.request_config : []
+	return request_config.some(item =>
+		(!item?.api_engine || item.api_engine==='dedalo') &&
+		Array.isArray(item?.sqo?.section_tipo) &&
+		item.sqo.section_tipo.some(el => el && typeof el==='object' && unreadable_target(self, el.tipo)!==null)
+	)
+}//end has_unreadable_target
+
+
+
+/**
+* RENDER_TARGET_EXISTENCE
+* The EXISTENCE cell of a row whose target section the user cannot read: the
+* section's NAME (the server-stated label) and the record's section_id, as
+* plain text — never a record opener, never any value of the record. Returns
+* null for any other row (readable rows render exactly as before).
+*
+* @param {Object} self - The component_portal (or subclass) instance.
+* @param {string} section_tipo - The row's target section tipo.
+* @param {string|number} section_id - The row's target section_id.
+* @returns {HTMLElement|null}
+*/
+export const render_target_existence = function(self, section_tipo, section_id) {
+
+	const target = unreadable_target(self, section_tipo)
+	if (target===null) {
+		return null
+	}
+
+	const existence = ui.create_dom_element({
+		element_type	: 'span',
+		class_name		: 'target_existence'
+	})
+	ui.create_dom_element({
+		element_type	: 'span',
+		class_name		: 'target_existence_label',
+		text_content	: (typeof target.label==='string' && target.label.length>0) ? target.label : section_tipo,
+		parent			: existence
+	})
+	existence.appendChild(document.createTextNode(' '))
+	// the id keeps the row id's own class (`.section_id`, as every id cell)
+	ui.create_dom_element({
+		element_type	: 'span',
+		class_name		: `target_existence_id section_id${String(section_id).length>5 ? ' small' : ''}`,
+		text_content	: String(section_id),
+		parent			: existence
+	})
+
+	return existence
+}//end render_target_existence
+
+
+
+/**
+* ADD_EXISTENCE_COLUMN
+* Appends (once) the EXISTENCE column to a list view's columns_map — ONLY when
+* the context carries a target section the server marked existence only
+* (has_unreadable_target): such a row has no column content, so it identifies
+* itself by the section's name + section_id (render_target_existence). The id
+* is 'section_id' so the text record view treats it as a control (no field
+* separator). Readable-only portals keep their columns exactly as before; a
+* readable row of a mixed portal renders an empty fragment (joins nothing).
+*
+* @param {Object} self - The component_portal (or subclass) instance.
+* @param {Array} columns_map - The view's columns_map, mutated in place.
+* @returns {Array} columns_map
+*/
+export const add_existence_column = function(self, columns_map) {
+
+	if (!has_unreadable_target(self) || columns_map.some(el => el.callback===render_existence_column)) {
+		return columns_map
+	}
+	columns_map.push({
+		id			: 'section_id',
+		label		: 'Id',
+		width		: 'auto',
+		callback	: render_existence_column
+	})
+
+	return columns_map
+}//end add_existence_column
+
+
+
+/**
+* RENDER_EXISTENCE_COLUMN
+* The existence cell callback (add_existence_column): the row's section name +
+* section_id when its target section is marked existence only, else nothing.
+*
+* @param {Object} options - section_record column callback options.
+* @returns {DocumentFragment}
+*/
+const render_existence_column = function(options) {
+
+	const fragment = new DocumentFragment()
+	const existence = render_target_existence(options.caller, options.section_tipo, options.section_id)
+	if (existence) {
+		fragment.appendChild(existence)
+	}
+
+	return fragment
+}//end render_existence_column
+
+
+
+/**
 * RENDER_COLUMN_ID
 * Build the ID-column cell for a single portal row: the "open record" button and,
 * when the row may be dragged, the drag handle.
@@ -331,7 +487,13 @@ export const render_column_id = function(options) {
 	// context menu opens the record in a window without needing an engine
 	// (left-click → edit_record_handler stays a no-op for it, as before).
 		if (!can_open_target(self, section_tipo, {unknown: true})) {
-			if(show_interface.show_section_id){
+			// a target the server marked EXISTENCE ONLY shows its section name +
+			// section_id whatever show_section_id says (render_target_existence);
+			// any other unreadable target keeps the previous id-only rendering
+			const existence = render_target_existence(self, section_tipo, section_id)
+			if (existence) {
+				fragment.appendChild(existence)
+			}else if(show_interface.show_section_id){
 				ui.create_dom_element({
 					element_type	: 'span',
 					class_name		: `section_id${section_id.length>5 ? ' small' : ''}`,

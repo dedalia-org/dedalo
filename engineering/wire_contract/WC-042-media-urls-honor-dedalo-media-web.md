@@ -181,3 +181,11 @@ Gate: `test/unit/text_area_media_src_split_origin.test.ts` — a child process
 under an absolute base saves through `dispatchRqo` (the client's door), reads the stored row
 (relative), the save echo and the `readSection` EDIT item (both absolute); red
 on the pre-fix code.
+
+## Addendum 2026-11-11 — svg tag path from one resolver (see WC-2026-11-11-svg-tag-url-full-media-path)
+
+`WC-2026-11-11-svg-tag-url-full-media-path` — the svg tag URL's media-root-relative PATH is now
+the locator's full media path (one resolver, `media/tag_locator.ts`); `svgTagRelativePath`,
+`svgUrlFromTagLocator` and `appServedSvgUrlFromTagLocator` named above are deleted. The audience
+split recorded here (served → `webBase`, published → `/dedalo/<mediaDir>`) is unchanged; it is
+now `renderTagsWithResolvedSvg(…, 'served' | 'published', …)`.

@@ -279,8 +279,12 @@ describe('literals (items)', () => {
 		expect(isEmptyLiteralItem({ value: '' }, 'string')).toBe(true);
 		expect(isEmptyLiteralItem({ value: 0 }, 'number')).toBe(false);
 		expect(isEmptyLiteralItem({ value: null }, 'number')).toBe(true);
-		expect(isEmptyLiteralItem({ iri: '', label_id: null }, 'iri')).toBe(true);
-		expect(isEmptyLiteralItem({ iri: '', label_id: 3 }, 'iri')).toBe(false);
+		// iri (T0-12 / D5): blank iri AND blank deprecated title — a label is the
+		// frame's, never item identity, so a label_id alone does not make an item.
+		expect(isEmptyLiteralItem({ iri: '', title: null }, 'iri')).toBe(true);
+		expect(isEmptyLiteralItem({ iri: '', label_id: 3 }, 'iri')).toBe(true);
+		expect(isEmptyLiteralItem({ iri: '', title: 'T' }, 'iri')).toBe(false);
+		expect(isEmptyLiteralItem({ iri: 'https://example.org/a' }, 'iri')).toBe(false);
 		expect(isEmptyLiteralItem({ id: 4, lang: 'lg-spa' }, 'date')).toBe(true);
 		expect(isEmptyLiteralItem({ start: { year: 2000 } }, 'date')).toBe(false);
 		expect(isEmptyLiteralItem('not an item', 'string')).toBe(false);
@@ -408,7 +412,7 @@ describe('literals (items)', () => {
 		expect(result.items.length).toBe(2);
 	});
 
-	test('number compares numerically; iri compares iri + label_id', async () => {
+	test('number compares numerically; iri compares the iri ONLY (D3: the label is the frame)', async () => {
 		const numbers = await mergeAppend(
 			input({
 				family: 'number',
@@ -422,15 +426,36 @@ describe('literals (items)', () => {
 		const iris = await mergeAppend(
 			input({
 				family: 'iri',
-				stored: [{ id: 1, iri: 'https://example.org/a', label_id: 3 }],
+				stored: [{ id: 1, iri: 'https://example.org/a', title: 'old' }],
 				incoming: [
-					{ iri: 'https://example.org/a', label_id: '3' },
-					{ iri: 'https://example.org/a', label_id: 4 },
+					{ iri: 'https://example.org/a' },
+					// a different deprecated title is still the same item (D3, stated)
+					{ iri: 'https://example.org/a', title: 'new' },
+					{ iri: 'https://example.org/b' },
 				],
 			}),
 		);
-		expect(iris.skipped).toEqual([{ index: 0, reason: 'duplicate' }]);
+		expect(iris.skipped).toEqual([
+			{ index: 0, reason: 'duplicate' },
+			{ index: 1, reason: 'duplicate' },
+		]);
 		expect(iris.items.length).toBe(2);
+	});
+
+	test('iri: two TITLE-ONLY items (blank iris) are told apart by their title (D3 + D5)', async () => {
+		const stored = [{ id: 1, lang: 'lg-nolan', title: 'A' }];
+		// a different title is a different item — never a silent "duplicate"
+		expect(literalDuplicateIds(stored, { title: 'B' }, 'iri', 'lg-nolan')).toEqual([]);
+		expect(literalDuplicateIds(stored, { title: 'A' }, 'iri', 'lg-nolan')).toEqual([1]);
+		// an iri item never matches a title-only one, whatever the titles
+		expect(
+			literalDuplicateIds(stored, { iri: 'https://example.org/a', title: 'A' }, 'iri', 'lg-nolan'),
+		).toEqual([]);
+		const merged = await mergeAppend(
+			input({ family: 'iri', stored, incoming: [{ title: 'B' }, { title: 'A' }] }),
+		);
+		expect(merged.skipped).toEqual([{ index: 1, reason: 'duplicate' }]);
+		expect(merged.items.length).toBe(2);
 	});
 
 	test('literalEqualityFamilyOf maps the special families and defaults to value', () => {

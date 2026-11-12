@@ -130,10 +130,6 @@ const LEDGERED_NAMES: Record<string, { names: Readonly<Record<string, number>>; 
 			reason:
 				'The shared ASR engine: one import path (the ledgered edge above) and two log prefixes naming the tool the job belongs to. Clears with the edge.',
 		},
-		'src/diffusion/export/atoms.ts': {
-			names: { tool_export: 1 },
-			reason: 'Error-message prefix of the export fan-out depth guard; descriptive, no branch.',
-		},
 		'src/diffusion/export/compile_columns.ts': {
 			names: { tool_export: 2 },
 			reason:

@@ -6030,6 +6030,21 @@ dd-modal.dd_presets::part(content) {
 .components_list_container ul li.section_bar_label.close_hide:after {
   display: none;
 }
+.components_list_container ul li.section_bar_label > .section_chooser {
+  pointer-events: all;
+  max-width: calc(100% - 1.5em);
+  font: inherit;
+  font-size: 1.15em;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  color: inherit;
+  background-color: transparent;
+  border: 1px solid var(--color_grey_13);
+  border-radius: 3px;
+  padding: 0.15rem 1.6em 0.15rem 0.35rem;
+  cursor: pointer;
+}
 .components_list_container ul li.section_group_label {
   background-color: var(--color_grey_15);
   color: var(--color_grey_4);

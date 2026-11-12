@@ -74,6 +74,16 @@ The tool is restricted to the **Ontology section**, where it appears as the *Ont
       Repair deliberately skips these: stamping a TLD on an empty record would only add a
       nameless node to the tree, which is worse than leaving it invisible.
 
+!!! info "A third warning: nodes that break a rule of their model"
+    Some component models fix how their nodes must be defined. A URL component
+    (`component_iri`) is never translatable: a URL has no language, and its versions in
+    other languages are stored as language versions of one value. A `component_iri` node
+    marked as translatable — or with the *translatable* field left empty, which counts as
+    translatable — is reported as "node(s) break a model rule", and the node is named. This is
+    an error in the master ontology: no action here fixes it, and Dédalo does not ignore the
+    setting. Report it so the node is corrected in the master ontology (*translatable* set to
+    *no*), then update the ontology.
+
 !!! warning "Repair TLDs edits the ontology records themselves"
     Every other action here writes the derived runtime table. Repair writes the **source
     records**. It changes only the TLD field, only where it disagrees with the section, and

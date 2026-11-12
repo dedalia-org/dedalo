@@ -11,14 +11,23 @@
  * transcription/ocr engine consts (media_docs.php :100/:109).
  */
 
+import { dirname, isAbsolute } from 'node:path';
 import { config } from '../../../config/config.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
-import { describeSpawnFailure, runBinary } from './spawn.ts';
+import { requireTesseractModel } from './ocr_langs.ts';
+import { assertSpawnOk, describeSpawnFailure, runBinary } from './spawn.ts';
 
 export interface PdfExtractOptions {
 	method: 'text' | 'html';
 	pageIn?: number | null;
 	pageOut?: number | null;
+	/**
+	 * Keep pdftotext's page separator (form feed, U+000C) between the cleaned
+	 * pages. The cleanup strips every control character, U+000C included, so a
+	 * caller that needs the PAGES (the transcription's page tags) asks for them
+	 * here instead of re-reading the file with a second recipe.
+	 */
+	keepPageBreaks?: boolean;
 }
 
 /**
@@ -49,31 +58,42 @@ export function buildExtractArgv(
 }
 
 /**
- * Tesseract language codes (L11): 3-letter ISO 639-2, optional script suffix
- * (chi_sim), '+'-combined (eng+spa). Validated even though spawn is argv-safe —
- * a bad code should fail fast rather than load a surprising language pack.
+ * OCR argv (PHP :1003-1006 recipe): PDF/A, lossless images, forced OCR.
+ *
+ * `dedaloLang` is a DÉDALO language (`lg-spa`), never a Tesseract code: the model
+ * comes from the ONE map (ocr_langs.ts requireTesseractModel — the table the
+ * installer's language-pack plan reads too), so the OCR can only ask for a model
+ * the installer knows how to ship. A language with no model is a loud
+ * `request.invalid_options`, never a guessed code that fails three binaries later.
+ *
+ * `source` and `target` are different files on every engine path: the OCR reads
+ * the archival master and writes the DEFAULT tier (media/pdf_ocr.ts) — PHP ran
+ * it in place over the original, which the engine never mutates.
  */
-const OCR_LANG_PATTERN = /^[a-z]{3}(_[a-z]+)?(\+[a-z]{3}(_[a-z]+)?)*$/;
-
-/** OCR argv (PHP :1003-1006): in-place PDF/A, lossless images, forced OCR. */
-export function buildOcrArgv(source: string, target: string, lang: string): string[] {
-	if (!OCR_LANG_PATTERN.test(lang)) {
-		throw new DedaloError('request.invalid_options', {
-			message: `ocr: invalid language code '${lang}' (expected Tesseract codes like 'eng' or 'eng+spa')`,
-			publicMessage:
-				"ocr: invalid language code (expected Tesseract codes like 'eng' or 'eng+spa')",
-		});
-	}
+export function buildOcrArgv(source: string, target: string, dedaloLang: string): string[] {
 	return [
 		config.media.binaries.ocrmypdf,
 		'--pdfa-image-compression',
 		'lossless',
 		'-l',
-		lang,
+		requireTesseractModel(dedaloLang),
 		'--force-ocr',
 		source,
 		target,
 	];
+}
+
+/**
+ * The directory put first on the ocrmypdf spawn's PATH (runBinary pathPrepend): the
+ * CONFIGURED tesseract first. ocrmypdf finds tesseract on PATH, never through a
+ * flag, so without this the OCR would run whatever `tesseract` the service PATH
+ * happens to hold — not the binary `config.media.binaries.tesseract` names, whose
+ * models the submit's language check and the system_info probe inspected. A bare
+ * name (no directory) adds nothing: PATH already is how it resolves.
+ */
+export function ocrPathPrepend(): string | undefined {
+	const tesseract = config.media.binaries.tesseract;
+	return isAbsolute(tesseract) ? dirname(tesseract) : undefined;
 }
 
 /** pdfinfo argv (page count / metadata). */
@@ -152,12 +172,19 @@ export async function extractText(
 	options: PdfExtractOptions,
 ): Promise<string> {
 	const result = await runBinary(buildExtractArgv(source, outFile, options));
-	if (/error/i.test(result.stderr) && result.exitCode !== 0) {
-		throw new Error(`pdf extraction failed: ${result.stderr}`);
-	}
+	// assertSpawnOk FIRST (T0-11): a killed / timed-out / non-zero pdftotext leaves a
+	// TRUNCATED outFile, and since the ingest persists this text as the record's
+	// transcription, "no stderr" must never read as success (the old
+	// `/error/ && exitCode !== 0` let a SIGKILL with empty stderr through).
+	assertSpawnOk(result, `pdf extraction of ${source}`);
 	const raw = await Bun.file(outFile).text();
-	return cleanUtf8(raw);
+	return options.keepPageBreaks === true
+		? raw.split(PAGE_BREAK).map(cleanUtf8).join(PAGE_BREAK)
+		: cleanUtf8(raw);
 }
+
+/** pdftotext's page separator (it ends every page with one). */
+export const PAGE_BREAK = '\f';
 
 /** Page count via pdfinfo (parses the 'Pages:' line). Returns null when unknown. */
 export async function getPageCount(source: string): Promise<number | null> {

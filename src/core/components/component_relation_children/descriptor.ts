@@ -24,6 +24,7 @@ export const component_relation_children: ComponentModel = {
 	},
 	defaultRelationType: 'dd48',
 	resolveData: 'relation_children',
+	flatValue: 'datalist',
 	search: { status: 'ported' }, // builder_relation_children.ts (dedicated inverse-parent pipeline)
 	sortable: false, // PHP component_relation_common::get_sortable() → false (no subclass override)
 	importConform: 'relation',

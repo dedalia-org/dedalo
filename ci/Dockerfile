@@ -133,11 +133,15 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 # --- media toolchain ------------------------------------------------------------
+# Tesseract packs (T0-11 D3): the installer ships one per working language + osd
+# (src/core/media/engine/ocr_langs.ts); spa beside eng so the OCR gate exercises a
+# non-eng pack and system_info's pdf_ocr_langs lists more than one. Named
+# explicitly, not left to ocrmypdf's dependency chain.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
       ffmpeg imagemagick libheif-plugin-aomenc poppler-utils ghostscript librsvg2-bin \
-      ocrmypdf; \
+      ocrmypdf tesseract-ocr-eng tesseract-ocr-osd tesseract-ocr-spa; \
     rm -rf /var/lib/apt/lists/*
 
 # --- MariaDB (diffusion target) -------------------------------------------------

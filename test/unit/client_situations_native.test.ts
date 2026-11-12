@@ -48,6 +48,17 @@
  *     leaves no residue (it refuses otherwise) — and the runner installs and
  *     sweeps it.
  *
+ *  5. THE RELATION_INDEX POINTER (`src/core/test_data/relation_index_pointer_fixture.ts`).
+ *     `test_component_relation_index` asserts the config-less `test25` on
+ *     test3/1 renders columns and a cell (T0-8) — impossible with ZERO dd96
+ *     references on the suite database. The fixture is a test3 ROW, so its
+ *     place in the runner is load-bearing and pinned here: installed AFTER the
+ *     pre-run reseed (which deletes every test3 row) and BEFORE the run-created
+ *     sweep is armed (which deletes every test3 row above its mark), swept
+ *     BEFORE the post-run reseed and on a signal. Its OUTCOME is pinned too: the
+ *     engine's own get_data for test25 @ test3/1 answers the pointer. (Refusal on
+ *     an unmarked database: test_db_marker_tripwire's door list.)
+ *
  * WHY THE SECTION TIPO IS SPELLED `install('rsc', 170)`: the install-TLD census
  * (scripts/lib/tld_census.ts) reads a literal `rsc170` in a test file as this
  * gate BINDING an install. It is not — it is a pin on what the run's own pinned
@@ -60,6 +71,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SUITE_DIFFUSION_DOMAIN } from '../../scripts/client_test_server.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { CANONICAL_RECORD_IDS } from '../../src/core/test_data/manifest.ts';
 import {
 	ensureNestedPortalFixture,
 	NESTING_PORTAL_TIPO,
@@ -72,6 +84,15 @@ import {
 	removeSuiteProjectsFixture,
 	SUITE_SECOND_PROJECT_ID,
 } from '../../src/core/test_data/projects_fixture.ts';
+import {
+	ensureSuiteIndexPointerFixture,
+	removeSuiteIndexPointerFixture,
+	SUITE_INDEX_POINTER_ID,
+	SUITE_INDEX_POINTER_LABEL,
+	SUITE_INDEX_RELATED_LIST_TIPO,
+	SUITE_INDEX_TARGET,
+	SUITE_INDEX_TIPO,
+} from '../../src/core/test_data/relation_index_pointer_fixture.ts';
 import { residueOf } from '../../src/core/test_data/situations/situation.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 
@@ -391,5 +412,231 @@ describe('client run pre-flight — the nesting situation (verified caller chain
 		expect(ensureAt).toBeGreaterThan(-1);
 		expect(serverAt).toBeGreaterThan(ensureAt);
 		expect(src.split('await removeNestedPortalFixture();').length - 1).toBe(2);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// 5. The relation_index dd96 pointer
+// ---------------------------------------------------------------------------
+
+describe('client run pre-flight — the relation_index dd96 pointer', () => {
+	const TABLE = 'matrix_test';
+	const SECTION = 'test3';
+
+	async function test3Ids(): Promise<number[]> {
+		const rows = (await sql.unsafe(
+			`SELECT section_id FROM "${TABLE}" WHERE section_tipo = $1 ORDER BY section_id`,
+			[SECTION],
+		)) as { section_id: number }[];
+		return rows.map((row) => Number(row.section_id));
+	}
+
+	/** The engine's own get_data for test25 @ test3/1 — the read the client widget sends. */
+	async function indexEntries(): Promise<Record<string, unknown>[]> {
+		const { dispatchRqo } = await import('../../src/core/api/dispatch.ts');
+		const { resolvePrincipal } = await import('../../src/core/security/permissions.ts');
+		const { createSession, destroySession, getSession } = await import(
+			'../../src/core/security/session_store.ts'
+		);
+		const token = createSession(-1, 'root', true);
+		try {
+			const session = getSession(token);
+			const result = await dispatchRqo(
+				{
+					action: 'read',
+					dd_api: 'dd_core_api',
+					prevent_lock: true,
+					options: {},
+					source: {
+						typo: 'source',
+						model: 'component_relation_index',
+						tipo: SUITE_INDEX_TIPO,
+						section_tipo: SUITE_INDEX_TARGET.section_tipo,
+						section_id: SUITE_INDEX_TARGET.section_id,
+						mode: 'list',
+						lang: 'lg-eng',
+						action: 'get_data',
+					},
+					sqo: { section_tipo: [SUITE_INDEX_TARGET.section_tipo], limit: 10, offset: 0 },
+				} as never,
+				{
+					requestId: 'client_situations_index_pointer',
+					clientIp: '127.0.0.1',
+					session,
+					csrfCandidate: session?.csrfToken ?? null,
+					principal: await resolvePrincipal(-1),
+				} as never,
+			);
+			const body = result.body as { data?: { data?: Record<string, unknown>[] } };
+			const own = (body.data?.data ?? []).find(
+				(item) =>
+					item.tipo === SUITE_INDEX_TIPO &&
+					item.section_tipo === SUITE_INDEX_TARGET.section_tipo &&
+					String(item.section_id) === String(SUITE_INDEX_TARGET.section_id),
+			);
+			return ((own?.entries as Record<string, unknown>[] | undefined) ?? []).filter(
+				(entry) => entry !== null && typeof entry === 'object',
+			);
+		} finally {
+			destroySession(token);
+		}
+	}
+
+	afterAll(async () => {
+		if ((await test3Ids()).includes(SUITE_INDEX_POINTER_ID)) {
+			await removeSuiteIndexPointerFixture();
+		}
+	});
+
+	test('the id it owns is an explicit scratch id, never a playground record', () => {
+		expect(Number.isInteger(SUITE_INDEX_POINTER_ID)).toBe(true);
+		expect(SUITE_INDEX_POINTER_ID).toBeGreaterThanOrEqual(SCRATCH_ID_FLOOR);
+		expect(CANONICAL_RECORD_IDS).not.toContain(SUITE_INDEX_POINTER_ID);
+	});
+
+	test('ensure adds exactly one test3 row, leaves the playground alone, and re-runs clean', async () => {
+		const before = await test3Ids();
+		expect(before, 'the pointer must not be present before ensure').not.toContain(
+			SUITE_INDEX_POINTER_ID,
+		);
+		expect(before.length, 'the canonical playground must be present').toBeGreaterThan(0);
+
+		await ensureSuiteIndexPointerFixture();
+		const after = await test3Ids();
+		expect(after).toContain(SUITE_INDEX_POINTER_ID);
+		for (const id of before) expect(after, 'playground rows are never touched').toContain(id);
+		expect(after.length).toBe(before.length + 1);
+
+		await ensureSuiteIndexPointerFixture();
+		expect(await test3Ids()).toEqual(after);
+	});
+
+	test('the engine indexes it: get_data for test25 @ test3/1 answers the pointer', async () => {
+		await ensureSuiteIndexPointerFixture();
+		const entries = await indexEntries();
+		const pointer = entries.filter(
+			(entry) =>
+				entry.section_tipo === SECTION &&
+				String(entry.section_id) === String(SUITE_INDEX_POINTER_ID),
+		);
+		expect(pointer.length, `entries: ${JSON.stringify(entries)}`).toBe(1);
+	});
+
+	test('the sweep removes it (the index forgets it) and REFUSES when it removes nothing', async () => {
+		if (!(await test3Ids()).includes(SUITE_INDEX_POINTER_ID)) {
+			await ensureSuiteIndexPointerFixture();
+		}
+		await removeSuiteIndexPointerFixture();
+		expect(await test3Ids()).not.toContain(SUITE_INDEX_POINTER_ID);
+		const entries = await indexEntries();
+		expect(
+			entries.filter((entry) => String(entry.section_id) === String(SUITE_INDEX_POINTER_ID)),
+		).toEqual([]);
+		await expect(removeSuiteIndexPointerFixture()).rejects.toThrow(/deleted 0 rows/);
+	});
+
+	test('the pointer carries a related_list value, and the client suite asserts THAT value', async () => {
+		// The index rows render with children_view `text`, which drops an EMPTY
+		// cell node: without this value the column has nothing to render.
+		await ensureSuiteIndexPointerFixture();
+		const rows = (await sql.unsafe(
+			`SELECT string->$3->0->>'value' AS value FROM "${TABLE}" WHERE section_tipo = $1 AND section_id = $2`,
+			[SECTION, SUITE_INDEX_POINTER_ID, SUITE_INDEX_RELATED_LIST_TIPO],
+		)) as { value: string | null }[];
+		expect(rows[0]?.value).toBe(SUITE_INDEX_POINTER_LABEL);
+		const clientSuite = readFileSync(
+			join(
+				import.meta.dir,
+				'..',
+				'..',
+				'client',
+				'dedalo',
+				'test',
+				'client',
+				'js',
+				'test_component_relation_index.js',
+			),
+			'utf-8',
+		);
+		expect(clientSuite).toContain(`const pointer_label = '${SUITE_INDEX_POINTER_LABEL}'`);
+		expect(clientSuite).toContain(`const related_list_tipo = '${SUITE_INDEX_RELATED_LIST_TIPO}'`);
+	});
+
+	/** Every ordering defect of the pointer in the runner, [] when wired. */
+	function pointerWiringDefects(source?: string): string[] {
+		const src = runnerSource(source);
+		const defects: string[] = [];
+		const main = functionBody(src, 'main');
+		const reseed = main.indexOf("reseedCanonicalTest3('pre-run')");
+		const ensure = main.indexOf('await ensureSuiteIndexPointerFixture()');
+		const armed = main.indexOf('armRunCreatedSweep()');
+		const target = main.indexOf('openTarget(');
+		if (ensure === -1) defects.push('main never installs the pointer');
+		if (ensure !== -1 && reseed !== -1 && ensure < reseed) {
+			defects.push('the pointer is installed BEFORE the pre-run reseed (which deletes it)');
+		}
+		if (ensure !== -1 && armed !== -1 && ensure > armed) {
+			defects.push(
+				'the pointer is installed AFTER the sweep is armed (the run-created sweep takes it)',
+			);
+		}
+		if (ensure !== -1 && (target === -1 || ensure > target)) {
+			defects.push('the pointer is installed after the target opens');
+		}
+		const finallyAt = main.lastIndexOf('finally');
+		const finallyBody = finallyAt === -1 ? '' : main.slice(finallyAt);
+		const sweep = finallyBody.indexOf('await removeSuiteIndexPointerFixture()');
+		const postReseed = finallyBody.indexOf("reseedCanonicalTest3('post-run')");
+		if (sweep === -1) defects.push("main's finally does not sweep the pointer");
+		if (sweep !== -1 && postReseed !== -1 && sweep > postReseed) {
+			defects.push('the pointer is swept AFTER the post-run reseed (which already deleted it)');
+		}
+		if (
+			!/await\s+removeSuiteIndexPointerFixture\s*\(\s*\)/.test(functionBody(src, 'sweepOnSignal'))
+		) {
+			defects.push('the signal handler does not sweep the pointer');
+		}
+		return defects;
+	}
+
+	test('the runner installs it between the pre-run reseed and the armed sweep, and sweeps it before the post-run reseed', () => {
+		expect(pointerWiringDefects()).toEqual([]);
+	});
+
+	test('positive control: each misordering the gate names is detected', () => {
+		const real = readFileSync(
+			join(import.meta.dir, '..', '..', 'scripts', 'client_test_runner.ts'),
+			'utf-8',
+		);
+		const install = '\t\tawait ensureSuiteIndexPointerFixture();\n';
+		expect(real).toContain(install);
+		const without = real.replace(install, '');
+		// before the reseed
+		const early = without.replace(
+			'\t\tif (reseedEnabled) {\n\t\t\tawait reseedCanonicalTest3',
+			`${install}\t\tif (reseedEnabled) {\n\t\t\tawait reseedCanonicalTest3`,
+		);
+		expect(early).not.toBe(without);
+		expect(pointerWiringDefects(early).join('\n')).toMatch(/BEFORE the pre-run reseed/);
+		// after the arm
+		const late = without.replace(
+			'\t\tawait ensureSuiteProjectsFixture();\n',
+			`\t\tawait ensureSuiteProjectsFixture();\n${install}`,
+		);
+		expect(late).not.toBe(without);
+		expect(pointerWiringDefects(late).join('\n')).toMatch(/AFTER the sweep is armed/);
+		// never installed
+		expect(pointerWiringDefects(without).join('\n')).toMatch(/never installs/);
+	});
+
+	test('the browse server installs it before its server and sweeps it on exit', () => {
+		const serve = stripComments(
+			readFileSync(join(import.meta.dir, '..', '..', 'scripts', 'client_test_serve.ts'), 'utf-8'),
+		);
+		const ensureAt = serve.indexOf('await ensureSuiteIndexPointerFixture();');
+		const serverAt = serve.indexOf('await startClientTestServer(');
+		expect(ensureAt).toBeGreaterThan(-1);
+		expect(serverAt).toBeGreaterThan(ensureAt);
+		expect(serve).toContain('await removeSuiteIndexPointerFixture();');
 	});
 });

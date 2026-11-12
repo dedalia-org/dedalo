@@ -11,7 +11,7 @@ A working Dédalo on your laptop in about ten minutes. This is a **development**
 | Base tools | `brew install git` (curl and unzip ship with macOS) | `sudo apt install git curl unzip` | `sudo dnf install git curl unzip` |
 | PostgreSQL 18 + `psql` | `brew install postgresql@18` | `sudo apt install postgresql-18 postgresql-client-18 postgresql-contrib` | `sudo dnf install postgresql18-server postgresql18 postgresql18-contrib` |
 | pgvector (for `test:db:setup`) | `brew install pgvector` | `sudo apt install postgresql-18-pgvector` | `sudo dnf install pgvector_18` |
-| Media tools | `brew install ffmpeg imagemagick poppler ocrmypdf librsvg` | `sudo apt install ffmpeg imagemagick poppler-utils ocrmypdf librsvg2-bin` | `sudo dnf install ffmpeg ImageMagick poppler-utils librsvg2-tools` |
+| Media tools | `brew install ffmpeg imagemagick poppler ocrmypdf tesseract-lang librsvg` | `sudo apt install ffmpeg imagemagick poppler-utils ocrmypdf tesseract-ocr-spa librsvg2-bin` | `sudo dnf install ffmpeg ImageMagick poppler-utils librsvg2-tools` |
 | MariaDB (for the test suite) | `brew install mariadb` | `sudo apt install mariadb-server` | `sudo dnf install mariadb-server` |
 
 Bun comes in step 3, inside the checkout, because the version it installs is the one the checkout pins.

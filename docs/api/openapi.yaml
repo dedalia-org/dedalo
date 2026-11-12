@@ -104,7 +104,10 @@ paths:
                       max_size_bytes: 10485760
                       sys_get_temp_dir: /tmp
                       upload_tmp_dir: /var/www/uploads/tmp
-                      pdf_ocr_engine: tesseract
+                      pdf_ocr_engine: true
+                      pdf_ocr_langs:
+                        - lg-spa
+                        - lg-eng
         '400':
           description: Bad request (invalid RQO or missing required fields)
           content:

@@ -92,6 +92,11 @@ export const render_components_list = function(options) {
 		const section_elements		= options.section_elements
 		const ar_components_exclude = options.ar_components_exclude || null
 		const ar_section_path		= options.ar_section_path || []
+		// multi-target drill-down (see get_target_choices): the choices offered in this
+		// level's section bar, the current one, and the callback that re-renders the level
+		const section_choices		= options.section_choices || null
+		const current_choice		= options.current_choice || null
+		const on_choice_change		= options.on_choice_change || null
 
 	// clean target_div
 		target_div.replaceChildren()
@@ -135,7 +140,9 @@ export const render_components_list = function(options) {
 
 			case element.model==='section': {
 				// section title bar
-				section_label = element.label || element.tipo
+				// a chooser level is named by its CHOICE (a group spans several sections,
+				// the representative section's own label would name only one of them)
+				section_label = (current_choice && current_choice.label) || element.label || element.tipo
 				// Full navigation path (ancestors + this level). A drilled level REPLACES its
 				// parents on a phone, so this path is the user's only context there.
 				ar_path_labels = ar_section_path.concat([section_label])
@@ -156,13 +163,24 @@ export const render_components_list = function(options) {
 						parent			: section_bar
 					})
 				}
-				// the level's own name (plain single label: desktop + root)
-				ui.create_dom_element({
-					element_type	: 'span',
-					class_name		: 'section_bar_section_name',
-					inner_html		: section_label,
-					parent			: section_bar
-				})
+				// the level's own name (plain single label: desktop + root), or the
+				// target chooser when the drilled relation points to several sections
+				if (section_choices && section_choices.length > 1 && typeof on_choice_change==='function') {
+					section_bar.classList.add('has_section_chooser')
+					render_section_chooser({
+						choices		: section_choices,
+						current		: current_choice,
+						on_change	: on_choice_change,
+						parent		: section_bar
+					})
+				}else{
+					ui.create_dom_element({
+						element_type	: 'span',
+						class_name		: 'section_bar_section_name',
+						inner_html		: section_label,
+						parent			: section_bar
+					})
+				}
 				// The `close_hide` class is added only at root depth (path.length===0)
 				// because nested portal calls carry a non-empty path and the bar should
 				// remain visible in those contexts.
@@ -261,50 +279,76 @@ export const render_components_list = function(options) {
 
 						component.classList.add('has_subquery')
 
-						const target_click_handler = async function(e) {
-							e.stopPropagation()
+						// every section the relation can point to (not only the first: tch199
+					// points to each toponymy AND to tchi1, whose fields differ)
+					const target_choices = get_target_choices(element, caller)
 
-							// loading
-							target_list_container.classList.add('loading')
+					// render_target_level. Loads the chosen target's fields into the drill
+					// column. Re-entered by the level's section bar chooser on change.
+					const render_target_level = async function(choice) {
 
-							// section_elements_context
-								const current_section_elements = await caller.get_section_elements_context({
-									section_tipo			: target_section,
-									ar_components_exclude	: ar_components_exclude
-								})
+						// loading
+						target_list_container.classList.add('loading')
 
-							// recursion render_components_list
-								render_components_list({
-									self				: caller,
-									section_tipo		: target_section,
-									target_div			: target_list_container,
-									path				: calculated_component_path,
-									section_elements	: current_section_elements,
-									ar_section_path		: ar_path_labels
-								})
-							// Reset active in current wrap
-							// Clear 'active' on any previously selected item in the same
-							// list_container so only the clicked item is highlighted.
-								const ar_active_now	= list_container.querySelectorAll('li.active')
-								const len			= ar_active_now.length
-								for (let i = len - 1; i >= 0; i--) {
-									ar_active_now[i].classList.remove('active');
+						// section_elements_context
+							const current_section_elements = await caller.get_section_elements_context({
+								section_tipo			: choice.section_tipo,
+								ar_components_exclude	: ar_components_exclude
+							})
+
+						// recursion render_components_list
+							render_components_list({
+								self					: caller,
+								section_tipo			: choice.section_tipo,
+								target_div				: target_list_container,
+								path					: calculated_component_path,
+								section_elements		: current_section_elements,
+								ar_components_exclude	: ar_components_exclude,
+								ar_section_path			: ar_path_labels,
+								section_choices			: target_choices,
+								current_choice			: choice,
+								on_choice_change		: (next_choice) => {
+									// remembered: drilling back into this field reopens the user's section
+									component.last_choice_id = next_choice.id
+									render_target_level(next_choice)
 								}
-							// Active current
-							this.classList.add('active');
+							})
 
-							// loading
-							target_list_container.classList.remove('loading')
+						// loading
+						target_list_container.classList.remove('loading')
+					}//end render_target_level
 
-							// the drilled level slides in from the right (phone tier; the
-							// keyframes live in search.less and the desktop layout ignores it)
-							play_level_transition(target_list_container, 'forward')
-						}//end target_click_handler
+					const target_click_handler = async function(e) {
+						e.stopPropagation()
 
-						// Event on click load "children" section inside target_list_container recursively
-						const target_section = element.target_section_tipo[0] // Select first only
-						component.addEventListener('click', target_click_handler)
-					}
+						// the level opens on the choice used last for this field, else the first
+						const choice = target_choices.find(el => el.id===component.last_choice_id)
+							|| target_choices[0]
+						if (!choice) {
+							return
+						}
+
+						await render_target_level(choice)
+
+						// Reset active in current wrap
+						// Clear 'active' on any previously selected item in the same
+						// list_container so only the clicked item is highlighted.
+							const ar_active_now	= list_container.querySelectorAll('li.active')
+							const len			= ar_active_now.length
+							for (let i = len - 1; i >= 0; i--) {
+								ar_active_now[i].classList.remove('active');
+							}
+						// Active current
+						this.classList.add('active');
+
+						// the drilled level slides in from the right (phone tier; the
+						// keyframes live in search.less and the desktop layout ignores it)
+						play_level_transition(target_list_container, 'forward')
+					}//end target_click_handler
+
+					// Event on click load "children" section inside target_list_container recursively
+					component.addEventListener('click', target_click_handler)
+				}
 				break;
 			}
 		}//end switch (true)
@@ -319,6 +363,151 @@ export const render_components_list = function(options) {
 
 	return ar_components
 }//end render_components_list
+
+
+
+/**
+* GET_TARGET_CHOICES
+* The sections a relation field can be drilled into, as chooser entries
+* `{id, section_tipo, label, title, group_label}`.
+*
+* A relation may point to SEVERAL sections (tch199 → every toponymy + tchi1).
+* The server groups them by real section (`element.target_section_groups`,
+* section_elements_context.ts groupTargetSections): virtual siblings (es1,
+* fr1, … → hierarchy20) share their component tipos, a real target (tchi1)
+* has its own.
+*
+* - Caller `group_target_sections === true` (tool_export): ONE choice per
+*   family, drilled through its first member. The export walk follows every
+*   locator whatever the declared step section is and authorizes each target
+*   it crosses (resolver.ts resolveRecordAtoms / assertExportCrossing), so a
+*   field picked in es1 exports the same tipo from fr1 targets too — one
+*   column for the whole family.
+* - Any other caller (search): one choice per MEMBER, labelled by its family —
+*   a search path names one section.
+*
+* Without groups (older server, single target) the raw `target_section_tipo`
+* list is used, labelled by tipo.
+*
+* @param {Object} element - section element context (portal/autocomplete/dataframe)
+* @param {Object} caller - the picker's owner instance
+* @returns {Array<Object>} choices (empty when the element has no target)
+*/
+export const get_target_choices = function(element, caller) {
+
+	const groups = Array.isArray(element.target_section_groups)
+		? element.target_section_groups.filter(el => Array.isArray(el?.members) && el.members.length > 0)
+		: null
+
+	if (groups && groups.length > 0) {
+		const choices = []
+		const by_family = caller?.group_target_sections===true
+		for (const group of groups) {
+			const group_label = strip_tags(group.label || group.tipo)
+			if (by_family) {
+				const members_label = group.members.map(el => strip_tags(el.label || el.tipo)).join(', ')
+				choices.push({
+					id				: 'group_' + group.tipo,
+					section_tipo	: group.members[0].tipo,
+					label			: group.members.length > 1
+						? group_label + ' (' + group.members.length + ')'
+						: strip_tags(group.members[0].label || group.members[0].tipo),
+					title			: members_label,
+					group_label		: null
+				})
+			}else{
+				for (const member of group.members) {
+					choices.push({
+						id				: 'section_' + member.tipo,
+						section_tipo	: member.tipo,
+						label			: strip_tags(member.label || member.tipo),
+						title			: member.tipo,
+						group_label		: group.members.length > 1 ? group_label : null
+					})
+				}
+			}
+		}
+		return choices
+	}
+
+	const targets = Array.isArray(element.target_section_tipo)
+		? [...new Set(element.target_section_tipo.filter(el => typeof el==='string' && el!==''))]
+		: []
+
+	return targets.map(tipo => ({
+		id				: 'section_' + tipo,
+		section_tipo	: tipo,
+		label			: tipo,
+		title			: tipo,
+		group_label		: null
+	}))
+}//end get_target_choices
+
+
+
+/**
+* RENDER_SECTION_CHOOSER
+* The `<select>` a drilled level shows in its section bar when the relation
+* points to several sections. Options are TEXT (text_content), never markup.
+* Members of one family are wrapped in an `<optgroup>` labelled by it.
+*
+* @param {Object} options
+* @param {Array<Object>} options.choices - from get_target_choices
+* @param {Object|null} options.current - the choice rendered now
+* @param {function} options.on_change - called with the chosen choice
+* @param {HTMLElement} options.parent - the section bar
+* @returns {HTMLElement} the select node
+*/
+const render_section_chooser = function(options) {
+
+	const {choices, current, on_change, parent} = options
+
+	const select = ui.create_dom_element({
+		element_type	: 'select',
+		class_name		: 'section_chooser',
+		title			: get_label.section || 'Section',
+		parent			: parent
+	})
+
+	let optgroup = null
+	let optgroup_label = null
+	for (const choice of choices) {
+		let target = select
+		if (choice.group_label) {
+			if (choice.group_label!==optgroup_label) {
+				optgroup		= document.createElement('optgroup')
+				optgroup.label	= choice.group_label
+				optgroup_label	= choice.group_label
+				select.appendChild(optgroup)
+			}
+			target = optgroup
+		}else{
+			optgroup		= null
+			optgroup_label	= null
+		}
+		const option		= document.createElement('option')
+		option.value		= choice.id
+		option.textContent	= choice.label
+		option.title		= choice.title || ''
+		if (current && current.id===choice.id) {
+			option.selected = true
+		}
+		target.appendChild(option)
+	}
+
+	// the section bar clears the level on click: the chooser must not trigger it
+	select.addEventListener('click', (e) => e.stopPropagation())
+	select.addEventListener('mousedown', (e) => e.stopPropagation())
+	select.addEventListener('change', (e) => {
+		e.stopPropagation()
+		const choice = choices.find(el => el.id===select.value)
+		if (choice) {
+			on_change(choice)
+		}
+	})
+
+	return select
+}//end render_section_chooser
 
 
 

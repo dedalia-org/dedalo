@@ -312,7 +312,7 @@ service. *(All are instance methods on the JS prototype unless noted.)*
 | method | exported fn? | purpose |
 | --- | --- | --- |
 | `init(options)` | | Set `caller`, `allowed_extensions`, `key_dir`, `max_concurrent`, `multiple` (strict `true` selects the queue renderer); subscribe the `upload_file_status_<id>` progress handler. |
-| `build(autoload=false)` | | Fetch server limits via `dd_utils_api::get_system_info` (max size, tmp dir, chunk size, OCR engine). |
+| `build(autoload=false)` | | Fetch server limits via `dd_utils_api::get_system_info` (max size, tmp dir, chunk size, `pdf_ocr_engine` and `pdf_ocr_langs`). The OCR checkbox and language selector render only for PDF uploads when `pdf_ocr_engine` is `true` and `pdf_ocr_langs` is not empty; the selector lists only `pdf_ocr_langs`, and the choice travels as `process_options: { ocr, ocr_lang }`. |
 | `upload_file(options)` | | Resolve `key_dir` from the caller, run `upload()`, then publish `upload_file_done_<caller.id>`. |
 | `join_chunked_files(options)` | | Call `dd_utils_api::join_chunked_files_uploaded` to reassemble chunks server-side. |
 | `upload(options)` | ✓ (module export) | The standalone uploader: validate, chunk/queue/concurrency, XHR with CSRF + retry; resolves the API response. Imported directly by `component_3d`. |

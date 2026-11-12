@@ -152,6 +152,7 @@ export const lifecycle_suites_green = [
 	'test_component_portal',            // green after save auto-creates the missing host record (PHP set_dato upsert parity)
 	'test_component_filter_records',    // green after get_datalist port (authorized sections datalist, dispatch.ts)
 	'test_component_date',              // green after the period tipo fix: the suite named test218, which exists in NO ontology; the test3 period-date component is test173 (test3 → test115 → test34). It was never a provisioning gap.
+	'test_fields_target_chooser',       // 2026-11-11 the fields picker drills a MULTI-TARGET relation (tch199 → toponymies + tchi1) into every target, not [0] (render_common.js get_target_choices / render_section_chooser). Backend-free.
 	'test_touch_phone',                 // 2026-09-28 responsive tools: the shared phone gestures (touch_pick tap-to-place, pane_switch, phone_reorder) plus the search pane's tap-to-add field button (search_phone.js). Backend-free.
 	'test_section_map'                  // REGISTERED 2026-08-31 (P2-28 / DEAD-10). 104 lines of real assertions over the client's section_map scope/term resolution — in no manifest, imported by nothing, and therefore NEVER RUN, while the suite reported 131/131 green. Backend-free: pure functions against synthetic maps mirroring the PHP section_map_Test fixtures.
 ]

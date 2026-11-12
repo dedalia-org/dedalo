@@ -340,10 +340,39 @@ describe.if(hasPhpCredentials())(
 					expect(pair?.phpFrozenError).toBe(true);
 					expect(pair?.tsOk).toBe(true);
 					expect(pair?.tsEntryTipo).toBe('testcult1020');
-					// TS serves the entry with an EXPLICITLY EMPTY request_config
-					// (measured 2026-08-23) — the external mode has no stored config.
-					expect(pair?.tsRaw).toEqual([]);
-					expect(pair?.ts).toEqual([]);
+					// TS serves the entry with the config-less relation_index BASE item
+					// (T0-8, WC-2026-11-11-relation-index-related-list-context; was `[]`,
+					// measured 2026-08-23): no stored targets, no columns — the pointing
+					// sections' related_list columns are merged per READ of a record
+					// (relation_index_context_native), and this element context reads none.
+					expect(pair?.tsRaw).toEqual([
+						{
+							api_engine: 'dedalo',
+							type: 'main',
+							sqo: { section_tipo: [] },
+							show: {
+								ddo_map: [],
+								sqo_config: {
+									full_count: false,
+									limit: 10,
+									offset: 0,
+									mode: 'edit',
+									operator: '$or',
+								},
+							},
+							search: null,
+							choose: null,
+							hide: null,
+							api_config: null,
+						},
+					]);
+					// projected: one dedalo item targeting nothing and showing nothing
+					const [baseItem] = (pair?.ts ?? []) as { targets?: unknown; show?: unknown }[];
+					expect([(pair?.ts as unknown[]).length, baseItem?.targets, baseItem?.show]).toEqual([
+						1,
+						targetTipos([]),
+						ddoChain({ ddo_map: [] }),
+					]);
 					return;
 				}
 				expect(pair?.phpFrozenError).toBe(false);

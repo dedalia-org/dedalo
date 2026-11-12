@@ -22,6 +22,7 @@
  * section_tipo/section_id are always bound parameters.
  */
 
+import { MATCH_TRIM_PATTERN } from '../concepts/match_text.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { sql } from './postgres.ts';
 
@@ -139,6 +140,79 @@ export async function readExistingSectionIds(
 		[sectionTipo, [...new Set(sectionIds)].join(',')],
 	)) as { section_id: number }[];
 	return new Set(rows.map((row) => row.section_id));
+}
+
+/**
+ * THE MATCH FOLD — `lower(f_unaccent(<match trim>(text)))`, computed BY
+ * POSTGRES, where the match trim is `regexp_replace(text, MATCH_TRIM_PATTERN,
+ * '', 'g')` (concepts/match_text.ts: exactly `String.prototype.trim`'s set —
+ * `btrim` strips the ASCII space only, so a stored "x" + NBSP folded apart
+ * from an imported "x"). {@link readSectionIdsByFoldedValue} compares with
+ * this fold; it is exposed so a caller that must key something else on "the
+ * same value" (an advisory lock) derives the key from the SAME function — a
+ * JS-side fold disagrees with `unaccent` on ø ł æ ß đ þ, and two folds are two
+ * identities. ONE round trip for a whole set: text → fold.
+ */
+export async function foldMatchTexts(texts: readonly string[]): Promise<Map<string, string>> {
+	const folds = new Map<string, string>();
+	if (texts.length === 0) return folds;
+	// The set rides as one jsonb array (the driver binds no JS array); the
+	// pattern is bound too — no text reaches the statement.
+	const rows = (await sql.unsafe(
+		`SELECT t.text, ${matchFoldSql('t.text', '$2')} AS folded
+		   FROM jsonb_array_elements_text($1::text::jsonb) AS t(text)`,
+		[JSON.stringify([...new Set(texts)]), MATCH_TRIM_PATTERN],
+	)) as { text: string; folded: string | null }[];
+	for (const row of rows) folds.set(row.text, row.folded ?? '');
+	return folds;
+}
+
+/** The match fold over a SQL expression, the trim pattern bound at `patternParam`. */
+function matchFoldSql(expression: string, patternParam: string): string {
+	return `lower(public.f_unaccent(regexp_replace(${expression}, ${patternParam}, '', 'g')))`;
+}
+
+/**
+ * The records of `sectionTipo` whose string-family component `componentTipo`
+ * (items `{value}` in `column`) holds a value EQUAL to `text` under the match
+ * fold (`foldMatchTexts`: match trim, unaccent, lower) on BOTH sides — whole value, never a
+ * substring; ascending by section_id; any language slice.
+ *
+ * NO PRINCIPAL, NO PROJECT FILTER: this is a raw record-store read. Its callers
+ * are allow-listed (`test/unit/iri_label_unscoped_lookup_tripwire.test.ts`)
+ * because an unscoped answer is only right for a shared vocabulary a caller
+ * LINKS to (T0-12, D6b). It answers ids only, never a stored value. No cap: the
+ * predicate is exact, so the answer is the whole truth (the caller decides what
+ * several matches mean).
+ */
+export async function readSectionIdsByFoldedValue(
+	tableName: string,
+	sectionTipo: string,
+	column: MatrixJsonbColumn,
+	componentTipo: string,
+	text: string,
+): Promise<number[]> {
+	assertMatrixTable(tableName);
+	if (!(MATRIX_JSONB_COLUMNS as readonly string[]).includes(column)) {
+		throw new DedaloError('internal.invariant', {
+			message: `readSectionIdsByFoldedValue: '${column}' is not a matrix jsonb column`,
+			coordinates: { table: tableName },
+		});
+	}
+	// Table + column are allowlist-validated identifiers; every value is bound.
+	const rows = (await sql.unsafe(
+		`SELECT m.section_id
+		   FROM "${tableName}" AS m
+		  WHERE m.section_tipo = $1
+		    AND jsonb_typeof(m."${column}"->$2) = 'array'
+		    AND EXISTS (
+		      SELECT 1 FROM jsonb_array_elements(m."${column}"->$2) AS item
+		       WHERE jsonb_typeof(item) = 'object'
+		         AND ${matchFoldSql("item->>'value'", '$4')} = ${matchFoldSql('$3::text', '$4')})
+		  ORDER BY m.section_id`,
+		[sectionTipo, componentTipo, text, MATCH_TRIM_PATTERN],
+	)) as { section_id: number }[];
+	return rows.map((row) => Number(row.section_id));
 }
 
 export async function readMatrixRecord(

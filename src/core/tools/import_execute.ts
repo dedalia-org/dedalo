@@ -50,15 +50,34 @@ import { BULK_PROCESS_TIPOS } from '../concepts/section.ts';
 import { withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { resolveDataTipo } from '../ontology/alias.ts';
-import { getModelByTipo, getTranslatableByTipo } from '../ontology/resolver.ts';
+import {
+	getMatrixTableFromTipo,
+	getModelByTipo,
+	getTranslatableByTipo,
+} from '../ontology/resolver.ts';
 import { currentDataLang } from '../resolve/request_lang.ts';
 import { createSectionRecord } from '../section/record/create_record.ts';
 import { saveComponentData } from '../section/record/save_component.ts';
 import type { Principal } from '../security/permissions.ts';
-import { authorizeRecordAccess, authorizeSectionTarget } from '../security/write_door.ts';
+import {
+	authorizeRecordAccess,
+	authorizeSectionTarget,
+	type FrameOf,
+} from '../security/write_door.ts';
 import { withLiveBulkRun } from './bulk_run_registry.ts';
 import { type ConformFailure, conformImportData, groupItemsByLang } from './import_data.ts';
 import { isFieldWriteRefusal } from './import_field_refusal.ts';
+import {
+	IRI_LABEL_MODEL,
+	IRI_LABEL_SLOT,
+	type LabelLocks,
+	type LabelledIriItem,
+	labelFrame,
+	labelledItemsOf,
+	lockLabelTexts,
+	preallocateLabelledIds,
+	resolveIriLabels,
+} from './import_iri_label.ts';
 
 export interface MappedField {
 	component_tipo: string;
@@ -152,9 +171,10 @@ async function fieldRefusal(
 	sectionTipo: string,
 	componentTipo: string,
 	matchedId: number | null,
+	frameOf?: FrameOf,
 ): Promise<string | null> {
 	try {
-		await authorizeImportField(principal, sectionTipo, componentTipo, matchedId);
+		await authorizeImportField(principal, sectionTipo, componentTipo, matchedId, frameOf);
 		return null;
 	} catch (error) {
 		if (isFieldWriteRefusal(error)) {
@@ -170,19 +190,20 @@ async function authorizeImportField(
 	sectionTipo: string,
 	componentTipo: string,
 	matchedId: number | null,
+	frameOf?: FrameOf,
 ): Promise<void> {
 	if (matchedId === null) {
 		await authorizeSectionTarget(
 			principal,
 			{ section_tipo: sectionTipo, tipo: componentTipo },
-			{ level: 2, door: 'import_execute.field' },
+			{ level: 2, door: 'import_execute.field', frameOf },
 		);
 		return;
 	}
 	await authorizeRecordAccess(
 		principal,
 		{ section_tipo: sectionTipo, component_tipo: componentTipo, section_id: matchedId },
-		{ mode: 'write', level: 2, sectionFloor: 1, door: 'import_execute.field' },
+		{ mode: 'write', level: 2, sectionFloor: 1, door: 'import_execute.field', frameOf },
 	);
 }
 
@@ -240,9 +261,12 @@ async function writeMappedRecord(
 	principal: Principal,
 	bulkProcessId: number,
 	dataLang: string,
+	failed: ConformFailure[],
 ): Promise<RecordOutcome> {
-	const failed: ConformFailure[] = [];
 	const wasCreated = record.sectionId === null;
+	// FIRST, before the create and every field write: the record's iri label
+	// locks, once each, in sorted fold order (T0-12 — no crossed-order deadlock).
+	const locks = await lockRecordLabels(record, sectionTipo, dataLang);
 	const sectionId = await recordIdFor(record, sectionTipo, principal, bulkProcessId);
 	const userId = principal.userId;
 
@@ -277,6 +301,8 @@ async function writeMappedRecord(
 		// all-or-nothing the CSV executor applies (import_csv_execute.ts: an
 		// errored column is skipped before any saveComponentData).
 		let refused = false;
+		// T0-12: the iri label intents of every value, as item references.
+		const labelled: LabelledIriItem[] = [];
 		for (const value of field.values) {
 			const conform = await conformImportData({
 				model,
@@ -292,6 +318,7 @@ async function writeMappedRecord(
 				refused = true;
 				continue;
 			}
+			labelled.push(...labelledItemsOf(conform.result, conform.derivedFrames));
 			for (const [lang, items] of groupItemsByLang(conform.result, componentLang)) {
 				const group = groups.get(lang);
 				if (group === undefined) groups.set(lang, [...items]);
@@ -313,34 +340,248 @@ async function writeMappedRecord(
 			continue;
 		}
 		if (groups.size === 0) groups.set(componentLang, []);
-		for (const [lang, items] of groups) {
-			// A REFUSED save is a per-field failure, never a silent no-op. The
-			// write engine answers `{ok:false, message}` for a refusal it wants the
-			// caller to show (ONT-TLD, consultation-only, dataframe pairing …);
-			// discarding it reported "N updated, 0 failed" for a run that wrote
-			// nothing, which is the one outcome an importer must never produce.
-			const outcome = await saveComponentData({
-				componentTipo: field.component_tipo,
+		const labels = await prepareFieldLabels(
+			{
+				principal,
 				sectionTipo,
 				sectionId,
-				lang,
-				changedData: [{ action: 'set_data', id: null, value: items }],
-				userId,
-				// The run's attribution: without it the TM rows land with a NULL
-				// bulk_process_id and the import cannot be reverted as one operation.
+				matchedId: record.sectionId,
 				bulkProcessId,
+				field,
+				locks,
+			},
+			groups,
+			labelled,
+		);
+		if (labels.refusal !== null) {
+			failed.push({
+				section_id: sectionId,
+				data: field.values,
+				component_tipo: field.component_tipo,
+				msg: labels.refusal,
 			});
-			if (outcome.ok === false) {
-				failed.push({
-					section_id: sectionId,
-					data: items,
-					component_tipo: field.component_tipo,
-					msg: `IGNORED: ${outcome.message}`,
-				});
-			}
+			continue;
 		}
+		const mainRefusals = await saveFieldGroups(labels.groups, {
+			field,
+			sectionTipo,
+			sectionId,
+			userId,
+			bulkProcessId,
+			failed,
+		});
+		// A refused main save of a LABELLED field throws inside: the record rolls back.
+		await writeFieldLabelFrames(labels, mainRefusals, {
+			sectionTipo,
+			sectionId,
+			bulkProcessId,
+			principal,
+		});
 	}
 	return { sectionId, wasCreated, failed };
+}
+
+/**
+ * Save one field's lang groups, one set_data per lang. A REFUSED save is a
+ * per-field failure, never a silent no-op: the write engine answers
+ * `{ok:false, message}` for a refusal it wants the caller to show (ONT-TLD,
+ * consultation-only, dataframe pairing …); discarding it reported "N updated,
+ * 0 failed" for a run that wrote nothing, which is the one outcome an importer
+ * must never produce. Answers the refusal messages ([] = EVERY lang saved).
+ */
+async function saveFieldGroups(
+	groups: ReadonlyMap<string, unknown[]>,
+	target: {
+		field: MappedField;
+		sectionTipo: string;
+		sectionId: number;
+		userId: number;
+		bulkProcessId: number;
+		failed: ConformFailure[];
+	},
+): Promise<string[]> {
+	const refusals: string[] = [];
+	for (const [lang, items] of groups) {
+		const outcome = await saveComponentData({
+			componentTipo: target.field.component_tipo,
+			sectionTipo: target.sectionTipo,
+			sectionId: target.sectionId,
+			lang,
+			changedData: [{ action: 'set_data', id: null, value: items }],
+			userId: target.userId,
+			// The run's attribution: without it the TM rows land with a NULL
+			// bulk_process_id and the import cannot be reverted as one operation.
+			bulkProcessId: target.bulkProcessId,
+		});
+		if (outcome.ok === false) {
+			target.failed.push({
+				section_id: target.sectionId,
+				data: items,
+				component_tipo: target.field.component_tipo,
+				msg: `IGNORED: ${outcome.message}`,
+			});
+			refusals.push(`${lang}: ${outcome.message}`);
+		}
+	}
+	return refusals;
+}
+
+// ---------------------------------------------------------------------------
+// component_iri LABELS (T0-12) — the mapped door's half of the CSV executor's
+// rule (import_csv_execute.ts writeLabelledIriColumn): the labels are resolved
+// inside the record's transaction (import_iri_label.ts), the labelled items'
+// ids pre-allocated, and one dd560 frame written per labelled item.
+// ---------------------------------------------------------------------------
+
+/**
+ * The record's iri label locks, BEFORE its first write (import_iri_label.ts
+ * `lockLabelTexts`): every value of every `component_iri` field conformed once
+ * more (conform is pure — the main pass reports its errors, this one only reads
+ * the label intents), the texts locked once each in sorted fold order. A field
+ * later refused only locks a label it does not use.
+ */
+async function lockRecordLabels(
+	record: MappedRecord,
+	sectionTipo: string,
+	dataLang: string,
+): Promise<LabelLocks> {
+	const labelled: LabelledIriItem[] = [];
+	for (const field of record.fields) {
+		const model = await getModelByTipo(field.component_tipo);
+		if (model !== IRI_LABEL_MODEL) continue;
+		for (const importValue of field.values) {
+			const conform = await conformImportData({
+				model,
+				importValue,
+				columnName: field.component_tipo,
+				sectionTipo,
+				sectionId: record.sectionId ?? 0,
+				componentTipo: field.component_tipo,
+				lang: dataLang,
+			});
+			if (conform.errors.length > 0) continue; // the main pass refuses the field
+			labelled.push(...labelledItemsOf(conform.result, conform.derivedFrames));
+		}
+	}
+	return lockLabelTexts(labelled);
+}
+
+/** What a field's label step needs of the record being written. */
+interface FieldLabelScope {
+	principal: Principal;
+	sectionTipo: string;
+	sectionId: number;
+	/** The matched record id (null = a record this run created). */
+	matchedId: number | null;
+	bulkProcessId: number;
+	field: MappedField;
+	/** The record's iri label locks, taken before its first write (`lockRecordLabels`). */
+	locks: LabelLocks;
+}
+
+/** A field's groups to save, and the frames to write after them — or why the field is refused. */
+interface FieldLabels {
+	groups: Map<string, unknown[]>;
+	/** The main data tipo the frames pair with (an alias's target). */
+	mainTipo: string;
+	pairings: { idKey: number; labelId: number }[];
+	refusal: string | null;
+}
+
+/**
+ * The label step of one field: nothing to do without labels. Otherwise the
+ * label slot is asked of the write door (paired with its main, T0-4), the
+ * labels resolved (a refusal — unknown label id, a label the importer may not
+ * create — refuses the FIELD: nothing written, never an iri label-less) and
+ * every labelled item's FINAL id pre-allocated in the transaction.
+ */
+async function prepareFieldLabels(
+	scope: FieldLabelScope,
+	groups: Map<string, unknown[]>,
+	labelled: readonly LabelledIriItem[],
+): Promise<FieldLabels> {
+	const componentTipo = scope.field.component_tipo;
+	const mainTipo = await resolveDataTipo(componentTipo);
+	const unchanged: FieldLabels = { groups, mainTipo, pairings: [], refusal: null };
+	if (labelled.length === 0) return unchanged;
+	const doorRefusal = await fieldRefusal(
+		scope.principal,
+		scope.sectionTipo,
+		IRI_LABEL_SLOT,
+		scope.matchedId,
+		{ mainTipo },
+	);
+	if (doorRefusal !== null) return { ...unchanged, refusal: doorRefusal };
+	const resolution = await resolveIriLabels(labelled, {
+		principal: scope.principal,
+		userId: scope.principal.userId,
+		bulkProcessId: scope.bulkProcessId,
+		componentTipo,
+		locks: scope.locks,
+	});
+	if (!resolution.ok) return { ...unchanged, refusal: resolution.refusal };
+	const table = await getMatrixTableFromTipo(scope.sectionTipo);
+	if (table === null) {
+		throw new DedaloError('request.invalid_tipo', {
+			message: `no matrix table for section '${scope.sectionTipo}'`,
+			coordinates: { section_tipo: scope.sectionTipo },
+		});
+	}
+	const prepared = await preallocateLabelledIds(groups, labelled, {
+		table,
+		sectionTipo: scope.sectionTipo,
+		sectionId: scope.sectionId,
+		dataTipo: mainTipo,
+	});
+	const pairings = labelled.map(({ item }) => ({
+		idKey: prepared.idOf.get(item) as number,
+		labelId: resolution.labelOf.get(item) as number,
+	}));
+	return { groups: prepared.groups, mainTipo, pairings, refusal: null };
+}
+
+/**
+ * One dd560 save per labelled item, with the caller pairing: the paired merge
+ * replaces THAT item's frames only. A refused frame save THROWS — the record's
+ * transaction rolls back rather than keep an iri whose label was dropped.
+ *
+ * A LABELLED field whose main save was refused (any lang) THROWS too, before a
+ * frame is written: the labels it may have CREATED and the lang slices that
+ * DID save would otherwise commit without their frames (an orphan label, a
+ * frameless iri). The record's transaction rolls it all back and the run
+ * reports the record as not written, naming the refusal. An unlabelled field
+ * keeps the per-field failure line (`mainRefusals` already pushed it).
+ */
+async function writeFieldLabelFrames(
+	labels: FieldLabels,
+	mainRefusals: readonly string[],
+	record: { sectionTipo: string; sectionId: number; bulkProcessId: number; principal: Principal },
+): Promise<void> {
+	if (labels.pairings.length === 0) return;
+	if (mainRefusals.length > 0) {
+		throw new DedaloError('record.save_failed', {
+			message: `the labelled iri field '${labels.mainTipo}' was refused (${mainRefusals.join('; ')}) — the record is rolled back with its labels and frames`,
+			coordinates: { section_tipo: record.sectionTipo, tipo: labels.mainTipo },
+		});
+	}
+	for (const { idKey, labelId } of labels.pairings) {
+		const outcome = await saveComponentData({
+			componentTipo: IRI_LABEL_SLOT,
+			sectionTipo: record.sectionTipo,
+			sectionId: record.sectionId,
+			lang: 'lg-nolan',
+			changedData: [{ action: 'set_data', id: null, value: [labelFrame(labelId)] }],
+			callerDataframe: { main_component_tipo: labels.mainTipo, id_key: idKey },
+			userId: record.principal.userId,
+			bulkProcessId: record.bulkProcessId,
+		});
+		if (outcome.ok === false) {
+			throw new DedaloError('record.save_failed', {
+				message: `iri label frame refused for '${labels.mainTipo}' item ${idKey}: ${outcome.message}`,
+				coordinates: { tipo: IRI_LABEL_SLOT },
+			});
+		}
+	}
 }
 
 /**
@@ -373,6 +614,33 @@ async function assertNoDerivedField(
 				coordinates: { section_tipo: sectionTipo, tipo },
 			});
 		}
+	}
+}
+
+/**
+ * Report a record whose transaction rolled back. The row is rolled back, so the
+ * run continues and REPORTS it — an engine fault used to escape here and discard
+ * the whole report, `createdIds` included, leaving the operator with records
+ * they could not find.
+ */
+function reportRolledBackRecord(
+	failed: ConformFailure[],
+	record: MappedRecord,
+	sectionTipo: string,
+	error: unknown,
+	recordFailed: readonly ConformFailure[],
+): void {
+	const sectionId = record.sectionId ?? 0;
+	failed.push({
+		section_id: sectionId,
+		data: '',
+		component_tipo: sectionTipo,
+		msg: `IGNORED: the record was not written — ${error instanceof Error ? error.message : String(error)}`,
+	});
+	// …and the record's OTHER issues (a conform refusal of another field …),
+	// addressed like the rollback line: a created id was rolled back with it.
+	for (const issue of recordFailed) {
+		failed.push({ ...issue, section_id: sectionId });
 	}
 }
 
@@ -425,11 +693,14 @@ export async function importMappedRecords(
 	// is refused until it ends (decision D5).
 	await withLiveBulkRun(bulkProcessId, async () => {
 		for (const record of records) {
+			// The record's issues, kept OUTSIDE its transaction: a rolled-back record
+			// still reports them next to the rollback line.
+			const recordFailed: ConformFailure[] = [];
 			try {
 				// ONE TRANSACTION PER RECORD (the CSV door's posture): a failure part-way
 				// through a record leaves NO half-written record behind.
 				const outcome = await withTransaction(() =>
-					writeMappedRecord(record, sectionTipo, principal, bulkProcessId, dataLang),
+					writeMappedRecord(record, sectionTipo, principal, bulkProcessId, dataLang, recordFailed),
 				);
 				if (outcome.wasCreated) {
 					created += 1;
@@ -439,15 +710,7 @@ export async function importMappedRecords(
 				}
 				failed.push(...outcome.failed);
 			} catch (error) {
-				// The row is rolled back, so the run continues and REPORTS it — an engine
-				// fault used to escape here and discard the whole report, `createdIds`
-				// included, leaving the operator with records they could not find.
-				failed.push({
-					section_id: record.sectionId ?? 0,
-					data: '',
-					component_tipo: sectionTipo,
-					msg: `IGNORED: the record was not written — ${error instanceof Error ? error.message : String(error)}`,
-				});
+				reportRolledBackRecord(failed, record, sectionTipo, error, recordFailed);
 			}
 		}
 	});

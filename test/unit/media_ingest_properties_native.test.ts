@@ -375,6 +375,10 @@ describe('additional_path: PHP get_additional_path normalisation', () => {
 		expect(() => normalizeAdditionalPath('../../etc')).toThrow(/escapes/);
 		expect(() => normalizeAdditionalPath('a/../b')).toThrow(/escapes/);
 		expect(() => normalizeAdditionalPath('a\0b')).toThrow(/NUL/);
+		// T0-10: the folder lands in an <img src>; markup characters are refused.
+		expect(() => normalizeAdditionalPath('a"onerror="x')).toThrow(/refused in a media path/);
+		expect(() => normalizeAdditionalPath('a<b')).toThrow(/refused in a media path/);
+		expect(() => normalizeAdditionalPath('a>b')).toThrow(/refused in a media path/);
 	});
 });
 

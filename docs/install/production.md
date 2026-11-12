@@ -191,7 +191,7 @@ Installs only what the host is missing: PostgreSQL 18 (server, client, contrib),
 | --- | --- |
 | Ubuntu 26.04 | none — PostgreSQL 18 ships with the release |
 | Debian 13 | the PostgreSQL project's repository (PGDG) |
-| RHEL / Rocky / AlmaLinux 10 | EPEL (ImageMagick, certbot), CodeReady Builder, RPM Fusion free (FFmpeg), PGDG. `ocrmypdf` is optional there: a failure to install it only warns, and automatic OCR of PDFs stays off. EPEL 10 has no `ocrmypdf` for `aarch64` |
+| RHEL / Rocky / AlmaLinux 10 | EPEL (ImageMagick, certbot), CodeReady Builder, RPM Fusion free (FFmpeg), PGDG. `ocrmypdf` and the Tesseract language packs are optional there: they are installed in their own transaction, a failure only warns, and OCR of PDFs stays off. EPEL 10 has no `ocrmypdf` for `aarch64` |
 
 The media toolchain, and what each tool is for:
 
@@ -201,14 +201,17 @@ The media toolchain, and what each tool is for:
 | `qt-faststart` | moves the MP4 index to the front so a video starts before it has downloaded |
 | ImageMagick | image derivatives, thumbnails, colour-space conversion |
 | `pdftotext`, `pdftohtml`, `pdfinfo` (poppler) | PDF text extraction and page rendering |
-| `ocrmypdf` | optional automatic OCR of uploaded PDFs |
+| `ocrmypdf` | OCR of uploaded PDFs, when the uploader ticks **OCR** |
+| Tesseract language packs | the language models `ocrmypdf` reads with — one per working language, plus `osd` (page orientation) |
 | `rsvg-convert` (librsvg) | thumbnails of SVG records — the only vector rasterizer Dédalo uses |
 
 ImageMagick can render SVG only through a coder that Dédalo's hardened ImageMagick policy disables, because that coder is a long-standing remote-code-execution vector. Vector rendering therefore goes through `rsvg-convert`, which parses SVG and nothing else.
 
+**OCR languages.** OCR reads a scanned page with a Tesseract model for one language, and each model is a separate system package. The installer installs one for every working language you chose, plus `osd`: `tesseract-ocr-<model>` on Debian and Ubuntu (`tesseract-ocr-spa`, `tesseract-ocr-chi-sim`), `tesseract-langpack-<model>` on the RHEL family (`tesseract-langpack-spa`, and `tesseract-osd`). Most models are the language code without `lg-` (`lg-spa` → `spa`); the exceptions are Valencian, which reads with the Catalan model (`cat`), and Chinese, which reads with Simplified Chinese (`chi_sim`). A working language for which Tesseract has no model is listed in the Review and in the step's warnings, and never stops the install: uploads in that language are not offered OCR, and their text is still extracted. A language you add after the install needs its pack installed by hand.
+
 Packages and repositories are **shared host state**: `--abort` tells you what this install added and never removes it (removing a repository would leave its packages without security updates).
 
-- **Verify:** `command -v ffmpeg ffprobe qt-faststart pdftotext rsvg-convert`, and `psql --version` (18). If `qt-faststart` lives elsewhere, set `DEDALO_AV_FASTSTART_PATH` in `.env`. For OCR in another language, install its Tesseract pack (`tesseract-ocr-spa`…); without it OCR falls back to English.
+- **Verify:** `command -v ffmpeg ffprobe qt-faststart pdftotext rsvg-convert`, and `psql --version` (18). If `qt-faststart` lives elsewhere, set `DEDALO_AV_FASTSTART_PATH` in `.env`. `tesseract --list-langs` lists one model per working language, plus `osd`. If `tesseract` is not in the directory of `ocrmypdf`, set `DEDALO_TESSERACT_PATH` in `.env`.
 - **Repair:** a failed download or a locked package manager: fix it, then `--resume`.
 
 ### `host_identity` — the service account, the install folder and the directories

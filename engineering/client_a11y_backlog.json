@@ -346,7 +346,7 @@
 			"reason": "Pre-existing pointer-only activation (audit P1-18 census, batch 7). Converted to a11y.make_activable as this surface is next reworked; the cataloguing surfaces the row names (thesaurus tree, component labels, modal, section tool bar) were converted in the same batch."
 		},
 		"tools/tool_export/js/render_tool_export.js": {
-			"pointer_only_sites": 5,
+			"pointer_only_sites": 3,
 			"reason": "Pre-existing pointer-only activation (audit P1-18 census, batch 7). Converted to a11y.make_activable as this surface is next reworked; the cataloguing surfaces the row names (thesaurus tree, component labels, modal, section tool bar) were converted in the same batch."
 		},
 		"tools/tool_identify/js/render_tool_identify.js": {

@@ -75,7 +75,9 @@
 * - `upload_tmp_perms`    {number}  — octal permissions of upload_tmp_dir.
 * - `session_cache_expire`{number}  — PHP session.cache_expire in minutes.
 * - `upload_service_chunk_files` {number|boolean} — chunk size in MB, or false = disabled.
-* - `pdf_ocr_engine`      {boolean} — whether a server-side OCR engine is configured.
+* - `pdf_ocr_engine`      {boolean} — whether the server's ocrmypdf binary is present and executable.
+* - `pdf_ocr_langs`       {Array<string>} — application langs (`lg-*`) whose Tesseract model is
+*                          installed: the only languages the OCR select may offer.
 */
 export const service_upload = function () {
 
@@ -260,6 +262,9 @@ service_upload.prototype.build = async function(autoload=false) {
 			self.session_cache_expire		= system_info.session_cache_expire
 			self.upload_service_chunk_files	= system_info.upload_service_chunk_files
 			self.pdf_ocr_engine				= system_info.pdf_ocr_engine
+			self.pdf_ocr_langs				= Array.isArray(system_info.pdf_ocr_langs)
+				? system_info.pdf_ocr_langs
+				: []
 
 	// queue limits. The queue is created by the renderer (it needs the DOM
 	// callbacks), so a build() that runs AFTER a render — the refresh cycle does
@@ -387,7 +392,8 @@ service_upload.prototype.destroy = async function(delete_self=true, delete_depen
 *   "upload_tmp_perms":         <number>,
 *   "session_cache_expire":     <number>,  // minutes
 *   "upload_service_chunk_files": <number|false>,
-*   "pdf_ocr_engine":           <boolean>
+*   "pdf_ocr_engine":           <boolean>,
+*   "pdf_ocr_langs":            <string[]>  // e.g. ["lg-spa","lg-eng"]
 * }
 * ```
 * Called internally by `build()`.  Not exported.

@@ -129,7 +129,8 @@ const get_target_section_tipo = function(self) {
 *   data_format        : string  — 'value' | 'grid_value' | 'dedalo_raw'
 *   breakdown          : string  — 'default' | 'rows' | 'columns'
 *   fill_the_gaps      : boolean — server fills spanning values (default true)
-*   (per-column value_with_parents flags ride inside ar_ddo_to_export — WC-049)
+*   (per-column value_with_parents / value_with_references flags ride inside
+*   ar_ddo_to_export — WC-049, T0-9 D4)
 *   show_tipo_in_label : boolean — column labels include the tipo identifier
 * }
 *
@@ -149,8 +150,8 @@ export const build_export_config = function(self) {
 		return el ? el.checked : fallback
 	}
 
-	// note: per-column value_with_parents flags travel INSIDE ar_ddo_to_export
-	// (WC-049 — the old global checkbox is gone)
+	// note: per-column value_with_parents / value_with_references flags travel
+	// INSIDE ar_ddo_to_export (WC-049 — the old global checkbox is gone; T0-9 D4)
 	return {
 		ar_ddo_to_export	: self.ar_ddo_to_export || [],
 		data_format			: self.data_format || 'value',
@@ -255,8 +256,8 @@ export const apply_export_preset = async function(options) {
 		// per-column flags ride each restored ddo instead)
 
 	// re-sync disabled states (breakdown only on grid_value; the per-column
-	// parents checkboxes are disabled in dedalo_raw — a preset may carry
-	// value_with_parents flags with the raw format selected)
+	// parents / references checkboxes are disabled in dedalo_raw — a preset may
+	// carry their flags with the raw format selected)
 		const select_breakdown = node.querySelector('.select_breakdown_export')
 		if (select_breakdown) {
 			select_breakdown.disabled = (self.data_format!=='grid_value')

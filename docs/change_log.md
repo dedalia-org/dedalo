@@ -17,12 +17,23 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - SVG glyphs in text tags now resolve in lists and publications for vector components stored in sub-folders.
     - The "+" of a portal (and Duplicate, add term, the assistant) now needs permission to create in the target section.
     - A publication host in copy mode no longer answers "not found" for every published file.
 
 ### For users
 
 #### Security
+
+- **The References panel and related-record lists show only the columns the user may read.**
+
+    The References panel of a record, and the related-record lists that the transcription, indexation
+    and print tools and the persons list of a text field use, show columns from each section that points
+    at the record. They used to show every column, even a field the user has no access to in that
+    section. Now a column the user may not read is left out, as the related records list in the edit
+    form already did. The rows themselves are unchanged. Users with full access see no change.
+
+    Wire contract: `WC-2026-11-11-relation-list-column-grants`.
 
 - **The "+" of a portal (and Duplicate, add term, the assistant) now needs permission to create in the target section.** *(action needed)*
 
@@ -134,6 +145,18 @@ Merged since the last release; these ship with the next one.
     226 ontology sections a search answers in about a fifth of the time. The results, and who may
     see which columns, are exactly as before.
 
+- **A record that points at a term from a section you cannot read shows its section name and id, in the edit form, in panels and in exports.**
+
+    Indexation fields (the fields that list the records pointing at a record) always list every
+    pointing record. A pointing record from a section you may not read is shown with its section's
+    name and its id, and nothing else. This now applies to every indexation field, including those
+    with their own configured columns, and in the panels and exports too: an export writes
+    the section name followed by the id for such a record, and the export does not stop.
+    Translatable columns of the pointing records now show the text in your data language instead of
+    an empty cell.
+
+    Wire contract: `WC-2026-11-09-export-frontier-fanout`, `WC-2026-11-11-relation-index-related-list-context`.
+
 - **The export tool scrolls to the download buttons when an export finishes.**
 
     When an export you started finishes, the export tool now scrolls smoothly down to the download
@@ -192,6 +215,19 @@ Merged since the last release; these ship with the next one.
     exactly in any letter case, `!=vic` the opposite, `'Vic'` exactly as typed (letter case
     included) and `-cenne` does not contain. It stays closed until you click it.
 
+- **Exports can include the calculated relations of a related-terms column, in a column of their own.**
+
+    A **Related** column exports the relations stored on the record. A related-terms field that works
+    in both directions also shows the terms that point at it; those are calculated, not stored, and
+    were never exported. A new per-column **references** checkbox in the export tool, offered only on
+    those fields, adds a sibling
+    column, headed with the column name followed by *references*, with those calculated relations only, never repeating the stored
+    ones. It works in the **Standard** and **Breakdown** formats; the **Dédalo (Raw)** format exports
+    stored data only, so the checkbox is disabled there. Presets keep the choice. See
+    [Export](./tools/using_export.md).
+
+    Wire contract: `WC-2026-11-11-export-related-references-column`.
+
 - **Users see their own activity statistics in their profile.**
 
     The user profile panel (opened from your name in the menu) now shows your own activity
@@ -210,6 +246,143 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Exports now include the records that point at each record (the Relations field), instead of an empty column.**
+
+    A field that lists the records pointing at the current one (the **Relations** field of the
+    *Section info* group, and any other field of that kind) always exported as an empty column, in
+    every format. It now exports its callers: in the **Standard** format one column with the ids of every calling
+    record; in the **Breakdown** format one column per calling field, and each caller gets its own
+    row (or its own `|n` column in the **Columns** mode), like any related item. Callers
+    you are not allowed to read are left out, exactly as in the record's edit view. The **Dédalo
+    (Raw)** format exports these calculated values too; the import tool skips them, since there is
+    nothing stored to write back. See [Exporting data](./core/exporting_data.md).
+
+    3D model fields also exported an empty column; they now export the file's address, like audiovisual
+    fields.
+
+    Wire contract: `WC-2026-11-11-export-inverse-callers`.
+
+- **Export and search can pick fields from every section a field points to, not only the first.**
+
+    Some fields point to several sections at once. For example, a "Production place" field can point
+    to every toponymy (Spain, France…) and to an immovables thesaurus with its own fields. When you
+    opened such a field in the export or search field list, only the first section opened, and the
+    fields of the others could not be chosen.
+
+    The opened column now has a section selector in its header. In Export, sections built on the same
+    base (all the toponymies) appear as one entry, such as "Thesaurus (12)". A field you pick there
+    exports its values from every one of those sections in the same column. Sections with their own
+    fields, such as the immovables thesaurus, have their own entry. In Search, each section is listed
+    on its own, grouped under its base. When you open the field again, it shows the section you used
+    last.
+
+    An export with such a column no longer stops with an "out of scope" error for users who are not
+    administrators when some of the linked records are in a section that does not have that field.
+
+    Wire contract: `WC-2026-11-11-section-elements-target-groups`.
+
+- **Exports in the Standard format follow each column's configured fields and separators, and relation columns that came out blank now carry their values.**
+
+    A relation column in the **Standard** export format used to show the related record's own default
+    fields, not the sub-fields configured for that column, and ignored the separators configured for
+    it. It now exports exactly the configured sub-fields, joined with the configured separators, the
+    same way as the **Breakdown** format. A related record whose value is empty — an image not yet
+    uploaded, an empty text — keeps its place between the separators (and its own row in the
+    **Breakdown** format), so the pieces of a cell still line up with the related records.
+
+    The **Projects**, **Publishable**, **Language**, **Parent**, **Children**, **Related** and
+    **Index** (indexations) fields used to export as empty cells, and showed blank in the panels that
+    list a record's relations (for example the references panel). They now show their values
+    everywhere. In the **Breakdown** format, several values in one cell are now joined with the
+    field's own separator (for example `, ` between numbers).
+
+    Past exports were incomplete, not wrong: run the export again to get the full values. See
+    [Exporting data](./core/exporting_data.md).
+
+    Wire contract: `WC-2026-11-11-export-value-single-walker`.
+
+- **Importing a URI with a label now saves the label, and a text label is found or created.**
+
+    Before, a URI imported with a label id (`8, https://dedalo.dev`, or `label_id` in a JSON cell)
+    was stored without its label: the label never appeared. A URI imported with a label text
+    (`Dédalo, https://dedalo.dev`) was refused.
+
+    Now both forms save the label exactly as the editor does. A text label is matched against the
+    existing labels ignoring case, accents and surrounding white space (spaces, tabs, line breaks, non-breaking spaces), as a whole value. When several
+    labels match, the one with the lowest id is used and the import reports the others. When none
+    matches, a new label is created in your default project. Importing the same file again creates
+    no second label.
+
+    Some cells are now refused and reported instead of imported: a label id that does not exist, a
+    label without a URI, and a label you have no permission to create. Saving a URI value that carries
+    `label_id` directly (for example through the API) is refused too: the label belongs to the URI's
+    label field. See [Importing data](./core/importing_data.md#uri).
+
+    Wire contract: `WC-2026-11-11-iri-import-label-frame`.
+
+- **A Word or OpenDocument file uploaded to a PDF field is no longer published as its PDF.**
+
+    A PDF field keeps the authored document (`.doc`, `.odt`, `.pages`…) and its PDF
+    version side by side in the original quality, as in v6. Before, uploading only
+    the authored document copied its bytes into the web PDF, which no viewer could
+    open; uploading it next to an earlier PDF rebuilt the web copy and covers from
+    that earlier PDF without saying so.
+
+    Now only a PDF feeds the web copy, thumbnail and covers. Uploading an authored
+    document leaves them as they are, and the upload reports either which PDF still
+    drives them or that the record has no PDF yet. To update what the record shows,
+    upload the new PDF.
+
+    Records that already received an authored document alone may hold a web file
+    that is not a PDF: re-upload a PDF of the document to replace it.
+
+- **Uploading a PDF fills its transcription field again, and the OCR option works.**
+
+    Since the move to the version 7 engine, uploading a PDF built its web copy and cover but
+    left the related transcription field (for example the text beside a document's PDF in
+    Resources) empty, so the document's text could not be searched. Ticking **OCR** in the
+    upload panel did nothing.
+
+    Now an uploaded PDF fills its transcription field with the PDF's text, one page marker per
+    page, in the language you are working in. If that field already had text in that language,
+    it is replaced and the upload tells you so; the previous text stays in the record's history
+    (Time Machine). A scanned PDF with no text layer writes nothing and says so.
+
+    With **OCR** ticked, the text is recognised in the background in the language you pick and
+    written into the web copy of the PDF; the original file you uploaded is never modified. The
+    transcription is filled when recognition finishes. The panel only offers OCR, and only the
+    languages, this server can actually recognise.
+
+    **Update cache** and the media versions panel now fill a transcription only when it is
+    empty; they never replace text you have corrected, and a bulk revert undoes what they
+    filled.
+
+    **Action for administrators:** PDFs uploaded since the version 7 engine was installed have
+    empty transcriptions. To fill them, run **Update cache** on the PDF field of each section
+    that holds PDFs; only empty transcriptions are filled. Nothing is done automatically. The
+    installer now installs the OCR language packs for your working languages; on an existing
+    server install them yourself (Debian/Ubuntu `tesseract-ocr-<language>`, RHEL family
+    `tesseract-langpack-<language>`, plus the `osd` pack).
+
+    Wire contract: `WC-2026-11-11-pdf-transcription-restored`.
+
+- **The Indexations field of a thesaurus term shows the columns of the records that point at it.**
+
+    The field that lists the records pointing at a term (Indexations on every thesaurus term, and
+    the similar "who points at me" fields of other sections) showed one row per record but no
+    columns, in the term's edit form and as a list column. Each pointing record now shows the
+    columns its section defines for this purpose (its related list), in both edit and list, on every
+    page. A column the user may not read is not shown, and neither is its value.
+
+    The field always lists every record that points at the term, so "nobody points at this"
+    can be trusted before deleting it. A pointing record from a section the user may not read is
+    shown with its section's name and its id only, with blank columns.
+
+    Columns holding translatable text (a title, a name) were blank in the edit form and in the list;
+    they now show their value in the language you are working in.
+
+    Wire contract: `WC-2026-11-11-relation-index-related-list-context`.
+
 - **The `=` exact-match search now ignores letter case, so `=vic` finds "Vic".**
 
     Typing `=` before a word searches for values that are exactly that word. It already ignored
@@ -218,6 +391,17 @@ Merged since the last release; these ship with the next one.
     quoted `'Vic'` forms still match capital letters exactly, because the import tools use them to
     find a precise existing record. On a database created with the plain `C` locale, only Latin
     letters are matched regardless of case; Cyrillic or Greek capitals still have to be typed.
+
+- **SVG glyphs in text tags now resolve in lists and publications for vector components stored in sub-folders.** *(action needed)*
+
+    A text that embeds a vector drawing (an `[svg]` tag, e.g. a countermark or an epigraphy glyph)
+    showed a broken image in list views and in published pages whenever the drawing's field stores
+    its files in numbered sub-folders, in a per-record folder, or under a section-specific media
+    path. The edit view was not affected. The glyph address is now built exactly like the field's
+    own file address everywhere. Pages published before this update keep the old, broken address:
+    re-publish the affected sections to refresh them.
+
+    Wire contract: `WC-2026-11-11-svg-tag-url-full-media-path`.
 
 - **Date fields inside portal rows no longer stack their buttons**
 
@@ -453,6 +637,12 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **The ontology status panel names URL components that are wrongly marked as translatable**
+
+    A URL component (`component_iri`) is never translatable: a URL has no language, and its versions in other languages are stored as language versions of one value. A URL node marked as translatable in the ontology — or with the *translatable* field left empty, which counts as translatable — made imports save plain cells in the importer's language, with no warning. The status panel of the ontology parser tool, and the message of every rebuild and ontology update, now name each such node as "node(s) break a model rule". It is an error in the master ontology: Dédalo reports it and does not ignore the setting, so it must be corrected there and reach the installation through an ontology update. The ontology shipped with this release has no such node. See [Ontology parser](./tools/using_ontology_parser.md).
+
+    Wire contract: `WC-2026-11-11-ontology-model-rules`.
+
 - **Ontology update list can open full screen.**
 
     The list of ontologies offered by a master server in Maintenance → Update ontology has a full
@@ -543,7 +733,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 22 entries"
+??? note "Wire contract — 32 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -567,6 +757,16 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-10-translation-empty-result`
     - `WC-2026-11-10-widget-data-read-door`
     - `WC-2026-11-10-wipe-filter-user-default`
+    - `WC-2026-11-11-export-inverse-callers`
+    - `WC-2026-11-11-export-related-references-column`
+    - `WC-2026-11-11-export-value-single-walker`
+    - `WC-2026-11-11-iri-import-label-frame`
+    - `WC-2026-11-11-ontology-model-rules`
+    - `WC-2026-11-11-pdf-transcription-restored`
+    - `WC-2026-11-11-relation-index-related-list-context`
+    - `WC-2026-11-11-relation-list-column-grants`
+    - `WC-2026-11-11-section-elements-target-groups`
+    - `WC-2026-11-11-svg-tag-url-full-media-path`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

@@ -106,10 +106,21 @@ describe('tool_ontology_parser module', () => {
 		expect(states.length).toBe(2);
 		// The exact keys render_tool_ontology_parser.js reads off each state.
 		for (const state of states) {
-			for (const key of ['tld', 'matrixNodes', 'storedNodes', 'mainNodeOk', 'drift', 'inSync']) {
+			for (const key of [
+				'tld',
+				'matrixNodes',
+				'storedNodes',
+				'mainNodeOk',
+				'drift',
+				'inSync',
+				'tldlessNodes',
+				'modelRuleViolations',
+			]) {
 				expect(key in state).toBe(true);
 			}
 			expect(Array.isArray(state.drift)).toBe(true);
+			// The model-rule warning channel (render_model_rule_note reads it as an array).
+			expect(Array.isArray(state.modelRuleViolations)).toBe(true);
 			// storedNodes counts the bootstrap <tld>0 main node, which is NOT parsed
 			// from a matrix record — so a healthy tld is matrixNodes + 1, and reading
 			// the difference as drift would be wrong.

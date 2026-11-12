@@ -873,6 +873,14 @@ const NOT_HERMETIC: ReadonlyMap<string, string> = new Map([
 		'test/unit/term_by_tipo_label_guard.test.ts',
 		'Its outcome legs build the zzlbl scratch TLD on the suite database (a model=label node, a plain one, a reused tipo flipped between models via upsertDdOntologyNode) and drive every guarded term resolver against those dd_ontology rows, so without a live suite Postgres the describe.if(DB_READY) skips all 25 resolver cases and only the census and seam legs run.',
 	],
+	[
+		'test/unit/ontology_model_rules_native.test.ts',
+		'It seeds ontology source records of a zz scratch tld into matrix_ontology, runs rebuildOntology and inspectOntology on the suite database and sweeps them, so it cannot run without a live suite Postgres.',
+	],
+	[
+		'test/unit/ontology_model_rules_shipped_tripwire.test.ts',
+		"It resolves every model tipo the vendored release names through the suite database's dd_ontology (the parser's projectModel rule: modelNameOf over readDdOntologyRow) and reads the component_iri / component_input_text model tipos from it, so it cannot run without a live suite Postgres.",
+	],
 ]);
 
 /**

@@ -1471,6 +1471,30 @@ dd-modal.dd_presets {
 					display: none;
 				}
 
+				// Target chooser (render_common.js render_section_chooser): a drilled
+				// relation pointing to several sections (tch199 → toponymies + tchi1)
+				// names its level with a select. The bar ignores pointer events, so
+				// the select takes them back; it keeps the bar's type, not the
+				// uppercase transform (section names are proper nouns).
+				>.section_chooser {
+					pointer-events: all;
+					max-width: calc(100% - 1.5em);
+					font: inherit;
+					// the bar's type is 0.85em: the select is a control, read at body size
+					font-size: 1.15em;
+					font-weight: 600;
+					text-transform: none;
+					letter-spacing: normal;
+					color: inherit;
+					background-color: transparent;
+					border: 1px solid @color_grey_13;
+					border-radius: 3px;
+					// the global select draws its arrow as a right background image:
+					// the right padding is its room, or the arrow covers the label
+					padding: 0.15rem 1.6em 0.15rem 0.35rem;
+					cursor: pointer;
+				}
+
 			}
 
 			//end section_bar_label

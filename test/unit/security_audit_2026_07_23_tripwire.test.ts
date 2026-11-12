@@ -277,6 +277,14 @@ describe('AUTHZ-05: inverse-reference scan is principal-scoped at the user-facin
 			why: 'emits the records POINTING AT the host, across config.targetSections, plus their related_list child components — the same shape as the indexation grid, with no principal anywhere in the path. Whether the upstream component gate (read_facade ddoIsAuthorized) is sufficient here has not been established by either AUTHZ-05 pass.',
 			raised: 'WS-G1 handoff, 2026-08-09 remediation wave (audits/2026-08_oh1_beta)',
 		},
+		'src/core/relations/locator_source.ts': {
+			// DOOR-SHAPED WITH A NAMED OWNER EXEMPTION — the registry has no such
+			// class, so the row is 'open' and the exemption + gaps are spelled out.
+			kind: 'open',
+			why: "THE locator source (T0-9): the COMPUTED component_relation_index set (the inverse scan, FULL set). Door-shaped: request principals reach it (the edit form through models/relation_index.ts, the interactive flat reader — relation_list.ts panel, related_sections.ts, related.ts labels — and the export walk) and its hits go back to them. Yet the SET is deliberately NOT scoped — OWNER EXEMPTION WC-2026-11-11-relation-index-related-list-context (T0-9 D6 re-decided 2026-11-11): every reader gets every pointing locator, exactly the edit form's entries/total, because 'nobody points at it' is a delete decision and a hidden pointer would make it wrong. Content is withheld per pointing SECTION (pointingSectionReadable, this file: address only, columns blank — config_children.ts) and each implicit column per call (STEP 5: implicit.ts filterAuthorizedRelated / the export frontier); the export's T0-1 frontier crosses each pointer on top. REMAINING GAPS (why 'open', not cleared): (1) the ADDRESS (section name + section_id) of EVERY pointer — also outside the requester's projects — is disclosed by the exemption; (2) the content predicate is the SECTION grant, not the RECORD scope: a pointer in a readable section but another project shows its columns (the edit form's rule, kept identical); (3) no SCOPE_CALL can prove the exemption — its outcome legs are tool_export_value_relation_native D6 and relation_list_panel_scope_native A1.",
+			raised:
+				'T0-9 fix round A (2026-11-11): owner exemption WC-2026-11-11-relation-index-related-list-context; the per-record gap (2) is tracked with the models/relation_index.ts open row (WS-G1 handoff, audits/2026-08_oh1_beta)',
+		},
 	};
 
 	test('every caller of the unscoped inverse scan is classified (door registry)', () => {

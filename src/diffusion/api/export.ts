@@ -21,6 +21,7 @@ export {
 	assertExportDeclarationReadable,
 	EXPORT_ROW_MEDIA,
 	exportGridUnified,
+	exportPathMayReachMedia,
 	openExportGrid,
 	parseRowMediaAddress,
 	rowMediaOf,

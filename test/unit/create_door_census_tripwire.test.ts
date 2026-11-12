@@ -329,6 +329,20 @@ const CENSUS: Readonly<Record<string, Readonly<Record<string, CensusRow>>>> = {
 			reason:
 				'the RDF executor’s term create, in a section DERIVED from the ontology-driven RDF plan: the importing principal is asked authorizeSectionTarget (the section, then the match component pair) before the birth; a refusal skips the op. NOTE: section ≥ 2 only — not the button_new half of the create predicate.',
 		},
+		'src/core/tools/import_iri_label.ts#createLabel': {
+			verdict: 'tool-gated',
+			binding: 'module-constant',
+			sectionArgs: ['LABEL_SECTION'],
+			evidence: [
+				{
+					file: 'test/unit/import_iri_label_native.test.ts',
+					contains:
+						'11. an importer who may not create labels: loud refusal, the iri NOT written label-less',
+				},
+			],
+			reason:
+				'a NEW iri label (T0-12) during a CSV/mapped import: the section is LABEL_SECTION, the fixed dd1706 iri label vocabulary; labelCreateRefusal asks authorizeSectionTarget as the importer (dd1706 + its value component dd1715, level 2) before any create, and a refusal fails the field — no label record, no label-less iri. NOTE: section ≥ 2 only — not the button_new half of the create predicate.',
+		},
 		'tools/tool_numisdata_acquisition/server/index.ts#commitOneLot': {
 			verdict: 'tool-gated',
 			binding: 'module-constant',

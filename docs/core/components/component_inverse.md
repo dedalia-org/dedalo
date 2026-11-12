@@ -72,8 +72,8 @@
 
 **Storage shape.** This component has **no value to store**. Its defining behavior is to ignore any matrix value and instead resolve the inverse references live: build a minimal filter locator for the current `{section_tipo, section_id}` and run a `mode='related'` search over all matrix tables; each matching relation row is decoded and decorated with `from_section_tipo`, `from_section_id` (and it already carries `from_component_tipo`). If the section has no `section_id` yet (a brand-new, unsaved record), the result is an empty array.
 
-!!! danger "Gap: the live-compute step is not wired to this model in TS yet"
-    The TS server **does** have the underlying engine — `findInverseReferences()` in `src/core/search/search_related.ts` performs the `mode='related'` search — but it is currently only called from the separate "Referencias" panel pipeline (`src/core/resolve/relation_list.ts`, the `relation_list` ontology node type), not from the section read path for a `component_inverse` **model** node. `src/core/section/read.ts` has no `model === 'component_inverse'` branch that calls `findInverseReferences()`; the model falls through the generic literal path for column `misc` (its descriptor's declared column), which never holds stored data for this component. A `component_inverse` node therefore reads as **empty** on the TS server today, not as the live backlink list. (`component_inverse` does appear in a few housekeeping lists — the default component-exclude set in `src/core/resolve/section_elements_context.ts`, the delete-cascade skip list in `src/core/section/record/delete_record.ts`, and the `tool_propagate_component_data` skip list — but none of those compute its value.)
+!!! note "Where the live compute happens"
+    The value is computed at emit time by the model's emit hook (`src/core/components/component_inverse/emit.ts`, `resolveInverseEntries`), which runs the related search of `src/core/search/search_related.ts` for the record and keeps only the callers the requesting user may read (section read grant + projects boundary). The `misc` slot named by the descriptor is never read. The export reads the same function, so the edit view and an export always list the same callers.
 
 Each computed inverse locator looks like this:
 
@@ -204,20 +204,17 @@ DOM (edit / default): `wrapper_component component_inverse <tipo> <mode>` → `l
 
 **Import.** `component_inverse` has nothing to import: the inverse list is derived from the *outgoing* relations on the other section, so an import value routed at an inverse column is meaningless (and see the write-path caveat under [Notes](#notes)). To populate backlinks, import the relation on the **owning** side (the [component_portal](component_portal.md) / relation component), not here. See [importing data](../importing_data.md).
 
-**Export.** The intended contract follows the shared export atoms: one atom per inverse locator. The `(from_section_tipo, from_component_tipo)` pair travels as a **sub-segment**, so each distinct calling pair becomes its own export column; multiple callers of the same pair join inside the cell using `fields_separator`. The exported atom value is the caller `from_section_id` (cast to int):
+**Export.** The export tool exports the computed backlinks (the `inverse` flatValue family): one atom per caller, its value the caller `from_section_id`. The `(from_section_tipo, from_component_tipo)` pair travels as a **sub-segment**, so in the breakdown each distinct calling pair becomes its own column. Taking the Relations field `dd1596` of a People (`rsc197`) record pointed at by two interviews (`oh1`) through their Informants portal (`oh24`) — corpus nodes of an oral-history install:
 
-```json
-[
-    { "from_section_tipo": "tch1", "from_component_tipo": "tch171", "from_section_id": 1 },
-    { "from_section_tipo": "tch1", "from_component_tipo": "tch171", "from_section_id": 3 }
-]
-```
+- **Standard** (`value`): one column *Relations*, cell `3, 7` (every caller id, each calling field's callers together in ascending order, joined with `, `; the groups joined with the column's configured separator, `, ` by default).
+- **Breakdown** (`grid_value`): one column per calling field (*Relations | Informants*), and each caller is its own item — each column lists its callers one per row in the `default` and `rows` modes (as many rows as the busiest calling field), one `|n` column per caller in `columns`.
+- **Dédalo (Raw)** (`dedalo_raw`): the computed inverse locators wrapped as `{"dedalo_data": [...]}`; the import skips the column.
 
-For grid display the component collapses to a **single row** (the current instance) with one column per `(section_tipo, from_section_tipo, tipo, from_component_tipo)` combination — the inverse data never produces grid rows, only columns. Since the underlying data is not yet computed on the TS server (see [Data model](#data-model)), the export/grid contract described here is not currently reachable through the TS export path either. See [exporting data](../exporting_data.md).
+Callers from records the requesting user may not read are omitted, as in the edit view. See [exporting data](../exporting_data.md#what-a-backlinks-column-contains).
 
 ## Notes
 
-- **No storage, computed live — TS gap, see above.** The defining trait: it ignores the matrix data column and computes the backlinks live — a minimal filter locator for the current record, then a `mode='related'` search (with breakdown) over all matrix tables. **This is not wired to the `component_inverse` model on the TS server** (see the danger note under [Data model](#data-model)); the equivalent engine exists (`findInverseReferences()`) but is only reachable from the "Referencias" relation-list panel today.
+- **No storage, computed live.** The defining trait: it ignores the matrix data column and computes the backlinks live — a minimal filter locator for the current record, then a `mode='related'` search (with breakdown) over all matrix tables, done by the emit hook (see the note under [Data model](#data-model)). Edit view, list view and export read the same computed list.
 - **Read-only by design — unenforced on the TS write path.** The intended contract is a read-only no-op save (log a warning and return without persisting). **The generic TS save engine (`src/core/section/record/save_component.ts`) has no `component_inverse` guard**: nothing under `src/` special-cases this model to refuse a write, so a save request routed at a `component_inverse` tipo would actually persist into the `misc` column instead of being a no-op. In practice the copied client never issues such a save (there is no writable input for this component), but an API caller bypassing the client could. An unsaved record (empty `section_id`) yields an empty list. Time Machine does not track inverse data.
 - **Observers / observables.** None ship for this component. As a purely derived read-only view it does not publish or observe data changes; its content simply re-resolves whenever the host record is reloaded.
 - **Default tools.** The sample model exposes no tools (`tools: []`). Tools, when added, are read-only context like any component.

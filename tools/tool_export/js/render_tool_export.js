@@ -46,6 +46,8 @@
  *     mode           : string   — 'edit' | 'list'
  *     label          : string   — human label
  *     value_with_parents : boolean — per-column ancestor-chain export flag
+ *     value_with_references : boolean — per-column calculated-relations export
+ *       flag (component_relation_related — T0-9 D4)
  *     path           : Array    — full path from the current section root
  *   }
  *
@@ -143,18 +145,67 @@ const PARENTS_FORMATS = new Set([
 
 
 /**
+ * REFERENCES_MODELS
+ * Component models that MAY offer the per-column "references" checkbox
+ * (build_export_component) — only the FIRST, request-saving filter, like
+ * PARENTS_MODELS: the checkbox renders only when the SERVER confirms the
+ * component derives calculated relations (tool_export.components_with_references
+ * — a dd467 bidirectional / dd621 multidirectional related; a dd620
+ * unidirectional one has none, so no checkbox — see
+ * component_has_calculated_relations). When checked, the value and grid_value
+ * exports add a sibling '<column> | references' column with the CALCULATED
+ * relations only (the stored links stay in the main column). Same formats as
+ * the parents flag (PARENTS_FORMATS): disabled in dedalo_raw. The server
+ * REFUSES the flag on any other column (request.invalid_options, T0-9 D4).
+ */
+const REFERENCES_MODELS = new Set([
+	'component_relation_related'
+])
+
+
+
+/**
+ * DERIVED_CHECKS
+ * The per-column derived-column checkboxes (parents — WC-049; references —
+ * T0-9 D4): the label class (the check is '<class>_check', the 'not in raw'
+ * note '<class>_note') and the labels of its two titles.
+ */
+const DERIVED_CHECKS = {
+	parents : {
+		class_name		: 'export_component_parents',
+		title_label		: 'value_with_parents',
+		title_fallback	: 'Export parents',
+		raw_label		: 'parents_not_in_raw',
+		raw_fallback	: 'Parents are not exported in the Dédalo (Raw) format'
+	},
+	references : {
+		class_name		: 'export_component_references',
+		title_label		: 'value_with_references',
+		title_fallback	: 'Export calculated relations',
+		raw_label		: 'references_not_in_raw',
+		raw_fallback	: 'Calculated relations are not exported in the Dédalo (Raw) format'
+	}
+}
+
+
+
+/**
  * SET_PARENTS_CHECK_STATE
- * Enables/disables one column's parents checkbox for the current data format
- * (PARENTS_FORMATS) and shows/hides its 'not in raw' note.
+ * Enables/disables one column's derived checkbox (parents or references) for
+ * the current data format (PARENTS_FORMATS) and shows/hides its 'not in raw'
+ * note.
  * @param {Object} self - The tool_export instance
- * @param {HTMLElement} parents_label - The .export_component_parents label
+ * @param {HTMLElement} parents_label - The .export_component_parents (or
+ * .export_component_references) label
+ * @param {string} [kind='parents'] - DERIVED_CHECKS key
  * @returns {void}
  */
-const set_parents_check_state = function(self, parents_label) {
+const set_parents_check_state = function(self, parents_label, kind='parents') {
 
+	const spec			= DERIVED_CHECKS[kind]
 	const supported		= PARENTS_FORMATS.has(self.data_format || 'value')
-	const parents_check	= parents_label.querySelector('.export_component_parents_check')
-	const note			= parents_label.querySelector('.export_component_parents_note')
+	const parents_check	= parents_label.querySelector('.' + spec.class_name + '_check')
+	const note			= parents_label.querySelector('.' + spec.class_name + '_note')
 
 	if (parents_check) {
 		parents_check.disabled = !supported
@@ -164,8 +215,8 @@ const set_parents_check_state = function(self, parents_label) {
 		note.classList.toggle('hide', supported)
 	}
 	parents_label.title = supported
-		? (self.get_tool_label('value_with_parents') || 'Export parents')
-		: (self.get_tool_label('parents_not_in_raw') || 'Parents are not exported in the Dédalo (Raw) format')
+		? (self.get_tool_label(spec.title_label) || spec.title_fallback)
+		: (self.get_tool_label(spec.raw_label) || spec.raw_fallback)
 }//end set_parents_check_state
 
 
@@ -701,6 +752,7 @@ const get_content_data_edit = async function(self) {
 							mode			: ddo.mode,
 							label			: ddo.label,
 							value_with_parents	: false, // per-component parents export (checkbox in the item)
+							value_with_references	: false, // per-component calculated relations export (checkbox in the item)
 							path			: path // full path from current section replaces ddo single path
 						}
 
@@ -3078,14 +3130,58 @@ render_tool_export.prototype.build_export_component = async function(ddo) {
 			// initial state for the CURRENT format (re-evaluated on format change
 			// by update_parents_checks_state)
 			set_parents_check_state(self, parents_label)
-			// prevent the click/drag of the checkbox from triggering the
-			// item sort drag handlers (the export_component is draggable)
-			parents_label.addEventListener('click', e => e.stopPropagation())
-			parents_label.addEventListener('mousedown', e => e.stopPropagation())
+			// keep the checkbox's pointer events inside it (the export_component
+			// row is draggable). Contained on the NATIVE input — the keyboard
+			// path (Tab + Space) is the input's own, the label only names it
+			// (client_keyboard_activation_tripwire).
+			parents_check.addEventListener('click', e => e.stopPropagation())
+			parents_check.addEventListener('mousedown', e => e.stopPropagation())
 			parents_label.draggable = false
 			parents_check.addEventListener('change', () => {
 				ddo.value_with_parents = parents_check.checked
 				// save local db data (ddo reference is shared with ar_ddo_to_export)
+				self.update_local_db_data()
+			})
+		}
+
+	// references check (T0-9 D4). Rendered only for REFERENCES_MODELS columns
+	// the server confirms derive calculated relations (dd467/dd621 —
+	// tool_export.components_with_references). When checked, ddo.value_with_references makes the value and grid_value
+	// exports add a sibling 'references' column with the CALCULATED relations
+	// (the stored links stay in this column); disabled (with a note) in
+	// dedalo_raw like the parents check. Persisted with the ddo.
+		if (REFERENCES_MODELS.has(ddo.model) && await self.component_has_calculated_relations(ddo)) {
+			const references_label = ui.create_dom_element({
+				element_type	: 'label',
+				class_name		: 'export_component_references',
+				title			: self.get_tool_label('value_with_references') || 'Export calculated relations',
+				parent			: export_component
+			})
+			const references_check = ui.create_dom_element({
+				element_type	: 'input',
+				type			: 'checkbox',
+				class_name		: 'option_check_box export_component_references_check',
+				parent			: references_label
+			})
+			references_check.checked = ddo.value_with_references===true
+			ui.create_dom_element({
+				element_type	: 'span',
+				text_content	: get_label.references || 'references',
+				parent			: references_label
+			})
+			ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'export_component_references_note hide',
+				text_content	: self.get_tool_label('parents_not_in_raw_short') || '(not in Raw)',
+				parent			: references_label
+			})
+			set_parents_check_state(self, references_label, 'references')
+			// pointer containment on the native input, as the parents check
+			references_check.addEventListener('click', e => e.stopPropagation())
+			references_check.addEventListener('mousedown', e => e.stopPropagation())
+			references_label.draggable = false
+			references_check.addEventListener('change', () => {
+				ddo.value_with_references = references_check.checked
 				self.update_local_db_data()
 			})
 		}
@@ -3148,7 +3244,7 @@ render_tool_export.prototype.update_lang_state = function() {
 
 /**
  * UPDATE_PARENTS_CHECKS_STATE
- * Re-evaluates every selected column's parents checkbox against the current
+ * Re-evaluates every selected column's parents and references checkboxes against the current
  * self.data_format (PARENTS_FORMATS): called by the format select's change
  * handler and after a preset restores its format.
  * @returns {void}
@@ -3161,9 +3257,11 @@ render_tool_export.prototype.update_parents_checks_state = function() {
 	if (!root) {
 		return
 	}
-	const labels = root.querySelectorAll('.export_component_parents')
-	for (let i = 0; i < labels.length; i++) {
-		set_parents_check_state(self, labels[i])
+	for (const kind of Object.keys(DERIVED_CHECKS)) {
+		const labels = root.querySelectorAll('.' + DERIVED_CHECKS[kind].class_name)
+		for (let i = 0; i < labels.length; i++) {
+			set_parents_check_state(self, labels[i], kind)
+		}
 	}
 }//end update_parents_checks_state
 
@@ -3213,6 +3311,50 @@ render_tool_export.prototype.component_has_parent_targets = async function(ddo) 
 
 	return request_promise
 }//end component_has_parent_targets
+
+
+
+/**
+ * COMPONENT_HAS_CALCULATED_RELATIONS
+ * Whether the given column ddo's component derives CALCULATED relations (a
+ * dd467 / dd621 component_relation_related) — the server half of the
+ * per-column references-checkbox gate (T0-9 D4), answered by the
+ * tool_export.components_with_references action with THE predicate the export
+ * refuses a forged flag with. Same per-instance promise cache and degraded
+ * answer (false) as component_has_parent_targets.
+ *
+ * @param {Object} ddo - Column descriptor ({tipo, section_tipo, model, ...})
+ * @returns {Promise<boolean>} true when the component has calculated relations
+ */
+render_tool_export.prototype.component_has_calculated_relations = async function(ddo) {
+
+	const self = this
+
+	if (!self.components_with_references) {
+		self.components_with_references = new Map()
+	}
+	const cached = self.components_with_references.get(ddo.tipo)
+	if (cached !== undefined) {
+		return cached
+	}
+
+	const request_promise = self.tool_request({
+		action	: 'components_with_references',
+		options	: {
+			section_tipo	: self.caller.section_tipo, // permission gate target (the exported section)
+			components		: [{
+				tipo			: ddo.tipo,
+				section_tipo	: ddo.section_tipo
+			}]
+		}
+	})
+	.then(response => response_data(response)?.[ddo.tipo]===true)
+	.catch(() => false)
+
+	self.components_with_references.set(ddo.tipo, request_promise)
+
+	return request_promise
+}//end component_has_calculated_relations
 
 
 

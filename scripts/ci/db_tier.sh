@@ -206,6 +206,8 @@ DB_TIER_TRIPWIRES=(
 	test/unit/filter_projects_membership_native.test.ts
 	test/unit/filter_projects_scope_native.test.ts
 	test/unit/term_by_tipo_label_guard.test.ts
+	test/unit/ontology_model_rules_native.test.ts
+	test/unit/ontology_model_rules_shipped_tripwire.test.ts
 )
 
 # ── THE STAGES ARE INDEPENDENT ───────────────────────────────────────────────

@@ -34,6 +34,11 @@ export interface ScratchRecord {
 	flag?: boolean;
 	/** ontology6: the model node's tipo (`dd<N>`), as the dd0/N locator. */
 	modelTipo?: string;
+	/**
+	 * ontology8 (translatable): true = dd64/1, false = dd64/2. ABSENT = no ontology8
+	 * at all, which the parser reads as translatable (its default-true rule).
+	 */
+	translatable?: boolean;
 }
 
 /** The dd model definition whose stored name is `name` (matrix_table, table, …). */
@@ -50,13 +55,13 @@ export async function modelTipoNamed(name: string): Promise<string> {
 	return tipo;
 }
 
-/** A yes/no locator of ontology44. */
-function flagLocator(flag: boolean): Record<string, unknown> {
+/** A yes/no (dd64) locator of a radio component — ontology44 by default, ontology8 too. */
+function flagLocator(flag: boolean, componentTipo = 'ontology44'): Record<string, unknown> {
 	return {
 		type: 'dd151',
 		section_id: flag ? '1' : '2',
 		section_tipo: 'dd64',
-		from_component_tipo: 'ontology44',
+		from_component_tipo: componentTipo,
 	};
 }
 
@@ -85,6 +90,9 @@ export function scratchColumns(
 	const relation: Record<string, unknown> = {};
 	if (record.flag !== undefined) relation.ontology44 = [flagLocator(record.flag)];
 	if (record.modelTipo !== undefined) relation.ontology6 = [modelLocator(record.modelTipo)];
+	if (record.translatable !== undefined) {
+		relation.ontology8 = [flagLocator(record.translatable, 'ontology8')];
+	}
 	return { string, relation };
 }
 

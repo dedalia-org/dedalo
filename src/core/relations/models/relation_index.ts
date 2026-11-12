@@ -27,10 +27,13 @@ import { clampClientLimit } from '../../concepts/sqo.ts';
 import { memoizedReadMatrixRecord } from '../../db/record_memo.ts';
 import { getMatrixTableFromTipo } from '../../ontology/resolver.ts';
 import { buildDataItem, type DataItem, EmissionContext } from '../../resolve/component_data.ts';
+import { currentDataLang } from '../../resolve/request_lang.ts';
+import type { RelatedListDdo } from '../../section/related_list.ts';
 import { depthBoundNotice, MAX_DDO_DEPTH } from '../element_node.ts';
-import type { ElementNodeRegistry } from '../element_registry.ts';
+import type { ElementNode, ElementNodeRegistry } from '../element_registry.ts';
 import type { EmitDdoFn, RelationEmitContext, RelationModelResolver } from '../registry.ts';
 import { PORTAL_LIST_LIMIT } from '../relation_core.ts';
+import type { InjectableConfigItem } from '../request_config/caller_injection.ts';
 import { portalResolver } from './portal.ts';
 
 /** Pointing sections whose related_list ddos were already emitted in THIS
@@ -165,14 +168,7 @@ async function emitOwnConfigIndexData(
 
 	// The page limit mirrors expandPortal's mode chains EXACTLY, then is pinned
 	// onto the delegated ddo so the pre-fetched page and the portal slice agree.
-	let rawLimit: number;
-	if (ddoMode === 'list') {
-		const { resolveListCellMap } = await import('../../section/list_definitions/section_list.ts');
-		rawLimit = ddo.limit ?? (await resolveListCellMap(ddo.tipo)).cellLimit ?? PORTAL_LIST_LIMIT;
-	} else {
-		rawLimit = ddo.limit ?? config.editLimit;
-	}
-	const limit = inversePageLimit(rawLimit, ddo.tipo);
+	const limit = inversePageLimit(await ownConfigRawLimit(ddo, ddoMode, config), ddo.tipo);
 
 	const filter = {
 		type: config.relationType,
@@ -198,19 +194,53 @@ async function emitOwnConfigIndexData(
 		...context.record,
 		columns: { ...context.record.columns, relation: relationSlot },
 	};
+	// D9 (owner, 2026-11-11): the name + id / blank-columns rule of the
+	// config-less index holds for a CONFIGURED one too — every pointer stays an
+	// entry, a pointer in a section the viewer may not read expands no child
+	// cell, and its sqo section ships existence only (the client's existence
+	// cell: label + section_id).
+	const unreadable = await existenceOnlySections([
+		...page.map((hit) => hit.section_tipo),
+		...configuredTargetSections(config),
+	]);
+	if (unreadable.size > 0) {
+		await markExistenceOnlyInNode(emission.nodes, await emittedIndexNode(context), unreadable);
+	}
 	const before = emission.items.length;
 	await portalResolver.emitDdoItems({
 		...context,
 		record: syntheticRecord,
 		ddo: { ...ddo, limit } as Ddo,
+		...(unreadable.size > 0 ? { existenceOnlyTargets: unreadable } : {}),
 	});
-	for (let i = before; i < emission.items.length; i++) {
-		const item = emission.items[i] as DataItem;
-		if (item.tipo === ddo.tipo) {
-			item.pagination = { total: counted.total, limit, offset: 0 };
-			break;
-		}
+	const indexItem = findIndexItem(emission, before, ddo.tipo);
+	if (indexItem !== undefined) {
+		indexItem.pagination = { total: counted.total, limit, offset: 0 };
 	}
+}
+
+/** Decides the configured index's raw page limit by mode: ddo limit → list-cell limit → list default (list), ddo limit → edit limit (edit). */
+async function ownConfigRawLimit(
+	ddo: Ddo,
+	ddoMode: string,
+	config: RelationIndexConfig,
+): Promise<number> {
+	if (ddoMode !== 'list') return ddo.limit ?? config.editLimit;
+	const { resolveListCellMap } = await import('../../section/list_definitions/section_list.ts');
+	return ddo.limit ?? (await resolveListCellMap(ddo.tipo)).cellLimit ?? PORTAL_LIST_LIMIT;
+}
+
+/** The FIRST emitted item (from index `from` on) that is the index component `tipo` itself — the one its pagination/id stamp targets. */
+function findIndexItem(
+	emission: EmissionContext,
+	from: number,
+	tipo: string,
+): DataItem | undefined {
+	for (let i = from; i < emission.items.length; i++) {
+		const item = emission.items[i] as DataItem;
+		if (item.tipo === tipo) return item;
+	}
+	return undefined;
 }
 
 /**
@@ -226,16 +256,23 @@ async function emitOwnConfigIndexData(
  * cell's values would lose both.
  */
 function stampDirectRelatedListCell(
-	items: readonly unknown[],
+	emission: EmissionContext,
 	from: number,
 	childTipo: string,
 	pointingSection: string,
+	indexTipo: string,
 ): void {
+	const items = emission.items;
 	for (let i = from; i < items.length; i++) {
 		const item = items[i] as DataItem;
 		if (item.tipo === childTipo && item.section_tipo === pointingSection) {
 			item.mode = 'related_list';
 			item.from_component_tipo = item.tipo;
+			// Its CONTEXT is a column of the index (PHP stamps parent = the index
+			// tipo on every pointing-section context), while its data keeps
+			// from_component_tipo = its own tipo (PHP wire) — so the parent is
+			// declared explicitly (element_registry.ts bindContextParent).
+			emission.nodes.bindContextParent(item, indexTipo);
 			return;
 		}
 	}
@@ -253,6 +290,12 @@ async function emitRelatedListChildren(
 	pointingSection: string,
 	recordIds: readonly number[],
 	childTipos: readonly string[],
+	/**
+	 * The request's DATA lang (PHP DEDALO_DATA_LANG) — the default lang a
+	 * TRANSLATABLE column resolves in (resolver.ts elementLang); never
+	 * 'lg-nolan', whose slice of a translatable value is empty.
+	 */
+	dataLang: string,
 ): Promise<void> {
 	const { ddo, row, callerTipo, emission, depth, emitDdo } = context;
 	const plans = await relatedListChildPlans(childTipos);
@@ -273,7 +316,7 @@ async function emitRelatedListChildren(
 				targetRecord,
 				{ section_tipo: pointingSection, section_id: recordId },
 				plan.mode,
-				'lg-nolan',
+				dataLang,
 				callerTipo,
 				emission,
 				// OWN CHILDREN exactly where PHP expands them (RelatedListChildPlan).
@@ -283,7 +326,7 @@ async function emitRelatedListChildren(
 			// mode + from_component_tipo are the DIRECT cell's only; the row stamps
 			// and `parent` reach every item, grandchildren included (PHP
 			// :2789-2794 + sub_value->parent).
-			stampDirectRelatedListCell(emission.items, before, childTipo, pointingSection);
+			stampDirectRelatedListCell(emission, before, childTipo, pointingSection, ddo.tipo);
 			for (let i = before; i < emission.items.length; i++) {
 				const child = emission.items[i] as DataItem;
 				child.row_section_id = row.section_id;
@@ -352,6 +395,315 @@ async function declaresOwnRequestConfig(tipo: string): Promise<boolean> {
 	return requestConfig !== undefined && requestConfig !== null;
 }
 
+/** A pointing section → its related_list ddos for the current viewer (section/related_list.ts). */
+type RelatedLists = Map<string, RelatedListDdo[]>;
+
+/**
+ * The pointing sections of an inverse count, in totals_group order (PHP
+ * count_data_group_by(['section_tipo'])): the FULL set of sections pointing
+ * at the record, whatever page is read (owner decision D4 — the columns stay
+ * stable while paging).
+ */
+function pointingSectionsOf(counted: {
+	readonly totals_group?: readonly { readonly key: readonly (string | undefined)[] }[];
+}): string[] {
+	const sections: string[] = [];
+	for (const group of counted.totals_group ?? []) {
+		const section = group.key[0];
+		if (section !== undefined && !sections.includes(section)) sections.push(section);
+	}
+	return sections;
+}
+
+/** Per-emission memory of each pointing section's related_list for the
+ * current viewer (EmissionContext scratch: request- AND principal-scoped, like
+ * SOLVED_SECTIONS — an emission never outlives its request). `[]` = the
+ * section contributes NO column (unreadable, or nothing authorised). */
+const RELATED_LISTS = Symbol('relation_index.relatedLists');
+
+/**
+ * EVERY pointing section → its related_list ddo map for the current viewer,
+ * read ONCE per emission (memoised in the scratch) from THE section-mode
+ * builder (section/related_list.ts sectionRelatedListConfig). Both the data
+ * cells and the context merge are fed from this map, so a column the viewer
+ * may not read has neither a ddo nor a data cell.
+ *
+ * OWNER RULE (2026-11-11): whoever may read the index sees ALL its inverse
+ * relations — a record is deleted on the strength of "nobody points at it".
+ * So every pointing section stays a KEY of the map (its existence reaches
+ * `sqo.section_tipo`, the row renders), and only the CONTENT is withheld: a
+ * section the viewer may not read (getPermissions(principal, s, s) < 1, Gate
+ * B's own check) maps to `[]` — no column, no cell.
+ */
+async function relatedListsOf(
+	emission: EmissionContext,
+	sections: readonly string[],
+): Promise<RelatedLists> {
+	let memo = emission.scratch.get(RELATED_LISTS) as Map<string, RelatedListDdo[]> | undefined;
+	if (memo === undefined) {
+		memo = new Map();
+		emission.scratch.set(RELATED_LISTS, memo);
+	}
+	const lists: RelatedLists = new Map();
+	for (const section of sections) {
+		if (!memo.has(section)) memo.set(section, await readableRelatedList(section));
+		lists.set(section, memo.get(section) ?? []);
+	}
+	return lists;
+}
+
+/**
+ * One pointing section's related_list for the current viewer ([] when it may
+ * not read the section). The predicate is THE shared one
+ * (locator_source.ts pointingSectionReadable) — the flat reader and the export
+ * walk blank the same pointers through config_children.ts.
+ */
+async function readableRelatedList(section: string): Promise<RelatedListDdo[]> {
+	const { pointingSectionReadable } = await import('../locator_source.ts');
+	if (!(await pointingSectionReadable(section))) return [];
+	const { sectionRelatedListConfig } = await import('../../section/related_list.ts');
+	return sectionRelatedListConfig(section);
+}
+
+/**
+ * The related_list column tipos of one pointing section. A MISS (a section in
+ * the page/pool but not in the merged set: unreadable, column-less, or absent
+ * from the totals_group it was counted from — a write racing the read) is
+ * "no columns": a cell must never be emitted without its ddo in the context.
+ */
+function relatedListTiposOf(lists: RelatedLists, section: string): string[] {
+	return lists.get(section)?.map((ddo) => ddo.tipo) ?? [];
+}
+
+/** The tipo of an sqo.section_tipo entry (an enriched ddo, or a bare tipo). */
+function sqoSectionTipoOf(entry: unknown): string | undefined {
+	if (typeof entry === 'string') return entry;
+	const tipo = (entry as { tipo?: unknown } | null)?.tipo;
+	return typeof tipo === 'string' ? tipo : undefined;
+}
+
+/**
+ * MERGE the pointing sections' related_list into the index element's NODE
+ * config (T0-8; PHP get_section_datum_from_locator appends each pointing
+ * section's dedalo `sqo.section_tipo` + `show.ddo_map` to the component's own
+ * request_config, and its "update parents" pass re-parents them to the index).
+ * The node is what BOTH context doors serialise (the get_data main entry and
+ * the section read's column entry), so the client's get_columns_map finds
+ * `show.ddo_map` items with `parent === <index tipo>`:
+ *
+ *   test25 @ test3 (config-less), pointed at from test3
+ *   → request_config[dedalo].sqo.section_tipo [{typo:'ddo', tipo:'test3', …enriched}]
+ *     request_config[dedalo].show.ddo_map    [{tipo:'test52', section_tipo:'test3',
+ *                                              parent:'test25', mode:'related_list', …}]
+ *
+ * Owner decisions (WC-2026-11-11-relation-index-related-list-context): every
+ * mode (D1); `sqo.section_tipo` = the pointing sections only, never the own
+ * section (D2); no pointing-section (model section) contexts (D3); the FULL
+ * totals_group set on every page (D4). Idempotent and dedup'd (a list read
+ * merges once per row into the one shared node: the union of every row's
+ * pointing sections). Built on a FRESH clone, swapped in through the
+ * registry — never mutating the cached own config (cross-request bleed).
+ */
+async function mergeRelatedListIntoNode(
+	nodes: ElementNodeRegistry,
+	node: ElementNode,
+	indexTipo: string,
+	lists: RelatedLists,
+): Promise<void> {
+	if (lists.size === 0) return;
+	const config = structuredClone(node.effectiveConfig) as InjectableConfigItem[];
+	const { engineOf } = await import('../request_config/engine_select.ts');
+	const dedalo = config.find((item) => engineOf(item) === 'dedalo');
+	// No dedalo item to merge onto (PHP: final_request_config null ⇒ no merge).
+	if (dedalo === undefined) return;
+	await appendSqoSections(dedalo, [...lists.keys()]);
+	appendRelatedListDdos(dedalo, indexTipo, lists);
+	nodes.replaceEffectiveConfig(node, config);
+}
+
+/** Append the ENRICHED sqo ddos of the sections the item does not target yet (relations skill rule #4). */
+async function appendSqoSections(item: InjectableConfigItem, sections: string[]): Promise<void> {
+	const holder = item as { sqo?: Record<string, unknown> };
+	holder.sqo ??= {};
+	const sqo = holder.sqo;
+	const current = Array.isArray(sqo.section_tipo) ? (sqo.section_tipo as unknown[]) : [];
+	const known = new Set(current.map(sqoSectionTipoOf));
+	const missing = sections.filter((section) => !known.has(section));
+	if (missing.length === 0) return;
+	const { buildSqoSectionTipoDdos } = await import('../request_config/explicit.ts');
+	const enriched = await buildSqoSectionTipoDdos(missing);
+	const unreadable = await existenceOnlySections(missing);
+	sqo.section_tipo = [...current, ...enriched.map((ddo) => existenceOnlyWhen(ddo, unreadable))];
+}
+
+/**
+ * The sections of `sections` whose pointers are EXISTENCE ONLY for the
+ * ambient requester — THE shared predicate (locator_source.ts
+ * pointingSectionReadable), the one the flat reader and the export ask
+ * through config_children.ts pointerIsExistenceOnly.
+ */
+async function existenceOnlySections(sections: Iterable<string>): Promise<Set<string>> {
+	const { pointingSectionReadable } = await import('../locator_source.ts');
+	const unreadable = new Set<string>();
+	for (const section of sections) {
+		if (!unreadable.has(section) && !(await pointingSectionReadable(section))) {
+			unreadable.add(section);
+		}
+	}
+	return unreadable;
+}
+
+/** What a pointing section the viewer may NOT read keeps of its enriched sqo ddo. */
+const EXISTENCE_KEYS = ['typo', 'tipo', 'model', 'permissions', 'label'] as const;
+
+/**
+ * A pointing section the viewer may not read (`unreadable`, from
+ * existenceOnlySections — the shared predicate) ships as EXISTENCE ONLY: its
+ * tipo, model, the stated grant, its label and the explicit marker
+ * `existence_only: true` — never its buttons, color or matrix_table. The
+ * MARKER (not the grant) is what the client keys the existence cell on
+ * (render_edit_component_portal.js unreadable_target): every relation
+ * component's sqo carries real grants, and an ordinary portal with a 0-grant
+ * target must keep its look (WC-2026-11-09-component-get-data-host-gate).
+ * Any other ddo (a readable section, a bare tipo) is returned unchanged.
+ */
+function existenceOnlyWhen<T>(ddo: T, unreadable: ReadonlySet<string>): T {
+	const tipo = sqoSectionTipoOf(ddo);
+	if (tipo === undefined || !unreadable.has(tipo) || typeof ddo !== 'object' || ddo === null) {
+		return ddo;
+	}
+	const reduced = pickExistenceKeys(ddo as Record<string, unknown>);
+	reduced.existence_only = true;
+	return reduced as T;
+}
+
+/** The EXISTENCE_KEYS a ddo carries — everything else of an unreadable section is withheld. */
+function pickExistenceKeys(source: Record<string, unknown>): Record<string, unknown> {
+	const reduced: Record<string, unknown> = {};
+	for (const key of EXISTENCE_KEYS) if (key in source) reduced[key] = source[key];
+	return reduced;
+}
+
+/** The configured target sections of an index (its request_config sqo), [] for 'all'. */
+function configuredTargetSections(config: RelationIndexConfig): string[] {
+	return config.targetSections === 'all' ? [] : config.targetSections;
+}
+
+/**
+ * D9: mark the `unreadable` sections of the node's configured
+ * `sqo.section_tipo` EXISTENCE ONLY (existenceOnlyWhen) — on a FRESH clone
+ * swapped in through the registry, never mutating the cached own config.
+ */
+async function markExistenceOnlyInNode(
+	nodes: ElementNodeRegistry,
+	node: ElementNode,
+	unreadable: ReadonlySet<string>,
+): Promise<void> {
+	const config = structuredClone(node.effectiveConfig) as InjectableConfigItem[];
+	let changed = false;
+	for (const item of config) {
+		const sqo = (item as { sqo?: Record<string, unknown> }).sqo;
+		if (sqo === undefined || !Array.isArray(sqo.section_tipo)) continue;
+		sqo.section_tipo = (sqo.section_tipo as unknown[]).map((entry) => {
+			const marked = existenceOnlyWhen(entry, unreadable);
+			if (marked !== entry) changed = true;
+			return marked;
+		});
+	}
+	if (changed) nodes.replaceEffectiveConfig(node, config);
+}
+
+/** Append every related_list ddo, re-parented to the index, once per (tipo, section_tipo). */
+function appendRelatedListDdos(
+	item: InjectableConfigItem,
+	indexTipo: string,
+	lists: RelatedLists,
+): void {
+	const holder = item as { show?: Record<string, unknown> | null };
+	holder.show ??= {};
+	const show = holder.show;
+	const ddoMap = Array.isArray(show.ddo_map) ? (show.ddo_map as Record<string, unknown>[]) : [];
+	const seen = new Set(ddoMap.map((ddo) => `${String(ddo.tipo)}|${String(ddo.section_tipo)}`));
+	for (const ddos of lists.values()) {
+		for (const ddo of ddos) {
+			const key = `${ddo.tipo}|${ddo.section_tipo}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			ddoMap.push({ ...ddo, parent: indexTipo });
+		}
+	}
+	show.ddo_map = ddoMap;
+}
+
+/**
+ * The get_data door's merge: onto the TARGET node the door pinned
+ * (section/read.ts pinGetDataTarget — the node its main context entry is
+ * serialised from), the index item bound to it. No pinned node (a direct call
+ * with a private registry) = no context to complete.
+ */
+async function mergeIntoGetDataTarget(
+	emission: EmissionContext,
+	item: DataItem,
+	target: { readonly tipo: string; readonly sectionTipo: string; readonly mode: string },
+	lists: RelatedLists,
+): Promise<void> {
+	const targetNode = emission.nodes.targetFor(target.tipo, target.sectionTipo, target.mode);
+	if (targetNode === undefined) return;
+	emission.nodes.bindItem(item, targetNode);
+	await mergeRelatedListIntoNode(emission.nodes, targetNode, target.tipo, lists);
+}
+
+/**
+ * The sections whose records point at ONE host record through a CONFIG-LESS
+ * index (`tipo` @ `sectionTipo`/`sectionId`) — exactly the `sqo.section_tipo`
+ * set the read merges into the index context (pointingSectionsOf over the same
+ * count), readable or not. Gate B's host-component admission
+ * (security/host_component_read.ts) takes them as the index's targets, so the
+ * client's page-2 get_data built from that context — which carries an
+ * unreadable pointing section as existence only — is admitted as the HOST read
+ * it is: the inverse read never consults `sqo.section_tipo`, and every locator
+ * it can return is the host's own (the owner rule: all inverse relations are
+ * visible to whoever reads the index). An index WITH a request_config has its
+ * targets in that config (no merge): [].
+ */
+export async function hostPointingSections(
+	tipo: string,
+	sectionTipo: string,
+	sectionId: number,
+): Promise<string[]> {
+	const config = await resolveIndexConfig(tipo, sectionTipo);
+	if (config.hasRequestConfig) return [];
+	const { countInverseReferences } = await import('../../search/search_related.ts');
+	const counted = await countInverseReferences(
+		[{ type: config.relationType, section_tipo: sectionTipo, section_id: sectionId }],
+		{ sectionTipos: config.targetSections, groupBy: ['section_tipo'] },
+	);
+	return pointingSectionsOf(counted);
+}
+
+/**
+ * The index element's node in a SECTION read (the same resolveEmittedElement
+ * input emitDdoData's binding pass would use — so that pass, the column
+ * context and this merge all meet ONE memoised node).
+ */
+async function emittedIndexNode(context: RelationEmitContext): Promise<ElementNode> {
+	const { resolveEmittedElement } = await import('../element_node.ts');
+	return resolveEmittedElement({
+		ddo: context.ddo,
+		ddoMap: context.ddoMap,
+		row: context.row,
+		model: context.model,
+		ddoMode: context.ddoMode,
+		ddoLang: context.ddoLang,
+		defaultMode: context.defaultMode,
+		defaultLang: context.defaultLang,
+		callerTipo: context.callerTipo,
+		registry: context.emission.nodes,
+		...(context.scope !== undefined ? { scope: context.scope } : {}),
+		useOwnConfig: context.allowOwnConfigChildren,
+	});
+}
+
 /**
  * No-request_config strategy (PHP json controller's per-locator branch):
  * entries = one page of inverse locators (+ full count pagination);
@@ -364,10 +716,15 @@ async function emitRelationIndexData(
 	config: RelationIndexConfig,
 ): Promise<void> {
 	const { ddo, row, ddoMode, callerTipo, emission, depth } = context;
+	// The related_list children resolve in the CURRENT data lang (PHP
+	// DEDALO_DATA_LANG) — the same lang the get_data door hands
+	// readRelationIndexData (section/read.ts), so the two doors cannot drift.
+	// Read per call from the request scope, never captured at module level.
+	const dataLang = currentDataLang();
 	const { findInverseReferenceLocators, countInverseReferences } = await import(
 		'../../search/search_related.ts'
 	);
-	const { parseInverseEntry, getRelatedListChildTipos, getRepresentativeSectionId } = await import(
+	const { parseInverseEntry, getRepresentativeSectionId } = await import(
 		'../../resolve/relation_index.ts'
 	);
 	const filter = {
@@ -408,6 +765,15 @@ async function emitRelationIndexData(
 	item.pagination = { total: counted.total, limit, offset: 0 };
 	emission.items.push(item);
 
+	// The index's columns = the related_list of EVERY pointing section (D4),
+	// merged into the node its item is bound to — the node the column context
+	// is serialised from (mergeRelatedListIntoNode). Bound HERE so emitDdoData's
+	// binding pass and the context door meet this same node.
+	const relatedLists = await relatedListsOf(emission, pointingSectionsOf(counted));
+	const node = await emittedIndexNode(context);
+	emission.nodes.bindItem(item, node);
+	await mergeRelatedListIntoNode(emission.nodes, node, ddo.tipo, relatedLists);
+
 	// Children — once per pointing section per read (see the scratch note).
 	let solved = emission.scratch.get(SOLVED_SECTIONS) as Set<string> | undefined;
 	if (solved === undefined) {
@@ -430,7 +796,7 @@ async function emitRelationIndexData(
 				recordIds.push(hit.section_id);
 			}
 		}
-		const childTipos = await getRelatedListChildTipos(pointingSection);
+		const childTipos = relatedListTiposOf(relatedLists, pointingSection);
 		if (childTipos.length === 0) continue;
 		// DEPTH BOUND (element_node.ts MAX_DDO_DEPTH): the related_list children
 		// sit one hop deeper, and the portal resolver's stop is not on this hop.
@@ -442,7 +808,7 @@ async function emitRelationIndexData(
 			emission.nodes.addNotices([await depthBoundNotice(row, ddo.tipo, depth)]);
 			continue;
 		}
-		await emitRelatedListChildren(context, table, pointingSection, recordIds, childTipos);
+		await emitRelatedListChildren(context, table, pointingSection, recordIds, childTipos, dataLang);
 	}
 }
 
@@ -478,7 +844,7 @@ export async function readRelationIndexData(
 	const { findInverseReferenceLocators, countInverseReferences } = await import(
 		'../../search/search_related.ts'
 	);
-	const { parseInverseEntry, getRelatedListChildTipos, getRepresentativeSectionId } = await import(
+	const { parseInverseEntry, getRepresentativeSectionId } = await import(
 		'../../resolve/relation_index.ts'
 	);
 	const config = await resolveIndexConfig(tipo, sectionTipo);
@@ -499,40 +865,13 @@ export async function readRelationIndexData(
 	// synthetic record holding the computed page (see emitOwnConfigIndexData);
 	// no representative seeding, no pool quirk (PHP get_subdatum branch).
 	if (config.hasRequestConfig) {
-		const emission = new EmissionContext([], nodes === undefined ? {} : { nodes });
-		const syntheticRecord = {
-			id: 0,
-			section_id: Number(sectionId),
-			section_tipo: sectionTipo,
-			columns: { relation: { [tipo]: page.map(parseInverseEntry) } },
-			rawText: {},
-		};
-		await portalResolver.emitDdoItems({
-			ddo: { tipo, section_tipo: sectionTipo, mode, limit } as Ddo,
-			ddoMap: [],
-			record: syntheticRecord,
-			row: { section_tipo: sectionTipo, section_id: Number(sectionId) },
-			model: 'component_relation_index',
-			dataTipo: tipo,
-			ddoMode: mode,
-			ddoLang: 'lg-nolan',
-			defaultMode: mode,
-			defaultLang: requestLang,
-			callerTipo: tipo,
-			emission,
-			allowOwnConfigChildren: true,
-			depth: 0,
-			emitDdo,
-		});
-		for (const emitted of emission.items) {
-			const item = emitted as DataItem;
-			if (item.tipo !== tipo) continue;
-			// get_data echoes the source's RAW (string) id + the FULL count.
-			item.section_id = sectionId;
-			item.pagination = { total: counted.total, limit, offset };
-			break;
-		}
-		return emission.items as DataItem[];
+		return readOwnConfigIndexData(
+			{ tipo, sectionTipo, sectionId, limit, offset, requestLang, emitDdo, mode, nodes },
+			config,
+			page,
+			counted.total,
+			parseInverseEntry,
+		);
 	}
 
 	const emission = new EmissionContext([], nodes === undefined ? {} : { nodes });
@@ -548,6 +887,13 @@ export async function readRelationIndexData(
 	item.parent_tipo = tipo;
 	emission.items.push(item);
 
+	// The columns: the FULL pointing-section set on EVERY page (D4 — PHP only
+	// merged the page's sections past offset 0), merged into the get_data
+	// TARGET node the door pinned (section/read.ts pinGetDataTarget) — the node
+	// its main context entry is serialised from.
+	const relatedLists = await relatedListsOf(emission, pointingSectionsOf(counted));
+	await mergeIntoGetDataTarget(emission, item, { tipo, sectionTipo, mode }, relatedLists);
+
 	// The record pool (unique targets, insertion order).
 	const pool: { sectionTipo: string; sectionId: number }[] = [];
 	const seen = new Set<string>();
@@ -558,56 +904,161 @@ export async function readRelationIndexData(
 		pool.push({ sectionTipo: targetSection, sectionId: targetId });
 	};
 	if (offset === 0) {
-		for (const group of counted.totals_group ?? []) {
-			const pointingSection = group.key[0];
-			if (pointingSection === undefined) continue;
-			const table = await getMatrixTableFromTipo(pointingSection);
-			if (table === null) continue;
-			const representative = await getRepresentativeSectionId(table, pointingSection);
-			if (representative !== null) poolAdd(pointingSection, representative);
-		}
+		await seedRepresentatives(counted.totals_group, poolAdd, getRepresentativeSectionId);
 	}
 	for (const hit of page) {
 		poolAdd(hit.section_tipo, hit.section_id);
 		// One FULL pool dump per locator pass (the PHP instance-cache quirk).
 		for (const entry of pool) {
-			const table = await getMatrixTableFromTipo(entry.sectionTipo);
-			if (table === null) continue;
-			const targetRecord = await memoizedReadMatrixRecord(
-				table,
-				entry.sectionTipo,
-				entry.sectionId,
-			);
-			if (targetRecord === null) continue;
-			const childTipos = await getRelatedListChildTipos(entry.sectionTipo);
-			const plans = await relatedListChildPlans(childTipos);
-			for (const childTipo of childTipos) {
-				const plan = plans.get(childTipo) as RelatedListChildPlan;
-				const before = emission.items.length;
-				await emitDdo(
-					{
-						tipo: childTipo,
-						section_tipo: entry.sectionTipo,
-						parent: tipo,
-						mode: plan.mode,
-					} as Ddo,
-					[],
-					targetRecord,
-					{ section_tipo: entry.sectionTipo, section_id: entry.sectionId },
-					plan.mode,
-					requestLang,
-					entry.sectionTipo, // parent_tipo = the pointing SECTION here
-					emission,
-					// OWN CHILDREN exactly where PHP expands them (RelatedListChildPlan).
-					plan.ownChildren,
-					1,
-				);
-				stampDirectRelatedListCell(emission.items, before, childTipo, entry.sectionTipo);
-				for (let i = before; i < emission.items.length; i++) {
-					emission.markStamped(emission.items[i] as DataItem);
-				}
-			}
+			await emitPoolEntry(emission, entry, relatedLists, tipo, requestLang, emitDdo);
 		}
 	}
 	return emission.items as DataItem[];
+}
+
+/** readRelationIndexData's request, threaded to its own-config strategy. */
+interface IndexDataRequest {
+	tipo: string;
+	sectionTipo: string;
+	sectionId: string;
+	limit: number;
+	offset: number;
+	requestLang: string;
+	emitDdo: EmitDdoFn;
+	mode: string;
+	nodes: ElementNodeRegistry | undefined;
+}
+
+/**
+ * Own-request_config strategy of readRelationIndexData: delegate to the portal
+ * machinery over a synthetic record holding the computed page (see
+ * emitOwnConfigIndexData); no representative seeding, no pool quirk (PHP
+ * get_subdatum branch).
+ */
+async function readOwnConfigIndexData<Hit extends { section_tipo: string }>(
+	request: IndexDataRequest,
+	config: RelationIndexConfig,
+	page: Hit[],
+	total: number,
+	parseInverseEntry: (hit: Hit) => unknown,
+): Promise<DataItem[]> {
+	const { tipo, sectionTipo, sectionId, limit, offset, requestLang, emitDdo, mode, nodes } =
+		request;
+	const emission = new EmissionContext([], nodes === undefined ? {} : { nodes });
+	// D9: the configured index's existence-only pointers (emitOwnConfigIndexData)
+	const unreadable = await existenceOnlySections([
+		...page.map((hit) => hit.section_tipo),
+		...configuredTargetSections(config),
+	]);
+	await markGetDataTargetExistenceOnly(emission, request, unreadable);
+	const syntheticRecord = {
+		id: 0,
+		section_id: Number(sectionId),
+		section_tipo: sectionTipo,
+		columns: { relation: { [tipo]: page.map(parseInverseEntry) } },
+		rawText: {},
+	};
+	await portalResolver.emitDdoItems({
+		ddo: { tipo, section_tipo: sectionTipo, mode, limit } as Ddo,
+		ddoMap: [],
+		record: syntheticRecord,
+		row: { section_tipo: sectionTipo, section_id: Number(sectionId) },
+		model: 'component_relation_index',
+		dataTipo: tipo,
+		ddoMode: mode,
+		ddoLang: 'lg-nolan',
+		defaultMode: mode,
+		defaultLang: requestLang,
+		callerTipo: tipo,
+		emission,
+		allowOwnConfigChildren: true,
+		depth: 0,
+		emitDdo,
+		...(unreadable.size > 0 ? { existenceOnlyTargets: unreadable } : {}),
+	});
+	const indexItem = findIndexItem(emission, 0, tipo);
+	if (indexItem !== undefined) {
+		// get_data echoes the source's RAW (string) id + the FULL count.
+		indexItem.section_id = sectionId;
+		indexItem.pagination = { total, limit, offset };
+	}
+	return emission.items as DataItem[];
+}
+
+/** D9 on the get_data path: marks the `unreadable` sections existence-only in the TARGET node the door pinned, when there is one. */
+async function markGetDataTargetExistenceOnly(
+	emission: EmissionContext,
+	request: Pick<IndexDataRequest, 'tipo' | 'sectionTipo' | 'mode'>,
+	unreadable: ReadonlySet<string>,
+): Promise<void> {
+	if (unreadable.size === 0) return;
+	const targetNode = emission.nodes.targetFor(request.tipo, request.sectionTipo, request.mode);
+	if (targetNode === undefined) return;
+	await markExistenceOnlyInNode(emission.nodes, targetNode, unreadable);
+}
+
+/** offset 0 only: seeds the pool with each pointing section's representative record (get_related_section_context). */
+async function seedRepresentatives(
+	totalsGroup: { key: (string | undefined)[] }[] | undefined,
+	poolAdd: (targetSection: string, targetId: number) => void,
+	getRepresentativeSectionId: (table: string, sectionTipo: string) => Promise<number | null>,
+): Promise<void> {
+	for (const group of totalsGroup ?? []) {
+		const pointingSection = group.key[0];
+		if (pointingSection === undefined) continue;
+		const table = await getMatrixTableFromTipo(pointingSection);
+		if (table === null) continue;
+		const representative = await getRepresentativeSectionId(table, pointingSection);
+		if (representative !== null) poolAdd(pointingSection, representative);
+	}
+}
+
+/** Emits ONE pool record's related_list children (mode 'related_list', stamped with the TARGET record and the index as parent). */
+async function emitPoolEntry(
+	emission: EmissionContext,
+	entry: { sectionTipo: string; sectionId: number },
+	relatedLists: Parameters<typeof relatedListTiposOf>[0],
+	tipo: string,
+	requestLang: string,
+	emitDdo: EmitDdoFn,
+): Promise<void> {
+	const table = await getMatrixTableFromTipo(entry.sectionTipo);
+	if (table === null) return;
+	const targetRecord = await memoizedReadMatrixRecord(table, entry.sectionTipo, entry.sectionId);
+	if (targetRecord === null) return;
+	const childTipos = relatedListTiposOf(relatedLists, entry.sectionTipo);
+	const plans = await relatedListChildPlans(childTipos);
+	for (const childTipo of childTipos) {
+		const plan = plans.get(childTipo) as RelatedListChildPlan;
+		const before = emission.items.length;
+		await emitDdo(
+			{
+				tipo: childTipo,
+				section_tipo: entry.sectionTipo,
+				parent: tipo,
+				mode: plan.mode,
+			} as Ddo,
+			[],
+			targetRecord,
+			{ section_tipo: entry.sectionTipo, section_id: entry.sectionId },
+			plan.mode,
+			requestLang,
+			entry.sectionTipo, // parent_tipo = the pointing SECTION here
+			emission,
+			// OWN CHILDREN exactly where PHP expands them (RelatedListChildPlan).
+			plan.ownChildren,
+			1,
+		);
+		stampDirectRelatedListCell(emission, before, childTipo, entry.sectionTipo, tipo);
+		markPoolDumpParent(emission, before, tipo);
+	}
+}
+
+/** PHP sub_value->parent: every item of the dump (grandchildren too) belongs to the index — the section path stamps the same. */
+function markPoolDumpParent(emission: EmissionContext, from: number, tipo: string): void {
+	for (let i = from; i < emission.items.length; i++) {
+		const child = emission.items[i] as DataItem & { parent?: string };
+		child.parent = tipo;
+		emission.markStamped(child);
+	}
 }

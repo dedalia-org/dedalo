@@ -332,10 +332,11 @@ export function directDataChildren(
 	tipo: string,
 	config: readonly InjectableConfigItem[],
 	logEmptyShowMap = true,
+	ownerModel: string | null = null,
 ): Record<string, unknown>[] {
 	const flattened = flattenConfigDdoMaps(
 		config as unknown as Parameters<typeof flattenConfigDdoMaps>[0],
-		{ ownerTipo: tipo, logEmptyShowMap },
+		{ ownerTipo: tipo, ownerModel, logEmptyShowMap },
 	);
 	const children: Record<string, unknown>[] = [];
 	for (const child of flattened) {
@@ -702,7 +703,7 @@ export async function resolveElement(input: ResolveElementInput): Promise<Elemen
 			injectedSlots,
 			dataChildrenInjected,
 			childOrigin: childOriginOf(configSource, dataChildrenInjected, parentNode),
-			children: nodeDataChildren(input, effectiveConfig),
+			children: nodeDataChildren(input, effectiveConfig, model),
 			oneLevel: input.useOwnConfig === false,
 		};
 	});
@@ -716,9 +717,17 @@ export async function resolveElement(input: ResolveElementInput): Promise<Elemen
 function nodeDataChildren(
 	input: ResolveElementInput,
 	effectiveConfig: readonly InjectableConfigItem[],
+	resolvedModel: string,
 ): Record<string, unknown>[] {
 	if (input.mode === 'solved') return [];
-	return directDataChildren(input.ddo.tipo, effectiveConfig, input.useOwnConfig !== false);
+	// The RESOLVED model (not `input.model`): callers like the read-floor /
+	// writer-chain node builders omit it, and the empty-show-map log keys on it.
+	return directDataChildren(
+		input.ddo.tipo,
+		effectiveConfig,
+		input.useOwnConfig !== false,
+		resolvedModel || null,
+	);
 }
 
 /**

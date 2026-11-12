@@ -137,7 +137,7 @@ Translatable variant. `component_pdf` *can* be instantiated as translatable; whe
 `component_pdf` declares two qualities plus a thumb, mirrored on the TS side by `mediaTypeOf('component_pdf')` (`src/core/concepts/media.ts`, backed by `config.media.pdf`):
 
 - `original` (`DEDALO_PDF_QUALITY_ORIGINAL`) — the exact uploaded file, preserved under its own quality folder keeping its source extension via `original_normalized_name`. Originals are never overwritten on re-upload without a backup (`renameOldFiles()`, `src/core/media/file_ops.ts`, short-circuits — no-ops — when nothing already exists at the target).
-- `web` (`DEDALO_PDF_QUALITY_DEFAULT`, the default quality) — a copy generated from the original by `regeneratePdf()` -> `copyToQuality()` (`src/core/media/processing.ts`); this is the file the viewer serves and the one OCR would rewrite in place.
+- `web` (`DEDALO_PDF_QUALITY_DEFAULT`, the default quality) — a copy generated from the original by `regeneratePdf()` -> `copyToQuality()` (`src/core/media/processing.ts`); this is the file the viewer serves, the one text is extracted from, and the one OCR writes its text layer into. OCR never touches `original`.
 - `thumb` (`DEDALO_QUALITY_THUMB`, raster `jpg`) — a preview rendered from the **first page only** (`<pdf>[0]`) by `buildThumbVersion()` (`src/core/media/processing.ts`). The page is rasterized by **Ghostscript, spawned by the engine itself** (`src/core/media/engine/ghostscript.ts`, `DEDALO_GS_PATH`), never by ImageMagick: ImageMagick can only read a PDF by forking Ghostscript as a *delegate* — a process the engine never sees and therefore cannot bound or kill — and the shipped policy denies that delegate. A page whose pixel size at the render density is above this installation's ceiling (`DEDALO_MAGICK_LIMIT_WIDTH`/`_HEIGHT`) is refused before anything is drawn. The resulting PNG then goes through the ordinary thumb recipe fit to the thumb box. The page selector is load-bearing: without it ImageMagick rasterizes *every* page of a multi-page PDF to `<stem>-0.jpg`/`<stem>-1.jpg`/… (no scene selector → per-page split) and never the single expected file, so the atomic-rename staging would `ENOENT`. Used in list / mini views.
 
 `qualities` -> `DEDALO_PDF_AR_QUALITY` (`["original","web"]`). Alternative versions (`DEDALO_PDF_ALTERNATIVE_EXTENSIONS`, default `["jpg"]`) are rendered per quality by `buildPdfCovers()` (`src/core/media/processing.ts`): the first page is rasterized ONCE by `engine/ghostscript.ts` and that raster is encoded into every declared extension.
@@ -223,10 +223,53 @@ All properties are optional and live in the ontology node `properties` JSON. Ver
 - **Effect:** wire the PDF viewer to a transcription [component_text_area](component_text_area.md); this is client-side wiring (unchanged — the client is copied as-is). The sample model subscribes the PDF to `click_tag_pdf` (-> `go_to_page`, scrolls the viewer to the tagged page) and `key_up_f2` (-> `get_data_tag`, hands the current page/offset back so the text area can insert a `page` tag).
 
 !!! note "OCR / transcription configuration"
-    OCR and text extraction are **not** ontology properties — they are global config + per-upload options. `PDF_AUTOMATIC_TRANSCRIPTION_ENGINE` (default `pdftotext`) and `PDF_OCR_ENGINE` (`ocrmypdf`) argv recipes are ported (`buildExtractArgv()` / `buildOcrArgv()`, `src/core/media/engine/pdf.ts`), and text extraction is reachable through the read-only `tool_pdf_extractor.get_pdf_data` action (`extractPdfCore()`, `src/core/media/tools/pdf_extract.ts`). **Not yet wired**: `regeneratePdf()` (`src/core/media/processing.ts`) does not run OCR or automatic transcription-into-a-sibling-text-area on upload — an uploaded PDF gets its `web` copy, jpg cover and thumb, but the `ocr: true`/`ocr_lang` upload option and the paired transcription write are not ported. Supported upload extensions come from `DEDALO_PDF_EXTENSIONS_SUPPORTED` (`config.media.pdf.allowedExtensions`).
+    OCR and text extraction are **not** ontology properties — they are global config + per-upload options: `PDF_AUTOMATIC_TRANSCRIPTION_ENGINE` (`pdftotext`), `PDF_OCR_ENGINE` (`ocrmypdf`) and `DEDALO_TESSERACT_PATH` (`tesseract`, asked only which language models are installed). The one ontology fact they read is the node's `relations`, which names the transcription text area — see [Transcription and OCR](#transcription-and-ocr). Supported upload extensions come from `DEDALO_PDF_EXTENSIONS_SUPPORTED` (`config.media.pdf.allowedExtensions`).
 
 !!! note "Standard context properties"
     Like every component, `component_pdf` also honours the generic ontology context blocks carried into the datum `context`: `css` (style stamped on `.wrapper_component`), `request_config` (RQO) and `view` (the render view to use). Any other custom key seen in production should be verified in the ontology.
+
+## Transcription and OCR
+
+A PDF's text is written into the [component_text_area](component_text_area.md) the PDF node names in its ontology `relations`. The core resource sections wire one pair each:
+
+| Section | PDF (`component_pdf`) | Transcription (`component_text_area`) |
+| --- | --- | --- |
+| `rsc2` *Resources Media* | `rsc37` *Document* | `rsc38` *Transcription* |
+| `rsc3` *Publications Media* | `rsc209` *Document* | `rsc210` *Transcript / Description* |
+| `rsc4` *Administration Media* | `rsc165` *Document* | `rsc166` *Transcription* |
+
+The suite's `test3` playground wires `test85` → `test97` the same way. A PDF whose `relations` name no `component_text_area` gets no transcription, and nothing is reported.
+
+**What is written.** The text comes from `pdftotext` (`src/core/media/ingest/pdf_transcription.ts`), read from the `web` copy (the `original` when no `web` copy exists yet). Each physical page becomes a page tag paragraph followed by the page's text, one paragraph per line, with the text HTML-escaped so that a reading such as `IMP CAES<A>R` survives as text:
+
+```html
+<p>[page-n-1-1-data:[1]:data]</p><p>First line of page 1</p><p>Second line</p>
+<p>[page-n-2-2-data:[2]:data]</p><p>First line of page 2</p>
+```
+
+The tag is the same one [`tool_pdf_extractor`](../../tools/using_pdf_extractor.md) writes (`pdfPageTag()`, `src/core/media/pdf_page_tag.ts`). Its second number is the logical page: physical page N minus 1, plus the PDF's stored page offset (`lib_data.offset`, 1 when unset). The text is saved through the ordinary save path, so Time Machine records it, as the user who triggered it, in the user's **current data language** (`lg-nolan` when the text area is not translatable).
+
+**When it is written.** Three paths, two rules:
+
+| Trigger | Rule | When the transcription already holds text |
+| --- | --- | --- |
+| Upload of a new PDF to the `original` quality | overwrite | It is **replaced**. The upload shows a notice naming how many characters were replaced; Time Machine keeps the previous version. |
+| The OCR job, after an upload with **OCR** ticked | overwrite | Same as above. |
+| [`tool_update_cache`](../../tools/using_update_cache.md), and **Regenerate files** in [`tool_media_versions`](../../tools/using_media_versions.md) | fill only if empty | It is **kept**, never overwritten. Neither runs OCR. |
+
+An upload into any other quality, and a non-PDF document (`doc`, `odt`, …), writes no transcription. A PDF with no text layer (two characters of text or fewer) writes nothing and says so. Transcription failures never fail the upload: they are reported beside it, and the text area is left untouched. The emptiness check and the write happen under the record's row lock, in one transaction, so text a curator saves while `pdftotext` runs is never taken for an empty field.
+
+**OCR.** The upload panel offers an **OCR** checkbox and a language selector for PDF uploads, but only when the server can run it: [`get_system_info`](../../api/classes/dd_utils_api.md#get_system_info) reports `pdf_ocr_engine: true` (the `ocrmypdf` binary is present and executable) and at least one application language in `pdf_ocr_langs` (its Tesseract model is installed). The selector lists only those languages, preselecting the current data language when it is one of them. The language reaches the server as `process_options: { ocr: true, ocr_lang: "lg-spa" }` (`tools/tool_upload/server/index.ts`); a language without a Tesseract model, an unknown key or a non-boolean `ocr` is refused with `request.invalid_options` before the file is moved.
+
+With OCR ticked, the upload does not transcribe at once. It starts a background media job (`pdf_ocr`, `src/core/media/pdf_ocr.ts`, shown in the uploader's activity tray) that:
+
+1. runs `ocrmypdf --force-ocr` on the `original` and writes the result to the `web` quality, atomically — the archival original is never modified, and the job refuses to run when `web` resolves to the same file as the original;
+2. refreshes the record's `files_info`;
+3. writes the transcription from the new `web` copy, with the overwrite rule.
+
+A job whose OCR finished but whose transcription was not written ends as an error in the tray, not as done. The Tesseract model for a Dédalo language is the code without `lg-` (`lg-spa` → `spa`), except Valencian (`lg-vlca` → `cat`) and Chinese (`chi_sim`); the map is `src/core/media/engine/ocr_langs.ts`, and the installer reads the same map to install the language packs ([Production › `host_packages`](../../install/production.md#host_packages-packages-and-repositories)).
+
+**PDFs uploaded before transcription existed.** Records whose transcription is empty can be filled by running [`tool_update_cache`](../../tools/using_update_cache.md) over their section. Running it is an operator's decision; nothing backfills on its own. A revert of that run removes the fills.
 
 ## Render views & modes
 
@@ -256,7 +299,8 @@ DOM (edit / default): `wrapper_component component_pdf <tipo> <mode>` -> `label`
 1. Multipart/chunked receiver — the API dispatch's multipart branch (`src/server.ts`) hands off to `handleMediaUpload()` (`src/core/media/ingest/upload_endpoint.ts`): session + CSRF required, chunked join with a re-sniff of the assembled file, magic-byte MIME sniffing.
 2. `tool_upload.process_uploaded_file` (`tools/tool_upload/server/index.ts`) — permission-gated (write level ≥ 2), resolves the media context.
 3. `addFile()` (`src/core/media/ingest/add_file.ts`) — confines the staged source, validates the extension, moves the file into the `original` quality tier.
-4. `processUploadedFile()` -> `regeneratePdf()` (`src/core/media/processing.ts`) — builds the `web` copy, the jpg cover and the thumb. Non-PDF documents (`doc`, `odt`, `pages`, …) are stored under the `original` tier by the same flow but `regeneratePdf()` skips PDF-specific derivative building for them. **Not yet ported**: writing `target_filename` back to a sibling component, and running OCR / extracting transcription text into a related `component_text_area` on upload (see *Properties & options*).
+4. `processUploadedFile()` -> `regeneratePdf()` (`src/core/media/processing.ts`) — builds the `web` copy, the jpg cover and the thumb. Non-PDF documents (`doc`, `odt`, `pages`, …) are stored under the `original` tier by the same flow but `regeneratePdf()` skips PDF-specific derivative building for them. **Not yet ported**: writing `target_filename` back to a sibling component (see *Properties & options*).
+5. For a PDF uploaded to `original`, the transcription is written into the related `component_text_area`, or, with OCR ticked, the OCR job is started once the record's media data is saved (see [Transcription and OCR](#transcription-and-ocr)).
 
 See [importing data](../importing_data.md#related-data) for the broader import model.
 
@@ -264,7 +308,7 @@ See [importing data](../importing_data.md#related-data) for the broader import m
 
 ## Notes
 
-- **Text extraction & OCR.** `extractText()` (`src/core/media/engine/pdf.ts`, wrapping `pdftotext` via argv-only `Bun.spawn` — no shell is involved, so no argument quoting is needed) is reachable through the read-only `tool_pdf_extractor.get_pdf_data` action (`tools/tool_pdf_extractor/server/index.ts` -> `extractPdfCore()`, `src/core/media/tools/pdf_extract.ts`). The OCR argv recipe (`buildOcrArgv()`, `ocrmypdf --force-ocr`) is ported but **not yet invoked anywhere** — no upload-time OCR pipeline exists on the TS engine yet.
+- **Text extraction & OCR.** `extractText()` (`src/core/media/engine/pdf.ts`, wrapping `pdftotext` via argv-only `Bun.spawn` — no shell is involved, so no argument quoting is needed) serves both the read-only `tool_pdf_extractor.get_pdf_data` action (`tools/tool_pdf_extractor/server/index.ts` -> `extractPdfCore()`, `src/core/media/tools/pdf_extract.ts`) and the automatic transcription, through a private temporary file — never a `.txt` beside the PDF in the media tree. The single `ocrmypdf` spawn is the `pdf_ocr` media job (`buildOcrArgv()`, `ocrmypdf --force-ocr`). It does not take a converter permit, because a permit held for minutes would push queued thumbnails into a 429; the media job lane bounds how many run at once, and a run silent for 30 minutes is stopped. See [Transcription and OCR](#transcription-and-ocr).
 - **Thumbnails / alternative versions.** `buildThumbVersion()` and `buildPdfCovers()` (`src/core/media/processing.ts`) rasterize the PDF page with **Ghostscript, spawned by the engine itself** (`src/core/media/engine/ghostscript.ts`): the page box is read with poppler first and a page above the configured pixel ceiling is refused before anything renders. ImageMagick is not asked to read the PDF at all — the hardened policy denies the Ghostscript *delegate*, because a delegate is a child the engine never spawns and therefore cannot bound or kill. The resulting PNG is handed to the ordinary image recipe. The retired ImageMagick recipe rendered the **CropBox**; Ghostscript renders the **MediaBox**, so a cover of a PDF whose CropBox is smaller than its MediaBox now includes the trim margins.
 - **Observers / observables.** The model wires the pdf.js viewer to a sibling transcription text area: `click_tag_pdf` -> `go_to_page`, `key_up_f2` -> `get_data_tag`. Configured in the ontology `properties` — client-side wiring, unchanged (the client is copied as-is).
 - **Default tools.** A PDF instance exposes `tool_media_versions`, `tool_pdf_extractor`, `tool_time_machine`, `tool_transcription` and `tool_upload` in `context.tools`; tools are read-only context. Each is a registered server module under `tools/<name>/server/`.

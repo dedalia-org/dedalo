@@ -336,6 +336,57 @@ export class ElementNodeRegistry {
 		return this.#nodeOfItem.get(item);
 	}
 
+	/**
+	 * The CONTEXT parent an emitter declared for an item (bindContextParent) —
+	 * the element whose column the item is a cell of, when that is not its
+	 * creating component. A WeakMap like #nodeOfItem: the items belong to the
+	 * response.
+	 */
+	readonly #contextParentOfItem = new WeakMap<object, string>();
+
+	/**
+	 * Declare the tipo an item's CONTEXT entry is parented to, overriding the
+	 * `from_component_tipo` default (section/node_contexts.ts buildItemEntry).
+	 * The one case today: a related_list cell a config-less
+	 * component_relation_index emitted (models/relation_index.ts) — its data
+	 * `from_component_tipo` echoes its OWN tipo (PHP wire), while the client
+	 * (common.js get_columns_map) finds its column by `parent === <index tipo>`.
+	 * PHP stamps `parent = $this->tipo` on every such context
+	 * (get_section_datum_from_locator). First bind wins.
+	 */
+	bindContextParent(item: object, parentTipo: string): void {
+		if (!this.#contextParentOfItem.has(item)) this.#contextParentOfItem.set(item, parentTipo);
+	}
+
+	/** The declared context parent of an item (bindContextParent), or undefined. */
+	contextParentOf(item: object): string | undefined {
+		return this.#contextParentOfItem.get(item);
+	}
+
+	/**
+	 * Replace a resolved node's effective config with one an EMITTER completed
+	 * at emission time — the per-read, per-principal part of an element's config
+	 * that no resolver can know in advance. The one case today: a config-less
+	 * component_relation_index whose columns are the related_list ddos of the
+	 * sections that ACTUALLY point at this record (models/relation_index.ts
+	 * mergeRelatedListIntoNode; PHP get_section_datum_from_locator appends them to
+	 * the component's own request_config the same way).
+	 *
+	 * SAFE BECAUSE: the node lives in THIS registry, i.e. ONE emission of ONE
+	 * request (module header) — never in an ontology/config cache — and
+	 * `config` must be a FRESH structure (the caller clones; the node's old
+	 * array may share blocks with the cached own config, which must never be
+	 * touched: cross-request bleed). Must run before the context door
+	 * serialises the node (its fingerprint is memoised there). `children` is
+	 * left as resolved: the merged ddos are expanded by the emitter itself, not
+	 * by the generic child expansion.
+	 */
+	replaceEffectiveConfig(node: ElementNode, config: readonly InjectableConfigItem[]): void {
+		// (No ownership check: this module stays a type-only LEAF — import_scc;
+		// every caller passes a node it resolved through this very registry.)
+		(node as { effectiveConfig: readonly InjectableConfigItem[] }).effectiveConfig = config;
+	}
+
 	/** Name the node a source-owned context entry is placed by (#placementOfContext). */
 	placeContext(entry: object, node: ElementNode): void {
 		this.#placementOfContext.set(entry, node);

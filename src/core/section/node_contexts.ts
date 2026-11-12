@@ -533,13 +533,21 @@ function warnUnbound(item: DataItem, configFrom: ContextConfigSource): void {
 	}
 }
 
-/** Build ONE derived item's entry from its config source (parented to its creating component). */
+/**
+ * Build ONE derived item's entry from its config source, parented to the
+ * element whose column it is: an emitter's EXPLICIT binding first
+ * (`contextParent` — element_registry.ts bindContextParent: a relation_index
+ * related_list cell, whose data from_component_tipo is its own tipo), else its
+ * creating component (from_component_tipo), else the door's fallback.
+ */
 async function buildItemEntry(
 	item: DataItem,
 	configFrom: ContextConfigSource,
 	options: DerivedItemContextOptions,
+	contextParent: string | undefined,
 ): Promise<StructureContextEntry | null> {
-	const parentTipo = String(item.from_component_tipo ?? options.fallbackParent(item));
+	const parentTipo =
+		contextParent ?? String(item.from_component_tipo ?? options.fallbackParent(item));
 	const orderPathFrom = options.orderPathFrom?.(parentTipo);
 	return buildStructureContext({
 		tipo: String(item.tipo),
@@ -595,7 +603,7 @@ async function appendItemContext(
 	// remembers an identical config under another parent chain).
 	if (contexts.absorb(key, node, boundNode ?? null)) return;
 	warnUnbound(item, configFrom);
-	const entry = await buildItemEntry(item, configFrom, options);
+	const entry = await buildItemEntry(item, configFrom, options, nodes.contextParentOf(item));
 	if (entry === null) return;
 	withListPageLimit(entry, node);
 	contexts.add(entry, node, boundNode ?? null);

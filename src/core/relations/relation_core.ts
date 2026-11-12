@@ -428,6 +428,13 @@ export interface ExpandPortalOptions {
 	 * (tm_record/frame_as_of.ts). Never passed to a nested expansion.
 	 */
 	targetsAsOf?: TmAsOf;
+	/**
+	 * Target sections whose locators stay in the item's entries but are NOT
+	 * expanded — no child cell is emitted for them (T0-9 D9: a
+	 * component_relation_index pointer in a section the requester may not
+	 * read shows name + id only; RelationEmitContext.existenceOnlyTargets).
+	 */
+	existenceOnlyTargets?: ReadonlySet<string>;
 }
 
 /** A validated view order: the request's column + its wire direction. */
@@ -554,35 +561,14 @@ export async function expandPortal(
 	// shows all its locators inline). Edit uses the ddo limit or default 10.
 	const storedModel = (await getTargetStoredModel(portalDdo.tipo)) ?? model;
 	const effectiveProperties = await getEffectivePropertiesByTipo(portalDdo.tipo);
-	// EDIT limit chain (PHP calculate_default_limit + sync_pagination_from_config):
-	// ddo/rqo limit → own request_config sqo.limit ?? show.sqo_config.limit
-	// (LAST config item wins) → the component+edit default (maxRowsPerPage, the
-	// same value request_config/build.ts stamps for the client paginator).
-	const ownEditLimit = (): number | undefined => {
-		const rawConfig = (
-			effectiveProperties as {
-				source?: {
-					request_config?: {
-						sqo?: { limit?: unknown };
-						show?: { sqo_config?: { limit?: unknown } };
-					}[];
-				};
-			} | null
-		)?.source?.request_config;
-		if (!Array.isArray(rawConfig)) return undefined;
-		let resolved: number | undefined;
-		for (const item of rawConfig) {
-			const candidate = item?.sqo?.limit ?? item?.show?.sqo_config?.limit;
-			if (typeof candidate === 'number') resolved = candidate;
-		}
-		return resolved;
-	};
-	const limit =
-		portalMode === 'list'
-			? (portalDdo.limit ??
-				options.cellLimit ??
-				(storedModel === 'component_autocomplete_hi' ? locators.length : PORTAL_LIST_LIMIT))
-			: (portalDdo.limit ?? ownEditLimit() ?? dedaloConfig.features.maxRowsPerPage);
+	const limit = portalPageLimit(
+		portalDdo,
+		portalMode,
+		options,
+		storedModel,
+		locators.length,
+		effectiveProperties,
+	);
 	// READ ORDER (WC-2026-10-31-portal-order-model — the stored array is the
 	// only real order; no PHP oracle, no frozen fixture declares either key, so
 	// parity is unchanged). A declared `order` is NOT applied here: the
@@ -630,262 +616,472 @@ export async function expandPortal(
 	const childShapes = await targetChildShapes(page, childDdos);
 	await prefetchExternalTargets(page, childDdos, childShapes, emission);
 
+	const expansion: PortalExpansion = {
+		record,
+		portalDdo,
+		childDdos,
+		portalMode,
+		row,
+		callerTipo,
+		emission,
+		emitDdo,
+		options,
+		storedModel,
+		childrenLang: options.childrenLang ?? portalLang,
+		depth: options.depth ?? 0,
+	};
 	// Expand each paginated locator through the child ddos (record-major).
 	for (const locator of page) {
-		const targetSectionTipo = locator.section_tipo as string;
-		// CANONICAL address for every emission below (the child items, their
-		// row anchor and parent_section_id): the stored locator may still hold
-		// the legacy string form, so canonicalize ONCE here rather than pass
-		// the raw type through. External-service targets ('001338683', 'Q42')
-		// are not convertible and keep their own bytes — which is why this is
-		// canonicalizeStoredSectionId and not Number()
-		// (WC-2026-08-10-section-id-int-canonical; repeals "PHP keeps the
-		// locator's raw section_id type").
-		const targetSectionId = canonicalizeStoredSectionId(locator.section_id) as number | string;
-		const shape = childShapes.get(targetSectionTipo);
-		// A target every one of whose compatible children DERIVES has no stored
-		// row to look for — skip the pointless matrix query. Purely an
-		// optimisation: the null-record fallback below is what carries
-		// correctness, so a mis-declared over-broad ddo costs a query, not a
-		// blank cell.
-		const skipStoredLookup = shape?.hasDerived === true && !shape.hasStored;
-		let targetRecord: MatrixRecord | null;
-		// True when the target has NO stored row and we are rendering it from a
-		// placeholder — the only situation in which a stored-value child cannot
-		// resolve. A target that HAS a record (test3, rsc205) never sets this,
-		// so no ordinary child is ever refused.
-		let targetIsDerivedOnly = false;
-		if (skipStoredLookup) {
-			targetIsDerivedOnly = true;
-			targetRecord = externalTargetRecord(targetSectionTipo, targetSectionId);
-		} else {
-			const targetTable = await getMatrixTableFromTipo(targetSectionTipo);
-			if (targetTable === null) continue;
-			// Per-read cached read (targets repeat across a page's rows and nested
-			// expansions) — consulted AFTER the null-table early-return, same
-			// contract as the bare read it replaces.
-			// Only a matrix ADDRESS has a stored row. A non-address id (an external
-			// remote id '000012281', verbatim) is never Number()-ed into one — that
-			// read local record 12281 and rendered it as the remote record.
-			targetRecord = await loadPortalTarget(
-				emission,
-				options.targetsAsOf,
-				locator,
-				targetTable,
-				targetSectionTipo,
-				targetSectionId,
-				childDdos,
-			);
-			if (targetRecord === null) {
-				// NO STORED ROW. v6 dispatches purely by component MODEL —
-				// component_external::get_dato() never reads the record — so a
-				// target whose compatible children derive their value still
-				// renders; the record was never their source. Every other target
-				// keeps the original skip, byte for byte.
-				if (shape?.hasDerived !== true) continue;
-				targetIsDerivedOnly = true;
-				targetRecord = externalTargetRecord(targetSectionTipo, targetSectionId);
-			}
-		}
-
-		// Resolve each child through the SHARED emission path (full model-family
-		// logic — relations/media/selects inside a portal render correctly). The
-		// items are collected here so the outer-subdatum re-stamp (PHP
-		// :2792-2799) can rewrite from_component_tipo/parent_tipo/row_section_id.
-		const before = emission.items.length;
-		// Keep the locator's RAW id type — components instantiated from a
-		// locator inherit its string form (PHP get_subdatum passes it as-is;
-		// the dd560 frame's section_id "17976" is the pinned case).
-		const targetRow = {
-			section_tipo: targetSectionTipo,
-			section_id: targetSectionId as number,
-		};
-		// The NESTED scope every child resolves under: this portal's node (whose
-		// effective config supplies each child's caller children — the whole
-		// injected chain travels in it, so a grandchild declared in the CALLER's
-		// map resolves: the numisdata3 list's numisdata77 → numisdata164 → rsc29)
-		// and the record-occurrence path (the cycle guard, models/portal.ts).
-		// PHP recursion is STRUCTURAL: every child element re-enters its own
-		// get_subdatum in EVERY mode but 'solved', so the retired
-		// `depth < 4 && (edit || list && ownConfig)` gate is gone (plan E2 — a
-		// nested portal in a LIST cell now falls back to its own config). The
-		// bounds are MAX_DDO_DEPTH (section/read.ts emitDdoData, the one place
-		// every hop passes through) and the per-path record-cycle guard.
-		const depth = options.depth ?? 0;
-		const childScope: EmitScope = {
-			parentNode:
-				options.node ??
-				rootNodeFor(emission.nodes, portalDdo.tipo, row.section_tipo, portalMode, childDdos),
-			path: options.path ?? [],
-		};
-		for (const childDdo of childDdos) {
-			// PHP get_subdatum groups child ddos BY section_tipo and expands only
-			// the ones compatible with the current locator's target (numisdata97
-			// declares numisdata33 → skipped at an object1 target). 'self' and
-			// undeclared section_tipos pass (they resolve to the portal targets).
-			if (
-				!ddoTargetsSection(childDdo, targetSectionTipo) &&
-				(await getModelByTipo(childDdo.tipo)) !== 'component_dataframe'
-			) {
-				continue;
-			}
-			// THIS filter is what makes a multi-engine child map safe, and why no
-			// api_engine branch is needed anywhere in the read path: a zenon1
-			// locator only ever sees the ddos declared at zenon1, an rsc205
-			// locator only the dedalo ones. Dispatch stays model-polymorphic.
-			//
-			// The gate is RECORD ABSENCE, never `properties.api_config`: test3 and
-			// rsc205 both carry an api_config and are ordinary sections with rows,
-			// so they never reach it and never lose a child.
-			if (targetIsDerivedOnly) {
-				const childModel = await getModelByTipo(childDdo.tipo);
-				// With no stored row, only a DERIVED-value model can render.
-				// Anything else would be handed the empty placeholder and emit a
-				// blank that looks exactly like a genuinely empty field — refuse it
-				// loudly instead (a component_dataframe pairs with the MAIN record
-				// and is handled below).
-				if (childModel !== 'component_external' && childModel !== 'component_dataframe') {
-					console.warn(
-						`[relations/relation_core] ddo '${childDdo.tipo}' (model ${childModel}) cannot resolve at target '${targetSectionTipo}' id '${String(targetSectionId)}' — that target has no stored record; only a derived model renders there`,
-					);
-					continue;
-				}
-			}
-			// component_dataframe ddos pair with the MAIN record (never the
-			// locator target): route to the frame emitter (PHP get_subdatum's
-			// dataframe branch — section_id = the caller's record, id_key = the
-			// locator's item id).
-			if ((await getModelByTipo(childDdo.tipo)) === 'component_dataframe') {
-				await emitDataframeItem(
-					childDdo,
-					record,
-					portalDdo.tipo,
-					(locator.id as number | string | undefined) ?? (locator.section_id as number | string),
-					childDdo.mode ?? portalMode,
-					row,
-					options.childrenLang ?? portalLang,
-					callerTipo,
-					emission,
-					depth,
-					emitDdo,
-					childScope, // the frame resolves its node under this portal's
-				);
-				continue;
-			}
-			await emitDdo(
-				childDdo,
-				childDdos,
-				targetRecord,
-				targetRow,
-				'list',
-				options.childrenLang ?? portalLang,
-				callerTipo,
-				emission,
-				true,
-				depth + 1,
-				childScope, // the parent node → grandchildren resolve by the injected chain
-			);
-		}
-		// ddinfo: the HIERARCHY widget (component_autocomplete_hi) appends each
-		// thesaurus target's ancestor-breadcrumb item after the term children
-		// (PHP dd_info — parent chain + hierarchy label). Plain autocompletes
-		// with thesaurus targets (numisdata34 → object1) do NOT emit it.
-		// The TM record-snapshot list renders the flat term subdatum only — PHP's
-		// service_time_machine cell emits no ddinfo breadcrumb (verified against
-		// the live oracle), unlike the edit widget.
-		//
-		// THE TRIGGER (owner decision (g), 2026-11-03 — the TS gates above are
-		// kept, only the trigger moved): the GOVERNING children — the node's
-		// effective config, whoever supplied it — declaring `value_with_parents`
-		// on a child ddo compatible with the target (portalCellEmitsDdinfo).
-		// PHP emits dd_info per vwp ddo, and USER-DEFINED thesauri live in the
-		// generic `matrix` table (`tch555`'s `tchi1`), so the vwp test is what
-		// reaches them. The pre-existing thesaurus-TABLE branch (a target in a
-		// thesaurus table qualifies without a vwp ddo) stays exactly where it
-		// applied: children that are the element's OWN, uninjected config — it
-		// is not widened to caller-supplied children.
-		// The TM check is the READ's data source, not the cell's render mode:
-		// dd15 cells now emit mode 'list' like every other list cell
-		// (WC-2026-08-14-tm-ddo-mode-retired), so `portalMode !== 'tm'` stopped
-		// being able to see a Time Machine cell. This is one of the two sites where
-		// 'tm' was a real branch rather than a synonym of 'list'; the suppression
-		// itself is unchanged and still oracle-verified.
-		if (storedModel === 'component_autocomplete_hi' && !isTimeMachineRead()) {
-			const { buildDdInfoChain, isThesaurusTarget } = await import('../resolve/dd_info.ts');
-			if (
-				portalCellEmitsDdinfo(childDdos, targetSectionTipo) ||
-				(options.childrenFromOwnConfig === true && (await isThesaurusTarget(targetSectionTipo)))
-			) {
-				// ddinfoBare (the component get_data / save-echo surface, PHP
-				// component get_json → get_subdatum → get_ddinfo_parents): the item
-				// carries ONLY {tipo, section_id, section_tipo, value, parent} — no
-				// row stamps — and the chain ends at the ROOT TERM (no trailing
-				// hierarchy label). Byte-diffed vs the oracle on rsc92/fr1
-				// (2026-07-09). The section-read portal cell keeps the stamped,
-				// label-terminated shape.
-				const ddInfoItem = {
-					tipo: 'ddinfo',
-					section_id: targetSectionId,
-					section_tipo: targetSectionTipo,
-					value: await buildDdInfoChain(
-						targetSectionTipo,
-						targetSectionId,
-						options.childrenLang ?? portalLang,
-						options.ddinfoBare !== true,
-					),
-					parent: portalDdo.tipo,
-				} as unknown as DataItem;
-				if (options.ddinfoBare !== true) {
-					(ddInfoItem as Record<string, unknown>).row_section_id = row.section_id;
-					(ddInfoItem as Record<string, unknown>).parent_tipo = callerTipo;
-				}
-				emission.markStamped(ddInfoItem);
-				emission.items.push(ddInfoItem);
-			}
-		}
-		for (let i = before; i < emission.items.length; i++) {
-			const childItem = emission.items[i] as DataItem;
-			if (emission.isStamped(childItem)) {
-				// The BARE ddinfo (component get_data / save echo) carries no row
-				// stamps at all — PHP get_ddinfo_parents emits exactly
-				// {tipo, section_id, section_tipo, value, parent} (byte-diffed
-				// 2026-07-09); skip the anchor/parent rewrite entirely.
-				if (options.ddinfoBare === true && childItem.tipo === 'ddinfo') {
-					continue;
-				}
-				// A deeper expansion already fixed this item's identity — PHP keeps
-				// the NESTED creating portal's from_component_tipo; only the row
-				// anchor and outward parent rewrite.
-				childItem.row_section_id = options.childRowFromTarget
-					? childItem.row_section_id
-					: row.section_id;
-				childItem.parent_tipo = callerTipo;
-				continue;
-			}
-			childItem.from_component_tipo = portalDdo.tipo; // the CREATING portal (PHP :2684)
-			childItem.section_id = targetSectionId; // canonical (see the expansion head)
-			// get_data children belong to the OUTER record; resolve_data children
-			// (injected locators, no outer record) belong to their TARGET.
-			childItem.row_section_id = options.childRowFromTarget ? targetSectionId : row.section_id;
-			// parent_section_id on children is FLOW-specific (both pinned live):
-			// resolve_data (search chips) stamps it on ENTRY-CARRYING children —
-			// PHP's !empty($value) test, i.e. a non-empty entries array (since
-			// WC-001 unified empty entries on [], a null check would stamp
-			// every child); get_data does NOT — there it is portal-item
-			// decoration only (nested portal items carry it from their OWN
-			// expansion). The authentic-capture replay + resolve_data gates pin
-			// both sides.
-			if (
-				options.stampParentSectionId === true &&
-				Array.isArray(childItem.entries) &&
-				childItem.entries.length > 0
-			) {
-				childItem.parent_section_id = targetSectionId;
-			}
-			childItem.parent_tipo = callerTipo;
-			emission.markStamped(childItem);
-		}
+		await expandPortalLocator(expansion, locator, childShapes);
 	}
+}
+
+/** Everything one portal expansion threads through its per-locator helpers. */
+interface PortalExpansion {
+	record: MatrixRecord;
+	portalDdo: Ddo;
+	childDdos: Ddo[];
+	portalMode: string;
+	row: EmitRow;
+	callerTipo: string;
+	emission: EmissionContext;
+	emitDdo: EmitDdoFn;
+	options: ExpandPortalOptions;
+	/** The portal's stored model (an alias resolves to its target's). */
+	storedModel: string;
+	/** The lang every child resolves in (`options.childrenLang ?? portalLang`). */
+	childrenLang: string;
+	/** This portal's nesting depth (`options.depth ?? 0`). */
+	depth: number;
+}
+
+/** A resolved portal target: its record, and whether that record is a placeholder (no stored row). */
+interface PortalTarget {
+	record: MatrixRecord;
+	derivedOnly: boolean;
+}
+
+/**
+ * EDIT limit chain (PHP calculate_default_limit + sync_pagination_from_config):
+ * own request_config sqo.limit ?? show.sqo_config.limit (LAST config item wins).
+ * Decides the portal's own configured edit page size; undefined = none declared.
+ */
+function ownRequestConfigLimit(effectiveProperties: unknown): number | undefined {
+	const rawConfig = (
+		effectiveProperties as {
+			source?: {
+				request_config?: {
+					sqo?: { limit?: unknown };
+					show?: { sqo_config?: { limit?: unknown } };
+				}[];
+			};
+		} | null
+	)?.source?.request_config;
+	if (!Array.isArray(rawConfig)) return undefined;
+	let resolved: number | undefined;
+	for (const item of rawConfig) {
+		const candidate = item?.sqo?.limit ?? item?.show?.sqo_config?.limit;
+		if (typeof candidate === 'number') resolved = candidate;
+	}
+	return resolved;
+}
+
+/**
+ * Decides the LIST/TM cell page size: ddo limit → effective list-config limit
+ * → every locator for the hierarchy widget, else the fixed list default.
+ */
+function listCellLimit(
+	portalDdo: Ddo,
+	options: ExpandPortalOptions,
+	storedModel: string,
+	locatorCount: number,
+): number {
+	return (
+		portalDdo.limit ??
+		options.cellLimit ??
+		(storedModel === 'component_autocomplete_hi' ? locatorCount : PORTAL_LIST_LIMIT)
+	);
+}
+
+/**
+ * Decides the portal's page size for its mode. EDIT: ddo/rqo limit → own
+ * request_config limit → the component+edit default (maxRowsPerPage, the same
+ * value request_config/build.ts stamps for the client paginator).
+ */
+function portalPageLimit(
+	portalDdo: Ddo,
+	portalMode: string,
+	options: ExpandPortalOptions,
+	storedModel: string,
+	locatorCount: number,
+	effectiveProperties: unknown,
+): number {
+	if (portalMode === 'list') return listCellLimit(portalDdo, options, storedModel, locatorCount);
+	return (
+		portalDdo.limit ??
+		ownRequestConfigLimit(effectiveProperties) ??
+		dedaloConfig.features.maxRowsPerPage
+	);
+}
+
+/** Expands ONE paginated locator: its target record through the child ddos, the ddinfo breadcrumb, then the outer-subdatum re-stamp. */
+async function expandPortalLocator(
+	expansion: PortalExpansion,
+	locator: Record<string, unknown>,
+	childShapes: ReadonlyMap<string, TargetChildShape>,
+): Promise<void> {
+	const { emission, options } = expansion;
+	const targetSectionTipo = locator.section_tipo as string;
+	if (options.existenceOnlyTargets?.has(targetSectionTipo) === true) return;
+	// CANONICAL address for every emission below (the child items, their
+	// row anchor and parent_section_id): the stored locator may still hold
+	// the legacy string form, so canonicalize ONCE here rather than pass
+	// the raw type through. External-service targets ('001338683', 'Q42')
+	// are not convertible and keep their own bytes — which is why this is
+	// canonicalizeStoredSectionId and not Number()
+	// (WC-2026-08-10-section-id-int-canonical; repeals "PHP keeps the
+	// locator's raw section_id type").
+	const targetSectionId = canonicalizeStoredSectionId(locator.section_id) as number | string;
+	const target = await resolvePortalTarget(
+		expansion,
+		locator,
+		targetSectionTipo,
+		targetSectionId,
+		childShapes.get(targetSectionTipo),
+	);
+	if (target === null) return;
+
+	// Resolve each child through the SHARED emission path (full model-family
+	// logic — relations/media/selects inside a portal render correctly). The
+	// items are collected here so the outer-subdatum re-stamp (PHP
+	// :2792-2799) can rewrite from_component_tipo/parent_tipo/row_section_id.
+	const before = emission.items.length;
+	// Keep the locator's RAW id type — components instantiated from a
+	// locator inherit its string form (PHP get_subdatum passes it as-is;
+	// the dd560 frame's section_id "17976" is the pinned case).
+	const targetRow = {
+		section_tipo: targetSectionTipo,
+		section_id: targetSectionId as number,
+	};
+	const childScope = portalChildScope(expansion);
+	for (const childDdo of expansion.childDdos) {
+		await emitPortalChild(expansion, childDdo, locator, target, targetRow, childScope);
+	}
+	await emitPortalDdinfo(expansion, targetSectionTipo, targetSectionId);
+	restampPortalChildren(expansion, before, targetSectionId);
+}
+
+/**
+ * Decides the record a locator's children resolve against: the stored row, or
+ * a placeholder when the target has none but its children derive their value.
+ * null = skip this locator (no table, or no row and nothing derived).
+ */
+async function resolvePortalTarget(
+	expansion: PortalExpansion,
+	locator: Record<string, unknown>,
+	targetSectionTipo: string,
+	targetSectionId: number | string,
+	shape: TargetChildShape | undefined,
+): Promise<PortalTarget | null> {
+	// A target every one of whose compatible children DERIVES has no stored
+	// row to look for — skip the pointless matrix query. Purely an
+	// optimisation: the null-record fallback below is what carries
+	// correctness, so a mis-declared over-broad ddo costs a query, not a
+	// blank cell.
+	// `derivedOnly` is true when the target has NO stored row and we are
+	// rendering it from a placeholder — the only situation in which a
+	// stored-value child cannot resolve. A target that HAS a record (test3,
+	// rsc205) never sets it, so no ordinary child is ever refused.
+	if (shape?.hasDerived === true && !shape.hasStored) {
+		return { record: externalTargetRecord(targetSectionTipo, targetSectionId), derivedOnly: true };
+	}
+	const targetTable = await getMatrixTableFromTipo(targetSectionTipo);
+	if (targetTable === null) return null;
+	// Per-read cached read (targets repeat across a page's rows and nested
+	// expansions) — consulted AFTER the null-table early-return, same
+	// contract as the bare read it replaces.
+	// Only a matrix ADDRESS has a stored row. A non-address id (an external
+	// remote id '000012281', verbatim) is never Number()-ed into one — that
+	// read local record 12281 and rendered it as the remote record.
+	const stored = await loadPortalTarget(
+		expansion.emission,
+		expansion.options.targetsAsOf,
+		locator,
+		targetTable,
+		targetSectionTipo,
+		targetSectionId,
+		expansion.childDdos,
+	);
+	if (stored !== null) return { record: stored, derivedOnly: false };
+	// NO STORED ROW. v6 dispatches purely by component MODEL —
+	// component_external::get_dato() never reads the record — so a
+	// target whose compatible children derive their value still
+	// renders; the record was never their source. Every other target
+	// keeps the original skip, byte for byte.
+	if (shape?.hasDerived !== true) return null;
+	return { record: externalTargetRecord(targetSectionTipo, targetSectionId), derivedOnly: true };
+}
+
+/**
+ * Decides the NESTED scope every child resolves under: this portal's node (whose
+ * effective config supplies each child's caller children — the whole
+ * injected chain travels in it, so a grandchild declared in the CALLER's
+ * map resolves: the numisdata3 list's numisdata77 → numisdata164 → rsc29)
+ * and the record-occurrence path (the cycle guard, models/portal.ts).
+ * PHP recursion is STRUCTURAL: every child element re-enters its own
+ * get_subdatum in EVERY mode but 'solved', so the retired
+ * `depth < 4 && (edit || list && ownConfig)` gate is gone (plan E2 — a
+ * nested portal in a LIST cell now falls back to its own config). The
+ * bounds are MAX_DDO_DEPTH (section/read.ts emitDdoData, the one place
+ * every hop passes through) and the per-path record-cycle guard.
+ */
+function portalChildScope(expansion: PortalExpansion): EmitScope {
+	const { emission, portalDdo, row, portalMode, childDdos, options } = expansion;
+	return {
+		parentNode:
+			options.node ??
+			rootNodeFor(emission.nodes, portalDdo.tipo, row.section_tipo, portalMode, childDdos),
+		path: options.path ?? [],
+	};
+}
+
+/**
+ * Decides whether a child ddo is SKIPPED at this target. PHP get_subdatum
+ * groups child ddos BY section_tipo and expands only the ones compatible with
+ * the current locator's target (numisdata97 declares numisdata33 → skipped at
+ * an object1 target). 'self' and undeclared section_tipos pass (they resolve
+ * to the portal targets); a component_dataframe always passes.
+ */
+function skipsPortalChild(
+	childDdo: Ddo,
+	childModel: string | null | undefined,
+	targetSectionTipo: string,
+	targetSectionId: number | string,
+	targetIsDerivedOnly: boolean,
+): boolean {
+	if (!ddoTargetsSection(childDdo, targetSectionTipo) && childModel !== 'component_dataframe') {
+		return true;
+	}
+	// THIS filter is what makes a multi-engine child map safe, and why no
+	// api_engine branch is needed anywhere in the read path: a zenon1
+	// locator only ever sees the ddos declared at zenon1, an rsc205
+	// locator only the dedalo ones. Dispatch stays model-polymorphic.
+	//
+	// The gate is RECORD ABSENCE, never `properties.api_config`: test3 and
+	// rsc205 both carry an api_config and are ordinary sections with rows,
+	// so they never reach it and never lose a child.
+	if (!targetIsDerivedOnly) return false;
+	// With no stored row, only a DERIVED-value model can render.
+	// Anything else would be handed the empty placeholder and emit a
+	// blank that looks exactly like a genuinely empty field — refuse it
+	// loudly instead (a component_dataframe pairs with the MAIN record
+	// and is handled by the caller).
+	if (childModel === 'component_external' || childModel === 'component_dataframe') return false;
+	console.warn(
+		`[relations/relation_core] ddo '${childDdo.tipo}' (model ${childModel}) cannot resolve at target '${targetSectionTipo}' id '${String(targetSectionId)}' — that target has no stored record; only a derived model renders there`,
+	);
+	return true;
+}
+
+/** Emits ONE child ddo at a locator's target: a dataframe pairs with the MAIN record, every other model resolves at the target record. */
+async function emitPortalChild(
+	expansion: PortalExpansion,
+	childDdo: Ddo,
+	locator: Record<string, unknown>,
+	target: PortalTarget,
+	targetRow: { section_tipo: string; section_id: number },
+	childScope: EmitScope,
+): Promise<void> {
+	const childModel = await getModelByTipo(childDdo.tipo);
+	const targetSectionTipo = targetRow.section_tipo;
+	if (
+		skipsPortalChild(
+			childDdo,
+			childModel,
+			targetSectionTipo,
+			targetRow.section_id,
+			target.derivedOnly,
+		)
+	) {
+		return;
+	}
+	const { emission, portalDdo, portalMode, row, callerTipo, childrenLang, depth } = expansion;
+	// component_dataframe ddos pair with the MAIN record (never the
+	// locator target): route to the frame emitter (PHP get_subdatum's
+	// dataframe branch — section_id = the caller's record, id_key = the
+	// locator's item id).
+	if (childModel === 'component_dataframe') {
+		await emitDataframeItem(
+			childDdo,
+			expansion.record,
+			portalDdo.tipo,
+			(locator.id as number | string | undefined) ?? (locator.section_id as number | string),
+			childDdo.mode ?? portalMode,
+			row,
+			childrenLang,
+			callerTipo,
+			emission,
+			depth,
+			expansion.emitDdo,
+			childScope, // the frame resolves its node under this portal's
+		);
+		return;
+	}
+	await expansion.emitDdo(
+		childDdo,
+		expansion.childDdos,
+		target.record,
+		targetRow,
+		'list',
+		childrenLang,
+		callerTipo,
+		emission,
+		true,
+		depth + 1,
+		childScope, // the parent node → grandchildren resolve by the injected chain
+	);
+}
+
+/**
+ * Decides whether this portal cell emits a ddinfo breadcrumb for the target.
+ *
+ * ddinfo: the HIERARCHY widget (component_autocomplete_hi) appends each
+ * thesaurus target's ancestor-breadcrumb item after the term children
+ * (PHP dd_info — parent chain + hierarchy label). Plain autocompletes
+ * with thesaurus targets (numisdata34 → object1) do NOT emit it.
+ * The TM record-snapshot list renders the flat term subdatum only — PHP's
+ * service_time_machine cell emits no ddinfo breadcrumb (verified against
+ * the live oracle), unlike the edit widget.
+ *
+ * THE TRIGGER (owner decision (g), 2026-11-03 — the TS gates above are
+ * kept, only the trigger moved): the GOVERNING children — the node's
+ * effective config, whoever supplied it — declaring `value_with_parents`
+ * on a child ddo compatible with the target (portalCellEmitsDdinfo).
+ * PHP emits dd_info per vwp ddo, and USER-DEFINED thesauri live in the
+ * generic `matrix` table (`tch555`'s `tchi1`), so the vwp test is what
+ * reaches them. The pre-existing thesaurus-TABLE branch (a target in a
+ * thesaurus table qualifies without a vwp ddo) stays exactly where it
+ * applied: children that are the element's OWN, uninjected config — it
+ * is not widened to caller-supplied children.
+ * The TM check is the READ's data source, not the cell's render mode:
+ * dd15 cells now emit mode 'list' like every other list cell
+ * (WC-2026-08-14-tm-ddo-mode-retired), so `portalMode !== 'tm'` stopped
+ * being able to see a Time Machine cell. This is one of the two sites where
+ * 'tm' was a real branch rather than a synonym of 'list'; the suppression
+ * itself is unchanged and still oracle-verified.
+ */
+async function portalEmitsDdinfo(
+	expansion: PortalExpansion,
+	targetSectionTipo: string,
+): Promise<boolean> {
+	if (expansion.storedModel !== 'component_autocomplete_hi' || isTimeMachineRead()) return false;
+	if (portalCellEmitsDdinfo(expansion.childDdos, targetSectionTipo)) return true;
+	if (expansion.options.childrenFromOwnConfig !== true) return false;
+	const { isThesaurusTarget } = await import('../resolve/dd_info.ts');
+	return isThesaurusTarget(targetSectionTipo);
+}
+
+/** Emits the target's ddinfo breadcrumb item when the cell qualifies (portalEmitsDdinfo). */
+async function emitPortalDdinfo(
+	expansion: PortalExpansion,
+	targetSectionTipo: string,
+	targetSectionId: number | string,
+): Promise<void> {
+	if (!(await portalEmitsDdinfo(expansion, targetSectionTipo))) return;
+	const { buildDdInfoChain } = await import('../resolve/dd_info.ts');
+	const stamped = expansion.options.ddinfoBare !== true;
+	// ddinfoBare (the component get_data / save-echo surface, PHP
+	// component get_json → get_subdatum → get_ddinfo_parents): the item
+	// carries ONLY {tipo, section_id, section_tipo, value, parent} — no
+	// row stamps — and the chain ends at the ROOT TERM (no trailing
+	// hierarchy label). Byte-diffed vs the oracle on rsc92/fr1
+	// (2026-07-09). The section-read portal cell keeps the stamped,
+	// label-terminated shape.
+	const ddInfoItem = {
+		tipo: 'ddinfo',
+		section_id: targetSectionId,
+		section_tipo: targetSectionTipo,
+		value: await buildDdInfoChain(
+			targetSectionTipo,
+			targetSectionId,
+			expansion.childrenLang,
+			stamped,
+		),
+		parent: expansion.portalDdo.tipo,
+	} as unknown as DataItem;
+	if (stamped) {
+		(ddInfoItem as Record<string, unknown>).row_section_id = expansion.row.section_id;
+		(ddInfoItem as Record<string, unknown>).parent_tipo = expansion.callerTipo;
+	}
+	expansion.emission.markStamped(ddInfoItem);
+	expansion.emission.items.push(ddInfoItem);
+}
+
+/** The outer-subdatum re-stamp (PHP :2792-2799) of every item this locator emitted from index `before` on. */
+function restampPortalChildren(
+	expansion: PortalExpansion,
+	before: number,
+	targetSectionId: number | string,
+): void {
+	const { emission } = expansion;
+	for (let i = before; i < emission.items.length; i++) {
+		const childItem = emission.items[i] as DataItem;
+		if (emission.isStamped(childItem)) {
+			restampNestedChild(expansion, childItem);
+			continue;
+		}
+		stampPortalChild(expansion, childItem, targetSectionId);
+	}
+}
+
+/** Re-anchors an item a deeper expansion already stamped: only its row anchor and outward parent move. */
+function restampNestedChild(expansion: PortalExpansion, childItem: DataItem): void {
+	const { options } = expansion;
+	// The BARE ddinfo (component get_data / save echo) carries no row
+	// stamps at all — PHP get_ddinfo_parents emits exactly
+	// {tipo, section_id, section_tipo, value, parent} (byte-diffed
+	// 2026-07-09); skip the anchor/parent rewrite entirely.
+	if (options.ddinfoBare === true && childItem.tipo === 'ddinfo') return;
+	// A deeper expansion already fixed this item's identity — PHP keeps
+	// the NESTED creating portal's from_component_tipo; only the row
+	// anchor and outward parent rewrite.
+	childItem.row_section_id = options.childRowFromTarget
+		? childItem.row_section_id
+		: expansion.row.section_id;
+	childItem.parent_tipo = expansion.callerTipo;
+}
+
+/** Stamps a fresh child item with this portal's identity and the row it belongs to. */
+function stampPortalChild(
+	expansion: PortalExpansion,
+	childItem: DataItem,
+	targetSectionId: number | string,
+): void {
+	const { options } = expansion;
+	childItem.from_component_tipo = expansion.portalDdo.tipo; // the CREATING portal (PHP :2684)
+	childItem.section_id = targetSectionId; // canonical (see the expansion head)
+	// get_data children belong to the OUTER record; resolve_data children
+	// (injected locators, no outer record) belong to their TARGET.
+	childItem.row_section_id = options.childRowFromTarget
+		? targetSectionId
+		: expansion.row.section_id;
+	// parent_section_id on children is FLOW-specific (both pinned live):
+	// resolve_data (search chips) stamps it on ENTRY-CARRYING children —
+	// PHP's !empty($value) test, i.e. a non-empty entries array (since
+	// WC-001 unified empty entries on [], a null check would stamp
+	// every child); get_data does NOT — there it is portal-item
+	// decoration only (nested portal items carry it from their OWN
+	// expansion). The authentic-capture replay + resolve_data gates pin
+	// both sides.
+	if (
+		options.stampParentSectionId === true &&
+		Array.isArray(childItem.entries) &&
+		childItem.entries.length > 0
+	) {
+		childItem.parent_section_id = targetSectionId;
+	}
+	childItem.parent_tipo = expansion.callerTipo;
+	expansion.emission.markStamped(childItem);
 }
 
 /**

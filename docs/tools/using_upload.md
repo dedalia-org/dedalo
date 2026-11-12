@@ -31,6 +31,17 @@ Upload is tied to the media components — image, audiovisual, PDF, 3D and SVG. 
 4. On success, the message turns to a success note and — for a component — a preview of the updated media is shown. On failure, the error message is shown as plain text.
 5. For a video, the web/audio versions are transcoded in the background; the preview may finish before those are fully ready. Use [Media versions](using_media_versions.md) to check or re-sync the qualities if needed.
 
+## PDFs: the transcription and OCR
+
+When you upload a PDF, Dédalo also copies its text into the record's transcription field — the text area linked to the PDF, such as *Transcription* next to *Document* in the resources media section. Each page starts with a page tag that marks where that page begins. The text is saved in your current data language.
+
+- **A transcription already there is replaced.** If the field already had text in that language, the new PDF's text takes its place, and the upload shows a note saying how much was replaced. Nothing is lost: [Time Machine](using_time_machine.md) keeps the previous version.
+- **A scanned PDF with no text** gets nothing written, and the upload says so. Use OCR for those.
+
+**OCR.** For a scanned PDF, tick **OCR** in the upload panel and pick the language of the document before you upload. Dédalo then reads the scanned pages in the background — the job appears in the activity tray in the bottom-right corner, and a long book can take several minutes. When it finishes, the web copy of the PDF carries a text layer and the transcription is filled from it. Your original file is kept exactly as you uploaded it.
+
+The OCR option appears only when the server can run it, and the language list shows only the languages your administrator has installed OCR support for. If OCR is missing, or a language you need is not offered, ask your administrator.
+
 ## Tips and gotchas
 
 !!! tip
@@ -46,5 +57,6 @@ Upload is tied to the media components — image, audiovisual, PDF, 3D and SVG. 
 
 - **[File import](using_import_files.md)** — ingest a whole batch of media files and their records at once.
 - **[Media versions](using_media_versions.md)** — manage the qualities Upload produces, and re-sync after a video transcode finishes.
+- **[Update cache](using_update_cache.md)** — fills empty PDF transcriptions in bulk, for example for PDFs uploaded before automatic transcription existed.
 - **[Image rotation](using_image_rotation.md)** — rotate/crop an uploaded image; it re-runs this processing after background removal.
 - **[Developer reference](../development/tools/reference/tool_upload.md)** — the `process_uploaded_file` action, the job-status poll, and internals. See also the [media pipeline](../development/media_pipeline.md) overview.

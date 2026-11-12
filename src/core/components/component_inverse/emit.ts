@@ -28,6 +28,7 @@
 
 import { buildDataItem } from '../../resolve/component_data.ts';
 import { findInverseReferenceLocators } from '../../search/search_related.ts';
+import type { Principal } from '../../security/permissions.ts';
 import { currentPrincipal } from '../../security/request_context.ts';
 import type { ComponentEmitHook, EmitHookContext } from '../emit_hooks.ts';
 
@@ -45,6 +46,16 @@ export type InverseEntry = Record<string, unknown> & {
 export async function resolveInverseEntries(
 	sectionTipo: string,
 	sectionId: number,
+	/**
+	 * The principal the backlinks are scoped for, EXPLICITLY — for a caller
+	 * that may run outside the request's ALS (a detached export job). FAILS
+	 * CLOSED: an undefined `principal` falls back to the ALS `currentPrincipal()`
+	 * (a global-admin run carries no frontier principal, and its ALS admin
+	 * principal reads every owner anyway), so a door that forgets to thread its
+	 * principal never exports unscoped while a non-admin is in the ALS. Absent
+	 * (the edit view, every request-path reader) = the ALS principal too.
+	 */
+	scope?: { principal: Principal | undefined },
 ): Promise<InverseEntry[]> {
 	if (!sectionId) return [];
 	const found = await findInverseReferenceLocators(
@@ -56,7 +67,7 @@ export async function resolveInverseEntries(
 	// projects boundary, input order kept). Unscoped, the list read would name
 	// records the caller cannot open. Outside a request (no principal: a system
 	// walk) it stays unscoped, as related_sections.ts does.
-	const principal = currentPrincipal();
+	const principal = scope?.principal ?? currentPrincipal();
 	const hits =
 		principal === undefined
 			? found

@@ -299,6 +299,14 @@ const SAVE_DOORS: ReadonlyMap<string, { lang: string; reason: string }> = new Ma
 		{ lang: 'nolan', reason: 'Media companion metadata — structural, never translated.' },
 	],
 	[
+		'src/core/media/ingest/pdf_transcription.ts',
+		{
+			lang: 'request+nolan',
+			reason:
+				'The PDF transcription (T0-11) fills the related text_area in effectiveSaveLang(target, model, currentDataLang()) — the uploading request’s data lang for a translatable target, lg-nolan for one that saves untranslated. Only that one slice is touched: fill_empty keeps a non-empty slice (keptBeforeExtraction); a replace reports the replaced length as a notice and Time Machine keeps the previous version.',
+		},
+	],
+	[
 		'src/core/media/rich_text_image_reconcile.ts',
 		{
 			lang: 'items',
@@ -325,6 +333,14 @@ const SAVE_DOORS: ReadonlyMap<string, { lang: string; reason: string }> = new Ma
 	[
 		'src/core/ontology/data_io.ts',
 		{ lang: 'nolan', reason: 'Ontology data import writes DATA_NOLAN.' },
+	],
+	[
+		'src/core/tools/import_iri_label.ts',
+		{
+			lang: 'nolan',
+			reason:
+				'T0-12: creates a component_iri LABEL — dd1715 (not translatable) is written lg-nolan, the shape of every stored label.',
+		},
 	],
 	[
 		'src/core/security/auth.ts',

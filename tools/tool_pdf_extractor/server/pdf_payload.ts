@@ -28,6 +28,8 @@
  */
 
 import { DedaloError } from '../../../src/core/errors/index.ts';
+// The page tag grammar has ONE builder, shared with the upload transcription.
+import { pdfPageTag } from '../../../src/core/media/pdf_page_tag.ts';
 import { sanitizeRichText } from '../../../src/core/security/html_sanitize.ts';
 
 export interface PdfPayload {
@@ -78,12 +80,6 @@ export function answerPdfPayload(raw: string, request: PdfPayloadRequest): PdfPa
 	return shapePdfPayload(raw, request.method, request.offset);
 }
 
-/** The Dédalo page tag for physical page `page` under the logical page `offset`. */
-function pageTag(page: number, offset: number): string {
-	const key = page - 1 + offset;
-	return `<p>[page-n-${page}-${key}-data:[${page}]:data]</p>`;
-}
-
 /** Shape the extractor's raw output into the wire payload. */
 export function shapePdfPayload(raw: string, method: 'text' | 'html', offset: number): PdfPayload {
 	if (method === 'text') {
@@ -127,7 +123,7 @@ export function shapePdfHtml(raw: string, offset: number): string {
 				// pdftohtml marks each page with a numeric anchor; any other named
 				// anchor is ordinary content and stays (the sanitizer judges it).
 				if (/^\d+$/.test(name)) {
-					element.replace(pageTag(Number(name), offset), { html: true });
+					element.replace(pdfPageTag(Number(name), offset), { html: true });
 				}
 			},
 		})

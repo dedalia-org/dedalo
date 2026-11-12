@@ -194,7 +194,11 @@ const NON_IMAGEMAGICK_SPAWNS: Record<string, string> = {
 	'engine/svg.ts:rasterizeSvg':
 		'rsvg-convert — librsvg, a dedicated SVG renderer with no coder dispatch; its raster size is the DEDALO_SVG_THUMB_DPI the engine chooses, not one the file declares',
 	'engine/pdf.ts:extractText': 'pdftotext — text extraction, no rasterization and no pixel cache',
+	'pdf_ocr.ts:ocrIntoDefaultTier':
+		'ocrmypdf (T0-11) — not ImageMagick: it drives Ghostscript + Tesseract itself, so `-limit` argv cannot reach it. Bounded by an INACTIVITY cap (a wedge) and, in number, by the media JOB lane: the function is module-private and its only caller is the submitPdfOcr job worker, so no request awaits it inline',
 	'engine/pdf.ts:getPageCount': 'pdfinfo — a metadata read, no rasterization and no pixel cache',
+	'engine/ocr_langs.ts:installedTesseractModels':
+		'tesseract --list-langs (T0-11, system_info) — lists the installed language models; reads no input file, decodes nothing, 10 s wall-clock cap',
 	'engine/pdf.ts:readPdfPageSize':
 		'pdfinfo -f N -l N — the PAGE BOX read the PDF rasterizer refuses on; poppler parses a header and rasterizes nothing, which is why the measurement can be trusted to be cheap',
 	'engine/ghostscript.ts:rasterizePdfPage':
@@ -691,7 +695,11 @@ describe('magick policy: ImageMagick may not fork Ghostscript', () => {
 const NO_PERMIT_SPAWNS: Record<string, string> = {
 	'file_date.ts:pdfDate': 'pdfinfo — a metadata read of the PDF trailer; decodes nothing',
 	'engine/pdf.ts:extractText': 'pdftotext — text extraction, no rasterization',
+	'pdf_ocr.ts:ocrIntoDefaultTier':
+		'ocrmypdf (T0-11) — a minutes-long OCR pass, reached ONLY from the submitPdfOcr media JOB (module-private; the job lane caps how many run). Deliberately outside the converter pool: a permit held for minutes would push every upload thumbnail queued behind it past DEDALO_MEDIA_CONVERT_QUEUE_SECONDS into a 429',
 	'engine/pdf.ts:getPageCount': 'pdfinfo — a metadata read, no rasterization',
+	'engine/ocr_langs.ts:installedTesseractModels':
+		'tesseract --list-langs (T0-11, system_info) — a directory listing of installed models, milliseconds, no input file; queuing it behind renders would stall the upload panel init',
 	'engine/pdf.ts:readPdfPageSize':
 		'pdfinfo -f N -l N — the page-box header read the rasterizer refuses on; it must stay cheap and ungated or the refusal itself would queue behind the renders it exists to prevent',
 	'engine/ffmpeg.ts:probeFormat': 'ffprobe — a container/stream header read, it decodes no frame',

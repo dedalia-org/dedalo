@@ -127,3 +127,16 @@ leaf and flag-off byte identity. The `dedalo_raw` pin stays. Client:
 `perm.export_column_out_of_scope` naming the column. Gate:
 `test/unit/export_frontier_fanout_native.test.ts` (the PARENTS chain block). See
 `WC-2026-11-09-export-frontier-fanout`.
+
+## Addendum 2026-11-11 — the value-format mirror folds from the same atoms
+
+The `value` format's `#parents` mirror is no longer built inside a second walker
+(`resolveValueCellInScope` over `resolveRelationTargetValues`). It is folded from the same
+`sub_id:'parents'` atoms the fan-out emits for grid_value (`join_atoms.ts
+joinExportAtomsMirrored`): the term text is byte-identical to `joinExportAtoms` of the term atoms,
+and at the declared leaf's fan-out level every record contributes its chain once per piece its
+term text splits into on that level's record glue. No byte change is intended: the 2026-09-25
+alignment rules (one chain per piece, empty-term target dropped from both cells, parent-less
+target leaves an empty slot) hold. What the term cell itself contains now follows
+`WC-2026-11-11-export-value-single-walker` (caller map, separators, PHP empty-slot rule), and the
+mirror follows it. Gate: `test/unit/tool_export_parents_native.test.ts` unchanged and green.

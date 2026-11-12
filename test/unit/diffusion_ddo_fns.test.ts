@@ -1,5 +1,7 @@
 /**
- * Custom ddo fn cores — oracle-derived fixtures (PURE, no DB).
+ * Custom ddo fn cores — oracle-derived fixtures (PURE, no DB — except the svg
+ * mark cases: since T0-10 a glyph URL is the locator's media path, resolved
+ * through the ontology, so those read the seed-shipped hierarchy95 node).
  *
  * Oracle anchors:
  * - parse_tag_to_html: PHP diffusion/class.diffusion_fn.php :367-404 over
@@ -29,6 +31,7 @@
 import { describe, expect, test } from 'bun:test';
 import { config } from '../../src/config/config.ts';
 import type { MatrixRecord } from '../../src/core/db/matrix.ts';
+import { resolveTagLocatorMediaPath } from '../../src/core/media/tag_locator.ts';
 import {
 	addTagImgOnTheFly,
 	buildGeojsonLayers,
@@ -36,20 +39,19 @@ import {
 	iconographyOptionsOf,
 	joinIconographyScenes,
 	parseTagValueToHtml,
-	svgUrlFromTagLocator,
 } from '../../src/diffusion/resolve/ddo_fns.ts';
 import { defaultPublicationValue } from '../../src/diffusion/resolve/default_value.ts';
 
 const TAG_URL = '../component_text_area/tag/?id=';
 
 describe('parse_tag_to_html — TR::add_tag_img_on_the_fly + entity decode', () => {
-	test('plain HTML passes through unchanged (coins 64019 public_info oracle cell)', () => {
+	test('plain HTML passes through unchanged (coins 64019 public_info oracle cell)', async () => {
 		// The old engine published exactly this value for web_numisdata_mib
 		// coins#64019.public_info — no tags, no entities: identity.
-		expect(parseTagValueToHtml('<p>ACIP 2</p><p></p>')).toBe('<p>ACIP 2</p><p></p>');
+		expect(await parseTagValueToHtml('<p>ACIP 2</p><p></p>')).toBe('<p>ACIP 2</p><p></p>');
 	});
 
-	test('svg countermark tag renders the published <img> (coins 203 test6224 stored value)', () => {
+	test('svg countermark tag renders the published <img> (coins 203 test6224 stored value)', async () => {
 		const stored =
 			"<p>[svg-n-1--data:{'section_tipo':'testsccmk1','section_id':'461','component_tipo':'hierarchy95'}:data]</p>";
 		// PHP: svg URL from locator (component_svg::get_url, quality 'web'),
@@ -57,19 +59,19 @@ describe('parse_tag_to_html — TR::add_tag_img_on_the_fly + entity decode', () 
 		// is undone by the text_area override's html_entity_decode — PHP does
 		// exactly this to fn output). Matches the dd1190 test6483
 		// output_sample: <img id="[svg-n-1-]" src="/dedalo/media/svg/web/…">.
-		expect(parseTagValueToHtml(stored)).toBe(
+		expect(await parseTagValueToHtml(stored)).toBe(
 			`<p><img id="[svg-n-1-]" src="/dedalo/${config.mediaDir}/svg/web/hierarchy95_testsccmk1_461.svg" class="svg" data-type="svg" data-tag_id="1" data-state="n" data-label="" data-data="{'section_tipo':'testsccmk1','section_id':'461','component_tipo':'hierarchy95'}"></p>`,
 		);
 	});
 
-	test('svg tag with unparseable locator data is REMOVED (PHP null callback → empty)', () => {
-		expect(parseTagValueToHtml('<p>[svg-n-1--data:not json:data]</p>')).toBe('<p></p>');
+	test('svg tag with unparseable locator data is REMOVED (PHP null callback → empty)', async () => {
+		expect(await parseTagValueToHtml('<p>[svg-n-1--data:not json:data]</p>')).toBe('<p></p>');
 	});
 
-	test('geo tag renders class geo with the raw data payload (mints stored value)', () => {
+	test('geo tag renders class geo with the raw data payload (mints stored value)', async () => {
 		const stored = '<p>[geo-n-1--data:[1]:data]&nbsp;Aproximado</p>';
 		// &nbsp; decodes to U+00A0 (PHP html_entity_decode parity, not 0x20).
-		expect(parseTagValueToHtml(stored)).toBe(
+		expect(await parseTagValueToHtml(stored)).toBe(
 			`<p><img id="[geo-n-1-]" src="${TAG_URL}[geo-n-1-]" class="geo" data-type="geo" data-tag_id="1" data-state="n" data-label="" data-data="[1]"> Aproximado</p>`,
 		);
 	});
@@ -121,28 +123,46 @@ describe('parse_tag_to_html — TR::add_tag_img_on_the_fly + entity decode', () 
 		expect(addTagImgOnTheFly("[draw-n-1--data:{'k':'v'}:data]")).toContain('class="draw"');
 	});
 
-	test('SEC-028: attribute captures are escaped in the raw render (pre-decode)', () => {
+	test('SEC-028: attribute captures are escaped in the raw render (pre-decode)', async () => {
 		const raw = '[geo-n-1--data:[1,"x"]:data]';
 		// Pre-decode (addTagImgOnTheFly alone) the quotes are &quot;-escaped…
 		expect(addTagImgOnTheFly(raw)).toContain('data-data="[1,&quot;x&quot;]"');
 		// …and the PHP-faithful full transform decodes them back (the text_area
 		// override html_entity_decode's the WHOLE fn output — oracle behavior).
-		expect(parseTagValueToHtml(raw)).toContain('data-data="[1,"x"]"');
+		expect(await parseTagValueToHtml(raw)).toContain('data-data="[1,"x"]"');
 	});
 
-	test('svgUrlFromTagLocator: grammar URL for a valid locator, null on malformed', () => {
+	test('svg tag locator → media path: hierarchy95 bucketless (PHP harvest), null on malformed', async () => {
+		// hierarchy95 (seed-shipped component_svg) declares no max_items_folder,
+		// no additional_path, and testsccmk1 no initial_media_path — so the full
+		// grammar collapses to the bucketless form the PHP harvest published.
 		expect(
-			svgUrlFromTagLocator({
+			await resolveTagLocatorMediaPath({
 				section_tipo: 'testsccmk1',
 				section_id: '382',
 				component_tipo: 'hierarchy95',
 			}),
-		).toBe(`/dedalo/${config.mediaDir}/svg/web/hierarchy95_testsccmk1_382.svg`);
-		expect(svgUrlFromTagLocator({ section_tipo: 'testsccmk1', section_id: '382' })).toBe(null);
-		expect(svgUrlFromTagLocator({ component_tipo: 'hierarchy95', section_id: 1 })).toBe(null);
+		).toBe('/svg/web/hierarchy95_testsccmk1_382.svg');
 		expect(
-			svgUrlFromTagLocator({ component_tipo: 'hierarchy95', section_tipo: 'testsccmk1' }),
+			await resolveTagLocatorMediaPath({ section_tipo: 'testsccmk1', section_id: '382' }),
 		).toBe(null);
+		expect(await resolveTagLocatorMediaPath({ component_tipo: 'hierarchy95', section_id: 1 })).toBe(
+			null,
+		);
+		expect(
+			await resolveTagLocatorMediaPath({
+				component_tipo: 'hierarchy95',
+				section_tipo: 'testsccmk1',
+			}),
+		).toBe(null);
+	});
+
+	test('an svg mark rendered WITHOUT a resolved lookup is refused, never guessed', () => {
+		expect(() =>
+			addTagImgOnTheFly(
+				"[svg-n-1--data:{'section_tipo':'testsccmk1','section_id':'1','component_tipo':'hierarchy95'}:data]",
+			),
+		).toThrow(/renderTagsWithResolvedSvg/);
 	});
 });
 

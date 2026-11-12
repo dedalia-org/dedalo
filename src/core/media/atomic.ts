@@ -75,15 +75,22 @@ export function ensureDir(absolutePath: string): void {
  *
  * Whatever the producer did — success, throw, or the sequence split described in
  * the header — nothing is left behind in the destination directory.
+ *
+ * `beforeRename` (optional, SYNCHRONOUS by type): a last veto run after the
+ * producer and immediately before the rename, with no promise step between the
+ * two — a long producer's "is my output still wanted" check (pdf_ocr.ts). A
+ * throw discards the temp like a producer throw.
  */
 export async function writeAtomically(
 	target: string,
 	produce: (temp: string) => Promise<void>,
+	beforeRename?: () => void,
 ): Promise<string> {
 	ensureDir(target);
 	const temp = tempSibling(target);
 	try {
 		await produce(temp);
+		beforeRename?.();
 		renameSync(temp, target);
 		return target;
 	} finally {
