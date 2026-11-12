@@ -47,6 +47,7 @@ import { MATRIX_JSONB_COLUMNS, type MatrixRecord } from '../db/matrix.ts';
 import { sql } from '../db/postgres.ts';
 import { memoizedReadMatrixRecord } from '../db/record_memo.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
+import { logError } from '../errors/log.ts';
 import { getLabels } from '../labels/catalog.ts';
 import { additionalPath as mediaBucketPath } from '../media/path.ts';
 import { versionedMediaUrl } from '../media/url_version.ts';
@@ -553,7 +554,19 @@ async function mediaCellUrl(
 		// different stems, and a refused stem (another record's file name) is
 		// refused here too rather than linked.
 		const { resolveFileIdOverride } = await import('../media/ontology_path.ts');
-		id = await resolveFileIdOverride(ddo.tipo, sectionTipo, Number(sectionId));
+		try {
+			id = await resolveFileIdOverride(ddo.tipo, sectionTipo, Number(sectionId));
+		} catch (error) {
+			// ONE row's refused stem (a PHP-era value with '/' or '"', or another
+			// record's file name) is that CELL's fault, not the grid's: PHP's get_id
+			// never threw here and the grid always answered. The cell gets no URL ('',
+			// the no-media shape) — never the identifier's, which would link a file
+			// the ingest did not write — and the refusal is logged typed. The edit
+			// view degrades the same way per item (component_emit base_svg_url null).
+			if (!(error instanceof DedaloError) || error.code !== 'media.invalid_identifier') throw error;
+			logError(error, { subsystem: 'indexation_grid' });
+			return '';
+		}
 	}
 	if (id === null) {
 		id = `${ddo.tipo}_${sectionTipo}_${sectionId}`;

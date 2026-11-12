@@ -484,3 +484,70 @@ describe('L9 refusals: a stem that is no file name, or names another record, is 
 		expect(existsSync(`${dir}/${IMAGE}_${SECTION}_${sectionId}.jpg`)).toBe(false);
 	}, 60_000);
 });
+
+describe('L10 deleted versions match ONE stem exactly (T1-10 review)', () => {
+	test("restoring 'coin_N' never takes 'coin_N_reverse''s soft-deleted bytes", async () => {
+		const a = await scratchRecord();
+		const b = await scratchRecord();
+		const stemA = `coin_${a}`;
+		const stemB = `coin_${a}_reverse`;
+		await setValue(a, STEM_SIBLING, stemA);
+		await setValue(b, STEM_SIBLING, stemB);
+		const dirOf = (sectionId: number): string =>
+			`${ROOT}/image/${image.defaultQuality}/${bucketOf(sectionId)}`;
+		const liveA = `${dirOf(a)}/${stemA}.jpg`;
+		const liveB = `${dirOf(b)}/${stemB}.jpg`;
+		// The prefix collision needs both in ONE deleted/ folder.
+		expect(dirOf(a)).toBe(dirOf(b));
+		mkdirSync(dirOf(a), { recursive: true });
+		writeFileSync(liveA, 'bytes of A');
+		writeFileSync(liveB, 'bytes of B');
+		const mediaColumn = { [IMAGE]: [{ lang: null, files_info: [] }] };
+		const snapshotA = (await readRecord(a)).columns as Record<string, unknown>;
+		const snapshotB = (await readRecord(b)).columns as Record<string, unknown>;
+		const now = new Date(2026, 10, 12, 14, 0);
+		for (const [sectionId, snapshot] of [
+			[a, snapshotA],
+			[b, snapshotB],
+		] as const) {
+			const removed = await removeSectionMediaFiles(SECTION, sectionId, mediaColumn, {
+				mediaRoot: ROOT,
+				snapshot,
+				now,
+			});
+			expect(removed.errors).toEqual([]);
+		}
+		const deletedB = `${dirOf(b)}/deleted/${stemB}_deleted_2026-11-12_1400.jpg`;
+		expect(existsSync(deletedB)).toBe(true);
+		const restored = await restoreDeletedSectionMediaFiles(SECTION, a, mediaColumn, {
+			mediaRoot: ROOT,
+			snapshot: snapshotA,
+		});
+		expect(restored.errors).toEqual([]);
+		expect(readFileSync(liveA, 'utf8')).toBe('bytes of A');
+		expect(existsSync(deletedB)).toBe(true);
+		expect(existsSync(liveB)).toBe(false);
+	});
+});
+
+describe('L11 camera / inventory names are stems: only a TIPO-shaped token names a record (T1-10 review)', () => {
+	test('an all-digit "section" token names no record', () => {
+		const own = identityOf(7);
+		for (const name of ['IMG_20230512_142233', 'inv_1987_23', 'DSC_0001_2', 'scan_2024_07_15']) {
+			expect(assertMediaFileStem(name, own)).toBe(name);
+		}
+		// tipo-shaped tokens still name a record
+		expect(() => assertMediaFileStem('IMG_rsc170_142233', own)).toThrow(/names record/);
+	});
+
+	test('the media tools resolve a camera-name stem instead of refusing the record', async () => {
+		const sectionId = await scratchRecord();
+		await setValue(sectionId, STEM_SIBLING, 'IMG_20230512_142233');
+		const ctx = await resolveMediaToolContext({
+			tipo: IMAGE,
+			section_tipo: SECTION,
+			section_id: sectionId,
+		});
+		expect(ctx.pathOpts.fileIdOverride).toBe('IMG_20230512_142233');
+	});
+});

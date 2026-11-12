@@ -275,9 +275,17 @@ Merged since the last release; these ship with the next one.
 
     **Action needed:** none. A **Filename** value that is not a plain file name (it contains
     `/`, `\`, `"`, `<`, `>`, or is `.`/`..`) or that is another record's standard file name is
-    now refused, and the upload stops before anything is written. Duplicating a record whose
-    images are named this way does not copy those images — both records would point to the
-    same files — and the duplicate reports them as not copied.
+    now refused, and the upload stops before anything is written; in the indexation grid only
+    that record's image is left empty. Camera and inventory names such as `IMG_20230512_142233`
+    are ordinary file names and are accepted.
+
+    **Caution:** two records with the same **Filename** share the same files, as in earlier
+    Dédalo versions. Duplicating a record whose images are named this way does not copy those
+    images — the duplicate points to the same files and reports them as not copied. Uploading
+    to either record replaces the shared file, and deleting either record (the duplicate
+    included) moves the shared files to the `deleted` folder, so the other record loses its
+    image until the files are brought back from that folder. Give the duplicate its own **Filename** before uploading to it
+    or deleting it.
 
     Wire contract: `WC-2026-11-12-image-id-media-file-stem`.
 

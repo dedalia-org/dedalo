@@ -49,6 +49,7 @@ import {
 	type MediaPathOptions,
 	posterframeLocation,
 } from './path.ts';
+import { escapeRegexLiteral } from './protection.ts';
 
 /**
  * PHP `date('Y-m-d_Hi')` — the `move_deleted_file` stamp, i.e. every soft-delete:
@@ -61,7 +62,7 @@ import {
  * but on `ingest/add_file.ts` — the pre-overwrite upload backup, which IS
  * PHP's rename_old_files — it is a KNOWN, ledgered divergence in the on-disk
  * name. Nothing reads the stamp to make a decision (the deleted/ scan matches
- * `<id>_*.<ext>` and orders by name), so it costs recognisability, not
+ * `<stem>_deleted_<stamp>.<ext>` and orders by name), so it costs recognisability, not
  * recoverability. Handed off rather than changed here: the two callers would
  * have to be told apart first, and that is not this workstream's file.
  */
@@ -207,7 +208,8 @@ export function managedFileSlots(spec: MediaTypeSpec): [string, string][] {
 /**
  * List the deleted versions of ONE quality × extension (PHP get_deleted_image /
  * restore_component_media_files, both `glob("<id>_*.<ext>")` + natsort):
- * '<quality dir>/deleted/<id>_*.<ext>', natural-sorted, newest last. Absolute
+ * '<quality dir>/deleted/<stem>_deleted_<stamp>.<ext>' (exactly — see
+ * deletedVersionName), natural-sorted, newest last. Absolute
  * paths. Used by time-machine reads to recover a soft-deleted file.
  *
  * THE EXTENSION IS PART OF THE MATCH, as it is in PHP's glob. Keying on the STEM
@@ -230,6 +232,25 @@ export function listDeletedVersions(
 }
 
 /**
+ * EXACTLY one stem's soft-deleted name: `<stem>_deleted_<stamp>.<ext>`, the
+ * `moveToDeleted` shape. The stamp is `Y-m-d_Hi` (this engine, PHP
+ * move_deleted_file) or `Y-m-d_Gis` (PHP rename_old_files, 1–2 hour digits), so
+ * the time part is 3–6 digits.
+ *
+ * NOT a `<stem>_` prefix (PHP's `glob("<id>_*")`). That was safe only while every
+ * stem was an identifier ending in a section_id; an `image_id` stem is free text
+ * (T1-10), and the prefix of 'coin' matches 'coin_reverse_deleted_…' — another
+ * record's soft-deleted bytes, which a restore would then move into this record's
+ * live file (T1-10 review).
+ */
+function deletedVersionName(stem: string, extension: string): RegExp {
+	const suffix = extension === '' ? '' : `.${extension}`;
+	return new RegExp(
+		`^${escapeRegexLiteral(stem)}_deleted_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{3,6}${escapeRegexLiteral(suffix)}$`,
+	);
+}
+
+/**
  * The deleted/ scan itself, on a plain directory + stem + extension — shared by
  * `listDeletedVersions` (quality files) and the POSTERFRAME restore, which is not
  * a quality and so has no `buildMediaLocation` to go through.
@@ -237,10 +258,9 @@ export function listDeletedVersions(
 function listDeletedIn(dir: string, stem: string, extension: string): string[] {
 	const deletedDir = `${dir}/deleted`;
 	if (!existsSync(deletedDir)) return [];
-	const prefix = `${stem}_`;
-	const suffix = extension === '' ? '' : `.${extension}`;
+	const versionName = deletedVersionName(stem, extension);
 	const matches = readdirSync(deletedDir)
-		.filter((name) => name.startsWith(prefix) && name.endsWith(suffix))
+		.filter((name) => versionName.test(name))
 		.map((name) => `${deletedDir}/${name}`)
 		.filter((path) => {
 			try {

@@ -27,6 +27,7 @@ import {
 	type MediaTypeSpec,
 	mediaTypeOf,
 } from '../concepts/media.ts';
+import { isValidTipo } from '../concepts/ontology.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { assertValidTipo } from '../search/identifier_gate.ts';
 import { MEDIA_FILENAME_GRAMMAR } from './protection.ts';
@@ -146,7 +147,8 @@ export function buildMediaIdentifier(identity: MediaIdentity): string {
  * - `"`, `<`, `>` — the T0-10 attribute law (`normalizeAdditionalPath` refuses
  *   the same set for the bucket);
  * - a stem the media-protection grammar (`protection.ts MEDIA_FILENAME_GRAMMAR`)
- *   parses as ANOTHER record's file. The web server maps a file to its record
+ *   parses as ANOTHER record's file — with a TIPO-shaped section token (letters
+ *   then digits); an all-digit token ('IMG_20230512_142233') names no record. The web server maps a file to its record
  *   through that grammar alone, so `x_rsc170_5.jpg` written for record 7 would be
  *   published whenever record 5 is — and it is, by name, record 5's file for every
  *   other door. A stem that parses to THIS record (its own identifier included)
@@ -172,12 +174,29 @@ function stemRefusal(value: string, identity: MediaIdentity): string | null {
 	if (NOT_A_FILE_STEM.test(value)) {
 		return 'is not a file name (empty, a path segment, a control character or one of / \\ " < >)';
 	}
-	const parsed = MEDIA_FILE_RECORD_GRAMMAR.exec(`${value}.x`);
-	if (parsed === null) return null;
-	const sameRecord = parsed[1] === identity.sectionTipo && Number(parsed[2]) === identity.sectionId;
+	const owner = stemRecord(value);
+	if (owner === null) return null;
+	const sameRecord =
+		owner.sectionTipo === identity.sectionTipo && owner.sectionId === identity.sectionId;
 	return sameRecord
 		? null
-		: `names record ${parsed[1]}/${parsed[2]}'s files (media-protection grammar)`;
+		: `names record ${owner.sectionTipo}/${owner.sectionId}'s files (media-protection grammar)`;
+}
+
+/**
+ * The record a stem names through the media-protection grammar, or null.
+ *
+ * The grammar's section part is `[a-z0-9]+`, but only a TIPO-shaped token
+ * (letters then digits) can name a record: 'IMG_20230512_142233' (a camera
+ * default) or 'inv_1987_23' parse to section '20230512' / '1987', which no
+ * section tipo can be — no record's marker exists for them, so the web server
+ * publishes nothing by them, and no door reads them as another record's file.
+ */
+function stemRecord(value: string): { sectionTipo: string; sectionId: number } | null {
+	const parsed = MEDIA_FILE_RECORD_GRAMMAR.exec(`${value}.x`);
+	const sectionTipo = parsed?.[1] ?? '';
+	if (!isValidTipo(sectionTipo)) return null;
+	return { sectionTipo, sectionId: Number(parsed?.[2]) };
 }
 
 /**

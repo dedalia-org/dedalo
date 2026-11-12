@@ -44,14 +44,28 @@
 1. **Refused stems** (`media.invalid_identifier`, before any write): `.`/`..`, `/`, `\`,
    NUL / C0 controls / DEL, `"` `<` `>` (T0-10 attribute law); and a value the
    media-protection grammar (`MEDIA_FILENAME_GRAMMAR`) maps to ANOTHER record — it would
-   be published with that record and is, by name, that record's file. A stem mapping to
+   be published with that record and is, by name, that record's file. Only a TIPO-shaped
+   section token (letters then digits) names a record: `IMG_20230512_142233` or
+   `inv_1987_23` (an all-digit token) is a plain stem (T1-10 review). A stem mapping to
    this record (its own identifier included) is accepted. PHP wrote any value. In the
-   edit view a refused stem yields `base_svg_url: null`; the grid and the tools refuse.
-2. **Duplicate of a stem-named record** (interim, owner decision T1-10 OD-1 open): source
-   and clone resolve to the same files; the copy throws `media.operation_failed` instead
-   of copying a file onto itself → per-component `error`, verdict stage `copy`, the clone
-   indexes the shared files. PHP copied onto itself.
-3. **Not ported:** PHP case 1 (an `external_source` IRI's file name wins over image_id) —
+   edit view a refused stem yields `base_svg_url: null`; in the indexation grid that ONE
+   cell's value is `''` (logged typed, the grid still answers — T1-10 review); the tools
+   refuse.
+2. **Shared stems** (interim, owner decision T1-10 OD-1 open). Two records whose sibling
+   values are equal (same component folder and bucket) address the SAME files, as in PHP —
+   and that includes every duplicate of a stem-named record. The duplicate's copy throws
+   `media.operation_failed` instead of copying a file onto itself → per-component `error`,
+   verdict stage `copy`, the clone indexes the shared files (PHP copied onto itself).
+   Delete and upload keep PHP behaviour until OD-1 rules: an upload to one record
+   overwrites the shared master; deleting one record (the clone included) moves the
+   shared files to `deleted/`, so the other record loses its media (recoverable from
+   `deleted/`). No refusal is made for a stem another record already uses, nor across
+   project scope.
+3. **Deleted-version scan** (T1-10 review): restore and the time-machine deleted reads
+   match `<stem>_deleted_<stamp>.<ext>` exactly (stamp `Y-m-d_Hi` or PHP's `Y-m-d_Gis`),
+   not PHP's `glob("<id>_*")` prefix — a free-text stem `coin` must not take
+   `coin_reverse`'s soft-deleted bytes.
+4. **Not ported:** PHP case 1 (an `external_source` IRI's file name wins over image_id) —
    owner decision T1-10 OD-2. Renaming files when the sibling changes after upload is not
    done (PHP parity; owner decision T1-10 OD-3).
 

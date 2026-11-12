@@ -474,6 +474,41 @@ describe('indexation grid av + media branches (TS-native, oracle-captured golden
 		);
 	});
 
+	test("image_id (T1-10 review): ONE row's refused stem empties that cell, never the grid; a camera name is a stem", async () => {
+		// rsc29 declares `image_id: rsc34`. A PHP-era 'Filename' the stem law refuses
+		// ('/' or '"') — or one the old over-broad refusal read as another record's
+		// file ('IMG_20230512_142233': an all-digit "section") — used to throw
+		// media.invalid_identifier out of the whole grid request.
+		const filename = seed('rsc', 34);
+		const setFilename = async (value: string | null): Promise<void> => {
+			const bag = value === null ? null : { [filename]: [{ id: 1, lang: 'lg-nolan', value }] };
+			await sql`
+				UPDATE matrix_test SET string = ${bag === null ? null : JSON.stringify(bag)}::text::jsonb
+				WHERE section_tipo = 'test2' AND section_id = ${SCRATCH_RSC170_ID}`;
+		};
+		const imageUrls = (data: unknown): string[] =>
+			(JSON.stringify(data).match(/\/dedalo\/media\/image\/[^"?]+/g) ?? []) as string[];
+		try {
+			for (const refused of ['a/b', 'x"y']) {
+				await setFilename(refused);
+				const { status, data } = await tsGrid(gridRqo(['test6101']));
+				expect(status).toBe(200);
+				const json = JSON.stringify(data);
+				expect(json).toContain(`"value":[${SCRATCH_ID}]`); // the row is still there
+				expect(json).toContain('"cell_type":"img","action":null,"value":[""]'); // its image cell: no URL
+				expect(imageUrls(data)).toEqual([]);
+			}
+			for (const camera of ['IMG_20230512_142233', 'inv_1987_23']) {
+				await setFilename(camera);
+				const { status, data } = await tsGrid(gridRqo(['test6101']));
+				expect(status).toBe(200);
+				expect(imageUrls(data)).toEqual([`/dedalo/media/image/thumb/90000000/${camera}.jpg`]);
+			}
+		} finally {
+			await setFilename(null);
+		}
+	});
+
 	test('the door default: an absent limit is 500 under a ceiling above it (the clamp notice names the window served)', async () => {
 		// The page primitive (sqo.ts clampClientPage) gives get_indexation_grid its
 		// OWN default of 500 — the thesaurus "show indexations" page — still
