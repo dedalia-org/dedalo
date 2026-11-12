@@ -83,6 +83,17 @@ export interface MappedField {
 	component_tipo: string;
 	/** One or more flat values (multi-occurrence) to conform into this component. */
 	values: string[];
+	/**
+	 * The values are TEXT taken from a source format that has no cell grammar
+	 * (MARC21): conform reads them as text, never as a JSON/CSV cell — a MARC
+	 * '[1987]' is a bracketed inferred date, not the number 1987. Absent = a cell.
+	 */
+	literal?: boolean;
+	/**
+	 * The mapper already refused the value (a MARC transform that produced
+	 * nothing storable): reported as IGNORED, never written. Absent = none.
+	 */
+	refusal?: string;
 }
 
 export interface MappedRecord {
@@ -230,7 +241,22 @@ async function recordIdFor(
 	});
 }
 
-/** True (and the refusal reported) when the write door refuses this field. */
+/** True (and the refusal reported) when the MAPPER refused this field's value. */
+function mapperRefused(field: MappedField, sectionId: number, failed: ConformFailure[]): boolean {
+	if (field.refusal === undefined) return false;
+	failed.push({
+		section_id: sectionId,
+		data: field.values,
+		component_tipo: field.component_tipo,
+		msg: `IGNORED: ${field.refusal} — the field was NOT written`,
+	});
+	return true;
+}
+
+/**
+ * True (and the refusal reported) when this field is not written: the MAPPER
+ * already refused its value, or the write door refuses the field.
+ */
 async function refusedField(
 	principal: Principal,
 	sectionTipo: string,
@@ -239,6 +265,7 @@ async function refusedField(
 	sectionId: number,
 	failed: ConformFailure[],
 ): Promise<boolean> {
+	if (mapperRefused(field, sectionId, failed)) return true;
 	const refusal = await fieldRefusal(principal, sectionTipo, field.component_tipo, matchedId);
 	if (refusal === null) return false;
 	failed.push({
@@ -312,6 +339,7 @@ async function writeMappedRecord(
 				sectionId,
 				componentTipo: field.component_tipo,
 				lang: componentLang,
+				literal: field.literal,
 			});
 			if (conform.errors.length > 0) {
 				failed.push(...conform.errors);
@@ -458,6 +486,7 @@ async function lockRecordLabels(
 				sectionId: record.sectionId ?? 0,
 				componentTipo: field.component_tipo,
 				lang: dataLang,
+				literal: field.literal,
 			});
 			if (conform.errors.length > 0) continue; // the main pass refuses the field
 			labelled.push(...labelledItemsOf(conform.result, conform.derivedFrames));

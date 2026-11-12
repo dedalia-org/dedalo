@@ -743,6 +743,29 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-info-live-publication-export`.
 
+- **MARC21 import reads its field map from the Tools configuration and applies every mapping rule and the Values form.**
+
+    Before, the MARC21 import refused on every installation with "Missing marc21_map", because it
+    looked for the field map in what the browser sent. Where it did run, it imported every
+    repetition of a field as a separate value, kept the catalogue's trailing punctuation
+    ("Barcelona :"), stored a bracketed date "[1987]" as a number, skipped the multi-field
+    "Indexations" rule, never set the publication date, language or material type, and threw
+    away the values typed in the tool's **Values** form.
+
+    Now the import reads its map from the **Tools configuration** of `tool_import_marc21` (or,
+    when that has none, the tool's shipped default), and applies every rule of it: the first
+    repetition of a field unless the rule joins them all (`field_multiple`), the conditional
+    rules for copies, the trailing-punctuation clean-up, years (`date_format`), coded values such
+    as languages and material types (`dd_data_map`) and the companion fields (`dd_action`). The
+    values of the **Values** form are written into every imported record.
+
+    **Action needed:** none for the shipped map. A Tools configuration whose map carries a key the
+    import does not know, or a malformed rule, now stops the import with a message naming the
+    entry and the key — fix the entry. A year or code that cannot be mapped is listed per record
+    and that field is not written.
+
+    Wire contract: `WC-2026-11-12-marc21-config-map-and-transforms`.
+
 - **RDF publication produces real Linked Data (Nomisma).** *(action needed)*
 
     RDF publication (Nomisma and other Linked-Data services) now publishes each
@@ -833,7 +856,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 39 entries"
+??? note "Wire contract — 40 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -872,6 +895,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-diffusion-map-target-section-tipo`
     - `WC-2026-11-12-global-table-maps`
     - `WC-2026-11-12-info-live-publication-export`
+    - `WC-2026-11-12-marc21-config-map-and-transforms`
     - `WC-2026-11-12-rdf-graph-interpretation`
     - `WC-2026-11-12-select-dataframe-subdatum`
 

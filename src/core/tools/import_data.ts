@@ -258,6 +258,16 @@ export interface ConformInput {
 	wrapped?: boolean;
 	/** The column map's decimal separator (component_number). */
 	decimal?: string;
+	/**
+	 * The value is TEXT, not a cell: it is never JSON-decoded (MARC21 values —
+	 * a '[1987]' stays the text '[1987]'). The facet's flat branch owns it.
+	 */
+	literal?: boolean;
+}
+
+/** The decoded cell — a LITERAL value is text and is never JSON-decoded. */
+function cellOf(input: ConformInput): JsonCell {
+	return input.literal === true ? { isJson: false, decoded: null } : decodeCell(input.importValue);
 }
 
 /**
@@ -269,7 +279,7 @@ export interface ConformInput {
  * normalizer, an empty cell clears, and a flat cell is REFUSED.
  */
 export async function conformImportData(input: ConformInput): Promise<ConformResult> {
-	const json = decodeCell(input.importValue);
+	const json = cellOf(input);
 	const conformId = getImportConformId(input.model);
 
 	if (conformId !== undefined) {

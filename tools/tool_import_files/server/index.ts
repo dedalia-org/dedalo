@@ -84,6 +84,7 @@ import {
 	getFileProcessor,
 	registerFileProcessor,
 } from '../../../src/core/tools/import_files_match.ts';
+import { formValueItems, type TempDataEntry } from '../../../src/core/tools/import_form_values.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -141,21 +142,10 @@ export interface DdoMapEntry {
 }
 
 /**
- * One components_temp_data entry (the import-form component payload).
- *
- * The client pushes each tmp-section instance's `data` verbatim
- * (service_tmp_section.get_components_data). Under WC-001 the engine emits
- * component values as `entries` (resolve/component_data.ts buildDataItem), so
- * `entries` is the LIVE key; `value` is kept only as the PHP-era fallback for
- * any caller still shipping the old shape. Reading `value` alone silently
- * dropped every Values field the operator typed.
+ * One components_temp_data entry (the import-form component payload) — the
+ * shared shape of every import door's Values form (src/core/tools/import_form_values.ts).
  */
-export interface TempDataEntry {
-	tipo?: string;
-	section_tipo?: string;
-	entries?: unknown;
-	value?: unknown;
-}
+export type { TempDataEntry } from '../../../src/core/tools/import_form_values.ts';
 
 /** Raw stored items of one component on one record (empty when none). */
 async function readStoredItems(
@@ -711,14 +701,9 @@ export async function setComponentsData(options: SetComponentsDataOptions): Prom
 				// The client ships the full component payload in components_temp_data;
 				// extract the value and save it (PHP :1698-1705). WC-001: the engine's
 				// wire key is `entries` — `value` is the PHP-era fallback only.
-				const temp = indexedTempData.get(`${tipo}\0${ddoSectionTipo}`);
-				const rawValue = temp?.entries ?? temp?.value;
-				// PHP !empty guard; null/'' holes are dropped (never persist [null]).
-				const rawItems = Array.isArray(rawValue)
-					? rawValue.filter((entry) => entry !== null && entry !== '')
-					: rawValue === null || rawValue === undefined || rawValue === ''
-						? []
-						: [rawValue];
+				// PHP !empty guard; null/'' holes are dropped (never persist [null]) —
+				// the ONE reading of a form entry, shared with the mapped doors.
+				const rawItems = formValueItems(indexedTempData.get(`${tipo}\0${ddoSectionTipo}`));
 				if (rawItems.length === 0) break;
 				// PHP set_data auto-assigns the instance lang to lang-less items —
 				// stamp the component lang here so the stored dato matches.

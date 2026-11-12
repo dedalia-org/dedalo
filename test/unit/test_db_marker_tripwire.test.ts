@@ -399,6 +399,16 @@ const DOORS: readonly { name: string; run: () => Promise<unknown> }[] = [
 		run: async () => (await import('../helpers/rdf_services_fixture.ts')).removeRdfServicesRecord(),
 	},
 	{
+		// A scratch Tools configuration (test/helpers/tool_config_fixture.ts): a
+		// dd996 matrix_tools row — refused, writing nothing.
+		name: 'installScratchToolConfig',
+		run: async () =>
+			(await import('../helpers/tool_config_fixture.ts')).installScratchToolConfig(
+				'tool_marker_probe',
+				{},
+			),
+	},
+	{
 		name: 'ensureTestCorpus',
 		run: async () =>
 			(await import('../../src/core/test_data/test_corpus/ensure.ts')).ensureTestCorpus('dd128'),

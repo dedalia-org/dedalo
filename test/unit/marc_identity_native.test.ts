@@ -51,6 +51,7 @@ import type { ToolResponse } from '../../src/core/tools/module.ts';
 import { applyRdfMap } from '../../src/core/tools/rdf_xml.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { installScratchToolConfig } from '../helpers/tool_config_fixture.ts';
 
 // ---------------------------------------------------------------------------
 // The situation this file builds.
@@ -224,28 +225,33 @@ const stagingRoot = resolve(
 const stagedDir = resolve(stagingRoot, KEY_DIR);
 
 /**
- * The REAL authoring shape (tools/tool_import_marc21/sample_config.json): the
+ * The REAL config shape (getToolConfig, flat — tools/tool_import_marc21/register.json dd1633): the
  * `id` entry is both the code-component DECLARATION (its ddo_map is what PHP's
  * get_section_id_from_code read) and an ordinary binding — its own field/tipo
  * write the control number INTO that component, which is what makes the next
  * import of the same file find the record instead of duplicating it.
  */
-const TOOL_CONFIG = {
-	config: {
-		main: [{ name: 'field_to_section_id', value: { field: '907', subfield: 'a' } }],
-		map: [
-			{ info: 'Title mention', field: '245', subfield: 'a', tipo: TITLE_COMPONENT },
-			{
-				info: 'Control number',
-				name: 'id',
-				field: '907',
-				subfield: 'a',
-				tipo: CODE_COMPONENT,
-				ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: SECTION }],
-			},
-		],
-	},
+const SERVER_CONFIG = {
+	main: [{ name: 'field_to_section_id', value: { field: '907', subfield: 'a' } }],
+	map: [
+		{ info: 'Title mention', field: '245', subfield: 'a', tipo: TITLE_COMPONENT },
+		{
+			info: 'Control number',
+			name: 'id',
+			field: '907',
+			subfield: 'a',
+			tipo: CODE_COMPONENT,
+			ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: SECTION }],
+		},
+	],
 };
+/**
+ * T1-6: the map is the SERVER's (Tools configuration dd996 over dd1633), so
+ * SERVER_CONFIG is installed as a scratch dd996 record for this file's runs; the
+ * client posts its ontology tool_config, which carries only the ddo_map.
+ */
+const TOOL_CONFIG = { ddo_map: [] };
+let teardownConfig: () => Promise<void> = async () => {};
 
 // ---------------------------------------------------------------------------
 // Reading the situation back.
@@ -332,6 +338,7 @@ async function seedValue(sectionId: number, componentTipo: string, value: string
 let bulkProcessHighWater = 0;
 
 beforeAll(async () => {
+	teardownConfig = await installScratchToolConfig('tool_import_marc21', SERVER_CONFIG);
 	mkdirSync(stagedDir, { recursive: true });
 	stageFile('curated.mrc', [CURATED_CODE]);
 	stageFile('truncating_pair.mrc', [TRUNCATING_A, TRUNCATING_B]);
@@ -362,6 +369,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+	await teardownConfig();
 	rmSync(stagingRoot, { recursive: true, force: true });
 	// The records the RUNS created are found by the code they carry — their ids
 	// are the engine's, not ours, so they cannot be hard-coded.

@@ -14,22 +14,41 @@
  *     `key_dir:'../<other uid>'` stayed inside the shared staging root and let
  *     one user's import consume another user's staged upload;
  *  3. the field→component bindings were read from `config.main` instead of
- *     `config.map`, so extractMarcValues matched nothing and every import wrote
+ *     `config.map`, so the mapper matched nothing and every import wrote
  *     zero components.
+ *
+ * T1-6 (2026-11-12): the map is the SERVER's (Tools configuration dd996 over
+ * the register default dd1633) — every drive here installs its own scratch
+ * dd996 config (test/helpers/tool_config_fixture.ts) and posts the REAL client
+ * shape, `tool_config: {ddo_map}` — and the PHP value semantics are ported
+ * (first occurrence, field_multiple, conditional fallback, transforms,
+ * dd_action, the Values form). WC-2026-11-12-marc21-config-map-and-transforms.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from '../../src/config/config.ts';
+import { readMatrixRecord } from '../../src/core/db/matrix.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { getModelByTipo } from '../../src/core/ontology/resolver.ts';
+import { readComponentItems } from '../../src/core/resolve/component_data.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
+import {
+	readTemporalScratch,
+	writeTemporalScratch,
+} from '../../src/core/section/record/temporal_store.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
-import { readMarcMap, resolveStagedFile } from '../../tools/tool_import_marc21/server/index.ts';
+import {
+	importMarc21Targets,
+	parseMarcConfig,
+	resolveStagedFile,
+} from '../../tools/tool_import_marc21/server/index.ts';
 import { mustGet } from '../helpers/assert.ts';
-import { refusalOf } from '../helpers/refusal.ts';
+import { refusalOf, refusalOfSync } from '../helpers/refusal.ts';
+import { installScratchToolConfig } from '../helpers/tool_config_fixture.ts';
 
 const FT = '\x1e'; // field terminator
 const SD = '\x1f'; // subfield delimiter
@@ -207,27 +226,39 @@ describe('import_files (scratch record in the test3 playground, cleaned up)', ()
 	/** The component this section stores an imported record's CODE in. */
 	const CODE_COMPONENT = 'test162';
 
-	// The REAL authoring shape (tools/tool_import_marc21/sample_config.json):
-	// bindings under `map` keyed by `tipo`; `field_to_section_id` under `main`;
-	// and the `id` entry, which is BOTH the code-component declaration (ddo_map,
-	// how PHP's get_section_id_from_code found the record) and an ordinary
-	// binding — its own field/tipo write the control number INTO that component,
-	// which is what makes the NEXT import of the same file find the record.
-	const toolConfig = {
-		config: {
-			main: [{ name: 'field_to_section_id', value: { field: '907', subfield: 'a' } }],
-			map: [
-				{ info: 'Title mention', field: '245', subfield: 'a', tipo: 'test52' },
-				{
-					info: 'Control number',
-					name: 'id',
-					field: '907',
-					subfield: 'a',
-					tipo: CODE_COMPONENT,
-					ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: 'test3' }],
-				},
-			],
-		},
+	// The REAL config shape (getToolConfig resolves dd996 over dd1633 per key,
+	// flat): bindings under `map` keyed by `tipo`; `field_to_section_id` under
+	// `main`; and the `id` entry, which is BOTH the code-component declaration
+	// (ddo_map, how PHP's get_section_id_from_code found the record) and an
+	// ordinary binding — its own field/tipo write the control number INTO that
+	// component, which is what makes the NEXT import of the same file find the
+	// record. Installed as the SERVER's config (T1-6); the client posts only its
+	// ddo_map, `toolConfig` below.
+	const serverConfig = {
+		main: [{ name: 'field_to_section_id', value: { field: '907', subfield: 'a' } }],
+		map: [
+			{ info: 'Title mention', field: '245', subfield: 'a', tipo: 'test52' },
+			{
+				info: 'Control number',
+				name: 'id',
+				field: '907',
+				subfield: 'a',
+				tipo: CODE_COMPONENT,
+				ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: 'test3' }],
+			},
+		],
+	};
+	/** What render_tool_import_marc21 posts: the ontology tool_config (ddo_map only). */
+	const toolConfig = { ddo_map: [] };
+	let teardownConfig: () => Promise<void> = async () => {};
+	/** Run `fn` under another server config, restoring `serverConfig` after. */
+	const withConfig = async <T>(cfg: Record<string, unknown>, fn: () => Promise<T>): Promise<T> => {
+		await installScratchToolConfig('tool_import_marc21', cfg);
+		try {
+			return await fn();
+		} finally {
+			teardownConfig = await installScratchToolConfig('tool_import_marc21', serverConfig);
+		}
 	};
 
 	/** Every test3 record whose code component holds `code` — the run's own output. */
@@ -268,6 +299,7 @@ describe('import_files (scratch record in the test3 playground, cleaned up)', ()
 	};
 
 	beforeAll(async () => {
+		teardownConfig = await installScratchToolConfig('tool_import_marc21', serverConfig);
 		mkdirSync(stagedDir, { recursive: true });
 		writeFileSync(
 			resolve(stagedDir, MRC),
@@ -294,6 +326,7 @@ describe('import_files (scratch record in the test3 playground, cleaned up)', ()
 	});
 
 	afterAll(async () => {
+		await teardownConfig();
 		rmSync(stagingRoot, { recursive: true, force: true });
 		// The records the RUNS created (the door creates when the code matches
 		// nothing), found by the code they carry — the ids are the engine's, not
@@ -429,18 +462,20 @@ describe('import_files (scratch record in the test3 playground, cleaned up)', ()
 		).rejects.toThrow('Unsafe path segment');
 	});
 
-	test('the config-map guard names config.map (an empty map refuses the batch)', async () => {
-		const refusal = await refusalOf(
-			runImportRaw({
-				section_tipo: 'test3',
-				// The pre-fix shape: bindings under `main`. They are NOT bindings.
-				tool_config: { config: { main: [{ name: 'code', tipo: 'test52' }] } },
-				files_data: [{ name: MRC }],
-				key_dir: KEY_DIR,
-			}),
+	test('an empty SERVER map refuses the batch, naming where the map lives', async () => {
+		const refusal = await withConfig({ main: [], map: [] }, () =>
+			refusalOf(
+				runImportRaw({
+					section_tipo: 'test3',
+					tool_config: toolConfig,
+					files_data: [{ name: MRC }],
+					key_dir: KEY_DIR,
+				}),
+			),
 		);
 		expect(refusal.code).toBe('request.invalid_options');
-		expect(refusal.message).toContain('tool_config.config.map');
+		expect(refusal.message).toContain('Missing marc21_map');
+		expect(refusal.message).toContain('dd996');
 	});
 
 	/**
@@ -453,18 +488,20 @@ describe('import_files (scratch record in the test3 playground, cleaned up)', ()
 	 * config that is incomplete, never on a legitimate one.
 	 */
 	test('field_to_section_id with no code component REFUSES the run', async () => {
-		const refusal = await refusalOf(
-			runImportRaw({
-				section_tipo: 'test3',
-				tool_config: {
-					config: {
-						main: [{ name: 'field_to_section_id', value: { field: '907', subfield: 'a' } }],
-						map: [{ info: 'Title mention', field: '245', subfield: 'a', tipo: 'test52' }],
-					},
-				},
-				files_data: [{ name: MRC }],
-				key_dir: KEY_DIR,
-			}),
+		const refusal = await withConfig(
+			{
+				main: [{ name: 'field_to_section_id', value: { field: '907', subfield: 'a' } }],
+				map: [{ info: 'Title mention', field: '245', subfield: 'a', tipo: 'test52' }],
+			},
+			() =>
+				refusalOf(
+					runImportRaw({
+						section_tipo: 'test3',
+						tool_config: toolConfig,
+						files_data: [{ name: MRC }],
+						key_dir: KEY_DIR,
+					}),
+				),
 		);
 		expect(refusal.code).toBe('request.invalid_options');
 		expect(refusal.message).toContain('907$a');
@@ -474,26 +511,28 @@ describe('import_files (scratch record in the test3 playground, cleaned up)', ()
 	test('an id ddo_map pointing at another section REFUSES the run', async () => {
 		// Resolving the identifier in one section to address a record in another
 		// names an unrelated record — the DATA-08 defect with an extra step.
-		const refusal = await refusalOf(
-			runImportRaw({
-				section_tipo: 'test3',
-				tool_config: {
-					config: {
-						main: [{ name: 'field_to_section_id', value: { field: '907', subfield: 'a' } }],
-						map: [
-							{
-								name: 'id',
-								field: '907',
-								subfield: 'a',
-								tipo: CODE_COMPONENT,
-								ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: 'test118' }],
-							},
-						],
+		const refusal = await withConfig(
+			{
+				main: [{ name: 'field_to_section_id', value: { field: '907', subfield: 'a' } }],
+				map: [
+					{
+						name: 'id',
+						field: '907',
+						subfield: 'a',
+						tipo: CODE_COMPONENT,
+						ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: 'test118' }],
 					},
-				},
-				files_data: [{ name: MRC }],
-				key_dir: KEY_DIR,
-			}),
+				],
+			},
+			() =>
+				refusalOf(
+					runImportRaw({
+						section_tipo: 'test3',
+						tool_config: toolConfig,
+						files_data: [{ name: MRC }],
+						key_dir: KEY_DIR,
+					}),
+				),
 		);
 		expect(refusal.code).toBe('request.invalid_options');
 		expect(refusal.message).toContain('test118');
@@ -523,39 +562,492 @@ describe('import_files (scratch record in the test3 playground, cleaned up)', ()
 });
 
 /**
- * REGRESSION GATE (2026-07-28): readMarcMap must read the shape getToolConfig
- * ACTUALLY emits.
+ * T1-6: THE SERVER CONFIG AND THE PHP VALUE SEMANTICS, end to end on test3.
  *
- * `{config:{main,map}}` is the AUTHORING shape in register.json /
- * sample_config.json. getToolConfig RESOLVES options flat, so a caller receives
- * `{map, info, main}` with NO `.config` wrapper (measured: getToolConfig(
- * 'tool_import_marc21') -> keys ["map","info","main"]). readMarcMap read only
- * `toolConfig.config.map`, so every real import found zero bindings and returned
- * "Missing marc21_map" — while the suite passed, because its fixture hand-built
- * the nested shape. Same class of bug as resolveTranscriberConfig /
- * resolveTranslatorConfig; same fix (flat first, nested tolerated as legacy).
+ * Every case installs its own scratch Tools configuration (dd996) and posts the
+ * real client shape — `tool_config: {ddo_map}` — so a pass proves the run read
+ * the SERVER's map. Records are created by the runs themselves, each carrying a
+ * `T16-…` control number in the code component; the sweep finds them by it.
  */
-describe('readMarcMap reads the real getToolConfig shape', () => {
-	const map = [{ info: 'Title', field: '245', subfield: 'a', tipo: 'test52' }];
+describe('import_files: server config + ported value semantics (T1-6)', () => {
+	const USER = 987659; // distinct from 987657/987658: each file rm -rf's its own staging root
+	const DIR = 'marc21_t16';
+	const SECTION = 'test3';
+	const CODE = 'test162'; // component_input_text, non-translatable
+	const TITLE = 'test52'; // component_input_text, translatable
+	const NOTE = 'test17'; // component_text_area, translatable
+	const DATE = 'test145'; // component_date
+	const SELECT = 'test91'; // component_select → dd64
+	const RADIO = 'test87'; // component_radio_button → dd64
+	const PREFIX = 'T16-';
+	const stagingRoot = resolve(
+		config.media.rootPath ?? '',
+		config.media.upload.tmpSubdir,
+		String(USER),
+	);
+	let bulkHighWater = 0;
+	let teardown: () => Promise<void> = async () => {};
+
+	/** The id entry + main every config shares: 907$a → the code component. */
+	const idEntry = {
+		info: 'Control number',
+		name: 'id',
+		field: '907',
+		subfield: 'a',
+		tipo: CODE,
+		ddo_map: [{ tipo: CODE, section_tipo: SECTION }],
+	};
 	const main = [{ name: 'field_to_section_id', value: { field: '907', subfield: 'a' } }];
-
-	test('the FLAT shape getToolConfig emits yields the bindings', () => {
-		const { entries } = readMarcMap({ map, main });
-		expect(entries).toHaveLength(1);
-		expect(entries[0]?.component_tipo).toBe('test52');
-		expect(entries[0]?.field).toBe('245');
+	const configWith = (...entries: Record<string, unknown>[]) => ({
+		main,
+		map: [idEntry, ...entries],
 	});
 
-	test('the flat shape also yields the id spec from main', () => {
-		const { idSpec } = readMarcMap({ map, main });
-		expect(idSpec).toEqual({ field: '907', subfield: 'a' });
+	/** A record: its control number + fields. */
+	const rec = (code: string, ...fields: FieldSpec[]): FieldSpec[] => [
+		{ tag: '907', subfields: [['a', `${PREFIX}${code}`]] },
+		...fields,
+	];
+
+	const stage = (name: string, records: FieldSpec[][]): void => {
+		const parts = records.map(buildMarc);
+		const bytes = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+		let at = 0;
+		for (const part of parts) {
+			bytes.set(part, at);
+			at += part.length;
+		}
+		mkdirSync(resolve(stagingRoot, DIR), { recursive: true });
+		writeFileSync(resolve(stagingRoot, DIR, name), bytes);
+	};
+
+	interface Report {
+		created: number;
+		updated: number;
+		errors: string[];
+		failed: { component_tipo?: string; msg?: string }[];
+	}
+	const handler = async () =>
+		mustGet(
+			(await getLoadedTool('tool_import_marc21'))!.module.apiActions.import_files,
+			'import_files',
+		).handler;
+	const runRaw = async (
+		serverConfig: Record<string, unknown>,
+		file: string,
+		extra: Record<string, unknown> = {},
+	): Promise<ToolResponse> => {
+		teardown = await installScratchToolConfig('tool_import_marc21', serverConfig);
+		try {
+			return await (await handler())({
+				principal: await resolvePrincipal(-1),
+				userId: USER,
+				background: false,
+				options: {
+					section_tipo: SECTION,
+					tool_config: { ddo_map: [] },
+					files_data: [{ name: file, size: 1 }],
+					key_dir: DIR,
+					...extra,
+				},
+			});
+		} finally {
+			await teardown();
+		}
+	};
+	const run = async (
+		serverConfig: Record<string, unknown>,
+		file: string,
+		extra: Record<string, unknown> = {},
+	): Promise<Report> => {
+		const res = (await runRaw(serverConfig, file, extra)) as { ok: boolean; data: Report };
+		expect(res.ok).toBe(true);
+		expect(res.data.errors).toEqual([]);
+		return res.data;
+	};
+
+	/** The test3 records whose code component holds `PREFIX+code`. */
+	const idsWithCode = async (code: string): Promise<number[]> => {
+		const rows = (await sql.unsafe(
+			`SELECT section_id, string -> $1::text AS items FROM matrix_test
+			  WHERE section_tipo = $2 AND string ? $1::text`,
+			[CODE, SECTION],
+		)) as { section_id: number; items: { value?: unknown }[] | null }[];
+		return rows
+			.filter((row) => (row.items ?? []).some((item) => item?.value === `${PREFIX}${code}`))
+			.map((row) => Number(row.section_id));
+	};
+	/** The ONE record a code names (asserted unique). */
+	const theRecord = async (code: string): Promise<number> => {
+		const ids = await idsWithCode(code);
+		expect(ids, code).toHaveLength(1);
+		return ids[0] as number;
+	};
+	/** Stored items of one component (all langs), model-aware. */
+	const itemsOf = async (code: string, tipo: string): Promise<Record<string, unknown>[]> => {
+		const id = await theRecord(code);
+		const record = await readMatrixRecord('matrix_test', SECTION, id);
+		const model = mustGet(await getModelByTipo(tipo), tipo);
+		return (readComponentItems(mustGet(record, String(id)), tipo, model) ?? []) as Record<
+			string,
+			unknown
+		>[];
+	};
+	const valuesOf = async (code: string, tipo: string): Promise<unknown[]> =>
+		(await itemsOf(code, tipo)).map((item) => item.value);
+
+	beforeAll(async () => {
+		const rows = (await sql.unsafe(
+			`SELECT COALESCE(MAX(section_id), 0) AS max_id FROM matrix_notes WHERE section_tipo = 'dd800'`,
+		)) as { max_id: number }[];
+		bulkHighWater = Number(rows[0]?.max_id ?? 0);
 	});
 
-	test('the legacy nested shape still yields the bindings (tolerated)', () => {
-		expect(readMarcMap({ config: { map, main } }).entries).toHaveLength(1);
+	afterAll(async () => {
+		await teardown();
+		rmSync(stagingRoot, { recursive: true, force: true });
+		const rows = (await sql.unsafe(
+			`SELECT section_id, string -> $1::text AS items FROM matrix_test
+			  WHERE section_tipo = $2 AND string ? $1::text`,
+			[CODE, SECTION],
+		)) as { section_id: number; items: { value?: unknown }[] | null }[];
+		const ids = rows
+			.filter((row) =>
+				(row.items ?? []).some((item) => String(item?.value ?? '').startsWith(PREFIX)),
+			)
+			.map((row) => Number(row.section_id));
+		for (const id of ids) {
+			await sql.unsafe(`DELETE FROM matrix_test WHERE section_tipo = $1 AND section_id = $2`, [
+				SECTION,
+				id,
+			]);
+			await sql.unsafe(
+				`DELETE FROM matrix_time_machine WHERE section_tipo = $1 AND section_id = $2`,
+				[SECTION, id],
+			);
+		}
+		await sql.unsafe(`DELETE FROM matrix_notes WHERE section_tipo = 'dd800' AND section_id > $1`, [
+			bulkHighWater,
+		]);
+		await sql.unsafe(
+			`DELETE FROM matrix_time_machine WHERE section_tipo = 'dd800' AND section_id > $1`,
+			[bulkHighWater],
+		);
 	});
 
-	test('a config with no map at all yields no entries (fail-closed)', () => {
-		expect(readMarcMap({ info: 'nothing here' }).entries).toHaveLength(0);
+	const title = (text: string): FieldSpec => ({
+		tag: '245',
+		ind1: '1',
+		ind2: '0',
+		subfields: [['a', text]],
+	});
+	const titleEntry = { info: 'Title', field: '245', subfield: 'a', tipo: TITLE };
+
+	test('G1+G2: the SERVER map is applied; a client-posted map is ignored', async () => {
+		stage('g1.mrc', [rec('g1', title('Server mapped title'))]);
+		const report = await run(configWith(titleEntry), 'g1.mrc', {
+			// The pre-T1-6 wire: a client-chosen map binding the title to test17.
+			tool_config: { map: [{ field: '245', subfield: 'a', tipo: NOTE }], ddo_map: [] },
+		});
+		expect(report.created).toBe(1);
+		expect(await valuesOf('g1', TITLE)).toEqual(['Server mapped title']);
+		expect(await valuesOf('g1', NOTE)).toEqual([]);
+	});
+
+	test('G3+G5+G9: first occurrence only, trailing punctuation stripped, brackets stay text', async () => {
+		stage('g3.mrc', [
+			rec('g3', title('First title :'), title('Second title')),
+			rec('g9', title('[1987]')),
+		]);
+		const report = await run(configWith(titleEntry), 'g3.mrc');
+		expect(report.created).toBe(2);
+		expect(report.failed).toEqual([]);
+		expect(await valuesOf('g3', TITLE)).toEqual(['First title']);
+		// '[1987]' is a bracketed inferred date, NOT a JSON cell (was stored as the number 1987).
+		expect(await valuesOf('g9', TITLE)).toEqual(['[1987]']);
+	});
+
+	test('G4: field_multiple joins every occurrence of every listed tag', async () => {
+		stage('g4.mrc', [
+			rec(
+				'g4',
+				{
+					tag: '650',
+					subfields: [
+						['a', 'Coins'],
+						['x', 'Iberia'],
+					],
+				},
+				{ tag: '650', subfields: [['a', 'Mints']] },
+				{ tag: '651', subfields: [['a', 'Hispania']] },
+			),
+		]);
+		await run(
+			configWith({
+				info: 'Indexations',
+				field: ['650', '651'],
+				field_multiple: true,
+				row_separator: ' | ',
+				subfield_separator: ' - ',
+				tipo: TITLE,
+			}),
+			'g4.mrc',
+		);
+		expect(await valuesOf('g4', TITLE)).toEqual(['Coins - Iberia | Mints | Hispania']);
+	});
+
+	test('G6: partial_left_content + date_format year → a date; no year is refused, not an empty date', async () => {
+		stage('g6.mrc', [
+			rec('g6', { tag: '260', subfields: [['c', 'c1987.']] }),
+			rec('g6n', { tag: '260', subfields: [['c', 's.d.']] }),
+		]);
+		const report = await run(
+			configWith({
+				field: '260',
+				subfield: 'c',
+				tipo: DATE,
+				date_format: 'year',
+				partial_left_content: 4,
+			}),
+			'g6.mrc',
+		);
+		const items = await itemsOf('g6', DATE);
+		expect(items).toHaveLength(1);
+		expect((items[0]?.start as { year?: number } | undefined)?.year).toBe(1987);
+		expect(await itemsOf('g6n', DATE)).toEqual([]);
+		expect(
+			report.failed.some((f) => f.component_tipo === DATE && /no year/.test(f.msg ?? '')),
+		).toBe(true);
+	});
+
+	test('G7: dd_data_map turns a code into its locator; a miss is reported by name', async () => {
+		stage('g7.mrc', [
+			rec('g7', { tag: '998', subfields: [['f', 'spa']] }),
+			rec('g7m', { tag: '998', subfields: [['f', 'zzz']] }),
+		]);
+		const report = await run(
+			configWith({
+				field: '998',
+				subfield: 'f',
+				tipo: SELECT,
+				dd_data_map: { spa: [{ section_tipo: 'dd64', section_id: '1' }] },
+			}),
+			'g7.mrc',
+		);
+		const items = await itemsOf('g7', SELECT);
+		expect(items.map((i) => [i.section_tipo, Number(i.section_id)])).toEqual([['dd64', 1]]);
+		expect(await itemsOf('g7m', SELECT)).toEqual([]);
+		expect(
+			report.failed.some(
+				(f) =>
+					f.component_tipo === SELECT && (f.msg ?? '').includes("no dd_data_map entry for 'zzz'"),
+			),
+		).toBe(true);
+	});
+
+	test('G8: dd_action writes its companion only when the entry yields a value', async () => {
+		stage('g8.mrc', [
+			rec('g8', { tag: '020', subfields: [['a', '978-84-0000-000-0']] }),
+			rec('g8n', title('No ISBN here')),
+		]);
+		await run(
+			configWith({
+				info: 'ISBN',
+				field: '020',
+				subfield: 'a',
+				tipo: TITLE,
+				dd_action: { [RADIO]: [{ section_tipo: 'dd64', section_id: '2' }] },
+			}),
+			'g8.mrc',
+		);
+		const items = await itemsOf('g8', RADIO);
+		expect(items.map((i) => [i.section_tipo, Number(i.section_id)])).toEqual([['dd64', 2]]);
+		expect(await itemsOf('g8n', RADIO)).toEqual([]);
+	});
+
+	test('G10: conditional — the guarded occurrence, else the unconditional first (PHP fallback)', async () => {
+		const copy = (shelf: string, library: string): FieldSpec => ({
+			tag: '945',
+			subfields: [
+				['a', shelf],
+				['j', library],
+			],
+		});
+		stage('g10.mrc', [
+			rec('g10', copy('Shelf A', '100'), copy('Shelf B', '193')),
+			rec('g10f', copy('Shelf C', '100')),
+		]);
+		await run(
+			configWith({
+				info: 'Topographic',
+				field: '945',
+				subfield: 'a',
+				tipo: TITLE,
+				marc21_conditional: { subfield: 'j', value: '193' },
+			}),
+			'g10.mrc',
+		);
+		expect(await valuesOf('g10', TITLE)).toEqual(['Shelf B']);
+		expect(await valuesOf('g10f', TITLE)).toEqual(['Shelf C']);
+	});
+
+	test('G11: the Values form is applied to every imported record, per language, then consumed', async () => {
+		const scratch = {
+			scope: 'tool_import_marc21',
+			sectionTipo: SECTION,
+			componentTipo: NOTE,
+			lang: 'lg-eng',
+		};
+		await writeTemporalScratch(USER, scratch, [{ value: '<p>Form note</p>', lang: 'lg-eng' }]);
+		stage('g11.mrc', [rec('g11a', title('One')), rec('g11b', title('Two'))]);
+		const report = await run(configWith(titleEntry), 'g11.mrc', {
+			tool_config: { ddo_map: [{ role: 'input_component', tipo: NOTE, section_tipo: SECTION }] },
+			components_temp_data: [
+				{
+					tipo: NOTE,
+					section_tipo: SECTION,
+					entries: [
+						{ id: 1, value: '<p>Form note</p>', lang: 'lg-eng' },
+						{ id: 2, value: '<p>Nota del formulario</p>', lang: 'lg-spa' },
+					],
+				},
+			],
+		});
+		expect(report.created).toBe(2);
+		for (const code of ['g11a', 'g11b']) {
+			const byLang = Object.fromEntries((await itemsOf(code, NOTE)).map((i) => [i.lang, i.value]));
+			expect(byLang, code).toEqual({
+				'lg-eng': '<p>Form note</p>',
+				'lg-spa': '<p>Nota del formulario</p>',
+			});
+		}
+		expect(await readTemporalScratch(USER, scratch)).toBeNull();
+	});
+
+	test('G12: a Values field of another section refuses the run before anything is written', async () => {
+		stage('g12.mrc', [rec('g12', title('Never written'))]);
+		const before = (await sql.unsafe(
+			`SELECT COALESCE(MAX(section_id), 0) AS max_id FROM matrix_notes WHERE section_tipo = 'dd800'`,
+		)) as { max_id: number }[];
+		const refusal = await refusalOf(
+			runRaw(configWith(titleEntry), 'g12.mrc', {
+				tool_config: {
+					ddo_map: [{ role: 'input_component', tipo: NOTE, section_tipo: 'test118' }],
+				},
+				components_temp_data: [{ tipo: NOTE, section_tipo: 'test118', entries: [{ value: 'x' }] }],
+			}),
+		);
+		expect(refusal.code).toBe('request.invalid_options');
+		expect(refusal.message).toContain('test118');
+		expect(await idsWithCode('g12')).toEqual([]);
+		const after = (await sql.unsafe(
+			`SELECT COALESCE(MAX(section_id), 0) AS max_id FROM matrix_notes WHERE section_tipo = 'dd800'`,
+		)) as { max_id: number }[];
+		expect(Number(after[0]?.max_id)).toBe(Number(before[0]?.max_id));
+	});
+
+	test('G14: an id ending in punctuation is stored verbatim, so a re-import UPDATES', async () => {
+		stage('g14.mrc', [rec('B123.', title('Punctuated id'))]);
+		const first = await run(configWith(titleEntry), 'g14.mrc');
+		expect(first.created).toBe(1);
+		const second = await run(configWith(titleEntry), 'g14.mrc');
+		expect(second.created).toBe(0);
+		expect(second.updated).toBe(1);
+		expect(await idsWithCode('B123.')).toHaveLength(1);
 	});
 });
+
+/**
+ * G13: the config is VALIDATED, refusing by name (pure — no DB). PHP ignored an
+ * unknown key or a malformed transform and imported the raw text.
+ */
+describe('parseMarcConfig refuses a malformed server config (T1-6)', () => {
+	const base = { field: '245', subfield: 'a', tipo: 'test52' };
+	const refused = (entry: Record<string, unknown>) =>
+		refusalOfSync(() => parseMarcConfig({ map: [{ info: 'Probe', ...entry }] }));
+
+	test('a missing or empty map', () => {
+		expect(refusalOfSync(() => parseMarcConfig({})).message).toContain('Missing marc21_map');
+		expect(refusalOfSync(() => parseMarcConfig({ map: [] })).code).toBe('request.invalid_options');
+	});
+
+	test('an unknown key is named', () => {
+		const refusal = refused({ ...base, date_fromat: 'year' });
+		expect(refusal.code).toBe('request.invalid_options');
+		expect(refusal.message).toContain("'date_fromat'");
+		expect(refusal.message).toContain("'Probe'");
+	});
+
+	test('an unsupported date_format, an array field without field_multiple, a non-object dd_action', () => {
+		expect(refused({ ...base, date_format: 'decade' }).message).toContain('date_format');
+		expect(refused({ ...base, field: ['650', '651'] }).message).toContain('field_multiple');
+		expect(refused({ ...base, dd_action: 'test87' }).message).toContain('dd_action');
+		expect(refused({ field: '245' }).message).toContain("'tipo'");
+		expect(refused({ ...base, partial_left_content: '4' }).message).toContain(
+			'partial_left_content',
+		);
+		expect(refused({ ...base, date_format: 'year', dd_data_map: { a: [] } }).message).toContain(
+			'cannot both',
+		);
+	});
+
+	test('the shipped register map (dd1633 shape) parses', () => {
+		const parsed = parseMarcConfig({
+			main,
+			map: [
+				{
+					info: 'ISBN',
+					tipo: 'test52',
+					field: '020',
+					dd_action: { test87: [] },
+					skip_on_empty: true,
+				},
+				{
+					info: 'Indexations',
+					tipo: 'test17',
+					field: ['600', '650'],
+					row_separator: '</p><p>',
+					field_multiple: true,
+					subfield_separator: ' - ',
+				},
+				{
+					info: 'Barcode',
+					tipo: 'test52',
+					field: '945',
+					subfield: 'i',
+					marc21_conditional: { value: '193', subfield: 'j' },
+				},
+				{
+					info: 'Date',
+					tipo: 'test145',
+					field: '260',
+					subfield: 'c',
+					date_format: 'year',
+					partial_left_content: 4,
+				},
+			],
+		});
+		expect(parsed.entries).toHaveLength(4);
+		expect(parsed.idSpec).toEqual({ field: '907', subfield: 'a' });
+	});
+
+	test('the targets extractor names the caller pair and the Values fields, never a client map', () => {
+		const targets = importMarc21Targets({
+			section_tipo: 'test3',
+			tipo: 'test52',
+			tool_config: {
+				map: [{ field: '245', tipo: 'test18' }],
+				ddo_map: [
+					{ role: 'input_component', tipo: 'test17', section_tipo: 'test3' },
+					{ role: 'target_component', tipo: 'test99', section_tipo: 'test3' },
+				],
+			},
+		});
+		expect(targets).toEqual([
+			{ section_tipo: 'test3', tipo: 'test52' },
+			{ section_tipo: 'test3', tipo: 'test17' },
+		]);
+	});
+});
+
+const main = [{ name: 'field_to_section_id', value: { field: '907', subfield: 'a' } }];

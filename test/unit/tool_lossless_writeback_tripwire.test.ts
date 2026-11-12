@@ -863,7 +863,7 @@ else {
 				importMappedRecords: {
 					verdict: 'operator-value',
 					reason:
-						'writes the MARC21 records the operator imports, through the field mapping they declared: one set_data per mapped field of each record. The values come from the imported file, never from the value they replace.',
+						'writes the MARC21 records the operator imports, through the field map the Tools configuration declares plus the Values form the operator typed: one set_data per mapped field of each record. The values come from the imported file or the form, never from the value they replace.',
 				},
 			},
 		},
