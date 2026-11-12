@@ -23,7 +23,14 @@
  * - when a section_list's relation nodes contain NO section, the component's
  *   main 'related' section is used (resolve_ar_related_list_component :454-473)
  *   — exposed as getMainRelatedSectionTipo for the list-cell path too;
- * - non-section callers force ddo mode 'list' (PHP :117).
+ * - non-section callers force ddo mode 'list' (PHP :117);
+ * - every ddo's VIEW is the CALLER's own properties.children_view, else the
+ *   child's own properties.view, else the model default (resolve_view); null
+ *   omits the key (build_request_config_v5 :119-121 + build_legacy_ddo_map
+ *   :633-639 — implicitDdoView). "Caller's own" = context.ownerChildrenView:
+ *   an rqo properties override counts, the list-mode section_list swap does
+ *   NOT. The relation-family LEGACY children_view default (get_children_view
+ *   'text') is not applied here — PHP reads properties only (T1-30).
  *
  * The per-user permissions filter (PHP STEP 5 filter_authorized_related)
  * LANDED 2026-07-10 — filterAuthorizedRelated below, applied to all three
@@ -44,7 +51,7 @@ import {
 	getSectionRealTipo,
 	relatedTipoByExactModel,
 } from '../../ontology/resolver.ts';
-import { contextLabelOf } from '../../resolve/structure_context.ts';
+import { contextLabelOf, resolveDefaultView } from '../../resolve/structure_context.ts';
 import {
 	buildSqoSectionTipoDdos,
 	type ParsedRequestConfigItem,
@@ -113,6 +120,45 @@ export async function filterAuthorizedRelated(
 		targetSectionTipo,
 		componentTipos,
 	);
+}
+
+/**
+ * A properties object's string `children_view`, else null (a non-string value
+ * counts as absent — the same rule structure_context applies to the
+ * context-level children_view).
+ */
+export function childrenViewOf(properties: unknown): string | null {
+	const value = (properties as { children_view?: unknown } | null | undefined)?.children_view;
+	return typeof value === 'string' ? value : null;
+}
+
+/**
+ * The view of ONE implicit ddo (PHP build_legacy_ddo_map :633-639): the
+ * caller's children_view, else the child's own string properties.view, else
+ * the model default (resolve_view — the stored legacy model decides:
+ * autocomplete→line, portal→default …). Null = the key is omitted.
+ */
+async function implicitDdoView(
+	tipo: string,
+	model: string,
+	childrenView: string | null,
+): Promise<string | null> {
+	if (childrenView !== null) return childrenView;
+	const node = await getNode(tipo);
+	const ownView = (node?.properties as { view?: unknown } | null | undefined)?.view;
+	if (typeof ownView === 'string') return ownView;
+	const legacyModel = node !== null && node.model !== model ? node.model : null;
+	return resolveDefaultView(model, legacyModel);
+}
+
+/** Stamp the implicit view on `ddo` when one resolves (PHP null → no key). */
+async function withImplicitView(
+	ddo: ProcessedDdo,
+	context: RequestConfigContext,
+): Promise<ProcessedDdo> {
+	const view = await implicitDdoView(ddo.tipo, ddo.model, context.ownerChildrenView ?? null);
+	if (view !== null) ddo.view = view;
+	return ddo;
 }
 
 /**
@@ -291,14 +337,17 @@ export async function buildImplicitComponentListConfig(
 			await filterAuthorizedRelated([PROJECTS_NAME_TIPO], SECTION_PROJECTS_TIPO)
 		).has(PROJECTS_NAME_TIPO)
 			? [
-					{
-						tipo: PROJECTS_NAME_TIPO,
-						model: (await getModelByTipo(PROJECTS_NAME_TIPO)) ?? 'component_input_text',
-						section_tipo: SECTION_PROJECTS_TIPO,
-						parent: context.ownerTipo,
-						mode: 'list',
-						label: await contextLabelOf(PROJECTS_NAME_TIPO),
-					},
+					await withImplicitView(
+						{
+							tipo: PROJECTS_NAME_TIPO,
+							model: (await getModelByTipo(PROJECTS_NAME_TIPO)) ?? 'component_input_text',
+							section_tipo: SECTION_PROJECTS_TIPO,
+							parent: context.ownerTipo,
+							mode: 'list',
+							label: await contextLabelOf(PROJECTS_NAME_TIPO),
+						},
+						context,
+					),
 				]
 			: [];
 		return [
@@ -323,16 +372,21 @@ export async function buildImplicitComponentListConfig(
 	let targetSectionTipo = walk.targetSectionTipo;
 	const ddoMap: ProcessedDdo[] = [];
 	for (const link of walk.links) {
-		ddoMap.push({
-			tipo: link.tipo,
-			model: link.model,
-			// Implicit legacy ddos carry a SCALAR section_tipo (build_legacy_ddo_map),
-			// unlike the explicit array form.
-			section_tipo: link.sectionTipo ?? context.ownerSectionTipo,
-			parent: context.ownerTipo,
-			mode: 'list', // PHP trait.request_config_v5.php:117 — non-section callers force list
-			label: await contextLabelOf(link.tipo),
-		});
+		ddoMap.push(
+			await withImplicitView(
+				{
+					tipo: link.tipo,
+					model: link.model,
+					// Implicit legacy ddos carry a SCALAR section_tipo (build_legacy_ddo_map),
+					// unlike the explicit array form.
+					section_tipo: link.sectionTipo ?? context.ownerSectionTipo,
+					parent: context.ownerTipo,
+					mode: 'list', // PHP trait.request_config_v5.php:117 — non-section callers force list
+					label: await contextLabelOf(link.tipo),
+				},
+				context,
+			),
+		);
 	}
 	// section_list nodes may omit the target section — fall back to the
 	// COMPONENT's main related section (PHP resolve_ar_related_list_component
@@ -467,7 +521,7 @@ const EDIT_CHILD_MODEL_PREFIXES = [
  * with component_/section_group/section_tab/tab (recursive ontology walk,
  * component_dataframe excluded: it renders through its main component), each
  * with parent = the SECTION, mode 'edit', SCALAR section_tipo (implicit legacy
- * shape), view from own properties or the legacy default. This is what the
+ * shape), view per implicitDdoView (children_view → own view → default). This is what the
  * client renders the edit FORM BODY from.
  */
 /**
@@ -533,29 +587,26 @@ export async function buildImplicitSectionEditConfig(
 	const authorizedChildren = await filterAuthorizedRelated(childTipos, context.ownerSectionTipo);
 	const visibleChildTipos = childTipos.filter((tipo) => authorizedChildren.has(tipo));
 
-	const { resolveDefaultView } = await import('../../resolve/structure_context.ts');
 	const ddoMap: ProcessedDdo[] = [];
 	for (const tipo of visibleChildTipos) {
 		const model = await getModelByTipo(tipo);
 		if (model === null) continue;
-		const node = await getNode(tipo);
-		// View: own properties, else the legacy-model default (PHP resolve_view —
-		// autocomplete→line, portal→default, relation family→line, html_text).
-		const legacyModel = node !== null && node.model !== model ? node.model : null;
-		const view =
-			(node?.properties as { view?: string } | null)?.view ??
-			resolveDefaultView(model, legacyModel);
-		const ddo: ProcessedDdo = {
-			tipo,
-			model,
-			// Implicit legacy shape: SCALAR section_tipo (vs the explicit array form).
-			section_tipo: context.ownerSectionTipo,
-			parent: context.ownerTipo,
-			mode: 'edit',
-			label: await contextLabelOf(tipo),
-		};
-		if (view !== null) ddo.view = view;
-		ddoMap.push(ddo);
+		// View: the section's children_view, else own properties, else the
+		// legacy-model default (implicitDdoView — PHP build_legacy_ddo_map).
+		ddoMap.push(
+			await withImplicitView(
+				{
+					tipo,
+					model,
+					// Implicit legacy shape: SCALAR section_tipo (vs the explicit array form).
+					section_tipo: context.ownerSectionTipo,
+					parent: context.ownerTipo,
+					mode: 'edit',
+					label: await contextLabelOf(tipo),
+				},
+				context,
+			),
+		);
 	}
 
 	return [

@@ -246,6 +246,15 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Relation fields without their own configuration show their linked records in the view the ontology asks for (e.g. mini, text).**
+
+    A relation field that declares no request configuration of its own can still ask, in its
+    ontology properties, for its linked records to be shown in a particular view
+    (`children_view`, for example `mini` for coin types or `text` for legend symbols). That
+    request was ignored: the linked records rendered in their default view. They now render
+    in the requested view, in edit and list alike, and a child's own `view` is honoured when
+    the field asks for none.
+
 - **Exports now include the records that point at each record (the Relations field), instead of an empty column.**
 
     A field that lists the records pointing at the current one (the **Relations** field of the

@@ -30,7 +30,11 @@ import {
 	type ParsedRequestConfigItem,
 	type RequestConfigContext,
 } from './explicit.ts';
-import { buildImplicitComponentListConfig, buildImplicitSectionEditConfig } from './implicit.ts';
+import {
+	buildImplicitComponentListConfig,
+	buildImplicitSectionEditConfig,
+	childrenViewOf,
+} from './implicit.ts';
 import { resolveTargetSourceFor } from './target_sources.ts';
 
 /**
@@ -141,7 +145,7 @@ export async function buildRequestConfigForElement(
 	// OWNS its target and cannot resolve one here must end with NO target, not
 	// fall through to a rule it was introduced to replace (see the null-vs-[]
 	// contract on resolveTargetSourceFor).
-	const buildContext = await withModelDefaultTargets(context);
+	const buildContext = await withModelDefaultTargets(withOwnerChildrenView(context, ownProperties));
 	const config = await buildStrategyRequestConfig(ownProperties, buildContext);
 	// Default page size (PHP calculate_default_limit, component+edit): the client
 	// paginator reads sqo.limit ?? show.sqo_config.limit; with neither it pages by
@@ -155,6 +159,20 @@ export async function buildRequestConfigForElement(
 		}
 	}
 	return config;
+}
+
+/**
+ * Settle the caller's children_view for the implicit builders (PHP
+ * build_request_config_v5 :119-121): a caller that already swapped the
+ * properties (own_config.ts — a list-mode section's section_list) states the
+ * owner's own value; otherwise the properties in hand ARE the owner's own.
+ */
+function withOwnerChildrenView(
+	context: RequestConfigContext,
+	ownProperties: unknown,
+): RequestConfigContext {
+	if (context.ownerChildrenView !== undefined) return context;
+	return { ...context, ownerChildrenView: childrenViewOf(ownProperties) };
 }
 
 /**
