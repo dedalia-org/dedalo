@@ -54,7 +54,21 @@ export interface CalculationFnArgs {
 	callerSectionTipo: string;
 }
 
-export type CalculationFn = (args: CalculationFnArgs) => { id: string; value: unknown }[];
+/**
+ * A formula's output value: DATA, never markup — a number, a date's numeric
+ * parts (summarize type date), or null (no value). The client renders it as
+ * TEXT (render_calculation.js); this type keeps a future formula from handing
+ * it a string (T1-18).
+ */
+export type CalculationValue = number | Readonly<Record<string, number>> | null;
+
+/** One formula output item: the widget output id and its value. */
+export interface CalculationOutput {
+	id: string;
+	value: CalculationValue;
+}
+
+export type CalculationFn = (args: CalculationFnArgs) => CalculationOutput[];
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -107,7 +121,7 @@ function scalarNumber(value: unknown, varName: string, fn: string): number {
 	return finiteNumber(value) ?? refuseInput(fn, varName, 'a number');
 }
 
-function total(value: unknown): { id: string; value: unknown }[] {
+function total(value: CalculationValue): CalculationOutput[] {
 	return [{ id: 'total', value }];
 }
 
@@ -140,7 +154,7 @@ function grantImport(
 	dataMap: Record<string, unknown>,
 	fn: string,
 	rates: { base: number; perMonth: number; cap: number },
-): { id: string; value: unknown }[] {
+): CalculationOutput[] {
 	if (isPhpEmpty(dataMap.total_days)) refuseZeroDayImport(fn);
 	const totalDays = arraySum(dataMap.total_days, 'total_days', fn);
 	const months = grantMonths(totalDays);
@@ -215,7 +229,7 @@ function secondsSum(values: readonly number[]): number {
 }
 
 /** summarize type date: Σ instants + periods, projected to the merged shape; none → null. */
-function summarizeDate(dataMap: Record<string, unknown>): { id: string; value: unknown }[] {
+function summarizeDate(dataMap: Record<string, unknown>): CalculationOutput[] {
 	const sum: DateSum = { shape: { year: false, month: false, day: false }, values: [] };
 	for (const [varName, value] of Object.entries(dataMap)) {
 		if (!isPhpEmpty(value)) foldDate(sum, varName, value);

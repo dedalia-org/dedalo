@@ -33,6 +33,7 @@
 
 import { statSync } from 'node:fs';
 import { config } from '../../config/config.ts';
+import type { RenderClass } from '../components/types.ts';
 import { compareLocators, type Locator } from '../concepts/locator.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../concepts/section_id.ts';
 import { type MatrixRecord, readMatrixRecord } from '../db/matrix.ts';
@@ -68,6 +69,7 @@ import {
 import { stripTags } from '../resolve/html_text.ts';
 import { currentDataLang } from '../resolve/request_lang.ts';
 import { countInverseReferences } from '../search/search_related.ts';
+import { escapeHtml } from '../security/html_escape.ts';
 import type { Principal } from '../security/permissions.ts';
 import { getPermissions } from '../security/permissions.ts';
 import { batchDescriptorFlags, fetchNodeInfo, type NodeLocator } from './node_repository.ts';
@@ -114,6 +116,12 @@ export interface TsElement {
 	model_value?: string;
 	show_data?: string;
 	count_result?: unknown;
+	/**
+	 * 'term' only: 'html' — the value is server-built markup (escaped record
+	 * text + the optional `<mark>` untranslated wrap); the client renders it
+	 * through render_value (WC-2026-11-12-tree-term-escaped).
+	 */
+	render_class?: RenderClass;
 }
 
 /**
@@ -1053,23 +1061,32 @@ async function resolveElementValue(
 ): Promise<boolean> {
 	switch (elementObj.type) {
 		case 'term': {
-			let elementValue: unknown;
+			// The term is server-built MARKUP (render_class 'html'): each record
+			// piece is escaped HERE, before the untranslated `<mark>` wrap and
+			// before the composite join — a term may not carry markup (owner
+			// ruling 2026-11-11, WC-2026-11-12-tree-term-escaped). Caches above
+			// hold raw text; the accumulated elementObj.value is already escaped.
+			let elementValue: string;
 			if (componentData.length === 0) {
 				// lang fallback: main-lang → nolan → any, decorated as untranslated.
 				const rawItems = readItemsFromRecord(record, elementTipo, model);
-				const fallback = componentDataFallbackValue(rawItems);
-				elementValue = fallback === '' ? '' : `<mark>${toStr(fallback)}</mark>`;
+				const fallback = escapeHtml(toStr(componentDataFallbackValue(rawItems)));
+				elementValue = fallback === '' ? '' : `<mark>${fallback}</mark>`;
 			} else {
 				const first = componentData[0] as { value?: unknown } | string | undefined;
-				elementValue =
-					first !== null && typeof first === 'object'
-						? ((first as { value?: unknown }).value ?? '')
-						: (first ?? '');
+				elementValue = escapeHtml(
+					toStr(
+						first !== null && typeof first === 'object'
+							? ((first as { value?: unknown }).value ?? '')
+							: (first ?? ''),
+					),
+				);
 			}
 			elementObj.value =
 				elementObj.value !== undefined
-					? `${toStr(elementObj.value)} ${toStr(elementValue)}`
-					: toStr(elementValue);
+					? `${toStr(elementObj.value)} ${elementValue}`
+					: elementValue;
+			elementObj.render_class = 'html';
 			return true;
 		}
 		case 'icon': {

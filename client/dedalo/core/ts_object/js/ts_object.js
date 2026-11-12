@@ -26,6 +26,7 @@
 	import {handle_api_error} from '../../common/js/error_dispatch.js'
 	import {error_text, render_build_failure} from '../../common/js/render_api_error.js'
 	import {request_complete} from '../../common/js/sqo_limit.js'
+	import {escape_html} from '../../common/js/utils/render_escape.js'
 
 
 
@@ -2098,7 +2099,11 @@ ts_object.prototype.show_component_in_ts_object = async function(options) {
 							: [];
 						const term = ar_elements.find(el => el && el.type === 'term');
 						if (term && 'value' in term) {
-							term.value = value;
+							// keep the WIRE form: the server sends the term escaped with
+							// render_class 'html' (WC-2026-11-12-tree-term-escaped), so a
+							// later re-render from ar_elements must not parse raw text
+							term.value = escape_html(value);
+							term.render_class = 'html';
 						}
 
 						dd_request_idle_callback(

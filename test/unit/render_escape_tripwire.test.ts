@@ -1177,8 +1177,6 @@ const REMAINDER_RATCHET: Readonly<Record<string, number>> = {
 	'client/dedalo/core/services/service_autocomplete/js/view_default_autocomplete.js': 2,
 	'client/dedalo/core/services/service_ckeditor/js/render_text_editor.js': 2,
 	'client/dedalo/core/services/service_upload/js/render_edit_service_upload.js': 2,
-	'client/dedalo/core/ts_object/js/render_ts_line.js': 2,
-	'client/dedalo/core/widgets/calculation/js/render_calculation.js': 3,
 	'client/dedalo/core/widgets/dd/user_activity/js/render_user_activity.js': 5,
 	'client/dedalo/core/widgets/dmm/get_archive_states/js/render_get_archive_states.js': 2,
 	'client/dedalo/core/widgets/mdcat/sum_dates/js/render_sum_dates.js': 2,

@@ -62,6 +62,12 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-translation-write-value-gates`.
 
+- **Thesaurus and ontology tree terms are always shown as text; markup typed into a term no longer runs.**
+
+    A term in the thesaurus or ontology tree that contains characters such as `<`, `>` or `&` used to be interpreted as HTML by every user who opened the tree, so a term edited to hold markup could run code in their session. The term now displays exactly the characters that were typed. Untranslated terms are still highlighted as before. Values computed by calculation widgets are likewise shown as plain text.
+
+    Wire contract: `WC-2026-11-12-tree-term-escaped`.
+
 - **The References panel and related-record lists show only the columns the user may read.**
 
     The References panel of a record, and the related-record lists that the transcription, indexation
@@ -980,7 +986,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 45 entries"
+??? note "Wire contract — 46 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1026,6 +1032,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-rdf-graph-interpretation`
     - `WC-2026-11-12-select-dataframe-subdatum`
     - `WC-2026-11-12-translation-write-value-gates`
+    - `WC-2026-11-12-tree-term-escaped`
     - `WC-2026-11-12-zotero-csl-json-import`
 
 ## 7.0.0-beta.8 — 2026-11-08
