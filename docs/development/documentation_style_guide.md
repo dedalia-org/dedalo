@@ -95,6 +95,11 @@ There is no `nav:` block — navigation is the curated `index.md` reading paths 
 `index.md` hubs. When you add a page, link it from the relevant hub and, if cross-cutting, from the
 root [`index.md`](../index.md) section index.
 
+Sidebar **order** inside a directory is alphabetical by filename unless the directory has a `.pages`
+file. It lists the pages in reading order (mirror the hub's link order) and ends with `...`, which
+places every unlisted page after them, alphabetically — so a new page still appears without editing
+it. A name that does not exist fails the build (strict or not).
+
 ### Renaming or deleting a page
 
 The manual is published one prefix per major version (`dedalo.dev/docs/v7/`, with the frozen

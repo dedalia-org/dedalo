@@ -1,0 +1,12 @@
+# Sidebar order = the link order of this directory's index.md hub.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+nav:
+  - index.md
+  - string.md
+  - number.md
+  - dd_date.md
+  - iri.md
+  - geolocation.md
+  - media.md
+  - misc.md
+  - ...

@@ -1,0 +1,11 @@
+# Sidebar order = the link order of this directory's index.md hub.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+nav:
+  - index.md
+  - install.md
+  - connecting_models.md
+  - configuration.md
+  - privacy_and_security.md
+  - use_cases.md
+  - cookbook.md
+  - ...

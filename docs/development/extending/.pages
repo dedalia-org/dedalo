@@ -1,0 +1,10 @@
+# Sidebar order = the link order of this directory's index.md hub.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+nav:
+  - index.md
+  - add_a_component.md
+  - add_a_section.md
+  - add_an_area.md
+  - add_a_service.md
+  - add_a_widget.md
+  - ...

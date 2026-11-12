@@ -18,6 +18,9 @@
 ## each directory's index.md, which is the rule docs/development/documentation_style_guide.md
 ## states. It means a deleted page disappears from the nav for free; a hand-written nav
 ## would need its own gate to stop it rotting, and would contradict the style guide.
+## ORDER inside a directory comes from an optional `.pages` file (awesome-pages plugin):
+## it lists the hub's pages in the hub's order and ends with `...` (the rest, A–Z), so a
+## new page still appears unaided; a `.pages` entry naming a missing file fails ANY build.
 ##
 site_name: Dédalo Documentation
 site_dir: docs_site      # gitignored build output
@@ -120,6 +123,7 @@ extra:
 
 plugins:
   - search
+  - awesome-pages     # per-directory `.pages` order; see the NO `nav:` note above
   ## VENDOR EVERY EXTERNAL ASSET AT BUILD TIME, into assets/external/.
   ##
   ## Material lazy-loads Mermaid from unpkg.com at RUNTIME. dedalo.dev sends a

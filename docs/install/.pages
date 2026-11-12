@@ -1,0 +1,20 @@
+# Sidebar order = the reading order of install/index.md's "Routes" + "Reference" lists.
+# `...` = any page not named here, alphabetically, so a new page is never dropped.
+nav:
+  - index.md
+  - production.md
+  - docker.md
+  - quickstart.md
+  - dev_quickstart.md
+  - multi_instance.md
+  - manual_install.md
+  - manual_host.md
+  - publication_host.md
+  - install_h264_module.md
+  - reverse_proxy.md
+  - installer_reference.md
+  - troubleshooting.md
+  - upgrading.md
+  - bun_runtime.md
+  - migrating_from_v6.md
+  - ...

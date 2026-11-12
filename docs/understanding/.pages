@@ -1,0 +1,10 @@
+# Sidebar order = the link order of this directory's index.md hub.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+nav:
+  - index.md
+  - where_it_lives.md
+  - journey_of_a_record.md
+  - the_three_doors.md
+  - ai_ready.md
+  - the_ideas_behind_dedalo.md
+  - ...

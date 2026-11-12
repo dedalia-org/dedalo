@@ -1,0 +1,25 @@
+# Sidebar order = the link order of this directory's index.md hub.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+nav:
+  - index.md
+  - common.md
+  - base.md
+  - db.md
+  - dd_grid.md
+  - login.md
+  - security.md
+  - media_protection.md
+  - media_engine.md
+  - search.md
+  - api.md
+  - map_tile_proxy.md
+  - geo_services.md
+  - errors.md
+  - observers.md
+  - tm_record.md
+  - backup.md
+  - logger.md
+  - external_services.md
+  - services.md
+  - diffusion.md
+  - ...

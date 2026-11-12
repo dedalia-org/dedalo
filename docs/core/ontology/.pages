@@ -1,0 +1,15 @@
+# Sidebar order = the link order of this directory's index.md hub.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+nav:
+  - index.md
+  - authoring.md
+  - ontology_css.md
+  - local_ontology_overrides.md
+  - ontology_write.md
+  - ontology_engine.md
+  - hierarchy.md
+  - ts_object.md
+  - section_map.md
+  - relation_list.md
+  - request_config_presets.md
+  - ...

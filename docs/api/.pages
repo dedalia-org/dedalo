@@ -1,0 +1,7 @@
+# Sidebar order = the link order of this directory's index.md hub.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+nav:
+  - index.md
+  - dedalo_api_v1.md
+  - RQO_FIELD_MAPPING.md
+  - ...

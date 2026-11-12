@@ -1,0 +1,16 @@
+# Sidebar order = the reading order of index.md: the reader-facing sections first.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+nav:
+  - index.md
+  - understanding
+  - install
+  - config
+  - management
+  - tools
+  - core
+  - diffusion
+  - api
+  - development
+  - change_log.md
+  - rewrite.md
+  - ...

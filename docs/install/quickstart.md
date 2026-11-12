@@ -1,4 +1,4 @@
-# Trial
+# Trial install (evaluation only)
 
 > See also: [Installation hub](index.md) · [Docker](docker.md) · [Production install](production.md) · [Installer reference](installer_reference.md) · [Troubleshooting](troubleshooting.md)
 

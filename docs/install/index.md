@@ -129,7 +129,7 @@ The installer never installs Docker and never changes the firewall: it checks Do
 
 - **[Production](production.md)** — the recommended route: run the installer, then what each host step does and how to check or repair it by hand.
 - **[Docker](docker.md)** — the full container stack, with the media gate.
-- **[Simple](quickstart.md)** — the simple container stack for an evaluation: plain HTTP, no media protection.
+- **[Trial](quickstart.md)** — the simple container stack for an evaluation: plain HTTP, no media protection.
 - **[Developer](dev_quickstart.md)** — a working Dédalo on your laptop.
 
 ### Additional installation guides

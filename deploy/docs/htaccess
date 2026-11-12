@@ -51,3 +51,16 @@
 	# Everything else that was published flat: v7 has the page.
 	RewriteRule ^(.+)$ /docs/v7/$1 [R=301,L]
 </IfModule>
+
+## REVALIDATE PAGES ON EVERY VISIT. Every page carries the WHOLE sidebar in its own
+## HTML. With no Cache-Control the browser picks a heuristic lifetime (≈10% of the
+## file's age), so after a publish the pages a reader saw before keep the OLD nav
+## while new ones show the new — the sidebar order "changes" between pages (seen
+## 2026-11-12, after the .pages reorder). `no-cache` = always ask; an unchanged
+## page costs a 304 on its ETag, not a download. versions.json is the switcher's
+## data and goes stale the same way. Applies to /docs/v6/ and /docs/v7/ below.
+<IfModule mod_headers.c>
+	<FilesMatch "\.(html|json)$">
+		Header set Cache-Control "no-cache"
+	</FilesMatch>
+</IfModule>
