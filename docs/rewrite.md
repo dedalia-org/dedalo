@@ -91,7 +91,7 @@ A rewrite is only trustworthy if it can *prove* it matches the original. So the 
 
 **If you work with the collections:** nothing you do changes. Same login, same forms, same records, same languages, same history. Over time you'll notice it's faster and, quietly, that it will be here for the long haul, easier to maintain, easier to fund, easier to hand to the next generation of maintainers. Your catalog is safe; this is care taken under the hood.
 
-**If you build or maintain Dédalo:** you get a codebase you can actually onboard into; typed, modular, request-scoped, differentially tested, with per-model homes and honest gap ledgers, and AI-friendly seams from day one. The concepts you already know (ontology, RQO, SQO, locator, ddo, context-vs-data, subdatum) are preserved; where they live and how they're wired is cleaner. Start with the [Architecture Overview](core/architecture_overview.md) and the [Glossary](core/glossary.md).
+**If you build or maintain Dédalo:** you get a codebase you can actually onboard into; typed, modular, request-scoped, differentially tested, with per-model homes and honest gap ledgers, and AI-friendly seams from day one. The concepts you already know (ontology, RQO, SQO, locator, ddo, context-vs-data, subdatum) are preserved; where they live and how they're wired is cleaner. Start with the [Architecture Overview](core/architecture_overview.md) and the [Glossary](understanding/glossary.md).
 
 ---
 

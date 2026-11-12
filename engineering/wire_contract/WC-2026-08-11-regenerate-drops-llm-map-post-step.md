@@ -67,7 +67,7 @@ concerned.
 
 After a regenerate the served `ontology_llm_map.json` is as stale as
 `ontology.json` and the dumps beside it. Press **Export** to refresh the
-distribution set. Documented in `docs/tools/using_ontology_parser.md` and
+distribution set. Documented in `docs/using/tools/using_ontology_parser.md` and
 `docs/development/tools/reference/tool_ontology_parser.md`.
 
 ## Gate reconciliation

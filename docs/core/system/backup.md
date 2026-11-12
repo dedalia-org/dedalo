@@ -19,7 +19,7 @@ of the PostgreSQL work database, into the server's own backup directory.
     `src/core/area_maintenance/restore_door.ts`, driven from the shell by
     `bun scripts/restore.ts` with the engine stopped — never an in-app action,
     because the running engine cannot swap the database its own pool holds.
-    See [How do I backup and restore](../../management/backup.md).
+    See [How do I backup and restore](../../administration/backup.md).
 
     The publication database (MariaDB) belongs to the diffusion engine; this
     server never connects to it. The widget's MySQL file list is therefore always

@@ -453,7 +453,7 @@ describe('every page that describes the hand-placed nginx map says when NOT to p
 	const flat = (path: string) => readFileSync(join(repoRoot, path), 'utf8').replace(/\s+/g, ' ');
 	test.each([
 		'docs/core/system/media_protection.md',
-		'docs/config/media_protection.md',
+		'docs/administration/configuration/media_protection.md',
 		'docs/install/troubleshooting.md',
 		'docs/install/reverse_proxy.md',
 	])('%s', (path) => {

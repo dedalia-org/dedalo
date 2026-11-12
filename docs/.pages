@@ -1,16 +1,17 @@
-# Sidebar order = the reading order of index.md: the reader-facing sections first.
+# Sidebar order: one section per reader (docs reorg 2026-11). See development/documentation_style_guide.md.
 # `...` = any page not named here, A–Z, so a new page is never dropped.
 nav:
   - index.md
   - understanding
+  - using
   - install
-  - config
-  - management
-  - tools
-  - core
+  - administration
   - diffusion
   - api
+  - core
   - development
-  - change_log.md
-  - rewrite.md
+  - Project:
+    - whats_changed_v7.md
+    - change_log.md
+    - rewrite.md
   - ...

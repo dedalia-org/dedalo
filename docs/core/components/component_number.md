@@ -243,7 +243,7 @@ The import engine (`conformImportData()`, `src/core/tools/import_data.ts`) handl
     and no `int`/`float` cast in the TS import path. Import numeric columns as
     proper JSON (`[{"value":33.85}]`) to be safe until this is ported.
 
-See the full import definition in [importing_data.md → Numbers](../importing_data.md#numbers) and the export model in [exporting_data.md](../exporting_data.md).
+See the full import definition in [importing_data.md → Numbers](../../using/importing_data.md#numbers) and the export model in [exporting_data.md](../../using/exporting_data.md).
 
 ## Notes
 

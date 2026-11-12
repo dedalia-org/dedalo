@@ -192,7 +192,7 @@ All properties are optional and live in the ontology node `properties` JSON. Ver
 ### sort_by_column
 
 - **Values:** `true`, set on a column ddo of `source.request_config[].show.ddo_map` (a per-column key, shared with the portal), not a top-level property.
-- **Effect:** the server honours it for the `sort_by_column` save action (re-order the stored locator array by that column, a real data change) and for a temporary [`sqo.view_order`](../sqo.md#view_order) read. The client's header sort arrows are offered only to `component_portal` instances (`ui.allow_column_order` checks the model), so a `component_relation_related` list shows none today. See [component_portal](component_portal.md#column-order-sort_by_column-and-order-per-ddo) for the full semantics.
+- **Effect:** the server honours it for the `sort_by_column` save action (re-order the stored locator array by that column, a real data change) and for a temporary [`sqo.view_order`](../../api/sqo.md#view_order) read. The client's header sort arrows are offered only to `component_portal` instances (`ui.allow_column_order` checks the model), so a `component_relation_related` list shows none today. See [component_portal](component_portal.md#column-order-sort_by_column-and-order-per-ddo) for the full semantics.
 
 !!! note "Standard context properties"
     Like every component, `component_relation_related` also honours the generic ontology context blocks carried into the datum `context`: `css` (style stamped on `.wrapper_component`), `request_config` (the RQO, built from `source.request_config`) and `view` (the render view). These are not component-specific options. Any other custom key seen in production should be verified in the ontology.
@@ -240,9 +240,9 @@ DOM follows the portal structure: `wrapper_component component_relation_related 
 
 - With multiple target sections, the target is declared in the CSV column name as `<component_tipo>_<target_section_tipo>` (e.g. `test54_test3`). The column name is split on the locator delimiter; the first segment is treated as the `from_component_tipo` and is **forced to the current component's `tipo`** if it does not match (so a human-friendly column header like `related_test3` still resolves). An empty cell is valid and clears the existing data. Ambiguous multi-target imports without a clear target are rejected and logged as `IGNORED`.
 
-See [importing data — Related data](../importing_data.md#related-data).
+See [importing data — Related data](../../using/importing_data.md#related-data).
 
-**Export.** The shared relation export path iterates the locators and, per the `show.ddo_map`, resolves each named child component against the target `section_id` / `section_tipo` to produce the sub-columns (term labels, optionally with parents). The export reads the **stored** locators only; the calculated back-references (`dd467` / `dd621`) are exported only on request, by the per-column **references** option, as a separate sibling column `<column> | references` holding the calculated relations minus the stored ones (`WC-2026-11-11-export-related-references-column`). For diffusion, related components emit the locator array as JSON in SQL targets. See [exporting data](../exporting_data.md).
+**Export.** The shared relation export path iterates the locators and, per the `show.ddo_map`, resolves each named child component against the target `section_id` / `section_tipo` to produce the sub-columns (term labels, optionally with parents). The export reads the **stored** locators only; the calculated back-references (`dd467` / `dd621`) are exported only on request, by the per-column **references** option, as a separate sibling column `<column> | references` holding the calculated relations minus the stored ones (`WC-2026-11-11-export-related-references-column`). For diffusion, related components emit the locator array as JSON in SQL targets. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

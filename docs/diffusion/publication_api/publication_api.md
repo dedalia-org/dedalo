@@ -127,7 +127,7 @@ You can view your specific configuration and open publication API user interface
 
 You will see the Swagger interface ready to be used.
 
-The panel shows one button per entry of `API_WEB_USER_CODE_MULTIPLE` in Dédalo's own configuration — each publication database with the same `code` set in `server_config_api.php` — and none while it is empty. The buttons open `/dedalo/publication/server_api/v1/docu/ui/` on the Dédalo site, which only answers when the web server routes `/dedalo/publication/` to the v1 API; when v1 runs on another server, give the entry an `api_ui` with that server's documentation address. See [the configuration reference](../../config/config.md).
+The panel shows one button per entry of `API_WEB_USER_CODE_MULTIPLE` in Dédalo's own configuration — each publication database with the same `code` set in `server_config_api.php` — and none while it is empty. The buttons open `/dedalo/publication/server_api/v1/docu/ui/` on the Dédalo site, which only answers when the web server routes `/dedalo/publication/` to the v1 API; when v1 runs on another server, give the entry an `api_ui` with that server's documentation address. See [the configuration reference](../../administration/configuration/config.md).
 
 ```bash
 API_WEB_USER_CODE_MULTIPLE=[{"db_name":"web_my_entity","code":"My_API_code","api_ui":"https://my_domain.org/dedalo/publication/server_api/v1/docu/ui/"}]

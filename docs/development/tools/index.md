@@ -1,10 +1,10 @@
 # Building tools
 
-> See also: [Development](../index.md) · [Using the tools](../../tools/index.md) · [Extending Dédalo](../extending/add_a_component.md)
+> See also: [Development](../index.md) · [Using the tools](../../using/tools/index.md) · [Extending Dédalo](../extending/add_a_component.md)
 
 A **tool** is an isolated block of code that extends a component, a section or an area with its own interface: transcription, export, import, the time machine, the ontology editor. A tool ships a server module, its own client JS/CSS, and a `register.json` that declares what it attaches to. Nothing about a tool is discovered by reflection — the framework scans an allowlisted directory once and dispatches through a fail-closed gate chain.
 
-This directory is the **developer** documentation. For the curator-facing guides to each shipped tool, see [Using the tools](../../tools/index.md).
+This directory is the **developer** documentation. For the curator-facing guides to each shipped tool, see [Using the tools](../../using/tools/index.md).
 
 ## Build one
 

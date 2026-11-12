@@ -1,6 +1,6 @@
 # Updating the Bun runtime
 
-> See also: [Upgrading](upgrading.md) · [Production install](production.md) · [Several instances on one host](multi_instance.md) · [Update code](../management/updates/updating_code.md)
+> See also: [Upgrading](upgrading.md) · [Production install](production.md) · [Several instances on one host](multi_instance.md) · [Update code](../administration/updates/updating_code.md)
 
 Dédalo runs on Bun, and every release pins the exact Bun it was verified on. On an instance installed by the installer, that runtime lives **outside** the instance directory, owned by root, and the service unit names it by absolute path: moving the pin is a host change one administrator makes by hand, install beside the old one and repoint the unit. This page is that procedure, with the checks that prove each step and the gates that refuse when it is skipped.
 
@@ -68,7 +68,7 @@ The update panel refuses a release whose pin differs from the running runtime, s
 - **One root shell.** Every block on this page creates or edits root-owned files (`/var/lib/dedalo-install/`, `/opt/dedalo/`, `/etc/systemd/system/`), and shell variables do not survive `sudo`. Open `sudo -i` once and run the whole page in it, step 1 included.
 - **The target pin**, named in the release notes' *Action needed* box.
 - **A maintenance window of a minute.** Restarting the server is a few seconds; the host's watchdog probes `/health` every 30 seconds, so a restart is seen as a normal blip, not an outage.
-- **A recent, proven database backup if a code update follows.** The runtime step touches no data, but the update run refuses a stale or unproven backup unless you tick the panel's waive-backup box, and it is the moment to have one anyway ([backup](../management/backup.md)).
+- **A recent, proven database backup if a code update follows.** The runtime step touches no data, but the update run refuses a stale or unproven backup unless you tick the panel's waive-backup box, and it is the moment to have one anyway ([backup](../administration/backup.md)).
 - **Keep the old runtime.** It is what you roll back to, and it is about 100 MB.
 
 ## 1. Find the instance and read the current state
@@ -304,7 +304,7 @@ The warning is the expected state between the two halves of the move (see [the o
 
 ## Then apply the code update
 
-From here the ordinary procedure carries on: **Maintenance → Update code**, as the superuser, in maintenance mode, with a fresh proven database backup. The run downloads the release, verifies its checksum, extracts it to quarantine, checks its `.bun-version` against the running runtime — **before** installing any dependency, and the check that now passes — installs them, boot-tests the new tree there, swaps it in and restarts onto it; the release's remaining phases run in the new code. [Update code](../management/updates/updating_code.md) describes the panels, and [the update run](../management/updates/index.md#the-update-run) the phases and the states.
+From here the ordinary procedure carries on: **Maintenance → Update code**, as the superuser, in maintenance mode, with a fresh proven database backup. The run downloads the release, verifies its checksum, extracts it to quarantine, checks its `.bun-version` against the running runtime — **before** installing any dependency, and the check that now passes — installs them, boot-tests the new tree there, swaps it in and restarts onto it; the release's remaining phases run in the new code. [Update code](../administration/updates/updating_code.md) describes the panels, and [the update run](../administration/updates/index.md#the-update-run) the phases and the states.
 
 From a terminal, as the service user, in the code tree (the run's journal lives in the private directory, outside both the tree and the database, so this works while the server is down):
 

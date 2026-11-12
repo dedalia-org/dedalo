@@ -118,7 +118,7 @@ numisdata1167  owl:Class           term nmo:Material        relations [material1
 ## Related
 
 - [tool_import_dedalo_csv](tool_import_dedalo_csv.md) · [tool_import_marc21](tool_import_marc21.md) · [tool_import_zotero](tool_import_zotero.md) — the other import tools (file-based, where this one is IRI/graph-based). `tool_import_zotero` shares the RDF/XML parser (`src/core/tools/rdf_xml.ts`).
-- [Importing data](../../../core/importing_data.md) — the import model, per-component conform contract and language handling these writes go through.
-- [tool_export](tool_export.md) and [Exporting data](../../../core/exporting_data.md) — the export counterpart.
+- [Importing data](../../../using/importing_data.md) — the import model, per-component conform contract and language handling these writes go through.
+- [tool_export](tool_export.md) and [Exporting data](../../../using/exporting_data.md) — the export counterpart.
 - [Creating new tools](../creating_tools.md) · [Server contract](../server_contract.md) — the tool model, `apiActions`, gates and lifecycle this page builds on.
 - Source: `tools/tool_import_rdf/server/` (`index.ts`, `rdf_import_run.ts`, `rdf_import_plan.ts`, `rdf_import_prune.ts`, `rdf_import_execute.ts`); RDF graph reader: `src/core/tools/rdf_graph.ts` (from-scratch, no 3rd-party library).

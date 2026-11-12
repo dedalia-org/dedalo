@@ -7,7 +7,7 @@ wc: WC-2026-09-27-bulk-revert-undo-log
 ---
 A field that links records — a portal, a select, a check box, a list of informants — holds
 links, and links have no language, even when the field's definition is marked translatable.
-Its [time machine](./tools/using_time_machine.md) history is now always one timeline: every
+Its [time machine](./using/tools/using_time_machine.md) history is now always one timeline: every
 change is one entry holding the whole field and its dataframe frames, shown in the history of
 every language, and restoring it or reverting a batch run puts back exactly that field,
 whichever language you work in. Before, such a field marked translatable filed each change

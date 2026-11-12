@@ -1,6 +1,6 @@
 # api
 
-> See also: [RQO](../rqo.md) · [SQO](../sqo.md) · [dd_object (ddo)](../dd_object.md) ·
+> See also: [RQO](../../api/rqo.md) · [SQO](../../api/sqo.md) · [dd_object (ddo)](../../api/dd_object.md) ·
 > [Architecture overview](../architecture_overview.md)
 
 The API subsystem is the single HTTP entry point of the Dédalo **work system**: it
@@ -10,7 +10,7 @@ action to a registered handler, and returns a standard JSON envelope whose
 
 This page is the **subsystem reference**. For the *request format* itself — every
 RQO property, the action catalogue, the response-envelope fields — read
-[RQO](../rqo.md) first; this document describes the **machinery** that receives
+[RQO](../../api/rqo.md) first; this document describes the **machinery** that receives
 and routes an RQO, and does not repeat the property tables.
 
 ## Role
@@ -24,7 +24,7 @@ call passes through it. It is two modules — a thin HTTP transport edge
 | Neighbour | Relationship |
 | --- | --- |
 | [`login`](login.md) / [`security`](security.md) | The API layer enforces *their* policies at the boundary — login check, CSRF, permission gates — but does not own the policy logic. |
-| [search (SQO)](../sqo.md) | A read or count action hands the request's `sqo` to `buildSearchSql()`. The handler is where the *untrusted* SQO is scrubbed (`sanitizeClientSqo`). |
+| [search (SQO)](../../api/sqo.md) | A read or count action hands the request's `sqo` to `buildSearchSql()`. The handler is where the *untrusted* SQO is scrubbed (`sanitizeClientSqo`). |
 | `section` / components | The handlers call the section and component resolvers (`readSection`, `saveComponentData`, …) and ship the resulting ddo. **The API never reads the matrix directly.** |
 | [`request_config`](../request_config.md) | The `show` / `search` / `choose` ddo_maps in the RQO are resolved into context+data by the resolvers; a client-sent ddo_map is always re-validated server-side. |
 | diffusion | `dd_diffusion_api` fronts the native diffusion engine (`src/diffusion/`). |
@@ -76,7 +76,7 @@ registered. Inside a data action, the per-element modifier `source.action` selec
 the *behavior variant* — `read` with `source.action: 'get_data'` resolves one
 component instead of the whole section; `source.action: 'resolve_data'` resolves
 injected search-filter locators. See
-[RQO → two-level dispatch](../rqo.md#action-string-mandatory).
+[RQO → two-level dispatch](../../api/rqo.md#action-string-mandatory).
 
 **The handler class is chosen by `rqo.dd_api`**, defaulting to `dd_core_api`.
 
@@ -245,7 +245,7 @@ The default handler class. Every action is an
 | `start` | Build the first-boot context (`environment` + a structure context). Not logged in → the login element context; logged in → the deep-linked page element (or the default section in list mode) plus the optional menu shell. A **section** deep link that carries a record id (`?tipo=<section>&section_id=<id>`) is answered in **edit** mode, whatever mode the link asks for — the record id *is* the edit request; component and area links keep their requested mode. |
 | `read` | Read records as context+data. Gates on `(section_tipo, tipo)` and on every SQO target section. Routing is owned by `src/core/section/read_facade.ts`: menu reads, area reads, `get_relation_list`, `resolve_data` (search-filter chips), `get_data` (a single component / portal pagination), Time Machine reads, else the whole section via `readSection`. |
 | `read_raw` | The full raw stored value(s) for a SQO's matched records; read-gated (level ≥ 1) on every SQO target section. |
-| `relation_targets` | The census behind "Open relationships": which sections the records of a source set point at, with the exact record total of each (`data: [{tipo, label, total}]`). Input in `options.source` (a [`referenced_by` source set](../sqo.md#relationship-filter-leaves-referenced_by)); read-gated (level ≥ 1) on every source section; reads the source records' stored `relation` column (log sections are valid sources); unreadable targets are omitted; hidden relation components add a `perm.out_of_scope` notice; one 30 s deadline for the whole census, past it `db.statement_timeout`. |
+| `relation_targets` | The census behind "Open relationships": which sections the records of a source set point at, with the exact record total of each (`data: [{tipo, label, total}]`). Input in `options.source` (a [`referenced_by` source set](../../api/sqo.md#relationship-filter-leaves-referenced_by)); read-gated (level ≥ 1) on every source section; reads the source records' stored `relation` column (log sections are valid sources); unreadable targets are omitted; hidden relation components add a `perm.out_of_scope` notice; one 30 s deadline for the whole census, past it `db.statement_timeout`. |
 | `create` | Create a record in the target section; write-gated (level ≥ 2). Returns the new `section_id`. |
 | `duplicate` | Clone a record; write-gated, plus a per-record scope check for non-admins. |
 | `delete` | `delete_record` (removes the row, Time Machine snapshot first) or `delete_data` (the default — empties the row's components); write-gated. A multi-record SQO delete is global-admin only. |
@@ -264,13 +264,13 @@ The default handler class. Every action is an
 
 ## How it fits with the rest of Dédalo
 
-- **[RQO](../rqo.md)** — the message this subsystem decodes. The RQO page owns the
+- **[RQO](../../api/rqo.md)** — the message this subsystem decodes. The RQO page owns the
   property tables, the action catalogue and the envelope fields; this page owns the
   *machinery*.
-- **[SQO](../sqo.md)** — the query carried in `rqo.sqo`. The data handlers are the
+- **[SQO](../../api/sqo.md)** — the query carried in `rqo.sqo`. The data handlers are the
   only place an untrusted SQO is scrubbed; from there it flows to
   `buildSearchSql()`.
-- **[dd_object (ddo)](../dd_object.md)** — what a data action *returns*: the
+- **[dd_object (ddo)](../../api/dd_object.md)** — what a data action *returns*: the
   handlers pack the `{context, data}` ddo into `data`.
 - **[Architecture overview](../architecture_overview.md#the-request-lifecycle)** —
   the wider round trip.
@@ -307,7 +307,7 @@ return new Response(JSON.stringify(outcome.body), { status: outcome.status });
 
 ### A minimal read RQO and its response
 
-Request — see [RQO](../rqo.md) for the full property reference:
+Request — see [RQO](../../api/rqo.md) for the full property reference:
 
 ```json
 {
@@ -320,7 +320,7 @@ Request — see [RQO](../rqo.md) for the full property reference:
 }
 ```
 
-Response — `data` carries the [ddo](../dd_object.md):
+Response — `data` carries the [ddo](../../api/dd_object.md):
 
 ```json
 {
@@ -366,9 +366,9 @@ Without the registry entry, `dispatchRqo()` rejects the call with
 
 ## Related
 
-- [RQO](../rqo.md) — the request format decoded here.
-- [SQO](../sqo.md) — the query carried inside the RQO and scrubbed in the handlers.
-- [dd_object (ddo)](../dd_object.md) — the `{context, data}` unit returned in `data`.
+- [RQO](../../api/rqo.md) — the request format decoded here.
+- [SQO](../../api/sqo.md) — the query carried inside the RQO and scrubbed in the handlers.
+- [dd_object (ddo)](../../api/dd_object.md) — the `{context, data}` unit returned in `data`.
 - [Architecture overview](../architecture_overview.md) — where the API sits in the
   work system.
 - [login](login.md) · [security](security.md) — the policies the gates enforce.

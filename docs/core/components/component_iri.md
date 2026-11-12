@@ -277,7 +277,7 @@ The import format is also intended to accept plain-text CSV strings:
 
 On export, flat display values are produced by the generic cell resolver `resolveCellValue()` (`src/core/resolve/relation_list.ts`) via `tools/tool_export/server/tool_export.ts`. The per-atom `cell_type: "iri"` contract (joining `iri` + resolved title with `fields_separator`, `records_separator` between values) has not been independently verified for full parity in the TS export path.
 
-See the full URI import definition [here](../importing_data.md#uri) and the export model [here](../exporting_data.md).
+See the full URI import definition [here](../../using/importing_data.md#uri) and the export model [here](../../using/exporting_data.md).
 
 ## Notes
 

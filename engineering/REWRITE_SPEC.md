@@ -93,7 +93,7 @@ Rebuild the Dédalo **server** as a modern, native TypeScript application on the
    > source), `src/ai/agent/` (loop, provider adapters, change_plan, egress)
    > and `src/ai/mcp/` (server, registry, tool_spec, tools/). Nothing was
    > ported from PHP. Object identification (`src/core/identify/`) rides the
-   > same image index — `engineering/IDENTIFY_SPEC.md`. Manual: `docs/core/ai/`.
+   > same image index — `engineering/IDENTIFY_SPEC.md`. Manual: `docs/administration/ai/`.
 
 ## 2b. Code style & maintainability (standing rule)
 
@@ -188,7 +188,7 @@ Also carry over: failed-login timing/ambiguity, activity logging, and never reve
 ## 8. AI integration (design-in, build greenfield)
 Architect the server so AI is native, not bolted on: clean typed service boundaries, structured tool/action schemas, and data access suitable for embedding/retrieval. **RAG, Agent, and MCP are fresh greenfield builds** (do not port the non-production PHP versions) — but leave the seams for them from the start (e.g. a way to expose ontology-typed data and actions to LLM tools, respecting the same ACL as human access). Default to the latest, most capable Claude models when wiring AI features.
 
-> **Work-system MCP foundation (built 2026-07-07).** One shared, ACL-gated tool registry serves the stdio MCP server, the in-app `dd_mcp_api` bridge (the tool_assistant chat), and the server-side agent loop. Discovery/search/read + fail-closed write tiers, a propose→confirm→apply change-plan protocol for the image→extract→fill-ontology flow, and image-capable vision input. Live code: `src/ai/mcp/` (server.ts, registry.ts, tool_spec.ts, tools/), the agent loop in `src/ai/agent/`, and the in-app bridge in the API dispatch. Operator + user documentation: `docs/core/ai/assistant/`.
+> **Work-system MCP foundation (built 2026-07-07).** One shared, ACL-gated tool registry serves the stdio MCP server, the in-app `dd_mcp_api` bridge (the tool_assistant chat), and the server-side agent loop. Discovery/search/read + fail-closed write tiers, a propose→confirm→apply change-plan protocol for the image→extract→fill-ontology flow, and image-capable vision input. Live code: `src/ai/mcp/` (server.ts, registry.ts, tool_spec.ts, tools/), the agent loop in `src/ai/agent/`, and the in-app bridge in the API dispatch. Operator + user documentation: `docs/administration/ai/assistant/`.
 
 ## 9. Method & sequencing (how to proceed)
 1. **Concept mastery + type foundations** — implement the §3 concepts as TS types and resolver skeletons; validate against live PHP responses (§3 gate).

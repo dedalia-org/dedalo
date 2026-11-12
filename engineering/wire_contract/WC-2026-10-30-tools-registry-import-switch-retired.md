@@ -11,7 +11,7 @@
   (a dry run) and wrote them in a second — a toggle committed between the passes was reverted.
 - **Shape after (TS):**
   1. The key is gone from the catalog, `config.tools`, `install/sample.env` and
-     `docs/config/config.md`. A leftover `.env` line configures nothing (no boot refusal: it is a
+     `docs/administration/configuration/config.md`. A leftover `.env` line configures nothing (no boot refusal: it is a
      deletion, not a rename — `RETIRED_ENV_KEYS` is rename-only).
   2. `importTools()` with no options is a dry run, always. Writers pass `dryRun:false`.
   3. The update run's ancillary `tools` reconciler ALWAYS writes, in ONE pass:

@@ -31,7 +31,7 @@ engine and the DOM:
 
 | layer | element | role |
 | --- | --- | --- |
-| server read engine | `readSection` / `readSectionRows` — `src/core/section/read.ts` | run the navigation [SQO](../sqo.md) (via `pickReadSource` → the search engine or the Time Machine source), return the matching `(section_tipo, section_id)` rows |
+| server read engine | `readSection` / `readSectionRows` — `src/core/section/read.ts` | run the navigation [SQO](../../api/sqo.md) (via `pickReadSource` → the search engine or the Time Machine source), return the matching `(section_tipo, section_id)` rows |
 | server envelope | built inline in `readSectionRows()` | turn the rows into one `entries` array of locators + a de-duplicated `context[]` (see [`sections`](sections.md#the-sqo-normalization-contract)) |
 | client model | `section` instance in `list` mode (`section.js`) | holds the `datum`, `rqo`/`sqo`, `columns_map`, `paginator` and `filter`; owns navigation/pagination/sort |
 | client render | `render_list_section.list` → `view_*_list_section` | builds the row-box table: a header row + one [`section_record`](section_record.md) row per entry, placed by the record window (see [The row box](#the-row-box)) |
@@ -85,9 +85,9 @@ DOM:  wrapper_section > [ list_body.layout_table > [ header_wrapper_list | conte
   `navigate()`) and persist the page state to the local DB.
 - **Sort.** Expose sortable column headers (`ui.allow_column_order` /
   `add_column_order_set`) that mutate the SQO `order` and re-navigate.
-- **Search.** Host the section's [`search`](../sqo.md) filter
+- **Search.** Host the section's [`search`](../../api/sqo.md) filter
   instance (`self.filter`) and the *Search* / *Show all* buttons — plus, when
-  the searched section declares RAG [embed groups](../ai/rag_cookbook.md#r1--opt-a-section-in-the-section_map-ragembed-groups-2026-07-22),
+  the searched section declares RAG [embed groups](../../administration/ai/rag_cookbook.md#r1--opt-a-section-in-the-section_map-ragembed-groups-2026-07-22),
   the **"Search by meaning" quick input** (semantic search: ranked results pin
   the list via `filter_by_locators` + the `locator_position` order) and the
   **pinned chip** — an SQO-derived status ("N results pinned" / "no matches" /
@@ -129,7 +129,7 @@ instance (declared in `section.js`):
 | `self.ar_instances` | array | the **built** `section_record` rows only: a row the window releases leaves it through its own destroy |
 | `self.record_windows` | `{ rows: handle }` | the record window of each row slot (`rows`; a portal mosaic adds `alt` for its alternative table), stored by the row door `window_section_rows` |
 | `self.paginator` | [`paginator`](../ui/paginator.md) | the navigation widget; this section is its `caller` |
-| `self.filter` | [`search`](../sqo.md) instance | the section's search panel (created unless `mode==='tm'`) |
+| `self.filter` | [`search`](../../api/sqo.md) instance | the section's search panel (created unless `mode==='tm'`) |
 | `self.view` | `'default'` \| `'base'` \| `'graph'` \| `'thesaurus_list'` \| `'search_user_presets'` \| `'export_user_presets'` | which list view renders |
 | `self.node_body` | HTMLElement | the `.list_body.layout_table` grid element (kept for in-place pagination refresh) |
 
@@ -485,7 +485,7 @@ instances only, never a node: `size`, `generation`, `signal`, `entry_of(i)`,
 ## How it fits with the rest of Dédalo
 
 - **[sections (server collection concept)](sections.md)** — the upstream
-  producer. `readSection()` runs the navigation [SQO](../sqo.md), and
+  producer. `readSection()` runs the navigation [SQO](../../api/sqo.md), and
   `readSectionRows()` builds the `entries` + `context` the list consumes. The
   list's `get_total()` `count` action queries the same record set.
 - **[section (reference)](section.md)** — the section concept behind each
@@ -504,10 +504,10 @@ instances only, never a node: `size`, `generation`, `signal`, `entry_of(i)`,
   caller: it provides `id`, `mode`, `rqo.sqo.limit`/`.offset`, `get_total()`,
   `permissions`, `node` and the `render_<id>` event, and routes
   `paginator_goto_<id>` through `update_pagination()` → `navigate()`.
-- **[SQO](../sqo.md)** — `self.filter` is the section's search instance; the
+- **[SQO](../../api/sqo.md)** — `self.filter` is the section's search instance; the
   list's *Search* / *Show all* buttons toggle it and mutate the SQO `filter`.
   Sorting mutates the SQO `order`. Pagination mutates `limit`/`offset`.
-- **[request_config](../request_config.md) / [RQO](../rqo.md)** — the
+- **[request_config](../request_config.md) / [RQO](../../api/rqo.md)** — the
   `request_config` `show.ddo_map` defines the columns; `build_rqo_show()` wraps
   the SQO into the request sent to the API.
 - **[page](../ui/page.md) / [menu](../ui/menu.md) / [inspector](../ui/inspector.md)** —
@@ -604,8 +604,8 @@ const result = await readSection(
 - [Sections concept](index.md) — the matrix-table model behind every section.
 - [Components](../components/index.md) — the **cells** rendered in `list` mode.
 - [paginator](../ui/paginator.md) — the navigation widget the list drives.
-- [SQO](../sqo.md) — the filter / order / limit / offset the list mutates.
-- [request_config](../request_config.md) · [RQO](../rqo.md) — where the columns
+- [SQO](../../api/sqo.md) — the filter / order / limit / offset the list mutates.
+- [request_config](../request_config.md) · [RQO](../../api/rqo.md) — where the columns
   (`show.ddo_map`) and the request come from.
 - [page](../ui/page.md) · [menu](../ui/menu.md) · [inspector](../ui/inspector.md) —
   the surrounding UI that hosts the list.

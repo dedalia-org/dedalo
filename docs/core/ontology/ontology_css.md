@@ -1,6 +1,6 @@
 # Ontology CSS
 
-> See also: [Ontology authoring](authoring.md) · [Overriding shared ontology nodes](local_ontology_overrides.md) · [CSS / LESS architecture](../ui/css_architecture.md) · [Themes](../ui/themes.md) · [dd_object](../dd_object.md)
+> See also: [Ontology authoring](authoring.md) · [Overriding shared ontology nodes](local_ontology_overrides.md) · [CSS / LESS architecture](../ui/css_architecture.md) · [Themes](../ui/themes.md) · [dd_object](../../api/dd_object.md)
 
 An ontology node can carry its own CSS: a small JSON object in the node's
 **CSS** field (`ontology16`, stored as `properties.css`). Dédalo scopes every rule

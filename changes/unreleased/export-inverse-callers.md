@@ -12,7 +12,7 @@ record; in the **Breakdown** format one column per calling field, and each calle
 row (or its own `|n` column in the **Columns** mode), like any related item. Callers
 you are not allowed to read are left out, exactly as in the record's edit view. The **Dédalo
 (Raw)** format exports these calculated values too; the import tool skips them, since there is
-nothing stored to write back. See [Exporting data](./core/exporting_data.md).
+nothing stored to write back. See [Exporting data](./using/exporting_data.md).
 
 3D model fields also exported an empty column; they now export the file's address, like audiovisual
 fields.

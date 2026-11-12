@@ -2,7 +2,7 @@
 
 > The client-side **factory and registry** for every live Dédalo object (component, section, area, widget, service, tool). One canonical key, one in-memory `Map`, one async entry point: `get_instance()`.
 
-> See also: [Components](../components/index.md) · [Sections](../sections/index.md) · [Events](../events.md) · [RQO](../rqo.md)
+> See also: [Components](../components/index.md) · [Sections](../sections/index.md) · [Events](../events.md) · [RQO](../../api/rqo.md)
 
 ## Role
 
@@ -293,5 +293,5 @@ const removed = delete_instances({ section_tipo:'oh1', section_id:42 })
 - [Components](../components/index.md) — client instantiation of components via `get_instance`, ddo (context + data), permissions.
 - [Sections](../sections/index.md) — the section composes its child components and owns their teardown through `ar_instances`.
 - [Events](../events.md) — the `event_manager` bus; instances subscribe/publish instead of referencing each other, tokens stored in `events_tokens`.
-- [RQO](../rqo.md) — the request format `get_instance`'s build path issues through `data_manager` (e.g. `get_element_context`).
+- [RQO](../../api/rqo.md) — the request format `get_instance`'s build path issues through `data_manager` (e.g. `get_element_context`).
 - [Request config](../request_config.md) — the configuration the server ships in the ddo `context` that instances consume.

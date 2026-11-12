@@ -110,6 +110,6 @@ A `server` engine triggers the `automatic_translation` API action above; a `brow
 
 - `tool_lang_multi` — translate one source component into *several* target languages in a single run; its own `server/index.ts` action calls the same shared `runAutomaticTranslation(ctx, 'tool_lang')` core (so behavior and config resolution are identical to `tool_lang`'s) and shares the in-browser engine (`tools/tool_lang/js/browser_translation.js`).
 - [tool_transcription](tool_transcription.md) / [tool_subtitles](tool_subtitles.md) — other text/media-content tools that, like `tool_lang`, can use external/AI engines (Babel, Whisper).
-- [tool_export](tool_export.md) · [Exporting data](../../../core/exporting_data.md) — the read-only counterpart for getting (translated) data out of a section.
+- [tool_export](tool_export.md) · [Exporting data](../../../using/exporting_data.md) — the read-only counterpart for getting (translated) data out of a section.
 - [Creating new tools](../creating_tools.md) · [Server contract](../server_contract.md) — the tool model, `apiActions`, permission gates and config resolution this page builds on.
 - Source: `tools/tool_lang/server/index.ts`, the shared translation core `src/core/tools/translation.ts` (`runAutomaticTranslation`, `babelProvider`, `resolveTranslationProvider`), `tools/tool_lang/js/{tool_lang,render_tool_lang,browser_translation}.js`, `tools/tool_lang/register.json`.

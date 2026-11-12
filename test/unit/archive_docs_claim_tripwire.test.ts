@@ -4,7 +4,7 @@
  * (audit 2026-08-26 P1-10; DATA-10, DATA-11, DATA-13 — filed "because the
  * manual already makes the claim").
  *
- * THE DEFECT THIS PINS. `docs/tools/using_export.md` told a curator that the
+ * THE DEFECT THIS PINS. `docs/using/tools/using_export.md` told a curator that the
  * Dédalo (Raw) CSV is "a re-importable backup", moves data "between
  * installations" and imports back "byte-for-byte"; the CSV import re-conforms
  * every cell as typed input (text_area markup rewritten, geolocation item ids
@@ -44,7 +44,7 @@ import { NOT_ARCHIVED } from '../../src/core/archive/manifest.ts';
 import { docsPages } from '../helpers/docs_corpus.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
-const EXPORT_PAGE = 'docs/core/exporting_data.md';
+const EXPORT_PAGE = 'docs/using/exporting_data.md';
 const ARCHIVE_ANCHOR = 'the-archive-door';
 const FORMAT_DOC = 'engineering/ARCHIVE_FORMAT.md';
 
@@ -114,7 +114,7 @@ describe('archive docs claim tripwire', () => {
 		const hits = PAGES.flatMap((file) => claimsIn(file, read(file)));
 		expect(
 			hits.map((h) => `${h.file}:${h.line} — ${h.reason}`),
-			'The CSV door is not a round trip (see docs/core/exporting_data.md "Raw export and the import tool"). Reword the sentence and point at the archive door.',
+			'The CSV door is not a round trip (see docs/using/exporting_data.md "Raw export and the import tool"). Reword the sentence and point at the archive door.',
 		).toEqual([]);
 
 		// Positive control: every listed formulation, as the manual once wrote it, is caught.
@@ -142,7 +142,7 @@ describe('archive docs claim tripwire', () => {
 			return /dedalo_raw|Dédalo \(Raw\)|Dédalo Raw/.test(text) && /backup/i.test(text);
 		});
 		expect(selling.length).toBeGreaterThan(2);
-		expect(selling).toContain('docs/tools/using_export.md');
+		expect(selling).toContain('docs/using/tools/using_export.md');
 		const unlinked = selling.filter((file) => !read(file).includes(`#${ARCHIVE_ANCHOR}`));
 		expect(
 			unlinked,

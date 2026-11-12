@@ -411,7 +411,7 @@ looks like JSON but fails to parse is rejected and reported as
     preserves the wider set (`<s>`, `<code>`, `<sub>`, `<sup>`, …).
 
 See the full formatted-text import definition in
-[Importing data → Formatted text](../importing_data.md#formatted-text).
+[Importing data → Formatted text](../../using/importing_data.md#formatted-text).
 
 ### Export
 
@@ -424,7 +424,7 @@ one atom per non-empty item, on-the-fly inline image tag resolution, an
 verified in this path; the legacy `indexation_list` grid mode has no
 equivalent here (not implemented).
 
-See [Exporting data](../exporting_data.md).
+See [Exporting data](../../using/exporting_data.md).
 
 ## Notes
 

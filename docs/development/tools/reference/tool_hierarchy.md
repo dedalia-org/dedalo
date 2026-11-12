@@ -127,7 +127,7 @@ A refusal — the tool does **not** paper over an operator error:
 ## Related
 
 - [Hierarchies](../../../core/ontology/hierarchy.md) — the model this tool operates on, and the same invariant from the ontology side.
-- [Installing new hierarchies](../../../management/install_new_hierarchies.md) — the panel imports **and activates** the hierarchies you tick; this tool is how you activate one afterwards.
+- [Installing new hierarchies](../../../administration/install_new_hierarchies.md) — the panel imports **and activates** the hierarchies you tick; this tool is how you activate one afterwards.
 - [tool_cataloging](tool_cataloging.md) — the natural follow-up: drag real records into the hierarchy this tool builds.
 - [Creating new tools](../creating_tools.md) · [Server contract](../server_contract.md).
 - Source: `tools/tool_hierarchy/server/{index,tool_hierarchy}.ts`, `tools/tool_hierarchy/js/{tool_hierarchy,render_tool_hierarchy}.js`; core: `src/core/ontology/hierarchy_state.ts` (`inspectHierarchy`, `ensureHierarchy`, `rebuildHierarchy`), `src/core/ontology/hierarchy_provision.ts` (`generateVirtualSection`), `src/core/ontology/ontology_delete.ts` (`deleteOwnedHierarchyOntology`), `src/core/ontology/teardown_scope.ts` (the refusal and the sole-declarer scan).

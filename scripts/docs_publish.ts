@@ -62,7 +62,7 @@ const VERSION = 'v7';
  *
  * Deliberately NOT a config-catalog key. That catalog is the operator-facing
  * census: every entry is rendered into `install/sample.env` and the generated
- * region of `docs/config/config.md`, and an institution running Dédalo never
+ * region of `docs/administration/configuration/config.md`, and an institution running Dédalo never
  * publishes this manual. Publishing is a developer action, so this is a
  * developer setting, read from `../private/.env` like the rest of a
  * workstation's local truth.

@@ -373,7 +373,7 @@ describe('import_files (scratch record in the test3 playground, cleaned up)', ()
 	/**
 	 * The other half of the promise the manual makes ("the identifier field is
 	 * what lets a re-import update the same records instead of duplicating
-	 * them", docs/tools/using_import_marc21.md): the SAME file, imported twice,
+	 * them", docs/using/tools/using_import_marc21.md): the SAME file, imported twice,
 	 * updates the record the first run created — because the first run wrote the
 	 * control number into the code component the `id` entry names.
 	 */

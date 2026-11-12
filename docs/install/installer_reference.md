@@ -116,7 +116,7 @@ meaning.)
 | `--socket` | no | see [Route defaults](#route-defaults) | persisted as `SERVER_UNIX_SOCKET`. On the developer route it is asked on the Development server screen and always written: by default `/tmp/dedalo_ts_<entity>.sock` (the entity in lowercase), so two checkouts on one machine never share a socket. Left out on a re-run, the socket your `.env` already names is kept. When a running server already answers on it, the install is refused before anything is written. A path longer than 103 bytes (the operating system's limit) is refused |
 | `--media-access-mode` | no | *(unset = `publication`, fail-closed)* | persisted as `DEDALO_MEDIA_ACCESS_MODE` — `private`, `publication`, or `false` to deliberately serve an open media tree |
 | `--diffusion` | no | off | writes the MariaDB keys; pair with `--mysql-host/-port/-socket/-name/-user/-password`. `--mysql-user` is required; `--mysql-name` defaults to `web_dedalo` (`web_<instance>` on production). The MariaDB connection is probed; a failure warns but does not stop the install |
-| `--mailer` | no | off | writes the outbound-email (SMTP) keys, enabling [password recovery](../management/password_recovery.md); requires `--smtp-host`, pair with `--smtp-port` (587), `--smtp-secure` (`tls`\|`ssl`\|`none`), `--smtp-user`, `--smtp-password`, `--smtp-from`, `--smtp-from-name`. The relay is probed (connection + auth, no email sent); a failure warns but does not stop the install |
+| `--mailer` | no | off | writes the outbound-email (SMTP) keys, enabling [password recovery](../administration/password_recovery.md); requires `--smtp-host`, pair with `--smtp-port` (587), `--smtp-secure` (`tls`\|`ssl`\|`none`), `--smtp-user`, `--smtp-password`, `--smtp-from`, `--smtp-from-name`. The relay is probed (connection + auth, no email sent); a failure warns but does not stop the install |
 | `--public-host` | no | developer / trial: not given = nothing written (the screens suggest the `DEDALO_HOST` your `.env` already names, else `none`); production / docker: derived (see Notes) | the installation's [public address](#the-public-address) — the host (and port, when it is not the protocol's default) other machines reach it at, written as `DEDALO_HOST`: `host[:port]` in its canonical ASCII spelling, or `none` for a private or intranet installation (nothing is written). Production and docker do not ask it: they derive `https://<server name>`, with `:<https port>` when that is not `443`, and refuse a `--public-host` that names another origin — and `none`, since the address is the site's server name; a spelling of the same origin (`<server name>:443`) is accepted. A name no outside machine can reach is refused unless `--public-host-keep-private` is given |
 | `--public-protocol` | no | `https://` for a newly given host; beside a host your `.env` already names, its `DEDALO_PROTOCOL`, else `http://` (what the engine reads when the key is unset) | `https://` or `http://`, written as `DEDALO_PROTOCOL` beside a public host, and only when it differs from what the engine already reads. Production and docker refuse anything but `https://` (the site serves HTTPS). On trial, which serves plain HTTP itself, a typed host still defaults to `https://` — a trial behind a TLS proxy |
 | `--public-host-keep-private` | no | off | keep a `--public-host` that is well formed but that no outside machine can reach (loopback, a private address, a single-label name, `.local`, `.lan`…). It is written as given; the engine still identifies itself with the shared identity (see [The public address](#the-public-address)) |
@@ -394,7 +394,7 @@ installer's own affordances.
 The thesauri a release offers are listed in ONE file,
 `install/import/hierarchy/hierarchy.json`, exported from the Dédalo master by
 *Maintenance › Export hierarchy* (see
-[Install new hierarchies](../management/install_new_hierarchies.md)). It has the
+[Install new hierarchies](../administration/install_new_hierarchies.md)). It has the
 same envelope as the ontology catalog (`version`, `date`, `entity_id`, `entity`,
 `entity_label`, `host`), a `typologies` list, and one `active_hierarchies` entry
 per thesaurus: its `tld`, name, typology, default language, real section, scope
@@ -494,7 +494,7 @@ described by **domain ontologies**, and every installation chooses at least one.
   (air-gapped: only oh is available offline)`.
 - **The installer writes `ACTIVE_ONTOLOGY_TLDS`**: the core, then the installed
   domain ontologies in install order. It is rewritten on every run. The
-  [ontology update panel](../management/updates/updating_ontology.md) refreshes
+  [ontology update panel](../administration/updates/updating_ontology.md) refreshes
   exactly these.
 
 ### Dependencies are declared, never guessed
@@ -503,7 +503,7 @@ A domain ontology usually builds on others: its sections use components defined
 in another ontology, or its fields point into another one's thesaurus. The
 ontology server **declares** these dependencies for each ontology in its
 catalog (an editor fills them in on the master — see
-[Declaring what an ontology requires](../management/updates/updating_ontology.md#declaring-what-an-ontology-requires)).
+[Declaring what an ontology requires](../administration/updates/updating_ontology.md#declaring-what-an-ontology-requires)).
 
 Each declared dependency names a TLD and what is needed from it: its
 **ontology** (`main: ontology35`) or its **thesaurus** (`main: hierarchy1`, the
@@ -622,7 +622,7 @@ bun run scripts/install.ts … --ontologies oh,tch --ontology-source /srv/media/
 
 The source is one **version directory** of an ontology server's export (its
 `ONTOLOGY_DATA_IO_DIR/<major.minor>/` — see
-[the ontology directory](../config/config.md#ontology-inputoutput-exportimport-or-download-directory)),
+[the ontology directory](../administration/configuration/config.md#ontology-inputoutput-exportimport-or-download-directory)),
 or an archive of it:
 
 - `ontology.json` — the catalog, with each ontology's metadata and declared
@@ -1504,7 +1504,7 @@ CODE_SERVERS=[{"name":"Official Dédalo code server","url":"https://master7.deda
 ```
 
 `ONTOLOGY_SERVERS` is where ontology updates come from; `CODE_SERVERS` is where
-the [code update panel](../management/updates/updating_code.md) looks for releases.
+the [code update panel](../administration/updates/updating_code.md) looks for releases.
 `--no-update-servers` (answering *no* to the interactive installer's
 update-server question) writes both as `[]` — an air-gapped install that is never
 offered an update. To change your mind later, replace the `[]` values of
@@ -1519,7 +1519,7 @@ section uses to show a country flag beside an IP address. Offline, it starts
 anyway and shows no flags. The air-gapped answer also writes
 `DEDALO_GEOIP_AUTO_UPDATE=false`, so an air-gapped install never tries (a later run that answers the official servers over that `.env` writes it back to `true`); to have
 flags there, copy a `dbip-country-lite-*.mmdb` file into `<private>/geoip/`
-yourself ([`DEDALO_GEOIP_*`](../config/config.md#enable-local-ip-to-country-resolution)). With the
+yourself ([`DEDALO_GEOIP_*`](../administration/configuration/config.md#enable-local-ip-to-country-resolution)). With the
 official servers, set `DEDALO_GEOIP_AUTO_UPDATE=false` yourself to make no
 download.
 
@@ -1577,13 +1577,13 @@ already reads: beside a `DEDALO_HOST` with no `DEDALO_PROTOCOL` the engine reads
 `http://` (the key's default), which is also the protocol the screens offer
 there. To set or change it after the install, edit `DEDALO_HOST` (and
 `DEDALO_PROTOCOL`) in `.env` and restart the server; see the
-[configuration reference](../config/config.md).
+[configuration reference](../administration/configuration/config.md).
 
 !!! note "The installer never writes `DEDALO_SUPERVISED`"
     Whether the server runs under a supervisor is a property of how it is
     **launched**, so it is declared by the systemd unit, the compose stack or the
     `bun run` script — never in `.env`, where the engine ignores it. See
-    [Updating the code](../management/updates/updating_code.md).
+    [Updating the code](../administration/updates/updating_code.md).
 
 !!! danger "The operational tuning is yours to append — afterwards"
     The **pool settings, the timeouts and the access log** are not written by the

@@ -598,7 +598,7 @@ DOM (list / default): `wrapper_component component_dataframe <tipo> <mode>` -> `
 
 ## Import / export model
 
-**Export.** A dataframe is a component with its own stored data, so a `dedalo_raw` export gives it **its own column**, headed by the dataframe component's tipo and placed right after the component it frames. Every cell is the plain [dedalo_data wrapper](../importing_data.md#the-dedalo_data-wrapper) around that component's stored slice:
+**Export.** A dataframe is a component with its own stored data, so a `dedalo_raw` export gives it **its own column**, headed by the dataframe component's tipo and placed right after the component it frames. Every cell is the plain [dedalo_data wrapper](../../using/importing_data.md#the-dedalo_data-wrapper) around that component's stored slice:
 
 | `oh16` (the framed component) | `oh130` (the dataframe) |
 |---|---|
@@ -612,7 +612,7 @@ Files exported before 2026-08-09 fold the frames into the framed component's own
 
 Wire contract: `WC-2026-08-09-export-raw-dataframe-own-column`.
 
-See [importing data](../importing_data.md) and [exporting data](../exporting_data.md).
+See [importing data](../../using/importing_data.md) and [exporting data](../../using/exporting_data.md).
 
 ## Relation ordering (the order is a dataframe)
 

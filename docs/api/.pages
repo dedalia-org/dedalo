@@ -4,5 +4,8 @@ title: API & integration
 nav:
   - index.md
   - dedalo_api_v1.md
+  - rqo.md
+  - sqo.md
+  - dd_object.md
   - RQO_FIELD_MAPPING.md
   - ...

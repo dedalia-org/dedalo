@@ -286,7 +286,7 @@ artifact** there (`.onnx`, `.safetensors`, `.wasm`…, a `tokenizer.json`-style
 model-card file, a `config.json` with a `model_type`), because code is not the only
 third-party byte: the review of this closure found 20 MB of a TranslateGemma
 tokenizer committed under `tools/tool_lang/`, now gone — a model lives in the
-install's [model store](../tools/using_transcription.md), never in the code tree —
+install's [model store](../using/tools/using_transcription.md), never in the code tree —
 and a file that wears a third-party
 **signature** (a `.min`/`-min` name, a line over 1000 characters, a `/*!` banner, a
 `sourceMappingURL` pointer, a copyright notice naming someone other than Dédalo,

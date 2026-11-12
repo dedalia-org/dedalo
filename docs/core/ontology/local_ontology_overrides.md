@@ -1,6 +1,6 @@
 # Overriding shared ontology nodes (local ontology)
 
-> See also: [Ontology](index.md) · [Ontology authoring](authoring.md) · [Ontology tool](../../tools/using_ontology.md) · [Ontology parser tool](../../tools/using_ontology_parser.md) · [ontology (build layer)](ontology_write.md)
+> See also: [Ontology](index.md) · [Ontology authoring](authoring.md) · [Ontology tool](../../using/tools/using_ontology.md) · [Ontology parser tool](../../using/tools/using_ontology_parser.md) · [ontology (build layer)](ontology_write.md)
 
 An installation often needs a shared node to look or read slightly differently: a
 field label that suits your institution better, a highlighted field, a property
@@ -16,7 +16,7 @@ This page is for **administrators** who maintain an installation's ontology.
 
 !!! warning "Developer/administrator access"
     Overrides are created in the Ontology area and applied with the
-    [Ontology tool](../../tools/using_ontology.md). Both are restricted to
+    [Ontology tool](../../using/tools/using_ontology.md). Both are restricted to
     developers/superusers. An override applies to the **whole installation** —
     every user, project and profile sees the overridden node.
 
@@ -29,8 +29,8 @@ This page is for **administrators** who maintain an installation's ontology.
 | **Runtime node** | `dd_ontology` | What the running application reads. Built from the shared node **plus** its override. |
 
 The override is applied **when the shared node is processed** into the runtime
-table, by the [Ontology tool](../../tools/using_ontology.md) or by a
-**Regenerate** in the [Ontology parser tool](../../tools/using_ontology_parser.md).
+table, by the [Ontology tool](../../using/tools/using_ontology.md) or by a
+**Regenerate** in the [Ontology parser tool](../../using/tools/using_ontology_parser.md).
 Saving the override record alone changes nothing visible: you always finish by
 processing the **shared** node.
 
@@ -53,7 +53,7 @@ installation:
    tipo* to `ontology1`, like any other ontology TLD (see
    [Creating a new TLD](index.md#creating-a-new-tld)).
 3. Press **Create ontology** in the inspector.
-4. Open the [Ontology parser tool](../../tools/using_ontology_parser.md), tick
+4. Open the [Ontology parser tool](../../using/tools/using_ontology_parser.md), tick
    `localontology` and press **Refresh status**. It must report the TLD in sync
    with its main node present. If it does not, press **Regenerate** for it.
 
@@ -80,7 +80,7 @@ Your override records are then reachable from
 4. **Fill only what should differ** (see [What you can override](#what-you-can-override)).
    Leave every other field empty: an empty field means "keep the shared value".
 5. **Process the shared node.** Open the shared node's record (here, record `85`
-   of the `rsc` ontology) and run the [Ontology tool](../../tools/using_ontology.md)
+   of the `rsc` ontology) and run the [Ontology tool](../../using/tools/using_ontology.md)
    on it (**Process**, or Ctrl+S). The tool does not appear on override records
    on purpose: an override is not a node of its own.
 6. **Check the result** in the section that uses the node (for `rsc85`, the edit
@@ -255,7 +255,7 @@ reason to keep overrides small.
   the same section: a component's data belongs to the section it was defined for.
 - **Verify with the parser.** Editing an override without processing the shared
   node leaves the runtime stale. The
-  [Ontology parser tool](../../tools/using_ontology_parser.md) reports it: tick the
+  [Ontology parser tool](../../using/tools/using_ontology_parser.md) reports it: tick the
   shared TLD (`rsc`), **Refresh status**, and the node shows as *stale* until you
   process it.
 - **Back up before large changes.** Override records are ordinary ontology
@@ -265,7 +265,7 @@ reason to keep overrides small.
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| Nothing changed after saving the override | The shared node was not processed | Run the [Ontology tool](../../tools/using_ontology.md) on the **shared** node's record. |
+| Nothing changed after saving the override | The shared node was not processed | Run the [Ontology tool](../../using/tools/using_ontology.md) on the **shared** node's record. |
 | Still nothing changed | The override is linked through *Connected to* or *Parent*, not **Overwrite** | Link it in **Overwrite** (`ontology42`). |
 | The field shrank or lost its layout | Your CSS replaced the shared CSS whole and dropped `grid-column` | Repeat the shared rules you want to keep ([Sample 2](#sample-2-restyle-a-field-css)). |
 | CSS shows in the edit form but not in the list | List views do not use component CSS | Expected — see [How the CSS is applied](#how-the-css-is-applied). |
@@ -279,6 +279,6 @@ reason to keep overrides small.
 
 - [Ontology](index.md) — shared and local ontologies, creating a TLD.
 - [Ontology authoring](authoring.md) — the node fields and the `properties` grammar.
-- [Ontology tool](../../tools/using_ontology.md) — process one record or a section.
-- [Ontology parser tool](../../tools/using_ontology_parser.md) — inspect drift and regenerate a whole TLD.
+- [Ontology tool](../../using/tools/using_ontology.md) — process one record or a section.
+- [Ontology parser tool](../../using/tools/using_ontology_parser.md) — inspect drift and regenerate a whole TLD.
 - [ontology (build layer)](ontology_write.md) — how a node is parsed into the runtime table.

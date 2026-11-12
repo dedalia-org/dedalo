@@ -28,4 +28,4 @@ has a *Save time machine history on import* switch: every import can be reverted
 a single-field restore or a record recovery of a hierarchical term field now also updates
 its broader-term search index, so a search for a broader term finds the restored value (and
 no longer the value it replaced) without waiting for a later save. See
-[Time machine](./tools/using_time_machine.md).
+[Time machine](./using/tools/using_time_machine.md).

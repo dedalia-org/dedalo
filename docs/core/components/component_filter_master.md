@@ -211,9 +211,9 @@ Modes:
 !!! warning "Gap: bare section_id shorthand not implemented"
     Because the target section is a single fixed section (`dd153`), a plain `section_id` (or comma-separated list of ids such as `1,5,8`) conformed into locators with `type = dd675` and `from_component_tipo = dd170` would be a natural shorthand — but the generic import engine has no such shorthand today; only the JSON locator array round-trips (see [component_check_box](component_check_box.md) for the same gap verified against the shared import engine).
 
-An empty cell clears the existing data (result `null`). See [importing data](../importing_data.md#related-data).
+An empty cell clears the existing data (result `null`). See [importing data](../../using/importing_data.md#related-data).
 
-**Export.** Uses the generic relation export path: each locator resolves to the project name (via the target section's `dd156` name component) and the labels join with the configured separator. See [exporting data](../exporting_data.md).
+**Export.** Uses the generic relation export path: each locator resolves to the project name (via the target section's `dd156` name component) and the labels join with the configured separator. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

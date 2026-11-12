@@ -292,9 +292,9 @@ A number sequence of `section_id` when there is a single resolved target section
 1,5,8
 ```
 
-With multiple resolved targets, define the target section in the column header as `<component_tipo>_<section_tipo>` (e.g. `test169_dd922`). See the full related-data definition in [importing data](../importing_data.md#related-data).
+With multiple resolved targets, define the target section in the column header as `<component_tipo>_<section_tipo>` (e.g. `test169_dd922`). See the full related-data definition in [importing data](../../using/importing_data.md#related-data).
 
-**Export.** Related components resolve each locator against its target section/component. The shared export path iterates the locators and, per the `ddo_map`, resolves each child component against the locator's `section_id` / `section_tipo` to produce the displayed sub-columns; the indexation grid resolves the same way. See [exporting data](../exporting_data.md).
+**Export.** Related components resolve each locator against its target section/component. The shared export path iterates the locators and, per the `ddo_map`, resolves each child component against the locator's `section_id` / `section_tipo` to produce the displayed sub-columns; the indexation grid resolves the same way. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

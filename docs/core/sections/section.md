@@ -158,7 +158,7 @@ component-family-specific; there is no single generic entry point for it.
 ### Search
 
 Query conforming is not a section-level helper: it lives in the search and
-relations subsystems. See [SQO](../sqo.md) and
+relations subsystems. See [SQO](../../api/sqo.md) and
 [request_config](../request_config.md).
 
 ### Metadata
@@ -251,4 +251,4 @@ const removed = await deletePortalLocator(
 - [sections](sections.md) — the multi-record collection/list concept.
 - [Components](../components/index.md) — the fields that live inside a section.
 - [Locator](../locator.md) — the pointer type stored in the relations array.
-- [SQO](../sqo.md) — the search query object the read engine consumes.
+- [SQO](../../api/sqo.md) — the search query object the read engine consumes.

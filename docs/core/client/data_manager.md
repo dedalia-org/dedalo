@@ -1,12 +1,12 @@
 # data_manager
 
 > The Dédalo v7 **client transport**: the single chokepoint every browser→server
-> call passes through — it builds the HTTP request around an [RQO](../rqo.md),
+> call passes through — it builds the HTTP request around an [RQO](../../api/rqo.md),
 > attaches the CSRF token, retries/times-out the fetch, and short-circuits reads
 > against the browser's IndexedDB cache.
 
 > File: `./core/common/js/data_manager.js` ·
-> See also: [RQO](../rqo.md) · [request_config](../request_config.md) ·
+> See also: [RQO](../../api/rqo.md) · [request_config](../request_config.md) ·
 > [UI building blocks](../ui/index.md)
 
 ## Role
@@ -32,14 +32,14 @@ It owns four concerns that would otherwise be re-implemented per caller:
 4. **Streaming** — SSE / NDJSON readers for long row-by-row payloads
    (`tool_export`, transcription, etc.).
 
-The *message* it sends is the [RQO](../rqo.md), built by the caller from the
+The *message* it sends is the [RQO](../../api/rqo.md), built by the caller from the
 [request_config](../request_config.md) the server injected into its context.
 `data_manager` is transport only: it does not build the RQO and does not know
 the ontology — it moves bytes and manages the connection.
 
 !!! note "Server describes, client draws"
     `data_manager` is the client end of the
-    [request lifecycle](../rqo.md#request-lifecycle). The caller builds an RQO
+    [request lifecycle](../../api/rqo.md#request-lifecycle). The caller builds an RQO
     with `create_source()` / `build_rqo_show()` / `build_rqo_search()`
     (`core/common/js/common.js`); `data_manager.request` POSTs it; the API gate
     (`src/server.ts` routes `/api/v1/json` and `/dedalo/core/api/v1/json[/]`
@@ -130,7 +130,7 @@ bootstrap `start` action. `data_manager`:
 
 The set of actions exempt from the token check (and the separate no-login
 allowlist) is enforced server-side — see the
-[RQO security model](../rqo.md#security-model-summary).
+[RQO security model](../../api/rqo.md#security-model-summary).
 
 ### The error model: `ApiError`
 
@@ -256,7 +256,7 @@ There is no request queue: each `data_manager.request` is an independent
 `async` call. Batching several operations is done with several concurrent
 `fetch` calls (the callers await them in parallel), **not** by sending an array
 of RQOs — the API endpoint decodes exactly one RQO per HTTP request (see
-[RQO](../rqo.md)). The page-level error slot (`page_globals.page_error`, set by
+[RQO](../../api/rqo.md)). The page-level error slot (`page_globals.page_error`, set by
 `error_dispatch`) reflects the most recent handled failure.
 
 The **browser**, however, does queue: six connections per origin over HTTP/1.1.
@@ -431,7 +431,7 @@ All in `core/common/js/data_manager.js` unless noted.
 
 The RQO body these methods carry is assembled by the caller in
 `core/common/js/common.js` (`create_source`, `build_rqo_show`,
-`build_rqo_search`) — documented in [RQO](../rqo.md).
+`build_rqo_search`) — documented in [RQO](../../api/rqo.md).
 
 ## Worked example
 
@@ -506,11 +506,11 @@ const reader = stream.getReader()
 
 ## Related
 
-- [Request Query Object (RQO)](../rqo.md) — the message `data_manager.request`
+- [Request Query Object (RQO)](../../api/rqo.md) — the message `data_manager.request`
   sends, and the API gate / dispatch / security model on the receiving end.
 - [Request Config Architecture](../request_config.md) — the server-side config
   the caller turns into an RQO before handing it to the transport.
-- [SQO](../sqo.md) — the `filter`/`limit`/`order` query carried inside the RQO.
+- [SQO](../../api/sqo.md) — the `filter`/`limit`/`order` query carried inside the RQO.
 - [UI building blocks](../ui/index.md) — the consumers that render the
   `{context, data}` datum a `request` returns, and the `event_manager` bus the
   transport publishes `notification` / `api_error` to.

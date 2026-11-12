@@ -22,7 +22,7 @@ their vocabularies and their languages are yours; see
 **2 · Dédalo keeps it, and keeps every change.** One record, in one place.
 Every edit is stored with its author and its date, so you can read the history
 of a record and restore an earlier state. The
-[time machine tool](../tools/using_time_machine.md) is where you do that.
+[time machine tool](../using/tools/using_time_machine.md) is where you do that.
 
 **3 · You decide it may be public.** Publication is a *decision*, taken record
 by record. Until it is taken, the record exists only inside the institution.
@@ -71,7 +71,7 @@ the same permissions as the person asking. See
 
 - **[Diffusion data flow](../diffusion/diffusion_data_flow.md)** — deciding
   what is published, and how it is transformed on the way out.
-- **[Importing data](../core/importing_data.md)** and
-  **[Exporting data](../core/exporting_data.md)** — getting material in and out.
-- **[Tools user guide](../tools/index.md)** — the day-to-day toolbox behind
+- **[Importing data](../using/importing_data.md)** and
+  **[Exporting data](../using/exporting_data.md)** — getting material in and out.
+- **[Tools user guide](../using/tools/index.md)** — the day-to-day toolbox behind
   steps 1 to 4.

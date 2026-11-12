@@ -120,7 +120,7 @@ Tools need a register file carrying the configuration, labels and other informat
     | Affected types | `dd1350` | Array of ontology tipos of the affected component, area or section | Use it to restrict the tool to specific nodes instead of every node of that model |
     | Ontology | `dd1334` | An ontology extension | Some tools need to attach their own nodes; use the ontology format |
     | Properties | `dd1335` | An extension of the ontology properties | Usable independently of the ontology definition — `open_as`, events, `tool_config` |
-    | Labels | `dd1372` | Strings with translations for the tool's own interface | Read from JS with `self.get_tool_label('my_label')`. Edit them with [`tool_dd_label`](../../tools/using_dd_label.md) instead of typing raw JSON |
+    | Labels | `dd1372` | Strings with translations for the tool's own interface | Read from JS with `self.get_tool_label('my_label')`. Edit them with [`tool_dd_label`](../../using/tools/using_dd_label.md) instead of typing raw JSON |
     | Default configuration | `dd1633` | JSON object with the factory configuration | Overridable per install in the *Tools configuration* section |
     | Configuration | `dd999` | JSON object with the full configuration definition | The complete option set of the tool |
 

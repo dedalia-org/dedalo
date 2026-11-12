@@ -20,7 +20,7 @@ You need the same things as the installer ([Production › Before you start](pro
 
 The layout is defined by **role**, not by fixed paths. Two places matter:
 
-- **The instance directory** (the install folder, `<dir>`) can be any path, and it is **owned by the service user**. It holds the release tree (`<dir>/dedalo`), the private directory (`<dir>/private`) and the backups (`<dir>/backups`). An in-app [code update](../management/updates/updating_code.md) renames the release tree *inside* this directory and moves the old one to `<dir>/backups/code`, so the service user must be able to write here. Its **parent** can stay root-owned, even `0555`: nothing is ever created or renamed there.
+- **The instance directory** (the install folder, `<dir>`) can be any path, and it is **owned by the service user**. It holds the release tree (`<dir>/dedalo`), the private directory (`<dir>/private`) and the backups (`<dir>/backups`). An in-app [code update](../administration/updates/updating_code.md) renames the release tree *inside* this directory and moves the old one to `<dir>/backups/code`, so the service user must be able to write here. Its **parent** can stay root-owned, even `0555`: nothing is ever created or renamed there.
 - **What root-started units run** — the pinned Bun runtime and the backup, watchdog, rollback, alert and media-rule scripts — lives in root-owned directories outside every instance directory: `/opt/dedalo/bun/<pin>/` and `/opt/dedalo/instances/<i>/bin/`. Root never runs a file the service user can replace.
 
 The two worked examples on this page:
@@ -1102,7 +1102,7 @@ systemctl show -p Environment "dedalo-backup@$I" | grep -o 'DEDALO_BACKUP_EXPECT
 
 With the site-builder store, run `systemctl start --wait "dedalo-backup-site-builder@$I.service"` too, and check `/var/lib/dedalo-install/backup/$I/LAST_OK` for `  site_builder: exit 0`.
 
-The set covers the database, the media and the private directory. The **semantic-search (RAG) database** is not in it: if you enable RAG, back that database up yourself. What each store holds, retention and the restore drill are in [backup](../management/backup.md). A backup that has never been restored is a hypothesis: restore-test it into a scratch database at least once a quarter.
+The set covers the database, the media and the private directory. The **semantic-search (RAG) database** is not in it: if you enable RAG, back that database up yourself. What each store holds, retention and the restore drill are in [backup](../administration/backup.md). A backup that has never been restored is a hypothesis: restore-test it into a scratch database at least once a quarter.
 
 **Verify:** `systemctl list-timers "dedalo-backup@$I.timer"`.
 

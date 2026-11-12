@@ -6,7 +6,7 @@ Administrators-only tool that collects the current page context and the captured
 
 `tool_error_report` lets a global administrator report a problem the moment it happens, from any page. Its client auto-collects the page path (navigation params only), the section locator from the caller or URL, and the page-wide JavaScript error buffer (`window.dedalo_js_errors`); the admin adds a free-text description and submits. The tool's single server action validates the browser-supplied context, **stamps identity itself** (user id, entity, engine version, languages, timestamp) so the browser can never spoof who reported or from where, and either relays the report to the configured master installation or stores it locally when this server is itself the master.
 
-Use it to file a bug straight from the UI with the JS-error context already attached. For the operator-facing view of the whole feature — enabling it, the receiver side, browsing received reports — see [Error reports](../../../core/error_reports.md); this page documents the **tool**.
+Use it to file a bug straight from the UI with the JS-error context already attached. For the operator-facing view of the whole feature — enabling it, the receiver side, browsing received reports — see [Error reports](../../../administration/error_reports.md); this page documents the **tool**.
 
 !!! info "This is an administrator tool"
     The report form is shown to global administrators only, and the server refuses `send_report` from anyone else regardless of the UI. Non-admins never see the launcher.
@@ -96,7 +96,7 @@ The outbound relay the server sends to the master (`dd_error_report_api:receive_
 
 ## Related
 
-- [Error reports](../../../core/error_reports.md) — the operator/administrator guide: enabling the feature, the receiver side, and the master dashboard widget that browses received reports.
+- [Error reports](../../../administration/error_reports.md) — the operator/administrator guide: enabling the feature, the receiver side, and the master dashboard widget that browses received reports.
 - [Creating new tools](../creating_tools.md) · [Server contract](../server_contract.md) — the tool model, `apiActions`, the `permission: null` + imperative-gate pattern, and config resolution this page builds on.
 - [Security](../security.md) — the framework gates and the defense-in-depth an admin-only relay tool adds.
 - Source: `tools/tool_error_report/server/index.ts`, `tools/tool_error_report/js/{tool_error_report,render_tool_error_report}.js`, the shared `src/core/error_report/{schema,store}.ts`, `tools/tool_error_report/register.json`. Wire contract: `engineering/wire_contract/` WC-017/018/019.

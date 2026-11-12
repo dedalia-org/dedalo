@@ -15,4 +15,4 @@ To repair a damaged ontology, stop Dédalo and run `bun scripts/ontology_recover
 installation directory. It rebuilds the ontology from its source records and, if needed,
 first puts back the core ontology saved in the recovery file
 (*Maintenance → Build database version*). Without `--apply` it only reports what it would do.
-See [Recovery mode](./management/recovery_mode.md).
+See [Recovery mode](./administration/recovery_mode.md).

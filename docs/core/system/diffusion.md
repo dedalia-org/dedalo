@@ -1,6 +1,6 @@
 # diffusion
 
-> See also: [The diffusion engine](../../diffusion/native_engine.md) · [Diffusion data flow](../../diffusion/diffusion_data_flow.md) · [Parser cookbook](../../diffusion/parsers.md) · [Architecture overview](../architecture_overview.md) · [Exporting data](../exporting_data.md) · [Sections](../sections/index.md)
+> See also: [The diffusion engine](../../diffusion/native_engine.md) · [Diffusion data flow](../../diffusion/diffusion_data_flow.md) · [Parser cookbook](../../diffusion/parsers.md) · [Architecture overview](../architecture_overview.md) · [Exporting data](../../using/exporting_data.md) · [Sections](../sections/index.md)
 
 The **publication** subsystem takes the subset of work data marked for
 publication and emits it to external targets — SQL tables in MariaDB, or RDF /
@@ -23,7 +23,7 @@ portals — and AI agents — can consume directly. Data flows **one way**, work
 diffusion: the published copy can be dropped and regenerated at any time, and
 nothing in the publication targets ever writes back to the work data.
 
-Unlike the export tool ([Exporting data](../exporting_data.md)), which produces
+Unlike the export tool ([Exporting data](../../using/exporting_data.md)), which produces
 a one-off flat file on demand for a human, diffusion maintains a **standing,
 incrementally-synced published copy**: publishing upserts rows/files, deleting a
 work record propagates the deletion to every target, and a per-record
@@ -132,16 +132,16 @@ crash-resume, cancelation, the action set — is documented step by step in
   a record triggers delete propagation to every publication target.
 - **[Components](../components/index.md)** — the field values the resolver
   extracts; `component_publication` provides the gate.
-- **[SQO](../sqo.md)** — `diffuse` selects the records to publish with a
+- **[SQO](../../api/sqo.md)** — `diffuse` selects the records to publish with a
   standard search query object (the tool's current list filter).
 - **[Locator](../locator.md)** — the relation graph the resolver follows across
   sections (bounded by the *resolve levels* budget); also the shape stored in
   the dd1758 ledger.
-- **[Exporting data](../exporting_data.md)** — the *other* read path: a
+- **[Exporting data](../../using/exporting_data.md)** — the *other* read path: a
   human-driven, one-off download vs diffusion's standing, machine-consumed copy.
 - **[Publication API](../../diffusion/publication_api/index.md)** — the serving
   side: the REST API websites use to read the published MariaDB data.
-- **[Media protection](../../config/media_protection.md)** — consumes the
+- **[Media protection](../../administration/configuration/media_protection.md)** — consumes the
   publication markers diffusion writes.
 - **`tool_diffusion`** — the curator-facing UI; see the
   [tool reference](../../development/tools/reference/tool_diffusion.md).

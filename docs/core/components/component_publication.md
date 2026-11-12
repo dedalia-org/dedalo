@@ -219,9 +219,9 @@ DOM (edit / default): `wrapper_component component_publication <tipo> <mode>` ->
 [{"type":"dd151","section_id":1,"section_tipo":"dd64","from_component_tipo":"test92"}]
 ```
 
-Because the target section is fixed to the yes/no section, the short numeric `section_id` sequence form (used by single-target [component_portal](component_portal.md)) can also apply — `1` selects *yes*, `2` selects *no*. See [importing data](../importing_data.md#related-data).
+Because the target section is fixed to the yes/no section, the short numeric `section_id` sequence form (used by single-target [component_portal](component_portal.md)) can also apply — `1` selects *yes*, `2` selects *no*. See [importing data](../../using/importing_data.md#related-data).
 
-**Export.** The shared relation export path (the export atoms path, `src/diffusion/export/atoms.ts`) iterates the locators and resolves each against the target section per the `ddo_map`, emitting the resolved yes/no label. See [exporting data](../exporting_data.md).
+**Export.** The shared relation export path (the export atoms path, `src/diffusion/export/atoms.ts`) iterates the locators and resolves each against the target section per the `ddo_map`, emitting the resolved yes/no label. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

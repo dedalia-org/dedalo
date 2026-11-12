@@ -284,7 +284,7 @@ error leaf and the dependency normalizer only).
   a *thesaurus manifest* section, the dependency rule's new text, the wizard's
   Hierarchies step), `docs/development/ts_install_internals.md` (the manifest,
   offer / pre-selection / import / activation, the core-only seed registry,
-  the gates), `docs/management/install_new_hierarchies.md` (the offer, the
+  the gates), `docs/administration/install_new_hierarchies.md` (the offer, the
   verified import, the empty thesaurus, carrying an entry between installs,
   the strict-reader warning).
 

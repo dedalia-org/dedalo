@@ -95,5 +95,5 @@ The drop payload a mosaic tile transfers, consumed by `assign_element`:
 - `tool_numisdata_epigraphy` — the sibling numismatics tool for transcribing coin legends and epigraphic elements.
 - [tool_time_machine](tool_time_machine.md) — where the individual component writes this tool makes (original/copy status, equivalences, ordering) can be reviewed and reverted.
 - [Creating new tools](../creating_tools.md) · [JS lifecycle](../js_lifecycle.md) — the `init` / `build` / `render` / `edit` flow and the `ddo_map` this tool consumes.
-- User guide: [Order coins](../../../tools/using_numisdata_order_coins.md).
+- User guide: [Order coins](../../../using/tools/using_numisdata_order_coins.md).
 - Source: `tools/tool_numisdata_order_coins/register.json` (no `server/` package), `tools/tool_numisdata_order_coins/js/{tool_numisdata_order_coins,render_tool_numisdata_order_coins,view_coins_mosaic_portal}.js`, `tools/tool_numisdata_order_coins/css/tool_numisdata_order_coins.less`.

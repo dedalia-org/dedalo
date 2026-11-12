@@ -47,7 +47,7 @@ that executes an already-decided plan and writes only on drift, and the one entr
 infers a declaration from a live pre-instance install and then calls the same
 `plan()`/`apply()`, and `remove` (§9), which decommissions by archiving rather than deleting
 and never frees a uid. `src/provision/verify.ts` is the serving proof both of them rest on.
-The operator's manual for all of it is `docs/management/site_builder.md`; the fifth member
+The operator's manual for all of it is `docs/administration/site_builder.md`; the fifth member
 of the backup set is `engineering/PRODUCTION.md` §6.
 
 WHAT A GATE STILL CANNOT SAY. Every provisioning gate drives synthetic prefixes with `exec`
@@ -1513,7 +1513,7 @@ Added by the engine repo (`test/unit/operator_commands_tripwire.test.ts`):
   page names exists in the CLI, every flag is one that verb accepts, every repo script it
   tells the operator to run is on disk, and every daemon environment key it names is one the
   daemon actually reads. And in the other direction: every verb the CLI has appears in
-  `docs/management/site_builder.md`, so a new one cannot be shipped undocumented.
+  `docs/administration/site_builder.md`, so a new one cannot be shipped undocumented.
 - **The backup set named in `engineering/PRODUCTION.md` §6 is the one the nightly unit
   copies**, in both directions, plus a behavioural leg that RUNS
   `deploy/dedalo-site-builder-backup.sh` over a synthetic host and asserts it copied the

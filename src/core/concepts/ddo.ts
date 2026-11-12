@@ -57,7 +57,7 @@ export const SELF_SENTINEL = 'self' as const;
  * OUTPUT slice of an already permission-resolved component, so they are not a
  * permission boundary — but a negative or fractional value reaching
  * `pagination.limit` is nonsense the oracle never allowed through, and
- * docs/core/dd_object.md has always documented this exact rule.
+ * docs/api/dd_object.md has always documented this exact rule.
  */
 const paginationField = z.number().int().nonnegative().optional().catch(undefined);
 

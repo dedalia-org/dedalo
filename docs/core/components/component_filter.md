@@ -203,12 +203,12 @@ DOM (edit / default): `wrapper_component component_filter <tipo> <mode>` -> `but
 [{"type":"dd675","section_tipo":"dd153","section_id":1,"from_component_tipo":"test101"}]
 ```
 
-On import the relations engine normalises every incoming locator: it injects `type` (the filter type), forces `from_component_tipo` to this component's own `tipo`, and de-dupes against the locators already stored. Two filter locators are the same when their `section_tipo`, `section_id`, `type` and `from_component_tipo` all match — the one locator-equality rule, `compareLocators()` (`src/core/concepts/locator.ts`). See [importing data — Related data](../importing_data.md#related-data).
+On import the relations engine normalises every incoming locator: it injects `type` (the filter type), forces `from_component_tipo` to this component's own `tipo`, and de-dupes against the locators already stored. Two filter locators are the same when their `section_tipo`, `section_id`, `type` and `from_component_tipo` all match — the one locator-equality rule, `compareLocators()` (`src/core/concepts/locator.ts`). See [importing data — Related data](../../using/importing_data.md#related-data).
 
 !!! warning "Access-control still applies on import"
     Importing does not bypass the write path: a save is gated by the per-record projects scope (`isRecordInScope`, `src/core/security/record_scope.ts`), so an importing user cannot mutate a record outside their own projects. Plan imports with the importing user's project permissions in mind.
 
-**Export.** Like other relation components, the export value is resolved from the target project record — the project label(s), joined for flat output. See [exporting data](../exporting_data.md).
+**Export.** Like other relation components, the export value is resolved from the target project record — the project label(s), joined for flat output. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

@@ -239,9 +239,9 @@ An empty cell clears the existing relation.
 !!! warning "Gap: bare section_id shorthand not ported"
     A plain `section_id` number / number sequence (with the target section disambiguated via a `<component_tipo>_<target_section_tipo>` CSV column-name suffix when several targets are possible) is not handled by the generic import engine today — only the JSON locator array round-trips. Neither `conformImportData()` nor the CSV import driver (`src/core/tools/import_csv.ts`) contains this shorthand or column-name disambiguation logic.
 
-See [importing data](../importing_data.md#related-data).
+See [importing data](../../using/importing_data.md#related-data).
 
-**Export.** Label resolution over the stored locators — iterating the `ddo_map`, resolving each target record's label columns and joining fields with `fields_separator` and records with `records_separator` — goes through the generic cell resolver `resolveCellValue()` (`src/core/resolve/relation_list.ts`), consumed by `tools/tool_export/server/tool_export.ts`. See [exporting data](../exporting_data.md).
+**Export.** Label resolution over the stored locators — iterating the `ddo_map`, resolving each target record's label columns and joining fields with `fields_separator` and records with `records_separator` — goes through the generic cell resolver `resolveCellValue()` (`src/core/resolve/relation_list.ts`), consumed by `tools/tool_export/server/tool_export.ts`. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

@@ -1,6 +1,6 @@
 # API
 
-> See also: [The API dispatcher (system view)](../core/system/api.md) · [RQO](../core/rqo.md) · [SQO](../core/sqo.md)
+> See also: [The API dispatcher (system view)](../core/system/api.md) · [RQO](rqo.md) · [SQO](sqo.md)
 
 Dédalo speaks **one** HTTP endpoint. Every client call — the record form, the tree, a tool, the assistant — is a POST of a **Request Query Object** (RQO) to `/api/v1/json`, naming a `dd_api` class and an `action`. The pair is looked up in a static registry: a pair that is not registered does not exist, and is refused at the first gate. There is no dynamic method lookup and no autoloader fallback.
 

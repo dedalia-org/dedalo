@@ -4,7 +4,7 @@
 > caller's `limit` / `offset` / `total` into navigation controls and republishes
 > the user's clicks as offset-change events the caller listens for.
 
-> See also: [SQO](../sqo.md) · [Sections](../sections/index.md) ·
+> See also: [SQO](../../api/sqo.md) · [Sections](../sections/index.md) ·
 > [section (class reference)](../sections/section.md) ·
 > [component_portal](../components/component_portal.md)
 
@@ -12,7 +12,7 @@ This page is the **subsystem reference** for the paginator. The paginator is
 **client-only** — it has no server-side counterpart. It lives entirely under
 `client/dedalo/core/paginator/js/` and is driven by a *caller* (a section list,
 a portal, a time-machine service, a dd_grid, …). The pagination *numbers* it
-displays come from the caller's [SQO](../sqo.md) (`limit` / `offset`) and
+displays come from the caller's [SQO](../../api/sqo.md) (`limit` / `offset`) and
 from a server `count` action; the paginator itself never talks to the API.
 
 ## Role
@@ -114,7 +114,7 @@ All derivations live in `_update_pagination_props(total)`. They are defensive:
     `paginator_show_all_` handler). The paginator then computes `total_pages` as
     `1` and the navigation collapses to a single page. `reset_paginator(limit)`
     restores the previous limit. This differs from the server-side SQO `limit`
-    clamp described in [SQO → limit](../sqo.md): the `0`/`all` sentinel is a
+    clamp described in [SQO → limit](../../api/sqo.md): the `0`/`all` sentinel is a
     *client* convenience that server-internal callers honour, while a client
     `limit` arriving over the HTTP API is clamped to
     `DEDALO_SEARCH_CLIENT_MAX_LIMIT`.
@@ -245,7 +245,7 @@ turn no longer blinks the controls; the pointer lock is still immediate.
 
 ## How it fits with the rest of Dédalo
 
-- **[SQO](../sqo.md)** — `limit` / `offset` are SQO fields; the paginator reads
+- **[SQO](../../api/sqo.md)** — `limit` / `offset` are SQO fields; the paginator reads
   them from `caller.rqo.sqo` and the navigation events ultimately mutate them.
   The total comes from the SQO `count` action (server count), not from
   `full_count` on the data query.
@@ -333,7 +333,7 @@ limit = 10, offset = 20, total = 57
 
 ## Related
 
-- [SQO](../sqo.md) — `limit` / `offset` / `count`, the query the paginator pages
+- [SQO](../../api/sqo.md) — `limit` / `offset` / `count`, the query the paginator pages
   over.
 - [section (class reference)](../sections/section.md) — the canonical caller;
   `update_pagination()`, `get_total()`, `navigate()`.

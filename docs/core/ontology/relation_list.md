@@ -2,7 +2,7 @@
 
 > The server logic that answers the question *"who points at this record?"* — it resolves the **inverse references** of a `(section_tipo, section_id)` and renders them as a grouped grid of related records.
 
-> See also: [Components](../components/index.md) · [component_portal](../components/component_portal.md) · [component_dataframe](../components/component_dataframe.md) · [Sections](../sections/index.md) · [Locator](../locator.md) · [SQO](../sqo.md)
+> See also: [Components](../components/index.md) · [component_portal](../components/component_portal.md) · [component_dataframe](../components/component_dataframe.md) · [Sections](../sections/index.md) · [Locator](../locator.md) · [SQO](../../api/sqo.md)
 
 ## Role
 
@@ -281,7 +281,7 @@ Concrete neighbours:
 - **[section_map](section_map.md)** is the preferred column source via its
   `relation_list` scope (read strictly and directly, not through
   `getSectionMapValue()`).
-- **[search / SQO](../sqo.md)** — the `related` search mode; the engine is
+- **[search / SQO](../../api/sqo.md)** — the `related` search mode; the engine is
   `src/core/search/search_related.ts`.
 - **Diffusion** — see [above](#diffusion-publishing-backlinks).
 
@@ -318,7 +318,7 @@ if (grid.unresolved.length > 0) {
   component that writes forward locators.
 - [Sections / relations bag](../sections/section.md#relations-section-owned) —
   where the locators `relation_list` reads actually live.
-- [SQO](../sqo.md) — the `related`-mode query; the engine is
+- [SQO](../../api/sqo.md) — the `related`-mode query; the engine is
   `src/core/search/search_related.ts`.
 - [Locator](../locator.md) — the typed pointer at both ends of the relation.
 - [section_map](section_map.md) — the preferred column-source resolver.

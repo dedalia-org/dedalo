@@ -1463,7 +1463,7 @@ real published DB; skips loudly without `DEDALO_DIFFUSION_DB_*`).
 
 RAG (`src/ai/rag/` — opt-in, `DEDALO_RAG_ENABLED`) adds exactly TWO ops
 surfaces to a deployment; everything else rides the normal engine deploy.
-Hands-on guide: `docs/core/ai/rag_cookbook.md` (Install / Enable / R3).
+Hands-on guide: `docs/administration/ai/rag_cookbook.md` (Install / Enable / R3).
 
 **1. The drain cron (REQUIRED — without it, nothing ever indexes).** Saves
 only enqueue a dirty marker (`rag_index_queue`, matrix DB, best-effort — a
@@ -1530,7 +1530,7 @@ started, else NEEDS_DB_RESTORE (sentinel `needs_restore`, a human restores the
 run's backup with the previous code — D-2). CLI: `bun run update
 status|check|plan <release>|abort [note]` (`scripts/update.ts`). Door
 precondition classes: `src/core/update/door_class.ts` (WC-2026-10-30-maintenance-door-classes).
-Operator manual: `docs/management/updates/index.md`, held to the code by
+Operator manual: `docs/administration/updates/index.md`, held to the code by
 `test/unit/update_docs_claims_tripwire.test.ts`.
 
 **Release channels (what an install is offered; 2026-10-18).** The update ask

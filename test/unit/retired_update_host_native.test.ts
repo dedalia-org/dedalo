@@ -39,7 +39,7 @@ describe('warnRetiredUpdateHost', () => {
 		expect(errors[0]).toContain('ONTOLOGY_SERVERS');
 		expect(errors[0]).toContain('https://master7.dedalo.dev/');
 		expect(errors[0]).toContain('https://beta7.dedalo.dev/');
-		expect(errors[0]).toContain('docs/config/config.md#ontology-servers');
+		expect(errors[0]).toContain('docs/administration/configuration/config.md#ontology-servers');
 		expect(result).toEqual(servers);
 	});
 

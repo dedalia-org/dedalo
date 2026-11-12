@@ -367,5 +367,5 @@ search, `tool_export`, portals and the page shell (not the per-component views):
   — the composition side: how a section instances and lays out its children.
 - [Events](../events.md) — the `event_manager` bus (`built_<id>`, `render_<id>`,
   `activate_component`, …) the render layer publishes and subscribes to.
-- [Request config](../request_config.md) · [RQO](../rqo.md) · [SQO](../sqo.md)
+- [Request config](../request_config.md) · [RQO](../../api/rqo.md) · [SQO](../../api/sqo.md)
   — the request/query objects that produce the ddo the render layer draws.

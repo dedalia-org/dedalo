@@ -193,7 +193,7 @@ CSS for these states lives in `css/component_section_id.less` (`.edit`, `.search
 
 **Import:** `component_section_id` is **not importable** — it is read-only and has no
 import handling of its own. The id is assigned by the section on record creation,
-never set from import data. (Note: in [import](../importing_data.md) flows, a column of
+never set from import data. (Note: in [import](../../using/importing_data.md) flows, a column of
 section ids can still be *used* to target existing records; the component itself does
 not ingest a value.)
 
@@ -208,7 +208,7 @@ exact `cell_type: 'section_id'` plain-int contract is reproduced end-to-end has 
 been independently verified for this pass.
 
 See the full export and import definitions in
-[exporting data](../exporting_data.md) and [importing data](../importing_data.md).
+[exporting data](../../using/exporting_data.md) and [importing data](../../using/importing_data.md).
 
 ### Search operators
 

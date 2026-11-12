@@ -179,7 +179,7 @@ The model-agnostic import engine `conformImportData()` (`src/core/tools/import_d
 !!! warning "Gap: pipe-separated import shape"
     The **pipe-separated string** shape (`user@example.com | admin@example.com`, meant to split into one item per address) is not handled by the generic import engine — a pipe-separated cell is stored verbatim as a single address string, not split. The **lang-keyed object** shape (`{"lg-nolan":["user@example.com"]}`) is a plain JSON object whose first key starts with `lg-`, and the generic engine does handle that shape generically (`conformImportData()`, `src/core/tools/import_data.ts`), wrapping each bare string into `{"value":…}` for value-property models such as this one.
 
-See the dedicated import section [Email](../importing_data.md#email) and the general [importing data](../importing_data.md) reference. For export formats (value / grid_value / `dedalo_raw`) see [exporting data](../exporting_data.md); flat display values are produced by the generic cell resolver `resolveCellValue()` (`src/core/resolve/relation_list.ts`) via `tools/tool_export/server/tool_export.ts`.
+See the dedicated import section [Email](../../using/importing_data.md#email) and the general [importing data](../../using/importing_data.md) reference. For export formats (value / grid_value / `dedalo_raw`) see [exporting data](../../using/exporting_data.md); flat display values are produced by the generic cell resolver `resolveCellValue()` (`src/core/resolve/relation_list.ts`) via `tools/tool_export/server/tool_export.ts`.
 
 ## Notes
 

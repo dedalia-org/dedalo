@@ -152,7 +152,7 @@ Write in plain, native English. Common ESL fixes: *"is build on"* → *"is built
 → *"make a request"*.
 
 Use the canonical spelling and casing for Dédalo terms — they are defined once in the
-[Glossary](../core/glossary.md), link there rather than re-defining:
+[Glossary](../understanding/glossary.md), link there rather than re-defining:
 
 | Canonical | Notes |
 | --- | --- |
@@ -247,7 +247,7 @@ Use `(!)` inline only inside code comments, not in prose — in prose use a `!!!
 
 ## Glossary entries
 
-The [Glossary](../core/glossary.md) is the single source for term definitions. Each entry follows:
+The [Glossary](../understanding/glossary.md) is the single source for term definitions. Each entry follows:
 
 ```markdown
 ### term

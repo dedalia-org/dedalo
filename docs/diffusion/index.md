@@ -1,6 +1,6 @@
 # Diffusion
 
-> See also: [Diffusion (system overview)](../core/system/diffusion.md) · [Exporting data](../core/exporting_data.md) · [Glossary: diffusion](../core/glossary.md#diffusion)
+> See also: [Diffusion (system overview)](../core/system/diffusion.md) · [Exporting data](../using/exporting_data.md) · [Glossary: diffusion](../understanding/glossary.md#diffusion)
 
 **Diffusion** is how catalogued work becomes published data. Dédalo keeps two database systems — the private **work** system a cataloguer edits, and the **diffusion** system a website or an integration reads — and the diffusion engine is the ontology-driven pipeline that moves a selected subset from one to the other, transforming it on the way. Work data and public data therefore never share a store, and publishing is never a read of the editing back-end.
 

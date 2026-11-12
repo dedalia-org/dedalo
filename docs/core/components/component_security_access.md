@@ -210,7 +210,7 @@ The client (`component_security_access.js`) maps modes to renderers as follows:
 
 Because the meaning of each row depends on live ontology tipos, importing a permission matrix is only sound between installations that share the same ontology tipos. The canonical JSON-array-of-objects shape imports through the generic engine (`conformImportData()`, `src/core/tools/import_data.ts`) without any component-specific handling needed. Permission data is not expected to be published to diffusion targets; no `component_security_access` handling was found under the diffusion engine's source tree, and this has not been independently verified for this pass.
 
-See the full import model in [importing data](../importing_data.md) and the export model in [exporting data](../exporting_data.md).
+See the full import model in [importing data](../../using/importing_data.md) and the export model in [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

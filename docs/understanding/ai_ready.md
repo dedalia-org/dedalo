@@ -73,10 +73,10 @@ Dédalo lets you name those collections, and:
 
 ## Where to read more
 
-- **[RAG and semantic search](../core/ai/rag.md)** — written for two readers:
+- **[RAG and semantic search](../administration/ai/rag.md)** — written for two readers:
   humanities researchers (parts I–IV, no programming) and developers.
-- **[Talk to your catalogue](../core/ai/assistant/use_cases.md)** — worked
+- **[Talk to your catalogue](../administration/ai/assistant/use_cases.md)** — worked
   examples of the assistant in day-to-day curatorial work.
-- **[Privacy and the egress gate](../core/ai/assistant/privacy_and_security.md)**
+- **[Privacy and the egress gate](../administration/ai/assistant/privacy_and_security.md)**
   — what may reach an external provider, and how it is enforced.
-- **[Installing and enabling the assistant](../core/ai/assistant/install.md)**.
+- **[Installing and enabling the assistant](../administration/ai/assistant/install.md)**.

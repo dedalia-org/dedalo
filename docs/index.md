@@ -18,7 +18,7 @@ Dédalo is two connected systems:
 - **Work system** — the private editing application (TypeScript/Bun server + JavaScript/HTML/CSS client) that manages the full catalog. Data is stored as JSONB in a PostgreSQL "matrix" table.
 - **Diffusion system** — a separate, public, flat copy of the data published to SQL/RDF/XML targets and served through a public API. Data flows one way only, work → diffusion.
 
-New to the vocabulary (section, component, tipo, locator, sqo, rqo, ddo)? Read the **[Introduction & core hub](core/index.md)** and the **[Glossary](core/glossary.md)** first.
+New to the vocabulary (section, component, tipo, locator, sqo, rqo, ddo)? Read the **[Introduction & core hub](core/index.md)** and the **[Glossary](understanding/glossary.md)** first.
 
 > **Not a developer?** **[Dédalo in plain language](understanding/index.md)** explains the
 > whole system — where it lives, how a record travels, what the APIs are, and what the AI
@@ -43,7 +43,7 @@ Pick the path that matches what you are trying to do. Each is a short, ordered l
 2. [Introduction (core hub)](core/index.md) — what Dédalo is, the nomenclature, the active ontology
 2. [Architecture Overview](core/architecture_overview.md) — how it all fits together: two systems, the matrix data model, server build → client render
 3. [Data model](core/data_model/index.md) — how a value actually lives: the JSON/JSONB foundation, the typed `matrix` columns and the consolidated v7 value item, with a page per data type
-4. [Glossary](core/glossary.md) — the full nomenclature reference
+4. [Glossary](understanding/glossary.md) — the full nomenclature reference
 5. [Ontology](core/ontology/index.md) — the active schema that drives everything
 6. [Sections](core/sections/index.md) and [Components](core/components/index.md) — the table and field abstractions
 7. [Development guide](development/index.md) — ecosystem, code style, commit and testing conventions
@@ -51,14 +51,14 @@ Pick the path that matches what you are trying to do. Each is a short, ordered l
 ### 2. Integrator — consume the APIs
 
 1. [Dédalo API v1 (work system)](api/dedalo_api_v1.md) — the JSON API entry point and request flow
-2. [Request Query Object (RQO)](core/rqo.md) — the request structure callers send
-3. [Search Query Object (SQO)](core/sqo.md) — the JSON abstraction of SQL queries
-4. [DD Object (ddo)](core/dd_object.md) and [Locator](core/locator.md) — the data-pointer primitives
+2. [Request Query Object (RQO)](api/rqo.md) — the request structure callers send
+3. [Search Query Object (SQO)](api/sqo.md) — the JSON abstraction of SQL queries
+4. [DD Object (ddo)](api/dd_object.md) and [Locator](core/locator.md) — the data-pointer primitives
 5. [API class reference](api/classes/dd_core_api.md) — per-class actions (core, tools, ts, utils, components, manager)
 6. [The diffusion engine](diffusion/native_engine.md#client-compatibility) — the `dd_diffusion_api` publication action set served by the work API, plus [RQO field mapping](api/RQO_FIELD_MAPPING.md)
 7. [Publication API](diffusion/publication_api/index.md) — serving published data to websites, integrations and AI agents. Use **[v2](diffusion/publication_api/v2/index.md)** (Bun/TypeScript: resource-oriented REST, bracketed filter DSL, RFC 9457 errors, `ETag`/`Link` caching, batch and MCP) for all new integrations; v1 is legacy
-8. [RAG & semantic search](core/ai/rag.md) — the `dd_rag_api` action set (semantic search, grounded `ask`, object-image similarity) and the agent/MCP surface; the **[operational cookbook](core/ai/rag_cookbook.md)** has the request recipes
-9. [AI Assistant](core/ai/assistant/index.md) — the in-app chat agent; drive it from your own code via `dd_mcp_api` (`agent_models` / `agent_chat_stream` / `agent_apply`), with the full **[SSE protocol + HTTP recipes](core/ai/assistant/cookbook.md#part-b--for-integrators)**
+8. [RAG & semantic search](administration/ai/rag.md) — the `dd_rag_api` action set (semantic search, grounded `ask`, object-image similarity) and the agent/MCP surface; the **[operational cookbook](administration/ai/rag_cookbook.md)** has the request recipes
+9. [AI Assistant](administration/ai/assistant/index.md) — the in-app chat agent; drive it from your own code via `dd_mcp_api` (`agent_models` / `agent_chat_stream` / `agent_apply`), with the full **[SSE protocol + HTTP recipes](administration/ai/assistant/cookbook.md#part-b--for-integrators)**
 
 ### 3. Core developer — extend Dédalo
 
@@ -78,46 +78,97 @@ Pick the path that matches what you are trying to do. Each is a short, ordered l
 ### 4. System administrator — install, configure, operate
 
 1. [Installation](install/index.md) — **start here**: one terminal installer (`sh install.sh`) and four routes — [Production](install/production.md), [Docker](install/docker.md), [Trial](install/quickstart.md) or [Developer](install/dev_quickstart.md). Then the [installer reference](install/installer_reference.md), [the web server site](install/reverse_proxy.md), [upgrading](install/upgrading.md) and [troubleshooting](install/troubleshooting.md)
-2. [Configuration](config/index.md) — the one `.env` file: [how it works](config/administration.md), [every setting](config/config.md), [database](config/config_db.md), [areas](config/administration.md#11-denying-and-hiding-areas)
-3. [Media protection](config/media_protection.md) and [search config](config/search.md) — **before you expose media to the internet**: the two-rule access gate the web server enforces, and search tuning
-4. [Management & maintenance](management/index.md) — environments, root user, [maintenance status](management/maintenance_status.md), [recovery mode](management/recovery_mode.md)
-5. [Users, profiles & permissions](management/users_and_permissions.md) — creating users and profiles, the 0–3 permission levels, how access is computed and enforced
-6. [Backup](management/backup.md) + [best practices](management/backup.md#best-practices) — protecting the data
-7. [Updates](management/updates/index.md) — [updating code](management/updates/updating_code.md), [data](management/updates/updating_data.md), [ontology](management/updates/updating_ontology.md)
+2. [Configuration](administration/configuration/index.md) — the one `.env` file: [how it works](administration/configuration/administration.md), [every setting](administration/configuration/config.md), [database](administration/configuration/config_db.md), [areas](administration/configuration/administration.md#11-denying-and-hiding-areas)
+3. [Media protection](administration/configuration/media_protection.md) and [search config](administration/configuration/search.md) — **before you expose media to the internet**: the two-rule access gate the web server enforces, and search tuning
+4. [Management & maintenance](administration/index.md) — environments, root user, [maintenance status](administration/maintenance_status.md), [recovery mode](administration/recovery_mode.md)
+5. [Users, profiles & permissions](administration/users_and_permissions.md) — creating users and profiles, the 0–3 permission levels, how access is computed and enforced
+6. [Backup](administration/backup.md) + [best practices](administration/backup.md#best-practices) — protecting the data
+7. [Updates](administration/updates/index.md) — [updating code](administration/updates/updating_code.md), [data](administration/updates/updating_data.md), [ontology](administration/updates/updating_ontology.md)
 8. [Runtime](development/runtime_and_workers.md) — one long-lived process, per-request isolation, and what that means operationally
 9. [Diffusion setup](diffusion/publication_api/index.md) — configure the publication server: [v2 deployment](diffusion/publication_api/v2/deployment.md) (`.env`, Apache/Nginx/standalone) for new servers, or the legacy v1 [public API configuration](diffusion/publication_api/public_api_configuration.md) and [server config API](diffusion/publication_api/server_config_api.md)
-10. [RAG install & operations](core/ai/rag_cookbook.md) — provision the pgvector store, connect embedding/LLM sidecars, the full `DEDALO_RAG_*` config reference, and wire the index-drain cron
-11. [AI Assistant — install, connect a model, configure, secure](core/ai/assistant/index.md) — turn on the in-app assistant, connect a cloud or **local/private** model, and control what may reach an external provider with the **[egress gate](core/ai/assistant/privacy_and_security.md)**
+10. [RAG install & operations](administration/ai/rag_cookbook.md) — provision the pgvector store, connect embedding/LLM sidecars, the full `DEDALO_RAG_*` config reference, and wire the index-drain cron
+11. [AI Assistant — install, connect a model, configure, secure](administration/ai/assistant/index.md) — turn on the in-app assistant, connect a cloud or **local/private** model, and control what may reach an external provider with the **[egress gate](administration/ai/assistant/privacy_and_security.md)**
 
 ### 5. Data curator / manager — work with the data
 
 1. [Dédalo in plain language](understanding/index.md) — the whole system without the jargon, and [the ideas behind it](understanding/the_ideas_behind_dedalo.md) for curators and humanities readers
-2. [Introduction (core hub)](core/index.md) and [Glossary](core/glossary.md) — the concepts and vocabulary
+2. [Introduction (core hub)](core/index.md) and [Glossary](understanding/glossary.md) — the concepts and vocabulary
 3. [Areas](core/areas/index.md) and [Sections](core/sections/index.md) — how records are organised and edited
-4. [Talk to your catalogue — the AI Assistant](core/ai/assistant/use_cases.md) — search by meaning, understand a record, and (with confirmation) propose edits in plain language
+4. [Talk to your catalogue — the AI Assistant](administration/ai/assistant/use_cases.md) — search by meaning, understand a record, and (with confirmation) propose edits in plain language
 5. [Thesaurus & ontology tree](core/ontology/ts_object.md) — managing hierarchies, descriptors and related terms
-6. [Tools user guide](tools/index.md) — the day-to-day toolbox: import, export, print, media, transcription, translation, batch edits and record history, tool by tool
-7. [Importing data](core/importing_data.md) and [Exporting data](core/exporting_data.md) — the import/export model behind those tools
+6. [Tools user guide](using/tools/index.md) — the day-to-day toolbox: import, export, print, media, transcription, translation, batch edits and record history, tool by tool
+7. [Importing data](using/importing_data.md) and [Exporting data](using/exporting_data.md) — the import/export model behind those tools
 8. [Media pipeline](development/media_pipeline.md) — how uploaded files become masters, derivatives, thumbnails and published media
 9. [Diffusion data flow](diffusion/diffusion_data_flow.md) — deciding what is published and how; [the native engine](diffusion/native_engine.md) is what runs the publish
-10. [Raspa Data Quality Score](core/raspa_score.md) — assessing the quality of your catalog
-11. [Backup](management/backup.md) and [installing new hierarchies](management/install_new_hierarchies.md) — day-to-day stewardship
+10. [Raspa Data Quality Score](understanding/raspa_score.md) — assessing the quality of your catalog
+11. [Backup](administration/backup.md) and [installing new hierarchies](administration/install_new_hierarchies.md) — day-to-day stewardship
 
 ---
 
 ## Section index
 
-Every documentation area, with a one-line description and an entry link. The **[core hub](core/index.md)** is the central landing for everything under `core/`.
+Every documentation area, grouped by the sidebar section it lives in, with a one-line description and an entry link.
+
+### Understanding Dédalo
 
 | Area | Description | Entry |
 | ---- | ----------- | ----- |
 | **In plain language** | The non-technical entry to the whole system: four diagrams (infrastructure, the journey of a record, the three APIs, the AI layer) plus the concepts written for curators and humanities researchers | [understanding/index.md](understanding/index.md) |
-| **The rewrite** | Where the v7 engine came from, and why it was rebuilt — background, not required reading | [rewrite.md](rewrite.md) |
+| Glossary | The full Dédalo nomenclature (section, component, tipo, locator, sqo, rqo, ddo, …) | [understanding/glossary.md](understanding/glossary.md) |
+| Raspa score | The data-quality evaluation metric | [understanding/raspa_score.md](understanding/raspa_score.md) |
+
+### Using Dédalo
+
+| Area | Description | Entry |
+| ---- | ----------- | ----- |
+| Importing data | CSV/RDF/Dédalo import model and per-component conform contract | [using/importing_data.md](using/importing_data.md) |
+| Exporting data | The export atoms contract and flat-table export protocol | [using/exporting_data.md](using/exporting_data.md) |
+| **Tools user guide** | Using every shipped tool in day-to-day work: import, export, print, media, transcription, translation, batch edits and record history | [using/tools/index.md](using/tools/index.md) |
+
+### Install & upgrade
+
+| Area | Description | Entry |
+| ---- | ----------- | ----- |
+| Installation | The terminal installer and its routes (production, Docker, trial, developer), the installer reference, the web server site, upgrading and troubleshooting | [install/index.md](install/index.md) |
+
+### Administration
+
+| Area | Description | Entry |
+| ---- | ----------- | ----- |
+| **AI** | The AI hub: RAG & semantic search (concept + [operational cookbook](administration/ai/rag_cookbook.md)) and the in-app AI Assistant (install, connect a cloud or local/private model, egress privacy gate, use cases, HTTP/SSE integration cookbook) | [administration/ai/index.md](administration/ai/index.md) |
+| Configuration | The one config file (`../private/.env`): settings, database, areas, media/search tuning | [administration/configuration/index.md](administration/configuration/index.md) |
+| Management | Environments, root user, maintenance status, recovery, hierarchies, updates | [administration/index.md](administration/index.md) |
+| Users & permissions | Users, profiles, the 0–3 permission levels and how access is enforced | [administration/users_and_permissions.md](administration/users_and_permissions.md) |
+| Backup | Backup procedure and best practices | [administration/backup.md](administration/backup.md) |
+| Updates | Updating code, data and ontology safely | [administration/updates/index.md](administration/updates/index.md) |
+
+### Publishing
+
+| Area | Description | Entry |
+| ---- | ----------- | ----- |
+| **Diffusion — the engine** | The publication engine built into the work server: plan compiler, resolver, parsers, format writers (SQL/CSV/JSON/Markdown/RDF/XML), durable job queue | [diffusion/native_engine.md](diffusion/native_engine.md) |
+| Diffusion parsers | Cookbook + reference for the ontology parser functions (`properties->process->parser`): recipes with paste-ready JSON and in→out examples for all 33 fns | [diffusion/parsers.md](diffusion/parsers.md) |
+| Diffusion (work side) | Deciding what gets published and how: server topologies, the diffusion ontology with worked examples, resolve levels, output formats ([Markdown](diffusion/diffusion_markdown.md)) | [diffusion/diffusion_data_flow.md](diffusion/diffusion_data_flow.md) |
+| Publication API | Serving published data to the web — v2 (Bun/TypeScript, recommended) and legacy v1 | [diffusion/publication_api/index.md](diffusion/publication_api/index.md) |
+
+### API & integration
+
+| Area | Description | Entry |
+| ---- | ----------- | ----- |
+| RQO | Request Query Object — the API request structure | [api/rqo.md](api/rqo.md) |
+| SQO | Search Query Object — the JSON abstraction of SQL queries | [api/sqo.md](api/sqo.md) |
+| DD Object | Normalized object used in RQO/SQO to build and instantiate elements | [api/dd_object.md](api/dd_object.md) |
+| Work API (v1) | The JSON API entry point, RQO format and request handling | [api/dedalo_api_v1.md](api/dedalo_api_v1.md) |
+| API classes | Per-class action reference (core, tools, ts, utils, components, manager) | [api/classes/dd_core_api.md](api/classes/dd_core_api.md) |
+| RQO field mapping | Field-level mapping used when issuing API requests | [api/RQO_FIELD_MAPPING.md](api/RQO_FIELD_MAPPING.md) |
+
+### Engine reference
+
+| Area | Description | Entry |
+| ---- | ----------- | ----- |
 | **Core hub** | Introduction, nomenclature, active ontology and the index of all core documentation | [core/index.md](core/index.md) |
 | Architecture overview | How the two systems, the matrix data model and the active ontology fit together | [core/architecture_overview.md](core/architecture_overview.md) |
 | Data model | How a value lives: the JSONB foundation, typed `matrix` columns, the v7 value item, and a page per data type (string, number, date, IRI, geo, media, relations, misc) | [core/data_model/index.md](core/data_model/index.md) |
-| Glossary | The full Dédalo nomenclature (section, component, tipo, locator, sqo, rqo, ddo, …) | [core/glossary.md](core/glossary.md) |
-| Areas | Top-of-hierarchy groupers that gather sections and surface them in the menu | [core/areas/index.md](core/areas/index.md) |
 | Sections | The table abstraction: a group of records of the same kind, and its view modes | [core/sections/index.md](core/sections/index.md) |
 | Components | The field abstraction: typologies, base classes and the full per-component reference | [core/components/index.md](core/components/index.md) |
 | Ontology | The active schema: sections, components, relations and tools defined as nodes | [core/ontology/index.md](core/ontology/index.md) |
@@ -126,23 +177,14 @@ Every documentation area, with a one-line description and an entry link. The **[
 | Client | Browser runtime: instances, lifecycle, render/views, data and event managers | [core/client/index.md](core/client/index.md) |
 | System & infrastructure | Persistence, APIs, caching, search, security, media engine, dd_grid, login, backup | [core/system/index.md](core/system/index.md) |
 | Request Config | How sections and components retrieve and display data (+ practical examples) | [core/request_config.md](core/request_config.md) |
-| RQO | Request Query Object — the API request structure | [core/rqo.md](core/rqo.md) |
-| SQO | Search Query Object — the JSON abstraction of SQL queries | [core/sqo.md](core/sqo.md) |
-| DD Object | Normalized object used in RQO/SQO to build and instantiate elements | [core/dd_object.md](core/dd_object.md) |
 | Locator | The pointer/relation primitive between data | [core/locator.md](core/locator.md) |
 | Events | The server-side event system | [core/events.md](core/events.md) |
-| Importing data | CSV/RDF/Dédalo import model and per-component conform contract | [core/importing_data.md](core/importing_data.md) |
-| Exporting data | The export atoms contract and flat-table export protocol | [core/exporting_data.md](core/exporting_data.md) |
-| **Tools user guide** | Using every shipped tool in day-to-day work: import, export, print, media, transcription, translation, batch edits and record history | [tools/index.md](tools/index.md) |
-| **AI** | The AI hub: RAG & semantic search (concept + [operational cookbook](core/ai/rag_cookbook.md)) and the in-app AI Assistant (install, connect a cloud or local/private model, egress privacy gate, use cases, HTTP/SSE integration cookbook) | [core/ai/index.md](core/ai/index.md) |
-| Raspa score | The data-quality evaluation metric | [core/raspa_score.md](core/raspa_score.md) |
-| Work API (v1) | The JSON API entry point, RQO format and request handling | [api/dedalo_api_v1.md](api/dedalo_api_v1.md) |
-| API classes | Per-class action reference (core, tools, ts, utils, components, manager) | [api/classes/dd_core_api.md](api/classes/dd_core_api.md) |
-| RQO field mapping | Field-level mapping used when issuing API requests | [api/RQO_FIELD_MAPPING.md](api/RQO_FIELD_MAPPING.md) |
-| **Diffusion — the engine** | The publication engine built into the work server: plan compiler, resolver, parsers, format writers (SQL/CSV/JSON/Markdown/RDF/XML), durable job queue | [diffusion/native_engine.md](diffusion/native_engine.md) |
-| Diffusion parsers | Cookbook + reference for the ontology parser functions (`properties->process->parser`): recipes with paste-ready JSON and in→out examples for all 33 fns | [diffusion/parsers.md](diffusion/parsers.md) |
-| Diffusion (work side) | Deciding what gets published and how: server topologies, the diffusion ontology with worked examples, resolve levels, output formats ([Markdown](diffusion/diffusion_markdown.md)) | [diffusion/diffusion_data_flow.md](diffusion/diffusion_data_flow.md) |
-| Publication API | Serving published data to the web — v2 (Bun/TypeScript, recommended) and legacy v1 | [diffusion/publication_api/index.md](diffusion/publication_api/index.md) |
+| CSS architecture | The LESS-based design system and styling structure | [core/ui/css_architecture.md](core/ui/css_architecture.md) |
+
+### Development
+
+| Area | Description | Entry |
+| ---- | ----------- | ----- |
 | Development | Ecosystem, code style, commit/test conventions, breaking-change detection | [development/index.md](development/index.md) |
 | Documentation standards | How Dédalo is documented: the code doc-block standard and the prose [style guide](development/documentation_style_guide.md) | [development/code_documentation_standard.md](development/code_documentation_standard.md) |
 | Extending Dédalo | The ontology-first cookbooks: add a component, section, area, service or widget | [development/extending/index.md](development/extending/index.md) |
@@ -154,13 +196,13 @@ Every documentation area, with a one-line description and an entry link. The **[
 | Runtime | One long-lived process, per-request isolation, and the operational consequences | [development/runtime_and_workers.md](development/runtime_and_workers.md) |
 | Metrics | The performance metrics subsystem and per-request monitor | [development/metrics.md](development/metrics.md) |
 | Media components | Embedding Dédalo media components in third-party code | [development/using_media_components.md](development/using_media_components.md) |
-| CSS architecture | The LESS-based design system and styling structure | [core/ui/css_architecture.md](core/ui/css_architecture.md) |
-| Installation | The terminal installer and its routes (production, Docker, trial, developer), the installer reference, the web server site, upgrading and troubleshooting | [install/index.md](install/index.md) |
-| Configuration | The one config file (`../private/.env`): settings, database, areas, media/search tuning | [config/index.md](config/index.md) |
-| Management | Environments, root user, maintenance status, recovery, hierarchies, updates | [management/index.md](management/index.md) |
-| Users & permissions | Users, profiles, the 0–3 permission levels and how access is enforced | [management/users_and_permissions.md](management/users_and_permissions.md) |
-| Backup | Backup procedure and best practices | [management/backup.md](management/backup.md) |
-| Updates | Updating code, data and ontology safely | [management/updates/index.md](management/updates/index.md) |
+
+### Project
+
+| Area | Description | Entry |
+| ---- | ----------- | ----- |
+| What changed in v7 | The v6 → v7 settings map: renamed, reshaped and removed keys | [whats_changed_v7.md](whats_changed_v7.md) |
+| **The rewrite** | Where the v7 engine came from, and why it was rebuilt — background, not required reading | [rewrite.md](rewrite.md) |
 | Change log | Release history and notable changes | [change_log.md](change_log.md) |
 
 ---
@@ -175,4 +217,4 @@ do not need them: go to [Installation](install/index.md).
 | Page | What |
 | ---- | ---- |
 | [Migrating a v6 install to v7](install/migrating_from_v6.md) | **The one migration manual**: transform the data on v6, move the database and the media, convert the config, migrate the passwords, first v7 boot, and what to do when the data is wrong |
-| [What changed in v7](config/whats_changed_v7.md) | The v6 → v7 settings map: renamed, reshaped and removed |
+| [What changed in v7](whats_changed_v7.md) | The v6 → v7 settings map: renamed, reshaped and removed |

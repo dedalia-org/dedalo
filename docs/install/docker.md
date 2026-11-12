@@ -397,10 +397,10 @@ The image half of `.dedalo.env` is the contract the image updater reads:
 
 ## Configuration
 
-Process environment wins over `/private/.env`, so the compose file is the place for **operations** keys (pool sizes, timeouts, the access log), and the installer owns the rest inside the volume. The full key catalogue is the [configuration reference](../config/index.md).
+Process environment wins over `/private/.env`, so the compose file is the place for **operations** keys (pool sizes, timeouts, the access log), and the installer owns the rest inside the volume. The full key catalogue is the [configuration reference](../administration/configuration/index.md).
 
 !!! note "Both compose stacks declare `DEDALO_SUPERVISED: \"true\"`"
-    `restart: unless-stopped` is what brings the engine back after a planned exit, so the `dedalo` service's `environment:` declares it. Keep it if you write your own stack, and never put it in `/private/.env`: the engine reads this key from the process environment only. On an image install the [code update panel](../management/updates/updating_code.md) does not swap the code in place — a new release arrives as a new image, as described in [upgrading](#upgrading).
+    `restart: unless-stopped` is what brings the engine back after a planned exit, so the `dedalo` service's `environment:` declares it. Keep it if you write your own stack, and never put it in `/private/.env`: the engine reads this key from the process environment only. On an image install the [code update panel](../administration/updates/updating_code.md) does not swap the code in place — a new release arrives as a new image, as described in [upgrading](#upgrading).
 
 The `dedalo` service also declares where its image came from (`DEDALO_CONTAINER_IMAGE`, `DEDALO_CONTAINER_IMAGE_MODE`, mirrored from `.dedalo.env`) and where it publishes its client (`DEDALO_CLIENT_PUBLISH_DIR`). Keep all three: the panel reads the first two, and without the third nginx serves an empty `client` volume.
 
@@ -500,7 +500,7 @@ A change in `docker-compose.yml` needs `ddc up -d` (recreate), not `restart` —
 
 ## Backups from a container
 
-The stores do not change; only the way you reach them does (the [backup](../management/backup.md) page lists them). Volume names carry the compose project prefix `dedalo_` — confirm with `docker volume ls`.
+The stores do not change; only the way you reach them does (the [backup](../administration/backup.md) page lists them). Volume names carry the compose project prefix `dedalo_` — confirm with `docker volume ls`.
 
 ```shell
 # 1. The matrix database.
@@ -543,7 +543,7 @@ To find out first whether that update would be accepted, add `--check`:
 - when the update would be accepted, it prints `check: would update <from> -> <to>` and exits `0`; when it would be refused, it prints the same refusal a real run gives and exits non-zero, and writes no outcome file;
 - in `build` mode it only checks that the release ref resolves in this checkout: it fetches nothing and does not move the checkout.
 
-The version is a release the code server lists — the [code update panel](../management/updates/updating_code.md) shows them, with their release notes and this exact command — or a prerelease of one (`X.Y.Z-alpha.N`, `X.Y.Z-beta.N`, `X.Y.Z-rc.N`). Docker has no nightly images: a `X.Y.Z-dev` version is refused. What the script does, each step refusing before the next one changes anything:
+The version is a release the code server lists — the [code update panel](../administration/updates/updating_code.md) shows them, with their release notes and this exact command — or a prerelease of one (`X.Y.Z-alpha.N`, `X.Y.Z-beta.N`, `X.Y.Z-rc.N`). Docker has no nightly images: a `X.Y.Z-dev` version is refused. What the script does, each step refusing before the next one changes anything:
 
 1. **Reads `.dedalo.env`** to know where the image comes from. If the file does not say, it prints the exact lines to add and stops (see [an installation from before the image pin](#an-installation-from-before-the-image-pin)).
 2. **Checks the version**: it must move forward from the pinned `DEDALO_VERSION`, and the running engine must agree it is the next step on the upgrade path. Versions are ordered as releases are: a prerelease comes before its release, so `7.0.0-beta.6` < `7.0.0-beta.7` < `7.0.0-rc.1` < `7.0.0` < `7.0.1`. A step back to an older `X.Y.Z` is always refused. The running engine checks the step from the version it calls itself: a later prerelease or the release of the same `X.Y.Z` is accepted, an earlier one refused, and another `X.Y.Z` must be the next one. An engine older than 7.0.0-beta.7 does not know prerelease versions: it is asked about the data version instead (`7.0.0-dev` for `7.0.1-beta.2`), and accepts the same `X.Y.Z` or the next one and refuses a skipped one. A step back within the same `X.Y.Z` crosses no database migration, and `--skip-version-check` waives it (see [a stack installed from a beta before 7.0.0-beta.7](#a-stack-installed-from-a-beta-before-700-beta7)).
@@ -570,7 +570,7 @@ The script rolls back on its own only while the update is running. If a problem 
 1. **Make sure the old image is on this host.** `docker image ls <DEDALO_IMAGE>` lists it. If its version tag is gone, the last update kept it as `rollback-<time>`: `docker tag <DEDALO_IMAGE>:rollback-<time> <DEDALO_IMAGE>:<previous version>`. In `pull` mode you can also pull the previous version again.
 2. **Re-pin it**: set `DEDALO_VERSION=<previous version>` in `.dedalo.env`.
 3. **In `build` mode, return the checkout** to your branch (the script left it detached at `v<new version>`).
-4. **Restore the database only if the newer release migrated it** in a way the older one cannot read (its release notes say so), before the older engine starts on it: `ddc stop dedalo`, then restore the dump the update took with the engine's restore door, as in [restore a backup](../management/backup.md#restore-a-backup-for-the-work-system). Everything recorded since that update is lost with it.
+4. **Restore the database only if the newer release migrated it** in a way the older one cannot read (its release notes say so), before the older engine starts on it: `ddc stop dedalo`, then restore the dump the update took with the engine's restore door, as in [restore a backup](../administration/backup.md#restore-a-backup-for-the-work-system). Everything recorded since that update is lost with it.
 5. **Recreate the engine** — and only it and the backup service: `ddc up -d --no-build dedalo backup`.
 
 ### An installation from before the image pin

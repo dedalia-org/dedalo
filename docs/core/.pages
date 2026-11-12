@@ -4,7 +4,6 @@ title: Engine reference
 nav:
   - index.md
   - architecture_overview.md
-  - glossary.md
   - data_model
   - locator.md
   - sections
@@ -16,9 +15,5 @@ nav:
   - system
   - request_config.md
   - request_config_examples.md
-  - rqo.md
-  - sqo.md
-  - dd_object.md
-  - ai
   - thesaurus
   - ...

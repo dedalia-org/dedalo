@@ -285,12 +285,12 @@ DOM (edit / default): `wrapper_component component_select_lang <tipo> <mode> vie
     17344,5101
     ```
 
-Language codes are validated against `^lg-[a-z0-9]+$` and resolved to a languages-section locator. A code that **cannot** be resolved produces a failed row (`IGNORED: invalid lang code ...`). A code that resolves but is **not** in the project's configured languages is still imported, but with a **WARNING** — the value is saved yet stays inaccessible until the project languages include it. An empty cell clears the existing value. See [importing data](../importing_data.md#related-data).
+Language codes are validated against `^lg-[a-z0-9]+$` and resolved to a languages-section locator. A code that **cannot** be resolved produces a failed row (`IGNORED: invalid lang code ...`). A code that resolves but is **not** in the project's configured languages is still imported, but with a **WARNING** — the value is saved yet stays inaccessible until the project languages include it. An empty cell clears the existing value. See [importing data](../../using/importing_data.md#related-data).
 
 !!! info "Language-code short form is implemented"
     The bespoke **language-code** short forms are handled by a per-model import override: the descriptor declares `importConform: 'select_lang'`, and `IMPORT_CONFORM.select_lang = conformSelectLang` (`src/core/tools/import_conform.ts`) accepts a bare `lg-spa`, a comma list, or a JSON array of codes, validates each against `^lg-[a-z0-9]+$`, resolves it to an `lg1` locator, warns on a non-project language, and falls through to the generic relation conform for locator/`section_id` shapes. The full locator array against `lg1` also still works.
 
-**Export.** Resolution is the shared relation export path: the stored locator(s) are iterated and, per the `ddo_map`, the named child component is resolved against each locator's `section_id` / `section_tipo` to produce the displayed language name. See [exporting data](../exporting_data.md).
+**Export.** Resolution is the shared relation export path: the stored locator(s) are iterated and, per the `ddo_map`, the named child component is resolved against each locator's `section_id` / `section_tipo` to produce the displayed language name. See [exporting data](../../using/exporting_data.md).
 
 **Diffusion.** Diffusion data is built by the shared relation resolution path. The standardised language code (e.g. `lg-cat`) is also derived from the stored locator; diffusion uses it, for example, to set the language of a published audio/video file, and it is how a record's main language is resolved.
 

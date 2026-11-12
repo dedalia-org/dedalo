@@ -78,7 +78,7 @@ ACTIVE_ONTOLOGY_TLDS=[ "dd", "rsc", "ontology", "ontologytype", "hierarchy", "lg
     An ontology may need nodes of other ontologies (\`tch\` uses models and terms of \`crm\`, \`tchi\`, \u2026). Those dependencies are DECLARED by the ontology server (its manifest lists them per TLD) and the installer installs them together with the chosen ontology. Thesaurus *hierarchies* are different: a \`tch\` installation still activates the \`material\`, \`technique\` or \`objects\` hierarchies itself, because hierarchies are created by the users. [See the table of dependencies](thesaurus_dependencies.md#dependencies).
 
 !!! note "Applying changes in ACTIVE_ONTOLOGY_TLDS"
-    Any change in \`ACTIVE_ONTOLOGY_TLDS\` will need a update of the ontology, this changes are not directly applied. Dédalo needs to get the ontology tld and install it, to do that update the ontology in [maintenance](../management/maintenance_status.md) control panel.
+    Any change in \`ACTIVE_ONTOLOGY_TLDS\` will need a update of the ontology, this changes are not directly applied. Dédalo needs to get the ontology tld and install it, to do that update the ontology in [maintenance](../maintenance_status.md) control panel.
 
 !!! note "Activities"
     The \`actv\` tld should be used as model to implement a virtual sections with more specific activities as hierarchies of toponymy does into the thesaurus using it as \`hierarchy20\`, the main section to implement in this way is \`actv1\` and his model \`actv2\`. The virtual sections should be defined with a prefix \`actv\` into the new tld, in this way:

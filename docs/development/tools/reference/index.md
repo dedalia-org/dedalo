@@ -108,7 +108,7 @@ Section-level tools surface on the section itself. A tool's own `isAvailable(con
 | Tool | Purpose | Reference |
 | --- | --- | --- |
 | `tool_user_admin` | User self-administration panel launched from the username menu, providing administrative actions for the logged-in user; UI-only | [reference](tool_user_admin.md) |
-| `tool_assistant` | In-app AI chat assistant — a thin client over a server-side agent for natural-language search/navigation, ontology queries and confirmed (propose→apply) record create/edit; model selectable per conversation (cloud or local/private) | [AI Assistant section](../../../core/ai/assistant/index.md) |
+| `tool_assistant` | In-app AI chat assistant — a thin client over a server-side agent for natural-language search/navigation, ontology queries and confirmed (propose→apply) record create/edit; model selectable per conversation (cloud or local/private) | [AI Assistant section](../../../administration/ai/assistant/index.md) |
 | `tool_error_report` | Captures and reports application errors from the client for administrators/developers to inspect | [reference](tool_error_report.md) |
 | `tool_rag` | The permission to request generated answers over the collection (`dd_rag_api` `ask`); grant-only — no window, no client, no server module | [reference](tool_rag.md) |
 

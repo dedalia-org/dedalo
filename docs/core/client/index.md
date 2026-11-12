@@ -299,7 +299,7 @@ await input.destroy(true) // delete_dependencies = true
   component DOM and the observer/observable configuration.
 - [Sections](../sections/index.md) — the central client caller that composes
   components, owns the paginator and builds the inspector.
-- [dd_object / ddo](../dd_object.md) — the normalized object the server ships and
+- [dd_object / ddo](../../api/dd_object.md) — the normalized object the server ships and
   the client consumes.
 - [Events](../events.md) — the event catalogue published and subscribed through
   `event_manager`.

@@ -209,7 +209,7 @@ DOM (edit / default): `wrapper_component component_select <tipo> <mode> view_def
 
 ## Import / export model
 
-**Import.** `component_select` goes through the shared related-component import engine (`conformImportData()`, `src/core/tools/import_data.ts`). Two formats are accepted (see [importing data](../importing_data.md#related-data)):
+**Import.** `component_select` goes through the shared related-component import engine (`conformImportData()`, `src/core/tools/import_data.ts`). Two formats are accepted (see [importing data](../../using/importing_data.md#related-data)):
 
 - **JSON locator array** (default round-trip format) — a one-element array since the component is single-valued:
 
@@ -225,7 +225,7 @@ DOM (edit / default): `wrapper_component component_select <tipo> <mode> view_def
 
 `from_component_tipo` is forced to this component's own `tipo`, `type` is injected from the resolved relation type, the `section_id` is validated, and invalid / multi-target-without-clear-target rows are logged and ignored. An empty cell is valid and clears the existing relation.
 
-**Export.** The shared relation export path iterates the stored locator and, per the `ddo_map`, resolves the target component against the locator's `section_id` / `section_tipo` to produce the displayed label / sub-columns; the indexation grid resolves the same way. See [exporting data](../exporting_data.md) and the *dedalo-export* skill.
+**Export.** The shared relation export path iterates the stored locator and, per the `ddo_map`, resolves the target component against the locator's `section_id` / `section_tipo` to produce the displayed label / sub-columns; the indexation grid resolves the same way. See [exporting data](../../using/exporting_data.md) and the *dedalo-export* skill.
 
 ## Notes
 

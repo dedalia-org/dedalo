@@ -408,7 +408,7 @@ file from a transcription — is the `build_subtitles_file` action of
   the caller's and the API action's responsibility — the upload handler asserts
   write permission on the target section when a `tipo` is supplied.
 - **Search** — `service_autocomplete` builds an SQO through the caller and runs
-  it over the internal read API. See [SQO](../sqo.md) and [RQO](../rqo.md).
+  it over the internal read API. See [SQO](../../api/sqo.md) and [RQO](../../api/rqo.md).
 
 ## Examples
 
@@ -477,6 +477,6 @@ const service_node = await self.autocomplete.render()
   abstraction that consumes upload/tmp_section/time_machine/subtitles.
 - [common](common.md) — the shared object machinery services borrow on the
   client.
-- [RQO](../rqo.md) · [SQO](../sqo.md) — the request/query objects
+- [RQO](../../api/rqo.md) · [SQO](../../api/sqo.md) — the request/query objects
   `service_autocomplete` builds.
-- [dd_object (ddo)](../dd_object.md) — the datum services render and collect.
+- [dd_object (ddo)](../../api/dd_object.md) — the datum services render and collect.

@@ -8,7 +8,7 @@
 
 > See also: [Architecture overview](../architecture_overview.md) ·
 > [area](../areas/area.md) · [Ontology](../ontology/index.md) ·
-> [Tools](../../development/tools/creating_tools.md) · [dd_object](../dd_object.md) ·
+> [Tools](../../development/tools/creating_tools.md) · [dd_object](../../api/dd_object.md) ·
 > [command palette](command_palette.md)
 
 This page is the developer reference for the **menu** subsystem: on the
@@ -290,7 +290,7 @@ const dataItem = {
   (`{source:{tipo, model, mode:'list', config}}`) that `page.js` consumes to
   swap the page element — the menu instance itself is preserved across the swap
   (it is a `base_model`).
-- **[dd_object](../dd_object.md)**: the context is a `dd_object`, the same
+- **[dd_object](../../api/dd_object.md)**: the context is a `dd_object`, the same
   normalized shape every element emits.
 
 ## Examples
@@ -348,7 +348,7 @@ await menu_instance.build(true)   // loads + caches the datum, then renders on r
   and labels.
 - [Tools](../../development/tools/creating_tools.md) — `tool_user_admin`,
   `tool_assistant`, and the `section_tool` rewrite path.
-- [dd_object (ddo)](../dd_object.md) — the normalized context object the menu
+- [dd_object (ddo)](../../api/dd_object.md) — the normalized context object the menu
   emits.
 - [Events](../events.md) — the `user_navigation` / `quit` / `change_lang`
   events the menu publishes and subscribes to.

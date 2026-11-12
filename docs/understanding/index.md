@@ -51,9 +51,9 @@ Each page carries a full-size diagram you can open, project or print.
 ## Where to go next
 
 - Ready to see the vocabulary the rest of the manual uses? The
-  [Glossary](../core/glossary.md) defines every term, and the
+  [Glossary](glossary.md) defines every term, and the
   [core hub](../core/index.md) is the technical starting point.
 - Deciding on infrastructure? [Installation](../install/index.md) opens with
   server sizing and the three ways to install.
 - Curious about the day-to-day tools? The
-  [tools user guide](../tools/index.md) covers them one by one.
+  [tools user guide](../using/tools/index.md) covers them one by one.

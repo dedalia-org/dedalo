@@ -363,7 +363,7 @@ shared mixins rather than redefine focus or media-wrapper layout.
 ## How ontology CSS interacts with tokens
 
 A node's `properties.css` (the per-node CSS object that ships in the
-[ddo](../dd_object.md) `context.css`) is applied **client-side**, not via LESS.
+[ddo](../../api/dd_object.md) `context.css`) is applied **client-side**, not via LESS.
 `client/dedalo/core/common/js/ui.js` reads `context.css` and calls
 `set_element_css(selector, css)` from `client/dedalo/core/page/js/css.js`, which inserts the
 rule into a runtime stylesheet scoped to the component wrapper. Because those
@@ -383,7 +383,7 @@ not LESS variables — they must be overridable at runtime.
   by `main.less` and styles its `.component_<name>` root using the shared tokens
   and mixins; the DOM contract (`wrapper_component > content_data > content_value
   > value`) is defined here in `layout.less`.
-- **[dd_object](../dd_object.md) / [request_config](../request_config.md)** — a
+- **[dd_object](../../api/dd_object.md) / [request_config](../request_config.md)** — a
   node's `properties.css` rides in the ddo `context.css` and is applied at runtime
   over the theme tokens (see above).
 - **[Architecture overview](../architecture_overview.md)** — the themes layer is
@@ -466,7 +466,7 @@ toggle_theme()         // flips light <-> dark
 - [menu](menu.md) — the theme-toggle button and the top utility bar.
 - [Components](../components/index.md) — the `.component_<name>` LESS bundles and
   the `wrapper_component` DOM contract.
-- [dd_object (ddo)](../dd_object.md) — the context that carries per-node
+- [dd_object (ddo)](../../api/dd_object.md) — the context that carries per-node
   `css`. · [request_config](../request_config.md) — how that context is built.
 - [Architecture overview](../architecture_overview.md) — where the front-end
   theme layer sits in the work system.

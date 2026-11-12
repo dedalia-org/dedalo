@@ -8,7 +8,7 @@ Atoms-based export of a section's records to a flat table. The export runs on th
 
 Concrete heritage scenario: a numismatics cataloguer has filtered the *Coins* section down to the issues of one mint and wants a report for a colleague. They open the tool on that filtered list, drag the *Inventory number*, *Weight*, *Diameter* and the related *Mint → name* into the active columns, choose **Breakdown / rows** so each linked type lands on its own row, tick **parents** on the type column to also get the term's ancestor chain, run the export, page through the preview and download an XLSX of every record. The same configuration can be saved as a named preset for the next batch.
 
-A second, machine-facing use: the **Dédalo (Raw)** format produces cells wrapped as `{"dedalo_data":…}` that the [CSV import tool](tool_import_dedalo_csv.md) unwraps and conforms like typed input — an edit-and-reload format, NOT a backup and not a way to move data between installations: `component_text_area` markup is rewritten, `component_geolocation` item ids are dropped, empty cells clear values, no media bytes travel, and a locator's `section_id` is checked for shape only. The complete, verified copy of a section set is the [archive door](../../../core/exporting_data.md#the-archive-door).
+A second, machine-facing use: the **Dédalo (Raw)** format produces cells wrapped as `{"dedalo_data":…}` that the [CSV import tool](tool_import_dedalo_csv.md) unwraps and conforms like typed input — an edit-and-reload format, NOT a backup and not a way to move data between installations: `component_text_area` markup is rewritten, `component_geolocation` item ids are dropped, empty cells clear values, no media bytes travel, and a locator's `section_id` is checked for shape only. The complete, verified copy of a section set is the [archive door](../../../using/exporting_data.md#the-archive-door).
 
 Use it when: someone needs section data as a spreadsheet/report, a raw CSV to bulk-edit and load back, or the media files referenced by a record set. Do not use it for single-record edits or for tabular *editing* — it is read-only export.
 
@@ -228,7 +228,7 @@ A component with [dataframe](../../../core/components/component_dataframe.md) sl
 
 ## Related
 
-- [Export user guide](../../../tools/using_export.md) · [Exporting data](../../../core/exporting_data.md) — the end-user + developer guide for this tool (UI walkthrough, formats, breakdown, presets, NDJSON protocol, downloads, retention).
-- [tool_import_dedalo_csv](tool_import_dedalo_csv.md) — consumes the `dedalo_raw` export (loading edited cells back, not a restore); see [Importing data](../../../core/importing_data.md).
+- [Export user guide](../../../using/tools/using_export.md) · [Exporting data](../../../using/exporting_data.md) — the end-user + developer guide for this tool (UI walkthrough, formats, breakdown, presets, NDJSON protocol, downloads, retention).
+- [tool_import_dedalo_csv](tool_import_dedalo_csv.md) — consumes the `dedalo_raw` export (loading edited cells back, not a restore); see [Importing data](../../../using/importing_data.md).
 - [Creating new tools](../creating_tools.md) · [Server contract](../server_contract.md) — the tool model, `apiActions`, gates and lifecycle this page builds on.
 - Source: `tools/tool_export/server/{index,tool_export,export_job,preview,download,access,artifact_store,spool_reader}.ts`, `tools/tool_export/server/writers/`, `tools/tool_export/register.json`, `tools/tool_export/js/{tool_export,render_tool_export,flat_table,drag_tool_export,phone_tool_export,export_user_presets}.js`; the reused resolution core: `src/core/resolve/relation_list.ts`.

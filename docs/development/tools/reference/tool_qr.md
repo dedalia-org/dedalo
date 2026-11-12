@@ -121,7 +121,7 @@ Optional per-tool config (dd996 / register `default_config`) to override the QR 
 - [Creating new tools](../creating_tools.md) — `tool_qr` is a hand-on skeleton for this tutorial; the production-shaped scaffold is `tool_dev_template`.
 - [Server contract](../server_contract.md) · [Security](../security.md) — why a UI-only tool is refused cleanly at dispatch even with no `server/` package at all.
 - [JS lifecycle](../js_lifecycle.md) — the `init` / `build` / `render` / `edit` flow `tool_qr` follows and the `ddo_map` it consumes.
-- [tool_export](tool_export.md) — the other section-selection tool; if you actually need to get section data *out* (CSV/TSV/XLSX/round-trip), use export, not QR. See [Exporting data](../../../core/exporting_data.md).
+- [tool_export](tool_export.md) — the other section-selection tool; if you actually need to get section data *out* (CSV/TSV/XLSX/round-trip), use export, not QR. See [Exporting data](../../../using/exporting_data.md).
 - [Tools catalog](index.md) — full list of shipped tools.
 - Source: `tools/tool_qr/register.json` (no `server/` package), `tools/tool_qr/js/{index,tool_qr,render_tool_qr,worker_qr}.js`, `tools/tool_qr/css/tool_qr.less`; the QR library is the pinned `easyqrcodejs` package (client-lib id `qrcode`).
 

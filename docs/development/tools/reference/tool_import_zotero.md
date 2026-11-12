@@ -23,7 +23,7 @@ Use it for bulk ingest of references already curated in Zotero, once a predicate
 5. **Execute.** `importMappedRecords` (the shared executor, `src/core/tools/import_execute.ts`) resolves target vs. new records per mapped subject and writes through `createSectionRecord`/`saveComponentData`.
 6. Returns `{result, msg, errors, created, updated, failed}`.
 
-PDF import with first-page identifying-image extraction (an `archive` field naming an uploaded PDF) is **not implemented** — the field-map only maps a predicate straight to a component value; there is no PDF-specific handling or image-extraction step in `tools/tool_import_zotero/server/index.ts`. There is likewise no dedicated update-vs-create resolution keyed off a bibliographic identifier field — the shared executor's own record-matching rules apply instead (see [Importing data](../../../core/importing_data.md)), and there is no manual temp-data merge step.
+PDF import with first-page identifying-image extraction (an `archive` field naming an uploaded PDF) is **not implemented** — the field-map only maps a predicate straight to a component value; there is no PDF-specific handling or image-extraction step in `tools/tool_import_zotero/server/index.ts`. There is likewise no dedicated update-vs-create resolution keyed off a bibliographic identifier field — the shared executor's own record-matching rules apply instead (see [Importing data](../../../using/importing_data.md)), and there is no manual temp-data merge step.
 
 `import_files` is listed in `backgroundRunnable`; the client always sends `background_running: true` (see [Server contract](../server_contract.md) for how this runs without a CLI fork).
 
@@ -96,7 +96,7 @@ PDF import with first-page identifying-image extraction (an `archive` field nami
 - [tool_import_dedalo_csv](tool_import_dedalo_csv.md) — CSV import / Dédalo export round-trips.
 - [tool_import_rdf](tool_import_rdf.md) — the sibling RDF/XML import tool this one's parser and mapper are shared with (`src/core/tools/rdf_xml.ts`) — but unlike `tool_import_rdf`'s `get_rdf_data`, this tool's `import_files` actually writes.
 - [tool_import_files](tool_import_files.md) — media file ingest (shares the multi-file upload-queue pattern).
-- [tool_export](tool_export.md) and [Exporting data](../../../core/exporting_data.md) — the export side.
-- [Importing data](../../../core/importing_data.md) — the per-component import-data contract.
+- [tool_export](tool_export.md) and [Exporting data](../../../using/exporting_data.md) — the export side.
+- [Importing data](../../../using/importing_data.md) — the per-component import-data contract.
 - Source: `tools/tool_import_zotero/server/index.ts`; RDF parser + mapper: `src/core/tools/rdf_xml.ts`; shared executor: `src/core/tools/import_execute.ts`.
 - [Creating new tools](../creating_tools.md), [Server contract](../server_contract.md), [register.json reference](../register_json.md), [Security](../security.md)

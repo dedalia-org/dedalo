@@ -167,7 +167,7 @@ A dashboard-behavior area serves an aggregate view over the sections inside it.
 - The **metric list** is read from the area's ontology
   `properties.dashboard.metrics`, defaulting to `["total"]`. `total` is the only
   built-in per-section metric; it calls `countSectionRecords`
-  (`src/core/search/count.ts`), which goes through the [SQO](../sqo.md) count
+  (`src/core/search/count.ts`), which goes through the [SQO](../../api/sqo.md) count
   path, so the number respects the reader's permissions and project filters.
   It is `null` — no badge — when the section is not countable: the reader lacks
   read permission, the section declares no table, or the table it declares is
@@ -224,7 +224,7 @@ an ontology import invalidates them; they are not per-request state.
 - **Ontology.** Everything about an area — tipo, parent, label, properties,
   children — comes from the [Ontology](../ontology/index.md), resolved through
   `src/core/ontology/resolver.ts`.
-- **Search.** The dashboard counts go through the [SQO](../sqo.md) count path, so
+- **Search.** The dashboard counts go through the [SQO](../../api/sqo.md) count path, so
   they respect permissions and project filters.
 - **Activity log.** `metricActivity` reads `matrix_activity` directly. See
   [Activity log](../system/logger.md).
@@ -240,4 +240,4 @@ an ontology import invalidates them; they are not per-request state.
 - [Ontology](../ontology/index.md) — the active schema that defines area nodes.
 - [Thesaurus / TS tree](../thesaurus/index.md) — the hierarchy stack the tree
   areas render.
-- [SQO](../sqo.md) — the query object behind the dashboard counts.
+- [SQO](../../api/sqo.md) — the query object behind the dashboard counts.

@@ -1,7 +1,7 @@
 /**
  * v6 → v7 CONFIG MIGRATION MAP — the single source of truth for both
  * `scripts/migrate_v6_config.ts` and the change-reference table in
- * `docs/config/whats_changed_v7.md`.
+ * `docs/whats_changed_v7.md`.
  *
  * A v6 install declares ~200 `define()` constants in `<dedalo>/config/`. The TS
  * engine reads env keys from `../private/.env`. Every legacy constant lands in

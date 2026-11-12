@@ -2,7 +2,7 @@
  * gen_config_docs.ts — render the operator-facing config artifacts from the catalog.
  *
  *   bun run config:gen      write install/sample.env + the generated regions of
- *                           docs/config/{config,config_db}.md
+ *                           docs/administration/configuration/{config,config_db}.md
  *   bun run config:check    render, diff against disk, exit 1 on drift (what CI runs)
  *
  * The catalog (src/config/catalog/) is the single source of truth; these three files are
@@ -29,7 +29,7 @@ interface Artifact {
 const artifacts: Artifact[] = [{ path: 'install/sample.env', next: renderSampleEnv() }];
 
 for (const page of ['config', 'config_db'] as const) {
-	const path = `docs/config/${page}.md`;
+	const path = `docs/administration/configuration/${page}.md`;
 	const existing = readFileSync(join(ROOT, path), 'utf8');
 	artifacts.push({ path, next: spliceGenerated(existing, renderReferencePage(page)) });
 }

@@ -1,12 +1,12 @@
 # search
 
-> See also: [SQO](../sqo.md) (the query DTO contract) · [RQO](../rqo.md) (the request that wraps an SQO) · [Sections](../sections/index.md) · [common](common.md)
+> See also: [SQO](../../api/sqo.md) (the query DTO contract) · [RQO](../../api/rqo.md) (the request that wraps an SQO) · [Sections](../sections/index.md) · [common](common.md)
 
 The server query engine compiles a **Search Query Object (SQO)** into a single prepared PostgreSQL statement over the JSONB `matrix_*` tables, runs it, and returns the matched rows.
 
 This page is the **subsystem reference** for the `search` engine. For *what an
 SQO is* — its fields, the Mango-style filter grammar and the two-phase `parsed`
-lifecycle — read [SQO](../sqo.md) first; this document is about the engine that
+lifecycle — read [SQO](../../api/sqo.md) first; this document is about the engine that
 **consumes** an SQO and emits SQL, and does not repeat the SQO field contract at
 length.
 
@@ -190,7 +190,7 @@ Load-bearing details, all enforced in the assembler:
 - **Single-tipo pin lists only** in v1 — a mixed-tipo pin list throws; an empty
   pin list is a silent no-op (a session-merged leftover order without pins).
 - `sanitizeClientSqo` clamps `filter_by_locators` to
-  [`CLIENT_MAX_LOCATOR_PINS`](../../config/search.md#semantic-search-rank-pinning)
+  [`CLIENT_MAX_LOCATOR_PINS`](../../administration/configuration/search.md#semantic-search-rank-pinning)
   (1000) **loudly** (DEC-07) — a longer pin list truncates the result set with
   a logged warning rather than silently.
 
@@ -362,7 +362,7 @@ The index is **the only relation engine** — every consumer runs on it:
 | --- | --- | --- |
 | `search_related.ts` finds/counts (relation_list panels, children, observers, delete propagation, diffusion) | one btree query, `GROUP BY` owner, op AND via `HAVING bool_or` | st_si 14→0.3 ms · fct_st_si 6→0.2 ms · ty_st 1,014→54 ms (vs the retired flat GIN) |
 | breakdown (`findInverseReferenceLocators` — exact locator payload recovery) | tuple-IN row-narrowing + a jsonb cross-join (only the payload side touches the jsonb, so it stays exact) | — |
-| relation filter leaves (autocomplete catalogue pre-filter): canonical `format:'relation'` (q = partial locator object(s)) + the DEPRECATED `format:'function'` reader (WC-012) | exact tuple-IN over typed bound params — see [sqo.md → Relation filter leaves](../sqo.md#relation-filter-leaves-format-relation) | — |
+| relation filter leaves (autocomplete catalogue pre-filter): canonical `format:'relation'` (q = partial locator object(s)) + the DEPRECATED `format:'function'` reader (WC-012) | exact tuple-IN over typed bound params — see [sqo.md → Relation filter leaves](../../api/sqo.md#relation-filter-leaves-format-relation) | — |
 | `database_info.relation_integrity_report` (maintenance) | dangling-target anti-joins + non-integer locator census | first run on MIB: 5,148 dangling refs found |
 
 Coverage (`relationIndexCovers` = triggers present AND the index backfilled —
@@ -389,7 +389,7 @@ failure. Fresh installs and v6→v7 closures arrive with everything in place.
     day (WC-012 amendment 3): the shipped client emits `format:'relation'`
     with a partial-locator `q`; the old `format:'function'` /
     `use_function:'relations_flat_*'` spelling survives only as a deprecated
-    reader — see [sqo.md → Relation filter leaves](../sqo.md#relation-filter-leaves-format-relation).
+    reader — see [sqo.md → Relation filter leaves](../../api/sqo.md#relation-filter-leaves-format-relation).
 
 !!! warning "This is NOT the v6 `relations` table"
     v6's table was application-maintained (drift → a dedicated regenerate
@@ -625,10 +625,10 @@ noted.
 
 ## How it fits with the rest of Dédalo
 
-- **[SQO](../sqo.md)** — the query DTO this engine consumes. `search.md`
+- **[SQO](../../api/sqo.md)** — the query DTO this engine consumes. `search.md`
   documents the *engine*; `sqo.md` documents the *contract* (filter grammar,
   field cheat-sheet, the `parsed` two-phase lifecycle). They are companions.
-- **[RQO](../rqo.md)** — the request envelope that carries the SQO from the
+- **[RQO](../../api/rqo.md)** — the request envelope that carries the SQO from the
   client; `sanitizeClientSqo()` runs while the `dd_core_api` handlers in
   `dispatch.ts` unpack the RQO.
 - **[Sections](../sections/index.md) / [section](../sections/section.md)** —
@@ -706,9 +706,9 @@ then executes the real bound query.
 
 ## Related
 
-- [SQO](../sqo.md) — the Search Query Object contract (filter grammar, fields,
+- [SQO](../../api/sqo.md) — the Search Query Object contract (filter grammar, fields,
   `parsed` lifecycle).
-- [RQO](../rqo.md) — the request format that wraps an SQO.
+- [RQO](../../api/rqo.md) — the request format that wraps an SQO.
 - [Sections](../sections/index.md) · [section](../sections/section.md) — list
   views and the read-source strategy.
 - [Components](../components/index.md) — the per-component fragment builders.

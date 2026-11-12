@@ -18,4 +18,4 @@ The thesauri a release offers at install time, and in *Maintenance › Install h
 - Thesaurus names in the installers appear in your interface language.
 - The install seed now carries only the Languages registry record. Every other thesaurus's record is written from its `hierarchy.json` entry the first time it is activated.
 
-**Action needed** if you added your own hierarchies to `install/import/hierarchy/` and listed them in the old `hierarchies.json`: add their entries to `hierarchy.json`, copied from the source installation's exported `hierarchy.json`. See [Install new hierarchies](./management/install_new_hierarchies.md).
+**Action needed** if you added your own hierarchies to `install/import/hierarchy/` and listed them in the old `hierarchies.json`: add their entries to `hierarchy.json`, copied from the source installation's exported `hierarchy.json`. See [Install new hierarchies](./administration/install_new_hierarchies.md).

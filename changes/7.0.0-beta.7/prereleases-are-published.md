@@ -24,7 +24,7 @@ neither 7.0.0-beta.7 nor, later, 7.0.0. To move on:
   [a stack installed from a beta before 7.0.0-beta.7](./install/docker.md#a-stack-installed-from-a-beta-before-700-beta7);
 - an installation **updated from the panel** chooses **Developer builds** and installs
   the developer build of 7.0.0 the code server offers (see
-  [testing development work on a real installation](./management/updates/updating_code.md#testing-development-work-on-a-real-installation)).
+  [testing development work on a real installation](./administration/updates/updating_code.md#testing-development-work-on-a-real-installation)).
   With **Developer builds** still chosen, it is then
   offered every published build of 7.0.0 — 7.0.0-beta.7 and the later prereleases (from
   a code server that publishes prereleases), and 7.0.0 once it is released — because a

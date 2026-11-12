@@ -1,6 +1,6 @@
 # The Dédalo data model
 
-> See also: [Architecture overview](../architecture_overview.md) · [Sections](../sections/index.md) · [Components](../components/index.md) · [Locator](../locator.md) · [Glossary](../glossary.md)
+> See also: [Architecture overview](../architecture_overview.md) · [Sections](../sections/index.md) · [Components](../components/index.md) · [Locator](../locator.md) · [Glossary](../../understanding/glossary.md)
 
 This is the deep explanation of **how a value actually lives** inside Dédalo: the
 JSON/JSONB foundation, the typed columns of the `matrix` row, the consolidated v7
@@ -405,6 +405,6 @@ server class, client model, examples, and a v7 consolidation note).
   paired by stable `id` (`id_key`).
 - [Request config](../request_config.md) — how `context` and `data` are paired
   and delivered to the client.
-- [Glossary](../glossary.md) — tipo, model, locator, subdata, ddo, datum.
+- [Glossary](../../understanding/glossary.md) — tipo, model, locator, subdata, ddo, datum.
 - [Architecture overview](../architecture_overview.md) — where the data model
   sits in the wider system.

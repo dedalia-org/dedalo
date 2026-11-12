@@ -1,6 +1,6 @@
 # dd_grid
 
-> See also: [Exporting data](../exporting_data.md) · [Components](../components/index.md) · [Sections](../sections/index.md) · [Locator](../locator.md)
+> See also: [Exporting data](../../using/exporting_data.md) · [Components](../components/index.md) · [Sections](../sections/index.md) · [Locator](../locator.md)
 
 The subsystem that resolves a record's component data into **flat, tabular
 shapes** — both the visual grid cell (`dd_grid_cell_object`) and the per-component
@@ -27,7 +27,7 @@ It sits between the component layer (which owns each value) and three consumers:
 
 | consumer | what it asks for | TS module |
 | --- | --- | --- |
-| **tool_export** | the flat NDJSON export table (meta + columns + one row of resolved values per record) | `tools/tool_export/server/tool_export.ts` (protocol) + `resolveCellValue` / `resolvePathValue` (values). See [Exporting data](../exporting_data.md). |
+| **tool_export** | the flat NDJSON export table (meta + columns + one row of resolved values per record) | `tools/tool_export/server/tool_export.ts` (protocol) + `resolveCellValue` / `resolvePathValue` (values). See [Exporting data](../../using/exporting_data.md). |
 | **thesaurus indexation grid** | a term's backlink grid | `src/core/section/indexation_grid.ts` (the drive) + `src/core/section/list_definitions/indexation_list.ts` (the config). |
 | **client grid widgets** | `dd_grid_cell_object` cells (time-machine matrix, descriptors widget, indexation view) | the wire cells emitted by `ddGridCell()` (`src/core/components/component_info/widgets/grid.ts`), rendered by the `client/dedalo/core/dd_grid/js/` views. |
 
@@ -219,14 +219,14 @@ consume exactly the `dd_grid_cell_object` wire shape `ddGridCell()` emits.
     `tools/tool_export/js/flat_table.js` from the NDJSON stream — it does not go
     through `client/dedalo/core/dd_grid/js/`. The export pipeline reuses only the
     **server** flat-value resolvers + the tabulator protocol. See
-    [Exporting data](../exporting_data.md).
+    [Exporting data](../../using/exporting_data.md).
 
 ## How it fits with the rest of Dédalo
 
 - [Components](../components/index.md) — each component's flat value is resolved
   from its ontology descriptor by `resolveCellValue()`; there is no per-component
   grid method to override.
-- [Exporting data](../exporting_data.md) — `tool_export` is the primary consumer
+- [Exporting data](../../using/exporting_data.md) — `tool_export` is the primary consumer
   of the flat-value contract; `toolExportGetExportGrid()` lays the values onto the
   NDJSON tabulator table.
 - [Sections](../sections/index.md) — grids resolve the components of a section
@@ -275,7 +275,7 @@ const config = await getIndexationListConfig('oh1'); // IndexationListConfig | n
 
 ## Related
 
-- [Exporting data](../exporting_data.md) — the export pipeline and the
+- [Exporting data](../../using/exporting_data.md) — the export pipeline and the
   `value` / `grid_value` / `dedalo_raw` formats.
 - [Components](../components/index.md) — the field abstraction whose values are
   flattened; [base classes](../components/base_classes.md).

@@ -1,6 +1,6 @@
 # Serving audiovisual fragments (H.264 clipping)
 
-> See also: [Installation hub](index.md) · [The web server site](reverse_proxy.md) · [Media protection](../config/media_protection.md)
+> See also: [Installation hub](index.md) · [The web server site](reverse_proxy.md) · [Media protection](../administration/configuration/media_protection.md)
 
 Dédalo publishes audiovisual **fragments**: an oral-history interview is one long
 recording, and a record points at a segment of it. Playing that segment without

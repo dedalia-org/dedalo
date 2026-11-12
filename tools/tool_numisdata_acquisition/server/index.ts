@@ -852,7 +852,7 @@ async function linkCompany(
 /**
  * Exact match on (Company Entity, Code) — a wrong match would silently
  * attach a lot to someone else's auction, worse than an occasional
- * duplicate. A `format:'relation'` SQO leaf (docs/core/sqo.md's "Relation
+ * duplicate. A `format:'relation'` SQO leaf (docs/api/sqo.md's "Relation
  * filter leaves") over the resolved Entity id, run WITH the caller's
  * principal — never a hand-written SQL WHERE that bypasses the engine's
  * search subsystem and its projects filter. Used by previewUrl (check only)

@@ -1,7 +1,7 @@
 /**
  * THE UPDATE DOCS' CHECKABLE CLAIMS EQUAL THE CODE (update audit 2026-10-29,
  * U-45, design Phase 3.2). The operator manual of the update run
- * (docs/management/updates/*.md) and its engineering twins (engineering/RELEASE.md,
+ * (docs/administration/updates/*.md) and its engineering twins (engineering/RELEASE.md,
  * engineering/PRODUCTION.md §12) state facts an operator acts on. Each claim
  * below is EXTRACTED from the prose and compared with what the code DOES —
  * measured by running the code (planner, executor with seams, rollback
@@ -68,7 +68,7 @@ import { happyPath, isTerminal, TERMINAL_STATES } from '../../src/core/update/ru
 import { RUN_VERIFY_PREDICATES } from '../../src/core/update/run/verify.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
-const UPDATES_DIR = 'docs/management/updates';
+const UPDATES_DIR = 'docs/administration/updates';
 const INDEX = `${UPDATES_DIR}/index.md`;
 const RELEASE = 'engineering/RELEASE.md';
 const PRODUCTION = 'engineering/PRODUCTION.md#12';

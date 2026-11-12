@@ -1,6 +1,6 @@
 # media_protection
 
-> See also: [Media protection (configuration)](../../config/media_protection.md) · [media_engine](media_engine.md) · [login](login.md) · [security](security.md) · [System hub](index.md)
+> See also: [Media protection (configuration)](../../administration/configuration/media_protection.md) · [media_engine](media_engine.md) · [login](login.md) · [security](security.md) · [System hub](index.md)
 
 `media_protection` is the subsystem that makes the **web server** authorize media files:
 Apache or nginx answers each request with a single `stat()` on a zero-byte marker file, so
@@ -9,7 +9,7 @@ ever sits in the media byte path**.
 
 This page is the maintainer's orientation — the module map and the invariants that bite. Everything an
 administrator needs (modes, keys, web-server wiring, the widget, troubleshooting, verification)
-lives on one page and one page only: **[Media protection (configuration)](../../config/media_protection.md)**.
+lives on one page and one page only: **[Media protection (configuration)](../../administration/configuration/media_protection.md)**.
 The authoritative subsystem definition, including the curl verification matrix that is its
 definition of done, is `engineering/MEDIA_PROTECTION.md`.
 
@@ -184,7 +184,7 @@ manual check.
 
 ## Related
 
-* [Media protection (configuration)](../../config/media_protection.md) — the operator's page:
+* [Media protection (configuration)](../../administration/configuration/media_protection.md) — the operator's page:
   modes, keys, web-server wiring, the widget, verification, troubleshooting.
 * [media_engine](media_engine.md) — how the files being protected are produced and named.
 * [login](login.md) — the authentication path that mints the cookie.

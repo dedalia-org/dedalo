@@ -1,6 +1,6 @@
 # Installation
 
-> See also: [Installer reference](installer_reference.md) · [Production install](production.md) · [Docker](docker.md) · [Configuration](../config/index.md)
+> See also: [Installer reference](installer_reference.md) · [Production install](production.md) · [Docker](docker.md) · [Configuration](../administration/configuration/index.md)
 
 Dédalo manages cultural heritage: archaeological, ethnological and documentary collections, memory and oral history. It is a client–server application, so installing it means preparing a server. One installer does it, in the terminal, whatever kind of server you choose.
 
@@ -110,7 +110,7 @@ Dédalo computes its data shape at read time from the ontology rather than stori
 Storage is the number you must actually think about. A project of a few thousand records with images, PDFs and audiovisual material holds **orders of magnitude more media than data**. Plan for the collection you expect in five years, not the one you are importing this month.
 
 !!! warning "Back up every store, not one"
-    The matrix database alone is **not** a backup. The complete set is: the matrix database, the vector database (if you enabled semantic search), the **media originals**, the private directory (the secrets and the state), and every site-builder instance (if you run the site builder). Losing the private directory means a restored database you cannot start. See [backup](../management/backup.md).
+    The matrix database alone is **not** a backup. The complete set is: the matrix database, the vector database (if you enabled semantic search), the **media originals**, the private directory (the secrets and the state), and every site-builder instance (if you run the site builder). Losing the private directory means a restored database you cannot start. See [backup](../administration/backup.md).
 
 ## What you need before you run it
 
@@ -153,8 +153,8 @@ The installer never installs Docker and never changes the firewall: it checks Do
 Work after the install is done **in the browser**, under **Maintenance**, never by running the installer again:
 
 1. Log in as `root`, create an **admin user**, and keep `root` for emergencies.
-2. Create your [users and projects](../management/users_and_permissions.md).
-3. Add the thesauri your collection needs. Thesauri ship **empty**, by design: only Languages (`lg`) and the country toponymies carry terms. Install a country's toponymy, or another thesaurus, from [Maintenance › Install hierarchies](../management/install_new_hierarchies.md).
-4. Set up and restore-test [backups](../management/backup.md). On the Production route the nightly backup is already running.
-5. Code and ontology updates come from the [Maintenance updates panels](../management/updates/index.md).
-6. Read the [configuration reference](../config/index.md): the installer writes the keys [listed in the reference](installer_reference.md#what-privateenv-does-and-does-not-get); the operational tuning is yours.
+2. Create your [users and projects](../administration/users_and_permissions.md).
+3. Add the thesauri your collection needs. Thesauri ship **empty**, by design: only Languages (`lg`) and the country toponymies carry terms. Install a country's toponymy, or another thesaurus, from [Maintenance › Install hierarchies](../administration/install_new_hierarchies.md).
+4. Set up and restore-test [backups](../administration/backup.md). On the Production route the nightly backup is already running.
+5. Code and ontology updates come from the [Maintenance updates panels](../administration/updates/index.md).
+6. Read the [configuration reference](../administration/configuration/index.md): the installer writes the keys [listed in the reference](installer_reference.md#what-privateenv-does-and-does-not-get); the operational tuning is yours.

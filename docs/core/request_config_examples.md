@@ -5,7 +5,7 @@ A cookbook of real Dédalo v7 ontology `request_config` JSON, organized by scena
 This document does **not** re-explain the architecture or the wire format — see the two companion docs:
 
 - **[request_config.md](request_config.md)** — the server-side config system that produces these configs: explicit vs implicit configuration, self-resolution, the `section_tipo` source vocabulary, `request_config_object`/`dd_object` interfaces, pagination, caching, the construction flow and the error contract.
-- **[rqo.md](rqo.md)** — the wire message the client builds *from* these configs: the RQO envelope, `dd_api`/`action` whitelists, `source`/`sqo`/`show`/`search`/`choose`/`hide`, response shapes per action, and the **canonical `show.interface` reference table** ([rqo.md → show.interface](rqo.md#show-interface)).
+- **[rqo.md](../api/rqo.md)** — the wire message the client builds *from* these configs: the RQO envelope, `dd_api`/`action` whitelists, `source`/`sqo`/`show`/`search`/`choose`/`hide`, response shapes per action, and the **canonical `show.interface` reference table** ([rqo.md → show.interface](../api/rqo.md#show-interface)).
 
 > Note on tipos: the examples use working-set conventions (`numisdata*`, `hierarchy*`, `rsc*`, `oh*`, `zenon1`, `dd15`). These are real tipos from the project ontology and test fixtures, not invented. The base `ontology.copy.gz` ships only core models (`rsc*`); project tipos come with the installed ontology.
 
@@ -103,7 +103,7 @@ This document does **not** re-explain the architecture or the wire format — se
 - `view: "line"` on the first ddo controls its row rendering variant.
 - `sqo_config` — display-side SQO tuning. `full_count: true` makes the server return the total (for the pager); `operator: "$or"` is the default for section lists.
 
-*See properties:* [`sqo`](rqo.md#sqo-object-optional), [`show.ddo_map` / `sqo_config`](rqo.md#show-object-optional), [pagination defaults](request_config.md#default-limits).
+*See properties:* [`sqo`](../api/rqo.md#sqo-object-optional), [`show.ddo_map` / `sqo_config`](../api/rqo.md#show-object-optional), [pagination defaults](request_config.md#default-limits).
 
 ---
 
@@ -225,7 +225,7 @@ This document does **not** re-explain the architecture or the wire format — se
 - The second ddo (`rsc29`, an image component living in section `rsc170`) is **nested**: its `parent` is `numisdata164`, not `self`. This resolves the image *through* the coin record into the portal card. `view: "thumbnail"` keeps it small.
 - `sqo_config.limit: 50` — portals raise the per-page limit above the section list default.
 
-*See properties:* [nested ddo chains via `parent`](rqo.md#show-object-optional), [`view` source field](rqo.md#source-object-mandatory).
+*See properties:* [nested ddo chains via `parent`](../api/rqo.md#show-object-optional), [`view` source field](../api/rqo.md#source-object-mandatory).
 
 ---
 
@@ -300,9 +300,9 @@ This document does **not** re-explain the architecture or the wire format — se
 - `show` — what is displayed once a record is linked. `fields_separator: ", "` joins multiple component values into one string.
 - `search` — the fields actually queried when the user types (number + key). When `search` is present it replaces `show` for the *search* pass; `sqo_config.limit: 30` caps suggestions.
 - `choose` — the fields shown in the dropdown picker (number + mint). When present it overrides `search`/`show` for the result list only.
-- Fallback chain: `choose → search → show` for the picker; `choose.sqo_config.limit → search/show sqo_config → 25` for its limit. See [rqo.md → choose](rqo.md#choose-object-optional).
+- Fallback chain: `choose → search → show` for the picker; `choose.sqo_config.limit → search/show sqo_config → 25` for its limit. See [rqo.md → choose](../api/rqo.md#choose-object-optional).
 
-*See properties:* [`search`](rqo.md#search-object-optional), [`choose`](rqo.md#choose-object-optional), [`fields_separator`](rqo.md#show-object-optional).
+*See properties:* [`search`](../api/rqo.md#search-object-optional), [`choose`](../api/rqo.md#choose-object-optional), [`fields_separator`](../api/rqo.md#show-object-optional).
 
 ---
 
@@ -468,7 +468,7 @@ This document does **not** re-explain the architecture or the wire format — se
 - `api_config` is resolved from the section the show ddo names. Those five keys are the only ones published: anything else is dropped, credential-shaped keys (`api_key`, `token`, …) are stripped, and every URL must be `http(s)` — a `javascript:` `ui_base_url` refuses the whole block, because the portal concatenates it with a record id to open a window. A service credential belongs in `../private/.env` on a secret catalog key, never in the ontology.
 - `api_url` / `api_url_search` hosts must also be listed in `DEDALO_EXTERNAL_ALLOWED_HOSTS` before the SERVER will fetch them.
 
-*See properties:* [`api_engine`](rqo.md#api_engine-string-optional-default-dedalo), [`api_config`](request_config.md#request_config_object-shape).
+*See properties:* [`api_engine`](../api/rqo.md#api_engine-string-optional-default-dedalo), [`api_config`](request_config.md#request_config_object-shape).
 
 ---
 
@@ -538,7 +538,7 @@ This document does **not** re-explain the architecture or the wire format — se
 - Multiple sections (`numisdata3`, `numisdata4`, `rsc170`) appear in a single config — each ddo declares its own `section_tipo`.
 - The same component type (`rsc29`) is listed twice with different `parent` values — that is how one component renders under two distinct branches.
 
-*See properties:* [ddo chains and `parent`](rqo.md#show-object-optional).
+*See properties:* [ddo chains and `parent`](../api/rqo.md#show-object-optional).
 
 ---
 
@@ -716,7 +716,7 @@ This document does **not** re-explain the architecture or the wire format — se
 
 **Scenario**: Portal with custom button configuration.
 
-The full list of `interface` keys, their defaults, and what each controls is the **canonical table in [rqo.md → show.interface](rqo.md#show-interface)** — it is not repeated here to avoid drift. Below is an illustrative config; only the keys actually used are explained.
+The full list of `interface` keys, their defaults, and what each controls is the **canonical table in [rqo.md → show.interface](../api/rqo.md#show-interface)** — it is not repeated here to avoid drift. Below is an illustrative config; only the keys actually used are explained.
 
 ```json
 {
@@ -762,12 +762,12 @@ The full list of `interface` keys, their defaults, and what each controls is the
 }
 ```
 
-**Keys used here** (see [rqo.md](rqo.md#show-object-optional) for the rest):
+**Keys used here** (see [rqo.md](../api/rqo.md#show-object-optional) for the rest):
 - `button_delete_link: true` + `button_delete_link_and_record: false` — the delete modal offers "Unlink" but not "Unlink and delete the record".
 - `button_edit: true` (non-default) with `button_edit_options` — left-click navigates to the record; right-click (context menu) opens it in a new window.
 - `tools: false` — hides the component tools entry for this portal.
 
-*See the canonical reference:* [rqo.md → show.interface](rqo.md#show-interface).
+*See the canonical reference:* [rqo.md → show.interface](../api/rqo.md#show-interface).
 
 ---
 
@@ -893,7 +893,7 @@ Response (`result` is the new `section_id` as a string, or `false` on failure):
 - The follow-up `read` uses `sqo.filter_by_locators` to pin exactly the new record, `limit: 1` and `mode: "edit"`. The `show` layout is resolved server-side from the section's ontology `request_config` (e.g. [#2](#2-section-edit-configuration)), so the call carries no `show` of its own.
 - The top-level `action` is `read`; the per-element behavior is `source->action: "search"`.
 
-*See:* [rqo.md → create / read actions](rqo.md#action-string-mandatory), [request_config.md → edit pagination default](request_config.md#default-limits).
+*See:* [rqo.md → create / read actions](../api/rqo.md#action-string-mandatory), [request_config.md → edit pagination default](request_config.md#default-limits).
 
 ---
 
@@ -983,7 +983,7 @@ Response (`result` is the new `section_id` as a string, or `false` on failure):
 
 `result` is `{ "total": <int> }` (or `0` when access is denied).
 
-*See:* [rqo.md → Use cases (count)](rqo.md#count-without-blocking-the-session), [rqo.md → security gates](rqo.md#security-model-summary).
+*See:* [rqo.md → Use cases (count)](../api/rqo.md#count-without-blocking-the-session), [rqo.md → security gates](../api/rqo.md#security-model-summary).
 
 ---
 
@@ -1017,7 +1017,7 @@ Response (`result` is the new `section_id` as a string, or `false` on failure):
 - `source->action: "get_data"` — data-only for one component (honors `matrix_id`/`data_source`, pagination and `ar_target_section_tipo`).
 - The time-machine section tipo is `dd15` (`DEDALO_TIME_MACHINE_SECTION_TIPO`); a `count` over it goes through `service_time_machine`, which is exempt from the usual section permission checks.
 
-*See:* [rqo.md → source fields (`matrix_id`, `data_source`)](rqo.md#source-object-mandatory), [`read · get_data` modifier](rqo.md#read-one-record-in-edit-mode).
+*See:* [rqo.md → source fields (`matrix_id`, `data_source`)](../api/rqo.md#source-object-mandatory), [`read · get_data` modifier](../api/rqo.md#read-one-record-in-edit-mode).
 
 ---
 
@@ -1074,10 +1074,10 @@ Response (`result` is the new `section_id` as a string, or `false` on failure):
 
 **Explanation**:
 - `read · search` (the default `source->action`) persists the SQO to the session for section list/edit/list_thesaurus, so the *next* page can continue navigation even if a later call omits the filter.
-- The first clause matches mint = "Rome"; the nested `$or` matches denomination "aureus" or "denarius"; the whole filter is their `$and`. Each `q`/`path` clause is one component-path search term — full grammar in [sqo.md](sqo.md).
+- The first clause matches mint = "Rome"; the nested `$or` matches denomination "aureus" or "denarius"; the whole filter is their `$and`. Each `q`/`path` clause is one component-path search term — full grammar in [sqo.md](../api/sqo.md).
 - The server clamps `limit` regardless of what the client sends; send `limit: null` to accept the mode default.
 
-*See:* [rqo.md → Autocomplete search / `source->action: search`](rqo.md#autocomplete-search-service_autocomplete), [request_config.md → Session Override](request_config.md#session-override), [sqo.md](sqo.md) for the filter grammar.
+*See:* [rqo.md → Autocomplete search / `source->action: search`](../api/rqo.md#autocomplete-search-service_autocomplete), [request_config.md → Session Override](request_config.md#session-override), [sqo.md](../api/sqo.md) for the filter grammar.
 
 ---
 
@@ -1125,10 +1125,10 @@ Response (`result` is the new `section_id` as a string, or `false` on failure):
 !!! note "get_matrix_ontology_locator / test are not registered"
     `get_section_terms` and `get_indexation_grid` are both registered in
     `ACTION_REGISTRY['dd_core_api']`. `get_matrix_ontology_locator` and `test`
-    are not. See [rqo.md → `dd_core_api` actions](rqo.md#action-string-mandatory)
+    are not. See [rqo.md → `dd_core_api` actions](../api/rqo.md#action-string-mandatory)
     for the current action set.
 
-*See:* [rqo.md → dd_core_api actions](rqo.md#action-string-mandatory), [section_map resolution](request_config.md#get_ddo_map-dynamic-ddo_map).
+*See:* [rqo.md → dd_core_api actions](../api/rqo.md#action-string-mandatory), [section_map resolution](request_config.md#get_ddo_map-dynamic-ddo_map).
 
 ---
 
@@ -1174,11 +1174,11 @@ Response (`result` is the new `section_id` as a string, or `false` on failure):
 **Explanation**:
 - `sqo.filter_by_locators` + `limit: 1` pin exactly the record to read; `show.ddo_map` is **client-sent**, so the server rebuilds this element's request_config from the RQO (the same `build_request_config_from_rqo` path used by time machine / graph view / `tool_print`).
 - `numisdata163` (Bibliografía) is a `component_portal`. Its **columns are the *sibling* ddos** `rsc368` / `rsc336` / `rsc369`, each carrying `parent: "numisdata163"` + a `column_id` (`a`/`b`/`c`) — **not** nested inside the portal ddo. The server collects them by `parent` (`get_children_recursive`) and grafts them into the portal's own (rebuilt) config. A `request_config`/`sqo` placed *on* the portal ddo would be ignored.
-- **`"limit": 0` on the portal ddo is the key**: it returns **all** related rows in this one read instead of the portal's mode default (1 in list, 10 in edit) — the read equivalent of the portal's "show all". The rows are loaded regardless (a portal always loads its references for sorting); `limit` only sets the *output slice*. See [dd_object.md → How a ddo_map resolves](dd_object.md#how-a-ddo_map-resolves-the-chain).
+- **`"limit": 0` on the portal ddo is the key**: it returns **all** related rows in this one read instead of the portal's mode default (1 in list, 10 in edit) — the read equivalent of the portal's "show all". The rows are loaded regardless (a portal always loads its references for sorting); `limit` only sets the *output slice*. See [dd_object.md → How a ddo_map resolves](../api/dd_object.md#how-a-ddo_map-resolves-the-chain).
 - `with_value` (per-data mode/view), `children_view` and `fixed_mode` tune how each column renders.
 - The client-sent ddos pass the gate: `sanitize_client_ddo_map()` keeps only whitelisted fields (now including `limit`/`offset`, as non-negative ints) and `validate_requested_ddo()` re-checks tipo/TLD/permissions — so this cannot widen access, only the page size of data the user can already read.
 
-*See properties:* [per-ddo `limit` / `column_id` / `with_value` / `fixed_mode`](dd_object.md#properties), [the ddo chain + client whitelist](dd_object.md#how-a-ddo_map-resolves-the-chain), [`show.ddo_map`](rqo.md#show-object-optional), [config rebuilt from the client RQO (Stage 1)](request_config.md).
+*See properties:* [per-ddo `limit` / `column_id` / `with_value` / `fixed_mode`](../api/dd_object.md#properties), [the ddo chain + client whitelist](../api/dd_object.md#how-a-ddo_map-resolves-the-chain), [`show.ddo_map`](../api/rqo.md#show-object-optional), [config rebuilt from the client RQO (Stage 1)](request_config.md).
 
 ---
 
@@ -1262,5 +1262,5 @@ The smallest valid config — one column, defaults for everything else:
 ## Testing your configuration
 
 1. **Read the error contract** — an invalid tipo, an unresolvable node, or a missing model simply drops the ddo from the `ddo_map` with no warnings field to inspect (see [request_config.md → Error contract](request_config.md#error-contract-and-warnings)); step through `buildRequestConfigForElement()`/`processSingleDdo()` directly when a `ddo_map` comes back unexpectedly empty.
-2. **Diagnose at the wire level** — for RQO/transport problems (empty result with no error, stale list, CSRF, empty `section_tipo`) use [rqo.md → Troubleshooting](rqo.md#troubleshooting).
+2. **Diagnose at the wire level** — for RQO/transport problems (empty result with no error, stale list, CSRF, empty `section_tipo`) use [rqo.md → Troubleshooting](../api/rqo.md#troubleshooting).
 3. **Test with different user permissions** — per-ddo permission gating only applies to SECTION-owned explicit configs (see [request_config.md → Explicit vs implicit configuration](request_config.md#explicit-vs-implicit-configuration)); verify with several access levels.

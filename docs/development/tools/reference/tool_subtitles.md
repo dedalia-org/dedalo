@@ -109,4 +109,4 @@ self.ar_value = original_ar_value[lang] && original_ar_value[lang].length
 - [`tool_time_machine`](tool_time_machine.md) — the audit/history tool surfaced from this tool's header for reverting transcript edits.
 - The components this tool hosts: [`component_text_area`](../../../core/components/component_text_area.md) (the transcription), [`component_av`](../../../core/components/component_av.md) (the media player), [`component_json`](../../../core/components/component_json.md) (the subtitle model store).
 - Shared editing services: `service_ckeditor` and `service_subtitles` under `core/services/` (see [Services](../../../core/system/services.md)).
-- The *other* way data leaves Dédalo: [`tool_export`](tool_export.md) and the core guide [Exporting data](../../../core/exporting_data.md).
+- The *other* way data leaves Dédalo: [`tool_export`](tool_export.md) and the core guide [Exporting data](../../../using/exporting_data.md).

@@ -5,7 +5,7 @@ audience: user
 date: 2026-09-29
 wc: WC-2026-09-29-tm-preview-frame-children-as-of
 ---
-In the [time machine](./tools/using_time_machine.md), the preview of a field with a
+In the [time machine](./using/tools/using_time_machine.md), the preview of a field with a
 [dataframe](./core/components/component_dataframe.md) could show today's frames instead of
 the ones of the chosen entry, and a frame's own values — a role, a rating and its colour —
 were always shown as they are now. The preview and the history list now show the frames and

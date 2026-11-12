@@ -281,7 +281,7 @@ current-format credential never double-hashes:
     a new hash, which silently invalidates that credential rather than
     preserving it. Do not round-trip legacy password columns through import.
 
-See [importing data](../importing_data.md) and [exporting data](../exporting_data.md)
+See [importing data](../../using/importing_data.md) and [exporting data](../../using/exporting_data.md)
 for the general model.
 
 ## Notes

@@ -72,7 +72,7 @@ collections from anything that would leave the institution.
 - **[The work API](../api/index.md)** — the staff door, in technical terms.
 - **[Publication API v2](../diffusion/publication_api/v2/index.md)** — the
   public door: endpoints, search, formats.
-- **[The AI Assistant](../core/ai/assistant/index.md)** — the AI door, and how
+- **[The AI Assistant](../administration/ai/assistant/index.md)** — the AI door, and how
   to install and secure it.
-- **[Users, profiles and permissions](../management/users_and_permissions.md)**
+- **[Users, profiles and permissions](../administration/users_and_permissions.md)**
   — how access is defined and computed.

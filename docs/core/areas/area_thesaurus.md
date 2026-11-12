@@ -217,7 +217,7 @@ See `is_indexable` in the section map documentation for what declaring the role 
 
 The picker is a **writer's** tool, and it is scoped to the writer. The picker names the
 chain of components it is nested under (`source.callers`, see
-[the RQO source fields](../rqo.md#source-object-mandatory)); when the server verifies that
+[the RQO source fields](../../api/rqo.md#source-object-mandatory)); when the server verifies that
 chain, the component at its end holds **write** through it, and its effective config
 targets the thesaurus exactly, the picker browses that thesaurus **read-only even when the
 user holds no grant on it** — the same rule an autocomplete search follows. Every node it
@@ -300,7 +300,7 @@ at all is refused with `perm.denied` (403).
   [`component_relation_children`](../components/component_relation_children.md)
   for its edges, [`component_select`](../components/component_select.md) for the
   typology, and the text components for labels.
-- **[Search (SQO)](../sqo.md)** — the query format `searchThesaurus` consumes.
+- **[Search (SQO)](../../api/sqo.md)** — the query format `searchThesaurus` consumes.
 
 ## Related
 
@@ -313,6 +313,6 @@ at all is refused with `perm.denied` (403).
   [component_relation_children](../components/component_relation_children.md) —
   the parent/child edges of the tree.
 - [Sections](../sections/index.md) — the records that are the tree terms.
-- [SQO](../sqo.md) — the query format used by thesaurus search.
+- [SQO](../../api/sqo.md) — the query format used by thesaurus search.
 - [Architecture overview](../architecture_overview.md) — areas → sections →
   components → data.

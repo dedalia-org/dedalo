@@ -50,7 +50,7 @@ Three of the four changes RESTORE the oracle and are recorded here only for cont
   authors, so the affected RQOs stop 400ing;
 - `limit`/`offset` are `z.number().int().nonnegative().optional().catch(undefined)` — a
   tampered shape drops the KEY and keeps the ddo, exactly as PHP does and exactly as
-  `docs/core/dd_object.md` has always documented ("accepted only as non-negative integers (any
+  `docs/api/dd_object.md` has always documented ("accepted only as non-negative integers (any
   other shape is dropped)"). Before this, `limit: -5` and `limit: 1.5` both passed straight
   through to `pagination.limit`, while `limit: '10'` failed the request;
 - `buildSqoSectionTipoDdos` (`src/core/relations/request_config/explicit.ts`) stamps the

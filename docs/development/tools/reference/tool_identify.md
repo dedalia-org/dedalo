@@ -249,7 +249,7 @@ const state = (outcome.agreed===true)
 
 ## Related
 
-- [Identify (user guide)](../../../tools/using_identify.md) — what the panel answers and how a curator reads a verdict, a score and a "not recorded" row.
+- [Identify (user guide)](../../../using/tools/using_identify.md) — what the panel answers and how a curator reads a verdict, a score and a "not recorded" row.
 - [Creating new tools](../creating_tools.md) · [Server contract](../server_contract.md) — the tool model, and the minimal-server-module case this tool is an instance of.
 - [tool_cataloging](tool_cataloging.md) — the UI-only tool that drives already-gated endpoints without owning any server module at all.
 - [tool_time_machine](tool_time_machine.md) — where a curator goes when a comparison changed because a value did.

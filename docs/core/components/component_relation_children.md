@@ -327,13 +327,13 @@ the bare component tipo (`test201`) or a `tipo_targetsection` form (`test201_tes
 
 Because this component is calculated, importing a children link ultimately writes the
 corresponding **parent** locator on the child record. An empty cell clears the
-relation. See [importing data](../importing_data.md#related-data).
+relation. See [importing data](../../using/importing_data.md#related-data).
 
 **Export.** Handled by the shared relation export path (the export atoms path,
 `src/diffusion/export/atoms.ts`): it iterates the resolved child locators and, per the
 `ddo_map`, resolves the named child component(s) against each `section_id`/`section_tipo`
 to produce the sub-columns; `records_separator` (default `" | "`) joins multiple children
-for flat output. See [exporting data](../exporting_data.md).
+for flat output. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

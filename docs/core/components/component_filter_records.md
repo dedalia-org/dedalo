@@ -321,7 +321,7 @@ array of entries, so import/export use that array directly:
 
 Because this is a configuration component living in the Users section, it is rarely part of
 ordinary catalogue import/export flows. See the general
-[importing data](../importing_data.md) and [exporting data](../exporting_data.md) docs for the
+[importing data](../../using/importing_data.md) and [exporting data](../../using/exporting_data.md) docs for the
 shared component contract (the `dedalo_data` wrapper, atoms, NDJSON flat-table protocol).
 
 ## Notes
