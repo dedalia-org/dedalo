@@ -969,6 +969,15 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-info-live-publication-export`.
 
+- **A new installation's first update no longer rebuilds every search index.**
+
+    The installer builds the search indexes (the text search store and the relation index) and now
+    also records how it built them. Before, the first code update of every new installation found
+    them unrecorded and rebuilt them in full, which on a large installation took a long time inside
+    the maintenance window. The installer also checks the record when it verifies or resumes an
+    installation. Installations made before this update rebuild their indexes once, at their next
+    update, and are then recorded.
+
 - **MARC21 import reads its field map from the Tools configuration and applies every mapping rule and the Values form.**
 
     Before, the MARC21 import refused on every installation with "Missing marc21_map", because it

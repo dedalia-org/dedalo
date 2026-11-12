@@ -155,16 +155,23 @@ async function verify(plan: VerifyPlan): Promise<void> {
 	await requireInSync(plan.driftTlds);
 	// The search stores ship EMPTY (seed_build.ts SEED_EMPTY_STORES); the boot
 	// self-heal must fill them from the shipped rows, in THIS database's locale.
-	const { ensureSearchStores } = await import('../src/core/db/db_assets.ts');
+	const { declaredSearchStoreDerivations, ensureSearchStores, readSearchStoreStamp } = await import(
+		'../src/core/db/db_assets.ts'
+	);
 	await ensureSearchStores();
 	const { sql } = await import('../src/core/db/postgres.ts');
-	for (const store of ['matrix_string_search', 'matrix_relation_index']) {
+	for (const { store, stamp } of declaredSearchStoreDerivations()) {
 		const [row] = (await sql.unsafe(`SELECT count(*)::int AS n FROM "${store}"`, [])) as {
 			n: number;
 		}[];
 		if ((row?.n ?? 0) > 0)
 			answer.checks.push(`${store} filled by the boot self-heal (${row?.n} rows)`);
 		else answer.errors.push(`${store} still empty after the boot self-heal`);
+		// T1-25: the fresh install stamps what it filled (completeFreshInstall), so
+		// the first update re-derives nothing.
+		const found = await readSearchStoreStamp(store);
+		if (found === stamp) answer.checks.push(`${store} stamped with its declared derivation`);
+		else answer.errors.push(`${store} not stamped by the install (${found ?? 'no stamp'})`);
 	}
 	const lg = (await sql.unsafe(
 		`SELECT relation->'hierarchy4'->0->>'section_id' AS active FROM matrix_hierarchy_main

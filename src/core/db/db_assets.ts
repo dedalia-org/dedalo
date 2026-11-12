@@ -1158,6 +1158,11 @@ export async function optimizeTables(
 // the hash moves without the version (scripts/derivation_versions.ts
 // re-records). The version is folded into the stamp, so a bump alone forces a
 // re-derive (e.g. a change in a function the body CALLS, like f_unaccent).
+//
+// The install stamps what it filled (db_restore.ts completeFreshInstall, T1-25):
+// a fresh install leaves every store current, so its first update re-derives
+// nothing; the installer's seed verify and the seed compiler's verify refuse
+// an install that did not (searchStoreStampProblem).
 
 /** Bump when a search-store derivation changes (see the block above). */
 export const SEARCH_STORE_DERIVATION_VERSION = 1;
@@ -1204,6 +1209,30 @@ export function declaredSearchStoreDerivations(
 export function searchStoreDerivationHash(): string {
 	const parts = declaredSearchStoreDerivations().map(({ store, hash }) => `${store}=${hash}`);
 	return createHash('sha256').update(parts.join('\n')).digest('hex');
+}
+
+/**
+ * PURE: what is wrong with the stamps a FRESH install must leave — every
+ * declared store carrying exactly its declared stamp (completeFreshInstall
+ * stamps what it filled, T1-25). `observed` maps a store to the comment on it
+ * (null: none); a declared store missing from it is a problem. Null = all
+ * current. Read by the installer's seed verify (db_restore.ts
+ * engineHalfProblem) and the seed compiler's verify.
+ */
+export function searchStoreStampProblem(
+	observed: ReadonlyMap<string, string | null>,
+	declared: readonly DeclaredStoreDerivation[] = declaredSearchStoreDerivations(),
+): string | null {
+	const wrong = declared
+		.filter(({ store, stamp }) => observed.get(store) !== stamp)
+		.map(({ store }) =>
+			observed.has(store)
+				? `${store} (${observed.get(store) === null ? 'unstamped' : 'another derivation'})`
+				: `${store} (absent)`,
+		);
+	return wrong.length === 0
+		? null
+		: `derived search stores not stamped with their declared derivation: ${wrong.join(', ')}`;
 }
 
 /** What the stamp probe observed about ONE store. */
