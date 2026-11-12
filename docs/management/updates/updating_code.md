@@ -4,7 +4,7 @@
 
 Dédalo is an active, rapidly developing software project. It is therefore important to keep it updated and in good condition for stability and security reasons.
 
-The maintenance-panel **self-update** (below), driven by a configured code server, is how an instance installed by the installer is updated; it operates on this install's own tree. A container installation updates by image instead ([below](#installations-that-run-from-a-container-image)), and a git checkout — a development machine, or a [host set up by hand](../../install/manual_host.md) — can also be updated with a **manual** `git pull` (see [Updating manually](#updating-manually)).
+The maintenance-panel **self-update** (below), driven by a configured code server, is how an instance installed by the installer is updated; it operates on this install's own tree. A container installation updates by image instead ([below](#installations-that-run-from-a-container-image)), and a git checkout — a development machine, or a [host set up by hand](../../install/manual_install.md) — can also be updated with a **manual** `git pull` (see [Updating manually](#updating-manually)).
 
 The update process is based on the Dédalo cadence numbering. Versions are installed step by step — the updater refuses to skip **any** version, patch releases included: the only target it accepts is the very next rung. A code update is one [update run](index.md#the-update-run): the code swap is one of its phases, and the ontology, schema, data and ancillary phases the release declares run in the release's order, after the swap or (an ontology precondition) before it. You do not update the ontology or the data by hand around a code update.
 
@@ -677,7 +677,7 @@ so the storage directory does not have to sit in the web root, and should not.
 
 ## Updating manually
 
-On a git checkout — a development machine, or a [host set up by hand](../../install/manual_host.md)
+On a git checkout — a development machine, or a [host set up by hand](../../install/manual_install.md)
 (here its single-instance example: instance directory `/opt/dedalo/app`, root bin
 directory `/opt/dedalo/bin`) — a manual update reads:
 

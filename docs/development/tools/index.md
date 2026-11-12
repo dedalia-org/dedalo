@@ -1,4 +1,4 @@
-# Tools
+# Building tools
 
 > See also: [Development](../index.md) · [Using the tools](../../tools/index.md) · [Extending Dédalo](../extending/add_a_component.md)
 

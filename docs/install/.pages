@@ -10,7 +10,6 @@ nav:
     - dev_quickstart.md
   - By hand:
     - manual_install.md
-    - manual_host.md
     - reverse_proxy.md
     - multi_instance.md
   - Optional services:

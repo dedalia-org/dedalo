@@ -33,7 +33,7 @@ route or mode you run it in, writes the same keys ([what `.env` gets](../install
 | [What changed in v7](whats_changed_v7.md) | The v6 → v7 map: renamed, reshaped and removed settings. |
 | [Migrating a v6 install to v7](../install/migrating_from_v6.md) | The whole v6 → v7 migration, config included — `dedalo:migrate-config` is Phase C of it. |
 | [Database connection](config_db.md) | PostgreSQL (the work database) and MariaDB (diffusion). |
-| [Areas](config_areas.md) | Allowing and denying areas. |
+| [Areas](administration.md#11-denying-and-hiding-areas) | Allowing and denying areas. |
 | [Media protection](media_protection.md) | Web-server-enforced access control for media files. |
 | [Search](search.md) | The search trust boundary and its limits. |
 | [Thesaurus dependencies](thesaurus_dependencies.md) | Which ontology TLDs need which hierarchies. |

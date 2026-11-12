@@ -171,6 +171,11 @@ plugins:
         config/migrating_from_v6.md: install/migrating_from_v6.md
         # Pages renamed away from a retired engine's class names.
         api/classes/dd_manager.md: api/classes/dispatch.md
+        # Small pages folded into their neighbours (docs reorg phase 2, 2026-11-12).
+        install/manual_host.md: install/manual_install.md
+        management/backup_best_practises.md: management/backup.md#best-practices
+        config/config_areas.md: config/administration.md#11-denying-and-hiding-areas
+        management/changing_root_password.md: management/users_and_permissions.md#changing-the-root-password
         core/ontology/ontology_class.md: core/ontology/ontology_write.md
         # Fossil misspellings, corrected 2026-08-24. The pages themselves stayed.
         management/maintenace_status.md: management/maintenance_status.md

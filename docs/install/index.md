@@ -136,7 +136,6 @@ The installer never installs Docker and never changes the firewall: it checks Do
 
 - **[Several instances on one host](multi_instance.md)** — the named-instance model and what instances share.
 - **[Install by hand](manual_install.md)** — the Production route without the installer: every host step as the commands and files it consists of, for administrators who install by hand, and for migrated v6 hosts.
-- **[A host set up by hand](manual_host.md)** — where a hand-built host differs and what to keep in mind.
 - **[Publication host agent](publication_host.md)** — optional: serve the public website and the Publication APIs from a separate server.
 - **[H.264 streaming module](install_h264_module.md)** — serve audiovisual fragments by time range.
 

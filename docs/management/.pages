@@ -5,7 +5,6 @@ nav:
   - index.md
   - users_and_permissions.md
   - maintenance_status.md
-  - backup_best_practises.md
   - backup.md
   - updates
   - install_new_hierarchies.md

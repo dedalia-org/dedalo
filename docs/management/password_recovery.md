@@ -12,7 +12,7 @@ the short-lived code.
 
 Recovery is **self-service for ordinary accounts only**. The root user
 (`section_id = -1`) is never recoverable through this flow; see
-[Changing root password](changing_root_password.md). A logged-in user who simply
+[Changing root password](users_and_permissions.md#changing-the-root-password). A logged-in user who simply
 wants a different password does not need recovery either — an administrator can
 set a new password by editing the user record in the Users section.
 

@@ -65,4 +65,4 @@ This is TS-native, additive (WC-047) — there is no counterpart in the previous
 ## Related
 
 - [Search Query Object (SQO)](../core/sqo.md) — the full query language.
-- [Areas configuration](./config_areas.md) — area-level access (a coarser grant than the project filter).
+- [Areas configuration](administration.md#11-denying-and-hiding-areas) — area-level access (a coarser grant than the project filter).

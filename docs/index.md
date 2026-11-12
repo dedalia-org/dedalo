@@ -78,11 +78,11 @@ Pick the path that matches what you are trying to do. Each is a short, ordered l
 ### 4. System administrator — install, configure, operate
 
 1. [Installation](install/index.md) — **start here**: one terminal installer (`sh install.sh`) and four routes — [Production](install/production.md), [Docker](install/docker.md), [Trial](install/quickstart.md) or [Developer](install/dev_quickstart.md). Then the [installer reference](install/installer_reference.md), [the web server site](install/reverse_proxy.md), [upgrading](install/upgrading.md) and [troubleshooting](install/troubleshooting.md)
-2. [Configuration](config/index.md) — the one `.env` file: [how it works](config/administration.md), [every setting](config/config.md), [database](config/config_db.md), [areas](config/config_areas.md)
+2. [Configuration](config/index.md) — the one `.env` file: [how it works](config/administration.md), [every setting](config/config.md), [database](config/config_db.md), [areas](config/administration.md#11-denying-and-hiding-areas)
 3. [Media protection](config/media_protection.md) and [search config](config/search.md) — **before you expose media to the internet**: the two-rule access gate the web server enforces, and search tuning
 4. [Management & maintenance](management/index.md) — environments, root user, [maintenance status](management/maintenance_status.md), [recovery mode](management/recovery_mode.md)
 5. [Users, profiles & permissions](management/users_and_permissions.md) — creating users and profiles, the 0–3 permission levels, how access is computed and enforced
-6. [Backup](management/backup.md) + [best practices](management/backup_best_practises.md) — protecting the data
+6. [Backup](management/backup.md) + [best practices](management/backup.md#best-practices) — protecting the data
 7. [Updates](management/updates/index.md) — [updating code](management/updates/updating_code.md), [data](management/updates/updating_data.md), [ontology](management/updates/updating_ontology.md)
 8. [Runtime](development/runtime_and_workers.md) — one long-lived process, per-request isolation, and what that means operationally
 9. [Diffusion setup](diffusion/publication_api/index.md) — configure the publication server: [v2 deployment](diffusion/publication_api/v2/deployment.md) (`.env`, Apache/Nginx/standalone) for new servers, or the legacy v1 [public API configuration](diffusion/publication_api/public_api_configuration.md) and [server config API](diffusion/publication_api/server_config_api.md)

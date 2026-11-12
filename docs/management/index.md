@@ -1,6 +1,6 @@
 # Management and maintenance
 
-> See also: [Users, profiles and permissions](users_and_permissions.md) · [Backup best practices](backup_best_practises.md) · [Updates](updates/index.md)
+> See also: [Users, profiles and permissions](users_and_permissions.md) · [Backup best practices](backup.md#best-practices) · [Updates](updates/index.md)
 
 ## Introduction
 
@@ -40,7 +40,7 @@ terminal running `bun run`).
 
 ##### Changing Root Password
 
-For security reasons, the root user cannot be managed through the Dédalo web interface. To change the root password, follow [this procedure](./changing_root_password.md).
+For security reasons, the root user cannot be managed through the Dédalo web interface. To change the root password, follow [this procedure](users_and_permissions.md#changing-the-root-password).
 
 #### General admin
 
@@ -95,7 +95,7 @@ Before performing any critical maintenance task, such as a data update, change t
 
 Previous task is common in multiple scenarios.
 
-- [Backup](backup_best_practises.md)
+- [Backup](backup.md#best-practices)
     - [backup and restore tasks](backup.md)
 
 - [Updates](updates/index.md)

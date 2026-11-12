@@ -1224,7 +1224,7 @@ const LEGACY_LAYOUT: RoleLayout = {
 	userWritable: /^\/opt\/dedalo\/(master_dedalo|private|backups)(\/|$)/,
 	rootScriptDir: '/opt/dedalo/bin/',
 };
-/** The worked layouts docs/install/manual_host.md renders the units for (+ the installer's shape). */
+/** The worked layouts docs/install/manual_install.md renders the units for (+ the installer's shape). */
 const MANUAL_LAYOUTS = [
 	{ user: 'dedalo', instanceDir: '/opt/dedalo/app', rootBinDir: '/opt/dedalo/bin' },
 	{

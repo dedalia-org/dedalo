@@ -257,7 +257,7 @@ installer render places things by them:
    (the rollback's `ExecCondition` too) — fail-closed, never as root. The
    hand-installed units
    under `deploy/*.service` carry `INSTANCE_DIR`, `ROOT_BIN_DIR` and
-   `DEDALO_USER`, rendered per host by `docs/install/manual_host.md`.
+   `DEDALO_USER`, rendered per host by `docs/install/manual_install.md`.
 
 Gates: `test/unit/code_update.test.ts` (*the instance-dir rule* — the full
 update chain, the restore and the rollback script EXECUTED against a scratch
