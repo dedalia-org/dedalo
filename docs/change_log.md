@@ -305,7 +305,7 @@ Merged since the last release; these ship with the next one.
 
     Now an entry that is empty, holds only spaces, or (in a rich-text field) only an empty
     paragraph left by the editor counts as no text. The edit field shows the other-language
-    text as its grey hint again, and lists, selector labels, project and user names, related
+    text as its grey hint again (a view-only field shows it highlighted), and lists, selector labels, project and user names, related
     lists, exports and AI search use the other-language text. A value of `0` still counts as a
     value.
 

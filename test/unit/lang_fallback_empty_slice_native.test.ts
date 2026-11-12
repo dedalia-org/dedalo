@@ -252,7 +252,12 @@ async function readItem(tipo: string): Promise<Item> {
 	return item as Item;
 }
 
-async function listItem(tipo: string): Promise<Item | undefined> {
+/** The section LIST read of one record (default: the scratch record), ALL items. */
+async function listItems(
+	tipo: string,
+	ddoExtra: Record<string, unknown> = {},
+	sectionId: number = recordId,
+): Promise<Item[]> {
 	const response = await runWithRequestLangs({ applicationLang: OTHER, dataLang: OTHER }, () =>
 		dispatchRqo(
 			{
@@ -267,18 +272,33 @@ async function listItem(tipo: string): Promise<Item | undefined> {
 				},
 				sqo: {
 					section_tipo: [SECTION],
-					filter_by_locators: [{ section_tipo: SECTION, section_id: String(recordId) }],
+					filter_by_locators: [{ section_tipo: SECTION, section_id: String(sectionId) }],
 					limit: 1,
 				},
-				show: { ddo_map: [{ tipo, section_tipo: SECTION, parent: SECTION, mode: 'list' }] },
+				show: {
+					ddo_map: [{ tipo, section_tipo: SECTION, parent: SECTION, mode: 'list', ...ddoExtra }],
+				},
 			} as unknown as Rqo,
 			rootContext,
 		),
 	);
 	expect(response.status).toBe(200);
-	const data = (response.body as { data: { data: Item[] } }).data.data;
+	return (response.body as { data: { data: Item[] } }).data.data;
+}
+
+async function listItem(tipo: string): Promise<Item | undefined> {
+	const data = await listItems(tipo);
 	return data.find((e) => e.tipo === tipo && String(e.section_id) === String(recordId));
 }
+
+/** The WC-052 ddinfo items a `value_with_parents` ddo emitted for one record. */
+const ddinfoOf = (items: Item[], tipo: string, sectionId: number): Item[] =>
+	items.filter(
+		(e) =>
+			e.tipo === 'ddinfo' &&
+			String(e.section_id) === String(sectionId) &&
+			(e as { from_ddo_tipo?: string }).from_ddo_tipo === tipo,
+	);
 
 describe('doors: a cleared translation shows the fallback', () => {
 	beforeAll(async () => {
@@ -315,6 +335,32 @@ describe('doors: a cleared translation shows the fallback', () => {
 		expect(cell).toBeDefined();
 		expect(cell?.fallback_value).toEqual([MAIN]);
 	}, 30_000);
+
+	test('R9b WC-052 ddinfo: a cleared slice whose fallback resolves EMITS ddinfo; with no fallback it stays suppressed', async () => {
+		// The WC entry's divergence 2 states this direction (T1-34 review): the
+		// fallback face counts as a real value for emittedItemHasValue.
+		const items = await listItems(INPUT_TEXT, { value_with_parents: true });
+		expect(ddinfoOf(items, INPUT_TEXT, recordId)).toHaveLength(1);
+		// control: every lang cleared → no fallback → suppressed (not "always emitted")
+		const controlId = await createSectionRecord(SECTION, -1);
+		try {
+			expect(
+				await updateMatrixRecord(TABLE, SECTION, controlId, {
+					string: { [INPUT_TEXT]: [{ ...MAIN, value: '' }, CLEARED_INPUT] },
+				}),
+			).toBe('updated');
+			const controlItems = await listItems(INPUT_TEXT, { value_with_parents: true }, controlId);
+			const cell = controlItems.find(
+				(e) => e.tipo === INPUT_TEXT && String(e.section_id) === String(controlId),
+			);
+			expect(cell?.fallback_value ?? null).toBeNull();
+			expect(ddinfoOf(controlItems, INPUT_TEXT, controlId)).toHaveLength(0);
+		} finally {
+			await cleanScratchRecord(SECTION, controlId, TABLE);
+			await sql`DELETE FROM matrix_activity
+				WHERE data->>'section_tipo' = ${SECTION} AND data->>'section_id' = ${String(controlId)}`;
+		}
+	}, 60_000);
 
 	test('R10 text_area EDIT read: a <p></p> slice gets the fallback', async () => {
 		const item = await readItem(TEXT_AREA);

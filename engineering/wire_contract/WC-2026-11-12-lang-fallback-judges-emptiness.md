@@ -10,11 +10,18 @@
   `shownItems`), `src/core/components/component_text_area/emit.ts`
   (`sliceHasText`, `listFallbackByCount`), the display doors switched to
   `shownItems` (datalist labels, project names, user names, relation_list /
-  export cells, identify path reads, RAG text).
+  export cells, identify path reads, RAG text); the client merge
+  (`client/dedalo/core/common/js/utils/render_escape.js` `is_empty_entry` /
+  `render_fallback_value`, `common.js get_fallback_value`) judges the entry's
+  VALUE, not the item, so the list / mini / text views show the sent fallback
+  (T1-34 review).
 - Gates: `test/unit/lang_fallback_empty_slice_native.test.ts`,
   `test/unit/original_lang.test.ts` (ghost-markup forcing case),
   `test/unit/descriptor_completeness_tripwire.test.ts` (every
-  classSupportsTranslation model declares `dataItemEmptiness`).
+  classSupportsTranslation model declares `dataItemEmptiness`),
+  `client/dedalo/test/client/js/test_lang_fallback_entries.js` (the client
+  renders the sent fallback for a cleared entry — the wire gates alone do not
+  prove the cell is not blank).
 
 ## Shape before (TS)
 
@@ -37,6 +44,10 @@ any item. A cleared translation is persisted as `{id, lang, value: ''}` (or
 - **Value:** a cleared slice that holds items is still emitted in `entries`
   (ids kept — the editor edits them in place, dataframes stay paired), beside
   its `fallback_value` — as PHP sends it.
+- **Client:** a position shows the marked `fallback_value[i]` when its entry
+  is missing OR empty (value null / '' / whitespace / `[]` / rich-text ghost;
+  `'0'` is a value) and the server sent a filled fallback there; a filled
+  entry always wins; no fallback sent → the entry's own blank (never invented).
 - **Chain:** every rung (declared equivalents → install default → lg-nolan →
   project langs → lg-nolan) is judged by the same rule; the first NON-EMPTY
   slice wins; none → `fallback_value` absent (text_area: `null`).
@@ -50,9 +61,12 @@ any item. A cleared translation is persisted as `{id, lang, value: ''}` (or
    one resolved, else the value). They used `value ?? fallbackValue`, which
    now would show the cleared blank. These doors have no single PHP twin;
    the TS rule is the edit wire's.
-2. **WC-052 ddinfo suppression** (`read_source.ts emittedItemHasValue`) now
-   sees the fallback face of a cleared slice: ddinfo is suppressed exactly as
-   for an absent slice whose fallback resolved.
+2. **WC-052 ddinfo** (`read_source.ts emittedItemHasValue`) now sees the
+   fallback face of a cleared slice: when its fallback resolves, the
+   `value_with_parents` ddinfo item is EMITTED, exactly as for an absent slice
+   whose fallback resolved (before: no fallback was computed, the cleared
+   slice read as no value, and ddinfo was suppressed). A cleared slice with no
+   resolvable fallback still suppresses it.
 3. **text_area original-language forcing** (TS-only equivalence logic): an
    original-lang slice of ghost markup is "no text", so a declared equivalent
    sibling holding the transcript is forced instead.

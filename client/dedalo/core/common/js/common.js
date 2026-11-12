@@ -13,6 +13,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {get_inserted_rules} from '../../page/js/css.js'
 	import {render_stream} from '../../common/js/render_common.js'
+	import {is_empty_entry} from '../../common/js/utils/render_escape.js'
 	// error system (api_error.js → error_policy.js → error_dispatch.js → render_api_error.js).
 	// The cycle common ↔ render_api_error (format_label) is resolved at call time:
 	// nothing here is used while the modules evaluate.
@@ -3833,8 +3834,9 @@ export const validate_tipo = function(tipo) {
 
 /**
  * GET_FALLBACK_VALUE
- * Get the fallback values when the current language version of the data is missing.
- * When a value exists in entries, uses it directly. When missing, uses the fallback
+ * Get the fallback values when the current language version of the data is missing
+ * or empty (a cleared translation is an item with value '' — judged by is_empty_entry).
+ * When a value exists in entries, uses it directly. When missing/empty, uses the fallback
  * value wrapped in <mark> tags to indicate it's from a fallback language.
  *
  * @param {Array<Object|null>} entries - Current language data (array of objects with .value property or null)
@@ -3857,13 +3859,16 @@ export const get_fallback_value = function(entries, fallback_value) {
 
 	for (let i = 0; i < value_length; i++) {
 
-		if( entries[i] ){
+		const fv = fallback_value?.[i]
+
+		// a cleared translation is an ITEM with an empty value ({id, lang, value:''}):
+		// judge the value, not the item (T1-34 / O14)
+		if( entries[i] && !(is_empty_entry(entries[i]) && fv?.value) ){
 
 			fallback_result.push( entries[i].value )
 
 		}else{
 
-			const fv			= fallback_value?.[i]
 			const marked_value	= (fv && fv.value)
 				? '<mark>'+fv.value+'</mark>'
 				: ''
