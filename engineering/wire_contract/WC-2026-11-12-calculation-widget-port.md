@@ -67,10 +67,16 @@ nine formulas run, and each declared output id emits one
      `options.major_section_tipos`) refuses when the major amount would
      decide; every other caller takes the minor branch, which all options
      agree on.
-   - **OD-2** `calculate_import_major` / `_minor` over **zero** days: PHP
+   - **OD-2** `calculate_import_major` / `_minor` with **no day value at
+     all** (absent, null or an empty list): PHP's `array_sum` gave int 0,
      returned a scalar where a list was expected and crashed the read; TS
      refuses with a named error until the owner chooses no output, `total 0`
-     or the formula minimum.
+     or the formula minimum. A day list that SUMS to 0 is not this case
+     (amended 2026-11-12, T1-1 review): the shipped chain feeds the summarize
+     output, a PHP float (round()), so `0.0 === 0` was false and PHP served the
+     formula minimum (150000 / 900) — a new grant record opens, as in PHP. One
+     residue: a day input fed straight from a `component_number` holding 0 was
+     a PHP int (crash); TS runs the formula there too (no shipped node does).
 8. **An absent `input.section_id` is read as `'current'`** (a standing TS
    reading, written down here); a literal id resolves no components (PHP's
    default branch).

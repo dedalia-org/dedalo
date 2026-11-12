@@ -25,8 +25,12 @@
  *    (test4627 over test4333 → test4822) and a plain number leaf (test4593 over
  *    test4591 → test4587, v6 dato parity).
  *  - C6 the grant chain on one host: calculate_period, calculate_import_major/
- *    minor, to_euros, subtract, final_total (minor + manual branches).
- *  - OD-2 / OD-1 boundaries: the zero-day import refuses until ruled.
+ *    minor, to_euros, subtract (a non-zero difference), final_total (minor +
+ *    manual branches). A NEW grant (no day rows) opens through the wire: the
+ *    summarized 0 runs the import formula, as PHP's float 0.0 did.
+ *  - OD-2 / OD-1 boundaries: an import with no day value at all, and the
+ *    contested major-grant callers (options.major_section_tipos, the PHP
+ *    hard-coded section), refuse until ruled; an uncontested caller is minor.
  *  - C7 refusals on a scratch zz situation: unknown fn, no process, info
  *    cycle, aggregate scope, filter:true, relation input without ddo_map, a
  *    model without the facet — plus the int summarize over two numbers.
@@ -46,6 +50,10 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { dispatchRqo } from '../../src/core/api/dispatch.ts';
+import {
+	CALCULATION_FUNCTIONS,
+	PHP_MAJOR_GRANT_SECTION,
+} from '../../src/core/components/component_info/widgets/calculation/functions.ts';
 import { computeInfoWidgets } from '../../src/core/components/component_info/widgets/registry.ts';
 import {
 	ddDateFromUnixSeconds,
@@ -93,6 +101,7 @@ const DAYS_TOTAL = 'test4822'; // days_correction_manually
 // grant host (twin of the mdcat grant section)
 const GRANT = 'test4308';
 const GRANT_DAYS_PORTAL = 'test4333'; // → DAYS
+const GRANT_EXTRA_DAYS_PORTAL = 'test4354'; // → DAYS (test4686 → test4634 → test4636)
 const HEIRS_PORTAL = 'test4591'; // → HEIR
 const HEIR = 'test4583';
 const HEIR_AMOUNT = 'test4587'; // component_number
@@ -242,6 +251,13 @@ function compute(tipo: string, sectionTipo: string, sectionId: number) {
 	return computeInfoWidgets(tipo, { sectionTipo, sectionId, mode: 'list', lang: 'lg-nolan' });
 }
 
+/** One registered process fn (a pure call, no record). */
+function formula(name: string) {
+	const fn = CALCULATION_FUNCTIONS[name];
+	if (fn === undefined) throw new Error(`calculation fn '${name}' is not registered`);
+	return fn;
+}
+
 /** The DedaloError code a compute rejects with (fails loud when it resolves). */
 async function refusalOf(
 	promise: Promise<unknown>,
@@ -272,6 +288,10 @@ const ZZ_SCOPE_ALL = 'zzcalc11';
 const ZZ_FILTER = 'zzcalc12';
 const ZZ_NO_DDO_MAP = 'zzcalc13';
 const ZZ_NO_FACET = 'zzcalc14';
+const ZZ_SUM_A = 'zzcalc15';
+const ZZ_SUBTRACT = 'zzcalc16';
+const ZZ_FINAL_MINOR = 'zzcalc17';
+const ZZ_FINAL_MAJOR_OPTION = 'zzcalc18';
 const ZZ_ID = 1;
 
 /** A component_info node with ONE calculation ipo block. */
@@ -295,6 +315,14 @@ function calcNode(tipo: string, block: Record<string, unknown>) {
 const summarize = (components: unknown[], extra: Record<string, unknown> = {}) => ({
 	input: { section_tipo: 'current', section_id: 'current', filter: false, components, ...extra },
 	process: { fn: 'summarize', options: { type: 'int' } },
+});
+
+const finalTotal = (options?: Record<string, unknown>) => ({
+	input: summarize([
+		{ tipo: ZZ_NUM_A, var_name: 'total_major' },
+		{ tipo: ZZ_NUM_B, var_name: 'total_minor' },
+	]).input,
+	process: options === undefined ? { fn: 'final_total' } : { fn: 'final_total', options },
 });
 
 const S = situation({
@@ -324,6 +352,18 @@ const S = situation({
 		calcNode(ZZ_FILTER, summarize([{ tipo: ZZ_NUM_A, var_name: 'a' }], { filter: true })),
 		calcNode(ZZ_NO_DDO_MAP, summarize([{ tipo: ZZ_PORTAL, var_name: 'p' }])),
 		calcNode(ZZ_NO_FACET, summarize([{ tipo: ZZ_TEXT, var_name: 't' }])),
+		// subtract over two INFO inputs (bare scalars): 6 − 2.
+		calcNode(ZZ_SUM_A, summarize([{ tipo: ZZ_NUM_A, var_name: 'a' }])),
+		calcNode(ZZ_SUBTRACT, {
+			input: summarize([
+				{ tipo: ZZ_INT_SUM, var_name: 'total' },
+				{ tipo: ZZ_SUM_A, var_name: 'total_period' },
+			]).input,
+			process: { fn: 'subtract' },
+		}),
+		// final_total: major 2.4 > 0 — the minor branch (3.3) unless OD-1 contests the caller.
+		calcNode(ZZ_FINAL_MINOR, finalTotal()),
+		calcNode(ZZ_FINAL_MAJOR_OPTION, finalTotal({ major_section_tipos: [ZZ_HOST] })),
 	],
 	records: [
 		{
@@ -356,6 +396,8 @@ const ids = {
 	grant: 0,
 	grantManual: 0,
 	grantNoDays: 0,
+	grantPeriod: 0,
+	daysExtra: 0,
 };
 
 beforeAll(async () => {
@@ -428,6 +470,17 @@ beforeAll(async () => {
 		number: { [GRANT_PAID]: number(100), [GRANT_IMPORT_MANUAL]: number(1000) },
 	});
 	ids.grantNoDays = await record(GRANT);
+	// total (test4636, over 105 + 100 days = 7 months) ≠ total_period (test4629, 105 days).
+	ids.daysExtra = await record(DAYS, {
+		date: { [DAYS_RANGE]: range },
+		number: { [DAYS_MANUAL]: number(100) },
+	});
+	ids.grantPeriod = await record(GRANT, {
+		relation: {
+			[GRANT_DAYS_PORTAL]: daysLocators,
+			[GRANT_EXTRA_DAYS_PORTAL]: [locator(GRANT_EXTRA_DAYS_PORTAL, DAYS, ids.daysExtra)],
+		},
+	});
 }, 120000);
 
 afterAll(async () => {
@@ -541,10 +594,72 @@ describe('C6 the grant chain', () => {
 		expect(await totalOf(GRANT, ids.grantManual, 'test4664')).toBe(900);
 	});
 
-	test('OD-2: a zero-day grant import REFUSES until the owner rules', async () => {
-		const refusal = await refusalOf(compute('test4629', GRANT, ids.grantNoDays));
-		expect(refusal.code).toBe('engine.uncovered_scope');
-		expect(refusal.coordinates).toEqual({ fn: 'calculate_import_major' });
+	test('subtract: total − total_period over info inputs (a non-zero difference)', async () => {
+		expect(await totalOf(GRANT, ids.grantPeriod, 'test4634')).toBe(205);
+		expect(await totalOf(GRANT, ids.grantPeriod, 'test4636')).toBe(178000);
+		expect(await totalOf(GRANT, ids.grantPeriod, 'test4629')).toBe(150000);
+		expect(await totalOf(GRANT, ids.grantPeriod, 'test4688')).toBe(28000);
+		expect(await compute(ZZ_SUBTRACT, ZZ_HOST, ZZ_ID)).toEqual([
+			{ widget: 'calculation', key: 0, id: 'total', value: 4 },
+		]);
+	});
+
+	test('a NEW grant (no day rows) opens: the summarized 0 runs the formula (PHP 0.0)', async () => {
+		// PHP summarize ends in round() → float; array_sum([0.0]) === 0 is false, so
+		// the import formula served its minimum — the record read never failed.
+		expect(await totalOf(GRANT, ids.grantNoDays, 'test4627')).toBe(0);
+		expect(await totalOf(GRANT, ids.grantNoDays, 'test4629')).toBe(150000);
+		expect(await totalOf(GRANT, ids.grantNoDays, 'test4655')).toBe(900);
+		expect(await totalOf(GRANT, ids.grantNoDays, 'test4664')).toBe(900);
+	});
+
+	test('OD-2: an import with NO day value at all (PHP int 0 → crash) refuses', async () => {
+		const args = { options: {}, callerSectionTipo: ZZ_HOST };
+		for (const totalDays of [undefined, null, []]) {
+			let refusal: unknown = null;
+			try {
+				formula('calculate_import_minor')({ ...args, dataMap: { total_days: totalDays } });
+			} catch (error) {
+				refusal = error instanceof DedaloError ? [error.code, error.coordinates] : error;
+			}
+			expect(refusal).toEqual(['engine.uncovered_scope', { fn: 'calculate_import_minor' }]);
+		}
+		expect(formula('calculate_import_major')({ ...args, dataMap: { total_days: [0] } })).toEqual([
+			{ id: 'total', value: 150000 },
+		]);
+	});
+
+	test('OD-1: a caller nobody contests takes the minor branch', async () => {
+		expect(await compute(ZZ_FINAL_MINOR, ZZ_HOST, ZZ_ID)).toEqual([
+			{ widget: 'calculation', key: 0, id: 'total', value: 3.3 },
+		]);
+	});
+
+	test('OD-1: options.major_section_tipos and the PHP-hard-coded section refuse', async () => {
+		expect(await refusalOf(compute(ZZ_FINAL_MAJOR_OPTION, ZZ_HOST, ZZ_ID))).toEqual({
+			code: 'engine.uncovered_scope',
+			coordinates: { fn: 'final_total', section_tipo: ZZ_HOST },
+		});
+		const dataMap = { total_major: [2.4], total_minor: [3.3] };
+		let refusal: unknown = null;
+		try {
+			formula('final_total')({
+				dataMap,
+				options: {},
+				callerSectionTipo: PHP_MAJOR_GRANT_SECTION,
+			});
+		} catch (error) {
+			refusal = error instanceof DedaloError ? error.code : error;
+		}
+		expect(refusal).toBe('engine.uncovered_scope');
+		// No major amount → no contest: the minor branch, even for that section.
+		expect(
+			formula('final_total')({
+				dataMap: { total_major: [0], total_minor: [3.3] },
+				options: {},
+				callerSectionTipo: PHP_MAJOR_GRANT_SECTION,
+			}),
+		).toEqual([{ id: 'total', value: 3.3 }]);
 	});
 });
 

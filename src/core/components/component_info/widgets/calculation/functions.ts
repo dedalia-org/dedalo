@@ -30,8 +30,9 @@
  * Every value a formula SUMS must be an array (PHP array_sum): a non-empty
  * scalar there is a definition error and refuses (ontology.invalid_node)
  * instead of PHP's TypeError. Two branches wait on owner decisions and refuse
- * loudly until ruled (engine.uncovered_scope): the zero-day grant import
- * (OD-2) and final_total's major-grant caller (OD-1).
+ * loudly until ruled (engine.uncovered_scope): a grant import with no day
+ * value at all (OD-2 — a summarized 0 runs the formula, as in PHP) and
+ * final_total's major-grant caller (OD-1).
  * WC-2026-11-12-calculation-widget-port.
  */
 
@@ -111,10 +112,15 @@ function total(value: unknown): { id: string; value: unknown }[] {
 }
 
 /**
- * OD-2 (owner decision, unruled): a grant import over ZERO days. PHP returned
- * the scalar 0 where a list was expected and crashed the read. Whether the
- * engine serves no output, `total 0` or the formula minimum is the owner's
- * call — until then the case refuses, loudly.
+ * OD-2 (owner decision, unruled), narrowed to the case PHP really crashed on:
+ * a grant import with NO day value at all (absent / null / an empty list).
+ * PHP's `array_sum` gives int 0 there, `=== 0` holds, the scalar 0 is returned
+ * where a list was expected and the read crashes. A day LIST that sums to zero
+ * is not that case: the shipped chain feeds the summarize output, whose PHP
+ * round() is a float, so `0.0 === 0` was false and the formula served its
+ * minimum — the record read never failed (T1-1 review). Whether the no-value
+ * case serves no output, `total 0` or the formula minimum is the owner's call;
+ * until then it refuses, loudly.
  */
 function refuseZeroDayImport(fn: string): never {
 	throw new DedaloError('engine.uncovered_scope', {
@@ -135,12 +141,15 @@ function grantImport(
 	fn: string,
 	rates: { base: number; perMonth: number; cap: number },
 ): { id: string; value: unknown }[] {
+	if (isPhpEmpty(dataMap.total_days)) refuseZeroDayImport(fn);
 	const totalDays = arraySum(dataMap.total_days, 'total_days', fn);
-	if (totalDays === 0) refuseZeroDayImport(fn);
 	const months = grantMonths(totalDays);
 	const amount = months <= 6 ? rates.base : (months - 6) * rates.perMonth + rates.base;
 	return total(Math.min(amount, rates.cap));
 }
+
+/** The install section PHP hard-codes as final_total's major-grant caller (mdcat.php:702). */
+export const PHP_MAJOR_GRANT_SECTION = 'mdcat2605';
 
 /**
  * OD-1 (owner decision, unruled): which caller sections take final_total's
@@ -150,7 +159,7 @@ function grantImport(
  * branch; the contested ones refuse until ruled — never a guessed amount.
  */
 function isMajorCaller(callerSectionTipo: string, options: Record<string, unknown>): boolean {
-	if (callerSectionTipo === 'mdcat2605' || options.major_section_tipos !== undefined) {
+	if (callerSectionTipo === PHP_MAJOR_GRANT_SECTION || options.major_section_tipos !== undefined) {
 		throw new DedaloError('engine.uncovered_scope', {
 			message: `calculation fn 'final_total': the major-grant branch for '${callerSectionTipo}' is an open owner decision (OD-1, WC-2026-11-12-calculation-widget-port)`,
 			coordinates: { fn: 'final_total', section_tipo: callerSectionTipo },
