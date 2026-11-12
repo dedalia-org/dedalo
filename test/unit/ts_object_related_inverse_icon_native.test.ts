@@ -15,7 +15,9 @@
  *   1. target of a dd621 / dd467 link shows EQ / BI;
  *   2. its element value is the inverse references, ordered by section_id;
  *   3. dd620 and an unset type_rel (→ dd620) stay stored-only (no over-merge);
- *   4. the source shows every icon from its stored bag, stored entries first;
+ *   4. the source shows every icon from its stored bag; a node with BOTH
+ *      stored links and inverse referrers emits exactly [...stored, ...inverse]
+ *      (PHP :1451 order — no sort, no dedupe, never itself);
  *   5. an isolated node shows none;
  *   6. a referrer in ANOTHER section never counts (same-section scope).
  *
@@ -117,6 +119,28 @@ const S = situation({
 				relation: { [EQ]: [link(EQ, SECTION, 2)] },
 			},
 		},
+		{
+			// F: BOTH stored links (→ H, then → G) and an inverse referrer (H).
+			// Ids chosen so a sort by section_id, an inverse-first merge or a
+			// dedupe of the mutual F↔H pair each changes the array.
+			section_tipo: SECTION,
+			section_id: 7,
+			columns: {
+				string: { [TERM]: term('F') },
+				relation: { [EQ]: [link(EQ, SECTION, 9), link(EQ, SECTION, 8)] },
+			},
+		},
+		{
+			// H: points back at F
+			section_tipo: SECTION,
+			section_id: 8,
+			columns: {
+				string: { [TERM]: term('H') },
+				relation: { [EQ]: [link(EQ, SECTION, 7)] },
+			},
+		},
+		// G: F's other stored target
+		{ section_tipo: SECTION, section_id: 9, columns: { string: { [TERM]: term('G') } } },
 		// E: referenced only from another section
 		{ section_tipo: SECTION, section_id: 5, columns: { string: { [TERM]: term('E') } } },
 		{
@@ -173,6 +197,20 @@ test('the source shows every icon from its stored bag, stored entries first', as
 
 	expect(icons).toEqual(['EQ', 'BI', 'TR', 'NC']);
 	expect(value).toEqual([link(EQ, SECTION, 2)]);
+});
+
+test('stored links AND inverse referrers merge as [...stored, ...inverse], never self', async () => {
+	const { icons, value } = await nodeOf(7);
+
+	expect(icons).toContain('EQ');
+	expect(value).toEqual([
+		link(EQ, SECTION, 9),
+		link(EQ, SECTION, 8),
+		{ section_tipo: SECTION, section_id: 8, from_component_tipo: EQ },
+	]);
+	expect((value as Array<{ section_id: number }>).some((entry) => entry.section_id === 7)).toBe(
+		false,
+	);
 });
 
 test('an isolated node shows none of the related icons', async () => {
