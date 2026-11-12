@@ -35,7 +35,13 @@
  *      zzchv9 portal (none)                 + section_list zzchv12 {children_view:'text'}
  *      zzchv16 component_filter {children_view:'text'}
  *  - zzchv13 section {children_view:'text'}: zzchv14 input_text,
- *            section_list zzchv15 (config-less, relations [zzchv14])
+ *            section_list zzchv15 (config-less, relations [zzchv14], NON-NULL
+ *            properties without children_view — so the list-mode swap really
+ *            replaces the properties and the owner's own value must be read
+ *            BEFORE it)
+ *  - zzchv17 section (none): zzchv18 input_text, section_list zzchv19
+ *            {children_view:'text'} (config-less, relations [zzchv18]) — the
+ *            reverse: the swapped section_list's value must NOT leak
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -150,6 +156,20 @@ const S = situation({
 			model: 'section_list',
 			order_number: 2,
 			relations: [{ tipo: 'zzchv14' }],
+			// Non-null and children_view-free: the swap returns THESE, not the
+			// section's own (resolveSourceProperties falls back on null only).
+			properties: { css: { '.wrapper_component': { width: '100%' } } },
+		},
+		// --- reverse: the section_list carries children_view, the section not ----
+		{ tipo: 'zzchv17', parent: 'test1', model: 'section', order_number: 98 },
+		{ tipo: 'zzchv18', parent: 'zzchv17', model: 'component_input_text', order_number: 1 },
+		{
+			tipo: 'zzchv19',
+			parent: 'zzchv17',
+			model: 'section_list',
+			order_number: 2,
+			relations: [{ tipo: 'zzchv18' }],
+			properties: { children_view: 'text' },
 		},
 	],
 	records: [
@@ -312,6 +332,17 @@ describe('section owners', () => {
 			mode: 'list',
 		});
 		expect(viewsOf(config).get('zzchv14')).toBe('text');
+	});
+
+	test("section list: the section_list's children_view is not the caller's (plan §7 A)", async () => {
+		const config = await resolveOwnRequestConfig({
+			tipo: 'zzchv17',
+			sectionTipo: 'zzchv17',
+			mode: 'list',
+		});
+		const views = viewsOf(config);
+		expect(views.has('zzchv18')).toBe(true);
+		expect(views.get('zzchv18')).toBeUndefined();
 	});
 });
 
