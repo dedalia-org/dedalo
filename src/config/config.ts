@@ -626,7 +626,8 @@ export interface OpsConfig {
 	readonly dbPoolMax: number;
 	/** Max ms a query may QUEUE for a connection (either pool) before failing with
 	 * the typed 503 `db.pool_exhausted`, 0 = wait forever (DB_POOL_ACQUIRE_TIMEOUT_MS,
-	 * default 0; PRODUCTION.md recommends 30000). */
+	 * default 30000 — on by default since T1-24, flipped separately from the
+	 * statement ceiling). */
 	readonly dbAcquireTimeoutMs: number;
 	/** The request pool's statement_timeout ms (startup GUC), 0 = off
 	 * (DB_STATEMENT_TIMEOUT_MS, default 60000 — on by default since every

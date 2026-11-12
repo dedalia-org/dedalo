@@ -54,14 +54,15 @@ DB_PASSWORD="my_password"
 	DB_POOL_ACQUIRE_TIMEOUT_MS: {
 		type: 'number',
 		scope: 'operator',
-		default: 0,
+		default: 30000,
 		heading: 'Database connection acquire timeout',
 		typeLabel: 'int',
 		doc: `How long (in milliseconds) a request waits for a free database connection when the
-pool is fully in use, before it gives up. The default \`0\` means *wait forever*.
+pool is fully in use, before it gives up. The default is \`30000\` (30 seconds); \`0\`
+means *wait forever*, the behaviour of earlier versions.
 
-Setting it — \`30000\` is a sensible production value — turns pool exhaustion from a
-silent, indefinite hang into a loud, diagnosable answer: the request fails with the error
+The bound turns pool exhaustion from a silent, indefinite hang into a loud, diagnosable
+answer: the request fails with the error
 \`db.pool_exhausted\` (HTTP 503, "try again in a moment"). It does not make the server
 slower: it only bounds how long it is willing to be stuck. Every way of taking a
 connection counts against the pool — a query, a transaction, a connection reserved for

@@ -412,7 +412,7 @@ read into `config.ops` in `src/config/config.ts`). `0` disables each bound:
 |---|---|---|---|
 | `DB_POOL_MAX` | 10 | 10 | Request-pool connections per PROCESS. |
 | `DB_MAINTENANCE_POOL_MAX` | 2 | 2 | The separate MAINTENANCE pool per process (startup `statement_timeout` 0, `application_name` `dedalo_maintenance:<pid>:<boot nonce>`, built on first use, idle connections close after 30 s). |
-| `DB_POOL_ACQUIRE_TIMEOUT_MS` | 0 | 30000 | How long a caller may QUEUE for a connection of either pool. Exhaustion answers the typed 503 `db.pool_exhausted` (retryable) instead of an indefinite hang. |
+| `DB_POOL_ACQUIRE_TIMEOUT_MS` | 30000 | 30000 | How long a caller may QUEUE for a connection of either pool. Exhaustion answers the typed 503 `db.pool_exhausted` (retryable) instead of an indefinite hang. |
 | `DB_STATEMENT_TIMEOUT_MS` | 60000 | 60000 | The request pool's startup `statement_timeout` (WC-055). It is the ONLY bound on a search that cannot abort early — a deliberately-unindexed match (dd551 Data, `f_unaccent(…) ~* …`) reads the whole table, ~175 s on a 33 M-row activity log, and a client disconnecting does **not** cancel it. A fired ceiling answers the typed 503 `db.statement_timeout`. Maintenance does not run under it (below). |
 | `DEDALO_SLOW_QUERY_MS` | 0 | 5000 | Warn-log statements slower than this — on EVERY lane: pooled, inside a transaction (the write path) and on a reserved connection. The line names the lane (OPS-13). |
 

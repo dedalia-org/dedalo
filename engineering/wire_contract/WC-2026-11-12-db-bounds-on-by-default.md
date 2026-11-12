@@ -30,6 +30,9 @@
 - The retention prunes (matrix_activity, the dd1758 ledger) run in committed
   keyset batches; their reports gain `detail.batches`, `detail.batch_rows`,
   `detail.stopped` (`'aborted'` when SIGTERM stopped the pass between batches).
+- `DB_POOL_ACQUIRE_TIMEOUT_MS` defaults to `30000` (flipped in its own commit): a
+  caller that queues past 30 s for a connection of either pool answers 503
+  `db.pool_exhausted` (retryable) instead of hanging. PHP v6 had no such bound.
 - `0` restores the previous behaviour for each key.
 
 ## Reason

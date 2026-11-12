@@ -155,6 +155,14 @@ describe('PERF-11: the maintenance pool is configured, the config docs are curre
 		expect(value as number).toBeGreaterThanOrEqual(1000);
 	});
 
+	test('the pool acquire timeout is ON by default (DB_POOL_ACQUIRE_TIMEOUT_MS > 0)', () => {
+		// 0 = wait forever: pool exhaustion would be a silent, indefinite hang
+		// instead of the typed 503 `db.pool_exhausted`.
+		const value = CONFIG_CATALOG.DB_POOL_ACQUIRE_TIMEOUT_MS?.default;
+		expect(typeof value).toBe('number');
+		expect(value as number).toBeGreaterThan(0);
+	});
+
 	test('the generated config docs render clean (bun run config:check)', async () => {
 		const child = Bun.spawn([process.execPath, 'run', 'scripts/gen_config_docs.ts', '--check'], {
 			cwd: join(import.meta.dir, '..', '..'),

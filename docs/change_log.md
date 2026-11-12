@@ -861,6 +861,19 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **A request now waits at most 30 seconds for a free database connection by default.**
+
+    `DB_POOL_ACQUIRE_TIMEOUT_MS` now defaults to `30000` (it was `0`, wait forever). When every
+    database connection of the server is busy, a request used to wait silently and indefinitely;
+    it now answers "the server is busy, try again in a moment" (`db.pool_exhausted`) after 30
+    seconds, which makes an exhausted pool visible instead of a frozen page.
+
+    **Action needed:** none for most installations. If you see that answer under normal load,
+    raise `DB_POOL_MAX` (within your PostgreSQL `max_connections` budget) or the timeout in
+    `../private/.env`; `DB_POOL_ACQUIRE_TIMEOUT_MS=0` restores the previous behaviour.
+
+    Wire contract: `WC-2026-11-12-db-bounds-on-by-default`.
+
 - **A database statement of ordinary request traffic is now stopped after one minute by default.**
 
     `DB_STATEMENT_TIMEOUT_MS` now defaults to `60000` (it was `0`, no limit). A single runaway
