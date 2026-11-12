@@ -444,9 +444,13 @@
 		// would blink the rows on every fast answer; the input lock is immediate
 		// (global rule), the dim waits for a search that is actually slow — the
 		// same deferral as relation_list.less / paginator.less.
+		// The dim goes on the ROWS, never the list: a translucent list let the
+		// orange bar/wrapper behind it bleed through as a light-red flash.
 		&.loading {
 			opacity: 1;
-			animation: autocomplete_loading_dim 0.2s ease-out 0.35s forwards;
+			>.autocomplete_data_li {
+				animation: autocomplete_loading_dim 0.2s ease-out 0.35s forwards;
+			}
 		}
 
 		.loading_label {
@@ -513,6 +517,36 @@
 
 				.column {
 					outline: none;
+				}
+
+				// paired dataframe chip (component_dataframe list view): inline after
+				// its value. Its own block + 2rem centred box is sized for the edit
+				// grid and dropped it onto a line of its own, centred under the column.
+				.wrapper_component.component_dataframe {
+					display: inline-flex;
+					vertical-align: middle;
+					margin-left: 0.25em;
+
+					>.content_data {
+						display: inline-flex;
+
+						>.content_value {
+							height: auto;
+							width: auto;
+						}
+					}
+				}
+
+				// trailing Id: a right-aligned muted column, so ids line up row to row
+				// (its separator would dangle at the gap)
+				>.column_separator:has(+ .component_section_id:last-child) {
+					display: none;
+				}
+				>.component_section_id:last-child {
+					margin-left: auto;
+					padding-left: 1.5em;
+					color: var(--fg_muted);
+					font-variant-numeric: tabular-nums;
 				}
 
 				// ddinfo_value: parents path (secondary). Gap keeps it apart
