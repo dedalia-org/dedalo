@@ -914,6 +914,20 @@ function targetSectionTableOf(plan: PublicationPlan, sectionTipo: string): strin
 }
 
 /**
+ * The run's ComponentFnEnv — the ONE place the run state is wired into the fn
+ * dispatch (exported so the wiring is gated against a compiled plan, not a
+ * test-written stub: diffusion_compile_degrade_native).
+ */
+export function componentFnEnvOf(ctx: RunContext): ComponentFnEnv {
+	return {
+		langs: ctx.plan.langPolicy.langs,
+		pairedGeolocationTipo: (textAreaTipo) => pairedGeolocationTipoOf(ctx, textAreaTipo),
+		svgTagPathMemo: ctx.svgTagPathMemo,
+		targetSectionTableOf: (sectionTipo) => targetSectionTableOf(ctx.plan, sectionTipo),
+	};
+}
+
+/**
  * Resolve ONE component ddo that declares a custom `fn` (PHP
  * component_common::get_diffusion_data :3270-3326 fn branch).
  *
@@ -1849,18 +1863,7 @@ async function walkChainLevel(
 			// Custom ddo fn dispatch (component_common :3274-3326). ONE door, and
 			// it either resolves or throws — see resolveComponentFnAtoms.
 			if (step.fn !== undefined) {
-				atoms.push(
-					...(await resolveComponentFnAtoms(
-						{
-							langs: ctx.plan.langPolicy.langs,
-							pairedGeolocationTipo: (textAreaTipo) => pairedGeolocationTipoOf(ctx, textAreaTipo),
-							svgTagPathMemo: ctx.svgTagPathMemo,
-							targetSectionTableOf: (sectionTipo) => targetSectionTableOf(ctx.plan, sectionTipo),
-						},
-						record,
-						step,
-					)),
-				);
+				atoms.push(...(await resolveComponentFnAtoms(componentFnEnvOf(ctx), record, step)));
 				continue;
 			}
 			// Terminal atoms carry NO section identity — the first-ddo relation

@@ -88,7 +88,12 @@ import type {
 } from '../../src/diffusion/plan/virtual_tree.ts';
 import { createSvgTagPathMemo } from '../../src/diffusion/resolve/ddo_fns.ts';
 import { defaultPublicationValue } from '../../src/diffusion/resolve/default_value.ts';
-import { leafMergeColumns, resolveComponentFnAtoms } from '../../src/diffusion/resolve/resolver.ts';
+import type { RunContext } from '../../src/diffusion/resolve/resolver.ts';
+import {
+	componentFnEnvOf,
+	leafMergeColumns,
+	resolveComponentFnAtoms,
+} from '../../src/diffusion/resolve/resolver.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 
@@ -650,6 +655,47 @@ describe('map_target_section_tipo is compiled into the plan (resolver stays onto
 		]);
 		const plan = await compileElementPlan(ELEMENT_TIPO, options);
 		expect(plan.targetSectionTables).toEqual({ test6813: 'interview' });
+	});
+
+	/**
+	 * The PRODUCTION door end to end: compiled plan → componentFnEnvOf (the
+	 * run's wiring) → targetSectionTableOf (the own-key lookup) → atoms. The fn
+	 * tests above pass a test-written lookup; this one does not, so a wiring that
+	 * reads another field (every hierarchy record → empty column) or a lookup
+	 * that drops the own-key guard (a stored 'constructor' → a Function in the
+	 * scalar atom) goes RED here.
+	 */
+	test('the run wiring resolves the stored section through the COMPILED map, own keys only', async () => {
+		const plan = await compileElementPlan(
+			ELEMENT_TIPO,
+			compileOptions([
+				{
+					tipo: 'f_target',
+					label: 'target_table',
+					process: { ddo_map: [ddo('zzc140', { fn: 'map_target_section_tipo' })] },
+				},
+			]),
+		);
+		const ctx = {
+			plan,
+			svgTagPathMemo: createSvgTagPathMemo(),
+			geoPairCache: new Map(),
+		} as unknown as RunContext;
+		const env = componentFnEnvOf(ctx);
+		const step = componentStep('zzc140', 'component_input_text', 'map_target_section_tipo');
+		const stored = (value: string) =>
+			recordOf(1, {
+				string: { zzc140: [{ id: 1, lang: 'lg-nolan', value }] },
+			} as MatrixRecord['columns']);
+		expect(env.langs).toEqual(plan.langPolicy.langs);
+		expect(await resolveComponentFnAtoms(env, stored('test6813'), step)).toEqual([
+			{ kind: 'scalar', value: 'interview', lang: null, meta: { tipo: 'zzc140' } },
+		]);
+		for (const inherited of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+			expect(env.targetSectionTableOf(inherited)).toBeNull();
+			expect(await resolveComponentFnAtoms(env, stored(inherited), step)).toEqual([]);
+		}
+		expect(await resolveComponentFnAtoms(env, stored('test99'), step)).toEqual([]);
 	});
 
 	test('a plan WITHOUT the fn carries no map (existing plans stay byte-equal)', async () => {
