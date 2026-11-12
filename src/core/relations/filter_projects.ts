@@ -30,7 +30,7 @@ import { memoizedReadMatrixRecord } from '../db/record_memo.ts';
 import { createOntologyCache } from '../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from '../ontology/resolver.ts';
-import { resolveComponentValue } from '../resolve/component_data.ts';
+import { resolveComponentValue, shownItems } from '../resolve/component_data.ts';
 import { currentDataLang } from '../resolve/request_lang.ts';
 import { registerSectionDataListener } from '../section_record/save_event.ts';
 import { getUserProjects, type Principal } from '../security/permissions.ts';
@@ -173,8 +173,7 @@ export async function buildAuthorizedProjects(
 		if (record === null) continue;
 		// label — dd156 name in the data lang (fallback chain via resolveComponentValue)
 		const name = await resolveComponentValue(record, PROJECTS_NAME_TIPO, nameModel, dataLang);
-		const labelRaw = ((name.value ?? name.fallbackValue)?.[0] as { value?: unknown } | undefined)
-			?.value;
+		const labelRaw = (shownItems(name)?.[0] as { value?: unknown } | undefined)?.value;
 		// order — dd1631 number (0 when unset)
 		const orderRes = await resolveComponentValue(
 			record,
@@ -183,8 +182,7 @@ export async function buildAuthorizedProjects(
 			'lg-nolan',
 		);
 		const order = Number(
-			((orderRes.value ?? orderRes.fallbackValue)?.[0] as { value?: unknown } | undefined)?.value ??
-				0,
+			(shownItems(orderRes)?.[0] as { value?: unknown } | undefined)?.value ?? 0,
 		);
 		// parent — nearest recursive ancestor that is itself authorized
 		let parent: { section_tipo: string; section_id: unknown } | null = null;

@@ -9,7 +9,7 @@
  */
 
 import { readMatrixRecord } from '../../core/db/matrix.ts';
-import { resolveComponentValue } from '../../core/resolve/component_data.ts';
+import { resolveComponentValue, shownItems } from '../../core/resolve/component_data.ts';
 import { decodeHtmlSpecialChars, replaceHtmlTags } from '../../core/resolve/html_text.ts';
 
 /** A stored string item: `{ id, value, lang }`. */
@@ -61,13 +61,13 @@ export async function readComponentText(input: {
 }): Promise<string> {
 	const record = await readMatrixRecord(input.matrixTable, input.sectionTipo, input.sectionId);
 	if (record === null) return '';
-	const { value, fallbackValue } = await resolveComponentValue(
+	const resolved = await resolveComponentValue(
 		record,
 		input.componentTipo,
 		input.model,
 		input.lang,
 	);
-	const items = value ?? fallbackValue;
+	const items = shownItems(resolved);
 	if (items === null || items.length === 0) return '';
 	return itemsToText(items);
 }

@@ -792,6 +792,46 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 		);
 	});
 
+	// ------------------------------------------------------------------
+	// DATA-ITEM EMPTINESS (`dataItemEmptiness`, T1-34 / O14): the language
+	// fallback judges a lang slice by the model's item rule, never by count —
+	// a class-translatable model without a rule would make that read throw.
+	// ------------------------------------------------------------------
+
+	/** Class-translatable canonical models that declare no emptiness rule. */
+	function missingEmptiness(list: readonly ComponentModel[]): string[] {
+		return list
+			.filter((d) => isCanonical(d) && d.classSupportsTranslation === true)
+			.filter((d) => d.dataItemEmptiness === undefined)
+			.map((d) => d.model);
+	}
+
+	test('every classSupportsTranslation model declares dataItemEmptiness (and only those)', () => {
+		const translatable = descriptors.filter((d) => d.classSupportsTranslation === true);
+		expect(translatable.length).toBeGreaterThanOrEqual(5); // anti-vacuity
+		expect(missingEmptiness(descriptors)).toEqual([]);
+		for (const descriptor of descriptors) {
+			if (descriptor.dataItemEmptiness === undefined) continue;
+			expect(
+				descriptor.classSupportsTranslation === true && isCanonical(descriptor),
+				`${descriptor.model}: dataItemEmptiness on a model the fallback never judges`,
+			).toBe(true);
+		}
+		// The rules mirror the PHP class hierarchy (is_empty overrides).
+		const ruleOf = (model: string) => descriptors.find((d) => d.model === model)?.dataItemEmptiness;
+		expect(ruleOf('component_text_area')).toBe('rich_text');
+		expect(ruleOf('component_input_text')).toBe('string');
+		expect(ruleOf('component_email')).toBe('string');
+		expect(ruleOf('component_password')).toBe('common');
+		expect(ruleOf('component_iri')).toBe('iri');
+	});
+
+	test('positive control: input_text WITHOUT its emptiness rule reddens the census', () => {
+		const inputText = descriptors.find((d) => d.model === 'component_input_text') as ComponentModel;
+		const { dataItemEmptiness: _dropped, ...stripped } = inputText;
+		expect(missingEmptiness([stripped as ComponentModel])).toEqual(['component_input_text']);
+	});
+
 	test('ontologyTranslatable is stated by EXACTLY the owner-approved models, canonical only', () => {
 		const stating = descriptors.filter((d) => d.ontologyTranslatable !== undefined);
 		expect(stating.map((d) => d.model)).toEqual(['component_iri']);

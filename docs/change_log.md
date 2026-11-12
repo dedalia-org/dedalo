@@ -295,6 +295,26 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-calculation-widget-port`.
 
+- **An emptied translation shows the other-language text again**
+
+    When you emptied a field's text in one language (for example deleted the English title of a
+    record that also has a Spanish one), Dédalo kept the empty English entry and treated it as
+    "there is a value": the field showed blank instead of the text in another language. The
+    same happened when the empty entry was in the main language — the other languages were
+    never tried.
+
+    Now an entry that is empty, holds only spaces, or (in a rich-text field) only an empty
+    paragraph left by the editor counts as no text. The edit field shows the other-language
+    text as its grey hint again, and lists, selector labels, project and user names, related
+    lists, exports and AI search use the other-language text. A value of `0` still counts as a
+    value.
+
+    Rich-text fields in a section **list** still show a blank cell when their text in the
+    current language was emptied; whether they should show the other-language text there too
+    is still open.
+
+    Wire contract: `WC-2026-11-12-lang-fallback-judges-emptiness`.
+
 - **Deleting a record's data no longer empties fields its section hides.**
 
     On sections built on another one (image, audiovisual or document resources, thesaurus instances…), "delete data" also emptied the fields the section does not show, and moved their files aside. Those fields now stay as they are; only the fields the section shows are emptied. Fields already emptied this way by an earlier delete can be restored one by one from the Time Machine, which kept their previous value.
@@ -1178,7 +1198,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 52 entries"
+??? note "Wire contract — 53 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1220,6 +1240,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-global-table-maps`
     - `WC-2026-11-12-image-id-media-file-stem`
     - `WC-2026-11-12-info-live-publication-export`
+    - `WC-2026-11-12-lang-fallback-judges-emptiness`
     - `WC-2026-11-12-locator-target-deleted-refused`
     - `WC-2026-11-12-marc21-config-map-and-transforms`
     - `WC-2026-11-12-numisdata-widgets-locator-law`

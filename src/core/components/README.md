@@ -51,6 +51,9 @@ bottom; the descriptor-facet steps are enforced by
 2. Declare `column` (or `alias` for a legacy name) — routes storage +
    column resolution.
 3. Declare `classSupportsTranslation` if the PHP class supports translation.
+   A class-translatable model MUST also declare `dataItemEmptiness` (its PHP `is_empty` rule —
+   `common` / `string` / `rich_text` / `iri`): the language fallback judges a slice by it
+   (`resolve/data_item_emptiness.ts`; tripwired in `descriptor_completeness_tripwire`).
 4. Relation-column model? Declare `resolveData` (row emission), `search`
    (`{status:'ported'}` or a ledgered `'unported'` reason), and
    `defaultRelationType` (the PHP class-level `$default_relation_type`).

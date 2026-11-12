@@ -48,7 +48,7 @@ import { createOntologyCache } from '../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
 import { registerPairingChangeListener } from '../ontology/model_section.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from '../ontology/resolver.ts';
-import { resolveComponentValue } from '../resolve/component_data.ts';
+import { resolveComponentValue, shownItems } from '../resolve/component_data.ts';
 import { currentApplicationLang } from '../resolve/request_lang.ts';
 import type { SearchStatement } from '../search/search_statement.ts';
 import { registerSectionDataListener } from '../section_record/save_event.ts';
@@ -363,8 +363,9 @@ async function resolveDdoLabel(
 ): Promise<string> {
 	const model = await getModelByTipo(ddoTipo);
 	if (model === null) return '';
-	const { value, fallbackValue } = await resolveComponentValue(record, ddoTipo, model, lang);
-	const first = (value ?? fallbackValue)?.[0] as { value?: unknown } | undefined;
+	const first = shownItems(await resolveComponentValue(record, ddoTipo, model, lang))?.[0] as
+		| { value?: unknown }
+		| undefined;
 	return typeof first?.value === 'string' ? first.value : '';
 }
 
@@ -949,13 +950,9 @@ export async function resolveLocatorLabels(
 		if (table === null) continue;
 		const record = await memoizedReadMatrixRecord(table, targetSection, targetId);
 		if (record === null) continue;
-		const { value, fallbackValue } = await resolveComponentValue(
-			record,
-			labelDdo.tipo,
-			labelModel,
-			lang,
-		);
-		const first = (value ?? fallbackValue)?.[0] as { value?: unknown } | undefined;
+		const first = shownItems(
+			await resolveComponentValue(record, labelDdo.tipo, labelModel, lang),
+		)?.[0] as { value?: unknown } | undefined;
 		if (typeof first?.value === 'string' && first.value !== '') labels.push(first.value);
 	}
 	labels.sort(strnatcmp);

@@ -69,7 +69,7 @@ import { findInverseReferences } from '../search/search_related.ts';
 import { sectionRelationListTipos } from '../section/related_list.ts';
 import type { Principal } from '../security/permissions.ts';
 import { currentPrincipal } from '../security/request_context.ts';
-import { type EmissionContext, resolveComponentValue } from './component_data.ts';
+import { type EmissionContext, resolveComponentValue, shownItems } from './component_data.ts';
 import { currentDataLang } from './request_lang.ts';
 
 /** PHP export_value records_separator (join_atoms depth-0 default). */
@@ -1025,15 +1025,8 @@ export async function resolveCellItems(
 	}
 
 	if (family === 'string') {
-		const { value, fallbackValue } = await resolveComponentValue(
-			record,
-			componentTipo,
-			model,
-			lang,
-		);
-		const items = (value && value.length > 0 ? value : (fallbackValue ?? [])) as {
-			value?: unknown;
-		}[];
+		const items = (shownItems(await resolveComponentValue(record, componentTipo, model, lang)) ??
+			[]) as { value?: unknown }[];
 		const parts = items.map((item) =>
 			item?.value === undefined || item.value === null ? '' : String(item.value),
 		);

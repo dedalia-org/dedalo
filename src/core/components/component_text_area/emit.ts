@@ -15,6 +15,7 @@
 import { appServedMediaSrc } from '../../media/web_base_src.ts';
 import type { DataItem } from '../../resolve/component_data.ts';
 import { filterItemsByLang, readComponentItems } from '../../resolve/component_data.ts';
+import { isEmptyComponentData } from '../../resolve/data_item_emptiness.ts';
 import { equivalentLangsOf } from '../../resolve/lang_alias.ts';
 import { truncateHtml } from '../../resolve/truncate_html.ts';
 import type { ComponentEmitHook, EmitHookContext } from '../emit_hooks.ts';
@@ -84,15 +85,12 @@ async function renderListEntries(entries: unknown[], context: EmitHookContext): 
 	return rendered;
 }
 
-/** True when a lang slice holds at least one item with real text. */
-function sliceHasText(items: unknown[], lang: string): boolean {
-	return filterItemsByLang(items, lang).some(
-		(item) =>
-			item !== null &&
-			typeof item === 'object' &&
-			typeof (item as { value?: unknown }).value === 'string' &&
-			(item as { value: string }).value !== '',
-	);
+/**
+ * True when a lang slice holds real text — the model's emptiness rule (T1-34 /
+ * O14), so the editor's ghost `<p></p>` is no text and never wins the forcing.
+ */
+function sliceHasText(items: unknown[], lang: string, model: string): boolean {
+	return !isEmptyComponentData(model, filterItemsByLang(items, lang));
 }
 
 /**
@@ -109,6 +107,22 @@ async function serveTextItem(item: unknown, context: EmitHookContext): Promise<u
 	const next = context.ddoMode === 'list' ? await renderListString(rebased, context) : rebased;
 	if (next === text) return item;
 	return { ...(item as object), value: next };
+}
+
+/**
+ * The item's fallback_value, ALWAYS keyed (explicit null when absent).
+ *
+ * OPEN OWNER DECISION D1 (T1-34 / O14, unruled): PHP's text_area LIST triggers
+ * its fallback by COUNT (component_text_area_json: empty() of get_list_value,
+ * where a cleared item maps to '' → [''] is "present"), while edit and every
+ * chain rung judge emptiness. The resolver judges emptiness everywhere; the
+ * list face keeps the PHP count trigger here — the status quo — until the
+ * owner rules. Gate: lang_fallback_empty_slice_native "OPEN owner decision D1".
+ */
+function listFallbackByCount(item: DataItem, context: EmitHookContext): unknown[] | null {
+	const fallback = (item.fallback_value as unknown[] | null | undefined) ?? null;
+	if (context.ddoMode === 'list' && (item.entries?.length ?? 0) > 0) return null;
+	return fallback;
 }
 
 export const textAreaEmitHook: ComponentEmitHook = {
@@ -140,9 +154,9 @@ export const textAreaEmitHook: ComponentEmitHook = {
 		if (originalLang === null) return null;
 
 		const items = readComponentItems(context.record, context.ddo.tipo, context.model);
-		if (items === null || sliceHasText(items, originalLang)) return originalLang;
+		if (items === null || sliceHasText(items, originalLang, context.model)) return originalLang;
 		for (const sibling of equivalentLangsOf(originalLang)) {
-			if (sliceHasText(items, sibling)) return sibling;
+			if (sliceHasText(items, sibling, context.model)) return sibling;
 		}
 		return originalLang;
 	},
@@ -180,9 +194,7 @@ export const textAreaEmitHook: ComponentEmitHook = {
 	},
 
 	async decorateItem(item: DataItem, context: EmitHookContext): Promise<void> {
-		if (!('fallback_value' in item)) {
-			item.fallback_value = null;
-		}
+		item.fallback_value = listFallbackByCount(item, context);
 		// LIST fallbacks get the SAME rendering as list values (tags → <img>,
 		// then truncate). transformValue only sees `value`, so a transcript that
 		// surfaces through the cross-lang fallback used to reach the client with

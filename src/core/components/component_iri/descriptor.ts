@@ -18,6 +18,7 @@ export const component_iri: ComponentModel = {
 	render: 'url',
 	importAppend: 'items',
 	classSupportsTranslation: true,
+	dataItemEmptiness: 'iri',
 	ontologyTranslatable: false,
 	searchBuilder: 'iri',
 	// PHP component_iri_json ALWAYS pairs with its dd560 label dataframe

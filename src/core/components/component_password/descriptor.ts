@@ -13,6 +13,7 @@ export const component_password: ComponentModel = {
 	importAppend: { refuse: 'opaque: a password is one secret value — use replace' },
 	monovalue: true,
 	classSupportsTranslation: true,
+	dataItemEmptiness: 'common',
 	importValueProperty: true,
 	secretValue: true,
 };

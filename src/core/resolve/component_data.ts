@@ -15,9 +15,12 @@
  * Language rules:
  * - non-translatable components return the FULL item array unfiltered;
  * - translatable components filter items by lang (strict equality);
- * - when the requested lang yields nothing, fallback_value tries: the install
- *   main lang, then lg-nolan, then every other project lang — first non-empty
- *   wins; null when the component holds no data at all.
+ * - when the requested slice is EMPTY by the model's item rule (no items, or
+ *   only cleared ones — resolve/data_item_emptiness.ts, PHP is_empty_data),
+ *   fallback_value tries: declared lang equivalents, the install main lang,
+ *   lg-nolan, every other project lang — the first NON-EMPTY slice wins; null
+ *   when none holds a value. Invariant: fallbackValue !== null ⇒ the value is
+ *   empty by rule (display doors read shownItems()).
  */
 
 import { config } from '../../config/config.ts';
@@ -25,6 +28,7 @@ import { getComponentModel } from '../components/registry.ts';
 import type { MatrixRecord } from '../db/matrix.ts';
 import { elementLang, getColumnNameByModel, getTranslatableByTipo } from '../ontology/resolver.ts';
 import { ElementNodeRegistry } from '../relations/element_registry.ts';
+import { isEmptyComponentData } from './data_item_emptiness.ts';
 import { equivalentLangsOf } from './lang_alias.ts';
 
 /**
@@ -85,7 +89,9 @@ export function filterItemsByLang(items: unknown[], lang: string): unknown[] {
 /**
  * The component's value for a lang + its fallback (PHP list/edit data flow).
  * Returns {value, fallbackValue}: value = lang slice (or full array when not
- * translatable); fallbackValue only computed when value is empty.
+ * translatable); fallbackValue only computed when the slice is EMPTY by the
+ * model's rule (a cleared slice keeps its items in value) — so a display reads
+ * shownItems(), never `value ?? fallbackValue`.
  */
 /**
  * Whether a model's CLASS supports translation (PHP supports_translation
@@ -157,6 +163,19 @@ export async function resolveComponentValue(
 }
 
 /**
+ * THE items a display shows for a resolved value: the fallback when one
+ * resolved (resolveComponentValue computes it only when the requested slice is
+ * EMPTY by the model's rule — a cleared translation keeps its items in `value`,
+ * so `value ?? fallbackValue` would show the blank), else the value.
+ */
+export function shownItems(resolved: {
+	value: unknown[] | null;
+	fallbackValue: unknown[] | null;
+}): unknown[] | null {
+	return resolved.fallbackValue ?? resolved.value;
+}
+
+/**
  * Effective filter lang = the INSTANCE lang: ontology-non-translatable
  * string-family components are nolan-forced at instantiation (PHP
  * get_element_lang); component_iri honors the requested lang as-is
@@ -212,20 +231,40 @@ async function resolveStoredComponentValue(
 
 	const effectiveLang = await readFilterLang(componentTipo, model, lang, options);
 	const slice = filterItemsByLang(items, effectiveLang);
-	if (slice.length > 0) {
+	// iri emits its slice as-is, a plain [] when empty — no fallback machinery.
+	if (model === 'component_iri') {
 		return { value: slice, fallbackValue: null };
 	}
-
-	// Empty slice: iri emits a plain empty array (no fallback machinery);
-	// the string family computes the fallback chain (main lang → nolan →
-	// remaining project langs), entries stay null.
-	if (model === 'component_iri') {
-		return { value: [], fallbackValue: null };
+	// PRESENCE is emptiness by the model's rule, never item count (T1-34 / O14,
+	// PHP is_empty_data): a cleared translation persists `{id, lang, value:''}`
+	// and must not hide the other languages.
+	if (!isEmptyComponentData(model, slice)) {
+		return { value: slice, fallbackValue: null };
 	}
-	// DECLARED language equivalences go first: a transcript that exists only in
-	// Valencian is what a Catalan menu should see (both directions — the class
-	// is symmetric for DATA), before the install default gets a say. Fancier
-	// than PHP, which only aliased translations (labels/terms), never data.
+	// An empty-by-rule slice that HOLDS items is still served as the value: the
+	// items keep their ids, so the editor edits them in place and dataframes stay
+	// paired (PHP sends the cleared slice beside its fallback too).
+	return {
+		value: slice.length > 0 ? slice : null,
+		fallbackValue: findFallbackSlice(items, model, effectiveLang),
+	};
+}
+
+/**
+ * The language fallback chain (PHP get_component_data_fallback): the first
+ * NON-EMPTY slice by the model's rule — a cleared rung is skipped, never served.
+ *
+ * DECLARED language equivalences go first: a transcript that exists only in
+ * Valencian is what a Catalan menu should see (both directions — the class is
+ * symmetric for DATA), before the install default gets a say. Fancier than
+ * PHP, which only aliased translations (labels/terms), never data. Then the
+ * install main lang → nolan → the remaining project langs.
+ */
+function findFallbackSlice(
+	items: unknown[],
+	model: string,
+	effectiveLang: string,
+): unknown[] | null {
 	const tried = new Set([effectiveLang]);
 	for (const candidate of [
 		...equivalentLangsOf(effectiveLang),
@@ -237,11 +276,9 @@ async function resolveStoredComponentValue(
 		if (tried.has(candidate)) continue;
 		tried.add(candidate);
 		const fallbackSlice = filterItemsByLang(items, candidate);
-		if (fallbackSlice.length > 0) {
-			return { value: null, fallbackValue: fallbackSlice };
-		}
+		if (!isEmptyComponentData(model, fallbackSlice)) return fallbackSlice;
 	}
-	return { value: null, fallbackValue: null };
+	return null;
 }
 
 /**

@@ -19,7 +19,7 @@ import { dateItemToValue } from '../../core/components/component_date/date_value
 import { readMatrixRecord } from '../../core/db/matrix.ts';
 import { type DdDate, ddDateToSeconds } from '../../core/media/file_date.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from '../../core/ontology/resolver.ts';
-import { resolveComponentValue } from '../../core/resolve/component_data.ts';
+import { resolveComponentValue, shownItems } from '../../core/resolve/component_data.ts';
 import type { RoleReader } from './characterizer.ts';
 import { readComponentText } from './component_text.ts';
 
@@ -79,13 +79,13 @@ async function readDateRole(input: {
 }): Promise<{ kind: 'date'; from: number; to: number; label: string } | null> {
 	const record = await readMatrixRecord(input.matrixTable, input.sectionTipo, input.sectionId);
 	if (record === null) return null;
-	const { value, fallbackValue } = await resolveComponentValue(
+	const resolved = await resolveComponentValue(
 		record,
 		input.componentTipo,
 		'component_date',
 		input.lang,
 	);
-	const items = value ?? fallbackValue;
+	const items = shownItems(resolved);
 	if (items === null || items.length === 0) return null;
 	const span = spanOfDateItems(items);
 	return span === null ? null : { kind: 'date', ...span };

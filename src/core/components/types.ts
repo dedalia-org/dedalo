@@ -230,6 +230,12 @@ export type FlatValueFamily =
 export type RenderClass = 'text' | 'html' | 'url' | 'number';
 
 /**
+ * A data item's emptiness rule (descriptor `dataItemEmptiness`; semantics and
+ * the PHP is_empty each one mirrors: resolve/data_item_emptiness.ts).
+ */
+export type DataItemEmptinessRule = 'common' | 'string' | 'rich_text' | 'iri';
+
+/**
  * What a CSV import column in APPEND mode (tool_import_dedalo_csv
  * `import_mode:'append'`) does with the model's stored data — the
  * `importAppend` facet, read by registry.ts getImportAppendPolicy.
@@ -298,6 +304,14 @@ export interface ComponentModel {
 	 * flag. Only these lang-filter their data items. Consumed by component_data.
 	 */
 	readonly classSupportsTranslation?: boolean;
+	/**
+	 * When a stored data item carries NO value (PHP is_empty per class): the rule
+	 * the language fallback judges a lang slice by — a slice of cleared items is
+	 * empty, whatever its item count (T1-34 / O14). Read only through
+	 * resolve/data_item_emptiness.ts. Every classSupportsTranslation model MUST
+	 * declare it (descriptor_completeness_tripwire).
+	 */
+	readonly dataItemEmptiness?: DataItemEmptinessRule;
 	/**
 	 * MODEL RULE on the ontology NODE flag (`dd_ontology.is_translatable`, source
 	 * ontology8): the value every node of this model MUST declare. Only `false` exists —

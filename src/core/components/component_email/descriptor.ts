@@ -10,6 +10,7 @@ export const component_email: ComponentModel = {
 	render: 'text',
 	importAppend: 'items',
 	classSupportsTranslation: true,
+	dataItemEmptiness: 'string',
 	searchBuilder: 'string',
 	flatValue: 'string',
 	importValueProperty: true,

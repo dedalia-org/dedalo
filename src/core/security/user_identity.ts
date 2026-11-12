@@ -48,16 +48,12 @@ export async function resolveUserName(
 	const { readMatrixRecord } = await import('../db/matrix.ts');
 	const record = await readMatrixRecord('matrix_users', USERS_SECTION, Number(userId));
 	if (record === null) return null;
-	const { resolveComponentValue } = await import('../resolve/component_data.ts');
+	const { resolveComponentValue, shownItems } = await import('../resolve/component_data.ts');
 	const { getModelByTipo } = await import('../ontology/resolver.ts');
 	const model = (await getModelByTipo(USER_NAME_COMPONENT)) ?? 'component_input_text';
-	const { value, fallbackValue } = await resolveComponentValue(
-		record,
-		USER_NAME_COMPONENT,
-		model,
-		lang,
-	);
-	const first = (value ?? fallbackValue)?.[0] as { value?: unknown } | undefined;
+	const first = shownItems(
+		await resolveComponentValue(record, USER_NAME_COMPONENT, model, lang),
+	)?.[0] as { value?: unknown } | undefined;
 	return typeof first?.value === 'string' ? first.value : null;
 }
 
@@ -74,17 +70,15 @@ export async function resolveUserDefaultSection(userId: number): Promise<string 
 	const { readMatrixRecord } = await import('../db/matrix.ts');
 	const record = await readMatrixRecord('matrix_users', USERS_SECTION, userId);
 	if (record === null) return null;
-	const { resolveComponentValue } = await import('../resolve/component_data.ts');
+	const { resolveComponentValue, shownItems } = await import('../resolve/component_data.ts');
 	const { getModelByTipo } = await import('../ontology/resolver.ts');
 	const { currentDataLang } = await import('../resolve/request_lang.ts');
 	const model = (await getModelByTipo(USER_DEFAULT_SECTION_COMPONENT)) ?? 'component_input_text';
-	const { value, fallbackValue } = await resolveComponentValue(
-		record,
-		USER_DEFAULT_SECTION_COMPONENT,
-		model,
-		currentDataLang(),
+	const tipo = firstItemText(
+		shownItems(
+			await resolveComponentValue(record, USER_DEFAULT_SECTION_COMPONENT, model, currentDataLang()),
+		),
 	);
-	const tipo = firstItemText(value ?? fallbackValue);
 	return /^[a-z]+[0-9]+$/.test(tipo) ? tipo : null;
 }
 
