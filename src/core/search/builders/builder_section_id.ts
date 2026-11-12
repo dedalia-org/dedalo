@@ -54,6 +54,42 @@ export function classifySectionId(
 	return { kind: 'pos', op: 'equal' };
 }
 
+/** The two bounds of an 'a...b' q, digits-only; null when that side is empty. */
+export function parseSectionIdBetween(effective: string): {
+	low: string | null;
+	high: string | null;
+} {
+	const [lowRaw, highRaw] = effective.split('...');
+	const low = digitsOnly(lowRaw ?? '');
+	const high = digitsOnly(highRaw ?? '');
+	return { low: low === '' ? null : low, high: high === '' ? null : high };
+}
+
+/**
+ * '...' between → $and of two comparisons (mirrors the PHP clone approach).
+ * An OPEN range ('5...' / '...5') keeps the bound that was typed (T1-35 /
+ * OX5): returning false here dropped the leaf, which WIDENED the result to the
+ * whole section. What the absent bound adds (PHP: low → 0, high → low; or no
+ * predicate at all) is owner decision D1, not ruled — until then the absent
+ * side contributes no predicate. '...' with no digits on either side stays
+ * dropped (same D1).
+ */
+function buildBetween(
+	bounds: { low: string | null; high: string | null },
+	columnExpr: string,
+	INT: string,
+): BuilderResult {
+	const predicates: BuilderResult[] = [];
+	if (bounds.low !== null) {
+		predicates.push(fragment(`${columnExpr} >= _Q1_${INT}`, { _Q1_: bounds.low }));
+	}
+	if (bounds.high !== null) {
+		predicates.push(fragment(`${columnExpr} <= _Q1_${INT}`, { _Q1_: bounds.high }));
+	}
+	if (predicates.length === 2) return compound('$and', predicates);
+	return predicates[0] ?? false;
+}
+
 export function buildSectionIdFragment(
 	rawQ: unknown,
 	qOperator: string | null,
@@ -74,17 +110,7 @@ export function buildSectionIdFragment(
 	// enforced above, so the cast can never fail at runtime.
 	const INT = '::integer';
 
-	// '...' between → $and of two comparisons (mirrors the PHP clone approach).
-	if (op === 'between') {
-		const [lowRaw, highRaw] = effective.split('...');
-		const low = digitsOnly(lowRaw ?? '');
-		const high = digitsOnly(highRaw ?? '');
-		if (low === '' || high === '') return false;
-		return compound('$and', [
-			fragment(`${columnExpr} >= _Q1_${INT}`, { _Q1_: low }),
-			fragment(`${columnExpr} <= _Q1_${INT}`, { _Q1_: high }),
-		]);
-	}
+	if (op === 'between') return buildBetween(parseSectionIdBetween(effective), columnExpr, INT);
 	// ',' sequence → = ANY('{a,b,c}'::integer[])
 	if (op === 'sequence') {
 		const ids = effective

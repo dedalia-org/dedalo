@@ -431,6 +431,15 @@ Merged since the last release; these ship with the next one.
     contents are always shown, even if the panel had been collapsed before this
     update. See [section_group](./core/sections/section_group.md).
 
+- **An open-ended Id range (5... or ...5) in search no longer returns every record.**
+
+    Searching the Id field with only one side of a range (`5...` or `...5`) ignored the
+    range and returned the whole section, and inside a combined search the condition
+    disappeared. The bound you type is now enforced: `5...` no longer returns ids below 5, and `...5`
+    none above 5. See [component_section_id](./core/components/component_section_id.md).
+
+    Wire contract: `WC-2026-11-12-section-id-open-between`.
+
 - **A select with a dataframe (such as the uncertainty of a coin's discovery method) shows and saves its frame again.**
 
     A select field whose configuration declares a dataframe slot showed no frame widget in the edit form, so its
@@ -1198,7 +1207,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 53 entries"
+??? note "Wire contract — 54 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1246,6 +1255,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-numisdata-widgets-locator-law`
     - `WC-2026-11-12-posterframe-identifying-image-scope`
     - `WC-2026-11-12-rdf-graph-interpretation`
+    - `WC-2026-11-12-section-id-open-between`
     - `WC-2026-11-12-select-dataframe-subdatum`
     - `WC-2026-11-12-tool-configuration-override`
     - `WC-2026-11-12-translation-write-value-gates`

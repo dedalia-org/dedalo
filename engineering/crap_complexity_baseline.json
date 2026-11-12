@@ -5,7 +5,7 @@
 	"root": "src/core",
 	"summary": {
 		"files": 933,
-		"functions": 16422,
+		"functions": 16424,
 		"functionsOverCap": 647,
 		"filesOverCap": 256
 	},
@@ -414,7 +414,7 @@
 		"src/core/search/builders/builder_number.ts": 10,
 		"src/core/search/builders/builder_relation.ts": 13,
 		"src/core/search/builders/builder_relation_children.ts": 9,
-		"src/core/search/builders/builder_section_id.ts": 17,
+		"src/core/search/builders/builder_section_id.ts": 13,
 		"src/core/search/builders/builder_string.ts": 32,
 		"src/core/search/builders/types.ts": 7,
 		"src/core/search/conform.ts": 30,
