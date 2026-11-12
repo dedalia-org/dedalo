@@ -37,10 +37,22 @@
   a link entry (`container-title` → Series `rsc212`/`rsc214`) → find-or-create.
 - **Identity:** the Zotero key (last `id` segment) is matched EXACTLY in the
   code component, principal-scoped, with the full URI as the other spelling.
+  The importer STORES the bare key (PHP), so the key leg is library-blind: a
+  same-key item of another library (`users/1/items/K` vs `groups/9/items/K`)
+  updates the record. Only a code still stored as a full URI is
+  library-scoped (exact-URI leg). Library-scoped identity is an open owner
+  decision (T1-7 review, 2026-11-12); the gate pins today's behaviour.
 - **Execute:** one dd800 run (`bulkLabel 'Zotero import'`); Series records it
   creates carry the run's birth marker, so reverting the run removes them.
 - **Attachments:** `archive` → PDF ingest into `main.pdf`, the ingest's own
-  rendered cover into `main.identifying_image`, per committed record.
+  rendered cover into `main.identifying_image`, per committed record — only a
+  cover THIS ingest wrote (its on-disk stamp changed); a render failure or a
+  non-PDF original (no rebuild) leaves the previous cover on disk and yields a
+  `no cover image` line, never the old picture. The ingest's notices (non-PDF
+  original, replaced transcription) are lines. A cover failure is a
+  `<archive> cover: not imported` line (the PDF is already stored); an engine
+  fault is logged typed (`internal.unexpected`) and its line names the
+  request.
 - **Response `data`:** `summary, created, updated, failed, errors, notices,
   attachments, bulk_process_id` (new: the last three). The client renders every
   list as text (`render_import_report`).

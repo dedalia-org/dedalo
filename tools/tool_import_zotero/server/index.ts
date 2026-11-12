@@ -33,10 +33,16 @@
  * Divergences from PHP, each deliberate: WC-2026-11-12-zotero-csl-json-import.
  */
 
-import { copyFileSync, existsSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, rmSync, statSync } from 'node:fs';
 import { basename, resolve, sep } from 'node:path';
 import { getComponentModel } from '../../../src/core/components/registry.ts';
-import { DedaloError, isDedaloError, ok } from '../../../src/core/errors/index.ts';
+import {
+	DedaloError,
+	isDedaloError,
+	logError,
+	ok,
+	toDedaloError,
+} from '../../../src/core/errors/index.ts';
 import { stagingDir } from '../../../src/core/media/ingest/add_file.ts';
 import { processUploadedFile } from '../../../src/core/media/ingest/process_uploaded_file.ts';
 import { resolveStagedName } from '../../../src/core/media/ingest/staged_files.ts';
@@ -290,25 +296,41 @@ async function authorizeMedia(
 	);
 }
 
-/**
- * Ingest one staged file into a media component of a committed record — the
- * disk half (processUploadedFile) AND the record half (persistUploadedMedia),
- * like every upload door. Answers the ingested context (for the cover) and the
- * non-fatal derivative failures.
- */
-async function ingestInto(
+/** A media component's resolved ingest context (identity, spec, paths). */
+type MediaContext = Awaited<ReturnType<typeof resolveMediaToolContext>>;
+
+/** The write door passed, the component resolved: what an ingest needs. */
+async function prepareIngest(
 	scope: AttachmentScope,
 	sectionId: number,
 	tipo: string,
-	tmpName: string,
-	originalFileName: string,
-): Promise<{ identity: Awaited<ReturnType<typeof resolveMediaToolContext>>; warnings: string[] }> {
+): Promise<MediaContext> {
 	await authorizeMedia(scope, sectionId, tipo);
-	const media = await resolveMediaToolContext({
+	return resolveMediaToolContext({
 		component_tipo: tipo,
 		section_tipo: scope.sectionTipo,
 		section_id: sectionId,
 	});
+}
+
+/** What one ingest left for the report: its non-fatal failures and its notices. */
+interface IngestOutcome {
+	warnings: string[];
+	notices: string[];
+}
+
+/**
+ * Ingest one staged file into a prepared media component of a committed record —
+ * the disk half (processUploadedFile) AND the record half (persistUploadedMedia),
+ * like every upload door. Answers the non-fatal derivative failures and the
+ * notices (a non-PDF original, a replaced transcription).
+ */
+async function ingestPrepared(
+	scope: AttachmentScope,
+	media: MediaContext,
+	tmpName: string,
+	originalFileName: string,
+): Promise<IngestOutcome> {
 	const extension = (tmpName.split('.').pop() ?? '').toLowerCase();
 	const result = await processUploadedFile({
 		spec: media.spec,
@@ -331,46 +353,107 @@ async function ingestInto(
 		nameKeys: nameKeysForQuality(media.spec, undefined),
 	});
 	result.startTranscode?.();
-	return { identity: media, warnings: result.derivativeErrors };
+	return { warnings: result.derivativeErrors, notices: result.notices };
 }
 
-/** The PDF's rendered cover (built by the pdf ingest), or null when none was. */
-function pdfCoverPath(media: Awaited<ReturnType<typeof resolveMediaToolContext>>): string | null {
+/** Where the PDF's rendered cover lives (the first cover extension), or null when the type has none. */
+function pdfCoverPath(media: MediaContext): string | null {
 	const extension = media.spec.coverExtensions[0];
 	if (extension === undefined) return null;
-	const cover = buildMediaLocation(
+	return buildMediaLocation(
 		media.spec,
 		media.identity,
 		media.spec.defaultQuality,
 		extension,
 		media.pathOpts,
 	).absolutePath;
-	return existsSync(cover) ? cover : null;
+}
+
+/**
+ * The cover file's on-disk identity (inode, size, ns mtime/ctime), or null when
+ * there is none. A PROBE: the catch is the answer ("no file").
+ */
+function fileStamp(path: string | null): string | null {
+	if (path === null) return null;
+	try {
+		const stat = statSync(path, { bigint: true });
+		return `${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The cover THIS ingest rendered, or null. A cover file that merely EXISTS is not
+ * enough: a re-import whose new archive could not be rendered (no Ghostscript,
+ * the page ceiling, a corrupt page) or is not a PDF rendition (.doc/.odt — no
+ * rebuild at all) leaves the PREVIOUS document's cover in place, and taking it
+ * would make an old picture the record's identifying image. So the file must be
+ * new or changed against its stamp taken before the ingest.
+ */
+function coverBuiltByIngest(coverPath: string | null, before: string | null): string | null {
+	const after = fileStamp(coverPath);
+	return after !== null && after !== before ? coverPath : null;
+}
+
+/**
+ * One attachment failure as its report line — and in the server log, typed
+ * (CONVENTIONS §1: the attachments run after the records COMMITTED, best effort
+ * per record like PHP's per-file import; the line is the defined degraded
+ * result). A caller-facing refusal names its public sentence; anything else is
+ * an engine fault: logged as one (internal.unexpected, errors_total) and the
+ * line says so and names the request, never a generic "could not be imported".
+ */
+function attachmentFailure(scope: AttachmentScope, label: string, error: unknown): string {
+	const requestId = toolRequestId(scope.ctx);
+	const typed = toDedaloError(error);
+	logError(typed, { subsystem: TOOL_NAME, ...(requestId === '' ? {} : { requestId }) });
+	if (isDedaloError(error) && error.publicMessage !== undefined) {
+		return `${label}: not imported — ${error.publicMessage}`;
+	}
+	if (isDedaloError(error) && typed.code !== 'internal.unexpected') {
+		return `${label}: not imported — ${error.code}`;
+	}
+	const ref = requestId === '' ? '' : ` (request ${requestId})`;
+	return `${label}: not imported — an internal error occurred; the server log names it${ref}`;
 }
 
 /**
  * The PDF's cover into main.identifying_image (PHP create_image + add_file):
- * the cover the pdf ingest already rendered, copied into the staging dir and
- * ingested like an upload. Answers the report lines.
+ * the cover the pdf ingest just rendered, copied into the staging dir and
+ * ingested like an upload. Answers the report lines. ITS OWN FAILURE IS ITS OWN
+ * LINE: the PDF is already persisted when this runs, so a refused or failed
+ * cover must never read as the PDF 'not imported'.
  */
 async function importCover(
 	scope: AttachmentScope,
 	sectionId: number,
-	pdf: Awaited<ReturnType<typeof resolveMediaToolContext>>,
+	cover: string | null,
 	archive: string,
 ): Promise<string[]> {
 	const imageTipo = scope.cfg.imageTipo;
 	if (imageTipo === undefined) return [];
-	const cover = pdfCoverPath(pdf);
 	if (cover === null) {
 		return [
-			`${archive}: no cover image — the PDF's first page could not be rendered on this server`,
+			`${archive}: no cover image — this import rendered none, so the record's identifying image is unchanged`,
 		];
 	}
 	const tmpName = `zotero_cover_${sectionId}.${cover.split('.').pop()}`;
-	copyFileSync(cover, resolve(scope.dir, tmpName));
-	const { warnings } = await ingestInto(scope, sectionId, imageTipo, tmpName, `${archive} cover`);
-	return warnings.map((warning) => `${archive} cover: imported, but ${warning}`);
+	const staged = resolve(scope.dir, tmpName);
+	let copied = false;
+	try {
+		const media = await prepareIngest(scope, sectionId, imageTipo);
+		copyFileSync(cover, staged);
+		copied = true;
+		const { warnings } = await ingestPrepared(scope, media, tmpName, `${archive} cover`);
+		return warnings.map((warning) => `${archive} cover: imported, but ${warning}`);
+	} catch (error) {
+		return [attachmentFailure(scope, `${archive} cover`, error)];
+	} finally {
+		// The ingest moves the staged copy; a failed one leaves it behind. Only OUR
+		// copy is removed — a path the copy never wrote is not this run's.
+		if (copied) rmSync(staged, { force: true });
+	}
 }
 
 /** One record's `archive` PDF (+ its cover), as report lines. */
@@ -389,9 +472,22 @@ async function importArchive(
 	}
 	const staged = stagedPath(scope.dir, archive, entry.tmp_name ?? null);
 	if (typeof staged !== 'string') return [`${staged.error} — not imported`];
-	const pdf = await ingestInto(scope, sectionId, pdfTipo, basename(staged), archive);
-	const lines = pdf.warnings.map((warning) => `${archive}: imported, but ${warning}`);
-	return [...lines, ...(await importCover(scope, sectionId, pdf.identity, archive))];
+	let cover: string | null;
+	let pdf: IngestOutcome;
+	try {
+		const media = await prepareIngest(scope, sectionId, pdfTipo);
+		const coverPath = pdfCoverPath(media);
+		const before = fileStamp(coverPath);
+		pdf = await ingestPrepared(scope, media, basename(staged), archive);
+		cover = coverBuiltByIngest(coverPath, before);
+	} catch (error) {
+		return [attachmentFailure(scope, archive, error)];
+	}
+	const lines = [
+		...pdf.warnings.map((warning) => `${archive}: imported, but ${warning}`),
+		...pdf.notices.map((notice) => `${archive}: imported — ${notice}`),
+	];
+	return [...lines, ...(await importCover(scope, sectionId, cover, archive))];
 }
 
 /** Every committed record's attachments. A failure is that record's report line, never the run's. */
@@ -403,26 +499,14 @@ async function importAttachments(
 	const lines: string[] = [];
 	for (const { index, sectionId } of results) {
 		const archive = mapped[index]?.archive ?? null;
-		if (archive !== null) lines.push(...(await recordAttachment(scope, sectionId, archive)));
+		if (archive === null) continue;
+		lines.push(
+			...(sectionId === null
+				? [`${archive}: not imported — its record was not written`]
+				: await importArchive(scope, sectionId, archive)),
+		);
 	}
 	return lines;
-}
-
-/** One record's attachment lines: none written without a committed record, and never a thrown run. */
-async function recordAttachment(
-	scope: AttachmentScope,
-	sectionId: number | null,
-	archive: string,
-): Promise<string[]> {
-	if (sectionId === null) return [`${archive}: not imported — its record was not written`];
-	try {
-		return await importArchive(scope, sectionId, archive);
-	} catch (error) {
-		const why = isDedaloError(error)
-			? (error.publicMessage ?? error.code)
-			: 'the file could not be imported';
-		return [`${archive}: not imported — ${why}`];
-	}
 }
 
 // ---------------------------------------------------------------------------

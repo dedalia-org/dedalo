@@ -22,12 +22,14 @@
  * WC-2026-11-12-zotero-csl-json-import.
  */
 
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
 import { ghostscriptAvailable } from '../../src/core/media/engine/ghostscript.ts';
+import { buildMediaLocation } from '../../src/core/media/path.ts';
+import { resolveMediaToolContext } from '../../src/core/media/tool_support.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
@@ -47,6 +49,9 @@ const RUN = `zt${Date.now().toString(36)}`;
 const TABLE = 'matrix_test';
 const PDF_KIT = resolve(import.meta.dir, '../../src/core/test_data/media_kit/pdf.pdf');
 const HAVE_GS = ghostscriptAvailable();
+const IMAGE_KIT = resolve(import.meta.dir, '../../src/core/test_data/media_kit/image.jpg');
+/** A word-processor original stand-in: not a PDF rendition, so no derivative is rebuilt. */
+const ODT_BYTES = Buffer.from('PK\u0003\u0004 not a pdf: authored document stand-in\n');
 
 const stagingRoot = resolve(
 	config.media.rootPath ?? '',
@@ -346,29 +351,72 @@ describe('tool_import_zotero: a CSL-JSON export through the server map', () => {
 });
 
 describe('identity: the Zotero key, its full URI, duplicates', () => {
-	test('a code stored as the full URI is matched; another library with the same key is not', async () => {
-		// A record whose code holds the FULL URI of item U (PHP's `*/<key>` leg).
+	/** One record whose code (test162) holds `code` verbatim, as an earlier import may have stored it. */
+	async function seedCode(seedKey: string, code: string): Promise<number> {
 		const seed = await run({
-			files_data: stage('seed.json', [{ id: `seed-${key('U')}`, title: `${RUN} seed` }]),
+			files_data: stage(`seed${seedKey}.json`, [
+				{ id: `seed-${key(seedKey)}`, title: `${RUN} seed` },
+			]),
 		});
 		expect(seed.created).toBe(1);
-		const [seeded] = await recordsWithCode(`seed-${key('U')}`);
+		const [seeded] = await recordsWithCode(`seed-${key(seedKey)}`);
 		await sql.unsafe(
 			`UPDATE ${TABLE} SET string = jsonb_set(string, '{test162}', $1::text::jsonb) WHERE section_tipo = 'test3' AND section_id = $2`,
-			[JSON.stringify([{ id: 1, lang: 'lg-nolan', value: uri('U') }]), seeded],
+			[JSON.stringify([{ id: 1, lang: 'lg-nolan', value: code }]), seeded],
 		);
+		return seeded as number;
+	}
+
+	test('a code stored as the full URI is matched by that exact URI', async () => {
+		const seeded = await seedCode('U', uri('U'));
 		const matched = await run({
 			files_data: stage('u.json', [{ id: uri('U'), title: `${RUN} U again` }]),
 		});
 		expect(matched.updated).toBe(1);
 		expect(matched.created).toBe(0);
-		// The same key under ANOTHER library's URI is a different item: not matched.
+		expect((await itemsOf(seeded, 'string', 'test52')).map((i) => i.value)).toEqual([
+			`${RUN} U again`,
+		]);
+	});
+
+	test('a full-URI code is NOT matched by the same key under another library', async () => {
+		// The SAME key (no suffix): only the exact-URI leg could reach this record,
+		// and it must not — another library's item is a different item.
+		const seeded = await seedCode('L', uri('L'));
 		const other = await run({
-			files_data: stage('other.json', [
-				{ id: `http://zotero.org/groups/9/items/${key('U')}x`, title: `${RUN} other` },
+			files_data: stage('l.json', [
+				{ id: `http://zotero.org/groups/9/items/${key('L')}`, title: `${RUN} other library` },
 			]),
 		});
 		expect(other.created).toBe(1);
+		expect(other.updated).toBe(0);
+		expect((await itemsOf(seeded, 'string', 'test162')).map((i) => i.value)).toEqual([uri('L')]);
+		expect((await itemsOf(seeded, 'string', 'test52')).map((i) => i.value)).toEqual([
+			`${RUN} seed`,
+		]);
+	});
+
+	test('a BARE-key code (what this importer stores) is matched by the key from ANY library', async () => {
+		// PINNED, not endorsed: the importer writes the bare key (PHP), and the key
+		// leg is library-blind (PHP `*/<key>` was too), so a same-key item of another
+		// library UPDATES this record. Library-scoped identity is an open owner
+		// decision (WC-2026-11-12-zotero-csl-json-import, Identity) — change this
+		// gate with that ruling, never silently.
+		const first = await run({
+			files_data: stage('b1.json', [{ id: uri('BK'), title: `${RUN} B` }]),
+		});
+		expect(first.created).toBe(1);
+		const [stored] = await recordsWithCode(key('BK'));
+		expect((await itemsOf(stored as number, 'string', 'test162')).map((i) => i.value)).toEqual([
+			key('BK'),
+		]);
+		const other = await run({
+			files_data: stage('b2.json', [
+				{ id: `http://zotero.org/groups/9/items/${key('BK')}`, title: `${RUN} B other library` },
+			]),
+		});
+		expect(other.updated).toBe(1);
+		expect(other.created).toBe(0);
 	});
 
 	test('one Zotero key twice in one batch refuses the run, nothing written', async () => {
@@ -667,6 +715,123 @@ describe('attachments: the archive PDF and its cover', () => {
 				),
 			});
 			expect(report.attachments.some((l) => l.includes('cover'))).toBe(true);
+		},
+	);
+});
+
+describe("attachments: the cover is THIS import's, and every failure is named where it happened", () => {
+	/** The test85 PDF cover path of one record (where a previous document's cover sits). */
+	async function coverPathOf(sectionId: number): Promise<string> {
+		const media = await resolveMediaToolContext({
+			component_tipo: 'test85',
+			section_tipo: 'test3',
+			section_id: sectionId,
+		});
+		return buildMediaLocation(
+			media.spec,
+			media.identity,
+			media.spec.defaultQuality,
+			mustGet(media.spec.coverExtensions[0], 'cover extension'),
+			media.pathOpts,
+		).absolutePath;
+	}
+
+	test("a re-import whose archive builds no cover never takes the PREVIOUS document's cover", async () => {
+		const first = await run({ files_data: stage('stale1.json', [{ id: uri('STALE') }]) });
+		expect(first.created).toBe(1);
+		const [id] = await recordsWithCode(key('STALE'));
+		// The previous PDF's cover, still on disk.
+		const cover = await coverPathOf(id as number);
+		mkdirSync(dirname(cover), { recursive: true });
+		copyFileSync(IMAGE_KIT, cover);
+		// The new archive is a non-PDF original: nothing derived is rebuilt.
+		mkdirSync(stagedDir, { recursive: true });
+		writeFileSync(resolve(stagedDir, `${RUN}.odt`), ODT_BYTES);
+		const report = await run({
+			files_data: stage(
+				'stale2.json',
+				[{ id: uri('STALE'), archive: `${RUN}.odt` }],
+				[{ name: `${RUN}.odt` }],
+			),
+		});
+		expect(report.updated).toBe(1);
+		expect((await itemsOf(id as number, 'media', 'test85')).length).toBe(1);
+		expect(
+			await itemsOf(id as number, 'media', 'test99'),
+			JSON.stringify(report.attachments),
+		).toEqual([]);
+		expect(report.attachments.some((l) => l.startsWith(`${RUN}.odt: no cover image`))).toBe(true);
+		// The non-source notice reaches the operator.
+		expect(report.attachments.some((l) => l.includes('stored as the original'))).toBe(true);
+	});
+
+	test.skipIf(!HAVE_GS)(
+		'a failed cover import is a COVER line: the persisted PDF is not reported missing, no staged copy left',
+		async () => {
+			await installScratchToolConfig('tool_import_zotero', {
+				...SERVER_CONFIG,
+				main: SERVER_CONFIG.main.map((m) =>
+					m.name === 'identifying_image' ? { ...m, tipo: 'test52' } : m,
+				),
+			});
+			try {
+				const report = await run({
+					files_data: stage(
+						'cfail.json',
+						[{ id: uri('CF'), archive: `${RUN}c.pdf` }],
+						[{ name: `${RUN}c.pdf`, from: PDF_KIT }],
+					),
+				});
+				const [id] = await recordsWithCode(key('CF'));
+				expect((await itemsOf(id as number, 'media', 'test85')).length).toBe(1);
+				expect(
+					report.attachments.some((l) => l.startsWith(`${RUN}c.pdf cover: not imported`)),
+					JSON.stringify(report.attachments),
+				).toBe(true);
+				expect(report.attachments.some((l) => l.startsWith(`${RUN}c.pdf: not imported`))).toBe(
+					false,
+				);
+				expect(existsSync(resolve(stagedDir, `zotero_cover_${id}.jpg`))).toBe(false);
+			} finally {
+				// Re-installing replaces the scratch row (one id); its teardown stays the file's.
+				teardownConfig = await installScratchToolConfig('tool_import_zotero', SERVER_CONFIG);
+			}
+		},
+	);
+
+	test.skipIf(!HAVE_GS)(
+		'an engine fault in the attachment ingest is LOGGED as one and its line names the request',
+		async () => {
+			const first = await run({ files_data: stage('fault1.json', [{ id: uri('FAULT') }]) });
+			expect(first.created).toBe(1);
+			const [id] = await recordsWithCode(key('FAULT'));
+			// A directory squats the cover's staging name: the copy fails in the fs,
+			// below every typed door — an engine fault, not a refusal.
+			const squat = resolve(stagedDir, `zotero_cover_${id}.jpg`);
+			mkdirSync(resolve(squat, 'occupied'), { recursive: true });
+			const logged = spyOn(console, 'error').mockImplementation(() => {});
+			let report: Report;
+			let calls: unknown[][];
+			try {
+				report = await run({
+					files_data: stage(
+						'fault2.json',
+						[{ id: uri('FAULT'), archive: `${RUN}d.pdf` }],
+						[{ name: `${RUN}d.pdf`, from: PDF_KIT }],
+					),
+				});
+			} finally {
+				calls = [...logged.mock.calls];
+				logged.mockRestore();
+				rmSync(squat, { recursive: true, force: true });
+			}
+			const line = report.attachments.find((l) => l.startsWith(`${RUN}d.pdf cover`));
+			expect(line, JSON.stringify(report.attachments)).toContain('internal error');
+			expect(
+				calls.some((call) =>
+					String(call[0]).startsWith('[tool_import_zotero] internal.unexpected'),
+				),
+			).toBe(true);
 		},
 	);
 });
