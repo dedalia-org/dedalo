@@ -735,8 +735,12 @@ function isReferencesAtom(atom: GridAtom): boolean {
 }
 
 /** A '#references' atom shaped as the main cell's (its references segment
- * dropped): the value fold then joins it with the main cell's own separators. */
-function stripReferencesSegment(atom: GridAtom): GridAtom {
+ * dropped): the value fold then joins it with the main cell's own separators.
+ * A component_info OUTPUT whose id is 'references' is NOT that segment — it
+ * stays, or a multi-valued output would fold as the info segment's leaf and the
+ * `#references` text would differ from the same record's main cell. Exported
+ * for its outcome gate (tool_export_info_native: references fold == main fold). */
+export function stripReferencesSegment(atom: GridAtom): GridAtom {
 	return {
 		...atom,
 		segments: atom.segments.filter(

@@ -18,21 +18,27 @@
  *               reader) answers every output's value;
  *   context     the compute runs in the exported record's context (the
  *               test_info placeholder names the record);
- *   reserved    an output whose id is `parents` is an info column, not the
- *               WC-049 parents mirror (its value stays in the value cell);
+ *   reserved    outputs whose ids are `parents` / `references` are info
+ *               columns, not the WC-049 parents mirror nor the D4 references
+ *               column (their values stay in the value cell);
  *   D4 safety   a displayed record read for its component_info the read does
  *               NOT show must not count as "holds no data" (its misc slot is
  *               empty by construction) → the export refuses by the column;
- *   parsed      widgetComputeDataParsed = the widget's get_data_parsed face
- *               (sum_dates), else its computeData.
+ *   parsed      the export ships the widget's get_data_parsed face (sum_dates:
+ *               humanized text, never the raw DateInterval objects);
+ *               widgetComputeDataParsed falls back to computeData.
  *
  * THE SITUATION IS BUILT (`zzxw`, dropped in afterAll, residue 0):
  *   zzxw1  W (host)   zzxw2 filter · zzxw3 W_LABEL input_text
  *                     zzxw4 INFO component_info: test_info over W_LABEL,
- *                     outputs [zz_value, parents]
+ *                     outputs [zz_value, parents, references]
+ *                     zzxw5 W_PORTAL portal → DATES · zzxw6 SUM component_info:
+ *                     sum_dates over W_PORTAL (DATE_IN/DATE_OUT)
+ *   zzxw20 DATES      zzxw21 filter · zzxw22 DATE_IN · zzxw23 DATE_OUT (date)
  *   zzxw10 J host     zzxw11 filter · zzxw12 REL_J autocomplete → W, own
  *                     config [W_LABEL, INFO]; J's map injects [REL_J ⟶ W_LABEL]
- * Records (matrix_test): W#1 (mine) label 'zz xw one' + a PLANTED stale misc;
+ * Records (matrix_test): W#1 (mine) label 'zz xw one' + a PLANTED stale misc
+ *   + W_PORTAL → DATES#1 (2020-01-01 → 2020-03-16);
  *   W#2 (mine) no label; W#5 (OTHER project) label 'zz xw five';
  *   J#1 (mine) REL_J → W#5 (the D4 probe).
  */
@@ -56,6 +62,12 @@ import {
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import type { ToolActionContext, ToolResponse } from '../../src/core/tools/module.ts';
 import { clearTermCache } from '../../src/core/ts_object/term_resolver.ts';
+import {
+	type ExportSegment,
+	type GridAtom,
+	stripReferencesSegment,
+} from '../../src/diffusion/export/atoms.ts';
+import { joinExportAtoms } from '../../src/diffusion/export/join_atoms.ts';
 import { toolExportGetExportGrid } from '../../tools/tool_export/server/tool_export.ts';
 import { countActivityRows, sweepActivityRows } from '../helpers/activity_rows.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
@@ -80,8 +92,20 @@ const INFO = 'zzxw4';
 const J = 'zzxw10';
 const J_FILTER = 'zzxw11';
 const REL_J = 'zzxw12';
+const W_PORTAL = 'zzxw5';
+const SUM = 'zzxw6';
+const DATES = 'zzxw20';
+const DATES_FILTER = 'zzxw21';
+const DATE_IN = 'zzxw22';
+const DATE_OUT = 'zzxw23';
+const BIDI = 'zzxw7';
 
-const TERM = { W: 'zz xw host', INFO: 'zz xw info', REL_J: 'zz xw injected' };
+const TERM = {
+	W: 'zz xw host',
+	INFO: 'zz xw info',
+	SUM: 'zz xw sum dates',
+	REL_J: 'zz xw injected',
+};
 
 const term = (value: string) => ({ [LANG]: value });
 const section = (tipo: string, label: string) => ({
@@ -141,7 +165,7 @@ const S = situation({
 										{ section_id: 'current', section_tipo: 'current', component_tipo: W_LABEL },
 									],
 								},
-								output: [{ id: 'zz_value' }, { id: 'parents' }],
+								output: [{ id: 'zz_value' }, { id: 'parents' }, { id: 'references' }],
 								process: {},
 							},
 						],
@@ -149,6 +173,55 @@ const S = situation({
 				],
 			},
 		},
+		{
+			tipo: W_PORTAL,
+			parent: W,
+			model: 'component_portal',
+			term: term('zz xw spans'),
+			properties: requestConfig(DATES, [DATE_IN]),
+		},
+		{
+			// a widget WITH a get_data_parsed face: its raw items are
+			// DateInterval objects, its parsed face the humanized text
+			tipo: SUM,
+			parent: W,
+			model: 'component_info',
+			term: term(TERM.SUM),
+			properties: {
+				widgets: [
+					{
+						widget_name: 'sum_dates',
+						path: '/mdcat/sum_dates',
+						ipo: [
+							{
+								input: [
+									{ type: 'source', section_tipo: 'self', component_tipo: W_PORTAL },
+									{ type: 'date_in', section_tipo: 'current', component_tipo: DATE_IN },
+									{ type: 'date_out', section_tipo: 'current', component_tipo: DATE_OUT },
+								],
+								output: [{ id: 'sum_intervals' }],
+							},
+						],
+					},
+				],
+			},
+		},
+		{
+			// dd467 bidirectional: W#2 → W#1 makes W#2 a CALCULATED (D4
+			// `#references`) relation of W#1, shown through INFO
+			tipo: BIDI,
+			parent: W,
+			model: 'component_relation_related',
+			term: term('zz xw related'),
+			properties: {
+				...requestConfig(W, [INFO]),
+				config_relation: { relation_type: 'dd89', relation_type_rel: 'dd467' },
+			},
+		},
+		section(DATES, 'zz xw dates'),
+		filter(DATES_FILTER, DATES),
+		{ tipo: DATE_IN, parent: DATES, model: 'component_date', term: term('zz xw date in') },
+		{ tipo: DATE_OUT, parent: DATES, model: 'component_date', term: term('zz xw date out') },
 		{
 			...section(J, 'zz xw injecting host'),
 			properties: {
@@ -225,7 +298,7 @@ async function writeRecord(
 	clearTermCache();
 }
 
-const SECTIONS = [W, J];
+const SECTIONS = [W, J, DATES];
 
 async function sweepRecords(): Promise<number> {
 	let removed = 0;
@@ -246,8 +319,34 @@ async function writeRecords(): Promise<void> {
 	const staleMisc = {
 		[INFO]: [{ widget: 'test_info', key: 0, id: 'zz_value', value: STALE }],
 	};
-	await writeRecord(W, 1, W_FILTER, identity.myProject, {}, label('zz xw one'), staleMisc);
-	await writeRecord(W, 2, W_FILTER, identity.myProject);
+	// W#1 spans D#1: 2020-01-01 → 2020-03-16 (sum_dates: 2 months 15 days)
+	await writeRecord(
+		W,
+		1,
+		W_FILTER,
+		identity.myProject,
+		{
+			[W_PORTAL]: [
+				{ id: 1, type: 'dd151', section_tipo: DATES, section_id: 1, from_component_tipo: W_PORTAL },
+			],
+		},
+		label('zz xw one'),
+		staleMisc,
+	);
+	await writeRecord(DATES, 1, DATES_FILTER, identity.myProject);
+	await sql.unsafe(
+		`UPDATE ${TABLE} SET date = $1::text::jsonb WHERE section_tipo = $2 AND section_id = 1`,
+		[
+			encodeForJsonb({
+				[DATE_IN]: [{ id: 1, start: { year: 2020, month: 1, day: 1 } }],
+				[DATE_OUT]: [{ id: 1, start: { year: 2020, month: 3, day: 16 } }],
+			}),
+			DATES,
+		],
+	);
+	await writeRecord(W, 2, W_FILTER, identity.myProject, {
+		[BIDI]: [{ id: 1, type: 'dd89', section_tipo: W, section_id: 1, from_component_tipo: BIDI }],
+	});
 	await writeRecord(W, 5, W_FILTER, identity.otherProject, {}, label('zz xw five'));
 	await writeRecord(J, 1, J_FILTER, identity.myProject, {
 		[REL_J]: [{ id: 1, type: 'dd151', section_tipo: W, section_id: 5, from_component_tipo: REL_J }],
@@ -266,6 +365,7 @@ function exportOptions(
 		{ section_tipo: W, component_tipo: INFO },
 	],
 	host = W,
+	ddo: Record<string, unknown> = {},
 ): Record<string, unknown> {
 	return {
 		section_tipo: host,
@@ -274,7 +374,7 @@ function exportOptions(
 		data_format: dataFormat,
 		breakdown: 'default',
 		fill_the_gaps: false,
-		ar_ddo_to_export: [{ path }],
+		ar_ddo_to_export: [{ path, ...ddo }],
 		sqo: {
 			section_tipo: [host],
 			limit: 10,
@@ -358,9 +458,12 @@ describe.if(DB_READY)('tool_export exports component_info (live widget outputs)'
 			expect(keysOf(grid)).toEqual([TOP]);
 			expect(grid.columns?.[0]?.label).toBe(TERM.INFO);
 			const cells = cellsByKey(grid);
-			// zz_value + parents (an info output, NOT the WC-049 mirror), joined
-			expect(cells['1#0']).toEqual({ [TOP]: 'zz xw one, zz xw one' });
-			expect(cells['2#0']).toEqual({ [TOP]: `${PLACEHOLDER}, ${PLACEHOLDER}` });
+			// zz_value + parents + references — info outputs, NOT the WC-049
+			// mirror nor the D4 references column — joined in the own cell
+			expect(cells['1#0']).toEqual({ [TOP]: 'zz xw one, zz xw one, zz xw one' });
+			expect(cells['2#0']).toEqual({
+				[TOP]: `${PLACEHOLDER}, ${PLACEHOLDER}, ${PLACEHOLDER}`,
+			});
 			expect(JSON.stringify(grid)).not.toContain(STALE);
 		}
 	});
@@ -370,10 +473,11 @@ describe.if(DB_READY)('tool_export exports component_info (live widget outputs)'
 		// PHP key shape: the own segment's identity, then the output sub-segment's
 		const value = `${TOP}.${TOP}#zz_value`;
 		const parents = `${TOP}.${TOP}#parents`;
-		expect(keysOf(grid)).toEqual([parents, value]);
+		const references = `${TOP}.${TOP}#references`;
+		expect(keysOf(grid)).toEqual([parents, references, value]);
 		expect(cellsByKey(grid)).toEqual({
-			'1#0': { [value]: 'zz xw one', [parents]: 'zz xw one' },
-			'2#0': { [value]: PLACEHOLDER, [parents]: PLACEHOLDER },
+			'1#0': { [value]: 'zz xw one', [parents]: 'zz xw one', [references]: 'zz xw one' },
+			'2#0': { [value]: PLACEHOLDER, [parents]: PLACEHOLDER, [references]: PLACEHOLDER },
 		});
 		const labelOf = new Map((grid.columns ?? []).map((c) => [String(c.key), c.label]));
 		expect(labelOf.get(value)).toBe(`${TERM.INFO} | zz_value`);
@@ -389,6 +493,7 @@ describe.if(DB_READY)('tool_export exports component_info (live widget outputs)'
 		expect(parsed.dedalo_data.map((item) => [item.id, item.value])).toEqual([
 			['zz_value', 'zz xw one'],
 			['parents', 'zz xw one'],
+			['references', 'zz xw one'],
 		]);
 		expect(raw).not.toContain(STALE);
 	});
@@ -402,7 +507,7 @@ describe.if(DB_READY)('tool_export exports component_info (live widget outputs)'
 					resolveCellItems(W, 1, INFO, LANG, unresolved),
 				),
 		);
-		expect(items).toEqual(['zz xw one', 'zz xw one']);
+		expect(items).toEqual(['zz xw one', 'zz xw one', 'zz xw one']);
 		expect(unresolved).toEqual([]);
 	});
 
@@ -415,11 +520,60 @@ describe.if(DB_READY)('tool_export exports component_info (live widget outputs)'
 				`REFUSED:${REFUSAL}:${JSON.stringify({ column: TERM.REL_J })}`,
 			);
 		}
-		// non-vacuity: the column's own config DOES reach W#5's info value
+		// non-vacuity: the column's own config DOES reach W#5's info value —
+		// pinned BY ITS OUTPUTS, never by the bare string (W_LABEL, an item of
+		// the same REL_J config, also answers 'zz xw five')
+		const top = `${J}_${REL_J}`;
+		const valueGrid = await gridOf(identity.admin, exportOptions('value', [1], path, J));
+		// W_LABEL + the three info outputs, joined in the one column
+		expect(cellsByKey(valueGrid)).toEqual({
+			'1#0': { [top]: 'zz xw five, zz xw five, zz xw five, zz xw five' },
+		});
+		const grid = await gridOf(identity.admin, exportOptions('grid_value', [1], path, J));
+		const info = `${top}.${W}_${INFO}.${W}_${INFO}`;
+		expect(cellsByKey(grid)).toEqual({
+			'1#0': {
+				[`${top}.${W}_${W_LABEL}`]: 'zz xw five',
+				[`${info}#zz_value`]: 'zz xw five',
+				[`${info}#parents`]: 'zz xw five',
+				[`${info}#references`]: 'zz xw five',
+			},
+		});
+	});
+
+	test('D4 #references: a calculated record shows its info outputs (an output named references stays an info column)', async () => {
+		// W#2 stores BIDI → W#1, so W#2 is W#1's CALCULATED relation (dd467)
+		const path = [{ section_tipo: W, component_tipo: BIDI }];
+		const ddo = { value_with_references: true };
+		const top = `${W}_${BIDI}`;
+		const W2 = `test_info widget value for section ${W} - 2`;
+		const value = cellsByKey(
+			await gridOf(identity.admin, exportOptions('value', [1], path, W, ddo)),
+		);
+		expect(value).toEqual({ '1#0': { [`${top}#references`]: `${W2}, ${W2}, ${W2}` } });
+		const grid = cellsByKey(
+			await gridOf(identity.admin, exportOptions('grid_value', [1], path, W, ddo)),
+		);
+		const info = `${top}.${top}#references.${W}_${INFO}.${W}_${INFO}`;
+		expect(grid).toEqual({
+			'1#0': {
+				[`${info}#zz_value`]: W2,
+				[`${info}#parents`]: W2,
+				[`${info}#references`]: W2,
+			},
+		});
+	});
+
+	test('parsed: the export ships the widget get_data_parsed face (sum_dates humanized)', async () => {
+		const top = `${W}_${SUM}`;
+		const path = [{ section_tipo: W, component_tipo: SUM }];
 		for (const format of ['value', 'grid_value'] as const) {
-			const answer = await answerOf(identity.admin, exportOptions(format, [1], path, J));
-			expect(answer.startsWith('OK:'), answer).toBe(true);
-			expect(answer).toContain('zz xw five');
+			const cells = cellsByKey(await gridOf(identity.admin, exportOptions(format, [1], path)));
+			const key = format === 'value' ? top : `${top}.${top}#sum_intervals`;
+			expect(Object.keys(cells['1#0'] ?? {})).toEqual([key]);
+			// D#1 2020-01-01 → 2020-03-16, humanized with the localized labels —
+			// the raw face would ship the JSON-encoded DateInterval ({"y":0,…})
+			expect(cells['1#0']?.[key]).toMatch(/^2 \S+ 15 \S+$/);
 		}
 	});
 
@@ -429,5 +583,42 @@ describe.if(DB_READY)('tool_export exports component_info (live widget outputs)'
 		if ('unported' in sumDates || 'unported' in testInfo) throw new Error('widgets unported');
 		expect(widgetComputeDataParsed(sumDates)).toBe(sumDates.computeDataParsed as never);
 		expect(widgetComputeDataParsed(testInfo)).toBe(testInfo.computeData);
+	});
+});
+
+describe('#references strip keeps an info output named references (pure fold)', () => {
+	const segment = (component: string, extra: Partial<ExportSegment> = {}): ExportSegment => ({
+		section_tipo: W,
+		component_tipo: component,
+		model: null,
+		item_index: null,
+		section_id: null,
+		...extra,
+	});
+	// a MULTI-valued output under an info segment with its own separator — the
+	// only shape in which dropping the output segment changes the fold
+	const infoSegment = segment(INFO, {
+		model: 'component_info',
+		item_index: 0,
+		fields_separator: ' ; ',
+	});
+	const atomsUnder = (prefix: ExportSegment[]): GridAtom[] =>
+		[
+			['zz_value', 'a'],
+			['zz_value', 'b'],
+			['references', 'c'],
+		].map(([sub, value]) => ({
+			value: value as string,
+			cellType: 'text',
+			model: 'component_info',
+			segments: [...prefix, infoSegment, segment(INFO, { sub_id: sub as string })],
+		}));
+
+	test('the #references fold equals the main cell fold', () => {
+		const relation = segment(BIDI, { model: 'component_relation_related' });
+		const main = joinExportAtoms(atomsUnder([relation]));
+		expect(main).toBe('a, b ; c');
+		const references = atomsUnder([relation, segment(BIDI, { sub_id: 'references' })]);
+		expect(joinExportAtoms(references.map(stripReferencesSegment))).toBe(main);
 	});
 });

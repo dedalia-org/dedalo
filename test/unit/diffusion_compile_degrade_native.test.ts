@@ -202,6 +202,10 @@ const MODELS: Record<string, string> = {
 	// Real model of the live mht ontology (dd_ontology of dedalo7_mht), so the
 	// mht2 topology case reproduces a true chain.
 	zzc140: 'component_input_text',
+	// the info family: component_info and its two legacy aliases
+	zzcinfo: 'component_info',
+	zzcstate: 'component_state',
+	zzccalc: 'component_calculation',
 };
 
 const compileOptions = (fields: FieldSpec[]): CompileOptions => ({
@@ -555,6 +559,43 @@ describe('a ddo fn either resolves or fails LOUDLY (never a silent empty publish
 			componentStep('hierarchy53', 'component_input_text', 'map_target_section_tipo'),
 		);
 		await expect(promise).rejects.toThrow(/map_target_section_tipo/);
+	});
+});
+
+/**
+ * PHP component_info::get_diffusion_data OVERRIDES the common one, so a ddo fn
+ * on an info-family component never ran: the live widget compute IS the value
+ * (resolve/info_value.ts). The compiler keeps the fn OFF the step — and says
+ * so (`info-fn-ignored:<fn>@<field>`), or the narrowing would be silent.
+ */
+describe('a ddo fn on an info-family component is dropped LOUDLY', () => {
+	const FN = 'map_section_id_to_subtitles_url';
+	const stepOf = (plan: Awaited<ReturnType<typeof compileElementPlan>>, fieldId: string) =>
+		plan.sections[0]?.fields.find((field) => field.id === fieldId)?.sourceChain[0];
+
+	test('info / state / calculation: no step.fn, one warning per field', async () => {
+		const infoTipos = ['zzcinfo', 'zzcstate', 'zzccalc'];
+		const plan = await compileElementPlan(
+			ELEMENT_TIPO,
+			compileOptions([
+				...infoTipos.map((tipo) => ({
+					tipo: `f_${tipo}`,
+					label: `col_${tipo}`,
+					process: { ddo_map: [ddo(tipo, { fn: FN })] },
+				})),
+				// control: the SAME fn on a non-info component is kept
+				{ tipo: 'f_text', label: 'col_text', process: { ddo_map: [ddo('zzc175', { fn: FN })] } },
+			]),
+		);
+		for (const tipo of infoTipos) {
+			const step = stepOf(plan, `f_${tipo}`);
+			expect(step?.kind).toBe('component');
+			expect(step !== undefined && 'fn' in step).toBe(false);
+			expect(plan.warnings).toContain(`info-fn-ignored:${FN}@f_${tipo}`);
+		}
+		const control = stepOf(plan, 'f_text') as { fn?: string } | undefined;
+		expect(control?.fn).toBe(FN);
+		expect(plan.warnings.filter((w) => w.startsWith('info-fn-ignored:'))).toHaveLength(3);
 	});
 });
 

@@ -74,8 +74,19 @@ the screen with no notice. The value of a component_info is what its widgets com
 - `test/unit/diffusion_info_live_native.test.ts` (test3 / test212 — live value, stale misc never
   published, record-context placeholder, one compute per record, the refusal).
 - `test/unit/tool_export_info_native.test.ts` (`zzxw` situation — value, grid_value keys + label,
-  dedalo_raw live, panel, reserved `parents` output, D4 refusal; the reserved and D4 guards were
-  mutation-verified RED when reverted).
+  dedalo_raw live, panel, reserved `parents` AND `references` outputs, D4 refusal + the D4
+  `#references` walk, the parsed face through the export door (`sum_dates` over a built date
+  pair: humanized text, never the JSON interval), and a pure fold gate for the `#references`
+  strip (an info output named `references` keeps its sub-segment, so the references fold equals
+  the main fold). Mutation-verified RED when reverted (T1-2 review, 2026-11-12): the
+  `parents` guard, the `references` guard in `isReferencesAtom` and in `stripReferencesSegment`,
+  `widgetComputeDataParsed` → `widgetComputeData` in the export, the D4 `holdsNoData` guard,
+  and info emission for the D4 record (the non-vacuity half pins the info OUTPUT cells, not a
+  string `W_LABEL` also answers). As first committed only the `parents` and D4 guards were.)
+- `test/unit/diffusion_compile_degrade_native.test.ts` — `info-fn-ignored`: a ddo fn on
+  component_info / component_state / component_calculation is off the step AND warned (RED on
+  either the dropped warning or the pre-change copy onto `step.fn`); control: the same fn on a
+  non-info model is kept.
 - `descriptor_completeness_tripwire`: `component_info` left `NO_FLAT_VALUE_LEAF_EXEMPT`; its
   `NOT_DERIVED_BY_FACET` reason corrected (D3 open).
 - Fixtures: no frozen parity fixture covers a component_info diffusion or export column — no
