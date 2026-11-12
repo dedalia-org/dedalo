@@ -111,6 +111,7 @@ import { NOLAN_KEY, projectRecordRows } from '../project/lang_ladder.ts';
 import type { IconographyOptions, SvgTagPathMemo } from './ddo_fns.ts';
 import {
 	buildGeojsonLayers,
+	buildGeolocationLayers,
 	createSvgTagPathMemo,
 	iconographyOptionsOf,
 	joinIconographyScenes,
@@ -842,6 +843,12 @@ export interface ComponentFnEnv {
 	pairedGeolocationTipo: (textAreaTipo: string) => Promise<string | null>;
 	/** The run's svg tag path memo (parse_tag_to_html — RunContext.svgTagPathMemo). */
 	svgTagPathMemo: SvgTagPathMemo;
+	/**
+	 * map_target_section_tipo: section tipo → the table name the element
+	 * publishes it under (PublicationPlan.targetSectionTables, compiled), null
+	 * when the element publishes no table for it.
+	 */
+	targetSectionTableOf: (sectionTipo: string) => string | null;
 }
 
 /**
@@ -872,6 +879,38 @@ export function subtitlesUrlAtoms(
 		lang,
 		meta,
 	}));
+}
+
+/**
+ * diffusion_fn::map_target_section_tipo (PHP :75-150): the component's value
+ * names a section (hierarchy53 'on1'); the published value is the table name
+ * the element publishes that section under ('ts_onomastic'), looked up in the
+ * COMPILED map (the resolver never walks dd_ontology). The first non-empty
+ * stored string is the value (the component is single-valued); empty value or
+ * no table = PHP's null value = no atoms. Lang-neutral.
+ * WC: engineering/wire_contract/WC-2026-11-12-diffusion-map-target-section-tipo.md
+ */
+function targetSectionTableAtoms(
+	env: ComponentFnEnv,
+	record: MatrixRecord,
+	step: Extract<ResolveStep, { kind: 'component' }>,
+	meta: ValueMeta,
+): MetaValueIR[] {
+	const stored = (readComponentItems(record, step.tipo, step.model) ?? []) as { value?: unknown }[];
+	const sectionTipo = stored
+		.map((item) => item?.value)
+		.find((value): value is string => typeof value === 'string' && value !== '');
+	if (sectionTipo === undefined) return [];
+	const tableName = env.targetSectionTableOf(sectionTipo);
+	return tableName === null ? [] : [{ kind: 'scalar', value: tableName, lang: null, meta }];
+}
+
+/** Own-key lookup in the compiled map (a stored value is record data: never reach the prototype). */
+function targetSectionTableOf(plan: PublicationPlan, sectionTipo: string): string | null {
+	const tables = plan.targetSectionTables;
+	return tables !== undefined && Object.hasOwn(tables, sectionTipo)
+		? (tables[sectionTipo] ?? null)
+		: null;
 }
 
 /**
@@ -944,6 +983,22 @@ export async function resolveComponentFnAtoms(
 			);
 			return layers.length > 0 ? [{ kind: 'json', value: layers, lang: null, meta }] : [];
 		}
+
+		case 'get_geolocation_data': {
+			// component_text_area::get_geolocation_data (:1670-1673) =
+			// build_geolocation_data(false): the SAME paired geolocation, its
+			// layers' features flattened to {type, lon, lat}; NO point fallback.
+			// Lang-neutral json atom; no pair / no layers = no atoms.
+			const geoTipo = await env.pairedGeolocationTipo(step.tipo);
+			if (geoTipo === null) return [];
+			const layers = buildGeolocationLayers(
+				readComponentItems(record, geoTipo, 'component_geolocation'),
+			);
+			return layers.length > 0 ? [{ kind: 'json', value: layers, lang: null, meta }] : [];
+		}
+
+		case 'map_target_section_tipo':
+			return targetSectionTableAtoms(env, record, step, meta);
 
 		case 'map_section_id_to_subtitles_url':
 			return subtitlesUrlAtoms(record.section_id, env.langs, meta);
@@ -1800,6 +1855,7 @@ async function walkChainLevel(
 							langs: ctx.plan.langPolicy.langs,
 							pairedGeolocationTipo: (textAreaTipo) => pairedGeolocationTipoOf(ctx, textAreaTipo),
 							svgTagPathMemo: ctx.svgTagPathMemo,
+							targetSectionTableOf: (sectionTipo) => targetSectionTableOf(ctx.plan, sectionTipo),
 						},
 						record,
 						step,

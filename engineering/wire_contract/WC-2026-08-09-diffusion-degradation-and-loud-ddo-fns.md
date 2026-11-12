@@ -173,3 +173,18 @@ key 17581758); a runner that does not win it simply does not retry that pass.
   diffusion run report is not among them, and the old-engine SSE transcripts
   assert the frame SHAPE (`errors` has always been an array on the final
   chunk), not its emptiness.
+
+## Addendum 2026-11-12 — `get_geolocation_data` and `map_target_section_tipo` ported (T1-5)
+
+- **Census correction (item 2):** `map_target_section_tipo` was NOT latent. The default
+  domain (`dd45 'default'`, the `DEDALO_DIFFUSION_DOMAIN` default) carries element `oh63`,
+  whose database `oh88` publishes table `hierarchy79` (`hierarchy`, section `hierarchy1`)
+  holding `hierarchy83`: every install publishing hierarchies got one error per record. The
+  2026-08-09 census looked at five non-default databases only.
+- **Both fns now resolve.** `map_target_section_tipo`: see
+  [WC-2026-11-12-diffusion-map-target-section-tipo](WC-2026-11-12-diffusion-map-target-section-tipo.md).
+  `get_geolocation_data` RESTORES PHP parity (`build_geolocation_data(false)`: the paired
+  geolocation's layers, features flattened to `{type, lon, lat}`, no point fallback) and
+  needs no licence. Owner question T1-5 §7 (non-Point geometries publish `lon` = the
+  coordinates' first member, `lat` = the second, as PHP did) is OPEN; parity is what ships.
+- The "unported fn throws on an empty slice" gate now uses a synthetic fn name.

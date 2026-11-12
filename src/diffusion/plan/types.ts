@@ -459,4 +459,12 @@ export interface PublicationPlan {
 	 * `plan.degradations ?? []`.
 	 */
 	degradations?: PlanDegradation[];
+	/**
+	 * The compiled argument of the `map_target_section_tipo` ddo fn: section
+	 * tipo → the table name this element publishes it under
+	 * (virtual_tree.ts getTargetSectionTableNames). Set ONLY when a field step
+	 * uses that fn, so the resolver never walks dd_ontology and every other
+	 * plan stays byte-equal.
+	 */
+	targetSectionTables?: Record<string, string>;
 }

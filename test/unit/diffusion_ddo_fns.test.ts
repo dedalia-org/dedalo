@@ -35,6 +35,7 @@ import { resolveTagLocatorMediaPath } from '../../src/core/media/tag_locator.ts'
 import {
 	addTagImgOnTheFly,
 	buildGeojsonLayers,
+	buildGeolocationLayers,
 	geojsonPointFallbackLayers,
 	iconographyOptionsOf,
 	joinIconographyScenes,
@@ -298,6 +299,103 @@ describe('get_geojson_data — lib_data layers verbatim + point fallback', () =>
 		);
 		expect(buildGeojsonLayers([{ lat: '', lon: '' }])).toEqual([]);
 		expect(buildGeojsonLayers([{ zoom: 12, alt: 16 }])).toEqual([]);
+	});
+});
+
+describe('get_geolocation_data — build_geolocation_data(false): features flattened, no fallback', () => {
+	const point = (lon: number, lat: number) => ({
+		type: 'Feature',
+		geometry: { type: 'Point', coordinates: [lon, lat] },
+		properties: {},
+	});
+	const itemWith = (libData: unknown) => ({
+		id: 1,
+		lat: '42.13457368415802',
+		lon: '3.120603218165126',
+		lib_data: libData,
+	});
+
+	test('a Point feature publishes {type, lon, lat} verbatim (no number formatting)', () => {
+		const layers = buildGeolocationLayers([
+			itemWith([
+				{
+					layer_id: 1,
+					layer_data: {
+						type: 'FeatureCollection',
+						features: [point(3.120603218165126, 42.13457368415802)],
+					},
+				},
+			]),
+		]);
+		expect(JSON.stringify(layers)).toBe(
+			'[{"layer_id":1,"text":"","layer_data":[{"type":"Point","lon":3.120603218165126,"lat":42.13457368415802}]}]',
+		);
+	});
+
+	test('layer and feature order kept; a feature without geometry is skipped; no features → []', () => {
+		const layers = buildGeolocationLayers([
+			itemWith([
+				{
+					layer_id: 2,
+					layer_data: {
+						features: [
+							point(1, 2),
+							{ type: 'Feature', properties: {} },
+							{ geometry: null },
+							point(3, 4),
+						],
+					},
+				},
+				{ layer_id: 1, layer_data: { type: 'FeatureCollection' } },
+				{ layer_data: { features: 'not-a-list' } },
+			]),
+		]);
+		expect(layers).toEqual([
+			{
+				layer_id: 2,
+				text: '',
+				layer_data: [
+					{ type: 'Point', lon: 1, lat: 2 },
+					{ type: 'Point', lon: 3, lat: 4 },
+				],
+			},
+			{ layer_id: 1, text: '', layer_data: [] },
+			// layer_id absent → null (PHP `?? null`)
+			{ layer_id: null, text: '', layer_data: [] },
+		]);
+	});
+
+	test('a Polygon publishes lon = the outer ring, lat = null (PHP parity, verbatim)', () => {
+		const ring = [
+			[0, 0],
+			[1, 0],
+			[1, 1],
+			[0, 0],
+		];
+		const layers = buildGeolocationLayers([
+			itemWith([
+				{
+					layer_id: 1,
+					layer_data: { features: [{ geometry: { type: 'Polygon', coordinates: [ring] } }] },
+				},
+			]),
+		]);
+		expect(layers).toEqual([
+			{ layer_id: 1, text: '', layer_data: [{ type: 'Polygon', lon: ring, lat: null }] },
+		]);
+	});
+
+	test('NO point fallback: lat/lon without lib_data publishes nothing (unlike get_geojson_data)', () => {
+		const stored = [itemWith(undefined)];
+		expect(buildGeolocationLayers(stored)).toEqual([]);
+		// control: the geojson variant DOES fall back on the same item
+		expect(buildGeojsonLayers(stored).length).toBe(1);
+		expect(buildGeolocationLayers([itemWith([])])).toEqual([]);
+	});
+
+	test('no stored item → []', () => {
+		expect(buildGeolocationLayers(null)).toEqual([]);
+		expect(buildGeolocationLayers([])).toEqual([]);
 	});
 });
 

@@ -695,6 +695,18 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Publishing hierarchies and text-area geolocation fields no longer reports errors and leaves empty columns.**
+
+    Two publication functions were not implemented, so every published record raised an error
+    ("Partial success") and the column stayed empty. Publishing the `hierarchy` table now
+    writes each thesaurus's target table name (for example `ts_onomastic`), and the flat
+    geolocation column of text-area fields (`get_geolocation_data`) publishes its layers as
+    `{type, lon, lat}` points. Republish the `hierarchy` table and the tables holding those
+    geolocation fields to fill the columns written empty before. See
+    [the diffusion engine](./diffusion/native_engine.md).
+
+    Wire contract: `WC-2026-11-12-diffusion-map-target-section-tipo`.
+
 - **Publication fills the global search and map tables again** *(action needed)*
 
     Tables declared with `global_table_maps` (for example the global search table of a memorial
@@ -821,7 +833,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 38 entries"
+??? note "Wire contract — 39 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -857,6 +869,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-11-svg-tag-url-full-media-path`
     - `WC-2026-11-12-calculation-widget-port`
     - `WC-2026-11-12-datalist-principal-record-scope`
+    - `WC-2026-11-12-diffusion-map-target-section-tipo`
     - `WC-2026-11-12-global-table-maps`
     - `WC-2026-11-12-info-live-publication-export`
     - `WC-2026-11-12-rdf-graph-interpretation`

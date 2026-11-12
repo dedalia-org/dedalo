@@ -379,19 +379,20 @@ Implementing a new fn is one registered function plus tests:
   `resolver.ts`, implementations in `ddo_fns.ts`) where batched matrix reads,
   the relations engine and the per-run caches are available. Examples:
   `parse_tag_to_html` (text-tag → publication HTML), `get_geojson_data`
-  (geo-tag ↔ geolocation pairing), `get_diffusion_iconography` (nested
-  iconography portals) — each gated against cells the previous engine actually
-  published.
+  (geo-tag ↔ geolocation pairing) and its flat `get_geolocation_data`
+  variant, `get_diffusion_iconography` (nested iconography portals),
+  `map_target_section_tipo` (a hierarchy's target section → the table name the
+  element publishes it under, e.g. `hierarchy83` reading `hierarchy53`) — each
+  gated against the values the previous engine published.
 
 Every fn ships with the engine (the ontology stays pure data — a deliberate
 security line); the registries are the single place to touch.
 
 !!! warning "Honest ledger — known gaps"
-    - Two niche fn variants remain unported and fail **loudly per field** (the
+    - One niche fn variant remains unported and fails **loudly per field** (the
       column falls to its policy default): the typology-based `parents`
-      truncation options and `get_geolocation_data` (the pre-GeoJSON variant).
-      Zero and one uses respectively in the reference domain; the extension
-      seam above is their landing path.
+      truncation options. No use in the reference domain; the extension seam
+      above is its landing path.
     - SQL-target **media publication markers** are now written natively by
       `src/diffusion/targets/mediastore/media_index.ts` — the single writer of
       the filesystem marker allowlist, mirroring row existence in the target

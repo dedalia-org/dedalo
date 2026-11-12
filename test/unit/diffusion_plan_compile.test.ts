@@ -70,6 +70,7 @@ import type {
 import {
 	buildVirtualDiffusionTree,
 	findElementNodes,
+	getTargetSectionTableNames,
 } from '../../src/diffusion/plan/virtual_tree.ts';
 import {
 	dropZzdifDomain,
@@ -271,6 +272,17 @@ describe('compileElementPlan over the real domain', () => {
 			break;
 		}
 		expect(checkedAliasSection).toBe(true);
+	});
+
+	test('map_target_section_tipo map: alias label in place, scoped to the owning element', () => {
+		// zzdif42 publishes zzdif1 under its real table and zzdif20 under the
+		// table_alias zzdif50 (whose section relation is the REAL zzdif60's);
+		// zzdif55 owns zzdif60 itself. Each element names only its own tables.
+		expect(getTargetSectionTableNames(tree, ZZDIF_ELEMENT)).toEqual({
+			zzdif1: 'zzdif_primary',
+			zzdif20: 'zzdif_linked',
+		});
+		expect(getTargetSectionTableNames(tree, 'zzdif55')).toEqual({ zzdif20: 'zzdif_linked_real' });
 	});
 
 	test('parser split: rewriters absorbed as warnings, runtime steps kept in order', () => {

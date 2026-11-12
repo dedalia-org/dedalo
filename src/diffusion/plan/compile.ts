@@ -105,6 +105,7 @@ import {
 	getDatabaseNameForElement,
 	getSectionNodeForElement,
 	getSectionsForElement,
+	getTargetSectionTableNames,
 } from './virtual_tree.ts';
 
 /**
@@ -1032,9 +1033,24 @@ export async function compileElementPlan(
 		recursion: { maxLevels },
 		langPolicy: buildLangPolicy(),
 		...(rdf !== null ? { rdf } : {}),
+		...(usesFn(sections, MAP_TARGET_SECTION_TIPO_FN)
+			? { targetSectionTables: getTargetSectionTableNames(tree, elementTipo) }
+			: {}),
 		warnings: diagnostics.warnings,
 		degradations: diagnostics.degradations,
 	};
+}
+
+/** The ddo fn whose argument is compiled into the plan (PublicationPlan.targetSectionTables). */
+const MAP_TARGET_SECTION_TIPO_FN = 'map_target_section_tipo';
+
+/** Does any component step of any field of these sections declare `fn`? */
+function usesFn(sections: SectionPlan[], fn: string): boolean {
+	return sections.some((section) =>
+		section.fields.some((field) =>
+			field.sourceChain.some((step) => step.kind === 'component' && step.fn === fn),
+		),
+	);
 }
 
 /** Non-throwing validate-shape result (dispatch `validate` action input). */

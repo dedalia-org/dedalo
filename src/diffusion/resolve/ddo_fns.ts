@@ -1,5 +1,5 @@
 /**
- * Custom ddo fns — the three publication fns the numisdata domain configures on
+ * Custom ddo fns — the publication fns the numisdata domain configures on
  * dd1190 field nodes (DIFFUSION_SPEC §4.1 stage D, custom-fn dispatch):
  *
  * - parse_tag_to_html   (PHP diffusion/class.diffusion_fn.php :367-404): a
@@ -12,6 +12,10 @@
  *   get_diffusion_value_as_geojson :362-433): the PAIRED component_geolocation
  *   lib_data layers as [{layer_id, text:'', layer_data}] — the single-point
  *   lat/lon fallback included;
+ * - get_geolocation_data (PHP class.component_text_area.php :1670-1673 =
+ *   build_geolocation_data(false) :1696-1830): the SAME paired lib_data
+ *   layers, each layer's features flattened to {type, lon, lat} — NO point
+ *   fallback (only the geojson variant has one);
  * - get_diffusion_iconography (PHP class.component_portal.php :477-529): the
  *   3-level portal walk (record → scene records → inner autocomplete_hi terms)
  *   joined per lang with the ddo separators.
@@ -151,9 +155,9 @@ export function geojsonPointFallbackLayers(
  * is absent, the single-point fallback above. [] when nothing resolves.
  */
 export function buildGeojsonLayers(geoItems: unknown[] | null): GeojsonLayer[] {
-	const first = (geoItems ?? [])[0] as StoredGeolocationItem | undefined;
-	const libData = first?.lib_data;
-	if (Array.isArray(libData) && libData.length > 0) {
+	const first = firstGeolocationItem(geoItems);
+	const libData = libDataOf(first);
+	if (libData.length > 0) {
 		return libData.map((layer) => ({
 			layer_id: layer?.layer_id ?? null,
 			text: '' as const,
@@ -161,6 +165,75 @@ export function buildGeojsonLayers(geoItems: unknown[] | null): GeojsonLayer[] {
 		}));
 	}
 	return geojsonPointFallbackLayers(first);
+}
+
+/** One flattened feature of a v5 geolocation layer (PHP build_geolocation_data(false)). */
+export interface GeolocationPoint {
+	type: unknown;
+	lon: unknown;
+	lat: unknown;
+}
+
+/** One published v5 geolocation layer: features flattened, text ALWAYS ''. */
+export interface GeolocationLayer {
+	layer_id: unknown;
+	text: '';
+	layer_data: GeolocationPoint[];
+}
+
+/**
+ * component_text_area::get_geolocation_data (:1670-1673) =
+ * build_geolocation_data(false) (:1696-1830): per lib_data layer of the paired
+ * geolocation's FIRST item, `{layer_id, text:'', layer_data}` where layer_data
+ * is one `{type, lon, lat}` per feature that HAS a geometry —
+ * `geometry.coordinates[0]` / `[1]` copied verbatim (no number formatting:
+ * PHP formats nothing here). Non-Point geometries therefore publish
+ * `lon` = the first coordinate member (a ring/array) and `lat` = the second
+ * (or null) — PHP parity, pinned by the gate. `features` not an array → [].
+ * NO point fallback: empty data / no lib_data → [].
+ */
+export function buildGeolocationLayers(geoItems: unknown[] | null): GeolocationLayer[] {
+	return libDataOf(firstGeolocationItem(geoItems)).map((layer) => ({
+		layer_id: layer?.layer_id ?? null,
+		text: '' as const,
+		layer_data: flattenLayerFeatures(layer?.layer_data),
+	}));
+}
+
+/** PHP `$component_geolocation_data[0]` — the one stored item both variants read. */
+function firstGeolocationItem(geoItems: unknown[] | null): StoredGeolocationItem | undefined {
+	return (geoItems ?? [])[0] as StoredGeolocationItem | undefined;
+}
+
+/** The item's lib_data layers; anything but a non-empty array reads as none (PHP empty()). */
+function libDataOf(
+	item: StoredGeolocationItem | undefined,
+): { layer_id?: unknown; layer_data?: unknown }[] {
+	const libData = item?.lib_data;
+	return Array.isArray(libData) ? libData : [];
+}
+
+/** PHP build_geolocation_data(false) feature loop (:1771-1782). */
+function flattenLayerFeatures(layerData: unknown): GeolocationPoint[] {
+	const features = isObject(layerData) ? layerData.features : undefined;
+	if (!Array.isArray(features)) return [];
+	const points: GeolocationPoint[] = [];
+	for (const feature of features) {
+		// PHP isset($feature->geometry): present and not null.
+		const geometry = isObject(feature) ? feature.geometry : undefined;
+		if (geometry === undefined || geometry === null) continue;
+		const coordinates = isObject(geometry) ? geometry.coordinates : undefined;
+		points.push({
+			type: (isObject(geometry) ? geometry.type : undefined) ?? null,
+			lon: (Array.isArray(coordinates) ? coordinates[0] : undefined) ?? null,
+			lat: (Array.isArray(coordinates) ? coordinates[1] : undefined) ?? null,
+		});
+	}
+	return points;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 // ---------------------------------------------------------------------------

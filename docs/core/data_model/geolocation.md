@@ -399,7 +399,11 @@ a paired `component_text_area`'s `get_geojson_data` step
 (`src/diffusion/resolve/resolver.ts`) publishes the linked
 `component_geolocation`'s `lib_data` layers verbatim, falling back to a
 single-point `FeatureCollection` built from `lat`/`lon` when `lib_data` is
-empty (`buildGeojsonLayers()`, `src/diffusion/resolve/ddo_fns.ts`).
+empty (`buildGeojsonLayers()`, `src/diffusion/resolve/ddo_fns.ts`). Its
+sibling `get_geolocation_data` reads the same pairing but publishes each layer's
+features flattened to `{type, lon, lat}` (the first and second members of the
+geometry's `coordinates`), with **no** single-point fallback
+(`buildGeolocationLayers()`).
 
 !!! warning "Standalone diffusion reshaping and search: not yet implemented"
     A **standalone** `component_geolocation` field (not paired with a

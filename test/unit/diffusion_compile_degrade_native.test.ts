@@ -513,6 +513,7 @@ const fnEnv = {
 	langs: ['lg-spa', 'lg-eng'],
 	pairedGeolocationTipo: async () => null,
 	svgTagPathMemo: createSvgTagPathMemo(),
+	targetSectionTableOf: () => null,
 };
 
 const componentStep = (
@@ -551,14 +552,112 @@ describe('a ddo fn either resolves or fails LOUDLY (never a silent empty publish
 	});
 
 	test('an UNPORTED fn throws even when the component slice is EMPTY', async () => {
-		// hierarchy83's map_target_section_tipo: latent today because the slice is
-		// usually empty — which is exactly how it stayed invisible.
+		// An empty slice is exactly how an unported fn stays invisible (the
+		// historical example, map_target_section_tipo, is ported since T1-5).
 		const promise = resolveComponentFnAtoms(
 			fnEnv,
 			recordOf(1),
-			componentStep('hierarchy53', 'component_input_text', 'map_target_section_tipo'),
+			componentStep('zzc140', 'component_input_text', 'zz_no_such_fn'),
 		);
-		await expect(promise).rejects.toThrow(/map_target_section_tipo/);
+		await expect(promise).rejects.toThrow(/zz_no_such_fn/);
+	});
+
+	// get_geolocation_data = build_geolocation_data(false) on the PAIRED geolocation.
+	const geoRecord = () =>
+		recordOf(1, {
+			geo: {
+				zzc90: [
+					{
+						id: 1,
+						lib_data: [
+							{
+								layer_id: 1,
+								layer_data: {
+									features: [{ geometry: { type: 'Point', coordinates: [3.5, 42.25] } }],
+								},
+							},
+						],
+					},
+				],
+			},
+		} as MatrixRecord['columns']);
+
+	test('get_geolocation_data publishes the paired layers as ONE lang-neutral json atom', async () => {
+		const atoms = await resolveComponentFnAtoms(
+			{ ...fnEnv, pairedGeolocationTipo: async () => 'zzc90' },
+			geoRecord(),
+			componentStep('zzc36', 'component_text_area', 'get_geolocation_data'),
+		);
+		expect(atoms).toEqual([
+			{
+				kind: 'json',
+				value: [{ layer_id: 1, text: '', layer_data: [{ type: 'Point', lon: 3.5, lat: 42.25 }] }],
+				lang: null,
+				meta: { tipo: 'zzc36' },
+			},
+		]);
+	});
+
+	test('get_geolocation_data with no paired geolocation publishes nothing', async () => {
+		const atoms = await resolveComponentFnAtoms(
+			fnEnv,
+			geoRecord(),
+			componentStep('zzc36', 'component_text_area', 'get_geolocation_data'),
+		);
+		expect(atoms).toEqual([]);
+	});
+
+	// map_target_section_tipo: the stored section tipo → the element's table name.
+	const tables: Record<string, string> = { test3: 'test_table_alias' };
+	const targetEnv = {
+		...fnEnv,
+		targetSectionTableOf: (sectionTipo: string) =>
+			Object.hasOwn(tables, sectionTipo) ? (tables[sectionTipo] ?? null) : null,
+	};
+	const hierarchyRecord = (value: string | null) =>
+		recordOf(
+			1,
+			value === null
+				? {}
+				: ({ string: { zzc140: [{ id: 1, lang: 'lg-nolan', value }] } } as MatrixRecord['columns']),
+		);
+	const targetStep = componentStep('zzc140', 'component_input_text', 'map_target_section_tipo');
+
+	test('map_target_section_tipo publishes the table name of the stored section', async () => {
+		const atoms = await resolveComponentFnAtoms(targetEnv, hierarchyRecord('test3'), targetStep);
+		expect(atoms).toEqual([
+			{ kind: 'scalar', value: 'test_table_alias', lang: null, meta: { tipo: 'zzc140' } },
+		]);
+	});
+
+	test('map_target_section_tipo: an unpublished section or an empty value publishes nothing', async () => {
+		expect(await resolveComponentFnAtoms(targetEnv, hierarchyRecord('test99'), targetStep)).toEqual(
+			[],
+		);
+		expect(await resolveComponentFnAtoms(targetEnv, hierarchyRecord(''), targetStep)).toEqual([]);
+		expect(await resolveComponentFnAtoms(targetEnv, hierarchyRecord(null), targetStep)).toEqual([]);
+	});
+});
+
+describe('map_target_section_tipo is compiled into the plan (resolver stays ontology-free)', () => {
+	test('a plan using the fn carries the element table map', async () => {
+		const options = compileOptions([
+			{
+				tipo: 'f_target',
+				label: 'target_table',
+				process: { ddo_map: [ddo('zzc140', { fn: 'map_target_section_tipo' })] },
+			},
+		]);
+		const plan = await compileElementPlan(ELEMENT_TIPO, options);
+		expect(plan.targetSectionTables).toEqual({ test6813: 'interview' });
+	});
+
+	test('a plan WITHOUT the fn carries no map (existing plans stay byte-equal)', async () => {
+		const plan = await compileElementPlan(
+			ELEMENT_TIPO,
+			compileOptions([{ tipo: 'f_title', label: 'title', process: { ddo_map: [ddo('zzc140')] } }]),
+		);
+		expect('targetSectionTables' in plan).toBe(false);
 	});
 });
 
