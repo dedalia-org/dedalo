@@ -1506,7 +1506,10 @@ FAILED_PRE_SWAP; after it ROLLED_BACK_CODE unless a database phase
 (`ontology`/`schema`/`data`) of a WALKED `incompatible` release (or a walked
 release with no plan) started, then NEEDS_DB_RESTORE (sentinel `needs_restore`,
 a human restores the run's backup with the previous code — D-2). A code-only
-release and a same-triple run never cross (owner ruling 2026-11-11, T1-25). CLI: `bun run update
+release and a same-triple run are not counted as crossings (owner ruling
+2026-11-11, T1-25) — for a same-triple run a ruling, not a checked property:
+builds of one triple may differ by an `incompatible` migration (VERSIONING_SPEC
+§4 rule 8). CLI: `bun run update
 status|check|plan <release>|abort [note]` (`scripts/update.ts`). Door
 precondition classes: `src/core/update/door_class.ts` (WC-2026-10-30-maintenance-door-classes).
 Operator manual: `docs/management/updates/index.md`, held to the code by

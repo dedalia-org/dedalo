@@ -92,8 +92,11 @@ minor within the major, no skipping).
    `ontology`/`schema`/`data` phase of a WALKED `incompatible` release (its
    triple above the installed one) has started; then the run ends in
    `NEEDS_DB_RESTORE`. A code-only release (no `compat`, default steps) and a
-   same-triple run (prerelease → prerelease/stable, a nightly reinstall) never
-   cross (owner ruling 2026-11-11, T1-25); a walked release with no plan does.
+   same-triple run (prerelease → prerelease/stable, a nightly reinstall) are
+   not counted as crossings (owner ruling 2026-11-11, T1-25); a walked release
+   with no plan is. For a same-triple run that is the ruling, not a checked
+   property: an `incompatible` migration added between two builds of one triple
+   (`7.0.0-beta.8` over `7.0.0-beta.7`) is rolled back in code only.
    Every release has an entry, even a code-only one (step 3, rule 3).
 
 2a. **Set the data version, only for a data release.** A catalog entry with a

@@ -339,7 +339,7 @@ describe('failure exits', () => {
 	});
 
 	// owner ruling 2026-11-11 (T1-25): a code-only patch (no compat, the default
-	// steps) and a same-triple run never cross — the sentinel is never flipped to
+	// steps) and a same-triple run are not counted as crossings — the sentinel is never flipped to
 	// needs_restore, and a failure after the swap puts the code back by itself.
 	const CODE_ONLY: Record<string, ReleasePlan> = {
 		'7.0.0': { version: '7.0.0', compat: null, steps: DEFAULT_RELEASE_STEPS, declared: false },

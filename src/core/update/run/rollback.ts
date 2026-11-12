@@ -16,10 +16,16 @@
  * precondition step is for).
  *
  * A CODE-ONLY release (no compat: its default ontology/schema steps, or the
- * target-schema phase plan.ts appends, cannot move the model — a migration on
- * it is refused, a data step needs `incompatible`) and a SAME-TRIPLE run (a
- * prerelease → its next prerelease or stable, a nightly reinstall: it walks no
- * release) are NOT crossings (owner ruling 2026-11-11). Unknown stays fail
+ * target-schema phase plan.ts appends) and a SAME-TRIPLE run (a prerelease →
+ * its next prerelease or stable, a nightly reinstall: it walks no release) are
+ * NOT COUNTED as crossings (owner ruling 2026-11-11). After the line start
+ * (7.0.0) a code-only release cannot move the model: a migration needs a
+ * compat-declaring release, an incompatible one an incompatible release
+ * (migration_content_hash_tripwire). A same-triple run CAN: the builds of one
+ * triple are not held to one data model (7.0.0-beta.8 added an incompatible
+ * migration over beta.7), so its automatic rollback is the ruling, not a
+ * guarantee (update_docs_claims_tripwire C11 holds every prose statement of
+ * this to the migration ledger). Unknown stays fail
  * closed: a walked release with no plan, a code-only release that nevertheless
  * DECLARES a database step (a contract fault the validator refuses), or an
  * unreadable installed release all count as crossing.
@@ -100,7 +106,7 @@ export function canAutoRollback(
 			allowed: true,
 			crossedBy: null,
 			reason:
-				'no database phase of a walked incompatible release ran (code-only and same-version releases never cross): the previous code still fits the database',
+				'no database phase of a walked incompatible release ran (code-only and same-version releases are not counted as crossings, owner ruling 2026-11-11): the previous code is put back',
 		};
 	}
 	const crossedBy = `${crossing.release} ${crossing.step.kind}`;

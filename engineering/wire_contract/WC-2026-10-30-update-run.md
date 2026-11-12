@@ -124,12 +124,12 @@ Item 1's entry shape gains a required `declared: boolean` (the master's `Release
 an entry without it fails the whole read. Why, and the backup step's refusal now ending the run
 `REFUSED` (`update.refused`): `WC-2026-11-01-update-plan-declared`.
 
-## Addendum 2026-11-12 (T1-25) — code-only and same-triple runs never cross
+## Addendum 2026-11-12 (T1-25) — code-only and same-triple runs are not counted as crossings
 
 No JSON shape changes; the run's terminal STATE does (`/health` `update_run.state`, the panel's
 job end, `bun run update check`'s verdict). Owner ruling 2026-11-11: a code-only release (no
-`compat` — its default `ontology`/`schema` steps, or the target-schema phase the planner appends,
-cannot move the model) and a same-triple run (a prerelease → its next prerelease or its stable,
+`compat` — its default `ontology`/`schema` steps, or the target-schema phase the planner appends;
+see the review addendum below for what that holds after the line start `7.0.0`) and a same-triple run (a prerelease → its next prerelease or its stable,
 a nightly reinstall: the walk is empty) are NOT a data-model crossing. Such a run failing after
 the swap now ends `ROLLED_BACK_CODE` (was `NEEDS_DB_RESTORE`), and the rollback sentinel is never
 flipped to `needs_restore` before its phases. The predicate (`run/rollback.ts`
@@ -139,3 +139,17 @@ compatible), or code-only yet DECLARING a database step (a contract fault). An u
 installed release counts as walked. Runs that already ended `NEEDS_DB_RESTORE` are not
 reclassified. Gates: `rollback_predicate_native` (owner ruling describe),
 `update_run_resume_native` (T1-25 cases), `update_docs_claims_tripwire` (C3 `none`/`same_triple`).
+
+## Addendum 2026-11-12 (T1-25 review) — the ruling is not a model guarantee
+
+No shape or state change. The addendum above first stated both cases as model guarantees; neither
+held for the shipped ledger. After the
+line start `7.0.0`, a migration needs a release that declares `compat` and an `incompatible` one an
+`incompatible` release (`migration_content_hash_tripwire`), so a code-only release past `7.0.0`
+cannot move the model. The line start itself carries `incompatible` migrations with no catalog
+rung, and the builds of one triple are not held to one data model (`7.0.0-beta.8` added the
+`incompatible` `0015_dd_ontology_machine_names.sql` over `7.0.0-beta.7`): a same-triple run is NOT
+COUNTED as a crossing by the ruling, and its automatic rollback can put back a build that does not
+fit the database. No gate refuses an `incompatible` migration added to a triple after its first
+build (open, owner decision). Gate on every statement of these rules: `update_docs_claims_tripwire`
+C11 (measured against `install/db/migrations.lock.json` and the catalog).

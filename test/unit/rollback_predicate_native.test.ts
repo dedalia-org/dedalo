@@ -186,7 +186,7 @@ describe('the leaf CLI the shell scripts execute', () => {
 	});
 });
 
-describe('owner ruling 2026-11-11 (T1-25): code-only and same-triple never cross', () => {
+describe('owner ruling 2026-11-11 (T1-25): code-only and same-triple are not counted as crossings', () => {
 	// BUILT through the real planner (planRun) with planted plans; each run is
 	// judged against BOTH the full plans (production effects.plans) and the
 	// journal's own release_plans (the leaf CLI), failing each post-swap
