@@ -386,6 +386,15 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-posterframe-identifying-image-scope`.
 
+- **The thesaurus “Parent” field no longer offers a “new record” button.**
+
+    The parent field of thesaurus, hierarchy and ontology terms showed a "+" button
+    that created a new, empty record in the target section and linked it as the
+    term's parent. That is the reverse of how a hierarchy is built: a parent is
+    attached from the children side or by moving the term in the tree. The field
+    now offers only linking an existing record, as the related-records field
+    already did.
+
 - **Layout-only panels (`section_group_div`) render again without a header.**
 
     An edit form group whose ontology model is `section_group_div` is meant to be a

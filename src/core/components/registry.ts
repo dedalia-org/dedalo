@@ -239,6 +239,15 @@ export function getItemGate(model: string): ItemGateId | undefined {
 }
 
 /**
+ * Whether the model's context is stamped `show_interface.button_add = false`
+ * (`forbidsAddButton` facet, alias-following). Read by
+ * resolve/structure_context.ts buildStructureContext.
+ */
+export function getForbidsAddButton(model: string): boolean {
+	return resolveCanonical(model)?.forbidsAddButton === true;
+}
+
+/**
  * PHP lang-slice gate — supports_translation && !is_relation (PHP
  * update_data_value :4110-4126/:4169-4180 conditions): only the literal
  * translation-supporting CLASSES (classSupportsTranslation, PHP

@@ -27,7 +27,7 @@
 
 import { config } from '../../config/config.ts';
 import { publishApiConfig } from '../../external/api/index.ts';
-import { getComponentModel, getRenderClass } from '../components/registry.ts';
+import { getComponentModel, getForbidsAddButton, getRenderClass } from '../components/registry.ts';
 import type { RenderClass } from '../components/types.ts';
 import { isAreaModel } from '../concepts/area.ts';
 import {
@@ -1245,11 +1245,13 @@ export async function buildStructureContext(options: {
 		}
 	}
 
-	// component_relation_related: the json controller forces
-	// properties.show_interface.button_add = false, creating show_interface if the
-	// ontology omits it (component_relation_related_json.php:76-77). The client
-	// suite asserts context.properties.show_interface exists with button_add:false.
-	if (core.model === 'component_relation_related') {
+	// `forbidsAddButton` models (relation_related, relation_parent): the json
+	// controllers force properties.show_interface.button_add = false, creating
+	// show_interface if the ontology omits it (component_relation_related_json.php:77,
+	// component_relation_parent_json.php:77). Stamped AFTER the override/governed
+	// re-emission so neither an RQO override nor a ddo can re-open it; merged so
+	// sibling keys survive. The client suites assert it.
+	if (getForbidsAddButton(core.model)) {
 		const props = (entry.properties ?? {}) as Record<string, unknown>;
 		props.show_interface = {
 			...((props.show_interface as Record<string, unknown> | undefined) ?? {}),

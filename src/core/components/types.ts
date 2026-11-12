@@ -477,6 +477,18 @@ export interface ComponentModel {
 	 */
 	readonly itemGate?: ItemGateId;
 	/**
+	 * The model's element context ALWAYS carries
+	 * `properties.show_interface.button_add = false`, whatever the ontology node,
+	 * a ddo or an RQO properties override says (PHP json controllers
+	 * component_relation_related_json.php:77 / component_relation_parent_json.php:77:
+	 * a parent is attached from the children side, a related link is picked —
+	 * neither creates a new target record inline). Consumer: registry.ts
+	 * getForbidsAddButton → resolve/structure_context.ts. Relation-only; declared
+	 * `true` only. Set pinned against the PHP oracle in
+	 * test/unit/descriptor_completeness_tripwire.test.ts.
+	 */
+	readonly forbidsAddButton?: true;
+	/**
 	 * DERIVED: the component OWNS NO STORED VALUE — what a read serves is
 	 * computed (an inverse question: who declares me as parent / who points at
 	 * me; a remote service), never read back from its own matrix key. Whatever

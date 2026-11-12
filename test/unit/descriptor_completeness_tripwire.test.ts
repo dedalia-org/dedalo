@@ -29,7 +29,12 @@
  *     owner-approved set (component_iri, 2026-11-11), on canonical descriptors
  *     only, and the ontology layer reads it alias-following through the
  *     resolver seam (getComponentModelNodeRules) — dropping it silently would
- *     disarm the health check's model rule.
+ *     disarm the health check's model rule;
+ *  8. the "no add button" context law (`forbidsAddButton`) is declared by
+ *     EXACTLY the PHP oracle set — the two json controllers that stamp
+ *     show_interface.button_add=false (component_relation_related_json.php:77,
+ *     component_relation_parent_json.php:77) — on canonical relation models,
+ *     and the accessor follows aliases (T1-29 / O05).
  *
  * ALLOWLIST LIFECYCLE (DEC-12 refinement — who clears these and when):
  * entries here are cleared by whoever ports the missing behavior, in the
@@ -43,6 +48,7 @@ import {
 	allComponentModels,
 	getComponentModel,
 	getFlatValueFamily,
+	getForbidsAddButton,
 	getImportAppendPolicy,
 	getRenderClass,
 	getSearchBuilderFamily,
@@ -508,6 +514,31 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 				descriptor.flatValue === 'datalist' ? descriptor.model : undefined,
 				`${descriptor.model}: flatValue 'datalist' needs a datalist (relation) model`,
 			).toBeUndefined();
+			expect(
+				descriptor.forbidsAddButton,
+				`${descriptor.model}: forbidsAddButton on non-relation model`,
+			).toBeUndefined();
+		}
+	});
+
+	test('forbidsAddButton is declared by exactly the PHP oracle set (canonical only)', () => {
+		// frozen PHP: the only json controllers stamping show_interface.button_add=false
+		// are component_relation_related_json.php:77 and component_relation_parent_json.php:77
+		const declared = descriptors.filter((descriptor) => descriptor.forbidsAddButton !== undefined);
+		expect(declared.map((descriptor) => descriptor.model).sort()).toEqual([
+			'component_relation_parent',
+			'component_relation_related',
+		]);
+		for (const descriptor of declared) {
+			expect(descriptor.alias, `${descriptor.model}: forbidsAddButton on an alias`).toBeUndefined();
+			expect(descriptor.forbidsAddButton).toBe(true);
+		}
+		// alias-following: every alias of a declaring model answers true, nothing else does
+		for (const descriptor of descriptors) {
+			const canonical = descriptor.alias ?? descriptor.model;
+			expect(getForbidsAddButton(descriptor.model), descriptor.model).toBe(
+				canonical === 'component_relation_parent' || canonical === 'component_relation_related',
+			);
 		}
 	});
 

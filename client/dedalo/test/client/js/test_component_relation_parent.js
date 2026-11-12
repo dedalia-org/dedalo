@@ -597,6 +597,38 @@ describe(`COMPONENT_RELATION_PARENT DATA OPERATIONS`, async function() {
 		})
 	})//end describe INSTANCE ID
 
+
+
+	// ─── SHOW_INTERFACE ──────────────────────────────────
+	// The server stamps show_interface.button_add=false on every relation_parent
+	// context (PHP component_relation_parent_json.php:77): a parent is attached
+	// from the children side / the tree, never by creating a record here.
+
+	describe(`SHOW_INTERFACE`, () => {
+
+		it(`${parent_model} context show_interface.button_add is false (server stamp)`, async () => {
+
+			const instance = await get_parent_instance('edit', 'default', parent_section_id)
+			const show_interface = instance.context?.properties?.show_interface
+
+			assert.ok(show_interface, 'show_interface must exist in context properties')
+			assert.equal(show_interface.button_add, false, 'context button_add must be false')
+			assert.equal(instance.show_interface?.button_add, false, 'composed show_interface.button_add must be false')
+
+			await instance.destroy(true, true, true)
+		})
+
+		it(`${parent_model} edit render offers no add button`, async () => {
+
+			const instance = await get_parent_instance('edit', 'default', parent_section_id)
+			const node = await instance.render()
+
+			assert.equal(node.querySelector('.button.add'), null, 'no .button.add may be rendered')
+
+			await instance.destroy(true, true, true)
+		})
+	})//end describe SHOW_INTERFACE
+
 })//end describe COMPONENT_RELATION_PARENT DATA OPERATIONS
 
 

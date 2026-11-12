@@ -10,6 +10,8 @@
  *   - hierarchy mutation + ancestor walk + sibling ordering → relations/parent.ts
  *   - sibling ORDER (component_number id_key dataframe)      → relations/dataframe.ts
  *   - search (inverse-parent pipeline)                       → still unported
+ * `forbidsAddButton`: the context never offers "+" (PHP json controller) — a
+ * parent is attached from the children side / the tree.
  * If parent-cell rendering ever needs to diverge from the portal, give it its
  * own resolver here — this comment is where that decision gets recorded.
  */
@@ -25,4 +27,5 @@ export const component_relation_parent: ComponentModel = {
 	flatValue: 'datalist',
 	search: { status: 'ported' },
 	importConform: 'relation',
+	forbidsAddButton: true,
 };
