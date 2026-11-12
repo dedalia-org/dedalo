@@ -24,6 +24,13 @@
  *      JSON cells formatted; a bad-precision node fails the CELL, naming it.
  *   D  the repair door: tool_update_cache regenerate over a value stored
  *      unrounded (a TS-era import) re-saves it formatted.
+ *   E  the bad-precision refusal is LAZY (T1-40 review), as PHP's was: the
+ *      format is resolved only when a finite number is about to be formatted.
+ *      A clear (null value / empty set_data) on a bad-precision node saves; the
+ *      tree's order read (`fetchNodeInfo`, behind every ts_object / tree-search
+ *      / list_thesaurus read) answers a section whose order node is malformed
+ *      while no row carries an order value, and refuses (`ontology.invalid_node`)
+ *      only when it must format one — never eagerly per section group.
  *
  * Generic `test` TLD, situation-built (AGENTS.md hard rules): section `zznfm1`
  * on matrix_test (via test24). Cleaned before and after.
@@ -40,6 +47,7 @@ import { readMatrixRecord } from '../../src/core/db/matrix.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { type DedaloError, isDedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
+import { getSectionMap } from '../../src/core/ontology/section_map.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import {
@@ -49,6 +57,7 @@ import {
 } from '../../src/core/test_data/situations/situation.ts';
 import { conformImportData } from '../../src/core/tools/import_data.ts';
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
+import { fetchNodeInfo } from '../../src/core/ts_object/node_repository.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { cleanScratchRecord, createScratchRecord } from '../helpers/test_data.ts';
 
@@ -62,9 +71,12 @@ const FLOAT_DEFAULT = 'zznfm6'; // {type:'float'} → precision 2
 const BAD_PRECISION = 'zznfm7'; // {type:'float', precision:'2'} → refused
 const LEGACY_OBJECT = 'zznfm8'; // {type:{float:3}} → float, precision default 2 (PHP)
 const FLOAT16 = 'zznfm9'; // {type:'float', precision:16}
+const SECTION_MAP = 'zznfm12'; // section_map: thesaurus.order → BAD_PRECISION (gate E)
 const RECORD_ID = 900840;
 const ANCHOR_ID = 900841;
 const REPAIR_ID = 900842;
+const TREE_EMPTY_ID = 900843; // no order value
+const TREE_VALUED_ID = 900844; // an order value on the bad-precision node
 const bulkIds: number[] = [];
 
 const numberNode = (tipo: string, properties: Record<string, unknown> | null) => ({
@@ -94,6 +106,13 @@ const SITUATION = situation({
 		numberNode(BAD_PRECISION, { type: 'float', precision: '2' }),
 		numberNode(LEGACY_OBJECT, { type: { float: 3 } }),
 		numberNode(FLOAT16, { type: 'float', precision: 16 }),
+		{
+			tipo: SECTION_MAP,
+			parent: SECTION_TIPO,
+			model: 'section_map',
+			term: { 'lg-eng': 'Section map' },
+			properties: { thesaurus: { order: BAD_PRECISION } },
+		},
 	],
 	records: [{ section_tipo: SECTION_TIPO, section_id: ANCHOR_ID }],
 });
@@ -258,11 +277,15 @@ describe('B–D. the server stores what the node declares', () => {
 		await ensureSituation(SITUATION);
 		expect(await getMatrixTableFromTipo(SECTION_TIPO)).toBe(TABLE);
 		await cleanScratchRecord(SECTION_TIPO, REPAIR_ID, TABLE);
+		await cleanScratchRecord(SECTION_TIPO, TREE_EMPTY_ID, TABLE);
+		await cleanScratchRecord(SECTION_TIPO, TREE_VALUED_ID, TABLE);
 		await reseed();
 	});
 	afterAll(async () => {
 		await cleanScratchRecord(SECTION_TIPO, RECORD_ID, TABLE);
 		await cleanScratchRecord(SECTION_TIPO, REPAIR_ID, TABLE);
+		await cleanScratchRecord(SECTION_TIPO, TREE_EMPTY_ID, TABLE);
+		await cleanScratchRecord(SECTION_TIPO, TREE_VALUED_ID, TABLE);
 		for (const bulkId of bulkIds) {
 			await sql`DELETE FROM matrix_notes WHERE section_tipo = 'dd800' AND section_id = ${bulkId}`;
 		}
@@ -374,6 +397,11 @@ describe('B–D. the server stores what the node declares', () => {
 		expect(bad.result).toBeNull();
 		expect(JSON.stringify(bad.errors)).toContain(BAD_PRECISION);
 		expect(JSON.stringify(bad.errors)).toContain('precision');
+		// T1-40 review: the refusal is lazy — a cell with no number to shape conforms.
+		expect((await conform(BAD_PRECISION, '[{"id":1,"value":null}]')).result).toEqual([
+			{ id: 1, value: null },
+		]);
+		expect(JSON.stringify((await conform(BAD_PRECISION, '[2]')).errors)).toContain(BAD_PRECISION);
 	});
 
 	test('D. repair door: update_cache regenerate re-saves an unrounded stored value formatted', async () => {
@@ -408,4 +436,50 @@ describe('B–D. the server stores what the node declares', () => {
 		expect(run.regenerated).toBe(1);
 		expect(await stored(FLOAT2, REPAIR_ID)).toEqual([{ id: 1, value: 1.23 }]);
 	}, 60000);
+
+	test('E1. a clear on a bad-precision node saves (no number to format → no refusal)', async () => {
+		await reseed();
+		// The client's empty slot is `{value: null}` (value_shape.ts).
+		const cleared = await save(BAD_PRECISION, [
+			{ action: 'update', id: 1, value: { id: 1, value: null } },
+		]);
+		expect(cleared.ok, JSON.stringify(cleared)).toBe(true);
+		expect(await storedValues(BAD_PRECISION)).not.toContain(1);
+		await reseed();
+		const emptied = await save(BAD_PRECISION, [{ action: 'set_data', value: null }]);
+		expect(emptied.ok, JSON.stringify(emptied)).toBe(true);
+		expect(await storedValues(BAD_PRECISION)).toEqual([]);
+		// CONTROL: a number on the same node is still refused.
+		const refusal = await refusalOf(
+			save(BAD_PRECISION, [{ action: 'insert', value: { value: 1.23456 } }]),
+		);
+		expect(refusal.code).toBe('ontology.invalid_node');
+	});
+
+	test('E2. tree order read: a malformed order node refuses only a value it must format', async () => {
+		await createScratchRecord(SECTION_TIPO, TREE_EMPTY_ID, { meta: {} }, { table: TABLE });
+		await createScratchRecord(
+			SECTION_TIPO,
+			TREE_VALUED_ID,
+			{
+				number: { [BAD_PRECISION]: [{ id: 1, value: 1.23456 }] },
+				meta: { [BAD_PRECISION]: [{ count: 1 }] },
+			},
+			{ table: TABLE },
+		);
+		// FLOOR: the section really names the malformed node as its order.
+		expect(
+			((await getSectionMap(SECTION_TIPO))?.thesaurus as { order?: unknown } | undefined)?.order,
+		).toBe(BAD_PRECISION);
+		const info = await fetchNodeInfo([{ section_tipo: SECTION_TIPO, section_id: TREE_EMPTY_ID }]);
+		expect(info.get(`${SECTION_TIPO}_${TREE_EMPTY_ID}`)).toEqual({
+			order: null,
+			is_indexable: false,
+		});
+		const refusal = await refusalOf(
+			fetchNodeInfo([{ section_tipo: SECTION_TIPO, section_id: TREE_VALUED_ID }]),
+		);
+		expect(refusal.code).toBe('ontology.invalid_node');
+		expect(refusal.message).toContain(BAD_PRECISION);
+	});
 });

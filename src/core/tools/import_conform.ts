@@ -29,7 +29,6 @@
  */
 
 import {
-	formatNumber,
 	formatNumberItems,
 	type NumberFormat,
 	numberFormatOf,
@@ -389,18 +388,26 @@ async function numberFormatFor(
 	return { format: numberFormatOf(properties, ctx.componentTipo) };
 }
 
+/** Does any item carry a finite number `value` (one the format law must shape)? */
+function hasFiniteNumber(items: unknown[]): boolean {
+	return items.some((item) => isObject(item) && Number.isFinite(item.value));
+}
+
 const conformNumber: ImportConformFn = async (value, json, ctx) => {
 	if (!json.isJson && isEmptyString(value)) return ok(null);
-	const resolved = await numberFormatFor(ctx);
-	if ('failure' in resolved) return fail(ctx, resolved.failure, value);
-	const { format } = resolved;
 
 	// The preview is what will be stored: every item formatted as the node
-	// declares (the save door re-applies the same law, idempotently).
-	const conformed = (items: unknown[]): ConformResult => {
+	// declares (the save door re-applies the same law, idempotently). The node's
+	// format is resolved only for a cell with a number to shape (T1-40 review):
+	// an all-empty JSON cell on a malformed node conforms, as the save door
+	// accepts the same clear.
+	const conformed = async (items: unknown[]): Promise<ConformResult> => {
 		const { items: out, bad } = numberItems(items);
 		if (bad !== null) return fail(ctx, `IGNORED: malformed data ${asText(bad)}`, value);
-		return ok(formatNumberItems(out, format));
+		if (!hasFiniteNumber(out)) return ok(out);
+		const resolved = await numberFormatFor(ctx);
+		if ('failure' in resolved) return fail(ctx, resolved.failure, value);
+		return ok(formatNumberItems(out, resolved.format));
 	};
 
 	if (json.isJson) {
@@ -423,7 +430,7 @@ const conformNumber: ImportConformFn = async (value, json, ctx) => {
 	// (the empty-string check above lets it through).
 	const parsed = stringToNumber(value, ctx.decimal);
 	if (parsed === null) return fail(ctx, `IGNORED: malformed data ${asText(value)}`, value);
-	return ok([{ value: formatNumber(parsed, format) }]);
+	return conformed([{ value: parsed }]);
 };
 
 // ---------------------------------------------------------------------------

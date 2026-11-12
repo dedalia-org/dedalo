@@ -48,6 +48,17 @@ cell and never rounded a string cell. The tree's order read carried a second cop
   The repair door for TS-era writes and for a changed `precision` is `tool_update_cache`
   regenerate, which re-saves through the door (gate D).
 
+- **Refusal is lazy (addendum 2026-11-13, T1-40 review):** the format is resolved only when a
+  finite number is about to be formatted (`NumberFormatSource` thunk). A clear (`{value:null}`
+  slot, `set_data` null) on a bad-precision node saves (PHP `set_data` skipped the cast for
+  empty data); an import JSON cell with no number conforms. **Read-path exception to "read
+  side unchanged":** the tree order read (`node_repository.fetchNodeInfo` — behind ts_object
+  node/children, tree search and `list_thesaurus` `is_indexable` portal reads) refuses
+  `ontology.invalid_node` when a row of the group carries an order value to format on a
+  bad-precision order node (PHP failed per formatted value; pre-d3458c26c9 TS coerced
+  `Math.trunc('2')`); a group with no order value answers. Gate E
+  (`component_number_format_native`).
+
 ## Reason
 
 The ontology declares what a number field IS; storing whatever a non-client door sent made the
@@ -57,7 +68,7 @@ same input), and search / diffusion / export all read the stored bytes.
 ## Gate reconciliation
 
 `test/unit/component_number_format_native.test.ts` (A law, B save door, C import conform, D
-update_cache repair) — red on HEAD 5756cb7aa3 for B/C/D; `test/unit/ts_tree_semantics.test.ts`
+update_cache repair, E lazy refusal: clear + tree order read) — red on HEAD 5756cb7aa3 for B/C/D; `test/unit/ts_tree_semantics.test.ts`
 (tree order: `'0'` and `1.005`). No parity fixture is touched (no harvested gate saves a number
 on a typed node); no re-harvest.
 
@@ -68,3 +79,6 @@ on a typed node); no re-harvest.
 - **D2 untyped default** — stored as given (PHP code, current) vs the docs' old "float/2".
 - **D3 repair** — operator `tool_update_cache` regenerate on typed-number sections vs a
   one-shot migration.
+- **D4 read-side failure mode of a malformed number node** (tree order read) — refuse the group
+  (current, PHP per-value parity) vs serve the value unformatted with a logged warning vs
+  coerce a numeric-string precision.

@@ -16,8 +16,10 @@ Now the server formats every value before storing it: an integer field drops the
 `type` is stored as given, as before. `0` is kept as `0` in the thesaurus order.
 
 A field whose definition has a `precision` that is not a whole number (for example `"2"` in
-quotes) is now reported as an ontology error: saving it is refused, and an import marks the
-cell as failed.
+quotes) is now reported as an ontology error when a number has to be formatted with it:
+saving a number to it is refused, an import marks the cell as failed, and a thesaurus whose
+order field has such a definition fails to load a level where a term carries an order
+value. Clearing the field still saves, and a level with no order values still loads.
 
 Values already stored are shown as they were stored: values imported or written by the
 assistant before this release may hold extra decimals, and changing a field's `precision`

@@ -122,7 +122,7 @@ The server applies the node's `type` / `precision` to every value it stores — 
 - no `type` → stored as given, no rounding.
 - `0` is a number and is stored as `0`.
 
-A `precision` that is not an integer (for example the string `"2"`) is an ontology error: a save to that field is refused with `ontology.invalid_node`, and an import reports the cell as failed. The save answer carries the value as stored, so the edit view shows the rounded value.
+A `precision` that is not an integer (for example the string `"2"`) is an ontology error, raised when a number has to be formatted with it: a save of a number to that field is refused with `ontology.invalid_node`, an import reports the cell as failed, and a thesaurus whose `section_map` `thesaurus.order` names that field fails to load a tree level where a term carries an order value. Clearing the field (an empty value) still saves, and a tree level with no order values still loads. The save answer carries the value as stored, so the edit view shows the rounded value.
 
 Values already stored are not re-read through the format: after changing a node's `precision`, run **Update cache → regenerate** on the section to re-store its values with the new format.
 

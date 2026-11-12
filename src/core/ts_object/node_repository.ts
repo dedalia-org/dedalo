@@ -24,8 +24,9 @@
 import {
 	formatNumber,
 	NUMBER_FORMAT_NONE,
-	type NumberFormat,
+	type NumberFormatSource,
 	numberFormatOf,
+	resolveNumberFormat,
 } from '../components/component_number/number_format.ts';
 import { sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
@@ -95,12 +96,24 @@ function groupLocators(locators: NodeLocator[]): Map<string, number[]> {
  * `'0'` — a regression vs v6). A string is read as PHP `(float)` reads it
  * (leading number); one with no number at all is no order (null).
  */
-export function formatNumberValue(value: unknown, format: NumberFormat): number | null {
+export function formatNumberValue(value: unknown, format: NumberFormatSource): number | null {
 	if (value === null || value === undefined || value === '' || value === false) {
 		return null;
 	}
 	const numeric = typeof value === 'string' ? Number.parseFloat(value.trim()) : Number(value);
-	return Number.isFinite(numeric) ? formatNumber(numeric, format) : null;
+	return Number.isFinite(numeric) ? formatNumber(numeric, resolveNumberFormat(format)) : null;
+}
+
+/**
+ * The order component's number format (type/precision from the order node's
+ * props), resolved LAZILY (T1-40 review): a malformed order node refuses
+ * (`ontology.invalid_node`) only when a row carries an order value to format —
+ * never eagerly for a whole section group (PHP failed per formatted value).
+ */
+async function orderFormatSource(orderTipo: string | null): Promise<NumberFormatSource> {
+	if (orderTipo === null) return NUMBER_FORMAT_NONE;
+	const properties = (await getNode(orderTipo))?.properties ?? null;
+	return () => numberFormatOf(properties, orderTipo);
 }
 
 /**
@@ -236,11 +249,7 @@ export async function fetchNodeInfo(
 			});
 		}
 
-		// Order component number format (type/precision from the order node props).
-		const orderNumberFormat =
-			safeOrderTipo !== null
-				? numberFormatOf((await getNode(safeOrderTipo))?.properties ?? null, safeOrderTipo)
-				: NUMBER_FORMAT_NONE;
+		const orderNumberFormat = await orderFormatSource(safeOrderTipo);
 
 		// is_indexable section-level rules (PHP: roots never indexable; unresolved model → false).
 		const indexablePossible =

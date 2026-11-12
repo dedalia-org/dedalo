@@ -20,7 +20,8 @@
  *
  * T1-40 / O06, OX2 — a component_number value is formatted as its node declares
  * (`properties.type` / `precision`: int truncates, float rounds; untyped kept;
- * a non-integer precision refused loudly) — PHP `component_number::set_data` →
+ * a non-integer precision refused loudly, but only for a value it must format)
+ * — PHP `component_number::set_data` →
  * `set_format_form_type`. The law is `components/component_number/number_format.ts`;
  * it is keyed on the matrix COLUMN the model stores in ('number'), and read off
  * the DATA tipo the value is stored under (an alias writes with its target's format).
@@ -70,12 +71,19 @@ export async function applyWriteValueGates<T extends { value: unknown }>(
 	return [...changes];
 }
 
-/** T1-40 — every number item of `changes` formatted as `componentTipo` declares. */
+/**
+ * T1-40 — every number item of `changes` formatted as `componentTipo` declares.
+ * The format is resolved LAZILY (T1-40 review): a malformed node's refusal is
+ * met only by a change that carries a finite number — a clear (`{value:null}`
+ * slot, `set_data` null) saves, as PHP's `set_data` skipped the cast for empty
+ * data.
+ */
 async function formatNumberChanges<T extends { value: unknown }>(
 	componentTipo: string,
 	changes: readonly T[],
 ): Promise<T[]> {
-	const format = numberFormatOf(await getPropertiesByTipo(componentTipo), componentTipo);
+	const properties = await getPropertiesByTipo(componentTipo);
+	const format = () => numberFormatOf(properties, componentTipo);
 	return changes.map((change) => {
 		if (Array.isArray(change.value)) {
 			return { ...change, value: formatNumberItems(change.value, format) };

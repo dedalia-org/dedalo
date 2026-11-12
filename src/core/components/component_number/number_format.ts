@@ -15,6 +15,10 @@
  * stays `0` (frozen v7's `empty($v) && $v!==0` also nulled `"0"` and `0.0`).
  * A `precision` that is not an integer is refused LOUDLY (`ontology.invalid_node`)
  * — PHP fatalled on it under strict_types; a silent default would narrow scope.
+ * The refusal is LAZY, as PHP's was (T1-40 review): a door hands the law a
+ * {@link NumberFormatSource} thunk and the format is resolved only when a
+ * finite number is about to be formatted — a clear, a null slot or a tree level
+ * with no order value never meets a malformed node's refusal.
  *
  * Rounding is DECIMAL, on the value's shortest decimal representation — never
  * `toFixed` (binary: 1.005 → "1.00") and never a `toPrecision(15)` helper
@@ -90,6 +94,18 @@ export function numberFormatOf(properties: unknown, tipo: string): NumberFormat 
 	return { kind: 'float', precision: (props.precision ?? 2) as number };
 }
 
+/**
+ * A format, or a thunk that resolves one (it may throw — see
+ * {@link numberFormatOf}). The thunk is called only when a value needs
+ * formatting, at most once per {@link formatNumberItems} call.
+ */
+export type NumberFormatSource = NumberFormat | (() => NumberFormat);
+
+/** The format `source` names (a thunk is called). */
+export function resolveNumberFormat(source: NumberFormatSource): NumberFormat {
+	return typeof source === 'function' ? source() : source;
+}
+
 /** `-0` → `0` (JSON has no negative zero; a stored value never carries one). */
 function unsignedZero(value: number): number {
 	return value === 0 ? 0 : value;
@@ -161,17 +177,20 @@ export function formatNumber(value: number, format: NumberFormat): number {
 }
 
 /**
- * Apply `format` to the `value` of every item that carries a finite number;
- * every other item (null slot, absent value, a non-object) and every other
- * field (`id`, `id_key`, `lang`, …) is kept. Returns the SAME array when
- * nothing changed.
+ * Apply `source`'s format to the `value` of every item that carries a finite
+ * number; every other item (null slot, absent value, a non-object) and every
+ * other field (`id`, `id_key`, `lang`, …) is kept. A thunk `source` is resolved
+ * on the first finite number only — items with none never resolve it. Returns
+ * the SAME array when nothing changed.
  */
-export function formatNumberItems<T>(items: readonly T[], format: NumberFormat): T[] {
+export function formatNumberItems<T>(items: readonly T[], source: NumberFormatSource): T[] {
+	let format: NumberFormat | null = null;
 	let changed = false;
 	const out = items.map((item) => {
 		if (item === null || typeof item !== 'object') return item;
 		const current = (item as { value?: unknown }).value;
 		if (typeof current !== 'number' || !Number.isFinite(current)) return item;
+		format ??= resolveNumberFormat(source);
 		const formatted = formatNumber(current, format);
 		if (Object.is(formatted, current)) return item;
 		changed = true;
