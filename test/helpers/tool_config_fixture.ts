@@ -61,6 +61,29 @@ export async function installScratchToolConfig(
 	};
 }
 
+/**
+ * Rewrite the scratch Tools-configuration row installed by
+ * installScratchToolConfig WITHOUT resetting the config cache — the cache-
+ * generation gate's way to tell a cache that stored a stale read from one that
+ * did not. Refused unless the scratch row exists and names `toolName`.
+ */
+export async function overwriteScratchToolConfigUncached(
+	toolName: string,
+	config: Record<string, unknown>,
+): Promise<void> {
+	await assertTestDatabase('overwriteScratchToolConfigUncached');
+	const updated = (await sql`
+		UPDATE matrix_tools SET misc = ${JSON.stringify({ dd999: [{ id: 1, value: config }] })}::text::jsonb
+		WHERE section_tipo = 'dd996' AND section_id = ${SCRATCH_CONFIG_ID}
+			AND string->'dd1326' @> ${JSON.stringify([{ value: toolName }])}::text::jsonb
+		RETURNING section_id`) as { section_id: number }[];
+	if (updated.length !== 1) {
+		throw new Error(
+			`overwriteScratchToolConfigUncached: no scratch dd996 row ${SCRATCH_CONFIG_ID} for '${toolName}' — install it first. Nothing was written.`,
+		);
+	}
+}
+
 /** Run `fn` with `config` installed as `toolName`'s Tools configuration, swept after. */
 export async function withScratchToolConfig<T>(
 	toolName: string,

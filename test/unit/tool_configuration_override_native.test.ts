@@ -26,10 +26,12 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { buildStructureContext } from '../../src/core/resolve/structure_context.ts';
 import { buildSectionButtons } from '../../src/core/section/buttons.ts';
+import { getToolConfigurationOverride, resetConfigCache } from '../../src/core/tools/config.ts';
 import { resolveElementToolConfig } from '../../src/core/tools/section_tool_context.ts';
 import {
 	installScratchRegisterDefault,
 	installScratchToolConfig,
+	overwriteScratchToolConfigUncached,
 } from '../helpers/tool_config_fixture.ts';
 
 type Tool = {
@@ -216,6 +218,78 @@ describe('component toolbar', () => {
 		} finally {
 			errors.mockRestore();
 		}
+	});
+	// T1-43 review: isOverrideEntry checked only that ddo_map was an array; a
+	// null item reached enrichToolConfig (`entry.tipo` on null) and killed the
+	// whole context build — install-editable data made a dead screen.
+	test('an override whose ddo_map holds a non-object item is skipped LOUDLY — the context still builds', async () => {
+		const errors = spyOn(console, 'error');
+		try {
+			await installOverride('install', 'tool_time_machine', [
+				{ tipo: 'test52', section_tipo: 'test3', ddo_map: [null] },
+				{ tipo: 'test52', section_tipo: 'test3', ddo_map: [{ tipo: 'test52' }, 'not-an-item'] },
+			]);
+			const tool = toolOf((await context('test52', 'test3')).tools, 'tool_time_machine');
+			expect(tool).toBeDefined();
+			expect(tool?.tool_config).toBeUndefined();
+			const lines = errors.mock.calls.map((call) => String(call[0]));
+			expect(
+				lines.filter((line) => line.includes('tool_time_machine') && line.includes('ddo_map')),
+			).toHaveLength(2);
+		} finally {
+			errors.mockRestore();
+		}
+	});
+
+	test('a skipped malformed entry lets a later well-formed entry for the same element apply', async () => {
+		const errors = spyOn(console, 'error');
+		try {
+			await installOverride('install', 'tool_time_machine', [
+				{ tipo: 'test52', section_tipo: 'test3', ddo_map: [null] },
+				{
+					tipo: 'test52',
+					section_tipo: 'test3',
+					ddo_map: [{ tipo: 'test52', section_tipo: 'test3', role: 'second' }],
+				},
+			]);
+			const tool = toolOf((await context('test52', 'test3')).tools, 'tool_time_machine');
+			expect(tool?.tool_config?.ddo_map?.[0]?.role).toBe('second');
+		} finally {
+			errors.mockRestore();
+		}
+	});
+});
+
+describe('cache generation', () => {
+	// T1-43 review: an index build that began before an invalidation must not
+	// store what it read — else a dd996 edit is masked until an unrelated reset.
+	test('a build spanning resetConfigCache() never stores its pre-reset read', async () => {
+		await installOverride('install', 'tool_time_machine', [
+			{
+				tipo: 'test52',
+				section_tipo: 'test3',
+				ddo_map: [{ tipo: 'test52', section_tipo: 'test3', role: 'before' }],
+			},
+		]);
+		resetConfigCache(); // every cache cold: the build below reads the DB
+		const inFlight = getToolConfigurationOverride('tool_time_machine', 'test52', 'test3');
+		resetConfigCache(); // the invalidation lands while the build is awaiting
+		expect((await inFlight)?.[0]).toMatchObject({ role: 'before' });
+		// The record changes WITHOUT a further reset: only a cache that did NOT
+		// store the spanning build's read can see it.
+		await overwriteScratchToolConfigUncached('tool_time_machine', {
+			properties: {
+				tool_config: [
+					{
+						tipo: 'test52',
+						section_tipo: 'test3',
+						ddo_map: [{ tipo: 'test52', section_tipo: 'test3', role: 'after' }],
+					},
+				],
+			},
+		});
+		const fresh = await getToolConfigurationOverride('tool_time_machine', 'test52', 'test3');
+		expect(fresh?.[0]).toMatchObject({ role: 'after' });
 	});
 });
 

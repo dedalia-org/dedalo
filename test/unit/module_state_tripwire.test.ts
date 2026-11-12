@@ -236,6 +236,9 @@ const ALLOWLISTED_MODULE_LET = new Set<string>([
 	// config maps above (T1-43): install-global config data, same lifecycle,
 	// cleared by the same resetConfigCache(); handed out as deep clones only.
 	'core/tools/config.ts:overrideIndexCache',
+	// Invalidation counter, not request state: the three caches above skip a
+	// set whose build spans a resetConfigCache() (T1-43 review).
+	'core/tools/config.ts:configGeneration',
 	// One-second memo of WHICH job pfiles exist on disk (media/jobs.ts). Request-
 	// INDEPENDENT by construction: it caches a DIRECTORY LISTING of a private
 	// tree, never a record, a user or a language. The in-memory registry is read

@@ -29,9 +29,17 @@ let defaultConfigCache: ConfigMap | null = null;
 let installConfigCache: ConfigMap | null = null;
 /** The per-(tool, tipo, section_tipo) ddo_map overrides, derived from the two maps above. */
 let overrideIndexCache: OverrideIndexes | null = null;
+/**
+ * Invalidation counter, not request state: every cache above is build-then-set
+ * across awaits, so a build stores its result only when no resetConfigCache()
+ * landed while it was reading — else a read from BEFORE a dd996/dd1324 edit
+ * would outlive the edit's invalidation (T1-43 review).
+ */
+let configGeneration = 0;
 
 /** Reset the config caches (called by invalidateAllToolCaches). */
 export function resetConfigCache(): void {
+	configGeneration++;
 	defaultConfigCache = null;
 	installConfigCache = null;
 	overrideIndexCache = null;
@@ -64,15 +72,19 @@ async function readConfigMap(sectionTipo: string, configTipo: string): Promise<C
 /** All tools' register default config (dd1324 / dd1633), cached. */
 async function getAllDefaultConfig(): Promise<ConfigMap> {
 	if (defaultConfigCache !== null) return defaultConfigCache;
-	defaultConfigCache = await readConfigMap(TOOLS_REGISTER_SECTION_TIPO, TIPO.DEFAULT_CONFIG);
-	return defaultConfigCache;
+	const generation = configGeneration;
+	const map = await readConfigMap(TOOLS_REGISTER_SECTION_TIPO, TIPO.DEFAULT_CONFIG);
+	if (generation === configGeneration) defaultConfigCache = map;
+	return map;
 }
 
 /** All tools' per-install config (dd996 / dd999), cached. */
 async function getAllInstallConfig(): Promise<ConfigMap> {
 	if (installConfigCache !== null) return installConfigCache;
-	installConfigCache = await readConfigMap(TOOLS_CONFIG_SECTION_TIPO, TIPO.CONFIG);
-	return installConfigCache;
+	const generation = configGeneration;
+	const map = await readConfigMap(TOOLS_CONFIG_SECTION_TIPO, TIPO.CONFIG);
+	if (generation === configGeneration) installConfigCache = map;
+	return map;
 }
 
 /** The effective value of one config option (PHP: object → `.value ?? prop`). */
@@ -216,16 +228,26 @@ function overrideEntriesOf(config: ConfigObject | null): unknown {
 	return (properties as { tool_config?: unknown }).tool_config;
 }
 
-/** True when an override entry has the shape the stamp needs. */
+/** True when a ddo_map item is a ddo OBJECT (enrichToolConfig reads its keys). */
+function isDdoItem(item: unknown): boolean {
+	return item !== null && typeof item === 'object' && !Array.isArray(item);
+}
+
+/**
+ * True when an override entry has the shape the stamp needs — down to every
+ * ddo_map item: a null/scalar item would crash the element's context build
+ * downstream (T1-43 review), so the whole entry is refused here instead.
+ */
 function isOverrideEntry(
 	entry: unknown,
-): entry is { tipo: string; section_tipo: string; ddo_map: unknown[] } {
+): entry is { tipo: string; section_tipo: string; ddo_map: Record<string, unknown>[] } {
 	if (entry === null || typeof entry !== 'object') return false;
 	const candidate = entry as { tipo?: unknown; section_tipo?: unknown; ddo_map?: unknown };
 	return (
 		typeof candidate.tipo === 'string' &&
 		typeof candidate.section_tipo === 'string' &&
-		Array.isArray(candidate.ddo_map)
+		Array.isArray(candidate.ddo_map) &&
+		candidate.ddo_map.every(isDdoItem)
 	);
 }
 
@@ -250,7 +272,7 @@ function indexToolOverrides(
 	entries.forEach((entry, position) => {
 		if (!isOverrideEntry(entry)) {
 			console.error(
-				`[tools/config] ignore ${layer} properties.tool_config[${position}] of '${toolName}': needs string tipo, string section_tipo and a ddo_map array`,
+				`[tools/config] ignore ${layer} properties.tool_config[${position}] of '${toolName}': needs string tipo, string section_tipo and a ddo_map array of ddo objects`,
 			);
 			return;
 		}
@@ -271,10 +293,12 @@ function buildOverrideIndex(configs: ConfigMap, layer: string): OverrideIndex {
 /** Both layers' override indexes, built once per tool-cache generation. */
 async function getOverrideIndexes(): Promise<OverrideIndexes> {
 	if (overrideIndexCache !== null) return overrideIndexCache;
+	const generation = configGeneration;
 	const install = buildOverrideIndex(await getAllInstallConfig(), 'Tools configuration (dd996)');
 	const register = buildOverrideIndex(await getAllDefaultConfig(), 'register default (dd1324)');
-	overrideIndexCache = { install, register };
-	return overrideIndexCache;
+	const indexes = { install, register };
+	if (generation === configGeneration) overrideIndexCache = indexes;
+	return indexes;
 }
 
 /**
