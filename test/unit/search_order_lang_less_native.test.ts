@@ -15,8 +15,12 @@
  * input_text and a self-targeting portal. Records are written through the
  * ENGINE writer (createSectionRecord + saveComponentData), so the stored shape
  * is the real lang-less one — a raw INSERT with `lang:'lg-nolan'` would hide
- * the defect. Values are chosen so text and numeric collation agree (the
- * number collation is a separate owner decision).
+ * the defect. The value cases use numbers whose text and numeric collation
+ * agree; the COLLATION case (c9/c10/c2) pins the CURRENT collation on purpose:
+ * the sort key is extracted as TEXT (`#>> '{}'`, no numeric cast), so 9, 10, 2
+ * ASC → 10, 2, 9. Numeric collation for component_number is an OPEN owner
+ * decision (RC closure plan §7.1); when it is ruled, this case changes with
+ * the engine and the changelog — never silently.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -76,7 +80,7 @@ const SITUATION = situation({
 });
 
 /** Record ids by role, filled in beforeAll (created in this order). */
-const ids = { r0: 0, r1: 0, r2: 0, r3: 0, m1: 0, m2: 0 };
+const ids = { r0: 0, r1: 0, r2: 0, r3: 0, m1: 0, m2: 0, c9: 0, c10: 0, c2: 0 };
 
 async function save(
 	tipo: string,
@@ -135,6 +139,13 @@ beforeAll(async () => {
 			from_component_tipo: PORTAL,
 		},
 	];
+	for (const [id, number] of [
+		[ids.c9, 9],
+		[ids.c10, 10],
+		[ids.c2, 2],
+	] as const) {
+		await save(NUMBER, id, 'lg-nolan', [{ value: number }]);
+	}
 	await save(PORTAL, ids.m1, 'lg-nolan', link(ids.r1));
 	await save(PORTAL, ids.m2, 'lg-nolan', link(ids.r2));
 }, 60_000);
@@ -185,6 +196,14 @@ describe('ORDER BY a lang-less component sorts by its value', () => {
 			ids.r2,
 			ids.r0,
 		]);
+	});
+
+	test('collation: number sorts as TEXT today (9, 10, 2 ASC → 10, 2, 9) — numeric is an open owner decision', async () => {
+		// Pins the shipped collation so the changelog and the engine say the same
+		// thing. Numeric order would be [c2, c9, c10]; section_id order [c9, c10, c2].
+		expect(
+			await ordered([ids.c9, ids.c10, ids.c2], [{ direction: 'ASC', path: [step(NUMBER)] }]),
+		).toEqual([ids.c10, ids.c2, ids.c9]);
 	});
 
 	test('json ASC → by value', async () => {
