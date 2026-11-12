@@ -19,9 +19,16 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { sql } from '../../src/core/db/postgres.ts';
-import { buildJoinChain } from '../../src/core/search/conform.ts';
-import type { SqlFrontierScope } from '../../src/core/security/frontier_scope.ts';
+import { buildJoinChain, conformFilter } from '../../src/core/search/conform.ts';
+import { planDeepFilters } from '../../src/core/search/deep_path.ts';
+import { ParamsCollector } from '../../src/core/search/params.ts';
+import { renderConformedFilter } from '../../src/core/search/sql_assembler.ts';
+import {
+	currentFrontierRefusals,
+	type SqlFrontierScope,
+} from '../../src/core/security/frontier_scope.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
+import { runWithRequestContext } from '../../src/core/security/request_context.ts';
 import {
 	dropSituation,
 	ensureSituation,
@@ -37,6 +44,10 @@ const PORTAL = 'zzhq5';
 const OTHER = 'zzhq6';
 /** A `self`-targeting portal on REAL (VIRT borrows it): its target is whichever section holds the record. */
 const SELF_HOP = 'zzhq7';
+/** T1-16: the relation leaf's step component (a portal on REAL, VIRT borrows it). */
+const RELF = 'zzhq8';
+/** T1-16: a second relation component on REAL (VIRT borrows it) — the one hidden on VIRT. */
+const HIDDENREL = 'zzhq9';
 
 const R1 = 900701; // REAL, 'zzleak visible'
 const V1 = 900702; // VIRT, 'zzleak secret'
@@ -47,6 +58,12 @@ const H_OTHER = 900713; // → O1 (a locator outside the configured targets)
 const HOSTS = [H_REAL, H_VIRT, H_OTHER];
 const R2 = 900704; // REAL, SELF_HOP → R1
 const V2 = 900705; // VIRT, SELF_HOP → V1
+const R3 = 900706; // REAL, HIDDENREL → (REAL, R1)
+const V3 = 900707; // VIRT, HIDDENREL → (REAL, R1)
+const MISS_ID = 900709; // never inserted: the miss probe's target
+const H_R3 = 900714; // → R3
+const H_V3 = 900715; // → V3
+const LEAF_HOSTS = [H_R3, H_V3];
 
 const shown = (value: string) => ({
 	string: { [TEXT]: [{ id: 1, lang: 'lg-nolan', value }] },
@@ -74,6 +91,20 @@ const selfLink = (sectionTipo: string, sectionId: number) => ({
 				section_id: sectionId,
 				section_tipo: sectionTipo,
 				from_component_tipo: SELF_HOP,
+			},
+		],
+	},
+});
+
+const hiddenLink = (sectionTipo: string, sectionId: number) => ({
+	relation: {
+		[HIDDENREL]: [
+			{
+				id: 1,
+				type: 'dd151',
+				section_id: sectionId,
+				section_tipo: sectionTipo,
+				from_component_tipo: HIDDENREL,
 			},
 		],
 	},
@@ -124,6 +155,8 @@ const S = situation({
 				},
 			},
 		},
+		{ tipo: RELF, parent: REAL, model: 'component_portal' },
+		{ tipo: HIDDENREL, parent: REAL, model: 'component_portal' },
 	],
 	records: [
 		{ section_tipo: REAL, section_id: R1, columns: shown('zzleak visible') },
@@ -134,6 +167,10 @@ const S = situation({
 		{ section_tipo: HOST, section_id: H_OTHER, columns: link(OTHER, O1) },
 		{ section_tipo: REAL, section_id: R2, columns: selfLink(REAL, R1) },
 		{ section_tipo: VIRT, section_id: V2, columns: selfLink(VIRT, V1) },
+		{ section_tipo: REAL, section_id: R3, columns: hiddenLink(REAL, R1) },
+		{ section_tipo: VIRT, section_id: V3, columns: hiddenLink(REAL, R1) },
+		{ section_tipo: HOST, section_id: H_R3, columns: link(REAL, R3) },
+		{ section_tipo: HOST, section_id: H_V3, columns: link(VIRT, V3) },
 	],
 });
 
@@ -278,3 +315,161 @@ describe.if(DB_READY)('search hop: configured targets the caller may read', () =
 		expect((await hostsMatching(scope, REAL, 'zzleak stray')).ids).toEqual([H_OTHER]);
 	});
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T1-16 — a multi-hop RELATION leaf's from_component_tipo is keyed per section
+// the last hop ADMITS (the sections its rows can belong to), never per the
+// client's declared step section. The hop admits REAL and VIRT when the step
+// component (RELF) is granted on both; the leaf's from_component_tipo
+// (HIDDENREL) is a DIFFERENT component, granted on REAL only — so VIRT's
+// HIDDENREL links must not answer the probe.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A principal-bearing scope searching HOST (the root step's PORTAL granted) + `granted`. */
+function leafScope(
+	principal: Principal | undefined,
+	granted: [string, string][],
+): SqlFrontierScope {
+	return {
+		...scopeFor(principal, [[HOST, PORTAL], ...granted]),
+		mainSectionTipos: [HOST],
+	};
+}
+
+/** The relation leaf through PORTAL, the step declared as `declared`. */
+const relationLeaf = (declared: string, q: Record<string, unknown>) => ({
+	format: 'relation',
+	q,
+	path: [
+		{ section_tipo: HOST, component_tipo: PORTAL },
+		{ section_tipo: declared, component_tipo: RELF },
+	],
+});
+
+/** The leaf HOSTS a filter keeps — conformed, planned and rendered the way the assembler does. */
+async function leafHosts(
+	scope: SqlFrontierScope,
+	filter: Record<string, unknown>,
+): Promise<number[]> {
+	const conformed = await conformFilter(filter, 'h', 'matrix_test', scope);
+	const planned = await planDeepFilters(conformed, ['matrix_test'], {});
+	const params = new ParamsCollector();
+	const where = renderConformedFilter(planned, params);
+	const rows = (await sql.unsafe(
+		`SELECT h.section_id FROM matrix_test AS h WHERE h.section_tipo = '${HOST}'` +
+			(where === '' ? '' : ` AND (${where})`),
+		params.toArray() as never[],
+	)) as { section_id: number }[];
+	return rows
+		.map((row) => Number(row.section_id))
+		.filter((id) => LEAF_HOSTS.includes(id))
+		.sort();
+}
+
+const HIT = { section_tipo: REAL, section_id: R1 };
+const MISS = { section_tipo: REAL, section_id: MISS_ID };
+/** RELF on both twins (the hop admits both); HIDDENREL on REAL only. */
+const HIDDEN_ON_VIRT: [string, string][] = [
+	[REAL, RELF],
+	[REAL, HIDDENREL],
+	[REAL, SELF_HOP],
+	[REAL, TEXT],
+	[VIRT, RELF],
+];
+
+describe.if(DB_READY)(
+	'relation leaf from_component_tipo keyed per ADMITTED section (T1-16)',
+	() => {
+		beforeAll(async () => {
+			await ensureSituation(S);
+		});
+		afterAll(async () => {
+			expect(await dropSituation(S)).toBe(0);
+		});
+
+		test('CONTROL: granted everything on both twins, the hit reaches both, the miss none', async () => {
+			const scope = leafScope(USER, [
+				...HIDDEN_ON_VIRT,
+				[VIRT, HIDDENREL],
+				[VIRT, SELF_HOP],
+				[VIRT, TEXT],
+			]);
+			const explicit = { ...HIT, from_component_tipo: HIDDENREL };
+			expect(await leafHosts(scope, { $and: [relationLeaf(REAL, explicit)] })).toEqual([
+				H_R3,
+				H_V3,
+			]);
+			expect(
+				await leafHosts(scope, {
+					$and: [relationLeaf(REAL, { ...MISS, from_component_tipo: HIDDENREL })],
+				}),
+			).toEqual([]);
+		});
+
+		test('explicit hidden from_component_tipo: VIRT rows refused, loudly', async () => {
+			const scope = leafScope(USER, HIDDEN_ON_VIRT);
+			await runWithRequestContext(
+				{ session: null, requestId: 't1-16-loud', clientIp: '', principal: USER },
+				async () => {
+					const hit = await leafHosts(scope, {
+						$and: [relationLeaf(REAL, { ...HIT, from_component_tipo: HIDDENREL })],
+					});
+					expect(hit).toEqual([H_R3]);
+					expect(currentFrontierRefusals()).toContainEqual(
+						expect.objectContaining({
+							sectionTipo: VIRT,
+							componentTipo: HIDDENREL,
+							key: 'component',
+						}),
+					);
+				},
+			);
+			expect(
+				await leafHosts(scope, {
+					$and: [relationLeaf(REAL, { ...MISS, from_component_tipo: HIDDENREL })],
+				}),
+			).toEqual([]);
+		});
+
+		test('absent from_component_tipo: "any" minus what VIRT hides', async () => {
+			const scope = leafScope(USER, HIDDEN_ON_VIRT);
+			expect(await leafHosts(scope, { $and: [relationLeaf(REAL, HIT)] })).toEqual([H_R3]);
+			expect(await leafHosts(scope, { $and: [relationLeaf(REAL, MISS)] })).toEqual([]);
+		});
+
+		test('$not (forward shell): hit and miss answer alike on the VIRT host', async () => {
+			const scope = leafScope(USER, HIDDEN_ON_VIRT);
+			const negated = async (q: Record<string, unknown>) =>
+				(
+					await leafHosts(scope, {
+						$and: [{ $not: [relationLeaf(REAL, { ...q, from_component_tipo: HIDDENREL })] }],
+					})
+				).includes(H_V3);
+			expect(await negated(HIT)).toBe(await negated(MISS));
+		});
+
+		test('SPOOFED declaration (a non-target granting everything) keys nothing it cannot reach', async () => {
+			// OTHER is not a configured target: the hop admits VIRT only (RELF there).
+			const scope = leafScope(USER, [
+				[OTHER, RELF],
+				[OTHER, HIDDENREL],
+				[VIRT, RELF],
+			]);
+			const probe = (q: Record<string, unknown>) =>
+				leafHosts(scope, {
+					$and: [relationLeaf(OTHER, { ...q, from_component_tipo: HIDDENREL })],
+				});
+			expect(await probe(HIT)).toEqual([]);
+			expect(await probe(MISS)).toEqual([]);
+		});
+
+		test('internal search (no principal): unchanged, every locator answers', async () => {
+			const scope = scopeFor(undefined, []);
+			expect(
+				await leafHosts(scope, {
+					$and: [relationLeaf(REAL, { ...HIT, from_component_tipo: HIDDENREL })],
+				}),
+			).toEqual([H_R3, H_V3]);
+		});
+	},
+);

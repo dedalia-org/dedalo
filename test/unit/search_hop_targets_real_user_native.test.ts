@@ -47,11 +47,23 @@ const TEXT = 'zzhr2';
 const VIRT = 'zzhr3';
 const HOP = 'zzhr4';
 const HOST = SB_GRANTED_SECTION; // test3 — carries a component_filter (test101)
+/** T1-16: the relation leaf's step component on REAL (VIRT borrows it). */
+const RELF = 'zzhr5';
+/** T1-16: a relation component on REAL (VIRT borrows it), hidden from A on VIRT. */
+const HIDDENREL = 'zzhr6';
 
 const R1 = 900801; // REAL 'zzreal visible'
 const V1 = 900802; // VIRT 'zzreal secret'
 
-const shown = (value: string) => ({ string: { [TEXT]: [{ id: 1, lang: 'lg-nolan', value }] } });
+const shown = (value: string) => ({
+	string: { [TEXT]: [{ id: 1, lang: 'lg-nolan', value }] },
+	// T1-16: both twins link (REAL, R1) through HIDDENREL
+	relation: {
+		[HIDDENREL]: [
+			{ id: 1, type: 'dd151', section_id: R1, section_tipo: REAL, from_component_tipo: HIDDENREL },
+		],
+	},
+});
 
 const S = situation({
 	name: 'search hop real user',
@@ -80,6 +92,8 @@ const S = situation({
 				},
 			},
 		},
+		{ tipo: RELF, parent: REAL, model: 'component_portal' },
+		{ tipo: HIDDENREL, parent: REAL, model: 'component_portal' },
 	],
 	records: [
 		{ section_tipo: REAL, section_id: R1, columns: shown('zzreal visible') },
@@ -99,15 +113,20 @@ const grant = (id: number, sectionTipo: string, tipo: string, value: number) => 
 
 /** A's profile grants — the fixture's test3 rows plus the hop and the twins asked for. */
 async function setGrantsOfA(twins: string[]): Promise<void> {
+	await setComponentGrantsOfA(Object.fromEntries(twins.map((twin) => [twin, [TEXT]])));
+}
+
+/** A's profile grants — test3's rows plus the hop, and per twin its section + `components`. */
+async function setComponentGrantsOfA(perTwin: Record<string, string[]>): Promise<void> {
+	let next = 10;
 	const rows = [
 		grant(1, HOST, HOST, 2),
 		grant(2, HOST, 'test52', 2),
 		grant(3, HOST, 'test101', 2),
 		grant(4, HOST, HOP, 2),
-		...twins.flatMap((twin, index) => [
-			grant(10 + index * 2, twin, twin, 2),
-			grant(11 + index * 2, twin, TEXT, 2),
-		]),
+		...Object.entries(perTwin).flatMap(([twin, components]) =>
+			[twin, ...components].map((tipo) => grant(next++, twin, tipo, 2)),
+		),
 	];
 	await sql.unsafe(
 		`UPDATE matrix_profiles SET misc = $1::text::jsonb WHERE section_tipo = 'dd234' AND section_id = $2`,
@@ -176,6 +195,33 @@ async function hostsFor(principal: Principal, q: string): Promise<number[]> {
 		.sort();
 }
 
+/** test3 host ids (of this file) whose HOP reaches a record holding a HIDDENREL link to `targetId`. */
+async function hostsByRelationLeaf(principal: Principal, targetId: number): Promise<number[]> {
+	const sqo = sanitizeClientSqo({
+		section_tipo: [HOST],
+		limit: 50,
+		offset: 0,
+		filter: {
+			$and: [
+				{
+					format: 'relation',
+					q: { section_tipo: REAL, section_id: targetId, from_component_tipo: HIDDENREL },
+					path: [
+						{ section_tipo: HOST, component_tipo: HOP },
+						{ section_tipo: REAL, component_tipo: RELF },
+					],
+				},
+			],
+		},
+	} as never);
+	const built = await buildSearchSql(sqo, { principal });
+	const rows = (await sql.unsafe(built.sql, built.params as never[])) as { section_id: number }[];
+	return rows
+		.map((row) => Number(row.section_id))
+		.filter((id) => id === hostToReal || id === hostToVirt)
+		.sort();
+}
+
 describe.if(DB_READY)(
 	'search hop rule — a REAL restricted user (profile grants, own project)',
 	() => {
@@ -221,6 +267,17 @@ describe.if(DB_READY)(
 			A = await resolvePrincipal(sb.userA);
 			expect(await hostsFor(A, 'zzreal visible')).toHaveLength(1);
 			expect(await hostsFor(A, 'zzreal secret')).toEqual([hostToVirt]);
+		});
+
+		test('T1-16: a relation leaf keys from_component_tipo per ADMITTED twin, not the declared one', async () => {
+			// RELF (the step component) on both twins → the hop admits both;
+			// HIDDENREL only on REAL → VIRT's HIDDENREL links must not answer.
+			await setComponentGrantsOfA({ [REAL]: [TEXT, RELF, HIDDENREL], [VIRT]: [TEXT, RELF] });
+			A = await resolvePrincipal(sb.userA);
+			// control: root reaches both twins' links
+			expect(await hostsByRelationLeaf(root, R1)).toEqual([hostToReal, hostToVirt].sort());
+			expect(await hostsByRelationLeaf(A, R1)).toEqual([hostToReal]);
+			expect(await hostsByRelationLeaf(A, 900809)).toEqual([]); // miss: never inserted
 		});
 
 		test('A with no grant on either twin: the hop reaches nothing', async () => {
