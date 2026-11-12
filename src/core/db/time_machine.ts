@@ -54,6 +54,7 @@
 
 import { canonicalJson } from '../concepts/canonical_json.ts';
 import { keyImage } from '../concepts/lang_region.ts';
+import { TIME_MACHINE_SECTION_TIPO, TM_EXCLUDED_SECTIONS } from '../concepts/section.ts';
 import { assertNotReadOnlyRequest } from '../security/read_only_scope.ts';
 import { dbTimestamp } from './db_timestamp.ts';
 import { encodeForJsonb } from './json_codec.ts';
@@ -65,8 +66,12 @@ import {
 	withTmHistory,
 } from './record_generation.ts';
 
-/** The dd15 virtual section tipo (PHP DEDALO_TIME_MACHINE_SECTION_TIPO). */
-export const TIME_MACHINE_SECTION_TIPO = 'dd15';
+/**
+ * The dd15 virtual section tipo (PHP DEDALO_TIME_MACHINE_SECTION_TIPO) and the
+ * never-versioned sections — both OWNED by the leaf concepts/section.ts,
+ * re-exported here for the existing importers.
+ */
+export { TIME_MACHINE_SECTION_TIPO, TM_EXCLUDED_SECTIONS };
 
 /** One matrix_time_machine row (flat audit contract). */
 export interface TimeMachineRow {
@@ -162,12 +167,6 @@ export interface TimeMachineEntry {
 }
 
 export type TimeMachineWriteHook = (entry: TimeMachineEntry) => Promise<void>;
-
-/**
- * Sections excluded from Time Machine (PHP tm_record::$excluded_section_tipos —
- * volatile/utility sections). dd15 itself is also refused.
- */
-export const TM_EXCLUDED_SECTIONS: ReadonlySet<string> = new Set([TIME_MACHINE_SECTION_TIPO]);
 
 /**
  * Append one audit row for a component data change (PHP tm_record::create →

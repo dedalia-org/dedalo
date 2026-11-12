@@ -693,7 +693,7 @@ export function counterTableFor(tableName: string | null): string {
  *
  * HONEST LIMIT: this WIDENS the floor, it does not guarantee it. TM is
  * conditionally written (a create appends no row, `saveTm:false` suppresses
- * them for bulk imports, TM_EXCLUDED_SECTIONS skips dd15) and is append-only by
+ * them for bulk imports, TM_EXCLUDED_SECTIONS skips dd15/dd655/dd1521) and is append-only by
  * convention, not by constraint. It is damage limitation for counters already
  * lost; the guarantee is that no writer LOWERS the counter
  * (`test/unit/matrix_counter_monotonic_tripwire.test.ts`).
@@ -701,7 +701,7 @@ export function counterTableFor(tableName: string | null): string {
  * BOTH counter tables get the witness. An earlier draft excluded
  * `matrix_counter_dd` "because TM does not track the ontology tables" — an
  * assumption nothing enforces: `recordTimeMachine` skips only
- * TM_EXCLUDED_SECTIONS (dd15) and non-positive ids, so a save on a `_dd`-backed
+ * TM_EXCLUDED_SECTIONS (dd15, dd655, dd1521) and non-positive ids, so a save on a `_dd`-backed
  * section writes a TM row like any other. TM rows are keyed by `section_tipo`,
  * which is correct whichever matrix table the section lives on, and GREATEST
  * can only WIDEN the floor — where TM holds nothing the subquery yields 0 and

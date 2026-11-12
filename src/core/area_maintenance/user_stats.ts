@@ -12,12 +12,13 @@
  * gate uses a SYNTHETIC user so real aggregates are never touched.
  */
 
+import { USER_ACTIVITY_SECTION_TIPO } from '../concepts/section.ts';
 import { encodeForJsonb } from '../db/json_codec.ts';
 import { acquireNodeLock, sql, withTransaction } from '../db/postgres.ts';
 import { resolveUserName, USERS_SECTION } from '../security/user_identity.ts';
 
 /** dd1521 record components (PHP USER_ACTIVITY_* constants). */
-const UA_SECTION = 'dd1521';
+const UA_SECTION = USER_ACTIVITY_SECTION_TIPO; // dd1521
 const UA_USER = 'dd1522';
 const UA_TYPE = 'dd1531';
 const UA_DATE = 'dd1530';

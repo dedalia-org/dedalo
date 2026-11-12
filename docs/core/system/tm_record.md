@@ -43,7 +43,9 @@ instantiated and nothing is cached: one call is one function call.
   the flat columns (`section_id`, `timestamp`, `user_id`, `tipo`,
   `section_tipo`, `bulk_process_id`, `data`) into component-shaped data
   injected into a synthetic `dd15` `MatrixRecord`.
-- **Write guards** — `TM_EXCLUDED_SECTIONS` refuses to version `dd15` itself, and
+- **Write guards** — `TM_EXCLUDED_SECTIONS` refuses to version `dd15` itself, the
+  per-user editing search preset `dd655` and the derived user-activity statistics
+  `dd1521` (so their saves, deletes and bulk runs leave no history), and
   `recordTimeMachine()` skips non-positive `section_id`s.
 - **Row deletion** — none. The Time Machine surface is **append-only**: no
   function deletes a row.
@@ -461,7 +463,7 @@ not a save through the `tm`-mode component.
 | `recordBulkBirth(entry)` / `recordBulkCascadeDelete(entry)` | The hidden role-3 birth marker / role-4 cascade snapshot (a run's cascade wipe, or a revert's D2 delete) of a bulk run. |
 | `TM_ROLE`, `decodeTmImage()` | The role codes, and the decoder of an undo-log image (`data IS NULL` = the region held nothing — select `TM_IMAGE_ABSENT_COLUMN`; the pair writer never stores a JSON `null` image, it maps one to absence). |
 | `nowDbTimestamp()` | The current time as a Postgres-style timestamp string. |
-| `TM_EXCLUDED_SECTIONS` | The section tipos never versioned — `dd15` itself. |
+| `TM_EXCLUDED_SECTIONS` | The section tipos never versioned — `dd15` itself, `dd655` (editing search preset) and `dd1521` (user-activity statistics). Owned by `src/core/concepts/section.ts`. |
 
 There is **no** row-deletion function: Time Machine rows are never deleted by this
 server. There is likewise no generic multi-row search here — the
