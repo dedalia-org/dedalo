@@ -6,9 +6,9 @@
 /**
 * RENDER_XYZ_BASEMAPS
 * DOM for the "XYZ" panel (its header is toolbar.js's). The add form is built
-* once at attach, so typing survives a reopen; the list is rebuilt from
-* `self.basemaps` on every open and mutation. Mutations go through
-* `self.<method>(...)`, never `xyz_basemaps.js` directly.
+* once at attach, so typing survives a reopen; the lists are rebuilt from
+* `self.basemaps` and the record's saved XYZ sources on every open and mutation.
+* Mutations go through `self.<method>(...)`, never `xyz_basemaps.js` directly.
 *
 * @module render_xyz_basemaps
 */
@@ -17,6 +17,8 @@
 
 import {ui} from '../../../core/common/js/ui.js'
 import {show_panel_message} from './render_download_line.js'
+import {stored_sources} from './map_sources.js'
+import {MAX_ATTRIBUTION_LENGTH, MAX_SOURCE_ZOOM} from './core_limits.js'
 
 
 
@@ -39,6 +41,15 @@ export const render_xyz_basemaps_panel = function(self, panel) {
 		parent			: panel
 	})
 	ui.create_dom_element({element_type: 'ul', class_name: 'uca-maps-xyz-list', parent: panel})
+
+	// same classes as the list above: one look for both
+	ui.create_dom_element({
+		element_type	: 'h5',
+		class_name		: 'uca-maps-xyz-list-title',
+		text_content	: self.get_tool_label('xyz_saved_title') || 'Saved in this record',
+		parent			: panel
+	})
+	ui.create_dom_element({element_type: 'ul', class_name: 'uca-maps-xyz-list uca-maps-xyz-saved-list', parent: panel})
 
 	return panel
 }//end render_xyz_basemaps_panel
@@ -64,9 +75,8 @@ const show_xyz_message = function(panel, text, type='error') {
 
 /**
 * RENDER_ADD_FORM
-* URL/name/attribution/min-max zoom + "Add" button — v6's own field set
-* (`special_tools_xyz.js` load_modal), one flex column instead of v6's
-* separate labelled divs (no behaviour to preserve in the exact markup).
+* URL/attribution/min-max zoom + "Add and save" — v6's field set (`special_tools_xyz.js`
+* load_modal) without its separate name: a saved source is named by its attribution.
 *
 * @param {Object} self
 * @param {HTMLElement} panel
@@ -83,13 +93,10 @@ const render_add_form = function(self, panel) {
 	url_input.type			= 'text'
 	url_input.placeholder	= self.get_tool_label('xyz_url_placeholder') || 'Base map URL (required)'
 
-	const name_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-xyz-input uca-maps-xyz-name', parent: form})
-	name_input.type			= 'text'
-	name_input.placeholder	= self.get_tool_label('xyz_name_placeholder') || 'Base map name (required)'
-
 	const attribution_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-xyz-input uca-maps-xyz-attribution', parent: form})
 	attribution_input.type			= 'text'
-	attribution_input.placeholder	= self.get_tool_label('xyz_attribution_placeholder') || 'Attribution (optional)'
+	attribution_input.maxLength		= MAX_ATTRIBUTION_LENGTH
+	attribution_input.placeholder	= self.get_tool_label('xyz_attribution_placeholder') || 'Attribution (required, names the layer)'
 
 	const zoom_row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-xyz-zoom-row', parent: form})
 	const minzoom_input = ui.create_dom_element({
@@ -98,7 +105,7 @@ const render_add_form = function(self, panel) {
 	minzoom_input.type	= 'number'
 	minzoom_input.title	= self.get_tool_label('xyz_minzoom_title') || 'Min zoom (0-22)'
 	const maxzoom_input = ui.create_dom_element({
-		element_type: 'input', class_name: 'uca-maps-xyz-input uca-maps-xyz-maxzoom', value: 22, parent: zoom_row
+		element_type: 'input', class_name: 'uca-maps-xyz-input uca-maps-xyz-maxzoom', value: MAX_SOURCE_ZOOM, parent: zoom_row
 	})
 	maxzoom_input.type	= 'number'
 	maxzoom_input.title	= self.get_tool_label('xyz_maxzoom_title') || 'Max zoom (0-22)'
@@ -106,20 +113,25 @@ const render_add_form = function(self, panel) {
 	const add_btn = ui.create_dom_element({
 		element_type	: 'button',
 		class_name		: 'uca-maps-xyz-add-button',
-		text_content	: self.get_tool_label('xyz_add_button') || 'Add base map',
+		text_content	: self.get_tool_label('xyz_add_button') || 'Add and save',
 		parent			: form
 	})
 	add_btn.type = 'button'
-	add_btn.addEventListener('click', () => {
+	add_btn.addEventListener('click', async () => {
 
-		const result = self.add_basemap({
+		add_btn.disabled = true
+		const result = await self.add_basemap({
 			url			: url_input.value,
-			name		: name_input.value,
 			attribution	: attribution_input.value,
 			minzoom		: minzoom_input.value,
 			maxzoom		: maxzoom_input.value
 		})
+		add_btn.disabled = false
 
+		// torn down while saving: the panel is gone
+		if (!self.xyz_panel) {
+			return
+		}
 		if (!result.ok) {
 			show_xyz_message(panel, result.error)
 			return
@@ -127,10 +139,9 @@ const render_add_form = function(self, panel) {
 
 		message.hidden = true
 		url_input.value			= ''
-		name_input.value			= ''
 		attribution_input.value	= ''
 		minzoom_input.value		= 0
-		maxzoom_input.value		= 22
+		maxzoom_input.value		= MAX_SOURCE_ZOOM
 
 		populate_xyz_basemaps(self, panel)
 
@@ -202,7 +213,61 @@ export const populate_xyz_basemaps = function(self, panel) {
 
 	})
 
+	populate_saved_basemaps(self, panel)
+
 }//end populate_xyz_basemaps
+
+
+
+/**
+* POPULATE_SAVED_BASEMAPS
+* The XYZ layers saved in the record, each with its delete (which saves). They are not
+* reordered here: the component lists them as overlays, switched on and off in its layer
+* control.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {HTMLElement} panel
+* @returns {void}
+*/
+const populate_saved_basemaps = function(self, panel) {
+
+	const list = panel.querySelector('.uca-maps-xyz-saved-list')
+	list.replaceChildren()
+
+	for (const source of stored_sources(self, 'xyz')) {
+
+		const item = ui.create_dom_element({element_type: 'li', class_name: 'uca-maps-xyz-item', parent: list})
+
+		ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'uca-maps-xyz-item-name',
+			text_content	: source.attribution || ('#' + source.id),
+			title			: source.url,
+			parent			: item
+		})
+
+		const controls = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-xyz-item-controls', parent: item})
+
+		const delete_btn = ui.create_dom_element({element_type: 'button', class_name: 'uca-maps-xyz-delete', text_content: '✕', parent: controls})
+		delete_btn.type		= 'button'
+		delete_btn.title	= self.get_tool_label('xyz_delete_saved_button') || 'Delete and save'
+		delete_btn.addEventListener('click', async () => {
+			delete_btn.disabled = true
+			const result = await self.delete_saved_basemap(source.id)
+			if (!self.xyz_panel) {
+				return
+			}
+			if (!result.ok) {
+				delete_btn.disabled = false
+				show_xyz_message(panel, result.error)
+				return
+			}
+			panel.querySelector('.uca-maps-xyz-message').hidden = true
+			populate_xyz_basemaps(self, panel)
+		})
+	}
+
+}//end populate_saved_basemaps
 
 
 

@@ -64,7 +64,7 @@ import {
 } from '../../../tools/tool_uca_maps/js/object_image.js'
 import { is_onexone_enabled, create_onexone_rectangle } from '../../../tools/tool_uca_maps/js/onexone.js'
 import { DEFAULT_BASEMAPS, detach_xyz_basemaps } from '../../../tools/tool_uca_maps/js/xyz_basemaps.js'
-import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_services.js'
+import { parse_wms_capabilities_xml, DEFAULT_WMS_OPACITY } from '../../../tools/tool_uca_maps/js/wms_services.js'
 import { populate_wms_search_results } from '../../../tools/tool_uca_maps/js/render_wms_services.js'
 import { UPLOAD_MESSAGE_MS } from '../../../tools/tool_uca_maps/js/render_file_upload.js'
 import { detach_file_upload } from '../../../tools/tool_uca_maps/js/vector_upload.js'
@@ -518,10 +518,40 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 
 		assert.equal(result.ok, true)
 		assert.deepEqual(result.layers, [
-			{name: 'topo:layer2', title: 'Layer Two'},
-			{name: 'topo:layer3', title: 'topo:layer3'},
-			{name: 'topo:layer4', title: 'Layer Four'}
+			{name: 'topo:layer2', title: 'Layer Two', crs: 'EPSG:3857'},
+			{name: 'topo:layer3', title: 'topo:layer3', crs: 'EPSG:3857'},
+			{name: 'topo:layer4', title: 'Layer Four', crs: 'EPSG:3857'}
 		], 'expected queryable="0" kept: the attribute counts, not its value')
+		assert.equal(result.version, '1.3.0', 'expected the service\'s own version')
+	})
+
+	// the CRS a layer is saved with: the map's own when offered, a geographic one
+	// otherwise, inherited from the parents, and null when none can be drawn
+	it('parse_wms_capabilities_xml gives each layer the CRS it is saved with, inherited from its parents', function() {
+
+		const xml = `<?xml version="1.0" encoding="UTF-8"?>
+			<WMT_MS_Capabilities version="1.1.1">
+				<Capability>
+					<Layer>
+						<SRS>EPSG:25830 EPSG:4326</SRS>
+						<Layer queryable="1"><Name>a</Name><SRS>EPSG:3857</SRS></Layer>
+						<Layer queryable="1"><Name>b</Name></Layer>
+					</Layer>
+					<Layer>
+						<SRS>EPSG:25830</SRS>
+						<Layer queryable="1"><Name>c</Name><SRS>EPSG:4258</SRS></Layer>
+						<Layer queryable="1"><Name>d</Name></Layer>
+					</Layer>
+				</Capability>
+			</WMT_MS_Capabilities>`
+
+		const result = parse_wms_capabilities_xml(xml)
+
+		assert.equal(result.version, '1.1.1')
+		assert.deepEqual(result.layers.map((layer) => [layer.name, layer.crs]), [
+			['a', 'EPSG:3857'], ['b', 'EPSG:4326'], ['c', 'EPSG:4258'], ['d', null]
+		])
+		assert.equal(parse_wms_capabilities_xml(xml.replace('version="1.1.1"', 'version="1.0.0"')).version, '1.1.1', 'expected an unknown version saved as 1.1.1')
 	})
 
 	it('parse_wms_capabilities_xml reports a parse failure on malformed XML', function() {
@@ -552,7 +582,7 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		const result = parse_wms_capabilities_xml(xml)
 
 		assert.equal(result.ok, true)
-		assert.deepEqual(result.layers, [{name: 'topo:child2', title: 'Child Two'}], 'expected only the real leaf, never a bogus entry for the unnamed group')
+		assert.deepEqual(result.layers, [{name: 'topo:child2', title: 'Child Two', crs: 'EPSG:3857'}], 'expected only the real leaf, never a bogus entry for the unnamed group')
 	})
 
 	it('the scale rounds to a readable distance and labels it in m or km', function() {
@@ -730,6 +760,52 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	const stub_tool_request = function(answer) {
 		tool.tool_request = answer
 	}
+
+	/**
+	* Stands in for the component's save of a map source: the echo a server sends (an
+	* id-less source numbered, or given the number of an equal one already stored), then
+	* the component's own steps after a confirmed save. `fail` answers a refusal instead;
+	* `hold`, a promise, keeps the answer on the wire until it settles. Returns the values
+	* sent, in order.
+	*/
+	const fake_component_save = function({fail = false, hold = null} = {}) {
+		const sent		= []
+		let next_id		= 101
+		geolocation.change_value = async function({changed_data}) {
+			sent.push(JSON.parse(JSON.stringify(changed_data[0].value)))
+			if (hold) {
+				await hold
+			}
+			const value = JSON.parse(JSON.stringify(changed_data[0].value))
+			if (fail) {
+				return {ok: false, error: {is_api_error: true, code: 'request.invalid', message: 'Invalid data.'}}
+			}
+			// the server's attribution rule (checkPlainText): control characters refused, trimmed
+			if ((value.sources || []).some((source) => /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(source.attribution || ''))) {
+				return {ok: false, error: {is_api_error: true, code: 'request.invalid', message: 'Invalid data.'}}
+			}
+			for (const source of value.sources || []) {
+				source.attribution = (source.attribution || '').trim()
+			}
+			const stored	= geolocation.get_stored_entry(0)
+			const held		= (stored && stored.sources) || []
+			for (const source of value.sources || []) {
+				if (held.some((kept) => kept.id===source.id)) {
+					continue
+				}
+				const equal = held.find((kept) => kept.type===source.type && kept.url===source.url
+					&& (kept.attribution || '')===(source.attribution || ''))
+				source.id = equal ? equal.id : next_id++
+			}
+			geolocation.data.entries = [value]
+			geolocation.learn_saved_map_definition(0)
+			geolocation.build_source_layers(0)
+			return {ok: true, data: {}}
+		}
+		return sent
+	}
+
+	const XYZ_URL = 'https://tiles.example.org/{z}/{x}/{y}.png'
 
 	/** The one layer of a seeded FeatureGroup (seeded_lib_data). */
 	const seeded_layer = (layer_id) => geolocation.FeatureGroup[layer_id].getLayers()[0]
@@ -4487,76 +4563,135 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[0]), true, 'expected our own first basemap active instead')
 	})
 
-	it('add_basemap validates url/name/zoom, then appends and activates the new entry', function() {
+	it('add_basemap validates url/attribution/zoom, then saves the layer in the record and switches it on', async function() {
 
 		tool.attach_xyz_basemaps()
+		const sent = fake_component_save()
 
-		assert.deepEqual(
-			tool.add_basemap({url: '', name: 'x', minzoom: 0, maxzoom: 18}),
-			{ok: false, error: 'The base map URL is required.'}
-		)
-		assert.deepEqual(
-			tool.add_basemap({url: 'not-a-url', name: 'x', minzoom: 0, maxzoom: 18}),
-			{ok: false, error: 'Please enter a valid URL.'}
-		)
-		assert.deepEqual(
-			tool.add_basemap({url: 'https://example.com/{z}/{x}/{y}.png', name: '', minzoom: 0, maxzoom: 18}),
-			{ok: false, error: 'The base map name is required.'}
-		)
-		assert.deepEqual(
-			tool.add_basemap({url: 'https://example.com/{z}/{x}/{y}.png', name: 'x', minzoom: -1, maxzoom: 18}),
-			{ok: false, error: 'Min zoom must be an integer between 0 and 22.'}
-		)
-		assert.deepEqual(
-			tool.add_basemap({url: 'https://example.com/{z}/{x}/{y}.png', name: 'x', minzoom: 0, maxzoom: 23}),
-			{ok: false, error: 'Max zoom must be an integer between 0 and 22.'}
-		)
-		assert.deepEqual(
-			tool.add_basemap({url: 'https://example.com/{z}/{x}/{y}.png', name: 'x', minzoom: 18, maxzoom: 2}),
-			{ok: false, error: 'Min zoom cannot be greater than max zoom.'}
-		)
-		assert.equal(tool.basemaps.length, 2, 'expected no basemap appended by any of the failed validations')
+		const refusals = [
+			[{url: '', attribution: 'x', minzoom: 0, maxzoom: 18}, 'The base map URL is required.'],
+			[{url: 'not-a-url', attribution: 'x', minzoom: 0, maxzoom: 18}, 'Please enter a valid URL.'],
+			[{url: 'https://{s}.tiles.example.org/{z}/{x}/{y}.png', attribution: 'x', minzoom: 0, maxzoom: 18}, 'The URL must contain {z}, {x} and {y}, and no other placeholder such as {s}.'],
+			[{url: 'https://tiles.example.org/{z}/{x}.png', attribution: 'x', minzoom: 0, maxzoom: 18}, 'The URL must contain {z}, {x} and {y}, and no other placeholder such as {s}.'],
+			[{url: XYZ_URL, attribution: '', minzoom: 0, maxzoom: 18}, 'The attribution is required: it names the layer on the map.'],
+			[{url: XYZ_URL, attribution: 'x', minzoom: -1, maxzoom: 18}, 'Min zoom must be an integer between 0 and 22.'],
+			[{url: XYZ_URL, attribution: 'x', minzoom: 0, maxzoom: 23}, 'Max zoom must be an integer between 0 and 22.'],
+			[{url: XYZ_URL, attribution: 'x', minzoom: 18, maxzoom: 2}, 'Min zoom cannot be greater than max zoom.']
+		]
+		for (const [fields, error] of refusals) {
+			assert.deepEqual(await tool.add_basemap(fields), {ok: false, error: error}, 'refused: ' + JSON.stringify(fields))
+		}
+		assert.equal(sent.length, 0, 'expected nothing saved by a refused add')
 
-		const result = tool.add_basemap({
-			url: 'https://example.com/{z}/{x}/{y}.png', name: '<b>Custom</b>', attribution: '<img src=x onerror=alert(1)>me', minzoom: '2', maxzoom: '18'
+		const result = await tool.add_basemap({
+			url: XYZ_URL, attribution: '<img src=x onerror=alert(1)>Example Org', minzoom: '2', maxzoom: '18'
 		})
 		assert.deepEqual(result, {ok: true})
-		assert.equal(tool.basemaps.length, 3, 'expected the new basemap appended')
-		assert.deepEqual(
-			tool.basemaps[2],
-			{url: 'https://example.com/{z}/{x}/{y}.png', name: 'Custom', attribution: 'me', minzoom: 2, maxzoom: 18},
-			'expected strip_tags on both name AND attribution (Leaflet renders attribution via innerHTML), parsed integer zooms'
-		)
-		assert.equal(geolocation.map.hasLayer(tool._xyz_tile_layers[2]), true, 'expected the newly added basemap activated')
+		assert.equal(sent.length, 1, 'expected ONE save')
+		assert.deepEqual(sent[0].sources, [
+			{type: 'xyz', url: XYZ_URL, params: {min_zoom: 2, max_zoom: 18}, attribution: 'Example Org'}
+		], 'expected an id-less xyz source of plain text, with integer zooms')
+		assert.equal(sent[0].id, 9001, 'expected the whole entry sent: the save replaces it')
+		assert.equal(sent[0].lib_data.length, 3, 'expected the drawn layers sent with it, not dropped')
+
+		const layer = geolocation.source_layers['stored:101'].layer
+		assert.equal(geolocation.map.hasLayer(layer), true, 'expected the saved layer drawn by the component and switched on')
+		assert.include(layer._url, '/api/v1/map_tile?', 'expected its tiles through the proxy')
+		assert.include(layer._url, 'source_id=101')
+		assert.notInclude(layer._url, 'tiles.example.org', 'expected no provider address in the page')
+		assert.equal(tool.basemaps.length, 2, 'expected the session base maps untouched')
+		assert.equal(geolocation.is_data_changed, false, 'expected nothing left to save')
+
+		// the same layer again is not saved twice (the server would number a copy): it is switched on
+		layer.removeFrom(geolocation.map)
+		assert.deepEqual(await tool.add_basemap({url: XYZ_URL, attribution: 'Example Org', minzoom: 2, maxzoom: 18}), {ok: true})
+		assert.equal(sent.length, 1, 'expected no second save')
+		assert.equal(geolocation.map.hasLayer(layer), true, 'expected the stored one switched on')
+
+		// nor under another credit: the attribution names the tiles, it does not change them
+		assert.deepEqual(await tool.add_basemap({url: XYZ_URL, attribution: 'Example Org 2', minzoom: 2, maxzoom: 18}), {ok: true})
+		assert.equal(sent.length, 1, 'expected no save for the same tiles under another attribution')
+
+		// nor after a reload: the record's jsonb hands the params back in its own key order
+		const stored = geolocation.data.entries[0].sources[0]
+		stored.params = {max_zoom: stored.params.max_zoom, min_zoom: stored.params.min_zoom}
+		assert.deepEqual(await tool.add_basemap({url: XYZ_URL, attribution: 'Example Org', minzoom: 2, maxzoom: 18}), {ok: true})
+		assert.equal(sent.length, 1, 'expected no save for the same params in another key order')
 	})
 
-	it('an entity-typed basemap name or attribution shows as text in the layer control and the attribution, never as markup', function() {
+	it('a saved layer stays above the base maps, already stored when the tool opens or not', async function() {
+
+		const assert_above_base = (layer, when) => {
+			for (const base of tool._xyz_tile_layers) {
+				assert.isAbove(layer.options.zIndex, base.options.zIndex, 'expected the saved layer above ' + base._url + ' ' + when)
+			}
+		}
 
 		tool.attach_xyz_basemaps()
+		fake_component_save()
+		await tool.add_basemap({url: XYZ_URL, attribution: 'Example Org', minzoom: 0, maxzoom: 18})
+		const layer = geolocation.source_layers['stored:101'].layer
+		assert_above_base(layer, 'after adding it')
+
+		assert.deepEqual(tool.move_basemap(0, 1), {ok: true})
+		assert_above_base(layer, 'after a rebuild of the base maps')
+
+		// a reload: the component offers the stored layer before the tool takes the base maps over
+		detach_xyz_basemaps(tool)
+		tool.attach_xyz_basemaps()
+		assert_above_base(layer, 'after the take-over of a map that already offers it')
+	})
+
+	it('a refused save of a base map says so and leaves the layer out of the buffer', async function() {
+
+		tool.attach_xyz_basemaps()
+		fake_component_save({fail: true})
+
+		const result = await tool.add_basemap({url: XYZ_URL, attribution: 'Example Org', minzoom: 0, maxzoom: 18})
+
+		assert.deepEqual(result, {ok: false, error: 'The base map could not be saved.'})
+		assert.isUndefined(geolocation.current_value[0].sources, 'expected the refused source taken back out of the buffer')
+		assert.deepEqual(geolocation.source_layers, {}, 'expected no layer offered for it')
+	})
+
+	it('the take-over and every rebuild of the base maps leave the record\'s own layers alone', async function() {
+
+		tool.attach_xyz_basemaps()
+		fake_component_save()
+		await tool.add_basemap({url: XYZ_URL, attribution: 'Example Org', minzoom: 0, maxzoom: 18})
+		const layer = geolocation.source_layers['stored:101'].layer
+
+		assert.deepEqual(tool.move_basemap(0, 1), {ok: true})
+		assert.deepEqual(tool.delete_basemap(0), {ok: true})
+
+		assert.equal(geolocation.map.hasLayer(layer), true, 'expected the saved layer still on the map')
+		const overlays = Object.values(geolocation.layer_control._layers).filter((entry) => entry.overlay)
+		assert.include(overlays.map((entry) => entry.layer), layer, 'expected it still in the layer control')
+	})
+
+	it('an entity-typed attribution never becomes markup; an ordinary one shows as typed', async function() {
+
+		tool.attach_xyz_basemaps()
+		const sent			= fake_component_save()
 		const container		= geolocation.map.getContainer()
-		const control_names	= () => Array.from(
-			container.querySelectorAll('.leaflet-control-layers-base label'),
+		const overlay_names	= () => Array.from(
+			container.querySelectorAll('.leaflet-control-layers-overlays label'),
 			(label) => label.textContent.trim()
 		)
-		const attribution	= () => container.querySelector('.leaflet-control-attribution')
-		const url			= 'https://example.com/{z}/{x}/{y}.png'
 
-		// strip_tags decodes the entities: without the escape, Leaflet's innerHTML
-		// would turn the decoded text back into an element
-		const typed = '&lt;b&gt;x&lt;/b&gt;'
-		assert.deepEqual(tool.add_basemap({url: url, name: typed, attribution: typed, minzoom: 0, maxzoom: 18}), {ok: true})
-		assert.include(control_names(), '<b>x</b>', 'expected the name shown as literal text in the layer control')
-		assert.include(attribution().textContent, '<b>x</b>', 'expected the attribution shown as literal text')
+		// strip_tags decodes the entities, and the server refuses `<` and `>`
+		assert.deepEqual(await tool.add_basemap({url: XYZ_URL, attribution: '&lt;b&gt;x&lt;/b&gt;', minzoom: 0, maxzoom: 18}), {ok: true})
+		assert.notMatch(sent[0].sources[0].attribution, /[<>]/, 'expected no angle bracket sent')
 		assert.isNull(container.querySelector('.leaflet-control-layers b, .leaflet-control-attribution b'), 'expected no <b> element created')
 
 		// an ordinary name is not double-escaped on the way
-		const name = 'Mapa & Cartografía'
-		assert.deepEqual(tool.add_basemap({url: url, name: name, attribution: 'Diputació & Ajuntament', minzoom: 0, maxzoom: 18}), {ok: true})
-		assert.include(control_names(), name, 'expected the "&" and the accent shown as typed in the layer control')
-		assert.include(attribution().textContent, 'Diputació & Ajuntament', 'expected the attribution shown as typed')
-		tool.xyz_control.getContainer().click() // opening the panel lists self.basemaps
-		const panel_names = Array.from(tool.xyz_panel.querySelectorAll('.uca-maps-xyz-item-name'), (node) => node.textContent)
-		assert.include(panel_names, name, 'expected the panel list to show the name as typed')
+		const name = 'Diputació & Cartografía'
+		assert.deepEqual(await tool.add_basemap({url: 'https://maps.example.org/{z}/{x}/{y}.png', attribution: name, minzoom: 0, maxzoom: 18}), {ok: true})
+		assert.include(overlay_names(), name, 'expected the "&" and the accent shown as typed in the layer control')
+		assert.include(container.querySelector('.leaflet-control-attribution').textContent, name, 'expected the attribution shown as typed')
+		tool.xyz_control.getContainer().click() // opening the panel lists the saved layers
+		const panel_names = Array.from(tool.xyz_panel.querySelectorAll('.uca-maps-xyz-saved-list .uca-maps-xyz-item-name'), (node) => node.textContent)
+		assert.include(panel_names, name, 'expected the panel to list the saved layer as typed')
 	})
 
 	it('delete_basemap refuses to remove the last remaining basemap; removes any other and reactivates index 0', function() {
@@ -4586,32 +4721,38 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.deepEqual(tool.move_basemap(1, 1), {ok: false}, 'expected refusal moving the last entry further down')
 	})
 
-	it('the panel form validates, adds and deletes through the real DOM (populate_xyz_basemaps)', function() {
+	it('the panel form validates, adds and saves, and deletes and saves, through the real DOM', async function() {
 
 		tool.attach_xyz_basemaps()
-		const panel = tool.xyz_panel
+		const sent		= fake_component_save()
+		const panel		= tool.xyz_panel
+		const add_btn	= panel.querySelector('.uca-maps-xyz-add-button')
+		const message	= panel.querySelector('.uca-maps-xyz-message')
+		const saved		= () => panel.querySelectorAll('.uca-maps-xyz-saved-list .uca-maps-xyz-item')
 
-		const add_btn = panel.querySelector('.uca-maps-xyz-add-button')
-		const message = panel.querySelector('.uca-maps-xyz-message')
+		assert.equal(add_btn.textContent, 'Add and save')
+		assert.isNull(panel.querySelector('.uca-maps-xyz-name'), 'expected no name field: a saved layer is named by its attribution')
 
 		add_btn.click() // every field empty -> the URL error
-		assert.equal(message.hidden, false, 'expected the error message shown')
+		await until(() => !message.hidden)
 		assert.equal(message.textContent, 'The base map URL is required.')
-		assert.equal(panel.querySelectorAll('.uca-maps-xyz-item').length, 0, 'expected the list not yet populated by a failed add')
 
-		panel.querySelector('.uca-maps-xyz-url').value			= 'https://example.com/{z}/{x}/{y}.png'
-		panel.querySelector('.uca-maps-xyz-name').value			= 'DOM basemap'
-		panel.querySelector('.uca-maps-xyz-minzoom').value		= 0
-		panel.querySelector('.uca-maps-xyz-maxzoom').value		= 18
+		panel.querySelector('.uca-maps-xyz-url').value			= XYZ_URL
+		panel.querySelector('.uca-maps-xyz-attribution').value	= 'DOM basemap'
 		add_btn.click()
+		await until(() => saved().length===1)
 
 		assert.equal(message.hidden, true, 'expected the error message cleared on success')
-		const items = panel.querySelectorAll('.uca-maps-xyz-item')
-		assert.equal(items.length, 3, 'expected the list rebuilt with the new entry')
-		assert.equal(items[2].querySelector('.uca-maps-xyz-item-name').textContent, 'DOM basemap')
+		assert.equal(saved().length, 1, 'expected the saved layer listed')
+		assert.equal(saved()[0].querySelector('.uca-maps-xyz-item-name').textContent, 'DOM basemap')
+		assert.equal(panel.querySelectorAll('.uca-maps-xyz-list:not(.uca-maps-xyz-saved-list) .uca-maps-xyz-item').length, 2, 'expected the session base maps listed apart')
 
-		items[2].querySelector('.uca-maps-xyz-delete').click()
-		assert.equal(panel.querySelectorAll('.uca-maps-xyz-item').length, 2, 'expected the row removed from the DOM')
+		saved()[0].querySelector('.uca-maps-xyz-delete').click()
+		await until(() => saved().length===0)
+		assert.equal(saved().length, 0, 'expected the row gone')
+		assert.equal(sent.length, 2, 'expected the delete saved too')
+		assert.isUndefined(sent[1].sources, 'expected the last source removed, the key with it')
+		assert.deepEqual(geolocation.source_layers, {}, 'expected the component to offer it no more')
 	})
 
 	it('detach_xyz_basemaps removes the button/panel AND every tile layer it added from the live map', async function() {
@@ -4665,9 +4806,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 
 
-	// WMS (wms_services.js) — plain WMS tile layers on the map, as v6: the
-	// layer_control is never touched. GetCapabilities is always stubbed; the
-	// guarded fetch is test/unit/tool_uca_maps_get_wms_layers.test.ts's.
+	// WMS (wms_services.js) — layers saved in the record as WMS sources, drawn
+	// by the component through the tile proxy. GetCapabilities and the save are
+	// always stubbed; the guarded fetch is test/unit/tool_uca_maps_get_wms_layers.test.ts's.
 
 	it('search_wms_layers refuses a non-absolute-http(s) URL without touching the server', async function() {
 
@@ -4765,12 +4906,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
-	it('search_wms_layers (mocked server) stores the parsed results; the panel lists them with an "Add" button', async function() {
+	it('search_wms_layers (mocked server) stores the parsed results; "Add and save" saves the layer in the record', async function() {
 
 		// the guarded GetCapabilities fetch is the server's: awaited calls here,
 		// not a DOM click racing its microtasks
 		tool.attach_wms_services()
-		const panel = tool.wms_panel
+		const panel	= tool.wms_panel
+		const sent	= fake_component_save()
 
 		let requested_options = null
 		stub_tool_request(async function(options) {
@@ -4784,28 +4926,53 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(requested_options.action, 'get_wms_layers')
 		assert.equal(requested_options.options.url, 'https://example.com/geoserver/wms?ignored=1')
 		assert.deepEqual(tool._wms_search_results, {
-			base_url: 'https://example.com/geoserver/wms',
-			layers: [{name: 'topo:layer1', title: 'Layer One'}]
+			base_url	: 'https://example.com/geoserver/wms',
+			version		: '1.3.0',
+			layers		: [{name: 'topo:layer1', title: 'Layer One', crs: 'EPSG:3857'}]
 		})
 
 		populate_wms_search_results(tool, panel)
 		const result_items = panel.querySelectorAll('.uca-maps-wms-result-item')
 		assert.equal(result_items.length, 1)
 		assert.equal(result_items[0].querySelector('.uca-maps-wms-result-title').textContent, 'Layer One')
+		const add_btn = result_items[0].querySelector('.uca-maps-wms-result-add')
+		assert.equal(add_btn.textContent, 'Add and save')
 
-		// the "Add" button's own click handler (render_wms_services.js) is sync
-		result_items[0].querySelector('.uca-maps-wms-result-add').click()
+		add_btn.click()
+		await until(() => panel.querySelectorAll('.uca-maps-wms-list .uca-maps-wms-item').length===1)
 
-		assert.equal(tool.wms_layers.length, 1, 'expected the layer added')
-		assert.deepEqual(tool.wms_layers[0], {
-			url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', opacity: 0.7, visible: true
-		})
-		assert.equal(geolocation.map.hasLayer(tool._wms_tile_layers[0]), true, 'expected the newly added layer active on the map')
+		assert.deepEqual(sent.map((value) => value.sources), [[{
+			type		: 'wms',
+			url			: 'https://example.com/geoserver/wms',
+			params		: {version: '1.3.0', layers: 'topo:layer1', styles: '', format: 'image/png', transparent: false, crs: 'EPSG:3857'},
+			attribution	: 'Layer One'
+		}]], 'expected ONE save of the WMS source')
+		const layer = geolocation.source_layers['stored:101'].layer
+		assert.equal(geolocation.map.hasLayer(layer), true, 'expected the saved layer drawn by the component and switched on')
+		assert.include(layer._url, 'source_id=101', 'expected its tiles through the proxy')
+		assert.equal(layer.options.opacity, DEFAULT_WMS_OPACITY, 'expected v6\'s opacity on a new layer')
+		assert.equal(panel.querySelector('.uca-maps-wms-list .uca-maps-wms-item-title').textContent, 'Layer One')
 
 		tool.clear_wms_search()
 		populate_wms_search_results(tool, panel)
 		assert.equal(tool._wms_search_results, null, 'expected clear_wms_search to drop the stored results')
 		assert.equal(panel.querySelectorAll('.uca-maps-wms-result-item').length, 0, 'expected the results list rebuilt empty')
+	})
+
+	it('a WMS layer the map cannot project, or a refused save, says so and saves nothing', async function() {
+
+		tool.attach_wms_services()
+		const sent = fake_component_save({fail: true})
+		const layer_one = {url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0'}
+
+		assert.deepEqual(
+			await tool.add_wms_layer({...layer_one, crs: null}),
+			{ok: false, error: 'This layer offers no projection the map can draw (EPSG:3857, EPSG:4326 or EPSG:4258).'}
+		)
+		assert.equal(sent.length, 0, 'expected nothing sent for a layer that cannot be drawn')
+
+		assert.deepEqual(await tool.add_wms_layer({...layer_one, crs: 'EPSG:3857'}), {ok: false, error: 'The WMS layer could not be saved.'})
+		assert.isUndefined(geolocation.current_value[0].sources, 'expected the refused source taken back out of the buffer')
 	})
 
 	it('a WMS server with no queryable layer leaves a warning line, not an error, and no result', async function() {
@@ -4826,52 +4993,107 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(panel.querySelectorAll('.uca-maps-wms-result-item').length, 0, 'expected no result listed')
 	})
 
-	it('toggle_wms_layer shows/hides the live layer; set_wms_layer_opacity updates it and refuses out-of-range values', function() {
+	// a WMS <Title> is free text: the attribution is saved as the server keeps it
+	it('a multi-line or padded WMS title is saved as one plain line, once', async function() {
 
 		tool.attach_wms_services()
-		tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One'})
+		const sent = fake_component_save()
+		const layer = (title, name = 'topo:layer1') => ({url: 'https://example.com/geoserver/wms', name, title, version: '1.3.0', crs: 'EPSG:3857'})
 
-		const tile_layer = tool._wms_tile_layers[0]
-		assert.equal(geolocation.map.hasLayer(tile_layer), true, 'expected visible right after add')
+		assert.deepEqual(await tool.add_wms_layer(layer('Límites\n\tmunicipales\u2028 <IGN>')), {ok: true}, 'expected a multi-line title saved')
+		assert.equal(sent[0].sources[0].attribution, 'Límites municipales IGN')
 
-		assert.deepEqual(tool.toggle_wms_layer(0), {ok: true})
-		assert.equal(tool.wms_layers[0].visible, false)
-		assert.equal(geolocation.map.hasLayer(tile_layer), false)
+		assert.deepEqual(await tool.add_wms_layer(layer('  Límites municipales IGN  ')), {ok: true})
+		assert.equal(sent.length, 1, 'expected the padded title found equal to the stored one: no second save')
 
-		assert.deepEqual(tool.toggle_wms_layer(0), {ok: true})
-		assert.equal(tool.wms_layers[0].visible, true)
-		assert.equal(geolocation.map.hasLayer(tile_layer), true)
+		// the same layer under another title is still the same layer: no second save either
+		assert.deepEqual(await tool.add_wms_layer(layer('Another title')), {ok: true})
+		assert.equal(sent.length, 1, 'expected no save for the same layer under another title')
 
-		assert.deepEqual(tool.set_wms_layer_opacity(0, '0.4'), {ok: true})
-		assert.equal(tool.wms_layers[0].opacity, 0.4)
+		// nor after a reload: the record's jsonb hands the params back in its own key order
+		const stored = geolocation.data.entries[0].sources[0]
+		stored.params = Object.fromEntries(Object.entries(stored.params).reverse())
+		assert.deepEqual(await tool.add_wms_layer(layer('Límites municipales IGN')), {ok: true})
+		assert.equal(sent.length, 1, 'expected no save for the same params in another key order')
 
-		assert.deepEqual(tool.set_wms_layer_opacity(0, '1.5'), {ok: false}, 'expected an out-of-range opacity refused')
-		assert.equal(tool.wms_layers[0].opacity, 0.4, 'expected the refused value NOT applied')
+		assert.deepEqual(await tool.add_wms_layer(layer('x'.repeat(400), 'topo:layer2')), {ok: true})
+		assert.equal(sent[1].sources[1].attribution.length, 300, 'expected the attribution held to the core\'s 300 characters')
 	})
 
-	it('delete_wms_layer takes the layer off the map and the list; the survivor keeps its own tile layer at the new index', function() {
+	// the record can be closed while a save is on the wire: the late answer must not throw
+	it('a save still in flight when the tool closes ends quietly: add and delete, WMS and XYZ', async function() {
+
+		const wms_layer = {url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0', crs: 'EPSG:3857'}
 
 		tool.attach_wms_services()
-		tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One'})
-		tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer2', title: 'Layer Two'})
+		tool.attach_xyz_basemaps()
+		fake_component_save()
+		await tool.add_wms_layer(wms_layer)
 
-		const [first_tile_layer, second_tile_layer] = tool._wms_tile_layers
+		let release
+		fake_component_save({hold: new Promise((resolve) => { release = resolve })})
+		const deleting	= tool.delete_wms_layer(101)
+		const adding	= tool.add_wms_layer({...wms_layer, name: 'topo:layer2', title: 'Layer Two'})
+		const basemap	= tool.add_basemap({url: XYZ_URL, attribution: 'Example Org', minzoom: 0, maxzoom: 18})
 
-		assert.deepEqual(tool.delete_wms_layer(0), {ok: true})
-		assert.equal(tool.wms_layers.length, 1)
-		assert.equal(tool.wms_layers[0].name, 'topo:layer2', 'expected the survivor to be the second-added layer')
-		assert.equal(geolocation.map.hasLayer(first_tile_layer), false, 'expected the deleted layer off the map')
-		assert.deepEqual(tool._wms_tile_layers, [second_tile_layer], 'expected only the survivor\'s tile layer kept, at its new index')
-		assert.equal(geolocation.map.hasLayer(second_tile_layer), true, 'expected the survivor still on the map')
+		await tool.destroy(false, false, false)
+		assert.isNull(tool._source_opacity, 'expected the session state gone before the answers arrive')
+		release()
 
-		// index 0 now drives the survivor's own tile layer
-		tool.toggle_wms_layer(0)
-		assert.equal(geolocation.map.hasLayer(second_tile_layer), false, 'expected toggle_wms_layer(0) to hide the survivor')
+		assert.deepEqual(await deleting, {ok: false}, 'expected a late delete to end quietly')
+		assert.deepEqual(await adding, {ok: false}, 'expected a late add to end quietly')
+		assert.isTrue((await basemap).ok, 'expected a late base map save to end without throwing')
+	})
+
+	it('toggle_wms_layer shows/hides the saved layer; set_wms_layer_opacity updates it, refuses out-of-range values and survives a rebuild', async function() {
+
+		tool.attach_wms_services()
+		fake_component_save()
+		await tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0', crs: 'EPSG:3857'})
+
+		const layer = () => geolocation.source_layers['stored:101'].layer
+		assert.equal(geolocation.map.hasLayer(layer()), true, 'expected visible right after add')
+
+		assert.deepEqual(tool.toggle_wms_layer(101), {ok: true})
+		assert.equal(tool.wms_sources()[0].visible, false)
+		assert.equal(geolocation.map.hasLayer(layer()), false)
+
+		assert.deepEqual(tool.toggle_wms_layer(101), {ok: true})
+		assert.equal(tool.wms_sources()[0].visible, true)
+
+		assert.deepEqual(tool.set_wms_layer_opacity(101, '0.4'), {ok: true})
+		assert.equal(tool.wms_sources()[0].opacity, 0.4)
+		assert.deepEqual(tool.set_wms_layer_opacity(101, '1.5'), {ok: false}, 'expected an out-of-range opacity refused')
+		assert.equal(tool.wms_sources()[0].opacity, 0.4, 'expected the refused value NOT applied')
+		assert.deepEqual(tool.toggle_wms_layer(999), {ok: false}, 'expected an unknown number refused')
+
+		// another save rebuilds the component's layers: the session's opacity goes back on
+		await tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer2', title: 'Layer Two', version: '1.3.0', crs: 'EPSG:3857'})
+		assert.notEqual(layer(), null)
+		assert.equal(layer().options.opacity, 0.4, 'expected the opacity re-applied to the rebuilt layer')
+		assert.equal(geolocation.map.hasLayer(layer()), true, 'expected it kept on (the component remembers)')
+	})
+
+	it('delete_wms_layer takes the layer out of the record and saves; the survivor keeps its number', async function() {
+
+		tool.attach_wms_services()
+		const sent = fake_component_save()
+		await tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0', crs: 'EPSG:3857'})
+		await tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer2', title: 'Layer Two', version: '1.3.0', crs: 'EPSG:3857'})
+		const first = geolocation.source_layers['stored:101'].layer
+
+		assert.deepEqual(await tool.delete_wms_layer(101), {ok: true})
+		assert.equal(sent.length, 3, 'expected the delete saved')
+		assert.deepEqual(tool.wms_sources().map((source) => [source.id, source.title]), [[102, 'Layer Two']])
+		assert.equal(geolocation.map.hasLayer(first), false, 'expected the deleted layer off the map')
+		assert.isUndefined(geolocation.source_layers['stored:101'], 'expected the component to offer it no more')
+		assert.equal((await tool.delete_wms_layer(101)).ok, false, 'expected a number the record no longer holds refused, without a save')
+		assert.equal(sent.length, 3)
 	})
 
 	// "centred" here is what toolbar.js does (the class, no anchoring); the
 	// geometry is measured by the WMS layout test, with the tool CSS
-	it('attach_wms_services builds its button, the "wms" pane and an empty layer list; its panel opens centred, its × closes it', function() {
+	it('attach_wms_services builds its button and lists no layer on a record that saves none; its panel opens centred, its × closes it', function() {
 
 		tool.attach_wms_services()
 		const panel		= tool.wms_panel
@@ -4879,8 +5101,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		assert.isOk(control, 'expected the "WMS" toggle button')
 		assert.equal(panel.hidden, true, 'expected the panel hidden by default')
-		assert.deepEqual(tool.wms_layers, [], 'expected no layers pre-added: WMS layers live for the session only')
-		assert.isOk(geolocation.map.getPane('wms'), 'expected the dedicated "wms" pane created')
+		assert.deepEqual(tool.wms_sources(), [], 'expected no layer: the record stores none')
 		assert.isTrue(panel.classList.contains('uca-maps-panel-centered'), 'expected the centered variant')
 		const title = panel.querySelector(':scope > .uca-maps-panel-header > .uca-maps-panel-title')
 		assert.equal(title.textContent, 'WMS services', 'expected toolbar.js to build the header title')
@@ -4925,14 +5146,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
-	it('the eye shows the layer\'s state and toggles it in place', function() {
+	it('the eye shows the layer\'s state and toggles it in place', async function() {
 
 		tool.attach_wms_services()
-		tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One'})
+		fake_component_save()
+		await tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0', crs: 'EPSG:3857'})
 		geolocation.map.getContainer().querySelector('.uca-maps-wms-control').click()
 
 		const panel			= tool.wms_panel
-		const tile_layer	= tool._wms_tile_layers[0]
+		const tile_layer	= geolocation.source_layers['stored:101'].layer
 		const eye			= panel.querySelector('.uca-maps-wms-list .uca-maps-wms-eye')
 
 		assert.isNotOk(panel.querySelector('.uca-maps-wms-checkbox'), 'expected the checkbox gone')
@@ -4953,7 +5175,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(eye.querySelectorAll('svg path').length, 1)
 
 		// a rebuild (close + reopen runs populate_wms_layers) draws from the
-		// stored state, not from a default
+		// map's state, not from a default; the layer control switches the same layer
 		eye.click()
 		const control = geolocation.map.getContainer().querySelector('.uca-maps-wms-control')
 		control.click()
@@ -4966,10 +5188,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	// a value set before type='range' is sanitised against the default
 	// 0..100 step 1: a 0.7 layer would show its slider at 1
-	it('the opacity slider shows the layer\'s stored opacity, when added and after a rebuild', function() {
+	it('the opacity slider shows the layer\'s opacity, when added and after a rebuild', async function() {
 
 		tool.attach_wms_services()
-		tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One'})
+		fake_component_save()
+		await tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0', crs: 'EPSG:3857'})
 		const control	= geolocation.map.getContainer().querySelector('.uca-maps-wms-control')
 		const panel		= tool.wms_panel
 		control.click()
@@ -4977,13 +5200,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const slider = panel.querySelector('.uca-maps-wms-list .uca-maps-wms-opacity')
 		assert.equal(slider.value, '0.7', 'expected the slider at the new layer\'s 0.7, not rounded to 1')
 
-		tool.set_wms_layer_opacity(0, '0.3')
+		tool.set_wms_layer_opacity(101, '0.3')
 		control.click()
 		control.click()
 		assert.equal(
 			panel.querySelector('.uca-maps-wms-list .uca-maps-wms-opacity').value,
 			'0.3',
-			'expected the rebuilt slider at the stored 0.3'
+			'expected the rebuilt slider at the session\'s 0.3'
 		)
 	})
 
@@ -4993,11 +5216,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		await with_tool_css(async () => {
 			tool.attach_wms_services()
+			fake_component_save()
 			for (let i = 1; i <= 3; i++) {
-				tool.add_wms_layer({
+				await tool.add_wms_layer({
 					url		: 'https://example.com/geoserver/wms',
 					name	: 'topo:layer' + i,
-					title	: 'Límites administrativos históricos del municipio, capa ' + i
+					title	: 'Límites administrativos históricos del municipio, capa ' + i,
+					version	: '1.3.0',
+					crs		: 'EPSG:3857'
 				})
 			}
 			geolocation.map.getContainer().querySelector('.uca-maps-wms-control').click()
@@ -5022,25 +5248,25 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		})
 	})
 
-	it('detach_wms_services removes the button/panel AND every WMS tile layer it added from the live map', async function() {
+	it('detach_wms_services removes the button/panel and leaves the record\'s layers to the component', async function() {
 
 		tool.attach_wms_services()
-		tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One'})
-		const map_container_node = geolocation.map.getContainer()
-		const tile_layers = tool._wms_tile_layers
+		fake_component_save()
+		await tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0', crs: 'EPSG:3857'})
+		const map_container_node	= geolocation.map.getContainer()
+		const layer					= geolocation.source_layers['stored:101'].layer
 
 		await tool.destroy(false, false, false)
 
 		assert.equal(tool.wms_control, null, 'expected wms_control cleared')
 		assert.equal(tool.wms_panel, null, 'expected wms_panel cleared')
-		assert.equal(tool.wms_layers, null, 'expected wms_layers cleared')
+		assert.equal(tool._source_opacity, null, 'expected the session opacities cleared')
 		assert.isNotOk(
 			map_container_node.querySelector('.uca-maps-wms-control'),
 			'expected the button removed from the DOM'
 		)
-		for (const tile_layer of tile_layers) {
-			assert.equal(geolocation.map.hasLayer(tile_layer), false, 'expected every WMS tile layer this tool added removed from the map')
-		}
+		const overlays = Object.values(geolocation.layer_control._layers).filter((entry) => entry.overlay)
+		assert.include(overlays.map((entry) => entry.layer), layer, 'expected the saved layer still offered by the component\'s layer control')
 	})
 
 	// CATASTRO (catastro.js) AND UA (administrative_units.js) — both exist only

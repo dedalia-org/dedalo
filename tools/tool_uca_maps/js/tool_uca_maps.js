@@ -71,6 +71,7 @@
 		detach_xyz_basemaps,
 		add_basemap,
 		delete_basemap,
+		delete_saved_basemap,
 		move_basemap
 	} from './xyz_basemaps.js'
 	import {
@@ -79,6 +80,7 @@
 		search_wms_layers,
 		clear_wms_search,
 		add_wms_layer,
+		wms_sources,
 		toggle_wms_layer,
 		set_wms_layer_opacity,
 		delete_wms_layer
@@ -183,9 +185,8 @@ export const tool_uca_maps = function () {
 	this._xyz_created_layer_control	= false
 	this.wms_control				= null
 	this.wms_panel					= null
-	this.wms_layers					= null
-	this._wms_tile_layers			= null
 	this._wms_search_results		= null
+	this._source_opacity			= null
 	this.catastro_control			= null
 	this._catastro_tile_layer		= null
 	this._catastro_previous_base_layers	= null
@@ -400,6 +401,10 @@ tool_uca_maps.prototype.delete_basemap = function(index) {
 	return delete_basemap(this, index)
 }//end delete_basemap
 
+tool_uca_maps.prototype.delete_saved_basemap = function(id) {
+	return delete_saved_basemap(this, id)
+}//end delete_saved_basemap
+
 tool_uca_maps.prototype.move_basemap = function(index, direction) {
 	return move_basemap(this, index, direction)
 }//end move_basemap
@@ -423,16 +428,20 @@ tool_uca_maps.prototype.add_wms_layer = function(fields) {
 	return add_wms_layer(this, fields)
 }//end add_wms_layer
 
-tool_uca_maps.prototype.toggle_wms_layer = function(index) {
-	return toggle_wms_layer(this, index)
+tool_uca_maps.prototype.wms_sources = function() {
+	return wms_sources(this)
+}//end wms_sources
+
+tool_uca_maps.prototype.toggle_wms_layer = function(id) {
+	return toggle_wms_layer(this, id)
 }//end toggle_wms_layer
 
-tool_uca_maps.prototype.set_wms_layer_opacity = function(index, opacity) {
-	return set_wms_layer_opacity(this, index, opacity)
+tool_uca_maps.prototype.set_wms_layer_opacity = function(id, opacity) {
+	return set_wms_layer_opacity(this, id, opacity)
 }//end set_wms_layer_opacity
 
-tool_uca_maps.prototype.delete_wms_layer = function(index) {
-	return delete_wms_layer(this, index)
+tool_uca_maps.prototype.delete_wms_layer = function(id) {
+	return delete_wms_layer(this, id)
 }//end delete_wms_layer
 
 

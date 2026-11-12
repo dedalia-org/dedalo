@@ -277,11 +277,8 @@
 		{ "lang": "lg-eng", "name": "xyz_url_placeholder", "value": "Base map URL (required)" },
 		{ "lang": "lg-spa", "name": "xyz_url_placeholder", "value": "URL del mapa base (requerido)" },
 
-		{ "lang": "lg-eng", "name": "xyz_name_placeholder", "value": "Base map name (required)" },
-		{ "lang": "lg-spa", "name": "xyz_name_placeholder", "value": "Nombre del mapa base (requerido)" },
-
-		{ "lang": "lg-eng", "name": "xyz_attribution_placeholder", "value": "Attribution (optional)" },
-		{ "lang": "lg-spa", "name": "xyz_attribution_placeholder", "value": "Atribución (no requerido)" },
+		{ "lang": "lg-eng", "name": "xyz_attribution_placeholder", "value": "Attribution (required, names the layer)" },
+		{ "lang": "lg-spa", "name": "xyz_attribution_placeholder", "value": "Atribución (requerida, da nombre a la capa)" },
 
 		{ "lang": "lg-eng", "name": "xyz_minzoom_title", "value": "Min zoom (0-22)" },
 		{ "lang": "lg-spa", "name": "xyz_minzoom_title", "value": "Zoom mínimo (0-22)" },
@@ -289,8 +286,8 @@
 		{ "lang": "lg-eng", "name": "xyz_maxzoom_title", "value": "Max zoom (0-22)" },
 		{ "lang": "lg-spa", "name": "xyz_maxzoom_title", "value": "Zoom máximo (0-22)" },
 
-		{ "lang": "lg-eng", "name": "xyz_add_button", "value": "Add base map" },
-		{ "lang": "lg-spa", "name": "xyz_add_button", "value": "Añadir mapa base" },
+		{ "lang": "lg-eng", "name": "xyz_add_button", "value": "Add and save" },
+		{ "lang": "lg-spa", "name": "xyz_add_button", "value": "Añadir y guardar" },
 
 		{ "lang": "lg-eng", "name": "xyz_available_title", "value": "Available base maps" },
 		{ "lang": "lg-spa", "name": "xyz_available_title", "value": "Mapas base disponibles" },
@@ -310,8 +307,20 @@
 		{ "lang": "lg-eng", "name": "xyz_error_url_invalid", "value": "Please enter a valid URL." },
 		{ "lang": "lg-spa", "name": "xyz_error_url_invalid", "value": "Por favor, introduzca una URL correcta." },
 
-		{ "lang": "lg-eng", "name": "xyz_error_name_required", "value": "The base map name is required." },
-		{ "lang": "lg-spa", "name": "xyz_error_name_required", "value": "El nombre del mapa base es requerido." },
+		{ "lang": "lg-eng", "name": "xyz_error_placeholders", "value": "The URL must contain {z}, {x} and {y}, and no other placeholder such as {s}." },
+		{ "lang": "lg-spa", "name": "xyz_error_placeholders", "value": "La URL debe contener {z}, {x} e {y}, y ningún otro marcador como {s}." },
+
+		{ "lang": "lg-eng", "name": "xyz_error_attribution_required", "value": "The attribution is required: it names the layer on the map." },
+		{ "lang": "lg-spa", "name": "xyz_error_attribution_required", "value": "La atribución es requerida: da nombre a la capa en el mapa." },
+
+		{ "lang": "lg-eng", "name": "xyz_error_save", "value": "The base map could not be saved." },
+		{ "lang": "lg-spa", "name": "xyz_error_save", "value": "No se ha podido guardar el mapa base." },
+
+		{ "lang": "lg-eng", "name": "xyz_saved_title", "value": "Saved in this record" },
+		{ "lang": "lg-spa", "name": "xyz_saved_title", "value": "Guardados en esta ficha" },
+
+		{ "lang": "lg-eng", "name": "xyz_delete_saved_button", "value": "Delete and save" },
+		{ "lang": "lg-spa", "name": "xyz_delete_saved_button", "value": "Eliminar y guardar" },
 
 		{ "lang": "lg-eng", "name": "xyz_error_minzoom", "value": "Min zoom must be an integer between 0 and 22." },
 		{ "lang": "lg-spa", "name": "xyz_error_minzoom", "value": "El zoom mínimo debe ser un número entero entre 0 y 22." },
@@ -343,8 +352,8 @@
 		{ "lang": "lg-eng", "name": "wms_added_title", "value": "Added layers" },
 		{ "lang": "lg-spa", "name": "wms_added_title", "value": "Capas añadidas" },
 
-		{ "lang": "lg-eng", "name": "wms_add_button", "value": "Add" },
-		{ "lang": "lg-spa", "name": "wms_add_button", "value": "Añadir" },
+		{ "lang": "lg-eng", "name": "wms_add_button", "value": "Add and save" },
+		{ "lang": "lg-spa", "name": "wms_add_button", "value": "Añadir y guardar" },
 
 		{ "lang": "lg-eng", "name": "wms_display_toggle", "value": "Show/Hide" },
 		{ "lang": "lg-spa", "name": "wms_display_toggle", "value": "Mostrar/Ocultar" },
@@ -352,8 +361,8 @@
 		{ "lang": "lg-eng", "name": "wms_opacity_title", "value": "Opacity" },
 		{ "lang": "lg-spa", "name": "wms_opacity_title", "value": "Opacidad" },
 
-		{ "lang": "lg-eng", "name": "wms_delete_button", "value": "Delete" },
-		{ "lang": "lg-spa", "name": "wms_delete_button", "value": "Eliminar" },
+		{ "lang": "lg-eng", "name": "wms_delete_button", "value": "Delete and save" },
+		{ "lang": "lg-spa", "name": "wms_delete_button", "value": "Eliminar y guardar" },
 
 		{ "lang": "lg-eng", "name": "wms_no_layers", "value": "No queryable layers found on this server." },
 		{ "lang": "lg-spa", "name": "wms_no_layers", "value": "No se han encontrado capas consultables en este servidor." },
@@ -366,6 +375,12 @@
 
 		{ "lang": "lg-eng", "name": "wms_error_parse", "value": "Could not read the server response." },
 		{ "lang": "lg-spa", "name": "wms_error_parse", "value": "No ha sido posible interpretar la respuesta del servidor." },
+
+		{ "lang": "lg-eng", "name": "wms_error_save", "value": "The WMS layer could not be saved." },
+		{ "lang": "lg-spa", "name": "wms_error_save", "value": "No se ha podido guardar la capa WMS." },
+
+		{ "lang": "lg-eng", "name": "wms_error_crs", "value": "This layer offers no projection the map can draw (EPSG:3857, EPSG:4326 or EPSG:4258)." },
+		{ "lang": "lg-spa", "name": "wms_error_crs", "value": "Esta capa no ofrece ninguna proyección que el mapa pueda dibujar (EPSG:3857, EPSG:4326 o EPSG:4258)." },
 
 		{ "lang": "lg-eng", "name": "catastro_control_title", "value": "Catastro" },
 		{ "lang": "lg-spa", "name": "catastro_control_title", "value": "Catastro" },

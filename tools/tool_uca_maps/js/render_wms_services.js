@@ -7,8 +7,9 @@
 * RENDER_WMS_SERVICES
 * DOM for the "WMS" panel (its header is toolbar.js's). The search form is
 * built once at attach, so a typed URL survives a reopen; both lists are
-* rebuilt from `self._wms_search_results`/`self.wms_layers` on every search
-* or mutation. Mutations reach `self.<method>(...)`, never `wms_services.js`.
+* rebuilt from `self._wms_search_results` and the record's saved WMS sources on
+* every search or mutation. Mutations reach `self.<method>(...)`, never
+* `wms_services.js`.
 *
 * @module render_wms_services
 */
@@ -178,12 +179,31 @@ export const populate_wms_search_results = function(self, panel) {
 		const add_btn = ui.create_dom_element({
 			element_type	: 'button',
 			class_name		: 'uca-maps-wms-result-add',
-			text_content	: self.get_tool_label('wms_add_button') || 'Add',
+			text_content	: self.get_tool_label('wms_add_button') || 'Add and save',
 			parent			: item
 		})
 		add_btn.type = 'button'
-		add_btn.addEventListener('click', () => {
-			self.add_wms_layer({url: search_results.base_url, name: layer.name, title: layer.title})
+		add_btn.addEventListener('click', async () => {
+			add_btn.disabled = true
+			const result = await self.add_wms_layer({
+				url		: search_results.base_url,
+				name	: layer.name,
+				title	: layer.title,
+				version	: search_results.version,
+				crs		: layer.crs
+			})
+			add_btn.disabled = false
+			// torn down while saving: the panel is gone
+			if (!self.wms_panel) {
+				return
+			}
+			if (!result.ok) {
+				if (result.error) {
+					show_wms_message(panel, result.error)
+				}
+				return
+			}
+			panel.querySelector('.uca-maps-wms-message').hidden = true
 			populate_wms_layers(self, panel)
 		})
 
@@ -208,9 +228,9 @@ const paint_eye = function(eye_btn, visible) {
 
 /**
 * POPULATE_WMS_LAYERS
-* Rebuilds the "Added layers" `<ul>` from `self.wms_layers` on every open
-* and mutation. Show/hide is v6's eye button, but drawing the STATE (open =
-* on the map) where v6 draws the action; `aria-pressed` says the same.
+* Rebuilds the "Added layers" `<ul>` from the record's saved WMS sources on every open
+* and mutation. Show/hide is v6's eye button, but drawing the STATE (open = on the map)
+* where v6 draws the action; `aria-pressed` says the same. Delete saves the record.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
@@ -221,7 +241,7 @@ export const populate_wms_layers = function(self, panel) {
 	const list = panel.querySelector('.uca-maps-wms-list')
 	list.replaceChildren()
 
-	self.wms_layers.forEach((layer, index) => {
+	self.wms_sources().forEach((layer) => {
 
 		const item = ui.create_dom_element({element_type: 'li', class_name: 'uca-maps-wms-item', parent: list})
 
@@ -234,8 +254,9 @@ export const populate_wms_layers = function(self, panel) {
 		// updated in place, not by rebuilding the list: a rebuild would drop
 		// keyboard focus off the button just pressed
 		eye_btn.addEventListener('click', () => {
-			self.toggle_wms_layer(index)
-			paint_eye(eye_btn, self.wms_layers[index].visible)
+			self.toggle_wms_layer(layer.id)
+			const now = self.wms_sources().find((source) => source.id===layer.id)
+			paint_eye(eye_btn, Boolean(now && now.visible))
 		})
 
 		ui.create_dom_element({
@@ -257,13 +278,23 @@ export const populate_wms_layers = function(self, panel) {
 		// 0..100 step 1, and 0.7 lands on 1
 		opacity_input.value		= String(layer.opacity)
 		opacity_input.title		= self.get_tool_label('wms_opacity_title') || 'Opacity'
-		opacity_input.addEventListener('input', () => self.set_wms_layer_opacity(index, opacity_input.value))
+		opacity_input.addEventListener('input', () => self.set_wms_layer_opacity(layer.id, opacity_input.value))
 
 		const delete_btn = ui.create_dom_element({element_type: 'button', class_name: 'uca-maps-wms-delete', text_content: '✕', parent: item})
 		delete_btn.type	= 'button'
-		delete_btn.title	= self.get_tool_label('wms_delete_button') || 'Delete'
-		delete_btn.addEventListener('click', () => {
-			self.delete_wms_layer(index)
+		delete_btn.title	= self.get_tool_label('wms_delete_button') || 'Delete and save'
+		delete_btn.addEventListener('click', async () => {
+			delete_btn.disabled = true
+			const result = await self.delete_wms_layer(layer.id)
+			if (!self.wms_panel) {
+				return
+			}
+			if (!result.ok) {
+				delete_btn.disabled = false
+				show_wms_message(panel, result.error)
+				return
+			}
+			panel.querySelector('.uca-maps-wms-message').hidden = true
 			populate_wms_layers(self, panel)
 		})
 
