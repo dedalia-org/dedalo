@@ -123,3 +123,19 @@
 Item 1's entry shape gains a required `declared: boolean` (the master's `ReleasePlan.declared`);
 an entry without it fails the whole read. Why, and the backup step's refusal now ending the run
 `REFUSED` (`update.refused`): `WC-2026-11-01-update-plan-declared`.
+
+## Addendum 2026-11-12 (T1-25) — code-only and same-triple runs never cross
+
+No JSON shape changes; the run's terminal STATE does (`/health` `update_run.state`, the panel's
+job end, `bun run update check`'s verdict). Owner ruling 2026-11-11: a code-only release (no
+`compat` — its default `ontology`/`schema` steps, or the target-schema phase the planner appends,
+cannot move the model) and a same-triple run (a prerelease → its next prerelease or its stable,
+a nightly reinstall: the walk is empty) are NOT a data-model crossing. Such a run failing after
+the swap now ends `ROLLED_BACK_CODE` (was `NEEDS_DB_RESTORE`), and the rollback sentinel is never
+flipped to `needs_restore` before its phases. The predicate (`run/rollback.ts`
+`phaseCrossesModel`): a post-swap, non-skipped database phase crosses iff its release is WALKED
+(triple above the installed one) AND its plan is `incompatible`, absent (never assumed
+compatible), or code-only yet DECLARING a database step (a contract fault). An unreadable
+installed release counts as walked. Runs that already ended `NEEDS_DB_RESTORE` are not
+reclassified. Gates: `rollback_predicate_native` (owner ruling describe),
+`update_run_resume_native` (T1-25 cases), `update_docs_claims_tripwire` (C3 `none`/`same_triple`).

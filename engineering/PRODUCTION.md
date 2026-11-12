@@ -1502,10 +1502,11 @@ VERIFIED → confirm → CONFIRMED. After the swap the new tree's boot RESUMES t
 run (`run/boot.ts`): a run whose code phase started owns the boot, so the boot
 runner does not apply migrations — the run's `schema` phase does. Failure
 exits (`run/rollback.ts`, the ONE predicate `canAutoRollback`): before the swap
-FAILED_PRE_SWAP; after it ROLLED_BACK_CODE only while no database phase
-(`ontology`/`schema`/`data`) of a release whose `compat` is not `compatible`
-started, else NEEDS_DB_RESTORE (sentinel `needs_restore`, a human restores the
-run's backup with the previous code — D-2). CLI: `bun run update
+FAILED_PRE_SWAP; after it ROLLED_BACK_CODE unless a database phase
+(`ontology`/`schema`/`data`) of a WALKED `incompatible` release (or a walked
+release with no plan) started, then NEEDS_DB_RESTORE (sentinel `needs_restore`,
+a human restores the run's backup with the previous code — D-2). A code-only
+release and a same-triple run never cross (owner ruling 2026-11-11, T1-25). CLI: `bun run update
 status|check|plan <release>|abort [note]` (`scripts/update.ts`). Door
 precondition classes: `src/core/update/door_class.ts` (WC-2026-10-30-maintenance-door-classes).
 Operator manual: `docs/management/updates/index.md`, held to the code by

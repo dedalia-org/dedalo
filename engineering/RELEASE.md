@@ -88,11 +88,12 @@ minor within the major, no skipping).
      there first; `order` (default `sql`, `scripts`).
 
    What the plan decides on the consumer (`src/core/update/run/rollback.ts`):
-   after the swap, a failure rolls the code back automatically only while no
-   `ontology`/`schema`/`data` phase of a release whose `compat` is not
-   `compatible` has started; otherwise the run ends in `NEEDS_DB_RESTORE`. A
-   release that declares no steps declares no `compat`, and its default
-   `ontology` and `schema` phases therefore count as crossing the data model.
+   after the swap, a failure rolls the code back automatically unless an
+   `ontology`/`schema`/`data` phase of a WALKED `incompatible` release (its
+   triple above the installed one) has started; then the run ends in
+   `NEEDS_DB_RESTORE`. A code-only release (no `compat`, default steps) and a
+   same-triple run (prerelease → prerelease/stable, a nightly reinstall) never
+   cross (owner ruling 2026-11-11, T1-25); a walked release with no plan does.
    Every release has an entry, even a code-only one (step 3, rule 3).
 
 2a. **Set the data version, only for a data release.** A catalog entry with a

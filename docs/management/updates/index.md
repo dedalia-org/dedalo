@@ -83,16 +83,17 @@ What happens depends on where the run stands and on what the release declared:
 | --- | --- |
 | before the code swap | `FAILED_PRE_SWAP` |
 | after the swap, only phases of `compatible` releases ran on the database | `ROLLED_BACK_CODE` |
+| after the swap, only code-only releases (no `compat`) ran on the database | `ROLLED_BACK_CODE` |
+| after the swap, on a same-version run (a prerelease to its next prerelease or its stable, a nightly reinstall) | `ROLLED_BACK_CODE` |
 | after the swap, a database phase of an `incompatible` release ran | `NEEDS_DB_RESTORE` |
-| after the swap, a database phase of a release that declares no `compat` ran | `NEEDS_DB_RESTORE` |
 
-The database phases are `ontology`, `schema` and `data`. A phase counts as soon as it has started: a failed migration file rolls back, but the files before it in the same phase are committed.
+The database phases are `ontology`, `schema` and `data`. A phase counts as soon as it has started: a failed migration file rolls back, but the files before it in the same phase are committed. A code-only release (one that declares no `compat`) cannot change the data model: its default `ontology` and `schema` phases run, but a release that adds a migration or a data step must declare `compat`. A same-version run moves to another build of the release you already run (`7.0.0-beta.7` to `7.0.0-beta.8`, or to `7.0.0`), so it never crosses a data model either. A release this code does not know is never assumed compatible.
 
 - **Automatic rollback stays within one data model.** On `ROLLED_BACK_CODE` the previous code still fits the database. The run puts maintenance mode back as you had it, marks the new tree red in `/health`, and the supervisor's watchdog and rollback script put the previous tree back.
 - **Across a data model, a human restores.** On `NEEDS_DB_RESTORE` the previous code no longer fits the database, so nothing rolls back on its own: the rollback sentinel is marked so that no supervisor acts, and maintenance mode stays on. The journal names the run's backup, the instant after which writes are lost, and the steps: restore the database from that dump, restore the code restore point of the previous release, close the run (`bun run update abort <note>`), and only then leave maintenance mode. Until the run is closed, no new update run starts. A run that took no backup (a waiver) says so; choosing an older dump is your decision, with a larger loss.
 
-!!! warning "A release with database phases and no `compat` is treated as crossing the data model"
-    The default steps include the `ontology` and `schema` phases, and a release that declares no steps declares no `compat` either. Once such a release's `ontology` phase has started after the swap, a failure — of that phase or a later one — ends in `NEEDS_DB_RESTORE`, not in an automatic rollback. The `ontology` phase fails when a configured source fails, so check the ontology sources before a code update. With no ontology source configured at all (no `ONTOLOGY_SERVERS` entry, and the installation is not an ontology master), such a release's default `ontology` step is skipped and the skip is recorded in the journal. A declared `ontology` step, and *Update ontology*, still fail without a source.
+!!! note "Check the ontology sources before a code update"
+    The default steps include an `ontology` phase, which fails when a configured source fails. With no ontology source configured at all (no `ONTOLOGY_SERVERS` entry, and the installation is not an ontology master), a release's default `ontology` step is skipped and the skip is recorded in the journal. A declared `ontology` step, and *Update ontology*, still fail without a source.
 
 ### Resume on start
 

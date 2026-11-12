@@ -52,6 +52,7 @@ import type { Principal } from '../../src/core/security/permissions.ts';
 import { RELEASE_PLANS } from '../../src/core/update/catalog.ts';
 import {
 	CATALOG_FILE_FORMAT,
+	DEFAULT_RELEASE_STEPS,
 	parseCatalogFile,
 	type ReleasePlan,
 	type ReleaseStep,
@@ -385,7 +386,7 @@ async function checkMaintenanceColumn(corpus: Corpus): Promise<string[]> {
 // C3 — failure exits
 // ---------------------------------------------------------------------------
 
-type Scenario = 'pre' | 'compatible' | 'incompatible' | 'none';
+type Scenario = 'pre' | 'compatible' | 'incompatible' | 'none' | 'same_triple';
 
 function failureRows(
 	corpus: Corpus,
@@ -394,36 +395,53 @@ function failureRows(
 		const first = cells[0] ?? '';
 		const scenario: Scenario | null = /\bbefore\b/.test(first)
 			? 'pre'
-			: first.includes('`incompatible`')
-				? 'incompatible'
-				: /no `compat`/.test(first)
-					? 'none'
-					: first.includes('`compatible`')
-						? 'compatible'
-						: null;
+			: /\bsame[- ]version\b/.test(first)
+				? 'same_triple'
+				: first.includes('`incompatible`')
+					? 'incompatible'
+					: /no `compat`/.test(first)
+						? 'none'
+						: first.includes('`compatible`')
+							? 'compatible'
+							: null;
 		return { scenario, documented: backticked(cells[1] ?? '')[0] ?? '', row: first };
 	});
 }
 
+/**
+ * The measured exit of each documented scenario. 'none' is the REAL code-only
+ * shape (no compat, the default steps undeclared); 'same_triple' plants the
+ * strongest catalog claim (the triple itself `incompatible`) — owner ruling
+ * 2026-11-11 (T1-25): a same-version run never crosses, whatever its triple.
+ */
 function measuredExit(scenario: Scenario): string {
+	const sameTriple = scenario === 'same_triple';
+	const release = sameTriple ? '7.0.0' : '7.0.1';
 	const compat =
-		scenario === 'compatible' ? 'compatible' : scenario === 'incompatible' ? 'incompatible' : null;
+		scenario === 'compatible'
+			? 'compatible'
+			: scenario === 'incompatible' || sameTriple
+				? 'incompatible'
+				: null;
 	const plans: Record<string, ReleasePlan> = {
-		'7.0.1': {
-			version: '7.0.1',
-			compat,
-			steps: [{ kind: 'code' }, { kind: 'schema' }],
-			declared: true,
-		},
+		[release]:
+			scenario === 'none'
+				? { version: release, compat, steps: DEFAULT_RELEASE_STEPS, declared: false }
+				: {
+						version: release,
+						compat,
+						steps: [{ kind: 'code' }, { kind: 'schema' }],
+						declared: true,
+					},
 	};
 	const journal: RunJournal = createRunJournal({
-		from: { release: '7.0.0', data: '7.0.0', model: '7.0.0' },
-		to: { release: '7.0.1', data: '7.0.0', model: '7.0.0' },
+		from: { release: sameTriple ? '7.0.0-beta.7' : '7.0.0', data: '7.0.0', model: '7.0.0' },
+		to: { release: sameTriple ? '7.0.0-beta.8' : '7.0.1', data: '7.0.0', model: '7.0.0' },
 		plan: [],
 		releasePlans: plans,
 	});
 	const record = (step: ReleaseStep, outcome: 'ok' | 'failed') => ({
-		release: '7.0.1',
+		release,
 		step,
 		started: journal.created,
 		finished: journal.created,
@@ -450,7 +468,7 @@ function checkFailureTable(corpus: Corpus): string[] {
 			found.push(`failure '${row.row}': docs say ${row.documented}, rollback.ts says ${truth}`);
 	}
 	const covered = new Set(rows.map((row) => row.scenario));
-	for (const scenario of ['pre', 'compatible', 'incompatible', 'none'] as const)
+	for (const scenario of ['pre', 'compatible', 'incompatible', 'none', 'same_triple'] as const)
 		if (!covered.has(scenario)) found.push(`failure scenario '${scenario}' is not documented`);
 	return found;
 }

@@ -20,7 +20,11 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DedaloError, isDedaloError } from '../../src/core/errors/dedalo_error.ts';
-import type { ReleasePlan, ReleaseStep } from '../../src/core/update/catalog_file.ts';
+import {
+	DEFAULT_RELEASE_STEPS,
+	type ReleasePlan,
+	type ReleaseStep,
+} from '../../src/core/update/catalog_file.ts';
 import {
 	type PhaseResult,
 	type RunEffects,
@@ -333,6 +337,39 @@ describe('failure exits', () => {
 		expect(resumed).toMatchObject({ state: 'restarting', journal: { state: 'ROLLED_BACK_CODE' } });
 		expect(w.rolledBack).toBe(1);
 	});
+
+	// owner ruling 2026-11-11 (T1-25): a code-only patch (no compat, the default
+	// steps) and a same-triple run never cross — the sentinel is never flipped to
+	// needs_restore, and a failure after the swap puts the code back by itself.
+	const CODE_ONLY: Record<string, ReleasePlan> = {
+		'7.0.0': { version: '7.0.0', compat: null, steps: DEFAULT_RELEASE_STEPS, declared: false },
+		'7.0.1': { version: '7.0.1', compat: null, steps: DEFAULT_RELEASE_STEPS, declared: false },
+	};
+	for (const [from, to, failing] of [
+		['7.0.0', '7.0.1', '7.0.1 schema'],
+		['7.0.0-beta.7', '7.0.0-beta.8', '7.0.0 schema'],
+	] as const) {
+		test(`(T1-25) ${from} → ${to}: ${failing} failing after the swap rolls the code back, sentinel never flipped`, async () => {
+			const w = world(false);
+			const input = {
+				installedRelease: from,
+				installedData: [7, 0, 0],
+				target: to,
+				targetData: [7, 0, 0],
+			};
+			const starting = processOf(w).effects;
+			starting.plans = CODE_ONLY;
+			await startUpdateRun(input, starting);
+			const resuming = processOf(w, { booted: to, fail: failing }).effects;
+			resuming.plans = CODE_ONLY;
+			const resumed = await resumeUpdateRun(resuming);
+			expect(w.calls).toContain(failing);
+			expect(resumed?.journal.state).toBe('ROLLED_BACK_CODE');
+			expect(w.needsRestore).toEqual([]);
+			expect(w.rolledBack).toBe(1);
+			expect(w.maintenance).toBe(false);
+		});
+	}
 
 	test('an incompatible data phase failing: NEEDS_DB_RESTORE, report journaled, maintenance stays ON', async () => {
 		const w = world(false);
