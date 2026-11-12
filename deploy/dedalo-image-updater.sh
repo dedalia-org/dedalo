@@ -175,14 +175,19 @@ read_pinned() {
 
 # env_ready — .dedalo.env is complete and names a stack file that is here.
 env_ready() {
-	local problems=''
+	local problems='' status=0
 	[ -f "$ENV_FILE" ] || { say "no $ENV_FILE in $STACK_DIR — nothing to do"; return 1; }
 	problems="$(dedalo_env_problems "$ENV_FILE")"
 	if [ -n "$problems" ]; then
 		say "$ENV_FILE does not say where the image comes from ($(printf '%s' "$problems" | tr '\n' ',' | sed 's/,$//')) — nothing to do"
 		return 1
 	fi
-	dedalo_compose_args "$ENV_FILE" plain >/dev/null || { say "DEDALO_COMPOSE_FILE names no stack file in $STACK_DIR — nothing to do"; return 1; }
+	dedalo_compose_args "$ENV_FILE" plain >/dev/null || status=$?
+	case "$status" in
+		0) : ;;
+		3) say "$DEDALO_INSTALL_OVERRIDE in $STACK_DIR predates the pinned certbot — repair it (above) — nothing to do"; return 1 ;;
+		*) say "DEDALO_COMPOSE_FILE names no stack file in $STACK_DIR — nothing to do"; return 1 ;;
+	esac
 }
 
 # --- 4. the heartbeat -----------------------------------------------------------

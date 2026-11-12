@@ -760,6 +760,11 @@ Merged since the last release; these ship with the next one.
     `compose.override.yaml`. New versions arrive with Dédalo releases; they reach a stack
     when its checkout is updated and the stack is started again with `ddc up -d`.
 
+    A Let's Encrypt install made before this change must edit its `compose.override.yaml`
+    once: its old `certbot` service keeps the unpinned image and is no longer started, so
+    certificate renewal would stop. The image updater refuses such a stack and prints the
+    two-line replacement; the Docker install guide has the steps.
+
     Because a pinned image has no plain tag on the machine, the `docker image rm` commands
     in the Docker and Trial removal steps now read the images from the stack file.
 

@@ -13,7 +13,8 @@
  * pinning only the YAML would have left certbot on `latest`.
  *
  * WHAT IS HELD, by outcome, over a DERIVED census (`git ls-files` of every
- * compose file and Dockerfile — a new stack is in scope the day it lands):
+ * compose file and Dockerfile, by NAME (isDockerfileName) — a new stack is
+ * in scope the day it lands):
  *   1. every non-exempt compose `image:` is a pinned reference (tag ≠ latest,
  *      64-hex digest); exemptions are a named, reasoned list (first-party images
  *      with their own pin laws);
@@ -24,15 +25,20 @@
  *      override spells no image;
  *   4. every directory holding a pinned compose image / Dockerfile has its
  *      Dependabot entry, and the file name is one Dependabot discovers;
- *   5. every Dockerfile FROM that names no earlier stage is pinned.
+ *   5. every Dockerfile FROM that names no earlier stage is pinned;
+ *   6. an override written BEFORE the pin (its own unpinned certbot, no profile
+ *      switch) is refused by the host library with its repair — merged over the
+ *      new stack file it would silently stop the certificate renewal (T1-17
+ *      review).
  */
 
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { stackImages } from '../../src/core/install/host/stack/database.ts';
-import { renderOverride } from '../../src/core/install/host/stack/files.ts';
+import { renderEnvFile, renderOverride } from '../../src/core/install/host/stack/files.ts';
 import {
 	isPinnedImage,
 	stackFileServiceImages,
@@ -77,7 +83,22 @@ function tracked(...patterns: string[]): string[] {
 }
 
 const COMPOSE_FILES = tracked('*compose*.yml', '*compose*.yaml');
-const DOCKERFILES = tracked('Dockerfile', '*/Dockerfile');
+
+/**
+ * A Dockerfile by NAME, the way the builders and Dependabot's docker ecosystem
+ * take one (T1-17 review): `Dockerfile`, `Dockerfile.<name>`, `<name>.Dockerfile`,
+ * and the `Containerfile` spellings — case-insensitive. NOT a BuildKit
+ * `<Dockerfile>.dockerignore` (an ignore list, no FROM), nor prose about one.
+ */
+function isDockerfileName(path: string): boolean {
+	const name = path.split('/').pop() as string;
+	if (/\.(dockerignore|md|txt)$/i.test(name)) return false;
+	return (
+		/^(docker|container)file(\.[\w.-]+)?$/i.test(name) || /\.(docker|container)file$/i.test(name)
+	);
+}
+
+const DOCKERFILES = tracked().filter(isDockerfileName);
 
 /** Every `image:` of every tracked compose file (product images flagged). */
 function composeImages(): { pinnable: ImageRef[]; product: ImageRef[] } {
@@ -123,6 +144,26 @@ describe('the pin predicate', () => {
 });
 
 describe('the census is not blind', () => {
+	test('every Dockerfile spelling is in the census (Dockerfile.<name>, <name>.Dockerfile, Containerfile)', () => {
+		for (const path of [
+			'Dockerfile',
+			'ci/Dockerfile',
+			'deploy/Dockerfile.publication',
+			'ci/agent.Dockerfile',
+			'Containerfile',
+			'x/Containerfile.dev',
+			'x/dockerfile',
+		])
+			expect(isDockerfileName(path), path).toBe(true);
+		for (const path of [
+			'ci/Dockerfile.dockerignore',
+			'.dockerignore',
+			'docs/dockerfile.md',
+			'Dockerfiles/x',
+		])
+			expect(isDockerfileName(path), path).toBe(false);
+	});
+
 	test('every compose file and Dockerfile is found, and the third-party refs with them', () => {
 		expect(COMPOSE_FILES.length).toBeGreaterThanOrEqual(5);
 		for (const stack of OPERATOR_STACKS) expect(COMPOSE_FILES).toContain(stack);
@@ -263,5 +304,112 @@ describe('5. every Dockerfile base image is pinned', () => {
 		);
 		expect(froms.length).toBeGreaterThanOrEqual(2);
 		expect(froms.filter((ref) => !isPinnedImage(ref.image))).toEqual([]);
+	});
+});
+
+/**
+ * The Let's Encrypt override as the installer wrote it BEFORE T1-17 (b35846d20f^
+ * src/core/install/host/stack/files.ts letsEncryptOverride, verbatim shape): its
+ * own `certbot/certbot` service, no `profiles`. Merged over the new
+ * docker-compose.yml (certbot `profiles: ["letsencrypt"]`), compose keeps the
+ * profile and the unpinned image — certbot is never started again (measured with
+ * Compose v5.5.1: `config --services` lists no certbot).
+ */
+const PRE_PIN_LE_OVERRIDE = [
+	'# WRITTEN BY THE INSTALLER (scripts/install.ts, docker route).',
+	'services:',
+	'  nginx:',
+	'    command: >',
+	`      sh -c "nginx -g 'daemon off;'"`,
+	'    volumes:',
+	'      - letsencrypt:/etc/letsencrypt:ro',
+	'      - certbot_www:/var/www/certbot:ro',
+	'  certbot:',
+	'    image: certbot/certbot',
+	'    restart: unless-stopped',
+	'    volumes:',
+	'      - letsencrypt:/etc/letsencrypt',
+	'      - certbot_www:/var/www/certbot',
+	'    entrypoint: >',
+	'      sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"',
+	'volumes:',
+	'  letsencrypt:',
+	'  certbot_www:',
+	'',
+].join('\n');
+
+describe('6. an override written before the pin is refused, with its repair', () => {
+	const LIB = join(REPO_ROOT, 'deploy', 'dedalo-image-lib.sh');
+	const SCRATCH = mkdtempSync(join(tmpdir(), 'dedalo-override-pin-'));
+	afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
+	let cases = 0;
+	const DOCKER_LE = {
+		route: 'docker',
+		entity: 'museo',
+		server_name: 'dedalo.example.org',
+		letsencrypt_email: 'ops@example.org',
+	};
+
+	/** dedalo_compose_args in a stack dir holding the real stack file and this override. */
+	function composeArgs(raw: Record<string, unknown>, override: string | null) {
+		const ctx = stackPlanCtx(raw);
+		cases += 1;
+		const dir = join(SCRATCH, `case-${cases}`);
+		mkdirSync(dir, { recursive: true });
+		const stack =
+			ctx.answers.route === 'trial' ? 'docker-compose.simple.yml' : 'docker-compose.yml';
+		copyFileSync(join(REPO_ROOT, stack), join(dir, stack));
+		writeFileSync(join(dir, '.dedalo.env'), renderEnvFile(ctx, 'pw'), { mode: 0o600 });
+		if (override !== null) writeFileSync(join(dir, 'compose.override.yaml'), override);
+		const run = spawnSync(
+			'bash',
+			['-c', `set -euo pipefail; . ${JSON.stringify(LIB)}; dedalo_compose_args .dedalo.env plain`],
+			{ cwd: dir, encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } },
+		);
+		return { code: run.status, stdout: run.stdout, stderr: run.stderr, stack };
+	}
+
+	test('the pre-pin Let’s Encrypt override: status 3, no argv, the repair on stderr', () => {
+		const run = composeArgs(DOCKER_LE, PRE_PIN_LE_OVERRIDE);
+		expect(run.code).toBe(3);
+		expect(run.stdout).toBe('');
+		expect(run.stderr).toContain('predates the pinned certbot');
+		expect(run.stderr).toContain('    profiles: !reset []');
+	});
+
+	test('the same override with only the profile switch added still spells the unpinned image: refused', () => {
+		const half = PRE_PIN_LE_OVERRIDE.replace(
+			'    image: certbot/certbot\n',
+			'    image: certbot/certbot\n    profiles: !reset []\n',
+		);
+		expect(composeArgs(DOCKER_LE, half).code).toBe(3);
+	});
+
+	test('the repaired override, and every override the installer writes today, pass', () => {
+		const repaired = PRE_PIN_LE_OVERRIDE.replace(
+			/ {2}certbot:\n[\s\S]*?(?=^volumes:)/m,
+			'  certbot:\n    profiles: !reset []\n',
+		);
+		expect(repaired).not.toContain('certbot/certbot');
+		const ok: [Record<string, unknown>, string | null][] = [
+			[DOCKER_LE, repaired],
+			[DOCKER_LE, renderOverride(stackPlanCtx(DOCKER_LE))],
+			[DOCKER_LE, null],
+			...[
+				{ route: 'trial', entity: 'trial_museum' },
+				{
+					route: 'docker',
+					entity: 'museo',
+					server_name: 'dedalo.example.org',
+					tls_mode: 'local_ca',
+				},
+			].map((raw): [Record<string, unknown>, string] => [raw, renderOverride(stackPlanCtx(raw))]),
+		];
+		for (const [raw, override] of ok) {
+			const run = composeArgs(raw, override);
+			expect({ code: run.code, stderr: run.stderr }).toEqual({ code: 0, stderr: '' });
+			expect(run.stdout.split('\n')).toContain(run.stack);
+			if (override !== null) expect(run.stdout.split('\n')).toContain('compose.override.yaml');
+		}
 	});
 });

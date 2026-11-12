@@ -238,6 +238,15 @@ docker compose -f docker-compose.yml -f compose.override.yaml --env-file .dedalo
 
 Every image that is not Dédalo's own is **pinned** in the stack file as `name:<version>@sha256:<digest>`: the readable version plus the exact bytes. Two installs of the same release run the same PostgreSQL, nginx and certbot, and a tag that moves upstream changes nothing on your machine. The pins move with Dédalo releases: update the checkout and run `ddc up -d` to pull them. The installer reads the images from the stack file, so it pulls, checks and names exactly these.
 
+**An install with Let's Encrypt made before the pins** has a `compose.override.yaml` that declares its own `certbot` service with the unpinned `certbot/certbot` image. Merged over the updated stack file, that service stays switched off: the next `ddc down` and `ddc up -d` would no longer start the certificate renewal, and the certificate would expire about 90 days later. The image updater refuses to drive such a stack and prints the repair. Do it before the next `ddc up -d`: in `compose.override.yaml`, replace every line from `  certbot:` down to (not including) the top-level `volumes:` line with
+
+```yaml
+  certbot:
+    profiles: !reset []
+```
+
+then run `ddc up -d` and check that `ddc ps certbot` shows the service *Up*.
+
 The two optional services are behind compose profiles, so they do **not** start unless you ask for them (`ddc --profile diffusion up -d`, `ddc --profile rag up -d`).
 
 The image is **not** a thin Bun image. It also carries a `psql` client that is not older than the PostgreSQL server (an older client refuses to connect to a newer server) and the media toolchain (`ffmpeg`, ImageMagick, poppler, `ocrmypdf`). Both are why the image is large and a local build is slow — and why an image without them would install, then fail at the first upload.
