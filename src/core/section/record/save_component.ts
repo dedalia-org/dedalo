@@ -46,7 +46,6 @@ import { INSTALLED_DATA_LANGS } from '../../../config/config.ts';
 import {
 	getComponentModel,
 	getImportAppendPolicy,
-	getRenderClass,
 	isLangSlicedModel,
 	isMonovalueModel,
 } from '../../components/registry.ts';
@@ -103,6 +102,7 @@ import { beginSaveHistory, finishSaveHistory } from './bulk_capture.ts';
 import { iriLabelIdRefusal } from './iri_label_guard.ts';
 import { applyItemGate } from './item_gates.ts';
 import { valueShapeRefusal } from './value_shape.ts';
+import { applyWriteValueGates } from './write_value_gates.ts';
 
 /** One change from the client (PHP changed_data item). */
 export interface ChangedDataItem {
@@ -1513,48 +1513,12 @@ async function attachAppendOutcome(
 	result.appendSkipped = outcome.skipped.filter((skip) => skip.reason === 'duplicate').length;
 }
 
-/** The transactional body of saveComponentData (see the wrapper above). */
-/**
- * The write engine's two VALUE gates, each keyed on what the model itself
- * declares — extracted from `applySaveComponentData` so the save path does not
- * carry their branches (the complexity ratchet is the reason, and the shape is
- * better: both read the changed data and nothing else of the request).
- *
- * SEC — component_password is an ordinary string component to the write engine,
- * so an unhashed value would be stored VERBATIM: the client's plaintext password
- * straight into matrix_users.string.dd133 (and it would then fail every login,
- * since auth.ts accepts only Argon2id). PHP hashed on the way in
- * (component_password::Save → hash_password); this is that gate.
- *
- * XSS-01 (2026-07-28 audit) / P2-6 (2026-08-26) — a value whose descriptor
- * declares the `html` render class is the ONE class the client passes through
- * unescaped, so it is the ONE class sanitized here (strip script/style/on*=/js:
- * URLs, keep formatting). Keyed on the descriptor facet, never on the model
- * string: a model that declares 'html' opts into this sanitizer in that line.
- * A model WITHOUT a descriptor (component_ip, component_layout, …) is not asked
- * for a class — it has no matrix column either, so the graceful `no matrix
- * column` refusal downstream stays the answer, as it was before.
- *
- * Both sit at the write engine precisely so EVERY door funnels through them —
- * the client API, the MCP tools, the agent change-plan and import alike.
+/*
+ * The VALUE gates (password hash, rich-text sanitize + media-src relativize)
+ * live in ./write_value_gates.ts — shared with the whole-value writers that
+ * bypass this door (translateAndWrite), censused by
+ * component_value_gate_census_tripwire.
  */
-async function applyWriteValueGates(
-	model: string,
-	changedData: SaveRequest['changedData'],
-): Promise<SaveRequest['changedData']> {
-	if (model === 'component_password') {
-		return await (await import('../../security/password_hash.ts')).hashPasswordChanges(changedData);
-	}
-	if (getComponentModel(model) !== undefined && getRenderClass(model) === 'html') {
-		const { mapRichTextChanges, sanitizeRichText } = await import(
-			'../../security/html_sanitize.ts'
-		);
-		// TODO-067: a media src on an absolute webBase is persisted relative (WC-042).
-		const { relativizeMediaSrc } = await import('../../media/web_base_src.ts');
-		return mapRichTextChanges(changedData, (value) => relativizeMediaSrc(sanitizeRichText(value)));
-	}
-	return changedData;
-}
 
 /** One component key read under the save's row lock (see applySaveComponentData). */
 interface LockedComponentKey {
@@ -1703,6 +1667,7 @@ async function refuseAbsentRecord(sectionTipo: string, sectionId: number): Promi
 	});
 }
 
+/** The transactional body of saveComponentData (see the wrapper above). */
 async function applySaveComponentData(
 	request: SaveRequest,
 	receipt: WriteReceipt,

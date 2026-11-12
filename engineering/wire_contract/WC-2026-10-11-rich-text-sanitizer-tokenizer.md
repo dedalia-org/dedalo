@@ -87,3 +87,12 @@
   ≤ 16 `<`, otherwise a prefix dropping no text/element), G5 the escape
   fallback. Values stored BEFORE this
   entry are not rewritten; a one-shot re-sanitize sweep is a ledgered follow-up.
+
+## Addendum 2026-11-12 (T1-14) — writers governed
+
+The sanitizer governs the stored value of every writer that reaches
+`src/core/section/record/write_value_gates.ts#applyWriteValueGates`: the save door
+(`saveComponentData`) and, since `WC-2026-11-12-translation-write-value-gates`, automatic
+translation (`translateAndWrite`). The writer set is censused by
+`test/unit/component_value_gate_census_tripwire.test.ts`; Time Machine replays are named
+exemptions there (they restore stored bytes).

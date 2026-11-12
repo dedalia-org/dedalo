@@ -54,6 +54,7 @@ function srcOf(html, where) {
 await ensureSituation(S);
 const table = (await getMatrixTableFromTipo(SECTION)) || 'matrix_test';
 let id = 0;
+let translatedId = 0;
 try {
   id = await insertMatrixRecordWithCounter(table, SECTION, {});
   // What the editor sends: the url the upload endpoint answered (webBase).
@@ -88,6 +89,23 @@ try {
       offset: 0,
     },
   });
+  // The SECOND door (T1-14 / OX7): automatic translation stores through
+  // persistRecordKeys, not the save door — it must reach the same value gate.
+  translatedId = await insertMatrixRecordWithCounter(table, SECTION, {
+    string: { [TEXT_AREA]: [{ id: 1, lang: 'lg-eng', value: '<p>source</p>' }] },
+  });
+  const { translateAndWrite } = await import('./src/core/tools/translation.ts');
+  const { superuserTranslationGrant } = await import('./test/helpers/translation_grant.ts');
+  const translated = await translateAndWrite(
+    await superuserTranslationGrant(SECTION, TEXT_AREA, translatedId),
+    { model: 'component_text_area', sourceLang: 'lg-eng', targetLang: 'lg-spa',
+      // Visible text alongside the image: an image-only result is an empty translation.
+      provider: async () => ({ ok: true, text: sent.replace('<p>', '<p>caption '), msg: 'ok' }), uri: 'https://93.184.216.34/t', key: 'k' },
+  );
+  if (translated.ok !== true) throw new Error('translation refused: ' + JSON.stringify(translated));
+  const translatedRecord = await readMatrixRecord(table, SECTION, translatedId);
+  const translatedItem = ((translatedRecord && translatedRecord.columns.string &&
+    translatedRecord.columns.string[TEXT_AREA]) || []).find((e) => e && e.lang === 'lg-spa');
   const item = data.find((e) => e.tipo === TEXT_AREA && e.section_id === id);
   if (item === undefined) throw new Error('the edit read emitted no ' + TEXT_AREA + ' item');
   const served = ((item.entries || []).find((v) => v && v.value) || {}).value;
@@ -98,10 +116,13 @@ try {
       storedSrc: srcOf(stored && stored.value, 'the stored row'),
       echoSrc: srcOf(echoed, 'the save echo'),
       servedSrc: srcOf(served, 'the edit read'),
+      translatedSrc: srcOf(translatedItem && translatedItem.value, 'the translated row'),
     }),
   );
 } finally {
   if (id > 0) await deleteMatrixRecord(table, SECTION, id);
+  if (translatedId > 0) await deleteMatrixRecord(table, SECTION, translatedId);
+  await sql\`DELETE FROM matrix_time_machine WHERE section_tipo = \${SECTION}\`;
   // The dd542 activity row the dispatch save appended (dd546 = the saved tipo).
   await sql.unsafe(
     "DELETE FROM matrix_activity WHERE section_tipo = 'dd542' AND string->'dd546'->0->>'value' = $1",
@@ -118,6 +139,8 @@ interface Probe {
 	storedSrc: string;
 	echoSrc: string;
 	servedSrc: string;
+	/** The same `sent` src written by automatic translation (the second door). */
+	translatedSrc: string;
 }
 
 function probe(mediaWebBase: string): Probe {
@@ -144,6 +167,8 @@ describe('component_text_area <img src>: stored relative, served on webBase', ()
 		expect(result.servedSrc).toBe(`${result.webBase}/image/web/pic.jpg`);
 		// The save echo is the client's post-save baseline: it must equal the read.
 		expect(result.echoSrc).toBe(result.servedSrc);
+		// T1-14: automatic translation stores the same relative form as a save.
+		expect(result.translatedSrc).toBe(result.storedSrc);
 	}, 120_000);
 
 	test('SAME ORIGIN (key unset) — stored and served are the relative url (no-op)', () => {
@@ -152,5 +177,6 @@ describe('component_text_area <img src>: stored relative, served on webBase', ()
 		expect(result.storedSrc).toBe(relative);
 		expect(result.servedSrc).toBe(relative);
 		expect(result.echoSrc).toBe(relative);
+		expect(result.translatedSrc).toBe(relative);
 	}, 120_000);
 });

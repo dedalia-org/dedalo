@@ -135,10 +135,7 @@ export async function translateItems(
 ): Promise<{ items: TranslatedItem[]; error: string | null; emptyResult?: true }> {
 	const out: TranslatedItem[] = [];
 	for (const item of sourceItems) {
-		const text =
-			item !== null && typeof item === 'object'
-				? String((item as { value?: unknown }).value ?? '')
-				: String(item ?? '');
+		const text = sourceText(item);
 		const res = await provider({
 			uri: cfg.uri,
 			key: cfg.key,
@@ -163,6 +160,45 @@ export async function translateItems(
 		out.push(targetItem(item, res.text, cfg.targetLang));
 	}
 	return { items: out, error: null };
+}
+
+/** The text a source item hands the provider: its `value`, or the bare scalar. */
+function sourceText(item: unknown): string {
+	return item !== null && typeof item === 'object'
+		? String((item as { value?: unknown }).value ?? '')
+		: String(item ?? '');
+}
+
+/**
+ * The translated items AS THEY WILL BE STORED (T1-14 / OX7): through the write
+ * engine's value gates, exactly like a save (`write_value_gates.ts` — the
+ * rich-text sanitizer + WC-042 media-src relativize for an `html` model; PHP
+ * `component_text_area::save` → `clean_text`). Babel's own post-processing is
+ * a `strip_tags` allowlist that KEEPS attributes, and its entity decode turns
+ * literal text into live markup, so the provider result is never trusted as
+ * stored form.
+ *
+ * The visible-text check runs again on the GATED value: a result whose only
+ * content was hostile markup sanitizes to nothing, and writing that would blank
+ * the target language (WC-2026-11-10) — it is refused as an empty result.
+ */
+async function gateTranslatedItems(
+	model: string,
+	sourceSlice: readonly unknown[],
+	targetItems: readonly TranslatedItem[],
+	direction: { sourceLang: string; targetLang: string },
+): Promise<{ items: unknown[]; emptyMsg: string | null }> {
+	const { gateComponentItems } = await import('../section/record/write_value_gates.ts');
+	const items = await gateComponentItems(model, targetItems);
+	const emptied = items.some((item, index) =>
+		isEmptyTranslation(sourceText(sourceSlice[index]), sourceText(item)),
+	);
+	return {
+		items,
+		emptyMsg: emptied
+			? `empty translation for ${direction.sourceLang} → ${direction.targetLang} after sanitizing`
+			: null,
+	};
 }
 
 /** Visible text: markup removed, whitespace trimmed. */
@@ -282,6 +318,11 @@ export function resolveTranslationProvider(engine: string): {
  * PHP's component->save()). Shared by tool_lang (one target) and tool_lang_multi
  * (looped targets).
  *
+ * GATED LIKE A SAVE (T1-14 / OX7): `persistRecordKeys` is model-agnostic, so the
+ * write engine's value gates run HERE, on the target-language items only
+ * (gateTranslatedItems — PHP `component_text_area::save` `clean_text`). Other
+ * languages are stored values with their own TM lanes and are never rewritten.
+ *
  * OBSERVERS (TOOLS-1, the observer half closed by CLOSURE_PLAN Step 2): the
  * write goes through persistRecordKeys, whose post-write hook declares the
  * key's before/after to the obligation ledger — so a component_info or
@@ -385,6 +426,11 @@ export async function translateAndWrite(
 			count: 0,
 			...(emptyResult === true ? { emptyResult } : { providerError: true }),
 		};
+	// Stored form = gated form (see gateTranslatedItems), computed OUTSIDE the
+	// row lock: pure CPU, it must not widen the lock window.
+	const gated = await gateTranslatedItems(input.model, sourceSlice, targetItems, input);
+	if (gated.emptyMsg !== null)
+		return { ok: false, msg: gated.emptyMsg, count: 0, emptyResult: true as const };
 
 	return await withTransaction(async () => {
 		// TAKE THE ROW LOCK. The merge base must be the row as it stands NOW, not
@@ -440,7 +486,7 @@ export async function translateAndWrite(
 						(item as { lang?: string }).lang === input.targetLang
 					),
 			),
-			...targetItems,
+			...gated.items,
 		];
 		// Chokepoint write: translated value + modified stamps in one update (PHP
 		// tool_lang saves via component->save(), which stamps).
@@ -468,7 +514,7 @@ export async function translateAndWrite(
 			{ before: { value: currentItems, slots }, after: { value: merged, slots } },
 			{ userId: input.userId, timestamp: dbTimestamp(), bulkId: null },
 		);
-		return { ok: true, msg: 'OK. Request done', count: targetItems.length };
+		return { ok: true, msg: 'OK. Request done', count: gated.items.length };
 	});
 }
 

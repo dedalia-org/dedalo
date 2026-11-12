@@ -35,6 +35,19 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-datalist-principal-record-scope`.
 
+- **Automatic translation cleans rich text exactly like a normal save**
+
+    The automatic translation of the language tools (`tool_lang`, `tool_lang_multi`) stored the
+    translation service's answer without the cleaning a normal save applies to formatted text.
+    Scripts or event handlers — produced by the service, or by text that was typed literally in
+    the source language and decoded by the service — could reach the translated language and run
+    for anyone who opened the record. A translated text area is now cleaned exactly as if it had
+    been typed and saved, and image links are stored in the same portable form. A translation that
+    is empty once cleaned is refused instead of blanking the language. Other languages of the
+    field are not touched; values written by earlier translations are not rewritten.
+
+    Wire contract: `WC-2026-11-12-translation-write-value-gates`.
+
 - **The References panel and related-record lists show only the columns the user may read.**
 
     The References panel of a record, and the related-record lists that the transcription, indexation
@@ -925,7 +938,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 44 entries"
+??? note "Wire contract — 45 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -970,6 +983,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-posterframe-identifying-image-scope`
     - `WC-2026-11-12-rdf-graph-interpretation`
     - `WC-2026-11-12-select-dataframe-subdatum`
+    - `WC-2026-11-12-translation-write-value-gates`
     - `WC-2026-11-12-zotero-csl-json-import`
 
 ## 7.0.0-beta.8 — 2026-11-08

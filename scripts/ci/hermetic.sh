@@ -304,6 +304,9 @@ HERMETIC_TRIPWIRES=(
 	#     scan + one runtime refusal that throws before any resolver/DB import.
 	#     Verified DB-less (DB_HOST=127.0.0.1 DB_PORT=59999: 9 pass / 0 fail).
 	test/unit/iri_label_unscoped_lookup_tripwire.test.ts
+	# --- 2026-11-12: T1-14, the component value-gate census -- fs + the import-resolved
+	#     call graph only. Verified DB-less (DB_HOST=127.0.0.1 DB_PORT=59999: 4 pass / 0 fail).
+	test/unit/component_value_gate_census_tripwire.test.ts
 	test/unit/sw_tombstone_tripwire.test.ts
 	test/unit/date_flat_value_single_source_tripwire.test.ts
 	test/unit/error_throw_ratchet.test.ts
