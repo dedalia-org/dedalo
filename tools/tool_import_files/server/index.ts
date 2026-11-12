@@ -1031,7 +1031,6 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 		const { persistUploadedMedia, nameKeysForQuality } = await import(
 			'../../../src/core/media/tools/files_info_persist.ts'
 		);
-		const { buildMediaIdentifier } = await import('../../../src/core/media/path.ts');
 		await persistUploadedMedia({
 			sectionTipo: identity.sectionTipo,
 			sectionId: identity.sectionId,
@@ -1042,7 +1041,7 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 			// a dropzone row restored from the server listing carries the SANITIZED
 			// staged name, because that is what the listing reports.
 			originalFileName: originalFileName || result.originalFileName,
-			originalNormalizedName: `${buildMediaIdentifier(identity)}.${result.extension}`,
+			originalNormalizedName: result.originalFileName,
 			// Provenance follows the tier the file landed in (PHP :778) — an import
 			// into a non-original tier records no original_*/modified_* names.
 			nameKeys: nameKeysForQuality(spec, customTargetQuality),

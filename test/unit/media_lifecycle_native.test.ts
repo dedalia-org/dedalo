@@ -49,9 +49,11 @@ import {
 	listDeletedVersions,
 	removeSectionMediaFiles,
 	restoreDeletedSectionMediaFiles,
-	snapshotFlatValue,
 } from '../../src/core/media/file_ops.ts';
-import { resolveMediaPathOptions } from '../../src/core/media/ontology_path.ts';
+import {
+	resolveMediaPathOptions,
+	flatItemsValue as snapshotFlatValue,
+} from '../../src/core/media/ontology_path.ts';
 import { buildMediaLocation, posterframeLocation } from '../../src/core/media/path.ts';
 import {
 	baseSvgUrl,
@@ -456,8 +458,8 @@ describe('section media delete/restore round trip', () => {
 	test('a snapshot flat value reads PHP get_value(): nolan first, joined with " | "', () => {
 		// The `additional_path` bucket is a SIBLING COMPONENT'S VALUE, and both delete
 		// doors read it from a snapshot because the row is gone (or about to be
-		// emptied). The rule must match ontology_path.ts's DB-side twin or the sweep
-		// looks in a different folder than the ingest wrote to.
+		// emptied). Since T1-10 the snapshot is read through the SAME resolver as a
+		// live row (ontology_path.ts flatItemsValue) — one rule, no twin to drift.
 		expect(snapshotFlatValue([{ lang: 'lg-nolan', value: 'cession' }])).toBe('cession');
 		expect(snapshotFlatValue([{ value: 'a' }, { value: 'b' }])).toBe('a | b');
 		// A translated component with no nolan item falls back to every item…

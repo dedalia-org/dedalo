@@ -46,7 +46,7 @@ import {
 import { stagingDir } from '../../../src/core/media/ingest/add_file.ts';
 import { processUploadedFile } from '../../../src/core/media/ingest/process_uploaded_file.ts';
 import { resolveStagedName } from '../../../src/core/media/ingest/staged_files.ts';
-import { buildMediaIdentifier, buildMediaLocation } from '../../../src/core/media/path.ts';
+import { buildMediaLocation } from '../../../src/core/media/path.ts';
 import { resolveMediaToolContext } from '../../../src/core/media/tool_support.ts';
 import {
 	nameKeysForQuality,
@@ -349,7 +349,7 @@ async function ingestPrepared(
 		lang: media.identity.lang,
 		filesInfo: result.filesInfo,
 		originalFileName: originalFileName || result.originalFileName,
-		originalNormalizedName: `${buildMediaIdentifier(media.identity)}.${result.extension}`,
+		originalNormalizedName: result.originalFileName,
 		nameKeys: nameKeysForQuality(media.spec, undefined),
 	});
 	result.startTranscode?.();

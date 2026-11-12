@@ -262,6 +262,25 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-calculation-widget-port`.
 
+- **Images named by their "Filename" field open, upload and regenerate under that name again.**
+
+    An image component can take its file name from another field of the record (in the core
+    Images section, the **Filename** field). Before, only the indexation grid used that name:
+    the edit view showed a placeholder instead of the image's drawing layer, a new upload or a
+    regeneration wrote a second set of files under the standard name, rebuilding the files index
+    found nothing, and deleting the record left the named files in place.
+
+    Now every part of Dédalo uses the name in the **Filename** field: upload, regeneration, the
+    media tools, rebuilding the files index, the edit view, record delete and restore.
+
+    **Action needed:** none. A **Filename** value that is not a plain file name (it contains
+    `/`, `\`, `"`, `<`, `>`, or is `.`/`..`) or that is another record's standard file name is
+    now refused, and the upload stops before anything is written. Duplicating a record whose
+    images are named this way does not copy those images — both records would point to the
+    same files — and the duplicate reports them as not copied.
+
+    Wire contract: `WC-2026-11-12-image-id-media-file-stem`.
+
 - **Relation fields without their own configuration show their linked records in the view the ontology asks for (e.g. mini, text).**
 
     A relation field that declares no request configuration of its own can still ask, in its
@@ -878,7 +897,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 41 entries"
+??? note "Wire contract — 42 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -916,6 +935,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-datalist-principal-record-scope`
     - `WC-2026-11-12-diffusion-map-target-section-tipo`
     - `WC-2026-11-12-global-table-maps`
+    - `WC-2026-11-12-image-id-media-file-stem`
     - `WC-2026-11-12-info-live-publication-export`
     - `WC-2026-11-12-marc21-config-map-and-transforms`
     - `WC-2026-11-12-rdf-graph-interpretation`

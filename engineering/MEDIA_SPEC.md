@@ -488,7 +488,11 @@ item's own existing-file count, a SHRINK item kept as stored unless
 `allowShrink`, re-judged under the lock — plus the **`FOREIGN`** kind: an item
 whose entries carry the CLONE SIGNATURE (`<component>_<section>_<N>` with N ≠
 this record's id, what a failed duplicate could leave) is always rewritten; any
-other name the scan does not build (an `image_id` rename) is a held SHRINK. The
+other name the scan does not build is a held SHRINK. An image's `properties.image_id`
+stem IS built (`fileIdOverride`, resolved per record — T1-10,
+`WC-2026-11-12-image-id-media-file-stem`), so a PHP-era stem-named record GROWS;
+only a stem the record no longer resolves (the value changed or emptied after
+upload) is a held SHRINK. The
 duplicate inserts its clone with `files_info: []`, copies through the
 record-scoped walk and re-scans at the clone's identity; an incomplete copy is a
 verdict (`duplicate_media_incomplete`, `media.operation_failed`,

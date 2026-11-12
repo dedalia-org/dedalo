@@ -8,6 +8,8 @@
  *
  * PHP references (core/component_media_common/class.component_media_common.php):
  *   - identifier: get_id (:649-681)  →  {component_tipo}_{section_tipo}_{section_id}[_{lang}]
+ *   - file stem:  component_image::get_id (class.component_image.php:158-219) →
+ *                 the `properties.image_id` sibling's value when filled, else the identifier
  *   - dir:        get_media_path_dir (:2859)  →  MEDIA_PATH + folder + initial_media_path + '/' + quality + additional_path
  *   - file:       get_media_filepath (:3356)  →  dir + '/' + id + '.' + extension
  *   - bucket:     get_additional_path (:753-819)  →  '/' + max * floor(section_id / max)
@@ -27,6 +29,7 @@ import {
 } from '../concepts/media.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { assertValidTipo } from '../search/identifier_gate.ts';
+import { MEDIA_FILENAME_GRAMMAR } from './protection.ts';
 import { assertTestMediaRoot } from './test_media_root.ts';
 
 /** A media component instance's identity (the identifier inputs). */
@@ -66,6 +69,24 @@ export interface MediaPathOptions {
 	 */
 	additionalPathOverride?: string | null;
 	/**
+	 * The resolved FILE STEM a `component_image` takes from `properties.image_id`
+	 * (PHP component_image::get_id, class.component_image.php:158-219): a SIBLING
+	 * component's trimmed value on THIS record (rsc29 → rsc34 'Filename') names the
+	 * files instead of the identifier — `photo_2.jpg`, not `rsc29_rsc170_7.jpg`.
+	 *
+	 * THREE STATES, like {@link additionalPathOverride}:
+	 * - a string    → the stem ({@link assertMediaFileStem}-checked again at use);
+	 * - `null`      → the component declares no `image_id` (or is not an image),
+	 *                 or this record's sibling is empty — the identifier names it;
+	 * - ABSENT      → NOT RESOLVED HERE (the section-scoped form). Only the
+	 *                 record-scoped `resolveMediaPathOptions` /
+	 *                 `completeMediaPathOptions` can answer it.
+	 *
+	 * NO lang suffix: PHP's image get_id returns the value verbatim, so every
+	 * language of a translatable image shares the stem.
+	 */
+	fileIdOverride?: string | null;
+	/**
 	 * Media root override — production omits it (config.media.rootPath is used);
 	 * write-phase gates pass a scratch root so tests never touch the shared dir
 	 * (engineering/MEDIA_SPEC.md §7). When set, confinement is relative to this root.
@@ -86,6 +107,8 @@ export interface MediaLocation {
 /**
  * Build the media identifier: `{component_tipo}_{section_tipo}_{section_id}`
  * plus `_{lang}` when the component is translatable (PHP get_id :649-681).
+ * This is the CLONE SIGNATURE (PHP get_identifier) — a FILE is named by
+ * {@link mediaFileId}, which an image's `properties.image_id` stem overrides.
  * Both tipos pass the identifier gate; section_id must be a positive integer.
  */
 export function buildMediaIdentifier(identity: MediaIdentity): string {
@@ -110,6 +133,76 @@ export function buildMediaIdentifier(identity: MediaIdentity): string {
 		id += `_${identity.lang}`;
 	}
 	return id;
+}
+
+/**
+ * The FILE STEM law for a `properties.image_id` value (T1-10). PHP used the
+ * sibling's trimmed value verbatim; the stem becomes a file NAME under the
+ * media root and reaches HTML attributes, so the engine refuses — loudly, as
+ * `media.invalid_identifier` — what PHP let through:
+ *
+ * - a path separator (`/`, `\`), NUL or any control character, and the whole
+ *   value `.` / `..` — a stem names a file, never a folder;
+ * - `"`, `<`, `>` — the T0-10 attribute law (`normalizeAdditionalPath` refuses
+ *   the same set for the bucket);
+ * - a stem the media-protection grammar (`protection.ts MEDIA_FILENAME_GRAMMAR`)
+ *   parses as ANOTHER record's file. The web server maps a file to its record
+ *   through that grammar alone, so `x_rsc170_5.jpg` written for record 7 would be
+ *   published whenever record 5 is — and it is, by name, record 5's file for every
+ *   other door. A stem that parses to THIS record (its own identifier included)
+ *   is accepted; one that does not parse at all stays login-only by design.
+ */
+export function assertMediaFileStem(value: string, identity: MediaIdentity): string {
+	const why = stemRefusal(value, identity);
+	if (why !== null) {
+		throw new DedaloError('media.invalid_identifier', {
+			message: `image_id file name '${value}' for ${identity.componentTipo} on ${identity.sectionTipo}/${identity.sectionId} ${why}`,
+			coordinates: {
+				section_tipo: identity.sectionTipo,
+				section_id: identity.sectionId,
+				component_tipo: identity.componentTipo,
+			},
+		});
+	}
+	return value;
+}
+
+/** Why a stem is refused (see assertMediaFileStem), or null when it is a file name of THIS record. */
+function stemRefusal(value: string, identity: MediaIdentity): string | null {
+	if (NOT_A_FILE_STEM.test(value)) {
+		return 'is not a file name (empty, a path segment, a control character or one of / \\ " < >)';
+	}
+	const parsed = MEDIA_FILE_RECORD_GRAMMAR.exec(`${value}.x`);
+	if (parsed === null) return null;
+	const sameRecord = parsed[1] === identity.sectionTipo && Number(parsed[2]) === identity.sectionId;
+	return sameRecord
+		? null
+		: `names record ${parsed[1]}/${parsed[2]}'s files (media-protection grammar)`;
+}
+
+/**
+ * What a file stem may not be: empty, `.` or `..`, or carry a separator, NUL or
+ * any C0 control / DEL (a control character IS the refusal, hence the lint
+ * suppression), or the T0-10 attribute set.
+ */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: the control range IS the refusal
+const NOT_A_FILE_STEM = /^\.{0,2}$|[/\\\u0000-\u001f\u007f"<>]/;
+
+/** The media-protection filename grammar, anchored (see assertMediaFileStem). */
+const MEDIA_FILE_RECORD_GRAMMAR = new RegExp(`^${MEDIA_FILENAME_GRAMMAR}`);
+
+/**
+ * The FILE STEM a location is named by: the resolved `image_id` stem when the
+ * options carry one (re-asserted — options are plain data and may be hand-built),
+ * else {@link buildMediaIdentifier}. PHP's `get_id` vs `get_identifier` split:
+ * the identifier stays the CLONE SIGNATURE (counter reconcile, the files_info
+ * foreign check, log labels, the av fragment/subtitles grammar); only the file
+ * grammar asks for this.
+ */
+export function mediaFileId(identity: MediaIdentity, opts: MediaPathOptions): string {
+	const stem = opts.fileIdOverride;
+	if (typeof stem === 'string' && stem !== '') return assertMediaFileStem(stem, identity);
+	return buildMediaIdentifier(identity);
 }
 
 /**
@@ -138,7 +231,7 @@ export function buildMediaLocation(
 	opts: MediaPathOptions,
 ): MediaLocation {
 	const safeQuality = assertValidQuality(spec, quality);
-	const identifier = buildMediaIdentifier(identity);
+	const identifier = mediaFileId(identity, opts);
 	const cleanExtension = String(extension).replace(/^\./, '');
 	if (!/^[A-Za-z0-9]+$/.test(cleanExtension)) {
 		throw new DedaloError('media.invalid_extension', {
@@ -196,7 +289,7 @@ export function buildMediaSegmentLocation(
 			coordinates: { model: spec.model },
 		});
 	}
-	const identifier = buildMediaIdentifier(identity);
+	const identifier = mediaFileId(identity, opts);
 	const cleanExtension = String(extension).replace(/^\./, '');
 	if (!/^[A-Za-z0-9]+$/.test(cleanExtension)) {
 		throw new DedaloError('media.invalid_extension', {

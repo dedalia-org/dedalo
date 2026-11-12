@@ -548,13 +548,12 @@ async function mediaCellUrl(
 		if (stem !== '') id = stem;
 	}
 	if (id === null && model === 'component_image') {
-		const properties = ((await getNode(ddo.tipo))?.properties ?? {}) as { image_id?: unknown };
-		if (typeof properties.image_id === 'string' && properties.image_id !== '') {
-			const value = (
-				await flatSiblingValue(ctx, properties.image_id, sectionTipo, sectionId)
-			).trim();
-			if (value !== '') id = value;
-		}
+		// properties.image_id — through the WRITER's own resolver (T1-10), so the URL
+		// this cell hands out and the file the ingest wrote can never name two
+		// different stems, and a refused stem (another record's file name) is
+		// refused here too rather than linked.
+		const { resolveFileIdOverride } = await import('../media/ontology_path.ts');
+		id = await resolveFileIdOverride(ddo.tipo, sectionTipo, Number(sectionId));
 	}
 	if (id === null) {
 		id = `${ddo.tipo}_${sectionTipo}_${sectionId}`;

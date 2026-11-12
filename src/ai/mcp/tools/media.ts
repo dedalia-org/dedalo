@@ -26,7 +26,6 @@ import { readMatrixRecord } from '../../../core/db/matrix.ts';
 import { DedaloError } from '../../../core/errors/dedalo_error.ts';
 import { processUploadedFile } from '../../../core/media/ingest/process_uploaded_file.ts';
 import { receiveUpload } from '../../../core/media/ingest/upload.ts';
-import { buildMediaIdentifier } from '../../../core/media/path.ts';
 import { resolveMediaToolContext } from '../../../core/media/tool_support.ts';
 import { persistUploadedMedia } from '../../../core/media/tools/files_info_persist.ts';
 import {
@@ -239,7 +238,7 @@ export async function uploadMedia(
 		lang: identity.lang,
 		filesInfo: result.filesInfo,
 		originalFileName: result.originalFileName,
-		originalNormalizedName: `${buildMediaIdentifier(identity)}.${result.extension}`,
+		originalNormalizedName: result.originalFileName,
 	});
 	// AFTER the persist commits: the transcode writes its own files_info back, and
 	// must not race the write above (see IngestResult.startTranscode).

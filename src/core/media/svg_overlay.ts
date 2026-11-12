@@ -27,10 +27,10 @@ import { resolveMediaPathOptions } from './ontology_path.ts';
 import {
 	additionalPath,
 	assertInsideMediaRoot,
-	buildMediaIdentifier,
 	buildMediaLocation,
 	type MediaIdentity,
 	type MediaPathOptions,
+	mediaFileId,
 	requireMediaRoot,
 } from './path.ts';
 import { ENVELOPE_REFUSALS } from './svg_safety.ts';
@@ -50,7 +50,10 @@ export function svgOverlayLocation(
 	identity: MediaIdentity,
 	pathOpts: MediaPathOptions,
 ): SvgLocation {
-	const identifier = buildMediaIdentifier(identity);
+	// The FILE STEM (path.ts mediaFileId): an image's `properties.image_id` value
+	// names the envelope exactly as it names the rasters (PHP get_svg_file_path →
+	// get_id), so a PHP-era `<stem>.svg` is the one this finds.
+	const identifier = mediaFileId(identity, pathOpts);
 	const bucket =
 		pathOpts.additionalPathOverride != null && pathOpts.additionalPathOverride !== ''
 			? pathOpts.additionalPathOverride

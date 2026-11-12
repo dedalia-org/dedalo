@@ -4,8 +4,8 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 921,
-		"functions": 16160,
+		"files": 925,
+		"functions": 16259,
 		"functionsOverCap": 649,
 		"filesOverCap": 256
 	},
@@ -304,7 +304,7 @@
 		"src/core/identify/criteria.ts": 19,
 		"src/core/identify/match.ts": 30,
 		"src/core/identify/path_read.ts": 24,
-		"src/core/identify/preview.ts": 14,
+		"src/core/identify/preview.ts": 13,
 		"src/core/identify/profile.ts": 14,
 		"src/core/identify/profile_source.ts": 10,
 		"src/core/install/config_persist.ts": 10,
@@ -325,7 +325,7 @@
 		"src/core/media/engine/spawn.ts": 11,
 		"src/core/media/engine/verify_content.ts": 16,
 		"src/core/media/file_date.ts": 9,
-		"src/core/media/file_ops.ts": 18,
+		"src/core/media/file_ops.ts": 17,
 		"src/core/media/files_info.ts": 12,
 		"src/core/media/ingest/add_file.ts": 8,
 		"src/core/media/ingest/companion_writes.ts": 7,

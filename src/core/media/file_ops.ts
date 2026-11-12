@@ -36,11 +36,12 @@
 
 import { existsSync, mkdirSync, readdirSync, renameSync, statSync } from 'node:fs';
 import { copyFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { basename, dirname } from 'node:path';
 import { config } from '../../config/config.ts';
 import { isMediaModel, type MediaTypeSpec, mediaTypeOf } from '../concepts/media.ts';
-import { getColumnNameByModel, getModelByTipo, getNode } from '../ontology/resolver.ts';
-import { normalizeAdditionalPath, resolveMediaPathOptions } from './ontology_path.ts';
+import { DedaloError } from '../errors/dedalo_error.ts';
+import { getModelByTipo } from '../ontology/resolver.ts';
+import { recordFromColumns, resolveMediaPathOptions } from './ontology_path.ts';
 import {
 	assertInsideMediaRoot,
 	buildMediaLocation,
@@ -149,6 +150,23 @@ export async function duplicateMediaFiles(
 		const from = buildMediaLocation(spec, source, quality, extension, pathOpts.source).absolutePath;
 		if (!existsSync(from)) continue;
 		const to = buildMediaLocation(spec, target, quality, extension, pathOpts.target).absolutePath;
+		if (to === from) {
+			// NEVER COPY A FILE ONTO ITSELF. Two identities resolve to ONE path when an
+			// image names its files by `properties.image_id` and the clone carries the
+			// same stem (PHP: both records then address the same files). Whether a
+			// duplicate shares them, renames the clone, or is refused is an owner
+			// decision (T1-10 OD-1) — until it is ruled the copy stops LOUDLY here,
+			// and the duplicate reports the component as incomplete ('copy').
+			throw new DedaloError('media.operation_failed', {
+				message: `the copy of ${spec.model} '${target.componentTipo}' resolves to the source's own file (${basename(from)}) — both records name their files by the same properties.image_id value, so nothing was copied`,
+				coordinates: {
+					section_tipo: target.sectionTipo,
+					component_tipo: target.componentTipo,
+					source_id: source.sectionId,
+					target_id: target.sectionId,
+				},
+			});
+		}
 		const toDir = dirname(to);
 		if (!existsSync(toDir)) mkdirSync(toDir, { recursive: true, mode: 0o775 });
 		await copyFile(from, to);
@@ -300,58 +318,6 @@ export interface SectionMediaFilesOptions {
 }
 
 /**
- * The `properties.additional_path` bucket for ONE media component, read from a
- * RECORD SNAPSHOT rather than from the database (PHP get_additional_path
- * :778-819 — same rule, different source).
- *
- * `undefined` means "this component declares no named bucket, resolve normally";
- * a string (possibly `''`) is the bucket, exactly as
- * `resolveAdditionalPathOverride` returns it. Throws — via
- * {@link normalizeAdditionalPath} — on a stored value that would escape the
- * media tree; the caller's per-component catch turns that into a reported error
- * rather than a half-swept record.
- */
-async function additionalPathFromSnapshot(
-	componentTipo: string,
-	snapshot: Record<string, unknown>,
-): Promise<string | undefined> {
-	const properties = ((await getNode(componentTipo))?.properties ?? {}) as {
-		additional_path?: unknown;
-	};
-	const siblingTipo = properties.additional_path;
-	if (typeof siblingTipo !== 'string' || siblingTipo === '') return undefined;
-	const siblingModel = await getModelByTipo(siblingTipo);
-	const column = siblingModel === null ? null : getColumnNameByModel(siblingModel);
-	const stored =
-		column === null
-			? undefined
-			: (snapshot[column] as Record<string, unknown> | null | undefined)?.[siblingTipo];
-	return normalizeAdditionalPath(snapshotFlatValue(stored));
-}
-
-/**
- * A sibling component's flat scalar value as PHP reads it for a path
- * (`component_common::get_value()`): the lg-nolan items, else every stored item,
- * values joined with ' | '. Twin of `ontology_path.ts siblingFlatValue`, which
- * reads the same rule from the DATABASE — this one reads it from a snapshot, and
- * the two must agree or a delete would sweep a different folder than the ingest
- * wrote to. Exported so the rule is gated directly.
- */
-export function snapshotFlatValue(stored: unknown): string {
-	if (!Array.isArray(stored)) return '';
-	const items = stored as { lang?: unknown; value?: unknown }[];
-	const nolan = items.filter((item) => {
-		const lang = item?.lang ?? null;
-		return lang === null || lang === 'lg-nolan';
-	});
-	const slice = nolan.length > 0 ? nolan : items;
-	return slice
-		.map((item) => (typeof item?.value === 'string' ? item.value : ''))
-		.filter((value) => value !== '')
-		.join(' | ');
-}
-
-/**
  * Walk a record's `media` column and hand each media component's identity to
  * `handle`. The two directions differ ONLY in what `handle` does, so the
  * ontology resolution, the model gate, the per-lang identity fan-out and the
@@ -398,17 +364,21 @@ async function walkSectionMedia(
 			// the numeric bucket instead would leave those files live. A caller-supplied
 			// value wins — see SectionMediaFilesOptions.additionalPathOverrides for the
 			// post-commit case where the record can no longer be read at all.
-			const resolved = await resolveMediaPathOptions(componentTipo, sectionTipo, sectionId);
+			// A SNAPSHOT is read as the record itself — the same sibling rule, so
+			// `additional_path`'s bucket AND `image_id`'s file stem (T1-10) are the
+			// pre-delete row's, never a fallback to the identifier / numeric bucket.
+			const resolved = await resolveMediaPathOptions(
+				componentTipo,
+				sectionTipo,
+				sectionId,
+				options.snapshot === undefined
+					? {}
+					: { record: recordFromColumns(sectionTipo, sectionId, options.snapshot) },
+			);
 			const explicit = options.additionalPathOverrides?.[componentTipo];
-			const supplied =
-				explicit !== undefined
-					? explicit
-					: options.snapshot === undefined
-						? undefined
-						: await additionalPathFromSnapshot(componentTipo, options.snapshot);
 			const pathOpts: MediaPathOptions = {
 				...resolved,
-				...(supplied === undefined ? {} : { additionalPathOverride: supplied }),
+				...(explicit === undefined ? {} : { additionalPathOverride: explicit }),
 				mediaRoot,
 			};
 			const items = Array.isArray(rawItems) ? rawItems : [];

@@ -21,7 +21,6 @@ import {
 	requireMediaSpec,
 } from '../../../src/core/media/ingest/process_uploaded_file.ts';
 import { receiveUpload } from '../../../src/core/media/ingest/upload.ts';
-import { buildMediaIdentifier } from '../../../src/core/media/path.ts';
 import { resolveMediaToolContext } from '../../../src/core/media/tool_support.ts';
 import {
 	nameKeysForQuality,
@@ -847,7 +846,7 @@ async function importDocumentForPublication(
 		lang: identity.lang,
 		filesInfo: result.filesInfo,
 		originalFileName: fileName,
-		originalNormalizedName: `${buildMediaIdentifier(identity)}.${result.extension}`,
+		originalNormalizedName: result.originalFileName,
 		nameKeys: nameKeysForQuality(spec, undefined),
 	});
 	result.startTranscode?.();

@@ -24,7 +24,6 @@ import {
 	isMasterTier,
 	processUploadedFile,
 } from '../../../src/core/media/ingest/process_uploaded_file.ts';
-import { buildMediaIdentifier } from '../../../src/core/media/path.ts';
 import { resolveMediaToolContext } from '../../../src/core/media/tool_support.ts';
 import {
 	nameKeysForQuality,
@@ -279,7 +278,7 @@ async function processUploaded(ctx: ToolActionContext): Promise<ToolResponse> {
 		lang: identity.lang,
 		filesInfo: result.filesInfo,
 		originalFileName: String(fileData.tmp_name ?? result.originalFileName),
-		originalNormalizedName: `${buildMediaIdentifier(identity)}.${result.extension}`,
+		originalNormalizedName: result.originalFileName,
 		// Provenance follows the tier the file landed in (PHP :778).
 		nameKeys: nameKeysForQuality(spec, quality),
 	});

@@ -168,9 +168,12 @@ async function createIdentifyingImage(ctx: ToolActionContext): Promise<ToolRespo
 		// filed the frame against a language the operator was not looking at.
 		lang: translatable ? currentDataLang() : null,
 	};
+	// Record-scoped (T1-10): the new record's bucket and image_id stem, both empty
+	// on a fresh record unless the portal's defaults filled them.
 	const imagePathOpts = await resolveMediaPathOptions(
 		imageTarget.componentTipo,
 		portalTargetSectionTipo,
+		newSectionId,
 	);
 
 	const outcome = await createIdentifyingImageCore(
