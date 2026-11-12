@@ -2035,9 +2035,14 @@ describe('CI workflow tripwire', () => {
 		const files = new TextDecoder().decode(listed.stdout).split('\n').filter(Boolean);
 		const matching = (pattern: string): string[] =>
 			files.filter((file) => new RegExp(pattern).test(file));
-		/** One file, by name: anchored at its end, no wildcard run, not a directory. */
+		/**
+		 * One file, by name: a LITERAL path — an optional `^` or `(^|/)` anchor, then
+		 * only path characters and `\.` escapes, end-anchored. Any other regex
+		 * syntax (`[^\n]+`, `\S+`, `\w*`, `.`, `?`, `{n}`, `|`) can name a tree
+		 * (T1-17 review: `^vendor/[^\n]+$` passed the old wildcard-spelling check).
+		 */
 		const isExactFile = (pattern: string): boolean =>
-			pattern.endsWith('$') && !/\.[*+]/.test(pattern) && !pattern.endsWith('/$');
+			/^(\^|\(\^\|\/\))?([A-Za-z0-9_/-]|\\\.)+\$$/.test(pattern) && !pattern.endsWith('/$');
 
 		test('the census is not blind', () => {
 			expect(files.length).toBeGreaterThan(1000);
@@ -2048,13 +2053,26 @@ describe('CI workflow tripwire', () => {
 			expect(matching('^vendor/').length).toBeGreaterThan(0);
 			expect(isExactFile('^vendor/')).toBe(false);
 			expect(isExactFile('(^|/)scripts/ci/bun_pin_hashes\\.ts$')).toBe(true);
+			expect(isExactFile('^vendor/symfony/mime/MimeTypes\\.php$')).toBe(true);
+			// End-anchored wildcards are trees, whatever their spelling.
+			for (const tree of [
+				'^vendor/[^\\n]+$',
+				'^vendor/\\S+$',
+				'^vendor/\\w*/x\\.js$',
+				'^vendor/.$',
+				'^vendor/(a|b)\\.js$',
+			])
+				expect(isExactFile(tree), tree).toBe(false);
 		});
 
 		test('a path matching a tracked file is an exact file (or a named shipped-bundle prefix)', () => {
+			// Spelling AND outcome: a literal path that still matches more than one
+			// tracked file (an unanchored name repeated across trees) is a tree too.
 			const broad = allowlists
 				.flatMap((list) => list.paths ?? [])
 				.filter((pattern) => !SHIPPED_BUNDLE_PREFIXES.includes(pattern))
-				.filter((pattern) => matching(pattern).length > 0 && !isExactFile(pattern));
+				.filter((pattern) => matching(pattern).length > 0)
+				.filter((pattern) => !isExactFile(pattern) || matching(pattern).length > 1);
 			expect(
 				broad,
 				'A .gitleaks.toml allowlist path matches tracked files with a prefix: every file under it, present and future, is out of the scan. List the exact file(s) the finding was in:',
