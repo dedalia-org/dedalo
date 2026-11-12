@@ -562,6 +562,9 @@ Retrieve context for all components in a section.
 ### Accepts
 
 - `options`: object — forwarded to `buildSectionElementsContext` (`src/core/resolve/section_elements_context.ts`). Permissions are **always** enforced server-side (the client's `skip_permissions` flag is ignored).
+  - `ar_section_tipo`: string or array of section tipos — one block (section entry, then its elements) per readable section.
+  - `ar_components_exclude`: array of component models to leave out. When sent it REPLACES the default list (media, password, info, inverse, security access, geolocation); `[]` lists every component. `component_password` is always left out.
+- A component model the engine does not implement (an obsolete type surviving in an older ontology) is never listed, nor anything nested under it.
 
 ### Returns
 
@@ -578,7 +581,7 @@ Returns the "simple" structure-context set for a section — the edit-mode searc
   "dd_api": "dd_core_api",
   "action": "get_section_elements_context",
   "options": {
-    "section_tipo": "oh1"
+    "ar_section_tipo": ["oh1"]
   }
 }
 ```

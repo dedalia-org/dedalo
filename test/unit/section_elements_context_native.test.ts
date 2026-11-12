@@ -74,6 +74,9 @@
  *      children: zzsec2 (first, excludes grouper zzsec8 + component zzsec6) and
  *      zzsec20 (second, excludes zzsec7 — must be IGNORED, only [0] counts).
  *  - zzsec30 REAL section with NO elements → no dd196.
+ *  - zzsec33 REAL section (T1-27): zzsec34 group → zzsec35 input_text (live
+ *      control) + zzsec36 security_areas, zzsec37 score, zzsec38 semantic_node
+ *      (child zzsec39 input_text), zzsec40 stats — all unimplemented, never emitted.
  * Reused generic structure: test3 (DFS grouper nesting, the default component
  * exclusions, filter → ['dd153'], portal → ['test3'], dataframe → []). NOTHING
  * here reads a record or a registry row the situation did not create: the only
@@ -84,6 +87,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { getComponentModel } from '../../src/core/components/registry.ts';
 import { logSectionSuppressesSectionInfo } from '../../src/core/concepts/section.ts';
 import {
 	deleteDdOntologyNode,
@@ -91,7 +95,11 @@ import {
 	upsertDdOntologyNode,
 } from '../../src/core/db/dd_ontology.ts';
 import { getLabels } from '../../src/core/labels/catalog.ts';
-import { getChildrenNodes } from '../../src/core/ontology/resolver.ts';
+import {
+	getChildrenNodes,
+	isUnimplementedComponentModel,
+} from '../../src/core/ontology/resolver.ts';
+import { buildImplicitSectionEditConfig } from '../../src/core/relations/request_config/implicit.ts';
 import { currentApplicationLang } from '../../src/core/resolve/request_lang.ts';
 import { buildSectionElementsContext } from '../../src/core/resolve/section_elements_context.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
@@ -258,6 +266,24 @@ const S = situation({
 		{ tipo: 'zzsec22', parent: 'zzsec25', model: 'component_date', order_number: 4 },
 		{ tipo: 'zzsec17', parent: 'zzsec25', model: 'component_image', order_number: 5 },
 		{ tipo: 'zzsec18', parent: 'zzsec25', model: 'component_password', order_number: 6 },
+		// --- a REAL section holding UNIMPLEMENTED component models (T1-27) -------
+		{
+			tipo: 'zzsec33',
+			parent: 'test1',
+			model: 'section',
+			order_number: 94,
+			term: { 'lg-eng': 'Unimplemented models section' },
+			relations: [{ tipo: 'test24' }],
+		},
+		{ tipo: 'zzsec34', parent: 'zzsec33', model: 'section_group', order_number: 1 },
+		{ tipo: 'zzsec35', parent: 'zzsec34', model: 'component_input_text', order_number: 1 },
+		// v5-era dead models (PHP $ar_temp_exclude_models) — no descriptor, no client module.
+		{ tipo: 'zzsec36', parent: 'zzsec34', model: 'component_security_areas', order_number: 2 },
+		{ tipo: 'zzsec37', parent: 'zzsec34', model: 'component_score', order_number: 3 },
+		// Models the hand list MISSED: semantic_node (its subtree too) and stats.
+		{ tipo: 'zzsec38', parent: 'zzsec34', model: 'component_semantic_node', order_number: 4 },
+		{ tipo: 'zzsec39', parent: 'zzsec38', model: 'component_input_text', order_number: 1 },
+		{ tipo: 'zzsec40', parent: 'zzsec34', model: 'component_stats', order_number: 5 },
 		// --- a REAL section with NO elements (dd196 must NOT be appended) ---------
 		{
 			tipo: 'zzsec30',
@@ -494,6 +520,7 @@ afterAll(async () => {
 	expect(tooltipsChecked).toBeGreaterThan(0);
 	// Every operator set the situation can reach, compared model by model.
 	expect(modelsPinned.size).toBeGreaterThanOrEqual(12);
+	expect(deadAbsencesChecked).toBeGreaterThan(0);
 	await deleteDdOntologyNode(INACTIVE_TLD_NODE);
 	expect(await readDdOntologyRow(INACTIVE_TLD_NODE)).toBeNull();
 	expect(await dropSituation(S)).toBe(0);
@@ -629,6 +656,79 @@ describe('virtual section — real elements minus the FIRST exclude_elements', (
 		expect(map.get('zzsec4')?.parent_grouper).toBe('zzsec3');
 		expect(map.get('zzsec7')?.parent_grouper).toBe('zzsec5');
 		expect(map.get('zzsec10')?.parent_grouper).toBe('zzsec14');
+	});
+});
+
+/**
+ * T1-27 (O07): an UNIMPLEMENTED component model — one with no registered
+ * descriptor (the component registry IS the live model set; client modules ≡
+ * descriptors) — never reaches the client: neither the search panel nor the
+ * implicit edit form. Its subtree goes with it (PHP get_ar_recursive_children
+ * drops the semantic_node subtree). ONE predicate drives both sites
+ * (isUnimplementedComponentModel) — WC-2026-11-12-unimplemented-component-models.
+ */
+const UNIMPLEMENTED_TIPOS = ['zzsec36', 'zzsec37', 'zzsec38', 'zzsec39', 'zzsec40'];
+let deadAbsencesChecked = 0;
+
+describe('unimplemented component models — never emitted (T1-27)', () => {
+	test('search panel: dead / unregistered models and their subtree are absent', async () => {
+		expect(tiposOf(await elementsOf('zzsec33'))).toEqual([
+			'zzsec33',
+			'zzsec34',
+			'zzsec35',
+			...INFO_SEQUENCE,
+		]);
+		// tool_update_cache shape (empty exclude list): same absence.
+		const all = tiposOf(await elementsOf('zzsec33', []));
+		for (const tipo of UNIMPLEMENTED_TIPOS) {
+			expect(all).not.toContain(tipo);
+			deadAbsencesChecked += 1;
+		}
+		expect(all).toContain('zzsec35');
+	});
+
+	test('core profiles section dd234: no dd249 (component_security_areas)', async () => {
+		const tipos = tiposOf(await elementsOf('dd234'));
+		expect(tipos.length).toBeGreaterThan(1);
+		expect(tipos).not.toContain('dd249');
+	});
+
+	test('outcome law: every emitted component model has a registered descriptor', async () => {
+		let modelsSeen = 0;
+		for (const sectionTipo of ['zzsec3', 'zzsec33', 'test3', 'dd234']) {
+			for (const entry of await elementsOf(sectionTipo, [])) {
+				const model = String(entry.model);
+				if (!model.startsWith('component_')) continue;
+				modelsSeen += 1;
+				expect([entry.tipo, getComponentModel(model) !== undefined]).toEqual([entry.tipo, true]);
+			}
+		}
+		expect(modelsSeen).toBeGreaterThan(0);
+	});
+
+	test('implicit edit form: the SAME predicate drops them (one law, two sites)', async () => {
+		const config = await buildImplicitSectionEditConfig({
+			ownerTipo: 'zzsec33',
+			ownerSectionTipo: 'zzsec33',
+			mode: 'edit',
+			ownerIsSection: true,
+		});
+		const tipos = config.flatMap((item) => item.show?.ddo_map ?? []).map((ddo) => ddo.tipo);
+		expect(tipos).toContain('zzsec35');
+		for (const tipo of UNIMPLEMENTED_TIPOS) {
+			expect(tipos).not.toContain(tipo);
+			deadAbsencesChecked += 1;
+		}
+	});
+
+	test('the predicate: unregistered component_* only; aliases + non-components live', () => {
+		expect(isUnimplementedComponentModel('component_score')).toBe(true);
+		expect(isUnimplementedComponentModel('component_semantic_node')).toBe(true);
+		expect(isUnimplementedComponentModel('component_stats')).toBe(true);
+		expect(isUnimplementedComponentModel('component_input_text')).toBe(false);
+		// a registry ALIAS is live (getModelByTipo resolves it to its target)
+		expect(isUnimplementedComponentModel('component_input_text_large')).toBe(false);
+		expect(isUnimplementedComponentModel('section_group')).toBe(false);
 	});
 });
 

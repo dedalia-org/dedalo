@@ -104,6 +104,23 @@ export function getComponentModelNodeRules(
 	return componentModelFields(fields.alias);
 }
 
+/**
+ * Is `model` a component model with NO implementation — no registered
+ * descriptor? The component registry IS the live model set (client modules ≡
+ * descriptors), so such a model (v5-era dead names: component_security_areas,
+ * component_score, component_ip…; and unported ones: component_semantic_node,
+ * component_stats) must never reach the client: it would dynamic-import a
+ * module that does not exist and abort the whole render. Callers pass the
+ * RUNTIME model (getModelByTipo), so aliases / component_alias are already
+ * resolved to their live target. THE one predicate for every element walker
+ * (implicit edit config, search-panel elements) — T1-27, replacing the
+ * hand-kept list that had drifted (PHP common::$ar_temp_exclude_models).
+ * Through the registered lookup (S2-20 seam): no new import edge.
+ */
+export function isUnimplementedComponentModel(model: string): boolean {
+	return model.startsWith('component_') && componentModelFields(model) === undefined;
+}
+
 /** One resolved ontology node (the fields the engines consume). */
 export interface ResolvedNode {
 	tipo: string;

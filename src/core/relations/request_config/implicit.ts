@@ -48,6 +48,7 @@ import {
 	getChildTipoModels,
 	getModelByTipo,
 	getNode,
+	isUnimplementedComponentModel,
 	relatedTipoByExactModel,
 } from '../../ontology/resolver.ts';
 import { resolveVirtualEditScope } from '../../ontology/virtual_scope.ts';
@@ -65,26 +66,6 @@ const SECTION_PROJECTS_TIPO = 'dd153';
 const PROJECTS_NAME_TIPO = 'dd156';
 /** PHP DEDALO_COMPONENT_SECURITY_AREAS_PROFILES_TIPO — deprecated, always skipped. */
 const DEPRECATED_SECURITY_AREAS_TIPO = 'dd249';
-
-/**
- * DEAD legacy component models (PHP common::$ar_temp_exclude_models,
- * class.common.php:438-448): removed in v6 but still present in v5-era
- * ontologies (e.g. dd249 component_security_areas under the profiles section).
- * They have NO implementation on either side — emitting a ddo for one makes the
- * client try to import client/dedalo/core/<model>/js/<model>.js and 404.
- * PHP's list also names the models TS keeps ALIVE as registry aliases
- * (component_input_text_large / component_security_tools / component_state /
- * component_relation_struct — getModelByTipo already resolves those to their
- * live target), so only the genuinely dead names are listed here.
- */
-const DEAD_LEGACY_MODELS: ReadonlySet<string> = new Set([
-	'component_security_areas',
-	'component_autocomplete_ts',
-	'component_html_file',
-	'component_ip',
-	'component_layout',
-	'component_score',
-]);
 
 /**
  * PHP filter_authorized_related (trait.request_config_v5.php:574-86, applied
@@ -544,9 +525,10 @@ export async function buildImplicitSectionEditConfig(
 			const model = (await getModelByTipo(row.tipo)) ?? row.model ?? '';
 			const matches = EDIT_CHILD_MODEL_PREFIXES.some((prefix) => model.startsWith(prefix));
 			if (!matches || model === 'component_dataframe') continue;
-			// Dead v5 model still in the ontology: no ddo (the client would 404 on
-			// its JS module and abort the whole edit render).
-			if (DEAD_LEGACY_MODELS.has(model)) continue;
+			// Unimplemented model (v5 dead name or unported, no descriptor): no ddo
+			// and no subtree — the client would 404 on its JS module and abort the
+			// whole edit render (T1-27, ONE predicate shared with the search panel).
+			if (isUnimplementedComponentModel(model)) continue;
 			collected.push(row.tipo);
 			await collectChildren(row.tipo, collected);
 		}

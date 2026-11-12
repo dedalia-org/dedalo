@@ -420,6 +420,12 @@ Merged since the last release; these ship with the next one.
     history is kept, and a deleted one cannot be recovered from the Time Machine (statistics can
     always be rebuilt from the activity log). History already recorded for them is left as it is.
 
+- **Search, export and cache-update field lists no longer offer obsolete field types.**
+
+    Ontologies carried over from older versions still hold field types this version does not implement (for example the old security-areas field of the Profiles section). They were offered in the search panel's field list, in the export field picker and in the cache-update tool, where choosing one did nothing or broke the panel. They are no longer listed, and neither is anything nested inside them. Edit forms already left them out; they now apply the same rule, which also covers two never-implemented field types it used to miss.
+
+    Wire contract: `WC-2026-11-12-unimplemented-component-models`.
+
 - **Zotero import works again — CSL JSON exports, PDFs and cover images are imported.**
 
     Before, the Zotero import refused every file with "Missing Zotero field-map", and it expected
@@ -1125,7 +1131,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 50 entries"
+??? note "Wire contract — 51 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1175,6 +1181,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-select-dataframe-subdatum`
     - `WC-2026-11-12-translation-write-value-gates`
     - `WC-2026-11-12-tree-term-escaped`
+    - `WC-2026-11-12-unimplemented-component-models`
     - `WC-2026-11-12-wipe-respects-virtual-exclusion`
     - `WC-2026-11-12-zotero-csl-json-import`
 

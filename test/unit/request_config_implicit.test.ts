@@ -165,7 +165,8 @@ describe('explicit-config-required models (PHP trait.request_config_v5.php:88)',
 });
 
 /**
- * DEAD legacy models never reach the client (PHP $ar_temp_exclude_models).
+ * DEAD legacy models never reach the client (PHP $ar_temp_exclude_models;
+ * TS: isUnimplementedComponentModel — no registered descriptor).
  * dd249 (component_security_areas, under the profiles section dd234) is the
  * live case: the model has no server descriptor AND no client JS module, so an
  * emitted ddo made the client 404 on its dynamic import and abort the whole

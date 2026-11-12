@@ -22,7 +22,12 @@
 import { logSectionSuppressesSectionInfo } from '../concepts/section.ts';
 import { sql } from '../db/postgres.ts';
 import { labelByTipo } from '../ontology/labels.ts';
-import { getModelByTipo, getSectionRealTipo, getTranslatableByTipo } from '../ontology/resolver.ts';
+import {
+	getModelByTipo,
+	getSectionRealTipo,
+	getTranslatableByTipo,
+	isUnimplementedComponentModel,
+} from '../ontology/resolver.ts';
 import { resolveVirtualEditScope } from '../ontology/virtual_scope.ts';
 import { getPermissions, getSectionPermissions, type Principal } from '../security/permissions.ts';
 import { currentDataLang } from './request_lang.ts';
@@ -97,6 +102,10 @@ async function elementTiposInSection(
 			// Only components/groupers are collected and recursed into; sections and
 			// areas are neither, so the walk never crosses into a child section.
 			if (!isComponent && !isGrouper) continue;
+			// An unimplemented model (no descriptor: v5 dead name or unported) is
+			// neither collected nor recursed into — the client has no module for it
+			// (T1-27; PHP $ar_temp_exclude_models + the semantic_node subtree rule).
+			if (isUnimplementedComponentModel(model)) continue;
 			// A section_group_div is a layout-only wrapper: PHP recurses THROUGH it
 			// (its children belong to the enclosing grouper) but never emits it as a
 			// context entry (:3890-3894 skips on the section_group_div legacy model).
@@ -134,7 +143,9 @@ async function sectionInfoElements(): Promise<{ tipo: string; model: string }[]>
 	];
 	for (const row of children) {
 		const model = (await getModelByTipo(row.tipo)) ?? row.model ?? '';
-		if (model.startsWith('component_')) elements.push({ tipo: row.tipo, model });
+		if (model.startsWith('component_') && !isUnimplementedComponentModel(model)) {
+			elements.push({ tipo: row.tipo, model });
+		}
 	}
 	return elements;
 }
