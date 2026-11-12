@@ -2,35 +2,31 @@
 
 > See also: [Tools user guide](index.md) · [Developer reference](../development/tools/reference/tool_import_zotero.md)
 
-Import a Zotero bibliography exported as RDF/XML into a Dédalo Publications section (`rsc205`), mapping each reference's fields to components.
+Import a Zotero library exported as **CSL JSON** into a Dédalo Publications section (`rsc205`): each reference becomes a record, its PDF (when you upload it with the export) lands in the record's PDF field, and the PDF's first page becomes the record's identifying image.
 
-!!! info "An administrator configures the field map first"
-    A researcher exports from Zotero and runs the import, but the mapping from Zotero fields to Dédalo components lives in the tool's configuration. Setting it up is an administrator task.
+!!! info "The field map is the tool's configuration"
+    A researcher exports from Zotero and runs the import. Which Zotero field lands in which Dédalo field is set in the tool's configuration — the shipped default maps the Publications section, and an administrator adapts it in the Tools configuration.
 
 ## What it's for
 
-Zotero is one of the most widely used reference managers in academic and heritage research. This tool parses a Zotero RDF/XML export and ingests the matched fields into a section — typically Publications — so a curated bibliography does not have to be re-keyed by hand.
+Zotero is one of the most widely used reference managers in academic and heritage research. This tool reads a Zotero CSL JSON export and writes each reference into a section — typically Publications — so a curated bibliography does not have to be re-keyed by hand.
 
-Concrete scenario: a museum's research department keeps the bibliography of an exhibition catalogue in Zotero. They export the collection as RDF/XML, open the import tool on the Publications section, and — with a field map configured (for example `dc:title` to the title component) — import. For each Zotero item, every predicate that has a matching map entry writes its value into the paired component on a new (or already-targeted) record, through the same write path the CSV and MARC21 imports use.
+Concrete scenario: a museum's research department keeps the bibliography of an exhibition catalogue in Zotero. They export the collection as CSL JSON with its PDFs, open the import tool on the Publications section, drop the `.json` file and the PDFs, and import. Each reference's title, authors, dates, type, journal or series, ISBN/ISSN and DOI are written; the journal or series is linked to its record in the Series list (created the first time it appears); the PDF and its cover are attached.
 
 ## When to use it
 
 - You have references curated in Zotero and want them in a Dédalo Publications section.
-- A predicate-to-component map has been configured for the target section.
+- You want to re-import later: a second import of the same references **updates** the records the first one created, instead of duplicating them.
 
 When NOT to use it:
 
 - To load Dédalo's own `dedalo_raw` exports back, use [CSV import](using_import_dedalo_csv.md).
 - For a library MARC21 catalogue, use [MARC21 import](using_import_marc21.md).
-- To fetch a single external resource's graph by IRI, use [RDF import](using_import_rdf.md) — it shares this tool's parser but resolves one live IRI rather than importing a file.
-
-## Before you can use it
-
-The import reads a **field map** from the tool's configuration — a flat list of entries, each pairing an RDF predicate (such as `dc:title`) with the target component `tipo`. If the map is missing or empty, the import is refused. An administrator copies a full configuration into the Tools configuration section and edits it there before the tool can write.
+- To fetch a single external resource's graph by IRI, use [RDF import](using_import_rdf.md).
 
 ## How to export from Zotero
 
-In Zotero, select the collection or items, choose *Export…*, and pick a **RDF** format (the export is RDF/XML). Save the file; that is what you drop into the tool. A plain Zotero JSON or a bibliography in another citation style is not the RDF/XML this tool parses.
+In Zotero, select the collection or items, choose *Export…*, and pick the **CSL JSON** format. To bring the PDFs, keep them next to the export and upload them in the same drop as the `.json` file: a reference's PDF is the file its `archive` field names. Any other export format (Zotero RDF, BibTeX, RIS) is refused per file with a message — export again as CSL JSON.
 
 ## Where to find it
 
@@ -38,29 +34,44 @@ The tool attaches to **sections** and surfaces on Publications-style sections on
 
 ## Using it, step by step
 
-1. **Export your Zotero collection** as RDF/XML.
+1. **Export your Zotero collection** as CSL JSON.
 2. **Open the tool** on the Publications section.
-3. **Drop or select** the RDF/XML export onto the drop zone.
-4. **Fill the Values form** if the configuration renders one — those values apply alongside the mapped fields.
-5. **Click IMPORT.** The tool parses each item, applies the field map, and creates or updates records. The run is given a long timeout — wait for the success or error message, after which the view reloads.
+3. **Drop or select** the `.json` export and, if you have them, the PDFs.
+4. **Fill the Values form** if the configuration shows one — those values are written into every imported record.
+5. **Click IMPORT.** When the run ends, the tool shows its report: how many records were created and updated, and every line it has to tell you about (see below). Click the panel to reload.
+
+## Reading the report
+
+The import never stops at the first problem: a reference it can read is written, and everything it could not do is listed.
+
+- **Refused fields** — a value the record could not take, named with the record and field. The record keeps its stored value for that field. Examples: a date written as text ("circa 1900"), a Zotero item type the configuration's typology list does not know, a journal name held by two Series records.
+- **File errors** — an export that is not CSL JSON, or not valid JSON.
+- **Attachments** — a PDF that was not uploaded with the export, or whose cover could not be rendered.
+- **Notices** — what was not imported and why: Zotero fields the map does not name (listed once), the end of a date range when the target date is not a range, a Zotero "season" that is not a time of day.
+
+## How a reference finds its record
+
+A reference is matched by its **Zotero key** (the last part of its Zotero URI, stored in the code field): found → that record is updated; not found → a new record is created. If two references of one import carry the same key, or two records already hold it, nothing is imported and the report says so — fix the file or the duplicate codes first.
+
+!!! warning "The call number is not used as a record number"
+    Earlier versions used a numeric Zotero **call number** as the Dédalo record number. That rule is under review: today the call number is neither applied nor stored, and each reference that carries one says so in the report.
+
+## Undoing an import
+
+Every import is one entry in **Processes**. Reverting it undoes the values it wrote and removes the records it created — including the Series records it created for new journal names. PDFs and cover images are files, not values: remove them from the record if needed.
 
 ## Tips and gotchas
 
-!!! warning "The mapping is flat — no bibliographic post-processing"
-    Each predicate maps straight to a component value. There is **no** dedicated author-name flattening, issued/accessed date parsing, container-title resolve-or-create, item-type-to-typology lookup, or ISBN/ISSN-to-standard-number handling. If you need those, prepare the data accordingly or fix it after import.
-
-!!! warning "Attached PDFs are not imported"
-    Importing a PDF named by a Zotero attachment field, and extracting a first-page identifying image from it, is **not implemented**. The field map only maps a predicate to a component value. To attach PDFs to records, use [Media file import](using_import_files.md) after the bibliographic import.
-
 !!! tip "Check a small export first"
-    Import a handful of references, confirm the map lands the fields where you expect, then run the full collection.
+    Import a handful of references, confirm the fields land where you expect, then run the full collection.
+
+!!! warning "The export file is consumed"
+    After a run, the `.json` export is removed from your upload area. Upload it again to re-run.
 
 ## Related
 
-- **[MARC21 import](using_import_marc21.md)** — MARC21 library-catalogue import (shares the same write path).
+- **[MARC21 import](using_import_marc21.md)** — MARC21 library-catalogue import (same write path).
 - **[CSV import](using_import_dedalo_csv.md)** — CSV import, including Dédalo's own `dedalo_raw` exports.
-- **[RDF import](using_import_rdf.md)** — the sibling RDF/XML tool whose parser this one reuses; that one fetches a live IRI, this one imports a file and writes records.
-- **[Media file import](using_import_files.md)** — media ingest, including PDFs, after the references are in.
+- **[Media file import](using_import_files.md)** — media ingest without bibliographic data.
 - **[Importing data](../core/importing_data.md)** — the per-component import-data contract.
-- **[Exporting data](../core/exporting_data.md)** — the export side.
-- **[Developer reference](../development/tools/reference/tool_import_zotero.md)** — the `import_files` action, the field-map shape and the shared executor.
+- **[Developer reference](../development/tools/reference/tool_import_zotero.md)** — the `import_files` action, the configuration shape and the doors it asks.

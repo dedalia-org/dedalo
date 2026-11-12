@@ -413,7 +413,7 @@ export interface MarcMappedRecord {
 	 * The `field_to_section_id` value, trimmed but otherwise VERBATIM — a library
 	 * control number ('.b12345678', 'ocm12345678', '42'). It is NOT an address:
 	 * the tool door resolves it against the section's code component
-	 * (tools/tool_import_marc21/server/index.ts, `resolveImportCodes`).
+	 * (src/core/tools/import_code_lookup.ts, `resolveMappedCodes`).
 	 *
 	 * Null when the config names no id field, or this record's id field is absent
 	 * or blank — both mean "this record names no identifier", which the door

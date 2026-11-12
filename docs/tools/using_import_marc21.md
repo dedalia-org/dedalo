@@ -21,7 +21,7 @@ Concrete scenario: a museum library has thousands of monograph records in its IL
 When NOT to use it:
 
 - To load Dédalo's own `dedalo_raw` exports back, use [CSV import](using_import_dedalo_csv.md).
-- For a Zotero bibliography (RDF/XML), use [Zotero import](using_import_zotero.md).
+- For a Zotero bibliography (CSL JSON), use [Zotero import](using_import_zotero.md).
 - For an arbitrary RDF/OWL graph, use [RDF import](using_import_rdf.md).
 
 ## Before you can use it
@@ -57,7 +57,7 @@ The tool attaches to **sections** and surfaces on Publications-style sections on
 ## Related
 
 - **[CSV import](using_import_dedalo_csv.md)** — CSV import, including Dédalo's own `dedalo_raw` exports.
-- **[Zotero import](using_import_zotero.md)** — Zotero RDF/XML bibliographic import into Publications.
+- **[Zotero import](using_import_zotero.md)** — Zotero CSL JSON bibliographic import into Publications.
 - **[RDF import](using_import_rdf.md)** — RDF/OWL graph import from a linked-data vocabulary.
 - **[Media file import](using_import_files.md)** — media ingest (shares the drop-zone pattern).
 - **[Importing data](../core/importing_data.md)** — the per-component import-data contract.

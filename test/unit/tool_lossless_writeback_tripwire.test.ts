@@ -872,7 +872,23 @@ else {
 				importMappedRecords: {
 					verdict: 'operator-value',
 					reason:
-						'writes the Zotero export the operator imports, through the declared field mapping: one set_data per mapped field of each record. The values come from the imported file, never from the value they replace.',
+						'writes the Zotero CSL-JSON export the operator imports, through the field map the Tools configuration declares plus the Values form the operator typed: one set_data per mapped field of each record, and a container-title link found or created by its exact name. The values come from the imported file or the form, never from the value they replace.',
+				},
+			},
+		},
+		'tools/tool_import_zotero/server/index.ts :: ingestInto': {
+			doors: {
+				processUploadedFile: {
+					verdict: 'operator-value',
+					bypass_reason: BYPASS.filesInfo,
+					reason:
+						'ingests the PDF an imported item names in `archive` (staged in the same upload), and the cover rendered from it, into the committed record’s pdf / identifying image component (derivatives built from THAT file). The written files_info describes the imported file, never a transform of the stored one.',
+				},
+				persistUploadedMedia: {
+					verdict: 'operator-value',
+					bypass_reason: BYPASS.filesInfo,
+					reason:
+						'records the imported PDF / cover on the media item: the stored items are RE-READ under the row lock and only that language item’s files_info and name keys are set from the new file; the other items and languages are kept verbatim.',
 				},
 			},
 		},
@@ -1569,8 +1585,11 @@ else {
 	 * importImagePair and bibliography importDocumentForPublication, each × processUploadedFile
 	 * and × persistUploadedMedia — the same files_info writers as tool_upload / tool_import_files,
 	 * each reasoned with BYPASS.filesInfo. New doors, not backlog.
+	 * 21 → 23 (2026-11-12, T1-7): tool_import_zotero ingestInto — the `archive` PDF and its
+	 * cover — × processUploadedFile and × persistUploadedMedia, the same files_info writers,
+	 * reasoned with BYPASS.filesInfo. New doors, not backlog.
 	 */
-	const BYPASS_TOOL_CELLS = 21;
+	const BYPASS_TOOL_CELLS = 23;
 
 	/**
 	 * The tether of every SERVER PENDING cell: what turns red when the defect is fixed

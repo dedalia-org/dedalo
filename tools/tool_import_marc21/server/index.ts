@@ -53,11 +53,10 @@ import { resolve, sep } from 'node:path';
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { stagingDir } from '../../../src/core/media/ingest/add_file.ts';
 import { resolveStagedName } from '../../../src/core/media/ingest/staged_files.ts';
-import type { Principal } from '../../../src/core/security/permissions.ts';
 import { getToolConfig } from '../../../src/core/tools/config.ts';
 import {
-	findSectionIdByCode,
 	type ImportCodeTarget,
+	resolveMappedCodes,
 } from '../../../src/core/tools/import_code_lookup.ts';
 import {
 	importMappedRecords,
@@ -361,64 +360,6 @@ export function resolveStagedFile(
 	return target;
 }
 
-/**
- * Turn the identifiers the file carries into record ADDRESSES (PHP
- * resolve_target_section, restored — audit DATA-08).
- *
- * Per record: no identifier ⇒ `sectionId: null`, which the shared executor
- * reads as "create". An identifier ⇒ the record whose code component holds
- * EXACTLY that value, or `null` again when no record does — the create half of
- * the frozen upsert. The value is never cast to an id: it is a foreign control
- * number, and record 42 of this section has nothing to do with control number
- * '42'.
- *
- * TWO IDENTICAL IDENTIFIERS IN ONE BATCH REFUSE THE RUN. Resolution happens for
- * the whole batch BEFORE the first write (this door maps every record of every
- * staged file first), so a second record carrying an identifier the first one
- * just created would resolve to `null` too and mint a duplicate; and if both
- * resolve to the same existing record, the second silently overwrites what the
- * first just wrote. PHP had the second outcome only, because it resolved inside
- * the write loop. Neither is an import: the file names one record twice, that is
- * a fault in the file, and the run stops with nothing written — the same "a
- * shape we cannot trust is not imported at all" this door already applies.
- */
-async function resolveImportCodes(
-	mapped: readonly MarcMappedRecord[],
-	sectionTipo: string,
-	idTarget: ImportCodeTarget | undefined,
-	principal: Principal,
-): Promise<MappedRecord[]> {
-	const records: MappedRecord[] = [];
-	const seen = new Set<string>();
-	for (const record of mapped) {
-		let sectionId: number | null = null;
-		// `idTarget` is guaranteed present whenever a record carries a code (a
-		// configured id field without a code component was refused at the door);
-		// the check is what makes that guarantee readable here rather than assumed.
-		if (record.code !== null && idTarget !== undefined) {
-			if (seen.has(record.code)) {
-				const sentence =
-					`The identifier '${record.code}' is carried by more than one record of this import, ` +
-					`so it does not identify one record. Nothing was imported — fix the file.`;
-				throw new DedaloError('request.invalid_data', {
-					message: sentence,
-					publicMessage: sentence,
-				});
-			}
-			seen.add(record.code);
-			// The section searched is the section being WRITTEN, always (the config's
-			// own declaration was checked to agree with it at the door).
-			sectionId = await findSectionIdByCode(
-				{ sectionTipo, componentTipo: idTarget.componentTipo },
-				record.code,
-				principal,
-			);
-		}
-		records.push({ sectionId, fields: record.fields });
-	}
-	return records;
-}
-
 async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 	const o = ctx.options;
 	const sectionTipo = String(o.section_tipo ?? '');
@@ -503,7 +444,8 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 	}
 
 	// The identifiers become addresses HERE, once, before anything is written.
-	const resolved = await resolveImportCodes(mapped, sectionTipo, idTarget, ctx.principal);
+	// (import_code_lookup.ts resolveMappedCodes: exact, scoped, a batch duplicate refuses the run.)
+	const resolved = await resolveMappedCodes(mapped, sectionTipo, idTarget, ctx.principal);
 	const records = withFormValues(resolved, formFields);
 	const report = await importMappedRecords(records, sectionTipo, ctx.principal);
 	// CONSUME the staging form (WC-079). This tool's client builds a

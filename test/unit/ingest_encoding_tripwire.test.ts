@@ -177,10 +177,7 @@ function implicitTextReadFiles(): string[] {
  * answers to. Every entry here is a KNOWN silent-corruption path, not a waiver:
  * removing the last one is the point.
  */
-const IMPLICIT_DECODE_EXEMPT: Readonly<Record<string, string>> = {
-	'tools/tool_import_zotero/server/index.ts':
-		'DATA-09 second door (RDF/XML upload). OPEN: outside the P0-5 fix scope, and an XML door must honour the encoding its own declaration names, which is a different decision from the CSV/MARC one.',
-};
+const IMPLICIT_DECODE_EXEMPT: Readonly<Record<string, string>> = {};
 
 describe('door census: no ingest door decodes its upload implicitly', () => {
 	test('every implicit-decode door is either fixed or a declared, reasoned exemption', () => {

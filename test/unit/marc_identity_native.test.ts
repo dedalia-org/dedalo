@@ -48,7 +48,7 @@ import { findSectionIdByCode } from '../../src/core/tools/import_code_lookup.ts'
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import { applyMarcMap, type MarcRecord } from '../../src/core/tools/marc21.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
-import { applyRdfMap } from '../../src/core/tools/rdf_xml.ts';
+import { mapCslItem, readZoteroConfig } from '../../src/core/tools/zotero_map.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { refusalOf } from '../helpers/refusal.ts';
 import { installScratchToolConfig } from '../helpers/tool_config_fixture.ts';
@@ -439,27 +439,38 @@ describe('the mapped-import doors (census, derived from the tool tree)', () => {
 	});
 
 	/**
-	 * The Zotero door has the OTHER half of the frozen behaviour missing, not this
-	 * one: its records all come from `applyRdfMap`, which hard-codes
-	 * `sectionId: null`, so every Zotero import CREATES. It cannot overwrite a
-	 * curated record; it can only duplicate one (PHP's get_section_id_from_code is
-	 * unported there, and the door's own header records that its RDF/XML parser
-	 * and config reader do not match a real Zotero export at all). This assertion
-	 * pins the half that matters to DATA-08: no identifier-shaped literal, however
-	 * numeric, comes back from that door as an address.
+	 * The Zotero door (T1-7) carries its identifier the same way: the item's
+	 * Zotero KEY is a CODE, resolved through the code component by the shared
+	 * `resolveMappedCodes` — and the mapper yields no address at all. PHP's
+	 * second address, `field_to_section_id` (default `call-number`, cast to a
+	 * section_id), is pending an owner decision (D1): it is neither an address
+	 * nor a value. This pins the half that matters to DATA-08: no
+	 * identifier-shaped value, however numeric, comes back from that mapper as an
+	 * address.
 	 */
-	test('the Zotero/RDF mapper yields no address for any identifier-shaped value', () => {
+	test('the Zotero mapper yields no address for any identifier-shaped value', () => {
 		const idish = ['42', String(NUMERIC_VICTIM_ID), '007', '.b12345678', '900323abc', '0'];
-		const subjects = idish.map((value) => ({
-			about: `urn:x-test:${value}`,
-			type: null,
-			properties: [{ predicate: 'dc:identifier', value, resource: null }],
-		}));
-		const mapped = applyRdfMap(subjects, [
-			{ predicate: 'dc:identifier', component_tipo: CODE_COMPONENT },
-		]);
-		expect(mapped).toHaveLength(idish.length);
-		expect(mapped.map((record) => record.sectionId)).toEqual(idish.map(() => null));
+		const cfg = readZoteroConfig({
+			map: [
+				{ name: 'id', ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: 'test3' }] },
+				{ name: 'call-number', ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: 'test3' }] },
+			],
+			main: [{ name: 'field_to_section_id', value: 'call-number' }],
+		});
+		const kindOf = new Map([[CODE_COMPONENT, 'text' as const]]);
+		const mapped = idish.map((value) =>
+			mapCslItem({ id: `http://zotero.org/users/1/items/${value}`, 'call-number': value }, cfg, {
+				kindOf,
+			}),
+		);
+		expect(mapped.map((record) => record.code)).toEqual(idish);
+		for (const record of mapped) {
+			expect('sectionId' in record).toBe(false);
+			// The call-number wrote nothing: only the code itself is a field.
+			expect(record.fields.map((field) => field.values)).toEqual([
+				[JSON.stringify([{ value: record.code }])],
+			]);
+		}
 	});
 });
 

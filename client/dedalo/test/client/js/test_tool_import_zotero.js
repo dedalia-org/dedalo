@@ -19,6 +19,7 @@
  */
 
 import {tool_import_zotero} from '../../../tools/tool_import_zotero/js/tool_import_zotero.js'
+import {render_import_report} from '../../../tools/tool_import_zotero/js/render_tool_import_zotero.js'
 
 
 
@@ -57,6 +58,33 @@ describe('TOOL_IMPORT_ZOTERO CLIENT TEST', function() {
 		// tool-specific overrides defined on the module
 		assert.equal(typeof tool_import_zotero.prototype.init, 'function', 'expected init defined')
 		assert.equal(typeof tool_import_zotero.prototype.build, 'function', 'expected build defined')
+	})
+
+	it('the import report renders every line as TEXT (T1-7)', function() {
+		const parent = document.createElement('div')
+		const node = render_import_report({
+			summary		: 'Zotero import done. Created 1, updated 0, 1 failed.',
+			failed		: [{section_id: 7, component_tipo: 'test91', msg: "IGNORED: the CSL type '<b>x</b>' has no entry"}],
+			errors		: ['broken.json: not valid JSON'],
+			attachments	: ['missing.pdf: not imported'],
+			notices		: ['K1: call-number not applied']
+		}, parent)
+		assert.ok(node, 'expected a report node')
+		assert.equal(parent.querySelector('.import_summary').textContent, 'Zotero import done. Created 1, updated 0, 1 failed.')
+		assert.equal(parent.querySelectorAll('.import_failed li').length, 1)
+		assert.equal(parent.querySelectorAll('.import_errors li').length, 1)
+		assert.equal(parent.querySelectorAll('.import_attachments li').length, 1)
+		assert.equal(parent.querySelectorAll('.import_notices li').length, 1)
+		// a value quoted from the file is text, never markup
+		assert.equal(parent.querySelector('.import_failed b'), null, 'expected no element from report text')
+		assert.ok(parent.querySelector('.import_failed li').textContent.includes('<b>x</b>'))
+	})
+
+	it('no report (a refused or background response) renders nothing', function() {
+		const parent = document.createElement('div')
+		assert.equal(render_import_report(null, parent), null)
+		assert.equal(render_import_report({ok: true}, parent), null)
+		assert.equal(parent.childNodes.length, 0)
 	})
 
 })

@@ -1,0 +1,672 @@
+/**
+ * T1-7 native gate: tool_import_zotero imports a Zotero CSL-JSON export
+ * (owner ruling 2026-11-11: PORT). Drives the REAL tool action on the suite
+ * database's test3 playground with a scratch Tools configuration (dd996,
+ * test/helpers/tool_config_fixture.ts) mapping CSL variables onto generic test3
+ * components, and posts the client's real shape (`tool_config: {ddo_map}`).
+ * Every record the runs write is tagged with this file's RUN token and swept
+ * (records, Time Machine rows, the dd800 runs), as are the staged files.
+ *
+ * RED on 4a672825ce: the door read an RDF/XML file and a `{predicate,
+ * component_tipo}` map out of the CLIENT tool_config, so every run refused
+ * "Missing Zotero field-map".
+ *
+ * Situation (models verified against src/core/test_data/test_tld_ontology.json):
+ *   test162 input_text (code) · test52 input_text (title; also the Series name)
+ *   test166 input_text (authors) · test172 date range · test145 date
+ *   test91 select→dd64 (typology) · test88 check_box→dd64 (number kind)
+ *   test17 text_area (ISBN/ISSN) · test140 iri (DOI) · test80 portal→test3 (Series link)
+ *   test85 pdf · test99 image.
+ *
+ * D1 (call-number as an address) is unruled: only its NOTICE is gated here.
+ * WC-2026-11-12-zotero-csl-json-import.
+ */
+
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { config } from '../../src/config/config.ts';
+import { sql, withTransaction } from '../../src/core/db/postgres.ts';
+import { ghostscriptAvailable } from '../../src/core/media/engine/ghostscript.ts';
+import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
+import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
+import { saveComponentData } from '../../src/core/section/record/save_component.ts';
+import { resolvePrincipal } from '../../src/core/security/permissions.ts';
+import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
+import { lockLinkNames } from '../../src/core/tools/import_link.ts';
+import { getLoadedTool } from '../../src/core/tools/loader.ts';
+import type { ToolResponse } from '../../src/core/tools/module.ts';
+import { toolTimeMachineBulkRevert } from '../../tools/tool_time_machine/server/bulk_revert.ts';
+import { mustGet } from '../helpers/assert.ts';
+import { refusalOf } from '../helpers/refusal.ts';
+import { installScratchToolConfig } from '../helpers/tool_config_fixture.ts';
+
+const SCRATCH_USER = 987671;
+const KEY_DIR = 'zotero_native';
+const RUN = `zt${Date.now().toString(36)}`;
+const TABLE = 'matrix_test';
+const PDF_KIT = resolve(import.meta.dir, '../../src/core/test_data/media_kit/pdf.pdf');
+const HAVE_GS = ghostscriptAvailable();
+
+const stagingRoot = resolve(
+	config.media.rootPath ?? '',
+	config.media.upload.tmpSubdir,
+	String(SCRATCH_USER),
+);
+const stagedDir = resolve(stagingRoot, KEY_DIR);
+
+const SERVER_CONFIG = {
+	map: [
+		{ name: 'id', ddo_map: [{ tipo: 'test162', section_tipo: 'test3' }] },
+		{ name: 'title', ddo_map: [{ tipo: 'test52', section_tipo: 'test3' }] },
+		{ name: 'author', ddo_map: [{ tipo: 'test166', section_tipo: 'test3' }] },
+		{ name: 'issued', ddo_map: [{ tipo: 'test172', section_tipo: 'test3' }] },
+		{ name: 'accessed', ddo_map: [{ tipo: 'test145', section_tipo: 'test3' }] },
+		{ name: 'type', ddo_map: [{ tipo: 'test91', section_tipo: 'test3' }] },
+		{ name: 'ISBN', ddo_map: [{ tipo: 'test17', section_tipo: 'test3' }] },
+		{ name: 'ISSN', ddo_map: [{ tipo: 'test17', section_tipo: 'test3' }] },
+		{ name: 'DOI', ddo_map: [{ tipo: 'test140', section_tipo: 'test3' }] },
+		{ name: 'archive', ddo_map: [{ tipo: 'test85', section_tipo: 'test3' }] },
+		{ name: 'call-number', ddo_map: [{ tipo: 'test162', section_tipo: 'test3' }] },
+		{
+			name: 'container-title',
+			ddo_map: [
+				{ tipo: 'test80', section_tipo: 'test3' },
+				{ tipo: 'test52', section_tipo: 'test3', parent: 'test80' },
+			],
+		},
+	],
+	main: [
+		{ name: 'section', tipo: 'test3' },
+		{ name: 'pdf', tipo: 'test85' },
+		{ name: 'identifying_image', tipo: 'test99' },
+		{ name: 'field_standard_number', tipo: 'test88' },
+		{ name: 'field_to_section_id', value: 'call-number' },
+	],
+	typology: [
+		{ name: 'book', value: [{ section_id: 1, section_tipo: 'dd64' }] },
+		{ name: 'article-journal', value: [{ section_id: 2, section_tipo: 'dd64' }] },
+	],
+	standard_type: [
+		{ name: 'ISBN', value: [{ section_id: 1, section_tipo: 'dd64' }] },
+		{ name: 'ISSN', value: [{ section_id: 2, section_tipo: 'dd64' }] },
+	],
+};
+
+interface Report {
+	summary: string;
+	created: number;
+	updated: number;
+	failed: { section_id: number; component_tipo: string; msg: string }[];
+	errors: string[];
+	notices: string[];
+	attachments: string[];
+	bulk_process_id: number | null;
+}
+
+const runs: number[] = [];
+let teardownConfig: () => Promise<void> = async () => {};
+
+/** Stage one export (and optional attachments); answers its files_data entries. */
+function stage(name: string, items: unknown, extra: { name: string; from?: string }[] = []) {
+	mkdirSync(stagedDir, { recursive: true });
+	writeFileSync(
+		resolve(stagedDir, name),
+		typeof items === 'string' ? items : JSON.stringify(items),
+	);
+	for (const file of extra)
+		if (file.from !== undefined) copyFileSync(file.from, resolve(stagedDir, file.name));
+	return [
+		{ name, tmp_name: name },
+		...extra.map((file) => ({ name: file.name, tmp_name: file.name })),
+	];
+}
+
+async function runRaw(options: Record<string, unknown>): Promise<ToolResponse> {
+	const loaded = await getLoadedTool('tool_import_zotero');
+	return mustGet(loaded!.module.apiActions.import_files, 'import_files').handler({
+		principal: await resolvePrincipal(-1),
+		userId: SCRATCH_USER,
+		background: false,
+		options: {
+			section_tipo: 'test3',
+			tipo: 'test52',
+			section_id: 1,
+			tool_config: { ddo_map: [] },
+			key_dir: KEY_DIR,
+			...options,
+		},
+	});
+}
+
+async function run(options: Record<string, unknown>): Promise<Report> {
+	const res = (await runRaw(options)) as { ok: boolean; data: Report };
+	expect(res.ok).toBe(true);
+	if (res.data.bulk_process_id !== null) runs.push(res.data.bulk_process_id);
+	return res.data;
+}
+
+/** A test3 component's stored items on one record. */
+async function itemsOf(
+	sectionId: number,
+	column: string,
+	tipo: string,
+): Promise<Record<string, unknown>[]> {
+	const rows = (await sql.unsafe(
+		`SELECT ${column} -> $1::text AS items FROM ${TABLE} WHERE section_tipo = 'test3' AND section_id = $2`,
+		[tipo, sectionId],
+	)) as { items: Record<string, unknown>[] | null }[];
+	return rows[0]?.items ?? [];
+}
+
+/** Every test3 record whose code (test162) is `code`. */
+async function recordsWithCode(code: string): Promise<number[]> {
+	const rows = (await sql.unsafe(
+		`SELECT section_id FROM ${TABLE} WHERE section_tipo = 'test3' AND string -> 'test162' @> $1::text::jsonb`,
+		[JSON.stringify([{ value: code }])],
+	)) as { section_id: number }[];
+	return rows.map((row) => Number(row.section_id));
+}
+
+/** Every test3 record whose test52 (title / Series name) holds `name`. */
+async function recordsNamed(name: string): Promise<number[]> {
+	const rows = (await sql.unsafe(
+		`SELECT section_id FROM ${TABLE} WHERE section_tipo = 'test3' AND string -> 'test52' @> $1::text::jsonb`,
+		[JSON.stringify([{ value: name }])],
+	)) as { section_id: number }[];
+	return rows.map((row) => Number(row.section_id));
+}
+
+const key = (k: string) => `${RUN}${k}`;
+const uri = (k: string) => `http://zotero.org/users/1/items/${key(k)}`;
+
+beforeAll(async () => {
+	await assertTestDatabase('tool_import_zotero_native');
+	teardownConfig = await installScratchToolConfig('tool_import_zotero', SERVER_CONFIG);
+});
+
+afterAll(async () => {
+	await teardownConfig();
+	rmSync(stagingRoot, { recursive: true, force: true });
+	const tagged = (await sql.unsafe(
+		`SELECT section_id FROM ${TABLE} WHERE section_tipo = 'test3' AND string::text LIKE $1`,
+		[`%${RUN}%`],
+	)) as { section_id: number }[];
+	const ids = tagged.map((row) => Number(row.section_id));
+	if (ids.length > 0) {
+		await sql.unsafe(
+			`DELETE FROM ${TABLE} WHERE section_tipo = 'test3' AND section_id = ANY($1::int[])`,
+			[ids],
+		);
+		await sql.unsafe(
+			`DELETE FROM matrix_time_machine WHERE section_tipo = 'test3' AND section_id = ANY($1::int[])`,
+			[ids],
+		);
+	}
+	const bulkTable = await getMatrixTableFromTipo('dd800');
+	if (bulkTable !== null && runs.length > 0) {
+		await sql.unsafe(
+			`DELETE FROM ${bulkTable} WHERE section_tipo = 'dd800' AND section_id = ANY($1::int[])`,
+			[runs],
+		);
+		await sql.unsafe(`DELETE FROM matrix_time_machine WHERE bulk_process_id = ANY($1::int[])`, [
+			runs,
+		]);
+	}
+});
+
+describe('tool_import_zotero: a CSL-JSON export through the server map', () => {
+	const exportItems = [
+		{
+			id: uri('A'),
+			type: 'book',
+			title: `${RUN} The first book`,
+			author: [{ given: 'Jane', family: 'Smith' }, { literal: `${RUN} Museum` }],
+			issued: { 'date-parts': [[2014, 12, 30]] },
+			DOI: '10.1000/xyz',
+			'call-number': '42',
+			publisher: 'Unmapped House',
+		},
+		{
+			id: uri('B'),
+			type: 'article-journal',
+			title: `${RUN} An article`,
+			issued: { 'date-parts': [[2010], [2012]] },
+			accessed: { 'date-parts': [[2020], [2021]] },
+			ISBN: '978-0',
+			ISSN: '1234-5678',
+		},
+	];
+
+	test('creates one record per item: code, title, authors, date, typology locator, DOI iri, one dd800 run', async () => {
+		const report = await run({ files_data: stage('library.json', exportItems) });
+		expect(report.errors).toEqual([]);
+		expect(report.failed).toEqual([]);
+		expect(report.created).toBe(2);
+		expect(report.updated).toBe(0);
+		expect(report.bulk_process_id).not.toBeNull();
+
+		const [a] = await recordsWithCode(key('A'));
+		expect(a).toBeDefined();
+		const id = a as number;
+		expect((await itemsOf(id, 'string', 'test52')).map((i) => i.value)).toEqual([
+			`${RUN} The first book`,
+		]);
+		expect((await itemsOf(id, 'string', 'test166')).map((i) => i.value)).toEqual([
+			'Jane Smith',
+			`${RUN} Museum`,
+		]);
+		const [date] = await itemsOf(id, 'date', 'test172');
+		expect(date?.start).toMatchObject({ year: 2014, month: 12, day: 30 });
+		const [typology] = await itemsOf(id, 'relation', 'test91');
+		expect(typology).toMatchObject({
+			section_tipo: 'dd64',
+			section_id: 1,
+			from_component_tipo: 'test91',
+		});
+		const [doi] = await itemsOf(id, 'iri', 'test140');
+		expect(doi?.iri).toBe('https://www.doi.org/10.1000/xyz');
+		// One run: every TM row of the record carries it.
+		const tm = (await sql.unsafe(
+			`SELECT DISTINCT bulk_process_id FROM matrix_time_machine WHERE section_tipo = 'test3' AND section_id = $1`,
+			[id],
+		)) as { bulk_process_id: number | null }[];
+		expect(tm.map((row) => row.bulk_process_id)).toEqual([report.bulk_process_id]);
+		// The consumed export is gone (PHP unlink).
+		expect(existsSync(resolve(stagedDir, 'library.json'))).toBe(false);
+	});
+
+	test('notices: call-number pending D1, unmapped variables once, a range end on a single date', async () => {
+		const report = await run({ files_data: stage('library.json', exportItems) });
+		expect(
+			report.notices.some((n) => n.includes('call-number') && n.includes('owner decision')),
+		).toBe(true);
+		expect(report.notices.filter((n) => n.includes('Not in the Zotero map'))).toHaveLength(1);
+		expect(report.notices.some((n) => n.includes('publisher'))).toBe(true);
+		expect(report.notices.some((n) => n.startsWith(`${key('B')}: accessed:`))).toBe(true);
+		// call-number never became an address nor a value: the code stays the key.
+		expect(await recordsWithCode('42')).toEqual([]);
+	});
+
+	test('re-importing the same export UPDATES the same records (matched by the Zotero key)', async () => {
+		const before = [...(await recordsWithCode(key('A'))), ...(await recordsWithCode(key('B')))];
+		const report = await run({ files_data: stage('library.json', exportItems) });
+		expect(report.created).toBe(0);
+		expect(report.updated).toBe(2);
+		expect([...(await recordsWithCode(key('A'))), ...(await recordsWithCode(key('B')))]).toEqual(
+			before,
+		);
+	});
+
+	test('a range date keeps its end; ISBN and ISSN both land (no last-wins), with both kinds', async () => {
+		const [b] = await recordsWithCode(key('B'));
+		const [range] = await itemsOf(b as number, 'date', 'test172');
+		expect(range?.start).toMatchObject({ year: 2010 });
+		expect(range?.end).toMatchObject({ year: 2012 });
+		const [single] = await itemsOf(b as number, 'date', 'test145');
+		expect(single?.start).toMatchObject({ year: 2020 });
+		expect(single?.end).toBeUndefined();
+		expect((await itemsOf(b as number, 'string', 'test17')).map((i) => i.value)).toEqual([
+			'<p>978-0</p>',
+			'<p>1234-5678</p>',
+		]);
+		expect((await itemsOf(b as number, 'relation', 'test88')).map((l) => l.section_id)).toEqual([
+			1, 2,
+		]);
+	});
+
+	test('a text date on a re-import is REFUSED and the stored date is left byte-identical', async () => {
+		const [a] = await recordsWithCode(key('A'));
+		const before = await itemsOf(a as number, 'date', 'test172');
+		const report = await run({
+			files_data: stage('textdate.json', [{ id: uri('A'), issued: { raw: 'circa 1900' } }]),
+		});
+		expect(report.updated).toBe(1);
+		expect(
+			report.failed.some((f) => f.component_tipo === 'test172' && f.msg.includes('circa 1900')),
+		).toBe(true);
+		expect(await itemsOf(a as number, 'date', 'test172')).toEqual(before);
+	});
+
+	test('an unknown CSL type is a refusal line; the other fields are written', async () => {
+		const report = await run({
+			files_data: stage('type.json', [
+				{ id: uri('T'), type: 'manuscript', title: `${RUN} Typeless` },
+			]),
+		});
+		expect(report.created).toBe(1);
+		expect(
+			report.failed.some((f) => f.component_tipo === 'test91' && f.msg.includes('manuscript')),
+		).toBe(true);
+		const [t] = await recordsWithCode(key('T'));
+		expect((await itemsOf(t as number, 'string', 'test52')).map((i) => i.value)).toEqual([
+			`${RUN} Typeless`,
+		]);
+	});
+});
+
+describe('identity: the Zotero key, its full URI, duplicates', () => {
+	test('a code stored as the full URI is matched; another library with the same key is not', async () => {
+		// A record whose code holds the FULL URI of item U (PHP's `*/<key>` leg).
+		const seed = await run({
+			files_data: stage('seed.json', [{ id: `seed-${key('U')}`, title: `${RUN} seed` }]),
+		});
+		expect(seed.created).toBe(1);
+		const [seeded] = await recordsWithCode(`seed-${key('U')}`);
+		await sql.unsafe(
+			`UPDATE ${TABLE} SET string = jsonb_set(string, '{test162}', $1::text::jsonb) WHERE section_tipo = 'test3' AND section_id = $2`,
+			[JSON.stringify([{ id: 1, lang: 'lg-nolan', value: uri('U') }]), seeded],
+		);
+		const matched = await run({
+			files_data: stage('u.json', [{ id: uri('U'), title: `${RUN} U again` }]),
+		});
+		expect(matched.updated).toBe(1);
+		expect(matched.created).toBe(0);
+		// The same key under ANOTHER library's URI is a different item: not matched.
+		const other = await run({
+			files_data: stage('other.json', [
+				{ id: `http://zotero.org/groups/9/items/${key('U')}x`, title: `${RUN} other` },
+			]),
+		});
+		expect(other.created).toBe(1);
+	});
+
+	test('one Zotero key twice in one batch refuses the run, nothing written', async () => {
+		const refusal = await refusalOf(
+			runRaw({
+				files_data: stage('dup.json', [
+					{ id: uri('D'), title: `${RUN} D1` },
+					{ id: uri('D'), title: `${RUN} D2` },
+				]),
+			}),
+		);
+		expect(refusal.code).toBe('request.invalid_data');
+		expect(refusal.publicMessage).toContain('more than one record of this import');
+		expect(await recordsWithCode(key('D'))).toEqual([]);
+	});
+
+	test('a key held by two records refuses the run (resource.conflict), nothing written', async () => {
+		await run({ files_data: stage('c1.json', [{ id: `${key('C')}a`, title: `${RUN} C1` }]) });
+		await run({ files_data: stage('c2.json', [{ id: `${key('C')}b`, title: `${RUN} C2` }]) });
+		// Two records, then both made to hold the same code (a duplicate in the data).
+		const twins = [
+			...(await recordsWithCode(`${key('C')}a`)),
+			...(await recordsWithCode(`${key('C')}b`)),
+		];
+		expect(twins).toHaveLength(2);
+		await sql.unsafe(
+			`UPDATE ${TABLE} SET string = jsonb_set(string, '{test162}', $1::text::jsonb) WHERE section_tipo = 'test3' AND section_id = ANY($2::int[])`,
+			[JSON.stringify([{ id: 1, lang: 'lg-nolan', value: key('C') }]), twins],
+		);
+		const refusal = await refusalOf(
+			runRaw({ files_data: stage('c3.json', [{ id: uri('C'), title: `${RUN} C3` }]) }),
+		);
+		expect(refusal.code).toBe('resource.conflict');
+		expect(await recordsNamed(`${RUN} C3`)).toEqual([]);
+	});
+});
+
+describe('container-title: the Series link (find by exact name, else create once)', () => {
+	test('an absent Series is created ONCE and linked from both items; an existing one is reused', async () => {
+		const series = `${RUN} Revista de Prueba`;
+		const report = await run({
+			files_data: stage('series.json', [
+				{ id: uri('S1'), title: `${RUN} S1`, 'container-title': series },
+				{ id: uri('S2'), title: `${RUN} S2`, 'container-title': series },
+			]),
+		});
+		expect(report.failed).toEqual([]);
+		const named = await recordsNamed(series);
+		expect(named).toHaveLength(1);
+		for (const k of ['S1', 'S2']) {
+			const [id] = await recordsWithCode(key(k));
+			const links = await itemsOf(id as number, 'relation', 'test80');
+			expect(links.map((l) => [l.section_tipo, l.section_id])).toEqual([['test3', named[0]]]);
+		}
+		// A look-alike (accent-folded) name is a DIFFERENT Series.
+		const lookAlike = await run({
+			files_data: stage('series2.json', [
+				{ id: uri('S3'), 'container-title': `${RUN} Revísta de Prueba` },
+			]),
+		});
+		expect(lookAlike.created).toBe(1);
+		expect(await recordsNamed(`${RUN} Revísta de Prueba`)).toHaveLength(1);
+		expect(await recordsNamed(series)).toHaveLength(1);
+	});
+
+	/**
+	 * THE LOCK, deterministically: a transaction holding the Series name's lock
+	 * (as a concurrent run's record would) creates the Series and commits only
+	 * AFTER the import has started. The import must WAIT on the lock and then find
+	 * that Series — without the lock it searches past the uncommitted row, creates
+	 * a second Series, and two records share one name.
+	 */
+	test('a run waits on the Series name lock and reuses the Series a concurrent writer created', async () => {
+		const series = `${RUN} Concurrent Series`;
+		const files = stage('p1.json', [{ id: uri('P1'), 'container-title': series }]);
+		let release: () => void = () => {};
+		const gate = new Promise<void>((resolveGate) => {
+			release = resolveGate;
+		});
+		let locked: () => void = () => {};
+		const holding = new Promise<void>((resolveHolding) => {
+			locked = resolveHolding;
+		});
+		// The writer's record exists BEFORE it holds the lock (its create would hold
+		// the section counter, which serializes the import for another reason).
+		const id = await createSectionRecord('test3', -1);
+		await sql.unsafe(
+			`UPDATE ${TABLE} SET string = jsonb_set(coalesce(string, '{}'::jsonb), '{test162}', $1::text::jsonb) WHERE section_tipo = 'test3' AND section_id = $2`,
+			[JSON.stringify([{ id: 1, lang: 'lg-nolan', value: `${RUN}-writer` }]), id],
+		);
+		const holder = withTransaction(async () => {
+			await lockLinkNames([
+				{
+					component_tipo: 'test80',
+					target: { sectionTipo: 'test3', componentTipo: 'test52' },
+					text: series,
+				},
+			]);
+			await saveComponentData({
+				componentTipo: 'test52',
+				sectionTipo: 'test3',
+				sectionId: id,
+				lang: 'lg-eng',
+				changedData: [{ action: 'set_data', id: null, value: [{ value: series }] }],
+				userId: -1,
+			});
+			locked();
+			await gate;
+		});
+		await holding;
+		const importing = run({ files_data: files });
+		await Bun.sleep(500);
+		release();
+		await holder;
+		const report = await importing;
+		expect(report.failed).toEqual([]);
+		const named = await recordsNamed(series);
+		expect(named).toHaveLength(1);
+		const [p1] = await recordsWithCode(key('P1'));
+		expect((await itemsOf(p1 as number, 'relation', 'test80')).map((l) => l.section_id)).toEqual(
+			named,
+		);
+	});
+
+	test('a Series name held by two records refuses the LINK only; the record is written', async () => {
+		const series = `${RUN} Twin Series`;
+		await run({ files_data: stage('t1.json', [{ id: uri('W1'), title: series }]) });
+		await run({ files_data: stage('t2.json', [{ id: uri('W2'), title: series }]) });
+		const report = await run({
+			files_data: stage('t3.json', [
+				{ id: uri('W3'), title: `${RUN} W3`, 'container-title': series },
+			]),
+		});
+		expect(report.created).toBe(1);
+		expect(
+			report.failed.some(
+				(f) => f.component_tipo === 'test80' && f.msg.includes('more than one record'),
+			),
+		).toBe(true);
+		const [w3] = await recordsWithCode(key('W3'));
+		expect(await itemsOf(w3 as number, 'relation', 'test80')).toEqual([]);
+	});
+
+	test('reverting the run removes the Series it created', async () => {
+		const series = `${RUN} Revertible Series`;
+		const report = await run({
+			files_data: stage('rv.json', [{ id: uri('R1'), 'container-title': series }]),
+		});
+		const [created] = await recordsNamed(series);
+		expect(created).toBeDefined();
+		const response = await toolTimeMachineBulkRevert({
+			principal: await resolvePrincipal(-1),
+			userId: -1,
+			options: { bulk_process_id: report.bulk_process_id },
+			background: false,
+		} as never);
+		expect(response.ok).toBe(true);
+		runs.push((response.data as { bulk_process_id: number }).bulk_process_id);
+		expect(await recordsNamed(series)).toEqual([]);
+	});
+});
+
+describe('the door: server config, sections, form values, files', () => {
+	test('the SERVER map wins: a client-posted map is ignored', async () => {
+		const report = await run({
+			tool_config: {
+				ddo_map: [],
+				map: [{ name: 'title', ddo_map: [{ tipo: 'test166', section_tipo: 'test3' }] }],
+			},
+			files_data: stage('client.json', [{ id: uri('M'), title: `${RUN} server map` }]),
+		});
+		const [m] = await recordsWithCode(key('M'));
+		expect(report.created).toBe(1);
+		expect((await itemsOf(m as number, 'string', 'test52')).map((i) => i.value)).toEqual([
+			`${RUN} server map`,
+		]);
+		expect(await itemsOf(m as number, 'string', 'test166')).toEqual([]);
+	});
+
+	test('a map entry of another section refuses the run before anything is read', async () => {
+		const files = stage('foreign.json', [{ id: uri('F'), title: `${RUN} foreign` }]);
+		const foreign = {
+			...SERVER_CONFIG,
+			map: [
+				...SERVER_CONFIG.map,
+				{ name: 'note', ddo_map: [{ tipo: 'test52', section_tipo: 'test65' }] },
+			],
+		};
+		await installScratchToolConfig('tool_import_zotero', foreign);
+		try {
+			const refusal = await refusalOf(runRaw({ files_data: files }));
+			expect(refusal.code).toBe('request.invalid_options');
+			expect(refusal.publicMessage).toContain('test65');
+		} finally {
+			teardownConfig = await installScratchToolConfig('tool_import_zotero', SERVER_CONFIG);
+		}
+		expect(await recordsWithCode(key('F'))).toEqual([]);
+		expect(existsSync(resolve(stagedDir, 'foreign.json'))).toBe(true);
+	});
+
+	test('the Values form lands on every record; a form field of another section is refused', async () => {
+		const report = await run({
+			tool_config: {
+				ddo_map: [{ role: 'input_component', tipo: 'test166', section_tipo: 'test3' }],
+			},
+			components_temp_data: [
+				{ tipo: 'test166', section_tipo: 'test3', entries: [{ value: `${RUN} form` }] },
+			],
+			files_data: stage('form.json', [{ id: uri('V1') }, { id: uri('V2') }]),
+		});
+		expect(report.created).toBe(2);
+		for (const k of ['V1', 'V2']) {
+			const [id] = await recordsWithCode(key(k));
+			expect((await itemsOf(id as number, 'string', 'test166')).map((i) => i.value)).toEqual([
+				`${RUN} form`,
+			]);
+		}
+		const refusal = await refusalOf(
+			runRaw({
+				tool_config: {
+					ddo_map: [{ role: 'input_component', tipo: 'test52', section_tipo: 'test65' }],
+				},
+				components_temp_data: [
+					{ tipo: 'test52', section_tipo: 'test65', entries: [{ value: 'x' }] },
+				],
+				files_data: stage('form2.json', [{ id: uri('V3') }]),
+			}),
+		);
+		expect(refusal.code).toBe('request.invalid_options');
+		expect(await recordsWithCode(key('V3'))).toEqual([]);
+	});
+
+	test('a BOM-prefixed UTF-8 export parses; a top-level object and invalid JSON are per-file errors', async () => {
+		const bom = `﻿${JSON.stringify([{ id: uri('BOM'), title: `${RUN} Ñandú` }])}`;
+		const report = await run({
+			files_data: [
+				...stage('bom.json', bom),
+				...stage('object.json', { id: uri('O') }),
+				...stage('broken.json', '[{'),
+			],
+		});
+		expect(report.created).toBe(1);
+		expect(report.errors).toHaveLength(2);
+		expect(report.errors[0]).toContain('object.json: not a CSL-JSON export');
+		expect(report.errors[1]).toContain('broken.json: not valid JSON');
+		const [bomId] = await recordsWithCode(key('BOM'));
+		expect((await itemsOf(bomId as number, 'string', 'test52')).map((i) => i.value)).toEqual([
+			`${RUN} Ñandú`,
+		]);
+	});
+});
+
+describe('attachments: the archive PDF and its cover', () => {
+	test('an archive not uploaded, or a traversal name, is a line; the record is written', async () => {
+		const report = await run({
+			files_data: stage('att.json', [
+				{ id: uri('N1'), archive: 'missing.pdf' },
+				{ id: uri('N2'), archive: '../../etc/passwd' },
+			]),
+		});
+		expect(report.created).toBe(2);
+		expect(report.attachments.some((l) => l.startsWith('missing.pdf: not imported'))).toBe(true);
+		expect(report.attachments.some((l) => l.startsWith('../../etc/passwd: not imported'))).toBe(
+			true,
+		);
+	});
+
+	test.skipIf(!HAVE_GS)(
+		'the archive PDF lands in the pdf component and its cover in the image',
+		async () => {
+			const report = await run({
+				files_data: stage(
+					'pdf.json',
+					[{ id: uri('PDF'), archive: `${RUN}.pdf` }],
+					[{ name: `${RUN}.pdf`, from: PDF_KIT }],
+				),
+			});
+			expect(report.created).toBe(1);
+			const [id] = await recordsWithCode(key('PDF'));
+			const pdf = await itemsOf(id as number, 'media', 'test85');
+			const image = await itemsOf(id as number, 'media', 'test99');
+			expect(pdf.length, JSON.stringify(report.attachments)).toBe(1);
+			expect(image.length, JSON.stringify(report.attachments)).toBe(1);
+			expect(existsSync(resolve(stagedDir, `${RUN}.pdf`))).toBe(false);
+		},
+	);
+
+	test.skipIf(HAVE_GS)(
+		'without Ghostscript the cover is a report line, the PDF still lands',
+		async () => {
+			const report = await run({
+				files_data: stage(
+					'pdf2.json',
+					[{ id: uri('PDF2'), archive: `${RUN}b.pdf` }],
+					[{ name: `${RUN}b.pdf`, from: PDF_KIT }],
+				),
+			});
+			expect(report.attachments.some((l) => l.includes('cover'))).toBe(true);
+		},
+	);
+});

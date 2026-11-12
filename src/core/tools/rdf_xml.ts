@@ -1,6 +1,6 @@
 /**
- * RDF/XML parser (PHP tool_import_rdf uses EasyRdf; tool_import_zotero consumes
- * Zotero's RDF/XML export). A from-scratch parser — NO 3rd-party lib, per the
+ * RDF/XML parser (PHP tool_import_rdf uses EasyRdf; tool_import_rdf's subject
+ * list reads it — tool_import_zotero reads Zotero's CSL-JSON export, csl_json.ts). A from-scratch parser — NO 3rd-party lib, per the
  * project mandate — covering the RDF/XML subset both tools need: a minimal XML
  * reader plus RDF subject/property extraction (rdf:about / typed nodes /
  * rdf:resource references / literal text).
@@ -136,7 +136,7 @@ export interface RdfSubject {
 	properties: RdfProperty[];
 }
 
-/** An RDF/Zotero field-map entry: which RDF predicate → which component tipo. */
+/** An RDF field-map entry: which RDF predicate → which component tipo. */
 export interface RdfMapEntry {
 	predicate: string;
 	component_tipo: string;
@@ -149,8 +149,8 @@ export interface RdfMappedRecord {
 }
 
 /**
- * Apply a predicate→component field-map to parsed RDF subjects (the Zotero
- * field-map / RDF class-map application). Each subject becomes one record; its
+ * Apply a predicate→component field-map to parsed RDF subjects (the RDF
+ * field-map / class-map application). Each subject becomes one record; its
  * mapped predicates' literal-or-resource values populate the components. Subjects
  * with no mapped predicate are dropped. Pure over the subjects + map.
  */

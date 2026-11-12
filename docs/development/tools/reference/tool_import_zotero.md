@@ -1,102 +1,89 @@
 # tool_import_zotero
 
-Imports a Zotero bibliographic export into a Dédalo Publications section (rsc205), mapping Zotero fields to components.
+Imports a Zotero **CSL JSON** export into a Dédalo Publications section (rsc205): one record per reference, matched by its Zotero key; the reference's PDF and its first-page cover attached.
 
 ## What it does / why & when to use it
 
-Zotero is one of the most widely used reference managers in academic and heritage research. This tool parses Zotero's **RDF/XML** export (a `.rdf`/XML file, `<z:Item>` elements with Dublin Core predicates like `dc:title`) using the same parser as [tool_import_rdf](tool_import_rdf.md), and ingests the matched fields into a Dédalo section — typically a Publications section (rsc205) — so a bibliography does not have to be re-keyed by hand.
+Zotero is one of the most widely used reference managers in academic and heritage research. This tool reads Zotero's CSL JSON export (a JSON array of CSL items), maps every CSL variable the configuration names onto a component of the imported section, and writes the batch through the shared mapped-import executor — the same write path [tool_import_marc21](tool_import_marc21.md) uses. A reference's `archive` PDF, uploaded in the same drop, is ingested into the record's PDF component after the record commits, and the cover the PDF ingest renders goes into the identifying image.
 
-Concrete scenario: a museum's research department keeps the bibliography of an exhibition catalogue in Zotero. They export the collection as RDF/XML and open the import tool on the Publications section, configure a field-map (a list of `{predicate, component_tipo}` entries — e.g. `dc:title` → the title component), and import. For each parsed Zotero `<z:Item>` subject, the tool applies the map: every predicate that has a matching entry writes its literal or resource value into that component, on a newly created (or already-targeted) record, through the same write path the CSV and MARC21 imports use.
-
-Use it for bulk ingest of references already curated in Zotero, once a predicate→component map has been configured for the target section. For round-tripping Dédalo's own exports use [tool_import_dedalo_csv](tool_import_dedalo_csv.md); for library MARC21 records use [tool_import_marc21](tool_import_marc21.md); for arbitrary RDF/OWL graphs use [tool_import_rdf](tool_import_rdf.md).
+Use it for bulk ingest and re-ingest of references curated in Zotero. For Dédalo's own exports use [tool_import_dedalo_csv](tool_import_dedalo_csv.md); for MARC21 records use [tool_import_marc21](tool_import_marc21.md); for a live RDF graph use [tool_import_rdf](tool_import_rdf.md).
 
 ## How it works
 
 ### Server
 
-`tools/tool_import_zotero/server/index.ts` — this tool's `import_files` action writes, through the same shared executor the other import tools use. The single remotely callable action, `import_files`:
+`tools/tool_import_zotero/server/index.ts` — one remotely callable action, `import_files`:
 
-1. **WRITE gate.** Declaratively gated `permission: 'targets', minLevel: 2` on `(section_tipo, tipo)` AND on `(section_tipo, <component_tipo>)` for every `config.main` field-map entry — the components the import actually writes.
-2. **Config.** Reads the field-map from `tool_config.config.main` as an array of `{predicate, component_tipo}` entries (`readFieldMap`). Missing or empty map → refused (`Missing Zotero field-map`).
-3. **File filter.** Keeps only staged files under the per-user upload temp dir; each is read as **RDF/XML text**.
-4. **Parse + map.** `parseRdfXml` (`src/core/tools/rdf_xml.ts`) extracts subjects/predicates from the RDF/XML; `applyRdfMap` resolves each subject's predicates against the field-map into a `MappedRecord` (`{component_tipo, value}` pairs) — a flat predicate→component mapping: no dedicated author-name flattening, `issued`/`accessed` date parsing, container-title Series/Collection resolve-or-create, type→typology lookup, or ISBN/ISSN→standard-number-typology handling; a plain predicate maps straight to a component value.
-5. **Execute.** `importMappedRecords` (the shared executor, `src/core/tools/import_execute.ts`) resolves target vs. new records per mapped subject and writes through `createSectionRecord`/`saveComponentData`.
-6. Returns `{result, msg, errors, created, updated, failed}`.
+1. **WRITE gate.** `permission: 'targets', minLevel: 2` on the caller pair `(section_tipo, tipo)` and every `input_component` row of the client `tool_config.ddo_map` (the Values form). The map's components are not pre-gated (the map is server config, read at run time): the executor asks the write door for every field of every record, a Series create asks it for the Series section and its name component, and an attachment asks it for the media component of its committed record.
+2. **Config.** `getToolConfig('tool_import_zotero')` — the Tools configuration (dd996) per key over the register default (dd1633). `readZoteroConfig` (`src/core/tools/zotero_map.ts`) validates it and refuses, by name, a missing `map`, a malformed entry, and a map without an `id` entry. A client-posted map is ignored. `assertConfigSection` refuses the run before any read when a map entry or `main.section` names another section than the imported one.
+3. **Read.** The batch's `.json` entries, re-confined under the user's staging dir, read through `readIngestTextFile` (UTF-8 law, BOM stripped, a legacy encoding converted with a notice) and `parseCslJson` (`src/core/tools/csl_json.ts`): the top level must be an array of item objects, else the file is one error line.
+4. **Map.** `mapCslItem` per item, variables in item order, every value in the target component's stored JSON shape:
+    - `id` → the Zotero key (last URI segment) into the code component; the full URI is kept as the key's other spelling for the match.
+    - `type` → the `typology` entry's locators; an unknown type is a refused field.
+    - `ISBN` / `ISSN` → the number, plus the `standard_type` locators into `main.field_standard_number`; both present → both kept.
+    - a **link** entry (its second ddo is a child of the first: `container-title` → Series) → a link the executor resolves.
+    - CSL **name** variables (author, editor, translator, container-author…) → one item per name (`literal`, else "given family").
+    - CSL **date** variables (issued, accessed, original-date…) → `{start, end?}`: the end kept only for a `date_mode: range` component, a clock-time `season` as the time; a text date (`raw`/`literal`, no `date-parts`) is refused, never stored empty.
+    - `DOI` → `https://www.doi.org/<doi>` unless already a URL; any other variable → its text in the component's shape (an IRI component gets `{iri}`, an HTML one a paragraph).
+    - `archive` → the attachment request (never a field). The `main.field_to_section_id` variable (default `call-number`) is neither a value nor an address — pending an owner decision — and each item carrying it gets a notice.
+5. **Identity.** `resolveMappedCodes` (`src/core/tools/import_code_lookup.ts`, shared with MARC21) for the whole batch before any write: the key — or the full URI — matched EXACTLY in the code component, scoped to the importer; none → create. A key twice in one batch, or held by two records, refuses the run.
+6. **Execute.** `importMappedRecords` (`src/core/tools/import_execute.ts`): one dd800 run, one transaction per record, the write door per field, the Values form appended to every record. A link (`MappedRecord.links`, `src/core/tools/import_link.ts`) is resolved inside the record's transaction: its name advisory-locked before the record's first write, found by exact name, else created with the run's birth marker and named; a name held by two records refuses the link only.
+7. **Attachments.** For each committed record with an `archive`: the file must be an entry of the same upload, staged and confined; `processUploadedFile` + `persistUploadedMedia` into `main.pdf`, then the PDF ingest's rendered cover into `main.identifying_image`. A failure is a report line; the record stays.
+8. The consumed `.json` files are deleted; the staging form is cleared when the run wrote something.
 
-PDF import with first-page identifying-image extraction (an `archive` field naming an uploaded PDF) is **not implemented** — the field-map only maps a predicate straight to a component value; there is no PDF-specific handling or image-extraction step in `tools/tool_import_zotero/server/index.ts`. There is likewise no dedicated update-vs-create resolution keyed off a bibliographic identifier field — the shared executor's own record-matching rules apply instead (see [Importing data](../../../core/importing_data.md)), and there is no manual temp-data merge step.
-
-`import_files` is listed in `backgroundRunnable`; the client always sends `background_running: true` (see [Server contract](../server_contract.md) for how this runs without a CLI fork).
+`import_files` is `backgroundRunnable` (lane `maintenance`).
 
 ### Client
 
-`tools/tool_import_zotero/js/` wires the standard tool lifecycle through `tool_common`. `init()` derives `key_dir = caller.tipo + '_' + caller.section_tipo`. `build()` deliberately skips the generic ddo_map autoload (`load_ddo_map: () => []`) and instead builds two services: `service_upload` in multi-file mode (`multiple: true` — the file upload / drop zone for the JSON + PDFs) and `service_tmp_section` (the manual "Values" inputs, filtered to ddo_map role `input_component`). `render_tool_import_zotero.js` draws the drop zone, the Values block and an **IMPORT** button; clicking it gathers `service_tmp_section.get_components_data()`, builds the request via `create_source(self, 'import_files')` and calls `data_manager.request()` with a 3600 s timeout and a single retry, then shows the success/error message and reloads. The tool opens as a separate **window** (`properties.open_as: "window"`). Styling lives in `css/tool_import_zotero.less`.
+`tools/tool_import_zotero/js/` — `service_upload` (multi-file drop zone: the export and its PDFs) and `service_tmp_section` (the Values form, ddo_map role `input_component`). The IMPORT button posts the request below and `render_import_report` renders the report — summary, refused fields, file errors, attachments, notices — as text under the outcome label.
 
 ## Actions & options
 
-`apiActions = { import_files: { permission: 'targets', minLevel: 2, targets: importZoteroTargets, handler: importFiles } }` — only `import_files` is declared:
-
-| Action | Permission | Key options it reads |
+| Action | Permission | Key options |
 | --- | --- | --- |
-| `import_files` | declarative `permission: 'targets', minLevel: 2` on `(section_tipo, tipo)` + every field-map component | `section_tipo` (target section, **required**, gated), `tipo` (caller component/portal tipo), `section_id` (current section), `tool_config` (carries `config.main`, the field-map array — see below), `files_data` (uploaded file descriptors — an RDF/XML export), `key_dir` (upload directory id) |
+| `import_files` | `targets`, level 2: caller pair + Values form fields | `section_tipo` (required), `tipo`, `section_id`, `tool_config` (its `ddo_map` only), `files_data` (`{name, tmp_name}` per staged file), `components_temp_data` (the Values form), `key_dir` |
 
-**Config shape — `tool_config.config.main`, an array of flat entries:**
+The response `data`: `summary`, `created`, `updated`, `failed` (`{section_id, component_tipo, data, msg}` per refused field or rolled-back record), `errors` (per file), `notices`, `attachments`, `bulk_process_id`.
 
-| Field | Purpose |
-| --- | --- |
-| `predicate` | The RDF predicate to match (e.g. `dc:title`), read from each parsed subject. |
-| `component_tipo` | The Dédalo component the matched predicate's value is written to. |
+## Configuration
 
-## How it is registered & surfaced
-
-`tools/tool_import_zotero/register.json` is a **column-keyed dump** (`string`/`relation`/`misc`/… keyed by component tipo — a seeded matrix-row snapshot, not a hand-authored file); `importTools()` passes it through as-is (see [register.json reference](../register_json.md)). The essentials it declares:
-
-- `name` (dd1326): `tool_import_zotero`, `version` (dd1327): `2.0.3`, `dedalo_version_min` (dd1328): `6.0.0`, developer (dd1644): "Dédalo team", label (dd799): "Import Zotero" (multi-language).
-- **affected_models** (relation via dd1337 → dd153 section_id 1): `section` — the tool attaches to sections.
-- **active** (dd1354 → dd64 section_id 1 = Yes): registered active.
-- **show_in_inspector** (dd1331 → dd64 section_id **2** = No): not flagged for the inspector panel; the tool is surfaced through the section's tool config / ddo_map rather than an inspector button. **show_in_component** (dd1332 → dd64 section_id **1** = Yes): can render inline on the component.
-- `properties` (dd1335): `{ "open_as": "window", "windowFeatures": null }` — opens in its own window.
-- `default_config` (dd1633): the ontology's seeded default configuration for this tool (mirrored in `sample_config.json`). The field-map array `import_files` actually reads is `config.main` — see *Actions & options* above. Per the comment in `sample_config.json`, do not edit dd1633 directly — copy a **full** configuration into the Tools configuration section (dd996, "Development → Tools → Tools configuration") and edit there.
-- UI labels (dd1372): `file_processor`, `target_componet`, `quality`, retrieved client-side via `get_tool_label(...)`.
-
-Because surfacing is element-driven (`getElementTools`, `src/core/tools/registry.ts`), the tool appears on Publications-style sections (rsc205 in the reference config) once the user's profile is authorized for it and the element carries the tool in its config.
-
-## Examples
-
-Client-side request built by the IMPORT button — `files_data` must be an RDF/XML export:
-
-``` js
-const source = create_source(self, 'import_files') // → tool_import_zotero.import_files
-const rqo = {
-    dd_api  : 'dd_tools_api',
-    action  : 'tool_request',
-    source  : source,
-    options : {
-        tipo                 : self.caller.tipo,
-        section_tipo         : self.caller.section_tipo, // e.g. 'rsc205' (Publications) — gated
-        section_id           : self.caller.section_id,
-        tool_config          : self.tool_config,        // carries config.main (the field-map array)
-        files_data           : self.files_data,          // an RDF/XML Zotero export
-        key_dir              : self.key_dir
-    }
-}
-data_manager.request({ body: rqo, retries: 1, timeout: 3600 * 1000 })
-```
-
-A TS field-map entry mapping the Dublin Core title predicate to a title component:
+The shipped default (register dd1633, mirrored in `sample_config.json`) maps CSL variables onto Publications. Excerpt:
 
 ``` json
-{ "predicate": "dc:title", "component_tipo": "rsc140" }
+{
+  "map": [
+    { "name": "id", "ddo_map": [{ "tipo": "rsc137", "section_tipo": "rsc205" }] },
+    { "name": "title", "ddo_map": [{ "tipo": "rsc140", "section_tipo": "rsc205" }] },
+    { "name": "container-title", "ddo_map": [
+        { "tipo": "rsc211", "section_tipo": "rsc205" },
+        { "tipo": "rsc214", "parent": "rsc211", "section_tipo": "rsc212" } ] }
+  ],
+  "main": [
+    { "name": "section", "tipo": "rsc205" },
+    { "name": "pdf", "tipo": "rsc209" },
+    { "name": "identifying_image", "tipo": "rsc228" },
+    { "name": "field_standard_number", "tipo": "rsc249" },
+    { "name": "field_to_section_id", "value": "call-number" }
+  ],
+  "typology": [{ "name": "book", "value": [{ "section_id": 1, "section_tipo": "dd810" }] }],
+  "standard_type": [{ "name": "ISBN", "value": [{ "section_id": 1, "section_tipo": "dd292" }] }]
+}
 ```
 
-PDF import with first-page identifying-image extraction (an `archive` field naming an uploaded PDF) is not implemented — see the note above.
+| Key | Purpose |
+| --- | --- |
+| `map[].name` | The CSL variable. `id` is required: it names the code component a re-import matches on. |
+| `map[].ddo_map` | `[0]` the component written (must be in the imported section). A `[1]` whose `parent` is `[0].tipo` makes a link: the text names a record of `[1].section_tipo` by its `[1].tipo` component. |
+| `main` | `section`, `pdf`, `identifying_image`, `field_standard_number`, `field_to_section_id`. |
+| `typology` / `standard_type` | CSL type / number kind → the list locators stored. |
+
+Do not edit dd1633: copy the full configuration into the Tools configuration (dd996) and edit it there — every key you set there replaces the register's key of the same name.
 
 ## Related
 
-- [tool_import_marc21](tool_import_marc21.md) — MARC21 library-catalogue import (shares the shared-executor write path).
-- [tool_import_dedalo_csv](tool_import_dedalo_csv.md) — CSV import / Dédalo export round-trips.
-- [tool_import_rdf](tool_import_rdf.md) — the sibling RDF/XML import tool this one's parser and mapper are shared with (`src/core/tools/rdf_xml.ts`) — but unlike `tool_import_rdf`'s `get_rdf_data`, this tool's `import_files` actually writes.
-- [tool_import_files](tool_import_files.md) — media file ingest (shares the multi-file upload-queue pattern).
-- [tool_export](tool_export.md) and [Exporting data](../../../core/exporting_data.md) — the export side.
+- [tool_import_marc21](tool_import_marc21.md) — the same executor and code resolution.
+- [tool_import_files](tool_import_files.md) — media ingest without bibliographic data.
+- [tool_import_dedalo_csv](tool_import_dedalo_csv.md) · [tool_import_rdf](tool_import_rdf.md) — the other importers.
 - [Importing data](../../../core/importing_data.md) — the per-component import-data contract.
-- Source: `tools/tool_import_zotero/server/index.ts`; RDF parser + mapper: `src/core/tools/rdf_xml.ts`; shared executor: `src/core/tools/import_execute.ts`.
+- Source: `tools/tool_import_zotero/server/index.ts`; reader `src/core/tools/csl_json.ts`; mapper `src/core/tools/zotero_map.ts`; links `src/core/tools/import_link.ts`; executor `src/core/tools/import_execute.ts`.
 - [Creating new tools](../creating_tools.md), [Server contract](../server_contract.md), [register.json reference](../register_json.md), [Security](../security.md)

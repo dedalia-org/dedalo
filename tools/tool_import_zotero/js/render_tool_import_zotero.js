@@ -284,6 +284,9 @@ const get_content_data_edit = async function(self) {
 						// the ONE error surface: shows the real cause under the generic label
 						if (failed) {
 							handle_api_error(response.error, {wrapper: msg_container})
+						}else{
+							// the run's report: what was written, refused, dropped (T1-7)
+							render_import_report(response.data, msg_container)
 						}
 						// when user click reload the tool
 						self.node.addEventListener('click',function(){
@@ -301,6 +304,72 @@ const get_content_data_edit = async function(self) {
 
 	return content_data
 }//end get_content_data_edit
+
+
+
+/**
+* RENDER_IMPORT_REPORT
+* Renders the import_files report under the outcome label, every line as TEXT
+* (DS-1: the lines quote values from the imported file). A run that refused a
+* field or an attachment answers ok, so without this the operator read a
+* partially failed run as a success.
+*
+* Report keys (WC-2026-11-12-zotero-csl-json-import): summary, failed[{msg}],
+* errors[], notices[], attachments[].
+*
+* @param {Object|null} data - The response data (the report)
+* @param {HTMLElement} parent - The node the report is appended to
+* @returns {HTMLElement|null} The report node, or null when there is no report
+*/
+export const render_import_report = function(data, parent) {
+
+	if (!data || typeof data!=='object' || typeof data.summary!=='string') {
+		return null
+	}
+
+	const report_node = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'import_report',
+		parent			: parent
+	})
+	ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'import_summary',
+		text_content	: data.summary,
+		parent			: report_node
+	})
+
+	const failed_lines = (Array.isArray(data.failed) ? data.failed : []).map(item => {
+		const where = item && item.section_id ? item.section_id + ' ' + (item.component_tipo || '') + ': ' : ''
+		return where + ((item && item.msg) || '')
+	})
+	const groups = [
+		['import_failed', failed_lines],
+		['import_errors', Array.isArray(data.errors) ? data.errors : []],
+		['import_attachments', Array.isArray(data.attachments) ? data.attachments : []],
+		['import_notices', Array.isArray(data.notices) ? data.notices : []]
+	]
+	for (const [class_name, lines] of groups) {
+		if (lines.length===0) {
+			continue
+		}
+		const list = ui.create_dom_element({
+			element_type	: 'ul',
+			class_name		: class_name,
+			parent			: report_node
+		})
+		for (const line of lines) {
+			ui.create_dom_element({
+				element_type	: 'li',
+				text_content	: String(line),
+				parent			: list
+			})
+		}
+	}
+
+
+	return report_node
+}//end render_import_report
 
 
 
