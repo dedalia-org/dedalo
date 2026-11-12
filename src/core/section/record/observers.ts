@@ -1931,7 +1931,7 @@ function reportSlowLockedCompute(
 ): void {
 	if (lockedMs <= 2000) return;
 	console.warn(
-		`observer '${observerTipo}' @ ${targetSection}/${targetId}: locked recompute took ${Math.round(lockedMs)}ms holding FOR UPDATE (counted: observers_recompute_lock_slow)`,
+		`observer '${observerTipo}' @ ${targetSection}/${targetId}: locked recompute took ${Math.round(lockedMs)}ms holding the row lock (counted: observers_recompute_lock_slow)`,
 	);
 	incrementCounter('observers_recompute_lock_slow');
 }

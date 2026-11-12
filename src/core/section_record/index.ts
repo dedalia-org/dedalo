@@ -23,6 +23,7 @@
  *   dd15 materializer        → src/core/tm_record/ (built on the above)
  */
 
+export { lockLocatorTargets } from './locator_targets.ts';
 export {
 	type KeyChange,
 	type ObservedDeclaration,

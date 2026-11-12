@@ -3216,6 +3216,24 @@ export const ERROR_REGISTRY = {
 		retryable: false,
 		details_keys: ['constraint', 'section_tipo'],
 	},
+	'relation.target_deleted': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_relation_target_deleted',
+		// A write that ADDS a locator to a record that is DELETED — gone from its
+		// matrix table with Time Machine history at the address — refused in the
+		// record-write chokepoint under a FOR KEY SHARE lock on the target held to
+		// COMMIT, so the delete-vs-link race can no longer leave a dangling
+		// locator (T1-19 / D01; section_record/locator_targets.ts;
+		// WC-2026-11-12-locator-target-deleted-refused). Kept locators, external
+		// remote ids and never-existed addresses are not judged. Nothing is written.
+		// `section_tipo` is the linked (deleted) record's section.
+		message: 'The linked record was deleted',
+		severity: 'info',
+		disclosure: 'public',
+		retryable: false,
+		details_keys: ['section_tipo'],
+	},
 	'relation.subtree_too_large': {
 		category: 'caller',
 		status: 400,

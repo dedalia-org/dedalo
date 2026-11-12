@@ -136,7 +136,7 @@ describe('matrix_write failure propagation (write paths never absorb integrity e
 			readMatrixKeyForUpdate(TABLE, TIPO, SECTION_ID, 'string', 'zzwf2'),
 		);
 		expect(error.code).toBe('internal.invariant');
-		expect(error.message).toMatch(/FOR UPDATE outside a transaction/);
+		expect(error.message).toMatch(/FOR NO KEY UPDATE outside a transaction/);
 	});
 
 	test('the converter keeps the sentence server-side: 500 + registry message on the wire', () => {

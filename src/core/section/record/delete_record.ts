@@ -195,6 +195,12 @@ export interface DeleteRecordResult {
  * `SELECT … FOR UPDATE` of every jsonb column of one record — the delete's
  * whole-record snapshot (SQL NULL columns as `null`) — or null when the row
  * does not exist.
+ *
+ * `FOR UPDATE`, never weaker: it is the CONFLICTING HALF of the locator-target
+ * protocol (T1-19 / D01, section_record/locator_targets.ts) — it waits for every
+ * in-flight save holding `FOR KEY SHARE` on this record (a link being added) to
+ * COMMIT, so step 3's inverse search sees that link; and a save arriving after
+ * it waits for this transaction and is refused once the row is gone.
  */
 async function lockRecordSnapshot(
 	table: string,
@@ -1097,7 +1103,7 @@ export async function deleteSectionData(
 		} | null> => {
 			const columnList = MATRIX_JSONB_COLUMNS.map((column) => `"${column}"`).join(', ');
 			const rows = (await sql.unsafe(
-				`SELECT ${columnList} FROM "${table}" WHERE section_tipo = $1 AND section_id = $2 FOR UPDATE`,
+				`SELECT ${columnList} FROM "${table}" WHERE section_tipo = $1 AND section_id = $2 FOR NO KEY UPDATE`,
 				[sectionTipo, sectionId],
 			)) as Record<MatrixJsonbColumn, unknown>[];
 			const record = rows[0];

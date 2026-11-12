@@ -1283,12 +1283,15 @@ describe('W11: deletePortalLocator lock', () => {
 		expect(anchor).toBeGreaterThan(-1);
 		const body = source.slice(anchor);
 		expect(body).toContain('await withTransaction(');
-		expect(body).toContain('FOR UPDATE');
+		// The writer's lock — FOR NO KEY UPDATE under the lock-mode law (T1-19 / D01).
+		expect(body).toContain('FOR NO KEY UPDATE');
 		// the lock precedes the read; the write is the chokepoint's removal-law
 		// entry, whose ledger fans the observers out after the COMMIT — the door
 		// itself propagates nothing (write_obligations_tripwire leg B4 derives it)
-		expect(body.indexOf('FOR UPDATE')).toBeLessThan(body.indexOf('readMatrixRecord('));
-		expect(body.indexOf('persistRelationRemovalKeys(')).toBeGreaterThan(body.indexOf('FOR UPDATE'));
+		expect(body.indexOf('FOR NO KEY UPDATE')).toBeLessThan(body.indexOf('readMatrixRecord('));
+		expect(body.indexOf('persistRelationRemovalKeys(')).toBeGreaterThan(
+			body.indexOf('FOR NO KEY UPDATE'),
+		);
 		// ZERO-ROW GUARD (review 2026-08-02): a FOR UPDATE matching no row locks
 		// NOTHING; under READ COMMITTED the later read could then see a freshly
 		// committed row and run the whole RMW unlocked. The lock result MUST be

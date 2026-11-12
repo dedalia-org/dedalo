@@ -90,6 +90,7 @@ import {
 	validateRelationInsert,
 } from '../../relations/save.ts';
 import {
+	lockLocatorTargets,
 	persistAppendedKeyItems,
 	persistRecordKeys,
 	removedLocators,
@@ -1542,7 +1543,7 @@ async function lockComponentKey(
 ): Promise<LockedComponentKey | null> {
 	const rows = (await sql.unsafe(
 		`SELECT ("${column}" ? $3) AS present, "${column}"->$3 AS items FROM "${table}"
-		 WHERE section_tipo = $1 AND section_id = $2 FOR UPDATE`,
+		 WHERE section_tipo = $1 AND section_id = $2 FOR NO KEY UPDATE`,
 		[sectionTipo, sectionId, componentTipo],
 	)) as { present: boolean | null; items: unknown }[];
 	const row = rows[0];
@@ -1667,6 +1668,15 @@ async function refuseAbsentRecord(sectionTipo: string, sectionId: number): Promi
 	});
 }
 
+/** T1-19 — the save door's pre-lock of its relation values' targets (see the call site). */
+async function preLockLinkTargets(
+	column: MatrixJsonbColumn,
+	changedData: readonly { value?: unknown }[],
+): Promise<void> {
+	if (column !== 'relation') return;
+	await lockLocatorTargets(changedData.map((change) => change.value));
+}
+
 /** The transactional body of saveComponentData (see the wrapper above). */
 async function applySaveComponentData(
 	request: SaveRequest,
@@ -1720,6 +1730,15 @@ async function applySaveComponentData(
 	// saves on the same record queue instead of clobbering each other's items,
 	// and the data write + Time Machine audit row land atomically. No wire
 	// change; nothing in the response shape depends on this.
+	// The lock is `FOR NO KEY UPDATE` (the lock-mode law, T1-19): it excludes
+	// every other writer and never waits on the target locks below.
+	// T1-19 / D01 — THE PRE-LOCK: `FOR KEY SHARE` on every record the change
+	// values point at, BEFORE the owner row (section_record/locator_targets.ts):
+	// a concurrent delete of a target then either finished first (the
+	// chokepoint refuses, relation.target_deleted) or waits for this COMMIT
+	// (its inverse search sees the new locator). Taken after the owner it could
+	// deadlock against a delete that already holds the target and wants the owner.
+	await preLockLinkTargets(column, changedData);
 	const locked = await lockExistingComponentKey(
 		table,
 		column,

@@ -260,11 +260,11 @@ export async function sweepSurface(
 				continue;
 			}
 
-			// APPLY: re-read under FOR UPDATE, re-run the kernel on the locked
+			// APPLY: re-read under the row lock, re-run the kernel on the locked
 			// value, write that — never the scanned one (TOCTOU closed).
 			await withTransaction(async () => {
 				const locked = (await sql.unsafe(
-					`SELECT "${column}"::text AS payload FROM "${table}" WHERE "${pk}" = $1 FOR UPDATE`,
+					`SELECT "${column}"::text AS payload FROM "${table}" WHERE "${pk}" = $1 FOR NO KEY UPDATE`,
 					[row.pk],
 				)) as unknown as { payload: string | null }[];
 				const lockedPayload = locked[0]?.payload;

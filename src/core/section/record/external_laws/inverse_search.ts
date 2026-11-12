@@ -420,7 +420,7 @@ async function computeInverseSearch(
 ): Promise<LawComputeResult> {
 	const { targetSection, targetId, table, lock } = context;
 	const rows = (await sql.unsafe(
-		`SELECT relation->$3 AS bag, relation_search->$3 AS idx FROM "${table}" WHERE section_tipo = $1 AND section_id = $2${lock ? ' FOR UPDATE' : ''}`,
+		`SELECT relation->$3 AS bag, relation_search->$3 AS idx FROM "${table}" WHERE section_tipo = $1 AND section_id = $2${lock ? ' FOR NO KEY UPDATE' : ''}`,
 		[targetSection, targetId, law.observerTipo],
 	)) as { bag: StoredLocator[] | null; idx: unknown }[];
 	const base = {

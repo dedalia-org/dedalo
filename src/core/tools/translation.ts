@@ -471,7 +471,7 @@ export async function translateAndWrite(
 			// Impossible under the row lock we hold — report it rather than
 			// inventing an empty merge base out of it.
 			throw new DedaloError('internal.invariant', {
-				message: `translateAndWrite: ${table}/${input.sectionTipo}/${input.sectionId} vanished between FOR UPDATE and the locked re-read`,
+				message: `translateAndWrite: ${table}/${input.sectionTipo}/${input.sectionId} vanished between the row lock and the locked re-read`,
 				coordinates: { section_tipo: input.sectionTipo, section_id: input.sectionId },
 			});
 		}

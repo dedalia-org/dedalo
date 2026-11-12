@@ -49,6 +49,9 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { lockMatrixRowsForKeyShare } from '../../src/core/db/matrix_write.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
 import {
 	getColumnNameByModel,
@@ -60,14 +63,34 @@ import { createSectionRecord } from '../../src/core/section/record/create_record
 import { deleteSectionRecord } from '../../src/core/section/record/delete_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import {
+	persistAppendedKeyItems,
+	persistRecordKeys,
+	persistRestoredKeys,
+	type RecordWriteTarget,
+} from '../../src/core/section_record/index.ts';
+import {
 	dropSituation,
 	ensureSituation,
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
+import {
+	boundedRun,
+	currentBackendPid,
+	type Settled,
+	settle,
+	waitUntilBlockedBy as waitUntilBlockedByN,
+} from '../helpers/lock_wait.ts';
+import {
+	REPO_ROOT,
+	WRITE_PATH_CORPUS_FLOOR,
+	writePathSourceFiles,
+} from '../helpers/write_path_corpus.ts';
 
 /** Scratch TLD unique to this gate — concurrent gates cannot collide with it. */
 const SECTION = 'zzdlu1';
 const PORTAL = 'zzdlu2';
+/** A second portal on the same section (T1-19 R3: a NEW key onto an owner that already references the target). */
+const PORTAL2 = 'zzdlu3';
 const TABLE = 'matrix_test';
 const USER_ID = -1; // root, as every other delete gate
 
@@ -92,6 +115,12 @@ const SITUATION = situation({
 			parent: SECTION,
 			model: 'component_portal',
 			term: { 'lg-spa': 'Relacionados', 'lg-eng': 'Related' },
+		},
+		{
+			tipo: PORTAL2,
+			parent: SECTION,
+			model: 'component_portal',
+			term: { 'lg-spa': 'Otros relacionados', 'lg-eng': 'Other related' },
 		},
 	],
 	// Anchor record: dropSituation sweeps every row of every section the
@@ -292,5 +321,363 @@ describe('delete_record inverse rewrite vs a concurrent save (DATA-02)', () => {
 		const tmItems = (deleteTmData ?? []) as Record<string, unknown>[];
 		expect(tmItems.some((item) => Number(item.section_id) === siblingId)).toBe(true);
 		expect(tmItems.some((item) => Number(item.section_id) === targetId)).toBe(false);
+	});
+});
+
+// ===========================================================================
+// T1-19 / D01 — a LINK to a record must not be left dangling by a concurrent
+// DELETE of that record (WC-2026-11-12-locator-target-deleted-refused).
+//
+// THE RACE. The delete strips only the locators its ONE inverse search finds.
+// Before the protocol, a save adding a locator to the record being deleted
+// locked only its OWNER row, so it never met the delete: whichever order they
+// ran in, the save answered ok:true and its locator outlived the target forever.
+// THE PROTOCOL. The save takes FOR KEY SHARE on the target (before the owner,
+// held to COMMIT); the delete's FOR UPDATE on the target conflicts. Save first →
+// the delete waits and then strips the new locator; delete first → the save
+// waits and is REFUSED (owner ruling 2026-11-11: refuse, never drop).
+// Postgres is the clock (pg_blocking_pids), never a sleep; every wait is asserted.
+// ===========================================================================
+
+/** A plain portal locator, as the save door stores it. */
+function locatorTo(sectionId: number | string, from = PORTAL): Record<string, unknown> {
+	return { type: 'dd151', section_tipo: SECTION, section_id: sectionId, from_component_tipo: from };
+}
+
+/** An ordinary portal insert through the engine's save door. */
+function insertLink(ownerSectionId: number, targetSectionId: number | string, portal = PORTAL) {
+	return saveComponentData({
+		componentTipo: portal,
+		sectionTipo: SECTION,
+		sectionId: ownerSectionId,
+		lang: 'lg-nolan',
+		changedData: [
+			{ action: 'insert', value: { section_tipo: SECTION, section_id: String(targetSectionId) } },
+		],
+		userId: USER_ID,
+	});
+}
+
+/** One portal key of a record, read raw (no lock). */
+async function bagOf(sectionId: number, portal = PORTAL): Promise<Record<string, unknown>[]> {
+	const rows = (await sql.unsafe(
+		`SELECT relation->$1 AS items FROM "${TABLE}" WHERE section_tipo = $2 AND section_id = $3`,
+		[portal, SECTION, sectionId],
+	)) as { items: unknown }[];
+	const items = rows[0]?.items;
+	return Array.isArray(items) ? (items as Record<string, unknown>[]) : [];
+}
+
+/** Whether a bag points at `sectionId`. */
+function references(bag: readonly Record<string, unknown>[], sectionId: number): boolean {
+	return bag.some((item) => Number(item.section_id) === sectionId);
+}
+
+/** The error code of a rejected settle (null when it did not reject with a coded error). */
+function codeOf(settled: Settled<unknown> | { status: 'timeout' }): string | null {
+	if (settled.status !== 'rejected') return null;
+	const reason = settled.reason as { code?: unknown };
+	return typeof reason?.code === 'string' ? reason.code : null;
+}
+
+/**
+ * Run `work` in a transaction on its own connection and HOLD it open after the
+ * work settled, until release(): `ready` answers the backend pid + the work's
+ * outcome; a rejected work rolls its transaction back.
+ */
+function holdTransaction<T>(work: () => Promise<T>): {
+	ready: Promise<{ pid: number; outcome: Settled<T> }>;
+	release: () => void;
+	done: Promise<unknown>;
+} {
+	let release: () => void = () => {};
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	let signal: (value: { pid: number; outcome: Settled<T> }) => void = () => {};
+	const ready = new Promise<{ pid: number; outcome: Settled<T> }>((resolve) => {
+		signal = resolve;
+	});
+	const done = settle(
+		withTransaction(async () => {
+			const pid = await currentBackendPid();
+			const outcome = await settle(work());
+			signal({ pid, outcome });
+			if (outcome.status === 'rejected') throw outcome.reason;
+			await gate;
+		}),
+	);
+	return { ready, release: () => release(), done };
+}
+
+/** A fresh record of the gate's section. */
+function newRecord(): Promise<number> {
+	return createSectionRecord(SECTION, USER_ID);
+}
+
+/** The chokepoint target of a record of the gate's section. */
+function ownerTarget(sectionId: number): RecordWriteTarget {
+	return { table: TABLE, sectionTipo: SECTION, sectionId };
+}
+
+describe('T1-19 locator target vs a concurrent delete (D01)', () => {
+	test('R1 delete first: the link save WAITS on the delete, then is REFUSED — nothing dangles', async () => {
+		const target = await newRecord();
+		const owner = await newRecord();
+		const deletion = holdTransaction(() => deleteSectionRecord(SECTION, target, USER_ID));
+		const { pid, outcome: deleted } = await deletion.ready;
+		expect(deleted.status).toBe('fulfilled');
+		const save = settle(insertLink(owner, target));
+		// The save must meet the delete: blocked by ITS backend (identity, not timing).
+		const blocked = await waitUntilBlockedByN(pid, 1, 5_000);
+		deletion.release();
+		await deletion.done;
+		const saved = await save;
+		expect(blocked).toBe(true);
+		expect(codeOf(saved)).toBe('relation.target_deleted');
+		expect(references(await bagOf(owner), target)).toBe(false);
+		expect(
+			await findInverseReferenceLocators([{ section_tipo: SECTION, section_id: target }]),
+		).toEqual([]);
+	}, 30_000);
+
+	test('R2 save first: the delete WAITS for the save, then strips the new link', async () => {
+		const target = await newRecord();
+		const owner = await newRecord();
+		const save = holdTransaction(() => insertLink(owner, target));
+		const { pid, outcome: saved } = await save.ready;
+		expect(saved.status === 'fulfilled' && saved.value.ok).toBe(true);
+		const deletion = settle(deleteSectionRecord(SECTION, target, USER_ID));
+		const blocked = await waitUntilBlockedByN(pid, 1, 5_000);
+		save.release();
+		await save.done;
+		const deleted = await deletion;
+		expect(blocked).toBe(true);
+		expect(deleted.status === 'fulfilled' && deleted.value.removed).toBe(true);
+		// Non-vacuity: the link DID land (the save committed) — and the delete took it out.
+		expect(references(await bagOf(owner), target)).toBe(false);
+		expect(
+			await findInverseReferenceLocators([{ section_tipo: SECTION, section_id: target }]),
+		).toEqual([]);
+	}, 30_000);
+
+	test('R3 lock order: an owner that already links the target waits on the TARGET, not holding itself — no deadlock', async () => {
+		const target = await newRecord();
+		const owner = await newRecord();
+		const seeded = await insertLink(owner, target);
+		expect(seeded.ok).toBe(true);
+		let deleterPid = 0;
+		let entered: () => void = () => {};
+		const inDelete = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		let release: () => void = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		// The precondition runs right after the delete's FOR UPDATE on the target.
+		const deletion = settle(
+			deleteSectionRecord(SECTION, target, USER_ID, new Date(), {
+				precondition: async () => {
+					deleterPid = await currentBackendPid();
+					entered();
+					await gate;
+					return null;
+				},
+			}),
+		);
+		await inDelete;
+		const save = settle(insertLink(owner, target, PORTAL2));
+		const blocked = await waitUntilBlockedByN(deleterPid, 1, 5_000);
+		// The waiting save must NOT hold the owner row: the delete still has to rewrite it.
+		const ownerFree = await withTransaction(async () => {
+			try {
+				await sql.unsafe(
+					`SELECT section_id FROM "${TABLE}" WHERE section_tipo = $1 AND section_id = $2 FOR NO KEY UPDATE NOWAIT`,
+					[SECTION, owner],
+				);
+				return true;
+			} catch {
+				return false;
+			}
+		});
+		release();
+		const deleted = await deletion;
+		const saved = await save;
+		expect(blocked).toBe(true);
+		expect(ownerFree).toBe(true);
+		expect(deleted.status).toBe('fulfilled'); // never the 40P01 victim
+		expect(codeOf(saved)).toBe('relation.target_deleted');
+		expect(references(await bagOf(owner), target)).toBe(false);
+		expect(references(await bagOf(owner, PORTAL2), target)).toBe(false);
+	}, 30_000);
+
+	test('R4 the chokepoint itself refuses a link to a deleted record (key write AND atomic append)', async () => {
+		const target = await newRecord();
+		const owner = await newRecord();
+		const removed = await deleteSectionRecord(SECTION, target, USER_ID);
+		expect(removed.removed).toBe(true);
+		const keyWrite = await settle(
+			persistRecordKeys(
+				ownerTarget(owner),
+				[{ column: 'relation', key: PORTAL, value: [locatorTo(target)] }],
+				false,
+				{ actor: USER_ID },
+			),
+		);
+		expect(codeOf(keyWrite)).toBe('relation.target_deleted');
+		const append = await settle(
+			persistAppendedKeyItems(ownerTarget(owner), 'relation', PORTAL, [locatorTo(target)], false, {
+				actor: USER_ID,
+			}),
+		);
+		expect(codeOf(append)).toBe('relation.target_deleted');
+		expect(await bagOf(owner)).toEqual([]);
+	}, 30_000);
+
+	test('G1 lock-mode law: a save on a record another save is LINKING TO never waits (mutual links)', async () => {
+		const first = await newRecord();
+		const second = await newRecord();
+		const held = holdTransaction(() => insertLink(first, second));
+		const { outcome } = await held.ready;
+		expect(outcome.status === 'fulfilled' && outcome.value.ok).toBe(true);
+		// first→second is held open; second→first must complete meanwhile.
+		const mutual = await boundedRun(insertLink(second, first), 5_000);
+		held.release();
+		await held.done;
+		expect(mutual.status).toBe('fulfilled');
+		expect(mutual.status === 'fulfilled' && mutual.value.ok).toBe(true);
+		expect(references(await bagOf(first), second)).toBe(true);
+		expect(references(await bagOf(second), first)).toBe(true);
+	}, 30_000);
+
+	test('G3 a KEPT link to a deleted record is never re-judged: the record stays editable', async () => {
+		const gone = await newRecord();
+		const live = await newRecord();
+		const owner = await newRecord();
+		expect((await deleteSectionRecord(SECTION, gone, USER_ID)).removed).toBe(true);
+		// Pre-protocol residue, written through the exempt RESTORE entry.
+		await persistRestoredKeys(
+			ownerTarget(owner),
+			[{ column: 'relation', key: PORTAL, value: [{ ...locatorTo(gone), id: 1 }] }],
+			false,
+			{ actor: USER_ID },
+		);
+		expect(references(await bagOf(owner), gone)).toBe(true);
+		const saved = await insertLink(owner, live);
+		expect(saved.ok).toBe(true);
+		const bag = await bagOf(owner);
+		expect(references(bag, gone)).toBe(true);
+		expect(references(bag, live)).toBe(true);
+	}, 30_000);
+
+	test('G4 never-existed addresses and non-address ids are NOT judged (owner decision A open)', async () => {
+		const owner = await newRecord();
+		const forward = await insertLink(owner, 2_000_000_001);
+		expect(forward.ok).toBe(true);
+		const remote = await persistRecordKeys(
+			ownerTarget(owner),
+			[{ column: 'relation', key: PORTAL2, value: [locatorTo('001338683', PORTAL2)] }],
+			false,
+			{ actor: USER_ID },
+		).then(
+			() => 'ok',
+			(error: unknown) => String((error as { code?: unknown }).code ?? error),
+		);
+		expect(remote).toBe('ok');
+		// Verbatim: a remote id is never cast to an address.
+		expect((await bagOf(owner, PORTAL2))[0]?.section_id).toBe('001338683');
+	}, 30_000);
+
+	test('K7 the KEY SHARE door refuses outside a transaction (no lock would outlive the statement)', async () => {
+		const refused = await settle(
+			lockMatrixRowsForKeyShare([{ table: TABLE, sectionTipo: SECTION, sectionId: 1 }]),
+		);
+		expect(codeOf(refused)).toBe('internal.invariant');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// G5 — THE LOCK-MODE CENSUS (over the write-path corpus: src/, tools/, scripts/). A writer's `FOR UPDATE` on a matrix row conflicts
+// with the `FOR KEY SHARE` of every save linking to that row: mutual links
+// deadlock and a link to a hot record blocks every edit of it. So `FOR UPDATE`
+// is legal ONLY where the transaction DELETES the row it locks (or on a row that
+// is never a locator target), each named here with its reason — exact counts,
+// shrink-only. Every other writer lock is `FOR NO KEY UPDATE`.
+// ---------------------------------------------------------------------------
+
+const DELETING_ROW_LOCKS: Readonly<Record<string, { count: number; reason: string }>> = {
+	'src/core/section/record/delete_record.ts': {
+		count: 1,
+		reason:
+			"lockRecordSnapshot: the record delete's own target, DELETED in the same transaction — the " +
+			'conflicting half of the locator-target protocol (T1-19)',
+	},
+	'src/core/ontology/hierarchy_state.ts': {
+		count: 2,
+		reason: 'lockTeardownRows: the <tld>0 records and the ontology35 row the teardown DELETES',
+	},
+	'src/diffusion/jobs/queue.ts': {
+		count: 2,
+		reason:
+			'diffusion job-queue claim (FOR UPDATE SKIP LOCKED): a queue row, never a locator target',
+	},
+};
+
+/** The `FOR UPDATE` (not `FOR NO KEY UPDATE`) occurrences on non-comment lines of a source. */
+function forUpdateCount(source: string): number {
+	let count = 0;
+	for (const line of source.split('\n')) {
+		const trimmed = line.trim();
+		if (/^(\*|\/\/|\/\*|--)/.test(trimmed)) continue;
+		count += (line.match(/(?<!NO KEY )\bFOR UPDATE\b/g) ?? []).length;
+	}
+	return count;
+}
+
+describe('T1-19 G5: the lock-mode census', () => {
+	test('every FOR UPDATE row lock is a named DELETING lock (exact counts)', () => {
+		const corpus = writePathSourceFiles();
+		expect(corpus.length).toBeGreaterThan(WRITE_PATH_CORPUS_FLOOR);
+		const found: Record<string, number> = {};
+		for (const file of corpus) {
+			const count = forUpdateCount(readFileSync(join(REPO_ROOT, file), 'utf-8'));
+			if (count > 0) found[file] = count;
+		}
+		const expected = Object.fromEntries(
+			Object.entries(DELETING_ROW_LOCKS).map(([file, entry]) => [file, entry.count]),
+		);
+		expect(found).toEqual(expected);
+	});
+
+	test('positive control: the scanner counts a planted writer FOR UPDATE and spares the others', () => {
+		expect(forUpdateCount('\tconst r = await sql`SELECT 1 FROM t FOR UPDATE`;')).toBe(1);
+		expect(forUpdateCount('\tconst r = await sql`SELECT 1 FROM t FOR NO KEY UPDATE`;')).toBe(0);
+		expect(forUpdateCount(' * a comment naming FOR UPDATE')).toBe(0);
+		expect(forUpdateCount('\t\t -- FOR UPDATE SKIP LOCKED')).toBe(0);
+	});
+
+	test('every record-write KEY ENTRY declares its locator-target law (verify / exempt + reason)', () => {
+		const source = readFileSync(
+			join(REPO_ROOT, 'src/core/section_record/record_write.ts'),
+			'utf-8',
+		);
+		const entries = [...source.matchAll(/door: '(persist\w+)',\n\s*law:([\s\S]*?)\n\t*\}\);/g)];
+		expect(entries.length).toBeGreaterThanOrEqual(6); // the five key entries + the append
+		for (const [, door, body] of entries) {
+			expect(
+				/targets: ('verify'|\{\s*exempt:)/.test(body ?? ''),
+				`${door} declares no targets`,
+			).toBe(true);
+		}
+		const verified = entries
+			.filter(([, , body]) => /targets: 'verify'/.test(body ?? ''))
+			.map(([, door]) => door)
+			.sort();
+		expect(verified).toEqual([
+			'persistAppendedKeyItems',
+			'persistObserverResaveKeys',
+			'persistRecordKeys',
+		]);
 	});
 });

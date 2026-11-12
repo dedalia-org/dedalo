@@ -321,6 +321,7 @@
 	"error_relation_insert_refused": "The link into '${section_tipo}' was refused (${constraint})",
 	"error_relation_record_cycle_stopped": "Record ${section_tipo} ${section_id} refers back to itself through ${tipo} (depth ${depth}); the repeat was not expanded (further cycles: ${more})",
 	"error_relation_subtree_too_large": "The requested subtree is too large to expand (${limit} cap ${cap})",
+	"error_relation_target_deleted": "The linked record ${section_tipo} was deleted: remove the link (or restore the record from Time Machine) and save again",
 	"error_request_invalid": "The request is invalid",
 	"error_request_invalid_context": "The page context could not be built",
 	"error_request_invalid_data": "The request data is invalid or incomplete",

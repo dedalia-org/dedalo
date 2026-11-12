@@ -1454,7 +1454,7 @@ function registryTld(row: RegistryRow | null): string | null {
 async function lockRegistryRow(sectionId: number): Promise<RegistryRow | null> {
 	const rows = (await sql.unsafe(
 		`SELECT relation, string FROM "${HIERARCHY_MAIN_TABLE}"
-		 WHERE section_tipo = $1 AND section_id = $2 FOR UPDATE`,
+		 WHERE section_tipo = $1 AND section_id = $2 FOR NO KEY UPDATE`,
 		[HIERARCHY_SECTION, sectionId],
 	)) as RegistryRow[];
 	return rows[0] ?? null;

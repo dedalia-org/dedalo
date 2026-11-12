@@ -331,6 +331,19 @@ Merged since the last release; these ship with the next one.
     in the requested view, in edit and list alike, and a child's own `view` is honoured when
     the field asks for none.
 
+- **Linking to a record that was just deleted is now refused instead of leaving a broken link.**
+
+    When one person linked a record (in a portal, an autocomplete, a dataframe…) at the same
+    moment another person deleted that record, the save answered OK and the link stayed behind
+    pointing at nothing — and nobody was told. The two operations now wait for each other:
+    if the link was saved first, the delete removes it like every other link to the deleted
+    record; if the delete came first, the save is refused with the message "The linked record
+    … was deleted — remove the link (or restore the record from Time Machine) and save again",
+    and nothing is written. Links that a record already carried are not affected, so a record
+    with an older broken link stays editable.
+
+    Wire contract: `WC-2026-11-12-locator-target-deleted-refused`.
+
 - **Archive weight statistics and coins-by-period counts are correct again**
 
     The weight and diameter statistics of a numismatic archive counted coins marked as not used or
@@ -986,7 +999,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 46 entries"
+??? note "Wire contract — 47 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1026,6 +1039,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-global-table-maps`
     - `WC-2026-11-12-image-id-media-file-stem`
     - `WC-2026-11-12-info-live-publication-export`
+    - `WC-2026-11-12-locator-target-deleted-refused`
     - `WC-2026-11-12-marc21-config-map-and-transforms`
     - `WC-2026-11-12-numisdata-widgets-locator-law`
     - `WC-2026-11-12-posterframe-identifying-image-scope`

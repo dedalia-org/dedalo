@@ -309,12 +309,12 @@ async function lockProvisioningRows(
 	tld: string,
 ): Promise<void> {
 	await sql.unsafe(
-		`SELECT section_id FROM "${table}" WHERE section_tipo = $1 AND section_id = $2 FOR UPDATE`,
+		`SELECT section_id FROM "${table}" WHERE section_tipo = $1 AND section_id = $2 FOR NO KEY UPDATE`,
 		[sectionTipo, sectionId],
 	);
 	await sql.unsafe(
 		`SELECT section_id FROM "matrix_ontology_main"
-		 WHERE section_tipo = 'ontology35' AND string @> $1::text::jsonb ORDER BY section_id FOR UPDATE`,
+		 WHERE section_tipo = 'ontology35' AND string @> $1::text::jsonb ORDER BY section_id FOR NO KEY UPDATE`,
 		[JSON.stringify({ hierarchy6: [{ value: tld }] })],
 	);
 }

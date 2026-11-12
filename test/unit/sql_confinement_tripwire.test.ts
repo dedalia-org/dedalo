@@ -86,6 +86,9 @@ import {
  */
 const sourceFiles = writePathSourceFiles;
 
+/** A writer's row lock (P0-3): `FOR UPDATE`, or `FOR NO KEY UPDATE` under the lock-mode law (T1-19 / D01). */
+const WRITER_ROW_LOCK = /FOR\s+(NO\s+KEY\s+)?UPDATE\b/i;
+
 describe('census corpus', () => {
 	test('the shared write-path corpus is populated and includes scripts/', () => {
 		const files = sourceFiles();
@@ -778,7 +781,7 @@ describe('T2 — matrix DML confinement (one writer per table family)', () => {
 				isMatrixScopedTarget(file, literal.text),
 			);
 			const unlocked = literals.filter(
-				(literal) => hasUnlockedJsonbRead(literal.text) && !/FOR\s+UPDATE\b/i.test(literal.text),
+				(literal) => hasUnlockedJsonbRead(literal.text) && !WRITER_ROW_LOCK.test(literal.text),
 			);
 			const bound = literals.filter((literal) => T2_BOUND_JSONB_UPDATE.test(literal.text));
 			if (unlocked.length === 0 || bound.length === 0) continue;
@@ -975,6 +978,9 @@ describe('T2 — matrix DML confinement (one writer per table family)', () => {
 		expect(hasUnlockedJsonbRead('SELECT * FROM dedalo_ts_component_locks')).toBe(false);
 		expect(hasUnlockedJsonbRead(`${unlockedRead} FOR UPDATE`)).toBe(true); // the lock is checked separately
 		expect(/FOR\s+UPDATE\b/i.test(`${unlockedRead} FOR UPDATE`)).toBe(true);
+		// The lock-mode law (T1-19): the writer's lock is FOR NO KEY UPDATE — also a lock.
+		expect(WRITER_ROW_LOCK.test(`${unlockedRead} FOR NO KEY UPDATE`)).toBe(true);
+		expect(WRITER_ROW_LOCK.test(`${unlockedRead} FOR KEY SHARE`)).toBe(false);
 		// The write half in MERGE's and the schema-qualified spelling.
 		expect(
 			T2_BOUND_JSONB_UPDATE.test(

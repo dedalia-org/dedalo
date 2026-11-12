@@ -298,8 +298,15 @@ export async function updateMatrixKeysData(
 }
 
 /**
- * Read ONE jsonb key of a matrix row under a `FOR UPDATE` row lock (T2 — matrix
- * SQL lives in this module).
+ * Read ONE jsonb key of a matrix row under a `FOR NO KEY UPDATE` row lock (T2 —
+ * matrix SQL lives in this module). The name keeps "ForUpdate" (it is the
+ * writer's lock); the strength is the LOCK-MODE LAW (T1-19 / D01,
+ * WC-2026-11-12-locator-target-deleted-refused): a door that does not DELETE the
+ * row takes `FOR NO KEY UPDATE` — the same mutual exclusion among writers
+ * (FNKU⊥FNKU, FNKU⊥FOR SHARE, FNKU⊥DELETE) — and never conflicts with the
+ * `FOR KEY SHARE` a save takes on the records its locators point at
+ * (lockMatrixRowsForKeyShare). `FOR UPDATE` is kept for the doors that DELETE
+ * the row they lock (gate: locator_target_delete_race_native, census leg).
  *
  * A read-modify-write of a component key is only safe if the read holds the row
  * lock to COMMIT: `updateMatrixKeysData` replaces the WHOLE key value, so an
@@ -352,7 +359,7 @@ type KeyLockStrength = 'UPDATE' | 'SHARE';
 
 /** Per strength: the door name its refusals carry and its lock clause. */
 const KEY_LOCK: Readonly<Record<KeyLockStrength, { door: string; clause: string }>> = {
-	UPDATE: { door: 'readMatrixKeyForUpdate', clause: 'FOR UPDATE' },
+	UPDATE: { door: 'readMatrixKeyForUpdate', clause: 'FOR NO KEY UPDATE' },
 	SHARE: { door: 'readMatrixKeyForShare', clause: 'FOR SHARE' },
 };
 
@@ -419,7 +426,8 @@ export interface MatrixRowRef {
 }
 
 /**
- * Take `FOR UPDATE` row locks on a SET of matrix rows in ONE global order — the
+ * Take `FOR NO KEY UPDATE` row locks (the writer's lock — see the lock-mode law
+ * on readMatrixKeyForUpdate) on a SET of matrix rows in ONE global order — the
  * tree's sibling rewrites (relations/parent.ts recalculateSiblingOrders /
  * sortChildren) lock every row they may rewrite through this, BEFORE the
  * first read, so two rewrites over overlapping siblings can never lock in
@@ -440,7 +448,7 @@ export async function lockMatrixRowsForUpdate(rows: readonly MatrixRowRef[]): Pr
 	if (!isInTransaction()) {
 		throw new DedaloError('internal.invariant', {
 			message:
-				'lockMatrixRowsForUpdate: FOR UPDATE outside a transaction holds no lock past the ' +
+				'lockMatrixRowsForUpdate: FOR NO KEY UPDATE outside a transaction holds no lock past the ' +
 				'statement — wrap the rewrite in withTransaction',
 			coordinates: { rows: rows.length },
 		});
@@ -449,10 +457,55 @@ export async function lockMatrixRowsForUpdate(rows: readonly MatrixRowRef[]): Pr
 		await sql.unsafe(
 			`SELECT section_id FROM "${group.table}"
 			 WHERE section_tipo = $1 AND section_id = ANY($2::int[])
-			 ORDER BY section_id FOR UPDATE`,
+			 ORDER BY section_id FOR NO KEY UPDATE`,
 			[group.sectionTipo, `{${group.ids.join(',')}}`],
 		);
 	}
+}
+
+/**
+ * Take `FOR KEY SHARE` row locks on a SET of matrix rows — the records a save's
+ * locators point at (T1-19 / D01, section_record/locator_targets.ts) — in the
+ * same ONE global order as lockMatrixRowsForUpdate, and answer the rows that
+ * EXIST (a missing row locks nothing).
+ *
+ * `FOR KEY SHARE` is the weakest lock that CONFLICTS with a DELETE (and with
+ * `FOR UPDATE`, which the record delete takes on its target first —
+ * delete_record.ts lockRecordSnapshot) and with NOTHING a writer takes
+ * (`FOR NO KEY UPDATE`, a plain UPDATE): a save holding it keeps the target
+ * alive until its COMMIT, so the delete's inverse search (a later statement)
+ * sees the new locator; a save that waited on a delete that COMMITTED gets the
+ * row back as absent (READ COMMITTED re-check) and refuses. MUST run inside
+ * withTransaction (same refusal as the writer's lock), even for an empty set.
+ */
+export async function lockMatrixRowsForKeyShare(
+	rows: readonly MatrixRowRef[],
+): Promise<MatrixRowRef[]> {
+	if (!isInTransaction()) {
+		throw new DedaloError('internal.invariant', {
+			message:
+				'lockMatrixRowsForKeyShare: FOR KEY SHARE outside a transaction holds no lock past the ' +
+				'statement — wrap the write in withTransaction',
+			coordinates: { rows: rows.length },
+		});
+	}
+	const present: MatrixRowRef[] = [];
+	for (const group of groupRowsForLocking(rows)) {
+		const found = (await sql.unsafe(
+			`SELECT section_id FROM "${group.table}"
+			 WHERE section_tipo = $1 AND section_id = ANY($2::int[])
+			 ORDER BY section_id FOR KEY SHARE`,
+			[group.sectionTipo, `{${group.ids.join(',')}}`],
+		)) as { section_id: number }[];
+		for (const row of found) {
+			present.push({
+				table: group.table,
+				sectionTipo: group.sectionTipo,
+				sectionId: Number(row.section_id),
+			});
+		}
+	}
+	return present;
 }
 
 /** Group, validate and order the rows of one lock batch (see lockMatrixRowsForUpdate). */
@@ -465,7 +518,7 @@ function groupRowsForLocking(
 		const id = Math.trunc(Number(row.sectionId));
 		if (!Number.isSafeInteger(id)) {
 			throw new DedaloError('internal.invariant', {
-				message: `lockMatrixRowsForUpdate: section_id '${String(row.sectionId)}' is not an integer`,
+				message: `matrix row lock: section_id '${String(row.sectionId)}' is not an integer`,
 				coordinates: { table: row.table, section_tipo: row.sectionTipo },
 			});
 		}
