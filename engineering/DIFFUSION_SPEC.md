@@ -657,7 +657,9 @@ one registered writer.
   `SectionPlan.rdfClass` (`plan/rdf_compile.ts` — its data-reading properties
   are FieldPlans compiled by the same chain compiler and read by the ONE
   walker), `resolve/rdf_graph.ts` builds the graph (dd1010 base IRIs, typed
-  literals, nested portal nodes, linked class subjects in the same document),
+  literals, nested portal nodes, linked class subjects in the same document —
+  each linked record behind the §8 item 8 frontier; a record whose subject IRI
+  cannot be built is withdrawn, `unpublish`, never left stale),
   and `writers/rdf_xml_serialiser.ts` serialises it byte-equal to EasyRdf 1.19;
   `writeRows` refuses, `writeGraphs` writes. The merged document declares the
   union of the parts' xmlns. Divergences: `WC-2026-11-12-rdf-graph-interpretation`.
@@ -880,7 +882,10 @@ gates. The standing rule: no third resolution walker may ever be written.
    could read it set it. `diffuse` therefore stays enqueueable by non-admins:
    with DIFF-B stripping `skip_publication_state_check` and clamping `levels`,
    a scoped caller can only move records inside their own scope, under the
-   per-record publication gate (item 5). Gate:
+   per-record publication gate (item 5). An rdf run queues no frontier, but
+   a record its `rdf` link nodes INLINE into the public document passes the
+   same two keys (door `diffusion.frontier`) and is dropped the same way
+   (T1-4 review; gate `diffusion_rdf_graph_native`). Gate:
    `test/unit/diffusion_frontier_scope_native.test.ts` (the flag ↔ frontier
    census and the drop-and-ledger law); class gate `frontier_class_native`.
 

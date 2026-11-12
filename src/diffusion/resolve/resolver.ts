@@ -2378,10 +2378,46 @@ async function processRecord(
 const RDF_SUBJECT_ERROR_FIELD = '(rdf subject)';
 
 /**
+ * DIFF-C for an rdf-INLINED record (T1-4 review). An rdf run queues no
+ * frontier, but a record an `rdf` link inlines lands in the PUBLIC document
+ * exactly like a frontier row lands in the public table — so it passes the
+ * SAME two keys processBatch applies to the frontier (section grant, then
+ * record scope; door 'diffusion.frontier') for a principal that is not a
+ * global admin. Refused ⇒ dropped with the `[frontier] REFUSED` ledger line,
+ * never read, never unpublished (DIFFUSION_SPEC §8 item 8).
+ */
+async function rdfLinkFrontierAllowed(
+	ctx: RunContext,
+	sectionTipo: string,
+	sectionId: number | string,
+): Promise<boolean> {
+	const runPrincipal = ctx.options.principal;
+	if (runPrincipal === undefined || runPrincipal.isGlobalAdmin) return true;
+	const scope: FrontierScope = {
+		principal: runPrincipal,
+		surface: 'diffusion',
+		door: 'diffusion.frontier',
+	};
+	const table = await matrixTableOf(ctx, sectionTipo);
+	const sectionReadable =
+		table !== null &&
+		(await frontierComponentAllowed(scope, { sectionTipo, componentTipo: sectionTipo, table }));
+	if (sectionReadable && (await frontierRecordAllowed(scope, sectionTipo, sectionId))) return true;
+	noteFrontierRefusal(scope, {
+		surface: 'diffusion',
+		door: 'diffusion.frontier',
+		sectionTipo,
+		sectionId,
+		key: sectionReadable ? 'record' : 'component',
+	});
+	return false;
+}
+
+/**
  * The builder's view of this run: the ONE walker at level 0 (an rdf run
  * queues no frontier — PHP diffuse_rdf publishes the selection and inlines
  * linked records through `rdf` link nodes), the run's record cache, the
- * publication gate a linked record must pass.
+ * publication gate and the DIFF-C frontier a linked record must pass.
  */
 function rdfGraphEnvOf(ctx: RunContext): RdfGraphEnv {
 	return {
@@ -2405,6 +2441,7 @@ function rdfGraphEnvOf(ctx: RunContext): RdfGraphEnv {
 			if (override !== null && override !== undefined) return override;
 			return isRecordPublishable(ctx, record);
 		},
+		linkAllowed: (sectionTipo, sectionId) => rdfLinkFrontierAllowed(ctx, sectionTipo, sectionId),
 		iriTitles: (record, iriTipo) => iriTitlesByItemId(ctx, record, iriTipo),
 		baseMemo: ctx.rdfBaseMemo,
 		maxLinkItems: ctx.maxLevels,
@@ -2451,14 +2488,20 @@ async function processRdfRecord(
 		return { record: recordIr, graph: built.graph, errors };
 	} catch (error) {
 		// No subject IRI: the record is NOT written (a document without a valid
-		// identity is worse than none) — named in the run report.
+		// identity is worse than none) — named in the run report — and FAILS
+		// CLOSED like the gate failure above (T1-4 review): status 'unpublish',
+		// so the runner WITHDRAWS its previous public document (removeRecords)
+		// and writes no dd1758 'published' row for a record it did not publish.
+		// Keeping the old file would serve content the record may no longer
+		// carry, at a deterministic URL, outside the run's own manifest.
 		errors.push({
 			sectionTipo: record.section_tipo,
 			sectionId: record.section_id,
 			fieldId: RDF_SUBJECT_ERROR_FIELD,
 			columnName: RDF_SUBJECT_ERROR_FIELD,
-			message: `record NOT written: ${error instanceof Error ? error.message : String(error)}`,
+			message: `record NOT written (REMOVED from the public site): ${error instanceof Error ? error.message : String(error)}`,
 		});
+		recordIr.status = 'unpublish';
 		return { record: recordIr, graph: null, errors };
 	}
 }

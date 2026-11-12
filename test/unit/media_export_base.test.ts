@@ -177,4 +177,17 @@ describe('the suite posture — languages (C3-40)', () => {
 			process.env.PROJECTS_DEFAULT_LANGS ?? process.env.DEDALO_PROJECTS_DEFAULT_LANGS,
 		).toBeDefined();
 	});
+
+	test('the PUBLICATION languages are pinned too: a developer DEDALO_DIFFUSION_LANGS never reaches a pinned diffusion document (T1-4 review)', async () => {
+		// The plan's main lang is langs[0] and its lang set orders every
+		// literal: diffusion_rdf_graph_native pins a document over them.
+		const pinned = SUITE_LANGS.DEDALO_DIFFUSION_LANGS;
+		expect(pinned, 'SUITE_LANGS must pin DEDALO_DIFFUSION_LANGS').toBeDefined();
+		const { config } = await import('../../src/config/config.ts');
+		if (process.env.DEDALO_DIFFUSION_LANGS === pinned) {
+			expect([...config.diffusion.langs]).toEqual(JSON.parse(pinned ?? '[]'));
+		}
+		// …and the pin equals what the unset key derives (CI's old value).
+		expect(JSON.parse(pinned ?? '[]')).toEqual(SUITE_PROJECT_LANGS);
+	});
 });

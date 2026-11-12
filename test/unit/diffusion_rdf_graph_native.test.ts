@@ -23,8 +23,10 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { activityTable } from '../../src/core/diffusion_bridge/diffusion_delete.ts';
+import type { Principal } from '../../src/core/security/permissions.ts';
 import {
 	claimNextQueuedJob,
 	deleteJobsForTests,
@@ -45,6 +47,13 @@ import { type ResolvedBatch, resolvePublication } from '../../src/diffusion/reso
 import { runJob } from '../../src/diffusion/runner.ts';
 import { rdfRecordFileName } from '../../src/diffusion/writers/rdf.ts';
 import { serialiseRdfXml } from '../../src/diffusion/writers/rdf_xml_serialiser.ts';
+import {
+	ACL_NON_ADMIN_PROFILE_ID,
+	ACL_NON_ADMIN_USER_ID,
+	clearAclIdentityCaches,
+	installAclIdentityFixture,
+	removeAclIdentityFixture,
+} from '../helpers/acl_identity_fixture.ts';
 import { ensureDiffusionScratchTables } from '../helpers/diffusion_scratch_tables.ts';
 import { scratchMediaRoot } from '../helpers/media_scratch_root.ts';
 import {
@@ -141,13 +150,39 @@ function setEnv(key: string, value: string): void {
 	process.env[key] = value;
 }
 
-async function resolveTypes(maxLevels: number): Promise<ResolvedBatch[]> {
+/**
+ * The shared ACL fixture's non-admin user, granted the TYPE section only (by
+ * this file): it may diffuse its own types, it may NOT read the objects.
+ */
+const SCOPED: Principal = {
+	userId: ACL_NON_ADMIN_USER_ID,
+	isGlobalAdmin: false,
+	isDeveloper: false,
+};
+
+async function grantTypeSectionToScopedProfile(): Promise<void> {
+	await sql.unsafe(
+		`UPDATE matrix_profiles
+		 SET misc = jsonb_set(COALESCE(misc, '{}'::jsonb), '{dd774}', COALESCE(misc->'dd774', '[]'::jsonb) || $2::text::jsonb)
+		 WHERE section_tipo = 'dd234' AND section_id = $1`,
+		[
+			ACL_NON_ADMIN_PROFILE_ID,
+			encodeForJsonb([
+				{ id: 90, tipo: ZZDIF_RDF_TYPE_SECTION, section_tipo: ZZDIF_RDF_TYPE_SECTION, value: 2 },
+			]),
+		],
+	);
+	clearAclIdentityCaches();
+}
+
+async function resolveTypes(maxLevels: number, principal?: Principal): Promise<ResolvedBatch[]> {
 	const batches: ResolvedBatch[] = [];
 	for await (const batch of resolvePublication(plan, {
 		sectionTipo: ZZDIF_RDF_TYPE_SECTION,
 		runStartedAt: RUN_STARTED_AT,
 		tree,
 		maxLevels,
+		...(principal !== undefined ? { principal } : {}),
 	})) {
 		batches.push(batch);
 	}
@@ -184,6 +219,8 @@ beforeAll(async () => {
 	pauseScheduler();
 	await ensureZzdifDomain();
 	await ensureRdfServicesRecord(ZZDIF_RDF_SERVICE_TYPE, ZZDIF_RDF_BASES);
+	await installAclIdentityFixture();
+	await grantTypeSectionToScopedProfile();
 	const built = await buildVirtualDiffusionTree(ZZDIF_DOMAIN_NAME);
 	if (built === null) throw new Error(`no dd1190 domain node is named '${ZZDIF_DOMAIN_NAME}'`);
 	tree = built;
@@ -214,6 +251,10 @@ afterAll(async () => {
 		if (filesRoot !== undefined) rmSync(filesRoot, { recursive: true, force: true });
 	});
 	await step(() => removeRdfServicesRecord());
+	await step(async () => {
+		await removeAclIdentityFixture();
+		clearAclIdentityCaches();
+	});
 	await step(async () => {
 		const residue = await dropZzdifDomain();
 		if (residue !== 0) throw new Error(`zzdif situation residue after drop: ${residue} rows`);
@@ -308,8 +349,46 @@ describe('resolve: one published record → one graph document', () => {
 		expect([...documents.keys()].sort()).toEqual([FULL_TYPE, MINIMAL_TYPE]);
 	});
 
+	test('the pinned document is measured under the SUITE publication langs, not a developer .env (T1-4 review)', () => {
+		// FULL_TYPE_DOCUMENT assumes main lang lg-spa and lg-eng published:
+		// es before en, the ex:note tag, the en ex:label slot filled from spa.
+		// test/helpers/suite_posture.ts pins DEDALO_DIFFUSION_LANGS for that.
+		expect(plan.langPolicy.langs[0]).toBe('lg-spa');
+		expect(plan.langPolicy.langs).toContain('lg-eng');
+	});
+
 	test('the full record publishes the pinned document', () => {
 		expect(documents.get(FULL_TYPE)).toBe(FULL_TYPE_DOCUMENT);
+	});
+
+	test('DIFF-C: a scoped principal never inlines a linked record it cannot read — dropped, ledgered (T1-4 review)', async () => {
+		const refusals: string[] = [];
+		const originalWarn = console.warn;
+		console.warn = (...args: unknown[]) => {
+			const line = args.map(String).join(' ');
+			if (line.includes('[frontier] REFUSED')) refusals.push(line);
+			originalWarn(...args);
+		};
+		let scoped: ResolvedBatch[];
+		try {
+			scoped = await resolveTypes(2, SCOPED);
+		} finally {
+			console.warn = originalWarn;
+		}
+		const scopedDocuments = documentsOf(scoped);
+		// Non-degenerate: the scoped caller's OWN type is published…
+		const document = scopedDocuments.get(FULL_TYPE);
+		expect(document).toContain('<nmo:TypeSeriesItem rdf:about="https://example.test/type/type-1">');
+		// …and the unscoped (admin-less, principal-less) run DOES inline objects.
+		expect(documentsOf(await resolveTypes(2)).get(FULL_TYPE)).toContain('nmo:NumismaticObject');
+		// The objects section is not the caller's: nothing of it is inlined.
+		for (const published of scopedDocuments.values()) {
+			expect(published).not.toContain('nmo:NumismaticObject');
+			expect(published).not.toContain('https://example.test/object/');
+		}
+		expect(scoped.flatMap((batch) => batch.errors)).toEqual([]);
+		expect(refusals.some((line) => line.includes(ZZDIF_RDF_OBJECT_SECTION))).toBe(true);
+		expect(refusals.every((line) => line.includes('diffusion/diffusion.frontier'))).toBe(true);
 	});
 
 	test('a record with only a title still gets its subject; empty properties publish nothing', () => {
@@ -334,13 +413,23 @@ describe('resolve: one published record → one graph document', () => {
 		try {
 			const refused = await resolveTypes(1);
 			expect(refused.flatMap((batch) => batch.graphs ?? [])).toEqual([]);
+			// FAIL CLOSED (T1-4 review): an unwritable record is WITHDRAWN —
+			// status 'unpublish' + unpublishIds, so its previous file goes.
+			const records = refused.flatMap((batch) => batch.records);
+			expect(records.map((record) => record.status)).toEqual(['unpublish', 'unpublish']);
+			expect(
+				refused
+					.flatMap((batch) => batch.unpublishIds)
+					.map(Number)
+					.sort(),
+			).toEqual([FULL_TYPE, MINIMAL_TYPE]);
 			const errors = refused.flatMap((batch) => batch.errors);
 			expect(errors.map((error) => Number(error.sectionId)).sort()).toEqual([
 				FULL_TYPE,
 				MINIMAL_TYPE,
 			]);
 			for (const error of errors) {
-				expect(error.message).toContain('record NOT written');
+				expect(error.message).toContain('record NOT written (REMOVED from the public site)');
 				expect(error.message).toContain("no base IRI titled 'nmo:TypeSeriesItem'");
 			}
 		} finally {
@@ -348,6 +437,30 @@ describe('resolve: one published record → one graph document', () => {
 		}
 	});
 });
+
+/** Enqueue the rdf element over the type section, claim it, run it once. */
+async function enqueueAndRun(): Promise<string> {
+	const { job, attached } = await enqueueDiffusionJob({
+		ownerUserId: OWNER,
+		clientProcessId: `process_diffusion_${OWNER}_${ZZDIF_RDF_ELEMENT}_${ZZDIF_RDF_TYPE_SECTION}`,
+		spec: {
+			diffusion_element_tipo: ZZDIF_RDF_ELEMENT,
+			section_tipo: ZZDIF_RDF_TYPE_SECTION,
+			type: 'rdf',
+			sqo: { section_tipo: ZZDIF_RDF_TYPE_SECTION },
+			estimated_total: ZZDIF_RDF_TYPE_IDS.length,
+			options: {},
+		},
+	});
+	createdJobIds.push(job.job_id);
+	if (attached) throw new Error('attached to a pre-existing active rdf run');
+	const claimed = await claimNextQueuedJob('diffusion_rdf_graph_native');
+	if (claimed === null || claimed.job_id !== job.job_id) {
+		throw new Error(`claimed ${claimed?.job_id ?? 'nothing'} instead of ${job.job_id}`);
+	}
+	await runJob(claimed.job_id, claimed.attempt);
+	return job.job_id;
+}
 
 describe('runJob: the rdf element publishes one file per record + the merged document', () => {
 	let outputDir: string;
@@ -360,26 +473,8 @@ describe('runJob: the rdf element publishes one file per record + the merged doc
 		const stale = (await listActiveJobs()).filter((row) => row.state === 'queued');
 		await deleteJobsForTests(stale.map((row) => row.job_id));
 		await deleteActivityRows();
-		const { job, attached } = await enqueueDiffusionJob({
-			ownerUserId: OWNER,
-			clientProcessId: `process_diffusion_${OWNER}_${ZZDIF_RDF_ELEMENT}_${ZZDIF_RDF_TYPE_SECTION}`,
-			spec: {
-				diffusion_element_tipo: ZZDIF_RDF_ELEMENT,
-				section_tipo: ZZDIF_RDF_TYPE_SECTION,
-				type: 'rdf',
-				sqo: { section_tipo: ZZDIF_RDF_TYPE_SECTION },
-				estimated_total: ZZDIF_RDF_TYPE_IDS.length,
-				options: {},
-			},
-		});
-		createdJobIds.push(job.job_id);
-		if (attached) throw new Error('attached to a pre-existing active rdf run');
-		const claimed = await claimNextQueuedJob('diffusion_rdf_graph_native');
-		if (claimed === null || claimed.job_id !== job.job_id) {
-			throw new Error(`claimed ${claimed?.job_id ?? 'nothing'} instead of ${job.job_id}`);
-		}
-		await runJob(claimed.job_id, claimed.attempt);
-		const finished = await getJobById(job.job_id);
+		const jobId = await enqueueAndRun();
+		const finished = await getJobById(jobId);
 		expect(finished?.state).toBe('completed');
 		expect(finished?.result?.errors).toEqual([]);
 		outputDir = join(filesRoot, 'rdf', ZZDIF_RDF_SERVICE_NAME);
@@ -412,4 +507,36 @@ describe('runJob: the rdf element publishes one file per record + the merged doc
 		expect(merged).toContain('rdf:about="https://example.test/type/type-2"');
 		expect(merged).toContain(`xmlns:ex="${ZZDIF_RDF_EX_NAMESPACE}"`);
 	});
+
+	test('the services record is gone: the re-run WITHDRAWS every stale file and logs NO dd1758 published row (T1-4 review)', async () => {
+		const section = typeSectionPlan();
+		const activityCount = async (): Promise<number> => {
+			const rows = (await sql.unsafe(
+				`SELECT count(*)::int AS n FROM "${activityTable()}" WHERE section_tipo = 'dd1758'
+				   AND relation->'dd1763'->0->>'section_tipo' = $1`,
+				[ZZDIF_RDF_TYPE_SECTION],
+			)) as { n: number }[];
+			return rows[0]?.n ?? 0;
+		};
+		// Non-degenerate: the first run published both files and logged them.
+		const before = await activityCount();
+		expect(before).toBe(ZZDIF_RDF_TYPE_IDS.length);
+		for (const id of ZZDIF_RDF_TYPE_IDS) {
+			expect(existsSync(join(outputDir, rdfRecordFileName(section, id)))).toBe(true);
+		}
+		await removeRdfServicesRecord();
+		try {
+			const jobId = await enqueueAndRun();
+			const finished = await getJobById(jobId);
+			const errors = JSON.stringify(finished?.result?.errors ?? null);
+			expect(errors).toContain('record NOT written (REMOVED from the public site)');
+			for (const id of ZZDIF_RDF_TYPE_IDS) {
+				const path = join(outputDir, rdfRecordFileName(section, id));
+				expect(existsSync(path), `stale public document left live: ${path}`).toBe(false);
+			}
+			expect(await activityCount()).toBe(before);
+		} finally {
+			await ensureRdfServicesRecord(ZZDIF_RDF_SERVICE_TYPE, ZZDIF_RDF_BASES);
+		}
+	}, 120_000);
 });

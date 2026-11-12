@@ -36,6 +36,15 @@ export const SUITE_LANGS: Readonly<Record<string, string>> = Object.freeze({
 	DEDALO_DATA_LANG_DEFAULT: 'lg-spa',
 	PROJECTS_DEFAULT_LANGS:
 		'["lg-spa","lg-cat","lg-vlca","lg-eus","lg-eng","lg-por","lg-fra","lg-ara","lg-ell","lg-deu","lg-ita","lg-nep"]',
+	// THE PUBLICATION LANGUAGES (T1-4 review). Unset, config derives them from
+	// PROJECTS_DEFAULT_LANGS — but a developer .env that SETS it (lg-eng first,
+	// or without lg-eng) moved the plan's main lang and its lang set, and the
+	// diffusion gates that pin a published document (diffusion_rdf_graph_native's
+	// es-before-en literals, the main-lang fill of an untranslated slot) went
+	// red for an environment reason. Pinned to exactly what the derivation
+	// yields from the project languages above, so CI's value is unchanged.
+	DEDALO_DIFFUSION_LANGS:
+		'["lg-spa","lg-cat","lg-vlca","lg-eus","lg-eng","lg-por","lg-fra","lg-ara","lg-ell","lg-deu","lg-ita","lg-nep"]',
 });
 
 /**

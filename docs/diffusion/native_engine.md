@@ -405,8 +405,9 @@ security line); the registries are the single place to touch.
       `properties.diffusion.xmlns`. An element whose definition is incomplete
       (no `service_type`, a class without `entity_publication_uri`, an
       undeclared prefix) is refused at compile time with every cause named; a
-      record whose base IRI does not resolve is not written and the run report
-      names it. A relation_list `config` inside an rdf property is not
+      record whose base IRI does not resolve is not written, its previous
+      file is removed, and the run report names it. A linked record is
+      inlined only when the user who started the publication may read it. A relation_list `config` inside an rdf property is not
       supported yet (refused at compile time).
     - File-run `diffusion_data` lists the merged + zip links (not yet one link
       per record).

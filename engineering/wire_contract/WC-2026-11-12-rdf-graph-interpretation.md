@@ -63,7 +63,9 @@ Each owl:Class publishes one graph per record, rule for rule (frozen v7
 5. **Base IRI title** = the dd1014 item's label frame (v7 iri contract) else its
    legacy inline `title`. A base that does not resolve REFUSES the subject: the
    record is not written and the run report names element, class, title (PHP
-   built the relative IRI `'' . id`). Only dd1010 bases (PHP's non-dd1010
+   built the relative IRI `'' . id`). It FAILS CLOSED like a gate failure: the
+   record is `unpublish` — its previous public document is removed and no
+   dd1758 'published' row is logged (T1-4 review). Only dd1010 bases (PHP's non-dd1010
    branch is dead — called without the section_id it needs).
 6. **`get_portal` returns linked** when a child produced a triple (PHP returned
    false); an empty portal publishes nothing.
@@ -73,7 +75,10 @@ Each owl:Class publishes one graph per record, rule for rule (frozen v7
    class|record already built is not rebuilt (cycle guard). Values come from the
    resolver's ONE walker (spec §6), so its publishability semantics apply
    (stricter than PHP `get_ddo_value`). An rdf run queues no frontier: linked
-   records are inlined, never published as their own files.
+   records are inlined, never published as their own files — and each one
+   passes the DIFF-C frontier of a non-admin run's principal (DIFFUSION_SPEC
+   §8 item 8): refused ⇒ skipped with a `[frontier] REFUSED` ledger line (the
+   cap extends). PHP inlined with no principal check.
 8. **`value_fn` on an rdf ddo** is subsumed by the walker (warning
    `rdf-value-fn:<fn>@<tipo>`); a relation_list `config` ddo
    (`resolve_configuration` → `filter_locators`) is NOT PORTED — compile error.

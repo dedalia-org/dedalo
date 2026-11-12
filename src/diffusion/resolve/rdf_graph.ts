@@ -29,13 +29,16 @@
  *   produced a triple; entity_publication_uri → a standalone typed resource;
  * - `rdf` link → the first DEDALO_DIFFUSION_RESOLVE_LEVELS publishable
  *   locators (non-locators, other sections, missing and unpublishable records
- *   are skipped and EXTEND the cap — :612-650) built with their class.
+ *   are skipped and EXTEND the cap — :612-650) built with their class; a
+ *   record the run's principal may not read (DIFF-C frontier, env.linkAllowed)
+ *   is skipped the same way — it would otherwise reach the PUBLIC document.
  *
  * Subject IRIs: the dd1010 publication-services record of
  * (DEDALO_ENTITY_ID, element service_type) — PHP resolve_entity_locator —
  * holds the base IRIs in a component_iri keyed by title. A base that does not
  * resolve REFUSES the subject (PHP built the relative junk IRI '' . id): the
- * record is not written and the run report names element, class and title.
+ * record is not written (the resolver withdraws it — 'unpublish') and the run
+ * report names element, class and title.
  */
 
 import { config } from '../../config/config.ts';
@@ -68,6 +71,14 @@ export interface RdfGraphEnv {
 	resolveField(section: SectionPlan, fieldId: string, record: MatrixRecord): Promise<MetaValueIR[]>;
 	loadRecord(sectionTipo: string, sectionId: number | string): Promise<MatrixRecord | null>;
 	isPublishable(record: MatrixRecord): Promise<boolean>;
+	/**
+	 * THE DIFF-C FRONTIER for a record an `rdf` link INLINES: may the run's
+	 * principal read it? A linked record reaches the PUBLIC document exactly
+	 * like a frontier row does, so it answers the same question the row path's
+	 * frontier answers (processBatch, door 'diffusion.frontier'): refused ⇒
+	 * DROPPED with a ledger line (never loaded, never unpublished), the run goes on.
+	 */
+	linkAllowed(sectionTipo: string, sectionId: number | string): Promise<boolean>;
 	/** component_iri item id → resolved (label-frame) title. */
 	iriTitles(record: MatrixRecord, iriTipo: string): Promise<Map<string, string>>;
 	/** Run-scoped memo of resolved base IRIs ('' key parts → null = unresolvable). */
@@ -491,7 +502,7 @@ async function buildProperty(
 	}
 }
 
-/** `rdf` link: the linked records' class subjects, capped (skip ⇒ cap extends). */
+/** `rdf` link: the linked records' class subjects, frontier-scoped, capped (skip ⇒ cap extends). */
 async function buildLinks(
 	env: RdfGraphEnv,
 	state: BuildState,
@@ -512,6 +523,12 @@ async function buildLinks(
 			locator.section_tipo !== target.sectionTipo ||
 			(typeof sectionId !== 'number' && typeof sectionId !== 'string')
 		) {
+			cap++;
+			continue;
+		}
+		// DIFF-C: a linked record the run's principal cannot read is never read,
+		// never inlined — a skip like any other (the cap extends).
+		if (!(await env.linkAllowed(target.sectionTipo, sectionId))) {
 			cap++;
 			continue;
 		}

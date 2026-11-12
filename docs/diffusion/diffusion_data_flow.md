@@ -231,7 +231,8 @@ by its `process.type`: literals per published language (the default, with
 optional `text_format` or an empty-test formula), `get_data_uri`, `get_data_date`,
 `get_data_number`, `get_section_id`, `get_resource_link`, `get_portal` (a
 nested node) and `entity_publication_uri` (a standalone typed resource). An
-`rdf` node publishes the linked records' classes inside the same document.
+`rdf` node publishes the linked records' classes inside the same document,
+limited to the records the user who publishes may read.
 
 ## Dédalo diffusion engine
 
