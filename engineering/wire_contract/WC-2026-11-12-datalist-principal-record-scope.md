@@ -4,7 +4,10 @@
 - **Decision:** RC-closure T1-9 + T1-13 + T1-37 (audit O05 / O07 / S01; owner
   authorised Tier 1 implementation 2026-11-12). DEC-12 gates:
   `test/unit/datalist_projects_scope_native.test.ts`,
-  `test/unit/datalist_record_filter_native.test.ts`.
+  `test/unit/datalist_record_filter_native.test.ts` (shape-after #4: the
+  `filter_by_list context carries the caller level` block of the first);
+  the `includeRootUser` caller set is pinned by
+  `test/unit/root_user_hidden_tripwire.test.ts`.
 - Code: `src/core/relations/datalist.ts` (`DatalistOwner`,
   `resolveDatalistSources`, `buildTargetStatement`, `datalistCacheKey`),
   `src/core/search/sql_assembler.ts` (`SearchOptions.includeRootUser`),

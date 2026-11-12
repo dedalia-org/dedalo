@@ -548,7 +548,9 @@ export interface SearchOptions {
 	 * {@link composeMainWhere}; the per-record ACL still applies (a non-admin's
 	 * users-section rule carries its own `section_id > 0`). The one caller is the
 	 * select-family option list (relations/datalist.ts — PHP select edit
-	 * `include_negative=true`), so a stored "who = root" stays labelled.
+	 * `include_negative=true`), so a stored "who = root" stays labelled. The
+	 * caller set is PINNED (test/unit/root_user_hidden_tripwire.test.ts,
+	 * INCLUDE_ROOT_USER_CALLERS): a new door passing it reddens that gate.
 	 */
 	includeRootUser?: boolean;
 }

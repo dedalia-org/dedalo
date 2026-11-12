@@ -18,6 +18,9 @@
  *  4. the size probe counts what THAT principal's list holds;
  *  5. the list value (labels of the stored locators) drops the out-of-scope
  *     record's label;
+ *  6. a filter_by_list field's simple context carries the CALLER's level on
+ *     that field (WC-2026-11-12-datalist-principal-record-scope #4), never a
+ *     hard-coded 3 — and its datalist is scoped like any other;
  * and the CONTROLS that must stay green: no principal (internal) and a global
  * admin enumerate both; two non-admins with the SAME project set share ONE
  * cached list (the key is the scope, not the user); the Users section still
@@ -27,7 +30,8 @@
  * SITUATION: `zzdlp` scratch sections (→ matrix_test): TARGET carries a
  * component_filter (so the projects filter gates it), OWNER a component_select
  * over TARGET. The identities: the ACL fixture's non-admin (project 930021) and
- * scratch dd128 users minted through the write door (swept in afterAll).
+ * scratch dd128 users minted through the write door (swept in afterAll, with
+ * the 'NEW' activity rows the door logs for them).
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -42,9 +46,14 @@ import {
 	getRelationListValue,
 	probeDatalistSize,
 } from '../../src/core/relations/datalist.ts';
+import { expandFilterByList } from '../../src/core/relations/request_config/filters.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { clearUserFilterRecordsCache } from '../../src/core/security/filter_records.ts';
-import { clearUserProjectsCache, type Principal } from '../../src/core/security/permissions.ts';
+import {
+	clearUserProjectsCache,
+	getPermissions,
+	type Principal,
+} from '../../src/core/security/permissions.ts';
 import { runWithRequestContext } from '../../src/core/security/request_context.ts';
 import {
 	dropSituation,
@@ -59,6 +68,7 @@ import {
 	installAclIdentityFixture,
 	removeAclIdentityFixture,
 } from '../helpers/acl_identity_fixture.ts';
+import { countActivityRows, sweepActivityRows } from '../helpers/activity_rows.ts';
 import { cleanScratchRecord } from '../helpers/test_data.ts';
 
 const getDatalist = (...args: Parameters<typeof getComponentDatalist>) =>
@@ -227,6 +237,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
 	for (const userId of scratchUsers) await cleanScratchRecord('dd128', userId, 'matrix_users');
+	// The write door logs one 'NEW' activity row per minted user: the filter
+	// must find exactly those (non-vacuous), and the sweep must leave none.
+	expect(await countActivityRows('dd128', scratchUsers)).toBe(scratchUsers.length);
+	await sweepActivityRows('dd128', scratchUsers);
+	expect(await countActivityRows('dd128', scratchUsers)).toBe(0);
 	expect(await dropSituation(SITUATION)).toBe(0);
 	await removeAclIdentityFixture();
 	clearUserProjectsCache();
@@ -339,5 +354,34 @@ describe('the Users section (root record -1)', () => {
 		const list = await as(NON_ADMIN, userList);
 		expect(list.some((item) => item.section_id === -1)).toBe(false);
 		expect(list.some((item) => item.section_id === ACL_NON_ADMIN_USER_ID)).toBe(true);
+	});
+});
+
+describe('filter_by_list context carries the caller level (WC #4)', () => {
+	const descriptors = [{ section_tipo: OWNER, component_tipo: SELECT }];
+	const expand = () => expandFilterByList(descriptors, LANG);
+	const contextOf = (expanded: Awaited<ReturnType<typeof expand>>) => {
+		expect(expanded).toHaveLength(1);
+		return expanded[0]?.context as { permissions?: unknown; tipo?: unknown };
+	};
+
+	test('a non-admin is served THEIR level on the field, not 3', async () => {
+		clearDatalistCache();
+		const level = await getPermissions(NON_ADMIN, OWNER, SELECT);
+		// Non-degenerate: the fixture's reader profile grants nothing on zzdlp.
+		expect(level).toBeLessThan(3);
+		const expanded = await as(NON_ADMIN, expand);
+		const context = contextOf(expanded);
+		expect(context.tipo).toBe(SELECT);
+		expect(context.permissions).toBe(level);
+		// …and the field's datalist is the principal-scoped one.
+		expect(scratchIds(expanded[0]?.datalist as DatalistItem[])).toEqual([IN_ID]);
+	});
+
+	test('CONTROL: no principal (internal build) keeps the full level and the full list', async () => {
+		clearDatalistCache();
+		const expanded = await as(undefined, expand);
+		expect(contextOf(expanded).permissions).toBe(3);
+		expect(scratchIds(expanded[0]?.datalist as DatalistItem[])).toEqual([IN_ID, OUT_ID]);
 	});
 });
