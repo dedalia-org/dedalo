@@ -384,10 +384,9 @@ export async function translateAndWrite(
 	const { readMatrixRecord } = await import('../db/matrix.ts');
 	const { readComponentItems, filterItemsByLang } = await import('../resolve/component_data.ts');
 	const { persistRecordKeys } = await import('../section_record/index.ts');
-	const { mainIdentity, readMainSlots, recordMainHistory } = await import(
+	const { historyStamp, mainIdentity, readMainSlots, recordMainHistory } = await import(
 		'../relations/dataframe_slots.ts'
 	);
-	const { dbTimestamp } = await import('../db/db_timestamp.ts');
 	const { withTransaction } = await import('../db/postgres.ts');
 	const { readMatrixKeyForUpdate } = await import('../db/matrix_write.ts');
 
@@ -512,7 +511,7 @@ export async function translateAndWrite(
 			target,
 			identity,
 			{ before: { value: currentItems, slots }, after: { value: merged, slots } },
-			{ userId: input.userId, timestamp: dbTimestamp(), bulkId: null },
+			historyStamp(input.userId, null),
 		);
 		return { ok: true, msg: 'OK. Request done', count: gated.items.length };
 	});

@@ -142,8 +142,10 @@ describe('deleteTagFromAllLangs', () => {
 		expect(items.map((item) => item.lang).sort()).toEqual([ENG, SPA].sort());
 		expect(items.every((item) => item.id === 1)).toBe(true);
 
-		// ONE Time Machine row per changed lang (one save each).
-		expect(await tmRowCount()).toBe(tmBefore + 2);
+		// ONE Time Machine row per changed lang (one save each), each preceded by
+		// its save-before row: the text is seeded RAW, with no history
+		// (re-pinned 2026-11-12, T1-21).
+		expect(await tmRowCount()).toBe(tmBefore + 4);
 	});
 
 	test('IDEMPOTENT: a second delete removes nothing and writes no TM row', async () => {

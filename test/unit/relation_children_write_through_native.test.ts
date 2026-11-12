@@ -796,7 +796,9 @@ describe('the MCP save door removes a child BY LOCATOR (plan item 2)', () => {
 		expect(await childIds(parent)).toEqual([b]);
 		expect(await linksOf(a)).toEqual([]);
 		expect(await linksOf(b)).toEqual([link(parent, 'dd47', 1)]);
-		expect(await tmRows(a)).toBe(tmBeforeA + 1);
+		// + a's save-before row: its links were seeded RAW, no history (re-pinned
+		// 2026-11-12, T1-21); b is untouched — no row, no probe answer needed.
+		expect(await tmRows(a)).toBe(tmBeforeA + 2);
 		expect(await tmRows(b)).toBe(tmBeforeB);
 		expect(CHILDREN_TIPO in (await columnOf(parent, 'relation'))).toBe(false);
 	}, 60_000);

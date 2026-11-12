@@ -256,8 +256,10 @@ describe('tool_tc change_all_timecodes — the write', () => {
 		expect(itemValue(items, 1)).toBe('EN [TC_00:00:10.000_TC]');
 		expect(itemValue(items, 4)).toBe('FR without marks');
 
-		// ATOMICITY: two items rewritten, ONE save → exactly ONE audit row.
-		expect(await tmCount()).toBe(1);
+		// ATOMICITY: two items rewritten, ONE save → exactly ONE audit row, after
+		// the save-before row of the RAW-seeded spa slice (re-pinned 2026-11-12,
+		// T1-21) — two rows, never one per item.
+		expect(await tmCount()).toBe(2);
 	});
 
 	test("the 'key' filter selects within the lang slice (key 0 = the FIRST lg-spa item)", async () => {

@@ -329,7 +329,9 @@ describe.if(DB_READY)('dd153 project pick — the save door (as a project-scoped
 		const answer = await save(editor as Identity, [pick(memberProject2)]);
 		expect(answer).toEqual({ status: 200, code: null, constraint: null });
 		expect(await storedProjects()).toEqual([memberProject, memberProject2]);
-		expect(await tmRows()).toBe(tmBefore + 1);
+		// + its save-before row: the filter is seeded RAW, with no history
+		// (re-pinned 2026-11-12, T1-21).
+		expect(await tmRows()).toBe(tmBefore + 2);
 	});
 
 	test('a colleague’s pre-existing foreign project SURVIVES the editor’s add (insert door)', async () => {

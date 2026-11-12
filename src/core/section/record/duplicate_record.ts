@@ -135,6 +135,7 @@ import { resolveMediaPathOptions } from '../../media/ontology_path.ts';
 import type { StoredMediaItem } from '../../media/tools/files_info_persist.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from '../../ontology/resolver.ts';
 import {
+	historyStamp,
 	type LaneIdentity,
 	mainIdentity,
 	mainStorage,
@@ -159,7 +160,6 @@ import {
 	buildRecordMetadata,
 	CREATED_BY_USER,
 	CREATED_DATE,
-	dbTimestamp,
 	MODIFIED_BY_USER,
 	MODIFIED_DATE,
 } from './create_record.ts';
@@ -1259,11 +1259,8 @@ async function recordDuplicateHistory(
 	relationBag: unknown,
 	audit: { userId: number; now: Date },
 ): Promise<void> {
-	const saveStamp = { userId: audit.userId, timestamp: dbTimestamp(audit.now), bulkId: null };
-	const backfillStamp = {
-		userId: audit.userId,
-		timestamp: dbTimestamp(new Date(audit.now.getTime() - 60_000)),
-	};
+	const saveStamp = historyStamp(audit.userId, null, audit.now);
+	const backfillStamp = { userId: audit.userId, timestamp: saveStamp.backfillTimestamp };
 	for (const component of copied) {
 		const storage = await mainStorage(component.tipo);
 		if (storage?.model === 'component_dataframe') continue;

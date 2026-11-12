@@ -98,7 +98,6 @@ import { incrementCounter } from '../../api/counters.ts';
 import { MATRIX_JSONB_COLUMNS, type MatrixJsonbColumn } from '../../db/matrix.ts';
 import { readMatrixKeyForUpdate } from '../../db/matrix_write.ts';
 import { isInTransaction, registerCommitAction, sql, withTransaction } from '../../db/postgres.ts';
-import { ensureTmHistoryReady, withTmHistory } from '../../db/record_generation.ts';
 import { recordTimeMachine } from '../../db/time_machine.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
 import {
@@ -1006,11 +1005,17 @@ async function auditedObserverWrite(
 	now: Date,
 	write: () => Promise<void>,
 ): Promise<void> {
-	const { mainIdentity, readMainSlots, readMainState, recordMainBackfill, recordMainHistory } =
-		await import('../../relations/dataframe_slots.ts');
+	const {
+		historyStamp,
+		mainIdentity,
+		readMainSlots,
+		readMainState,
+		recordMainBackfill,
+		recordMainHistory,
+		visibleHistoryProbe,
+	} = await import('../../relations/dataframe_slots.ts');
 	const identity = await mainIdentity(observerTipo, 'lg-nolan');
-	const stamp = dbTimestamp(now);
-	await ensureTmHistoryReady();
+	const stamp = historyStamp(userId, null, now);
 	// The observer's state BEFORE this write (read now, under the lock): its
 	// value and its slots — an observer may carry a dataframe slot like any
 	// component, and its history is two-lane like every main's
@@ -1020,31 +1025,18 @@ async function auditedObserverWrite(
 		value: existing.length > 0 ? [...existing] : undefined,
 		slots: await readMainSlots(target, observerTipo),
 	};
-	// P0-14: the probe asks whether THIS record already has a backfill row.
-	// Without the epoch narrowing, a DEAD generation's rows at the same
-	// address answer yes and the reborn record's own history is never
-	// written — the defect inverted: not inherited history, but suppressed.
-	// VISIBLE rows only (withTmHistory): a bulk run's hidden undo-log row
-	// (a BEFORE image, a birth marker) is not the visible baseline and must
-	// not suppress the pair dd15 needs.
-	// `anyTag`: an unsliced main's one lane is every row whatever its tag (LaneHistoryProbe).
-	const hasHistory = async (lane: string, anyTag: boolean): Promise<boolean> =>
-		(
-			(await sql.unsafe(
-				`SELECT 1 FROM matrix_time_machine
-				 WHERE ${withTmHistory(`section_tipo = $1 AND section_id = $2 AND tipo = $3${anyTag ? '' : ' AND lang = $4'}`)}
-				 LIMIT 1`,
-				anyTag
-					? [target.sectionTipo, target.sectionId, observerTipo]
-					: [target.sectionTipo, target.sectionId, observerTipo, lane],
-			)) as unknown[]
-		).length > 0;
+	// The observer mirror's PHP baseline (emptyDoorLane): its door lane is
+	// backfilled even EMPTY ("it held nothing before this write"). The probe is
+	// THE backfill probe (time_machine.ts hasVisibleLaneHistory): epoch-narrowed
+	// (P0-14 — a DEAD generation's rows must not suppress the reborn record's
+	// backfill) and visibility-narrowed (a bulk run's hidden undo-log row is not
+	// the visible baseline dd15 needs).
 	await recordMainBackfill(
 		target,
 		identity,
 		before,
-		{ userId, timestamp: dbTimestamp(new Date(now.getTime() - 60_000)) },
-		hasHistory,
+		{ userId, timestamp: stamp.backfillTimestamp },
+		visibleHistoryProbe(target, observerTipo),
 		{ emptyDoorLane: true },
 	);
 	await write();
@@ -1053,7 +1045,7 @@ async function auditedObserverWrite(
 		target,
 		identity,
 		{ before, after: await readMainState(target, identity, before.slots.slots) },
-		{ userId, timestamp: stamp, bulkId: null },
+		stamp,
 	);
 }
 

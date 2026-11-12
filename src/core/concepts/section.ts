@@ -146,7 +146,7 @@ export const USER_ACTIVITY_SECTION_TIPO = 'dd1521';
  *  - dd1521: a derived daily aggregate, rebuildable by rebuild_user_stats.
  * Consequence (same as PHP): saves, deletes and bulk runs on them leave no
  * history — a deleted one cannot be recovered, a bulk revert does not touch
- * them. Every TM writer funnels through time_machine.ts `isAuditedAddress`.
+ * them. Every TM writer funnels through time_machine.ts `isTmAuditedAddress`.
  * Gate: test/unit/tm_excluded_sections_native.test.ts.
  */
 export const TM_EXCLUDED_SECTIONS: ReadonlySet<string> = new Set([

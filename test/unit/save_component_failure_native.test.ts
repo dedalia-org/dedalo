@@ -172,7 +172,10 @@ describe('save_component failure propagation (write paths never absorb integrity
 		const after = await readMatrixRecord(TABLE, SECTION_TIPO, EXISTING_ID);
 		expect(after?.rawText.meta ?? null).not.toBe(before?.rawText.meta ?? null);
 		expect(after?.rawText.string).toContain('control');
-		expect(await tmRowCount(EXISTING_ID)).toBe(tmBefore + 1);
+		// +2, re-pinned 2026-11-12 (T1-21): the record is seeded RAW ('sembrado', no
+		// history), so the save first records that lg-spa value (the save-before) —
+		// then its own row.
+		expect(await tmRowCount(EXISTING_ID)).toBe(tmBefore + 2);
 	});
 
 	test('B. a save to an absent row is refused resource.not_found and creates nothing', async () => {

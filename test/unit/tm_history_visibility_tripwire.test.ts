@@ -153,13 +153,13 @@ const NARROWED_READERS: Readonly<Record<string, { reads: number; visible: number
 	// readTimeMachineRow, readTimeMachineHistory, readOtherLangItemIds, the
 	// two-lane as-of reader (newestRowAt: readFrameStateRowAt / readLaneRowAt),
 	// the TM preview bound + lifecycle probes (nextVisibleRow) and the per-lane as-of reader
-	// of frame targets (readKeyLanesAt) are all visibility-narrowed. The 7th read,
+	// of frame targets (readKeyLanesAt) and THE backfill probe of every door
+	// (hasVisibleLaneHistory — the write-gate the delete/observer doors used to
+	// spell inline, T1-21) are all visibility-narrowed. The 8th read,
 	// addressHasTimeMachineHistory, is an existence probe over EVERY row (hidden and
 	// dead generations included) — "did a record ever live here", the save door's
 	// absent-row refusal sentence (WC-2026-11-10-save-never-creates); it serves no row.
-	'src/core/db/time_machine.ts': { reads: 7, visible: 6 },
-	'src/core/section/record/observers.ts': { reads: 1, visible: 1 },
-	'src/core/section/record/delete_record.ts': { reads: 1, visible: 1 },
+	'src/core/db/time_machine.ts': { reads: 8, visible: 7 },
 	'tools/tool_time_machine/server/bulk_revert_legacy.ts': { reads: 3, visible: 3 },
 	'scripts/detect_csv_import_damage.ts': { reads: 1, visible: 1 },
 };
@@ -174,7 +174,6 @@ describe('TM history visibility tripwire', () => {
 		for (const door of [
 			'src/core/resolve/read_tm.ts',
 			'src/core/db/time_machine.ts',
-			'src/core/section/record/delete_record.ts',
 			'tools/tool_time_machine/server/bulk_revert.ts',
 			'src/core/db/matrix_write.ts',
 		]) {

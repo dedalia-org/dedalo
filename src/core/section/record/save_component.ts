@@ -54,7 +54,6 @@ import { isOtherLangItem } from '../../concepts/lang_region.ts';
 import { dataframePairingOf } from '../../concepts/rqo.ts';
 import { isConsultationOnlySection } from '../../concepts/section.ts';
 import type { DataframePairing } from '../../concepts/subdatum.ts';
-import { dbTimestamp } from '../../db/db_timestamp.ts';
 import { MATRIX_JSONB_COLUMNS, type MatrixJsonbColumn } from '../../db/matrix.ts';
 import { absorbComponentItemIds, allocateComponentItemId } from '../../db/matrix_write.ts';
 import { deferPostTransaction, sql, withTransaction } from '../../db/postgres.ts';
@@ -2327,7 +2326,7 @@ async function applySaveComponentData(
 	// relation_search write, so the images are the save's final state.
 	await finishSaveHistory(history, {
 		saveTm: request.saveTm !== false,
-		timestamp: dbTimestamp(),
+		now: new Date(),
 	});
 
 	// RAG re-index event (S2-13): PHP save() enqueues the record for re-indexing

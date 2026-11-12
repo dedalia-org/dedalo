@@ -10,7 +10,7 @@
  * so every search-panel edit appended TM history.
  *
  * Every TM writer funnels through ONE predicate (time_machine.ts
- * isAuditedAddress), so the gate drives each DOOR that reaches it and
+ * isTmAuditedAddress), so the gate drives each DOOR that reaches it and
  * measures the OUTCOME — rows in matrix_time_machine — never the set's
  * spelling alone:
  *   A/B  the save door (saveComponentData) on dd655 / dd1521 persists the

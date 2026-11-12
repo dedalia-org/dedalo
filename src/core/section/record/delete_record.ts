@@ -41,15 +41,10 @@
 
 import { compareLocators } from '../../concepts/locator.ts';
 import { isConsultationOnlySection } from '../../concepts/section.ts';
-import { dbTimestamp } from '../../db/db_timestamp.ts';
+import { backfillTimestamp, dbTimestamp } from '../../db/db_timestamp.ts';
 import { MATRIX_JSONB_COLUMNS, type MatrixJsonbColumn } from '../../db/matrix.ts';
 import { allocateComponentItemId, deleteMatrixRecord } from '../../db/matrix_write.ts';
 import { sql, withTransaction } from '../../db/postgres.ts';
-import {
-	ensureTmHistoryReady,
-	tmEpochPredicate,
-	tmVisiblePredicate,
-} from '../../db/record_generation.ts';
 import { recordBulkCascadeDelete, recordTimeMachine } from '../../db/time_machine.ts';
 import type { UnpublishIntent } from '../../diffusion_bridge/diffusion_delete.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
@@ -61,6 +56,7 @@ import {
 	type MainIdentity,
 	type MainState,
 	mainIdentity,
+	type RunStamp,
 	readKeyImage,
 	recordMainBackfill,
 	recordMainHistory,
@@ -69,6 +65,7 @@ import {
 	type SlotImages,
 	type SlotTarget,
 	slotsFromBag,
+	visibleHistoryProbe,
 } from '../../relations/dataframe_slots.ts';
 import { NOLAN } from '../../relations/main_lanes.ts';
 import { enqueueObservedChange } from '../../section_record/obligation_ledger.ts';
@@ -464,31 +461,14 @@ interface DoorAudit {
 	nowStamp: string;
 }
 
-/**
- * Whether this record already has a VISIBLE history row for (tipo, lang) — the
- * backfill probe of the delete doors: without one, the door first records the
- * value as it stood (stamped 60 s earlier), so the change has a "before" in dd15.
- * P0-14: epoch-narrowed — a DEAD generation's rows at the same address must not
- * answer for the reborn record (its own history would never be written).
- * Visibility: a hidden undo-log row (tm_role) is not history either.
- */
-async function hasVisibleHistory(
-	target: SlotTarget,
-	tipo: string,
-	lang: string,
-	anyTag: boolean,
-): Promise<boolean> {
-	await ensureTmHistoryReady();
-	// `anyTag`: an unsliced main's one lane is every row whatever its tag (LaneHistoryProbe).
-	const params: unknown[] = [target.sectionTipo, target.sectionId, tipo];
-	if (!anyTag) params.push(lang);
-	const history = (await sql.unsafe(
-		`SELECT 1 FROM matrix_time_machine
-		 WHERE section_tipo = $1 AND section_id = $2 AND tipo = $3${anyTag ? '' : ' AND lang = $4'}
-		   AND ${tmEpochPredicate()} AND ${tmVisiblePredicate()} LIMIT 1`,
-		params,
-	)) as unknown[];
-	return history.length > 0;
+/** The history writer's stamp of a delete door's change (its save-before backfill shares the door's backfill stamp). */
+function doorStamp(audit: DoorAudit, bulkId: number | null): RunStamp {
+	return {
+		userId: audit.userId,
+		timestamp: audit.nowStamp,
+		backfillTimestamp: audit.backfillStamp,
+		bulkId,
+	};
 }
 
 /** A main's raw value on both sides of an owner rewrite, and its slots on both sides. */
@@ -542,15 +522,11 @@ async function recordOwnerMain(
 		identity,
 		before,
 		{ userId: audit.userId, timestamp: audit.backfillStamp },
-		(lane, anyTag) => hasVisibleHistory(target, identity.tipo, lane, anyTag),
+		visibleHistoryProbe(target, identity.tipo),
 	);
-	await recordMainHistory(
-		target,
-		identity,
-		{ before, after },
-		{ userId: audit.userId, timestamp: audit.nowStamp, bulkId: audit.bulkId },
-		{ forceDoorLane: false },
-	);
+	await recordMainHistory(target, identity, { before, after }, doorStamp(audit, audit.bulkId), {
+		forceDoorLane: false,
+	});
 }
 
 /**
@@ -647,7 +623,7 @@ async function removeAllInverseReferences(
 	}
 
 	const bulkId = bulkIdOf(bulkProcessId);
-	const backfillStamp = stamp(new Date(now.getTime() - 60_000));
+	const backfillStamp = backfillTimestamp(now);
 	const nowStamp = stamp(now);
 	const touchedOwners = new Set<string>();
 	let rewrites = 0;
@@ -989,15 +965,11 @@ async function recordWipeHistory(
 			identity,
 			before,
 			{ userId: audit.userId, timestamp: audit.backfillStamp },
-			(lane, anyTag) => hasVisibleHistory(ctx.target, main.tipo, lane, anyTag),
+			visibleHistoryProbe(ctx.target, main.tipo),
 		);
-		await recordMainHistory(
-			ctx.target,
-			identity,
-			{ before, after },
-			{ userId: audit.userId, timestamp: audit.nowStamp, bulkId: null },
-			{ forceDoorLane: false },
-		);
+		await recordMainHistory(ctx.target, identity, { before, after }, doorStamp(audit, null), {
+			forceDoorLane: false,
+		});
 	}
 }
 
@@ -1081,7 +1053,7 @@ export async function deleteSectionData(
 
 	const components = await declaredSectionComponents(sectionTipo);
 
-	const backfillStamp = stamp(new Date(now.getTime() - 60_000));
+	const backfillStamp = backfillTimestamp(now);
 	const nowStamp = stamp(now);
 
 	// ATOMIC DB PHASE (2026-09-21, the same shape as the record delete): the

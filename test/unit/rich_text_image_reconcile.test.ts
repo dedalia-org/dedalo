@@ -235,7 +235,9 @@ describe.if(DB_READY)('the reconciles on the suite database', () => {
 			'SELECT count(*)::int AS n FROM matrix_time_machine WHERE section_tipo = $1 AND section_id = $2',
 			[SECTION, LEGACY_ID],
 		)) as { n: number }[];
-		expect(tm[0]?.n).toBe(2); // one TM row per saved lang
+		// one TM row per saved lang, each after its save-before row (the legacy html
+		// is seeded RAW, no history — re-pinned 2026-11-12, T1-21)
+		expect(tm[0]?.n).toBe(4);
 
 		const again = await runRichTextImages({ apply: false, scope });
 		expect(mine(again.detail.changes)).toEqual([]);

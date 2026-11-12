@@ -184,7 +184,7 @@ export type TimeMachineWriteHook = (entry: TimeMachineEntry) => Promise<void>;
  */
 export async function recordTimeMachine(entry: TimeMachineEntry, timestamp: string): Promise<void> {
 	assertNotReadOnlyRequest('recordTimeMachine');
-	if (!isAuditedAddress(entry.sectionTipo, entry.sectionId)) return;
+	if (!isTmAuditedAddress(entry.sectionTipo, entry.sectionId)) return;
 	await sql.unsafe(
 		`INSERT INTO matrix_time_machine
 		   (section_id, section_tipo, tipo, lang, timestamp, user_id, data)
@@ -251,6 +251,38 @@ export async function addressHasTimeMachineHistory(
 		[sectionTipo, sectionId],
 	)) as { present: boolean }[];
 	return rows[0]?.present === true;
+}
+
+/**
+ * THE BACKFILL PROBE (PHP tm_record::create's `search({section_id,
+ * section_tipo, tipo, lang}, 1)`): whether the record living at the address
+ * already has a VISIBLE history row of `tipo` in `lane`. Every backfill door
+ * asks it here, one spelling (the save-before of the history writer, the
+ * delete / observer backfills):
+ *   - epoch-narrowed (P0-14): a DEAD generation's rows at the same address do
+ *     not answer for the reborn record — else its own backfill is suppressed;
+ *   - visibility-narrowed: a bulk run's hidden undo-log row (a BEFORE image, a
+ *     birth marker) is not history dd15 shows, so it answers no.
+ * `anyTag`: an UNSLICED main's one lane is every row of it whatever its tag (a
+ * PHP save of a relation flagged translatable was tagged with the data lang
+ * and held the whole value) — dataframe_slots.ts LaneHistoryProbe. One
+ * indexed EXISTS (matrix_time_machine_search_default_idx).
+ */
+export async function hasVisibleLaneHistory(
+	coords: TmCoords,
+	lane: string,
+	anyTag: boolean,
+): Promise<boolean> {
+	await ensureTmHistoryReady();
+	const params: unknown[] = [coords.sectionTipo, coords.sectionId, coords.componentTipo];
+	if (!anyTag) params.push(lane);
+	const rows = (await sql.unsafe(
+		`SELECT 1 FROM matrix_time_machine
+		 WHERE ${withTmHistory(`section_tipo = $1 AND section_id = $2 AND tipo = $3${anyTag ? '' : ' AND lang = $4'}`)}
+		 LIMIT 1`,
+		params,
+	)) as unknown[];
+	return rows.length > 0;
 }
 
 /** One other-language main item a visible history row recorded. */
@@ -653,7 +685,7 @@ export interface BulkPairIds {
  */
 export async function recordBulkPair(entry: BulkPairEntry): Promise<BulkPairIds | null> {
 	const { coords } = entry;
-	if (!isAuditedAddress(coords.sectionTipo, coords.sectionId)) return null;
+	if (!isTmAuditedAddress(coords.sectionTipo, coords.sectionId)) return null;
 	const before = keyImage(entry.before);
 	const after = keyImage(entry.after);
 	if (canonicalJson(before) === canonicalJson(after)) return null;
@@ -708,7 +740,7 @@ export interface BulkBirthEntry extends BulkRecordEntry {
  * Returns the row id, or null for an unaudited address.
  */
 export async function recordBulkBirth(entry: BulkBirthEntry): Promise<number | null> {
-	if (!isAuditedAddress(entry.sectionTipo, entry.sectionId)) return null;
+	if (!isTmAuditedAddress(entry.sectionTipo, entry.sectionId)) return null;
 	return insertUndoRow({
 		sectionTipo: entry.sectionTipo,
 		sectionId: entry.sectionId,
@@ -739,7 +771,7 @@ export interface BulkCascadeDeleteEntry extends BulkRecordEntry {
 export async function recordBulkCascadeDelete(
 	entry: BulkCascadeDeleteEntry,
 ): Promise<number | null> {
-	if (!isAuditedAddress(entry.sectionTipo, entry.sectionId)) return null;
+	if (!isTmAuditedAddress(entry.sectionTipo, entry.sectionId)) return null;
 	return insertUndoRow({
 		sectionTipo: entry.sectionTipo,
 		sectionId: entry.sectionId,
@@ -754,7 +786,7 @@ export async function recordBulkCascadeDelete(
 }
 
 /** Whether the time machine audits this address at all (the plain door's skips). */
-function isAuditedAddress(sectionTipo: string, sectionId: number): boolean {
+export function isTmAuditedAddress(sectionTipo: string, sectionId: number): boolean {
 	return sectionId > 0 && !TM_EXCLUDED_SECTIONS.has(sectionTipo);
 }
 

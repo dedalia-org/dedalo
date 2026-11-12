@@ -23,7 +23,8 @@
  * neither a statement nor a narrowing.
  *
  * THE TWO DIRECTIONS BOTH MATTER. A leaking reader shows a dead record's
- * history; a leaking WRITE-GATE probe (delete_record, observers) sees the dead
+ * history; a leaking WRITE-GATE probe (time_machine.ts hasVisibleLaneHistory,
+ * the one backfill probe of every door) sees the dead
  * generation's rows, concludes the record already has history, and SUPPRESSES
  * the reborn record's own backfill.
  *
@@ -84,9 +85,9 @@ const EXEMPT_TM_READERS: Readonly<Record<string, { reads: number; reason: string
 			'The epoch MINT itself: it reads the address’s existing rows to place the boundary. It is what the other readers are narrowed BY.',
 	},
 	'src/core/db/time_machine.ts': {
-		reads: 7,
+		reads: 8,
 		reason:
-			'readTimeMachineRow is a PK read whose CALLERS carry the identity check (tool_time_machine apply_value, section/read.ts preview — both narrowed); it is VISIBILITY-narrowed (tmVisiblePredicate) but deliberately not epoch-narrowed, so a dead-generation id answers the specific "does not belong" refusal. readTimeMachineHistory, readOtherLangItemIds (the frame pairing law\'s input) and newestRowAt (the two-lane as-of reader: readFrameStateRowAt / readLaneRowAt), nextVisibleRow (the TM preview bound: nextVisibleRowAfter, and the record-lifecycle probe nextVisibleRecordRowAfter) and readKeyLanesAt (the per-lane as-of reader of frame targets) are narrowed with withTmHistory (epoch AND visible). addressHasTimeMachineHistory (WC-2026-11-10-save-never-creates) is an EXISTS over EVERY generation, deliberately: it answers "did a record ever live at this address" for the save door\'s absent-row refusal sentence, never a history view — a dead generation is exactly what it looks for.',
+			"readTimeMachineRow is a PK read whose CALLERS carry the identity check (tool_time_machine apply_value, section/read.ts preview — both narrowed); it is VISIBILITY-narrowed (tmVisiblePredicate) but deliberately not epoch-narrowed, so a dead-generation id answers the specific \"does not belong\" refusal. readTimeMachineHistory, readOtherLangItemIds (the frame pairing law's input) and newestRowAt (the two-lane as-of reader: readFrameStateRowAt / readLaneRowAt), nextVisibleRow (the TM preview bound: nextVisibleRowAfter, and the record-lifecycle probe nextVisibleRecordRowAfter) and readKeyLanesAt (the per-lane as-of reader of frame targets) are narrowed with withTmHistory (epoch AND visible), as is hasVisibleLaneHistory — THE backfill write-gate probe of every door (the history writer's save-before, the delete and observer backfills; T1-21), so a dead generation's rows never suppress the reborn record's backfill. addressHasTimeMachineHistory (WC-2026-11-10-save-never-creates) is an EXISTS over EVERY generation, deliberately: it answers \"did a record ever live at this address\" for the save door's absent-row refusal sentence, never a history view — a dead generation is exactly what it looks for.",
 	},
 	'src/core/update/transform/locators.ts': {
 		reads: 2,
@@ -173,8 +174,6 @@ const NARROWED_READERS: Readonly<Record<string, { reads: number; narrowSites: nu
 	// withTmEpoch-narrowed), the barrier inner, the late-lookup inner, and the
 	// plain page.
 	'src/core/resolve/read_tm.ts': { reads: 7, narrowSites: 5 },
-	'src/core/section/record/delete_record.ts': { reads: 1, narrowSites: 1 },
-	'src/core/section/record/observers.ts': { reads: 1, narrowSites: 1 },
 	// The undo-log rewrite (2026-09-27): the orchestrator's one read is the run
 	// loader (every role, epoch-narrowed); the legacy inference's three are the
 	// per-language pre-run row, its wipe-sibling subquery and the record's
@@ -191,7 +190,7 @@ describe('time-machine epoch tripwire', () => {
 		const files = new Set(readers.map((r) => r.file));
 		for (const door of [
 			'src/core/resolve/read_tm.ts',
-			'src/core/section/record/delete_record.ts',
+			'src/core/db/time_machine.ts',
 			'tools/tool_time_machine/server/bulk_revert.ts',
 			'src/core/db/matrix_write.ts',
 		]) {

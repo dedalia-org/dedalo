@@ -1616,7 +1616,14 @@ describe('(10) the order and completeness of the lanes', () => {
 		expect(rowItems(mustGet(slotRows[0], 'the slot row').data)).toEqual([]); // frames only
 		const mark2 = await watermark();
 		await setText(L, id, SPA, [text(1, SPA, 'Casa grande')]);
-		expect((await visibleRows(LMAIN, id, mark2)).map((row) => row.lang)).toEqual([SPA]);
+		// Re-pinned 2026-11-12 (T1-21): the key was seeded RAW, so the spa lane
+		// (Casa) had no history — the writer's save-before backfills it first
+		// (the PHP law). Still no lg-nolan baseline: the orphan is not frame state.
+		const spaRows = await visibleRows(LMAIN, id, mark2);
+		expect(spaRows.map((row) => row.lang)).toEqual([SPA, SPA]);
+		expect(rowItems(mustGet(spaRows[0], 'the save-before row').data)).toContainEqual(
+			text(1, SPA, 'Casa'),
+		);
 	}, 60_000);
 
 	test('a PHP ORPHAN in the frame lane of a TRANSLITERABLE main is not part of the frame state: a transliteration after a frame save writes ONE lg-ell row', async () => {

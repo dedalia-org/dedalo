@@ -44,7 +44,6 @@ import {
 	isDataframeEntry,
 	normalizeDataframeEntry,
 } from '../concepts/subdatum.ts';
-import { dbTimestamp } from '../db/db_timestamp.ts';
 import type { MatrixJsonbColumn } from '../db/matrix.ts';
 import { sql, withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/index.ts';
@@ -57,6 +56,7 @@ import {
 	dataframeTargetsOf,
 } from './dataframe.ts';
 import {
+	historyStamp,
 	readMainSlots,
 	recordKeyChangeRows,
 	resolveDataframeSlotTipos,
@@ -1934,7 +1934,7 @@ async function removePortalLocatorUnderGrant(
 				{ table, sectionTipo, sectionId: sectionId },
 				tipo,
 				{ before: items, after: kept, requestLang: 'lg-nolan', slotsBefore },
-				{ userId: grant.userId, timestamp: dbTimestamp() },
+				historyStamp(grant.userId, null),
 			);
 		}
 		return {

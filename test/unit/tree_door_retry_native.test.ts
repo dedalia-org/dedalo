@@ -161,10 +161,12 @@ describe('ONT-5: add_child and save_order retry a deadlock victim', () => {
 		expect(await orderUnder(ORDERED, c, p)).toBe(1);
 		expect(await orderUnder(ORDERED, b, p)).toBe(2);
 		expect(await orderUnder(ORDERED, a, p)).toBe(3);
-		// attempt 1's history rolled back with its values: one row per changed sibling.
+		// attempt 1's history rolled back with its values: one row per changed
+		// sibling, + its save-before row (the order was seeded RAW — re-pinned
+		// 2026-11-12, T1-21); a rolled-back attempt 1 would leave a third.
 		const orderTipo = ORDERED.order as string;
-		expect(await historyCount(ORDERED, c, orderTipo, since)).toBe(1);
-		expect(await historyCount(ORDERED, a, orderTipo, since)).toBe(1);
+		expect(await historyCount(ORDERED, c, orderTipo, since)).toBe(2);
+		expect(await historyCount(ORDERED, a, orderTipo, since)).toBe(2);
 		expect(await historyCount(ORDERED, b, orderTipo, since)).toBe(0);
 	}, 60_000);
 

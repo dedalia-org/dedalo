@@ -48,7 +48,6 @@
 
 import { config } from '../../../config/config.ts';
 import { canonicalizeStoredSectionId } from '../../concepts/section_id.ts';
-import { dbTimestamp } from '../../db/db_timestamp.ts';
 import { MATRIX_TABLE_ALLOWLIST, type MatrixJsonbColumn } from '../../db/matrix.ts';
 import { absorbComponentItemIds, readMatrixKeyForUpdate } from '../../db/matrix_write.ts';
 import { sql, withTransaction } from '../../db/postgres.ts';
@@ -65,6 +64,7 @@ import type {
 	ReconcileRunOptions,
 } from '../../reconcile/registry.ts';
 import {
+	historyStamp,
 	mainIdentity,
 	mainStorage,
 	readMainState,
@@ -322,12 +322,7 @@ async function restoreWipedFilterKey(
 		// cannot mint a duplicate (as apply_value does).
 		await absorbComponentItemIds(site.table, site.sectionTipo, sectionId, site.filterTipo, value);
 		const after = await readMainState(target, identity);
-		await recordMainHistory(
-			target,
-			identity,
-			{ before, after },
-			{ userId: SUPERUSER_ID, timestamp: dbTimestamp(), bulkId: null },
-		);
+		await recordMainHistory(target, identity, { before, after }, historyStamp(SUPERUSER_ID, null));
 		return true;
 	});
 }

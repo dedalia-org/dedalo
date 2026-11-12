@@ -438,7 +438,16 @@ describe('translatable input_text append', () => {
 			[appendHost, appended.bulk_process_id],
 			[replaceHost, replaced.bulk_process_id],
 		] as const) {
-			const rows = await visibleOf(host);
+			// The seed has no history, so each written language is first recorded as
+			// it stood — the save-before: visible, NO bulk id, the seed slice
+			// (re-pinned 2026-11-12, T1-21) — then the run's visible after-row.
+			const visible = await visibleOf(host);
+			const saveBefore = visible.filter((row) => row.bulk_process_id === null);
+			expect(saveBefore.map((row) => row.lang)).toEqual(['lg-eng', 'lg-spa']);
+			for (const row of saveBefore) {
+				expect(row.data).toEqual(seedValue.filter((item) => item.lang === row.lang));
+			}
+			const rows = visible.filter((row) => row.bulk_process_id !== null);
 			expect(rows.map((row) => row.lang)).toEqual(['lg-eng', 'lg-spa']);
 			for (const row of rows) {
 				expect(row.bulk_process_id).toBe(mustGet(run, 'run bulk id'));
@@ -462,7 +471,7 @@ describe('translatable input_text append', () => {
 			col(TEXT, 'component_input_text', 'append'),
 		]);
 		expect(again.failed).toEqual([]);
-		expect(await tmOf(appendHost)).toHaveLength(4);
+		expect(await tmOf(appendHost)).toHaveLength(6);
 	}, 60000);
 });
 

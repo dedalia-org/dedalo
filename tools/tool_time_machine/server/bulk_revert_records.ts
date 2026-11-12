@@ -82,7 +82,6 @@
 import { canonicalJson } from '../../../src/core/concepts/canonical_json.ts';
 import { regionOf, restoreRegion } from '../../../src/core/concepts/lang_region.ts';
 import { compareLocators } from '../../../src/core/concepts/locator.ts';
-import { dbTimestamp } from '../../../src/core/db/db_timestamp.ts';
 import {
 	MATRIX_JSONB_COLUMNS,
 	type MatrixJsonbColumn,
@@ -106,6 +105,7 @@ import { toDedaloError } from '../../../src/core/errors/index.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from '../../../src/core/ontology/resolver.ts';
 import {
 	historyMainsOf,
+	historyStamp,
 	isOwnFrame,
 	mainIdentity,
 	readKeyImage,
@@ -888,7 +888,7 @@ async function recordWipedHistory(
 	context: RecordContext,
 ): Promise<void> {
 	const target = { table, sectionTipo: marker.sectionTipo, sectionId: marker.sectionId };
-	const stamp = { userId: context.userId, timestamp: dbTimestamp(), bulkId: context.newBulkId };
+	const stamp = historyStamp(context.userId, context.newBulkId);
 	for (const main of mains) {
 		const identity = await wipedMainIdentity(main);
 		const after = await readMainState(target, identity, main.before.slots.slots);

@@ -198,13 +198,20 @@ describe('propagate_component_data — the write', () => {
 			tm_role: number | null;
 			data: unknown;
 		}[];
-		expect(tm.length).toBe(IDS.length * 2);
-		for (const row of tm) expect(row.bulk_process_id).toBe(bulkId);
+		// + ONE save-before row per record (re-pinned 2026-11-12, T1-21): the seed
+		// is RAW (no history), so the writer first records the original value as
+		// ordinary visible history — no bulk id, no role — then the run's pair.
+		expect(tm.length).toBe(IDS.length * 3);
 		for (const id of IDS) {
 			const own = tm.filter((row) => Number(row.section_id) === id);
-			expect(own.map((row) => row.tm_role)).toEqual([1, null]);
+			expect(own.map((row) => [row.tm_role, row.bulk_process_id])).toEqual([
+				[null, null],
+				[1, bulkId],
+				[null, bulkId],
+			]);
 			expect(own[0]?.data).toEqual([{ id: 1, lang: LANG, value: `ORIGINAL-${id}` }]);
-			expect(own[1]?.data).toEqual(values[id]);
+			expect(own[1]?.data).toEqual([{ id: 1, lang: LANG, value: `ORIGINAL-${id}` }]);
+			expect(own[2]?.data).toEqual(values[id]);
 		}
 	});
 
