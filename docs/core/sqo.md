@@ -1449,7 +1449,12 @@ FROM (
     -- unnest them and join the target Person record (no separate 'relations' table in v7)
     LEFT JOIN LATERAL jsonb_array_elements(nu4.relation->'numisdata159') AS rel_j1 ON true
     LEFT JOIN matrix AS j_numisdata159_rsc194
-      ON j_numisdata159_rsc194.section_id = NULLIF((rel_j1->>'section_id'), '')::bigint
+      -- the locator id joins only when it IS a record address (no leading zero,
+      -- int4): a padded external id or an opaque one ('Q42') joins nothing
+      ON j_numisdata159_rsc194.section_id = (CASE WHEN (CASE WHEN rel_j1->>'section_id' ~ '^(-?[1-9][0-9]*|0)$'
+            AND length(rel_j1->>'section_id') <= 11
+            THEN (rel_j1->>'section_id')::bigint BETWEEN -2147483648 AND 2147483647 ELSE false END)
+          THEN (rel_j1->>'section_id')::int END)
      AND j_numisdata159_rsc194.section_tipo = (rel_j1->>'section_tipo')::text
     WHERE (nu4.section_tipo='numisdata4') AND nu4.section_id>0
     ORDER BY nu4.section_id ASC
@@ -1505,7 +1510,12 @@ FROM (
     -- unnest them and join the target Person record (no separate 'relations' table in v7)
     LEFT JOIN LATERAL jsonb_array_elements(nu4.relation->'numisdata159') AS rel_j1 ON true
     LEFT JOIN matrix AS j_numisdata159_rsc194
-      ON j_numisdata159_rsc194.section_id = NULLIF((rel_j1->>'section_id'), '')::bigint
+      -- the locator id joins only when it IS a record address (no leading zero,
+      -- int4): a padded external id or an opaque one ('Q42') joins nothing
+      ON j_numisdata159_rsc194.section_id = (CASE WHEN (CASE WHEN rel_j1->>'section_id' ~ '^(-?[1-9][0-9]*|0)$'
+            AND length(rel_j1->>'section_id') <= 11
+            THEN (rel_j1->>'section_id')::bigint BETWEEN -2147483648 AND 2147483647 ELSE false END)
+          THEN (rel_j1->>'section_id')::int END)
      AND j_numisdata159_rsc194.section_tipo = (rel_j1->>'section_tipo')::text
     WHERE (nu4.section_tipo='numisdata4') AND nu4.section_id>0
     ORDER BY nu4.section_id ASC
@@ -1589,7 +1599,12 @@ FROM (
     -- unnest them and join the target Person record (no separate 'relations' table in v7)
     LEFT JOIN LATERAL jsonb_array_elements(nu4.relation->'numisdata159') AS rel_j1 ON true
     LEFT JOIN matrix AS j_numisdata159_rsc194
-      ON j_numisdata159_rsc194.section_id = NULLIF((rel_j1->>'section_id'), '')::bigint
+      -- the locator id joins only when it IS a record address (no leading zero,
+      -- int4): a padded external id or an opaque one ('Q42') joins nothing
+      ON j_numisdata159_rsc194.section_id = (CASE WHEN (CASE WHEN rel_j1->>'section_id' ~ '^(-?[1-9][0-9]*|0)$'
+            AND length(rel_j1->>'section_id') <= 11
+            THEN (rel_j1->>'section_id')::bigint BETWEEN -2147483648 AND 2147483647 ELSE false END)
+          THEN (rel_j1->>'section_id')::int END)
      AND j_numisdata159_rsc194.section_tipo = (rel_j1->>'section_tipo')::text
     WHERE (nu4.section_tipo='numisdata4') AND nu4.section_id>0
     ORDER BY nu4.section_id ASC
