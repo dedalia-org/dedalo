@@ -850,7 +850,10 @@ describe('the backup set PRODUCTION.md §6 names is the one the nightly unit cop
  * ───────────────────────────────────────────────────────────────────────────── */
 
 describe('every declaration an operator page shows actually parses', () => {
-	const PAGES = ['docs/administration/site_builder.md', 'docs/administration/site_builder_cookbook.md'];
+	const PAGES = [
+		'docs/administration/site_builder.md',
+		'docs/administration/site_builder_cookbook.md',
+	];
 
 	interface Block {
 		readonly index: number;
