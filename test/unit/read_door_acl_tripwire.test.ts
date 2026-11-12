@@ -55,7 +55,8 @@
  *     `dd_core_api.read.refresh_external`) and audits as that grant's actor.
  *     SPELLING PINS, labelled as such: they read comment-stripped source. The
  *     OUTCOME halves are the closure's B4 rows (write_obligations_tripwire —
- *     refreshExternalMirror ← runRefresh ← maybeRefreshExternal, exactly) and
+ *     refreshExternalMirror ← runExternalRefresh ← maybeRefreshExternal |
+ *     update_cache's refreshExternalForRow, exactly) and
  *     write_door_native (the door's level-1 grant).
  */
 
@@ -439,7 +440,7 @@ describe('F — the human read’s write side goes through ONE grant', () => {
 			"export const EXTERNAL_REFRESH_DOOR = 'dd_core_api.read.refresh_external';",
 		);
 		expect(count(door, 'refreshExternalMirror(')).toBe(1);
-		const runAt = door.indexOf('async function runRefresh(');
+		const runAt = door.indexOf('async function runExternalRefresh(');
 		const writeAt = door.indexOf('refreshExternalMirror(');
 		const runEnd = door.indexOf('\n}\n', runAt);
 		expect(runAt).toBeGreaterThan(-1);

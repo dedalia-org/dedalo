@@ -26,6 +26,18 @@
  *   — under this run's bulk id, so a revert clears the fill; a curated slice is
  *   kept and counted. No OCR from a sweep. This is also the operator's backfill
  *   (D4): a sweep over the pdf sections fills exactly the empty transcriptions.
+ * - An EXTERNAL portal (`properties.source.mode === 'external'`, through an
+ *   alias too) is RECOMPUTED by its law, never re-saved (PHP
+ *   component_portal::regenerate_component's external branch,
+ *   `set_data_external({save:true})`; T1-38,
+ *   WC-2026-11-12-update-cache-external-mirror-refresh): the mirror is derived,
+ *   so re-saving its stored value regenerated nothing. The refresh runs through
+ *   the shared runner (external_refresh.ts runExternalRefresh — law + host
+ *   checked there), its row-lock wait bounded per record like the other
+ *   branches; a refused law / non-host record is reported, never counted. Its
+ *   write carries no bulk id (named undo-log exemption beside files_info: a
+ *   mirror is a calculation — owner ruling 2026-10-30, no origin tag on a
+ *   refresh; owner decision D1 open).
  * - Every other model regenerates via re-save (set_data of the current value),
  *   re-running the save path's derivation.
  */
@@ -174,10 +186,16 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 				media_held: 0,
 				vanished: 0,
 				locked: 0,
+				external_refreshed: 0,
+				external_withheld: 0,
 			},
 			{ requestId: toolRequestId(ctx) },
 		);
 	}
+	// The EXTERNAL selections, resolved ONCE and before anything is written: an
+	// alias node that breaks its contract (WC-020) refuses the run here, loud,
+	// with no dd800 record and no row touched.
+	const externalTipos = await externalDataTiposOf(regenerable);
 	const sqo = sanitizeClientSqo(structuredClone(sqoRaw));
 	(sqo as { limit?: unknown; offset?: unknown }).limit = null;
 	(sqo as { limit?: unknown; offset?: unknown }).offset = 0;
@@ -259,6 +277,8 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 		locked: 0,
 		errors: [],
 	};
+	/** External-mirror refreshes (regenerateExternal), merged into the run's counts after the loop. */
+	const external: ExternalTally = { refreshed: 0, withheld: 0, vanished: 0, locked: 0, errors: [] };
 	/** Of those, the ones the SAVE DOOR refused (ok:false — rolled back whole). */
 	let refusedResaves = 0;
 	/** Row × component targets the WRITE DOOR refused (nothing written to them). */
@@ -289,6 +309,8 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 			const table = (await getMatrixTableFromTipo(row.section_tipo)) ?? 'matrix';
 			const record = await readMatrixRecord(table, row.section_tipo, row.section_id);
 			if (record === null) continue;
+			/** This row's refreshed external data tipos (an alias and its target ticked = one refresh). */
+			const refreshedExternal = new Set<string>();
 			for (const sel of regenerable) {
 				const tipo = String(sel.tipo ?? '');
 				const model = tipo !== '' ? await getModelByTipo(tipo) : null;
@@ -305,6 +327,12 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 				const grant = await authorizeRowComponent(ctx.principal, row, tipo);
 				if (grant === null) {
 					refusedTargets.push(`${tipo}#${row.section_id}: not writable by the caller`);
+					continue;
+				}
+				// EXTERNAL portals are RECOMPUTED, never re-saved (header SCOPE).
+				const externalTipo = externalTipos.get(tipo);
+				if (externalTipo !== undefined) {
+					await regenerateExternal(grant, tipo, externalTipo, refreshedExternal, external);
 					continue;
 				}
 				const spec = isMediaModel(model) ? mediaTypeOf(model) : null;
@@ -462,6 +490,9 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 			}
 		}
 	});
+	regenerated += external.refreshed;
+	vanished += external.vanished;
+	lockedOut += external.locked;
 	// The abort check runs BEFORE the counter increment, so `counter` always equals
 	// the number of FULLY processed records — stopped or not.
 	const processed = counter;
@@ -473,7 +504,7 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 		refusedTargets.length > 0
 			? ` ${refusedTargets.length} target(s) the caller may not write were skipped (nothing written to them).`
 			: '';
-	const msg = `${summaryMsg}${refusedNote}${derivedNote}${refusedResaves > 0 ? ` ${refusedResaves} re-save(s) refused by the save door (nothing written to them).` : ''}${rebuildFailures > 0 ? ` ${rebuildFailures} media derivative rebuild(s) failed (files_info still refreshed).` : ''}${mediaHeld > 0 ? ` ${mediaHeld} stored media index(es) kept (files not on this server — shrink held).` : ''}${vanished > 0 ? ` ${vanished} record(s) deleted during the run (nothing written).` : ''}${lockedOut > 0 ? ` ${lockedOut} record(s) stayed locked (nothing written).` : ''}${transcriptionNote(transcriptions)}`;
+	const msg = `${summaryMsg}${refusedNote}${derivedNote}${refusedResaves > 0 ? ` ${refusedResaves} re-save(s) refused by the save door (nothing written to them).` : ''}${rebuildFailures > 0 ? ` ${rebuildFailures} media derivative rebuild(s) failed (files_info still refreshed).` : ''}${mediaHeld > 0 ? ` ${mediaHeld} stored media index(es) kept (files not on this server — shrink held).` : ''}${vanished > 0 ? ` ${vanished} record(s) deleted during the run (nothing written).` : ''}${lockedOut > 0 ? ` ${lockedOut} record(s) stayed locked (nothing written).` : ''}${external.withheld > 0 ? ` ${external.withheld} external mirror(s) not refreshed (see errors).` : ''}${transcriptionNote(transcriptions)}`;
 	// Final frame: the client renders the summary from the last pfile data.
 	publish({
 		msg,
@@ -488,7 +519,13 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 	return ok(
 		{
 			summary: msg,
-			errors: [...mediaErrors, ...resaveErrors, ...refusedTargets, ...transcriptions.errors],
+			errors: [
+				...mediaErrors,
+				...resaveErrors,
+				...external.errors,
+				...refusedTargets,
+				...transcriptions.errors,
+			],
 			regenerated,
 			refused: refusedTargets.length,
 			derived_skipped: derivedSkipped,
@@ -500,6 +537,8 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 			media_held: mediaHeld,
 			vanished,
 			locked: lockedOut,
+			external_refreshed: external.refreshed,
+			external_withheld: external.withheld,
 			transcriptions_filled: transcriptions.written,
 			transcriptions_kept: transcriptions.kept,
 			transcriptions_no_text: transcriptions.no_text,
@@ -550,6 +589,99 @@ function transcriptionNote(tally: TranscriptionTally): string {
 	if (tally.errors.length > 0)
 		parts.push(`${tally.errors.length} transcription failure(s) (nothing written)`);
 	return parts.length === 0 ? '' : ` ${parts.join('; ')}.`;
+}
+
+/** The run's external-mirror refreshes (regenerateExternal) + their failure lines. */
+interface ExternalTally {
+	/** Recomputed by the law (wrote, or found no drift) — also counted `regenerated`. */
+	refreshed: number;
+	/** Permitted but not run: a refused law, a non-host record, a frozen / degraded value. */
+	withheld: number;
+	/** The record was deleted while the refresh waited on it — also counted `vanished`. */
+	vanished: number;
+	/** The row stayed locked past the per-record bound — also counted `locked`. */
+	locked: number;
+	errors: string[];
+}
+
+/**
+ * The selected tipos that are EXTERNAL portals (PHP
+ * component_portal::regenerate_component: `source.mode === 'external'` ⇒
+ * `set_data_external({save:true})`), each mapped to its DATA tipo — an alias
+ * keys its target's slot and runs its target's law (WC-020), so the target's
+ * node decides. Ontology reads only; a broken alias node throws (typed).
+ */
+async function externalDataTiposOf(
+	selection: readonly { tipo?: string }[],
+): Promise<Map<string, string>> {
+	const { resolveDataTipo } = await import('../../../src/core/ontology/alias.ts');
+	const { isExternalSourceComponent } = await import(
+		'../../../src/core/section/record/external_refresh.ts'
+	);
+	const external = new Map<string, string>();
+	for (const sel of selection) {
+		const tipo = String(sel.tipo ?? '');
+		if (tipo === '') continue;
+		const dataTipo = await resolveDataTipo(tipo);
+		if (await isExternalSourceComponent(dataTipo)) external.set(tipo, dataTipo);
+	}
+	return external;
+}
+
+/**
+ * The EXTERNAL branch of one row × component (header SCOPE): the mirror is
+ * recomputed through the shared runner — once per row per DATA tipo (an alias
+ * and its target both ticked = one refresh) — and tallied. Never re-saved.
+ */
+async function regenerateExternal(
+	grant: RecordGrant,
+	tipo: string,
+	dataTipo: string,
+	refreshed: Set<string>,
+	tally: ExternalTally,
+): Promise<void> {
+	if (refreshed.has(dataTipo)) return;
+	refreshed.add(dataTipo);
+	const where = `${tipo}#${grant.sectionId}`;
+	const outcome = await refreshExternalForRow(grant, dataTipo);
+	if (outcome.withheld === null && !outcome.gone) tally.refreshed += 1;
+	else if (outcome.gone) {
+		tally.vanished += 1;
+		tally.errors.push(`${where}: record deleted during the run — nothing written`);
+	} else if (outcome.withheld === 'busy') {
+		tally.locked += 1;
+		tally.errors.push(`${where}: the record stayed locked past the lock timeout — nothing written`);
+	} else {
+		tally.withheld += 1;
+		tally.errors.push(
+			`${where}: external mirror not refreshed (${outcome.withheld}) — nothing written`,
+		);
+	}
+}
+
+/**
+ * ONE external-mirror refresh under this row's WRITE grant (level 2, door
+ * tool_update_cache.update_cache): the shared runner (law + host there), as
+ * the grant's actor, its target row-lock wait bounded per record — the bound
+ * the media and re-save branches use, so one held row is that record's
+ * `locked`. Runs outside any transaction (the run opens none; the refresh owns
+ * and commits its own, then hops its cascade).
+ */
+async function refreshExternalForRow(
+	grant: RecordGrant,
+	dataTipo: string,
+): Promise<{ withheld: string | null; gone: boolean }> {
+	const { runExternalRefresh } = await import(
+		'../../../src/core/section/record/external_refresh.ts'
+	);
+	const { perRecordLockWaitMs } = await import(
+		'../../../src/core/media/tools/files_info_persist.ts'
+	);
+	return await runExternalRefresh(
+		{ sectionTipo: grant.sectionTipo, componentTipo: dataTipo, sectionId: grant.sectionId },
+		grant,
+		`${perRecordLockWaitMs()}ms`,
+	);
 }
 
 /** What one locked non-media re-save did (resaveUnderRowLock). */

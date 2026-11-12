@@ -1133,6 +1133,21 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-tool-configuration-override`.
 
+- **Update cache now recomputes external portals instead of reporting a false success.**
+
+    A portal or autocomplete whose data is computed from other records (an "external" portal —
+    for example the coins of a type, or a catalog's copy of a type's coins) was "regenerated" by
+    saving back the value it already held. A stale list stayed stale, an empty one stayed empty,
+    and the run still said every component was regenerated.
+
+    Now update cache recomputes such a portal from the records it mirrors, exactly like its
+    **update** button does, on every matched record. A record the portal does not belong to, or a
+    portal whose definition cannot be computed, is listed in the run's errors and counted apart —
+    nothing is written to it. A recomputed portal is not undone by reverting the run: it is
+    derived from other records, and reverting would only bring back the stale list.
+
+    Wire contract: `WC-2026-11-12-update-cache-external-mirror-refresh`.
+
 - **A failed code-only or same-version update now puts the previous code back by itself.**
 
     A code update to a release that does not change the data model (a patch with no `compat`), or
@@ -1219,7 +1234,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 55 entries"
+??? note "Wire contract — 56 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1274,6 +1289,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-translation-write-value-gates`
     - `WC-2026-11-12-tree-term-escaped`
     - `WC-2026-11-12-unimplemented-component-models`
+    - `WC-2026-11-12-update-cache-external-mirror-refresh`
     - `WC-2026-11-12-wipe-respects-virtual-exclusion`
     - `WC-2026-11-12-zotero-csl-json-import`
 

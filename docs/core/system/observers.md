@@ -850,6 +850,13 @@ changed before the copy's edge existed.
   3 seconds, then shows the stored data with this notice, and pressing it again
   later works. While a refresh is running, the button is disabled.
 
+**In bulk: Update cache.** Ticking an external portal in
+[Update cache](../../tools/using_update_cache.md) runs the same recompute on
+every matched record. It needs write permission on the section and the portal,
+waits for a held record only as long as the run's per-record bound (then counts
+it *locked*), and lists the same withheld reasons per record in the run's
+errors. Nothing is written to a record it could not refresh.
+
 For an API client the request is an ordinary component `read` whose
 `source.build_options` carries `get_data_external: true`; see the
 [component_portal](../components/component_portal.md#source) page. The older

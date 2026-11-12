@@ -34,6 +34,12 @@
  * read or a search. Requested element only: the hop the recompute owes is the
  * cascade's, not this door's.
  *
+ * THE RUNNER (runExternalRefresh) is shared with ONE other caller:
+ * tool_update_cache's regenerate of an external portal (T1-38 — PHP
+ * component_portal::regenerate_component's external branch), under that
+ * tool's per-row WRITE grant and its per-record lock bound. Law + host are the
+ * runner's own checks, so both callers get them.
+ *
  * ── PAST THE PRECONDITIONS, every outcome is SERVED, with a notice when the
  *    refresh did not run (envelope v2 notices; ERRORS_SPEC §3):
  *
@@ -82,7 +88,13 @@ import { isTemporalSource } from '../../concepts/rqo.ts';
 import { isConsultationOnlySection } from '../../concepts/section.ts';
 import { classifyWireSectionId } from '../../concepts/section_id.ts';
 import { isInTransaction, sqlStateOf } from '../../db/postgres.ts';
-import { type ApiNotice, isDedaloError, isErrorInDomain, specOf } from '../../errors/index.ts';
+import {
+	type ApiNotice,
+	DedaloError,
+	isDedaloError,
+	isErrorInDomain,
+	specOf,
+} from '../../errors/index.ts';
 import { getNode } from '../../ontology/resolver.ts';
 import type { Principal } from '../../security/permissions.ts';
 import { authorizeRecordAccess, type RecordGrant } from '../../security/write_door.ts';
@@ -147,8 +159,12 @@ function isTimeMachineRequest(rqo: Rqo): boolean {
 	return mode === 'tm' || isTimeMachineRead();
 }
 
-/** Whether the component's ontology declares an EXTERNAL source (PHP `properties->source->mode`). */
-async function isExternalSourceComponent(componentTipo: string): Promise<boolean> {
+/**
+ * Whether the component's ontology declares an EXTERNAL source (PHP
+ * `properties->source->mode`) — the predicate both refresh callers use (the
+ * read door, tool_update_cache's regenerate branch).
+ */
+export async function isExternalSourceComponent(componentTipo: string): Promise<boolean> {
 	const node = await getNode(componentTipo);
 	const source = (node?.properties as { source?: unknown } | null | undefined)?.source;
 	return (
@@ -305,43 +321,85 @@ const FLAGGED_WITHHELD: readonly (readonly [string, ExternalRefreshWithheldReaso
 		['skippedShrink', 'degraded_seed'],
 	] as const);
 
-/** The permitted refresh itself (law + host checked here; the recompute is observers.ts's). */
-async function runRefresh(
+/** What one permitted refresh did (runExternalRefresh). */
+export interface ExternalRefreshResult {
+	/** Why it wrote nothing although permitted; `null` = it ran (wrote, or found no drift). */
+	readonly withheld: ExternalRefreshWithheldReason | null;
+	/** The target record was gone under the lock (deleted meanwhile): nothing written. */
+	readonly gone: boolean;
+}
+
+/**
+ * THE REFRESH RUNNER — the ONE place a granted refresh reaches
+ * refreshExternalMirror (write_obligations_tripwire B4). Its two callers hold
+ * their own grant first: the read door (maybeRefreshExternal, read level 1)
+ * and tool_update_cache's per-row write grant (refreshExternalForRow, level 2
+ * — PHP component_portal::regenerate_component's external branch). Law and
+ * host are checked HERE, so neither caller can skip them; the recompute is
+ * observers.ts's. The GRANT is the proof the caller authorized this record
+ * (its component may be an alias of `target.componentTipo`, the data tipo);
+ * its userId is the Time Machine actor. `lockTimeout` bounds the target
+ * row-lock wait (`<digits>ms|s`) — 55P03 ⇒ `busy`.
+ */
+export async function runExternalRefresh(
 	target: ExternalRefreshTarget,
 	grant: RecordGrant,
+	lockTimeout: string,
+): Promise<ExternalRefreshResult> {
+	assertGrantAddresses(target, grant);
+	const refused = await refreshPreconditionRefusal(target);
+	if (refused !== null) return { withheld: refused, gone: false };
+	const { refreshExternalMirror } = await import('./observers.ts');
+	const outcome: unknown = await refreshExternalMirror(
+		target.componentTipo,
+		target.sectionTipo,
+		target.sectionId,
+		grant.userId,
+		new Date(),
+		{ lockTimeout },
+	).catch((error: unknown) => busyOrRethrow(error, target, lockTimeout));
+	if (outcome === 'busy') return { withheld: 'busy', gone: false };
+	const gone = (outcome as { targetGone?: unknown } | null)?.targetGone === true;
+	return { withheld: withheldReasonOf(outcome), gone };
+}
+
+/** The runner's grant must address the record it refreshes (its component may be an alias). */
+function assertGrantAddresses(target: ExternalRefreshTarget, grant: RecordGrant): void {
+	if (grant.sectionTipo === target.sectionTipo && grant.sectionId === target.sectionId) return;
+	throw new DedaloError('internal.invariant', {
+		message: `runExternalRefresh: the grant (${grant.sectionTipo}/${String(grant.sectionId)}) does not address the refreshed record ${target.sectionTipo}/${String(target.sectionId)}`,
+		coordinates: { section_tipo: target.sectionTipo, section_id: target.sectionId },
+	});
+}
+
+/** The law + host preconditions: the withheld reason when one fails, else null. */
+async function refreshPreconditionRefusal(
+	target: ExternalRefreshTarget,
 ): Promise<ExternalRefreshWithheldReason | null> {
-	const where = `${target.sectionTipo}/${String(target.sectionId)}`;
 	const law = await getExternalLaw(target.componentTipo);
 	if (!isStoredExternalLaw(law)) {
-		reportRefusedLaw(law, `${where} (external refresh)`);
+		reportRefusedLaw(law, `${target.sectionTipo}/${String(target.sectionId)} (external refresh)`);
 		return 'law_refused';
 	}
 	if (!(await isObserverHostSection(target.componentTipo, target.sectionTipo))) {
 		incrementCounter('observers_target_not_host');
 		return 'target_not_host';
 	}
-	const { refreshExternalMirror } = await import('./observers.ts');
-	let outcome: unknown;
-	try {
-		outcome = await refreshExternalMirror(
-			target.componentTipo,
-			target.sectionTipo,
-			target.sectionId,
-			grant.userId,
-			new Date(),
-			{ lockTimeout: EXTERNAL_REFRESH_LOCK_TIMEOUT },
-		);
-	} catch (error) {
-		// The bound ran out: the recompute's transaction rolled back, nothing
-		// was written. Not a failure — the row is busy; anything else is one.
-		if (!isRefreshLockBusy(error)) throw error;
-		console.warn(
-			`[external_refresh] ${where} ${target.componentTipo}: target row locked past ${EXTERNAL_REFRESH_LOCK_TIMEOUT} — refresh withheld (busy)`,
-		);
-		incrementCounter('observers_external_refresh_busy');
-		return 'busy';
-	}
-	return withheldReasonOf(outcome);
+	return null;
+}
+
+/**
+ * The bounded lock wait ran out (55P03): the recompute's transaction rolled
+ * back, nothing was written — not a failure, the row is busy (counted, `busy`).
+ * Anything else is a failure and is rethrown.
+ */
+function busyOrRethrow(error: unknown, target: ExternalRefreshTarget, lockTimeout: string): 'busy' {
+	if (!isRefreshLockBusy(error)) throw error;
+	console.warn(
+		`[external_refresh] ${target.sectionTipo}/${String(target.sectionId)} ${target.componentTipo}: target row locked past ${lockTimeout} — refresh withheld (busy)`,
+	);
+	incrementCounter('observers_external_refresh_busy');
+	return 'busy';
 }
 
 /** The notices a permitted refresh owes: none when it ran, one withheld notice when it did not. */
@@ -380,7 +438,10 @@ export async function maybeRefreshExternal(
 		}
 		const grant = await authorizeRefresh(principal, target);
 		if (grant === null) return [refusedNotice()];
-		return noticesOf(await runRefresh(target, grant));
+		// The read door's notice vocabulary has no `gone` reason: a record
+		// deleted between the grant and the lock serves as a no-drift read.
+		const { withheld } = await runExternalRefresh(target, grant, EXTERNAL_REFRESH_LOCK_TIMEOUT);
+		return noticesOf(withheld);
 	} catch (error) {
 		console.error(`[external_refresh] ${where}: refresh failed — the stored data is served`, error);
 		incrementCounter('observers_external_refresh_failed');

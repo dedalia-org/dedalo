@@ -1418,3 +1418,11 @@ of an imported / v6-migrated / history-less value left no trace of what it repla
   its backfill row is the frame lane as it stood (value + frames).
 
 Gate: `test/unit/tm_save_before_native.test.ts`.
+
+## Addendum 2026-11-12 — update_cache's external-mirror refresh is outside the log (T1-38)
+
+- `tool_update_cache` now RECOMPUTES an external portal (WC-2026-11-12-update-cache-external-mirror-refresh)
+  instead of re-saving it. That write is an observer mirror write and stays outside the
+  undo log under the existing exemption above (beside D4's media `files_info`): no
+  `bulk_process_id`, so a revert of the run leaves the recomputed mirror (a restored
+  covered slot would be recomputed anyway). Attribution to the run is open (T1-38 plan, D1).

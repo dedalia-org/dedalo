@@ -666,6 +666,8 @@ else {
 			'the `data`-column METADATA twin is written by section/record/record_metadata.ts#setRecordMetadata (updateMatrixRecord) past the chokepoint BY DESIGN (write_obligations RAW_CALLER_EXEMPT): system bookkeeping MERGED into the column (created_date / created_by_user_id only; label and diffusion_info kept), mirrored from the dd199/dd200 audit value — no component value changes, so no stamp, no history, no index.',
 		hierarchy:
 			'the HIERARCHY INVARIANT single writer (ontology/hierarchy_state.ts#write, #nameRootTerm), the `<tld>0` provisioning (hierarchy_provision.ts#provisionVirtualSections) and the ontology definition writers (ontology_write.ts#writeOntologyMainKey, #createParentGrouper) write past the chokepoint BY DESIGN (write_obligations RAW_CALLER_EXEMPT): registry, descriptor and definition rows derived from the hierarchy record, with unstamped saves as in PHP — no Time Machine row, no obligation hook.',
+		dataframeRemoval:
+			'a recomputed mirror that DROPS a locator takes that item’s paired dataframe frames with it (relations/save.ts#removeDataframeDataById, write_obligations RAW_CALLER_EXEMPT — PHP remove_dataframe_data_by_id) in the SAME audited observer write that lands the mirror through its chokepoint entry (persistObserverMirrorKeys): it only REMOVES frames whose main item the law dropped, what remains keeps its stored order, so no curated value is transformed.',
 		ontology:
 			'ontology DEFINITION rows — the main node and parent-grouper records in matrix_ontology (ontology/ontology_write.ts#writeOntologyMainKey, #createParentGrouper) — are written past the chokepoint BY DESIGN (write_obligations RAW_CALLER_EXEMPT): system definitions re-derived from the ontology records by the write driver, which has its own gates; unstamped as in PHP, and no curated value is transformed.',
 	} as const;
@@ -736,6 +738,17 @@ else {
 					verdict: 'derived-state',
 					reason:
 						'T0-11 D2 = b: the PDF transcription is DERIVED from the record’s PDF (pdftotext) and written ONLY into an EMPTY lang slice — the emptiness is re-read UNDER the row lock in the transaction that writes (pdf_transcription.ts writeLocked: readMatrixKeyForUpdate, then readComponentItems), so a curated or concurrently committed transcription is kept, never transformed or replaced. Gate: pdf_transcription_native (gate 6). Under the run’s bulkProcessId: a bulk revert clears the fill.',
+				},
+			},
+		},
+
+		'tools/tool_update_cache/server/index.ts :: refreshExternalForRow': {
+			doors: {
+				runExternalRefresh: {
+					verdict: 'derived-state',
+					bypass_reason: BYPASS.dataframeRemoval,
+					reason:
+						'T1-38: an EXTERNAL portal (source.mode external) is RECOMPUTED by its law through the shared refresh runner (external_refresh.ts runExternalRefresh → observers.ts refreshExternalMirror → recomputeExternalRelation), never re-saved: the mirror is a calculation over OTHER records, recomputed and written under the target row lock in its own transaction (bounded per record), no curated value is read back and transformed. A refused law / non-host record writes nothing and is reported (WC-2026-11-12-update-cache-external-mirror-refresh; gate update_cache_external_mirror_native).',
 				},
 			},
 		},
@@ -1588,8 +1601,12 @@ else {
 	 * 21 → 23 (2026-11-12, T1-7): tool_import_zotero ingestInto — the `archive` PDF and its
 	 * cover — × processUploadedFile and × persistUploadedMedia, the same files_info writers,
 	 * reasoned with BYPASS.filesInfo. New doors, not backlog.
+	 * 23 → 24 (2026-11-12, T1-38): tool_update_cache refreshExternalForRow × runExternalRefresh —
+	 * an external portal is recomputed by its law (the mirror lands through its chokepoint
+	 * entry); the bypass is the dropped item's frame strip, reasoned with
+	 * BYPASS.dataframeRemoval. A new door, not backlog.
 	 */
-	const BYPASS_TOOL_CELLS = 23;
+	const BYPASS_TOOL_CELLS = 24;
 
 	/**
 	 * The tether of every SERVER PENDING cell: what turns red when the defect is fixed

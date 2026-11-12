@@ -1424,6 +1424,11 @@ export interface ExternalRecomputeOutcome {
 	 * mirror is never written onto a record whose section does not declare it.
 	 */
 	targetNotHost?: true;
+	/**
+	 * (apply mode.) The target record was not there under the lock — deleted
+	 * meanwhile. Nothing written, never recreated; pure reporting (no hop).
+	 */
+	targetGone?: true;
 	possiblyTruncated?: boolean;
 	refusedBigResult?: boolean;
 	/** True ONLY when a live-column write actually persisted (D2: the cascade
@@ -1747,7 +1752,10 @@ export async function recomputeExternalRelation(
 			defects,
 		} = await compute(true);
 		reportSlowLockedCompute(performance.now() - lockedStart, observerTipo, targetSection, targetId);
-		if (!exists) return unchanged; // target record does not exist
+		// The target record does not exist (deleted, never recreated): nothing to
+		// write. Flagged so a caller that asked for THIS record (the bulk refresh
+		// in tool_update_cache) can tell "gone" from "no drift".
+		if (!exists) return { ...unchanged, targetGone: true };
 		const replaced = merged;
 		// THE VALUE STAYS AS STORED (no drift, the freeze, a pure withheld shrink):
 		// the VALUE not moving does not make its `_hi` index agree — a mirror
