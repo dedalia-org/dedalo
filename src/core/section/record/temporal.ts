@@ -307,11 +307,13 @@ async function attachTemporalEchoDatalist(
 	if (main !== undefined) {
 		// The edit door, completed against the PICKED value (the raw locators
 		// the echo answers with): select_lang's "<name> *" entry matches the read's.
+		// No owner RECORD: a temporal record is not persisted, so a record-
+		// dependent filter has nothing to read (it would read nothing either way).
 		main.datalist = await getEchoDatalist(
 			model,
 			componentTipo,
 			node?.properties ?? null,
-			sectionTipo,
+			{ section_tipo: sectionTipo, section_id: null },
 			picked,
 		);
 	}
@@ -340,7 +342,7 @@ async function attachTemporalLiteralEchoDatalist(
 		model,
 		componentTipo,
 		null,
-		sectionTipo,
+		{ section_tipo: sectionTipo, section_id: null },
 		items,
 	);
 }

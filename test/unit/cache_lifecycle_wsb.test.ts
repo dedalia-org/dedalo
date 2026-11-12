@@ -198,7 +198,12 @@ describe('datalist cache is growth-bounded (S3-22)', () => {
 	test('overflow wipes the cache instead of pinning entries forever', async () => {
 		clearDatalistCache();
 		const warm = (lang: string) =>
-			getDatalist(DATALIST_COMPONENT, DATALIST_PROPERTIES, DATALIST_TARGET, lang);
+			getDatalist(
+				DATALIST_COMPONENT,
+				DATALIST_PROPERTIES,
+				{ section_tipo: DATALIST_TARGET, section_id: null },
+				lang,
+			);
 		const first = await warm('lg-wsb0');
 		expect(await warm('lg-wsb0')).toBe(first); // sanity: cached by reference
 		// Push the cache past MAX_DATALIST_CACHE_ENTRIES (500) distinct keys.

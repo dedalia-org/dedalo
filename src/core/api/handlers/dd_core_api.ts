@@ -868,7 +868,9 @@ export const coreApiActions: Record<string, ActionHandler> = {
 					savedModel,
 					source.tipo,
 					savedNode?.properties ?? null,
-					source.section_tipo,
+					// The saved RECORD: a component_data fixed_filter reads its
+					// value from it, exactly as the edit read does (echo == read).
+					{ section_tipo: source.section_tipo, section_id: sectionId },
 					savedItems,
 				);
 			}

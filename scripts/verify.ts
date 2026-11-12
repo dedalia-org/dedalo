@@ -465,6 +465,8 @@ const TRIPWIRES = [
 	'test/unit/iri_label_unscoped_lookup_tripwire.test.ts',
 	'test/unit/ontology_model_rules_native.test.ts',
 	'test/unit/ontology_model_rules_shipped_tripwire.test.ts',
+	'test/unit/datalist_projects_scope_native.test.ts',
+	'test/unit/datalist_record_filter_native.test.ts',
 ];
 
 // ---------------------------------------------------------------------------

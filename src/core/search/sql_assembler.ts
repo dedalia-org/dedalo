@@ -541,6 +541,16 @@ export interface SearchOptions {
 	 * (the export's record list). WHERE/ORDER/UNION logic is untouched.
 	 */
 	idsOnly?: boolean;
+	/**
+	 * KEEP THE ROOT USER RECORD (dd128 / -1) — PHP `search->include_negative`,
+	 * server-only (never from the SQO: `include_negative` stays in
+	 * SERVER_ONLY_SQO_KEYS). Lifts ONLY the main-section `section_id > 0` pin of
+	 * {@link composeMainWhere}; the per-record ACL still applies (a non-admin's
+	 * users-section rule carries its own `section_id > 0`). The one caller is the
+	 * select-family option list (relations/datalist.ts — PHP select edit
+	 * `include_negative=true`), so a stored "who = root" stays labelled.
+	 */
+	includeRootUser?: boolean;
 }
 
 /**
@@ -1584,6 +1594,8 @@ async function resolveSectionTables(sectionTipos: readonly string[]): Promise<st
 interface WhereOptions {
 	principal?: Principal;
 	readFloor?: ReadonlySet<string>;
+	/** SearchOptions.includeRootUser — main searches only. */
+	includeRootUser?: boolean;
 	/** Enclosing `referenced_by` leaves (0 = a main search). */
 	depth: number;
 }
@@ -1610,7 +1622,7 @@ async function composeSearchWhere(
 	nonAclWhereParts: number;
 	projectsFilterActive: boolean;
 }> {
-	const mainWhere = composeMainWhere(target, params);
+	const mainWhere = composeMainWhere(target, params, options.includeRootUser === true);
 	const whereParts: string[] = [];
 	const filterSql = await composeFilterWhere(sqo, target, options, params);
 	pushFragment(whereParts, filterSql);
@@ -1644,7 +1656,11 @@ async function composeSearchWhere(
 }
 
 /** The section pin + the Users root exclusion. */
-function composeMainWhere(target: SearchTarget, params: ParamsCollector): string[] {
+function composeMainWhere(
+	target: SearchTarget,
+	params: ParamsCollector,
+	includeRootUser: boolean,
+): string[] {
 	const { alias, sectionTipos, mainSectionTipo } = target;
 	// --- WHERE: main (section_tipo) ---------------------------------------
 	const mainWhere: string[] = [];
@@ -1660,9 +1676,10 @@ function composeMainWhere(target: SearchTarget, params: ParamsCollector): string
 	// exclude the root record (section_id -1) for EVERY caller incl. admins.
 	// Covers rows, full_count, UNION branches, typeahead, filter_by_locators
 	// pins and isRecordInScope — they all AND through whereAll. PHP's
-	// include_negative escape hatch is server-only and unneeded here: the one
-	// path that legitimately includes -1 (getDatalist) bypasses this assembler.
-	if (mainSectionTipo === config.usersSectionTipo) {
+	// include_negative escape hatch is server-only: the one path that
+	// legitimately includes -1 (the select-family option list, getDatalist) asks
+	// for it through SearchOptions.includeRootUser.
+	if (mainSectionTipo === config.usersSectionTipo && !includeRootUser) {
 		mainWhere.push(`${alias}.section_id > 0`);
 	}
 	return mainWhere;
@@ -1888,6 +1905,7 @@ async function assemblePlainSearch(
 			{
 				...(principal === undefined ? {} : { principal }),
 				...(options.readFloor === undefined ? {} : { readFloor: options.readFloor }),
+				includeRootUser: options.includeRootUser === true,
 				depth: 0,
 			},
 			params,

@@ -234,7 +234,12 @@ afterAll(async () => {
 
 describe('the door — getDatalist applies the model option source', () => {
 	test('component_select_lang options are the project languages, not the lg1 section', async () => {
-		const options = await getDatalist(SELECT_LANG, null, SECTION, LANG);
+		const options = await getDatalist(
+			SELECT_LANG,
+			null,
+			{ section_tipo: SECTION, section_id: null },
+			LANG,
+		);
 		const projectLangs = await getSelectLangDatalist(LANG);
 		// Floor: an empty list would make every equality below vacuous.
 		expect(projectLangs.length).toBeGreaterThan(0);
@@ -242,7 +247,15 @@ describe('the door — getDatalist applies the model option source', () => {
 		// The language token, not a record id — the select_lang option shape.
 		for (const option of options) expect(String(option.section_id)).toMatch(/^lg-/);
 		// The probe and the build agree about what the options ARE.
-		expect(await probeDatalistSize(SELECT_LANG, null, SECTION, LANG, 100_000)).toBe(options.length);
+		expect(
+			await probeDatalistSize(
+				SELECT_LANG,
+				null,
+				{ section_tipo: SECTION, section_id: null },
+				LANG,
+				100_000,
+			),
+		).toBe(options.length);
 	});
 });
 
@@ -349,7 +362,11 @@ describe('a stored NON-project lang gets ONE "<name> *" entry at every edit door
 	});
 
 	test('the shared option list (getDatalist) never carries it', async () => {
-		expect(entriesOfMissing(await getDatalist(SELECT_LANG, null, SECTION, LANG))).toEqual([]);
+		expect(
+			entriesOfMissing(
+				await getDatalist(SELECT_LANG, null, { section_tipo: SECTION, section_id: null }, LANG),
+			),
+		).toEqual([]);
 	});
 
 	test('list mode shows the same application-lang label', async () => {

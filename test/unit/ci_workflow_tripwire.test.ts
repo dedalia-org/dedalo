@@ -881,6 +881,14 @@ const NOT_HERMETIC: ReadonlyMap<string, string> = new Map([
 		'test/unit/ontology_model_rules_shipped_tripwire.test.ts',
 		"It resolves every model tipo the vendored release names through the suite database's dd_ontology (the parser's projectModel rule: modelNameOf over readDdOntologyRow) and reads the component_iri / component_input_text model tipos from it, so it cannot run without a live suite Postgres.",
 	],
+	[
+		'test/unit/datalist_projects_scope_native.test.ts',
+		'It builds the zzdlp situation (a project-gated option section and its select) on the suite database, mints the ACL fixture identities and scratch dd128 users with dd170 / dd478 data, and runs the real option search per principal, so it cannot run without a live suite Postgres.',
+	],
+	[
+		'test/unit/datalist_record_filter_native.test.ts',
+		'It builds the zzdlr situation (owner, person, option and grouping sections with their records) on the suite database and drives the datalist build, the read door and the save echo against those rows, so it cannot run without a live suite Postgres.',
+	],
 ]);
 
 /**

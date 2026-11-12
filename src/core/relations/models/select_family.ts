@@ -85,7 +85,7 @@ async function listLabels(
 	return getRelationListValue(
 		context.ddo.tipo,
 		properties,
-		configOwnerOf(context.row).section_tipo,
+		configOwnerOf(context.row),
 		await datalistLabelLang(),
 		storedLocators,
 	);
@@ -128,7 +128,7 @@ async function buildOptionsItem(
 		(await getEditDatalist(
 			context.ddo.tipo,
 			properties,
-			configOwnerOf(context.row).section_tipo,
+			configOwnerOf(context.row),
 			await datalistLabelLang(),
 			storedLocators,
 		));
@@ -176,7 +176,7 @@ async function ownReadOnlyDatalist(
 		getEditDatalist(
 			context.ddo.tipo,
 			properties,
-			configOwnerOf(context.row).section_tipo,
+			configOwnerOf(context.row),
 			labelLang,
 			storedLocators,
 		),

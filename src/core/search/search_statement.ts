@@ -249,3 +249,18 @@ export function searchStatementText(statement: SearchStatement): {
 		carriesReferencedBy: statement.carriesReferencedBy,
 	};
 }
+
+/**
+ * THE STATEMENT'S IDENTITY as an opaque digest (sha256 of its text + bound
+ * values): two statements with the same fingerprint select the same rows from
+ * the same database state. For a cache that must key on WHAT a search selects —
+ * the datalist (relations/datalist.ts), whose option list depends on the
+ * caller's record ACL and on the record-resolved filter, and which keys on this
+ * instead of re-deriving either (a second statement of the ACL rules would
+ * drift from the assembler's). A digest cannot be executed, so this is not an
+ * escape door; its importers are pinned all the same.
+ */
+export function searchStatementFingerprint(statement: SearchStatement): string {
+	const { sql: text, params } = SearchStatement.open(statement, ACCESS);
+	return new Bun.CryptoHasher('sha256').update(JSON.stringify([text, params])).digest('hex');
+}

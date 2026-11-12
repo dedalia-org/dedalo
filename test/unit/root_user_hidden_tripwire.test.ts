@@ -214,7 +214,12 @@ describe('root user record stays resolvable by the direct-fetch paths (requires 
 	});
 
 	test('getDatalist still enumerates -1 (PHP edit-mode include_negative parity)', async () => {
-		const items = await getDatalist('zzroottrip2', USERS_ENUM_PROPERTIES, USERS, 'lg-nolan');
+		const items = await getDatalist(
+			'zzroottrip2',
+			USERS_ENUM_PROPERTIES,
+			{ section_tipo: USERS, section_id: null },
+			'lg-nolan',
+		);
 		// WC-2026-08-10-section-id-int-canonical: datalist options carry the
 		// option record's address as an INT (this emission is the byte funnel
 		// the select family posts back and saves).

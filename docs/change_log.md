@@ -25,6 +25,14 @@ Merged since the last release; these ship with the next one.
 
 #### Security
 
+- **Selects, radio buttons and check boxes offer only the options you may see, and the ones that fit the record.**
+
+    The option list of a select, radio button or check box used to hold every record of its target section, whoever asked. Now it is the same search a list of that section runs for you: a user who is not a global administrator is offered only records of their own projects, and a per-user record allow-list narrows it for everyone. A stored value outside your scope shows no label.
+
+    A field configured to depend on the record (a `fixed_filter` reading the record's own data — for example, the milestones of the person the record names) now offers only the matching options, and a field configured with `filtered_by_search` is narrowed by that filter, as the ontology intended. See [component_select](./core/components/component_select.md).
+
+    Wire contract: `WC-2026-11-12-datalist-principal-record-scope`.
+
 - **The References panel and related-record lists show only the columns the user may read.**
 
     The References panel of a record, and the related-record lists that the transcription, indexation
@@ -751,7 +759,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 33 entries"
+??? note "Wire contract — 34 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -785,6 +793,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-11-relation-list-column-grants`
     - `WC-2026-11-11-section-elements-target-groups`
     - `WC-2026-11-11-svg-tag-url-full-media-path`
+    - `WC-2026-11-12-datalist-principal-record-scope`
     - `WC-2026-11-12-select-dataframe-subdatum`
 
 ## 7.0.0-beta.8 — 2026-11-08

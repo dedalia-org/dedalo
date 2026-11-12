@@ -32,6 +32,7 @@ import { memoizedReadMatrixRecord } from '../../db/record_memo.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
 import { getMatrixTableFromTipo, getModelByTipo, getNode } from '../../ontology/resolver.ts';
 import { readComponentItems } from '../../resolve/component_data.ts';
+import type { Principal } from '../../security/permissions.ts';
 
 /**
  * The most ids ONE `hierarchy_terms` fixed_filter term may expand to.
@@ -96,17 +97,42 @@ export async function expandFilterByList(
 			sectionTipo,
 			mode: 'edit',
 			lang,
-			permissions: 3,
+			...(await filterFieldPermissions(sectionTipo, componentTipo)),
 			addRequestConfig: false, // PHP simple context omits request_config
 		});
 
+		// No owner RECORD: a search-panel filter field lists the vocabulary, not
+		// one record's options. The principal scopes it inside getDatalist.
 		const { getDatalist } = await import('../datalist.ts');
 		const node = await getNode(componentTipo);
-		const datalist = await getDatalist(componentTipo, node?.properties ?? null, sectionTipo, lang);
+		const datalist = await getDatalist(
+			componentTipo,
+			node?.properties ?? null,
+			{ section_tipo: sectionTipo, section_id: null },
+			lang,
+		);
 
 		expanded.push({ context, datalist });
 	}
 	return expanded;
+}
+
+/**
+ * A filter field's simple-context permissions: the CALLER's real level (PHP
+ * builds the context through the component instance, get_permissions), not a
+ * hard-coded 3 — and the principal, so the context's own principal-gated parts
+ * match (the search panel's precedent, resolve/section_elements_context.ts).
+ * No request principal (an internal build) keeps the old full level.
+ */
+async function filterFieldPermissions(
+	sectionTipo: string,
+	componentTipo: string,
+): Promise<{ permissions: number; principal?: Principal }> {
+	const { currentPrincipal } = await import('../../security/request_context.ts');
+	const principal = currentPrincipal();
+	if (principal === undefined) return { permissions: 3 };
+	const { getPermissions } = await import('../../security/permissions.ts');
+	return { permissions: await getPermissions(principal, sectionTipo, componentTipo), principal };
 }
 
 /** One fixed_filter descriptor as stored in the ontology. */

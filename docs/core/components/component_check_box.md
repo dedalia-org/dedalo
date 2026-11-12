@@ -172,6 +172,13 @@ All properties are optional and live in the ontology node `properties` JSON. Ver
 
 - **Values:** an object (`source`) carrying a `request_config` (RQO), or a top-level `request_config`. `verify in ontology` for the exact shape per instance.
 - **Effect:** declares the **target list-of-values section** and how to resolve each option's label. The shared select-family resolver (`src/core/relations/models/select_family.ts`) runs this RQO through `getDatalist()` (`src/core/relations/datalist.ts`) to produce the option list as `{value:{section_id,section_tipo}, label, section_id}` items. This is the single source of the checkboxes the user sees, so the option set is changed by editing the RQO, not by editing engine code.
+- **Who sees which options:** the option list is a real search run for the person asking. A user who is not a global administrator is offered only the target records of their own projects, and a per-user record allow-list (`component_filter_records`) narrows it further for everyone. The labels of a stored value outside that scope are not shown either.
+- **Options per record:** a `sqo.fixed_filter` of source `component_data` narrows the options by a value read from the record being edited (for example, only the milestones of the person the record names), so two records can offer different lists. With no record (the search panel) the list is not narrowed.
+
+### filtered_by_search
+
+- **Values:** an SQO filter object (`{"$and": [{"q": …, "path": […]}]}`), the same shape a search sends.
+- **Effect:** narrows the option list to the target records the filter matches. It is applied only when the `request_config` carries no `fixed_filter` group; a `fixed_filter` wins.
 
 ### fields_separator
 

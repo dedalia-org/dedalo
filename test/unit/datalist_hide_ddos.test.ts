@@ -100,7 +100,12 @@ afterAll(async () => {
 describe('datalist options carry their HIDE ddo values', () => {
 	test('every rating option resolves its colour into hide[0].literal', async () => {
 		const properties = (await getNode(RATING))?.properties ?? null;
-		const options = await getDatalist(RATING, properties, RATING_OWNER, 'lg-spa');
+		const options = await getDatalist(
+			RATING,
+			properties,
+			{ section_tipo: RATING_OWNER, section_id: null },
+			'lg-spa',
+		);
 		// WC-2026-08-10-section-id-int-canonical: option addresses are ints now.
 		const seeded = options.filter((option) =>
 			OPTIONS.some((fixture) => fixture.section_id === option.section_id),
@@ -124,8 +129,18 @@ describe('datalist options carry their HIDE ddo values', () => {
 
 	test('the colour is lang-INDEPENDENT while the label is not', async () => {
 		const properties = (await getNode(RATING))?.properties ?? null;
-		const spanish = await getDatalist(RATING, properties, RATING_OWNER, 'lg-spa');
-		const english = await getDatalist(RATING, properties, RATING_OWNER, 'lg-eng');
+		const spanish = await getDatalist(
+			RATING,
+			properties,
+			{ section_tipo: RATING_OWNER, section_id: null },
+			'lg-spa',
+		);
+		const english = await getDatalist(
+			RATING,
+			properties,
+			{ section_tipo: RATING_OWNER, section_id: null },
+			'lg-eng',
+		);
 		// WC-2026-08-10-section-id-int-canonical: int record address.
 		const find = (list: typeof spanish, sectionId: number) =>
 			list.find((option) => option.section_id === sectionId);
@@ -147,7 +162,12 @@ describe('datalist options carry their HIDE ddo values', () => {
 		// The client indexes `hide` unguarded in places, so the key must always
 		// exist. rsc1259 is a plain input_text — no request_config at all.
 		const properties = (await getNode(LABEL_DDO))?.properties ?? null;
-		const options = await getDatalist(LABEL_DDO, properties, VOCABULARY, 'lg-spa');
+		const options = await getDatalist(
+			LABEL_DDO,
+			properties,
+			{ section_tipo: VOCABULARY, section_id: null },
+			'lg-spa',
+		);
 		for (const option of options) {
 			expect(Array.isArray(option.hide)).toBe(true);
 			expect(option.hide.length).toBe(0);
