@@ -39,7 +39,13 @@ import { readMatrixRecord } from '../../src/core/db/matrix.ts';
 import { updateMatrixRecord } from '../../src/core/db/matrix_write.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { flattenConfigDdoMaps } from '../../src/core/relations/config_ddo_map.ts';
+import {
+	clearFieldsSeparatorCache,
+	resolveCellValue,
+} from '../../src/core/resolve/relation_list.ts';
+import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
+import { runWithRequestContext } from '../../src/core/security/request_context.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { clearAclIdentityCaches } from '../helpers/acl_identity_fixture.ts';
@@ -96,6 +102,11 @@ const TEST3_POINTER_TO_TEST3_ONLY = 948342;
 const LANG_HOST_ID = 948361;
 const LANG_POINTER_ID = 948362;
 const LANG_POINTER_VALUE = 'relation_index translatable column value';
+/**
+ * T1-15 — the persona pointers' test52 value: the flat-reader door gate reads
+ * it through the index (root) and must NOT read it once test52 is revoked.
+ */
+const PERSONA_COLUMN_VALUE = 'relation_index persona column value';
 
 interface ScratchRow {
 	readonly sectionTipo: string;
@@ -222,6 +233,7 @@ beforeAll(async () => {
 	for (const id of TEST3_POINTERS_TO_PERSONA) {
 		await createScratchRecord(HOST_SECTION, id, {
 			relation: { ...dd96Pointer(TEST3_POINTER_SLOT, CRAWL_RECORD_IN_A), ...projectA() },
+			string: { [TEST3_COLUMN]: [{ id: 1, lang: 'lg-spa', value: PERSONA_COLUMN_VALUE }] },
 		});
 	}
 	await createScratchRecord(
@@ -660,6 +672,52 @@ describe('relation_index (config-less) carries its related_list columns', () => 
 			expect(cellEntries(asEditor, TEST3_COLUMN)).toEqual([]);
 			expect(cellItems(asEditor, TEST3_COLUMN)).toEqual([]);
 		});
+	});
+
+	/**
+	 * T1-15 (O12) — the FLAT-READER door (resolveCellValue: the interactive
+	 * value of a config-less index — Referencias cells, related labels). Its
+	 * per-locator columns are tagged IMPLICIT (config_children.ts
+	 * relationIndexLocatorChildren) so readableChildren drops a column the
+	 * viewer holds no grant on (STEP 5, filterAuthorizedRelated); an untagged
+	 * (explicit) column is read at the subdatum floor, which raises 0 to 1.
+	 */
+	test('per viewer, flat-reader door: resolveCellValue of the index drops the revoked column (root control)', async () => {
+		const flatCell = async (as: typeof ROOT) =>
+			runWithRequestContext(
+				{
+					principal: await resolvePrincipal(as.userId),
+					session: null,
+					requestId: 'relation_index_context_native.flat',
+					clientIp: '',
+				},
+				() =>
+					runWithRequestLangs({ applicationLang: 'lg-spa', dataLang: 'lg-spa' }, async () => {
+						clearFieldsSeparatorCache();
+						const unresolved: string[] = [];
+						return (
+							(await resolveCellValue(
+								HOST_SECTION,
+								CRAWL_RECORD_IN_A,
+								INDEX,
+								'lg-spa',
+								unresolved,
+							)) ?? ''
+						);
+					}),
+			);
+		// Control: root reads every persona pointer's test52 value through the index.
+		const asRoot = await flatCell(ROOT);
+		expect(asRoot.split(PERSONA_COLUMN_VALUE).length - 1).toBe(TEST3_POINTERS_TO_PERSONA.length);
+		await withColumnRevoked(async () => {
+			const asEditor = await flatCell(EDITOR);
+			// the rows are still there (owner rule 2026-11-11: every pointer visible) …
+			for (const id of TEST3_POINTERS_TO_PERSONA) expect(asEditor).toContain(String(id));
+			// … but the column the editor holds no grant on is not read
+			expect(asEditor).not.toContain(PERSONA_COLUMN_VALUE);
+		});
+		// and the grant restored, the editor reads it again (the revocation was the cause)
+		expect(await flatCell(EDITOR)).toContain(PERSONA_COLUMN_VALUE);
 	});
 });
 
