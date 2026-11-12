@@ -35,7 +35,7 @@ export const ID_TARGETED_MARK_TYPES = ['index', 'reference'] as const;
 export type IdTargetedMarkType = (typeof ID_TARGETED_MARK_TYPES)[number];
 
 /** The id shape the grammar itself defines (RE_INDEX in tag_grammar.ts). */
-const TAG_ID_SHAPE = /^[0-9]{1,6}$/;
+export const TAG_ID_SHAPE = /^[0-9]{1,6}$/;
 
 /**
  * ONE tag's marks, open AND close, any state — the pattern PHP builds for

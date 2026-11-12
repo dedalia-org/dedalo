@@ -289,6 +289,19 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Transcriptions show again, in blue, the tags whose pair or indexation is broken.**
+
+    Before, a transcription opened in the editor exactly as stored: an index tag whose opening or
+    closing half had been lost, or an indexation (or a drawing) whose tag had disappeared from the
+    text, was invisible, so you could neither put it back in place nor remove it.
+
+    Now, as in earlier versions of Dédalo, the editor completes a half-lost index tag with a blue
+    partner right next to it, and places a blue tag at the start of the text for every indexation
+    or drawing that has no tag in the text. Move each blue tag to where it belongs, or delete it,
+    and save. Nothing changes in the stored text until you save it.
+
+    Wire contract: `WC-2026-11-13-text-area-broken-tag-repair`.
+
 - **Calculated fields (totals, periods, amounts, date sums) compute again**
 
     Fields computed by a `calculation` widget showed nothing as soon as the fields they add up held a value: totals of numbers, periods in years, months and days, grant amounts, euro conversions and dates plus a period. They now compute every formula the ontology declares, including sums over the records of a portal and chains of calculated fields. A calculation whose definition the engine cannot run (an unknown formula, a field that cannot be summed, a calculation that depends on itself) now reports an error instead of showing an empty field. A new grant with no days yet shows the minimum amount, as the earlier engine did. Two grant-amount cases still report an error until a pending decision is made: an amount whose day field holds no value at all, and the major-grant amount of the section that the earlier engine treated specially.
@@ -1288,7 +1301,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 59 entries"
+??? note "Wire contract — 60 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1349,6 +1362,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-update-cache-external-mirror-refresh`
     - `WC-2026-11-12-wipe-respects-virtual-exclusion`
     - `WC-2026-11-12-zotero-csl-json-import`
+    - `WC-2026-11-13-text-area-broken-tag-repair`
 
 ## 7.0.0-beta.8 — 2026-11-08
 
