@@ -214,7 +214,9 @@ export const fetch_api = async (url, init = {}, options = {}) => {
 			const response	= await fetch(url, {...init, signal: controller.signal})
 			settled = true
 			clearTimeout(timeout_id); clearTimeout(health_id)
-			const {json}	= await parse_body(response)
+			const {json, read_error}	= await parse_body(response)
+			// aborted while the body was still arriving: an abort, not an unreadable answer
+			if (read_error && controller.signal.aborted) throw read_error
 			let api_error	= normalize_api_error(response, json)
 			if (!api_error && json===null) {
 				// a 2xx that is not JSON is not an answer the client can use
