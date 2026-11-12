@@ -395,6 +395,14 @@ Merged since the last release; these ship with the next one.
     now offers only linking an existing record, as the related-records field
     already did.
 
+- **Sorting a list by a number or JSON column orders by its value again.**
+
+    Clicking the header of a number column (a weight, a diameter, a year) or of a JSON column in a
+    list, or any search ordered by such a field, came back in record-id order instead of by the
+    field's value — also when the field was reached through a portal. These fields now sort by
+    their value, with empty values last, as in earlier versions of Dédalo. Text columns are
+    unchanged.
+
 - **Layout-only panels (`section_group_div`) render again without a header.**
 
     An edit form group whose ontology model is `section_group_div` is meant to be a

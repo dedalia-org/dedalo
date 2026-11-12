@@ -30,6 +30,7 @@
 
 import { config } from '../../config/config.ts';
 import { readString } from '../../config/readers.ts';
+import { isLangSlicedModel } from '../components/registry.ts';
 import type { Sqo } from '../concepts/sqo.ts';
 import { getSectionTipos } from '../concepts/sqo.ts';
 import { assertMatrixTable, isMatrixTable } from '../db/matrix.ts';
@@ -192,6 +193,47 @@ function pushDirectColumnOrder(
 		if (!selectExtra.includes(idSelect)) selectExtra.push(idSelect);
 	}
 	orderClauses.push(`${column} ${direction}`);
+}
+
+/**
+ * Per-family ORDER select (PHP `$model::build_order_select`): the sort key of
+ * one component, as `<expr> AS <sortAlias>`.
+ *
+ * THE LANG RULE (T1-33 / O07): only a lang-SLICED model stores its items keyed
+ * by `lang` (components/registry.ts `isLangSlicedModel` — PHP
+ * component_string_common subclasses + iri; THE one definition the save path
+ * slices with). Only those read the item of the asked lang (PHP string_common
+ * build_order_select, lang filter). Every other literal model — number, json,
+ * … — is stored lang-LESS and reads `'$[*].value'` (PHP common
+ * trait.search_component_common build_order_select: `$lang` read, unused;
+ * v6 `datos#>>'{path}'`). A lang predicate there matched no item: the key was
+ * NULL on every row and the sort collapsed to the section_id tiebreaker.
+ * `model` is the alias TARGET's (getModelByTipo hops component_alias).
+ */
+async function orderSelectExpression(input: {
+	componentTipo: string;
+	model: string;
+	column: string;
+	/** `<alias>.<column>->'<data tipo>'` — the component's stored item array. */
+	source: string;
+	sortAlias: string;
+	orderAlias: string;
+	/** The order entry's explicit lang, already validated. */
+	langRaw: string | undefined;
+}): Promise<string> {
+	const { model, column, source, sortAlias, orderAlias, langRaw } = input;
+	if (column === 'date') {
+		return `(jsonb_path_query_first(${source}, '$[*].start.time') #>> '{}')::bigint AS ${sortAlias}`;
+	}
+	if (column === 'section_id') {
+		return `${orderAlias}.section_id AS ${sortAlias}`;
+	}
+	if (!isLangSlicedModel(model)) {
+		return `(jsonb_path_query_first(${source}, '$[*].value') #>> '{}') AS ${sortAlias}`;
+	}
+	const translatable = await getTranslatableByTipo(input.componentTipo);
+	const lang = langRaw ?? (translatable ? DEFAULT_DATA_LANG : 'lg-nolan');
+	return `(jsonb_path_query_first(${source}, '$[*] ? (@.lang == $lang).value', '{"lang":"${lang}"}') #>> '{}') AS ${sortAlias}`;
 }
 
 /** Per-order-clause resolution: direct columns or single-step component sort. */
@@ -365,26 +407,22 @@ async function buildOrderClauses(
 				coordinates: { tipo: componentTipo },
 			});
 		}
-		const translatable = await getTranslatableByTipo(componentTipo);
 		const langRaw = (orderEntry as { lang?: string }).lang;
 		if (langRaw !== undefined) assertValidLang(langRaw, 'order lang');
-		const lang = langRaw ?? (translatable ? DEFAULT_DATA_LANG : 'lg-nolan');
 		// component_alias (WC-020): the sort value lives under the TARGET's key
 		// (the emitted order path carries the alias tipo; execution hops here).
 		// Re-gated as an identifier of its own (SURF-1): it names the sort alias too.
 		const orderDataTipo = await resolveSqlDataTipo(componentTipo, 'order');
 		const sortAlias = `${orderDataTipo}_order`;
-
-		// Per-family order-select (PHP $model::build_order_select).
-		let selectExpression: string;
-		if (column === 'date') {
-			selectExpression = `(jsonb_path_query_first(${orderAlias}.${column}->'${orderDataTipo}', '$[*].start.time') #>> '{}')::bigint AS ${sortAlias}`;
-		} else if (column === 'section_id') {
-			selectExpression = `${orderAlias}.section_id AS ${sortAlias}`;
-		} else {
-			// string-family default (also acceptable for number/misc ordering by value)
-			selectExpression = `(jsonb_path_query_first(${orderAlias}.${column}->'${orderDataTipo}', '$[*] ? (@.lang == $lang).value', '{"lang":"${lang}"}') #>> '{}') AS ${sortAlias}`;
-		}
+		const selectExpression = await orderSelectExpression({
+			componentTipo,
+			model,
+			column,
+			source: `${orderAlias}.${column}->'${orderDataTipo}'`,
+			sortAlias,
+			orderAlias,
+			langRaw,
+		});
 		selectExtra.push(selectExpression);
 		orderClauses.push(`${sortAlias} ${direction}`);
 	}
