@@ -594,7 +594,17 @@ common.prototype.render = async function (options={}) {
 				return false;
 			}
 
-		const node = await self[current_render_mode](render_options);
+		let node
+		try {
+			node = await self[current_render_mode](render_options);
+		} catch (error) {
+			// destroyed mid-render (e.g. a superseded autocomplete datalist destroys its
+			// rows in flight): the view resumed on nulled props. Nothing left to render.
+			if (self.status==='destroyed') {
+				return false
+			}
+			throw error
+		}
 
 	// result_node render based in render_level
 		const result_node = await (async () => {

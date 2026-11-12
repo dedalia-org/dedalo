@@ -1962,6 +1962,10 @@ export const render_datalist = async function(self, result) {
 				row_promises.push((async () => {
 					try {
 						const section_record_node = await current_section_record.render()
+						// superseded: a newer render destroyed this row in flight. Not a broken record.
+						if (render_token !== self._render_token) {
+							return null
+						}
 						li_node.appendChild(section_record_node)
 						return li_node
 					} catch (error) {
