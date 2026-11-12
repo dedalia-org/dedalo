@@ -230,10 +230,22 @@ Study these in the reference trees, then re-express their *semantics*:
   section, an sql element without a database) are TERMINAL — ledgered with a
   reason, excluded from the queue, reported by the `public_tier` reconcile
   (PUB-02). Gate: `test/unit/unpublish_debt_native.test.ts`.
-- **v6-parity side-channels** — `global_table_maps`, `merge_columns`,
-  `preserve_order`, `empty_value`, `empty_to_string`, `default_value`,
-  `add_parents`: today smuggled through the wire context; in the new engine
-  these become **compile-time plan concepts** (§5).
+- **v6-parity side-channels** — `merge_columns`, `preserve_order`,
+  `empty_value`, `empty_to_string`, `default_value`, `add_parents`: the old
+  engine smuggled them through the wire context; in the new engine they are
+  **compile-time plan concepts** (§5).
+- **Global (aggregate) tables** — v6 `global_table_maps` on a table node
+  (`save_global_table_data`): compiled to `SectionPlan.globalTables`
+  (`plan/global_tables.ts`; the global node's own fields are its anatomy, key
+  `<section_tipo>_<section_id>` VARCHAR, grammar in
+  `core/diffusion_bridge/global_tables.ts`), written by the sql writer
+  delete-then-insert in the source rows' transaction, withdrawn by
+  `removeRecords`, the record-delete door (a target confirms only when its
+  global rows are gone) and the `public_tier` reconcile. A map naming an
+  unknown column is reported (`global_table_maps_unruled:`) and not written
+  pending owner decision T1-3 D1.
+  WC: `engineering/wire_contract/WC-2026-11-12-global-table-maps.md`.
+  Gate: `test/unit/diffusion_global_table_native.test.ts`.
 
 Key oracle files: PHP `diffusion/class.diffusion_utils.php`,
 `class.diffusion_chain_processor.php`,
@@ -757,8 +769,8 @@ compile time:
 
 1. **Compile-time rewriters** (never run at runtime): locator re-synthesis dies
    (IR keeps typed chains); `parser_locator::parents/filter_*/truncate_*/slice`
-   → chain-transform options on `ResolveStep`; `global_table_maps` → plan
-   lookup tables; `parser_global::merge_columns` → synthetic merged fields;
+   → chain-transform options on `ResolveStep`; `parser_global::merge_columns`
+   → synthetic merged fields;
    `publication_unix_timestamp` → a `{kind:'system'}` source step; the context
    flags → `FieldPolicy`.
 2. **Runtime parsers** (~12 survivors, pure

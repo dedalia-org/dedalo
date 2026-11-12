@@ -23,6 +23,7 @@
 
 import { requireSqlIdentifier } from '../db/sql_identifier.ts';
 import { nameOrLabelOf } from '../ontology/labels.ts';
+import { globalTableMapsOf, globalTableTiposOf } from './global_tables.ts';
 
 /** The dd_ontology row shape the diffusion walk reads. */
 export interface DiffusionNode {
@@ -60,6 +61,13 @@ export interface DiffusionSqlTarget {
 	table_name: string;
 	/** true when the emitting node is a table_alias (real tables win selection). */
 	table_is_alias?: boolean;
+	/**
+	 * The GLOBAL (aggregate) tables in the same database that also hold this
+	 * section's rows under `<section_tipo>_<section_id>` (the table node's
+	 * `global_table_maps`, global_tables.ts). Withdrawn with the source row; a
+	 * target is confirmed only when they are. Absent = none.
+	 */
+	global_tables?: string[];
 }
 
 /** One media-index publication target (PHP resolve_media_index_targets). */
@@ -354,6 +362,102 @@ async function elementProperties(
 }
 
 /**
+ * The global table names a table node's maps resolve to (key-level real
+ * fallback). Lockstep with the plan compiler (plan/global_tables.ts): a target
+ * that is not a `table` node, or whose name the chokepoint rejects, was never
+ * published and is skipped here.
+ */
+async function globalTablesOfNode(
+	graph: DiffusionGraph,
+	tipo: string,
+	realTipo: string | null,
+): Promise<string[]> {
+	const maps = globalTableMapsOf(
+		await graph.properties(tipo),
+		realTipo !== null ? await graph.properties(realTipo) : null,
+	);
+	const names: string[] = [];
+	for (const globalTipo of globalTableTiposOf(maps)) {
+		const name = await globalTableNameOf(graph, globalTipo);
+		if (name !== null && !names.includes(name)) names.push(name);
+	}
+	return names;
+}
+
+/** A global node's published name, or null when publish would never have created it. */
+async function globalTableNameOf(graph: DiffusionGraph, tipo: string): Promise<string | null> {
+	const node = await graph.node(tipo);
+	if (node?.model !== 'table') return null;
+	try {
+		return requireSqlIdentifier(nameOrLabelOf(node) ?? '', 'table');
+	} catch {
+		return null; // a name publish refuses was never created
+	}
+}
+
+/** One (section, publishing node) hit of the target walk, materialized after it. */
+interface TargetHit {
+	section: string;
+	element: ElementContext;
+	table: string | null;
+	tableIsAlias: boolean;
+	globalTables: string[];
+}
+
+/** The hits a node under an element contributes: one per section it relates to. */
+async function sectionHitsOf(
+	graph: DiffusionGraph,
+	node: { tipo: string; realTipo: string | null; model: string; label: string | null },
+	element: ElementContext,
+): Promise<TargetHit[]> {
+	const sections = await relatedSections(graph, node.tipo, node.realTipo);
+	if (sections.length === 0) return [];
+	const globalTables = await globalTablesOfNode(graph, node.tipo, node.realTipo);
+	return sections.map((section) => ({
+		section,
+		element,
+		table: node.label,
+		tableIsAlias: node.model === 'table_alias',
+		globalTables,
+	}));
+}
+
+/** Add one hit to the per-section target map (dedup by element + db|table; globals merged). */
+function materializeHit(map: Map<string, DiffusionSqlTarget[]>, hit: TargetHit): void {
+	let databaseName: string;
+	let tableName: string;
+	try {
+		databaseName = hit.element.database
+			? requireSqlIdentifier(hit.element.database, 'database')
+			: '';
+		tableName = hit.table ? requireSqlIdentifier(hit.table, 'table') : '';
+	} catch {
+		return;
+	}
+	const list = map.get(hit.section) ?? [];
+	const existing = list.find(
+		(t) =>
+			t.element_tipo === hit.element.realTipo &&
+			t.database_name === databaseName &&
+			t.table_name === tableName,
+	);
+	if (existing !== undefined) {
+		mergeGlobalTables(existing, hit.globalTables);
+		return;
+	}
+	const target: DiffusionSqlTarget = {
+		element_tipo: hit.element.realTipo,
+		type: hit.element.type,
+		database_name: databaseName,
+		table_name: tableName,
+		table_is_alias: hit.tableIsAlias,
+	};
+	mergeGlobalTables(target, hit.globalTables);
+	list.push(target);
+	map.set(hit.section, list);
+}
+
+/**
  * Per-section publish targets: every virtual node under a diffusion element
  * that relates to a section becomes a target — the pair (database node label
  * under the element, the node's own label) is the published table address.
@@ -372,12 +476,7 @@ export async function walkDiffusionTargets(
 	const consumed = await collectConsumedReals(graph, domainTipo);
 	const consumedByElement = await collectConsumedRealsByElement(graph, domainTipo);
 
-	const pending: {
-		section: string;
-		element: ElementContext;
-		table: string | null;
-		tableIsAlias: boolean;
-	}[] = [];
+	const pending: TargetHit[] = [];
 
 	const walk = async (
 		tipo: string,
@@ -415,9 +514,7 @@ export async function walkDiffusionTargets(
 		}
 
 		if (element !== null) {
-			for (const section of await relatedSections(graph, tipo, realTipo)) {
-				pending.push({ section, element, table: label, tableIsAlias: model === 'table_alias' });
-			}
+			pending.push(...(await sectionHitsOf(graph, { tipo, realTipo, model, label }, element)));
 		}
 
 		for (const child of await walkChildren(graph, tipo, realTipo)) {
@@ -428,36 +525,21 @@ export async function walkDiffusionTargets(
 
 	// materialize (database labels resolved after the full walk), dedup per
 	// section by db|table
-	for (const hit of pending) {
-		const list = map.get(hit.section) ?? [];
-		let databaseName: string;
-		let tableName: string;
-		try {
-			databaseName = hit.element.database
-				? requireSqlIdentifier(hit.element.database, 'database')
-				: '';
-			tableName = hit.table ? requireSqlIdentifier(hit.table, 'table') : '';
-		} catch {
-			continue;
-		}
-		const exists = list.some(
-			(t) =>
-				t.element_tipo === hit.element.realTipo &&
-				t.database_name === databaseName &&
-				t.table_name === tableName,
-		);
-		if (!exists) {
-			list.push({
-				element_tipo: hit.element.realTipo,
-				type: hit.element.type,
-				database_name: databaseName,
-				table_name: tableName,
-				table_is_alias: hit.tableIsAlias,
-			});
-			map.set(hit.section, list);
-		}
-	}
+	for (const hit of pending) materializeHit(map, hit);
 	return map;
+}
+
+/** Only a sql/socrata target with a database writes global tables. */
+function writesGlobalTables(target: DiffusionSqlTarget): boolean {
+	return (target.type === 'sql' || target.type === 'socrata') && target.database_name !== '';
+}
+
+/** Add global table names to a target (only sql/socrata targets with a database write them). */
+function mergeGlobalTables(target: DiffusionSqlTarget, names: readonly string[]): void {
+	if (names.length === 0 || !writesGlobalTables(target)) return;
+	const merged = [...(target.global_tables ?? [])];
+	for (const name of names) if (!merged.includes(name)) merged.push(name);
+	target.global_tables = merged;
 }
 
 /**

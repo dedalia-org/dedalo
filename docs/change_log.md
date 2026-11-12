@@ -17,6 +17,7 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - Publication fills the global search and map tables again
     - SVG glyphs in text tags now resolve in lists and publications for vector components stored in sub-folders.
     - The "+" of a portal (and Duplicate, add term, the assistant) now needs permission to create in the target section.
     - A publication host in copy mode no longer answers "not found" for every published file.
@@ -693,6 +694,25 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Publication fills the global search and map tables again** *(action needed)*
+
+    Tables declared with `global_table_maps` (for example the global search table of a memorial
+    portal or the `map_global` layer of a numismatic site) gather every published record of
+    several sections in one table. Since the switch to the new publication engine they were no
+    longer updated: new records were missing, edited ones kept their old values, and unpublished
+    or deleted records stayed public.
+
+    Publishing now writes them again, one row per record and language, refreshed on every
+    publication and removed when the record is unpublished or deleted. The public-tier reconcile
+    also reports and removes their stale rows.
+
+    **After updating:** republish the elements that declare global tables, then run the
+    `public_tier` reconcile with apply to withdraw the rows of records deleted in the meantime.
+    A map that names a column existing in neither table is not written yet; `validate` lists it
+    as a `global_table_maps_unruled:` warning.
+
+    Wire contract: `WC-2026-11-12-global-table-maps`.
+
 - **Information fields (calculated widgets) are published and exported with their current value.**
 
     Publication columns that read an information field — for example the weight and diameter
@@ -781,7 +801,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 36 entries"
+??? note "Wire contract — 37 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -817,6 +837,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-11-svg-tag-url-full-media-path`
     - `WC-2026-11-12-calculation-widget-port`
     - `WC-2026-11-12-datalist-principal-record-scope`
+    - `WC-2026-11-12-global-table-maps`
     - `WC-2026-11-12-info-live-publication-export`
     - `WC-2026-11-12-select-dataframe-subdatum`
 

@@ -21,8 +21,8 @@
  *   varchar/length/index, empty_to_string, default_value;
  * - v6 side-channels promoted to plan concepts (spec §5): preserve_order
  *   (process_datum :1170-1182) → FieldPolicy; add_parents (chain_processor
- *   :305) → relation-hop flag; global_table_maps (dd_diffusion_api
- *   :1042-1060) → plan warning until the writer phase lands them.
+ *   :305) → relation-hop flag; global_table_maps (v6 diffusion_sql::
+ *   save_global_table_data :2477) → SectionPlan.globalTables (global_tables.ts).
  *
  * SECURITY: every database/table/column name that will reach a SQL target
  * goes through requireSqlIdentifier (spec §8.3) AT COMPILE TIME — a violation
@@ -79,6 +79,7 @@ import { getTldFromTipo } from '../../core/ontology/tld.ts';
 import { tableRowSizeViolation } from '../targets/mariadb/sql_generator.ts';
 import { currentOntologyRevision } from './cache.ts';
 import { KNOWN_FORMATS, TABLE_FORMATS } from './formats.ts';
+import { compileGlobalTables, globalTableElementErrors } from './global_tables.ts';
 import { requireSqlIdentifier } from './identifier.ts';
 import type {
 	ColumnDef,
@@ -750,13 +751,6 @@ async function compileSectionPlan(
 		return null;
 	}
 
-	// global_table_maps (dd_diffusion_api :1042-1060): v6 secondary
-	// aggregate-table write. Becomes a plan lookup table in the writer phase;
-	// until then its presence must stay visible.
-	if (tableNode.properties?.global_table_maps !== undefined) {
-		diagnostics.warnings.push(`global_table_maps:${tableNode.tipo}`);
-	}
-
 	// Columns come from the table node's DIRECT children (oracle
 	// dd_diffusion_api::process_datum :996 — get_ar_children is first-level
 	// only). childrenTipos is the RECURSIVE UI list: using it makes a nested
@@ -776,12 +770,29 @@ async function compileSectionPlan(
 		if (fieldPlan !== null) fields.push(fieldPlan);
 	}
 
-	return {
+	const sectionPlan: SectionPlan = {
 		sectionTipo,
 		tableName,
 		tableTipo: tableNode.tipo,
 		fields,
 	};
+	// v6 global_table_maps: the section's rows ALSO land in aggregate tables
+	// (plan/global_tables.ts — compiled here, written by the sql writer).
+	const globalTables = await compileGlobalTables(
+		{
+			index: tree.index,
+			tableNode,
+			sectionTipo,
+			sourceColumns: fields
+				.filter((field) => field.excludeColumn !== true)
+				.map((field) => field.columnName),
+			sqlTarget,
+			uninstalledTldOf,
+		},
+		diagnostics,
+	);
+	if (globalTables.length > 0) sectionPlan.globalTables = globalTables;
+	return sectionPlan;
 }
 
 /**
@@ -958,6 +969,7 @@ export async function compileElementPlan(
 			const violation = tableRowSizeViolation(sectionPlan);
 			if (violation !== null) diagnostics.errors.push(violation);
 		}
+		diagnostics.errors.push(...globalTableElementErrors(sections));
 	}
 
 	if (diagnostics.errors.length > 0 || target === null) {

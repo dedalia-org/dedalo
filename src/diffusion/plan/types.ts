@@ -222,6 +222,48 @@ export interface SectionPlan {
 	/** The table/diffusion-section node tipo this plan came from. */
 	tableTipo: string;
 	fields: FieldPlan[];
+	/**
+	 * Secondary aggregate tables this section's rows ALSO land in — the v6
+	 * `global_table_maps` (diffusion_sql::save_global_table_data), compiled
+	 * (plan/global_tables.ts). Absent = none. Only on sql elements.
+	 */
+	globalTables?: GlobalTablePlan[];
+}
+
+/** One `columns_map` item of a global table map (v6 save_global_table_data). */
+export interface GlobalColumnMap {
+	/** A column the global table node declares (validated at compile). */
+	targetColumn: string;
+	/** Source-table column names in order, or the automatic `section_id` / `lang`. */
+	sourceColumns: string[];
+	/** `'string'`: join the source values with `separator` (v6 default ' | '). */
+	format?: 'string';
+	separator?: string;
+}
+
+/** Provenance columns v6 writes on every global row (each only when the node declares it). */
+export type GlobalProvenanceColumn = 'ref_section_id' | 'ref_section_tipo' | 'ref_table' | 'link';
+
+/**
+ * A global (aggregate) table: one row per (source record, lang), keyed by the
+ * composite `<section_tipo>_<section_id>` (project/global_table.ts globalRowKey),
+ * written delete-then-insert by the sql writer in the source rows' transaction
+ * and withdrawn by every door that withdraws the source row.
+ */
+export interface GlobalTablePlan {
+	/** The global table node (`global_table_maps[].table_tipo`, model `table`). */
+	tableTipo: string;
+	/**
+	 * DDL anatomy: the node's OWN direct field children as column-only fields
+	 * (empty sourceChain/transform). `tableName` = the validated global table
+	 * name; `sectionTipo` is '' (a global table belongs to no section).
+	 */
+	schema: SectionPlan;
+	/** VARCHAR length of the composite key (the node's own `section_id` field `varchar`, default 255). */
+	keyLength: number;
+	/** The provenance columns the node declares — only those are written. */
+	provenance: GlobalProvenanceColumn[];
+	columnsMap: GlobalColumnMap[];
 }
 
 export interface RecursionPolicy {

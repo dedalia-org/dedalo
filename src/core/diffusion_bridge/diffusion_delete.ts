@@ -53,6 +53,7 @@ import { relationProbeGroups } from '../search/containment.ts';
 import { virtualDateNow } from '../section/record/create_record.ts';
 import type { DiffusionSqlTarget } from './diffusion_graph.ts';
 import { getSectionDiffusionTargets } from './diffusion_map.ts';
+import { globalRowKey } from './global_tables.ts';
 import {
 	diffusionFilesRoot,
 	PER_RECORD_FILE_FORMATS,
@@ -382,23 +383,59 @@ async function executeNativeSqlDeletes(
 	sectionId: number,
 	outcome: DiffusionDeleteOutcome,
 ): Promise<void> {
-	const native = await executor(
-		sqlTargets.map((target) => ({
-			database_name: target.database_name,
-			table_name: target.table_name,
-			section_ids: [sectionId],
-			section_tipo: sectionTipo, // enables media marker removal in the store
-		})),
-	);
+	const native = await executor(nativeDeleteTargetsOf(sqlTargets, sectionTipo, sectionId));
 	const confirmed = new Set(native.deleted);
 	for (const target of sqlTargets) {
 		const key = targetKey(target);
-		if (confirmed.has(key)) outcome.deleted.push(key);
+		if (isTargetConfirmed(target, confirmed)) outcome.deleted.push(key);
 		else outcome.pending.push(key);
 	}
 	if (native.errors.length > 0) {
 		console.error('diffusion unpublish reported errors:', native.errors);
 	}
+}
+
+/**
+ * The executor work of one record's sql targets: each source row, plus its row
+ * in every GLOBAL table the target writes (`<section_tipo>_<section_id>`,
+ * global_tables.ts). A global row carries no section_tipo — no media markers
+ * live under a global table (its source table holds them).
+ */
+function nativeDeleteTargetsOf(
+	sqlTargets: readonly DiffusionSqlTarget[],
+	sectionTipo: string,
+	sectionId: number,
+): NativeSqlDeleteTarget[] {
+	const work: NativeSqlDeleteTarget[] = [];
+	const globalKey = globalRowKey(sectionTipo, sectionId);
+	const seenGlobals = new Set<string>();
+	for (const target of sqlTargets) {
+		work.push({
+			database_name: target.database_name,
+			table_name: target.table_name,
+			section_ids: [sectionId],
+			section_tipo: sectionTipo, // enables media marker removal in the store
+		});
+		for (const globalTable of target.global_tables ?? []) {
+			const key = `${target.database_name}|${globalTable}`;
+			if (seenGlobals.has(key)) continue;
+			seenGlobals.add(key);
+			work.push({
+				database_name: target.database_name,
+				table_name: globalTable,
+				section_ids: [globalKey],
+			});
+		}
+	}
+	return work;
+}
+
+/** A target is unpublished only when its own row AND every global row of it are gone. */
+function isTargetConfirmed(target: DiffusionSqlTarget, confirmed: ReadonlySet<string>): boolean {
+	if (!confirmed.has(targetKey(target))) return false;
+	return (target.global_tables ?? []).every((globalTable) =>
+		confirmed.has(`${target.database_name}|${globalTable}`),
+	);
 }
 
 /**

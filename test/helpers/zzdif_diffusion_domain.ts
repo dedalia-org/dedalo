@@ -56,6 +56,22 @@
  *         zzdif95  table 'zzdif_hop_linked_md' → section zzdif20
  *           zzdif96  field_varchar 'name'  | zzdif97 field_enum 'publication' (exclude_column)
  *
+ *       zzdif100 diffusion_element {"diffusion":{"type":"sql"}}   ← the GLOBAL-TABLE element (T1-3)
+ *         zzdif101 database 'zzdif_global_db'
+ *           zzdif102 table 'zzdif_gt_primary' → zzdif1   global_table_maps → zzdif110
+ *             zzdif103 field_varchar 'title' | zzdif104 field_varchar 'code' | zzdif105 publication (excl)
+ *           zzdif106 table 'zzdif_gt_linked' → zzdif20   global_table_maps → zzdif110
+ *             zzdif107 field_varchar 'name' | zzdif108 publication (excl)
+ *           zzdif110 table 'zzdif_global' (NO section relation — the aggregate table)
+ *             zzdif111 'section_id' varchar 64 | zzdif112 'ref_section_id' | zzdif113 'ref_section_tipo'
+ *             zzdif114 'ref_table' | zzdif115 'link' | zzdif116 'title' | zzdif117 'title_code'
+ *             zzdif118 'both' | zzdif119 'sort_id'
+ *
+ *   The GLOBAL-TABLE element (2026-11-12, T1-3) is v6 `global_table_maps`: every
+ *   published row of zzdif1 / zzdif20 also lands in `zzdif_global` under
+ *   `<section_tipo>_<section_id>` (test/unit/diffusion_global_table_native.test.ts).
+ *   Its own database, so no sibling gate's tables or targets change shape.
+ *
  *   The HOP file element (2026-09-30, DIFF-1) exists so a run has a FRONTIER:
  *   with `levels: 1` the portal field queues 940101/940102 and the run's output is
  *   the primary files PLUS the linked section's `zzdif20_<id>.md` — a crash
@@ -137,6 +153,16 @@ export const ZZDIF_HOP_SERVICE_NAME = 'zzdif_md_hop';
 /** Its primary and linked table labels (`tables[].table_name`). */
 export const ZZDIF_HOP_PRIMARY_TABLE_NAME = 'zzdif_hop_primary_md';
 export const ZZDIF_HOP_LINKED_TABLE_NAME = 'zzdif_hop_linked_md';
+/** The GLOBAL-TABLE sql element (T1-3) and its names. */
+export const ZZDIF_GLOBAL_ELEMENT = 'zzdif100';
+export const ZZDIF_GLOBAL_DATABASE = 'zzdif_global_db';
+export const ZZDIF_GLOBAL_PRIMARY_TABLE = 'zzdif_gt_primary';
+export const ZZDIF_GLOBAL_LINKED_TABLE = 'zzdif_gt_linked';
+/** The aggregate table node + name every global row lands in. */
+export const ZZDIF_GLOBAL_TABLE_TIPO = 'zzdif110';
+export const ZZDIF_GLOBAL_TABLE = 'zzdif_global';
+/** The `format: 'string'` separator of its `title_code` map. */
+export const ZZDIF_GLOBAL_SEPARATOR = ' · ';
 /** The parser fn no registry entry exists for — the loud-failure subject. */
 export const ZZDIF_UNKNOWN_PARSER_FN = 'parser_zzdif::no_such_fn';
 
@@ -544,6 +570,120 @@ function buildSituation(): Situation {
 				order_number: 1,
 			},
 			{ ...publicationField('zzdif97', 'zzdif22'), parent: 'zzdif95', order_number: 2 },
+
+			// element 6 — the GLOBAL-TABLE element (T1-3, see the header note).
+			{
+				tipo: ZZDIF_GLOBAL_ELEMENT,
+				parent: 'zzdif41',
+				model: 'diffusion_element',
+				term: { 'lg-spa': 'zzdif global table element' },
+				properties: { diffusion: { type: 'sql' } },
+				order_number: 6,
+			},
+			{
+				tipo: 'zzdif101',
+				parent: ZZDIF_GLOBAL_ELEMENT,
+				model: 'database',
+				term: { 'lg-spa': ZZDIF_GLOBAL_DATABASE },
+			},
+			{
+				tipo: 'zzdif102',
+				parent: 'zzdif101',
+				model: 'table',
+				term: { 'lg-spa': ZZDIF_GLOBAL_PRIMARY_TABLE },
+				relations: [{ tipo: 'zzdif1' }],
+				properties: {
+					global_table_maps: [
+						{
+							table_tipo: ZZDIF_GLOBAL_TABLE_TIPO,
+							columns_map: [
+								{ target_column: 'title', source_columns: ['title'] },
+								{
+									target_column: 'title_code',
+									source_columns: ['title', 'code'],
+									format: 'string',
+									separator: ZZDIF_GLOBAL_SEPARATOR,
+								},
+								{ target_column: 'both', source_columns: ['title', 'code'] },
+								{ target_column: 'sort_id', source_columns: ['section_id'] },
+							],
+						},
+					],
+				},
+				order_number: 1,
+			},
+			{
+				tipo: 'zzdif103',
+				parent: 'zzdif102',
+				model: 'field_varchar',
+				term: { 'lg-spa': 'title' },
+				relations: [{ tipo: 'zzdif2' }],
+				properties: { varchar: 500 },
+				order_number: 1,
+			},
+			{
+				tipo: 'zzdif104',
+				parent: 'zzdif102',
+				model: 'field_varchar',
+				term: { 'lg-spa': 'code' },
+				relations: [{ tipo: 'zzdif3' }],
+				properties: { varchar: 64 },
+				order_number: 2,
+			},
+			{ ...publicationField('zzdif105', 'zzdif6'), parent: 'zzdif102', order_number: 3 },
+			{
+				tipo: 'zzdif106',
+				parent: 'zzdif101',
+				model: 'table',
+				term: { 'lg-spa': ZZDIF_GLOBAL_LINKED_TABLE },
+				relations: [{ tipo: 'zzdif20' }],
+				properties: {
+					global_table_maps: [
+						{
+							table_tipo: ZZDIF_GLOBAL_TABLE_TIPO,
+							columns_map: [{ target_column: 'title', source_columns: ['name'] }],
+						},
+					],
+				},
+				order_number: 2,
+			},
+			{
+				tipo: 'zzdif107',
+				parent: 'zzdif106',
+				model: 'field_varchar',
+				term: { 'lg-spa': 'name' },
+				relations: [{ tipo: 'zzdif21' }],
+				properties: { varchar: 500 },
+				order_number: 1,
+			},
+			{ ...publicationField('zzdif108', 'zzdif22'), parent: 'zzdif106', order_number: 2 },
+			{
+				tipo: ZZDIF_GLOBAL_TABLE_TIPO,
+				parent: 'zzdif101',
+				model: 'table',
+				term: { 'lg-spa': ZZDIF_GLOBAL_TABLE },
+				order_number: 3,
+			},
+			...(
+				[
+					['zzdif111', 'field_varchar', 'section_id', { varchar: 64 }],
+					['zzdif112', 'field_int', 'ref_section_id', null],
+					['zzdif113', 'field_varchar', 'ref_section_tipo', { varchar: 64 }],
+					['zzdif114', 'field_varchar', 'ref_table', { varchar: 64 }],
+					['zzdif115', 'field_text', 'link', null],
+					['zzdif116', 'field_text', 'title', null],
+					['zzdif117', 'field_text', 'title_code', null],
+					['zzdif118', 'field_text', 'both', null],
+					['zzdif119', 'field_int', 'sort_id', null],
+				] as const
+			).map(([tipo, model, name, properties], position) => ({
+				tipo,
+				parent: ZZDIF_GLOBAL_TABLE_TIPO,
+				model,
+				term: { 'lg-spa': name },
+				...(properties !== null ? { properties } : {}),
+				order_number: position + 1,
+			})),
 		],
 		records: [
 			{

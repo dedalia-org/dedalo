@@ -37,9 +37,12 @@
  */
 
 import { readString } from '../../config/readers.ts';
+import { globalRowKey } from '../../core/diffusion_bridge/global_tables.ts';
 import { boundSqlTargetStatement } from '../../core/diffusion_bridge/target_lock.ts';
 import { DedaloError } from '../../core/errors/index.ts';
-import type { PublicationPlan, SectionPlan } from '../plan/types.ts';
+import { globalKeyType } from '../plan/global_tables.ts';
+import type { GlobalTablePlan, PublicationPlan, SectionPlan } from '../plan/types.ts';
+import { deriveGlobalRows } from '../project/global_table.ts';
 import type { ProjectedRow } from '../project/lang_ladder.ts';
 import type { MariadbExecResult } from '../targets/mariadb/db.ts';
 import {
@@ -84,6 +87,75 @@ function upsertBatchRows(): number {
 		: DEFAULT_UPSERT_BATCH_ROWS;
 }
 
+/**
+ * The distinct global tables a plan writes (by name — the compiler refused two
+ * nodes under one name, so one name is one anatomy).
+ */
+function distinctGlobalTables(plan: PublicationPlan): GlobalTablePlan[] {
+	const byName = new Map<string, GlobalTablePlan>();
+	for (const section of plan.sections) {
+		for (const global of section.globalTables ?? []) {
+			if (!byName.has(global.schema.tableName)) byName.set(global.schema.tableName, global);
+		}
+	}
+	return [...byName.values()];
+}
+
+/** Anything `unsafe` can run on: the pool or one of its transactions. */
+type SqlRunner = { unsafe(sql: string, params: (string | number | null)[]): Promise<unknown> };
+
+/** Upsert rows into one table in byte-capped multi-row statements; returns affected rows. */
+async function upsertRows(
+	runner: SqlRunner,
+	table: SectionPlan,
+	rows: ProjectedRow[],
+): Promise<number> {
+	const columnNames = tableColumnFields(table).map((field) => field.columnName);
+	const batches = planUpsertBatches(rows, columnNames, {
+		maxRowsPerStatement: upsertBatchRows(),
+		maxBytesPerStatement: DEFAULT_UPSERT_BATCH_BYTES,
+	});
+	let affectedRows = 0;
+	for (const batch of batches) {
+		const statement = generateBatchUpsert(table.tableName, columnNames, batch);
+		const result = (await runner.unsafe(
+			boundSqlTargetStatement(statement.sql),
+			statement.params,
+		)) as MariadbExecResult;
+		affectedRows += result.affectedRows ?? 0;
+	}
+	return affectedRows;
+}
+
+/**
+ * Batched DELETE by section_id. A missing table or database means "nothing was
+ * ever published there" — a zero-row no-op (oracle errno 1146/1049 posture).
+ */
+async function deleteByIds(
+	runner: SqlRunner,
+	tableName: string,
+	sectionIds: readonly (number | string)[],
+): Promise<number> {
+	let deletedRows = 0;
+	for (let offset = 0; offset < sectionIds.length; offset += DELETE_BATCH_IDS) {
+		const statement = generateDelete(
+			tableName,
+			sectionIds.slice(offset, offset + DELETE_BATCH_IDS),
+		);
+		try {
+			const result = (await runner.unsafe(
+				boundSqlTargetStatement(statement.sql),
+				statement.params,
+			)) as MariadbExecResult;
+			deletedRows += result.affectedRows ?? 0;
+		} catch (error) {
+			if (isMissingTableError(error) || isMissingDatabaseError(error)) break;
+			throw error;
+		}
+	}
+	return deletedRows;
+}
+
 class MariadbWriterSession implements WriterSession {
 	private readonly plan: PublicationPlan;
 	private readonly database: string;
@@ -95,7 +167,10 @@ class MariadbWriterSession implements WriterSession {
 		this.plan = plan;
 		this.database = database;
 		this.log = new WriterRunLog(
-			plan.sections.map((section) => section.tableName),
+			[
+				...plan.sections.map((section) => section.tableName),
+				...distinctGlobalTables(plan).map((global) => global.schema.tableName),
+			],
 			context,
 		);
 	}
@@ -113,29 +188,41 @@ class MariadbWriterSession implements WriterSession {
 	 * Additive only — existing columns are never retyped or dropped.
 	 */
 	async ensureSchema(): Promise<void> {
-		const pool = getTargetPool(this.database);
-		for (const section of this.plan.sections) {
-			// 1. Table with the full plan anatomy (no-op when it already exists).
-			await pool.unsafe(boundSqlTargetStatement(generateCreateTable(section)), []);
-
-			// 2. Diff live columns against the plan (covers pre-existing tables).
-			//    Unbounded on purpose: INFORMATION_SCHEMA takes a high-priority
-			//    metadata lock that never queues behind a pending writer.
-			const columnsQuery = generateColumnsQuery(this.database, section.tableName);
-			const rows = (await pool.unsafe(columnsQuery.sql, columnsQuery.params)) as {
-				COLUMN_NAME: string;
-			}[];
-			const existingColumns = new Set(rows.map((row) => row.COLUMN_NAME));
-
-			// 3. Additive ALTER ADD for every plan column the table lacks.
-			const missingColumns = tableColumnFields(section)
-				.map((field) => field.columnName)
-				.filter((columnName) => !existingColumns.has(columnName));
-			for (const alterSql of generateAddColumns(section, missingColumns)) {
-				await pool.unsafe(boundSqlTargetStatement(alterSql), []);
-			}
+		for (const section of this.plan.sections) await this.ensureTable(section);
+		// Global tables: the same three steps, keyed by their VARCHAR composite key.
+		for (const global of distinctGlobalTables(this.plan)) {
+			await this.ensureTable(global.schema, globalKeyType(global));
 		}
 		this.schemaEnsured = true;
+	}
+
+	/** CREATE IF NOT EXISTS → INFORMATION_SCHEMA diff → additive ALTER ADD, for one table. */
+	private async ensureTable(table: SectionPlan, sectionIdType?: string): Promise<void> {
+		const pool = getTargetPool(this.database);
+		// 1. Table with the full plan anatomy (no-op when it already exists).
+		await pool.unsafe(
+			boundSqlTargetStatement(
+				generateCreateTable(table, sectionIdType !== undefined ? { sectionIdType } : {}),
+			),
+			[],
+		);
+
+		// 2. Diff live columns against the plan (covers pre-existing tables).
+		//    Unbounded on purpose: INFORMATION_SCHEMA takes a high-priority
+		//    metadata lock that never queues behind a pending writer.
+		const columnsQuery = generateColumnsQuery(this.database, table.tableName);
+		const rows = (await pool.unsafe(columnsQuery.sql, columnsQuery.params)) as {
+			COLUMN_NAME: string;
+		}[];
+		const existingColumns = new Set(rows.map((row) => row.COLUMN_NAME));
+
+		// 3. Additive ALTER ADD for every plan column the table lacks.
+		const missingColumns = tableColumnFields(table)
+			.map((field) => field.columnName)
+			.filter((columnName) => !existingColumns.has(columnName));
+		for (const alterSql of generateAddColumns(table, missingColumns)) {
+			await pool.unsafe(boundSqlTargetStatement(alterSql), []);
+		}
 	}
 
 	/**
@@ -153,28 +240,32 @@ class MariadbWriterSession implements WriterSession {
 			);
 		}
 
-		const columnNames = tableColumnFields(section).map((field) => field.columnName);
-		const batches = planUpsertBatches(rows, columnNames, {
-			maxRowsPerStatement: upsertBatchRows(),
-			maxBytesPerStatement: DEFAULT_UPSERT_BATCH_BYTES,
-		});
-
 		const pool = getTargetPool(this.database);
 		let affectedRows = 0;
+		const globalAffected = new Map<string, number>();
 		await pool.begin(async (transaction) => {
-			for (const batch of batches) {
-				const statement = generateBatchUpsert(section.tableName, columnNames, batch);
-				const result = (await transaction.unsafe(
-					boundSqlTargetStatement(statement.sql),
-					statement.params,
-				)) as MariadbExecResult;
-				affectedRows += result.affectedRows ?? 0;
+			affectedRows = await upsertRows(transaction, section, rows);
+			// Global tables, in the SAME transaction (one unit with the source
+			// rows): delete-then-insert per record, v6 save_global_table_data
+			// :2599-2633 — drops a lang the record no longer has, and holds on a
+			// legacy table without the (section_id, lang) key.
+			for (const global of section.globalTables ?? []) {
+				const globalRows = deriveGlobalRows(section, global, rows);
+				const keys = [...new Set(globalRows.map((row) => String(row.sectionId)))];
+				const deleted = await deleteByIds(transaction, global.schema.tableName, keys);
+				const written = await upsertRows(transaction, global.schema, globalRows);
+				globalAffected.set(global.schema.tableName, deleted + written);
 			}
 		});
 
 		const counters = this.countersFor(section.tableName);
 		counters.records_affected += affectedRows;
 		counters.records_count += rows.length;
+		for (const [tableName, affected] of globalAffected) {
+			const globalCounters = this.countersFor(tableName);
+			globalCounters.records_affected += affected;
+			globalCounters.records_count += rows.length;
+		}
 
 		// S2-31: mirror the committed publish into the media marker store
 		// (oracle index.ts:213 — after the write, per table; marker failures
@@ -209,25 +300,15 @@ class MariadbWriterSession implements WriterSession {
 		if (sectionIds.length === 0) return { written: 0, deleted: 0 };
 
 		const pool = getTargetPool(this.database);
-		let deletedRows = 0;
-		for (let offset = 0; offset < sectionIds.length; offset += DELETE_BATCH_IDS) {
-			const idsBatch = sectionIds.slice(offset, offset + DELETE_BATCH_IDS);
-			const statement = generateDelete(section.tableName, idsBatch);
-			try {
-				const result = (await pool.unsafe(
-					boundSqlTargetStatement(statement.sql),
-					statement.params,
-				)) as MariadbExecResult;
-				deletedRows += result.affectedRows ?? 0;
-			} catch (error) {
-				if (isMissingTableError(error) || isMissingDatabaseError(error)) {
-					break; // nothing published there — tolerated no-op
-				}
-				throw error;
-			}
-		}
-
+		const deletedRows = await deleteByIds(pool, section.tableName, sectionIds);
 		this.countersFor(section.tableName).records_affected += deletedRows;
+
+		// The record's global rows leave with it (v6 publication=no :1439-1483).
+		const globalKeys = sectionIds.map((id) => globalRowKey(section.sectionTipo, id));
+		for (const global of section.globalTables ?? []) {
+			const deleted = await deleteByIds(pool, global.schema.tableName, globalKeys);
+			this.countersFor(global.schema.tableName).records_affected += deleted;
+		}
 
 		// S2-31: drop the markers for the unpublished ids (same posture as the
 		// publish-side apply above — logged, never failing the run).
