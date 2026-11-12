@@ -19,22 +19,35 @@
 import { listRetentions, runRetention } from './registry.ts';
 import './prune.ts';
 
+interface RetentionPassOptions {
+	apply: boolean;
+	signal?: AbortSignal;
+}
+
 /** One pass over every registered store. Exported for the operator surfaces. */
-export async function runRetentionPass(options: { apply: boolean }): Promise<void> {
+export async function runRetentionPass(options: RetentionPassOptions): Promise<void> {
 	for (const definition of listRetentions()) {
 		if (definition.policy.kind === 'forever') continue;
-		try {
-			const report = await runRetention(definition.name, { apply: options.apply });
-			if (report.deleted > 0 || report.candidates > 0) {
-				console.log(
-					`[retention] ${definition.name}: ${report.candidates} candidate(s), ${report.deleted} removed`,
-				);
-			}
-		} catch (error) {
-			// A store that cannot be pruned must not stop the others, and must
-			// never take the server with it.
-			console.warn(`[retention] ${definition.name} failed`, error);
+		// SIGTERM drain: stop between stores (and, inside a batched prune, between
+		// steps) — every step already committed stands.
+		if (options.signal?.aborted === true) return;
+		await runOneStore(definition.name, options);
+	}
+}
+
+/** One store of a pass: logged when it found anything, never fatal. */
+async function runOneStore(name: string, options: RetentionPassOptions): Promise<void> {
+	try {
+		const report = await runRetention(name, { apply: options.apply, signal: options.signal });
+		if (report.deleted > 0 || report.candidates > 0) {
+			console.log(
+				`[retention] ${name}: ${report.candidates} candidate(s), ${report.deleted} removed`,
+			);
 		}
+	} catch (error) {
+		// A store that cannot be pruned must not stop the others, and must
+		// never take the server with it.
+		console.warn(`[retention] ${name} failed`, error);
 	}
 }
 
@@ -42,6 +55,10 @@ export async function runRetentionPass(options: { apply: boolean }): Promise<voi
 // startRetentionScheduler, released by stopRetentionScheduler (SIGTERM).
 let timer: ReturnType<typeof setInterval> | null = null;
 let started = false;
+// Process-lifetime abort handle (module_state_tripwire allowlisted): the
+// scheduled passes run under it; stopRetentionScheduler aborts it, so a batched
+// prune stops between steps instead of the pool closing under a statement.
+let drain: AbortController | null = null;
 
 const DAILY_MS = 24 * 60 * 60 * 1000;
 /** Let the server finish booting before the first pass touches the database. */
@@ -50,14 +67,19 @@ const FIRST_PASS_DELAY_MS = 60_000;
 export function startRetentionScheduler(): void {
 	if (started) return;
 	started = true;
-	const first = setTimeout(() => void runRetentionPass({ apply: true }), FIRST_PASS_DELAY_MS);
+	const controller = new AbortController();
+	drain = controller;
+	const pass = (): void => void runRetentionPass({ apply: true, signal: controller.signal });
+	const first = setTimeout(pass, FIRST_PASS_DELAY_MS);
 	first.unref?.();
-	timer = setInterval(() => void runRetentionPass({ apply: true }), DAILY_MS);
+	timer = setInterval(pass, DAILY_MS);
 	timer.unref?.();
 }
 
 export function stopRetentionScheduler(): void {
 	if (timer !== null) clearInterval(timer);
 	timer = null;
+	drain?.abort();
+	drain = null;
 	started = false;
 }

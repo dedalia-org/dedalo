@@ -30,6 +30,15 @@
 
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { assertNotReadOnlyRequest } from '../security/read_only_scope.ts';
+import {
+	type PruneBatchOptions,
+	type PruneBatchOutcome,
+	type PruneCursor,
+	type PruneStepResult,
+	type PruneStepRow,
+	pruneInBatches,
+	pruneStepResult,
+} from './batched_prune.ts';
 import { asRawJsonText, encodeForJsonb, type RawJsonText } from './json_codec.ts';
 import { assertMatrixTable, MATRIX_JSONB_COLUMNS, type MatrixJsonbColumn } from './matrix.ts';
 import { isInTransaction, sql } from './postgres.ts';
@@ -1116,18 +1125,22 @@ export async function appendMatrixUpdateRow(data: Record<string, unknown>): Prom
 export const AGE_PRUNABLE_MATRIX_TABLES: readonly string[] = ['matrix_activity'];
 
 /**
- * Count (dry) or remove (apply) the event rows older than `cutoffIso`.
+ * Count (dry) or remove (apply) the event rows older than `cutoffIso`, in
+ * KEYSET BATCHES (T1-24 / S17): each step is ONE short autocommit statement
+ * over at most `batchRows` rows in `("timestamp", id)` order, so a 33 M-row log
+ * never meets the statement ceiling as one statement, and the rows a step
+ * removed stay removed whatever happens to the next (batched_prune.ts).
  *
  * The SAME predicate answers both, so what an operator is shown before they
- * commit is exactly what the commit removes. Lives here because this file is the
- * matrix DML writer home (sql_confinement T2): the retention registry decides
- * WHETHER and WHEN, the writer owns the statement.
+ * commit is exactly what the commit removes — per step. Lives here because this
+ * file is the matrix DML writer home (sql_confinement T2): the retention
+ * registry decides WHETHER and WHEN, the writer owns the statement.
  */
 export async function pruneMatrixEventRowsByAge(
 	tableName: string,
 	cutoffIso: string,
-	options: { apply: boolean },
-): Promise<{ candidates: number; deleted: number }> {
+	options: PruneBatchOptions,
+): Promise<PruneBatchOutcome> {
 	assertNotReadOnlyRequest('pruneMatrixEventRowsByAge');
 	assertMatrixTable(tableName);
 	if (!AGE_PRUNABLE_MATRIX_TABLES.includes(tableName)) {
@@ -1136,17 +1149,52 @@ export async function pruneMatrixEventRowsByAge(
 			coordinates: { table: tableName },
 		});
 	}
-	const counted = (await sql.unsafe(
-		`SELECT count(*)::int AS n FROM "${tableName}" WHERE "timestamp" < $1`,
-		[cutoffIso],
-	)) as { n: number }[];
-	const candidates = Number(counted[0]?.n ?? 0);
-	if (!options.apply || candidates === 0) return { candidates, deleted: 0 };
-	const deleted = (await sql.unsafe(
-		`DELETE FROM "${tableName}" WHERE "timestamp" < $1 RETURNING id`,
-		[cutoffIso],
-	)) as unknown[];
-	return { candidates, deleted: deleted.length };
+	if (isInTransaction()) {
+		// A batch that commits only with the caller's transaction is the
+		// unbatched prune again (one statement's worth of locks and ceiling).
+		throw new DedaloError('internal.invariant', {
+			message: 'pruneMatrixEventRowsByAge: must run outside a transaction (each batch commits)',
+			coordinates: { table: tableName },
+		});
+	}
+	return pruneInBatches(
+		(after, limit, apply) => pruneMatrixEventRowsStep(tableName, cutoffIso, after, limit, apply),
+		options,
+	);
+}
+
+/**
+ * One keyset step of pruneMatrixEventRowsByAge: the next `limit` rows older
+ * than the cutoff after `after`, removed when `apply`. The cursor travels as
+ * the column's own text (µs exact), never a JS Date.
+ */
+async function pruneMatrixEventRowsStep(
+	tableName: string,
+	cutoffIso: string,
+	after: PruneCursor | null,
+	limit: number,
+	apply: boolean,
+): Promise<PruneStepResult> {
+	const params: (string | number)[] = [cutoffIso, limit];
+	let keyset = '';
+	if (after !== null) {
+		params.push(after.ts, after.id);
+		keyset = ' AND ("timestamp", id) > ($3::timestamp, $4::int)';
+	}
+	const removal = apply
+		? `, d AS (DELETE FROM "${tableName}" t USING b WHERE t.id = b.id RETURNING 1)`
+		: ', d AS (SELECT 1 WHERE false)';
+	const rows = (await sql.unsafe(
+		`WITH b AS (SELECT "timestamp" AS ts, id FROM "${tableName}"
+		            WHERE "timestamp" < $1${keyset}
+		            ORDER BY "timestamp", id LIMIT $2)${removal},
+		      l AS (SELECT ts::text AS last_ts, id AS last_id FROM b ORDER BY ts DESC, id DESC LIMIT 1)
+		 SELECT (SELECT count(*) FROM b)::int AS seen, (SELECT count(*) FROM d)::int AS deleted,
+		        l.last_ts, l.last_id
+		 FROM (SELECT 1) one LEFT JOIN l ON true`,
+		params,
+	)) as PruneStepRow[];
+	return pruneStepResult(rows[0]);
 }
 
 /** Delete one record. Returns the number of rows removed (0 or 1). */

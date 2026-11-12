@@ -57,7 +57,7 @@ import { backfillSearchStores } from '../src/core/db/db_assets.ts';
 import { encodeForJsonb } from '../src/core/db/json_codec.ts';
 import { MATRIX_JSONB_COLUMNS, MATRIX_TABLE_ALLOWLIST } from '../src/core/db/matrix.ts';
 import { appendMatrixUpdateRow } from '../src/core/db/matrix_write.ts';
-import { sql, withTransaction } from '../src/core/db/postgres.ts';
+import { sql, withTransaction, withUnboundedStatements } from '../src/core/db/postgres.ts';
 import {
 	type IntifyFinding,
 	intifySectionIdsInValue,
@@ -228,12 +228,18 @@ export async function sweepSurface(
 	for (;;) {
 		const where = lastPk === null ? 'TRUE' : `"${pk}" > $1`;
 		const params = lastPk === null ? [] : [lastPk];
-		const rows = (await sql.unsafe(
-			`SELECT "${pk}" AS pk, "${column}"::text AS payload
-			 FROM "${table}"
-			 WHERE "${column}" IS NOT NULL AND ${where} AND (${like})${scopeClause}
-			 ORDER BY "${pk}" ASC LIMIT 500`,
-			params,
+		// The discovery read is LONG work (a filtered keyset scan that may walk
+		// most of a large table to fill one batch): maintenance lane (T1-24 / D02).
+		// The per-row repair below stays on the request lane on purpose — it waits
+		// for an editor's row lock instead of failing at the maintenance lock bound.
+		const rows = (await withUnboundedStatements(() =>
+			sql.unsafe(
+				`SELECT "${pk}" AS pk, "${column}"::text AS payload
+				 FROM "${table}"
+				 WHERE "${column}" IS NOT NULL AND ${where} AND (${like})${scopeClause}
+				 ORDER BY "${pk}" ASC LIMIT 500`,
+				params,
+			),
 		)) as unknown as { pk: string | number; payload: string }[];
 		if (rows.length === 0) return;
 
@@ -431,8 +437,10 @@ async function run(args: Args): Promise<number> {
 			// the kernel's LOCATOR LAW: a tipo-less section_id (user JSON inside
 			// component_json) is not a locator and is neither swept nor residue.
 			const tipoField = key === 'section_id_key' ? 'section_tipo_key' : 'section_tipo';
-			const counted = (await sql.unsafe(
-				`SELECT count(*)::bigint AS residue
+			// A whole-column jsonb_path census: long work, maintenance lane (T1-24).
+			const counted = (await withUnboundedStatements(() =>
+				sql.unsafe(
+					`SELECT count(*)::bigint AS residue
 				 FROM "${surface.table}" t,
 				 LATERAL jsonb_path_query(t."${surface.column}", 'strict $.** ? (exists (@."${key}"))') AS obj
 				 WHERE t."${surface.column}" IS NOT NULL
@@ -440,6 +448,7 @@ async function run(args: Args): Promise<number> {
 				   AND jsonb_typeof(obj->'${key}') = 'string'
 				   AND obj->>'${key}' ~ '^(-?[1-9][0-9]*|0)$'
 				   AND length(ltrim(obj->>'${key}', '-')) <= 15`,
+				),
 			)) as unknown as { residue: string | number }[];
 			residue += Number(counted[0]?.residue ?? 0);
 		}

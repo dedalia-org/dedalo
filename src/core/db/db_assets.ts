@@ -23,7 +23,13 @@ import { DedaloError } from '../errors/dedalo_error.ts';
 import { currentRequestId } from '../security/request_context.ts';
 import definitions from './db_pg_definitions.json';
 import { classifyIndex, type LiveIndex, policyForTable } from './matrix_index_policy.ts';
-import { runWithoutStatementTimeout, sql, sqlStateOf, withTransaction } from './postgres.ts';
+import {
+	runWithoutStatementTimeout,
+	sql,
+	sqlStateOf,
+	withTransaction,
+	withUnboundedStatements,
+} from './postgres.ts';
 
 export interface AssetEntry {
 	tables?: string[];
@@ -461,6 +467,14 @@ export const SEARCH_STORE_BACKFILLS: {
  * (the boot ensure refills just the store that needs it); omitted = both.
  */
 export async function backfillSearchStores(onlyStores?: string[]): Promise<AssetResponse> {
+	// THE UNBOUNDED SCOPE AT THE SOURCE (T1-24 / D02): a whole-store TRUNCATE +
+	// INSERT…SELECT runs for minutes on a large install — every caller (the
+	// migrate script, the maintenance widget) gets the lift without having to
+	// remember it. Nested inside a live scope it is a no-op.
+	return withUnboundedStatements(() => backfillSearchStoresUnbounded(onlyStores));
+}
+
+async function backfillSearchStoresUnbounded(onlyStores?: string[]): Promise<AssetResponse> {
 	const response = newResponse();
 	const selected =
 		onlyStores === undefined
@@ -864,6 +878,14 @@ export function decideSearchStores(
  * ONLY while the decision above stays gated.
  */
 export async function ensureSearchStores(): Promise<EnsureSearchStoresResult> {
+	// THE UNBOUNDED SCOPE AT THE SOURCE (T1-24 / D02): the boot heal's DDL and
+	// per-table refill block for minutes on a large database, so they run on the
+	// maintenance lane — server boot, completeFreshInstall, the seed verify and
+	// the data-update ancillary (already scoped: nested = no-op) all get it.
+	return withUnboundedStatements(ensureSearchStoresUnbounded);
+}
+
+async function ensureSearchStoresUnbounded(): Promise<EnsureSearchStoresResult> {
 	const result: EnsureSearchStoresResult = {
 		healthy: true,
 		ddlApplied: false,

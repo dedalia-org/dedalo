@@ -326,10 +326,12 @@ const ALLOWLISTED_MODULE_LET = new Set<string>([
 	// of hashing two API trees on every get_value. Install-static facts (the running
 	// tree's release or refusal + a time), overwritten by every round, never identity.
 	'core/publication_host/api_reconcile.ts:lastVerdict',
-	// Retention scheduler (audit 2026-08-26 P2-9): the armed latch and the daily
-	// interval handle. Same class as the reconcile scheduler above — process-wide
+	// Retention scheduler (audit 2026-08-26 P2-9): the armed latch, the daily
+	// interval handle and the drain abort handle (T1-24). Same class as the
+	// reconcile scheduler above — process-wide
 	// wiring, no request identity (a retention pass is keyed by STORE name and has
 	// no actor at all).
+	'core/retention/scheduler.ts:drain',
 	'core/retention/scheduler.ts:started',
 	'core/retention/scheduler.ts:timer',
 	// Login-timing decoy hash (foundation audit AUTHZ-03): a memoized Argon2id

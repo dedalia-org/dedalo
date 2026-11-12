@@ -130,13 +130,11 @@ describe('config census: the engine, the migration map, and v6 agree', () => {
 });
 
 /**
- * PERF-11 (G5): the maintenance pool exists and the generated config docs are
- * current. The database ceilings' ON-BY-DEFAULT flip (DB_STATEMENT_TIMEOUT_MS,
- * DB_POOL_ACQUIRE_TIMEOUT_MS, DEDALO_SLOW_QUERY_MS > 0) is NOT pinned here yet:
- * it ships only together with the unbounded-scope wraps of the long statements
- * that still run on the request pool (the boot search-store builds, the
- * observer reconcile, the retention prune — engineering/PRODUCTION.md §4
- * census). Its leg lands with that flip.
+ * PERF-11 (G5): the maintenance pool exists, the generated config docs are
+ * current, and the database bounds are ON BY DEFAULT — each flip pinned by its
+ * own leg (owner ruling 2026-11-11: separately). The statement ceiling flipped
+ * with the unbounded-scope wraps and the batched retention prunes (T1-24,
+ * engineering/PRODUCTION.md §4 census).
  */
 describe('PERF-11: the maintenance pool is configured, the config docs are current', () => {
 	test('the maintenance pool has at least one connection by default', () => {
@@ -147,6 +145,14 @@ describe('PERF-11: the maintenance pool is configured, the config docs are curre
 		).toBeDefined();
 		expect(typeof defaultOf('DB_MAINTENANCE_POOL_MAX')).toBe('number');
 		expect(defaultOf('DB_MAINTENANCE_POOL_MAX') as number).toBeGreaterThanOrEqual(1);
+	});
+
+	test('the request statement ceiling is ON by default (DB_STATEMENT_TIMEOUT_MS ≥ 1 s)', () => {
+		// A ceiling below a second would be a misconfiguration, not a default: the
+		// census (PRODUCTION.md §4) sizes request work against a minute.
+		const value = CONFIG_CATALOG.DB_STATEMENT_TIMEOUT_MS?.default;
+		expect(typeof value).toBe('number');
+		expect(value as number).toBeGreaterThanOrEqual(1000);
 	});
 
 	test('the generated config docs render clean (bun run config:check)', async () => {

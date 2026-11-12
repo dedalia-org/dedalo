@@ -201,15 +201,15 @@ DB_SSLMODE=disable
 	DB_STATEMENT_TIMEOUT_MS: {
 		type: 'number',
 		scope: 'operator',
-		default: 0,
+		default: 60000,
 		heading: 'Database statement timeout',
 		typeLabel: 'int',
 		doc: `The maximum time (in milliseconds) any single database statement of ordinary request
-traffic may run before PostgreSQL cancels it. The default \`0\` means no limit.
+traffic may run before PostgreSQL cancels it. The default is \`60000\` (one minute); \`0\`
+means no limit.
 
-**A production installation should set it** — \`60000\` (one minute) is the recommended
-value: one runaway query must not be able to occupy a connection forever and starve
-every other user. It is also the only bound on a search that cannot stop early: some
+One runaway query must not be able to occupy a connection forever and starve every other
+user. The ceiling is also the only bound on a search that cannot stop early: some
 columns are deliberately left unindexed, and a term that matches nothing there reads
 the whole table — on a large activity log that is minutes, and a user closing the
 browser does NOT cancel it. A statement stopped by this ceiling answers with the error
@@ -217,17 +217,20 @@ browser does NOT cancel it. A statement stopped by this ceiling answers with the
 
 Long-running MAINTENANCE does not run under this ceiling, so it does not have to be
 sized around it: the maintenance-area actions (reindex, vacuum, search-store rebuilds,
-the bulk transforms) and the data-update engine run on a separate maintenance connection
-pool whose statements are unbounded (\`DB_MAINTENANCE_POOL_MAX\`), and the boot
-migrations lift the ceiling for their own transaction. Not yet exempt, so measure them
-on your installation before setting a value: the search-store builds a boot runs when
-it finds a store missing or damaged, the observer mirror reconcile
-(\`scripts/observer_reconcile.ts\`) and the activity-log retention prune on a very large
-log. Choose a value comfortably above your slowest legitimate *request* — if searches
-or exports on very large sections are part of daily work, measure them first (see
+the bulk transforms), the data-update engine, the search-store builds a boot runs when
+it finds a store missing or damaged, and the observer mirror reconcile
+(\`scripts/observer_reconcile.ts\`) run on a separate maintenance connection pool whose
+statements are unbounded (\`DB_MAINTENANCE_POOL_MAX\`), and the boot migrations lift the
+ceiling for their own transaction. The retention prunes (\`DEDALO_ACTIVITY_RETENTION_DAYS\`,
+\`DEDALO_DIFFUSION_LEDGER_RETENTION_DAYS\`) run in short committed batches, each far below
+the ceiling, so a very large log is pruned a batch at a time and never rolled back.
+
+Choose a value comfortably above your slowest legitimate *request* — if searches or
+exports on very large sections are part of daily work, measure them first (see
 \`DEDALO_SLOW_QUERY_MS\`). An export's record selection is computed under this ceiling
 as well, in the background lane too: an export whose selection takes longer to compute
-is refused with \`db.statement_timeout\` before its first line.
+is refused with \`db.statement_timeout\` before its first line. Set \`0\` to restore the
+unbounded behaviour of earlier versions.
 
 \`\`\`bash
 DB_STATEMENT_TIMEOUT_MS=60000

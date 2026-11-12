@@ -859,6 +859,28 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-10-hierarchy-rebuild-ownership`.
 
+#### Changed
+
+- **A database statement of ordinary request traffic is now stopped after one minute by default.**
+
+    `DB_STATEMENT_TIMEOUT_MS` now defaults to `60000` (it was `0`, no limit). A single runaway
+    query — for example a search on a deliberately unindexed field of a very large table — can no
+    longer hold a database connection for minutes while other users wait; it answers "the server
+    is busy" (`db.statement_timeout`) instead.
+
+    Long maintenance work is not affected: the maintenance-area actions, the data update, the
+    search-store builds a start-up runs when it finds one missing or damaged, and the observer
+    mirror reconcile (`scripts/observer_reconcile.ts`) run on the separate maintenance connections,
+    which have no limit. The retention prunes run in short batches.
+
+    **Action needed:** if searches or exports on very large sections are part of daily work on your
+    installation, measure them first (`DEDALO_SLOW_QUERY_MS`). An export whose record selection
+    takes longer than the limit is refused before its first line. Raise the value in
+    `../private/.env`, or set `DB_STATEMENT_TIMEOUT_MS=0` to restore the previous unbounded
+    behaviour.
+
+    Wire contract: `WC-2026-11-12-db-bounds-on-by-default`.
+
 #### Added
 
 - **The ontology status panel names URL components that are wrongly marked as translatable**
@@ -974,6 +996,18 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-rdf-graph-interpretation`.
 
+- **The activity-log and publication-ledger retention prunes now run in small committed batches.**
+
+    With `DEDALO_ACTIVITY_RETENTION_DAYS` or `DEDALO_DIFFUSION_LEDGER_RETENTION_DAYS` set, the
+    daily prune used to remove every expired row in one database statement. On a very large log
+    (tens of millions of rows) that statement ran for minutes, and under a statement time limit it
+    was cancelled and undone — every day, so the log never shrank.
+
+    The prune now removes the expired rows 10 000 at a time, each batch saved on its own. A very
+    large first prune makes steady progress, a batch that is interrupted loses nothing that came
+    before it, and stopping the server ends the prune between two batches. Rows still owing an
+    unpublish to a public site are still never removed.
+
 - **The **Latest changes** list in a profile's permissions shows the ontology updates again.**
 
     Every ontology update records which sections gained new children, so an administrator can review the new permissions those sections need. In a profile's **Access and permissions** panel, the **Latest changes** selector was always empty, and choosing an entry had nothing on the server to answer it. The selector now lists every recorded update, newest first. Choosing one shows each changed section with its path and its new children, and clicking a section opens it in the permissions tree. Only global administrators can open an entry, as before.
@@ -1046,7 +1080,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 49 entries"
+??? note "Wire contract — 50 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1082,6 +1116,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-11-svg-tag-url-full-media-path`
     - `WC-2026-11-12-calculation-widget-port`
     - `WC-2026-11-12-datalist-principal-record-scope`
+    - `WC-2026-11-12-db-bounds-on-by-default`
     - `WC-2026-11-12-diffusion-map-target-section-tipo`
     - `WC-2026-11-12-duplicate-image-svg-envelope`
     - `WC-2026-11-12-global-table-maps`

@@ -629,9 +629,9 @@ export interface OpsConfig {
 	 * default 0; PRODUCTION.md recommends 30000). */
 	readonly dbAcquireTimeoutMs: number;
 	/** The request pool's statement_timeout ms (startup GUC), 0 = off
-	 * (DB_STATEMENT_TIMEOUT_MS, default 0; PRODUCTION.md recommends 60000 — the
-	 * on-by-default flip waits for every legitimately long statement to be in the
-	 * unbounded scope, PRODUCTION.md §4 census). A fired ceiling is the typed 503
+	 * (DB_STATEMENT_TIMEOUT_MS, default 60000 — on by default since every
+	 * legitimately long statement is in the unbounded scope or batched,
+	 * PRODUCTION.md §4 census, T1-24). A fired ceiling is the typed 503
 	 * `db.statement_timeout`. Maintenance is NOT sized around it: it runs inside
 	 * `withUnboundedStatements` (core/db/postgres.ts), on the maintenance pool. */
 	readonly dbStatementTimeoutMs: number;
