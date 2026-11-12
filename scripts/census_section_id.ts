@@ -36,6 +36,11 @@
  * external-service tipos (zenon…). Any leading-zero id on a NON-external tipo
  * is printed loudly as an integrity finding.
  *
+ * UNBOUNDED: the run is long work by design (whole tables, every JSONB column),
+ * so it runs in `withUnboundedStatements` (the maintenance lane, no statement
+ * ceiling) — no `DB_STATEMENT_TIMEOUT_MS=0` needed. Gate:
+ * test/unit/statement_ceiling_operator_scans_native.test.ts.
+ *
  * READ-ONLY BY CONSTRUCTION: every statement is a SELECT. The recursive
  * descent runs server-side (jsonb_path_query, lax `$.**`), aggregated per
  * class before transfer, so millions of locators never cross the wire.
@@ -49,7 +54,7 @@
 // requires (standalone scripts must do what the server entrypoint does).
 import '../src/core/components/registry.ts';
 import { MATRIX_JSONB_COLUMNS, MATRIX_TABLE_ALLOWLIST } from '../src/core/db/matrix.ts';
-import { sql } from '../src/core/db/postgres.ts';
+import { sql, withUnboundedStatements } from '../src/core/db/postgres.ts';
 
 /** The locator record-address keys under census. */
 const ADDRESS_KEYS = ['section_id', 'section_id_key', 'parent_section_id'] as const;
@@ -154,7 +159,15 @@ async function tableColumns(table: string): Promise<Set<string>> {
 	return new Set(rows.map((row) => row.column_name));
 }
 
-async function main(): Promise<number> {
+export async function main(): Promise<number> {
+	// Whole-table `$.**` descents: long work, so the run declares the unbounded
+	// scope at its source — on the request lane the statement ceiling
+	// (DB_STATEMENT_TIMEOUT_MS, 60 s by default) cancels the first scan of a
+	// production-size table (T1-24 review; engineering/PRODUCTION.md §4 census).
+	return withUnboundedStatements(runCensus);
+}
+
+async function runCensus(): Promise<number> {
 	const jsonOut = ((): string | null => {
 		const index = process.argv.indexOf('--json');
 		return index === -1 ? null : (process.argv[index + 1] ?? null);

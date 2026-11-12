@@ -883,7 +883,8 @@ Merged since the last release; these ship with the next one.
 
     Long maintenance work is not affected: the maintenance-area actions, the data update, the
     search-store builds a start-up runs when it finds one missing or damaged, and the observer
-    mirror reconcile (`scripts/observer_reconcile.ts`) run on the separate maintenance connections,
+    mirror reconcile (`scripts/observer_reconcile.ts`) and the read-only scans
+    `scripts/census_section_id.ts` and `scripts/detect_csv_import_damage.ts` run on the separate maintenance connections,
     which have no limit. The retention prunes run in short batches.
 
     **Action needed:** if searches or exports on very large sections are part of daily work on your
