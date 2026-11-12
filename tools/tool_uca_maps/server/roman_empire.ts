@@ -8,7 +8,6 @@
 
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { type HarvestDeps, harvestFetch } from '../../../src/core/harvest/harvest.ts';
-import { fetchGuardedText } from '../../../src/core/security/ssrf_guard.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -22,16 +21,20 @@ import {
 	pleiadesIndexPath,
 	resolveGazetteerDir,
 } from './gazetteer_store.ts';
+import { askGeoService, geoData, geoParamAccepts } from './geo_call.ts';
 import { WIN_ANSI_HIGH } from './pdf_writer.ts';
 import type { ReasonKey } from './reasons.ts';
 
 /** v6's own result count for all three searches (10 result slots per panel). */
 const RESULT_LIMIT = 10;
 
-const DARE_API = 'https://imperium.ahlfeldt.se/api/geojson.php';
+type DareService = 'dare_search_modern' | 'dare_search_ancient';
 
-/** DARE's two name fields: modern place name / ancient place name. */
-const DARE_NAME_TYPES: readonly string[] = Object.freeze(['mss', 'ass']);
+/** DARE's two name fields (modern / ancient place name) → core's service for each. */
+const DARE_SERVICES: Readonly<Record<string, DareService>> = Object.freeze({
+	mss: 'dare_search_modern',
+	ass: 'dare_search_ancient',
+});
 
 /** A caller fault — empty, too short or malformed search input. Only what the
  * user typed or ticked has a reason; the panel's closed lists and a result's
@@ -181,36 +184,41 @@ export function matchPelagiosFeatures(
 	return results;
 }
 
+/** A DARE search: core's service for the name field, and the two filters. */
+export interface DareQuery {
+	service: DareService;
+	typeId: string | null;
+	country: string | null;
+}
+
 /**
- * The DARE query URL, over HTTPS where v6 uses plaintext `http://`
- * (`class.tool_leaflet_special_tools.php`): the host answers on both.
+ * Core's DARE services take the name alone, so v6's type and country filters
+ * (`typeid`, `cc`) are applied here to the answer, on its own `numType` and
+ * `country`. Both are DARE's closed vocabularies (numeric type id, ISO country
+ * code): anything else is refused.
  */
-export function dareApiUrl(options: {
-	query: string;
+export function dareQuery(options: {
 	nameType: string;
 	typeId?: string;
 	country?: string;
-}): URL {
-	if (!DARE_NAME_TYPES.includes(options.nameType)) {
+}): DareQuery {
+	const service = Object.hasOwn(DARE_SERVICES, options.nameType)
+		? DARE_SERVICES[options.nameType]
+		: undefined;
+	if (service === undefined) {
 		throw invalidRequest('Unknown name type.');
 	}
-	const url = new URL(DARE_API);
-	url.searchParams.set(options.nameType, options.query);
-	// both filters are DARE's own closed vocabularies (numeric type id, ISO
-	// country code); anything else is refused rather than passed through
-	if (options.typeId) {
-		if (!/^[0-9]{1,4}$/.test(options.typeId)) {
-			throw invalidRequest('Unknown site type.');
-		}
-		url.searchParams.set('typeid', options.typeId);
+	if (options.typeId && !/^[0-9]{1,4}$/.test(options.typeId)) {
+		throw invalidRequest('Unknown site type.');
 	}
-	if (options.country) {
-		if (!/^[A-Z]{2}$/i.test(options.country)) {
-			throw invalidRequest('Unknown country.');
-		}
-		url.searchParams.set('cc', options.country.toUpperCase());
+	if (options.country && !/^[A-Z]{2}$/i.test(options.country)) {
+		throw invalidRequest('Unknown country.');
 	}
-	return url;
+	return {
+		service,
+		typeId: options.typeId || null,
+		country: options.country ? options.country.toUpperCase() : null,
+	};
 }
 
 /**
@@ -241,14 +249,12 @@ export function decodeDareText(text: string): string {
  * FeatureCollection is a service refusal, not zero results (as in
  * `place_search.ts`): a user must never read "no places found" for an outage.
  */
-export function parseDareResults(text: string, limit = RESULT_LIMIT): GazetteerResult[] {
-	let payload: unknown;
-	try {
-		payload = JSON.parse(text);
-	} catch {
-		throw outboundFailure('The DARE service returned an unreadable response.');
-	}
-	const features = (payload as { features?: unknown }).features;
+export function parseDareResults(
+	payload: unknown,
+	filters: Pick<DareQuery, 'typeId' | 'country'> = { typeId: null, country: null },
+	limit = RESULT_LIMIT,
+): GazetteerResult[] {
+	const features = (payload as { features?: unknown } | null)?.features;
 	if (!Array.isArray(features)) {
 		throw outboundFailure('The DARE service refused the request.');
 	}
@@ -260,7 +266,19 @@ export function parseDareResults(text: string, limit = RESULT_LIMIT): GazetteerR
 		if (typeof feature !== 'object' || feature === null) {
 			continue;
 		}
-		const typed = feature as { properties?: { name?: unknown }; geometry?: { type?: unknown } };
+		const typed = feature as {
+			properties?: { name?: unknown; numType?: unknown; country?: unknown };
+			geometry?: { type?: unknown };
+		};
+		if (filters.typeId !== null && String(typed.properties?.numType ?? '') !== filters.typeId) {
+			continue;
+		}
+		if (
+			filters.country !== null &&
+			String(typed.properties?.country ?? '').toUpperCase() !== filters.country
+		) {
+			continue;
+		}
 		const raw = typeof typed.properties?.name === 'string' ? typed.properties.name.trim() : '';
 		if (raw === '') {
 			continue;
@@ -305,7 +323,7 @@ async function requireGazetteerDir(): Promise<string> {
 }
 
 /** Trimmed, length-checked search text. */
-function requireQuery(raw: unknown, minLength: number): string {
+function requireQuery(raw: unknown, minLength: number, maxLength = 200): string {
 	const query = String(raw ?? '').trim();
 	if (query.length < minLength) {
 		throw invalidRequest(
@@ -313,7 +331,7 @@ function requireQuery(raw: unknown, minLength: number): string {
 			'search_text_too_short',
 		);
 	}
-	if (query.length > 200) {
+	if (query.length > maxLength) {
 		throw invalidRequest('The search text is too long.', 'search_text_too_long');
 	}
 	return query;
@@ -417,14 +435,26 @@ export async function searchPelagios(ctx: ToolActionContext): Promise<ToolRespon
 }
 
 export async function searchDare(ctx: ToolActionContext): Promise<ToolResponse> {
-	const query = requireQuery(ctx.options.query, 3);
-	const url = dareApiUrl({
-		query,
+	// core's DARE services take 3 to 100 characters
+	const query = requireQuery(ctx.options.query, 3, 100);
+	const dare = dareQuery({
 		nameType: String(ctx.options.name_type ?? 'mss'),
 		typeId: String(ctx.options.type_id ?? '').trim(),
 		country: String(ctx.options.country ?? '').trim(),
 	});
 
-	const text = await fetchGuardedText(url.toString(), { maxBytes: 8 * 1024 * 1024 });
-	return ok({ results: parseDareResults(text) }, { requestId: toolRequestId(ctx) });
+	// what else core's grammar refuses (a control or bidi character): by its own rule
+	if (!geoParamAccepts(dare.service, 'name', query)) {
+		throw invalidRequest('The search text holds a character core refuses.', 'search_text_invalid');
+	}
+
+	const answer = await askGeoService(
+		dare.service,
+		{ name: query },
+		'gazetteer_service_unavailable',
+	);
+	return ok(
+		{ results: parseDareResults(geoData(answer), dare), attribution: answer.attribution },
+		{ requestId: toolRequestId(ctx) },
+	);
 }

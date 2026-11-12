@@ -1,76 +1,131 @@
 /**
  * get_catastro_parcel: the cadastral parcel at a map click, as v6
- * (`class.tool_leaflet_special_tools.php` `get_catastro_refcat`): a WMS
- * GetFeatureInfo for its reference, then a WFS query for its ring. Server-side
- * because Catastro sends no CORS headers; both hosts are fixed literals.
+ * (`class.tool_leaflet_special_tools.php` `get_catastro_refcat`): its reference
+ * from the INSPIRE view service, then its ring from the download service, both
+ * asked through core's geo services (`catastro_wms_featureinfo`,
+ * `catastro_wfs_parcel`). The ring arrives in the click's UTM zone and is
+ * converted here (`utm.ts`).
  */
 
-import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import { DedaloError, isErrorInDomain, ok } from '../../../src/core/errors/index.ts';
 import { htmlTags } from '../../../src/core/resolve/html_text.ts';
-import { fetchGuardedText } from '../../../src/core/security/ssrf_guard.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
 import { type ClickParams, parseClickParams } from './click_params.ts';
-
-const WMS_BASE = 'https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx';
-const WFS_BASE = 'https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx';
+import { askGeoService } from './geo_call.ts';
+import { utmToLatLon, utmZoneOf } from './utm.ts';
 
 // 14 alphanumerics — the Spanish cadastral reference's fixed shape. Sanity-
 // checked before the value (scraped out of a third party's own HTML/GML
-// replies) rides into a SECOND outbound URL as a query param.
+// replies) rides into a SECOND request as a parameter.
 const REFCAT_PATTERN = /^[0-9A-Z]{14}$/i;
 
-/** Exported for unit coverage. */
-export function featureInfoUrl({ bbox, width, height, x, y }: ClickParams): URL {
-	const url = new URL(WMS_BASE);
-	url.searchParams.set('request', 'getFeatureInfo');
-	url.searchParams.set('layers', 'Catastro');
-	url.searchParams.set('query_layers', 'Catastro');
-	url.searchParams.set('srs', 'EPSG:4326');
-	url.searchParams.set('bbox', bbox.join(','));
-	url.searchParams.set('height', String(Math.round(height)));
-	url.searchParams.set('width', String(Math.round(width)));
-	url.searchParams.set('x', String(Math.round(x)));
-	url.searchParams.set('y', String(Math.round(y)));
-	return url;
+const EARTH_RADIUS = 6378137;
+
+/** The peninsula and the Balearics, with core's CRS for each zone. */
+const CATASTRO_ZONES: Readonly<Record<number, string>> = Object.freeze({
+	29: 'EPSG:25829',
+	30: 'EPSG:25830',
+	31: 'EPSG:25831',
+});
+
+/** The Canary Islands' zones: Catastro serves them in EPSG:25828, which core's
+ * service does not offer. */
+const CANARY_ZONES: readonly number[] = Object.freeze([27, 28]);
+
+function unavailable(message: string): DedaloError {
+	return new DedaloError('tool.source_unavailable', {
+		message,
+		details: { reason_key: 'catastro_unavailable' },
+	});
 }
 
 /**
- * {refcat, url} from the GetFeatureInfo HTML, or null when the result page
- * names no parcel. Read after v6's "Referencia catastral" anchor, so a link
- * ahead of it (a skip-link) is never taken for the answer. A 200 without the
- * label (its maintenance page) is the source unavailable, never "no parcel".
+ * The clicked [lat, lon]: the map is Web Mercator, so a pixel is linear in
+ * longitude but not in latitude. Exported for unit coverage.
  */
-export function parseCatastroRefcat(html: string): { refcat: string; url: string } | null {
-	const labelIndex = html.search(/Referencia catastral/i);
-	if (labelIndex === -1) {
-		throw new DedaloError('tool.source_unavailable', {
-			message: 'Catastro GetFeatureInfo answered without its parcel result page',
-			details: { reason_key: 'catastro_unavailable' },
-		});
-	}
-	const result = html.slice(labelIndex);
-	for (const { index, tag } of htmlTags(result, /<a/iy)) {
-		const href = tag.match(/href="([^"]+)"/i)?.[1];
-		const text = result.slice(index + tag.length).match(/^([^<]+)<\/a>/i)?.[1];
-		if (href === undefined || text === undefined) {
-			continue;
-		}
-		const refcat = text.trim();
-		return REFCAT_PATTERN.test(refcat) ? { refcat, url: href } : null;
+export function clickedPoint({ bbox, height, width, x, y }: ClickParams): [number, number] {
+	const [west, south, east, north] = bbox;
+	const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+	const top = mercY(north);
+	const yAt = top - (y / height) * (top - mercY(south));
+	const lat = (Math.atan(Math.sinh(yAt)) * 180) / Math.PI;
+	return [lat, west + (x / width) * (east - west)];
+}
+
+/**
+ * The feature-info question for one point: a 100 m box around it in EPSG:3857
+ * at one metre a pixel, the point at its centre. Asking for the user's whole
+ * view would refuse a wide one (core caps the box): only the clicked point
+ * matters. Exported for unit coverage.
+ */
+export function featureInfoQuery([lat, lon]: [number, number]): Record<string, unknown> {
+	const x = (EARTH_RADIUS * lon * Math.PI) / 180;
+	const y = EARTH_RADIUS * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+	return {
+		crs: 'EPSG:3857',
+		bbox: [x - 50, y - 50, x + 50, y + 50],
+		width: 101,
+		height: 101,
+		i: 50,
+		j: 50,
+	};
+}
+
+/** The text of the first `<td>` after the one that reads `label`, or null. */
+function cellAfter(html: string, label: string): string | null {
+	const at = html.search(new RegExp(`<td[^>]*>\\s*${label}\\s*</td>`, 'i'));
+	if (at === -1) return null;
+	const rest = html.slice(at + 1);
+	for (const { index, tag } of htmlTags(rest, /<td/iy)) {
+		const text = rest.slice(index + tag.length).match(/^([^<]*)<\/td>/i)?.[1];
+		if (text !== undefined) return text.trim();
 	}
 	return null;
 }
 
 /**
- * `refcat`'s own `<member>`, matched by id rather than v6's positional index,
- * and its first `posList` as [lat, lon] pairs (the order both stored queries
- * answer). A `posList` is a text-only GML leaf: a scoped regex is enough.
+ * {refcat, url} from the INSPIRE feature-info page, or null when it names no
+ * parcel. `url` is the Sede Electrónica's own record of it (its
+ * `otherReference` link), kept only over https. A page that is not the
+ * feature-info answer (a maintenance page) is the source unavailable, never
+ * "no parcel".
  */
-export function extractParcelPosList(xml: string, refcat: string): [number, number][] | null {
+export function parseCatastroRefcat(html: string): { refcat: string; url: string | null } | null {
+	if (!/Get Feature Info Response/i.test(html)) {
+		throw unavailable('Catastro feature info answered without its result page');
+	}
+	const refcat = cellAfter(html, 'nationalCadastralReference');
+	if (refcat === null || !REFCAT_PATTERN.test(refcat)) {
+		return null;
+	}
+	const other = html.search(/otherReference/i);
+	let url: string | null = null;
+	if (other !== -1) {
+		for (const { tag } of htmlTags(html.slice(other), /<a/iy)) {
+			const href = tag.match(/href="([^"]+)"/i)?.[1]?.replace(/&amp;/g, '&');
+			if (href?.startsWith('https://')) {
+				url = href;
+				break;
+			}
+		}
+	}
+	return { refcat, url };
+}
+
+/**
+ * `refcat`'s own `<member>`, matched by id, and its first `posList`: easting
+ * northing pairs in UTM `zone`, returned as [lat, lon]. A `posList` is a
+ * text-only GML leaf: a scoped regex is enough.
+ */
+export function extractParcelPosList(
+	xml: string,
+	refcat: string,
+	zone: number,
+): [number, number][] | null {
 	const target = xmlElements(xml, '<member>', '</member>').find(
 		(m) => m.includes(`.${refcat}"`) || m.includes(`>${refcat}<`),
 	);
@@ -87,12 +142,17 @@ export function extractParcelPosList(xml: string, refcat: string): [number, numb
 		.map((n) => Number(n));
 	const points: [number, number][] = [];
 	for (let i = 0; i + 1 < nums.length; i += 2) {
-		const lat = nums[i];
-		const lon = nums[i + 1];
-		if (lat === undefined || lon === undefined || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+		const easting = nums[i];
+		const northing = nums[i + 1];
+		if (
+			easting === undefined ||
+			northing === undefined ||
+			!Number.isFinite(easting) ||
+			!Number.isFinite(northing)
+		) {
 			return null;
 		}
-		points.push([lat, lon]);
+		points.push(utmToLatLon(easting, northing, zone));
 	}
 	return points.length >= 3 ? points : null; // a ring needs at least a triangle
 }
@@ -123,72 +183,60 @@ function firstLeafText(xml: string, opener: RegExp, after: RegExp): string | nul
 	return null;
 }
 
-/** The one exception that means "no parcel": "No se ha(n) encontrado…". */
-const isNotFoundException = (xml: string): boolean =>
-	firstLeafText(
-		xml,
-		/<(?:\w+:)?ExceptionText/iy,
-		/^(\s*(?:<!\[CDATA\[)?\s*No se han? encontrado)/i,
-	) !== null;
-
 /**
- * The WFS reply read as the parcel's ring. A stored query that finds nothing
- * answers an OWS `ExceptionReport` saying so (null: the caller falls back, as
- * v6 did). Any other report (a refused parameter, a server fault) and a reply
- * that is no `FeatureCollection` either (its maintenance page) are the source
- * failing: reading them as "no parcel" would be false.
+ * The WFS reply read as the parcel's ring. Core already turned Catastro's "not
+ * found" report into `external.not_found`; a reply that is no
+ * `FeatureCollection` (its maintenance page) is the source failing, never
+ * "no parcel".
  */
-export function parseParcelGeometry(xml: string, refcat: string): [number, number][] | null {
-	if (/<(?:\w+:)?ExceptionReport[\s>]/.test(xml)) {
-		if (isNotFoundException(xml)) {
-			return null;
-		}
-		const code = xml.match(/exceptionCode="([\w.-]{1,64})"/)?.[1] ?? 'none';
-		throw new DedaloError('tool.source_unavailable', {
-			message: `Catastro WFS answered an exception other than "not found" (exceptionCode: ${code})`,
-			details: { reason_key: 'catastro_unavailable' },
-		});
-	}
+export function parseParcelGeometry(
+	xml: string,
+	refcat: string,
+	zone: number,
+): [number, number][] | null {
 	if (!/<(?:\w+:)?FeatureCollection[\s>]/.test(xml)) {
-		throw new DedaloError('tool.source_unavailable', {
-			message: 'Catastro WFS answered with neither a FeatureCollection nor an ExceptionReport',
-			details: { reason_key: 'catastro_unavailable' },
-		});
+		throw unavailable('Catastro WFS answered with no FeatureCollection');
 	}
-	return extractParcelPosList(xml, refcat);
+	return extractParcelPosList(xml, refcat, zone);
 }
 
-async function fetchParcelGeometry(
-	refcat: string,
-	storedQueryId: 'getneighbourparcel' | 'getparcel',
-): Promise<[number, number][] | null> {
-	const url = new URL(WFS_BASE);
-	url.searchParams.set('service', 'WFS');
-	url.searchParams.set('version', '2.0');
-	url.searchParams.set('srs', 'EPSG:3857');
-	url.searchParams.set('request', 'getfeature');
-	url.searchParams.set('STOREDQUERIE_ID', storedQueryId);
-	url.searchParams.set('refcat', refcat);
-	const xml = await fetchGuardedText(url.toString(), { maxBytes: 5 * 1024 * 1024 });
-	return parseParcelGeometry(xml, refcat);
+/** Core's answer as text, with the provider's credit; its "nothing there" as null. */
+async function askCatastro(
+	id: string,
+	params: Record<string, unknown>,
+): Promise<{ text: string; attribution: string } | null> {
+	try {
+		const answer = await askGeoService(id, params, 'catastro_unavailable');
+		return answer.kind === 'markup' ? { text: answer.text, attribution: answer.attribution } : null;
+	} catch (error) {
+		if (isErrorInDomain(error, 'external') && error.code === 'external.not_found') return null;
+		throw error;
+	}
 }
 
 export async function getCatastroParcel(ctx: ToolActionContext): Promise<ToolResponse> {
-	const params = parseClickParams(ctx.options);
+	const point = clickedPoint(parseClickParams(ctx.options));
+	const zone = utmZoneOf(point[1]);
+	if (CANARY_ZONES.includes(zone)) {
+		throw new DedaloError('tool.unsupported_target', {
+			message: `Catastro lookup in UTM zone ${zone} (the Canary Islands): no EPSG:25828 in core`,
+			details: { reason_key: 'catastro_canary_islands' },
+		});
+	}
+	const crs = CATASTRO_ZONES[zone];
+	// outside Spain's zones Catastro has nothing: no third party is asked
+	if (crs === undefined) {
+		return ok({ found: false }, { requestId: toolRequestId(ctx) });
+	}
 
-	const html = await fetchGuardedText(featureInfoUrl(params).toString(), { maxBytes: 256 * 1024 });
-	const parsed = parseCatastroRefcat(html);
+	const html = await askCatastro('catastro_wms_featureinfo', featureInfoQuery(point));
+	const parsed = html === null ? null : parseCatastroRefcat(html.text);
 	if (!parsed) {
 		return ok({ found: false }, { requestId: toolRequestId(ctx) });
 	}
 
-	// v6's own fallback order: try the "neighbour" stored query first (the
-	// richer one, when it carries the target's own geometry), fall back to
-	// the parcel-only query.
-	const points =
-		(await fetchParcelGeometry(parsed.refcat, 'getneighbourparcel')) ??
-		(await fetchParcelGeometry(parsed.refcat, 'getparcel'));
-
+	const xml = await askCatastro('catastro_wfs_parcel', { refcat: parsed.refcat, crs });
+	const points = xml === null ? null : parseParcelGeometry(xml.text, parsed.refcat, zone);
 	if (!points) {
 		return ok(
 			{ found: false, refcat: parsed.refcat, url: parsed.url },
@@ -197,7 +245,7 @@ export async function getCatastroParcel(ctx: ToolActionContext): Promise<ToolRes
 	}
 
 	return ok(
-		{ found: true, refcat: parsed.refcat, url: parsed.url, points },
+		{ found: true, refcat: parsed.refcat, url: parsed.url, points, attribution: xml?.attribution },
 		{ requestId: toolRequestId(ctx) },
 	);
 }

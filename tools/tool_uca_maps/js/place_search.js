@@ -50,6 +50,7 @@ export const attach_place_search = function(self) {
 	}
 
 	self._place_results = null
+	self._place_attribution = null
 
 	const title = self.get_tool_label('place_search_control_title') || 'Place search'
 
@@ -155,7 +156,8 @@ export const search_places = async function(self, raw_query) {
 		const data		= response_data(response)
 		const results	= (data && Array.isArray(data.results)) ? data.results : []
 
-		self._place_results = results
+		self._place_results		= results
+		self._place_attribution	= (data && typeof data.attribution==='string') ? data.attribution : null
 
 		return {ok: true, results: results}
 
@@ -215,6 +217,7 @@ export const focus_place_result = function(self, index) {
 */
 export const clear_place_search = function(self) {
 	self._place_results = null
+	self._place_attribution = null
 }//end clear_place_search
 
 
@@ -234,6 +237,7 @@ export const detach_place_search = function(self) {
 	self.place_search_panel		= null
 	self.place_search_control	= null
 	self._place_results			= null
+	self._place_attribution			= null
 
 }//end detach_place_search
 

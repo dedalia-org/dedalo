@@ -51,6 +51,28 @@ export const show_panel_message = (message, text, type = 'error') => {
 }; //end show_panel_message
 
 /**
+ * RENDER_ATTRIBUTION
+ * The provider's own credit line beside the data it gave (the licence asks for
+ * it: ODbL, CC BY), as the answer carries it. Nothing for no text.
+ *
+ * @param {string|null|undefined} text
+ * @param {HTMLElement} parent
+ * @param {string} [element_type='div'] - 'li' inside a result list
+ * @returns {HTMLElement|null}
+ */
+export const render_attribution = (text, parent, element_type = 'div') => {
+	if (typeof text !== 'string' || text.trim() === '') {
+		return null;
+	}
+	return ui.create_dom_element({
+		element_type: element_type,
+		class_name: 'uca-maps-attribution',
+		text_content: text,
+		parent: parent,
+	});
+}; //end render_attribution
+
+/**
  * RENDER_NEW_TAB_LINK
  * A link that opens in a new tab without handing the opened page
  * `window.opener`.

@@ -388,6 +388,7 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 			_popupclose_handler				: null,
 			_click_handler					: null,
 			_catastro_busy					: false,
+			_catastro_credit				: null,
 			_ua_busy						: false,
 			_upload_busy					: false,
 			_image_upload_busy				: false,
@@ -5293,6 +5294,86 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isNull(banner(), 'expected no banner once Catastro is disarmed')
 	})
 
+	// the providers' licences (ODbL, CC BY) ask for their credit beside their
+	// data: core's geo services answer it, the tool shows it, quietly
+	// core's banner times out (10 s); the credit belongs beside the parcel while
+	// it is the answer, so it is the tool's own line, gone with the next lookup,
+	// a disarm or the tool
+	it('a found parcel keeps the provider\'s credit in the tool\'s own line until the next lookup or a disarm', async function() {
+
+		const credit = () => geolocation.node.querySelector('.uca-maps-catastro-credit')
+		const found = {...parcel_found(), attribution: 'Dirección General del Catastro (Spain)'}
+
+		arm_catastro()
+		stub_tool_request(async () => ({ok: true, data: found}))
+		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+		assert.isOk(credit(), 'expected the credit line')
+		assert.isTrue(credit().classList.contains('uca-maps-attribution'), 'expected the quiet credit style')
+		assert.equal(credit().textContent, 'Dirección General del Catastro (Spain)')
+		assert.isNull(credit().closest('.uca-maps-catastro-message'), 'expected it outside core\'s timed banner')
+		assert.isNull(geolocation.node.querySelector('.uca-maps-catastro-message'), 'expected no banner beside the parcel')
+
+		// the next lookup takes it away as soon as it starts
+		let release
+		stub_tool_request(() => new Promise((resolve) => { release = resolve }))
+		const pending = check_catastro_at_point(tool, L.latLng(40.16, -3.66))
+		assert.isNull(credit(), 'expected the credit gone while the next lookup runs')
+		release({ok: true, data: found})
+		await pending
+		assert.equal(geolocation.node.querySelectorAll('.uca-maps-catastro-credit').length, 1, 'expected one credit, never two')
+
+		tool.catastro_control.getContainer().click() // disarm
+		assert.isNull(credit(), 'expected no credit once Catastro is disarmed')
+
+		arm_catastro()
+		stub_tool_request(async () => ({ok: true, data: found}))
+		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+		assert.isOk(credit())
+		await tool.destroy(false, false, false)
+		assert.isNull(credit(), 'expected no credit once the tool is closed')
+	})
+
+	it('place search and DARE list the provider\'s credit after their hits, never as a hit', async function() {
+
+		tool.attach_place_search()
+		stub_tool_request(async () => ({ok: true, data: {
+			results		: [{name: 'Sagunt', point: [39.68, -0.27], bbox: null}],
+			attribution	: '© OpenStreetMap contributors (ODbL)'
+		}}))
+		await search_places(tool, 'Sagunto')
+		populate_place_search_results(tool, tool.place_search_panel)
+		const list = tool.place_search_panel.querySelector('.uca-maps-place-search-results')
+		assert.equal(list.querySelectorAll('.uca-maps-place-search-result-button').length, 1)
+		assert.equal(list.lastElementChild.className, 'uca-maps-attribution', 'expected the credit last')
+		assert.equal(list.lastElementChild.textContent, '© OpenStreetMap contributors (ODbL)')
+
+		stub_tool_request(async () => ({ok: true, data: {results: [], attribution: '© OpenStreetMap contributors (ODbL)'}}))
+		await search_places(tool, 'Nowhere')
+		populate_place_search_results(tool, tool.place_search_panel)
+		assert.isNull(list.querySelector('.uca-maps-attribution'), 'expected no credit for no data')
+
+		mount_roman()
+		open_roman()
+		stub_tool_request(async () => ({ok: true, data: {results: [roman_hit('Gades', 36.5, -6.2)], attribution: 'DARE, CC BY'}}))
+		await search_roman(tool, 'dare', {query: 'Gades', name_type: 'mss'})
+		populate_roman_results(tool, tool.roman_panel)
+		assert.equal(tool.roman_dropdown.querySelectorAll('.uca-maps-roman-result-button').length, 1, 'expected the credit not a row')
+		assert.equal(tool.roman_dropdown.querySelector('.uca-maps-attribution').textContent, 'DARE, CC BY')
+	})
+
+	it('the elevation line carries its provider\'s credit under the heading', async function() {
+
+		tool._elevation = null
+		stub_tool_request(async () => ({ok: true, data: {elevation: 412, unavailable: false, attribution: 'NASA/USGS SRTM'}}))
+		open_console_on(1)
+		const section = tool.panel_node.querySelector('.uca-maps-elevation-section')
+		await until(() => section.querySelector('.uca-maps-attribution'), 100)
+		const credit = section.querySelector('.uca-maps-attribution')
+		assert.isOk(credit, 'expected the credit')
+		assert.equal(credit.textContent, 'NASA/USGS SRTM')
+		assert.equal(credit.previousElementSibling, section.querySelector('.uca-maps-object-elevation'), 'expected it right under the heading')
+	})
+
 	it('check_catastro_at_point refuses overlapping lookups (busy guard) — only the first reaches tool_request', async function() {
 
 		arm_catastro()
@@ -8990,7 +9071,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('typing searches by itself, and below the minimum nothing travels', async function() {
 
-		mount_roman()
+		mount_roman(WITH_PLEIADES) // a local source: DARE searches on Enter only
+		await load_roman_capabilities(tool)
 		open_roman() // a list shows only over an open panel
 
 		let asked = 0
@@ -9001,7 +9083,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			] } }
 		})
 
-		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
+		const input = tool.roman_panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 
 		// below the minimum: no request, not even after the debounce window
 		input.value = 'Ga'
@@ -9022,9 +9104,41 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.roman_dropdown.hidden, false, 'expected the list open by itself')
 	})
 
-	it('a burst of keystrokes is ONE request, not one per character (v6 fires per keyup)', async function() {
+	// core's DARE service is a third party's, whose provider asks for no
+	// as-you-type search: Enter is the gesture
+	it('DARE searches on Enter only: typing sends nothing and closes an older list', async function() {
 
 		mount_roman()
+		open_roman() // a list shows only over an open panel
+
+		const asked = []
+		stub_tool_request(async function(options) {
+			asked.push(options)
+			return { ok: true, data: { results: [roman_hit('Gades', 36.53, -6.29)] } }
+		})
+
+		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
+		assert.equal(input.placeholder, 'Place name, then Enter', 'expected the field to say how it searches')
+		seed_roman_list('dare', [roman_hit('older', 0, 0)])
+		input.value = 'Gades'
+		input.dispatchEvent(new Event('input'))
+		await tick(AFTER_DEBOUNCE_MS)
+		assert.deepEqual(asked, [], 'expected NO request while typing')
+		assert.isNull(tool._roman_search_timer, 'expected no search waiting either')
+		assert.equal(tool.roman_dropdown.hidden, true, 'expected the older list closed: it answers another name')
+
+		input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
+		await tick(SETTLE_MS)
+		assert.equal(asked.length, 1, 'expected Enter to search, once')
+		assert.equal(asked[0].action, 'search_dare')
+		assert.equal(asked[0].options.query, 'Gades')
+		assert.equal(tool.roman_dropdown.hidden, false, 'expected the hits listed')
+	})
+
+	it('a burst of keystrokes is ONE request, not one per character (v6 fires per keyup)', async function() {
+
+		mount_roman(WITH_PLEIADES) // a local source: DARE searches on Enter only
+		await load_roman_capabilities(tool)
 
 		let asked = 0
 		stub_tool_request(async function() {
@@ -9032,7 +9146,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			return { ok: true, data: { results: [] } }
 		})
 
-		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
+		const input = tool.roman_panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 		for (const value of ['Gad', 'Gade', 'Gades', 'Gadesx']) {
 			input.value = value
 			input.dispatchEvent(new Event('input'))
@@ -9093,7 +9207,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('the arrows walk the list and Enter draws the highlighted place', async function() {
 
-		mount_roman()
+		mount_roman(WITH_PLEIADES) // a local source: DARE searches on Enter only
+		await load_roman_capabilities(tool)
 		open_roman() // a list shows only over an open panel
 
 		stub_tool_request(async function() {
@@ -9103,7 +9218,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			] } }
 		})
 
-		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
+		const input = tool.roman_panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 		input.value = 'Gades'
 		input.dispatchEvent(new Event('input'))
 		await tick(AFTER_DEBOUNCE_MS)
@@ -9133,7 +9248,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('Escape closes the list without clearing what was typed', async function() {
 
-		mount_roman()
+		mount_roman(WITH_PLEIADES) // a local source: DARE searches on Enter only
+		await load_roman_capabilities(tool)
 		open_roman() // a list shows only over an open panel
 
 		stub_tool_request(async function() {
@@ -9142,7 +9258,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			] } }
 		})
 
-		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
+		const input = tool.roman_panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 		input.value = 'Gades'
 		input.dispatchEvent(new Event('input'))
 		await tick(AFTER_DEBOUNCE_MS)
@@ -9180,12 +9296,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('teardown cancels a pending as-you-type search instead of firing it into a dead panel', async function() {
 
-		mount_roman()
+		mount_roman(WITH_PLEIADES) // a local source: DARE searches on Enter only
+		await load_roman_capabilities(tool)
 
 		let asked = 0
 		stub_tool_request(async function() { asked++; return { ok: true, data: { results: [] } } })
 
-		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
+		const input = tool.roman_panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 		input.value = 'Gades'
 		input.dispatchEvent(new Event('input'))
 
@@ -9546,7 +9663,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// cancelled search and reopen the list after Esc, or over a closed panel
 	it('closing the list cancels a keystroke still waiting out the debounce', async function() {
 
-		mount_roman()
+		mount_roman(WITH_PLEIADES) // a local source: DARE searches on Enter only
+		await load_roman_capabilities(tool)
 		const control	= geolocation.map.getContainer().querySelector('.uca-maps-roman-control')
 		control.click() // open
 
@@ -9555,7 +9673,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			asked++
 			return { ok: true, data: { results: [roman_hit('Gades', 36.5, -6.2)] } }
 		})
-		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
+		const input = tool.roman_panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 		const type_gades = () => {
 			input.value = 'Gades'
 			input.dispatchEvent(new Event('input'))
@@ -9854,10 +9972,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('walking the list by keyboard freezes it: no waiting or in-flight search rebuilds it', async function() {
 
 		require_document_focus()
-		mount_roman()
+		mount_roman(WITH_PLEIADES) // a local source: DARE searches on Enter only
+		await load_roman_capabilities(tool)
 		open_roman()
 		const panel	= tool.roman_panel
-		const input	= panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input')
+		const input	= panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
 		const tab	= (target) => target.dispatchEvent(new KeyboardEvent('keydown', {key: 'Tab', bubbles: true, cancelable: true}))
 
 		let asked = 0
@@ -9869,7 +9988,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			] } }) })
 		})
 		const seed = () => {
-			seed_roman_list('dare', [roman_hit('Gades', 36.5, -6.2)])
+			seed_roman_list('pleiades', [roman_hit('Gades', 36.5, -6.2)])
 			input.focus()
 		}
 

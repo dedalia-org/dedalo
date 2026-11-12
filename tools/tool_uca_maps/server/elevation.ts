@@ -1,26 +1,18 @@
 /**
- * get_elevation: the selected object's centre elevation. Server-side as in v6
- * (`class.tool_leaflet_special_tools.php` `get_elevation`), and the page CSP
- * blocks a browser call. An outage answers `unavailable`, never a failure: a
- * decorative line must not stop selecting an object. A bad coordinate throws.
+ * get_elevation: the selected object's centre elevation, through core's
+ * `open_elevation_lookup` (v6 `class.tool_leaflet_special_tools.php`
+ * `get_elevation`; the page CSP blocks a browser call). An outage answers
+ * `unavailable`, never a failure: a decorative line must not stop selecting an
+ * object. A bad coordinate throws.
  */
 
-import { DedaloError, ok } from '../../../src/core/errors/index.ts';
-import { fetchGuardedText } from '../../../src/core/security/ssrf_guard.ts';
+import { DedaloError, isErrorInDomain, ok } from '../../../src/core/errors/index.ts';
+import { callGeoService } from '../../../src/core/geo_services/call.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
-
-const OPEN_ELEVATION_LOOKUP = 'https://api.open-elevation.com/api/v1/lookup';
-
-/** Short on purpose: this runs on every object click, and a slow answer that
- * arrives is worth less than a fast "unavailable" the user can ignore. */
-const ELEVATION_TIMEOUT_MS = 8000;
-
-/** One point's elevation is a handful of bytes; anything larger is not it. */
-const ELEVATION_MAX_BYTES = 64 * 1024;
 
 /** A caller fault — a coordinate that is not a coordinate. No publicMessage:
  * the console shows only "unavailable" whatever the failure. */
@@ -63,45 +55,38 @@ function readCoordinate(value: unknown, name: string, limit: number): number {
 
 /**
  * Open-Elevation answers `{"results":[{"latitude":…,"longitude":…,"elevation":412}]}`.
- * Anything else — an HTML error page, an empty array, a non-numeric elevation
- * — reads as "no answer", never as zero metres: sea level is a real value and
- * must not be how a parse failure looks.
+ * Anything else — an empty array, a non-numeric elevation — reads as "no
+ * answer", never as zero metres: sea level is a real value and must not be how
+ * a parse failure looks.
  */
-export function parseElevation(text: string): number | null {
-	let payload: unknown;
-	try {
-		payload = JSON.parse(text);
-	} catch {
-		return null;
-	}
-	const results = (payload as { results?: unknown })?.results;
+export function parseElevation(payload: unknown): number | null {
+	const results = (payload as { results?: unknown } | null)?.results;
 	if (!Array.isArray(results) || results.length === 0) {
 		return null;
 	}
 	return finiteNumber((results[0] as { elevation?: unknown })?.elevation);
 }
 
-export function elevationUrl(lat: number, lon: number): URL {
-	const url = new URL(OPEN_ELEVATION_LOOKUP);
-	url.searchParams.set('locations', `${lat},${lon}`);
-	return url;
-}
-
 export async function getElevation(ctx: ToolActionContext): Promise<ToolResponse> {
 	const lat = readCoordinate(ctx.options.lat, 'latitude', 90);
 	const lon = readCoordinate(ctx.options.lon, 'longitude', 180);
 
-	let text: string;
+	let payload: unknown;
+	let attribution: string;
 	try {
-		text = await fetchGuardedText(elevationUrl(lat, lon).toString(), {
-			maxBytes: ELEVATION_MAX_BYTES,
-			timeoutMs: ELEVATION_TIMEOUT_MS,
-		});
-	} catch {
-		// the service is optional, the console is not
+		const answer = await callGeoService('open_elevation_lookup', { locations: [[lat, lon]] });
+		payload = answer.kind === 'json' ? answer.data : null;
+		attribution = answer.attribution;
+	} catch (error) {
+		// the service is optional, the console is not; a refused parameter is
+		// the tool's own bug and stays loud
+		if (!isErrorInDomain(error, 'external') && !isErrorInDomain(error, 'rate')) throw error;
 		return ok({ elevation: null, unavailable: true }, { requestId: toolRequestId(ctx) });
 	}
 
-	const elevation = parseElevation(text);
-	return ok({ elevation, unavailable: elevation === null }, { requestId: toolRequestId(ctx) });
+	const elevation = parseElevation(payload);
+	return ok(
+		{ elevation, unavailable: elevation === null, attribution },
+		{ requestId: toolRequestId(ctx) },
+	);
 }

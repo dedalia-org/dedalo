@@ -683,7 +683,7 @@
 .uca-maps-catastro-control.uca-maps-catastro-enabled {
 	.uca-maps-toolbar-pressed();
 }
-// its refusal is shown by core's ui.show_message: keep tool_error_text's line break
+// its lines are core's ui.show_message: a two-line message keeps its break
 .uca-maps-catastro-message .text {
 	white-space: pre-line;
 }
@@ -1642,3 +1642,13 @@
 		padding: 0.35rem 0.6rem;
 	}
 }//end uca-maps-roman-dropdown
+
+// a provider's credit beside its data (place search, DARE, elevation, a found
+// Catastro parcel, under the map component like core's banner): the
+// licence asks for it to be shown, the user does not need it to stand out
+.uca-maps-attribution {
+	list-style: none;
+	padding: 0.35rem 0.6rem;
+	font-size: @uca_maps_text_small;
+	color: var(--fg_muted);
+}

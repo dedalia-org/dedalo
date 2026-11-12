@@ -1615,4 +1615,10 @@
 .uca-maps-roman-dropdown > .uca-maps-roman-empty {
   padding: 0.35rem 0.6rem;
 }
+.uca-maps-attribution {
+  list-style: none;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  color: var(--fg_muted);
+}
 /*# sourceMappingURL=tool_uca_maps.css.map */

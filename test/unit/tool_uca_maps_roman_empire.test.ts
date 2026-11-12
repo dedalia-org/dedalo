@@ -1,12 +1,13 @@
 /**
  * tool_uca_maps — the pure halves of the three gazetteer searches: index
- * matching, dataset matching, the DARE query URL and its reply parsing. No
+ * matching, dataset matching, the DARE query (core's service, the filters)
+ * and its reply parsing. No
  * network, no data directory: every fixture is written here.
  */
 
 import { describe, expect, test } from 'bun:test';
 import {
-	dareApiUrl,
+	dareQuery,
 	decodeDareText,
 	matchPelagiosFeatures,
 	matchPleiadesIndex,
@@ -138,40 +139,33 @@ describe('matchPelagiosFeatures', () => {
 	});
 });
 
-describe('dareApiUrl', () => {
-	test('queries HTTPS, where v6 calls the same API over plain HTTP', () => {
-		const url = dareApiUrl({ query: 'Gades', nameType: 'mss' });
-		expect(url.protocol).toBe('https:');
-		expect(url.host).toBe('imperium.ahlfeldt.se');
-		expect(url.searchParams.get('mss')).toBe('Gades');
-		expect(url.searchParams.get('ass')).toBeNull();
+describe('dareQuery', () => {
+	test('each name field asks its own core service', () => {
+		expect(dareQuery({ nameType: 'mss' }).service).toBe('dare_search_modern');
+		expect(dareQuery({ nameType: 'ass' }).service).toBe('dare_search_ancient');
 	});
 
-	test('the ancient-name search uses DARE’s own `ass` parameter', () => {
-		expect(dareApiUrl({ query: 'Gadir', nameType: 'ass' }).searchParams.get('ass')).toBe('Gadir');
+	test('both filters are kept only when set, the country upper-cased', () => {
+		expect(dareQuery({ nameType: 'mss', typeId: '11', country: 'es' })).toMatchObject({
+			typeId: '11',
+			country: 'ES',
+		});
+		expect(dareQuery({ nameType: 'mss', typeId: '', country: '' })).toMatchObject({
+			typeId: null,
+			country: null,
+		});
 	});
 
-	test('both filters ride only when set, and only in DARE’s own shape', () => {
-		const url = dareApiUrl({ query: 'Gades', nameType: 'mss', typeId: '11', country: 'es' });
-		expect(url.searchParams.get('typeid')).toBe('11');
-		expect(url.searchParams.get('cc')).toBe('ES');
-
-		const bare = dareApiUrl({ query: 'Gades', nameType: 'mss', typeId: '', country: '' });
-		expect(bare.searchParams.get('typeid')).toBeNull();
-		expect(bare.searchParams.get('cc')).toBeNull();
-	});
-
-	test('anything outside those vocabularies is refused, never forwarded', () => {
-		expect(() => dareApiUrl({ query: 'x', nameType: 'name' })).toThrow(/name type/);
-		expect(() => dareApiUrl({ query: 'x', nameType: 'mss', typeId: '11&cc=ES' })).toThrow(
-			/site type/,
-		);
-		expect(() => dareApiUrl({ query: 'x', nameType: 'mss', country: 'ESP' })).toThrow(/country/);
+	test('anything outside those vocabularies is refused', () => {
+		expect(() => dareQuery({ nameType: 'name' })).toThrow(/name type/);
+		expect(() => dareQuery({ nameType: '__proto__' })).toThrow(/name type/);
+		expect(() => dareQuery({ nameType: 'mss', typeId: '11&cc=ES' })).toThrow(/site type/);
+		expect(() => dareQuery({ nameType: 'mss', country: 'ESP' })).toThrow(/country/);
 	});
 });
 
 describe('parseDareResults', () => {
-	const REPLY = JSON.stringify({
+	const REPLY = {
 		type: 'FeatureCollection',
 		features: [
 			{
@@ -181,7 +175,7 @@ describe('parseDareResults', () => {
 			},
 			{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [0, 0] } },
 		],
-	});
+	};
 
 	test('keeps the named features, with their geometry, in service order', () => {
 		const results = parseDareResults(REPLY);
@@ -192,19 +186,39 @@ describe('parseDareResults', () => {
 	});
 
 	test('honours the result limit, keeping the first hits in service order', () => {
-		expect(parseDareResults(REPLY, 0)).toHaveLength(0);
-		const three = JSON.stringify({
+		const none = { typeId: null, country: null };
+		expect(parseDareResults(REPLY, none, 0)).toHaveLength(0);
+		const three = {
 			features: ['Gades', 'Hispalis', 'Corduba'].map((name) => ({
 				properties: { name },
 				geometry: { type: 'Point' },
 			})),
-		});
-		expect(parseDareResults(three, 2).map((hit) => hit.name)).toEqual(['Gades', 'Hispalis']);
+		};
+		expect(parseDareResults(three, none, 2).map((hit) => hit.name)).toEqual(['Gades', 'Hispalis']);
+	});
+
+	// v6 sent them as `typeid` / `cc`; core's service takes the name alone
+	test('the type and country filters keep only the hits DARE itself labels so', () => {
+		const mixed = {
+			features: [
+				{ properties: { name: 'Sagunto', numType: '11', country: 'ES' } },
+				{ properties: { name: 'Sagunto', numType: '14', country: 'ES' } },
+				{ properties: { name: 'Saguntum', numType: '11', country: 'IT' } },
+			],
+		};
+		const names = (filters: { typeId: string | null; country: string | null }) =>
+			parseDareResults(mixed, filters).map((hit) => hit.feature);
+		expect(names({ typeId: '11', country: null })).toHaveLength(2);
+		expect(names({ typeId: null, country: 'ES' })).toHaveLength(2);
+		expect(names({ typeId: '11', country: 'ES' })).toEqual([
+			{ properties: { name: 'Sagunto', numType: '11', country: 'ES' } },
+		]);
+		expect(names({ typeId: null, country: null })).toHaveLength(3);
 	});
 
 	test('A REFUSAL IS NOT ZERO RESULTS (same law as place_search)', () => {
-		expect(() => parseDareResults('{"error":"blocked"}')).toThrow(/refused/);
-		expect(() => parseDareResults('<html>')).toThrow(/unreadable/);
+		expect(() => parseDareResults({ error: 'blocked' })).toThrow(/refused/);
+		expect(() => parseDareResults(null)).toThrow(/refused/);
 	});
 });
 
@@ -223,9 +237,9 @@ describe('decodeDareText', () => {
 	});
 
 	test('the repaired name is what a hit carries', () => {
-		const reply = JSON.stringify({
+		const reply = {
 			features: [{ properties: { name: 'CÃ¡diz' }, geometry: { type: 'Point' } }],
-		});
+		};
 		const hit = parseDareResults(reply)[0];
 		expect(hit?.name).toBe('Cádiz');
 		// and the OBJECT the user draws carries the repaired name too

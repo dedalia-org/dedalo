@@ -1,26 +1,22 @@
 /**
- * search_places: a server-side proxy for the Nominatim search v6 ran from the
- * browser (`leaflet-control-geocoder`). The page CSP (`connect-src 'self'`)
- * makes a browser-side geocoder fail on every search, silently, so the library
- * is not vendored. The host is fixed; Nominatim's policy wants a User-Agent.
+ * search_places: the Nominatim search v6 ran from the browser
+ * (`leaflet-control-geocoder`), asked through core's `nominatim_search`, which
+ * keeps the policy's pacing, cache and User-Agent. The page CSP (`connect-src
+ * 'self'`) makes a browser-side geocoder fail on every search, silently.
  */
 
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { getAlpha2FromCode } from '../../../src/core/resolve/lang_names.ts';
-import { fetchGuardedText } from '../../../src/core/security/ssrf_guard.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
+import { askGeoService, geoData, geoParamAccepts } from './geo_call.ts';
 import type { ReasonKey } from './reasons.ts';
-
-const NOMINATIM_SEARCH = 'https://nominatim.openstreetmap.org/search';
 
 /** v6's own result count for the same control (`leaflet-control-geocoder` default). */
 const RESULT_LIMIT = 8;
-
-const USER_AGENT = 'Dedalo/7 (tool_uca_maps place search)';
 
 /** A caller fault — empty or over-long search text. */
 function invalidSearchRequest(message: string, reason: ReasonKey): DedaloError {
@@ -35,16 +31,6 @@ export interface PlaceResult {
 	point: [number, number];
 	/** [south, west, north, east] — Leaflet `fitBounds` order, or null. */
 	bbox: [number, number, number, number] | null;
-}
-
-/** The Nominatim query for already vetted search text; exported for unit coverage. */
-export function placeSearchUrl(query: string): URL {
-	const url = new URL(NOMINATIM_SEARCH);
-	url.searchParams.set('q', query);
-	url.searchParams.set('format', 'jsonv2');
-	url.searchParams.set('limit', String(RESULT_LIMIT));
-	url.searchParams.set('addressdetails', '0');
-	return url;
 }
 
 /**
@@ -64,16 +50,11 @@ function outboundFailure(message: string): DedaloError {
  * no usable coordinates is dropped: a result row that cannot move the map is
  * worse than none. Pure, exported for unit coverage.
  */
-export function parsePlaceResults(text: string): PlaceResult[] {
-	let payload: unknown;
-	try {
-		payload = JSON.parse(text);
-	} catch {
-		throw outboundFailure('The place-search service returned an unreadable response.');
-	}
+export function parsePlaceResults(payload: unknown): PlaceResult[] {
 	// A refusal is not zero results: Nominatim answers a rejected or rate-limited
 	// request with HTTP 200 and a JSON object (`{"error": …}`). Read as [], the
-	// user would be told the toponym does not exist during an outage.
+	// user would be told the toponym does not exist during an outage. Core's
+	// shape check refuses it first; this one keeps the parser honest on its own.
 	if (!Array.isArray(payload)) {
 		throw outboundFailure('The place-search service refused the request.');
 	}
@@ -126,24 +107,36 @@ export async function searchPlaces(ctx: ToolActionContext): Promise<ToolResponse
 	if (!query) {
 		throw invalidSearchRequest('The search text is required.', 'search_text_required');
 	}
+	// Nominatim's policy forbids as-you-type search: core's service takes three
+	// characters at least, and this says so in the user's words
+	if (query.length < 3) {
+		throw invalidSearchRequest('The search text is too short.', 'search_text_too_short');
+	}
 	// a URL query param, not a database key — the cap is about not shipping an
 	// unbounded string to a third party, nothing more
 	if (query.length > 200) {
 		throw invalidSearchRequest('The search text is too long.', 'search_text_too_long');
 	}
-
-	// Nominatim names its results in the record's language; an unmapped lang
-	// sends no header and gets its default naming rather than a guessed tag
-	const iso = getAlpha2FromCode(String(ctx.options.lang ?? ''));
-	const headers: Record<string, string> = { 'User-Agent': USER_AGENT };
-	if (iso) {
-		headers['Accept-Language'] = iso;
+	// what else core's grammar refuses (a control or bidi character) would come
+	// back as a reasonless request.invalid_data: refused here, by core's own rule
+	if (!geoParamAccepts('nominatim_search', 'q', query)) {
+		throw invalidSearchRequest(
+			'The search text holds a character core refuses.',
+			'search_text_invalid',
+		);
 	}
 
-	const text = await fetchGuardedText(placeSearchUrl(query).toString(), {
-		maxBytes: 1024 * 1024,
-		init: { headers },
-	});
+	// Nominatim names its results in the record's language; an unmapped lang
+	// sends none and gets its default naming rather than a guessed tag
+	const iso = getAlpha2FromCode(String(ctx.options.lang ?? ''));
+	const answer = await askGeoService(
+		'nominatim_search',
+		{ q: query, limit: RESULT_LIMIT, addressdetails: '0', ...(iso ? { language: iso } : {}) },
+		'place_search_unavailable',
+	);
 
-	return ok({ results: parsePlaceResults(text) }, { requestId: toolRequestId(ctx) });
+	return ok(
+		{ results: parsePlaceResults(geoData(answer)), attribution: answer.attribution },
+		{ requestId: toolRequestId(ctx) },
+	);
 }

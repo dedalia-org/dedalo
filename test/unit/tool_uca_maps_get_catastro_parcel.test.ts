@@ -1,16 +1,19 @@
 /**
- * tool_uca_maps — `get_catastro_parcel`: the GetFeatureInfo query built and
- * the two Catastro replies parsed, no network. The handler's wiring:
- * tool_uca_maps_service_handlers.test.ts.
+ * tool_uca_maps — `get_catastro_parcel`: the clicked point, the feature-info
+ * question, the two Catastro replies parsed and the UTM ring converted, no
+ * network. The handler's wiring: tool_uca_maps_service_handlers.test.ts.
  */
 
 import { describe, expect, test } from 'bun:test';
 import {
+	clickedPoint,
 	extractParcelPosList,
-	featureInfoUrl,
+	featureInfoQuery,
 	parseCatastroRefcat,
 	parseParcelGeometry,
 } from '../../tools/tool_uca_maps/server/catastro.ts';
+import { geoParamAccepts } from '../../tools/tool_uca_maps/server/geo_call.ts';
+import { utmToLatLon, utmZoneOf } from '../../tools/tool_uca_maps/server/utm.ts';
 
 /** A reply that is not an answer: the source unavailable, never "no parcel". */
 const SOURCE_UNAVAILABLE = expect.objectContaining({
@@ -18,170 +21,137 @@ const SOURCE_UNAVAILABLE = expect.objectContaining({
 	details: { reason_key: 'catastro_unavailable' },
 });
 
-describe('featureInfoUrl', () => {
-	test('builds the fixed Catastro GetFeatureInfo query from a click payload', () => {
-		const url = featureInfoUrl({
+describe("utmToLatLon — Catastro's ring, converted in the tool", () => {
+	// references from GDAL (gdaltransform, EPSG:258zz → EPSG:4258)
+	test.each([
+		[725684.13, 4372525.27, 30, 39.4727395719826, -0.376327842685717],
+		[500000, 4000000, 29, 36.1447180997896, -9],
+		[300000, 4650000, 31, 41.9766275448149, 0.586014723094762],
+		[820000, 4800000, 29, 43.2848025161097, -5.05594607583354],
+	])("E %d N %d zone %d is GDAL's lat/lon within a millimetre", (e, n, zone, lat, lon) => {
+		const [gotLat, gotLon] = utmToLatLon(e, n, zone);
+		expect(Math.abs(gotLat - lat)).toBeLessThan(1e-8);
+		expect(Math.abs(gotLon - lon)).toBeLessThan(1e-8);
+	});
+
+	test('the zone is the one whose central meridian is nearest', () => {
+		expect(utmZoneOf(-9.1)).toBe(29);
+		expect(utmZoneOf(-0.37)).toBe(30);
+		expect(utmZoneOf(2.17)).toBe(31);
+		expect(utmZoneOf(-15.4)).toBe(28);
+		expect(utmZoneOf(-18.1)).toBe(27);
+	});
+});
+
+describe('clickedPoint and featureInfoQuery', () => {
+	test('a pixel is linear in longitude and Mercator in latitude', () => {
+		const [lat, lon] = clickedPoint({
 			bbox: [-1, 38, -0.9, 38.1],
 			width: 512,
 			height: 400,
-			x: 128.4,
-			y: 63.6,
+			x: 256,
+			y: 200,
 		});
-		expect(url.origin + url.pathname).toBe(
-			'https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx',
-		);
-		// a non-square map: a height read from the width queries another pixel
-		expect(Object.fromEntries(url.searchParams)).toEqual({
-			request: 'getFeatureInfo',
-			layers: 'Catastro',
-			query_layers: 'Catastro',
-			srs: 'EPSG:4326',
-			bbox: '-1,38,-0.9,38.1',
-			height: '400',
-			width: '512',
-			x: '128',
-			y: '64',
-		});
+		expect(lon).toBeCloseTo(-0.95, 12);
+		// the Mercator midpoint, not the arithmetic one (38.05)
+		expect(lat).not.toBeCloseTo(38.05, 6);
+		expect(lat).toBeCloseTo(38.05003, 4);
+		expect(
+			clickedPoint({ bbox: [-1, 38, -0.9, 38.1], width: 512, height: 400, x: 0, y: 0 }),
+		).toEqual([expect.closeTo(38.1, 10), -1]);
+	});
+
+	test('asks for the clicked point alone, centred in a small box core accepts', () => {
+		const query = featureInfoQuery([39.4727, -0.3763]);
+		expect(query).toMatchObject({ crs: 'EPSG:3857', width: 101, height: 101, i: 50, j: 50 });
+		const [minX, minY, maxX, maxY] = query.bbox as number[];
+		expect((maxX as number) - (minX as number)).toBeCloseTo(100, 6);
+		expect((maxY as number) - (minY as number)).toBeCloseTo(100, 6);
+		for (const [name, value] of Object.entries(query)) {
+			expect(geoParamAccepts('catastro_wms_featureinfo', name, value)).toBe(true);
+		}
 	});
 });
 
 describe('parseCatastroRefcat', () => {
-	// captured live against ovc.catastro.meh.es
+	// captured live from the INSPIRE view service (Valencia), whitespace removed
 	const REAL_HTML =
-		'<?xml version="1.0" encoding="ISO-8859-1"?>\n<!DOCTYPE html \nPUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"\n"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">\n<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="sp"  lang="sp" >\n<head><title>Informaci&oacute;n parcelas</title></head><body><p>Referencia catastral de la parcela:</p><p><a href="https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?del=46&muni=225&rc1=6075421&rc2=YJ2667S">6075421YJ2667S</a></p></body></html>';
+		'<?xml version="1.0" encoding="ISO-8859-1"?><html><head><title>Parcel Information</title></head><body  id="body" class="tdBg06print"><table class="infoTablegrid1"><tbody><tr><td class="title">Get Feature Info Response</td></tr><tr><td><table class="infoTablegrid1"><tr><td colspan="2" class="requestedLayer">Requested Layer: CadastralParcel</td></tr><tr><td>inspireId</td><td><table><tr><td>localId</td><td>5726401YJ2752F</td></tr><tr><td>Namespace</td><td>ES.SDGC.CP</td></tr></table></td></tr><tr><td>AreaValue</td><td>193 m2</td></tr>                            <tr><td>beginLifespanVersion</td><td>2020-12-18T00:00:00</td></tr><tr><td>nationalCadastralReference</td><td>5726401YJ2752F</td></tr><tr><td>otherReference</td><td><ul class="otherReference"><li><a href="https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?del=46&amp;muni=900&amp;rc1=5726401&amp;rc2=YJ2752F" target="_blank">Public remote access</a></li></ul></td></tr></table></td></tr></tbody></table></body></html>';
 
-	test('extracts refcat + record url from a real reply', () => {
+	test("extracts the reference and the Sede's record from a real reply", () => {
 		expect(parseCatastroRefcat(REAL_HTML)).toEqual({
-			refcat: '6075421YJ2667S',
-			url: 'https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?del=46&muni=225&rc1=6075421&rc2=YJ2667S',
+			refcat: '5726401YJ2752F',
+			url: 'https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCListaBienes.aspx?del=46&muni=900&rc1=5726401&rc2=YJ2752F',
 		});
 	});
 
-	// captured live: a click in the sea and one in France
-	const NO_PARCEL_HTML =
-		'<?xml version="1.0" encoding="ISO-8859-1"?>\n<!DOCTYPE html \nPUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"\n"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">\n<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="sp"  lang="sp" >\n<head><title>Informaci&oacute;n parcelas</title></head><body><p>Referencia catastral de la parcela:</p></body></html>';
+	test('a link that is not https is not kept; the reference still is', () => {
+		const html = REAL_HTML.replace('https://www1.sedecatastro', 'http://www1.sedecatastro');
+		expect(parseCatastroRefcat(html)).toEqual({ refcat: '5726401YJ2752F', url: null });
+	});
 
-	// a scheduled stop answers a 200 with this notice and no result page (its
-	// wording, not its bytes, which were not captured)
-	const MAINTENANCE_HTML =
-		'<html><head><title>Sede Electr&oacute;nica del Catastro</title></head><body>' +
-		'<h1>INTERRUPCI&Oacute;N DEL SERVICIO POR MOTIVOS DE MANTENIMIENTO</h1></body></html>';
-
-	test('the result page with no parcel at that point yields null', () => {
-		expect(parseCatastroRefcat(NO_PARCEL_HTML)).toBeNull();
+	test('a result page with no reference, or one off the 14-character shape, is null', () => {
+		expect(parseCatastroRefcat(REAL_HTML.replaceAll('nationalCadastralReference', 'x'))).toBeNull();
+		expect(parseCatastroRefcat(REAL_HTML.replaceAll('5726401YJ2752F', 'not a refcat'))).toBeNull();
 	});
 
 	test('a reply that is not the result page (maintenance, empty) is the source unavailable, never "no parcel"', () => {
-		for (const html of [MAINTENANCE_HTML, '', '<html><body></body></html>']) {
+		const maintenance =
+			'<html><head><title>Sede Electr&oacute;nica del Catastro</title></head><body>' +
+			'<h1>INTERRUPCI&Oacute;N DEL SERVICIO POR MOTIVOS DE MANTENIMIENTO</h1></body></html>';
+		for (const html of [maintenance, '', '<html><body></body></html>']) {
 			expect(() => parseCatastroRefcat(html)).toThrow(SOURCE_UNAVAILABLE);
 		}
 	});
-
-	test('a refcat not matching the 14-alphanumeric shape is refused', () => {
-		expect(
-			parseCatastroRefcat('Referencia catastral: <a href="https://example.com/">not a refcat</a>'),
-		).toBeNull();
-	});
-
-	test('an anchor BEFORE the "Referencia catastral" label is ignored, not mistaken for the answer', () => {
-		const html =
-			'<a href="https://example.com/skip-link">Skip to content</a>' +
-			'<p>Referencia catastral de la parcela:</p><p><a href="https://example.com/real">6075421YJ2667S</a></p>';
-		expect(parseCatastroRefcat(html)).toEqual({
-			refcat: '6075421YJ2667S',
-			url: 'https://example.com/real',
-		});
-	});
-
-	test('an anchor after the label with no href, or no plain text, is passed over for the one naming the parcel', () => {
-		const html =
-			'<p>Referencia catastral de la parcela:</p><a name="top">6075421YJ2667A</a>' +
-			'<a href="https://example.com/help"><img src="i.png"/></a>' +
-			'<p><a href="https://example.com/real">6075421YJ2667S</a></p>';
-		expect(parseCatastroRefcat(html)).toEqual({
-			refcat: '6075421YJ2667S',
-			url: 'https://example.com/real',
-		});
-	});
 });
 
-describe('extractParcelPosList', () => {
-	const REFCAT = 'REFCAT00000001';
+describe('extractParcelPosList and parseParcelGeometry', () => {
+	const REFCAT = '5726401YJ2752F';
 
 	function memberXml(id: string, posList: string): string {
 		return `<member><cp:CadastralParcel gml:id="ES.SDGC.CP.${id}"><cp:geometry><gml:Surface><gml:patches><gml:PolygonPatch><gml:exterior><gml:LinearRing><gml:posList srsDimension="2" count="4">${posList}</gml:posList></gml:LinearRing></gml:exterior></gml:PolygonPatch></gml:patches></gml:Surface></cp:geometry></cp:CadastralParcel></member>`;
 	}
 
-	test('finds the member matching refcat and extracts [lat, lon] pairs', () => {
-		const xml = `<FeatureCollection>${memberXml('OTHER00000000', '1 1 2 2 3 3')}${memberXml(REFCAT, '39.1 -0.1 39.2 -0.2 39.3 -0.3')}</FeatureCollection>`;
-		expect(extractParcelPosList(xml, REFCAT)).toEqual([
-			[39.1, -0.1],
-			[39.2, -0.2],
-			[39.3, -0.3],
-		]);
+	// the first three vertices of the live GetParcel reply, EPSG:25830
+	const RING = '725684.13 4372525.27 725685.12 4372525.09 725686.96 4372524.76';
+
+	test('reads the member matching refcat and converts its easting/northing to [lat, lon]', () => {
+		const xml = `<FeatureCollection>${memberXml('OTHER00000000', '1 1 2 2 3 3')}${memberXml(REFCAT, RING)}</FeatureCollection>`;
+		const points = extractParcelPosList(xml, REFCAT, 30) as [number, number][];
+		expect(points).toHaveLength(3);
+		expect(points[0]?.[0]).toBeCloseTo(39.4727395719826, 8);
+		expect(points[0]?.[1]).toBeCloseTo(-0.376327842685717, 8);
 	});
 
-	test('no member matches refcat — null, not the wrong parcel', () => {
-		const xml = `<FeatureCollection>${memberXml('OTHER00000000', '1 1 2 2 3 3')}</FeatureCollection>`;
-		expect(extractParcelPosList(xml, REFCAT)).toBeNull();
-	});
-
-	test('fewer than 3 points (not a ring) — null', () => {
-		const xml = `<FeatureCollection>${memberXml(REFCAT, '39.1 -0.1 39.2 -0.2')}</FeatureCollection>`;
-		expect(extractParcelPosList(xml, REFCAT)).toBeNull();
-	});
-
-	// captured live: a stored query for a reference with no parcel
-	const NOT_FOUND_XML =
-		'<?xml version=\'1.0\' encoding="ISO-8859-1" standalone="no"?>\n<ExceptionReport xmlns="http://www.opengis.net/ows/1.1" version="2.0.0">\n<Exception exceptionCode="OperationProcessingFailed">\n<ExceptionText><![CDATA[No se han encontrado registros de la referencia 0000000AA0000A]]></ExceptionText>\n</Exception>\n</ExceptionReport>\n';
-
-	test('the WFS reply: a FeatureCollection is read, a "not found" report is null (the fallback runs)', () => {
-		const xml = `<FeatureCollection xmlns="http://www.opengis.net/wfs/2.0">${memberXml(REFCAT, '39.1 -0.1 39.2 -0.2 39.3 -0.3 39.1 -0.1')}</FeatureCollection>`;
-		expect(parseParcelGeometry(xml, REFCAT)).toEqual([
-			[39.1, -0.1],
-			[39.2, -0.2],
-			[39.3, -0.3],
-			[39.1, -0.1],
-		]);
-		expect(parseParcelGeometry(NOT_FOUND_XML, REFCAT)).toBeNull();
-	});
-
-	test('"not found" is read in both its numbers; any other exception report is the source unavailable', () => {
-		const report = (code: string, text: string) =>
-			`<ExceptionReport xmlns="http://www.opengis.net/ows/1.1" version="2.0.0"><Exception exceptionCode="${code}"><ExceptionText><![CDATA[${text}]]></ExceptionText></Exception></ExceptionReport>`;
+	test('no member matches refcat, or fewer than 3 points — null, not the wrong parcel', () => {
 		expect(
-			parseParcelGeometry(
-				report('OperationProcessingFailed', 'No se ha encontrado la referencia'),
+			extractParcelPosList(
+				`<FeatureCollection>${memberXml('OTHER00000000', RING)}</FeatureCollection>`,
 				REFCAT,
+				30,
 			),
 		).toBeNull();
 		expect(
-			parseParcelGeometry(
-				'<ows:ExceptionReport xmlns:ows="http://www.opengis.net/ows/1.1"><ows:Exception exceptionCode="OperationProcessingFailed"><ows:ExceptionText>No se han encontrado registros</ows:ExceptionText></ows:Exception></ows:ExceptionReport>',
+			extractParcelPosList(
+				`<FeatureCollection>${memberXml(REFCAT, '725684.13 4372525.27 725685.12 4372525.09')}</FeatureCollection>`,
 				REFCAT,
+				30,
 			),
 		).toBeNull();
-		// the "not found" text is looked for in every ExceptionText, not just the first
-		expect(
-			parseParcelGeometry(
-				'<ExceptionReport><Exception exceptionCode="OperationProcessingFailed"><ExceptionText>Consulta fallida</ExceptionText><ExceptionText>No se ha encontrado la referencia</ExceptionText></Exception></ExceptionReport>',
-				REFCAT,
-			),
-		).toBeNull();
-		for (const xml of [
-			report('InvalidParameterValue', 'El parámetro refcat no es válido'),
-			report('NoApplicableCode', 'Error interno del servidor'),
-			'<ExceptionReport xmlns="http://www.opengis.net/ows/1.1"><Exception exceptionCode="OperationProcessingFailed"/></ExceptionReport>',
-		]) {
-			expect(() => parseParcelGeometry(xml, REFCAT)).toThrow(SOURCE_UNAVAILABLE);
-		}
 	});
 
-	test('a WFS reply that is neither (maintenance, empty) is the source unavailable, never "no parcel"', () => {
+	test('a WFS reply that is no FeatureCollection (maintenance, empty) is the source unavailable', () => {
 		const maintenance =
 			'<html><body><h1>INTERRUPCI&Oacute;N DEL SERVICIO POR MOTIVOS DE MANTENIMIENTO</h1></body></html>';
 		for (const xml of [maintenance, '']) {
-			expect(() => parseParcelGeometry(xml, REFCAT)).toThrow(SOURCE_UNAVAILABLE);
+			expect(() => parseParcelGeometry(xml, REFCAT, 30)).toThrow(SOURCE_UNAVAILABLE);
 		}
+		expect(
+			parseParcelGeometry(
+				`<FeatureCollection xmlns="http://www.opengis.net/wfs/2.0">${memberXml(REFCAT, RING)}</FeatureCollection>`,
+				REFCAT,
+				30,
+			),
+		).toHaveLength(3);
 	});
 });

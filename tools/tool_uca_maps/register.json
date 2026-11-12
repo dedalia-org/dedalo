@@ -1,7 +1,7 @@
 {
 	"$schema": "../../src/core/tools/register.schema.json",
 	"name": "tool_uca_maps",
-	"version": "1.0.4",
+	"version": "1.0.7",
 	"label": {
 		"lg-eng": "UCA Maps",
 		"lg-spa": "Mapas UCA"
@@ -556,6 +556,9 @@
 		{ "lang": "lg-spa", "name": "roman_source_dare", "value": "DARE (imperium.ahlfeldt.se)" },
 		{ "lang": "lg-eng", "name": "roman_placeholder", "value": "Place name" },
 		{ "lang": "lg-spa", "name": "roman_placeholder", "value": "Nombre del lugar" },
+
+		{ "lang": "lg-eng", "name": "roman_placeholder_enter", "value": "Place name, then Enter" },
+		{ "lang": "lg-spa", "name": "roman_placeholder_enter", "value": "Nombre del lugar e Intro" },
 		{ "lang": "lg-eng", "name": "roman_pleiades_by_name", "value": "By place name" },
 		{ "lang": "lg-spa", "name": "roman_pleiades_by_name", "value": "Por nombre de lugar" },
 		{ "lang": "lg-eng", "name": "roman_pleiades_by_id", "value": "By Pleiades id" },
@@ -709,7 +712,13 @@
 		{ "lang": "lg-spa", "name": "reason_admin_units_unavailable", "value": "El servicio de unidades administrativas no ha respondido correctamente." },
 
 		{ "lang": "lg-eng", "name": "reason_place_search_unavailable", "value": "The place search service did not answer properly." },
-		{ "lang": "lg-spa", "name": "reason_place_search_unavailable", "value": "El servicio de búsqueda de lugares no ha respondido correctamente." }
+		{ "lang": "lg-spa", "name": "reason_place_search_unavailable", "value": "El servicio de búsqueda de lugares no ha respondido correctamente." },
+
+		{ "lang": "lg-eng", "name": "reason_search_text_invalid", "value": "The search text holds characters that cannot be searched." },
+		{ "lang": "lg-spa", "name": "reason_search_text_invalid", "value": "El texto de búsqueda tiene caracteres que no se pueden buscar." },
+
+		{ "lang": "lg-eng", "name": "reason_catastro_canary_islands", "value": "Cadastral parcels in the Canary Islands cannot be looked up from the map yet." },
+		{ "lang": "lg-spa", "name": "reason_catastro_canary_islands", "value": "Las parcelas catastrales de Canarias aún no se pueden consultar desde el mapa." }
 	],
 	"default_config": {
 		"gazetteer_data_path": "",

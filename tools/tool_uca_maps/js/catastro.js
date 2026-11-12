@@ -30,6 +30,7 @@ import {
 	wms_point_options
 } from './basemap_swap.js'
 import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
+import {render_attribution} from './render_download_line.js'
 
 
 
@@ -132,6 +133,7 @@ const disable_catastro = function(self) {
 	disable_basemap_swap(self, 'catastro')
 
 	clear_catastro_message(self)
+	clear_catastro_credit(self)
 
 }//end disable_catastro
 
@@ -152,6 +154,8 @@ export const check_catastro_at_point = async function(self, latlng) {
 		return
 	}
 	self._catastro_busy = true
+	// a new lookup: the credit of the parcel found before is no longer the answer
+	clear_catastro_credit(self)
 
 	try {
 
@@ -186,9 +190,12 @@ export const check_catastro_at_point = async function(self, latlng) {
 			return
 		}
 
-		// the parcel is the answer: an earlier "No parcel" or failure no longer is
+		// the parcel is the answer: an earlier "No parcel" no longer is. The
+		// provider's credit (its licence asks for it) stays in the tool's own
+		// line until the next lookup or Catastro is switched off
 		clear_catastro_message(self)
 		create_catastro_parcel(self, data)
+		show_catastro_credit(self, data.attribution)
 
 	} catch (error) {
 		// torn down while in flight: the page toast would report work the
@@ -212,7 +219,7 @@ export const check_catastro_at_point = async function(self, latlng) {
 * property, as v6: the console lists it as a visible key, not hidden bookkeeping.
 *
 * @param {Object} self - tool_uca_maps instance
-* @param {{points: Array<[number, number]>, url: string}} data
+* @param {{points: Array<[number, number]>, url: string|null}} data
 * @returns {void}
 */
 const create_catastro_parcel = function(self, data) {
@@ -220,7 +227,8 @@ const create_catastro_parcel = function(self, data) {
 	const polygon = L.polygon(data.points)
 
 	polygon.feature					= polygon.toGeoJSON()
-	polygon.feature.properties			= {url: data.url}
+	// the Sede's record of the parcel, when Catastro's answer links one
+	polygon.feature.properties			= typeof data.url==='string' ? {url: data.url} : {}
 	polygon.feature.properties.uca_maps	= {catastro: true}
 
 	self.geolocation.map.fire('pm:create', {layer: polygon})
@@ -267,6 +275,36 @@ const clear_catastro_message = function(self) {
 
 
 /**
+* SHOW_CATASTRO_CREDIT / CLEAR_CATASTRO_CREDIT
+* The tool's own line under the map component, as core's banner, but one that
+* does not time out: the credit belongs beside the parcel while it is the answer.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {string|null|undefined} text
+* @returns {void}
+*/
+const show_catastro_credit = function(self, text) {
+	clear_catastro_credit(self)
+	if (!self.geolocation || !self.geolocation.node) {
+		return
+	}
+	const credit = render_attribution(text, self.geolocation.node)
+	if (credit) {
+		credit.classList.add('uca-maps-catastro-credit')
+		self._catastro_credit = credit
+	}
+}//end show_catastro_credit
+
+const clear_catastro_credit = function(self) {
+	if (self._catastro_credit) {
+		self._catastro_credit.remove()
+	}
+	self._catastro_credit = null
+}//end clear_catastro_credit
+
+
+
+/**
 * DETACH_CATASTRO
 * Disarms first, so the basemap swap and the click listener are reversed.
 *
@@ -281,6 +319,7 @@ export const detach_catastro = function(self) {
 		}
 		remove_toolbar_button(self, self.catastro_control)
 	}
+	clear_catastro_credit(self)
 
 	self.catastro_control				= null
 	self._catastro_tile_layer			= null

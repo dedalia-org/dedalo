@@ -17,7 +17,7 @@
 
 import {ui} from '../../../core/common/js/ui.js'
 import {a11y} from '../../../core/common/js/a11y.js'
-import {show_panel_message} from './render_download_line.js'
+import {render_attribution, show_panel_message} from './render_download_line.js'
 
 
 
@@ -27,6 +27,11 @@ import {show_panel_message} from './render_download_line.js'
 */
 // exported for the client gate
 export const LIVE_SEARCH_DELAY_MS = 300
+
+/** The sources searched as you type: the local data. DARE is a third party, which
+* core's service paces and whose provider asks for no as-you-type search. */
+// exported for the client gate
+export const LIVE_SOURCES = new Set(['pleiades', 'pelagios'])
 
 
 
@@ -278,8 +283,9 @@ const clear_roman_message = function(block) {
 /**
 * RENDER_QUERY_INPUT
 * A source's field. No Search button and no in-flow list: hits arrive as a typeahead
-* under the field (↑/↓ walk it, Enter or a click draws the place, Esc closes it),
-* keeping v6's search-on-keyup with the keyboard contract of core `service_autocomplete`.
+* under the field (↑/↓ walk it, Enter or a click draws the place, Esc closes it), with
+* the keyboard contract of core `service_autocomplete`. The two local gazetteers keep
+* v6's search-on-keyup; DARE, a third party, searches on Enter only (LIVE_SOURCES).
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
@@ -292,7 +298,9 @@ const render_query_input = function(self, panel, block) {
 
 	const query_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-roman-input', parent: block})
 	query_input.type			= 'text'
-	query_input.placeholder		= self.get_tool_label('roman_placeholder') || 'Place name'
+	query_input.placeholder		= LIVE_SOURCES.has(source)
+		? (self.get_tool_label('roman_placeholder') || 'Place name')
+		: (self.get_tool_label('roman_placeholder_enter') || 'Place name, then Enter')
 	query_input.autocomplete	= 'off'
 
 	/**
@@ -365,12 +373,19 @@ const render_query_input = function(self, panel, block) {
 		}
 	})
 
-	// SUGGESTIONS AS YOU TYPE (v6 parity: it searches on every keyup in all
-	// three blocks). Below the source's own minimum nothing travels — the
+	// SUGGESTIONS AS YOU TYPE (v6 searches on every keyup in all three blocks;
+	// here the local ones only). Below the source's own minimum nothing travels — the
 	// server would refuse it, and a refusal is not a suggestion.
 	query_input.addEventListener('input', () => {
 
 		self.cancel_roman_search_timer()
+
+		// a third party asks to be searched on a gesture, not per keystroke: the
+		// hits of the name before are no answer to the one being typed
+		if (!LIVE_SOURCES.has(source)) {
+			self.close_roman_suggestions()
+			return
+		}
 
 		const params	= collect_roman_params(block, query_input.value)
 		const minimum	= self.roman_min_query(source, params.type)
@@ -942,6 +957,10 @@ export const populate_roman_results = function(self, panel) {
 			}
 		})
 	})
+
+	if (results.length > 0) {
+		render_attribution(self._roman_attribution, list, 'li')
+	}
 
 	if (place_roman_list(self, panel)) {
 		list.hidden = false

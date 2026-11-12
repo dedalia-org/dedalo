@@ -1441,7 +1441,7 @@ export const fetch_elevation = async function(self, layer) {
 		} else {
 			entry.elevation = result.elevation
 		}
-		return {elevation: result.elevation, unavailable: result.unavailable}
+		return {elevation: result.elevation, unavailable: result.unavailable, attribution: result.attribution || null}
 	})
 	self._elevation = entry
 
@@ -1483,7 +1483,12 @@ const request_elevation = async function(self, center) {
 		const data = response_data(response)
 
 		return (data && typeof data.elevation==='number')
-			? {elevation: data.elevation, unavailable: false, failed: false}
+			? {
+				elevation	: data.elevation,
+				unavailable	: false,
+				failed		: false,
+				attribution	: typeof data.attribution==='string' ? data.attribution : null
+			}
 			: {elevation: null, unavailable: true, failed: false}
 
 	} catch (error) {

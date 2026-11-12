@@ -192,6 +192,7 @@ export const tool_uca_maps = function () {
 	this._catastro_created_layer_control	= false
 	this._catastro_click_handler	= null
 	this._catastro_busy			= false
+	this._catastro_credit			= null
 	this.ua_control					= null
 	this.ua_panel					= null
 	this._ua_level					= null

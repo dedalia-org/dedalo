@@ -20,7 +20,7 @@ import {is_onexone_marker, is_onexone_rectangle} from './onexone_flags.js'
 import {carrier_image} from './uca_maps_data.js'
 import {svg_node} from './svg.js'
 import {DEFAULT_IMAGE_DOWNLOAD_NAME} from './download_filename.js'
-import {bind_download_button, create_panel_message, render_new_tab_link, show_panel_message} from './render_download_line.js'
+import {bind_download_button, create_panel_message, render_attribution, render_new_tab_link, show_panel_message} from './render_download_line.js'
 
 // No import from './object_console.js': it imports this file (logic imports
 // render, never the reverse), and an import back would close a cycle. Every
@@ -1114,6 +1114,11 @@ const render_elevation = function(self, layer, parent) {
 			return
 		}
 		node.textContent = label + ': ' + result.elevation + ' m'
+		// under the heading it credits, above the checkboxes the section holds
+		const credit = render_attribution(result.attribution, fieldset)
+		if (credit) {
+			node.after(credit)
+		}
 	})
 
 	return fieldset

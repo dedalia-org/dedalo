@@ -16,7 +16,7 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
-import {show_panel_message} from './render_download_line.js'
+import {render_attribution, show_panel_message} from './render_download_line.js'
 
 
 
@@ -222,6 +222,10 @@ export const populate_place_search_results = function(self, panel) {
 		focus_btn.addEventListener('click', () => self.focus_place_result(index))
 
 	})
+
+	if (results.length > 0) {
+		render_attribution(self._place_attribution, list, 'li')
+	}
 
 }//end populate_place_search_results
 

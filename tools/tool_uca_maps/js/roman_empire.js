@@ -88,6 +88,7 @@ export const attach_roman_empire = function(self) {
 	// it is, from the moment a field arms a search (render_roman_empire.js
 	// "WHOSE IS THE LIST"), and the source of `_roman_results` once they arrive
 	self._roman_results			= null
+	self._roman_attribution			= null
 	self._roman_source			= null
 	self._roman_gazetteers		= null
 	self._roman_search_token	= 0
@@ -339,8 +340,10 @@ export const search_roman = async function(self, source, params) {
 		const data		= response_data(response)
 		const results	= (data && Array.isArray(data.results)) ? data.results : []
 
-		self._roman_results	= results
-		self._roman_source	= source
+		self._roman_results		= results
+		self._roman_source		= source
+		// DARE's credit; the two local gazetteers answer none
+		self._roman_attribution	= (data && typeof data.attribution==='string') ? data.attribution : null
 
 		return {ok: true, results: results}
 
@@ -517,6 +520,7 @@ const bounds_area = function(bounds) {
 */
 export const clear_roman_search = function(self) {
 	self._roman_results	= null
+	self._roman_attribution	= null
 	self._roman_source	= null
 }//end clear_roman_search
 
@@ -552,6 +556,7 @@ export const detach_roman_empire = function(self) {
 	self.roman_panel		= null
 	self.roman_control		= null
 	self._roman_results			= null
+	self._roman_attribution			= null
 	self._roman_source			= null
 	self._roman_gazetteers		= null
 	self._roman_search_token	= 0

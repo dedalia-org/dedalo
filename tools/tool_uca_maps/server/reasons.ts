@@ -10,6 +10,7 @@ export const REASON_KEYS = {
 	search_text_required: 'Type something to search.',
 	search_text_too_short: 'The search text is too short.',
 	search_text_too_long: 'The search text is too long.',
+	search_text_invalid: 'The search text holds characters that cannot be searched.',
 	no_dataset_selected: 'Select at least one dataset to search.',
 	wms_url_required: 'The WMS server URL is required.',
 	wms_url_invalid: 'Please enter a valid URL.',
@@ -54,6 +55,8 @@ export const REASON_KEYS = {
 	linked_image_unavailable: 'The server of the linked image did not hand it over.',
 	gazetteer_service_unavailable: 'The gazetteer service did not answer properly.',
 	catastro_unavailable: 'The Catastro service did not answer properly.',
+	catastro_canary_islands:
+		'Cadastral parcels in the Canary Islands cannot be looked up from the map yet.',
 	admin_units_unavailable: 'The administrative units service did not answer properly.',
 	place_search_unavailable: 'The place search service did not answer properly.',
 } as const satisfies Readonly<Record<string, string>>;

@@ -1,22 +1,31 @@
 /**
- * tool_uca_maps — the handlers of the fixed-host service proxies, with
- * `fetchGuardedText` scripted: a refusal must happen before anything is sent,
- * and a guard that regressed must not reach a real third party. mock.module is
- * process-global, so the real module is put back after this file.
+ * tool_uca_maps — the handlers of the fixed-host service lookups, with core's
+ * `callGeoService` (place search, DARE, elevation, Catastro) and
+ * `fetchGuardedText` (administrative units) scripted: a refusal must happen before anything is
+ * sent, and a guard that regressed must not reach a real third party.
+ * mock.module is process-global, so the real modules are put back after this file.
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { DedaloError } from '../../src/core/errors/index.ts';
+import * as realGeoCall from '../../src/core/geo_services/call.ts';
 import * as realSsrfGuard from '../../src/core/security/ssrf_guard.ts';
 import type { ToolActionContext, ToolResponse } from '../../src/core/tools/module.ts';
 import { contextOf, dataOf, expectCode, failureOf } from './fixtures/tool_uca_maps/helpers.ts';
 
 const SSRF_GUARD = '../../src/core/security/ssrf_guard.ts';
 const REAL_SSRF_GUARD = { ...realSsrfGuard };
+const GEO_CALL = '../../src/core/geo_services/call.ts';
+const REAL_GEO_CALL = { ...realGeoCall };
+
+/** Every question asked of core's geo services, and the scripted answer (its data). */
+const asked: { id: string; params: Record<string, unknown> }[] = [];
+let answer: (id: string) => unknown = () => {
+	throw new Error('no scripted answer');
+};
 
 /** Every URL the handlers asked for, and the scripted answer by URL. */
 const sent: string[] = [];
-/** The request headers of each of those, in the same order. */
-const sentHeaders: Record<string, string>[] = [];
 let reply: (url: URL) => string = () => {
 	throw new Error('no scripted answer');
 };
@@ -26,16 +35,24 @@ let searchPlaces: Handler;
 let getElevation: Handler;
 let getAdministrativeUnit: Handler;
 let getCatastroParcel: Handler;
+let searchDare: Handler;
 
 beforeAll(async () => {
+	mock.module(GEO_CALL, () => ({
+		...REAL_GEO_CALL,
+		callGeoService: async (id: string, params: Record<string, unknown>) => {
+			asked.push({ id, params });
+			const data = answer(id);
+			// Catastro's two services answer markup, the rest JSON
+			return typeof data === 'string'
+				? { service: id, kind: 'markup', text: data, attribution: 'the provider' }
+				: { service: id, kind: 'json', data, attribution: 'the provider' };
+		},
+	}));
 	mock.module(SSRF_GUARD, () => ({
 		...REAL_SSRF_GUARD,
-		fetchGuardedText: async (
-			uri: string,
-			opts?: { init?: { headers?: Record<string, string> } },
-		) => {
+		fetchGuardedText: async (uri: string) => {
 			sent.push(uri);
-			sentHeaders.push({ ...(opts?.init?.headers ?? {}) });
 			return reply(new URL(uri));
 		},
 	}));
@@ -45,16 +62,21 @@ beforeAll(async () => {
 		'../../tools/tool_uca_maps/server/administrative_units.ts'
 	));
 	({ getCatastroParcel } = await import('../../tools/tool_uca_maps/server/catastro.ts'));
+	({ searchDare } = await import('../../tools/tool_uca_maps/server/roman_empire.ts'));
 });
 
 afterAll(() => {
 	mock.module(SSRF_GUARD, () => REAL_SSRF_GUARD);
+	mock.module(GEO_CALL, () => REAL_GEO_CALL);
 	mock.restore();
 });
 
 beforeEach(() => {
+	asked.length = 0;
+	answer = () => {
+		throw new Error('no scripted answer');
+	};
 	sent.length = 0;
-	sentHeaders.length = 0;
 	reply = () => {
 		throw new Error('no scripted answer');
 	};
@@ -62,24 +84,68 @@ beforeEach(() => {
 
 const VALID_CLICK = { bbox: [-1, 38, -0.9, 38.1], width: 512, height: 400, x: 128, y: 64 };
 
-describe('search_places — a caller fault is refused before anything is sent', () => {
-	// the positive control: an empty `sent` below means nothing went out, not
-	// that the scripted fetch stopped recording
-	test('a valid query is sent, once, and answered by the script', async () => {
-		reply = () => '[]';
-		expect(dataOf(await searchPlaces(contextOf({ query: 'Sagunto' })))).toEqual({ results: [] });
-		expect(sent).toHaveLength(1);
+describe('search_places — a caller fault is refused before anything is asked', () => {
+	// the positive control: an empty `asked` below means nothing went out, not
+	// that the scripted service stopped recording
+	test("a valid query asks nominatim_search, once, for v6's 8 hits", async () => {
+		answer = () => [];
+		expect(dataOf(await searchPlaces(contextOf({ query: 'Sagunto' })))).toEqual({
+			results: [],
+			attribution: 'the provider',
+		});
+		expect(asked).toEqual([
+			{ id: 'nominatim_search', params: { q: 'Sagunto', limit: 8, addressdetails: '0' } },
+		]);
 	});
 
 	test.each([
-		['an empty query', { query: '   ' }, /search text is required/],
-		['no query at all', {}, /search text is required/],
-		['an over-long query', { query: 'x'.repeat(201) }, /too long/],
-	])('%s', async (_label, options, message) => {
+		['an empty query', { query: '   ' }, 'search_text_required'],
+		['no query at all', {}, 'search_text_required'],
+		// Nominatim forbids as-you-type search: core's floor, said in the user's words
+		['a two-character query', { query: 'Ux' }, 'search_text_too_short'],
+		['an over-long query', { query: 'x'.repeat(201) }, 'search_text_too_long'],
+		// what else core's grammar refuses, by its own rule, with a reason
+		['a bidi override', { query: 'Sag\u202Eunto' }, 'search_text_invalid'],
+		['a control character', { query: 'Sag\u0007unto' }, 'search_text_invalid'],
+	])('%s', async (_label, options, reason) => {
 		const error = await failureOf(searchPlaces(contextOf(options)));
 		expectCode(error, 'request.invalid_options');
-		expect(error.message).toMatch(message);
-		expect(sent).toEqual([]);
+		expect(error.details).toEqual({ reason_key: reason });
+		expect(asked).toEqual([]);
+	});
+
+	test.each([
+		'external.http_status',
+		'external.timeout',
+		'external.transport',
+		'external.too_large',
+		'external.protocol',
+	] as const)('a transient %s is the place search unavailable, keyed', async (code) => {
+		answer = () => {
+			throw new DedaloError(code, { message: code });
+		};
+		const down = await failureOf(searchPlaces(contextOf({ query: 'Sagunto' })));
+		expectCode(down, 'tool.source_unavailable');
+		expect(down.details).toEqual({ reason_key: 'place_search_unavailable' });
+	});
+
+	// not retryable: a retryable code over them would have the browser ask a
+	// provider that already said no again
+	test.each(['external.bad_config', 'external.blocked_host', 'external.not_found'] as const)(
+		'a final %s passes through as core threw it',
+		async (code) => {
+			answer = () => {
+				throw new DedaloError(code, { message: code });
+			};
+			expectCode(await failureOf(searchPlaces(contextOf({ query: 'Sagunto' }))), code);
+		},
+	);
+
+	test("core's busy stays core's", async () => {
+		answer = () => {
+			throw new DedaloError('rate.limited', { message: 'busy' });
+		};
+		expectCode(await failureOf(searchPlaces(contextOf({ query: 'Sagunto' }))), 'rate.limited');
 	});
 });
 
@@ -90,22 +156,72 @@ describe("search_places — results named in the record's language", () => {
 		['lg-glg', 'gl'],
 		['lg-eng', 'en'],
 	])('%s asks Nominatim for %s', async (lang, iso) => {
-		reply = () => '[]';
+		answer = () => [];
 		await searchPlaces(contextOf({ query: 'Sagunto', lang }));
-		expect(sentHeaders).toHaveLength(1);
-		expect(sentHeaders[0]?.['Accept-Language']).toBe(iso);
+		expect(asked.map((question) => question.params.language)).toEqual([iso]);
 	});
 
-	test('an unmapped or missing lang sends no Accept-Language, only the User-Agent', async () => {
-		reply = () => '[]';
+	test('an unmapped or missing lang asks for no language', async () => {
+		answer = () => [];
 		for (const options of [{ query: 'Sagunto', lang: 'lg-xyz' }, { query: 'Sagunto' }]) {
 			await searchPlaces(contextOf(options));
 		}
-		expect(sentHeaders).toHaveLength(2);
-		for (const headers of sentHeaders) {
-			expect(headers['Accept-Language']).toBeUndefined();
-			expect(headers['User-Agent']).toMatch(/tool_uca_maps/);
+		expect(asked).toHaveLength(2);
+		for (const question of asked) {
+			expect('language' in question.params).toBe(false);
 		}
+	});
+});
+
+describe("search_dare — core's DARE services, v6's filters on the answer", () => {
+	const SAGUNTO = {
+		type: 'FeatureCollection',
+		features: [
+			{
+				type: 'Feature',
+				geometry: { type: 'Point' },
+				properties: { name: 'Sagunto', numType: '11', country: 'ES' },
+			},
+			{
+				type: 'Feature',
+				geometry: { type: 'Point' },
+				properties: { name: 'Sagunto', numType: '14', country: 'ES' },
+			},
+		],
+	};
+
+	test('each name field asks its own service with the name alone; the filters stay here', async () => {
+		answer = () => SAGUNTO;
+		const data = dataOf<{ results: unknown[]; attribution: string }>(
+			await searchDare(
+				contextOf({ query: 'Arse', name_type: 'ass', type_id: '11', country: 'es' }),
+			),
+		);
+		expect(asked).toEqual([{ id: 'dare_search_ancient', params: { name: 'Arse' } }]);
+		expect(data.results).toHaveLength(1);
+		expect(data.attribution).toBe('the provider');
+	});
+
+	test("a name over core's 100 characters is refused here, nothing asked", async () => {
+		const error = await failureOf(searchDare(contextOf({ query: 'x'.repeat(101) })));
+		expect(error.details).toEqual({ reason_key: 'search_text_too_long' });
+		expect(asked).toEqual([]);
+	});
+
+	test("a name core's grammar refuses is refused here with a reason, nothing asked", async () => {
+		const error = await failureOf(searchDare(contextOf({ query: 'Gad\u200Bes' })));
+		expectCode(error, 'request.invalid_options');
+		expect(error.details).toEqual({ reason_key: 'search_text_invalid' });
+		expect(asked).toEqual([]);
+	});
+
+	test("a provider's failure is the gazetteer unavailable, keyed", async () => {
+		answer = () => {
+			throw new DedaloError('external.transport', { message: 'reset' });
+		};
+		const error = await failureOf(searchDare(contextOf({ query: 'Sagunto' })));
+		expectCode(error, 'tool.source_unavailable');
+		expect(error.details).toEqual({ reason_key: 'gazetteer_service_unavailable' });
 	});
 });
 
@@ -122,9 +238,9 @@ describe('get_elevation — caller-fault validation', () => {
 		['a longitude past the antimeridian', { lat: 39.6, lon: 181 }],
 		// Leaflet's own spelling: the action reads only the `lon` the client sends
 		['a longitude sent as lng', { lat: 39.6, lng: -0.2 }],
-	])('refuses %s as request.invalid_options, nothing sent', async (_label, options) => {
+	])('refuses %s as request.invalid_options, nothing asked', async (_label, options) => {
 		expectCode(await failureOf(getElevation(contextOf(options))), 'request.invalid_options');
-		expect(sent).toEqual([]);
+		expect(asked).toEqual([]);
 	});
 
 	test.each([
@@ -133,16 +249,41 @@ describe('get_elevation — caller-fault validation', () => {
 	])(
 		'accepts the exact pole and antimeridian %d,%d: they are real coordinates',
 		async (lat, lon) => {
-			reply = () => '{"results":[{"elevation":5}]}';
-			const data = dataOf<{ elevation: number | null }>(
+			answer = () => ({ results: [{ elevation: 5 }] });
+			const data = dataOf<{ elevation: number | null; attribution: string }>(
 				await getElevation(contextOf({ lat, lon })),
 			);
 			expect(data.elevation).toBe(5);
-			expect(sent.map((uri) => new URL(uri).searchParams.get('locations'))).toEqual([
-				`${lat},${lon}`,
-			]);
+			// the provider's credit, which the console shows beside the value
+			expect(data.attribution).toBe('the provider');
+			// latitude first: an axis swap would report another continent
+			expect(asked).toEqual([{ id: 'open_elevation_lookup', params: { locations: [[lat, lon]] } }]);
 		},
 	);
+});
+
+describe('get_elevation — an outage is "unavailable", a refused question is not', () => {
+	test("the provider's failure or core's busy answers unavailable", async () => {
+		for (const code of ['external.timeout', 'rate.limited'] as const) {
+			answer = () => {
+				throw new DedaloError(code, { message: code });
+			};
+			expect(dataOf(await getElevation(contextOf({ lat: 39.6, lon: -0.2 })))).toEqual({
+				elevation: null,
+				unavailable: true,
+			});
+		}
+	});
+
+	test("a question core refuses is the tool's own bug and stays loud", async () => {
+		answer = () => {
+			throw new DedaloError('request.invalid_data', { message: 'off grammar' });
+		};
+		expectCode(
+			await failureOf(getElevation(contextOf({ lat: 39.6, lon: -0.2 }))),
+			'request.invalid_data',
+		);
+	});
 });
 
 describe('get_administrative_unit — handler validation', () => {
@@ -214,64 +355,123 @@ describe('get_administrative_unit — the IGN reply wired into the handler', () 
 	});
 });
 
-describe('get_catastro_parcel — the WFS reply wired into the handler', () => {
-	const REFCAT = '6075421YJ2667S';
-	const RESULT_PAGE = `<p>Referencia catastral de la parcela:</p><p><a href="https://example.com/rc">${REFCAT}</a></p>`;
-	const NOT_FOUND =
-		'<ExceptionReport xmlns="http://www.opengis.net/ows/1.1"><Exception exceptionCode="OperationProcessingFailed"><ExceptionText><![CDATA[No se han encontrado registros de la referencia]]></ExceptionText></Exception></ExceptionReport>';
-	const FAULT =
-		'<ExceptionReport xmlns="http://www.opengis.net/ows/1.1"><Exception exceptionCode="NoApplicableCode"><ExceptionText><![CDATA[Error interno]]></ExceptionText></Exception></ExceptionReport>';
-	const PARCEL = `<FeatureCollection xmlns="http://www.opengis.net/wfs/2.0"><member><cp:CadastralParcel gml:id="ES.SDGC.CP.${REFCAT}"><gml:posList>39.1 -0.1 39.2 -0.2 39.3 -0.3</gml:posList></cp:CadastralParcel></member></FeatureCollection>`;
-	const MAINTENANCE = '<html><body><h1>INTERRUPCI&Oacute;N DEL SERVICIO</h1></body></html>';
+describe("get_catastro_parcel — core's two Catastro services wired into the handler", () => {
+	const REFCAT = '5726401YJ2752F';
+	const RESULT_PAGE = `<html><body><td class="title">Get Feature Info Response</td><table><tr><td>nationalCadastralReference</td><td>${REFCAT}</td></tr><tr><td>otherReference</td><td><ul class="otherReference"><li><a href="https://example.com/rc?a=1&amp;b=2" target="_blank">Public remote access</a></li></ul></td></tr></table></body></html>`;
+	const PARCEL = `<FeatureCollection xmlns="http://www.opengis.net/wfs/2.0"><member><cp:CadastralParcel gml:id="ES.SDGC.CP.${REFCAT}"><gml:posList>725684.13 4372525.27 725685.12 4372525.09 725686.96 4372524.76</gml:posList></cp:CadastralParcel></member></FeatureCollection>`;
+	const notFound = () => {
+		throw new DedaloError('external.not_found', { message: 'nothing there' });
+	};
+	// a click in Valencia: zone 30
+	const VALENCIA = { bbox: [-0.4, 39.45, -0.35, 39.5], width: 500, height: 500, x: 250, y: 250 };
 
-	/** The GetFeatureInfo page, then each stored query's own WFS reply. */
-	function catastro(wfs: Record<'getneighbourparcel' | 'getparcel', string>): (url: URL) => string {
-		return (url) => {
-			const query = url.searchParams.get('STOREDQUERIE_ID');
-			return query === 'getneighbourparcel' || query === 'getparcel' ? wfs[query] : RESULT_PAGE;
-		};
-	}
-
-	test('a click without a bounding box is refused as request.invalid_options, nothing sent', async () => {
+	test('a click without a bounding box is refused as request.invalid_options, nothing asked', async () => {
 		const error = await failureOf(getCatastroParcel(contextOf({})));
 		expectCode(error, 'request.invalid_options');
 		expect(error.message).toMatch(/bounding box/);
-		expect(sent).toEqual([]);
+		expect(asked).toEqual([]);
 	});
 
-	test('a "not found" report falls back to the parcel query, whose ring is the answer', async () => {
-		reply = catastro({ getneighbourparcel: NOT_FOUND, getparcel: PARCEL });
-		const data = dataOf(await getCatastroParcel(contextOf(VALID_CLICK)));
-		expect(data).toEqual({
+	test("the reference, then its ring in the click's UTM zone, converted to [lat, lon]", async () => {
+		answer = (id) => (id === 'catastro_wms_featureinfo' ? RESULT_PAGE : PARCEL);
+		const data = dataOf<{ found: boolean; refcat: string; url: string; points: number[][] }>(
+			await getCatastroParcel(contextOf(VALENCIA)),
+		);
+		expect(data).toMatchObject({
 			found: true,
 			refcat: REFCAT,
-			url: 'https://example.com/rc',
-			points: [
-				[39.1, -0.1],
-				[39.2, -0.2],
-				[39.3, -0.3],
-			],
+			url: 'https://example.com/rc?a=1&b=2',
+			attribution: 'the provider',
 		});
-		expect(sent.map((uri) => new URL(uri).searchParams.get('STOREDQUERIE_ID'))).toEqual([
-			null,
-			'getneighbourparcel',
-			'getparcel',
+		expect(data.points[0]?.[0]).toBeCloseTo(39.4727395719826, 8);
+		expect(data.points[0]?.[1]).toBeCloseTo(-0.376327842685717, 8);
+		expect(asked.map((question) => question.id)).toEqual([
+			'catastro_wms_featureinfo',
+			'catastro_wfs_parcel',
 		]);
+		expect(asked[0]?.params).toMatchObject({
+			crs: 'EPSG:3857',
+			width: 101,
+			height: 101,
+			i: 50,
+			j: 50,
+		});
+		expect(asked[1]?.params).toEqual({ refcat: REFCAT, crs: 'EPSG:25830' });
 	});
 
-	test('an exception report other than "not found" is the source unavailable: no fallback, no "no parcel"', async () => {
-		reply = catastro({ getneighbourparcel: FAULT, getparcel: PARCEL });
-		const error = await failureOf(getCatastroParcel(contextOf(VALID_CLICK)));
-		expectCode(error, 'tool.source_unavailable');
-		expect(sent.map((uri) => new URL(uri).searchParams.get('STOREDQUERIE_ID'))).toEqual([
-			null,
-			'getneighbourparcel',
-		]);
+	test.each([
+		[-8.5, 'EPSG:25829'],
+		[2.2, 'EPSG:25831'],
+	])('a click at longitude %d asks for the ring in %s', async (lon, crs) => {
+		answer = (id) => (id === 'catastro_wms_featureinfo' ? RESULT_PAGE : notFound());
+		await getCatastroParcel(contextOf({ ...VALENCIA, bbox: [lon - 0.01, 41, lon + 0.01, 41.02] }));
+		expect(asked[1]?.params).toEqual({ refcat: REFCAT, crs });
+	});
+
+	test('"nothing there" from either service is no parcel, not a failure', async () => {
+		answer = notFound;
+		expect(dataOf(await getCatastroParcel(contextOf(VALENCIA)))).toEqual({ found: false });
+		answer = (id) => (id === 'catastro_wms_featureinfo' ? RESULT_PAGE : notFound());
+		expect(dataOf(await getCatastroParcel(contextOf(VALENCIA)))).toEqual({
+			found: false,
+			refcat: REFCAT,
+			url: 'https://example.com/rc?a=1&b=2',
+		});
+	});
+
+	// core offers EPSG:25829-31 only: a Canary parcel's ring cannot be asked for
+	test('a click in the Canary Islands is refused with its reason, nothing asked', async () => {
+		const error = await failureOf(
+			getCatastroParcel(contextOf({ ...VALENCIA, bbox: [-15.45, 28.1, -15.4, 28.15] })),
+		);
+		expectCode(error, 'tool.unsupported_target');
+		expect(error.details).toEqual({ reason_key: 'catastro_canary_islands' });
+		expect(asked).toEqual([]);
+	});
+
+	test("outside Spain's zones there is no parcel, and no third party is asked", async () => {
+		expect(
+			dataOf(await getCatastroParcel(contextOf({ ...VALENCIA, bbox: [10, 45, 10.1, 45.1] }))),
+		).toEqual({ found: false });
+		expect(asked).toEqual([]);
+	});
+
+	test("a transient failure is the Catastro service unavailable; a final one is core's", async () => {
+		answer = () => {
+			throw new DedaloError('external.timeout', { message: 'slow' });
+		};
+		const down = await failureOf(getCatastroParcel(contextOf(VALENCIA)));
+		expectCode(down, 'tool.source_unavailable');
+		expect(down.details).toEqual({ reason_key: 'catastro_unavailable' });
+		answer = () => {
+			throw new DedaloError('external.bad_config', { message: 'refused' });
+		};
+		expectCode(await failureOf(getCatastroParcel(contextOf(VALENCIA))), 'external.bad_config');
 	});
 
 	test('a WFS reply that is not an answer (maintenance) is the source unavailable, never "no parcel"', async () => {
-		reply = catastro({ getneighbourparcel: MAINTENANCE, getparcel: MAINTENANCE });
-		const error = await failureOf(getCatastroParcel(contextOf(VALID_CLICK)));
+		answer = (id) =>
+			id === 'catastro_wms_featureinfo'
+				? RESULT_PAGE
+				: '<html><body>INTERRUPCI&Oacute;N</body></html>';
+		const error = await failureOf(getCatastroParcel(contextOf(VALENCIA)));
 		expectCode(error, 'tool.source_unavailable');
+	});
+});
+
+// the tool's own length windows say "too short" / "too long" in the user's
+// words; they must be exactly core's, or a text between the two would reach
+// core and come back as a reasonless request.invalid_data
+describe("the tool's search-text windows are core's own", () => {
+	test.each([
+		['nominatim_search', 'q', 200],
+		['dare_search_modern', 'name', 100],
+		['dare_search_ancient', 'name', 100],
+	] as const)('%s.%s takes 3 to %d characters', async (id, param, max) => {
+		const { geoParamAccepts } = await import('../../tools/tool_uca_maps/server/geo_call.ts');
+		expect(geoParamAccepts(id, param, 'ab')).toBe(false);
+		expect(geoParamAccepts(id, param, 'abc')).toBe(true);
+		expect(geoParamAccepts(id, param, 'a'.repeat(max))).toBe(true);
+		expect(geoParamAccepts(id, param, 'a'.repeat(max + 1))).toBe(false);
 	});
 });
