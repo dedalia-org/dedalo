@@ -20,6 +20,12 @@
  * (DIFFUSION_ACTIVITY_TABLE seam, dropped after); matrix_activity rows carry a
  * per-run marker and the slow trigger fires only on them (WHEN clause), named
  * per run and dropped after even on failure. Marked suite DB only.
+ *
+ * Two stated invariants are gated here too (T1-24 review): the SIGTERM drain —
+ * the SCHEDULED pass (startRetentionScheduler, via its test seam: first pass at
+ * once, batches of 4) stopped by stopRetentionScheduler leaves the rest of the
+ * window intact (red without the scheduler's abort or the pass forwarding its
+ * signal) — and both prunes' loud refusal inside a caller's transaction.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -41,7 +47,7 @@ interface LegResult {
 }
 
 const DRIVER = `
-import { sql } from ${repoModule('src/core/db/postgres.ts')};
+import { sql, withTransaction } from ${repoModule('src/core/db/postgres.ts')};
 import { assertTestDatabase } from ${repoModule('src/core/test_data/test_database_marker.ts')};
 import { logActivity } from ${repoModule('src/core/api/handlers/activity_log.ts')};
 import { pruneMatrixEventRowsByAge } from ${repoModule('src/core/db/matrix_write.ts')};
@@ -50,6 +56,7 @@ import {
 } from ${repoModule('src/core/diffusion_bridge/diffusion_delete.ts')};
 import { runRetention } from ${repoModule('src/core/retention/registry.ts')};
 import ${repoModule('src/core/retention/prune.ts')};
+import { startRetentionScheduler, stopRetentionScheduler } from ${repoModule('src/core/retention/scheduler.ts')};
 await assertTestDatabase('retention_prune_batched_native');
 
 const TAG = ${JSON.stringify(TAG)};
@@ -152,6 +159,48 @@ try {
 		return { applied, left };
 	});
 
+	// LEG scheduler_drain: the SCHEDULED pass (startRetentionScheduler, first pass
+	// at once, batches of 4) is stopped by stopRetentionScheduler — the server's
+	// SIGTERM call — once its first ledger batch has committed. The in-flight
+	// batch commits, then the pass stops: rows remain. Without the drain (no
+	// abort in stopRetentionScheduler, or the pass not forwarding its signal to
+	// the store) the prune runs to the end and nothing aged remains.
+	await leg('scheduler_drain', async () => {
+		await freshLedger();
+		await plantLedger(16, 0, 0);
+		await slowLedger();
+		const planted = (await ledgerCounts()).total;
+		startRetentionScheduler({ firstPassDelayMs: 0, batchRows: 4 });
+		const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+		let observedBeforeStop = planted;
+		for (let i = 0; i < 1000 && observedBeforeStop === planted; i++) {
+			await sleep(10);
+			observedBeforeStop = (await ledgerCounts()).total;
+		}
+		stopRetentionScheduler();
+		// Every batch is ~200 ms (4 rows x 50 ms); the full window is 800 ms. Wait
+		// well past it so an undrained pass would have finished.
+		await sleep(2000);
+		const left = (await ledgerCounts()).total;
+		return { planted, observedBeforeStop, left };
+	});
+
+	// LEG in_transaction: both batched prunes REFUSE to run inside a caller's
+	// transaction (each batch must commit on its own; inside one the prune is a
+	// single unbounded unit again). Dry, so a missing refusal writes nothing.
+	await leg('in_transaction', async () => {
+		await freshLedger();
+		const refusal = async (fn) => {
+			try { await withTransaction(fn); return 'NO ERROR'; }
+			catch (e) { return describeError(e); }
+		};
+		const cut = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+		return {
+			activity: await refusal(() => pruneMatrixEventRowsByAge('matrix_activity', cut, { apply: false, batchRows: 4 })),
+			ledger: await refusal(() => pruneSettledLedgerRows({ windowDays: 365, apply: false, batchRows: 4 })),
+		};
+	});
+
 	// LEG activity_ceiling: matrix_activity, 12 marked aged rows + 1 marked fresh.
 	await leg('activity_ceiling', async () => {
 		for (let i = 0; i < 13; i++) {
@@ -199,6 +248,9 @@ beforeAll(async () => {
 		DB_STATEMENT_TIMEOUT_MS: String(CEILING_MS),
 		DIFFUSION_ACTIVITY_TABLE: LEDGER,
 		DEDALO_DIFFUSION_LEDGER_RETENTION_DAYS: '365',
+		// The scheduled pass (scheduler_drain) must reach the ledger store at once
+		// and touch no other window store's rows: matrix_activity's window off.
+		DEDALO_ACTIVITY_RETENTION_DAYS: '0',
 	});
 	legs = driverResult<Record<string, LegResult>>(stdout, stderr);
 }, 180_000);
@@ -265,6 +317,31 @@ describe('retention prunes run in committed keyset batches (T1-24 / S17)', () =>
 		expect(applied.deleted).toBeLessThan(12);
 		expect(applied.deleted % 4).toBe(0);
 		expect((leg.left as Counts).total).toBe(12 - applied.deleted);
+	});
+
+	test('stopping the scheduler (SIGTERM) drains the scheduled pass between batches', () => {
+		const leg = value('scheduler_drain');
+		const planted = leg.planted as number;
+		const observed = leg.observedBeforeStop as number;
+		const left = leg.left as number;
+		expect(planted).toBe(16);
+		// Non-vacuity: the scheduled pass really started pruning before the stop.
+		expect(observed).toBeLessThan(planted);
+		// The drain: the pass stopped between batches with rows still aged.
+		expect(left, 'the scheduled pass ran to the end after stopRetentionScheduler').toBeGreaterThan(
+			0,
+		);
+		expect(left % 4).toBe(0);
+	});
+
+	test('both batched prunes refuse to run inside a transaction', () => {
+		const leg = value('in_transaction');
+		for (const store of ['activity', 'ledger'] as const) {
+			const refusal = leg[store] as { code?: string; message?: string } | 'NO ERROR';
+			expect(refusal, `${store} prune ran inside a transaction`).not.toBe('NO ERROR');
+			expect((refusal as { code?: string }).code, store).toBe('internal.invariant');
+			expect((refusal as { message?: string }).message, store).toContain('outside a transaction');
+		}
 	});
 
 	test('the matrix_activity prune completes under a real statement ceiling and spares fresh rows', () => {
