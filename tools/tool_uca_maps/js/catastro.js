@@ -15,7 +15,6 @@
 
 
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
-import {tool_error_text} from './tool_error_text.js'
 import {ui} from '../../../core/common/js/ui.js'
 import {
 	create_toolbar_button,
@@ -167,8 +166,9 @@ export const check_catastro_at_point = async function(self, latlng) {
 		}
 
 		if (request_failed(response)) {
-			const failed = self.get_tool_label('catastro_error_failed') || 'The cadastral parcel could not be looked up.'
-			show_catastro_message(self, tool_error_text(response.error, failed))
+			// core's page notice says why, once and translated: an earlier
+			// "No parcel" line must not stand beside it
+			clear_catastro_message(self)
 			return
 		}
 

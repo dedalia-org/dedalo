@@ -531,7 +531,7 @@ describe('tool_uca_maps upload_vector_layer — the staged path is confined to t
 				band: 'N',
 			}),
 		);
-		expectCode(error, 'request.invalid_options');
+		expectCode(error, 'media.too_large');
 		expect(error.message).toMatch(/inflates to more than 200000000 bytes/);
 	});
 });
@@ -588,10 +588,19 @@ describe("tool_uca_maps upload_vector_layer — ogr2ogr's output, checked before
 		],
 	] as const)(
 		'with %s, the refusal names the one correction that applies',
-		async (_, input, projection, pattern) => {
+		async (label, input, projection, pattern) => {
 			const refusal = await refusalFor([input[0], input[1]], projection);
 			expectCode(refusal, 'request.invalid_options');
-			expect((refusal as DedaloError).publicMessage).toMatch(pattern);
+			// the specifics stay in the log; the user reads the key's sentence
+			expect((refusal as DedaloError).message).toMatch(pattern);
+			expect((refusal as DedaloError).details).toEqual({
+				reason_key: {
+					'typed fields': 'projection_not_this_file',
+					'a GeoJSON declaring its crs': 'projection_declared_wrong',
+					'a KML': 'projection_declared_wrong',
+					'a GeoJSON declaring nothing': 'projection_required',
+				}[label],
+			});
 		},
 	);
 
@@ -627,7 +636,7 @@ describe("tool_uca_maps upload_vector_layer — ogr2ogr's output, checked before
 				return readConvertedLayer(dir, outputFile, inputFile, 'geojson', null);
 			}),
 		);
-		expectCode(refusal, 'request.invalid_options');
+		expectCode(refusal, 'media.too_large');
 		expect(refusal.message).toMatch(/converted layer \(200000001 bytes\) exceeds/);
 	});
 

@@ -15,13 +15,13 @@ describe('get_image_file — refusals', () => {
 	test('a component that is not an image is refused, not scanned', async () => {
 		// test85 is a component_pdf of the generic test TLD: a media component,
 		// so core's media context accepts it and the tool's own check is what
-		// refuses. A public code: the reason is the user's to read
-		await expect(
+		// refuses. The tool's own client always names the image component, so no
+		// user reason: the code goes bare
+		const refusal = await failureOf(
 			getImageFile(contextOf({ section_tipo: 'test3', tipo: 'test85', section_id: 905101 })),
-		).rejects.toMatchObject({
-			code: 'tool.unsupported_target',
-			publicMessage: 'Only an image component can be used here.',
-		});
+		);
+		expect(refusal).toMatchObject({ code: 'tool.unsupported_target' });
+		expect((refusal as { details?: unknown }).details).toBeUndefined();
 	});
 });
 
@@ -39,20 +39,23 @@ describe('get_image_file — a vanished image is not an undisplayable one', () =
 		return failureOf(getImageFile(ctx));
 	}
 
-	test('no file at all is media.file_not_found, its reason on the wire', async () => {
+	test('no file at all is resource.not_found, keyed for the browser', async () => {
 		const refusal = await withFiles([], refusalOf);
-		expect(refusal).toMatchObject({ code: 'media.file_not_found' });
-		expect(toErrorBody(refusal as Parameters<typeof toErrorBody>[0]).message).toBe(
-			'The image is no longer on the server.',
-		);
+		expect(refusal).toMatchObject({
+			code: 'resource.not_found',
+			details: { reason_key: 'image_not_on_server' },
+		});
+		expect(toErrorBody(refusal as Parameters<typeof toErrorBody>[0]).details).toEqual({
+			reason_key: 'image_not_on_server',
+		});
 	});
 
 	test('a master the browser cannot draw, and nothing else, is tool.unsupported_target', async () => {
 		const refusal = await withFiles([{ quality: 'original', extension: 'tif' }], refusalOf);
-		expect(refusal).toMatchObject({ code: 'tool.unsupported_target' });
-		expect(toErrorBody(refusal as Parameters<typeof toErrorBody>[0]).message).toBe(
-			'The uploaded image has no version this browser can display.',
-		);
+		expect(refusal).toMatchObject({
+			code: 'tool.unsupported_target',
+			details: { reason_key: 'image_not_displayable' },
+		});
 	});
 
 	test('control: beside that master, the default tier is served before any other drawable one', async () => {

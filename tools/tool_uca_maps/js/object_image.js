@@ -14,7 +14,7 @@
 
 
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
-import {tool_error_text} from './tool_error_text.js'
+import {error_text} from '../../../core/common/js/render_api_error.js'
 import {data_manager} from '../../../core/common/js/data_manager.js'
 import {commit, ensure_uca_maps, report_client_error} from './object_console.js'
 import {read_uca_maps} from './uca_maps_data.js'
@@ -139,6 +139,26 @@ export const associate_image = async function(self, layer, file) {
 
 
 /**
+* LINK_FAILURE_TEXT
+* One link's line in a batch's report. Its refusal in core's words (error_text,
+* the tool's reason label included): one page notice cannot say which link it
+* was about. Then the step's own line, if any; the fallback when neither.
+*
+* @param {{refusal?: Object, error?: string}} failed - a step's failure
+* @param {string} fallback
+* @returns {string}
+*/
+const link_failure_text = function(failed, fallback) {
+
+	const lines = [failed.refusal ? error_text(failed.refusal) : '', failed.error || '']
+		.filter((line) => line.length > 0)
+
+	return lines.length > 0 ? lines.join('\n') : fallback
+}//end link_failure_text
+
+
+
+/**
 * ATTACH_INGESTED_IMAGE
 * Hangs an ingested rsc170 record off `layer`: asks where it is served from
 * (`get_image_file`, `server/image_media.ts`) and stores that path. Does not
@@ -149,7 +169,7 @@ export const associate_image = async function(self, layer, file) {
 * @param {Object} layer
 * @param {number} section_id - the ingested rsc170 record
 * @param {Object} extra - fields the descriptor also keeps (`name`, `source_url`)
-* @returns {Promise<{ok: boolean, error?: string}>}
+* @returns {Promise<{ok: boolean, error?: string, refusal?: Object}>}
 */
 const attach_ingested_image = async function(self, layer, section_id, extra) {
 
@@ -162,9 +182,10 @@ const attach_ingested_image = async function(self, layer, section_id, extra) {
 		}
 	})
 
+	// a refusal: core's page notice says why, once and translated; `refusal`
+	// is for a batch, whose report must say which link it was about
 	if (request_failed(file_response)) {
-		const failed = self.get_tool_label('upload_image_error_failed') || 'The image could not be loaded.'
-		return {ok: false, error: tool_error_text(file_response.error, failed)}
+		return {ok: false, refusal: file_response.error}
 	}
 
 	const data = response_data(file_response)
@@ -383,7 +404,7 @@ export const import_linked_images = async function(self, layer, on_progress) {
 					failures.push({
 						url		: url,
 						error	: request_failed(stage_response)
-							? tool_error_text(stage_response.error, failed_text)
+							? link_failure_text({refusal: stage_response.error}, failed_text)
 							: failed_text
 					})
 					continue
@@ -394,7 +415,7 @@ export const import_linked_images = async function(self, layer, on_progress) {
 					if (ingested.staged_untouched===true) {
 						await release_staged_image(staged.file_data)
 					}
-					failures.push({url: url, error: ingested.error || failed_text})
+					failures.push({url: url, error: link_failure_text(ingested, failed_text)})
 					continue
 				}
 
@@ -403,7 +424,7 @@ export const import_linked_images = async function(self, layer, on_progress) {
 					source_url	: url
 				})
 				if (!attached.ok) {
-					failures.push({url: url, error: attached.error || failed_text})
+					failures.push({url: url, error: link_failure_text(attached, failed_text)})
 					continue
 				}
 

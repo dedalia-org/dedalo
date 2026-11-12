@@ -12,10 +12,11 @@ import {
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
+import type { ReasonKey } from './reasons.ts';
 
 /** A caller fault — missing/malformed WMS server URL. */
-function invalidWmsRequest(message: string): DedaloError {
-	return new DedaloError('request.invalid_options', { message, publicMessage: message });
+function invalidWmsRequest(message: string, reason: ReasonKey): DedaloError {
+	return new DedaloError('request.invalid_options', { message, details: { reason_key: reason } });
 }
 
 /**
@@ -26,17 +27,17 @@ function invalidWmsRequest(message: string): DedaloError {
 export function normalizeWmsBaseUrl(raw: string): URL {
 	const trimmed = String(raw ?? '').trim();
 	if (!trimmed) {
-		throw invalidWmsRequest('The WMS server URL is required.');
+		throw invalidWmsRequest('The WMS server URL is required.', 'wms_url_required');
 	}
 	// absolute only — a bare path has no remote host to proxy to
 	if (!/^https?:\/\//i.test(trimmed)) {
-		throw invalidWmsRequest('Please enter a valid URL.');
+		throw invalidWmsRequest('Please enter a valid URL.', 'wms_url_invalid');
 	}
 	let url: URL;
 	try {
 		url = new URL(trimmed);
 	} catch {
-		throw invalidWmsRequest('Please enter a valid URL.');
+		throw invalidWmsRequest('Please enter a valid URL.', 'wms_url_invalid');
 	}
 	url.search = '';
 	url.hash = '';

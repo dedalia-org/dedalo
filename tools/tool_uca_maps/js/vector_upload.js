@@ -16,7 +16,7 @@
 
 import {upload} from '../../../core/services/service_upload/js/service_upload.js'
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
-import {tool_error_text} from './tool_error_text.js'
+import {upload_refusal_text} from './panel_error_text.js'
 import {
 	create_toolbar_button,
 	create_toolbar_panel,
@@ -132,7 +132,7 @@ export const upload_vector_file = async function(self, file, projection = {}) {
 
 		if (!response_data(upload_response)) {
 			const message = upload_response && upload_response.error
-				? tool_error_text(upload_response.error, rejected)
+				? upload_refusal_text(upload_response.error, rejected)
 				: not_uploaded
 			return {ok: false, error: message}
 		}
@@ -155,8 +155,9 @@ export const upload_vector_file = async function(self, file, projection = {}) {
 			return {ok: false}
 		}
 
+		// a refusal: core's page notice says why, once and translated
 		if (request_failed(response)) {
-			return {ok: false, error: tool_error_text(response.error, rejected)}
+			return {ok: false}
 		}
 
 		const data = response_data(response)

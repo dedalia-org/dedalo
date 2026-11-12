@@ -43,7 +43,6 @@ export async function resolveRenderableImage(options: Record<string, unknown>) {
 	if (spec.model !== 'component_image') {
 		throw new DedaloError('tool.unsupported_target', {
 			message: `tool_uca_maps: an image lookup needs a component_image, got '${spec.model}'`,
-			publicMessage: 'Only an image component can be used here.',
 			coordinates: { component_tipo: identity.componentTipo, model: spec.model },
 		});
 	}
@@ -56,9 +55,9 @@ export async function resolveRenderableImage(options: Record<string, unknown>) {
 		(entry) => entry.file_exist && typeof entry.file_path === 'string',
 	);
 	if (present.length === 0) {
-		throw new DedaloError('media.file_not_found', {
+		throw new DedaloError('resource.not_found', {
 			message: `tool_uca_maps: no image file at all for ${identity.componentTipo}_${identity.sectionTipo}_${identity.sectionId}`,
-			publicMessage: 'The image is no longer on the server.',
+			details: { reason_key: 'image_not_on_server' },
 			coordinates: { section_tipo: identity.sectionTipo, section_id: identity.sectionId },
 		});
 	}
@@ -70,7 +69,7 @@ export async function resolveRenderableImage(options: Record<string, unknown>) {
 	if (!served || typeof served.file_path !== 'string') {
 		throw new DedaloError('tool.unsupported_target', {
 			message: `tool_uca_maps: no renderable image file for ${identity.componentTipo}_${identity.sectionTipo}_${identity.sectionId}`,
-			publicMessage: 'The uploaded image has no version this browser can display.',
+			details: { reason_key: 'image_not_displayable' },
 			coordinates: { section_tipo: identity.sectionTipo, section_id: identity.sectionId },
 		});
 	}

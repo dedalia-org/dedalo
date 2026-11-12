@@ -106,12 +106,15 @@ const render_search_form = function(self, panel) {
 		clear_btn.disabled	= false
 
 		if (!result.ok) {
-			// a torn-down tool answers {ok:false} with no error text — there is
-			// no panel left to write into, and no failure to report either
+			// no error text: a server refusal (core's page notice says why) or a
+			// torn-down tool, whose detached panel nobody sees. Either way the
+			// hits of the search before are no answer to this one
 			if (result.error) {
 				show_place_search_message(panel, result.error)
-				panel.querySelector('.uca-maps-place-search-results').replaceChildren()
+			} else {
+				message.hidden = true
 			}
+			panel.querySelector('.uca-maps-place-search-results').replaceChildren()
 			return
 		}
 

@@ -78,7 +78,7 @@ describe('tool_uca_maps assertZipInflatesWithin (pure)', () => {
 			{ name: 'a.dbf', bytes: zeros(3001) },
 		]);
 		const error = await failureOf(assertZipInflatesWithin(zip, 8000));
-		expectCode(error, 'request.invalid_options');
+		expectCode(error, 'media.too_large');
 		expect(error.message).toMatch(/inflates to more than 8000 bytes/);
 	});
 
@@ -87,7 +87,7 @@ describe('tool_uca_maps assertZipInflatesWithin (pure)', () => {
 		const view = new DataView(zip.buffer);
 		view.setUint32(centralOffset(zip) + 24, 10, true);
 		const error = await failureOf(assertZipInflatesWithin(zip, 100_000));
-		expectCode(error, 'request.invalid_options');
+		expectCode(error, 'media.too_large');
 		expect(error.message).toMatch(/inflates to more than 100000 bytes/);
 	});
 

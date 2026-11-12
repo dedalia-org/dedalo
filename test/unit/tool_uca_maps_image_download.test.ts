@@ -11,7 +11,6 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { toErrorBody } from '../../src/core/errors/convert.ts';
 import type { ToolActionContext } from '../../src/core/tools/module.ts';
 import {
 	type ImageCorners,
@@ -391,10 +390,10 @@ describe.skipIf(!HAVE_GDAL)('tool_uca_maps image_download — the real warp (nee
 			() => null,
 			(error: unknown) => error,
 		);
-		expect(refusal).toMatchObject({ code: 'tool.unsupported_target' });
-		expect(toErrorBody(refusal as Parameters<typeof toErrorBody>[0]).message).toBe(
-			'This image is stored in CMYK, which cannot be downloaded from the map.',
-		);
+		expect(refusal).toMatchObject({
+			code: 'tool.unsupported_target',
+			details: { reason_key: 'image_cmyk' },
+		});
 	}
 
 	const CMYK_BANDS = ['-bands', '4', '-burn', '10', '-burn', '20', '-burn', '30', '-burn', '40'];

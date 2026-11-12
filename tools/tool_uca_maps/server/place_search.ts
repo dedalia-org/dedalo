@@ -13,6 +13,7 @@ import {
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
+import type { ReasonKey } from './reasons.ts';
 
 const NOMINATIM_SEARCH = 'https://nominatim.openstreetmap.org/search';
 
@@ -22,8 +23,8 @@ const RESULT_LIMIT = 8;
 const USER_AGENT = 'Dedalo/7 (tool_uca_maps place search)';
 
 /** A caller fault — empty or over-long search text. */
-function invalidSearchRequest(message: string): DedaloError {
-	return new DedaloError('request.invalid_options', { message, publicMessage: message });
+function invalidSearchRequest(message: string, reason: ReasonKey): DedaloError {
+	return new DedaloError('request.invalid_options', { message, details: { reason_key: reason } });
 }
 
 /** One search hit, already reduced to what the map needs. */
@@ -120,12 +121,12 @@ function parseBoundingBox(raw: unknown): [number, number, number, number] | null
 export async function searchPlaces(ctx: ToolActionContext): Promise<ToolResponse> {
 	const query = String(ctx.options.query ?? '').trim();
 	if (!query) {
-		throw invalidSearchRequest('The search text is required.');
+		throw invalidSearchRequest('The search text is required.', 'search_text_required');
 	}
 	// a URL query param, not a database key — the cap is about not shipping an
 	// unbounded string to a third party, nothing more
 	if (query.length > 200) {
-		throw invalidSearchRequest('The search text is too long.');
+		throw invalidSearchRequest('The search text is too long.', 'search_text_too_long');
 	}
 
 	// Nominatim names its results in the record's language; an unmapped lang

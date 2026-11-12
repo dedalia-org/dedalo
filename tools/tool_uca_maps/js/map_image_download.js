@@ -13,7 +13,7 @@
 
 
 
-import {exception_text} from './tool_error_text.js'
+import {exception_text} from './panel_error_text.js'
 import {trigger_blob_download, deliver_download, report_client_error} from './object_console.js'
 import {
 	create_toolbar_button,

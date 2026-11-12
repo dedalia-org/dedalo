@@ -68,7 +68,7 @@ import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_
 import { populate_wms_search_results } from '../../../tools/tool_uca_maps/js/render_wms_services.js'
 import { UPLOAD_MESSAGE_MS } from '../../../tools/tool_uca_maps/js/render_file_upload.js'
 import { detach_file_upload } from '../../../tools/tool_uca_maps/js/vector_upload.js'
-import { tool_error_text, exception_text, REASON_CODES } from '../../../tools/tool_uca_maps/js/tool_error_text.js'
+import { upload_refusal_text, exception_text } from '../../../tools/tool_uca_maps/js/panel_error_text.js'
 import { error_text } from '../../../core/common/js/render_api_error.js'
 import { resolve_error_policy } from '../../../core/common/js/error_policy.js'
 import { is_catastro_enabled, check_catastro_at_point } from '../../../tools/tool_uca_maps/js/catastro.js'
@@ -77,6 +77,7 @@ import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps
 import { focus_place_result, search_places } from '../../../tools/tool_uca_maps/js/place_search.js'
 import { create_position_marker, is_geolocate_enabled, toggle_geolocate } from '../../../tools/tool_uca_maps/js/geolocate.js'
 import { populate_place_search_results } from '../../../tools/tool_uca_maps/js/render_place_search.js'
+import { show_ua_message } from '../../../tools/tool_uca_maps/js/render_administrative_units.js'
 import { attach_scale_bar, detach_scale_bar, format_distance, round_distance } from '../../../tools/tool_uca_maps/js/scale_bar.js'
 import {
 	empty_legend,
@@ -446,42 +447,30 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 		assert.equal(MAX_ICON_BYTES, 2000000, 'expected v6\'s own 2 MB ceiling')
 	})
 
-	it('tool_error_text: a REASON_CODES refusal is the panel\'s lead, then the server\'s reason', function() {
+	it('upload_refusal_text: an upload refusal is the panel\'s lead, then the receiver\'s reason', function() {
 
-		assert.includeMembers(
-			Array.from(REASON_CODES),
-			['request.invalid_options', 'tool.unsupported_target', 'media.file_not_found', 'media.upload_rejected'],
-			'expected the public codes the server refuses with a reason, the upload receiver\'s included'
-		)
-		const rows = [
-			// the reason core's generic label hides
-			{code: 'request.invalid_options', lead: 'The file could not be loaded.', message: "Invalid UTM zone '61' (expected 1 to 60)"},
-			{code: 'media.upload_rejected', lead: 'The image could not be loaded.', message: 'File content verification failed: not a JPEG — rejected'},
-			...Array.from(REASON_CODES, (code) => ({code: code, lead: 'LEAD', message: 'Why it failed.'}))
-		]
-		for (const row of rows) {
-			const refusal = {is_api_error: true, code: row.code, label_key: 'x', message: row.message}
-			assert.equal(tool_error_text(refusal, row.lead), row.lead + '\n' + row.message, 'expected the reason shown for ' + row.code)
-		}
+		// the upload transport publishes no page notice, so this line is the only one
+		const refusal = {is_api_error: true, code: 'media.upload_rejected', label_key: 'x', message: 'File content verification failed: not a JPEG — rejected'}
+		assert.equal(upload_refusal_text(refusal, 'The image could not be loaded.'), 'The image could not be loaded.\n' + refusal.message)
 	})
 
-	it('tool_error_text: any other code, or a refusal with no reason, is core\'s error_text', function() {
+	it('upload_refusal_text: any other code, or a refusal with no reason, is core\'s error_text', function() {
 
 		const other = {
 			is_api_error	: true,
-			code			: 'tool.action_failed',
-			label_key		: 'error_tool_action_failed',
-			message			: 'The tool action could not be completed'
+			code			: 'request.invalid_options',
+			label_key		: 'error_request_invalid_options',
+			message			: 'Invalid request options'
 		}
 		const bare = {
 			is_api_error	: true,
-			code			: 'request.invalid_options',
-			label_key		: 'error_request_invalid_options',
+			code			: 'media.upload_rejected',
+			label_key		: 'error_media_upload_rejected',
 			message			: '  '
 		}
 
 		for (const api_error of [other, bare]) {
-			const text = tool_error_text(api_error, 'LEAD')
+			const text = upload_refusal_text(api_error, 'LEAD')
 			assert.equal(text, error_text(api_error), 'expected core\'s sentence for ' + api_error.code)
 			assert.notInclude(text, 'LEAD', 'expected no lead without a reason to introduce')
 		}
@@ -1400,12 +1389,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isUndefined(sent.url, 'expected no url sent either')
 	})
 
-	// the page toast names the code ("Invalid request options"), never the
-	// reason: the download's own line is where the reason reaches the user
-	it('a refused download answers the section\'s lead and the server\'s reason, not only a toast', async function() {
+	// core's page notice says why, once and translated (details.reason_key):
+	// the download's own line stays empty rather than repeat it
+	it('a refused download leaves its line to core\'s notice', async function() {
 
 		const layer		= seeded_layer(1)
-		const refusal	= {is_api_error: true, code: 'request.invalid_options', message: 'The object could not be read.', transport: false}
+		const refusal	= {is_api_error: true, code: 'request.invalid_options', details: {reason_key: 'file_name_unusable'}, message: 'The file name has no usable characters.', transport: false}
 
 		stub_tool_request(async function() {
 			return {ok: false, error: refusal}
@@ -1416,7 +1405,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			{label: 'map image', run: () => download_map_image(tool, 'jpg'), lead: 'The map image could not be downloaded.'}
 		]
 		for (const row of rows) {
-			assert.deepEqual(await row.run(), {ok: false, error: row.lead + '\n' + refusal.message}, row.label)
+			assert.deepEqual(await row.run(), {ok: false}, row.label)
 		}
 
 		// an answer without an envelope error still says what failed
@@ -5250,41 +5239,32 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isTrue(banner.parentElement.classList.contains('warning'), 'expected a warning, as UA\'s: nothing failed')
 	})
 
-	// the banner tints every line it holds with the last type
-	it('each Catastro lookup replaces the banner line: a failure, then "not found", leaves one warning', async function() {
+	// core's page notice says why a lookup failed: the banner keeps no line
+	// about it, and an earlier "not found" goes with it
+	it('a failed Catastro lookup leaves no banner line; "not found" then shows one warning', async function() {
 
 		arm_catastro()
+		const banner = () => geolocation.node.querySelector('.uca-maps-catastro-message')
+
+		stub_tool_request(async () => ({ok: true, data: {found: false}}))
+		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+		assert.isOk(banner(), 'expected the not-found banner first')
 
 		stub_tool_request(async () => ({ok: false, error: {is_api_error: true, code: 'client.timeout', message: 'The request timed out', transport: true}}))
 		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
-		const banner = () => geolocation.node.querySelector('.uca-maps-catastro-message')
-		assert.isTrue(banner().classList.contains('error'), 'expected the failure as an error')
+		assert.isNull(banner(), 'expected no banner beside core\'s notice')
 
 		stub_tool_request(async () => ({ok: true, data: {found: false}}))
 		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
 		const lines = Array.from(banner().querySelectorAll('.text'), (node) => node.textContent)
-		assert.deepEqual(lines, ['No parcel could be found at this point.'], 'expected the failure line replaced')
+		assert.deepEqual(lines, ['No parcel could be found at this point.'], 'expected one line')
 		assert.isTrue(banner().classList.contains('warning') && !banner().classList.contains('error'), 'expected the banner a warning only')
 	})
 
-	it('a refusal\'s reason sits on its own line: Catastro\'s core banner and the panel lines', async function() {
+	it('a two-line panel message keeps its line break', async function() {
 
 		// with the tool CSS or not at all: without it white-space is never pre-line
 		await with_tool_css(async () => {
-			arm_catastro()
-			stub_tool_request(async () => ({ok: false, error: {
-				is_api_error	: true,
-				code			: 'request.invalid_options',
-				label_key		: 'error_request_invalid_options',
-				message			: 'Coordinates out of range'
-			}}))
-			await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
-
-			const text = geolocation.node.querySelector('.uca-maps-catastro-message .text')
-			assert.isOk(text, 'expected core\'s banner line')
-			assert.equal(text.textContent, 'The cadastral parcel could not be looked up.\nCoordinates out of range')
-			assert.equal(getComputedStyle(text).whiteSpace, 'pre-line', 'expected the line break kept in the banner')
-
 			// every panel line shares one mixin; the upload one stands for all
 			tool.attach_file_upload()
 			const line = tool.upload_panel.querySelector('.uca-maps-upload-message')
@@ -5671,61 +5651,70 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		})
 	}
 
-	// each panel's own lead says what failed; a REASON_CODES refusal adds the
-	// server's reason on its own line, which core's error_text alone drops
-	it('a refusal with a reason shows the panel\'s lead, then the reason: UA, WMS, place and Roman searches', async function() {
+	// core's page notice says why, once and translated (details.reason_key):
+	// no panel repeats it, and UA's line of an earlier lookup goes
+	// the Roma block's own line of an earlier failure would stand beside core's
+	// notice as if it were the answer to the refused search
+	it('a refused Roma search takes the block\'s earlier line away', async function() {
+
+		mount_roman(WITH_PLEIADES)
+		await load_roman_capabilities(tool)
+		open_roman()
+
+		const block	= tool.roman_panel.querySelector('.uca-maps-roman-pleiades')
+		const input	= block.querySelector('.uca-maps-roman-input')
+		const line	= block.querySelector('.uca-maps-roman-message')
+		const enter	= () => input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
+
+		input.value = ''
+		enter()
+		await tick(50)
+		assert.isFalse(line.hidden, 'expected the empty search\'s own line first')
+
+		stub_tool_request(async () => ({ok: false, error: {
+			is_api_error	: true,
+			code			: 'tool.source_unavailable',
+			details			: {reason_key: 'gazetteer_service_unavailable'},
+			message			: 'The gazetteer service did not answer properly.',
+			transport		: false
+		}}))
+		input.value = 'Roma'
+		enter()
+		await tick(50)
+		assert.isTrue(line.hidden, 'expected no line beside core\'s notice')
+	})
+
+	it('a refusal leaves no panel line: UA, WMS, place and Roman searches', async function() {
 
 		arm_ua()
 		tool.attach_wms_services()
 		tool.attach_place_search()
 		mount_roman(WITH_PLEIADES)
 
-		const reason = 'Coordinates out of range'
 		stub_tool_request(async () => ({ok: false, error: {
 			is_api_error	: true,
 			code			: 'request.invalid_options',
 			label_key		: 'error_request_invalid_options',
-			message			: reason,
+			details			: {reason_key: 'search_text_too_long'},
+			message			: 'The search text is too long.',
 			transport		: false
 		}}))
 
-		const ua_line = () => tool.ua_panel.querySelector('.uca-maps-ua-message')
+		const ua_line = tool.ua_panel.querySelector('.uca-maps-ua-message')
+		show_ua_message(tool.ua_panel, 'an earlier line')
+		assert.isFalse(ua_line.hidden, 'expected the earlier line shown first')
+		await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+		assert.isTrue(ua_line.hidden, 'expected the UA line taken away')
+
+		tool._roman_results = [{id: '265849'}]
 		const rows = [
-			{
-				label	: 'ua',
-				lead	: 'The administrative unit could not be looked up.',
-				run		: async () => {
-					await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
-					assert.equal(ua_line().dataset.type, 'error', 'expected the UA refusal as an error')
-					return ua_line().textContent
-				}
-			},
-			{
-				label	: 'wms search',
-				lead	: 'The WMS server could not be queried.',
-				run		: async () => (await tool.search_wms_layers('https://example.com/geoserver/wms')).error
-			},
-			{
-				label	: 'place search',
-				lead	: 'The place search could not be completed.',
-				run		: async () => (await search_places(tool, 'Sagunto')).error
-			},
-			{
-				label	: 'roman search',
-				lead	: 'The search could not be completed.',
-				run		: async () => (await search_roman(tool, 'pleiades', {query: 'Saguntum', type: 'name'})).error
-			},
-			{
-				label	: 'roman add',
-				lead	: 'The search could not be completed.',
-				run		: async () => {
-					tool._roman_results = [{id: '265849'}]
-					return (await add_roman_result(tool, 0)).error
-				}
-			}
+			{label: 'wms search', run: () => tool.search_wms_layers('https://example.com/geoserver/wms')},
+			{label: 'place search', run: () => search_places(tool, 'Sagunto')},
+			{label: 'roman search', run: () => search_roman(tool, 'pleiades', {query: 'Saguntum', type: 'name'})},
+			{label: 'roman add', run: () => add_roman_result(tool, 0)}
 		]
 		for (const row of rows) {
-			assert.equal(await row.run(), `${row.lead}\n${reason}`, row.label)
+			assert.deepEqual(await row.run(), {ok: false}, row.label)
 		}
 	})
 
@@ -5818,8 +5807,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// the EPSG format check runs BEFORE the ogr2ogr call (vector_upload.ts),
 		// so this exercises the real staged-upload + server round trip without
-		// depending on GDAL being installed. The reason must survive to the
-		// panel: core's error_text alone shows only "Invalid request options".
+		// depending on GDAL being installed. The reason rides as a key that core's
+		// error_text turns into the tool's own label; the panel adds no line.
 		// The refusal leaves the staged file behind, so it is released here.
 		try {
 			const result = await tool.upload_vector_file(file, {epsg: 'not-a-code', zone: '30', band: 'N'})
@@ -5827,11 +5816,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(result.ok, false)
 			assert.isOk(response, 'expected tool_request to have been reached')
 			assert.equal(response.error && response.error.code, 'request.invalid_options')
-			assert.equal(
-				result.error,
-				(tool.get_tool_label('upload_error_rejected') || 'The file could not be loaded.') + "\nInvalid EPSG code 'not-a-code'",
-				'expected the panel\'s lead and the server\'s own reason'
-			)
+			assert.equal(response.error.details?.reason_key, 'epsg_invalid', 'expected the reason as a key')
+			assert.equal(response.error.message, 'The EPSG code must be 4 to 6 digits.', 'expected the declared sentence, not the throw\'s')
+			assert.equal(response.error.tool, 'tool_uca_maps', 'expected the refusal stamped with its tool')
+			assert.equal(error_text(response.error), 'The EPSG code must be 4 to 6 digits.', 'expected the key\'s sentence, not the code\'s generic label')
+			assert.isUndefined(result.error, 'expected no panel line beside core\'s notice')
 			// all three reach the wire: a dropped zone or band would make the server
 			// refuse every UTM projection, and nothing else here would notice
 			assert.deepInclude(sent.options, {epsg: 'not-a-code', zone: '30', band: 'N'})
@@ -6445,7 +6434,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	* `ingest` answers per call; every staged file is kept for release_staged.
 	* The file check answers "no file" unless `file_check` says otherwise.
 	*/
-	const no_image_file = () => ({ok: false, error: {is_api_error: true, code: 'media.file_not_found', message: 'The image is no longer on the server.', transport: false}})
+	const no_image_file = () => ({ok: false, error: {is_api_error: true, code: 'resource.not_found', details: {reason_key: 'image_not_on_server'}, message: 'The image is no longer on the server.', transport: false}})
 	const stub_image_record_doors = function(new_id, ingest, delete_answer, file_check=no_image_file) {
 		const original_request = data_manager.request
 		const seen = {created: [], deleted: [], staged: [], checked: []}
@@ -6498,14 +6487,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				ingest	: refusal,
 				answer	: {ok: true, data: [NEW_ID]},
 				deletes	: true,
-				result	: {ok: false, error: `The image could not be loaded.\n${reason}`, staged_untouched: true}
+				result	: {ok: false, staged_untouched: true}
 			},
 			{
 				label	: 'a timeout: the server may still finish',
 				ingest	: {is_api_error: true, code: 'client.timeout', message: 'The request timed out', transport: true},
 				answer	: null,
 				deletes	: false,
-				result	: {ok: false, error: `The request timed out\n${record_left}`, staged_untouched: false}
+				result	: {ok: false, error: record_left, staged_untouched: false}
 			},
 			{
 				// what a resend gets while the first attempt is still ingesting
@@ -6513,7 +6502,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				ingest	: {is_api_error: true, code: 'idempotency.in_progress', message: 'Still running', transport: false},
 				answer	: null,
 				deletes	: false,
-				result	: {ok: false, error: `Still running\n${record_left}`, staged_untouched: false}
+				result	: {ok: false, error: record_left, staged_untouched: false}
 			},
 			{
 				// persistUploadedMedia refusing AFTER the file is in the media tree
@@ -6521,7 +6510,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				ingest	: {is_api_error: true, code: 'db.lock_timeout', message: 'Lock timeout', transport: false},
 				answer	: null,
 				deletes	: false,
-				result	: {ok: false, error: `Lock timeout\n${record_left}`, staged_untouched: false}
+				result	: {ok: false, error: record_left, staged_untouched: false}
 			},
 			{
 				// a resend re-run after a restart: the first run consumed the staged file
@@ -6529,14 +6518,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				ingest	: {is_api_error: true, code: 'media.file_not_found', message: 'Staged upload not found', transport: false},
 				answer	: null,
 				deletes	: false,
-				result	: {ok: false, error: `The image could not be loaded.\nStaged upload not found\n${record_left}`, staged_untouched: false}
+				result	: {ok: false, error: record_left, staged_untouched: false}
 			},
 			{
 				label	: 'an envelope refusal whose delete is refused',
 				ingest	: refusal,
 				answer	: {ok: false, error: {is_api_error: true, code: 'perm.denied', message: 'Permission denied', transport: false}},
 				deletes	: true,
-				result	: {ok: false, error: `The image could not be loaded.\n${reason}\n${record_left}`, staged_untouched: true}
+				result	: {ok: false, error: record_left, staged_untouched: true}
 			},
 			{
 				// core answers no id for a record it did not find, or one it kept
@@ -6544,7 +6533,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				ingest	: refusal,
 				answer	: {ok: true, data: []},
 				deletes	: true,
-				result	: {ok: false, error: `The image could not be loaded.\n${reason}\n${record_left}`, staged_untouched: true}
+				result	: {ok: false, error: record_left, staged_untouched: true}
 			},
 			{
 				// a refusal core raises after the move one day: the file is the fact
@@ -6553,7 +6542,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				check	: () => ({ok: true, data: {file_path: '/image/1.5MB/0/rsc29_rsc170_' + NEW_ID + '.jpg', quality: '1.5MB'}}),
 				answer	: null,
 				deletes	: false,
-				result	: {ok: false, error: `The image could not be loaded.\n${reason}\n${record_left}`, staged_untouched: true}
+				result	: {ok: false, error: record_left, staged_untouched: true}
 			},
 			{
 				label	: 'an envelope refusal whose file check fails',
@@ -6561,7 +6550,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				check	: () => ({ok: false, error: {is_api_error: true, code: 'client.timeout', message: 'The request timed out', transport: true}}),
 				answer	: null,
 				deletes	: false,
-				result	: {ok: false, error: `The image could not be loaded.\n${reason}\n${record_left}`, staged_untouched: true}
+				result	: {ok: false, error: record_left, staged_untouched: true}
 			}
 		]
 
@@ -6582,7 +6571,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 			assert.equal(seen.created.length, 1, `expected the record minted before the ingest: ${row.label}`)
 			assert.equal(seen.created[0].source.section_tipo, IMAGE_SECTION_TIPO, `expected it minted in the Images section: ${row.label}`)
-			assert.deepEqual(result, row.result, row.label)
+			// the refusal rides along for a batch's report; core's notice shows it here
+			assert.deepEqual(result, row.ingest ? {...row.result, refusal: row.ingest} : row.result, row.label)
 			const pre_move = row.ingest===refusal
 			assert.deepEqual(seen.checked, pre_move
 				? [{tipo: IMAGE_COMPONENT_TIPO, section_tipo: IMAGE_SECTION_TIPO, section_id: NEW_ID}]
@@ -6600,9 +6590,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isTrue(released.every((answer) => answer && answer.ok!==false), `expected the staging left clean: ${JSON.stringify(released)}`)
 	})
 
-	// a request.invalid_options refusal of the step after the ingest: the
-	// image's lead, then the server's reason on its own line
-	it('an image refusal with a reason shows its lead, then the reason: the map overlay and an associated image', async function() {
+	// a refusal of the step after the ingest: core's notice says why, the
+	// panel adds no line
+	it('an image refusal leaves no panel line: the map overlay and an associated image', async function() {
 
 		tool.attach_file_upload()
 		const layer = seeded_layer(1)
@@ -6633,7 +6623,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				})
 				const result = await row.run()
 				assert.equal(asked, row.action, `expected the step after the ingest reached: ${row.label}`)
-				assert.deepEqual(result, {ok: false, error: `The image could not be loaded.\n${reason}`}, row.label)
+				assert.isFalse(result.ok, row.label)
+				assert.isUndefined(result.error, `expected no panel line: ${row.label}`)
 			}
 		} finally {
 			released = await seen.restore()
@@ -6674,7 +6665,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 			assert.deepEqual(result.failures, [
 				{url: empty.url, error: 'The image could not be loaded.'},
-				{url: unserved.url, error: `The image could not be loaded.\n${reason}`}
+				{url: unserved.url, error: reason}
 			], 'expected each link named with why it failed')
 			assert.equal(result.imported, 0)
 			assert.equal(seen.created, 1, 'expected a record minted only for the link that staged a file')
@@ -7161,26 +7152,28 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
-	it('"Download image" refused: its own line names what failed and why', async function() {
+	it('"Download image" refused: its line stays empty, core\'s notice says why', async function() {
 
 		const carrier = add_image_carrier()
 		tool.attach_console()
 		select_carrier(carrier)
 
-		const gone		= 'The image shown on the map is no longer on the server.'
+		let answered = false
 		const restore	= stub_image_download(async function() {
-			return {ok: false, error: {is_api_error: true, code: 'media.file_not_found', message: gone, transport: false}}
+			answered = true
+			return {ok: false, error: {is_api_error: true, code: 'resource.not_found', details: {reason_key: 'image_not_on_server'}, message: 'The image is no longer on the server.', transport: false}}
 		})
 		try {
 			const download	= tool.panel_node.querySelector('.uca-maps-image-download-section')
 			const line		= download.querySelector('.uca-maps-download-message')
+			const button	= download.querySelector('.uca-maps-image-download-button')
 			assert.isTrue(line.hidden, 'expected no line before any attempt')
 
-			download.querySelector('.uca-maps-image-download-button').click()
-			await until(() => !line.hidden, 100)
+			button.click()
+			await until(() => answered && !button.disabled, 100)
 
-			assert.isFalse(line.hidden, 'expected the refusal shown under the button')
-			assert.equal(line.textContent, 'The image could not be downloaded.\n' + gone)
+			assert.isTrue(answered, 'expected the download asked')
+			assert.isTrue(line.hidden, 'expected no line beside core\'s notice')
 		} finally {
 			restore()
 		}
@@ -7771,7 +7764,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(message.dataset.type, 'warning')
 	})
 
-	it('a failed search shows its error in the panel and drops the previous hits from the list', async function() {
+	it('a refused search leaves its line to core\'s notice and drops the previous hits from the list', async function() {
 
 		tool.attach_place_search()
 
@@ -7794,10 +7787,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		panel.querySelector('.uca-maps-place-search-button').click()
 		await tick()
 
-		assert.isFalse(message.hidden, 'expected the failure shown in the panel')
-		assert.equal(message.textContent, tool_error_text(error, 'The place search could not be completed.'))
-		assert.equal(message.dataset.type, 'error')
-		assert.equal(rows(), 0, 'expected no stale hits under the error')
+		assert.isTrue(message.hidden, 'expected no panel line beside core\'s notice')
+		assert.equal(rows(), 0, 'expected no stale hits under the refusal')
 	})
 
 	it('detach_place_search removes the button and panel', async function() {

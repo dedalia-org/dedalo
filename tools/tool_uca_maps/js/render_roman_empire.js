@@ -305,10 +305,13 @@ const render_query_input = function(self, panel, block) {
 		const result = await self.search_roman(source, collect_roman_params(block, query_input.value))
 
 		if (!result.ok) {
-			// a torn-down tool — or a search overtaken by a later keystroke —
-			// answers {ok:false} with no error text
+			// no error text: a server refusal (core's page notice says why), a
+			// torn-down tool or a search overtaken by a later one. None leaves
+			// this block's earlier line standing as if it were the answer
 			if (result.error && !live) {
 				show_roman_message(block, result.error)
+			} else if (!result.error) {
+				clear_roman_message(block)
 			}
 			return
 		}
@@ -547,8 +550,14 @@ const choose_suggestion = async function(self, panel, index) {
 	self.close_roman_suggestions() // from a focused row, the focus goes back to the field
 
 	const added = await self.add_roman_result(index)
-	if (!added.ok && added.error && block && opening===self._roman_panel_opening) {
-		show_roman_message(block, added.error)
+	if (!added.ok && block && opening===self._roman_panel_opening) {
+		// a refusal carries no text (core's page notice says why): the line of
+		// an earlier failure must not stand beside it
+		if (added.error) {
+			show_roman_message(block, added.error)
+		} else {
+			clear_roman_message(block)
+		}
 	}
 
 }//end choose_suggestion

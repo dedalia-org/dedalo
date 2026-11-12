@@ -1,7 +1,7 @@
 {
 	"$schema": "../../src/core/tools/register.schema.json",
 	"name": "tool_uca_maps",
-	"version": "1.0.2",
+	"version": "1.0.3",
 	"label": {
 		"lg-eng": "UCA Maps",
 		"lg-spa": "Mapas UCA"
@@ -29,8 +29,6 @@
 
 		{ "lang": "lg-eng", "name": "no_object_selected", "value": "Click a drawn geometry to inspect it." },
 		{ "lang": "lg-spa", "name": "no_object_selected", "value": "Clica una geometría dibujada para inspeccionarla." },
-
-
 
 		{ "lang": "lg-eng", "name": "properties_pdf_button", "value": "Export as PDF" },
 		{ "lang": "lg-spa", "name": "properties_pdf_button", "value": "Exportar como PDF" },
@@ -369,17 +367,11 @@
 		{ "lang": "lg-eng", "name": "wms_error_parse", "value": "Could not read the server response." },
 		{ "lang": "lg-spa", "name": "wms_error_parse", "value": "No ha sido posible interpretar la respuesta del servidor." },
 
-		{ "lang": "lg-eng", "name": "wms_error_failed", "value": "The WMS server could not be queried." },
-		{ "lang": "lg-spa", "name": "wms_error_failed", "value": "No se ha podido consultar el servidor WMS." },
-
 		{ "lang": "lg-eng", "name": "catastro_control_title", "value": "Catastro" },
 		{ "lang": "lg-spa", "name": "catastro_control_title", "value": "Catastro" },
 
 		{ "lang": "lg-eng", "name": "catastro_not_found", "value": "No parcel could be found at this point." },
 		{ "lang": "lg-spa", "name": "catastro_not_found", "value": "No ha sido posible obtener la parcela en este punto." },
-
-		{ "lang": "lg-eng", "name": "catastro_error_failed", "value": "The cadastral parcel could not be looked up." },
-		{ "lang": "lg-spa", "name": "catastro_error_failed", "value": "No se ha podido consultar la parcela catastral." },
 
 		{ "lang": "lg-eng", "name": "ua_control_title", "value": "Administrative Units" },
 		{ "lang": "lg-spa", "name": "ua_control_title", "value": "Unidades Administrativas" },
@@ -398,9 +390,6 @@
 
 		{ "lang": "lg-eng", "name": "ua_not_found", "value": "No administrative unit could be found at this point." },
 		{ "lang": "lg-spa", "name": "ua_not_found", "value": "No ha sido posible obtener la Unidad Administrativa en este punto." },
-
-		{ "lang": "lg-eng", "name": "ua_error_failed", "value": "The administrative unit could not be looked up." },
-		{ "lang": "lg-spa", "name": "ua_error_failed", "value": "No se ha podido consultar la Unidad Administrativa." },
 
 		{ "lang": "lg-eng", "name": "upload_control_title", "value": "Upload file to map" },
 		{ "lang": "lg-spa", "name": "upload_control_title", "value": "Subir archivo al mapa" },
@@ -594,7 +583,115 @@
 		{ "lang": "lg-eng", "name": "roman_error_no_geometry", "value": "This result carries no geometry." },
 		{ "lang": "lg-spa", "name": "roman_error_no_geometry", "value": "Este resultado no trae geometría." },
 		{ "lang": "lg-eng", "name": "roman_source_unavailable", "value": "Not available: this install has no local data for this gazetteer." },
-		{ "lang": "lg-spa", "name": "roman_source_unavailable", "value": "No disponible: esta instalación no tiene datos locales de este gacetero." }
+		{ "lang": "lg-spa", "name": "roman_source_unavailable", "value": "No disponible: esta instalación no tiene datos locales de este gacetero." },
+
+		{ "lang": "lg-eng", "name": "reason_search_text_required", "value": "Type something to search." },
+		{ "lang": "lg-spa", "name": "reason_search_text_required", "value": "Escribe algo para buscar." },
+
+		{ "lang": "lg-eng", "name": "reason_search_text_too_short", "value": "The search text is too short." },
+		{ "lang": "lg-spa", "name": "reason_search_text_too_short", "value": "El texto de búsqueda es demasiado corto." },
+
+		{ "lang": "lg-eng", "name": "reason_search_text_too_long", "value": "The search text is too long." },
+		{ "lang": "lg-spa", "name": "reason_search_text_too_long", "value": "El texto de búsqueda es demasiado largo." },
+
+		{ "lang": "lg-eng", "name": "reason_no_dataset_selected", "value": "Select at least one dataset to search." },
+		{ "lang": "lg-spa", "name": "reason_no_dataset_selected", "value": "Selecciona al menos un conjunto de datos para buscar." },
+
+		{ "lang": "lg-eng", "name": "reason_wms_url_required", "value": "The WMS server URL is required." },
+		{ "lang": "lg-spa", "name": "reason_wms_url_required", "value": "La URL del servidor WMS es obligatoria." },
+
+		{ "lang": "lg-eng", "name": "reason_wms_url_invalid", "value": "Please enter a valid URL." },
+		{ "lang": "lg-spa", "name": "reason_wms_url_invalid", "value": "Introduce una URL válida." },
+
+		{ "lang": "lg-eng", "name": "reason_file_name_unusable", "value": "The file name has no usable characters." },
+		{ "lang": "lg-spa", "name": "reason_file_name_unusable", "value": "El nombre del fichero no tiene ningún carácter utilizable." },
+
+		{ "lang": "lg-eng", "name": "reason_image_not_on_server", "value": "The image is no longer on the server." },
+		{ "lang": "lg-spa", "name": "reason_image_not_on_server", "value": "La imagen ya no está en el servidor." },
+
+		{ "lang": "lg-eng", "name": "reason_image_not_displayable", "value": "The uploaded image has no version this browser can display." },
+		{ "lang": "lg-spa", "name": "reason_image_not_displayable", "value": "La imagen subida no tiene ninguna versión que este navegador pueda mostrar." },
+
+		{ "lang": "lg-eng", "name": "reason_image_cmyk", "value": "This image is stored in CMYK, which cannot be downloaded from the map." },
+		{ "lang": "lg-spa", "name": "reason_image_cmyk", "value": "Esta imagen está guardada en CMYK, que no se puede descargar desde el mapa." },
+
+		{ "lang": "lg-eng", "name": "reason_upload_extension_unsupported", "value": "Only zip (shapefile), GeoJSON and KML files can be uploaded." },
+		{ "lang": "lg-spa", "name": "reason_upload_extension_unsupported", "value": "Solo se pueden subir ficheros zip (shapefile), GeoJSON y KML." },
+
+		{ "lang": "lg-eng", "name": "reason_upload_too_large", "value": "The file is larger than 10 MB." },
+		{ "lang": "lg-spa", "name": "reason_upload_too_large", "value": "El fichero supera los 10 MB." },
+
+		{ "lang": "lg-eng", "name": "reason_converted_layer_too_large", "value": "The converted layer is too large: upload a smaller file." },
+		{ "lang": "lg-spa", "name": "reason_converted_layer_too_large", "value": "La capa convertida es demasiado grande: sube un fichero más pequeño." },
+
+		{ "lang": "lg-eng", "name": "reason_geojson_not_strict", "value": "This GeoJSON is not strict JSON: save it as strict JSON." },
+		{ "lang": "lg-spa", "name": "reason_geojson_not_strict", "value": "Este GeoJSON no es JSON estricto: guárdalo como JSON estricto." },
+
+		{ "lang": "lg-eng", "name": "reason_geojson_crs_link", "value": "This GeoJSON's crs is a link, which is never followed: name its projection instead (for example \"EPSG:25830\")." },
+		{ "lang": "lg-spa", "name": "reason_geojson_crs_link", "value": "El crs de este GeoJSON es un enlace, que nunca se sigue: indica su proyección por nombre (por ejemplo, \"EPSG:25830\")." },
+
+		{ "lang": "lg-eng", "name": "reason_zip_unreadable", "value": "The zip archive is corrupt or is not a zip archive." },
+		{ "lang": "lg-spa", "name": "reason_zip_unreadable", "value": "El archivo zip está dañado o no es un archivo zip." },
+
+		{ "lang": "lg-eng", "name": "reason_zip_split", "value": "A zip archive split into several files is not supported." },
+		{ "lang": "lg-spa", "name": "reason_zip_split", "value": "No se admite un archivo zip dividido en varios ficheros." },
+
+		{ "lang": "lg-eng", "name": "reason_zip64", "value": "A ZIP64 archive is not supported: zip the shapefile without ZIP64." },
+		{ "lang": "lg-spa", "name": "reason_zip64", "value": "No se admite un archivo ZIP64: comprime el shapefile sin ZIP64." },
+
+		{ "lang": "lg-eng", "name": "reason_zip_too_many_files", "value": "The zip archive holds more than 1000 files." },
+		{ "lang": "lg-spa", "name": "reason_zip_too_many_files", "value": "El archivo zip contiene más de 1000 ficheros." },
+
+		{ "lang": "lg-eng", "name": "reason_zip_encrypted", "value": "An encrypted zip archive is not supported." },
+		{ "lang": "lg-spa", "name": "reason_zip_encrypted", "value": "No se admite un archivo zip cifrado." },
+
+		{ "lang": "lg-eng", "name": "reason_zip_method_unsupported", "value": "The zip archive uses a compression method other than store or deflate." },
+		{ "lang": "lg-spa", "name": "reason_zip_method_unsupported", "value": "El archivo zip usa un método de compresión distinto de store o deflate." },
+
+		{ "lang": "lg-eng", "name": "reason_zip_too_large", "value": "The zip archive inflates to more than 200 MB: upload a smaller shapefile." },
+		{ "lang": "lg-spa", "name": "reason_zip_too_large", "value": "El archivo zip descomprimido ocupa más de 200 MB: sube un shapefile más pequeño." },
+
+		{ "lang": "lg-eng", "name": "reason_projection_epsg_missing", "value": "Zone and band describe an EPSG code: fill in the EPSG too." },
+		{ "lang": "lg-spa", "name": "reason_projection_epsg_missing", "value": "La zona y la banda describen un código EPSG: rellena también el EPSG." },
+
+		{ "lang": "lg-eng", "name": "reason_projection_zone_band_pair", "value": "Zone and band go together: fill in both, or neither." },
+		{ "lang": "lg-spa", "name": "reason_projection_zone_band_pair", "value": "La zona y la banda van juntas: rellena las dos o ninguna." },
+
+		{ "lang": "lg-eng", "name": "reason_epsg_invalid", "value": "The EPSG code must be 4 to 6 digits." },
+		{ "lang": "lg-spa", "name": "reason_epsg_invalid", "value": "El código EPSG debe tener de 4 a 6 dígitos." },
+
+		{ "lang": "lg-eng", "name": "reason_epsg_unknown", "value": "The EPSG code is not known." },
+		{ "lang": "lg-spa", "name": "reason_epsg_unknown", "value": "El código EPSG no es conocido." },
+
+		{ "lang": "lg-eng", "name": "reason_utm_zone_invalid", "value": "The UTM zone must be a number from 1 to 60." },
+		{ "lang": "lg-spa", "name": "reason_utm_zone_invalid", "value": "La zona UTM debe ser un número del 1 al 60." },
+
+		{ "lang": "lg-eng", "name": "reason_utm_band_invalid", "value": "The UTM band must be one letter, C to X." },
+		{ "lang": "lg-spa", "name": "reason_utm_band_invalid", "value": "La banda UTM debe ser una letra, de la C a la X." },
+
+		{ "lang": "lg-eng", "name": "reason_epsg_not_utm", "value": "This EPSG code is not a UTM projection: leave zone and band empty." },
+		{ "lang": "lg-spa", "name": "reason_epsg_not_utm", "value": "Este código EPSG no es una proyección UTM: deja vacías la zona y la banda." },
+
+		{ "lang": "lg-eng", "name": "reason_epsg_needs_zone_band", "value": "This EPSG code is a UTM projection: fill in its zone and band too." },
+		{ "lang": "lg-spa", "name": "reason_epsg_needs_zone_band", "value": "Este código EPSG es una proyección UTM: rellena también su zona y su banda." },
+
+		{ "lang": "lg-eng", "name": "reason_epsg_zone_band_mismatch", "value": "The zone and band given do not match this EPSG code's UTM zone and hemisphere." },
+		{ "lang": "lg-spa", "name": "reason_epsg_zone_band_mismatch", "value": "La zona y la banda indicadas no coinciden con la zona UTM y el hemisferio de este código EPSG." },
+
+		{ "lang": "lg-eng", "name": "reason_projection_already_declared", "value": "This file already declares its own projection: leave EPSG, zone and band empty." },
+		{ "lang": "lg-spa", "name": "reason_projection_already_declared", "value": "Este fichero ya declara su propia proyección: deja vacíos el EPSG, la zona y la banda." },
+
+		{ "lang": "lg-eng", "name": "reason_projection_not_this_file", "value": "With this EPSG code the coordinates are not longitude/latitude: it is not this file's projection." },
+		{ "lang": "lg-spa", "name": "reason_projection_not_this_file", "value": "Con este código EPSG las coordenadas no son longitud/latitud: no es la proyección de este fichero." },
+
+		{ "lang": "lg-eng", "name": "reason_projection_declared_wrong", "value": "The coordinates do not fit the projection this file declares: correct the file's projection." },
+		{ "lang": "lg-spa", "name": "reason_projection_declared_wrong", "value": "Las coordenadas no encajan con la proyección que declara este fichero: corrige la proyección del fichero." },
+
+		{ "lang": "lg-eng", "name": "reason_no_coordinate_system", "value": "This file has no coordinate system of its own (no .prj or crs member): provide its EPSG code (and, for a UTM one, its zone and band)." },
+		{ "lang": "lg-spa", "name": "reason_no_coordinate_system", "value": "Este fichero no tiene sistema de coordenadas propio (ni .prj ni miembro crs): indica su código EPSG (y, si es UTM, su zona y su banda)." },
+
+		{ "lang": "lg-eng", "name": "reason_projection_required", "value": "This file does not declare its projection and its coordinates are not longitude/latitude: provide its EPSG code (and, for a UTM one, its zone and band)." },
+		{ "lang": "lg-spa", "name": "reason_projection_required", "value": "Este fichero no declara su proyección y sus coordenadas no son longitud/latitud: indica su código EPSG (y, si es UTM, su zona y su banda)." }
 	],
 	"default_config": {
 		"gazetteer_data_path": "",

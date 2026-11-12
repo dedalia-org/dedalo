@@ -17,7 +17,6 @@
 
 
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
-import {tool_error_text} from './tool_error_text.js'
 import {
 	create_toolbar_button,
 	create_toolbar_panel,
@@ -326,8 +325,9 @@ export const search_roman = async function(self, source, params) {
 			return {ok: false}
 		}
 
+		// a refusal: core's page notice says why, once and translated
 		if (request_failed(response)) {
-			return {ok: false, error: tool_error_text(response.error, failed)}
+			return {ok: false}
 		}
 
 		const data		= response_data(response)
@@ -400,8 +400,9 @@ export const add_roman_result = async function(self, index) {
 		if (!self.roman_panel) {
 			return {ok: false}
 		}
+		// a refusal: core's page notice says why, once and translated
 		if (request_failed(response)) {
-			return {ok: false, error: tool_error_text(response.error, failed)}
+			return {ok: false}
 		}
 
 		const data	= response_data(response)

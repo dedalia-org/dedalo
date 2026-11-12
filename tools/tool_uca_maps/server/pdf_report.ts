@@ -97,7 +97,6 @@ export function readRequestedImages(raw: unknown): RequestedImage[] {
 	if (!Array.isArray(raw)) {
 		throw new DedaloError('request.invalid_options', {
 			message: 'tool_uca_maps: images must be a list',
-			publicMessage: 'The list of images is not valid.',
 		});
 	}
 	const images: RequestedImage[] = [];
@@ -128,7 +127,6 @@ export async function objectPdfReport(ctx: ToolActionContext): Promise<ToolRespo
 	if (typeof geojson !== 'object' || geojson === null) {
 		throw new DedaloError('request.invalid_options', {
 			message: 'tool_uca_maps: object_pdf_report needs the object as GeoJSON',
-			publicMessage: 'The object could not be read.',
 		});
 	}
 

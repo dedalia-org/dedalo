@@ -16,7 +16,7 @@
 
 import {upload} from '../../../core/services/service_upload/js/service_upload.js'
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
-import {exception_text, tool_error_text} from './tool_error_text.js'
+import {exception_text, upload_refusal_text} from './panel_error_text.js'
 import {data_manager} from '../../../core/common/js/data_manager.js'
 import {create_source} from '../../../core/common/js/common.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
@@ -225,7 +225,7 @@ const holds_no_image_file = async function(self, section_id) {
 
 	return request_failed(file_response)
 		&& Boolean(file_response.error)
-		&& file_response.error.code==='media.file_not_found'
+		&& file_response.error.code==='resource.not_found'
 }//end holds_no_image_file
 
 
@@ -343,7 +343,7 @@ export const ingest_image_upload = async function(self, file) {
 
 	if (!response_data(upload_response)) {
 		const message = upload_response && upload_response.error
-			? tool_error_text(upload_response.error, failed)
+			? upload_refusal_text(upload_response.error, failed)
 			: transport_failed_text(self)
 		return {ok: false, error: message}
 	}
@@ -362,11 +362,9 @@ export const ingest_image_upload = async function(self, file) {
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} file_data - the staged file's descriptor
-* @returns {Promise<{ok: boolean, section_id?: number, error?: string, staged_untouched?: boolean}>}
+* @returns {Promise<{ok: boolean, section_id?: number, error?: string, refusal?: Object, staged_untouched?: boolean}>}
 */
 export const ingest_staged_image = async function(self, file_data) {
-
-	const failed = image_failed_text(self)
 
 	const section_id = await create_image_record()
 	if (section_id===null) {
@@ -380,8 +378,9 @@ export const ingest_staged_image = async function(self, file_data) {
 
 	const ingest_response = await ingest_uploaded_file(section_id, file_data)
 	if (request_failed(ingest_response)) {
-		const error = tool_error_text(ingest_response.error, failed)
-		// an error envelope alone does not prove nothing was written: only a
+		// core's page notice says why the ingest was refused; the panel adds
+		// only what that notice cannot know: a record that may be left over.
+		// An error envelope alone does not prove nothing was written: only a
 		// refusal raised before the file moved does. Any other answer leaves the
 		// record named, never deleted (the server may still be filling it)
 		const pre_move	= PRE_MOVE_REFUSALS.has(ingest_response.error.code)
@@ -390,10 +389,11 @@ export const ingest_staged_image = async function(self, file_data) {
 			&& await delete_image_record(section_id)
 		return {
 			ok					: false,
-			error				: removed
-				? error
-				: error + '\n' + (self.get_tool_label('upload_image_record_left', section_id)
-					|| `Image record ${section_id} may have been left empty: review it.`),
+			refusal				: ingest_response.error,
+			...(removed ? {} : {
+				error : self.get_tool_label('upload_image_record_left', section_id)
+					|| `Image record ${section_id} may have been left empty: review it.`
+			}),
 			staged_untouched	: pre_move
 		}
 	}
@@ -447,9 +447,9 @@ export const upload_image_file = async function(self, file) {
 			return {ok: false}
 		}
 
+		// a refusal: core's page notice says why, once and translated
 		if (request_failed(overlay_response)) {
-			const failed = image_failed_text(self)
-			return {ok: false, error: tool_error_text(overlay_response.error, failed)}
+			return {ok: false}
 		}
 
 		const data = response_data(overlay_response)

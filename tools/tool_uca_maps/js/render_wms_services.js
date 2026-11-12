@@ -106,7 +106,12 @@ const render_search_form = function(self, panel) {
 		search_btn.disabled = false
 
 		if (!result.ok) {
-			show_wms_message(panel, result.error)
+			// a server refusal carries no text: core's page notice says why
+			if (result.error) {
+				show_wms_message(panel, result.error)
+			} else {
+				message.hidden = true
+			}
 			panel.querySelector('.uca-maps-wms-results').replaceChildren()
 			return
 		}

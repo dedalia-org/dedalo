@@ -18,6 +18,7 @@ import { getImageOverlay } from './image_overlay.ts';
 import { objectPdfReport } from './pdf_report.ts';
 import { searchPlaces } from './place_search.ts';
 import { rasterDownload } from './raster_download.ts';
+import { REASON_KEYS } from './reasons.ts';
 import { getPleiadesPlace, searchDare, searchPelagios, searchPleiades } from './roman_empire.ts';
 import { vectorDownload } from './vector_download.ts';
 import { uploadVectorLayer } from './vector_upload.ts';
@@ -25,6 +26,7 @@ import { getWmsLayers } from './wms.ts';
 
 export const tool: ToolServerModule = {
 	name: 'tool_uca_maps',
+	reasonKeys: REASON_KEYS,
 	apiActions: {
 		get_capabilities: { permission: 'record_tipo', minLevel: 1, handler: getCapabilities },
 		vector_download: { permission: 'record_tipo', minLevel: 1, handler: vectorDownload },

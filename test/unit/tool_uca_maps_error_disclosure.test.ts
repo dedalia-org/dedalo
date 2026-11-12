@@ -1,21 +1,20 @@
 /**
- * tool_uca_maps — every sentence the server writes for the user survives to the client.
+ * tool_uca_maps — a refusal's sentence is the tool's DECLARATION, never the throw's.
  *
- * A `publicMessage` survives the converter only on a `public`-disclosure code
- * (the ladder, src/core/errors/convert.ts); on an `operator` code it is
- * dropped in silence and the user reads the generic label. And the panel
- * shows a reason only for the codes in the client's REASON_CODES
- * (js/tool_error_text.js). This census ties the three together: each
- * `new DedaloError(code, {publicMessage})` under server/ names a public code,
- * the converter really puts the sentence on the wire, and REASON_CODES lists
- * the code. Whether the calling panel renders the reason is not read here.
+ * The browser explains a refusal from `details.reason_key` (the tool's
+ * `reason_<key>` label, else the sentence `server/reasons.ts` declares; the
+ * loader's guard puts it on the wire). Core's tripwire holds the map against
+ * the labels and the guard; this census holds the tool's side of it: no throw
+ * under server/ carries a `publicMessage` of its own, a throw that names a
+ * key names a code that carries one, the module serves exactly the declared
+ * map, and no declared key is dead.
  */
 
 import { describe, expect, test } from 'bun:test';
 import { Glob } from 'bun';
-import { toErrorBody } from '../../src/core/errors/convert.ts';
-import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
-import { ERROR_REGISTRY, type ErrorCode } from '../../src/core/errors/registry.ts';
+import { type ErrorCode, REASON_KEY_CODES } from '../../src/core/errors/registry.ts';
+import { tool } from '../../tools/tool_uca_maps/server/index.ts';
+import { REASON_KEYS } from '../../tools/tool_uca_maps/server/reasons.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 
 const TOOL_DIR = new URL('../../tools/tool_uca_maps/', import.meta.url);
@@ -24,6 +23,8 @@ interface ThrowSite {
 	file: string;
 	code: string | null;
 	publicMessage: boolean;
+	/** Whether the options write `details.reason_key` (a literal or a typed parameter). */
+	reasonKey: boolean;
 	/** Options absent or one inline object literal without a spread: the only
 	 * shape in which a `publicMessage` cannot hide from the census. */
 	inlineOptions: boolean;
@@ -82,6 +83,7 @@ async function throwSites(): Promise<ThrowSite[]> {
 				file: relative,
 				code: literal ? (literal[1] as string) : null,
 				publicMessage: /\bpublicMessage\b/.test(blank.slice(start, end - 1)),
+				reasonKey: /\breason_key\b/.test(blank.slice(start, end - 1)),
 				inlineOptions: isInlineOptions(blank.slice(start, end - 1)),
 			});
 		}
@@ -89,15 +91,19 @@ async function throwSites(): Promise<ThrowSite[]> {
 	return sites;
 }
 
-/** REASON_CODES as the browser reads it — a plain source read, because the
- * module imports core client code by its served URL, not a repo path. */
-async function clientReasonCodes(): Promise<Set<string>> {
-	const source = await Bun.file(new URL('js/tool_error_text.js', TOOL_DIR)).text();
-	const body = /REASON_CODES\s*=\s*new Set\(\[([^\]]*)\]\)/.exec(source);
-	return new Set([...(body?.[1] ?? '').matchAll(/'([^']+)'/g)].map((match) => match[1] as string));
+/** Every server source but the declaration itself, comments stripped. */
+async function serverSources(): Promise<string> {
+	const parts: string[] = [];
+	for await (const relative of new Glob('server/**/*.ts').scan({
+		cwd: Bun.fileURLToPath(TOOL_DIR),
+	})) {
+		if (relative === 'server/reasons.ts') continue;
+		parts.push(stripComments(await Bun.file(new URL(relative, TOOL_DIR)).text()));
+	}
+	return parts.join('\n');
 }
 
-describe('tool_uca_maps — a public message is a message the user reads', () => {
+describe('tool_uca_maps — a refusal says what the declaration says', () => {
 	test('every throw names its code as a literal the census can read', async () => {
 		const sites = await throwSites();
 		expect(sites.length).toBeGreaterThan(30);
@@ -114,31 +120,28 @@ describe('tool_uca_maps — a public message is a message the user reads', () =>
 		expect(isInlineOptions(" ''")).toBe(true);
 	});
 
-	test('a publicMessage rides only a public code that the converter keeps and REASON_CODES lists', async () => {
-		const reasons = await clientReasonCodes();
+	test('no throw carries a sentence of its own: the declaration owns it', async () => {
 		const spoken = (await throwSites()).filter((site) => site.publicMessage);
-		// a floor: a moved directory or a renamed field must not pass as "none"
-		expect(spoken.length).toBeGreaterThanOrEqual(15);
-
-		const wrong = spoken
-			.filter((site) => {
-				const spec = ERROR_REGISTRY[site.code as ErrorCode];
-				return spec?.disclosure !== 'public' || !reasons.has(site.code as string);
-			})
-			.map((site) => `${site.file}: ${site.code}`);
-		expect(wrong).toEqual([]);
-
-		for (const code of new Set(spoken.map((site) => site.code as ErrorCode))) {
-			const body = toErrorBody(new DedaloError(code, { publicMessage: 'the reason' }));
-			expect(body.message).toBe('the reason');
-		}
+		expect(spoken.map((site) => `${site.file}: ${site.code}`)).toEqual([]);
 	});
 
-	test("the client's REASON_CODES are all public: an operator code never carries a reason", async () => {
-		const reasons = await clientReasonCodes();
-		expect(reasons.size).toBeGreaterThanOrEqual(3);
-		for (const code of reasons) {
-			expect(ERROR_REGISTRY[code as ErrorCode]?.disclosure).toBe('public');
-		}
+	test('a throw that names a reason_key names a code that carries one', async () => {
+		const keyed = (await throwSites()).filter((site) => site.reasonKey);
+		// a floor: a moved directory or a renamed field must not pass as "none"
+		expect(keyed.length).toBeGreaterThanOrEqual(13);
+		const wrong = keyed
+			.filter((site) => !REASON_KEY_CODES.includes(site.code as ErrorCode))
+			.map((site) => `${site.file}: ${site.code}`);
+		expect(wrong).toEqual([]);
+	});
+
+	test('the module serves exactly the declared map', () => {
+		expect(tool.reasonKeys).toBe(REASON_KEYS);
+	});
+
+	test('every declared key is thrown somewhere: none is dead', async () => {
+		const code = await serverSources();
+		const dead = Object.keys(REASON_KEYS).filter((key) => !code.includes(`'${key}'`));
+		expect(dead).toEqual([]);
 	});
 });

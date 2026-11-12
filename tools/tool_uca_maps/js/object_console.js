@@ -16,7 +16,7 @@
 
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {response_data, request_failed, ApiError} from '../../../core/common/js/api_error.js'
-import {exception_text, tool_error_text} from './tool_error_text.js'
+import {exception_text} from './panel_error_text.js'
 import {render_console_panel, render_selected_object, render_placeholder} from './render_object_console.js'
 import {is_onexone_rectangle} from './onexone_flags.js'
 import {read_uca_maps} from './uca_maps_data.js'
@@ -893,8 +893,10 @@ const base64_to_blob = function(base64, mime) {
 
 /**
 * DELIVER_DOWNLOAD
-* The tail every server-built download shares: a refusal becomes the text
-* for the button's line; an answer is decoded and handed to the browser.
+* The tail every server-built download shares: a refusal leaves the button's
+* line empty (core's page notice says why, once and translated); an answer
+* with no data gets the download's own text; one with data is decoded and
+* handed to the browser.
 *
 * @param {Object} response - the tool_request envelope
 * @param {string} failed - the download's own fallback text
@@ -904,7 +906,7 @@ export const deliver_download = async function(response, failed) {
 
 	const data = response_data(response)
 	if (!data) {
-		return {ok: false, error: request_failed(response) ? tool_error_text(response.error, failed) : failed}
+		return request_failed(response) ? {ok: false} : {ok: false, error: failed}
 	}
 
 	const {content_base64, filename, mime} = data

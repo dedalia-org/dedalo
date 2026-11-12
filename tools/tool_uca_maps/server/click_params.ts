@@ -14,8 +14,10 @@ export interface ClickParams {
 	y: number;
 }
 
+/** The tool's own client computes the click: a malformed one is a bug, not a
+ * user's reason, so the code goes bare. */
 function invalidClickRequest(message: string): DedaloError {
-	return new DedaloError('request.invalid_options', { message, publicMessage: message });
+	return new DedaloError('request.invalid_options', { message });
 }
 
 /** Parses+vets the client's click payload. Throws on anything malformed. */

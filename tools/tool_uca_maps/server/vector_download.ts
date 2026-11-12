@@ -32,9 +32,10 @@ const VECTOR_FORMATS: Readonly<Record<string, { driver: string; fileName: string
 		},
 	};
 
-/** A caller fault — bad format, missing/malformed geojson. */
+/** A caller fault — bad format, missing/malformed geojson — that only a client
+ * other than the tool's own sends: no user reason, the code goes bare. */
 function invalidVectorRequest(message: string): DedaloError {
-	return new DedaloError('request.invalid_options', { message, publicMessage: message });
+	return new DedaloError('request.invalid_options', { message });
 }
 
 /** One `ogr2ogr` call into `fileName`, returned base64. */

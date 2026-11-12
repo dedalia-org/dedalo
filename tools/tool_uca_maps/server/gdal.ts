@@ -120,7 +120,10 @@ function assertOfflineCrs(crs: unknown): void {
 	const message =
 		"This GeoJSON's crs is a link, which is never followed: name its projection " +
 		'instead (for example "EPSG:25830")';
-	throw new DedaloError('request.invalid_options', { message, publicMessage: message });
+	throw new DedaloError('request.invalid_options', {
+		message,
+		details: { reason_key: 'geojson_crs_link' },
+	});
 }
 
 /**

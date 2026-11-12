@@ -31,6 +31,7 @@ import {
 	withScratchDir,
 	writeFileBase64,
 } from './gdal.ts';
+import type { ReasonKey } from './reasons.ts';
 
 /** Each format's MIME and the extension its file gets (a geotiff is `.tif`). */
 const RASTER_FORMATS: Readonly<Record<string, { mime: string; extension: string }>> = {
@@ -40,9 +41,13 @@ const RASTER_FORMATS: Readonly<Record<string, { mime: string; extension: string 
 	geotiff: { mime: 'image/tiff', extension: 'tif' },
 };
 
-/** A caller fault — bad format, missing/malformed image or bounds. */
-function invalidRasterRequest(message: string): DedaloError {
-	return new DedaloError('request.invalid_options', { message, publicMessage: message });
+/** A caller fault. Only the typed file name has a user reason; the format,
+ * image and bounds are built by the tool's own client, so they go bare. */
+function invalidRasterRequest(message: string, reason?: ReasonKey): DedaloError {
+	return new DedaloError('request.invalid_options', {
+		message,
+		details: reason === undefined ? undefined : { reason_key: reason },
+	});
 }
 
 /** The client's already-projected EPSG:3857 corners (`map_image_download.js`
@@ -88,7 +93,7 @@ export function downloadBaseName(value: unknown, fallback: string): string {
 	}
 	const base = sanitize_download_name(value);
 	if (base === '') {
-		throw invalidRasterRequest('file_name has no usable characters');
+		throw invalidRasterRequest('file_name has no usable characters', 'file_name_unusable');
 	}
 	return base;
 }

@@ -149,9 +149,7 @@ describe('tool_uca_maps GeoJSON crs — only what GDAL resolves offline (pure)',
 				error = caught;
 			}
 			expectCode(error, 'request.invalid_options');
-			expect((error as DedaloError).publicMessage).toMatch(
-				/crs is a link, which is never followed/,
-			);
+			expect((error as DedaloError).details).toEqual({ reason_key: 'geojson_crs_link' });
 		}
 	});
 

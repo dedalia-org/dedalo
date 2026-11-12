@@ -25,9 +25,9 @@ const LEVEL_TO_NATIONAL_LEVEL: Record<string, string> = {
 };
 
 function invalidLevelRequest(): DedaloError {
+	// the level comes from the panel's closed select: no user reason to give
 	return new DedaloError('request.invalid_options', {
 		message: 'A valid administrative level is required.',
-		publicMessage: 'A valid administrative level is required.',
 	});
 }
 

@@ -45,9 +45,10 @@ const MAX_MERCATOR_LAT = 85.0511;
 
 const EARTH_RADIUS = 6378137;
 
-/** A caller fault — bad format, corners, width or name. */
+/** A caller fault — bad format, corners or width. The tool's own client builds
+ * all three, so there is no user reason to give: the code goes bare. */
 function invalidImageDownload(message: string): DedaloError {
-	return new DedaloError('request.invalid_options', { message, publicMessage: message });
+	return new DedaloError('request.invalid_options', { message });
 }
 
 /** The descriptor's three control points, [lat, lon] each — the same shape
@@ -175,7 +176,7 @@ async function readRasterShape(dir: string, path: string): Promise<RasterShape> 
 		throw new DedaloError('tool.unsupported_target', {
 			coordinates: { tool: 'tool_uca_maps' },
 			message: 'image download: CMYK sources are not supported',
-			publicMessage: 'This image is stored in CMYK, which cannot be downloaded from the map.',
+			details: { reason_key: 'image_cmyk' },
 		});
 	}
 	return {
@@ -362,10 +363,10 @@ export async function imageDownload(ctx: ToolActionContext): Promise<ToolRespons
 			? buildMediaLocation(media, identity, source.quality, source.extension, pathOpts)
 			: null;
 	if (!location || !existsSync(location.absolutePath)) {
-		throw new DedaloError('media.file_not_found', {
+		throw new DedaloError('resource.not_found', {
 			coordinates: { section_tipo: identity.sectionTipo, section_id: identity.sectionId },
 			message: `image_download: no file for ${String(ctx.options.file_path ?? served.file_path)}`,
-			publicMessage: 'The image shown on the map is no longer on the server.',
+			details: { reason_key: 'image_not_on_server' },
 		});
 	}
 

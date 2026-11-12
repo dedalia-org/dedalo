@@ -23,6 +23,7 @@ import {
 	resolveGazetteerDir,
 } from './gazetteer_store.ts';
 import { WIN_ANSI_HIGH } from './pdf_writer.ts';
+import type { ReasonKey } from './reasons.ts';
 
 /** v6's own result count for all three searches (10 result slots per panel). */
 const RESULT_LIMIT = 10;
@@ -32,9 +33,14 @@ const DARE_API = 'https://imperium.ahlfeldt.se/api/geojson.php';
 /** DARE's two name fields: modern place name / ancient place name. */
 const DARE_NAME_TYPES: readonly string[] = Object.freeze(['mss', 'ass']);
 
-/** A caller fault — empty, too short or malformed search input. */
-function invalidRequest(message: string): DedaloError {
-	return new DedaloError('request.invalid_options', { message, publicMessage: message });
+/** A caller fault — empty, too short or malformed search input. Only what the
+ * user typed or ticked has a reason; the panel's closed lists and a result's
+ * own id go bare. */
+function invalidRequest(message: string, reason?: ReasonKey): DedaloError {
+	return new DedaloError('request.invalid_options', {
+		message,
+		details: reason === undefined ? undefined : { reason_key: reason },
+	});
 }
 
 /** The third party answered, but not with something usable. */
@@ -298,10 +304,13 @@ async function requireGazetteerDir(): Promise<string> {
 function requireQuery(raw: unknown, minLength: number): string {
 	const query = String(raw ?? '').trim();
 	if (query.length < minLength) {
-		throw invalidRequest(`The search text needs at least ${minLength} characters.`);
+		throw invalidRequest(
+			`The search text needs at least ${minLength} characters.`,
+			'search_text_too_short',
+		);
 	}
 	if (query.length > 200) {
-		throw invalidRequest('The search text is too long.');
+		throw invalidRequest('The search text is too long.', 'search_text_too_long');
 	}
 	return query;
 }
@@ -379,7 +388,7 @@ export async function searchPelagios(ctx: ToolActionContext): Promise<ToolRespon
 	const requested = Array.isArray(ctx.options.datasets) ? ctx.options.datasets.map(String) : [];
 	const datasets = requested.filter((name) => PELAGIOS_DATASETS.includes(name));
 	if (datasets.length === 0) {
-		throw invalidRequest('Select at least one dataset to search.');
+		throw invalidRequest('Select at least one dataset to search.', 'no_dataset_selected');
 	}
 
 	const dir = await requireGazetteerDir();
