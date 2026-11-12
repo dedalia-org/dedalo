@@ -19,14 +19,14 @@
 
 import { getOntologyTermLabel } from '../ontology/labels.ts';
 import { getModelByTipo, getTranslatableByTipo } from '../ontology/resolver.ts';
+import { getToolConfigurationOverride } from './config.ts';
 import type { ToolSimpleContext } from './types.ts';
 
 /**
  * Enrich one raw `tool_config` value (the ontology row's
  * properties.tool_config[toolName]) for the wire. selfTipo/selfSectionTipo
  * replace the 'self' sentinels (PHP $tipo/$section_tipo — null on the menu and
- * start flows; the params exist for the still-unported full get_tools overlay,
- * class.common.php:1874-1913).
+ * start flows; the element on the toolbar/button stamps, resolveElementToolConfig).
  */
 export async function enrichToolConfig(
 	rawToolConfig: unknown,
@@ -74,4 +74,102 @@ export async function buildSectionToolContext(
 	if (toolInfo === undefined) return null;
 	const toolConfig = await enrichToolConfig(toolConfigBag[toolName]);
 	return { ...toolInfo, tool_config: toolConfig };
+}
+
+/** An element's resolved tool_config: the enriched value + where its base came from. */
+export interface ElementToolConfig {
+	/** The enriched tool_config for the wire (null: neither ontology nor override defines one). */
+	enriched: Record<string, unknown> | null;
+	/**
+	 * True when the element's ONTOLOGY defined the tool's config. PHP mutates the
+	 * shared properties object only then (a config created from an override alone
+	 * is a fresh object), so only then do callers write the enriched value back
+	 * into the emitted `properties.tool_config`.
+	 */
+	fromOntology: boolean;
+}
+
+/**
+ * The ONE element tool_config stamp (PHP common::build_structure_context
+ * :1874-1916 / get_buttons_context :4241-4295): the element's ontology
+ * `properties.tool_config[toolName]`, its `ddo_map` replaced by the Tools
+ * configuration / register override for (tipo, sectionTipo) when one matches
+ * (src/core/tools/config.ts getToolConfigurationOverride), enriched with 'self'
+ * resolved to `self` (default: the matched element; a section BUTTON matches on
+ * its own tipo but resolves 'self' to its section — PHP passes $this->tipo).
+ * Never mutates `ontologyToolConfig`.
+ */
+export async function resolveElementToolConfig(
+	toolName: string,
+	ontologyToolConfig: unknown,
+	tipo: string,
+	sectionTipo: string,
+	self: { tipo: string; sectionTipo: string } = { tipo, sectionTipo },
+): Promise<ElementToolConfig> {
+	const fromOntology = ontologyToolConfig !== undefined && ontologyToolConfig !== null;
+	const override = await getToolConfigurationOverride(toolName, tipo, sectionTipo);
+	if (override === null) {
+		if (!fromOntology) return { enriched: null, fromOntology };
+		return {
+			enriched: await enrichToolConfig(ontologyToolConfig, self.tipo, self.sectionTipo),
+			fromOntology,
+		};
+	}
+	// PHP `$tool_config ??= new stdClass(); $tool_config->ddo_map = …` — only the
+	// ddo_map is replaced; every other ontology key of the tool's config stays.
+	const base =
+		typeof ontologyToolConfig === 'object' && ontologyToolConfig !== null
+			? (structuredClone(ontologyToolConfig) as Record<string, unknown>)
+			: {};
+	base.ddo_map = override;
+	return { enriched: await enrichToolConfig(base, self.tipo, self.sectionTipo), fromOntology };
+}
+
+/**
+ * Stamp each tool of an element's toolbar with its config (PHP
+ * common::build_structure_context :1874-1916): resolveElementToolConfig per
+ * tool; a tool with no config ships bare. PHP mutates the SHARED properties
+ * object when the ontology defined the config, so the enriched map then reaches
+ * the wire BOTH on the tool context and on the element's emitted
+ * `properties.tool_config` (the client builds the tool's components from it;
+ * unenriched, tool_common.js falls back to a synthetic single-entry ddo_map and
+ * the configured components never render); a config created from an override
+ * alone is a fresh object and stays off the element's properties.
+ */
+export async function stampElementToolConfigs(
+	entry: { properties?: unknown },
+	tools: ToolSimpleContext[],
+	ontologyToolConfigBag: Record<string, unknown>,
+	tipo: string,
+	sectionTipo: string,
+): Promise<unknown[]> {
+	const stamped: unknown[] = [];
+	for (const tool of tools) {
+		const { enriched, fromOntology } = await resolveElementToolConfig(
+			tool.name,
+			ontologyToolConfigBag[tool.name],
+			tipo,
+			sectionTipo,
+		);
+		if (enriched === null) {
+			stamped.push(tool);
+			continue;
+		}
+		if (fromOntology) writeBackToolConfig(entry, tool.name, enriched);
+		stamped.push({ ...tool, tool_config: enriched });
+	}
+	return stamped;
+}
+
+/** Write an enriched ontology tool_config back into the element's emitted properties. */
+function writeBackToolConfig(
+	entry: { properties?: unknown },
+	toolName: string,
+	enriched: Record<string, unknown>,
+): void {
+	const entryProperties = (entry.properties ?? {}) as Record<string, unknown>;
+	const entryToolConfig = (entryProperties.tool_config ?? {}) as Record<string, unknown>;
+	entryToolConfig[toolName] = structuredClone(enriched);
+	entryProperties.tool_config = entryToolConfig;
+	entry.properties = entryProperties;
 }

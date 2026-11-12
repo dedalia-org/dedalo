@@ -618,7 +618,7 @@ async function mediaCellUrl(
 
 /**
  * One registered tool's simple context for an element, with the element's
- * properties.tool_config[toolName] enriched in (PHP get_structure_context →
+ * properties.tool_config[toolName] (override ddo_map applied) enriched in (PHP get_structure_context →
  * common::get_tools + the tool_config enrichment, the exact objects the av
  * text_area columns embed). `{}` when the tool does not apply to the element
  * (PHP array_find(...) ?? new stdClass()). Memoized per element+tool.
@@ -665,15 +665,17 @@ async function elementToolContext(
 				show_in_inspector: tool.show_in_inspector,
 				show_in_component: tool.show_in_component,
 			};
-			const rawToolConfig = toolConfigBag[toolName];
-			if (rawToolConfig !== undefined && rawToolConfig !== null) {
-				const { enrichToolConfig } = await import('../tools/section_tool_context.ts');
-				context.tool_config = await enrichToolConfig(
-					rawToolConfig,
-					elementTipo,
-					elementSectionTipo,
-				);
-			}
+			// The one element stamp: ontology tool_config with the Tools-
+			// configuration / register override ddo_map (T1-43,
+			// WC-2026-11-12-tool-configuration-override).
+			const { resolveElementToolConfig } = await import('../tools/section_tool_context.ts');
+			const { enriched } = await resolveElementToolConfig(
+				toolName,
+				toolConfigBag[toolName],
+				elementTipo,
+				elementSectionTipo,
+			);
+			if (enriched !== null) context.tool_config = enriched;
 		}
 	} catch (error) {
 		// PHP tolerates a tool context that cannot build (logs, renders {}).

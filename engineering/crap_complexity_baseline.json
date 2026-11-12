@@ -4,8 +4,8 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 926,
-		"functions": 16270,
+		"files": 932,
+		"functions": 16397,
 		"functionsOverCap": 647,
 		"filesOverCap": 256
 	},
@@ -404,7 +404,7 @@
 		"src/core/resolve/relation_list.ts": 38,
 		"src/core/resolve/section_elements_context.ts": 19,
 		"src/core/resolve/security_access_datalist.ts": 20,
-		"src/core/resolve/structure_context.ts": 85,
+		"src/core/resolve/structure_context.ts": 78,
 		"src/core/resolve/tm_filter.ts": 18,
 		"src/core/resolve/truncate_html.ts": 36,
 		"src/core/search/bare_count.ts": 7,
@@ -421,7 +421,7 @@
 		"src/core/search/order_path.ts": 13,
 		"src/core/search/search_related.ts": 15,
 		"src/core/search/sql_assembler.ts": 50,
-		"src/core/section/buttons.ts": 17,
+		"src/core/section/buttons.ts": 16,
 		"src/core/section/indexation_grid.ts": 42,
 		"src/core/section/list_definitions/section_list.ts": 8,
 		"src/core/section/locks.ts": 15,

@@ -292,6 +292,30 @@ Resolution helpers:
 - `getToolConfigValue(toolName, key, fallback)` — **per-key** precedence: install (dd996/dd999) → register default (dd1324/dd1633) → the caller-supplied `fallback`. Preferred for single keys.
 - `getToolClientConfig(toolName)` / `getToolClientConfigRaw(toolName)` — only options flagged `"client": true` in either layer, resolved to their effective value (`ClientConfig`) or kept as the full prop definition (`ClientConfigRaw`, used by the tool element context). Everything else never reaches the browser — never put secrets in a `client: true` property.
 
+### Per-field override of a tool's components (`properties.tool_config`)
+
+A tool's configuration (the *Tools configuration* record, or the register default) may carry `properties.tool_config`: a list of entries, each naming one field or section button and the components the tool works with there.
+
+```json
+{
+  "properties": {
+    "tool_config": [
+      {
+        "tipo": "rsc36",
+        "section_tipo": "rsc167",
+        "ddo_map": [
+          { "tipo": "self", "section_tipo": "self", "role": "transcription_component" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+When the tool is shown on the element whose `tipo` and `section_tipo` match an entry, that entry's `ddo_map` replaces the `ddo_map` the ontology declares in the element's `properties.tool_config.<tool>`; every other key of the ontology's config stays. `self` resolves to the element (on a section button, to its section). For a component, area or section the override only changes a tool the element already offers. On a section button (`button_trigger`, `button_import`) a matching entry alone is enough to put the tool on the button.
+
+Precedence, per entry: the *Tools configuration* record (dd996) first, then the register default (dd1324), then the ontology. `getToolConfigurationOverride(toolName, tipo, sectionTipo)` (`src/core/tools/config.ts`) answers the matching `ddo_map`; every element stamp goes through `resolveElementToolConfig` (`src/core/tools/section_tool_context.ts`). A malformed entry is skipped and logged.
+
 `invalidateAllToolCaches()` (`src/core/tools/cache.ts`) is the single entry point clearing the registry reader, both config caches, the paths memo and the loaded-tools registry; call it (or trigger the "Register tools" widget) after any dd1324/dd996/dd234 write.
 
 ## Lifecycle hooks (optional module properties)

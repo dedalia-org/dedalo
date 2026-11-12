@@ -574,6 +574,25 @@ keeps the full prop definitions, used by the tool element context). Secrets neve
 carry a `client` flag. Tool config is per-tool (via the tool context), **not** in
 the environment payload.
 
+**Tool configuration override** (PHP `tool_common::get_tool_configuration`, T1-43,
+WC-2026-11-12-tool-configuration-override). A config's `properties.tool_config`
+is an array of `{tipo, section_tipo, ddo_map}`; `getToolConfigurationOverride`
+answers the `ddo_map` for an element, per ENTRY: install (dd996) match →
+register default (dd1324) match → null (ontology). The index is built once per
+tool-cache generation (`overrideIndexCache`, reset by `resetConfigCache`);
+malformed entries are skipped with a `console.error`. Every element stamp —
+component/area toolbar (`src/core/resolve/structure_context.ts`), section toolbar
+(`src/core/section/context.ts`), section buttons (`src/core/section/buttons.ts`), indexation-grid
+tool cells (`src/core/section/indexation_grid.ts`) — goes through ONE helper,
+`resolveElementToolConfig` / `stampElementToolConfigs`
+(`src/core/tools/section_tool_context.ts`): only the ontology `ddo_map` is replaced, the
+enriched config is written back into the element's `properties.tool_config` only
+when the ontology defined it, and the override never makes a tool apply — except
+on a section button, where (PHP-exact) a matching entry alone puts the tool on
+the button. Not consulted: the menu and `start` section_tool flows (PHP does not
+either) and the picker write gate's `toolDeclaredTargetIndex` (see the WC).
+Gate: `test/unit/tool_configuration_override_native.test.ts`.
+
 ## Registration (`src/core/tools/register.ts`)
 
 `importTools({dryRun})` scans the roots, parses each `register.json`, detects the

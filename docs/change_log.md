@@ -1062,6 +1062,12 @@ Merged since the last release; these ship with the next one.
     before it, and stopping the server ends the prune between two batches. Rows still owing an
     unpublish to a public site are still never removed.
 
+- **A tool configuration record can again redefine which components a tool uses on one field or button.**
+
+    A *Tools configuration* record (or a tool's registered default configuration) may list, under `properties.tool_config`, the components a tool works with on one specific field or section button. Since the move to v7 those entries were ignored and the tool always used the components the ontology declares. They now apply again: the configuration record wins, then the registered default, then the ontology. Installations upgraded from v6 that carry such entries will see the configured components appear in those tools after updating. Section toolbars now also send each tool's configured components, as the field toolbars always did. See [Server contract](./development/tools/server_contract.md).
+
+    Wire contract: `WC-2026-11-12-tool-configuration-override`.
+
 - **A failed code-only or same-version update now puts the previous code back by itself.**
 
     A code update to a release that does not change the data model (a patch with no `compat`), or
@@ -1148,7 +1154,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 51 entries"
+??? note "Wire contract — 52 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1196,6 +1202,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-posterframe-identifying-image-scope`
     - `WC-2026-11-12-rdf-graph-interpretation`
     - `WC-2026-11-12-select-dataframe-subdatum`
+    - `WC-2026-11-12-tool-configuration-override`
     - `WC-2026-11-12-translation-write-value-gates`
     - `WC-2026-11-12-tree-term-escaped`
     - `WC-2026-11-12-unimplemented-component-models`

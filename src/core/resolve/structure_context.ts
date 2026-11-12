@@ -1363,38 +1363,22 @@ export async function buildStructureContext(options: {
 			toolConfigKeys,
 		});
 		// PHP get_tools stamping (class.common.php:1868-1916): a tool declaring
-		// properties.mode shows only in that mode; when the element's properties
-		// carry a tool_config for the tool, resolve the ddo_map 'self' sentinels
-		// to this element and enrich every entry (model/translatable/label) —
-		// PHP mutates the SHARED properties object, so the enriched map reaches
-		// the wire BOTH on the tool context and on the emitted
-		// properties.tool_config (the client builds the tool's components from
-		// it; unenriched, tool_common.js falls back to a synthetic single-entry
-		// ddo_map and the configured components never render). The per-
-		// (tipo,section_tipo) register-record override branch
-		// (tool_common::get_tool_configuration) is NOT ported: no register
-		// record in the corpus defines one (the 4 textual matches are
-		// description prose), so the ontology branch is the oracle-exercised
-		// path — a future register override needs that branch first.
-		const { enrichToolConfig } = await import('../tools/section_tool_context.ts');
-		const stampedTools: unknown[] = [];
-		for (const tool of elementTools.tools) {
+		// properties.mode shows only in that mode; each remaining tool carries
+		// its config through the ONE element stamp (ontology tool_config, the
+		// Tools-configuration / register override ddo_map, 'self' resolved,
+		// entries enriched — stampElementToolConfigs, T1-43).
+		const { stampElementToolConfigs } = await import('../tools/section_tool_context.ts');
+		const modeTools = elementTools.tools.filter((tool) => {
 			const toolMode = (tool.properties as { mode?: unknown } | null | undefined)?.mode;
-			if (toolMode !== undefined && toolMode !== options.mode) continue;
-			const rawToolConfig = toolConfigBag[tool.name];
-			if (rawToolConfig === undefined || rawToolConfig === null) {
-				stampedTools.push(tool);
-				continue;
-			}
-			const enriched = await enrichToolConfig(rawToolConfig, options.tipo, options.sectionTipo);
-			const entryProperties = (entry.properties ?? {}) as Record<string, unknown>;
-			const entryToolConfig = (entryProperties.tool_config ?? {}) as Record<string, unknown>;
-			entryToolConfig[tool.name] = structuredClone(enriched);
-			entryProperties.tool_config = entryToolConfig;
-			entry.properties = entryProperties;
-			stampedTools.push({ ...tool, tool_config: enriched });
-		}
-		entry.tools = stampedTools;
+			return toolMode === undefined || toolMode === options.mode;
+		});
+		entry.tools = await stampElementToolConfigs(
+			entry,
+			modeTools,
+			toolConfigBag,
+			options.tipo,
+			options.sectionTipo,
+		);
 	}
 
 	// request_config (spec §3.6): explicit from the Site-B SOURCE properties (with

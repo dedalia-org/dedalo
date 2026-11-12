@@ -232,6 +232,10 @@ const ALLOWLISTED_MODULE_LET = new Set<string>([
 	'core/tools/paths.ts:rootsCache',
 	'core/tools/config.ts:defaultConfigCache',
 	'core/tools/config.ts:installConfigCache',
+	// The per-(tool, tipo, section_tipo) override ddo_maps DERIVED from the two
+	// config maps above (T1-43): install-global config data, same lifecycle,
+	// cleared by the same resetConfigCache(); handed out as deep clones only.
+	'core/tools/config.ts:overrideIndexCache',
 	// One-second memo of WHICH job pfiles exist on disk (media/jobs.ts). Request-
 	// INDEPENDENT by construction: it caches a DIRECTORY LISTING of a private
 	// tree, never a record, a user or a language. The in-memory registry is read

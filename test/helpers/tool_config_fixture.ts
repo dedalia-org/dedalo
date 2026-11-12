@@ -74,3 +74,42 @@ export async function withScratchToolConfig<T>(
 		await teardown();
 	}
 }
+
+/**
+ * Install `config` as `toolName`'s REGISTER DEFAULT (dd1324 / dd1633 — the layer
+ * below the Tools configuration). The registered row is the suite database's
+ * own, so this OVERWRITES its dd1633 value and the teardown RESTORES exactly what
+ * was there (the key removed when it was absent). Refused outside the marked
+ * suite database and when the tool has no single registered row.
+ */
+export async function installScratchRegisterDefault(
+	toolName: string,
+	config: Record<string, unknown>,
+): Promise<() => Promise<void>> {
+	await assertTestDatabase('installScratchRegisterDefault');
+	const rows = (await sql`
+		SELECT section_id, misc->'dd1633' AS original FROM matrix_tools
+		WHERE section_tipo = 'dd1324' AND string->'dd1326' @> ${JSON.stringify([{ value: toolName }])}::text::jsonb
+	`) as { section_id: number; original: unknown }[];
+	if (rows.length !== 1) {
+		throw new Error(
+			`installScratchRegisterDefault: expected ONE registered dd1324 row for '${toolName}', found ${rows.length}. Nothing was written.`,
+		);
+	}
+	const [{ section_id: sectionId, original }] = rows as [{ section_id: number; original: unknown }];
+	await sql`
+		UPDATE matrix_tools
+		SET misc = jsonb_set(COALESCE(misc, '{}'::jsonb), '{dd1633}', ${JSON.stringify([{ id: 1, value: config }])}::text::jsonb)
+		WHERE section_tipo = 'dd1324' AND section_id = ${sectionId}`;
+	resetConfigCache();
+	return async () => {
+		if (original === null || original === undefined) {
+			await sql`UPDATE matrix_tools SET misc = misc - 'dd1633' WHERE section_tipo = 'dd1324' AND section_id = ${sectionId}`;
+		} else {
+			await sql`
+				UPDATE matrix_tools SET misc = jsonb_set(misc, '{dd1633}', ${JSON.stringify(original)}::text::jsonb)
+				WHERE section_tipo = 'dd1324' AND section_id = ${sectionId}`;
+		}
+		resetConfigCache();
+	};
+}
