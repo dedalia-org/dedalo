@@ -220,6 +220,7 @@ HERMETIC_TRIPWIRES=(
 	test/unit/orphaned_unsaved_writers_tripwire.test.ts
 	test/unit/security_audit_2026_07_23_tripwire.test.ts
 	test/unit/external_law_registry_tripwire.test.ts
+	test/unit/calculation_fn_registry_tripwire.test.ts
 	test/unit/no_remote_code_tripwire.test.ts
 	test/unit/agent_egress_tripwire.test.ts
 	test/unit/human_write_scope_tripwire.test.ts

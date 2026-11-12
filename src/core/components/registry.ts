@@ -79,7 +79,13 @@ import { component_select_lang } from './component_select_lang/descriptor.ts';
 import { component_state } from './component_state/descriptor.ts';
 import { component_svg } from './component_svg/descriptor.ts';
 import { component_text_area } from './component_text_area/descriptor.ts';
-import type { ComponentModel, ImportAppendPolicy, ItemGateId, RenderClass } from './types.ts';
+import type {
+	CalculationDataId,
+	ComponentModel,
+	ImportAppendPolicy,
+	ItemGateId,
+	RenderClass,
+} from './types.ts';
 
 /** Every registered descriptor. One entry per `component_<model>/descriptor.ts`. */
 const ALL_DESCRIPTORS: readonly ComponentModel[] = [
@@ -193,6 +199,19 @@ export function getSearchBuilderFamily(model: string): ComponentModel['searchBui
  */
 export function getResolveDataId(model: string): ComponentModel['resolveData'] {
 	return resolveCanonical(model)?.resolveData;
+}
+
+/**
+ * What a model feeds a calculation widget input (PHP get_calculation_data),
+ * alias-following: the declared facet, else `relation` for every
+ * relation-column model (derived, as the relation search dispatch), else
+ * undefined — the caller refuses loudly.
+ */
+export function getCalculationDataId(model: string): CalculationDataId | undefined {
+	const descriptor = resolveCanonical(model);
+	if (descriptor === undefined) return undefined;
+	if (descriptor.calculationData !== undefined) return descriptor.calculationData;
+	return descriptor.column === 'relation' ? 'relation' : undefined;
 }
 
 /** Flat display-value family (relation_list grid cells). Alias-following. */

@@ -634,7 +634,7 @@ const SHARED_LISTERS: Readonly<Record<string, SharedLister>> = {
 	'test/helpers/vendored_ontology_corpus.ts': {
 		roots: [['install/import/ontology']],
 		scope:
-			'the vendored ontology PACKAGES — every `<tld>.copy.gz` under install/import/ontology/<major.minor>/ (the release the seed compiles from and the ontology-server role serves), read by external_law_registry_tripwire (every shipped set_dato_external node maps to one law)',
+			'the vendored ontology PACKAGES — every `<tld>.copy.gz` under install/import/ontology/<major.minor>/ (the release the seed compiles from and the ontology-server role serves), read by external_law_registry_tripwire (every shipped set_dato_external node maps to one law) and calculation_fn_registry_tripwire (every shipped calculation formula is registered)',
 	},
 	'test/helpers/migrations_corpus.ts': {
 		roots: [['install/db/migrations']],

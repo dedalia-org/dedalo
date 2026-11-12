@@ -308,9 +308,10 @@ ontology-supplied string would be a code-injection vector.
     `computeCalculation` (`widgets/calculation/calculation.ts`) never loads a
     file or resolves a function by name. Every process function is a STATIC
     entry in `CALCULATION_FUNCTIONS` (`widgets/calculation/functions.ts`);
-    `summarize` / `to_euros` / `calculate_period` are the available formulas,
-    and an unknown `process.fn` resolves to no output rather than executing
-    anything. The `process.file` / `engine` keys are ignored (verification
+    the nine formulas the shipped ontology declares are registered there, and
+    an unknown `process.fn` is refused with `ontology.invalid_node` rather than
+    executing anything (a tripwire proves every shipped `process.fn` is
+    registered). The `process.file` / `engine` keys are ignored (verification
     data only). If a widget needs a
     configurable formula, add a STATIC entry there — never re-introduce a
     dynamic include of ontology-supplied code.

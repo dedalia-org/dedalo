@@ -14,5 +14,6 @@ export const component_info: ComponentModel = {
 	},
 	importValueProperty: true,
 	emitHook: 'info',
+	calculationData: 'info', // PHP get_calculation_data (components/calculation_data.ts)
 	sortable: false, // PHP component_info::get_sortable() → false (also covers state/calculation aliases)
 };

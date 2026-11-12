@@ -13,4 +13,5 @@ export const component_number: ComponentModel = {
 	flatValue: 'string',
 	importValueProperty: true,
 	importConform: 'number',
+	calculationData: 'number', // PHP get_calculation_data (components/calculation_data.ts)
 };

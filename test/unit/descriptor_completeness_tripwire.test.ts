@@ -525,6 +525,25 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 		}
 	});
 
+	test('calculationData is never declared on a relation-column model (derived) nor an alias', () => {
+		// components/registry.ts getCalculationDataId DERIVES `relation` from
+		// column === 'relation'; a declared facet there would shadow the walk.
+		// Aliases inherit their canonical model's facet.
+		const declared = descriptors.filter((descriptor) => descriptor.calculationData !== undefined);
+		expect(declared.map((descriptor) => descriptor.model).sort()).toEqual([
+			'component_date',
+			'component_info',
+			'component_number',
+		]);
+		for (const descriptor of declared) {
+			expect(
+				descriptor.column,
+				`${descriptor.model}: calculationData on a relation column`,
+			).not.toBe('relation');
+			expect(descriptor.alias, `${descriptor.model}: calculationData on an alias`).toBeUndefined();
+		}
+	});
+
 	test('every canonical non-relation model made an explicit search decision', () => {
 		for (const descriptor of descriptors) {
 			if (!isCanonical(descriptor) || descriptor.column === 'relation') continue;

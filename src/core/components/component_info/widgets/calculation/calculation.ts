@@ -1,76 +1,158 @@
 /**
- * calculation widget (PHP core/widgets/calculation + formulas.php / mdcat.php).
+ * calculation widget (PHP core/widgets/calculation, class.calculation.php).
  *
- * The generic calculation engine: resolve each declared input component to
- * its get_calculation_data value (get_value — the atoms flat string; null
- * when the component holds nothing), run the declared formula, and emit one
- * {widget, key, id, value} item per output id the formula produced.
+ * The generic calculation engine, per ipo block: resolve each declared input
+ * component to its calculation data (components/calculation_data.ts — the
+ * descriptor facet `calculationData`, PHP per-model get_calculation_data, with
+ * the input's own `options`), run the declared formula from the STATIC fn
+ * registry (./functions.ts — the TS answer to PHP SEC-052 dynamic includes),
+ * and emit one {widget, key, id, value} item per output id the formula
+ * produced.
  *
- * Formulas live in the STATIC fn registry (./functions.ts — the TS answer to
- * PHP SEC-052 dynamic includes); each carries its own defect pins.
+ * Input scopes (PHP resolve_data): section_id 'current' — or absent, a
+ * standing TS reading — iterates the components; a literal id resolves NO
+ * components (PHP default branch). The 'all' / 'search_session' aggregate
+ * scopes and `filter: true` SQO inputs are not implemented: they REFUSE
+ * (engine.uncovered_scope) — the calculation_fn_registry_tripwire proves the
+ * shipped ontology declares none.
  *
- * Input scopes: only section_id 'current' iterates components (as PHP);
- * literal ids resolve NO components (PHP default branch). The 'all' /
- * 'search_session' aggregate scopes and filter:true SQO inputs are UNPORTED
- * (no ontology instance uses them) — they resolve like the empty map.
- * The 'date' summarize type is likewise unported (no instance).
+ * Refusals (ontology.invalid_node, never a silently blank value): a block
+ * without `process.fn` (PHP reused the previous block's result), an fn the
+ * registry does not hold, an input without tipo / var_name.
+ * WC-2026-11-12-calculation-widget-port.
  */
 
+import { DedaloError } from '../../../../errors/dedalo_error.ts';
+import { calculationDataOf } from '../../../calculation_data.ts';
 import {
 	type InfoWidgetDescriptor,
-	readWidgetComponentData,
 	resolveCurrent,
 	type WidgetContext,
 	type WidgetItem,
 } from '../widget_common.ts';
-import { CALCULATION_FUNCTIONS } from './functions.ts';
+import { CALCULATION_FUNCTIONS, type CalculationFn } from './functions.ts';
+
+/** One ipo block as the ontology declares it. */
+interface CalculationBlock {
+	input?: {
+		section_tipo?: string;
+		/** Ontology-authored scope: 'current' / 'all' / 'search_session' or a literal id. */
+		section_id?: unknown;
+		filter?: unknown;
+		components?: unknown[];
+	};
+	process?: { fn?: string; options?: unknown };
+	output?: { id?: string }[];
+}
+
+/** Aggregate scopes PHP implemented over search sessions / whole sections. */
+const AGGREGATE_SCOPES: ReadonlySet<string> = new Set(['all', 'search_session']);
+
+/** The registered formula a block names — or a loud refusal. */
+function blockFunction(block: CalculationBlock, key: number): CalculationFn {
+	const name = block.process?.fn;
+	if (typeof name !== 'string') {
+		throw new DedaloError('ontology.invalid_node', {
+			message: `calculation ipo[${key}] declares no process.fn`,
+			coordinates: { ipo_key: key },
+		});
+	}
+	if (!Object.hasOwn(CALCULATION_FUNCTIONS, name)) {
+		throw new DedaloError('ontology.invalid_node', {
+			message: `calculation ipo[${key}]: process fn '${name}' is not a registered calculation function`,
+			coordinates: { ipo_key: key, fn: name },
+		});
+	}
+	return CALCULATION_FUNCTIONS[name] as CalculationFn;
+}
+
+/** Refuse the not-implemented scopes: 'all' / 'search_session' aggregates, filter:true. */
+function assertImplementedScope(input: NonNullable<CalculationBlock['input']>, key: number): void {
+	const scope = input.section_id;
+	const aggregate = typeof scope === 'string' && AGGREGATE_SCOPES.has(scope);
+	if (!aggregate && input.filter !== true) return;
+	throw new DedaloError('engine.uncovered_scope', {
+		message: `calculation ipo[${key}]: input scope '${scope}' (filter ${input.filter}) is not implemented`,
+		coordinates: { ipo_key: key, scope: `${scope}` },
+	});
+}
+
+/** One declared input component, refused when it names no tipo / var_name. */
+function inputComponent(
+	component: unknown,
+	key: number,
+): { tipo: string; var_name: string; options: unknown } {
+	const entry = component as { tipo?: unknown; var_name?: unknown; options?: unknown } | null;
+	if (typeof entry?.tipo !== 'string' || typeof entry.var_name !== 'string') {
+		throw new DedaloError('ontology.invalid_node', {
+			message: `calculation ipo[${key}]: an input component lacks tipo / var_name`,
+			coordinates: { ipo_key: key },
+		});
+	}
+	return { tipo: entry.tipo, var_name: entry.var_name, options: entry.options ?? null };
+}
+
+/** var_name → calculation data of every input (PHP resolve_data). */
+async function resolveInputs(
+	block: CalculationBlock,
+	key: number,
+	context: WidgetContext,
+): Promise<Record<string, unknown>> {
+	const input = block.input ?? {};
+	assertImplementedScope(input, key);
+	const dataMap: Record<string, unknown> = {};
+	// A literal id resolves no components (PHP default branch); absent = current.
+	const scope = input.section_id;
+	if (scope !== 'current' && scope !== undefined) return dataMap;
+	const sectionTipo = String(resolveCurrent(input.section_tipo, context.sectionTipo));
+	for (const component of input.components ?? []) {
+		const { tipo, var_name, options } = inputComponent(component, key);
+		dataMap[var_name] = await calculationDataOf(
+			tipo,
+			sectionTipo,
+			context.sectionId,
+			options,
+			context,
+		);
+	}
+	return dataMap;
+}
+
+/** The block's `process.options` as an object ({} when absent or not an object). */
+function processOptions(block: CalculationBlock): Record<string, unknown> {
+	const options = block.process?.options;
+	return options !== null && typeof options === 'object' && !Array.isArray(options)
+		? (options as Record<string, unknown>)
+		: {};
+}
+
+/** One {widget, key, id, value} item per declared output the formula produced. */
+function outputItems(
+	block: CalculationBlock,
+	key: number,
+	result: { id: string; value: unknown }[],
+): WidgetItem[] {
+	const items: WidgetItem[] = [];
+	for (const outputMap of Array.isArray(block.output) ? block.output : []) {
+		const id = outputMap.id ?? '';
+		const found = result.find((item) => item.id === id);
+		if (found !== undefined) items.push({ widget: 'calculation', key, id, value: found.value });
+	}
+	return items;
+}
 
 async function computeCalculation(ipo: unknown[], context: WidgetContext): Promise<WidgetItem[]> {
 	const data: WidgetItem[] = [];
 	for (const [key, entry] of ipo.entries()) {
-		const block = entry as {
-			input?: {
-				section_tipo?: string;
-				section_id?: string;
-				components?: { tipo?: string; var_name?: string }[];
-			};
-			process?: { fn?: string; options?: { type?: string; precision?: number } };
-			output?: { id?: string }[];
-		};
-		const output = Array.isArray(block.output) ? block.output : [];
-		const input = block.input ?? {};
-		const sectionTipo = String(resolveCurrent(input.section_tipo, context.sectionTipo));
-
-		// data map: var_name → flat value string | null (get_calculation_data)
-		const dataMap: Record<string, string | null> = {};
-		if (input.section_id === 'current' || input.section_id === undefined) {
-			for (const component of input.components ?? []) {
-				if (component.tipo === undefined || component.var_name === undefined) continue;
-				const items = (await readWidgetComponentData(
-					sectionTipo,
-					context.sectionId,
-					component.tipo,
-				)) as { value?: unknown }[];
-				const values = items
-					.map((item) => item?.value)
-					.filter((value) => value !== undefined && value !== null && value !== '');
-				dataMap[component.var_name] = values.length > 0 ? values.join(', ') : null;
-			}
-		}
-
-		// formula — static registry dispatch (unknown fn → PHP resolve_logic
-		// refuses, SEC-052 → no output)
-		const fn =
-			block.process?.fn !== undefined ? CALCULATION_FUNCTIONS[block.process.fn] : undefined;
-		const result = fn !== undefined ? fn({ dataMap, options: block.process?.options }) : [];
-
-		for (const dataMap2 of output) {
-			const id = dataMap2.id ?? '';
-			const found = result.find((item) => item.id === id);
-			if (found !== undefined) {
-				data.push({ widget: 'calculation', key, id, value: found.value });
-			}
-		}
+		const block = (entry ?? {}) as CalculationBlock;
+		const fn = blockFunction(block, key);
+		const dataMap = await resolveInputs(block, key, context);
+		const result = fn({
+			dataMap,
+			options: processOptions(block),
+			callerSectionTipo: context.sectionTipo,
+		});
+		data.push(...outputItems(block, key, result));
 	}
 	return data;
 }

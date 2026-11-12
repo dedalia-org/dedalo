@@ -912,7 +912,7 @@ const INLINE_SECTION_ID_MATCH_RATCHET = new Set<string>([
 	// the PHP-verbatim '2' sentinel + strict thesaurus matchers and the
 	// 'current'/'self' IPO sentinel checks moved with their widgets (net zero
 	// — same code, new homes; the one info_widgets.ts entry became these five).
-	'src/core/components/component_info/widgets/calculation/calculation.ts',
+	// calculation.ts retired 2026-11-12 (T1-1): the scope check reads a local.
 	'src/core/components/component_info/widgets/numisdata/get_archive_weights.ts',
 	'src/core/components/component_info/widgets/numisdata/get_coins_by_period.ts',
 	'src/core/components/component_info/widgets/oh/media_icons.ts',

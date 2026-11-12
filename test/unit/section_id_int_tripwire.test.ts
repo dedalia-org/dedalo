@@ -109,7 +109,10 @@ const DECL_CEILINGS = new Map<string, number>([
 	['src/core/relations/parent.ts', 4],
 	['src/core/relations/related.ts', 5],
 	['src/core/relations/relation_core.ts', 1],
-	['src/core/relations/request_config/filters.ts', 3],
+	// filters.ts 3→1 (T1-1, 2026-11-12): the ddo_map walk moved to
+	// relations/component_data_walk.ts, which keeps ONE (its WalkAddress cursor).
+	['src/core/relations/component_data_walk.ts', 1],
+	['src/core/relations/request_config/filters.ts', 1],
 	['src/core/relations/save.ts', 2],
 	['src/core/resolve/component_data.ts', 1],
 	['src/core/resolve/dd_info.ts', 4],

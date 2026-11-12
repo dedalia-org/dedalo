@@ -224,21 +224,31 @@ add an entry to `CALCULATION_FUNCTIONS`:
 export const CALCULATION_FUNCTIONS: Readonly<Record<string, CalculationFn>> = {
   summarize({ dataMap, options }) { /* … */ },
   to_euros({ dataMap }) { /* … */ },
-  calculate_period() { /* … */ },
+  calculate_period({ dataMap, options }) { /* … */ },
+  // … the other shipped formulas …
   // add yours:
   multiply({ dataMap }) {
-    const nums = Object.values(dataMap)
-      .filter((v): v is string => v !== null)
-      .map(Number)
-      .filter((n) => Number.isFinite(n));
-    if (nums.length === 0) return [{ id: 'total', value: 0 }];
-    return [{ id: 'total', value: nums.reduce((a, b) => a * b, 1) }];
+    const numbers = Object.values(dataMap)
+      .flatMap((value) => (Array.isArray(value) ? value : []))
+      .filter((value): value is number => typeof value === 'number');
+    if (numbers.length === 0) return [{ id: 'total', value: 0 }];
+    return [{ id: 'total', value: numbers.reduce((a, b) => a * b, 1) }];
   },
 };
 ```
 
-A `CalculationFn` receives `{dataMap, options}` where `dataMap` maps each input
-`var_name` to its flat value string (or `null`), and returns `{id, value}[]`.
+A `CalculationFn` receives `{dataMap, options, callerSectionTipo}` and returns
+`{id, value}[]`. `dataMap` maps each input `var_name` to what that input's
+model feeds a calculation (the descriptor facet `calculationData`,
+`src/core/components/calculation_data.ts`):
+
+| Input model | What the formula receives |
+|---|---|
+| `component_number` | the stored values as a list of numbers (`[]` when empty) |
+| `component_date` | the input `options.select` part (default `start`): with `options.format: "dd_date"` the first item's date object tagged `format` `date` / `period`, otherwise the sum of the parts as Unix seconds; `false` when an item lacks the part |
+| `component_info` (and its `component_calculation` alias) | the live compute's `options.select` values (default `value`) |
+| relation models (`component_portal`, …) | each locator walks the input's `options.ddo_map` from its `self` ddo: a ddo with `fn: "get_calculation_data"` feeds its own calculation data, a plain leaf its item values; `null` when there are no locators |
+
 `computeCalculation` (`calculation/calculation.ts`) then emits one item per
 `output.id` the formula produced. The ontology block wires it:
 
@@ -262,13 +272,17 @@ A `CalculationFn` receives `{dataMap, options}` where `dataMap` maps each input
 !!! note "`process.file` / `engine` are legacy — ignored"
     TS dispatches only on `process.fn` through the static registry. Older
     ontology records may still carry `file` / `engine` keys from before the
-    cutover; they are read but never used to load code. An unknown `fn` resolves
-    to no output — a deliberate, honest refusal rather than a silent no-op.
+    cutover; they are read but never used to load code. An unknown `fn` is
+    refused with `ontology.invalid_node` — the read reports the broken
+    definition instead of showing an empty field.
 
-!!! warning "`summarize` / `to_euros` currently emit no output for non-empty input"
-    These process functions emit `[]` when any input is non-empty (see the pins
-    in `functions.ts`); with all inputs empty both emit `total 0`. Implementing
-    the real sum is open work — reconcile the gate in `functions.ts` when it lands.
+!!! warning "What a calculation refuses"
+    `ontology.invalid_node`: a block without `process.fn`, an input without
+    `tipo` / `var_name`, a relation input without a `self`-anchored
+    `ddo_map`, a calculation that depends on itself (directly or through other
+    calculations), a chain deeper than 16. `engine.uncovered_scope`: the
+    `section_id` scopes `all` / `search_session`, `filter: true`, and an input
+    whose model has no `calculationData` facet.
 
 ---
 

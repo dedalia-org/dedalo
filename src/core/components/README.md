@@ -83,6 +83,13 @@ bottom; the descriptor-facet steps are enforced by
    (stored slice, or computed for `relation_children` / `relation_index`) —
    a new relation model with a new data contract extends THOSE, never a
    consumer.
+7b. Feeds a `calculation` widget input? Declare `calculationData` — one of
+   `'number'`, `'date'`, `'info'` (PHP per-model `get_calculation_data`;
+   implementations in `components/calculation_data.ts` `CALCULATION_DATA`).
+   Relation-column models never declare it: they DERIVE `'relation'` (the
+   ddo_map walk, `relations/component_data_walk.ts`). Omitted = an input
+   naming the model refuses loudly (`engine.uncovered_scope`);
+   `calculation_fn_registry_tripwire` proves every shipped input has one.
 8. Emit-time particularity? Declare `emitHook` (an `EmitHookId`) and add its
    implementation to `components/emit_hooks.ts` EMIT_HOOKS — in the model's
    own folder (`component_<model>/emit.ts`) or its engine home (the media

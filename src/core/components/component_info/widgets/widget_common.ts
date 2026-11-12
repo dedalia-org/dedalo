@@ -36,6 +36,13 @@ export interface WidgetContext {
 	userId?: number | null;
 	/** Global-admin flag of that user (admins resolve the superuser tool set, PHP parity). */
 	isAdmin?: boolean;
+	/**
+	 * The calculation inputs being computed above this one (`tipo@section/id`
+	 * keys, outermost first) — threaded BY ARGUMENT through chained calculation
+	 * inputs (components/calculation_data.ts) so a cycle refuses instead of
+	 * recursing. Absent at a top-level read.
+	 */
+	calculationStack?: readonly string[];
 }
 
 /**

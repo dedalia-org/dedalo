@@ -4,10 +4,10 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 918,
-		"functions": 16065,
-		"functionsOverCap": 652,
-		"filesOverCap": 257
+		"files": 920,
+		"functions": 16133,
+		"functionsOverCap": 650,
+		"filesOverCap": 256
 	},
 	"ledger": [
 		{
@@ -205,6 +205,11 @@
 			"generated": "2026-11-12",
 			"functionsOverCap": 652,
 			"filesOverCap": 257
+		},
+		{
+			"generated": "2026-11-12",
+			"functionsOverCap": 650,
+			"filesOverCap": 256
 		}
 	],
 	"files": {
@@ -252,7 +257,6 @@
 		"src/core/client_libs/serving.ts": 11,
 		"src/core/components/component_date/date_value.ts": 20,
 		"src/core/components/component_external/value.ts": 12,
-		"src/core/components/component_info/widgets/calculation/calculation.ts": 16,
 		"src/core/components/component_info/widgets/dd/user_activity.ts": 17,
 		"src/core/components/component_info/widgets/dmm/get_archive_states.ts": 32,
 		"src/core/components/component_info/widgets/grid.ts": 16,

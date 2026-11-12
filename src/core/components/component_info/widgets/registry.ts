@@ -21,13 +21,10 @@
  * Async widgets (isAsync — PHP is_async() true) are SKIPPED here exactly as
  * PHP skips them: they deliver via their own client API call (get_widget_data).
  *
- * (!) PHP LIVE DEFECT (extends defect #5): the 'calculation' widget's
- * summarize formula crashes live PHP on any NON-EMPTY input
- * ("array_sum(): Argument #1 must be of type array, string given") — reading
- * an unstored component_calculation with data kills the whole request. The
- * TS engine (calculation/calculation.ts) covers every surviving path (empty
- * inputs, to_euros, calculate_period) and emits [] for the crash case; see
- * the pins in test/parity/info_widget_differential.test.ts.
+ * The 'calculation' widget (calculation/calculation.ts) computes every
+ * formula the shipped ontology declares over typed inputs
+ * (components/calculation_data.ts); PHP crashed its summarize on any
+ * non-empty input (WC-2026-11-12-calculation-widget-port).
  */
 
 import { getNode } from '../../../ontology/resolver.ts';

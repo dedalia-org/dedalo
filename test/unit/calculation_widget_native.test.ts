@@ -1,39 +1,40 @@
 /**
  * calculation widget (component_calculation → component_info) — TS-NATIVE
- * half, the DEC-14b survival twin of
- * test/parity/calculation_widget_differential.test.ts (its PHP legs die with
- * the oracle; the contracts it pinned survive HERE against the TS engine
- * alone).
+ * gate. Born as the DEC-14b survival twin of
+ * test/parity/calculation_widget_differential.test.ts; since T1-1 (2026-11-12)
+ * it is the gate of the PORTED widget: the per-model calculation data
+ * (descriptor facet `calculationData`, components/calculation_data.ts), the
+ * nine registered formulas and the loud refusals.
  *
- * Re-expressed contracts (scratch test6247 twins — metal analyses):
- *  - SAVE: saving a metal number (test6250 = 40.5) through dispatchRqo
- *    persists to the `number` column while the test6523 calculation
- *    output stays NULL in every candidate column — TS computes nothing at
- *    save time (DEC-06). This is the differential's byte-pinned end-state
- *    {input:[{id:1,value:40.5}], output:null} (equal on both engines: PHP's
- *    save-time compute is a pinned live defect — array_sum crashes AFTER the
- *    value persists, so the effective PHP outcome is the same);
- *  - READ, empty inputs: reading test6523 on a fresh twin (no metals)
- *    emits the golden [{widget:'calculation', key:0, id:'total',
- *    widget_id:'total', value:0}] — oracle-pinned by
- *    test/parity/info_widget_differential.test.ts ('summarize survives with
- *    EMPTY inputs', WC-026 dual id/widget_id keys);
- *  - READ, non-empty inputs: the summarize formula emits NO output (the
- *    PHP-crash defect pin's effective outcome — entries []), also
- *    oracle-pinned by info_widget_differential's calc twin.
+ * DIVERGES FROM PHP by owner ruling 2026-11-11 +
+ * WC-2026-11-12-calculation-widget-port: a NON-EMPTY input is SUMMED (PHP crashed in array_sum on the
+ * flat string its base get_calculation_data returned — the old pin here was
+ * that crash's effective outcome, `[]`).
  *
- * NOT re-expressed: the differential's stored-output READ pin
- * (test6247/17 → total 100.18) asserts a MUTABLE production record's
- * stored widget value — forbidden natively; the empty-input golden above is
- * its survival shape.
+ * Contracts (records built at runtime on the `test` twins of the shipped
+ * calculation nodes — every situation built here, nothing read from ambient
+ * data):
+ *  - SAVE: saving a metal number (test6250 = 40.5) persists to the `number`
+ *    column while the test6523 calculation output stays NULL in every
+ *    candidate column (DEC-06: nothing is computed at save time).
+ *  - C1 number sum: test6523 sums the metals (float, precision 2).
+ *  - C2 date summarize: start + period → the date in the start's shape;
+ *    pre-1970 years; a period with no anchor date → null (test1225, test4473).
+ *  - C3 range_to_days, C4 days_correction_manually (test4334: test4346/test4822).
+ *  - C5 relation inputs: a portal + ddo_map `get_calculation_data` leaf
+ *    (test4627 over test4333 → test4822) and a plain number leaf (test4593 over
+ *    test4591 → test4587, v6 dato parity).
+ *  - C6 the grant chain on one host: calculate_period, calculate_import_major/
+ *    minor, to_euros, subtract, final_total (minor + manual branches).
+ *  - OD-2 / OD-1 boundaries: the zero-day import refuses until ruled.
+ *  - C7 refusals on a scratch zz situation: unknown fn, no process, info
+ *    cycle, aggregate scope, filter:true, relation input without ddo_map, a
+ *    model without the facet — plus the int summarize over two numbers.
+ *  - C9 the dd_date ↔ unix seconds math (years 0–99 are real years).
  *
- * SOFTENED / TS-side note: the SAVE response envelope is not asserted (never
- * oracle-pinned — the PHP save died in the widget); the DB end-state is the
- * contract.
- *
- * Scratch hygiene: two fresh test6247 records (matrix_test — the clone's own
- * table), rows + TM swept
- * fail-loud in afterAll.
+ * Scratch hygiene: every record this gate creates (rows, TM rows and its
+ * activity rows) is swept fail-loud in afterAll; the zz situation is dropped
+ * to zero residue.
  *
  * @twin-of      test/parity/calculation_widget_differential.test.ts
  * @twin-status  retired
@@ -45,23 +46,63 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { dispatchRqo } from '../../src/core/api/dispatch.ts';
+import { computeInfoWidgets } from '../../src/core/components/component_info/widgets/registry.ts';
+import {
+	ddDateFromUnixSeconds,
+	ddDateToUnixSeconds,
+} from '../../src/core/concepts/dd_date_time.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
+import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
+import {
+	dropSituation,
+	ensureSituation,
+	situation,
+} from '../../src/core/test_data/situations/situation.ts';
+import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
+import { sweepActivityRows } from '../helpers/activity_rows.ts';
 import { registerSessionCleanup } from '../helpers/session_cleanup.ts';
 
 registerSessionCleanup();
 
-const SECTION = 'test6247'; // metal analyses (stores in matrix_test)
+const SECTION = 'test6247'; // metal analyses
 const INPUT = 'test6250'; // 'au' number
-const OUTPUT = 'test6523'; // 'total' calculation
+const INPUT_AG = 'test6251'; // 'ag' number
+const OUTPUT = 'test6523'; // 'total' calculation (summarize float)
 
-let savedId = 0;
-let emptyId = 0;
-let savedState: Record<string, unknown> = {};
-let savedEntries: unknown;
-let emptyEntries: unknown;
+// date summarize hosts (twins of dmm262 / mdcat2096)
+const DATE_HOST = 'test1030';
+const DATE_START = 'test1224';
+const DATE_PERIOD = 'test1226';
+const DATE_TOTAL = 'test1225';
+const DATE_HOST_B = 'test4457';
+const DATE_B_START = 'test4471';
+const DATE_B_PERIOD = 'test4472';
+const DATE_B_TOTAL = 'test4473';
+
+// days (twins of mdcat1957 / mdcat1968 / mdcat1969 / mdcat2918 / mdcat2919)
+const DAYS = 'test4334';
+const DAYS_RANGE = 'test4345'; // component_date start/end
+const DAYS_COUNT = 'test4346'; // range_to_days
+const DAYS_MANUAL = 'test4821'; // component_number
+const DAYS_TOTAL = 'test4822'; // days_correction_manually
+
+// grant host (twin of the mdcat grant section)
+const GRANT = 'test4308';
+const GRANT_DAYS_PORTAL = 'test4333'; // → DAYS
+const HEIRS_PORTAL = 'test4591'; // → HEIR
+const HEIR = 'test4583';
+const HEIR_AMOUNT = 'test4587'; // component_number
+const GRANT_IMPORT_MANUAL = 'test4661';
+const GRANT_PAID = 'test4663';
+
+type Columns = Record<string, Record<string, unknown>>;
+
+/** Every record this gate creates, for the fail-loud sweep. */
+const created: { section: string; id: number }[] = [];
 
 async function rootContext(): Promise<Record<string, unknown>> {
 	const token = createSession(-1, 'root', true);
@@ -75,6 +116,30 @@ async function rootContext(): Promise<Record<string, unknown>> {
 		principal,
 	};
 }
+
+/** Create a record and write its component columns (merged per column). */
+async function record(section: string, columns: Columns = {}): Promise<number> {
+	await assertTestDatabase('calculation_widget_native record');
+	const id = await createSectionRecord(section, -1);
+	created.push({ section, id });
+	const table = await getMatrixTableFromTipo(section);
+	for (const [column, value] of Object.entries(columns)) {
+		await sql.unsafe(
+			`UPDATE ${table} SET ${column} = COALESCE(${column}, '{}'::jsonb) || $1::text::jsonb
+			 WHERE section_tipo = $2 AND section_id = $3`,
+			[JSON.stringify(value), section, id],
+		);
+	}
+	return id;
+}
+
+const number = (value: number) => [{ id: 1, value }];
+const locator = (from: string, section: string, id: number) => ({
+	type: 'dd151',
+	section_tipo: section,
+	section_id: id,
+	from_component_tipo: from,
+});
 
 /** The differential's exact SAVE RQO (PHP-verified wire shape). */
 function saveRqo(id: number): Record<string, unknown> {
@@ -106,8 +171,8 @@ function saveRqo(id: number): Record<string, unknown> {
 	};
 }
 
-/** The differential's READ RQO (ddo_map over the calculation output). */
-function readRqo(id: number): Record<string, unknown> {
+/** A list READ of one component of one record, through the wire. */
+function readRqo(section: string, id: number, tipo: string): Record<string, unknown> {
 	return {
 		action: 'read',
 		dd_api: 'dd_core_api',
@@ -116,19 +181,19 @@ function readRqo(id: number): Record<string, unknown> {
 		source: {
 			typo: 'source',
 			model: 'section',
-			tipo: SECTION,
-			section_tipo: SECTION,
+			tipo: section,
+			section_tipo: section,
 			action: 'search',
 			mode: 'list',
 			lang: 'lg-spa',
 		},
 		sqo: {
-			section_tipo: [SECTION],
+			section_tipo: [section],
 			limit: 1,
 			offset: 0,
-			filter_by_locators: [{ section_tipo: SECTION, section_id: String(id) }],
+			filter_by_locators: [{ section_tipo: section, section_id: String(id) }],
 		},
-		show: { ddo_map: [{ tipo: OUTPUT, section_tipo: SECTION, parent: SECTION, mode: 'list' }] },
+		show: { ddo_map: [{ tipo, section_tipo: section, parent: section, mode: 'list' }] },
 	};
 }
 
@@ -143,56 +208,405 @@ async function stateOf(id: number): Promise<Record<string, unknown>> {
 	return { input: rows[0]?.input ?? null, output: rows[0]?.output ?? null };
 }
 
-async function readEntries(id: number): Promise<unknown> {
+/** The served entries of one component (one row), through dispatchRqo. */
+async function entriesOf(section: string, id: number, tipo: string): Promise<unknown> {
 	const context = await rootContext();
-	const response = (await dispatchRqo(structuredClone(readRqo(id)) as never, context as never))
-		.body as { data?: { data?: { entries?: unknown }[] } };
-	return (response.data?.data ?? []).slice(1).map((item) => item.entries);
+	const response = (
+		await dispatchRqo(structuredClone(readRqo(section, id, tipo)) as never, context as never)
+	).body as {
+		ok?: boolean;
+		error?: unknown;
+		data?: { data?: { tipo?: string; entries?: unknown }[] };
+	};
+	if (response.ok === false) throw new Error(`read refused: ${JSON.stringify(response.error)}`);
+	return (response.data?.data ?? []).find((item) => item.tipo === tipo)?.entries;
 }
 
-beforeAll(async () => {
-	savedId = await createSectionRecord(SECTION, -1);
-	emptyId = await createSectionRecord(SECTION, -1);
+/** One `total` item as served (WC-026 dual keys). */
+const totalItem = (value: unknown, key = 0) => ({
+	widget: 'calculation',
+	key,
+	id: 'total',
+	widget_id: 'total',
+	value,
+});
 
+/** The served value of the `total` output. */
+async function totalOf(section: string, id: number, tipo: string): Promise<unknown> {
+	const entries = (await entriesOf(section, id, tipo)) as { id?: string; value?: unknown }[];
+	return entries.find((item) => item.id === 'total')?.value;
+}
+
+/** The engine compute of one calculation, without the wire (refusal legs). */
+function compute(tipo: string, sectionTipo: string, sectionId: number) {
+	return computeInfoWidgets(tipo, { sectionTipo, sectionId, mode: 'list', lang: 'lg-nolan' });
+}
+
+/** The DedaloError code a compute rejects with (fails loud when it resolves). */
+async function refusalOf(
+	promise: Promise<unknown>,
+): Promise<{ code: string; coordinates: unknown }> {
+	try {
+		await promise;
+	} catch (error) {
+		if (error instanceof DedaloError) return { code: error.code, coordinates: error.coordinates };
+		throw error;
+	}
+	throw new Error('expected a refusal, the compute resolved');
+}
+
+// --- refusal / int situation (scratch zz TLD) --------------------------------
+
+const ZZ = 'zzcalc';
+const ZZ_HOST = 'zzcalc1';
+const ZZ_NUM_A = 'zzcalc2';
+const ZZ_NUM_B = 'zzcalc3';
+const ZZ_TEXT = 'zzcalc4';
+const ZZ_PORTAL = 'zzcalc5';
+const ZZ_INT_SUM = 'zzcalc6';
+const ZZ_UNKNOWN_FN = 'zzcalc7';
+const ZZ_NO_PROCESS = 'zzcalc8';
+const ZZ_CYCLE_A = 'zzcalc9';
+const ZZ_CYCLE_B = 'zzcalc10';
+const ZZ_SCOPE_ALL = 'zzcalc11';
+const ZZ_FILTER = 'zzcalc12';
+const ZZ_NO_DDO_MAP = 'zzcalc13';
+const ZZ_NO_FACET = 'zzcalc14';
+const ZZ_ID = 1;
+
+/** A component_info node with ONE calculation ipo block. */
+function calcNode(tipo: string, block: Record<string, unknown>) {
+	return {
+		tipo,
+		parent: ZZ_HOST,
+		model: 'component_info',
+		properties: {
+			widgets: [
+				{
+					widget_name: 'calculation',
+					path: '/calculation',
+					ipo: [{ output: [{ id: 'total' }], ...block }],
+				},
+			],
+		},
+	};
+}
+
+const summarize = (components: unknown[], extra: Record<string, unknown> = {}) => ({
+	input: { section_tipo: 'current', section_id: 'current', filter: false, components, ...extra },
+	process: { fn: 'summarize', options: { type: 'int' } },
+});
+
+const S = situation({
+	name: 'calculation widget refusals',
+	tld: ZZ,
+	nodes: [
+		{ tipo: ZZ_HOST, parent: 'test1', model: 'section', relations: [{ tipo: 'test24' }] },
+		{ tipo: ZZ_NUM_A, parent: ZZ_HOST, model: 'component_number' },
+		{ tipo: ZZ_NUM_B, parent: ZZ_HOST, model: 'component_number' },
+		{ tipo: ZZ_TEXT, parent: ZZ_HOST, model: 'component_input_text' },
+		{ tipo: ZZ_PORTAL, parent: ZZ_HOST, model: 'component_portal' },
+		calcNode(
+			ZZ_INT_SUM,
+			summarize([
+				{ tipo: ZZ_NUM_A, var_name: 'a' },
+				{ tipo: ZZ_NUM_B, var_name: 'b' },
+			]),
+		),
+		calcNode(ZZ_UNKNOWN_FN, {
+			...summarize([{ tipo: ZZ_NUM_A, var_name: 'a' }]),
+			process: { fn: 'nope' },
+		}),
+		calcNode(ZZ_NO_PROCESS, { input: summarize([{ tipo: ZZ_NUM_A, var_name: 'a' }]).input }),
+		calcNode(ZZ_CYCLE_A, summarize([{ tipo: ZZ_CYCLE_B, var_name: 'b' }])),
+		calcNode(ZZ_CYCLE_B, summarize([{ tipo: ZZ_CYCLE_A, var_name: 'a' }])),
+		calcNode(ZZ_SCOPE_ALL, summarize([{ tipo: ZZ_NUM_A, var_name: 'a' }], { section_id: 'all' })),
+		calcNode(ZZ_FILTER, summarize([{ tipo: ZZ_NUM_A, var_name: 'a' }], { filter: true })),
+		calcNode(ZZ_NO_DDO_MAP, summarize([{ tipo: ZZ_PORTAL, var_name: 'p' }])),
+		calcNode(ZZ_NO_FACET, summarize([{ tipo: ZZ_TEXT, var_name: 't' }])),
+	],
+	records: [
+		{
+			section_tipo: ZZ_HOST,
+			section_id: ZZ_ID,
+			columns: {
+				number: { [ZZ_NUM_A]: number(2.4), [ZZ_NUM_B]: number(3.3) },
+				string: { [ZZ_TEXT]: [{ id: 1, lang: 'lg-nolan', value: '7' }] },
+			},
+		},
+	],
+});
+
+// --- fixture records ---------------------------------------------------------
+
+let savedId = 0;
+let emptyId = 0;
+let twoMetalsId = 0;
+let savedState: Record<string, unknown> = {};
+const ids = {
+	date: 0,
+	dateYear: 0,
+	periodOnly: 0,
+	dateB: 0,
+	days: 0,
+	daysManual: 0,
+	daysStartOnly: 0,
+	heirA: 0,
+	heirB: 0,
+	grant: 0,
+	grantManual: 0,
+	grantNoDays: 0,
+};
+
+beforeAll(async () => {
+	await ensureSituation(S);
+
+	savedId = await record(SECTION);
+	emptyId = await record(SECTION);
+	twoMetalsId = await record(SECTION, {
+		number: { [INPUT]: number(40.5), [INPUT_AG]: number(2.25) },
+	});
 	const context = await rootContext();
 	await dispatchRqo(structuredClone(saveRqo(savedId)) as never, context as never);
 	savedState = await stateOf(savedId);
-	savedEntries = await readEntries(savedId);
-	emptyEntries = await readEntries(emptyId);
-}, 60000);
+
+	// C2 dates
+	ids.date = await record(DATE_HOST, {
+		date: {
+			[DATE_START]: [{ id: 1, start: { year: 2020, month: 1, day: 15 } }],
+			[DATE_PERIOD]: [{ id: 1, period: { month: 5 } }],
+		},
+	});
+	ids.dateYear = await record(DATE_HOST, {
+		date: {
+			[DATE_START]: [{ id: 1, start: { year: 1936 } }],
+			[DATE_PERIOD]: [{ id: 1, period: { year: 2 } }],
+		},
+	});
+	ids.periodOnly = await record(DATE_HOST, {
+		date: { [DATE_PERIOD]: [{ id: 1, period: { month: 5 } }] },
+	});
+	ids.dateB = await record(DATE_HOST_B, {
+		date: {
+			[DATE_B_START]: [{ id: 1, start: { year: 2020, month: 1, day: 15 } }],
+			[DATE_B_PERIOD]: [{ id: 1, period: { day: 20 } }],
+		},
+	});
+
+	// C3 / C4 days
+	const range = [
+		{ id: 1, start: { year: 2020, month: 1, day: 1 }, end: { year: 2020, month: 3, day: 1 } },
+	];
+	ids.days = await record(DAYS, { date: { [DAYS_RANGE]: range } });
+	ids.daysManual = await record(DAYS, {
+		date: { [DAYS_RANGE]: range },
+		number: { [DAYS_MANUAL]: number(45) },
+	});
+	ids.daysStartOnly = await record(DAYS, {
+		date: { [DAYS_RANGE]: [{ id: 1, start: { year: 2020, month: 1, day: 1 } }] },
+	});
+
+	// C5 / C6 grant hosts
+	ids.heirA = await record(HEIR, { number: { [HEIR_AMOUNT]: number(7) } });
+	ids.heirB = await record(HEIR, { number: { [HEIR_AMOUNT]: number(5) } });
+	const daysLocators = [
+		locator(GRANT_DAYS_PORTAL, DAYS, ids.days),
+		locator(GRANT_DAYS_PORTAL, DAYS, ids.daysManual),
+	];
+	ids.grant = await record(GRANT, {
+		relation: {
+			[GRANT_DAYS_PORTAL]: daysLocators,
+			[HEIRS_PORTAL]: [
+				locator(HEIRS_PORTAL, HEIR, ids.heirA),
+				locator(HEIRS_PORTAL, HEIR, ids.heirB),
+			],
+		},
+		number: { [GRANT_PAID]: number(100) },
+	});
+	ids.grantManual = await record(GRANT, {
+		relation: { [GRANT_DAYS_PORTAL]: daysLocators },
+		number: { [GRANT_PAID]: number(100), [GRANT_IMPORT_MANUAL]: number(1000) },
+	});
+	ids.grantNoDays = await record(GRANT);
+}, 120000);
 
 afterAll(async () => {
 	const leaked: string[] = [];
-	for (const id of [savedId, emptyId]) {
-		if (id === 0) continue;
+	const bySection = new Map<string, number[]>();
+	for (const { section, id } of created) {
+		const table = await getMatrixTableFromTipo(section);
 		const deleted = (await sql.unsafe(
-			'DELETE FROM matrix_test WHERE section_tipo = $1 AND section_id = $2 RETURNING id',
-			[SECTION, id],
+			`DELETE FROM ${table} WHERE section_tipo = $1 AND section_id = $2 RETURNING id`,
+			[section, id],
 		)) as unknown[];
-		if (deleted.length === 0) leaked.push(`${SECTION}/${id}`);
+		if (deleted.length === 0) leaked.push(`${section}/${id}`);
 		await sql.unsafe(
 			'DELETE FROM matrix_time_machine WHERE section_tipo = $1 AND section_id = $2',
-			[SECTION, id],
+			[section, id],
 		);
+		bySection.set(section, [...(bySection.get(section) ?? []), id]);
 	}
-	if (leaked.length > 0) {
-		throw new Error(`cleanup leaked scratch rows: ${leaked.join(', ')}`);
-	}
+	for (const [section, sectionIds] of bySection) await sweepActivityRows(section, sectionIds);
+	const residue = await dropSituation(S);
+	if (leaked.length > 0) throw new Error(`cleanup leaked scratch rows: ${leaked.join(', ')}`);
+	expect(residue).toBe(0);
 });
 
-describe('calculation widget, TS-native (DEC-06 no-compute + read goldens)', () => {
+describe('calculation widget — SAVE computes nothing (DEC-06)', () => {
 	test('SAVE persists the number; the calculation output stays null', () => {
-		// the differential's byte-pinned end-state (equal on both engines)
 		expect(savedState).toEqual({ input: [{ id: 1, value: 40.5 }], output: null });
 	});
+});
 
-	test('READ with EMPTY inputs emits the total:0 golden (WC-026 keys)', () => {
-		expect(emptyEntries).toEqual([
-			[{ widget: 'calculation', key: 0, id: 'total', widget_id: 'total', value: 0 }],
+describe('C1 summarize over component_number (owner ruling 2026-11-11)', () => {
+	test('EMPTY inputs emit the total:0 golden (WC-026 keys)', async () => {
+		expect(await entriesOf(SECTION, emptyId, OUTPUT)).toEqual([totalItem(0)]);
+	});
+
+	test('a non-empty input is SUMMED — the PHP crash is not ported', async () => {
+		expect(await entriesOf(SECTION, savedId, OUTPUT)).toEqual([totalItem(40.5)]);
+		expect(await entriesOf(SECTION, twoMetalsId, OUTPUT)).toEqual([totalItem(42.75)]);
+	});
+
+	test('type int rounds the sum to 0 decimals', async () => {
+		expect(await compute(ZZ_INT_SUM, ZZ_HOST, ZZ_ID)).toEqual([
+			{ widget: 'calculation', key: 0, id: 'total', value: 6 },
+		]);
+	});
+});
+
+describe('C2 summarize type date', () => {
+	test('start + period month → the date in the start shape', async () => {
+		expect(await totalOf(DATE_HOST, ids.date, DATE_TOTAL)).toEqual({
+			year: 2020,
+			month: 6,
+			day: 15,
+		});
+		expect(await totalOf(DATE_HOST_B, ids.dateB, DATE_B_TOTAL)).toEqual({
+			year: 2020,
+			month: 2,
+			day: 4,
+		});
+	});
+
+	test('a year-only pre-1970 start stays year-only', async () => {
+		expect(await totalOf(DATE_HOST, ids.dateYear, DATE_TOTAL)).toEqual({ year: 1938 });
+	});
+
+	test('a period with no anchor date → value null', async () => {
+		expect(await entriesOf(DATE_HOST, ids.periodOnly, DATE_TOTAL)).toEqual([totalItem(null)]);
+	});
+});
+
+describe('C3 range_to_days / C4 days_correction_manually', () => {
+	test('a two-month range is 60 days; a range without end is 1', async () => {
+		expect(await totalOf(DAYS, ids.days, DAYS_COUNT)).toBe(60);
+		expect(await totalOf(DAYS, ids.daysStartOnly, DAYS_COUNT)).toBe(1);
+	});
+
+	test('the manual day count wins when set', async () => {
+		expect(await totalOf(DAYS, ids.days, DAYS_TOTAL)).toBe(60);
+		expect(await totalOf(DAYS, ids.daysManual, DAYS_TOTAL)).toBe(45);
+	});
+});
+
+describe('C5 relation inputs walk the ddo_map', () => {
+	test('portal → get_calculation_data leaf sums each target info', async () => {
+		expect(await totalOf(GRANT, ids.grant, 'test4627')).toBe(105);
+	});
+
+	test('portal → plain number leaf sums the item values (v6 parity)', async () => {
+		expect(await totalOf(GRANT, ids.grant, 'test4593')).toBe(12);
+	});
+});
+
+describe('C6 the grant chain', () => {
+	test('calculate_period buckets the 105 days', async () => {
+		expect(await entriesOf(GRANT, ids.grant, 'test4628')).toEqual([
+			{ widget: 'calculation', key: 0, id: 'months', widget_id: 'months', value: 3 },
+			{ widget: 'calculation', key: 0, id: 'days', widget_id: 'days', value: 13 },
 		]);
 	});
 
-	test('READ with a non-empty input emits NO output (the PHP-crash pin outcome)', () => {
-		expect(savedEntries).toEqual([[]]);
+	test('import major / minor, to_euros, subtract', async () => {
+		expect(await totalOf(GRANT, ids.grant, 'test4629')).toBe(150000);
+		expect(await totalOf(GRANT, ids.grant, 'test4655')).toBe(900);
+		expect(await totalOf(GRANT, ids.grant, 'test4630')).toBe(901.52);
+		expect(await totalOf(GRANT, ids.grant, 'test4634')).toBe(105);
+		expect(await totalOf(GRANT, ids.grant, 'test4688')).toBe(0);
+	});
+
+	test('final_total: minor − paid; a manual import wins', async () => {
+		expect(await totalOf(GRANT, ids.grant, 'test4664')).toBe(800);
+		expect(await totalOf(GRANT, ids.grantManual, 'test4664')).toBe(900);
+	});
+
+	test('OD-2: a zero-day grant import REFUSES until the owner rules', async () => {
+		const refusal = await refusalOf(compute('test4629', GRANT, ids.grantNoDays));
+		expect(refusal.code).toBe('engine.uncovered_scope');
+		expect(refusal.coordinates).toEqual({ fn: 'calculate_import_major' });
+	});
+});
+
+describe('C7 loud refusals (never a silently blank value)', () => {
+	test('an unregistered process fn', async () => {
+		const refusal = await refusalOf(compute(ZZ_UNKNOWN_FN, ZZ_HOST, ZZ_ID));
+		expect(refusal).toEqual({
+			code: 'ontology.invalid_node',
+			coordinates: { ipo_key: 0, fn: 'nope' },
+		});
+	});
+
+	test('a block without process', async () => {
+		expect((await refusalOf(compute(ZZ_NO_PROCESS, ZZ_HOST, ZZ_ID))).code).toBe(
+			'ontology.invalid_node',
+		);
+	});
+
+	test('an info ↔ info cycle', async () => {
+		const refusal = await refusalOf(compute(ZZ_CYCLE_A, ZZ_HOST, ZZ_ID));
+		expect(refusal.code).toBe('ontology.invalid_node');
+		expect(String((refusal.coordinates as { chain?: unknown }).chain)).toContain(
+			`${ZZ_CYCLE_B}@${ZZ_HOST}/${ZZ_ID}`,
+		);
+	});
+
+	test("the aggregate scope 'all' and filter:true are uncovered", async () => {
+		expect((await refusalOf(compute(ZZ_SCOPE_ALL, ZZ_HOST, ZZ_ID))).code).toBe(
+			'engine.uncovered_scope',
+		);
+		expect((await refusalOf(compute(ZZ_FILTER, ZZ_HOST, ZZ_ID))).code).toBe(
+			'engine.uncovered_scope',
+		);
+	});
+
+	test('a relation input without ddo_map; a model without the facet', async () => {
+		expect((await refusalOf(compute(ZZ_NO_DDO_MAP, ZZ_HOST, ZZ_ID))).code).toBe(
+			'ontology.invalid_node',
+		);
+		const noFacet = await refusalOf(compute(ZZ_NO_FACET, ZZ_HOST, ZZ_ID));
+		expect(noFacet).toEqual({
+			code: 'engine.uncovered_scope',
+			coordinates: { tipo: ZZ_TEXT, model: 'component_input_text' },
+		});
+	});
+});
+
+describe('C9 dd_date ↔ unix seconds (one home: concepts/dd_date_time.ts)', () => {
+	test('years 0–99 are real years, not 1900+year', () => {
+		expect(ddDateToUnixSeconds({ year: 50, month: 1, day: 1 })).toBe(-60589296000);
+	});
+
+	test('a pre-1970 date round-trips', () => {
+		const seconds = ddDateToUnixSeconds({ year: 1936, month: 7, day: 18 });
+		expect(seconds).toBe(-1055808000);
+		expect(ddDateFromUnixSeconds(seconds)).toEqual({
+			year: 1936,
+			month: 7,
+			day: 18,
+			hour: 0,
+			minute: 0,
+			second: 0,
+		});
 	});
 });

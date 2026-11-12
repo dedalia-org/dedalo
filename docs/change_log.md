@@ -254,6 +254,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Calculated fields (totals, periods, amounts, date sums) compute again**
+
+    Fields computed by a `calculation` widget showed nothing as soon as the fields they add up held a value: totals of numbers, periods in years, months and days, grant amounts, euro conversions and dates plus a period. They now compute every formula the ontology declares, including sums over the records of a portal and chains of calculated fields. A calculation whose definition the engine cannot run (an unknown formula, a field that cannot be summed, a calculation that depends on itself) now reports an error instead of showing an empty field. Two grant-amount cases still report an error until a pending decision is made: an amount over zero days, and the major-grant amount of the section that the earlier engine treated specially.
+
+    Wire contract: `WC-2026-11-12-calculation-widget-port`.
+
 - **Relation fields without their own configuration show their linked records in the view the ontology asks for (e.g. mini, text).**
 
     A relation field that declares no request configuration of its own can still ask, in its
@@ -759,7 +765,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 34 entries"
+??? note "Wire contract — 35 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -793,6 +799,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-11-relation-list-column-grants`
     - `WC-2026-11-11-section-elements-target-groups`
     - `WC-2026-11-11-svg-tag-url-full-media-path`
+    - `WC-2026-11-12-calculation-widget-port`
     - `WC-2026-11-12-datalist-principal-record-scope`
     - `WC-2026-11-12-select-dataframe-subdatum`
 

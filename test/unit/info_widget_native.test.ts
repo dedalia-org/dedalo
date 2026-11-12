@@ -40,9 +40,10 @@
  *  - user_activity       : async widget — skipped at read (entries []) on a
  *    scratch dd128 record (matrix_users, the PHP fixed-case table).
  *  - calculation         : summarize with EMPTY inputs (total 0), the
- *    to_euros/calculate_period formulas on canonical test3/1, and the TS side
- *    of the PHP array_sum defect pin (non-empty input → TS serves [[]]; the
- *    PHP crash itself stays pinned in the parity differential ONLY).
+ *    to_euros formula on canonical test3/1; calculate_period and the
+ *    non-empty sum DIVERGE from the oracle since T1-1 (owner ruling
+ *    2026-11-11, WC-2026-11-12-calculation-widget-port — asserted explicitly,
+ *    the goldens stay the oracle record).
  *  - state               : detail + total items and the EDIT datalist over
  *    the dd501/dd174 seed vocabularies, plus the `items` divisor on the
  *    total items (WC-2026-08-03-state-widget-total-source-count — TS-only, so
@@ -985,19 +986,37 @@ describe('component_info widget read-time compute (TS-native, oracle-captured go
 		await expectCaseGolden('user_activity', USERS, IW.userActivity, USER_ACTIVITY_INFO);
 	}, 30000);
 
-	test('calculation: summarize with EMPTY inputs (total 0) + the formula cases', async () => {
+	test('calculation: summarize with EMPTY inputs (total 0) + to_euros', async () => {
 		await expectCaseGolden('calc_empty', CALC_SECTION, IW.calcEmpty, CALC_INFO);
 		await expectCaseGolden('calc_to_euros', TEST3, 1, 'test178');
-		await expectCaseGolden('calc_period', TEST3, 1, 'test179');
 	}, 30000);
 
-	test('calculation defect pin (TS side): non-empty input serves [] — PHP crashes here', async () => {
-		// (!) The PHP array_sum crash is pinned in the parity differential; TS
-		// computes nothing (sane convergent behavior). When PHP gets fixed the
-		// DIFFERENTIAL flags it — then implement the real summarize sum in
-		// computeCalculation, reconcile, and recapture this golden set.
+	test('calculation: calculate_period buckets the NUMBER input (WC-2026-11-12-calculation-widget-port)', async () => {
+		// PHP served the number as a flat STRING, which calculate_period's
+		// is_array guard dropped — the golden `calc_period` ([[]]) is the oracle
+		// record of that and is NOT regenerated. The ported widget feeds the
+		// numbers (test139 = 365 + 100 = 465 days on canonical test3/1).
+		const period = (key: string, value: number) => ({
+			widget: 'calculation',
+			key: 0,
+			id: key,
+			widget_id: key,
+			value,
+		});
+		for (const mode of ['list', 'edit'] as const) {
+			const entries = await tsEntries(readRqo(TEST3, 1, 'test179', mode));
+			expect(entries).toEqual([
+				[period('years', 1), period('months', 3), period('days', 8)],
+			] as never);
+			expect(entries).not.toEqual(adoptedGolden(golden.cases.calc_period[mode]) as never);
+		}
+	}, 30000);
+
+	test('calculation: a non-empty input is SUMMED (owner ruling 2026-11-11 — PHP crashed)', async () => {
 		const entries = await tsEntries(readRqo(CALC_SECTION, IW.calc, CALC_INFO, 'list'));
-		expect(entries).toEqual([[]] as never);
+		expect(entries).toEqual([
+			[{ widget: 'calculation', key: 0, id: 'total', widget_id: 'total', value: 40.5 }],
+		] as never);
 	}, 30000);
 
 	test('state: detail + total items over the dd501/dd174 vocabularies', async () => {

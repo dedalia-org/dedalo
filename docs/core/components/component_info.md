@@ -277,7 +277,7 @@ byte-identical client (`client/dedalo/core/widgets/<tld>/<name>/js/`).
 
 | widget | TLD | descriptor `path` | purpose | facets |
 |---|---|---|---|---|
-| `calculation` | — | `/calculation` | Generic IPO calculator: read `current`-scope components, run a static process fn (`summarize` / `to_euros` / `calculate_period`), emit `output` items. | emits `id` (not `widget_id`) |
+| `calculation` | — | `/calculation` | Generic IPO calculator: read `current`-scope components, run a static process fn (`summarize`, `calculate_period`, `to_euros`, `range_to_days`, `days_correction_manually`, `calculate_import_major` / `_minor`, `subtract`, `final_total`), emit `output` items. | emits `id` (not `widget_id`) |
 | `state` | — | `/state` | Per-record completion **state** %: follow each IPO path to a select/check_box pointing at the `dd174`/`dd501` vocabulary, emit per-column `detail` + `total` items. | **`computeDataList`** (edit datalist) |
 | `user_activity` | `dd` | `/dd/user_activity` | The user's WHOLE activity history: their saved stats span, plus the raw log for the tail after the last saved day. | **`isAsync`** — delivered only via `get_widget_data` |
 | `get_archive_states` | `dmm` | `/dmm/get_archive_states` | Aggregate radio_button state values (`answer`/`closed`, affirmative/negative counts + %) over linked records; 14 keyed outputs. | shape-gated (no instance declares it) |
@@ -424,11 +424,10 @@ before relying on an exact column layout. See [exporting data](../exporting_data
 These notes document known limitations and historical context behind some of
 the engine's deliberate divergences:
 
-- **`calculation` `summarize` does not sum non-empty input yet** — it emits
-  `[]` when any input is non-empty (a known limitation, not a real sum yet);
-  with all inputs empty it emits `total 0`. Pinned in
-  `test/parity/info_widget_differential.test.ts` and the code comment in
-  `widgets/calculation/functions.ts`.
+- **Two `calculation` grant-amount cases refuse until an owner decision** —
+  `calculate_import_major` / `_minor` over zero days, and `final_total`'s
+  major-grant branch for the one section the earlier engine hard-coded, answer
+  `engine.uncovered_scope` instead of a guessed amount.
 - **`user_activity` reports the WHOLE history, not a fixed window.** Earlier
   tooling never fully exercised the saved-stats read, its `who` dimension never
   worked, and the window was hardcoded to the last 365 days — on a decade-old

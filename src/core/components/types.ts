@@ -150,6 +150,14 @@ export interface ComponentSearch {
 export type SearchBuilderFamily = 'string' | 'number' | 'date' | 'iri' | 'section_id' | 'json';
 
 /**
+ * The value a component feeds into a `calculation` widget formula (PHP per-model
+ * get_calculation_data), named as DATA — implemented by
+ * components/calculation_data.ts CALCULATION_DATA. `relation` is never declared:
+ * every relation-column model derives it (registry getCalculationDataId).
+ */
+export type CalculationDataId = 'number' | 'date' | 'info' | 'relation';
+
+/**
  * Flat display-value family (S2-26): how a component renders as a plain
  * string cell (relation_list grid values, export atoms).
  * - 'string': lang-sliced literal values joined ' | ';
@@ -333,6 +341,13 @@ export interface ComponentModel {
 	 * Omitted = the consumers ledger the model as unresolved (null value).
 	 */
 	readonly flatValue?: FlatValueFamily;
+	/**
+	 * What this model feeds a `calculation` widget input (PHP get_calculation_data).
+	 * Omitted = the model cannot feed a calculation — an input naming it refuses
+	 * loudly (engine.uncovered_scope). Never declared on a relation-column model:
+	 * those derive `relation` (descriptor_completeness_tripwire).
+	 */
+	readonly calculationData?: CalculationDataId;
 	/**
 	 * PHP component_common::$components_using_value_property: on CSV import a
 	 * bare scalar cell wraps into {value: …} for this model (tools/

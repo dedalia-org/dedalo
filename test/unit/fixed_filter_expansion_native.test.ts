@@ -527,7 +527,7 @@ describe('component_data source — multi-hop ddo_map', () => {
 });
 
 describe('component_data source — deep (3-level) ddo_map chains', () => {
-	/** self → test80 → test37 → test91(leaf). Fresh objects: expandFixedFilter stamps `last`. */
+	/** self → test80 → test37 → test91(leaf). */
 	const deepDescriptor = () => [
 		{
 			source: 'component_data',
@@ -602,6 +602,36 @@ describe('component_data source — deep (3-level) ddo_map chains', () => {
 			},
 		];
 		expect(await expandFixedFilter(broken, SECTION, DEEP_OWNER)).toEqual([]);
+	});
+});
+
+describe('component_data source — the walk never writes the ddo_map (C8, T1-1)', () => {
+	test('the leaf is a walker PARAMETER: no `last` key lands on the (cached) ddos', async () => {
+		// PHP marked the leaf with `$resolve_ddo->last = true` on the ontology's
+		// own ddo_map object; a node's properties are CACHED, so the mark leaked
+		// into every later request (relations/component_data_walk.ts header).
+		const ddoMap = [
+			{ tipo: 'test80', parent: 'self', section_tipo: SECTION },
+			{ tipo: 'test91', parent: 'test80', section_tipo: SECTION },
+		];
+		const descriptor = [
+			{ source: 'component_data', value: [{ q: 'test91', path: PATH, ddo_map: ddoMap }] },
+		];
+		const before = structuredClone(ddoMap);
+		const first = await expandFixedFilter(descriptor, SECTION, OWNER);
+		// Positive control: the walk really resolved the leaf.
+		expect(first).toEqual([
+			{
+				$or: [
+					{ q: selectLocator(1), path: PATH },
+					{ q: selectLocator(2), path: PATH },
+				],
+			},
+		]);
+		expect(ddoMap).toEqual(before);
+		expect(ddoMap.some((ddo) => 'last' in ddo)).toBe(false);
+		// The same (unmutated) map walks again to the same answer.
+		expect(await expandFixedFilter(descriptor, SECTION, OWNER)).toEqual(first);
 	});
 });
 
