@@ -1202,6 +1202,10 @@
   padding: 0.35rem 0.5rem;
   font-size: 0.85rem;
   white-space: pre-line;
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin: 0.5rem 0.75rem;
 }
 .uca-maps-legend-panel .uca-maps-legend-message[data-type="ok"] {
   background-color: var(--uca_maps_msg_ok_bg);

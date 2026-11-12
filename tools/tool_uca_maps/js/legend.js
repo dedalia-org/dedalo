@@ -6,9 +6,11 @@
 /**
 * LEGEND
 * A MANUAL legend editor (title, columns of icon+text items) and its overlay, as v6:
-* nothing is generated from the WMS layers. Session-only: a tool cannot provision a
-* section to keep it, so there is no Save button and none of v6's 3 s autosaves. The
-* overlay is map content, not a toolbar node, so the map image download includes it.
+* nothing is generated from the WMS layers. It is kept in the record, as the geolocation
+* entry's `legend` ({title, groups: [{name, symbols: [{label, icon}]}]}): every edit is
+* written to the component's buffer and marks it dirty, and the component's save button
+* commits it with the map, as a drawing (none of v6's 3 s autosaves). The overlay is map
+* content, not a toolbar node, so the map image download includes it.
 *
 * @module legend
 */
@@ -28,6 +30,7 @@ import {
 	render_legend_panel,
 	populate_legend_columns,
 	clear_legend_message,
+	show_legend_message,
 	create_legend_overlay,
 	render_legend_overlay,
 	remove_legend_overlay
@@ -35,34 +38,29 @@ import {
 import {
 	default_symbol_colour,
 	is_legend_symbol,
-	legend_symbol_data_url
+	legend_symbol_data_url,
+	pin_data_url,
+	is_raster_icon,
+	LEGEND_ICON_SIDE
 } from './legend_symbol.js'
+import {LEGEND_LIMITS, LEGEND_TAG_START, is_control_code} from './core_limits.js'
 
 
 
-/** The icon types v6 accepts (`special_tools_legend.js` change_icon). SVG stays: the
-* icon is a data URL inside an `<img>`, a context without scripting, never stored or
-* served by the install. */
+/** The icon types v6 accepts (`special_tools_legend.js` change_icon). Every one is
+* redrawn as a small PNG before it is kept (`raster_icon`): the record admits only
+* png, jpeg or webp icons of at most 64 KiB, never SVG. */
 // exported for the client gate
 export const ALLOWED_ICON_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']
 
-/** v6's cap, verbatim. */
+/** v6's cap on the file picked, verbatim: what is kept is the redrawn icon. */
 // exported for the client gate
 export const MAX_ICON_BYTES = 2000000
 
-/** Bytes per String.fromCharCode call: far below any engine's argument limit. */
-const BASE64_CHUNK_BYTES = 0x8000
-
-/** A new item's default pin. v6 serves `img/pin.svg` from the tool folder; inlined
-* here so it needs no asset URL (`img-src` already admits `data:`). Markup on purpose:
-* it only ever becomes an `<img>` data URI, never a DOM sink. */
+/** A new item's default pin, a PNG drawn here (v6 serves `img/pin.svg`). */
 // exported for the client gate
 export const default_element_icon = function() {
-	return 'data:image/svg+xml;base64,' + btoa(
-		'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">' +
-		'<path fill="' + default_symbol_colour() + '" d="M12 2c-3.9 0-7 3.1-7 7 0 5.2 7 13 7 13s7-7.8 7-13c0-3.9-3.1-7-7-7zm0 9.5' +
-		'a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>'
-	)
+	return pin_data_url(default_symbol_colour())
 }//end default_element_icon
 
 
@@ -70,8 +68,8 @@ export const default_element_icon = function() {
 /**
 * EMPTY_LEGEND
 * The same shape v6 writes to its JSON the first time
-* (`{"legend":"", "enable":true, "columns":[]}`), so persisting it later is writing
-* this object as is.
+* (`{"legend":"", "enable":true, "columns":[]}`): the editor's own model, which
+* `to_entry_legend` turns into the record's.
 *
 * @returns {Object}
 */
@@ -79,6 +77,204 @@ export const default_element_icon = function() {
 export const empty_legend = function() {
 	return {legend: '', enable: true, columns: []}
 }//end empty_legend
+
+
+
+/**
+* FROM_ENTRY_LEGEND
+* The editor's model of a saved legend. An icon that is not a raster `data:` URI is
+* dropped (the item shows none), never handed to an `<img>`. `enable` is not saved: a
+* reopened legend is shown.
+*
+* @param {*} entry_legend - the entry's `legend`
+* @returns {Object} {legend, enable, columns}
+*/
+// exported for the client gate
+export const from_entry_legend = function(entry_legend) {
+
+	const legend = empty_legend()
+	if (!entry_legend || typeof entry_legend!=='object') {
+		return legend
+	}
+
+	legend.legend	= typeof entry_legend.title==='string' ? entry_legend.title : ''
+	legend.columns	= (Array.isArray(entry_legend.groups) ? entry_legend.groups : []).map((group) => ({
+		name		: typeof group?.name==='string' ? group.name : '',
+		elements	: (Array.isArray(group?.symbols) ? group.symbols : []).map((symbol) => ({
+			name	: typeof symbol?.label==='string' ? symbol.label : '',
+			icon	: is_raster_icon(symbol?.icon) ? symbol.icon : null
+		}))
+	}))
+
+	return legend
+}//end from_entry_legend
+
+
+
+/**
+* LEGEND_TEXT
+* A text as the core keeps it: a control character as a space, trimmed.
+*
+* @param {string} text
+* @returns {string}
+*/
+const legend_text = function(text) {
+	return Array.from(String(text ?? ''), (char) => is_control_code(char.codePointAt(0)) ? ' ' : char).join('').trim()
+}//end legend_text
+
+
+
+/**
+* ICON_PIXELS
+* The pixels an icon declares: a PNG's own header (every icon the tool makes is one); for
+* another format, the core's largest icon, so the total is never under-counted.
+*
+* @param {string} icon - a raster data URI (is_raster_icon)
+* @returns {number}
+*/
+const icon_pixels = function(icon) {
+
+	const prefix = 'data:image/png;base64,'
+	if (icon.startsWith(prefix)) {
+		// signature (8) + IHDR length and type (8) + width (4) + height (4): 32 base64 characters
+		const head = atob(icon.slice(prefix.length, prefix.length + 32))
+		const read = (at) => ((head.charCodeAt(at) << 24) | (head.charCodeAt(at + 1) << 16) | (head.charCodeAt(at + 2) << 8) | head.charCodeAt(at + 3)) >>> 0
+		if (head.length===24) {
+			return read(16) * read(20)
+		}
+	}
+
+	return LEGEND_LIMITS.maxIconSide * LEGEND_LIMITS.maxIconSide
+}//end icon_pixels
+
+
+
+/**
+* LEGEND_REFUSAL
+* Why the core would refuse this legend (`map_legend.ts`), or null: the panel says so and
+* the legend is not written, since a refused legend fails the whole geolocation save.
+*
+* @param {Object} value - to_entry_legend's value
+* @returns {'too_long'|'markup'|'too_big'|null}
+*/
+// exported for the client gate
+export const legend_refusal = function(value) {
+
+	const limits	= LEGEND_LIMITS
+	const texts		= [value.title, ...value.groups.flatMap((group) => [group.name, ...group.symbols.map((symbol) => symbol.label)])]
+	if (value.title.length>limits.maxTitle
+		|| value.groups.length>limits.maxGroups
+		|| value.groups.some((group) => group.name.length>limits.maxName
+			|| group.symbols.length>limits.maxSymbolsPerGroup
+			|| group.symbols.some((symbol) => symbol.label.length>limits.maxLabel))) {
+		return 'too_long'
+	}
+	if (texts.some((text) => LEGEND_TAG_START.test(text))) {
+		return 'markup'
+	}
+
+	const icons = value.groups.flatMap((group) => group.symbols).map((symbol) => symbol.icon).filter(Boolean)
+	if (icons.reduce((total, icon) => total + icon.length, 0)>limits.maxIconCharsTotal
+		|| icons.reduce((total, icon) => total + icon_pixels(icon), 0)>limits.maxIconPixelsTotal) {
+		return 'too_big'
+	}
+
+	return null
+}//end legend_refusal
+
+
+
+/**
+* TO_ENTRY_LEGEND
+* The record's form of the editor's legend. The core requires a group's name and an
+* item's text, so a group without a name and an item without text are left out (and
+* counted: the panel says so). Nothing to keep is null: the entry then carries no key.
+*
+* @param {Object} legend - the editor's model
+* @returns {{value: Object|null, skipped: number}}
+*/
+// exported for the client gate
+export const to_entry_legend = function(legend) {
+
+	let skipped		= 0
+	const groups	= []
+	for (const column of legend.columns) {
+		const name = legend_text(column.name)
+		if (!name) {
+			skipped += column.elements.length + 1
+			continue
+		}
+		const symbols = []
+		for (const element of column.elements) {
+			const label = legend_text(element.name)
+			if (!label) {
+				skipped++
+				continue
+			}
+			if (is_raster_icon(element.icon)) {
+				symbols.push({label, icon: element.icon})
+			} else {
+				symbols.push({label})
+			}
+		}
+		groups.push({name, symbols})
+	}
+
+	const title = legend_text(legend.legend)
+	const value = (title || groups.length)
+		? {title, groups}
+		: null
+
+	return {value, skipped}
+}//end to_entry_legend
+
+
+
+/**
+* LEGEND_CHANGED
+* Every edit of the legend's content: the overlay repaints, the record's form is written
+* to the component's buffer and the component is marked dirty (nothing saves: the
+* component's button does, as for a drawing). A legend the core would refuse
+* (`legend_refusal`) is not written, since the save would be refused whole: the panel says
+* so instead.
+*
+* @param {Object} self
+* @returns {void}
+*/
+const legend_changed = function(self) {
+
+	render_legend_overlay(self)
+
+	const geolocation	= self.geolocation
+	const {value, skipped} = to_entry_legend(self.legend)
+
+	const refusal = value ? legend_refusal(value) : null
+	if (refusal) {
+		const refusals = {
+			too_long	: self.get_tool_label('legend_error_too_long') || 'The legend cannot be saved: at most 16 groups of 64 items, and 200 characters per text.',
+			markup		: self.get_tool_label('legend_error_markup') || 'The legend cannot be saved: a text may not hold markup (a < followed by a letter).',
+			too_big		: self.get_tool_label('legend_error_too_big') || 'The legend\'s images are too large to save: remove some of them.'
+		}
+		show_legend_message(self.legend_panel, refusals[refusal])
+		return
+	}
+
+	const buffer = geolocation.get_entry_buffer(0)
+	if (value) {
+		buffer.legend = value
+	} else {
+		delete buffer.legend
+	}
+	geolocation.is_data_changed = true
+	geolocation.set_changed_data(geolocation.build_changed_data_item(0))
+
+	if (skipped > 0) {
+		// a warning, not a note: on save, what the user typed there is lost
+		show_legend_message(self.legend_panel, self.get_tool_label('legend_note_unsaved') || 'A group without a name, and an item without text, are not saved.', 'warning')
+	} else {
+		clear_legend_message(self.legend_panel)
+	}
+}//end legend_changed
 
 
 
@@ -96,7 +292,9 @@ export const attach_legend = function(self) {
 		return
 	}
 
-	self.legend = empty_legend()
+	// what the user is editing (an unsaved buffer) or else what the record keeps
+	const entry = self.geolocation.current_value?.[0] || self.geolocation.get_stored_entry(0)
+	self.legend = from_entry_legend(entry && entry.legend)
 
 	const title = self.get_tool_label('legend_control_title') || 'Legend'
 
@@ -155,7 +353,7 @@ const toggle_legend_panel = function(self) {
 export const set_legend_title = function(self, text) {
 
 	self.legend.legend = strip_tags(String(text || ''))
-	render_legend_overlay(self)
+	legend_changed(self)
 
 }//end set_legend_title
 
@@ -187,7 +385,7 @@ export const set_legend_visible = function(self, visible) {
 export const add_legend_column = function(self) {
 
 	self.legend.columns.push({name: '', elements: []})
-	render_legend_overlay(self)
+	legend_changed(self)
 
 	return {ok: true, index: self.legend.columns.length - 1}
 }//end add_legend_column
@@ -207,7 +405,7 @@ export const delete_legend_column = function(self, index) {
 	}
 
 	self.legend.columns.splice(index, 1)
-	render_legend_overlay(self)
+	legend_changed(self)
 
 	return {ok: true}
 }//end delete_legend_column
@@ -229,7 +427,7 @@ export const set_legend_column_name = function(self, index, text) {
 	}
 
 	column.name = strip_tags(String(text || ''))
-	render_legend_overlay(self)
+	legend_changed(self)
 
 	return {ok: true}
 }//end set_legend_column_name
@@ -247,7 +445,7 @@ export const move_legend_column = function(self, index, offset) {
 
 	const result = move_item(self.legend.columns, index, offset)
 	if (result.ok) {
-		render_legend_overlay(self)
+		legend_changed(self)
 	}
 
 	return result
@@ -269,7 +467,7 @@ export const add_legend_element = function(self, column_index) {
 	}
 
 	column.elements.push({name: '', icon: default_element_icon()})
-	render_legend_overlay(self)
+	legend_changed(self)
 
 	return {ok: true, index: column.elements.length - 1}
 }//end add_legend_element
@@ -291,7 +489,7 @@ export const delete_legend_element = function(self, column_index, element_index)
 	}
 
 	column.elements.splice(element_index, 1)
-	render_legend_overlay(self)
+	legend_changed(self)
 
 	return {ok: true}
 }//end delete_legend_element
@@ -317,7 +515,7 @@ export const move_legend_element = function(self, column_index, element_index, o
 
 	const result = move_item(column.elements, element_index, offset)
 	if (result.ok) {
-		render_legend_overlay(self)
+		legend_changed(self)
 	}
 
 	return result
@@ -367,7 +565,7 @@ export const set_legend_element_name = function(self, column_index, element_inde
 	}
 
 	element.name = strip_tags(String(text || ''))
-	render_legend_overlay(self)
+	legend_changed(self)
 
 	return {ok: true}
 }//end set_legend_element_name
@@ -377,8 +575,9 @@ export const set_legend_element_name = function(self, column_index, element_inde
 /**
 * SET_LEGEND_ELEMENT_SYMBOL
 * A drawn symbol (`legend_symbol.js`). The element keeps v6's `icon` as the
-* thing drawn — a `data:` URL like an upload — and `symbol` only so the
-* editor can reopen on its values. An invalid symbol changes nothing.
+* thing drawn — a PNG `data:` URL like an upload — and `symbol` only so the
+* editor can reopen on its values this session (the record keeps the icon).
+* An invalid symbol changes nothing.
 *
 * @param {Object} self
 * @param {number} column_index
@@ -400,7 +599,7 @@ export const set_legend_element_symbol = function(self, column_index, element_in
 		stroke	: symbol.stroke.toLowerCase()
 	}
 	element.icon	= legend_symbol_data_url(element.symbol)
-	render_legend_overlay(self)
+	legend_changed(self)
 
 	return {ok: true}
 }//end set_legend_element_symbol
@@ -409,9 +608,10 @@ export const set_legend_element_symbol = function(self, column_index, element_in
 
 /**
 * SET_LEGEND_ELEMENT_ICON
-* The icon stays in the browser as a data URL: v6's server only echoes it back, and
-* with nothing persisted there is nothing for a server action to add. Type and size
-* are checked BEFORE reading, so a 30 MB file is never loaded only to be refused.
+* The picked image is redrawn, in the browser, as a PNG at most LEGEND_ICON_SIDE on a
+* side (`raster_icon`): the record keeps it as a `data:` URI, and only a small raster
+* one. Type and size are checked BEFORE reading, so a 30 MB file is never loaded only
+* to be refused.
 *
 * @param {Object} self
 * @param {number} column_index
@@ -444,7 +644,7 @@ export const set_legend_element_icon = async function(self, column_index, elemen
 		}
 	}
 
-	const data_url = await read_file_as_data_url(file)
+	const data_url = await raster_icon(file)
 	if (!self.legend) {
 		return {ok: false}
 	}
@@ -458,7 +658,7 @@ export const set_legend_element_icon = async function(self, column_index, elemen
 	element.icon = data_url
 	// an uploaded image replaces the drawn symbol: nothing left to reopen
 	delete element.symbol
-	render_legend_overlay(self)
+	legend_changed(self)
 
 	return {ok: true}
 }//end set_legend_element_icon
@@ -466,29 +666,40 @@ export const set_legend_element_icon = async function(self, column_index, elemen
 
 
 /**
-* READ_FILE_AS_DATA_URL
-* Through Blob.arrayBuffer, not FileReader: the base64 is encoded in chunks, as one
-* String.fromCharCode spread over a whole 2 MB file overflows the call stack. Only a
-* refused read becomes null; a non-Blob still throws.
+* RASTER_ICON
+* The image of `file` redrawn as a PNG that fits LEGEND_ICON_SIDE (never enlarged), or
+* null when it cannot be decoded or drawn (a file that is not the image it claims, an
+* SVG the browser will not rasterize). A non-Blob still throws.
 *
 * @param {File} file - type already checked against ALLOWED_ICON_TYPES
-* @returns {Promise<string|null>} null when the file could not be read
+* @returns {Promise<string|null>}
 */
-const read_file_as_data_url = async function(file) {
+const raster_icon = async function(file) {
 
-	const buffer = await file.arrayBuffer().catch(() => null)
-	if (!buffer) {
+	const url = URL.createObjectURL(file)
+	try {
+		const image = new Image()
+		image.src = url
+		await image.decode()
+
+		// an SVG without its own size decodes at 0x0: drawn at the icon's side
+		const width		= image.naturalWidth || LEGEND_ICON_SIDE
+		const height	= image.naturalHeight || LEGEND_ICON_SIDE
+		const scale		= Math.min(1, LEGEND_ICON_SIDE / Math.max(width, height))
+		const canvas	= Object.assign(document.createElement('canvas'), {
+			width	: Math.max(1, Math.round(width * scale)),
+			height	: Math.max(1, Math.round(height * scale))
+		})
+		canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height)
+
+		const data_url = canvas.toDataURL('image/png')
+		return is_raster_icon(data_url) ? data_url : null
+	} catch {
 		return null
+	} finally {
+		URL.revokeObjectURL(url)
 	}
-
-	const bytes		= new Uint8Array(buffer)
-	const chunks	= []
-	for (let start=0; start<bytes.length; start+=BASE64_CHUNK_BYTES) {
-		chunks.push(String.fromCharCode(...bytes.subarray(start, start + BASE64_CHUNK_BYTES)))
-	}
-
-	return `data:${file.type};base64,${btoa(chunks.join(''))}`
-}//end read_file_as_data_url
+}//end raster_icon
 
 
 

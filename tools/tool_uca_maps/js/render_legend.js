@@ -20,7 +20,8 @@ import {ui} from '../../../core/common/js/ui.js'
 import {
 	LEGEND_SYMBOL_SHAPES,
 	default_legend_symbol,
-	legend_symbol_node
+	legend_symbol_node,
+	is_raster_icon
 } from './legend_symbol.js'
 import {show_panel_message} from './render_download_line.js'
 
@@ -37,9 +38,6 @@ import {show_panel_message} from './render_download_line.js'
 export const render_legend_panel = function(self, panel) {
 
 	const form = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-form', parent: panel})
-
-	const message = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-message', parent: form})
-	message.hidden = true
 
 	const title_row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-title-row', parent: form})
 
@@ -91,6 +89,11 @@ export const render_legend_panel = function(self, panel) {
 		focus_in_list(panel, result.index, null, '.uca-maps-legend-column-name')
 	})
 
+	// last and sticky to the panel's foot: the panel scrolls, and a note at its top
+	// was out of sight while the user typed in a group further down
+	const message = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-message', parent: panel})
+	message.hidden = true
+
 	return panel
 }//end render_legend_panel
 
@@ -107,7 +110,7 @@ export const render_legend_panel = function(self, panel) {
 * @param {string} [type='error'] - 'error' | 'warning' (nothing found) | 'ok' | 'info' (working)
 * @returns {void}
 */
-const show_legend_message = function(panel, text, type='error') {
+export const show_legend_message = function(panel, text, type='error') {
 	show_panel_message(panel.querySelector('.uca-maps-legend-message'), text, type)
 }//end show_legend_message
 
@@ -405,11 +408,10 @@ const render_element_row = function(self, panel, elements_list, column_index, el
 	symbol_btn.setAttribute('aria-expanded', 'false')
 
 	// `src` assigned AFTER creation on purpose: create_dom_element's safe_url
-	// refuses `data:`, and every icon here is a data URL this browser minted.
-	// If legends ever persist (a value off the wire), THIS line and its twins
-	// must be re-guarded.
+	// refuses `data:`. A saved icon comes off the wire, so only a raster data
+	// URI reaches the sink (is_raster_icon); an item without one shows none.
 	const icon = ui.create_dom_element({element_type: 'img', class_name: 'uca-maps-legend-element-icon', parent: symbol_btn})
-	icon.src	= element.icon
+	set_icon_src(icon, element.icon)
 	icon.width	= 18
 	icon.height	= 18
 	icon.alt	= ''
@@ -547,7 +549,7 @@ const render_symbol_editor = function(self, panel, item, row_icon, column_index,
 	const apply = function() {
 		const result = self.set_legend_element_symbol(column_index, element_index, current)
 		if (result.ok) {
-			row_icon.src = element.icon
+			set_icon_src(row_icon, element.icon)
 		}
 		paint()
 	}
@@ -633,6 +635,27 @@ const pick_icon_file = function(self, panel, column_index, element_index) {
 	file_input.click()
 
 }//end pick_icon_file
+
+
+
+/**
+* SET_ICON_SRC
+* The one sink of a legend icon: only a raster `data:` URI is drawn; anything else
+* leaves the image empty and hidden.
+*
+* @param {HTMLImageElement} image
+* @param {*} icon
+* @returns {void}
+*/
+const set_icon_src = function(image, icon) {
+	if (is_raster_icon(icon)) {
+		image.src		= icon
+		image.hidden	= false
+	} else {
+		image.removeAttribute('src')
+		image.hidden	= true
+	}
+}//end set_icon_src
 
 
 
@@ -734,10 +757,9 @@ export const render_legend_overlay = function(self) {
 				parent			: column_node
 			})
 
-			// same safe_url bypass as the panel row above — locally minted
-			// data URL, never a value off the wire (yet)
+			// same guarded sink as the panel row above
 			const icon = ui.create_dom_element({element_type: 'img', parent: element_node})
-			icon.src	= element.icon
+			set_icon_src(icon, element.icon)
 			icon.width	= 18
 			icon.height	= 18
 			icon.alt	= ''

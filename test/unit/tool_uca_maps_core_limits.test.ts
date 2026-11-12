@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import { hasControlChars } from '../../src/core/geo/checked.ts';
 import { LEGEND_LIMITS } from '../../src/core/geo/map_legend.ts';
 import {
 	MAP_SOURCE_LIMITS,
@@ -34,6 +35,21 @@ describe('tool_uca_maps core limits mirror', () => {
 
 	test('legend rules', () => {
 		expect(mirror.LEGEND_LIMITS).toEqual({ ...LEGEND_LIMITS });
+	});
+
+	test('text rules: control characters and the start of a tag', async () => {
+		for (let code = 0; code <= 0x3000; code++) {
+			const char = String.fromCodePoint(code);
+			if (mirror.is_control_code(code) !== hasControlChars(char)) {
+				throw new Error(`control character rule differs at U+${code.toString(16)}`);
+			}
+		}
+		const source = await Bun.file(
+			new URL('../../src/core/geo/map_legend.ts', import.meta.url),
+		).text();
+		const match = /const TAG_START = \/(.+)\/;/.exec(source);
+		expect(match).not.toBeNull();
+		expect(mirror.LEGEND_TAG_START.source).toBe(match?.[1]);
 	});
 
 	test('legend icon formats: the ones the core reads an icon URI as', async () => {

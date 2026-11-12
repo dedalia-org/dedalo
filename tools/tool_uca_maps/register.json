@@ -1,7 +1,7 @@
 {
 	"$schema": "../../src/core/tools/register.schema.json",
 	"name": "tool_uca_maps",
-	"version": "1.0.7",
+	"version": "1.0.8",
 	"label": {
 		"lg-eng": "UCA Maps",
 		"lg-spa": "Mapas UCA"
@@ -533,6 +533,14 @@
 		{ "lang": "lg-spa", "name": "legend_error_icon_size", "value": "El icono no debe superar los 2 MB." },
 		{ "lang": "lg-eng", "name": "legend_error_icon_read", "value": "The icon could not be read." },
 		{ "lang": "lg-spa", "name": "legend_error_icon_read", "value": "No se ha podido leer el icono." },
+		{ "lang": "lg-eng", "name": "legend_error_too_big", "value": "The legend's images are too large to save: remove some of them." },
+		{ "lang": "lg-spa", "name": "legend_error_too_big", "value": "Las imágenes de la leyenda son demasiado grandes para guardarla: quita algunas." },
+		{ "lang": "lg-eng", "name": "legend_error_too_long", "value": "The legend cannot be saved: at most 16 groups of 64 items, and 200 characters per text." },
+		{ "lang": "lg-spa", "name": "legend_error_too_long", "value": "La leyenda no se puede guardar: como máximo 16 grupos de 64 elementos, y 200 caracteres por texto." },
+		{ "lang": "lg-eng", "name": "legend_error_markup", "value": "The legend cannot be saved: a text may not hold markup (a < followed by a letter)." },
+		{ "lang": "lg-spa", "name": "legend_error_markup", "value": "La leyenda no se puede guardar: un texto no puede llevar marcas (un < seguido de una letra)." },
+		{ "lang": "lg-eng", "name": "legend_note_unsaved", "value": "A group without a name, and an item without text, are not saved." },
+		{ "lang": "lg-spa", "name": "legend_note_unsaved", "value": "Un grupo sin nombre y un elemento sin texto no se guardan." },
 		{ "lang": "lg-eng", "name": "legend_title_label", "value": "Title" },
 		{ "lang": "lg-spa", "name": "legend_title_label", "value": "Título" },
 		{ "lang": "lg-eng", "name": "legend_column_label", "value": "Group" },

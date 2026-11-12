@@ -17,13 +17,7 @@
 
 
 import {request_failed} from '../../../core/common/js/api_error.js'
-import {MAX_ATTRIBUTION_LENGTH} from './core_limits.js'
-
-
-
-/** C0, DEL, C1 and the Unicode line/paragraph separators: what the core's `checkText`
-* refuses in an attribution (`src/core/geo/checked.ts` isControlCode). */
-const is_control_code = (code) => code<=0x1f || (code>=0x7f && code<=0x9f) || code===0x2028 || code===0x2029
+import {MAX_ATTRIBUTION_LENGTH, is_control_code} from './core_limits.js'
 
 
 

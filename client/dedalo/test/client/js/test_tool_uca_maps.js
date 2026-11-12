@@ -85,7 +85,7 @@ import {
 	ALLOWED_ICON_TYPES,
 	MAX_ICON_BYTES
 } from '../../../tools/tool_uca_maps/js/legend.js'
-import { populate_legend_columns } from '../../../tools/tool_uca_maps/js/render_legend.js'
+import { populate_legend_columns, clear_legend_message } from '../../../tools/tool_uca_maps/js/render_legend.js'
 import { default_symbol_colour } from '../../../tools/tool_uca_maps/js/legend_symbol.js'
 import { is_toolbar_node, create_toolbar_panel, remove_toolbar_panel } from '../../../tools/tool_uca_maps/js/toolbar.js'
 import {
@@ -263,7 +263,11 @@ const load_file = function(input, file) {
 
 const vector_file	= () => new File(['{}'], 'plan.geojson', {type: 'application/geo+json'})
 const image_file	= () => new File(['x'], 'plan.png', {type: 'image/png'})
-const pin_png		= () => new File([new Uint8Array([137, 80, 78, 71])], 'pin.png', {type: 'image/png'})
+/** A real 1x1 PNG: a picked icon is decoded and redrawn, so it must be an image. */
+const pin_png		= () => new File(
+	[Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='), (c) => c.charCodeAt(0))],
+	'pin.png', {type: 'image/png'}
+)
 
 /** One drawable point, what the real vector upload round trip sends. */
 const SAMPLE_UPLOAD_GEOJSON = {
@@ -329,11 +333,31 @@ const staged_answer = (name) => ({ok: true, data: {file_data: {
 	key_dir: 'image', tmp_name: name, name: name, extension: 'jpg', complete: true
 }}})
 
-/** The SVG a drawn legend symbol stores in `icon` (a base64 `data:` URL). */
-const decode_symbol = function(icon) {
-	const prefix = 'data:image/svg+xml;base64,'
-	assert.isTrue(icon.startsWith(prefix), 'expected a drawn symbol stored as an SVG data URL')
-	return new DOMParser().parseFromString(atob(icon.slice(prefix.length)), 'image/svg+xml').documentElement
+/**
+* The colour of one pixel of a legend icon (a PNG `data:` URL, the only form the record
+* keeps), as lowercase #rrggbb, or null where it is transparent. Sample inside a shape:
+* its edges are antialiased.
+*/
+const icon_pixel = async function(icon, x, y) {
+	assert.isTrue(icon.startsWith('data:image/png;base64,'), 'expected the icon kept as a PNG data URL')
+	const image = new Image()
+	image.src = icon
+	await image.decode()
+	const canvas = Object.assign(document.createElement('canvas'), {width: image.naturalWidth, height: image.naturalHeight})
+	const context = canvas.getContext('2d')
+	context.drawImage(image, 0, 0)
+	const [r, g, b, a] = context.getImageData(x, y, 1, 1).data
+	return a<255 ? null : '#' + [r, g, b].map((value) => value.toString(16).padStart(2, '0')).join('')
+}
+
+/** An image file of `width` x `height`, painted one colour, of `type`. */
+const painted_file = async function(width, height, colour, type = 'image/png') {
+	const canvas = Object.assign(document.createElement('canvas'), {width, height})
+	const context = canvas.getContext('2d')
+	context.fillStyle = colour
+	context.fillRect(0, 0, width, height)
+	const blob = await new Promise((resolve) => canvas.toBlob(resolve, type))
+	return new File([blob], 'icon', {type})
 }
 
 /** How many pixels an SVG source paints when drawn at 24x24 (0 if it does not load). */
@@ -8397,7 +8421,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	// one default blue on the map: a new pin and a new symbol wear the colour
 	// Leaflet gives a new object (v6's editor used that blue too)
-	it('a new pin and a new symbol start in the blue of a new map object', function() {
+	it('a new pin and a new symbol start in the blue of a new map object', async function() {
 
 		const new_object_blue = L.polygon([[39.4, -0.4], [39.5, -0.4], [39.5, -0.3]]).options.color
 		tool.attach_legend()
@@ -8407,7 +8431,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		panel.querySelector('.uca-maps-legend-add-element').click()
 
 		const icon = tool.legend.columns[0].elements[0].icon
-		assert.equal(decode_symbol(icon).querySelector('path').getAttribute('fill'), new_object_blue, 'expected the pin in the map\'s blue')
+		assert.equal(await icon_pixel(icon, 18, 21), new_object_blue.toLowerCase(), 'expected the pin in the map\'s blue')
+		assert.isNull(await icon_pixel(icon, 18, 13), 'expected the pin\'s hole left clear')
 
 		// the editor as opened, not the helper: what seeds its colour inputs
 		panel.querySelector('.uca-maps-legend-symbol-button').click()
@@ -8513,7 +8538,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.legend.columns.length, 0)
 	})
 
-	it('an icon must be an allowed type under 2 MB; a good one lands as a data URL of its exact bytes', async function() {
+	it('an icon must be an allowed type under 2 MB; a good one is kept redrawn as a small PNG', async function() {
 
 		tool.attach_legend()
 		tool.add_legend_column()
@@ -8532,40 +8557,175 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 		assert.isFalse(rejected_size.ok, 'expected an oversized icon refused')
 		assert.isOk(rejected_size.error, 'expected the refusal to say why')
-		assert.equal(
-			tool.legend.columns[0].elements[0].icon, default_element_icon(),
-			'expected a refused icon to leave the pin in place'
-		)
 
-		// the ceiling is v6's, inclusive: a file AT 2 MB is accepted — without
-		// this case a `>` turned into a `>=` reads as green. Varied bytes, so a
-		// base64 chunk that drops or repeats bytes cannot pass for the file
-		const ceiling_bytes = Uint8Array.from({length: MAX_ICON_BYTES}, (_value, index) => (index * 7 + (index >> 15)) & 255)
-		const at_the_ceiling = await tool.set_legend_element_icon(
-			0, 0, new File([ceiling_bytes], 'exact.png', {type: 'image/png'})
+		// bytes that only claim to be a PNG cannot be redrawn: refused, the pin stays
+		const not_an_image = await tool.set_legend_element_icon(
+			0, 0, new File([new Uint8Array([137, 80, 78, 71])], 'fake.png', {type: 'image/png'})
 		)
-		assert.isTrue(at_the_ceiling.ok, 'expected a file exactly at the 2 MB ceiling accepted')
-		const stored_prefix = 'data:image/png;base64,'
-		const stored_icon = tool.legend.columns[0].elements[0].icon
-		assert.isTrue(stored_icon.startsWith(stored_prefix), 'expected the icon stored as a PNG data URL')
-		const decoded = atob(stored_icon.slice(stored_prefix.length))
-		assert.equal(decoded.length, MAX_ICON_BYTES, 'expected every byte of the file in the data URL')
-		let first_mismatch = -1
-		for (let index=0; index<decoded.length && first_mismatch===-1; index++) {
-			if (decoded.charCodeAt(index)!==ceiling_bytes[index]) first_mismatch = index
+		assert.deepEqual(not_an_image, {ok: false, error: 'The icon could not be read.'})
+		assert.equal(tool.legend.columns[0].elements[0].icon, default_element_icon(), 'expected a refused icon to leave the pin in place')
+
+		// a large JPEG: kept as a PNG that fits 36 px, its proportions kept
+		const red = '#c0392b'
+		assert.isTrue((await tool.set_legend_element_icon(0, 0, await painted_file(400, 200, red, 'image/jpeg'))).ok)
+		const kept = tool.legend.columns[0].elements[0].icon
+		const image = new Image()
+		image.src = kept
+		await image.decode()
+		assert.deepEqual([image.naturalWidth, image.naturalHeight], [36, 18], 'expected it fitted to 36 px, never stretched')
+		assert.isAtMost(kept.length, 64 * 1024, 'expected it under the core\'s 64 KiB')
+		assert.isNotNull(await icon_pixel(kept, 18, 9), 'expected the picture drawn')
+
+		// a small image is not enlarged; an SVG is redrawn as a PNG too
+		assert.isTrue((await tool.set_legend_element_icon(0, 0, await painted_file(10, 12, red))).ok)
+		const small = new Image()
+		small.src = tool.legend.columns[0].elements[0].icon
+		await small.decode()
+		assert.deepEqual([small.naturalWidth, small.naturalHeight], [10, 12], 'expected a small image kept at its size')
+
+		const svg = new File(['<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="#c0392b"/></svg>'], 'a.svg', {type: 'image/svg+xml'})
+		assert.isTrue((await tool.set_legend_element_icon(0, 0, svg)).ok, 'expected an SVG accepted')
+		assert.equal(await icon_pixel(tool.legend.columns[0].elements[0].icon, 12, 12), red, 'expected the SVG kept as a PNG of the same picture')
+	})
+
+	// the record is the legend's home: the core saves it with the map
+	it('every legend edit is written to the component\'s buffer and marks it dirty; nothing saves by itself', async function() {
+
+		let saves = 0
+		geolocation.change_value = async () => { saves++; return {ok: true, data: {}} }
+		tool.attach_legend()
+		assert.notProperty(geolocation.current_value[0] || {}, 'legend', 'expected opening the legend to touch nothing')
+		assert.notEqual(geolocation.is_data_changed, true)
+
+		tool.set_legend_title('Roman roads')
+		tool.add_legend_column()
+		tool.set_legend_column_name(0, 'Surface')
+		tool.add_legend_element(0)
+		tool.set_legend_element_name(0, 0, 'Paved')
+		tool.add_legend_element(0)
+
+		const buffer = geolocation.current_value[0]
+		assert.equal(buffer.id, 9001, 'expected the stored entry seeded, so the save keeps the drawing')
+		assert.equal(buffer.lib_data.length, 3)
+		assert.deepEqual(buffer.legend, {
+			title: 'Roman roads', groups: [{name: 'Surface', symbols: [{label: 'Paved', icon: default_element_icon()}]}]
+		}, 'expected the record\'s shape; the item without text left out')
+		assert.isTrue(geolocation.is_data_changed, 'expected the component dirty')
+		assert.equal(geolocation.data.changed_data.length, 1, 'expected the change queued for the component\'s save')
+		assert.equal(saves, 0, 'expected no save')
+
+		const message = tool.legend_panel.querySelector('.uca-maps-legend-message')
+		assert.equal(message.textContent, 'A group without a name, and an item without text, are not saved.')
+		assert.equal(message.dataset.type, 'warning', 'expected a warning: what was typed there is lost on save')
+		assert.strictEqual(tool.legend_panel.lastElementChild, message, 'expected the line at the panel\'s foot, below the groups')
+		tool.delete_legend_element(0, 1)
+		assert.isTrue(message.hidden, 'expected the note gone once everything is saved')
+
+		// "show legend" is a view setting: not written
+		const before = JSON.stringify(buffer.legend)
+		tool.set_legend_visible(false)
+		assert.equal(JSON.stringify(buffer.legend), before)
+
+		// emptied: the key goes
+		tool.delete_legend_column(0)
+		tool.set_legend_title('')
+		assert.notProperty(buffer, 'legend', 'expected an empty legend stored as no key')
+	})
+
+	// a legend the core refuses fails the WHOLE geolocation save, drawings included:
+	// it is never written, and the panel says why
+	it('a legend past the core\'s limits is not written to the buffer, and the panel says why', function() {
+
+		tool.attach_legend()
+		const message	= tool.legend_panel.querySelector('.uca-maps-legend-message')
+		const buffer	= () => geolocation.current_value[0]
+
+		tool.set_legend_title('Kept')
+		tool.add_legend_column()
+		tool.set_legend_column_name(0, 'Group')
+		tool.add_legend_element(0)
+		tool.set_legend_element_name(0, 0, 'Item')
+		const refused = (edit, text) => {
+			const kept = JSON.stringify(buffer().legend)
+			edit()
+			assert.equal(message.textContent, text)
+			assert.equal(message.dataset.type, 'error')
+			assert.equal(JSON.stringify(buffer().legend), kept, 'expected the refused legend NOT written')
 		}
-		assert.equal(first_mismatch, -1, 'expected the data URL to carry the file byte for byte')
-		// back to the pin, so the last case has to land its own icon
-		tool.legend.columns[0].elements[0].icon = default_element_icon()
+		const too_long = 'The legend cannot be saved: at most 16 groups of 64 items, and 200 characters per text.'
 
-		const accepted = await tool.set_legend_element_icon(
-			0, 0, pin_png()
-		)
-		assert.isTrue(accepted.ok, 'expected a small PNG accepted')
-		assert.isTrue(
-			tool.legend.columns[0].elements[0].icon.startsWith('data:image/png;base64,'),
-			'expected the icon stored as a data URL, never uploaded'
-		)
+		refused(() => tool.set_legend_element_name(0, 0, 'x'.repeat(201)), too_long)
+		tool.set_legend_element_name(0, 0, 'x'.repeat(200))
+		assert.isTrue(message.hidden, 'expected 200 characters accepted')
+		tool.set_legend_element_name(0, 0, 'Item')
+
+		for (let i = 1; i <= 15; i++) {
+			tool.add_legend_column()
+			tool.set_legend_column_name(i, 'Group ' + i)
+		}
+		tool.add_legend_column()
+		refused(() => tool.set_legend_column_name(16, 'Group 16'), too_long)
+		tool.delete_legend_column(16)
+		assert.isTrue(message.hidden, 'expected 16 groups accepted')
+		assert.equal(buffer().legend.groups.length, 16)
+		for (let i = 15; i >= 1; i--) {
+			tool.delete_legend_column(i)
+		}
+
+		// strip_tags decodes the entity: what is left reads as the start of a tag
+		refused(() => tool.set_legend_title('&lt;img src=x'), 'The legend cannot be saved: a text may not hold markup (a < followed by a letter).')
+		tool.set_legend_title('Kept')
+
+		// the 256 KiB the icons of one legend share: five icons of 60 000 characters
+		const heavy = 'data:image/png;base64,' + 'A'.repeat(60000)
+		for (let i = 0; i < 5; i++) {
+			tool.add_legend_element(0)
+			tool.set_legend_element_name(0, i + 1, 'Heavy ' + i)
+			tool.legend.columns[0].elements[i + 1].icon = heavy
+		}
+		refused(() => tool.set_legend_title('Kept again'), 'The legend\'s images are too large to save: remove some of them.')
+		tool.delete_legend_element(0, 5)
+		assert.isTrue(message.hidden, 'expected four of them (240 000 characters) accepted')
+		assert.equal(buffer().legend.groups[0].symbols.length, 5)
+
+		// a control character is kept as the core keeps it: a space
+		tool.set_legend_title('Two\nlines')
+		assert.equal(buffer().legend.title, 'Two lines')
+	})
+
+	it('a saved legend opens in the editor and the overlay; an icon that is not a raster data URI is never drawn', function() {
+
+		const png = default_element_icon()
+		// get_map seeded the buffer from the stored entry: both carry it, as on a real load
+		const saved = {
+			title	: 'Saved',
+			groups	: [{name: 'Group', symbols: [
+				{label: 'With icon', icon: png},
+				{label: 'Without'},
+				{label: 'Hostile', icon: 'data:image/svg+xml;base64,PHN2Zy8+'},
+				{label: 'Address', icon: 'https://example.org/a.png'}
+			]}]
+		}
+		geolocation.data.entries[0].legend = saved
+		if (geolocation.current_value[0]) {
+			geolocation.current_value[0].legend = structuredClone(saved)
+		}
+		const dirty_before = geolocation.is_data_changed
+
+		tool.attach_legend()
+
+		assert.equal(tool.legend.legend, 'Saved')
+		assert.deepEqual(tool.legend.columns[0].elements.map((element) => [element.name, element.icon]), [
+			['With icon', png], ['Without', null], ['Hostile', null], ['Address', null]
+		])
+		const images = Array.from(tool.legend_overlay.getContainer().querySelectorAll('.uca-maps-legend-overlay-element img'))
+		assert.equal(images.length, 4)
+		assert.equal(images[0].getAttribute('src'), png)
+		for (const image of images.slice(1)) {
+			assert.isNull(image.getAttribute('src'), 'expected no src for an item without a raster icon')
+			assert.isTrue(image.hidden)
+		}
+		assert.equal(geolocation.is_data_changed, dirty_before, 'expected opening a saved legend to change nothing')
 	})
 
 	it('type and size are checked BEFORE the file is read, not after', async function() {
@@ -8670,7 +8830,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const message	= panel.querySelector('.uca-maps-legend-message')
 		const row_src	= () => panel.querySelector('.uca-maps-legend-element img').getAttribute('src')
-		assert.isTrue(message.hidden, 'expected the message line hidden while nothing failed')
+		// an unnamed group is only noted (it is not saved), never an error
+		assert.isTrue(message.hidden || message.dataset.type==='warning', 'expected no error while nothing failed')
+		clear_legend_message(panel)
 
 		// the picker is a throwaway file input: catch it instead of opening the OS chooser
 		const pick = async function(file, done) {
@@ -8693,25 +8855,21 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(message.dataset.type, 'error')
 		assert.equal(row_src(), default_element_icon(), 'expected the pin kept')
 
-		// a file the browser fails to read, whichever reading API asks for it
-		const original_read		= FileReader.prototype.readAsDataURL
-		const original_buffer	= Blob.prototype.arrayBuffer
-		FileReader.prototype.readAsDataURL = function() {
-			setTimeout(() => this.dispatchEvent(new ProgressEvent('error')))
-		}
-		Blob.prototype.arrayBuffer = () => Promise.reject(new DOMException('unreadable', 'NotReadableError'))
+		// a file the browser fails to decode
+		const original_decode = HTMLImageElement.prototype.decode
+		HTMLImageElement.prototype.decode = () => Promise.reject(new DOMException('undecodable', 'EncodingError'))
 		try {
 			await pick(pin_png(), () => !message.hidden)
 		} finally {
-			FileReader.prototype.readAsDataURL	= original_read
-			Blob.prototype.arrayBuffer			= original_buffer
+			HTMLImageElement.prototype.decode = original_decode
 		}
 		assert.isFalse(message.hidden, 'expected the failed read shown in the panel')
 		assert.equal(message.textContent, 'The icon could not be read.')
 		assert.equal(row_src(), default_element_icon(), 'expected the pin kept')
 
 		await pick(pin_png(), () => row_src()!==default_element_icon())
-		assert.isTrue(message.hidden, 'expected the old message cleared by the next pick')
+		assert.isTrue(message.hidden || message.dataset.type==='warning', 'expected the old error cleared by the next pick')
+		assert.notEqual(message.textContent, 'The icon could not be read.')
 		assert.isTrue(row_src().startsWith('data:image/png;base64,'), 'expected the row repainted with the uploaded icon')
 		assert.equal(row_src(), tool.legend.columns[0].elements[0].icon, 'expected the row to show the stored icon')
 	})
@@ -8864,10 +9022,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.deepEqual(tool.set_legend_element_symbol(0, 7, {shape: 'area', fill: picked_colour(), stroke: picked_colour()}), {ok: false})
 
 		assert.deepEqual(tool.set_legend_element_symbol(0, 0, {shape: 'area', fill: picked_colour(), stroke: default_symbol_colour()}), {ok: true})
-		const rect = decode_symbol(element.icon).querySelector('rect')
-		assert.isOk(rect, 'expected an area drawn as a rectangle')
-		assert.equal(rect.getAttribute('fill'), picked_colour())
-		assert.equal(rect.getAttribute('stroke'), default_symbol_colour())
+		assert.equal(await icon_pixel(element.icon, 18, 18), picked_colour(), 'expected an area filled')
+		assert.equal(await icon_pixel(element.icon, 4, 18), default_symbol_colour().toLowerCase(), 'expected its border')
+		assert.isNull(await icon_pixel(element.icon, 18, 3), 'expected nothing above the rectangle')
 		assert.deepEqual(element.symbol, {shape: 'area', fill: picked_colour(), stroke: default_symbol_colour()}, 'expected the values kept to reopen the editor')
 		assert.equal(tool.legend_overlay.getContainer().querySelector('.uca-maps-legend-overlay-element img').getAttribute('src'), element.icon, 'expected the overlay to draw it')
 
@@ -8875,12 +9032,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(element.symbol.fill, picked_colour(), 'expected the colour stored lowercase')
 
 		tool.set_legend_element_symbol(0, 0, {shape: 'line', fill: picked_colour(), stroke: picked_colour()})
-		const line = decode_symbol(element.icon).querySelector('line')
-		assert.isOk(line, 'expected a line drawn as a line')
-		assert.isNull(line.getAttribute('fill'), 'expected a line with no fill')
+		assert.equal(await icon_pixel(element.icon, 18, 18), picked_colour(), 'expected a line drawn across the middle')
+		assert.isNull(await icon_pixel(element.icon, 18, 12), 'expected a line with no fill')
 
-		tool.set_legend_element_symbol(0, 0, {shape: 'point', fill: picked_colour(), stroke: picked_colour()})
-		assert.isOk(decode_symbol(element.icon).querySelector('circle'), 'expected a point drawn as a circle')
+		tool.set_legend_element_symbol(0, 0, {shape: 'point', fill: default_symbol_colour(), stroke: picked_colour()})
+		assert.equal(await icon_pixel(element.icon, 18, 18), default_symbol_colour().toLowerCase(), 'expected a point filled at its centre')
+		assert.equal(await icon_pixel(element.icon, 27, 18), picked_colour(), 'expected its ring')
+		assert.isNull(await icon_pixel(element.icon, 3, 3), 'expected a circle, not a square')
 
 		// an uploaded image replaces the drawn symbol
 		const uploaded = await tool.set_legend_element_icon(
@@ -8939,7 +9097,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		})
 	})
 
-	it('the symbol opens its own editor, and each gesture repaints the row in place', function() {
+	it('the symbol opens its own editor, and each gesture repaints the row in place', async function() {
 
 		tool.attach_legend()
 		tool.legend_control.getContainer().click()
@@ -8974,7 +9132,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(element.symbol.fill, picked_colour(), 'expected the fill to reach the symbol')
 		assert.isTrue(fill_input.isConnected, 'expected the colour input kept')
 		assert.isFalse(editor.hidden, 'expected the editor still open')
-		assert.equal(decode_symbol(row_icon.getAttribute('src')).querySelector('rect').getAttribute('fill'), picked_colour())
+		assert.equal(await icon_pixel(row_icon.getAttribute('src'), 18, 18), picked_colour())
 
 		const stroke_label = editor.querySelector('.uca-maps-legend-symbol-stroke').closest('label').querySelector('.uca-maps-legend-field-label')
 		const border_text = stroke_label.textContent

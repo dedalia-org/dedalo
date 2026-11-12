@@ -51,6 +51,13 @@ export const LEGEND_LIMITS = {
 /** The raster formats a legend icon may be (`RasterFormat`, `ICON_URI`). */
 export const ICON_RASTER_FORMATS = ['png', 'jpeg', 'webp']
 
+/** A legend text that reads as the start of a tag is refused (`map_legend.ts` TAG_START). */
+export const LEGEND_TAG_START = /<[A-Za-z/!?]/
+
+/** C0, DEL, C1 and the Unicode line/paragraph separators: what the core's `checkText`
+* refuses in a text (`checked.ts` isControlCode). */
+export const is_control_code = (code) => code<=0x1f || (code>=0x7f && code<=0x9f) || code===0x2028 || code===0x2029
+
 
 
 // @license-end
