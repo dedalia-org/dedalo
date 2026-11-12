@@ -306,7 +306,7 @@ export async function updateMatrixKeysData(
  * (FNKU⊥FNKU, FNKU⊥FOR SHARE, FNKU⊥DELETE) — and never conflicts with the
  * `FOR KEY SHARE` a save takes on the records its locators point at
  * (lockMatrixRowsForKeyShare). `FOR UPDATE` is kept for the doors that DELETE
- * the row they lock (gate: locator_target_delete_race_native, census leg).
+ * the row they lock (gate: delete_inverse_lost_update_native G5, the census).
  *
  * A read-modify-write of a component key is only safe if the read holds the row
  * lock to COMMIT: `updateMatrixKeysData` replaces the WHOLE key value, so an

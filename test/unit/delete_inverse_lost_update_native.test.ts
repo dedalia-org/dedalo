@@ -49,9 +49,12 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { lockMatrixRowsForKeyShare } from '../../src/core/db/matrix_write.ts';
+import {
+	lockMatrixRowsForKeyShare,
+	readMatrixKeyForUpdate,
+} from '../../src/core/db/matrix_write.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
 import {
 	getColumnNameByModel,
@@ -64,6 +67,7 @@ import { deleteSectionRecord } from '../../src/core/section/record/delete_record
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import {
 	persistAppendedKeyItems,
+	persistObserverResaveKeys,
 	persistRecordKeys,
 	persistRestoredKeys,
 	type RecordWriteTarget,
@@ -420,6 +424,36 @@ function ownerTarget(sectionId: number): RecordWriteTarget {
 	return { table: TABLE, sectionTipo: SECTION, sectionId };
 }
 
+/**
+ * A delete of `target` paused right after its FOR UPDATE on the target row
+ * (the precondition hook): `entered` once the lock is held, `release()` lets it
+ * strip the owners and COMMIT; `done` settles the delete.
+ */
+function deletionHeldAfterTargetLock(target: number): {
+	entered: Promise<void>;
+	release: () => void;
+	done: Promise<Settled<unknown>>;
+} {
+	let entered: () => void = () => {};
+	const inDelete = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
+	let release: () => void = () => {};
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const done = settle(
+		deleteSectionRecord(SECTION, target, USER_ID, new Date(), {
+			precondition: async () => {
+				entered();
+				await gate;
+				return null;
+			},
+		}),
+	);
+	return { entered: inDelete, release: () => release(), done };
+}
+
 describe('T1-19 locator target vs a concurrent delete (D01)', () => {
 	test('R1 delete first: the link save WAITS on the delete, then is REFUSED — nothing dangles', async () => {
 		const target = await newRecord();
@@ -510,6 +544,69 @@ describe('T1-19 locator target vs a concurrent delete (D01)', () => {
 		expect(codeOf(saved)).toBe('relation.target_deleted');
 		expect(references(await bagOf(owner), target)).toBe(false);
 		expect(references(await bagOf(owner, PORTAL2), target)).toBe(false);
+	}, 30_000);
+
+	test('R5 KEPT target: removing ANOTHER item while the kept target is being deleted never waits on it (save door, no 40P01)', async () => {
+		const target = await newRecord();
+		const other = await newRecord();
+		const owner = await newRecord();
+		expect((await insertLink(owner, target)).ok).toBe(true);
+		expect((await insertLink(owner, other)).ok).toBe(true);
+		const otherItemId = (await bagOf(owner)).find((item) => Number(item.section_id) === other)?.id;
+		expect(typeof otherItemId).toBe('number');
+		const deletion = deletionHeldAfterTargetLock(target);
+		await deletion.entered;
+		// The curator removes `other` — the full-array write keeps ->target. It must
+		// NOT KEY SHARE-lock the kept target after its owner lock: the held delete
+		// owns target FOR UPDATE and still has to rewrite the owner.
+		const removal = await boundedRun(
+			saveComponentData({
+				componentTipo: PORTAL,
+				sectionTipo: SECTION,
+				sectionId: owner,
+				lang: 'lg-nolan',
+				changedData: [{ action: 'remove', id: otherItemId as number, value: null }],
+				userId: USER_ID,
+			}),
+			5_000,
+		);
+		deletion.release();
+		const deleted = await deletion.done;
+		expect(removal.status).toBe('fulfilled'); // completed while the delete held target
+		expect(removal.status === 'fulfilled' && removal.value.ok).toBe(true);
+		expect(deleted.status).toBe('fulfilled'); // never the 40P01 victim
+		const bag = await bagOf(owner);
+		expect(references(bag, other)).toBe(false); // the curator's removal landed
+		expect(references(bag, target)).toBe(false); // the delete stripped the kept link
+	}, 30_000);
+
+	test('R6 KEPT target under an owner-held ambient tx (observer re-save shape) never waits on it', async () => {
+		const target = await newRecord();
+		const owner = await newRecord();
+		expect((await insertLink(owner, target)).ok).toBe(true);
+		const stored = await bagOf(owner);
+		expect(references(stored, target)).toBe(true);
+		const deletion = deletionHeldAfterTargetLock(target);
+		await deletion.entered;
+		// resaveObserverThroughSaveRules' shape: the host row locked first, then the
+		// cascade-owned re-save of a value that ADDS nothing.
+		const resave = await boundedRun(
+			withTransaction(async () => {
+				await readMatrixKeyForUpdate(TABLE, SECTION, owner, 'relation', PORTAL);
+				await persistObserverResaveKeys(
+					ownerTarget(owner),
+					[{ column: 'relation', key: PORTAL, value: stored }],
+					false,
+					{ actor: USER_ID },
+				);
+			}),
+			5_000,
+		);
+		deletion.release();
+		const deleted = await deletion.done;
+		expect(resave.status).toBe('fulfilled');
+		expect(deleted.status).toBe('fulfilled');
+		expect(references(await bagOf(owner), target)).toBe(false);
 	}, 30_000);
 
 	test('R4 the chokepoint itself refuses a link to a deleted record (key write AND atomic append)', async () => {
@@ -655,6 +752,28 @@ describe('T1-19 G5: the lock-mode census', () => {
 		expect(forUpdateCount('\tconst r = await sql`SELECT 1 FROM t FOR NO KEY UPDATE`;')).toBe(0);
 		expect(forUpdateCount(' * a comment naming FOR UPDATE')).toBe(0);
 		expect(forUpdateCount('\t\t -- FOR UPDATE SKIP LOCKED')).toBe(0);
+	});
+
+	test('the lock-mode law headers name gates that EXIST (a header rule points at its real gate)', () => {
+		// A header stating the law must name the census that enforces it; a name
+		// with no file sends the next maintainer to a gate that is not there.
+		const sites = [
+			'src/core/db/matrix_write.ts',
+			'src/core/section_record/locator_targets.ts',
+			'src/core/section_record/record_write.ts',
+			'engineering/wire_contract/WC-2026-11-12-locator-target-deleted-refused.md',
+		];
+		const named = new Set<string>();
+		for (const site of sites) {
+			const source = readFileSync(join(REPO_ROOT, site), 'utf-8');
+			for (const match of source.matchAll(/\b([a-z][a-z0-9_]*_native)\b/g))
+				named.add(match[1] ?? '');
+		}
+		expect(named.has('delete_inverse_lost_update_native')).toBe(true); // non-vacuity
+		const missing = [...named].filter(
+			(gate) => !existsSync(join(REPO_ROOT, 'test/unit', `${gate}.test.ts`)),
+		);
+		expect(missing).toEqual([]);
 	});
 
 	test('every record-write KEY ENTRY declares its locator-target law (verify / exempt + reason)', () => {

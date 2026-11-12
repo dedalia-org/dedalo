@@ -100,9 +100,10 @@
  *      target is a deleted record. Declared per ENTRY (KeyWriteMode.targets):
  *      `verify` — persistRecordKeys, persistObserverResaveKeys and the atomic
  *      append; `exempt` (with its reason) — the removal law, the observer
- *      mirror and the component restore. When the chokepoint owns the
- *      transaction it locks the targets BEFORE the owner row (the save door's
- *      pre-lock order). The lock-mode law beside it: every writer's row lock is
+ *      mirror and the component restore. Only ADDED targets are locked (against an
+ *      unlocked read, BEFORE the owner row when nothing holds it — the save
+ *      door's pre-lock order); a KEPT target never is (locking it after an
+ *      ambient owner lock deadlocks against its delete). The lock-mode law beside it: every writer's row lock is
  *      `FOR NO KEY UPDATE` (never conflicts with KEY SHARE); `FOR UPDATE` only
  *      where the row is deleted.
  *   4. THE COMPONENT_IMAGE SVG ENVELOPE — a `media`-column write persists any
@@ -141,6 +142,7 @@ import { auditDateItem, auditUserLocator } from '../section/record/create_record
 import {
 	assertAddedLocatorTargetsLive,
 	locatorTargetsOf,
+	lockAddedLocatorTargets,
 	lockLocatorTargets,
 } from './locator_targets.ts';
 import {
@@ -435,6 +437,32 @@ function targetedItems(savePath: readonly SavePathItem[], mode: KeyWriteMode): S
 	return savePath.filter(
 		(item) => item.column === 'relation' && locatorTargetsOf(asItems(item.value)).length > 0,
 	);
+}
+
+/**
+ * §3h — the chokepoint's PRE-LOCK: `FOR KEY SHARE` on the targets each targeted
+ * key ADDS over the key as STORED NOW (one unlocked record read — the owner row
+ * is not locked yet when the chokepoint owns the transaction; the check re-judges
+ * under the owner's lock, so a value that moved in between is still judged). A
+ * KEPT target is never locked: after an ambient owner lock that is the inverted
+ * order a concurrent delete of it deadlocks against (T1-19 review, gates R5/R6).
+ */
+async function lockAddedTargetsAhead(
+	target: RecordWriteTarget,
+	targeted: readonly SavePathItem[],
+): Promise<void> {
+	if (targeted.length === 0) return;
+	const stored = await readMatrixRecord(target.table, target.sectionTipo, target.sectionId);
+	const bag = plainBag(stored?.columns.relation);
+	await lockAddedLocatorTargets(
+		targeted.map((item) => ({ before: asItems(bag[item.key]), after: asItems(item.value) })),
+	);
+}
+
+/** A stored jsonb column as a key bag ({} when absent or not an object). */
+function plainBag(column: unknown): Record<string, unknown> {
+	if (column === null || typeof column !== 'object' || Array.isArray(column)) return {};
+	return column as Record<string, unknown>;
 }
 
 /** One before-image slot per (column, key). */
@@ -734,8 +762,8 @@ async function writeKeyEntry(
 	//    the record the UPDATE replaces and a refusal rolls everything back.
 	if (await machineNameRulesApply(target, ruledPath)) {
 		await withTransaction(async () => {
-			// §3h — the targets' locks before the verdict's row lock (the one order).
-			await lockLocatorTargets(targetedItems(ruledPath, mode).map((item) => item.value));
+			// §3h — the ADDED targets' locks before the verdict's row lock (the one order).
+			await lockAddedTargetsAhead(target, targetedItems(ruledPath, mode));
 			const savePath = await machineNameRuledPath(target, ruledPath, mode.door);
 			await writeKeys(target, savePath, audit, derived, mode);
 		});
@@ -825,9 +853,10 @@ async function writeKeys(
 	}
 
 	await withTransaction(async () => {
-		// §3h — the targets' KEY SHARE locks FIRST (before the owner row's lock,
-		// the save door's order; re-entered when the door already took them).
-		await lockLocatorTargets(plan.targeted.map((item) => item.value));
+		// §3h — the ADDED targets' KEY SHARE locks FIRST (before the owner row's
+		// lock, the save door's order; re-entered when the door already took them).
+		// KEPT targets are never locked (locator_targets.ts, WHAT IS LOCKED).
+		await lockAddedTargetsAhead(target, plan.targeted);
 		const befores = new Map<string, unknown[]>();
 		const changes = await observedChanges(target, plan.observed, mode.door, befores);
 		await assertTargetedKeys(target, plan.targeted, mode.door, befores);

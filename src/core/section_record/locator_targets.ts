@@ -26,8 +26,8 @@
  * lock of a door that does not DELETE the row is `FOR NO KEY UPDATE`, which never
  * conflicts with `FOR KEY SHARE`. Two saves linking two records to each other, or
  * a save linking to a record another curator is editing, never wait on each
- * other. Census: locator_target_delete_race_native (every `FOR UPDATE` literal
- * is a row-DELETING lock, named and reasoned).
+ * other. Census: delete_inverse_lost_update_native G5 (every `FOR UPDATE`
+ * literal is a row-DELETING lock, named and reasoned).
  *
  * WHAT IS JUDGED — only an ADDED target (one the key did not reference before):
  *   - a KEPT locator is never re-judged — a record that already carries a
@@ -41,14 +41,26 @@
  *     included) is accepted as before: OWNER DECISION A of the T1-19 plan
  *     (strict referential integrity) is not ruled.
  *
+ * WHAT IS LOCKED — only an ADDED target, by every caller but the door's own
+ * pre-lock of the values it was handed. A KEPT target is never locked: the
+ * write cannot strand a locator its key already carried (a concurrent delete
+ * strips it after this write commits — it waits on the owner row, never the
+ * reverse), and a KEY SHARE on it taken after the owner's row lock is the
+ * inverted order that deadlocks against that delete (T1-19 review: a portal
+ * remove/reorder/update, or an observer re-save, whose full-array write keeps a
+ * locator to the record being deleted).
+ *
  * Callers: the record-write chokepoint (record_write.ts §3h — the `verify` key
- * entries, under their own transaction) and the save door's PRE-LOCK
- * (save_component.ts applySaveComponentData), which takes the targets' locks
- * BEFORE the owner row's lock — the audit's lock order. A door that already
- * holds the owner row in an ambient transaction and reaches the chokepoint takes
- * the target locks after it: against a concurrent delete of a target that the
- * owner already references, that inverted order can deadlock (40P01 — loud,
- * never silent; named in the WC).
+ * entries: lockAddedLocatorTargets against an unlocked read BEFORE the owner
+ * row's lock when nothing holds it yet, then the check under it) and the save
+ * door's PRE-LOCK (save_component.ts applySaveComponentData — the changed
+ * values, BEFORE the owner row's lock: the audit's lock order). The ONE residual
+ * inversion: a door that already holds the owner row in an ambient transaction
+ * (CSV row transaction, children write-through, tree doors) and ADDS a locator
+ * to a record the owner ALREADY references in ANOTHER key can deadlock against
+ * a concurrent delete of that record (40P01 — loud, never silent; named in the
+ * WC). Gates: delete_inverse_lost_update_native R3 (added, door pre-lock), R5
+ * (kept, save door), R6 (kept, owner-held ambient re-save).
  */
 
 import { isConvertibleSectionIdString } from '../concepts/section_id.ts';
@@ -142,6 +154,23 @@ export async function lockLocatorTargets(values: readonly unknown[]): Promise<vo
 	const targets = values.flatMap((value) => locatorTargetsOf(value));
 	if (targets.length === 0) return;
 	await lockMatrixRowsForKeyShare(await lockableRows(targets));
+}
+
+/**
+ * THE CHOKEPOINT'S PRE-LOCK (record_write.ts §3h): `FOR KEY SHARE` on the
+ * targets each value ADDS over the key as currently stored (`before` — an
+ * UNLOCKED read; the check below re-judges under the owner's lock). A KEPT
+ * target is never locked: a concurrent delete of it strips the owner after this
+ * write commits, and locking it here — possibly after an ambient owner lock —
+ * is the inverted order that deadlocks against that delete. Never refuses.
+ * MUST run inside the write's transaction.
+ */
+export async function lockAddedLocatorTargets(
+	pairs: readonly { before: unknown; after: unknown }[],
+): Promise<void> {
+	const added = pairs.flatMap((pair) => addedLocatorTargets(pair.before, pair.after));
+	if (added.length === 0) return;
+	await lockMatrixRowsForKeyShare(await lockableRows(added));
 }
 
 /**

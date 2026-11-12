@@ -74,12 +74,21 @@ someone is editing, never wait. `FOR UPDATE` remains only where the row is delet
 record delete's target, the hierarchy teardown) and on the diffusion job queue — census:
 `delete_inverse_lost_update_native` G5.
 
-**Lock order.** The save door takes the targets' KEY SHARE BEFORE its owner row; the
-chokepoint does the same when it owns the transaction. A door that already holds the owner
-in an AMBIENT transaction (CSV row transaction, children write-through, tree doors) takes
-them after it: against a concurrent delete of a target the owner ALREADY references, the
-two can deadlock — Postgres aborts one with `40P01` (loud, never a silent dangle; the tree
-doors already retry it).
+**What is locked.** Only ADDED targets (absent from the key as stored). A KEPT target is
+never locked: a full-array write that keeps a locator (a portal remove / reorder / update,
+a dataframe merge, an observer re-save) cannot strand it — a concurrent delete of that
+record waits on the owner row and strips it after this write commits — and a KEY SHARE on
+it taken after the owner's row lock is the inverted order that deadlocks against that delete
+(T1-19 review, 2026-11-12: the first cut locked every target of the after-value).
+
+**Lock order.** The save door takes the changed values' KEY SHARE BEFORE its owner row; the
+chokepoint takes the ADDED targets' (against an unlocked read of the stored key) before it
+locks the owner, then re-judges under the owner's lock. The ONE residual inversion: a door
+that already holds the owner in an AMBIENT transaction (CSV row transaction, children
+write-through, tree doors) and ADDS a locator to a record the owner ALREADY references in
+ANOTHER key: against a concurrent delete of that record the two can deadlock — Postgres
+aborts one with `40P01` (loud, never a silent dangle; the tree doors already retry it). The
+save door is not in that set (its pre-lock covers what it adds; it locks no kept target).
 
 ## Cost (measured, suite DB, 2026-11-12)
 
@@ -91,7 +100,10 @@ probe runs only for an absent target).
 
 `test/unit/delete_inverse_lost_update_native.test.ts` — R1 delete first (the save waits on
 the deleter, then `relation.target_deleted`), R2 save first (the delete waits, then strips
-the link), R3 lock order (the waiting save does not hold its owner; no 40P01), R4 the
+the link), R3 lock order (the waiting save does not hold its owner; no 40P01), R5 a portal remove that
+KEEPS a locator to the record being deleted never waits on it (save door), R6 the same under
+an owner-held ambient transaction (the observer re-save shape), R4 the
 chokepoint key write + atomic append, G1 mutual links never wait, G3 kept residue editable,
 G4 forward/remote ids accepted, K7 the KEY SHARE door refuses outside a transaction, G5 the
-lock-mode census and the per-entry `targets` declaration.
+lock-mode census, the per-entry `targets` declaration, and every gate the lock-law headers
+name exists.
