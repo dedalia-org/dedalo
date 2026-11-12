@@ -30,6 +30,7 @@ import { rdfWriter } from '../../src/diffusion/writers/rdf.ts';
 import type { DiffusionWriter, WriterSession } from '../../src/diffusion/writers/types.ts';
 import { xmlWriter } from '../../src/diffusion/writers/xml.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { TEST_RDF_ELEMENT, testRdfDocument } from '../helpers/rdf_test_documents.ts';
 import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const ROOT = scratchDir('ts_diffusion_consolidated_withdrawn');
@@ -70,6 +71,7 @@ function plan(format: string, section: SectionPlan, serviceName: string): Public
 		recursion: { maxLevels: 2 },
 		langPolicy: { langs: ['lg-eng'], mainLang: 'lg-eng' },
 		warnings: [],
+		...(format === 'rdf' ? { rdf: TEST_RDF_ELEMENT } : {}),
 	};
 }
 
@@ -146,10 +148,18 @@ describe('a run that publishes nothing withdraws the consolidated artifacts', ()
 			const dir = `${ROOT}/${c.dir}`;
 			// RUN 1: two records published, the consolidated artifacts land holding both.
 			const first = await openRun(c);
-			await first.writeRows(c.section, [
-				row(1, c.column, 'withdrawn-one'),
-				row(2, c.column, 'withdrawn-two'),
-			]);
+			if (c.format === 'rdf') {
+				// the rdf writer publishes record GRAPHS (T1-4), never rows
+				await first.writeGraphs?.(c.section, [
+					testRdfDocument(1, [['withdrawn-one', 'en']]),
+					testRdfDocument(2, [['withdrawn-two', 'en']]),
+				]);
+			} else {
+				await first.writeRows(c.section, [
+					row(1, c.column, 'withdrawn-one'),
+					row(2, c.column, 'withdrawn-two'),
+				]);
+			}
 			const firstSummary = await closeRun(first, first.takeArtifacts?.() ?? []);
 			for (const name of c.consolidated) {
 				expect(existsSync(`${dir}/${name}`), `run 1 did not land ${name}`).toBe(true);

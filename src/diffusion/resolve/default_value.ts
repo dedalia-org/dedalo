@@ -43,6 +43,7 @@ import { mediaTypeOf } from '../../core/concepts/media.ts';
 import type { MatrixRecord } from '../../core/db/matrix.ts';
 import { DedaloError } from '../../core/errors/index.ts';
 import { withoutUnpublishedGeoKeys } from '../../core/geo/geo_entry_keys.ts';
+import { getColumnNameByModel } from '../../core/ontology/resolver.ts';
 import { readComponentItems } from '../../core/resolve/component_data.ts';
 import { phpTrim } from '../parsers/php_string.ts';
 import type { MetaValueIR, ValueMeta } from '../parsers/types.ts';
@@ -204,6 +205,50 @@ function mediaOptionsOf(
 		quality: typeof options.quality === 'string' ? options.quality : defaults.quality,
 		extension: typeof options.extension === 'string' ? options.extension : defaults.extension,
 	};
+}
+
+/**
+ * The runtime ddo option the walker sets for an rdf get_data_number field
+ * (FieldPlan.leafNumberTypes) — never read from the ontology.
+ */
+export const PHP_NUMBER_TYPES_OPTION = '__php_number_types';
+
+/**
+ * The PHP type json_decode gives each stored item's NUMBER token — 'double'
+ * when the token carries '.', 'e' or 'E' (`1.0`, `2e3`), 'integer' otherwise —
+ * aligned with readComponentItems (null/'' holes dropped the same way). JS
+ * parses `1.0` and `1` to the same number, so the raw jsonb text (Postgres
+ * keeps a numeric's scale) is re-read with JSON.parse source access. Null for
+ * an item whose value is not a number.
+ */
+export function phpNumberTypesOf(
+	record: MatrixRecord,
+	model: string,
+	componentTipo: string,
+): ('integer' | 'double' | null)[] {
+	const column = getColumnNameByModel(model);
+	const text = column === null ? null : record.rawText[column as keyof MatrixRecord['rawText']];
+	if (typeof text !== 'string') return [];
+	type Reviver = (key: string, value: unknown, context?: { source?: string }) => unknown;
+	const reviver: Reviver = (_key, value, context) =>
+		typeof value === 'number' ? { __number_source: context?.source ?? String(value) } : value;
+	const parsed = JSON.parse(text, reviver as (key: string, value: unknown) => unknown) as Record<
+		string,
+		unknown
+	>;
+	const slice = parsed[componentTipo];
+	const list = Array.isArray(slice) ? slice : slice === undefined || slice === null ? [] : [slice];
+	return list
+		.filter((item) => item !== null && item !== '')
+		.map((item) => {
+			const raw =
+				item !== null && typeof item === 'object' && 'value' in item
+					? (item as { value: unknown }).value
+					: item;
+			const source = (raw as { __number_source?: unknown } | null)?.__number_source;
+			if (typeof source !== 'string') return null;
+			return /[.eE]/.test(source) ? 'double' : 'integer';
+		});
 }
 
 /**
@@ -428,10 +473,16 @@ export function defaultPublicationValue(
 			// Base default (:3330-3364): one atom per stored entry, entry lang
 			// preserved, value = entry.value ?? entry (media/info/json slices
 			// store bare objects without a .value wrapper).
-			return items.map((item) => {
+			const numberTypes =
+				ddoOptions?.[PHP_NUMBER_TYPES_OPTION] === true
+					? phpNumberTypesOf(record, model, componentTipo)
+					: null;
+			return items.map((item, position) => {
 				const raw =
 					item !== null && typeof item === 'object' && 'value' in item ? item.value : item;
-				return rawToAtom(raw ?? null, atomLangOf(item.lang), meta);
+				const phpNumberType = numberTypes?.[position] ?? null;
+				const itemMeta = phpNumberType === null ? meta : { ...meta, phpNumberType };
+				return rawToAtom(raw ?? null, atomLangOf(item.lang), itemMeta);
 			});
 		}
 	}

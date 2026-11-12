@@ -124,6 +124,8 @@ describe('PUB-03 — publish/delete PATH lockstep, TOTAL over the file writers',
 		recursion: { maxLevels: 1 },
 		langPolicy: { langs: ['lg-eng'], mainLang: 'lg-eng' },
 		warnings: [],
+		// an rdf plan carries its compiled element (T1-4) — the writer refuses one without it
+		...(format === 'rdf' ? { rdf: { namespaces: [], serviceType: 'lockstep' } } : {}),
 	});
 
 	/** The census: every writer the registry serves that is not a MariaDB table format. */

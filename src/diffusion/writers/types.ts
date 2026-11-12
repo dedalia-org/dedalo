@@ -29,6 +29,7 @@
 
 import type { PublicationPlan, SectionPlan } from '../plan/types.ts';
 import type { ProjectedRow } from '../project/lang_ladder.ts';
+import type { RdfRecordDocument } from '../resolve/rdf_graph_ir.ts';
 
 /** Per-batch write result (feeds the job progress + final report). */
 export interface WriteBatchResult {
@@ -105,6 +106,11 @@ export interface WriterSession {
 	ensureSchema(): Promise<void>;
 	/** Upsert one section's projected rows (one transaction per call). */
 	writeRows(section: SectionPlan, rows: ProjectedRow[]): Promise<WriteBatchResult>;
+	/**
+	 * rdf only: land one document per published record (ResolvedBatch.graphs —
+	 * an rdf plan resolves GRAPHS, never rows; its writeRows refuses).
+	 */
+	writeGraphs?(section: SectionPlan, documents: RdfRecordDocument[]): Promise<WriteBatchResult>;
 	/** Remove published records (unpublish + delete propagation). */
 	removeRecords(section: SectionPlan, sectionIds: (number | string)[]): Promise<WriteBatchResult>;
 	/** The artifact events since the previous call (in order), and forget them. */

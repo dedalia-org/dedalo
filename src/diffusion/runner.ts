@@ -390,6 +390,19 @@ async function runPublicationJob(job: DiffusionJobRow, lease: JobLease): Promise
 					}
 				}
 				if (rows.length > 0) await session.writeRows(batch.section, rows);
+				// rdf: one document per published record (ResolvedBatch.graphs), the
+				// same vanished-record filter as rows.
+				const documents = (batch.graphs ?? []).filter(
+					(document) => !vanished.has(String(document.sectionId)),
+				);
+				if (documents.length > 0) {
+					if (session.writeGraphs === undefined) {
+						throw new DedaloError('internal.invariant', {
+							message: `diffusion runner: plan '${plan.planId}' resolved rdf graphs but its writer has no writeGraphs`,
+						});
+					}
+					await session.writeGraphs(batch.section, documents);
+				}
 				if (unpublishIds.length > 0) await session.removeRecords(batch.section, unpublishIds);
 				const artifacts = session.takeArtifacts();
 				const writerCheckpoint = await session.checkpoint();

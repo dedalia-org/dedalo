@@ -15,7 +15,7 @@
  *   zip <out.zip> <file>...   the production `createZip` over big files;
  *   rdf-write <count> <bytes> an rdf writer session writes <count> records of
  *                             ~<bytes> each (batches of 10, GC between them)
- *                             through `writeRows` — the production record files;
+ *                             through `writeGraphs` — the production record files;
  *   rdf-close <count>         a FRESH session (same plan, same job) runs `close()`
  *                             — the consolidation (merge + zip) — over them, from
  *                             the BASELINE: the measured delta is close()'s alone.
@@ -34,7 +34,6 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { FieldPlan, PublicationPlan, SectionPlan } from '../../src/diffusion/plan/types.ts';
-import type { ProjectedRow } from '../../src/diffusion/project/lang_ladder.ts';
 
 const [mode, ...args] = process.argv.slice(2);
 
@@ -94,6 +93,7 @@ if (mode === 'control') {
 	const count = Number(args[0]);
 	const partBytes = Number(args[1] ?? 0);
 	const { rdfWriter } = await import('../../src/diffusion/writers/rdf.ts');
+	const { TEST_RDF_ELEMENT, testRdfDocument } = await import('./rdf_test_documents.ts');
 	const titleField: FieldPlan = {
 		id: 'rss_title',
 		columnName: 'dc:title',
@@ -119,13 +119,17 @@ if (mode === 'control') {
 		recursion: { maxLevels: 0 },
 		langPolicy: { langs: ['lg-eng'], mainLang: 'lg-eng' },
 		warnings: [],
+		rdf: TEST_RDF_ELEMENT,
 	} as PublicationPlan;
 	const open = rdfWriter.open as unknown as (
 		plan: PublicationPlan,
 		context?: { jobId: string; resume: unknown },
 	) => Promise<{
 		ensureSchema(): Promise<void>;
-		writeRows(section: SectionPlan, rows: ProjectedRow[]): Promise<unknown>;
+		writeGraphs(
+			section: SectionPlan,
+			documents: ReturnType<typeof testRdfDocument>[],
+		): Promise<unknown>;
 		close(context?: unknown): Promise<{ tables: { table_name: string }[] }>;
 	}>;
 	const session = await open(plan, { jobId: '00000000-0000-4000-8000-00000000f00d', resume: null });
@@ -133,11 +137,11 @@ if (mode === 'control') {
 	if (mode === 'rdf-write') {
 		const filler = 'a'.repeat(partBytes);
 		for (let first = 1; first <= count; first += 10) {
-			const rows: ProjectedRow[] = [];
+			const documents: ReturnType<typeof testRdfDocument>[] = [];
 			for (let id = first; id < first + 10 && id <= count; id++) {
-				rows.push({ sectionId: id, lang: 'lg-eng', columns: { 'dc:title': `${id} ${filler}` } });
+				documents.push(testRdfDocument(id, [[`${id} ${filler}`, 'en']]));
 			}
-			await session.writeRows(section, rows);
+			await session.writeGraphs(section, documents);
 			Bun.gc(true);
 		}
 		report(baselineKiB());

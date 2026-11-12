@@ -116,7 +116,7 @@ import {
 	joinIconographyScenes,
 	parseTagValueToHtml,
 } from './ddo_fns.ts';
-import { defaultPublicationValue } from './default_value.ts';
+import { defaultPublicationValue, PHP_NUMBER_TYPES_OPTION } from './default_value.ts';
 import {
 	frontierKey,
 	type ResumeState,
@@ -124,6 +124,8 @@ import {
 	recordKey,
 } from './frontier_ledger.ts';
 import { type InfoPublicationEnv, infoPublicationAtoms } from './info_value.ts';
+import { buildRdfRecordGraph, type RdfGraphEnv } from './rdf_graph.ts';
+import type { RdfGraph, RdfRecordDocument } from './rdf_graph_ir.ts';
 import type { FieldIR, RecordIR, ResolvedLink } from './record_ir.ts';
 import type { RewriterEnv } from './rewriters.ts';
 import { buildRewriterFns } from './rewriters.ts';
@@ -159,6 +161,12 @@ export interface ResolvedBatch {
 	primary: boolean;
 	records: RecordIR[];
 	rows: ProjectedRow[];
+	/**
+	 * rdf plans only (SectionPlan.rdfClass): one graph per PUBLISHED record —
+	 * the document the rdf writer serialises (resolve/rdf_graph.ts). Absent
+	 * for every other format.
+	 */
+	graphs?: RdfRecordDocument[];
 	/** Records whose gate said 'unpublish' — writers remove their artifacts. */
 	unpublishIds: (number | string)[];
 	/**
@@ -310,6 +318,8 @@ export interface RunContext {
 	 * (info_value.ts — bounded; every field over one info component computes
 	 * its widgets once per record per run). */
 	infoItemsCache: Map<string, unknown[] | null>;
+	/** rdf: dd1010 entity record + base IRIs resolved this run (rdf_graph.ts). */
+	rdfBaseMemo: Map<string, string | null>;
 	/** PHP is_used bitmask twin: records already emitted top-level this run. */
 	usedRecords: Set<string>;
 	/** PHP $datum_unresolved: `${level}:${section_tipo}` → queued ids (FIFO). */
@@ -1818,6 +1828,11 @@ async function walkChainLevel(
 				parentStep !== undefined &&
 				parentStep.kind === 'relation-hop' &&
 				(parentStep.labelExpansion === true || parentStep.model === 'component_select');
+			let stepOptions = viaLabel ? { ...(step.options ?? {}), __via_label: true } : step.options;
+			// rdf get_data_number: the stored token's PHP type rides the atom.
+			if (prepared.field.leafNumberTypes === true) {
+				stepOptions = { ...(stepOptions ?? {}), [PHP_NUMBER_TYPES_OPTION]: true };
+			}
 			let stepAtoms = defaultPublicationValue(
 				record,
 				step.tipo,
@@ -1826,7 +1841,7 @@ async function walkChainLevel(
 					sourceId: step.ddoId,
 					tipo: step.tipo,
 				},
-				viaLabel ? { ...(step.options ?? {}), __via_label: true } : step.options,
+				stepOptions,
 			);
 			// ONLY on the diffusion-VALUE path. v6 resolves the label inside
 			// component_iri::get_diffusion_value; a field asking for the raw stored
@@ -2356,6 +2371,99 @@ async function processRecord(
 }
 
 // ---------------------------------------------------------------------------
+// rdf — the record GRAPH instead of rows (T1-4, resolve/rdf_graph.ts)
+// ---------------------------------------------------------------------------
+
+/** Field id of the record-level rdf failure (its subject IRI could not be built). */
+const RDF_SUBJECT_ERROR_FIELD = '(rdf subject)';
+
+/**
+ * The builder's view of this run: the ONE walker at level 0 (an rdf run
+ * queues no frontier — PHP diffuse_rdf publishes the selection and inlines
+ * linked records through `rdf` link nodes), the run's record cache, the
+ * publication gate a linked record must pass.
+ */
+function rdfGraphEnvOf(ctx: RunContext): RdfGraphEnv {
+	return {
+		plan: ctx.plan,
+		sectionPlanOfClass: (classTipo) =>
+			ctx.plan.sections.find((section) => section.rdfClass?.classTipo === classTipo),
+		resolveField: async (section, fieldId, record) => {
+			const prepared = ctx.preparedFields.get(preparedFieldKey(section.sectionTipo, fieldId));
+			if (prepared === undefined) {
+				throw new DedaloError('internal.invariant', {
+					message: `rdf graph: field '${fieldId}' of '${section.sectionTipo}' was not prepared`,
+				});
+			}
+			return resolveFieldAtoms(ctx, prepared, record, 0, true);
+		},
+		loadRecord: async (sectionTipo, sectionId) =>
+			(await loadRecords(ctx, sectionTipo, [sectionId])).get(RECORD_KEY(sectionTipo, sectionId)) ??
+			null,
+		isPublishable: async (record) => {
+			const override = ctx.sectionPublishableOverride.get(record.section_tipo);
+			if (override !== null && override !== undefined) return override;
+			return isRecordPublishable(ctx, record);
+		},
+		iriTitles: (record, iriTipo) => iriTitlesByItemId(ctx, record, iriTipo),
+		baseMemo: ctx.rdfBaseMemo,
+		maxLinkItems: ctx.maxLevels,
+	};
+}
+
+/** One rdf record: gate, then its graph (or the reason it has none). */
+async function processRdfRecord(
+	ctx: RunContext,
+	sectionPlan: SectionPlan,
+	record: MatrixRecord,
+): Promise<{ record: RecordIR; graph: RdfGraph | null; errors: FieldResolutionError[] }> {
+	const errors: FieldResolutionError[] = [];
+	const gate = await resolveGate(ctx, record);
+	if (gate.failure !== undefined) {
+		errors.push({
+			sectionTipo: record.section_tipo,
+			sectionId: record.section_id,
+			fieldId: PUBLICATION_GATE_ERROR_FIELD,
+			columnName: PUBLICATION_GATE_ERROR_FIELD,
+			message: `publication gate unresolved, failing closed (record REMOVED from the public site): ${gate.failure}`,
+		});
+	}
+	const recordIr: RecordIR = {
+		sectionTipo: record.section_tipo,
+		sectionId: record.section_id,
+		status: gate.status,
+		fields: new Map<string, FieldIR>(),
+	};
+	if (gate.status === 'unpublish') return { record: recordIr, graph: null, errors };
+	const columnOf = (fieldId: string): string =>
+		sectionPlan.fields.find((field) => field.id === fieldId)?.columnName ?? fieldId;
+	try {
+		const built = await buildRdfRecordGraph(rdfGraphEnvOf(ctx), sectionPlan, record);
+		for (const failure of built.errors) {
+			errors.push({
+				sectionTipo: record.section_tipo,
+				sectionId: record.section_id,
+				fieldId: failure.fieldId,
+				columnName: columnOf(failure.fieldId),
+				message: failure.message,
+			});
+		}
+		return { record: recordIr, graph: built.graph, errors };
+	} catch (error) {
+		// No subject IRI: the record is NOT written (a document without a valid
+		// identity is worse than none) — named in the run report.
+		errors.push({
+			sectionTipo: record.section_tipo,
+			sectionId: record.section_id,
+			fieldId: RDF_SUBJECT_ERROR_FIELD,
+			columnName: RDF_SUBJECT_ERROR_FIELD,
+			message: `record NOT written: ${error instanceof Error ? error.message : String(error)}`,
+		});
+		return { record: recordIr, graph: null, errors };
+	}
+}
+
+// ---------------------------------------------------------------------------
 // The run generator
 // ---------------------------------------------------------------------------
 
@@ -2454,12 +2562,23 @@ async function processBatch(
 
 	const outRecords: RecordIR[] = [];
 	const outRows: ProjectedRow[] = [];
+	const outGraphs: RdfRecordDocument[] = [];
 	const unpublishIds: (number | string)[] = [];
 	const errors: FieldResolutionError[] = [];
 
 	for (const sectionId of visibleIds) {
 		const record = byId.get(String(sectionId));
 		markUsed(ctx, sectionPlan.sectionTipo, sectionId);
+		if (record !== undefined && sectionPlan.rdfClass !== undefined) {
+			const processed = await processRdfRecord(ctx, sectionPlan, record);
+			outRecords.push(processed.record);
+			if (processed.record.status === 'unpublish') unpublishIds.push(record.section_id);
+			if (processed.graph !== null) {
+				outGraphs.push({ sectionId: record.section_id, graph: processed.graph });
+			}
+			errors.push(...processed.errors);
+			continue;
+		}
 		if (record === undefined) {
 			// Selected/queued but no longer present → unpublish (fail-closed).
 			unpublishIds.push(sectionId);
@@ -2484,6 +2603,7 @@ async function processBatch(
 		primary: !viaFrontier,
 		records: outRecords,
 		rows: outRows,
+		...(sectionPlan.rdfClass !== undefined ? { graphs: outGraphs } : {}),
 		unpublishIds,
 		cursor,
 		errors,
@@ -2587,6 +2707,7 @@ export async function* resolvePublication(
 		geoPairCache: new Map(),
 		svgTagPathMemo: createSvgTagPathMemo(),
 		infoItemsCache: new Map(),
+		rdfBaseMemo: new Map(),
 		// A resumed run starts from the replayed ledger state (copies — the
 		// caller's ResumeState is never mutated).
 		usedRecords: new Set(options.resume?.used ?? []),

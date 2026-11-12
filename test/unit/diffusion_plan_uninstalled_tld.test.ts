@@ -82,8 +82,10 @@ function fieldNode(tipo: string, label: string, ddoTipos: string[]): RawOntology
 }
 
 /**
- * One diffusion element ('rdf' format, so no MariaDB target and no SQL
- * identifier chokepoint on the labels) over the given field nodes.
+ * One diffusion element ('xml' format, so no MariaDB target and no SQL
+ * identifier chokepoint on the labels — and, unlike rdf since T1-4, a COLUMN
+ * format: its fields compile to columns, the law under test) over the given
+ * field nodes.
  * `fieldTipos` may name a tipo absent from `nodes` — that is the missing-field
  * case, which compileFieldPlan classifies with the same rule.
  */
@@ -93,7 +95,7 @@ function makeTree(fieldTipos: string[], nodes: RawOntologyNode[]): VirtualDiffus
 		tipo: ELEMENT_TIPO,
 		model: 'diffusion_element',
 		label: 'gate_element',
-		properties: { diffusion: { type: 'rdf', service_name: 'gate_test' } },
+		properties: { diffusion: { type: 'xml', service_name: 'gate_test' } },
 		realTipo: null,
 		isAlias: false,
 		parents: [],
@@ -114,7 +116,7 @@ function makeTree(fieldTipos: string[], nodes: RawOntologyNode[]): VirtualDiffus
 				model: 'diffusion_element',
 				label: 'gate_element',
 				realTipo: null,
-				type: 'rdf',
+				type: 'xml',
 			},
 		],
 		childrenTipos: fieldTipos,

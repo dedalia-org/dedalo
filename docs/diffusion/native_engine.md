@@ -400,9 +400,14 @@ security line); the registries are the single place to touch.
       retired (S2-31/DEC-19 cutover).
     - The `diffusion_server_control` maintenance widget still reports the old
       engine; its re-home is coordinated with the cutover.
-    - rdf `rdf:about` uses a urn fallback until dd1010 entity URIs are wired;
-      xmlns prefixes resolve from a pinned well-known set until the compiler
-      carries `properties->xmlns`.
+    - rdf publishes each record's RDF graph: subject IRIs from the
+      publication-services base IRIs (dd1010), namespaces from the element's
+      `properties.diffusion.xmlns`. An element whose definition is incomplete
+      (no `service_type`, a class without `entity_publication_uri`, an
+      undeclared prefix) is refused at compile time with every cause named; a
+      record whose base IRI does not resolve is not written and the run report
+      names it. A relation_list `config` inside an rdf property is not
+      supported yet (refused at compile time).
     - File-run `diffusion_data` lists the merged + zip links (not yet one link
       per record).
     - `tool_export` record resolution now RIDES the shared engine

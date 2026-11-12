@@ -388,6 +388,17 @@ const DOORS: readonly { name: string; run: () => Promise<unknown> }[] = [
 			]),
 	},
 	{
+		// The rdf publication-services record (test/helpers/rdf_services_fixture.ts):
+		// a dd1010 record at an explicit id — refused, writing nothing.
+		name: 'ensureRdfServicesRecord',
+		run: async () =>
+			(await import('../helpers/rdf_services_fixture.ts')).ensureRdfServicesRecord(1, []),
+	},
+	{
+		name: 'removeRdfServicesRecord',
+		run: async () => (await import('../helpers/rdf_services_fixture.ts')).removeRdfServicesRecord(),
+	},
+	{
 		name: 'ensureTestCorpus',
 		run: async () =>
 			(await import('../../src/core/test_data/test_corpus/ensure.ts')).ensureTestCorpus('dd128'),

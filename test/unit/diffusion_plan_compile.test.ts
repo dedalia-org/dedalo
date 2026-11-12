@@ -78,6 +78,7 @@ import {
 	ZZDIF_DOMAIN_NAME,
 	ZZDIF_DOMAIN_TIPO,
 	ZZDIF_ELEMENT,
+	ZZDIF_RDF_BROKEN_ELEMENT,
 	ZZDIF_TABLE_ALIAS,
 	ZZDIF_UNKNOWN_PARSER_FN,
 } from '../helpers/zzdif_diffusion_domain.ts';
@@ -201,8 +202,13 @@ describe('compileElementPlan over the real domain', () => {
 		// loud branch above could go unexecuted and the test still pass. The
 		// fixture DECLARES a broken element, so the branch is measured: exactly
 		// that element fails, and its cause names the field AND the unregistered fn.
-		expect(failedElements.map((entry) => entry.tipo)).toEqual([ZZDIF_BROKEN_ELEMENT]);
-		const causes = failedElements[0]?.errors.join('\n') ?? '';
+		// (the rdf element that must fail — T1-4 — has its own gate:
+		// diffusion_rdf_graph_native names every refusal it carries)
+		expect(failedElements.map((entry) => entry.tipo).sort()).toEqual(
+			[ZZDIF_BROKEN_ELEMENT, ZZDIF_RDF_BROKEN_ELEMENT].sort(),
+		);
+		const causes =
+			failedElements.find((entry) => entry.tipo === ZZDIF_BROKEN_ELEMENT)?.errors.join('\n') ?? '';
 		expect(causes).toContain(ZZDIF_UNKNOWN_PARSER_FN);
 		expect(causes).toMatch(/^field '[a-z]+[0-9]+' .*unknown parser fn/);
 	});

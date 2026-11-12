@@ -649,10 +649,18 @@ one registered writer.
   runner owns write pools; main server keeps a tiny pool for deletes/admin.
   Socrata = dormant registry alias of this writer (confirm with the user
   whether Socrata is still live before investing more).
-- **rdf / xml**: consume RecordIR; one deterministic file per record (path
-  logic exists in `diffusion_delete.ts`); rendering absorbs the old PHP
-  `diffusion/parser/*` set (killing the second parser language); `close()` does
-  type-aware merge + ZIP, all temp+rename.
+- **rdf / xml**: one deterministic file per record (path logic exists in
+  `diffusion_delete.ts`); rendering absorbs the old PHP `diffusion/parser/*`
+  set (killing the second parser language); `close()` does type-aware merge +
+  ZIP, all temp+rename. **xml** consumes RecordIR rows. **rdf** consumes a
+  record GRAPH (T1-4, 2026-11-12): each owl:Class compiles to
+  `SectionPlan.rdfClass` (`plan/rdf_compile.ts` — its data-reading properties
+  are FieldPlans compiled by the same chain compiler and read by the ONE
+  walker), `resolve/rdf_graph.ts` builds the graph (dd1010 base IRIs, typed
+  literals, nested portal nodes, linked class subjects in the same document),
+  and `writers/rdf_xml_serialiser.ts` serialises it byte-equal to EasyRdf 1.19;
+  `writeRows` refuses, `writeGraphs` writes. The merged document declares the
+  union of the parts' xmlns. Divergences: `WC-2026-11-12-rdf-graph-interpretation`.
 - **markdown**: rides the tabular semantics (as today), per-record .md, ZIP
   only.
 - **csv / json**: new first-class; one streamed file per table target, ZIP on
@@ -813,6 +821,7 @@ gates. The standing rule: no third resolution walker may ever be written.
 | Half-resolved datum wire + `diffusion_datum`/`diffusion_data_object` + `fields:'delete'` sentinel | typed RecordIR + `status:'unpublish'` + writer `remove()` |
 | Context side-channel flags | compile-time `FieldPolicy`/plan concepts, applied once in Projection |
 | Second (PHP) parser set for RDF/XML | rdf/xml writer rendering helpers; one registry, one language |
+| Column-shaped rdf (urn subjects, one plain literal per column) | the record graph: `rdfClass` plan + graph builder + EasyRdf serialiser port (T1-4) |
 | chunk_size=1, per-record INSERT loops | keyset batches + multi-row upserts |
 | In-memory progress store (lost on restart), split retry state | durable Postgres job queue + checkpointed resume |
 | Public engine socket + `X-Diffusion-Internal-Token` | main-API dispatch + CLI entrypoints with a system principal (removal is a cutover step) |

@@ -1,61 +1,36 @@
 /**
  * RDF writer — the 'rdf' DiffusionWriter (DIFFUSION_SPEC §4.3 "rdf / xml:
  * one deterministic file per record; close() does type-aware merge + ZIP,
- * all temp+rename"). PHP oracle: diffusion/class.diffusion_rdf.php (EasyRdf
+ * all temp+rename"). PHP origin: diffusion/class.diffusion_rdf.php (EasyRdf
  * rdfxml serialisation); merge grammar: old engine
  * diffusion/api/v1/lib/rdf_file_utils.ts merge_rdf_parts (:72-85).
  *
  * Layout — IDENTICAL to the delete-side grammar so publish and unpublish
- * stay in lockstep (diffusion_delete.ts resolvePublishedFilePath :371-386;
- * PHP get_record_file_path class.diffusion_rdf.php:275-340):
+ * stay in lockstep (core/diffusion_bridge/published_files.ts):
  *
  *   <root>/rdf/<serviceName>/<sanitize(rdfName_sectionTipo_sectionId)>.rdf
  *
- * where rdfName is the owl:Class label — EXACTLY what the plan compiler puts
- * in SectionPlan.tableName for file formats (compile.ts keeps rdf/xml labels
- * VERBATIM: 'nmo:NumismaticObject' is an RDF identity, not a SQL identifier)
- * and sanitize is the PHP sanitize_file_name subset — IMPORTED from the one
- * producer both sides use (core/diffusion_bridge/published_files.ts), so the
- * delete side cannot drift from it (PUB-03).
+ * where rdfName is the owl:Class label (SectionPlan.tableName, verbatim).
  *
- * Document shape (pinned against a REAL PHP-published file,
- * media_monedaiberica/rdf/nomisma/nmonumismaticobject-numisdata4-1-*.rdf):
+ * WHAT IS WRITTEN is the record's RDF GRAPH (resolve/rdf_graph.ts — the
+ * build_rdf_node interpretation: owl:Class subjects from the dd1010
+ * entity-publication services, owl:ObjectProperty predicates, typed literals,
+ * nested portal nodes, linked rdf nodes), serialised by
+ * writers/rdf_xml_serialiser.ts with the element's declared xmlns. There is
+ * no column/row face: writeRows REFUSES (an rdf plan resolves graphs, never
+ * rows). Deliberate divergences from PHP: WC-2026-11-12-rdf-graph-interpretation.
  *
- *   <?xml version="1.0" encoding="utf-8" ?>
- *   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
- *            xmlns:nmo="http://nomisma.org/ontology#">
- *
- *     <nmo:NumismaticObject rdf:about="...">
- *       <dc:title xml:lang="es">...</dc:title>
- *     </nmo:NumismaticObject>
- *
- *   </rdf:RDF>
- *
- * (EasyRdf declaration with a space before '?>', 9-space xmlns continuation
- * indent, 2-space entity / 4-space predicate indents, blank lines around the
- * entity block.)
- *
- * Ledgered divergences from PHP (deliberate, determinism + the writers-do-no-
- * I/O boundary):
  * - NO wall-clock anywhere: consolidated artifacts are `diffusion_rdf_merged
- *   .rdf` / `diffusion_rdf.zip` (old engine index.ts:529-534 stamped
- *   `_<date>` tags — dropped like the markdown writer's zip, so re-runs are
- *   byte-identical; who/when live in the dd1758 activity log).
- * - Subject URIs: PHP resolves rdf:about from the dd1010 entity-publication
- *   services (resolve_base_uri — record reads a writer must not make). This
- *   writer uses the value of a column literally named 'rdf:about' when the
- *   plan provides one (the compiler/resolver's forward path to real URIs) and
- *   falls back to the deterministic `urn:dedalo:record:<st>:<id>`.
- * - Namespace URIs: PHP reads properties->xmlns of the element; the compiled
- *   plan does not carry it (yet). Prefixes are collected from the plan labels
- *   and resolved via WELL_KNOWN_XMLNS (the vocabularies pinned from the real
- *   published files); an unknown prefix gets a urn:dedalo:xmlns fallback AND
- *   a summary error — loud, never silent (spec §4.3 posture).
+ *   .rdf` / `diffusion_rdf.zip` (old engine stamped `_<date>` tags — dropped,
+ *   so re-runs are byte-identical; who/when live in the dd1758 activity log).
+ * - The merged document declares the UNION of the parts' xmlns (EasyRdf
+ *   declares only the prefixes a document uses, so the first part's envelope
+ *   alone can leave a later block's prefix undeclared); a prefix bound to two
+ *   URIs is a loud refusal, never a guess.
  *
  * removeRecords unlinks the canonical file + the legacy '{base}_*.rdf'
- * variants — the EXACT diffusion_delete.ts unlinkPublishedFiles rdf branch
- * (:412-423); missing files = idempotent success (PHP delete_record_file
- * "no file found (already removed)").
+ * variants — the EXACT diffusion_delete.ts unlinkPublishedFiles rdf branch;
+ * missing files = idempotent success.
  */
 
 import {
@@ -64,6 +39,7 @@ import {
 	fsyncSync,
 	openSync,
 	readdirSync,
+	readSync,
 	renameSync,
 	unlinkSync,
 } from 'node:fs';
@@ -78,17 +54,18 @@ import { tempPathFor } from '../../core/files/temp_path.ts';
 import { firstHtmlTag } from '../../core/resolve/html_text.ts';
 import type { PublicationPlan, SectionPlan } from '../plan/types.ts';
 import type { ProjectedRow } from '../project/lang_ladder.ts';
+import { RdfNamespaceTable, type RdfRecordDocument } from '../resolve/rdf_graph_ir.ts';
 import {
 	atomicWriteFile,
 	createZip,
 	formatTargetDir,
 	manifestPaths,
-	planColumnNames,
 	readManifestPart,
 	sweepStaleTemps,
 	WriterRunLog,
 	withTrailingPath,
 } from './files.ts';
+import { serialiseRdfXml } from './rdf_xml_serialiser.ts';
 import type {
 	ArtifactEvent,
 	DiffusionWriter,
@@ -191,187 +168,9 @@ export function rdfRecordFileName(section: SectionPlan, sectionId: number | stri
 	return name;
 }
 
-/**
- * Dédalo lang code → alpha2 xml:lang (PHP lang::get_alpha2_from_code — the
- * real published files carry xml:lang="es"). Unknown codes fall back to the
- * first two letters of the ISO-639-3 tail (deterministic, never throws).
- */
-const LANG_ALPHA2: Record<string, string> = {
-	'lg-eng': 'en',
-	'lg-spa': 'es',
-	'lg-cat': 'ca',
-	'lg-fra': 'fr',
-	'lg-deu': 'de',
-	'lg-por': 'pt',
-	'lg-ita': 'it',
-	'lg-nob': 'no',
-	'lg-swe': 'sv',
-	'lg-nld': 'nl',
-	'lg-eus': 'eu',
-	'lg-glg': 'gl',
-	'lg-arb': 'ar',
-	'lg-zho': 'zh',
-	'lg-jpn': 'ja',
-	'lg-rus': 'ru',
-	'lg-ell': 'el',
-	'lg-lat': 'la',
-};
-
-export function langToAlpha2(lang: string): string {
-	return LANG_ALPHA2[lang] ?? lang.replace(/^lg-/, '').slice(0, 2);
-}
-
 /** XML text-node escaping (what EasyRdf/DOMDocument createTextNode does). */
 export function escapeXmlText(value: string): string {
 	return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-/** XML attribute-value escaping (double-quoted attributes). */
-export function escapeXmlAttribute(value: string): string {
-	return escapeXmlText(value).replace(/"/g, '&quot;');
-}
-
-/** A plan label must be a legal XML QName to become a class/predicate tag. */
-const QNAME_PATTERN = /^[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?$/;
-
-/** Loud gate: a plan label that cannot be an RDF/XML element name. */
-export function requireQName(label: string, role: string): string {
-	if (!QNAME_PATTERN.test(label)) {
-		throw new Error(
-			`rdf writer: ${role} '${label}' is not a valid XML QName — fix the ontology label (file-format labels reach the document verbatim).`,
-		);
-	}
-	return label;
-}
-
-/**
- * Namespace URIs for the prefixes seen in real Dédalo rdf domains. rdf/nmo/
- * dc/void are pinned from the actual PHP-published monedaiberica files; the
- * rest are the canonical vocabulary URIs (PHP got all of them from the
- * element's properties->xmlns — see the module doc-comment divergence note).
- */
-export const WELL_KNOWN_XMLNS: Record<string, string> = {
-	rdf: 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
-	rdfs: 'http://www.w3.org/2000/01/rdf-schema#',
-	nmo: 'http://nomisma.org/ontology#',
-	nm: 'http://nomisma.org/id/',
-	dc: 'http://purl.org/dc/terms/',
-	dcterms: 'http://purl.org/dc/terms/',
-	void: 'http://rdfs.org/ns/void#',
-	skos: 'http://www.w3.org/2004/02/skos/core#',
-	owl: 'http://www.w3.org/2002/07/owl#',
-	foaf: 'http://xmlns.com/foaf/0.1/',
-	xsd: 'http://www.w3.org/2001/XMLSchema#',
-	geo: 'http://www.w3.org/2003/01/geo/wgs84_pos#',
-	crm: 'http://www.cidoc-crm.org/cidoc-crm/',
-};
-
-/** Documented fallback for a prefix the plan uses but nobody declared. */
-export function fallbackXmlnsUri(prefix: string): string {
-	return `urn:dedalo:xmlns:${prefix}#`;
-}
-
-/** The subject-URI override column (see module doc-comment divergence note). */
-const ABOUT_COLUMN = 'rdf:about';
-
-export interface RdfNamespaceSet {
-	/** prefix → URI, insertion-ordered: rdf first, then first-use order. */
-	declarations: Map<string, string>;
-	/** Prefixes resolved through the urn:dedalo fallback (summary errors). */
-	unknownPrefixes: string[];
-}
-
-/**
- * Collect the namespace declarations one section's documents need: the rdf
- * prefix (envelope + rdf:about) plus every prefix used by the class label and
- * the emitted predicate columns, in first-use order (EasyRdf emitted them in
- * properties->xmlns registration order; the plan's label order is our
- * deterministic equivalent).
- */
-export function collectRdfNamespaces(section: SectionPlan): RdfNamespaceSet {
-	const declarations = new Map<string, string>();
-	const unknownPrefixes: string[] = [];
-	declarations.set('rdf', WELL_KNOWN_XMLNS.rdf as string);
-	const labels = [section.tableName, ...planColumnNames(section)];
-	for (const label of labels) {
-		const colon = label.indexOf(':');
-		if (colon <= 0) continue; // unprefixed element names need no xmlns
-		const prefix = label.slice(0, colon);
-		if (declarations.has(prefix)) continue;
-		const known = WELL_KNOWN_XMLNS[prefix];
-		if (known !== undefined) {
-			declarations.set(prefix, known);
-		} else {
-			declarations.set(prefix, fallbackXmlnsUri(prefix));
-			unknownPrefixes.push(prefix);
-		}
-	}
-	return { declarations, unknownPrefixes };
-}
-
-/** Deterministic fallback subject URI (module doc-comment divergence note). */
-export function defaultSubjectUri(sectionTipo: string, sectionId: number | string): string {
-	return `urn:dedalo:record:${sectionTipo}:${sectionId}`;
-}
-
-/**
- * Render ONE entity block: the owl:Class element wrapping one xml:lang-
- * attributed literal per (plan column × lang row with a non-null value) —
- * null columns omitted (PHP addLiteral only fires on non-empty values,
- * class.diffusion_rdf.php:973-979). lang-null rows emit plain literals.
- * Indentation pinned from the real published file (2-space entity, 4-space
- * predicate).
- */
-export function renderRdfEntity(
-	section: SectionPlan,
-	sectionId: number | string,
-	rows: ProjectedRow[],
-): string {
-	const className = requireQName(section.tableName, 'class label (tableName)');
-	// subject: the rdf:about override column when the plan carries one
-	let subjectUri = defaultSubjectUri(section.sectionTipo, sectionId);
-	for (const row of rows) {
-		const about = row.columns[ABOUT_COLUMN];
-		if (about !== undefined && about !== null && about !== '') {
-			subjectUri = about;
-			break;
-		}
-	}
-
-	const lines: string[] = [];
-	lines.push(`  <${className} rdf:about="${escapeXmlAttribute(subjectUri)}">`);
-	for (const columnName of planColumnNames(section)) {
-		if (columnName === ABOUT_COLUMN) continue; // subject identity, not a predicate
-		const predicate = requireQName(columnName, 'predicate label (columnName)');
-		for (const row of rows) {
-			const value = row.columns[columnName] ?? null;
-			if (value === null) continue; // null columns omitted
-			const langAttribute = row.lang === null ? '' : ` xml:lang="${langToAlpha2(row.lang)}"`;
-			lines.push(`    <${predicate}${langAttribute}>${escapeXmlText(value)}</${predicate}>`);
-		}
-	}
-	lines.push(`  </${className}>`);
-	return lines.join('\n');
-}
-
-/**
- * Render one full per-record RDF/XML document: the EasyRdf envelope (pinned
- * from the real published file — declaration with ' ?>', 9-space xmlns
- * continuation indent) around the record's entity block.
- */
-export function renderRdfRecord(
-	section: SectionPlan,
-	sectionId: number | string,
-	rows: ProjectedRow[],
-	namespaces: RdfNamespaceSet,
-): string {
-	const xmlnsLines = [...namespaces.declarations.entries()].map(
-		([prefix, uri]) => `xmlns:${prefix}="${escapeXmlAttribute(uri)}"`,
-	);
-	// '<rdf:RDF ' is 9 chars — continuation xmlns lines align under the first.
-	const openingTag = `<rdf:RDF ${xmlnsLines.join('\n         ')}>`;
-	const entity = renderRdfEntity(section, sectionId, rows);
-	return `<?xml version="1.0" encoding="utf-8" ?>\n${openingTag}\n\n${entity}\n\n</rdf:RDF>\n`;
 }
 
 /**
@@ -392,12 +191,18 @@ export class StreamedMergeOutput {
 
 	async write(text: string): Promise<void> {
 		if (text === '') return;
+		await this.writeBytes(Buffer.from(text, 'utf-8'));
+	}
+
+	/** Raw bytes (a spooled body copied back — never split mid-character by a decode). */
+	async writeBytes(bytes: Uint8Array): Promise<void> {
+		if (bytes.byteLength === 0) return;
 		if (this.fd === null) {
 			mkdirDurably(dirname(this.outPath));
 			this.tempPath = tempPathFor(this.outPath);
 			this.fd = openSync(this.tempPath, 'w');
 		}
-		writeAllSync(this.fd, Buffer.from(text, 'utf-8'));
+		writeAllSync(this.fd, bytes);
 	}
 
 	/** Finalize: fsync + rename + directory fsync (nothing written ⇒ nothing lands). */
@@ -450,15 +255,90 @@ export function rdfInnerBlock(part: string): string {
 	return part.slice(bodyStart, closeIndex).trim();
 }
 
+/** `xmlns:prefix="uri"` declarations of one `<rdf:RDF …>` opener, in order. */
+const XMLNS_DECLARATION = /xmlns:([A-Za-z_][\w.-]*)="([^"]*)"/g;
+
+function openerDeclarations(opener: string): [string, string][] {
+	return [...opener.matchAll(XMLNS_DECLARATION)].map((match) => [
+		match[1] as string,
+		match[2] as string,
+	]);
+}
+
+/** A fresh copy of a (small) string — a regex/slice result may keep its whole part alive. */
+function detached(value: string): string {
+	return Buffer.from(value, 'utf-8').toString('utf-8');
+}
+
+/**
+ * The merged envelope's opener, accumulated part by part: the FIRST part's
+ * opener verbatim, plus — in first-seen order — every prefix a later part
+ * declares that the first does not (EasyRdf declares only the prefixes a
+ * document uses). A prefix bound to two different URIs across the run's parts
+ * is refused: the parts were not written under one namespace table, and no
+ * single envelope can be right. Only the declarations are kept (detached), never
+ * a part's opener — a substring would pin its whole part in memory.
+ */
+class RdfEnvelopeUnion {
+	private readonly bound = new Map<string, string>();
+	private readonly additions: [string, string][] = [];
+	private readonly firstOpener: string;
+	private readonly firstHasDeclarations: boolean;
+
+	constructor(firstOpener: string) {
+		this.firstOpener = detached(firstOpener);
+		const declarations = openerDeclarations(this.firstOpener);
+		for (const [prefix, uri] of declarations) this.bound.set(prefix, uri);
+		this.firstHasDeclarations = declarations.length > 0;
+	}
+
+	add(opener: string): void {
+		for (const [prefix, uri] of openerDeclarations(opener)) {
+			const known = this.bound.get(prefix);
+			if (known === undefined) {
+				this.bound.set(detached(prefix), detached(uri));
+				this.additions.push([detached(prefix), detached(uri)]);
+			} else if (known !== uri) {
+				throw new DedaloError('internal.invariant', {
+					message: `rdf merge: prefix '${prefix}' is bound to '${known}' and '${uri}' in parts of one run — republish the element so every record is written under its current xmlns`,
+				});
+			}
+		}
+	}
+
+	opener(): string {
+		if (this.additions.length === 0) return this.firstOpener;
+		const declared = this.additions.map(([prefix, uri], index) => {
+			// '<rdf:RDF ' is 9 chars — continuation xmlns lines align under the first (EasyRdf).
+			const separator = index === 0 && !this.firstHasDeclarations ? ' ' : '\n         ';
+			return `${separator}xmlns:${prefix}="${uri}"`;
+		});
+		return `${this.firstOpener.slice(0, -1)}${declared.join('')}>`;
+	}
+}
+
+/** The union opener of a first part's opener and later ones (RdfEnvelopeUnion). */
+export function rdfUnionOpener(firstOpener: string, laterOpeners: readonly string[]): string {
+	const union = new RdfEnvelopeUnion(firstOpener);
+	for (const opener of laterOpeners) union.add(opener);
+	return union.opener();
+}
+
+/** Spool chunk for copying the merged body back behind its envelope. */
+const SPOOL_CHUNK_BYTES = 1 << 20;
+
 /**
  * Type-aware consolidation, STREAMED (PERF-2/DIFF-4) — the old engine's
- * merge_rdf_parts (rdf_file_utils.ts:72-85), byte for byte (the frozen
- * in-memory port is test/helpers/merge_oracle.ts; gate:
- * diffusion_rdfxml_writers "streamed merge == frozen oracle"): envelope
- * (opening <rdf:RDF …> tag with its namespaces) from the FIRST non-empty part,
- * inner blocks of every part joined by a blank line. A single part is written
- * untouched. NOTE the merged declaration has NO space before '?>' — old
- * engine :84. Returns how many non-empty parts were merged.
+ * merge_rdf_parts (rdf_file_utils.ts:72-85; the frozen in-memory port is
+ * test/helpers/merge_oracle.ts; gate: diffusion_rdfxml_writers "streamed merge
+ * == frozen oracle"): envelope from the FIRST non-empty part, inner blocks of
+ * every part joined by a blank line — EXCEPT the envelope declares the UNION
+ * of the parts' xmlns (rdfUnionOpener; equal to the oracle whenever no later
+ * part adds a prefix). The union is only known after the last part, so the
+ * body is spooled to a temp sibling and copied back behind the envelope:
+ * memory stays bounded by one part. A single part is written untouched. NOTE
+ * the merged declaration has NO space before '?>' — old engine :84. Returns
+ * how many non-empty parts were merged.
  */
 export async function writeMergedRdf(
 	paths: AsyncIterable<string>,
@@ -466,12 +346,19 @@ export async function writeMergedRdf(
 	onMissing: (path: string) => void = () => {},
 ): Promise<{ parts: number }> {
 	const output = new StreamedMergeOutput(outPath);
+	const spoolPath = tempPathFor(`${outPath}.body`);
+	let spool: number | null = null;
 	let first: string | null = null;
+	let union: RdfEnvelopeUnion | null = null;
 	let parts = 0;
 	let blocks = 0;
-	const writeBlock = async (block: string): Promise<void> => {
+	const spoolBlock = (block: string): void => {
 		if (block.length === 0) return;
-		await output.write(blocks > 0 ? `\n\n${block}` : block);
+		if (spool === null) {
+			mkdirDurably(dirname(outPath));
+			spool = openSync(spoolPath, 'w+');
+		}
+		writeAllSync(spool, Buffer.from(blocks > 0 ? `\n\n${block}` : block, 'utf-8'));
 		blocks++;
 	};
 	try {
@@ -487,20 +374,44 @@ export async function writeMergedRdf(
 				first = part; // held back: alone, it is the result verbatim
 				continue;
 			}
-			if (parts === 2) {
-				const openingTag = firstHtmlTag(first, RDF_OPENER)?.tag ?? '<rdf:RDF>';
-				await output.write(`<?xml version="1.0" encoding="utf-8"?>\n${openingTag}\n\n`);
-				await writeBlock(rdfInnerBlock(first));
+			if (union === null) {
+				union = new RdfEnvelopeUnion(firstHtmlTag(first, RDF_OPENER)?.tag ?? '<rdf:RDF>');
+				spoolBlock(rdfInnerBlock(first));
 			}
-			await writeBlock(rdfInnerBlock(part));
+			const opener = firstHtmlTag(part, RDF_OPENER)?.tag;
+			if (opener !== undefined) union.add(opener);
+			spoolBlock(rdfInnerBlock(part));
 		}
 		if (parts === 1) await output.write(first as string);
-		else if (parts > 1) await output.write('\n\n</rdf:RDF>\n');
+		else if (union !== null) {
+			const opener = union.opener();
+			await output.write(`<?xml version="1.0" encoding="utf-8"?>\n${opener}\n\n`);
+			if (spool !== null) {
+				const buffer = Buffer.alloc(SPOOL_CHUNK_BYTES);
+				let position = 0;
+				for (;;) {
+					const read = readSync(spool, buffer, 0, buffer.byteLength, position);
+					if (read === 0) break;
+					await output.writeBytes(buffer.subarray(0, read));
+					position += read;
+				}
+			}
+			await output.write('\n\n</rdf:RDF>\n');
+		}
 		await output.commit();
 		return { parts };
 	} catch (error) {
 		await output.discard();
 		throw error;
+	} finally {
+		if (spool !== null) {
+			closeSync(spool);
+			try {
+				unlinkSync(spoolPath);
+			} catch {
+				// already gone — nothing left behind
+			}
+		}
 	}
 }
 
@@ -513,12 +424,18 @@ class RdfWriterSession implements WriterSession {
 	private readonly targetDir: string;
 	private readonly sections: Map<string, SectionPlan>;
 	private readonly log: WriterRunLog;
-	/** Per-section namespace sets, memoized (unknown prefixes error ONCE). */
-	private readonly namespacesBySection = new Map<string, RdfNamespaceSet>();
+	/** The element's declared xmlns (plan.rdf, compiled from properties.diffusion.xmlns). */
+	private readonly namespaces: RdfNamespaceTable;
 	private schemaEnsured = false;
 
 	constructor(plan: PublicationPlan, context?: WriterOpenContext) {
 		this.serviceName = requireFilesTarget('rdf', plan);
+		if (plan.rdf === undefined) {
+			throw new DedaloError('internal.invariant', {
+				message: `rdf writer: plan '${plan.planId}' carries no compiled rdf element (namespaces, service type) — an rdf element compiles one or fails`,
+			});
+		}
+		this.namespaces = new RdfNamespaceTable(plan.rdf.namespaces);
 		this.targetDir = formatTargetDir('rdf', this.serviceName);
 		this.sections = new Map(plan.sections.map((section) => [section.sectionTipo, section]));
 		this.log = new WriterRunLog(
@@ -529,21 +446,6 @@ class RdfWriterSession implements WriterSession {
 
 	get continuity(): WriterContinuity {
 		return this.log.continuity;
-	}
-
-	private namespacesFor(section: SectionPlan): RdfNamespaceSet {
-		let namespaces = this.namespacesBySection.get(section.tableTipo);
-		if (namespaces === undefined) {
-			namespaces = collectRdfNamespaces(section);
-			for (const prefix of namespaces.unknownPrefixes) {
-				this.log.errors.add(
-					`rdf writer: no xmlns known for prefix '${prefix}' (section '${section.tableName}') — ` +
-						`emitted fallback ${fallbackXmlnsUri(prefix)}; declare the vocabulary in the element ontology.`,
-				);
-			}
-			this.namespacesBySection.set(section.tableTipo, namespaces);
-		}
-		return namespaces;
 	}
 
 	private recordPath(section: SectionPlan, sectionId: number | string): string {
@@ -557,40 +459,43 @@ class RdfWriterSession implements WriterSession {
 	}
 
 	/**
-	 * Group the batch's rows per section_id (the projection emits every lang
-	 * of a record together) and land ONE deterministic .rdf per record, each
-	 * via its own temp+rename.
+	 * An rdf plan resolves GRAPHS (ResolvedBatch.graphs), never rows: a row
+	 * reaching this writer means a caller bypassed the graph interpretation —
+	 * refused, never rendered as a flat column document.
 	 */
 	async writeRows(section: SectionPlan, rows: ProjectedRow[]): Promise<WriteBatchResult> {
 		if (rows.length === 0) return { written: 0, deleted: 0 };
+		throw new DedaloError('internal.invariant', {
+			message: `rdf writer: writeRows('${section.tableName}') — rdf records are written as graphs (writeGraphs), never as rows`,
+		});
+	}
+
+	/**
+	 * Land ONE deterministic .rdf per record graph, each via its own
+	 * temp+rename (PHP save_record_file per record).
+	 */
+	async writeGraphs(
+		section: SectionPlan,
+		documents: RdfRecordDocument[],
+	): Promise<WriteBatchResult> {
+		if (documents.length === 0) return { written: 0, deleted: 0 };
 		if (!this.schemaEnsured) {
-			throw new Error(
-				`rdf writer: writeRows('${section.tableName}') before ensureSchema() — the run directory is created there`,
-			);
+			throw new DedaloError('internal.invariant', {
+				message: `rdf writer: writeGraphs('${section.tableName}') before ensureSchema() — the run directory is created there`,
+			});
 		}
-		const namespaces = this.namespacesFor(section);
-		const grouped = new Map<string, { sectionId: number | string; rows: ProjectedRow[] }>();
-		for (const row of rows) {
-			const key = String(row.sectionId);
-			let group = grouped.get(key);
-			if (group === undefined) {
-				group = { sectionId: row.sectionId, rows: [] };
-				grouped.set(key, group);
-			}
-			group.rows.push(row);
-		}
-		for (const group of grouped.values()) {
+		for (const document of documents) {
 			atomicWriteFile(
-				this.recordPath(section, group.sectionId),
-				renderRdfRecord(section, group.sectionId, group.rows, namespaces),
+				this.recordPath(section, document.sectionId),
+				serialiseRdfXml(document.graph, this.namespaces),
 				this.log.barrier,
 			);
-			this.log.note('wrote', section.sectionTipo, group.sectionId);
+			this.log.note('wrote', section.sectionTipo, document.sectionId);
 		}
 		const counters = this.log.countersFor(section.tableName);
-		counters.records_affected += grouped.size;
-		counters.records_count += rows.length;
-		return { written: rows.length, deleted: 0 };
+		counters.records_affected += documents.length;
+		counters.records_count += documents.length;
+		return { written: documents.length, deleted: 0 };
 	}
 
 	/**

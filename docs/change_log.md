@@ -18,6 +18,7 @@ Merged since the last release; these ship with the next one.
 !!! warning "Action needed when you update"
 
     - Publication fills the global search and map tables again
+    - RDF publication produces real Linked Data (Nomisma).
     - SVG glyphs in text tags now resolve in lists and publications for vector components stored in sub-folders.
     - The "+" of a portal (and Duplicate, add term, the assistant) now needs permission to create in the target section.
     - A publication host in copy mode no longer answers "not found" for every published file.
@@ -730,6 +731,23 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-info-live-publication-export`.
 
+- **RDF publication produces real Linked Data (Nomisma).** *(action needed)*
+
+    RDF publication (Nomisma and other Linked-Data services) now publishes each
+    record's real graph: subject IRIs from the publication services, typed dates and
+    numbers, nested nodes, links between published classes, one literal per published
+    language. Before, the files carried placeholder `urn:dedalo:record:` subjects and
+    one plain text value per column, which Linked-Data aggregators cannot use.
+
+    **Action needed:** an RDF element now compiles only when its definition is
+    complete — `service_type` and `xmlns` under `properties.diffusion`, and every
+    class with an `entity_publication_uri` process. An incomplete element is refused
+    before anything is written, and the publication report names every cause; a
+    record whose base IRI is missing from the publication services is not written and
+    is named in the report. See [the diffusion data flow](./diffusion/diffusion_data_flow.md).
+
+    Wire contract: `WC-2026-11-12-rdf-graph-interpretation`.
+
 - **The **Latest changes** list in a profile's permissions shows the ontology updates again.**
 
     Every ontology update records which sections gained new children, so an administrator can review the new permissions those sections need. In a profile's **Access and permissions** panel, the **Latest changes** selector was always empty, and choosing an entry had nothing on the server to answer it. The selector now lists every recorded update, newest first. Choosing one shows each changed section with its path and its new children, and clicking a section opens it in the permissions tree. Only global administrators can open an entry, as before.
@@ -802,7 +820,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 37 entries"
+??? note "Wire contract — 38 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -840,6 +858,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-datalist-principal-record-scope`
     - `WC-2026-11-12-global-table-maps`
     - `WC-2026-11-12-info-live-publication-export`
+    - `WC-2026-11-12-rdf-graph-interpretation`
     - `WC-2026-11-12-select-dataframe-subdatum`
 
 ## 7.0.0-beta.8 — 2026-11-08

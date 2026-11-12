@@ -91,6 +91,23 @@
  *   primary section. (markdown, not json/csv: those two writers exist but the
  *   compiler's KNOWN_FORMATS is the PHP validate set, which never took them.)
  *
+ *       zzdif150 diffusion_element {"diffusion":{"type":"rdf","service_name":"zzdif_rdf",
+ *                "service_type":ZZDIF_RDF_SERVICE_TYPE,"xmlns":{nmo,ex,void}}}  ← the RDF element (T1-4)
+ *         zzdif151 owl:Class 'nmo:TypeSeriesItem' → zzdif130 (base 'self' + var_uri code)
+ *           literals (dc:title, ex:label text_format, ex:note php_formula), get_data_uri,
+ *           get_data_date start/end, get_data_number, get_section_id, get_resource_link,
+ *           get_portal (one with a value, one empty), entity_publication_uri, `rdf` link → zzdif160
+ *         zzdif160 owl:Class 'nmo:NumismaticObject' → zzdif140 (base 'self' + section_id)
+ *           dc:title, nmo:hasWeight, `rdf` link back → zzdif151 (the cycle)
+ *       zzdif180 diffusion_element  ← the rdf element that must FAIL to compile, listing
+ *                every refusal at once (top-level xmlns, no service_type, a class without
+ *                entity_publication_uri, an unknown prefix, get_data_date without get_date,
+ *                a relation_list `config` ddo, a v6 string php_formula)
+ *
+ *   The RDF element (2026-11-12, T1-4) publishes GRAPHS: its subjects need a
+ *   dd1010 publication-services record (test/helpers/rdf_services_fixture.ts,
+ *   created and swept by the gate — dd1010 is not a situation section).
+ *
  * and the data side:
  *
  *   zzdif1   section 'zzdif primary section'   (parent test1, matrix_test)
@@ -107,6 +124,12 @@
  *   940005  zzdif1  PUBLISHABLE   (dd64/1) — idem
  *   940101  zzdif20 publishable
  *   940102  zzdif20 publishable
+ *
+ *   zzdif130 section 'zzdif rdf type' / zzdif140 section 'zzdif rdf object' (T1-4)
+ *   941001  zzdif130 PUBLISHABLE — every rdf property has a value; objects 941102
+ *           (UNPUBLISHABLE), 941101, 941103 in that order (the link cap skips the first)
+ *   941002  zzdif130 PUBLISHABLE — title only (the minimal subject)
+ *   941101, 941103  zzdif140 PUBLISHABLE (941101 links back to 941001) | 941102 UNPUBLISHABLE
  *
  * The ALIAS law needs the real table to live under ANOTHER element: the walk
  * suppresses a real node consumed by an alias INSIDE the same element
@@ -172,6 +195,77 @@ export const ZZDIF_GLOBAL_UNRULED_TABLE_TIPO = 'zzdif120';
 export const ZZDIF_GLOBAL_UNRULED_TABLE = 'zzdif_global_unruled';
 /** The column zzdif102's unruled map targets — zzdif120 does NOT declare it. */
 export const ZZDIF_GLOBAL_UNRULED_COLUMN = 'filter_date';
+/** The RDF element (T1-4) and its names. */
+export const ZZDIF_RDF_ELEMENT = 'zzdif150';
+export const ZZDIF_RDF_SERVICE_NAME = 'zzdif_rdf';
+/** properties.diffusion.service_type — the dd1020 id the dd1010 lookup keys on. */
+export const ZZDIF_RDF_SERVICE_TYPE = 931;
+export const ZZDIF_RDF_TYPE_SECTION = 'zzdif130';
+export const ZZDIF_RDF_OBJECT_SECTION = 'zzdif140';
+export const ZZDIF_RDF_TYPE_CLASS = 'zzdif151';
+/** The type section's var_uri component (the `code` the subject IRI ends with). */
+export const ZZDIF_RDF_CODE_COMPONENT = 'zzdif135';
+export const ZZDIF_RDF_OBJECT_CLASS = 'zzdif160';
+/** The custom namespace the element declares (properties.diffusion.xmlns). */
+export const ZZDIF_RDF_EX_NAMESPACE = 'http://example.test/ex#';
+export const ZZDIF_RDF_TYPE_IDS = [941001, 941002] as const;
+/** The full type record's objects, in stored order: unpublishable first. */
+export const ZZDIF_RDF_OBJECT_IDS = [941102, 941101, 941103] as const;
+export const ZZDIF_RDF_UNPUBLISHABLE_OBJECT = 941102;
+/** The base IRIs (dd1014 titles → iri) the services record must carry. */
+export const ZZDIF_RDF_BASES = [
+	['nmo:TypeSeriesItem', 'https://example.test/type/'],
+	['nmo:NumismaticObject', 'https://example.test/object/'],
+	['nomisma', 'http://nomisma.test/id/'],
+	['dataset', 'https://example.test/dataset/'],
+] as const;
+
+/** dd1010 base_uri_entity naming one services title. */
+function baseUri(title: string) {
+	return { section_tipo: 'dd1010', component_tipo: 'dd1014', title };
+}
+
+/** An rdf property node (owl:ObjectProperty) under `parent`. */
+function rdfProperty(
+	tipo: string,
+	parent: string,
+	name: string,
+	order: number,
+	relations: string[],
+	process: Record<string, unknown> | null = null,
+) {
+	return {
+		tipo,
+		parent,
+		model: 'owl:ObjectProperty',
+		term: { 'lg-spa': name },
+		relations: relations.map((related) => ({ tipo: related })),
+		...(process !== null ? { properties: { process } } : {}),
+		order_number: order,
+	};
+}
+
+/** A component node of an rdf scratch section. */
+function rdfComponent(
+	tipo: string,
+	parent: string,
+	model: string,
+	order: number,
+	translatable = false,
+) {
+	return {
+		tipo,
+		parent,
+		model,
+		term: { 'lg-spa': `${tipo} source` },
+		is_translatable: translatable,
+		order_number: order,
+	};
+}
+
+/** The rdf element whose compile must be refused (T1-4). */
+export const ZZDIF_RDF_BROKEN_ELEMENT = 'zzdif180';
+
 /** The parser fn no registry entry exists for — the loud-failure subject. */
 export const ZZDIF_UNKNOWN_PARSER_FN = 'parser_zzdif::no_such_fn';
 
@@ -721,6 +815,199 @@ function buildSituation(): Situation {
 				term: { 'lg-spa': 'title' },
 				order_number: 2,
 			},
+
+			// ---- the RDF element (T1-4, see the header note) -------------------
+			{ tipo: 'zzdif130', parent: 'test1', model: 'section', term: { 'lg-spa': 'zzdif rdf type' } },
+			rdfComponent('zzdif131', 'zzdif130', 'component_input_text', 1, true),
+			rdfComponent('zzdif132', 'zzdif130', 'component_iri', 2),
+			rdfComponent('zzdif133', 'zzdif130', 'component_date', 3),
+			rdfComponent('zzdif134', 'zzdif130', 'component_number', 4),
+			rdfComponent('zzdif135', 'zzdif130', 'component_input_text', 5),
+			rdfComponent('zzdif136', 'zzdif130', 'component_portal', 6),
+			rdfComponent('zzdif137', 'zzdif130', 'component_publication', 7),
+			rdfComponent('zzdif138', 'zzdif130', 'component_input_text', 8, true),
+			rdfComponent('zzdif139', 'zzdif130', 'component_input_text', 9, true),
+			rdfComponent('zzdif146', 'zzdif130', 'component_section_id', 10),
+			{
+				tipo: 'zzdif140',
+				parent: 'test1',
+				model: 'section',
+				term: { 'lg-spa': 'zzdif rdf object' },
+			},
+			rdfComponent('zzdif141', 'zzdif140', 'component_input_text', 1, true),
+			rdfComponent('zzdif142', 'zzdif140', 'component_portal', 2),
+			rdfComponent('zzdif143', 'zzdif140', 'component_publication', 3),
+			rdfComponent('zzdif144', 'zzdif140', 'component_number', 4),
+			{
+				tipo: ZZDIF_RDF_ELEMENT,
+				parent: 'zzdif41',
+				model: 'diffusion_element',
+				term: { 'lg-spa': 'zzdif rdf element' },
+				properties: {
+					diffusion: {
+						type: 'rdf',
+						service_name: ZZDIF_RDF_SERVICE_NAME,
+						service_type: ZZDIF_RDF_SERVICE_TYPE,
+						xmlns: {
+							nmo: 'http://nomisma.org/ontology#',
+							ex: ZZDIF_RDF_EX_NAMESPACE,
+							void: 'http://rdfs.org/ns/void#',
+						},
+					},
+				},
+				order_number: 7,
+			},
+			{
+				tipo: ZZDIF_RDF_TYPE_CLASS,
+				parent: ZZDIF_RDF_ELEMENT,
+				model: 'owl:Class',
+				term: { 'lg-spa': 'nmo:TypeSeriesItem' },
+				relations: [{ tipo: 'zzdif130' }],
+				properties: {
+					process: {
+						type: 'entity_publication_uri',
+						base_uri_entity: baseUri('self'),
+						var_uri: { code: 'zzdif135' },
+					},
+				},
+				order_number: 1,
+			},
+			rdfProperty('zzdif152', ZZDIF_RDF_TYPE_CLASS, 'dc:title', 1, ['zzdif131']),
+			rdfProperty('zzdif153', ZZDIF_RDF_TYPE_CLASS, 'ex:label', 2, [], {
+				text_format: '${a} / ${b}',
+				ddo_map: [
+					{ tipo: 'zzdif131', section_tipo: 'self', parent: 'self', id: 'a' },
+					{ tipo: 'zzdif138', section_tipo: 'self', parent: 'self', id: 'b' },
+				],
+			}),
+			rdfProperty('zzdif154', ZZDIF_RDF_TYPE_CLASS, 'ex:note', 3, [], {
+				php_formula: { type: 'empty', sentence: '${a} ? ${b} : ${a}' },
+				ddo_map: [
+					{ tipo: 'zzdif139', section_tipo: 'self', parent: 'self', id: 'a' },
+					{ tipo: 'zzdif135', section_tipo: 'self', parent: 'self', id: 'b' },
+				],
+			}),
+			rdfProperty('zzdif155', ZZDIF_RDF_TYPE_CLASS, 'nmo:hasMint', 4, ['zzdif132'], {
+				type: 'get_data_uri',
+				base_uri_entity: baseUri('nomisma'),
+			}),
+			rdfProperty('zzdif156', ZZDIF_RDF_TYPE_CLASS, 'nmo:hasStartDate', 5, ['zzdif133'], {
+				type: 'get_data_date',
+				get_date: 'start',
+				format: { year: 'xsd:gYear' },
+			}),
+			rdfProperty('zzdif157', ZZDIF_RDF_TYPE_CLASS, 'nmo:hasEndDate', 6, ['zzdif133'], {
+				type: 'get_data_date',
+				get_date: 'end',
+				format: { year: 'xsd:gYear' },
+			}),
+			rdfProperty('zzdif158', ZZDIF_RDF_TYPE_CLASS, 'nmo:hasWeight', 7, ['zzdif134'], {
+				type: 'get_data_number',
+				format: { integer: 'xsd:integer', double: 'xsd:decimal' },
+			}),
+			rdfProperty('zzdif159', ZZDIF_RDF_TYPE_CLASS, 'ex:id', 8, ['zzdif146'], {
+				type: 'get_section_id',
+			}),
+			rdfProperty('zzdif161', ZZDIF_RDF_TYPE_CLASS, 'ex:seeAlso', 9, ['zzdif135'], {
+				type: 'get_resource_link',
+				base_uri_entity: baseUri('nomisma'),
+			}),
+			rdfProperty('zzdif162', ZZDIF_RDF_TYPE_CLASS, 'nmo:hasObverse', 10, [], {
+				type: 'get_portal',
+				base_uri_entity: baseUri('nmo:TypeSeriesItem'),
+				var_uri: { code: 'zzdif135', '#': '#obverse' },
+			}),
+			rdfProperty('zzdif163', 'zzdif162', 'ex:legend', 1, ['zzdif138']),
+			rdfProperty('zzdif164', ZZDIF_RDF_TYPE_CLASS, 'nmo:hasReverse', 11, [], {
+				type: 'get_portal',
+				base_uri_entity: baseUri('nmo:TypeSeriesItem'),
+				var_uri: { code: 'zzdif135', '#': '#reverse' },
+			}),
+			rdfProperty('zzdif165', 'zzdif164', 'ex:legend', 1, ['zzdif139']),
+			rdfProperty('zzdif166', ZZDIF_RDF_TYPE_CLASS, 'void:inDataset', 12, [], {
+				type: 'entity_publication_uri',
+				base_uri_entity: baseUri('dataset'),
+			}),
+			{
+				tipo: 'zzdif167',
+				parent: ZZDIF_RDF_TYPE_CLASS,
+				model: 'rdf',
+				term: { 'lg-spa': 'objects' },
+				relations: [{ tipo: 'zzdif136' }, { tipo: ZZDIF_RDF_OBJECT_CLASS }],
+				order_number: 13,
+			},
+			{
+				tipo: ZZDIF_RDF_OBJECT_CLASS,
+				parent: ZZDIF_RDF_ELEMENT,
+				model: 'owl:Class',
+				term: { 'lg-spa': 'nmo:NumismaticObject' },
+				relations: [{ tipo: 'zzdif140' }],
+				properties: {
+					process: { type: 'entity_publication_uri', base_uri_entity: baseUri('self') },
+				},
+				order_number: 2,
+			},
+			rdfProperty('zzdif168', ZZDIF_RDF_OBJECT_CLASS, 'dc:title', 1, ['zzdif141']),
+			rdfProperty('zzdif169', ZZDIF_RDF_OBJECT_CLASS, 'nmo:hasWeight', 2, ['zzdif144'], {
+				type: 'get_data_number',
+				format: { integer: 'xsd:integer', double: 'xsd:decimal' },
+			}),
+			{
+				tipo: 'zzdif170',
+				parent: ZZDIF_RDF_OBJECT_CLASS,
+				model: 'rdf',
+				term: { 'lg-spa': 'type' },
+				relations: [{ tipo: 'zzdif142' }, { tipo: ZZDIF_RDF_TYPE_CLASS }],
+				order_number: 3,
+			},
+			{
+				tipo: ZZDIF_RDF_BROKEN_ELEMENT,
+				parent: 'zzdif41',
+				model: 'diffusion_element',
+				term: { 'lg-spa': 'zzdif broken rdf element' },
+				// a top-level xmlns (the v6 spelling, beside the v7 one) and NO service_type
+				properties: {
+					diffusion: {
+						type: 'rdf',
+						service_name: 'zzdif_rdf_broken',
+						xmlns: { nmo: 'http://nomisma.org/ontology#' },
+					},
+					xmlns: { nmo: 'http://nomisma.org/ontology#' },
+				},
+				order_number: 8,
+			},
+			{
+				tipo: 'zzdif181',
+				parent: ZZDIF_RDF_BROKEN_ELEMENT,
+				model: 'owl:Class',
+				term: { 'lg-spa': 'nmo:NoSubject' },
+				relations: [{ tipo: 'zzdif140' }],
+				order_number: 1,
+			},
+			{
+				tipo: 'zzdif182',
+				parent: ZZDIF_RDF_BROKEN_ELEMENT,
+				model: 'owl:Class',
+				term: { 'lg-spa': 'nmo:Broken' },
+				relations: [{ tipo: 'zzdif130' }],
+				properties: {
+					process: { type: 'entity_publication_uri', base_uri_entity: baseUri('self') },
+				},
+				order_number: 2,
+			},
+			rdfProperty('zzdif183', 'zzdif182', 'undeclared:title', 1, ['zzdif131']),
+			rdfProperty('zzdif184', 'zzdif182', 'nmo:hasStartDate', 2, ['zzdif133'], {
+				type: 'get_data_date',
+				format: { year: 'xsd:gYear' },
+			}),
+			rdfProperty('zzdif185', 'zzdif182', 'nmo:hasMint', 3, [], {
+				ddo_map: [
+					{ tipo: 'zzdif136', section_tipo: 'self', parent: 'self', config: { filter: 'x' } },
+				],
+			}),
+			rdfProperty('zzdif186', 'zzdif182', 'nmo:hasNote', 4, ['zzdif131'], {
+				php_formula: '${a} ? ${b} : ${a}',
+			}),
 		],
 		records: [
 			{
@@ -774,6 +1061,61 @@ function buildSituation(): Situation {
 				columns: {
 					string: { zzdif21: [{ value: `zzdif linked ${id}`, lang: 'lg-spa' }] },
 					relation: { zzdif22: YES },
+				},
+			})),
+			// ---- the RDF records (T1-4) ----------------------------------------
+			{
+				section_tipo: 'zzdif130',
+				section_id: 941001,
+				columns: {
+					string: {
+						zzdif131: [
+							{ id: 1, value: 'Denario <b>ibérico</b>', lang: 'lg-spa' },
+							{ id: 1, value: 'Iberian denarius', lang: 'lg-eng' },
+						],
+						zzdif135: [{ id: 1, value: 'type-1', lang: 'lg-nolan' }],
+						zzdif138: [{ id: 1, value: 'Cabeza', lang: 'lg-spa' }],
+					},
+					iri: {
+						zzdif132: [
+							{ id: 1, iri: 'http://other.test/place/1' },
+							{ id: 2, iri: 'http://NOMISMA.test/id/castulo' },
+						],
+					},
+					date: { zzdif133: [{ id: 1, start: { year: -25 }, end: { year: 10 } }] },
+					number: { zzdif134: [{ id: 1, value: 2.5 }] },
+					relation: {
+						zzdif137: YES,
+						zzdif136: ZZDIF_RDF_OBJECT_IDS.map((id) => ({
+							section_tipo: 'zzdif140',
+							section_id: id,
+						})),
+					},
+				},
+			},
+			{
+				section_tipo: 'zzdif130',
+				section_id: 941002,
+				columns: {
+					string: {
+						zzdif131: [{ id: 1, value: 'Segundo tipo', lang: 'lg-spa' }],
+						zzdif135: [{ id: 1, value: 'type-2', lang: 'lg-nolan' }],
+					},
+					relation: { zzdif137: YES },
+				},
+			},
+			...ZZDIF_RDF_OBJECT_IDS.map((id) => ({
+				section_tipo: 'zzdif140',
+				section_id: id,
+				columns: {
+					string: { zzdif141: [{ id: 1, value: `Moneda ${id}`, lang: 'lg-spa' }] },
+					number: { zzdif144: [{ id: 1, value: id - 941100 }] },
+					relation: {
+						zzdif143: id === ZZDIF_RDF_UNPUBLISHABLE_OBJECT ? NO : YES,
+						...(id === 941101
+							? { zzdif142: [{ section_tipo: 'zzdif130', section_id: 941001 }] }
+							: {}),
+					},
 				},
 			})),
 		],

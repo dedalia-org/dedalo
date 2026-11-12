@@ -175,7 +175,7 @@ const ELEMENT_PATH = (format: string) => ({
 	type: format,
 });
 
-function makeTree(tables: TableCase[], format: 'sql' | 'rdf' = 'sql'): VirtualDiffusionTree {
+function makeTree(tables: TableCase[], format: 'sql' | 'xml' = 'sql'): VirtualDiffusionTree {
 	const raw: Record<string, RawOntologyNode> = {};
 	const children: Record<string, string[]> = {};
 	for (const [tipo, node] of Object.entries(BASE_RAW)) {
@@ -210,7 +210,7 @@ function makeTree(tables: TableCase[], format: 'sql' | 'rdf' = 'sql'): VirtualDi
 		properties:
 			format === 'sql'
 				? { diffusion: { type: 'sql' } }
-				: { diffusion: { type: 'rdf', service_name: 'gtm' } },
+				: { diffusion: { type: 'xml', service_name: 'gtm' } },
 		realTipo: null,
 		isAlias: false,
 		parents: [],
@@ -285,7 +285,7 @@ describe('B — compile laws (hermetic)', () => {
 		expect(plan.warnings.filter((warning) => warning.startsWith('global_table_maps'))).toEqual([]);
 	});
 
-	const refusals: [string, TableCase[], 'sql' | 'rdf', RegExp][] = [
+	const refusals: [string, TableCase[], 'sql' | 'xml', RegExp][] = [
 		[
 			'table_tipo missing in an INSTALLED package',
 			[sourceTable({ global_table_maps: titleMap('dd999999') })],
@@ -330,7 +330,7 @@ describe('B — compile laws (hermetic)', () => {
 		[
 			'maps on a non-sql element',
 			[sourceTable({ global_table_maps: titleMap('ddgtm20') })],
-			'rdf',
+			'xml',
 			/global_table_maps on a non-sql element/,
 		],
 	];

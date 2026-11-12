@@ -67,7 +67,6 @@ import {
 	CONSOLIDATED_MERGED_PREFIX,
 	CONSOLIDATED_ZIP_PREFIX,
 	escapeXmlText,
-	langToAlpha2,
 	requireFilesTarget,
 	StreamedMergeOutput,
 	withdrawConsolidated,
@@ -146,6 +145,35 @@ export function renderXmlRecord(section: SectionPlan, rows: ProjectedRow[]): str
 
 	lines.push(`</${rootName}>`);
 	return `${lines.join('\n')}\n`;
+}
+
+/**
+ * Dédalo lang code → alpha2 node names (PHP lang::get_alpha2_from_code). Unknown codes fall back to the
+ * first two letters of the ISO-639-3 tail (deterministic, never throws).
+ */
+const LANG_ALPHA2: Record<string, string> = {
+	'lg-eng': 'en',
+	'lg-spa': 'es',
+	'lg-cat': 'ca',
+	'lg-fra': 'fr',
+	'lg-deu': 'de',
+	'lg-por': 'pt',
+	'lg-ita': 'it',
+	'lg-nob': 'no',
+	'lg-swe': 'sv',
+	'lg-nld': 'nl',
+	'lg-eus': 'eu',
+	'lg-glg': 'gl',
+	'lg-arb': 'ar',
+	'lg-zho': 'zh',
+	'lg-jpn': 'ja',
+	'lg-rus': 'ru',
+	'lg-ell': 'el',
+	'lg-lat': 'la',
+};
+
+export function langToAlpha2(lang: string): string {
+	return LANG_ALPHA2[lang] ?? lang.replace(/^lg-/, '').slice(0, 2);
 }
 
 /** The xml part's inner block under `rootName` (the part trimmed when it has no such root). */

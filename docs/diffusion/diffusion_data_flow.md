@@ -219,6 +219,19 @@ Example `ddo_map` resolving a related field through a relation component:
 | external_ontology   | definition of other ontology                |
 | owl:Class           | Class                                       |
 | owl:ObjectProperty  | Property                                    |
+| rdf                 | Link to another class of the same element   |
+
+An RDF element declares its namespaces and publication service in
+`properties.diffusion` (`xmlns`, `service_name`, `service_type`). Each
+`owl:Class` is the subject of one record: its `process` must be
+`{"type": "entity_publication_uri", "base_uri_entity": {...}}`, the base IRI
+being looked up by title in the publication services, with an optional
+`var_uri` component for the record part. Each `owl:ObjectProperty` publishes
+by its `process.type`: literals per published language (the default, with
+optional `text_format` or an empty-test formula), `get_data_uri`, `get_data_date`,
+`get_data_number`, `get_section_id`, `get_resource_link`, `get_portal` (a
+nested node) and `entity_publication_uri` (a standalone typed resource). An
+`rdf` node publishes the linked records' classes inside the same document.
 
 ## Dédalo diffusion engine
 

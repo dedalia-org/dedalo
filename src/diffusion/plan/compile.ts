@@ -76,11 +76,18 @@ import { DedaloError } from '../../core/errors/dedalo_error.ts';
 import { nameOrLabelOf } from '../../core/ontology/labels.ts';
 import { getModelByTipo } from '../../core/ontology/resolver.ts';
 import { getTldFromTipo } from '../../core/ontology/tld.ts';
+import { RdfNamespaceTable } from '../resolve/rdf_graph_ir.ts';
 import { tableRowSizeViolation } from '../targets/mariadb/sql_generator.ts';
 import { currentOntologyRevision } from './cache.ts';
 import { KNOWN_FORMATS, TABLE_FORMATS } from './formats.ts';
 import { compileGlobalTables, globalTableElementErrors } from './global_tables.ts';
 import { requireSqlIdentifier } from './identifier.ts';
+import {
+	compileRdfElement,
+	compileRdfSection,
+	type RdfCompileContext,
+	rdfLinkErrors,
+} from './rdf_compile.ts';
 import type {
 	ColumnDef,
 	FieldPlan,
@@ -941,6 +948,31 @@ export async function compileElementPlan(
 			'no sections targeted by this element (check table/owl:Class section relations)',
 		);
 	}
+	// rdf publishes GRAPHS, not columns (plan/rdf_compile.ts, T1-4): its
+	// element contract (namespaces, service_type) and one class graph per
+	// section, the data-reading properties compiled by the SAME chain compiler.
+	const rdfElement =
+		format === 'rdf' ? compileRdfElement(elementNode.properties, diagnostics.errors) : null;
+	const rdf = rdfElement?.element ?? null;
+	const rdfContext: RdfCompileContext | null =
+		format === 'rdf'
+			? {
+					index: tree.index,
+					namespaces: new RdfNamespaceTable(rdfElement?.namespaces ?? []),
+					resolveModel,
+					compileChain: async (nodeTipo, properties, sectionTipo, label) =>
+						compileSourceChain(
+							buildDdoMap(properties, await tree.index.relationTipos(nodeTipo), sectionTipo),
+							sectionTipo,
+							nodeTipo,
+							label,
+							resolveModel,
+							diagnostics,
+						),
+					errors: diagnostics.errors,
+					warnings: diagnostics.warnings,
+				}
+			: null;
 	const sections: SectionPlan[] = [];
 	for (const sectionTipo of sectionTipos) {
 		const tableNode = getSectionNodeForElement(tree, elementTipo, sectionTipo);
@@ -948,17 +980,21 @@ export async function compileElementPlan(
 			diagnostics.errors.push(`section '${sectionTipo}': no table node under the element`);
 			continue;
 		}
-		const sectionPlan = await compileSectionPlan(
-			tree,
-			tableNode,
-			sectionTipo,
-			sqlTarget,
-			classify,
-			resolveModel,
-			diagnostics,
-		);
+		const sectionPlan =
+			rdfContext !== null
+				? await compileRdfSection(rdfContext, tableNode, sectionTipo)
+				: await compileSectionPlan(
+						tree,
+						tableNode,
+						sectionTipo,
+						sqlTarget,
+						classify,
+						resolveModel,
+						diagnostics,
+					);
 		if (sectionPlan !== null) sections.push(sectionPlan);
 	}
+	if (rdfContext !== null) diagnostics.errors.push(...rdfLinkErrors(sections));
 
 	// A MariaDB table wider than the server's row ceiling cannot be created;
 	// left to the run, errno 1118 surfaced as an untyped `diffusion.run_failed`
@@ -995,6 +1031,7 @@ export async function compileElementPlan(
 		sections,
 		recursion: { maxLevels },
 		langPolicy: buildLangPolicy(),
+		...(rdf !== null ? { rdf } : {}),
 		warnings: diagnostics.warnings,
 		degradations: diagnostics.degradations,
 	};
