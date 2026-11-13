@@ -92,8 +92,10 @@ const [FULL_TYPE, MINIMAL_TYPE] = ZZDIF_RDF_TYPE_IDS;
  *   the untranslated `${b}` filled from the main lang; ex:note php_formula
  *   {type:'empty'} on an empty condition;
  * - nmo:hasMint the stored IRI CONTAINING the `nomisma` base, case-insensitively
- *   (the other IRI ignored); start/end years typed gYear; the 2.5 weight a
- *   decimal; ex:id the section_id; ex:seeAlso `<nomisma base><code>`;
+ *   (the other IRI ignored); start/end years typed gYear in their CANONICAL
+ *   lexical form (`-25` → `-0025`, `10` → `0010` — owner C12,
+ *   WC-2026-11-13-rdf-canonical-xsd-lexical; PHP wrote the bare cast); the
+ *   2.5 weight a decimal; ex:id the section_id; ex:seeAlso `<nomisma base><code>`;
  * - nmo:hasObverse NESTS its portal resource (`#obverse` fragment last); the
  *   empty hasReverse portal produces NOTHING;
  * - void:inDataset a standalone typed resource with an empty body;
@@ -115,8 +117,8 @@ const FULL_TYPE_DOCUMENT = `<?xml version="1.0" encoding="utf-8" ?>
     <ex:label xml:lang="en">Iberian denarius / Cabeza</ex:label>
     <ex:note xml:lang="es">type-1</ex:note>
     <nmo:hasMint rdf:resource="http://NOMISMA.test/id/castulo"/>
-    <nmo:hasStartDate rdf:datatype="http://www.w3.org/2001/XMLSchema#gYear">-25</nmo:hasStartDate>
-    <nmo:hasEndDate rdf:datatype="http://www.w3.org/2001/XMLSchema#gYear">10</nmo:hasEndDate>
+    <nmo:hasStartDate rdf:datatype="http://www.w3.org/2001/XMLSchema#gYear">-0025</nmo:hasStartDate>
+    <nmo:hasEndDate rdf:datatype="http://www.w3.org/2001/XMLSchema#gYear">0010</nmo:hasEndDate>
     <nmo:hasWeight rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">2.5</nmo:hasWeight>
     <ex:id>941001</ex:id>
     <ex:seeAlso rdf:resource="http://nomisma.test/id/type-1"/>

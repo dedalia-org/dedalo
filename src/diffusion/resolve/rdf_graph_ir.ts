@@ -308,42 +308,171 @@ export class RdfLiteralError extends RangeError {
 }
 
 /**
+ * The XSD datatypes whose lexical form this module CANONICALISES (owner C12,
+ * 2026-11-13, WC-2026-11-13-rdf-canonical-xsd-lexical): published RDF must
+ * validate, so a stored `-25` year is written `-0025`, a `+007` integer `7`, a
+ * PHP boolean `true`/`false`. EasyRdf canonicalised xsd:decimal only and cast
+ * the rest to their PHP string (`-25`, `1`/'' for booleans) — forms an XSD
+ * validator rejects. Datatypes outside this set keep the PHP cast.
+ */
+const CANONICAL_XSD = new Set([
+	'decimal',
+	'integer',
+	'boolean',
+	'gYear',
+	'gYearMonth',
+	'date',
+	'dateTime',
+]);
+
+/** XSD timezone suffix: `Z` or `±hh:mm`. */
+const TIMEZONE = '(Z|[+-]\\d{2}:\\d{2})?';
+
+/** A year as XSD writes it: sign (minus only), at least four digits. */
+function canonicalYear(sign: string, digits: string): string {
+	const trimmed = digits.replace(/^0+(?=\d)/, '');
+	return `${sign === '-' ? '-' : ''}${trimmed.padStart(4, '0')}`;
+}
+
+/** An in-range two-digit field, or null (the caller refuses). */
+function twoDigits(raw: string, min: number, max: number): string | null {
+	const value = Number(raw);
+	return value >= min && value <= max ? String(value).padStart(2, '0') : null;
+}
+
+/** Days in a month, proleptic Gregorian (XSD's calendar). */
+function daysInMonth(year: number, month: number): number {
+	if (month === 2) {
+		const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+		return leap ? 29 : 28;
+	}
+	return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+
+/** The canonical lexical of `lexical` under one CANONICAL_XSD datatype, or null = unparseable. */
+function canonicalLexical(datatype: string, lexical: string): string | null {
+	switch (datatype) {
+		case 'decimal':
+			return canonicalDecimal(lexical);
+		case 'integer': {
+			const match = /^([+-]?)(\d+)$/.exec(lexical);
+			if (match === null) return null;
+			const digits = (match[2] as string).replace(/^0+(?=\d)/, '');
+			return digits === '0' ? '0' : `${match[1] === '-' ? '-' : ''}${digits}`;
+		}
+		case 'boolean': {
+			const lowered = lexical.toLowerCase();
+			if (lowered === 'true' || lowered === '1') return 'true';
+			if (lowered === 'false' || lowered === '0') return 'false';
+			return null;
+		}
+		case 'gYear': {
+			const match = new RegExp(`^([+-]?)(\\d+)${TIMEZONE}$`).exec(lexical);
+			if (match === null) return null;
+			return `${canonicalYear(match[1] as string, match[2] as string)}${match[3] ?? ''}`;
+		}
+		case 'gYearMonth': {
+			const match = new RegExp(`^([+-]?)(\\d+)-(\\d{1,2})${TIMEZONE}$`).exec(lexical);
+			if (match === null) return null;
+			const month = twoDigits(match[3] as string, 1, 12);
+			if (month === null) return null;
+			return `${canonicalYear(match[1] as string, match[2] as string)}-${month}${match[4] ?? ''}`;
+		}
+		case 'date': {
+			const match = new RegExp(`^([+-]?)(\\d+)-(\\d{1,2})-(\\d{1,2})${TIMEZONE}$`).exec(lexical);
+			if (match === null) return null;
+			const date = canonicalDate(
+				match[1] as string,
+				match[2] as string,
+				match[3] as string,
+				match[4] as string,
+			);
+			return date === null ? null : `${date}${match[5] ?? ''}`;
+		}
+		case 'dateTime': {
+			const match = new RegExp(
+				`^([+-]?)(\\d+)-(\\d{1,2})-(\\d{1,2})T(\\d{1,2}):(\\d{1,2}):(\\d{1,2})(\\.\\d+)?${TIMEZONE}$`,
+			).exec(lexical);
+			if (match === null) return null;
+			const date = canonicalDate(
+				match[1] as string,
+				match[2] as string,
+				match[3] as string,
+				match[4] as string,
+			);
+			const hour = twoDigits(match[5] as string, 0, 23);
+			const minute = twoDigits(match[6] as string, 0, 59);
+			const second = twoDigits(match[7] as string, 0, 59);
+			if (date === null || hour === null || minute === null || second === null) return null;
+			const fraction = (match[8] ?? '').replace(/0+$/, '');
+			return `${date}T${hour}:${minute}:${second}${fraction === '.' ? '' : fraction}${match[9] ?? ''}`;
+		}
+		default:
+			return null;
+	}
+}
+
+/** `yyyy-mm-dd` with the month/day ranges checked (the month's own length). */
+function canonicalDate(sign: string, year: string, month: string, day: string): string | null {
+	const mm = twoDigits(month, 1, 12);
+	if (mm === null) return null;
+	const dd = twoDigits(day, 1, daysInMonth(Number(year), Number(mm)));
+	if (dd === null) return null;
+	return `${canonicalYear(sign, year)}-${mm}-${dd}`;
+}
+
+/** PHP `(string)` of the value as EasyRdf's base Literal cast it. */
+function phpStringCast(
+	value: string | number | boolean,
+	phpType: PhpNumberType | 'string' | 'boolean',
+): string {
+	if (typeof value === 'number')
+		return phpType === 'double' ? phpFloatLiteral(value) : String(value);
+	if (typeof value === 'boolean') return value ? '1' : '';
+	return value;
+}
+
+/**
  * Literal::create($value, null, $datatype) — the lexical form of a TYPED
- * literal, by EasyRdf's datatype class: xsd:decimal canonicalises (`1` →
- * `1.0`, an unparseable value THROWS like Literal\Decimal::validate),
- * xsd:integer and every other datatype cast the value to its PHP string (a
- * PHP float through the base Literal's sprintf rule).
+ * literal. The CANONICAL_XSD datatypes are written in their canonical XSD
+ * lexical form (an unparseable value THROWS RdfLiteralError, like
+ * Literal\Decimal::validate did for decimals); every other datatype casts the
+ * value to its PHP string (a PHP float through the base Literal's sprintf
+ * rule) — EasyRdf's behaviour, kept where XSD defines no canonical form here.
  *
  * `phpType` is how PHP held the value (json_decode: a number token with '.',
  * 'e' or 'E' is a double, otherwise an integer) — JS cannot tell `1.0` from
- * `1`, the stored text can (resolve/rdf_graph.ts reads it).
+ * `1`, the stored text can (resolve/rdf_graph.ts reads it). A JS number that
+ * is not an integer refuses xsd:integer; a boolean reaches xsd:boolean as
+ * `true`/`false` and any other datatype as PHP's `1`/''.
  */
 export function typedLiteral(
 	value: string | number | boolean,
 	phpType: PhpNumberType | 'string' | 'boolean',
 	datatypeUri: string,
 ): RdfTerm {
-	let lexical: string;
-	if (datatypeUri === `${XSD}decimal`) {
-		const source = typeof value === 'number' ? String(value) : String(value);
+	const datatype = datatypeUri.startsWith(XSD) ? datatypeUri.slice(XSD.length) : null;
+	if (datatype !== null && CANONICAL_XSD.has(datatype)) {
 		if (typeof value === 'number' && !Number.isFinite(value)) {
-			throw new RdfLiteralError(`xsd:decimal literal: ${value} is not a finite number`);
+			throw new RdfLiteralError(`xsd:${datatype} literal: ${value} is not a finite number`);
 		}
-		const canonical = canonicalDecimal(source);
+		// The source lexical: a boolean's word, a number's own text (a PHP double
+		// stays its JS text here — `2.5` — so decimal keeps its digits), a string as is.
+		const source = typeof value === 'boolean' ? String(value) : String(value);
+		const canonical = canonicalLexical(datatype, source);
 		if (canonical === null) {
 			throw new RdfLiteralError(
-				`xsd:decimal literal: '${source}' doesn't look like a valid decimal`,
+				`xsd:${datatype} literal: '${source}' doesn't look like a valid ${datatype}`,
 			);
 		}
-		lexical = canonical;
-	} else if (typeof value === 'number') {
-		lexical = phpType === 'double' ? phpFloatLiteral(value) : String(value);
-	} else if (typeof value === 'boolean') {
-		lexical = value ? '1' : '';
-	} else {
-		lexical = value;
+		return { kind: 'literal', value: canonical, lang: null, datatype: datatypeUri };
 	}
-	return { kind: 'literal', value: lexical, lang: null, datatype: datatypeUri };
+	return {
+		kind: 'literal',
+		value: phpStringCast(value, phpType),
+		lang: null,
+		datatype: datatypeUri,
+	};
 }
 
 /** A plain literal (`xml:lang` when lang is set, untyped otherwise). */

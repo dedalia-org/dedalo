@@ -116,3 +116,10 @@ the absence of the format.
   `machine_name_outcome_native`'s rdf element is a compilable one.
 - Data already written wrongly: TS-era rdf files exist only on beta installs;
   deterministic names mean the next publish overwrites them. No repair step.
+
+## Addendum 2026-11-13 — item 12 ruled: canonical XSD lexical forms (owner C12)
+
+Item 12 above is superseded by `WC-2026-11-13-rdf-canonical-xsd-lexical`: the gYear / gYearMonth /
+date / dateTime / integer / boolean literals are written in their canonical XSD lexical form
+(`-25` → `-0025`); decimal keeps EasyRdf's canonicalisation, double the PHP cast. The relation_list
+`config` ddo (item 10's "not ported") is ruled too: `WC-2026-11-13-rdf-relation-list-config`.

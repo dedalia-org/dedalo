@@ -24,6 +24,7 @@ import {
 	EASYRDF_INITIAL_NAMESPACES,
 	plainLiteral,
 	RdfGraph,
+	RdfLiteralError,
 	RdfNamespaceTable,
 	typedLiteral,
 } from '../../src/diffusion/resolve/rdf_graph_ir.ts';
@@ -76,11 +77,85 @@ describe('typed literal lexical forms (Literal::create port)', () => {
 	test('xsd:decimal refuses an unparseable value (Literal\\Decimal::validate)', () => {
 		expect(() => typedLiteral('abc', 'string', `${XSD}decimal`)).toThrow(/valid decimal/);
 	});
-	test('integer → its string; a PHP double through the base Literal sprintf rule', () => {
-		expect(typedLiteral(5, 'integer', `${XSD}integer`)).toMatchObject({ value: '5' });
-		expect(typedLiteral(-25, 'integer', `${XSD}gYear`)).toMatchObject({ value: '-25' });
+	test('a PHP double through the base Literal sprintf rule (no canonical form for xsd:double)', () => {
 		expect(typedLiteral(5, 'double', `${XSD}double`)).toMatchObject({ value: '5.' });
 		expect(typedLiteral(0.83, 'double', `${XSD}double`)).toMatchObject({ value: '0.83' });
+	});
+
+	// Owner C12 (2026-11-13, WC-2026-11-13-rdf-canonical-xsd-lexical): published RDF
+	// must VALIDATE — the XSD datatypes with a canonical lexical form get it.
+	describe('C12 canonical XSD lexical forms', () => {
+		const lex = (
+			value: string | number | boolean,
+			type: 'integer' | 'double' | 'string' | 'boolean',
+			datatype: string,
+		): string => {
+			const term = typedLiteral(value, type, `${XSD}${datatype}`);
+			if (term.kind !== 'literal') throw new Error('typedLiteral returned a non-literal');
+			return term.value;
+		};
+
+		test('xsd:gYear: sign kept, at least four digits (-25 → -0025, 10 → 0010), + dropped', () => {
+			expect(lex(-25, 'integer', 'gYear')).toBe('-0025');
+			expect(lex(10, 'integer', 'gYear')).toBe('0010');
+			expect(lex('2020', 'string', 'gYear')).toBe('2020');
+			expect(lex('+0325', 'string', 'gYear')).toBe('0325');
+			expect(lex('12345', 'string', 'gYear')).toBe('12345');
+			expect(lex('0000', 'string', 'gYear')).toBe('0000');
+			expect(lex('-0025Z', 'string', 'gYear')).toBe('-0025Z');
+			expect(lex('25+01:00', 'string', 'gYear')).toBe('0025+01:00');
+		});
+		test('xsd:gYearMonth / xsd:date: zero-padded fields, ranges checked', () => {
+			expect(lex('-25-3', 'string', 'gYearMonth')).toBe('-0025-03');
+			expect(lex('2020-12', 'string', 'gYearMonth')).toBe('2020-12');
+			expect(lex('325-1-5', 'string', 'date')).toBe('0325-01-05');
+			expect(lex('2020-03-16', 'string', 'date')).toBe('2020-03-16');
+			expect(lex('2020-03-16Z', 'string', 'date')).toBe('2020-03-16Z');
+			expect(() => lex('2020-13', 'string', 'gYearMonth')).toThrow(/gYearMonth/);
+			expect(() => lex('2020-02-30', 'string', 'date')).toThrow(/xsd:date/);
+			expect(() => lex('2020-00-10', 'string', 'date')).toThrow(/xsd:date/);
+		});
+		test('xsd:dateTime: padded, fraction trailing zeros cut, timezone kept', () => {
+			expect(lex('2020-3-6T7:5:9', 'string', 'dateTime')).toBe('2020-03-06T07:05:09');
+			expect(lex('2020-03-06T07:05:09.500Z', 'string', 'dateTime')).toBe('2020-03-06T07:05:09.5Z');
+			expect(lex('2020-03-06T07:05:09.000+02:00', 'string', 'dateTime')).toBe(
+				'2020-03-06T07:05:09+02:00',
+			);
+			expect(lex('-25-01-01T00:00:00', 'string', 'dateTime')).toBe('-0025-01-01T00:00:00');
+			expect(() => lex('2020-03-06 07:05:09', 'string', 'dateTime')).toThrow(/dateTime/);
+			expect(() => lex('2020-03-06T24:00:00', 'string', 'dateTime')).toThrow(/dateTime/);
+		});
+		test('xsd:integer: + and leading zeros stripped, -0 → 0; a fraction is refused', () => {
+			expect(lex(5, 'integer', 'integer')).toBe('5');
+			expect(lex('+007', 'string', 'integer')).toBe('7');
+			expect(lex('-0', 'string', 'integer')).toBe('0');
+			expect(lex('000', 'string', 'integer')).toBe('0');
+			expect(lex(-12, 'integer', 'integer')).toBe('-12');
+			expect(() => lex(2.5, 'double', 'integer')).toThrow(/integer/);
+			expect(() => lex('12a', 'string', 'integer')).toThrow(/integer/);
+		});
+		test('xsd:boolean: true/false from a boolean, 1/0 or the words', () => {
+			expect(lex(true, 'boolean', 'boolean')).toBe('true');
+			expect(lex(false, 'boolean', 'boolean')).toBe('false');
+			expect(lex('1', 'string', 'boolean')).toBe('true');
+			expect(lex(0, 'integer', 'boolean')).toBe('false');
+			expect(lex('TRUE', 'string', 'boolean')).toBe('true');
+			expect(() => lex('yes', 'string', 'boolean')).toThrow(/boolean/);
+		});
+		test('an unparseable value is an RdfLiteralError with an authored sentence', () => {
+			let caught: unknown = null;
+			try {
+				lex('twenty', 'string', 'gYear');
+			} catch (error) {
+				caught = error;
+			}
+			expect(caught).toBeInstanceOf(RdfLiteralError);
+			expect((caught as RdfLiteralError).reportSentence).toContain("xsd:gYear literal: 'twenty'");
+		});
+		test('other datatypes keep the PHP cast (no canonical form defined here)', () => {
+			expect(lex('0010', 'string', 'gMonthDay')).toBe('0010');
+			expect(lex(true, 'boolean', 'string')).toBe('1');
+		});
 	});
 });
 
@@ -168,7 +243,7 @@ describe('serialiseRdfXml == EasyRdf bytes (pinned real documents, test IRIs)', 
 				'    <skos:prefLabel xml:lang="en">T &amp; &lt;1&gt;</skos:prefLabel>\n' +
 				'    <skos:prefLabel xml:lang="es">T &quot;1&quot;</skos:prefLabel>\n' +
 				'    <nmo:representsObjectType rdf:resource="http://example.test/id/coin"/>\n' +
-				'    <nmo:hasStartDate rdf:datatype="http://www.w3.org/2001/XMLSchema#gYear">-25</nmo:hasStartDate>\n' +
+				'    <nmo:hasStartDate rdf:datatype="http://www.w3.org/2001/XMLSchema#gYear">-0025</nmo:hasStartDate>\n' +
 				'    <nmo:hasObverse>\n' +
 				'      <rdf:Description rdf:about="https://example.test/type/1#obverse">\n' +
 				'        <dc:description xml:lang="en">Head, left</dc:description>\n' +

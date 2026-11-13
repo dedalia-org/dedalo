@@ -1293,6 +1293,19 @@ Merged since the last release; these ship with the next one.
     install user, as the documentation already said. Quitting the installer over a finished
     install no longer says "the unfinished install is kept".
 
+- **Published RDF writes dates, years, integers and booleans in the standard XSD form, so the documents validate (a year -25 is written -0025).**
+
+    A typed value in a published RDF document (an `xsd:gYear` start date, an `xsd:date`, an
+    `xsd:integer`, an `xsd:boolean`) was written as the stored value's bare text: a year `-25` as
+    `-25`, which an RDF validator rejects (a year needs four digits). These values are now written in
+    the standard XSD form — `-0025`, `0010`, `2020-03-06`, `true` — so the documents validate and
+    linked-data consumers read the dates. Decimal weights were already correct. A value that cannot be
+    written in the standard form is reported in the run's errors, as a malformed decimal already was.
+
+    Republish the RDF elements to refresh the documents.
+
+    Wire contract: `WC-2026-11-13-rdf-canonical-xsd-lexical`.
+
 - **Publishing hierarchies and text-area geolocation fields no longer reports errors and leaves empty columns.**
 
     Two publication functions were not implemented, so every published record raised an error
@@ -1535,7 +1548,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 74 entries"
+??? note "Wire contract — 75 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1609,6 +1622,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-info-derived-async-published`
     - `WC-2026-11-13-info-parsed-face-published`
     - `WC-2026-11-13-observer-refresh-data`
+    - `WC-2026-11-13-rdf-canonical-xsd-lexical`
     - `WC-2026-11-13-tags-widget-original-lang`
     - `WC-2026-11-13-text-area-broken-tag-repair`
 
