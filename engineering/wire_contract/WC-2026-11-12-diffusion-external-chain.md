@@ -73,4 +73,12 @@ restores the public tables (changelog `diffusion-zenon-values-published`).
   target (no value, no call, no line), merge field exact bytes in locator order, degraded id (other
   values kept + exact error line). RED on HEAD aba571cab9: 5 of 7 (compile `relation-hop`, empty
   columns, no line); the foreign / no-socket guards green on both.
+- Review hardening (2026-11-13, T1-42 review): the no-socket guard counted only the PRIME's
+  injected fetch (vacuous). The run's allowlist is now a METER (refuses every host, records each
+  consultation — transport step 3, every door): live on the first run (the unprimed id), EMPTY on a
+  second all-primed run. Both runs execute inside a request scope whose data lang is NOT the run's,
+  and the terminal's per-cell fallback is driven directly from that scope: dropping the run fetch
+  lang (prefetch, `externalPublicationAtoms`, or `fetchOwnRow`'s `dataLang`) goes RED. A field whose
+  FIRST ddo is the component_external (no `output_format`) pins the `string` fallback (control:
+  the first-ddo portal stays `json`) — reverting the compile predicate goes RED.
 - No frozen parity fixture holds a diffusion Zenon column — no fixture edit, no re-harvest.

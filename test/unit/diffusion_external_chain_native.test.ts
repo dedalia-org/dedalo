@@ -21,8 +21,18 @@
  * with `test215` (component_external, authors) and `test52` (input_text). One
  * scratch test3 ROW is inserted (an address) and swept. Remote rows are PRIMED
  * through the facade with an injected socket in the run's data lang; then the
- * allowlist is emptied, so any fetch the run itself attempts is BLOCKED — no
- * network, and an unprimed id degrades instead of being fetched.
+ * allowlist is replaced by a METER that refuses every host and records each
+ * consultation, so any fetch the run itself attempts is BLOCKED and COUNTED —
+ * no network, and an unprimed id degrades instead of being fetched. The
+ * allowlist is the transport's one per-attempt check (external/transport.ts
+ * step 3, before DNS and socket), so the meter sees every attempt the run
+ * makes, whichever door issued it.
+ *
+ * THE RUN IS TRIGGERED FROM ANOTHER LANG. Each run executes inside a request
+ * scope whose data lang is NOT the run's: the fetch lang is the run's, never
+ * the trigger's (WC-2026-11-12 DIVERGENCE). A run that fetched in the ambient
+ * lang would miss every primed row (the row cache keys on the lang) and the
+ * meter would count it.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -31,18 +41,25 @@ import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
 import { deleteMatrixRecord } from '../../src/core/db/matrix_write.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
+import { EmissionContext } from '../../src/core/resolve/component_data.ts';
+import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import {
 	dropSituation,
 	ensureSituation,
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
+import type { MetaValueIR } from '../../src/diffusion/parsers/types.ts';
 import { compileElementPlan } from '../../src/diffusion/plan/compile.ts';
 import type { PublicationPlan } from '../../src/diffusion/plan/types.ts';
 import {
 	buildVirtualDiffusionTree,
 	type VirtualDiffusionTree,
 } from '../../src/diffusion/plan/virtual_tree.ts';
+import {
+	type ExternalPublicationDegradation,
+	externalPublicationAtoms,
+} from '../../src/diffusion/resolve/external_value.ts';
 import {
 	type FieldResolutionError,
 	resolvePublication,
@@ -79,6 +96,12 @@ const LOCAL_SECTION_ID = 948_971;
 const AUTHORS_FIELD = 'zzdxt45';
 /** Merge field: portal → test52 + test215 (rsc1195 shape). */
 const MERGE_FIELD = 'zzdxt46';
+/**
+ * A field whose FIRST ddo is the component_external, no explicit output_format:
+ * the output-format fallback (component_common `string`, not the relation
+ * family's `json`). test215 is foreign to zzdxt1, so it publishes nothing here.
+ */
+const DIRECT_FIELD = 'zzdxt47';
 
 const ID_REMOTE = 948_961; // → test3 '000948950'
 const ID_LOCAL_ROW = 948_962; // → test3 948951 (address)
@@ -176,6 +199,17 @@ const SITUATION = situation({
 			},
 			order_number: 2,
 		},
+		{
+			tipo: DIRECT_FIELD,
+			parent: 'zzdxt44',
+			model: 'field_text',
+			term: { 'lg-spa': 'direct_authors' },
+			relations: [{ tipo: EXTERNAL }],
+			properties: {
+				process: { ddo_map: [{ tipo: EXTERNAL, section_tipo: 'self', parent: 'self' }] },
+			},
+			order_number: 3,
+		},
 	],
 	records: [
 		{
@@ -230,7 +264,23 @@ const SETTINGS = {
 let tree: VirtualDiffusionTree;
 let plan: PublicationPlan;
 let runLang: string;
-let primeCalls = 0;
+/** A data lang that is NOT the run's: the triggering request's scope. */
+let triggerLang: string;
+
+/**
+ * The allowlist METER: refuses every host (an empty allowlist's verdict) and
+ * records each consultation — one per transport attempt, whichever door (hop
+ * prefetch, per-cell fallback, relation_core) issued it.
+ */
+let allowlistConsultations: string[] = [];
+function meteredEmptyAllowlist(): string[] {
+	return Object.assign([] as string[], {
+		includes(host: string): boolean {
+			allowlistConsultations.push(host);
+			return false;
+		},
+	});
+}
 
 /** Prime one remote row in the run's data lang through the facade (injected socket). */
 async function prime(remoteId: string, author: string): Promise<void> {
@@ -240,7 +290,6 @@ async function prime(remoteId: string, author: string): Promise<void> {
 			dataLang: runLang,
 			deps: {
 				fetchImpl: async () => {
-					primeCalls += 1;
 					return new Response(
 						JSON.stringify({
 							records: [{ id: remoteId, authors: { primary: { [author]: {} } } }],
@@ -273,20 +322,23 @@ interface RunOutcome {
 	errors: FieldResolutionError[];
 }
 
+/** One run, triggered from a request scope whose data lang is NOT the run's. */
 async function run(): Promise<RunOutcome> {
 	const columns = new Map<number, Record<string, string | null>>();
 	const errors: FieldResolutionError[] = [];
-	for await (const batch of resolvePublication(plan, {
-		sectionTipo: PRIMARY,
-		runStartedAt: 1_751_700_000,
-		tree,
-		maxLevels: 0,
-	})) {
-		errors.push(...batch.errors);
-		for (const row of batch.rows) {
-			if (!columns.has(Number(row.sectionId))) columns.set(Number(row.sectionId), row.columns);
+	await runWithRequestLangs({ applicationLang: triggerLang, dataLang: triggerLang }, async () => {
+		for await (const batch of resolvePublication(plan, {
+			sectionTipo: PRIMARY,
+			runStartedAt: 1_751_700_000,
+			tree,
+			maxLevels: 0,
+		})) {
+			errors.push(...batch.errors);
+			for (const row of batch.rows) {
+				if (!columns.has(Number(row.sectionId))) columns.set(Number(row.sectionId), row.columns);
+			}
 		}
-	}
+	});
 	return { columns, errors };
 }
 
@@ -298,6 +350,14 @@ function columnOf(outcome: RunOutcome, sectionId: number, column: string): strin
 
 describe.if(DB_READY)('diffusion chain → component_external (T1-42)', () => {
 	let outcome: RunOutcome;
+	/** Meter reading of the first run (one unprimed id among primed ones). */
+	let firstRunAttempts: string[] = [];
+	/** Meter reading of the second run (every id primed). */
+	let primedRunAttempts: string[] = [];
+	/** The terminal's PER-CELL fallback (nothing prefetched), from triggerLang. */
+	let fallbackAtoms: MetaValueIR[] = [];
+	const fallbackDegradations: ExternalPublicationDegradation[] = [];
+	let fallbackAttempts: string[] = [];
 
 	beforeAll(async () => {
 		await assertTestDatabase('diffusion_external_chain_native');
@@ -318,14 +378,48 @@ describe.if(DB_READY)('diffusion chain → component_external (T1-42)', () => {
 		tree = built;
 		plan = await compileElementPlan(ELEMENT, { tree });
 		runLang = plan.langPolicy.mainLang ?? config.lang.dataLangDefault;
+		triggerLang = runLang === 'lg-eng' ? 'lg-spa' : 'lg-eng';
 
 		overrideExternalSettingsForTests({ ...SETTINGS, allowedHosts: [HOST] });
 		resetBreakerForOrigin('zenon', ORIGIN);
 		await prime(REMOTE_ID, AUTHOR_REMOTE);
 		await prime(String(LOCAL_ROW_ID), AUTHOR_LOCAL);
-		// From here on nothing may reach the network: an unprimed id is BLOCKED.
-		overrideExternalSettingsForTests({ ...SETTINGS, allowedHosts: [] });
+		// From here on nothing may reach the network: an unprimed id is BLOCKED,
+		// and every attempt is counted by the meter.
+		allowlistConsultations = [];
+		overrideExternalSettingsForTests({ ...SETTINGS, allowedHosts: meteredEmptyAllowlist() });
 		outcome = await run();
+		firstRunAttempts = allowlistConsultations;
+
+		// Second run, every id primed: the run must ask the transport NOTHING.
+		overrideExternalSettingsForTests({ ...SETTINGS, allowedHosts: [HOST] });
+		resetBreakerForOrigin('zenon', ORIGIN);
+		await prime(UNPRIMED_ID, AUTHOR_REMOTE);
+		allowlistConsultations = [];
+		overrideExternalSettingsForTests({ ...SETTINGS, allowedHosts: meteredEmptyAllowlist() });
+		await run();
+		primedRunAttempts = allowlistConsultations;
+
+		// The per-cell fallback door (no hop prefetch parked — the path a failed
+		// prefetch takes): the terminal's own fetch must use the RUN lang too.
+		allowlistConsultations = [];
+		fallbackAtoms = await runWithRequestLangs(
+			{ applicationLang: triggerLang, dataLang: triggerLang },
+			() =>
+				externalPublicationAtoms(
+					{
+						lang: runLang,
+						emission: new EmissionContext(),
+						report: (degradation) => fallbackDegradations.push(degradation),
+					},
+					// The placeholder host row carries the padded remote id verbatim
+					// (a string at runtime; MatrixRecord types it numeric).
+					{ section_tipo: EXTERNAL_SECTION, section_id: REMOTE_ID as unknown as number },
+					EXTERNAL,
+					{ tipo: EXTERNAL },
+				),
+		);
+		fallbackAttempts = allowlistConsultations;
 	}, 180_000);
 
 	afterAll(async () => {
@@ -337,6 +431,17 @@ describe.if(DB_READY)('diffusion chain → component_external (T1-42)', () => {
 		expect(await dropSituation(SITUATION)).toBe(0);
 		await clearOntologyDerivedCaches();
 	}, 120_000);
+
+	test('compile: a FIRST-ddo component_external falls back to the string format, not json', () => {
+		const fields = plan.sections.flatMap((section) => section.fields);
+		const direct = fields.find((candidate) => candidate.id === DIRECT_FIELD);
+		expect(direct).toBeDefined();
+		// PHP component_external extends component_common: `string` (the
+		// resolver's default — never materialized), not the relation family's json.
+		expect(direct?.outputFormat).toBeUndefined();
+		// Control: a first-ddo PORTAL still falls back to json.
+		expect(fields.find((candidate) => candidate.id === AUTHORS_FIELD)?.outputFormat).toBe('json');
+	});
 
 	test('compile: a component_external ddo is a TERMINAL component step (PHP terminal branch)', () => {
 		const field = plan.sections
@@ -390,7 +495,28 @@ describe.if(DB_READY)('diffusion chain → component_external (T1-42)', () => {
 		expect(outcome.errors.filter((error) => Number(error.sectionId) !== ID_DEGRADED)).toEqual([]);
 	});
 
-	test('the run never reached the socket (primes only)', () => {
-		expect(primeCalls).toBe(2);
+	test('the meter is live: the unprimed id is attempted (and refused) in the first run', () => {
+		expect(firstRunAttempts.length).toBeGreaterThan(0);
+		expect(firstRunAttempts.every((host) => host === HOST)).toBe(true);
+	});
+
+	test('every row primed: the run asks the transport NOTHING (foreign targets included)', () => {
+		expect(primedRunAttempts).toEqual([]);
+	});
+
+	test("the fetch lang is the run's, not the triggering request's (WC-2026-11-12 DIVERGENCE)", () => {
+		expect(triggerLang).not.toBe(runLang);
+		// Rows primed in the run lang served a run triggered from triggerLang,
+		// with no transport attempt.
+		expect(columnOf(outcome, ID_REMOTE, 'authors')).toContain(AUTHOR_REMOTE);
+		expect(primedRunAttempts).toEqual([]);
+	});
+
+	test("the per-cell fallback fetches in the run's lang too (no prefetch parked)", () => {
+		expect(fallbackAttempts).toEqual([]);
+		expect(fallbackDegradations).toEqual([]);
+		expect(fallbackAtoms.map((atom) => (atom.kind === 'scalar' ? atom.value : atom.kind))).toEqual([
+			`primary: ${AUTHOR_REMOTE}`,
+		]);
 	});
 });
