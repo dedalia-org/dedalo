@@ -305,6 +305,10 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-csv-ingest-size-ceiling`.
 
+- **Escape now leaves a text area or JSON field, as it does every other field.**
+
+    Pressing **Escape** inside a rich-text field or a JSON field did nothing, so the field stayed active and its pending changes waited for a click elsewhere. Escape now saves and leaves the field, like in any other field. In a transcription with its player open, Escape still plays and pauses the media and the text stays in edit. Inside the JSON editor, an Escape the editor uses itself (collapsing a selection, closing its search box) is still the editor's: the next press leaves the field.
+
 - **Regenerating a media file now restores its original file name the same way from both tools.**
 
     When a media record had lost its original file name, **Regenerate files** in Media versions did not restore it from the record's "Original file name" field, while **Update cache** did, but on the wrong language's file for translatable media and with the extension in upper case. Both tools now restore it the same way: on the file of the language you are working in, with the stored normalized name in lower case, and only when the name is missing — a name already recorded is never replaced.

@@ -53,7 +53,7 @@
 	import {render_node_info, prepend_bubble} from '../../common/js/utils/notifications.js'
 	import {mount_request_activity_indicator} from './request_activity_indicator.js'
 	import {cookie_manager} from '../../common/js/utils/cookie_manager.js'
-	import {check_unsaved_data, deactivate_components} from '../../component_common/js/component_common.js'
+	import {check_unsaved_data, deactivate_components, run_escape_ladder} from '../../component_common/js/component_common.js'
 	import {ApiError, CLIENT_ERROR, request_failed, response_data, response_extension} from '../../common/js/api_error.js'
 	import {handle_api_error, handle_api_notices, refused_by_page_identity} from '../../common/js/error_dispatch.js'
 	import {error_text, render_error_modal} from '../../common/js/render_api_error.js'
@@ -1245,9 +1245,12 @@ export const send_lock_release_beacon = function(options) {
 *                            customised in modern browsers).
 *   document 'keydown'     — Application-wide keyboard shortcuts:
 *                              Escape      → priority ladder: open modal (dd-modal owns it)
-*                                            → CSS fullscreen → component that binds ESC
-*                                            (text_area AV play/pause) → deactivate the
-*                                            active component (saves pending changed_data)
+*                                            → CSS fullscreen → a component whose
+*                                            owns_escape() is true (live: text_area AV
+*                                            play/pause with an observer subscribed) →
+*                                            deactivate the active component (saves
+*                                            pending changed_data). run_escape_ladder
+*                                            (component_common.js) is the one ladder.
 *                              Shift+Left  → paginator previous page
 *                              Shift+Right → paginator next page
 *                              Ctrl+I      → toggle inspector panel
@@ -1393,45 +1396,12 @@ page.prototype.add_events = function() {
 			switch(evt.key) {
 
 				case 'Escape': {
-					// Escape priority ladder. The page owns Escape ONLY as the last
-					// step; every narrower scope that legitimately consumes it wins
-					// first, so one press dismisses exactly one thing.
-					//  1. open modal          → dd-modal closes the topmost (own keyup)
-					//  2. CSS fullscreen      → ui.enter_fullscreen exits (own keyup)
-					//  3. component owning ESC→ e.g. component_text_area AV play/pause
-					//  4. otherwise           → deactivate the active component
-					// (Overlays with a narrower scope — suggestion lists, inline edits,
-					// the command palette — stopPropagation on their own keydown and
-					// never reach here.)
-
-					// 1. modal is open case
-					if (window.modal) {
-						// Note that dd-modal has is own ESC event to close the modal
-						return
-					}
-
-					// 2. CSS fullscreen is active (ui.enter_fullscreen exits on keyup)
-					if (document.querySelector('.fullscreen')) {
-						return
-					}
-
-					const component_active = page_globals.component_active
-
-					// 3. the active component binds Escape to its own action
-					// (component_text_area AV play/pause: features.av_player.av_play_pause_code)
-					const av_player = component_active?.context?.features?.av_player
-					if (av_player && av_player.av_play_pause_code==='Escape') {
-						return
-					}
-
-					// 4. deactivate the user activated component
-					// (this saves pending changed_data and publishes 'deactivate_component')
-					if (component_active) {
-						ui.component.deactivate(component_active)
-					}
-
-					// blur active input
-					document.activeElement?.blur()
+					// Escape priority ladder: modal → CSS fullscreen → a component
+					// whose owns_escape() is true (live) → deactivate the active
+					// component. ONE implementation, shared with the editors that
+					// stop every keydown (component_json): run_escape_ladder in
+					// component_common.js.
+					run_escape_ladder(evt)
 					break;
 				}
 

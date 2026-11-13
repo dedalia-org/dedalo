@@ -59,7 +59,9 @@
 *
 * Keyboard shortcuts wired in get_custom_events.KeyUp:
 *   NumpadEnter              → save
-*   av_player.av_play_pause_code (Escape by default) → publish key_up_esc event
+*   av_player.av_play_pause_code (Escape by default) → publish key_up_esc event,
+*                              only while an observer is subscribed (else the
+*                              key reaches the page Escape ladder → deactivate)
 *   av_player.av_insert_tc_code (F2 by default)      → build_tag (timecode/draw)
 *   Ctrl+0..9               → insert person tag by index
 *   Ctrl+Shift+0..9         → insert lang tag by index
@@ -1104,6 +1106,7 @@ const get_custom_buttons = (self, text_editor, i) => {
 *   KeyUp        — keyboard shortcuts for audio/video transcription workflows:
 *                    NumpadEnter                              → text_editor.save()
 *                    features.av_player.av_play_pause_code   → publish 'key_up_esc_{id_base}'
+*                                                              (only while subscribed — live)
 *                    features.av_player.av_insert_tc_code    → self.build_tag()
 *                    Ctrl+digit                              → insert person tag by index
 *                    Ctrl+Shift+digit                        → insert lang tag by index
@@ -1306,8 +1309,11 @@ const get_custom_events = (self, i, text_editor) => {
 					text_editor.save()
 					break;
 
-				// 'Escape'
-				case features.av_player && evt.code===features.av_player.av_play_pause_code: {
+				// 'Escape' (the AV play/pause key). Consumed ONLY while an observer is
+				// subscribed (live, self.av_play_pause_bound): unbound, the key falls
+				// through and bubbles to the page's Escape ladder, which deactivates
+				// the component (run_escape_ladder, component_common.js).
+				case features.av_player && evt.code===features.av_player.av_play_pause_code && self.av_play_pause_bound(): {
 					evt.stopPropagation()
 					evt.preventDefault()
 

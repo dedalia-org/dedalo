@@ -3361,6 +3361,73 @@ export const deactivate_components = function(e) {
 
 
 /**
+* RUN_ESCAPE_LADDER
+* The ONE Escape priority ladder of the application. The page owns Escape ONLY
+* as the last step; every narrower scope that legitimately consumes it wins
+* first, so one press dismisses exactly one thing:
+*  1. open modal            → dd-modal closes the topmost (own keyup)
+*  2. CSS fullscreen        → ui.enter_fullscreen exits (own keyup)
+*  3. component owning ESC  → the active component's owns_escape() answers true
+*                             LIVE (component_text_area: ESC is its AV play/pause
+*                             key AND an observer is subscribed right now)
+*  4. otherwise             → deactivate the active component (saves pending
+*                             changed_data, as a click-out does) and blur
+* (Overlays with a narrower scope — suggestion lists, inline edits, the command
+* palette — stopPropagation on their own keydown and never reach here.)
+*
+* Two entry paths, one ladder:
+*   - page.js document 'keydown' handler (bubble phase), for every field that
+*     lets Escape bubble;
+*   - view_default_edit_json, after the editor's own dispatch: vanilla-jsoneditor
+*     stopPropagation()s every keydown, so the page never sees it.
+* A given event runs the ladder at most once (both paths can see the same event).
+*
+* @param {KeyboardEvent|null} evt - the Escape keydown (null: no idempotence key)
+* @returns {boolean} true when step 4 ran (the ladder deactivated/blurred)
+*/
+const escape_handled = new WeakSet()
+export const run_escape_ladder = (evt=null) => {
+
+	// once per event
+		if (evt) {
+			if (escape_handled.has(evt)) {
+				return false
+			}
+			escape_handled.add(evt)
+		}
+
+	// 1. modal is open (dd-modal has its own ESC event to close the modal)
+		if (window.modal) {
+			return false
+		}
+
+	// 2. CSS fullscreen is active (ui.enter_fullscreen exits on keyup)
+		if (document.querySelector('.fullscreen')) {
+			return false
+		}
+
+	const component_active = page_globals.component_active
+
+	// 3. the active component owns Escape right now (live check, never cached)
+		if (typeof component_active?.owns_escape==='function' && component_active.owns_escape()===true) {
+			return false
+		}
+
+	// 4. deactivate the user activated component
+	// (this saves pending changed_data and publishes 'deactivate_component')
+		if (component_active) {
+			ui.component.deactivate(component_active)
+		}
+
+	// blur active input
+		document.activeElement?.blur()
+
+	return true
+}//end run_escape_ladder
+
+
+
+/**
 * DATAFRAME
 * get_dataframe, delete_dataframe, and attach_item_dataframe were extracted to
 * dataframe.js to centralise the dataframe pairing contract in a single authority
