@@ -106,6 +106,11 @@ const H8 = 'zztrm110';
 const H8_NAME = 'zztrm111';
 const H8_JSON = 'zztrm112';
 const H8_GEO = 'zztrm113';
+// H9 — term = [input, component_password] (T11, owner C37 2026-11-13: a model
+// with NO flatValue facet is an UNCOVERED term part → engine.uncovered_scope)
+const H9 = 'zztrm120';
+const H9_NAME = 'zztrm121';
+const H9_FACETLESS = 'zztrm122';
 const H8_JSON_ITEMS = [{ id: 1, lang: 'lg-nolan', value: { k: 'v' } }];
 const H8_GEO_ITEMS = [
 	{
@@ -245,6 +250,7 @@ function records() {
 				geo: { [H8_GEO]: H8_GEO_ITEMS },
 			},
 		},
+		{ section_tipo: H9, section_id: 1, columns: { string: { [H9_NAME]: text('Covered') } } },
 	];
 }
 
@@ -322,6 +328,11 @@ const S = situation({
 		{ tipo: H8_JSON, parent: H8, model: 'component_json', term: term('zz trm json') },
 		{ tipo: H8_GEO, parent: H8, model: 'component_geolocation', term: term('zz trm geo') },
 		sectionMap('zztrm119', H8, [H8_NAME, H8_JSON, H8_GEO]),
+
+		section(H9),
+		input(H9_NAME, H9),
+		{ tipo: H9_FACETLESS, parent: H9, model: 'component_password', term: term('zz trm pw') },
+		sectionMap('zztrm129', H9, [H9_NAME, H9_FACETLESS]),
 	],
 	records: records(),
 });
@@ -486,6 +497,45 @@ describe.if(DB_READY)('T1-32 — term parts drawn from non-literal components', 
 				);
 				clearTermCache();
 			}
+		});
+	});
+
+	describe('T11 — a term part whose model has NO flatValue facet THROWS (owner C37 2026-11-13)', () => {
+		// T1-32 O1 ruled (a): AGENTS.md "uncovered paths throw loudly". Before,
+		// the facet-less part kept the pre-T1-32 literal read (usually '') and the
+		// label silently lost a part. component_password is a canonical model
+		// without the facet (no shipped section_map names one — local configs only).
+		const uncovered = async (read: () => Promise<unknown>) => {
+			try {
+				await read();
+			} catch (error) {
+				return error as { code?: string; message?: string };
+			}
+			throw new Error('the uncovered term resolved instead of throwing');
+		};
+
+		test('getTermByLocator: engine.uncovered_scope naming section / tipo / model', async () => {
+			const error = await uncovered(() => termOf(H9, 1));
+			expect(error.code).toBe('engine.uncovered_scope');
+			expect(error.message).toContain(`${H9}/${H9_FACETLESS}`);
+			expect(error.message).toContain('component_password');
+		});
+
+		test('getDdoValueByLocator (the M badge reader) over the facet-less tipo throws too', async () => {
+			const error = await uncovered(() =>
+				runWithRequestLangs({ applicationLang: LANG, dataLang: LANG }, () =>
+					getDdoValueByLocator({ section_tipo: H9, section_id: 1 }, [H9_FACETLESS]),
+				),
+			);
+			expect(error.code).toBe('engine.uncovered_scope');
+		});
+
+		test('control: the same record read through its covered literal part alone resolves', async () => {
+			expect(
+				await runWithRequestLangs({ applicationLang: LANG, dataLang: LANG }, () =>
+					getDdoValueByLocator({ section_tipo: H9, section_id: 1 }, [H9_NAME]),
+				),
+			).toBe('Covered');
 		});
 	});
 

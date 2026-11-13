@@ -44,6 +44,7 @@ import { config } from '../../config/config.ts';
 import { getFlatValueFamily } from '../components/registry.ts';
 import { readMatrixRecord } from '../db/matrix.ts';
 import { sql } from '../db/postgres.ts';
+import { DedaloError } from '../errors/dedalo_error.ts';
 import { createDataCache } from '../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
 import {
@@ -278,14 +279,23 @@ const RECORD_LOCAL_FAMILIES: ReadonlySet<string> = new Set(['string', 'section_i
 /**
  * The tipo's flat-value family when it is NOT read as literal items: a declared
  * family other than 'string'. Null = the literal path (a string-family model,
- * an unknown tipo, or a model with no flatValue facet — the last pending owner
- * decision T1-32 O1, so it keeps its pre-T1-32 literal read).
+ * or an unknown tipo). A model with NO flatValue facet THROWS
+ * `engine.uncovered_scope` naming section / tipo / model (owner C37
+ * 2026-11-13, T1-32 O1 ruled (a); AGENTS.md: an uncovered path throws loudly —
+ * a term part that silently rendered '' hid a configuration defect in every
+ * label built from it; WC-2026-11-13-section-map-term-uncovered-throws).
  */
-async function modelFlatFamily(tipo: string): Promise<string | null> {
+async function modelFlatFamily(sectionTipo: string, tipo: string): Promise<string | null> {
 	const model = await getModelByTipo(tipo);
 	if (model === null) return null;
 	const family = getFlatValueFamily(model);
-	return family === undefined || family === 'string' ? null : family;
+	if (family === undefined) {
+		throw new DedaloError('engine.uncovered_scope', {
+			message: `term resolver: section_map term ${sectionTipo}/${tipo} (${model}) has no flatValue facet — the model is not readable as a term part`,
+			coordinates: { section_tipo: sectionTipo, tipo },
+		});
+	}
+	return family === 'string' ? null : family;
 }
 
 /**
@@ -296,9 +306,9 @@ async function modelFlatFamily(tipo: string): Promise<string | null> {
  * its children by the REQUEST principal (implicit.ts filterAuthorizedRelated)
  * — one user's narrowed label must never be served to another (DEC-13).
  */
-async function termCrossesRecords(tipos: readonly string[]): Promise<boolean> {
+async function termCrossesRecords(sectionTipo: string, tipos: readonly string[]): Promise<boolean> {
 	for (const tipo of tipos) {
-		const family = await modelFlatFamily(tipo);
+		const family = await modelFlatFamily(sectionTipo, tipo);
 		if (family !== null && !RECORD_LOCAL_FAMILIES.has(family)) return true;
 	}
 	return false;
@@ -322,21 +332,26 @@ async function modelFlatFragment(
 	// relation_list → relations/datalist → term_resolver is a static edge, and a
 	// relation term legitimately recurses term(X) → relation value → term(target).
 	const { resolveCellValue } = await import('../resolve/relation_list.ts');
-	// The reader's `unresolved` notes (a nested model with no family, a
-	// relation_cycle cut) are not surfaced here: how a term reports them is the
-	// pending owner decision T1-32 O1 (throw vs '' + log).
 	const unresolved: string[] = [];
-	return (
-		(await resolveCellValue(
-			sectionTipo,
-			sectionId,
-			tipo,
-			lang,
-			unresolved,
-			undefined,
-			cellOptsOf(opts),
-		)) ?? ''
+	const value = await resolveCellValue(
+		sectionTipo,
+		sectionId,
+		tipo,
+		lang,
+		unresolved,
+		undefined,
+		cellOptsOf(opts),
 	);
+	// The reader's `unresolved` notes (a nested model with no family, a cell the
+	// reader could not resolve) are a GAP in the term, never a silent '' (owner
+	// C37 2026-11-13, T1-32 O1 ruled (a); WC-2026-11-13-section-map-term-uncovered-throws).
+	if (unresolved.length > 0) {
+		throw new DedaloError('engine.uncovered_scope', {
+			message: `term resolver: section_map term ${sectionTipo}/${tipo} could not be resolved — unresolved: ${unresolved.join(', ')}`,
+			coordinates: { section_tipo: sectionTipo, tipo },
+		});
+	}
+	return value ?? '';
 }
 
 /** The value of one term component in `lang` with main-lang fallback. */
@@ -347,7 +362,7 @@ async function termComponentValue(
 	lang: string,
 	opts: TermReadOptions,
 ): Promise<string> {
-	if ((await modelFlatFamily(tipo)) !== null) {
+	if ((await modelFlatFamily(sectionTipo, tipo)) !== null) {
 		return modelFlatFragment(sectionTipo, sectionId, tipo, lang, opts);
 	}
 	const items = await readComponentItems(sectionTipo, sectionId, tipo);
@@ -417,7 +432,7 @@ export async function getTermByLocator(
 	const cacheUid = `${sectionTipo}_${sectionId}_${scopeKey}_${lang}`;
 	const termTipos = await getTermTipos(sectionTipo, scope);
 	// A term crossing into other records never touches the cache (T1-32).
-	const cacheable = !(await termCrossesRecords(termTipos));
+	const cacheable = !(await termCrossesRecords(sectionTipo, termTipos));
 	if (cacheable && fromCache && termByLocatorCache.has(cacheUid)) {
 		return termByLocatorCache.get(cacheUid) ?? null;
 	}
@@ -523,7 +538,7 @@ export async function getDdoValueByLocator(
 	if (tipos.length === 0) return '';
 
 	const cacheUid = `${sectionTipo}_${sectionId}_ddo:${tipos.join('+')}_${lang}`;
-	const cacheable = !(await termCrossesRecords(tipos));
+	const cacheable = !(await termCrossesRecords(sectionTipo, tipos));
 	const cached = cacheable ? termByLocatorCache.get(cacheUid) : undefined;
 	if (cached !== undefined) return cached ?? '';
 
@@ -547,7 +562,7 @@ async function ddoComponentValue(
 	lang: string,
 	opts: TermReadOptions,
 ): Promise<string> {
-	if ((await modelFlatFamily(tipo)) !== null) {
+	if ((await modelFlatFamily(sectionTipo, tipo)) !== null) {
 		return modelFlatFragment(sectionTipo, sectionId, tipo, lang, opts);
 	}
 	const items = await readComponentItems(sectionTipo, sectionId, tipo);
