@@ -150,6 +150,15 @@ const NO_IMPORT_CONFORM: ReadonlySet<string> = new Set(['component_external']);
  * → check_box → true), so ONLY canonical models declare the facet. Every model
  * NOT listed here is sortable by omission (component_common base = true). Cleared
  * only if PHP flips a model's get_sortable. Pins buildCore's resolveSortable.
+ *
+ * PLUS the engine's own non-sortable set (owner C39 2026-11-13,
+ * WC-2026-11-13-sort-non-scalar-refused — a DELIBERATE divergence from PHP's
+ * get_sortable, which answered true and then sorted these by NULL): models with
+ * no `.value` scalar (component_iri frames, component_filter_records' ACL
+ * document) and the one SECRET (component_password — its row order would be a
+ * comparison oracle). An order by any `sortable: false` model is REFUSED by the
+ * search assembler (search.invalid_sqo), so the list affordance and the write
+ * of the sqo are one answer.
  */
 const PHP_NON_SORTABLE_CANONICAL = [
 	'component_3d',
@@ -162,6 +171,15 @@ const PHP_NON_SORTABLE_CANONICAL = [
 	'component_relation_index',
 	'component_security_access',
 	'component_svg',
+].sort();
+const C39_NON_SORTABLE_CANONICAL = [
+	'component_filter_records',
+	'component_iri',
+	'component_password',
+].sort();
+const NON_SORTABLE_CANONICAL = [
+	...PHP_NON_SORTABLE_CANONICAL,
+	...C39_NON_SORTABLE_CANONICAL,
 ].sort();
 
 /** PHP component_common::$components_using_value_property — the oracle pin. */
@@ -714,12 +732,12 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 		expect([...COMPONENTS_WITH_RELATIONS].sort()).toEqual(PHP_COMPONENTS_WITH_RELATIONS);
 	});
 
-	test('descriptor sortable:false set equals the PHP get_sortable() oracle', () => {
+	test('descriptor sortable:false set equals the PHP get_sortable() oracle + the C39 non-scalar/secret set', () => {
 		const declaredFalse = descriptors
 			.filter((d) => d.sortable === false)
 			.map((d) => d.model)
 			.sort();
-		expect(declaredFalse).toEqual(PHP_NON_SORTABLE_CANONICAL);
+		expect(declaredFalse).toEqual(NON_SORTABLE_CANONICAL);
 	});
 
 	test('no descriptor declares sortable:true (omitted = true is the base)', () => {

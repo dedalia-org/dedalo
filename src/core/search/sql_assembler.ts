@@ -30,7 +30,7 @@
 
 import { config } from '../../config/config.ts';
 import { readString } from '../../config/readers.ts';
-import { isLangSlicedModel } from '../components/registry.ts';
+import { getComponentModel, isLangSlicedModel } from '../components/registry.ts';
 import type { Sqo } from '../concepts/sqo.ts';
 import { getSectionTipos } from '../concepts/sqo.ts';
 import { assertMatrixTable, isMatrixTable } from '../db/matrix.ts';
@@ -209,6 +209,12 @@ function pushDirectColumnOrder(
  * v6 `datos#>>'{path}'`). A lang predicate there matched no item: the key was
  * NULL on every row and the sort collapsed to the section_id tiebreaker.
  * `model` is the alias TARGET's (getModelByTipo hops component_alias).
+ *
+ * component_number sorts NUMERICALLY (owner C38 2026-11-13,
+ * WC-2026-11-13-number-sort-numeric): PHP / v6 extracted the key as TEXT
+ * (`#>> '{}'`), so 10 < 2 < 9 — a heritage measurement collated lexically is
+ * wrong results. The `jsonb_typeof = 'number'` guard keeps a legacy string
+ * item from failing the cast (it sorts as NULL, last).
  */
 async function orderSelectExpression(input: {
 	componentTipo: string;
@@ -228,12 +234,35 @@ async function orderSelectExpression(input: {
 	if (column === 'section_id') {
 		return `${orderAlias}.section_id AS ${sortAlias}`;
 	}
+	if (model === 'component_number') {
+		const key = `jsonb_path_query_first(${source}, '$[*].value')`;
+		return `(CASE WHEN jsonb_typeof(${key}) = 'number' THEN (${key} #>> '{}')::numeric END) AS ${sortAlias}`;
+	}
 	if (!isLangSlicedModel(model)) {
 		return `(jsonb_path_query_first(${source}, '$[*].value') #>> '{}') AS ${sortAlias}`;
 	}
 	const translatable = await getTranslatableByTipo(input.componentTipo);
 	const lang = langRaw ?? (translatable ? DEFAULT_DATA_LANG : 'lg-nolan');
 	return `(jsonb_path_query_first(${source}, '$[*] ? (@.lang == $lang).value', '{"lang":"${lang}"}') #>> '{}') AS ${sortAlias}`;
+}
+
+/**
+ * REFUSE an order by a model whose descriptor says `sortable: false` (owner C39
+ * 2026-11-13, WC-2026-11-13-sort-non-scalar-refused). Those models hold no
+ * `.value` scalar to sort on (iri `{iri,title}` frames, geolocation, media
+ * files_info, info widgets, the ACL maps) — PHP sorted them by NULL, a silent
+ * no-op — or hold a SECRET (component_password: the relative order of rows IS
+ * a comparison oracle over the stored hashes). The list header offers no sort
+ * on these columns (structure_context `sortable`), so the affordance and this
+ * gate are one answer; an API/MCP sqo naming one is refused, never ignored.
+ */
+function assertSortableModel(model: string, componentTipo: string): void {
+	if (getComponentModel(model)?.sortable !== false) return;
+	throw new DedaloError('search.invalid_sqo', {
+		message: `search assembler: order by '${componentTipo}' refused — ${model} is not sortable (no scalar sort key, or a secret value)`,
+		publicMessage: 'This field cannot be used to sort the results',
+		coordinates: { tipo: componentTipo },
+	});
 }
 
 /** Per-order-clause resolution: direct columns or single-step component sort. */
@@ -407,6 +436,7 @@ async function buildOrderClauses(
 				coordinates: { tipo: componentTipo },
 			});
 		}
+		assertSortableModel(model, componentTipo);
 		const langRaw = (orderEntry as { lang?: string }).lang;
 		if (langRaw !== undefined) assertValidLang(langRaw, 'order lang');
 		// component_alias (WC-020): the sort value lives under the TARGET's key

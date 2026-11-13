@@ -20,4 +20,7 @@ export const component_filter_records: ComponentModel = {
 	importValueProperty: true,
 	emitHook: 'filter_records',
 	flatValue: 'json', // export / panel cell = each stored item as JSON (owner C44 2026-11-13)
+	// The row-ACL document has no scalar sort key (owner C39 2026-11-13,
+	// WC-2026-11-13-sort-non-scalar-refused) — like component_security_access.
+	sortable: false,
 };

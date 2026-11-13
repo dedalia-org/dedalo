@@ -16,11 +16,15 @@
  * ENGINE writer (createSectionRecord + saveComponentData), so the stored shape
  * is the real lang-less one — a raw INSERT with `lang:'lg-nolan'` would hide
  * the defect. The value cases use numbers whose text and numeric collation
- * agree; the COLLATION case (c9/c10/c2) pins the CURRENT collation on purpose:
- * the sort key is extracted as TEXT (`#>> '{}'`, no numeric cast), so 9, 10, 2
- * ASC → 10, 2, 9. Numeric collation for component_number is an OPEN owner
- * decision (RC closure plan §7.1); when it is ruled, this case changes with
- * the engine and the changelog — never silently.
+ * agree; the COLLATION case (c9/c10/c2) pins the ruling: component_number
+ * sorts NUMERICALLY (owner C38 2026-11-13, WC-2026-11-13-number-sort-numeric —
+ * PHP / v6 extracted the key as text, 10 < 2 < 9), so 9, 10, 2 ASC → 2, 9, 10.
+ *
+ * UNSORTABLE MODELS are REFUSED (owner C39 2026-11-13,
+ * WC-2026-11-13-sort-non-scalar-refused): a descriptor `sortable: false` —
+ * component_password (a secret: the row order would be a comparison oracle over
+ * the hashes), component_iri (no `.value` scalar; PHP sorted it by NULL) — in
+ * an order path answers `search.invalid_sqo`, never a silent NULL sort.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -44,6 +48,8 @@ const NUMBER = `${TLD}2`; // component_number — lang-less
 const JSON_TIPO = `${TLD}3`; // component_json — lang-less
 const TEXT = `${TLD}4`; // component_input_text, translatable — lang-sliced
 const PORTAL = `${TLD}5`; // component_portal → SECTION (multi-hop path)
+const PASSWORD = `${TLD}6`; // component_password — a SECRET, never a sort key (C39)
+const IRI = `${TLD}7`; // component_iri — {iri, title} frames, no .value scalar (C39)
 const LANG = 'lg-eng';
 
 const SITUATION = situation({
@@ -53,6 +59,8 @@ const SITUATION = situation({
 		{ tipo: SECTION, parent: 'test1', model: 'section', term: { 'lg-eng': 'Order host' } },
 		{ tipo: NUMBER, parent: SECTION, model: 'component_number', term: { 'lg-eng': 'Number' } },
 		{ tipo: JSON_TIPO, parent: SECTION, model: 'component_json', term: { 'lg-eng': 'Json' } },
+		{ tipo: PASSWORD, parent: SECTION, model: 'component_password', term: { 'lg-eng': 'Pw' } },
+		{ tipo: IRI, parent: SECTION, model: 'component_iri', term: { 'lg-eng': 'Iri' } },
 		{
 			tipo: TEXT,
 			parent: SECTION,
@@ -198,12 +206,67 @@ describe('ORDER BY a lang-less component sorts by its value', () => {
 		]);
 	});
 
-	test('collation: number sorts as TEXT today (9, 10, 2 ASC → 10, 2, 9) — numeric is an open owner decision', async () => {
-		// Pins the shipped collation so the changelog and the engine say the same
-		// thing. Numeric order would be [c2, c9, c10]; section_id order [c9, c10, c2].
+	test('collation: component_number sorts NUMERICALLY — 9, 10, 2 ASC → 2, 9, 10 (C38)', async () => {
+		// Text collation (PHP / v6, and TS before C38) gave [c10, c2, c9]; the
+		// section_id tiebreaker alone would give [c9, c10, c2].
 		expect(
 			await ordered([ids.c9, ids.c10, ids.c2], [{ direction: 'ASC', path: [step(NUMBER)] }]),
-		).toEqual([ids.c10, ids.c2, ids.c9]);
+		).toEqual([ids.c2, ids.c9, ids.c10]);
+		expect(
+			await ordered([ids.c9, ids.c10, ids.c2], [{ direction: 'DESC', path: [step(NUMBER)] }]),
+		).toEqual([ids.c10, ids.c9, ids.c2]);
+	});
+
+	test('SQL shape: the number sort key is a guarded numeric cast (a legacy string item sorts NULL, never 500s)', async () => {
+		const built = await buildSearchSql({
+			section_tipo: [SECTION],
+			order: [{ direction: 'ASC', path: [step(NUMBER)] }],
+			limit: 10,
+		} as never);
+		expect(built.sql).toContain(`jsonb_typeof(jsonb_path_query_first(`);
+		expect(built.sql).toMatch(
+			/= 'number' THEN \(jsonb_path_query_first\([^)]*\) #>> '\{\}'\)::numeric END\)/,
+		);
+	});
+
+	describe('C39 — an order by an unsortable model is REFUSED (search.invalid_sqo)', () => {
+		const refusal = async (tipo: string) => {
+			try {
+				await buildSearchStatement({
+					section_tipo: [SECTION],
+					order: [{ direction: 'ASC', path: [step(tipo)] }],
+					limit: 10,
+					offset: 0,
+				} as never);
+			} catch (error) {
+				return error as { code?: string; message?: string };
+			}
+			throw new Error(`order by ${tipo} was accepted`);
+		};
+
+		test('component_password: the ordering oracle over stored hashes is closed', async () => {
+			const error = await refusal(PASSWORD);
+			expect(error.code).toBe('search.invalid_sqo');
+			expect(error.message).toContain(PASSWORD);
+			expect(error.message).toContain('component_password');
+		});
+
+		test('component_iri: no .value scalar — refused, not a silent NULL sort', async () => {
+			const error = await refusal(IRI);
+			expect(error.code).toBe('search.invalid_sqo');
+			expect(error.message).toContain('component_iri');
+		});
+
+		test('control: the sortable models are untouched (number, json, input_text build)', async () => {
+			for (const tipo of [NUMBER, JSON_TIPO, TEXT]) {
+				const built = await buildSearchSql({
+					section_tipo: [SECTION],
+					order: [{ direction: 'ASC', path: [step(tipo)] }],
+					limit: 10,
+				} as never);
+				expect(built.sql).toContain(`${tipo}_order ASC`);
+			}
+		});
 	});
 
 	test('json ASC → by value', async () => {
