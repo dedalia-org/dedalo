@@ -280,6 +280,7 @@ describe('classifyObserverServerShape — PHP update_observer_data switch, close
 			classifyObserverServerShape(sde({ use_observable_dato: true, use_self_section: true })),
 		).toEqual({
 			resolver: 'self_and_observable',
+			perform: 'set_dato_external',
 		});
 	});
 
@@ -292,24 +293,34 @@ describe('classifyObserverServerShape — PHP update_observer_data switch, close
 		expect(entry?.server.filter).toBeDefined();
 		expect(classifyObserverServerShape(entry?.server as ObserveServerBlock)).toEqual({
 			resolver: 'observable',
+			perform: 'set_dato_external',
 		});
 	});
 
 	test('use_inverse_relations:true → inverse (testcoincatalog1019 ← test6105)', () => {
 		expect(classifyObserverServerShape(sde({ use_inverse_relations: true }))).toEqual({
 			resolver: 'inverse',
+			perform: 'set_dato_external',
 		});
 		expect(classifyObserverServerShape(sde({ use_inverse_relations: true }, sqo))).toEqual({
 			resolver: 'inverse',
+			perform: 'set_dato_external',
 		});
 	});
 
 	test('no config (S7) and use_observable_dato without use_self_section fall through to self', () => {
-		expect(classifyObserverServerShape(sde())).toEqual({ resolver: 'self' });
+		expect(classifyObserverServerShape(sde())).toEqual({
+			resolver: 'self',
+			perform: 'set_dato_external',
+		});
 		expect(classifyObserverServerShape(sde({ use_observable_dato: true }))).toEqual({
 			resolver: 'self',
+			perform: 'set_dato_external',
 		});
-		expect(classifyObserverServerShape(sde(null))).toEqual({ resolver: 'self' });
+		expect(classifyObserverServerShape(sde(null))).toEqual({
+			resolver: 'self',
+			perform: 'set_dato_external',
+		});
 	});
 
 	test('PHP case order: an observable config wins over use_inverse_relations', () => {
@@ -317,7 +328,7 @@ describe('classifyObserverServerShape — PHP update_observer_data switch, close
 			classifyObserverServerShape(
 				sde({ use_observable_dato: true, use_self_section: false, use_inverse_relations: true }),
 			),
-		).toEqual({ resolver: 'observable' });
+		).toEqual({ resolver: 'observable', perform: 'set_dato_external' });
 	});
 
 	test('an SQO filter next to an ADDING resolver is refused; filter:false is not a filter', () => {
@@ -328,15 +339,30 @@ describe('classifyObserverServerShape — PHP update_observer_data switch, close
 		expect(
 			classifyObserverServerShape(sde({ use_observable_dato: true, use_self_section: true }, sqo)),
 		).toMatchObject({ refused: true, reason: 'filter_not_covered' });
-		expect(classifyObserverServerShape(sde(undefined, false))).toEqual({ resolver: 'self' });
+		expect(classifyObserverServerShape(sde(undefined, false))).toEqual({
+			resolver: 'self',
+			perform: 'set_dato_external',
+		});
 	});
 
-	test('S10 refresh_data is a NAMED exemption with a reason; any other perform is not covered', () => {
-		expect(Object.keys(SERVER_SHAPE_EXEMPTIONS)).toEqual(['refresh_data']);
-		expect(classifyObserverServerShape({ perform: { function: 'refresh_data' } })).toMatchObject({
-			refused: true,
-			reason: 'named_exemption',
-			exemption: 'refresh_data',
+	test('S10 refresh_data is a dispatchable perform (WC-2026-11-13-observer-refresh-data); the exemption table is EMPTY; any other perform is not covered', () => {
+		// The named-skip mechanism stays, with nothing in it: refresh_data was the
+		// one entry and is ported (refresh_data.ts).
+		expect(Object.keys(SERVER_SHAPE_EXEMPTIONS)).toEqual([]);
+		// rsc1214's shape, field for field: the self_and_observable targets, the
+		// refresh_data perform.
+		expect(
+			classifyObserverServerShape({
+				config: { use_self_section: true, use_observable_dato: true },
+				perform: {
+					function: 'refresh_data',
+					params: { actions: [{ condition: 'on_empty', action: 'empty_data' }] },
+				},
+			}),
+		).toEqual({ resolver: 'self_and_observable', perform: 'refresh_data' });
+		expect(classifyObserverServerShape({ perform: { function: 'refresh_data' } })).toEqual({
+			resolver: 'self',
+			perform: 'refresh_data',
 		});
 		for (const perform of [{ function: 'get_dato' }, {}, null, undefined]) {
 			expect(classifyObserverServerShape({ perform } as ObserveServerBlock)).toMatchObject({

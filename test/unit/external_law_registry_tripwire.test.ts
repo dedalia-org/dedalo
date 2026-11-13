@@ -29,11 +29,13 @@
  *      law kind; the release directory exists and is the one the seed
  *      compiles (install/import/ontology/<major.minor>).
  *   B. SHAPES: every `observe[].server` entry that names a `perform` maps to a
- *      resolver (self_and_observable / observable / inverse / self) — the
- *      relay family (no perform) is the dispatch's own branch and out of
- *      scope. A refused shape is red unless it is a named exemption of the
- *      engine (SERVER_SHAPE_EXEMPTIONS) AND named here, node by node, with its
- *      reason (rsc1214 `refresh_data`). The two lists move in lockstep.
+ *      resolver (self_and_observable / observable / inverse / self) and a
+ *      perform of the closed set (set_dato_external / refresh_data — the
+ *      latter rsc1214 ← rsc1156, ported 2026-11-13) — the relay family (no
+ *      perform) is the dispatch's own branch and out of scope. A refused
+ *      shape is red unless it is a named exemption of the engine
+ *      (SERVER_SHAPE_EXEMPTIONS) AND named here, node by node, with its
+ *      reason. The two lists move in lockstep (both EMPTY today).
  *   C. LAWS: every node carrying a set_dato_external server entry classifies
  *      as a STORED law, and is then COVERED (isCoveredExternalObserverNode —
  *      the predicate the wipe, the duplicate and the restore read). A

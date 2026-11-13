@@ -141,7 +141,13 @@ export interface WriteReceipt {
 /** One queued write: what to propagate, for whom, as whom. */
 interface LedgerEntry {
 	target: RecordWriteTarget;
-	changes: { tipo: string; saved: unknown[]; removed: unknown[] }[];
+	/**
+	 * One per observed key: the value after, the locators removed (the ONE
+	 * removed-set rule) and the before-image itself — the `refresh_data`
+	 * perform's change trigger reads it (observers.ts / refresh_data.ts
+	 * observedValueChanged: an unchanged re-save must not clear).
+	 */
+	changes: { tipo: string; saved: unknown[]; removed: unknown[]; before: unknown[] }[];
 	selfRecompute: string[];
 	/** A verbatim birth: its record's covered-slot recomputes leave its stamps alone. */
 	verbatim: boolean;
@@ -296,6 +302,7 @@ async function observedKeyChanges(observed: LedgerObserved): Promise<LedgerEntry
 			tipo: change.tipo,
 			saved: [...change.after],
 			removed: removedLocators(change.before, change.after),
+			before: [...change.before],
 		});
 	}
 	return changes;
@@ -461,7 +468,7 @@ async function drainEntry(entry: LedgerEntry, guard: CascadeGuard): Promise<void
 				change.tipo,
 				sectionTipo,
 				sectionId,
-				{ saved: change.saved, removed: change.removed },
+				{ saved: change.saved, removed: change.removed, before: change.before },
 				entry.actor,
 				entry.now,
 				guard,

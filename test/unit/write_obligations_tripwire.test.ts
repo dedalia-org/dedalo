@@ -135,6 +135,8 @@ const U = {
 	recomputeMirrorAndHop: `${OBSERVERS}#recomputeMirrorAndHop`,
 	resaveObserverThroughSaveRules: `${OBSERVERS}#resaveObserverThroughSaveRules`,
 	resaveIsolated: `${OBSERVERS}#resaveIsolated`,
+	applyRefreshDataClear: `${OBSERVERS}#applyRefreshDataClear`,
+	dispatchRefreshData: `${OBSERVERS}#dispatchRefreshData`,
 	refreshExternalMirror: `${OBSERVERS}#refreshExternalMirror`,
 	maybeRefreshExternal: `${EXTERNAL_REFRESH}#maybeRefreshExternal`,
 	runExternalRefresh: `${EXTERNAL_REFRESH}#runExternalRefresh`,
@@ -588,8 +590,18 @@ const EXCLUSIVE: readonly { target: string; allowed: readonly string[]; why: str
 	},
 	{
 		target: U.persistObserverResaveKeys,
-		allowed: [U.resaveObserverThroughSaveRules],
-		why: 'the SECOND cascade-owned entry (portal order model — WC-2026-08-02-observer-relay-writes-nothing addendum): the default branch re-writes an observer its own save rules change, WITHOUT a ledger entry (the relay hops it itself); only the re-save may skip the ledger this way.',
+		allowed: [U.resaveObserverThroughSaveRules, U.applyRefreshDataClear],
+		why: 'the SECOND cascade-owned entry (portal order model — WC-2026-08-02-observer-relay-writes-nothing addendum): an observer re-written by its OWN edge, WITHOUT a ledger entry (the dispatch hops it itself) — the default branch re-saving an observer its own save rules change, and the refresh_data perform clearing the observer on its host (WC-2026-11-13-observer-refresh-data); only those two may skip the ledger this way.',
+	},
+	{
+		target: U.applyRefreshDataClear,
+		allowed: [U.dispatchRefreshData],
+		why: "the refresh_data clear is the dispatch loop's refresh_data branch, per resolved target, behind the closed grammar and the change trigger (dispatchRefreshData) — a door clearing an observer itself would write cascade-owned (ledger-less) outside the guard's dedup, the host precondition and the bounded cascade.",
+	},
+	{
+		target: U.dispatchRefreshData,
+		allowed: [U.propagateToObservers],
+		why: 'the refresh_data branch is the dispatch loop’s alone (grammar → trigger → targets → clear → hop) — any other caller is a second door into the ledger-less clear.',
 	},
 	{
 		target: U.resaveObserverThroughSaveRules,

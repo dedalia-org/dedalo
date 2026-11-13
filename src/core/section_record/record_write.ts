@@ -347,8 +347,12 @@ export async function persistObserverMirrorKeys(
  * The save law applies like any key write (the rules run again inside
  * writeKeys: idempotent over a value they produced); NO ledger entry: the
  * relay's own emitCascadeHop re-enters propagation for the observer, and a
- * ledger entry would dispatch it a second time. Only the re-save may take it
- * (write_obligations_tripwire leg B4 — the twin of the mirror row above).
+ * ledger entry would dispatch it a second time. Its SECOND caller (2026-11-13,
+ * WC-2026-11-13-observer-refresh-data) is the `refresh_data` perform's clear
+ * (observers.ts applyRefreshDataClear): the same shape — an observer
+ * re-written by its OWN edge, the dispatch hopping it itself. Only those two
+ * may take it (write_obligations_tripwire leg B4 — the twin of the mirror row
+ * above).
  */
 export async function persistObserverResaveKeys(
 	target: RecordWriteTarget,
