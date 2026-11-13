@@ -6,13 +6,13 @@
  * result: a lone 'id 5...' filter returned every record of the section, and
  * inside an `$and` (or a deep path) the constraint silently vanished.
  *
- * What is asserted is the part every reading of an open range agrees on: the
- * bound the user TYPED is always enforced. What the ABSENT bound adds (PHP:
- * empty low → 0, empty high → low, so '5...' = exactly 5; or an open
- * half-range with no second predicate) is owner decision D1 of the T1-35 plan,
- * NOT ruled — so the row assertions below are containment/exclusion only,
- * never an exact row list, and '...' with no digits on either side is not
- * asserted at all.
+ * THE RULING (owner C41, T1-35 D1 ruled (b) 2026-11-13): an open range is an
+ * OPEN HALF-RANGE — the typed bound is enforced and the absent side adds NO
+ * predicate: '...5' = id ≤ 5 (negative ids included), '5...' = id ≥ 5, and
+ * '...' with no digits on either side is an EMPTY INPUT (classifier 'none',
+ * no clause). PHP substituted empty low → 0 and empty high → low ('5...' =
+ * exactly 5, '...' = nothing) — WC-2026-11-12-section-id-open-between +
+ * addendum. The row assertions are EXACT lists.
  *
  * The rows are Postgres's answer (the SQL is executed against an inline
  * VALUES table), not the spelling. Read-only; nothing is written.
@@ -51,7 +51,9 @@ function render(result: BuilderResult, collector: ParamsCollector): string {
 	throw new Error(`unexpected builder result ${JSON.stringify(result)}`);
 }
 
-const ROW_IDS = [0, 3, 5, 7, 12];
+// -1: a negative id — PHP's `>= 0` substitute for an absent low excluded it;
+// the open half-range includes it.
+const ROW_IDS = [-1, 0, 3, 5, 7, 12];
 
 /** EXECUTE the leaf against an inline id table: Postgres decides which ids match. */
 async function matchingIds(q: unknown, qOperator: string | null = null): Promise<number[]> {
@@ -88,21 +90,25 @@ describe('an open-ended section_id between keeps the bound that was typed (T1-35
 		expect(collector.toArray()).toContain('5');
 	});
 
-	test("'...5' on real rows: 0, 3, 5 match; 7 and 12 do not", async () => {
-		const ids = await matchingIds('...5');
-		expect(ids).toEqual(expect.arrayContaining([0, 3, 5]));
-		expect(ids).not.toContain(7);
-		expect(ids).not.toContain(12);
+	test("'...5' on real rows = id ≤ 5, exactly: -1, 0, 3, 5 (PHP's >= 0 would drop -1)", async () => {
+		expect(await matchingIds('...5')).toEqual([-1, 0, 3, 5]);
 	});
 
-	test("'5...' on real rows: 5 matches; 0 and 3 do not", async () => {
-		const ids = await matchingIds('5...');
-		expect(ids).toContain(5);
-		expect(ids).not.toContain(0);
-		expect(ids).not.toContain(3);
+	test("'5...' on real rows = id ≥ 5, exactly: 5, 7, 12 (PHP meant exactly 5)", async () => {
+		expect(await matchingIds('5...')).toEqual([5, 7, 12]);
 	});
 
-	test("the closed range '1...9' is unchanged: exactly 3, 5, 7", async () => {
+	test("'...' with no digits on either side is an EMPTY input: classifier 'none', no clause", () => {
+		expect(classifySectionId('...', null)).toEqual({ kind: 'pos', op: 'none' });
+		expect(classifySectionId('abc...', null)).toEqual({ kind: 'pos', op: 'none' });
+		expect(classifySectionId('', '...')).toEqual({ kind: 'pos', op: 'none' });
+		expect(buildSectionIdFragment('...', null, ctx)).toBe(false);
+		// control: one digit on either side is still a (half-)range
+		expect(classifySectionId('...5', null).op).toBe('between');
+		expect(classifySectionId('5...', null).op).toBe('between');
+	});
+
+	test("the closed range '1...9' is unchanged: exactly 3, 5, 7 (-1 and 0 outside)", async () => {
 		expect(await matchingIds('1...9')).toEqual([3, 5, 7]);
 	});
 

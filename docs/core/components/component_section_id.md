@@ -218,8 +218,8 @@ Server-side the filter is turned into SQL by `src/core/search/builders/builder_s
 | --- | --- | --- | --- |
 | `123` | equal (default) | id is 123 | `col::integer = _Q1_::integer` |
 | `100...200` | `...` between | id in range | `col::integer >= a::integer AND col::integer <= b::integer` |
-| `100...` | `...` open range | id ≥ 100 (the typed bound only) | `col::integer >= a::integer` |
-| `...200` | `...` open range | id ≤ 200 (the typed bound only) | `col::integer <= b::integer` |
+| `100...` | `...` open half-range | id ≥ 100 | `col::integer >= a::integer` |
+| `...200` | `...` open half-range | id ≤ 200 | `col::integer <= b::integer` |
 | `1,2,3` | `,` sequence | id in list | `col::integer = ANY(_Q1_::integer[])` |
 | `!=123` | `!=` different | id is not 123 | `col::integer != _Q1_::integer` |
 | `>=50` | `>=` | id ≥ 50 | `col::integer >= _Q1_::integer` |
@@ -227,7 +227,7 @@ Server-side the filter is turned into SQL by `src/core/search/builders/builder_s
 | `>50` | `>` | id > 50 | `col::integer > _Q1_::integer` |
 | `<50` | `<` | id < 50 | `col::integer < _Q1_::integer` |
 
-An open range enforces the bound you typed; what the missing side adds is still to be settled, and `...` with no number on either side adds no condition. Non-numeric characters are stripped before binding. A locator passed as `q` is reduced
+An open range is an open half-range: it enforces the bound you typed and the missing side adds no condition (so `100...` is every id from 100 up, `...200` every id up to 200), and `...` with no number on either side is an empty input — no condition at all. Non-numeric characters are stripped before binding. A locator passed as `q` is reduced
 to its `value` (or `section_id`) before resolution.
 
 !!! warning "Both sides of the comparison carry the cast"

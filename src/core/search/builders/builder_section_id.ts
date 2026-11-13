@@ -33,7 +33,10 @@ export type SectionIdOp = 'none' | 'between' | 'sequence' | 'compare' | 'notEqua
  * Polarity: '!=n' NEG(twin '=n') — on a deep path "no related record has id
  * n", TRUE when there is no relation at all (owner decision D2 2026-09-24,
  * WC-2026-09-29-search-deep-leaf-mixed-rule); everything else pos. A '!=' with no digits
- * drops the clause (the builder returns false), so it classifies 'none'.
+ * drops the clause (the builder returns false), so it classifies 'none' — and
+ * so does a '...' with no digits on EITHER side (owner C41 2026-11-13, ruled
+ * (b) open half-range: an empty range is an empty input, not PHP's `>= 0 AND
+ * <= 0`; WC-2026-11-12-section-id-open-between addendum).
  */
 export function classifySectionId(
 	rawQ: unknown,
@@ -41,7 +44,10 @@ export function classifySectionId(
 ): Classified<SectionIdOp> {
 	const effective = `${qOperator ?? ''}${sectionIdQ(rawQ) ?? ''}`;
 	if (effective === '') return { kind: 'pos', op: 'none' };
-	if (effective.includes('...')) return { kind: 'pos', op: 'between' };
+	if (effective.includes('...')) {
+		const { low, high } = parseSectionIdBetween(effective);
+		return { kind: 'pos', op: low === null && high === null ? 'none' : 'between' };
+	}
 	if (effective.includes(',')) return { kind: 'pos', op: 'sequence' };
 	if (effective.startsWith('!=')) {
 		const value = digitsOnly(effective.slice(2));
@@ -67,12 +73,14 @@ export function parseSectionIdBetween(effective: string): {
 
 /**
  * '...' between → $and of two comparisons (mirrors the PHP clone approach).
- * An OPEN range ('5...' / '...5') keeps the bound that was typed (T1-35 /
- * OX5): returning false here dropped the leaf, which WIDENED the result to the
- * whole section. What the absent bound adds (PHP: low → 0, high → low; or no
- * predicate at all) is owner decision D1, not ruled — until then the absent
- * side contributes no predicate. '...' with no digits on either side stays
- * dropped (same D1).
+ * An OPEN range ('5...' / '...5') is an OPEN HALF-RANGE (owner C41, T1-35 D1
+ * ruled (b) 2026-11-13): the typed bound is enforced, the absent side adds NO
+ * predicate — '5...' = id ≥ 5, '...5' = id ≤ 5 (negative ids included). PHP
+ * substituted low → 0 and high → low ('5...' meant exactly 5; recorded in
+ * WC-2026-11-12-section-id-open-between). Returning false here (the pre-T1-35
+ * shape) dropped the leaf and WIDENED the result to the whole section. '...'
+ * with no digits on either side never reaches this branch: the classifier
+ * answers 'none' (an empty input).
  */
 function buildBetween(
 	bounds: { low: string | null; high: string | null },

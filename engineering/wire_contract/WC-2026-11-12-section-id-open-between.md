@@ -28,3 +28,21 @@
   executed rows asserting only what both D1 options share; full pipeline on
   `test3`/`test102`). `test/unit/builder_shallow_snapshot.test.ts` unchanged
   (no open-ended case in its key set).
+
+## Addendum 2026-11-13 — D1 RULED (b): open half-range
+
+- Owner C41 (`T1_owner_decisions.md`, 2026-11-13): **(b) open half-range** —
+  "what a user means". The interim shape above is the final one for the typed
+  bound (`5...` = id ≥ 5, `...5` = id ≤ 5, negative ids included; the absent
+  side adds NO predicate), and `'...'` with no digits on either side (also
+  `abc...`, or the `...` q_operator with an empty q) now classifies `none` in
+  `classifySectionId` — an EMPTY INPUT, no clause — so the builder's between
+  branch never sees it. PHP's `>= 0 AND <= 0` (matches nothing) is not
+  reproduced. A PHP-era preset `5...` returns ids ≥ 5 where v6 returned only 5
+  — stated in the changelog.
+- Gate: `test/unit/search_section_id_open_between_native.test.ts` — the row
+  assertions are EXACT lists over `(-1, 0, 3, 5, 7, 12)`: `...5` → `[-1, 0, 3,
+  5]`, `5...` → `[5, 7, 12]`, `...` → classifier `none` + builder `false`.
+- Neighbour NOT ruled here: `builder_number.ts` open between still coerces an
+  empty bound to `'0'` (`5...` → `>= 5 AND <= 0`, matches nothing) — the T1-35
+  plan §8 asks for one ruling covering both; owner question kept open.
