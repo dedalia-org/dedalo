@@ -448,10 +448,10 @@ describe('no installation tipo is an engine constant', () => {
 		// Positive control: a synthetic package re-exporting a generic name IS reported.
 		const generic = Object.keys(CALCULATION_FUNCTIONS)[0] as string;
 		const synthetic: TldPackage = {
-			tld: 'zz',
+			tld: 'zzeit',
 			calculationModules: { 'calculation/x': { [generic]: () => [] } },
 		};
-		expect(shadowedNames([synthetic])).toEqual([`zz/calculation/x:${generic}`]);
+		expect(shadowedNames([synthetic])).toEqual([`zzeit/calculation/x:${generic}`]);
 	});
 
 	test('LEG 5: every package directory is registered, every registered TLD is a census TLD, every module key is its dispatch file', () => {
