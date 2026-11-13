@@ -1,7 +1,6 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
 /*global it, describe, assert */
 /*eslint no-undef: "error"*/
-'use strict';
 
 /**
  * TEST_WIDGET_CALCULATION
@@ -16,65 +15,82 @@
  * Backend-free: the value is handed in, as the component_info caller does.
  */
 
-import {calculation} from '../../../core/widgets/calculation/js/calculation.js'
-import {event_manager} from '../../../core/common/js/event_manager.js'
+import { event_manager } from '../../../core/common/js/event_manager.js';
+import { calculation } from '../../../core/widgets/calculation/js/calculation.js';
 
-
-
-describe('WIDGET CALCULATION: values render as text', function() {
-
-	const build_widget = async function(id, value) {
-		const widget = new calculation()
+describe('WIDGET CALCULATION: values render as text', () => {
+	const build_widget = async (id, value) => {
+		const widget = new calculation();
 		await widget.init({
-			id			: id,
-			section_tipo	: 'test3',
-			section_id	: 1,
-			lang		: 'lg-eng',
-			mode		: 'edit',
-			value		: value,
-			ipo			: [{ output : [{ id : 'total', label_before : '<i id="t118_label">L</i>' }] }],
-			name		: 'calculation',
-			properties	: null,
-			caller		: null
-		})
-		const content_data = await widget.edit({ render_level : 'content' })
-		return {widget, content_data}
-	}
+			id: id,
+			section_tipo: 'test3',
+			section_id: 1,
+			lang: 'lg-eng',
+			mode: 'edit',
+			value: value,
+			ipo: [{ output: [{ id: 'total', label_before: '<i id="t118_label">L</i>' }] }],
+			name: 'calculation',
+			properties: null,
+			caller: null,
+		});
+		const content_data = await widget.edit({ render_level: 'content' });
+		return { widget, content_data };
+	};
 
-	it('the first render shows the value and label_before literally', async function() {
+	it('the first render shows the value and label_before literally', async () => {
+		const { widget, content_data } = await build_widget('t118_calc_a', [
+			{ widget_id: 'total', key: 0, value: '<img src=x id=t118_calc>' },
+		]);
 
-		const {widget, content_data} = await build_widget('t118_calc_a', [
-			{ widget_id : 'total', key : 0, value : '<img src=x id=t118_calc>' }
-		])
+		assert.equal(
+			content_data.querySelector('#t118_calc'),
+			null,
+			'the value must not become an element',
+		);
+		assert.equal(
+			content_data.querySelector('#t118_label'),
+			null,
+			'label_before must not become an element',
+		);
+		assert.equal(content_data.querySelector('.value').textContent, '<img src=x id=t118_calc>');
+		assert.equal(
+			content_data.querySelector('label.before').textContent,
+			'<i id="t118_label">L</i>',
+		);
 
-		assert.equal(content_data.querySelector('#t118_calc'), null, 'the value must not become an element')
-		assert.equal(content_data.querySelector('#t118_label'), null, 'label_before must not become an element')
-		assert.equal(content_data.querySelector('.value').textContent, '<img src=x id=t118_calc>')
-		assert.equal(content_data.querySelector('label.before').textContent, '<i id="t118_label">L</i>')
+		await widget.destroy(true, true, true);
+	});
 
-		await widget.destroy(true, true, true)
-	})
-
-	it('a live update (update_widget_value) shows the value literally', async function() {
-
-		const {widget, content_data} = await build_widget('t118_calc_b', [
-			{ widget_id : 'total', key : 0, value : 3 }
-		])
-		assert.equal(content_data.querySelector('.value').textContent, '3', 'a number renders as its digits')
+	it('a live update (update_widget_value) shows the value literally', async () => {
+		const { widget, content_data } = await build_widget('t118_calc_b', [
+			{ widget_id: 'total', key: 0, value: 3 },
+		]);
+		assert.equal(
+			content_data.querySelector('.value').textContent,
+			'3',
+			'a number renders as its digits',
+		);
 
 		event_manager.publish('update_widget_value_0_t118_calc_b', [
-			{ widget_id : 'total', key : 0, value : '<img src=x id=t118_calc_upd>' }
-		])
+			{ widget_id: 'total', key: 0, value: '<img src=x id=t118_calc_upd>' },
+		]);
 
-		assert.equal(content_data.querySelector('#t118_calc_upd'), null, 'the updated value must not become an element')
-		assert.equal(content_data.querySelector('.value').textContent, '<img src=x id=t118_calc_upd>')
+		assert.equal(
+			content_data.querySelector('#t118_calc_upd'),
+			null,
+			'the updated value must not become an element',
+		);
+		assert.equal(content_data.querySelector('.value').textContent, '<img src=x id=t118_calc_upd>');
 
 		event_manager.publish('update_widget_value_0_t118_calc_b', [
-			{ widget_id : 'total', key : 0, value : 0 }
-		])
-		assert.equal(content_data.querySelector('.value').textContent, '0', 'zero is shown, not blanked')
+			{ widget_id: 'total', key: 0, value: 0 },
+		]);
+		assert.equal(
+			content_data.querySelector('.value').textContent,
+			'0',
+			'zero is shown, not blanked',
+		);
 
-		await widget.destroy(true, true, true)
-	})
-
-})//end describe
+		await widget.destroy(true, true, true);
+	});
+}); //end describe
