@@ -33,6 +33,16 @@
  * the trigger's (WC-2026-11-12 DIVERGENCE). A run that fetched in the ambient
  * lang would miss every primed row (the row cache keys on the lang) and the
  * meter would count it.
+ *
+ * OUTAGE (owner C49 2026-11-13, WC-2026-11-13-external-outage-keeps-previous-row)
+ * — the second situation, `zzdxo` (own external section on a PUBLIC IP literal,
+ * `fetch` stubbed per remote id: 200 / 404 / 503): a record whose source
+ * answers an OUTAGE (503 → unavailable) produces NO row, NO unpublish and a
+ * `skipped` entry + a report line — the previous publication stays, the next
+ * run retries; a `not_found` answer (404) still writes the row with the value
+ * empty and no line; the runner's `publishedRecordsOf` leaves the held record
+ * out of the dd1758 'published' ledger. RED before: the 503 record published a
+ * row with the value empty (its remote values unpublished by an outage).
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -62,8 +72,10 @@ import {
 } from '../../src/diffusion/resolve/external_value.ts';
 import {
 	type FieldResolutionError,
+	type ResolvedBatch,
 	resolvePublication,
 } from '../../src/diffusion/resolve/resolver.ts';
+import { publishedRecordsOf } from '../../src/diffusion/runner.ts';
 import { drainInFlightExternalFetches, fetchExternalRows } from '../../src/external/api/index.ts';
 import { resetBreakerForOrigin } from '../../src/external/breaker.ts';
 import { overrideExternalSettingsForTests } from '../../src/external/settings.ts';
@@ -520,3 +532,241 @@ describe.if(DB_READY)('diffusion chain → component_external (T1-42)', () => {
 		]);
 	});
 });
+
+// ── C49: an external OUTAGE keeps the previous row ──────────────────────────────
+
+/** A PUBLIC IP literal: allowlistable, vetted without a DNS lookup. */
+const OUTAGE_HOST = '141.100.1.3';
+const OUTAGE_ORIGIN = `https://${OUTAGE_HOST}`;
+const DXO_HOST = 'zzdxo1';
+const DXO_PORTAL = 'zzdxo2';
+const DXO_EXTERNAL_SECTION = 'zzdxo5';
+const DXO_EXTERNAL = 'zzdxo6';
+const DXO_ELEMENT = 'zzdxo42';
+const DXO_DOMAIN_NAME = 'zzdxo external outage domain';
+/** Remote ids — the stub answers by the id's last three digits. */
+const DXO_OK = '000700200';
+const DXO_GONE = '000700404';
+const DXO_DOWN = '000700503';
+const DXO_REMOTE_TITLE = 'zzdxo remote title';
+const ID_OK = 1;
+const ID_GONE = 2;
+const ID_DOWN = 3;
+const ID_MIXED = 4; // one healthy locator + one down: the WHOLE row is held back
+
+const DXO_SITUATION = situation({
+	name: 'zzdxo diffusion external outage',
+	tld: 'zzdxo',
+	nodes: [
+		{ tipo: DXO_HOST, parent: 'test1', model: 'section', term: { 'lg-spa': 'zzdxo host' } },
+		{
+			tipo: DXO_PORTAL,
+			parent: DXO_HOST,
+			model: 'component_portal',
+			term: { 'lg-spa': 'zzdxo portal' },
+			order_number: 1,
+		},
+		{
+			tipo: DXO_EXTERNAL_SECTION,
+			parent: 'test1',
+			model: 'section',
+			term: { 'lg-spa': 'zzdxo remote' },
+			properties: {
+				api_config: {
+					entity: 'zenon',
+					api_url: `${OUTAGE_ORIGIN}/api/v1/record`,
+					ui_base_url: `${OUTAGE_ORIGIN}/Record/`,
+					response_map: [{ local: 'ar_records', remote: 'records' }],
+				},
+			},
+		},
+		{
+			tipo: DXO_EXTERNAL,
+			parent: DXO_EXTERNAL_SECTION,
+			model: 'component_external',
+			term: { 'lg-spa': 'zzdxo remote title' },
+			properties: { fields_map: [{ local: 'dato', remote: 'title' }] },
+			order_number: 1,
+		},
+		{
+			tipo: 'zzdxo40',
+			parent: 'dd1190',
+			model: 'diffusion_domain',
+			term: { 'lg-spa': DXO_DOMAIN_NAME },
+		},
+		{
+			tipo: 'zzdxo41',
+			parent: 'zzdxo40',
+			model: 'diffusion_group',
+			term: { 'lg-spa': 'zzdxo group' },
+		},
+		{
+			tipo: DXO_ELEMENT,
+			parent: 'zzdxo41',
+			model: 'diffusion_element',
+			term: { 'lg-spa': 'zzdxo sql element' },
+			properties: { diffusion: { type: 'sql' } },
+		},
+		{ tipo: 'zzdxo43', parent: DXO_ELEMENT, model: 'database', term: { 'lg-spa': 'zzdxo_db' } },
+		{
+			tipo: 'zzdxo44',
+			parent: 'zzdxo43',
+			model: 'table',
+			term: { 'lg-spa': 'zzdxo_primary' },
+			relations: [{ tipo: DXO_HOST }],
+		},
+		{
+			tipo: 'zzdxo45',
+			parent: 'zzdxo44',
+			model: 'field_text',
+			term: { 'lg-spa': 'title' },
+			relations: [{ tipo: DXO_PORTAL }],
+			properties: {
+				process: {
+					ddo_map: [
+						{ tipo: DXO_PORTAL, section_tipo: 'self', parent: 'self' },
+						{ tipo: DXO_EXTERNAL, parent: DXO_PORTAL },
+					],
+				},
+			},
+			order_number: 1,
+		},
+	],
+	records: [
+		[ID_OK, [DXO_OK]],
+		[ID_GONE, [DXO_GONE]],
+		[ID_DOWN, [DXO_DOWN]],
+		[ID_MIXED, [DXO_OK, DXO_DOWN]],
+	].map(([id, remotes]) => ({
+		section_tipo: DXO_HOST,
+		section_id: id as number,
+		columns: {
+			relation: {
+				[DXO_PORTAL]: (remotes as string[]).map((remoteId) => ({
+					type: 'dd151',
+					section_tipo: DXO_EXTERNAL_SECTION,
+					section_id: remoteId,
+					from_component_tipo: DXO_PORTAL,
+				})),
+			},
+		},
+	})),
+});
+
+describe.if(DB_READY)(
+	'C49: an external OUTAGE keeps the previous row (skip + report, retried next run)',
+	() => {
+		const realFetch = globalThis.fetch;
+		let batches: ResolvedBatch[] = [];
+
+		/** The socket stub: the remote id's last three digits are the HTTP status. */
+		async function stubFetch(input: unknown): Promise<Response> {
+			const url = new URL(String(input instanceof Request ? input.url : input));
+			const id = url.searchParams.get('id') ?? '';
+			const status = Number(id.slice(-3));
+			if (status === 503) return new Response('down', { status: 503 });
+			if (status === 404) return new Response('gone', { status: 404 });
+			return new Response(
+				JSON.stringify({ records: [{ id, title: DXO_REMOTE_TITLE }], status: 'OK' }),
+				{ status: 200 },
+			);
+		}
+
+		beforeAll(async () => {
+			await assertTestDatabase('diffusion_external_chain_native (zzdxo)');
+			await dropSituation(DXO_SITUATION);
+			await ensureSituation(DXO_SITUATION);
+			await clearOntologyDerivedCaches();
+			globalThis.fetch = stubFetch as unknown as typeof fetch;
+			overrideExternalSettingsForTests({ ...SETTINGS, allowedHosts: [OUTAGE_HOST] });
+			resetBreakerForOrigin('zenon', OUTAGE_ORIGIN);
+			const built = await buildVirtualDiffusionTree(DXO_DOMAIN_NAME);
+			if (built === null) throw new Error(`no dd1190 domain node is named '${DXO_DOMAIN_NAME}'`);
+			const outagePlan = await compileElementPlan(DXO_ELEMENT, { tree: built });
+			batches = [];
+			for await (const batch of resolvePublication(outagePlan, {
+				sectionTipo: DXO_HOST,
+				runStartedAt: 1_751_700_000,
+				tree: built,
+				maxLevels: 0,
+				skipPublicationStateCheck: true,
+			})) {
+				batches.push(batch);
+			}
+		}, 120_000);
+
+		afterAll(async () => {
+			globalThis.fetch = realFetch;
+			overrideExternalSettingsForTests(null);
+			await drainInFlightExternalFetches();
+			resetBreakerForOrigin('zenon', OUTAGE_ORIGIN);
+			await assertTestDatabase('diffusion_external_chain_native (zzdxo)');
+			expect(await dropSituation(DXO_SITUATION)).toBe(0);
+			await clearOntologyDerivedCaches();
+		}, 120_000);
+
+		const rowOf = (id: number) =>
+			batches.flatMap((batch) => batch.rows).find((row) => Number(row.sectionId) === id);
+		const linesOf = (id: number) =>
+			batches.flatMap((batch) => batch.errors).filter((line) => Number(line.sectionId) === id);
+
+		test('every record was processed (floor); the healthy one publishes its remote value', () => {
+			expect(
+				batches.flatMap((batch) => batch.records).map((record) => Number(record.sectionId)),
+			).toEqual([ID_OK, ID_GONE, ID_DOWN, ID_MIXED]);
+			expect(rowOf(ID_OK)?.columns.title).toContain(DXO_REMOTE_TITLE);
+			expect(linesOf(ID_OK)).toEqual([]);
+		});
+
+		test('a 503 source (unavailable) → NO row, NO unpublish, a skipped entry and a report line', () => {
+			expect(rowOf(ID_DOWN)).toBeUndefined();
+			expect(batches.flatMap((batch) => batch.unpublishIds)).toEqual([]);
+			const skipped = batches.flatMap((batch) => batch.skipped);
+			expect(skipped.map((entry) => Number(entry.sectionId)).sort()).toEqual([ID_DOWN, ID_MIXED]);
+			expect(skipped.find((entry) => Number(entry.sectionId) === ID_DOWN)?.reason).toMatch(
+				new RegExp(
+					`^external_source:(unavailable|circuit_open) ${DXO_EXTERNAL} ${DXO_EXTERNAL_SECTION}/${DXO_DOWN}$`,
+				),
+			);
+			const lines = linesOf(ID_DOWN);
+			expect(lines.length).toBe(1);
+			expect(lines[0]?.message).toContain(
+				'row SKIPPED (previous publication kept; retried by the next run)',
+			);
+			expect(lines[0]?.columnName).toBe('title');
+			// the gate still says 'publish': the record is publishable, merely held back
+			expect(
+				batches
+					.flatMap((batch) => batch.records)
+					.find((record) => Number(record.sectionId) === ID_DOWN)?.status,
+			).toBe('publish');
+		});
+
+		test('one down locator among healthy ones holds the WHOLE row (a partial row would unpublish the down value)', () => {
+			expect(rowOf(ID_MIXED)).toBeUndefined();
+			expect(linesOf(ID_MIXED).length).toBe(1);
+		});
+
+		test("a 404 source (not_found) is the source's answer: the row IS written, the value empty, no line", () => {
+			const row = rowOf(ID_GONE);
+			expect(row).toBeDefined();
+			expect(row?.columns.title ?? '').not.toContain(DXO_REMOTE_TITLE);
+			expect(linesOf(ID_GONE)).toEqual([]);
+			expect(
+				batches
+					.flatMap((batch) => batch.skipped)
+					.some((entry) => Number(entry.sectionId) === ID_GONE),
+			).toBe(false);
+		});
+
+		test("the runner's published set leaves the held records out of the dd1758 ledger (pure)", () => {
+			for (const batch of batches) {
+				const published = publishedRecordsOf(batch).map((record) => Number(record.sectionId));
+				expect(published).toEqual([ID_OK, ID_GONE]);
+			}
+			// control: nothing skipped → every publishable record is published
+			const control = batches[0] as ResolvedBatch;
+			expect(publishedRecordsOf({ records: control.records, skipped: [] }).length).toBe(4);
+		});
+	},
+);

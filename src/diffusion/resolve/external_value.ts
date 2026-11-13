@@ -16,7 +16,13 @@
  *     EMPTY derivation that carries a missing-value state is reported through
  *     `env.report` (the resolver turns it into the record's run error line —
  *     the loud per-field channel), never thrown: a merge field keeps its local
- *     atoms. Values + a status (stale / truncated) publish the values.
+ *     atoms. Values + a status (stale / truncated) publish the values. An
+ *     OUTAGE state (isExternalOutage: the source could not be asked NOW) makes
+ *     the resolver SKIP the record's row — the previous publication stays, the
+ *     record is retried by the next run (owner C49 2026-11-13,
+ *     WC-2026-11-13-external-outage-keeps-previous-row); a configuration
+ *     state (disabled / misconfigured) still publishes the row with the value
+ *     empty, because a retry cannot change it.
  *   - `externalPlaceholderApplies` — whether a hop's locator to a record with
  *     NO matrix row (a Zenon id, by construction) is still walked: yes when an
  *     applicable child derives its value remotely and the component is not
@@ -77,6 +83,25 @@ const MISSING_STATES: ReadonlySet<ExternalSourceState> = new Set([
 	'disabled',
 	'misconfigured',
 ]);
+
+/**
+ * The missing states that are an OUTAGE — the source exists and is configured
+ * but could not be asked in THIS run: the answer may differ next run, so a
+ * publication must not replace a published value with an empty one (owner
+ * C49: "never unpublish by outage"). `disabled` / `misconfigured` are an
+ * operator's decision or defect: retrying changes nothing, the row publishes
+ * with the value empty and the error line says why.
+ */
+const OUTAGE_STATES: ReadonlySet<ExternalSourceState> = new Set([
+	'unavailable',
+	'timeout',
+	'circuit_open',
+]);
+
+/** Is this source state an outage (skip the record's row, retry next run)? */
+export function isExternalOutage(state: ExternalSourceState): boolean {
+	return OUTAGE_STATES.has(state);
+}
 
 /** A chain step the external terminal owns: a component_external read with no ddo fn. */
 export function isExternalTerminal(step: ResolveStep): boolean {

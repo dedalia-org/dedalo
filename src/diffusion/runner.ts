@@ -65,6 +65,7 @@ import {
 import { DedaloError, isDedaloError, logError, toErrorBody } from '../core/errors/index.ts';
 import { startRunnerMediaCopyRelay } from './api/media_copy.ts';
 import type { DiffusionJobRow, JobLease } from './jobs/queue.ts';
+import type { ResolvedBatch } from './resolve/resolver.ts';
 import {
 	checkpointJob,
 	failedJobResult,
@@ -185,6 +186,23 @@ function mergeErrorLines(lines: readonly string[], extra: readonly string[]): st
 		if (!merged.includes(line)) merged.push(line);
 	}
 	return merged;
+}
+
+/**
+ * The records of a batch this run PUBLISHES — the dd1758 'published' ledger
+ * rows and the vanished-record check are theirs: gate 'publish', MINUS the
+ * records the resolver held back on an external OUTAGE (owner C49,
+ * ResolvedBatch.skipped — no row written, no row removed, the previous
+ * publication and its ledger row stand; the next run retries). PURE, exported
+ * for the gate (diffusion_external_chain_native).
+ */
+export function publishedRecordsOf(
+	batch: Pick<ResolvedBatch, 'records' | 'skipped'>,
+): ResolvedBatch['records'] {
+	const held = new Set(batch.skipped.map((entry) => String(entry.sectionId)));
+	return batch.records.filter(
+		(record) => record.status === 'publish' && !held.has(String(record.sectionId)),
+	);
 }
 
 /** The real publication pipeline. */
@@ -369,7 +387,7 @@ async function runPublicationJob(job: DiffusionJobRow, lease: JobLease): Promise
 				// the archive while this batch waited is unpublished, never written.
 				let rows = batch.rows;
 				const unpublishIds = [...batch.unpublishIds];
-				const publishing = batch.records.filter((record) => record.status === 'publish');
+				const publishing = publishedRecordsOf(batch);
 				const vanished = new Set<string>();
 				if (publishing.length > 0) {
 					const table = await getMatrixTableFromTipo(batch.section.sectionTipo);

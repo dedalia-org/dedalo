@@ -82,3 +82,11 @@ restores the public tables (changelog `diffusion-zenon-values-published`).
   FIRST ddo is the component_external (no `output_format`) pins the `string` fallback (control:
   the first-ddo portal stays `json`) — reverting the compile predicate goes RED.
 - No frozen parity fixture holds a diffusion Zenon column — no fixture edit, no re-harvest.
+
+## Addendum 2026-11-13 — OD-1 ruled (owner C49): an outage SKIPS the row
+
+The open decision above ("a degraded remote at publication time") is ruled: an OUTAGE state
+(`unavailable` / `timeout` / `circuit_open`) holds the record's row back — nothing written, nothing
+removed, the previous publication kept, retried by the next run — while `disabled` /
+`misconfigured` keep the shape above (row written, value empty, error line).
+`WC-2026-11-13-external-outage-keeps-previous-row`.

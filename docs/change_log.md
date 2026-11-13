@@ -1281,6 +1281,22 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-diffusion-external-chain`.
 
+- **A publication run no longer empties a record's remote (Zenon) values when the remote service is down: the record is held back, reported, and retried by the next run.**
+
+    When a published column reads a remote record (a Zenon bibliography entry) and the remote service
+    cannot be reached during the run — down, timing out, or temporarily closed after repeated
+    failures — the record's row is now **held back**: nothing is written for it and nothing is
+    removed, so the public table keeps the row of the previous run. The run finishes as a partial
+    success with one line per held record ("row SKIPPED, previous publication kept, retried by the
+    next run"), and the next run of the element publishes it as usual. Before, the row was written
+    with the remote values empty — the public site lost them until a later run succeeded.
+
+    Unchanged: a remote record the service reports as gone publishes an empty value (that is the
+    service's answer), and a disabled or misconfigured service publishes an empty value with its
+    message, since retrying cannot change either.
+
+    Wire contract: `WC-2026-11-13-external-outage-keeps-previous-row`.
+
 - **A published geolocation column places an area or a route at one representative point instead of publishing the whole outline under the longitude.**
 
     The flat geolocation column of a text field's geo tag (`get_geolocation_data`) publishes one
@@ -1588,7 +1604,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 77 entries"
+??? note "Wire contract — 78 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1659,6 +1675,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-export-media-cell-type`
     - `WC-2026-11-13-export-tag-marks-plain-text`
     - `WC-2026-11-13-external-empty-entry-dropped`
+    - `WC-2026-11-13-external-outage-keeps-previous-row`
     - `WC-2026-11-13-geolocation-representative-point`
     - `WC-2026-11-13-info-derived-async-published`
     - `WC-2026-11-13-info-parsed-face-published`

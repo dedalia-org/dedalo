@@ -126,6 +126,7 @@ import { defaultPublicationValue, PHP_NUMBER_TYPES_OPTION } from './default_valu
 import {
 	type ExternalPublicationDegradation,
 	type ExternalPublicationEnv,
+	isExternalOutage,
 	externalPlaceholderApplies,
 	externalPublicationAtoms,
 	isExternalTerminal,
@@ -160,6 +161,21 @@ export interface FieldResolutionError {
 	message: string;
 }
 
+/**
+ * A publishable record whose row this run did NOT produce (owner C49,
+ * 2026-11-13, WC-2026-11-13-external-outage-keeps-previous-row): one of its
+ * component_external sources reported an OUTAGE (unavailable / timeout /
+ * circuit_open), so writing the row would replace published remote values
+ * with empty ones. The runner writes nothing and removes nothing for it (the
+ * previous publication stays), logs no dd1758 'published' row, and the run
+ * report carries its line; the next run retries it like any other record.
+ */
+export interface SkippedRecord {
+	sectionId: number | string;
+	/** Why — the outage states and components, authored for the report line. */
+	reason: string;
+}
+
 /** One yielded unit of work — writers consume rows/records sequentially. */
 export interface ResolvedBatch {
 	section: SectionPlan;
@@ -183,6 +199,11 @@ export interface ResolvedBatch {
 	graphs?: RdfRecordDocument[];
 	/** Records whose gate said 'unpublish' — writers remove their artifacts. */
 	unpublishIds: (number | string)[];
+	/**
+	 * Publishable records held back this run (an external OUTAGE): no row, no
+	 * graph, no unpublish — the previous publication stays (SkippedRecord).
+	 */
+	skipped: SkippedRecord[];
 	/**
 	 * The PRIMARY keyset position: the highest primary section_id fully
 	 * processed (frontier batches repeat the final primary cursor). It is only
@@ -435,26 +456,37 @@ function externalEnvOf(ctx: RunContext, prepared: PreparedField): ExternalPublic
 	};
 }
 
+/** The report suffix of an outage line (the runner prints the line verbatim). */
+const OUTAGE_SKIP_SUFFIX = ' — row SKIPPED (previous publication kept; retried by the next run)';
+
 /**
  * Move the missing component_external values recorded while processing
  * `record` into its run error lines — the loud per-field channel the runner
- * reports (T1-42). The value itself is published empty for that locator; the
- * field's other atoms are kept.
+ * reports (T1-42). A configuration state (disabled / misconfigured) publishes
+ * the value empty for that locator, the field's other atoms kept. An OUTAGE
+ * state (owner C49) returns the SkippedRecord the caller must honour: the
+ * record's row is NOT produced this run (the previous publication stays), its
+ * line says so, and the next run retries it.
  */
 function drainExternalDegradations(
 	ctx: RunContext,
 	record: MatrixRecord,
 	errors: FieldResolutionError[],
-): void {
+): SkippedRecord | null {
+	const outages: string[] = [];
 	for (const degradation of ctx.externalDegradations.splice(0)) {
+		const outage = isExternalOutage(degradation.state);
+		const what = `external_source:${degradation.state} ${degradation.tipo} ${degradation.sectionTipo}/${degradation.remoteId}`;
+		if (outage) outages.push(what);
 		errors.push({
 			sectionTipo: record.section_tipo,
 			sectionId: record.section_id,
 			fieldId: degradation.fieldId,
 			columnName: degradation.columnName,
-			message: `external_source:${degradation.state} ${degradation.tipo} ${degradation.sectionTipo}/${degradation.remoteId}`,
+			message: outage ? `${what}${OUTAGE_SKIP_SUFFIX}` : what,
 		});
 	}
+	return outages.length === 0 ? null : { sectionId: record.section_id, reason: outages.join('; ') };
 }
 
 /**
@@ -2393,6 +2425,8 @@ interface ProcessedRecord {
 	record: RecordIR;
 	rows: ProjectedRow[];
 	errors: FieldResolutionError[];
+	/** Set when an external OUTAGE held the row back (rows is then []). */
+	skipped?: SkippedRecord;
 }
 
 async function processRecord(
@@ -2511,7 +2545,10 @@ async function processRecord(
 		if (field.excludeColumn !== true) columnValues.set(field.columnName, langValues);
 	}
 
-	drainExternalDegradations(ctx, record, errors);
+	const skipped = drainExternalDegradations(ctx, record, errors);
+	// Owner C49: an outage holds the row back — nothing written, nothing
+	// removed, the previous publication stays until a run can read the source.
+	if (skipped !== null) return { record: recordIr, rows: [], errors, skipped };
 	const rows = projectRecordRows(
 		record.section_id,
 		columnValues,
@@ -2604,7 +2641,12 @@ async function processRdfRecord(
 	ctx: RunContext,
 	sectionPlan: SectionPlan,
 	record: MatrixRecord,
-): Promise<{ record: RecordIR; graph: RdfGraph | null; errors: FieldResolutionError[] }> {
+): Promise<{
+	record: RecordIR;
+	graph: RdfGraph | null;
+	errors: FieldResolutionError[];
+	skipped?: SkippedRecord;
+}> {
 	const errors: FieldResolutionError[] = [];
 	const gate = await resolveGate(ctx, record);
 	if (gate.failure !== undefined) {
@@ -2627,7 +2669,7 @@ async function processRdfRecord(
 		sectionPlan.fields.find((field) => field.id === fieldId)?.columnName ?? fieldId;
 	try {
 		const built = await buildRdfRecordGraph(rdfGraphEnvOf(ctx), sectionPlan, record);
-		drainExternalDegradations(ctx, record, errors);
+		const skipped = drainExternalDegradations(ctx, record, errors);
 		for (const failure of built.errors) {
 			errors.push({
 				sectionTipo: record.section_tipo,
@@ -2637,6 +2679,8 @@ async function processRdfRecord(
 				message: failure.message,
 			});
 		}
+		// Owner C49: an outage holds the document back (the previous one stays).
+		if (skipped !== null) return { record: recordIr, graph: null, errors, skipped };
 		return { record: recordIr, graph: built.graph, errors };
 	} catch (error) {
 		// No subject IRI: the record is NOT written (a document without a valid
@@ -2760,6 +2804,7 @@ async function processBatch(
 	const outRows: ProjectedRow[] = [];
 	const outGraphs: RdfRecordDocument[] = [];
 	const unpublishIds: (number | string)[] = [];
+	const skipped: SkippedRecord[] = [];
 	const errors: FieldResolutionError[] = [];
 
 	for (const sectionId of visibleIds) {
@@ -2772,6 +2817,7 @@ async function processBatch(
 			if (processed.graph !== null) {
 				outGraphs.push({ sectionId: record.section_id, graph: processed.graph });
 			}
+			if (processed.skipped !== undefined) skipped.push(processed.skipped);
 			errors.push(...processed.errors);
 			continue;
 		}
@@ -2789,6 +2835,7 @@ async function processBatch(
 		const processed = await processRecord(ctx, sectionPlan, record, level);
 		outRecords.push(processed.record);
 		if (processed.record.status === 'unpublish') unpublishIds.push(record.section_id);
+		if (processed.skipped !== undefined) skipped.push(processed.skipped);
 		outRows.push(...processed.rows);
 		errors.push(...processed.errors);
 	}
@@ -2801,6 +2848,7 @@ async function processBatch(
 		rows: outRows,
 		...(sectionPlan.rdfClass !== undefined ? { graphs: outGraphs } : {}),
 		unpublishIds,
+		skipped,
 		cursor,
 		errors,
 		ledger: takeLedger(ctx),
