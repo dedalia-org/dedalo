@@ -844,6 +844,7 @@
 	"reset_to_seed": "Reset to seed",
 	"reset_warning": "This DELETES and re-imports from the seed, discarding any local edits",
 	"resize": "Resize",
+	"restricted": "(restricted)",
 	"reuse_tag": "Reuse tag",
 	"reverse_relations": "Reverse relations",
 	"rotate": "Rotate",

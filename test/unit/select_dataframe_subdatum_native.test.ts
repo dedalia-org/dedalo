@@ -275,6 +275,17 @@ describe('get_data edit of a select declaring a dataframe slot', () => {
 		expect(context.find((entry) => entry.tipo === RATING)).toBeDefined();
 	});
 
+	test('the option labels carry NO trailing separator for the dataframe ddo (C2)', async () => {
+		// PHP imploded EVERY show ddo's value with ' | ' — the frame ddo resolves
+		// to '' on an option record, so each label ended in ' | '. TS drops the
+		// dataframe ddo from the label (and hide) set
+		// (WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter).
+		const { data } = await getData(1);
+		const datalist = data[0]?.datalist as { label: string }[];
+		expect(datalist.length).toBe(2); // FLOOR
+		expect(datalist.map((option) => option.label)).toEqual(['option 1', 'option 2']);
+	});
+
 	test('an item without frame → an EMPTY slot item at its id (the blank widget)', async () => {
 		const slots = slotItems((await getData(2)).data);
 		expect(slots.length).toBe(1);

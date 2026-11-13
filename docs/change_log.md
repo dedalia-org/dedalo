@@ -18,6 +18,7 @@ Merged since the last release; these ship with the next one.
 !!! warning "Action needed when you update"
 
     - Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused
+    - The old `filtered_by_search_dynamic` option filter is no longer read; a field that still relies on it alone is refused.
     - Publication fills the global search and map tables again
     - RDF publication produces real Linked Data (Nomisma).
     - SVG glyphs in text tags now resolve in lists and publications for vector components stored in sub-folders.
@@ -169,6 +170,14 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-09-export-frontier-fanout`, `WC-2026-11-09-implicit-children-frontier-predicate`.
 
 #### Changed
+
+- **A selected value you may not see, or that no longer fits the record, now shows as *(restricted)* instead of vanishing.**
+
+    Since the option lists of selects, radio buttons and check boxes became the search you are allowed to run (and, where configured, the options that fit the record), a value stored on the record but outside your list simply disappeared: no label in the list view, no option in the edit form — and a save of that field would have dropped it without anyone noticing.
+
+    Now such a value stays visible as an opaque *(restricted)* entry: the edit form keeps it selected under that label and the list view shows *(restricted)* in its place, so you know something is there without being told what. Its real label is never shown. A stored value whose target record has been deleted still shows nothing, as before. See [component_select](./core/components/component_select.md).
+
+    Wire contract: `WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter`.
 
 - **Search-as-you-type keeps the previous results on screen while it looks for the new ones, and answers sooner.**
 
@@ -350,6 +359,12 @@ Merged since the last release; these ship with the next one.
     [observers](./core/system/observers.md#clearing-a-dependent-value-refresh_data).
 
     Wire contract: `WC-2026-11-13-observer-refresh-data`.
+
+- **Select options with a dataframe no longer end in a stray separator.**
+
+    A select whose configuration declares a dataframe slot (such as the uncertainty of a coin's discovery method) listed its options as "Metal detector | " — the slot was counted as a label part and contributed an empty value. The separator is gone; options read "Metal detector" in the edit form and in the list view. The dataframe itself is unaffected.
+
+    Wire contract: `WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter`.
 
 - **Transcription tag statistics count the interview's own-language text**
 
@@ -1072,6 +1087,16 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-10-hierarchy-rebuild-ownership`.
 
+#### Removed
+
+- **The old `filtered_by_search_dynamic` option filter is no longer read; a field that still relies on it alone is refused.** *(action needed)*
+
+    The v5-era `filtered_by_search_dynamic` property, which narrowed a select's options by a value of the record being edited, is superseded by a `fixed_filter` of source `component_data` on the field's request configuration — the form every shipped ontology already uses. The engine does not read the old key.
+
+    **Action needed:** a field whose live definition still carries `filtered_by_search_dynamic` with neither a `fixed_filter` nor a `filtered_by_search` is now refused when its option list is built (the error names the field and the fix), rather than silently offering every record. Declare the `fixed_filter` translation, then remove the key. A field that carries both is served by the `fixed_filter`; the old key is ignored. No vendored ontology ships the old key on a live definition.
+
+    Wire contract: `WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter`.
+
 #### Changed
 
 - **Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused** *(action needed)*
@@ -1455,7 +1480,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 67 entries"
+??? note "Wire contract — 68 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1520,6 +1545,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-zotero-csl-json-import`
     - `WC-2026-11-13-calculation-tld-packages`
     - `WC-2026-11-13-csv-ingest-size-ceiling`
+    - `WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter`
     - `WC-2026-11-13-external-empty-entry-dropped`
     - `WC-2026-11-13-observer-refresh-data`
     - `WC-2026-11-13-tags-widget-original-lang`

@@ -19,13 +19,18 @@
  *  2. built in either order with no cache clear in between, each stays right
  *     (the record dimension is in the cache key);
  *  3. the edit READ door, the save echo and the direct build agree for OA;
- *  4. the LIST value drops the label of a stored record outside OA's list;
+ *  4. the LIST value marks a stored record outside OA's list with the opaque
+ *     `restricted` label (C6: never a silent disappearance), and the edit
+ *     datalist is completed with the matching opaque entry;
  *  5. the multi-hop `search_section_id` shape (Biographical milestone): owner → person →
  *     the person's linked targets, by section_id;
  *  6. a non-admin with NO grant on the filter component still gets [R1] (the
  *     server-authored filter rides the read floor), never [] and never all;
  *  7. `filtered_by_search` narrows a check_box's options;
  *  8. fixed_filter wins over filtered_by_search (PHP elseif);
+ *  9. `filtered_by_search_dynamic` (v5 grammar) is NOT ported: alone it is
+ *     refused at build (`ontology.invalid_node` naming the fix); next to its
+ *     fixed_filter translation it is ignored (C5);
  *  CONTROL: no record (search panel / state widget posture) and a record with
  *  no reference value are both unnarrowed.
  *
@@ -36,6 +41,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { dispatchRqo } from '../../src/core/api/dispatch.ts';
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
+import { getLabels } from '../../src/core/labels/catalog.ts';
 import { getNode } from '../../src/core/ontology/resolver.ts';
 import {
 	clearDatalistCache,
@@ -44,6 +51,7 @@ import {
 	getDatalist as getComponentDatalist,
 	getEchoDatalist,
 } from '../../src/core/relations/datalist.ts';
+import { currentApplicationLang } from '../../src/core/resolve/request_lang.ts';
 import { readComponentData } from '../../src/core/section/read.ts';
 import { type Principal, resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { runWithRequestContext } from '../../src/core/security/request_context.ts';
@@ -82,7 +90,11 @@ const OWNER_PERSON = `${TLD}12`; // component_portal → PERSON
 const HOP_SELECT = `${TLD}13`; // the multi-hop select (Biographical milestone shape)
 const SEARCH_CHECK_BOX = `${TLD}14`; // filtered_by_search (test4441 shape)
 const BOTH_CHECK_BOX = `${TLD}15`; // fixed_filter AND filtered_by_search
+const DYNAMIC_ONLY = `${TLD}16`; // filtered_by_search_dynamic ALONE (v5 grammar, unported)
+const DYNAMIC_SUPERSEDED = `${TLD}17`; // filtered_by_search_dynamic + its fixed_filter translation
 const LANG = 'lg-eng';
+/** The v5 `parse_search_dynamic` grammar — never read, only detected. */
+const DYNAMIC_FILTER = { [OWNER_REFERENCE]: { search_component: TARGET_GROUP } };
 
 const X = 1;
 const Y = 2;
@@ -258,6 +270,23 @@ const SITUATION = situation({
 				filtered_by_search: FILTERED_BY_X,
 			},
 		},
+		{
+			tipo: DYNAMIC_ONLY,
+			parent: OWNER,
+			model: 'component_select',
+			term: { 'lg-eng': 'Dynamic only' },
+			properties: { source: targetConfig({}), filtered_by_search_dynamic: DYNAMIC_FILTER },
+		},
+		{
+			tipo: DYNAMIC_SUPERSEDED,
+			parent: OWNER,
+			model: 'component_select',
+			term: { 'lg-eng': 'Dynamic superseded' },
+			properties: {
+				source: targetConfig({ fixed_filter: RECORD_FIXED_FILTER }),
+				filtered_by_search_dynamic: DYNAMIC_FILTER,
+			},
+		},
 	],
 	records: [
 		{ section_tipo: OPTS, section_id: X, columns: { string: { [OPTS_LABEL]: label('X') } } },
@@ -332,11 +361,16 @@ async function read(tipo: string, sectionId: number, mode: string): Promise<Item
 	return items.find((item) => item.tipo === tipo);
 }
 
+/** The opaque label of a stored pick outside the list (labels key `restricted`). */
+let RESTRICTED = '';
+
 beforeAll(async () => {
 	await assertTestDatabase('datalist_record_filter_native');
 	await installAclIdentityFixture();
 	await ensureSituation(SITUATION);
 	clearDatalistCache();
+	RESTRICTED = (await getLabels(currentApplicationLang())).restricted ?? '';
+	expect(RESTRICTED).not.toBe(''); // FLOOR: the marker is a real catalog string
 }, 60_000);
 
 afterAll(async () => {
@@ -375,16 +409,30 @@ describe('fixed_filter source component_data — the record narrows the list', (
 	test('the edit read, the save echo and the build agree for the record', async () => {
 		clearDatalistCache();
 		const edit = await read(RECORD_SELECT, OA, 'edit');
-		expect(ids(edit?.datalist as DatalistItem[])).toEqual([R1]);
+		const editList = edit?.datalist as DatalistItem[];
+		// OA's list is [R1]; its stored R2 pick is outside it and its row exists
+		// → the opaque restricted entry completes the edit list (C6), never a
+		// silent disappearance that the next save would turn into a removal.
+		expect(ids(editList.filter((item) => item.restricted !== true))).toEqual([R1]);
+		expect(editList.filter((item) => item.restricted === true)).toEqual([
+			{
+				value: { section_tipo: TARGET, section_id: R2 },
+				label: RESTRICTED,
+				section_id: R2,
+				hide: [],
+				restricted: true,
+			},
+		]);
 		const properties = (await getNode(RECORD_SELECT))?.properties ?? null;
+		const stored = [locator(TARGET, R1, RECORD_SELECT, 1), locator(TARGET, R2, RECORD_SELECT, 2)];
 		const echo = await getEchoDatalist(
 			'component_select',
 			RECORD_SELECT,
 			properties,
 			owner(OA),
-			[],
+			stored,
 		);
-		expect(echo).toEqual(edit?.datalist as DatalistItem[]);
+		expect(echo).toEqual(editList);
 	});
 
 	test('the SAVE door echoes the list of the saved record', async () => {
@@ -423,10 +471,10 @@ describe('fixed_filter source component_data — the record narrows the list', (
 		expect(ids(echoed?.datalist as DatalistItem[])).toEqual([R2]);
 	});
 
-	test('the list value drops the label of a stored pick outside the record list', async () => {
+	test('the list value marks a stored pick outside the record list as restricted, not blank', async () => {
 		clearDatalistCache();
 		const list = await read(RECORD_SELECT, OA, 'list');
-		expect(list?.entries).toEqual(['Entry one']);
+		expect(list?.entries).toEqual(['Entry one', RESTRICTED]);
 	});
 
 	test('multi-hop search_section_id (Biographical milestone shape): the person’s linked entries only', async () => {
@@ -462,5 +510,32 @@ describe('properties.filtered_by_search (PHP elseif branch)', () => {
 		// OC has no reference: the fixed_filter expands to NO group, so PHP's elseif
 		// applies filtered_by_search.
 		expect(await optionsOf(BOTH_CHECK_BOX, OC)).toEqual([R1]);
+	});
+});
+
+describe('properties.filtered_by_search_dynamic — NOT ported, superseded (C5)', () => {
+	test('a node declaring it ALONE is refused at datalist build, naming the fix', async () => {
+		clearDatalistCache();
+		let refused: unknown = null;
+		try {
+			await optionsOf(DYNAMIC_ONLY, OA);
+		} catch (error) {
+			refused = error;
+		}
+		expect(refused).toBeInstanceOf(DedaloError);
+		const error = refused as DedaloError;
+		expect(error.code).toBe('ontology.invalid_node');
+		expect(error.message).toContain(DYNAMIC_ONLY);
+		expect(error.message).toContain('filtered_by_search_dynamic');
+		expect(error.message).toContain("fixed_filter source:'component_data'");
+	});
+
+	test('a node declaring it NEXT TO its fixed_filter translation builds — the key is ignored', async () => {
+		clearDatalistCache();
+		expect(await optionsOf(DYNAMIC_SUPERSEDED, OA)).toEqual([R1]);
+		// A record with no reference value expands the fixed_filter to NO group:
+		// the DECLARATION supersedes, not the per-record expansion (else a valid
+		// node would be refused on an empty record).
+		expect(await optionsOf(DYNAMIC_SUPERSEDED, OC)).toEqual([R1, R2, R3]);
 	});
 });

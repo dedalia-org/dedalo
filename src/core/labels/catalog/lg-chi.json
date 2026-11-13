@@ -836,6 +836,7 @@
 	"reset_to_seed": "重置为原始数据",
 	"reset_warning": "此操作将删除并重新从原始数据导入，放弃所有本地修改",
 	"resize": "调整大小",
+	"restricted": "（受限）",
 	"reuse_tag": "重用标签",
 	"reverse_relations": "反向关系",
 	"rotate": "旋转",

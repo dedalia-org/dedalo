@@ -16,8 +16,11 @@
  *     assembler's filter has no admin arm);
  *  3. the cache never serves one scope's list to another, in either order;
  *  4. the size probe counts what THAT principal's list holds;
- *  5. the list value (labels of the stored locators) drops the out-of-scope
- *     record's label;
+ *  5. the list value (labels of the stored locators) marks the out-of-scope
+ *     record with the opaque `restricted` label (C6 — PHP dropped it; a silent
+ *     disappearance invites an accidental removal on save) and the edit list
+ *     is completed with the matching opaque entry; a stored locator whose
+ *     target row is GONE stays blank (CONTROL, PHP);
  *  6. a filter_by_list field's simple context carries the CALLER's level on
  *     that field (WC-2026-11-12-datalist-principal-record-scope #4), never a
  *     hard-coded 3 — and its datalist is scoped like any other;
@@ -36,6 +39,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { updateMatrixKeyData } from '../../src/core/db/matrix_write.ts';
+import { getLabels } from '../../src/core/labels/catalog.ts';
 import { getComponentFilterTipo } from '../../src/core/ontology/resolver.ts';
 import {
 	clearDatalistCache,
@@ -47,6 +51,7 @@ import {
 	probeDatalistSize,
 } from '../../src/core/relations/datalist.ts';
 import { expandFilterByList } from '../../src/core/relations/request_config/filters.ts';
+import { currentApplicationLang } from '../../src/core/resolve/request_lang.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { clearUserFilterRecordsCache } from '../../src/core/security/filter_records.ts';
 import {
@@ -86,6 +91,8 @@ const LANG = 'lg-eng';
 const FOREIGN_PROJECT = 930099;
 const IN_ID = 1;
 const OUT_ID = 2;
+/** A TARGET address no record ever held here — a stored pick whose target is gone. */
+const GONE_ID = 99;
 
 const projectLocator = (projectId: number) => ({
 	id: 1,
@@ -213,7 +220,12 @@ async function mintUser(write: (userId: number) => Promise<void>): Promise<numbe
 
 const optionList = () => getDatalist(SELECT, SELECT_PROPERTIES, OWNER_RECORD, LANG);
 
+/** The opaque label of a stored pick outside the caller's list (labels key `restricted`). */
+let RESTRICTED = '';
+
 beforeAll(async () => {
+	RESTRICTED = (await getLabels(currentApplicationLang())).restricted ?? '';
+	expect(RESTRICTED).not.toBe(''); // FLOOR: the marker is a real catalog string
 	await assertTestDatabase('datalist_projects_scope_native');
 	await installAclIdentityFixture();
 	await ensureSituation(SITUATION);
@@ -315,26 +327,50 @@ describe('every door on the option list is scoped', () => {
 		expect(scoped).toBe((await as(NON_ADMIN, optionList)).length);
 	});
 
-	test('the edit door (read + both save echoes) carries the scoped list', async () => {
+	test('the edit door (read + both save echoes) carries the scoped list + an opaque entry per stored out-of-scope pick', async () => {
 		clearDatalistCache();
+		const stored = [optionLocator(IN_ID), optionLocator(OUT_ID), optionLocator(GONE_ID)];
 		const edit = (await as(NON_ADMIN, () =>
-			getEditDatalist(SELECT, SELECT_PROPERTIES, OWNER_RECORD, LANG, []),
+			getEditDatalist(SELECT, SELECT_PROPERTIES, OWNER_RECORD, LANG, stored),
 		)) as DatalistItem[];
-		expect(scratchIds(edit)).toEqual([IN_ID]);
+		expect(scratchIds(edit.filter((item) => item.restricted !== true))).toEqual([IN_ID]);
+		// C6: the stored OUT_ID pick is outside the scoped list and its row EXISTS
+		// → one opaque entry (value kept, label the marker, no hide data), so the
+		// widget keeps the selection instead of silently dropping it on save.
+		expect(edit.filter((item) => item.restricted === true)).toEqual([
+			{
+				value: { section_tipo: TARGET, section_id: OUT_ID },
+				label: RESTRICTED,
+				section_id: OUT_ID,
+				hide: [],
+				restricted: true,
+			},
+		]);
+		// CONTROL: a stored locator whose target row is GONE gets nothing (PHP).
+		expect(edit.some((item) => item.value.section_id === GONE_ID)).toBe(false);
 	});
 
-	test('the list value drops the label of a stored out-of-scope record', async () => {
+	test('the list value marks a stored out-of-scope record as restricted, not blank', async () => {
 		clearDatalistCache();
 		const stored = [optionLocator(IN_ID), optionLocator(OUT_ID)];
 		const labels = await as(NON_ADMIN, () =>
 			getRelationListValue(SELECT, SELECT_PROPERTIES, OWNER_RECORD, LANG, stored),
 		);
-		expect(labels).toEqual(['In project']);
+		expect(labels).toEqual(['In project', RESTRICTED]);
 		clearDatalistCache();
 		const unscoped = await as(undefined, () =>
 			getRelationListValue(SELECT, SELECT_PROPERTIES, OWNER_RECORD, LANG, stored),
 		);
 		expect([...unscoped].sort()).toEqual(['In project', 'Other project']);
+	});
+
+	test('CONTROL: a stored locator to a deleted target is still blank in the list value', async () => {
+		clearDatalistCache();
+		const stored = [optionLocator(IN_ID), optionLocator(GONE_ID)];
+		const labels = await as(NON_ADMIN, () =>
+			getRelationListValue(SELECT, SELECT_PROPERTIES, OWNER_RECORD, LANG, stored),
+		);
+		expect(labels).toEqual(['In project']);
 	});
 });
 

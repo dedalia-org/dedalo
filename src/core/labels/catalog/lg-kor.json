@@ -836,6 +836,7 @@
 	"reset_to_seed": "시드로 초기화",
 	"reset_warning": "시드에서 삭제하고 다시 가져와 모든 로컬 편집 내용을 폐기합니다",
 	"resize": "크기 조정",
+	"restricted": "(제한됨)",
 	"reuse_tag": "태그 재사용",
 	"reverse_relations": "역방향 관계",
 	"rotate": "회전",

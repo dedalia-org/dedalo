@@ -74,3 +74,21 @@ Same keys, same item shape; only WHICH options appear changes.
 read — owner decision pending (port it, or declare it superseded by
 `fixed_filter source:'component_data'`, its v7 translation on the shipped
 nodes). No vendored v7 node carries it.
+
+## Addendum 2026-11-13 — owner rulings C5 and C6 (`WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter`)
+
+- **"Not covered" closed (C5):** `properties.filtered_by_search_dynamic` is
+  NOT ported — superseded by `fixed_filter source:'component_data'`. A live
+  node declaring it with neither a fixed_filter nor a `filtered_by_search` is
+  REFUSED at datalist build (`ontology.invalid_node`, message naming the tipo
+  and the fix); next to either translation the key is ignored. Gate:
+  `datalist_record_filter_native` (`zzdlr16` / `zzdlr17`).
+- **Divergence #3 REVERSED (C6):** a stored value outside the caller's scope
+  (or outside the record-resolved filter) whose target row exists is no longer
+  label-less: the edit datalist gains an opaque `restricted: true` entry
+  (value = the stored locator, label = the `restricted` catalog string,
+  `hide: []`) and the list value emits that string in its place. A stored
+  value whose target row is gone stays blank (PHP). The shared `getDatalist`
+  list is unchanged. Gates: the edit-door and list-value cases of
+  `datalist_projects_scope_native` (+ the deleted-target CONTROL) and of
+  `datalist_record_filter_native`.

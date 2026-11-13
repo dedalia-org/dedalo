@@ -73,3 +73,13 @@ select-family models (PHP: only `component_select_json` calls
   frame per item on a multi-item value, the save echo of a first pick, and the
   guards (list / search / empty / no slot). RED on 3353d4607f: 5 of 9 (every
   frame assertion); the four guards green before and after.
+
+## Addendum 2026-11-13 — the slot ddo is not a label part (owner C2)
+
+`WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter` §1: the
+`component_dataframe` ddo this entry makes the select emit frames for is
+EXCLUDED from the select's option-label and hide ddo sets
+(`resolveDatalistSources`). PHP imploded its empty value too, so every label
+of such a select ended in `' | '`; TS labels are the non-frame show ddos only.
+The frame emission above is unchanged. Gate: the "no trailing separator" case
+of `select_dataframe_subdatum_native`.

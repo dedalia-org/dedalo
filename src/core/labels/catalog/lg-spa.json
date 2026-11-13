@@ -836,6 +836,7 @@
 	"reset_to_seed": "Restablecer a la semilla",
 	"reset_warning": "Esto BORRA y reimporta desde la semilla, descartando cualquier edición local",
 	"resize": "Redimensionar",
+	"restricted": "(restringido)",
 	"reuse_tag": "Reutilizar etiqueta",
 	"reverse_relations": "Relaciones inversas",
 	"rotate": "Rotar",
