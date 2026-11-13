@@ -289,6 +289,19 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Transcription tag statistics count the interview's own-language text**
+
+    The transcription statistics (time codes, index tags, notes, characters) of an audiovisual
+    record were taken from whichever language copy of the transcription happened to be stored
+    first, so a translation could replace the original's numbers.
+
+    Now, as in Dédalo v6, they are counted on the transcription in the interview's original
+    language ("Original language" field; a Valencian interview typed as Catalan counts the
+    Catalan text), or, when no original language is set, on the current data language.
+    Translations no longer skew them. Values already published must be republished to change.
+
+    Wire contract: `WC-2026-11-13-tags-widget-original-lang`.
+
 - **Transcriptions show again, in blue, the tags whose pair or indexation is broken.**
 
     Before, a transcription opened in the editor exactly as stored: an index tag whose opening or
@@ -1318,7 +1331,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 61 entries"
+??? note "Wire contract — 62 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1380,6 +1393,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-update-cache-external-mirror-refresh`
     - `WC-2026-11-12-wipe-respects-virtual-exclusion`
     - `WC-2026-11-12-zotero-csl-json-import`
+    - `WC-2026-11-13-tags-widget-original-lang`
     - `WC-2026-11-13-text-area-broken-tag-repair`
 
 ## 7.0.0-beta.8 — 2026-11-08

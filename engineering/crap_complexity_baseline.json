@@ -5,9 +5,9 @@
 	"root": "src/core",
 	"summary": {
 		"files": 936,
-		"functions": 16491,
-		"functionsOverCap": 645,
-		"filesOverCap": 256
+		"functions": 16495,
+		"functionsOverCap": 644,
+		"filesOverCap": 255
 	},
 	"ledger": [
 		{
@@ -230,6 +230,11 @@
 			"generated": "2026-11-12",
 			"functionsOverCap": 645,
 			"filesOverCap": 256
+		},
+		{
+			"generated": "2026-11-13",
+			"functionsOverCap": 644,
+			"filesOverCap": 255
 		}
 	],
 	"files": {
@@ -290,7 +295,6 @@
 		"src/core/components/component_info/widgets/state/state.ts": 38,
 		"src/core/components/component_info/widgets/test/test_info.ts": 12,
 		"src/core/components/component_info/widgets/widget_common.ts": 18,
-		"src/core/components/component_text_area/emit.ts": 7,
 		"src/core/components/component_text_area/original_lang.ts": 9,
 		"src/core/components/component_text_area/tag_delete.ts": 13,
 		"src/core/components/component_text_area/tag_endpoint.ts": 8,

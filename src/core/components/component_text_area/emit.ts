@@ -14,12 +14,10 @@
 
 import { appServedMediaSrc } from '../../media/web_base_src.ts';
 import type { DataItem } from '../../resolve/component_data.ts';
-import { filterItemsByLang, readComponentItems } from '../../resolve/component_data.ts';
-import { isEmptyComponentData } from '../../resolve/data_item_emptiness.ts';
-import { equivalentLangsOf } from '../../resolve/lang_alias.ts';
+import { readComponentItems } from '../../resolve/component_data.ts';
 import { truncateHtml } from '../../resolve/truncate_html.ts';
 import type { ComponentEmitHook, EmitHookContext } from '../emit_hooks.ts';
-import { getOriginalLang } from './original_lang.ts';
+import { getOriginalLang, resolveRecordTextLang } from './original_lang.ts';
 import {
 	createSvgTagPathMemo,
 	renderTagsWithResolvedSvg,
@@ -84,14 +82,6 @@ async function renderListEntries(entries: unknown[], context: EmitHookContext): 
 		);
 	}
 	return rendered;
-}
-
-/**
- * True when a lang slice holds real text — the model's emptiness rule (T1-34 /
- * O14), so the editor's ghost `<p></p>` is no text and never wins the forcing.
- */
-function sliceHasText(items: unknown[], lang: string, model: string): boolean {
-	return !isEmptyComponentData(model, filterItemsByLang(items, lang));
 }
 
 /**
@@ -259,20 +249,14 @@ export const textAreaEmitHook: ComponentEmitHook = {
 	 */
 	async resolveEmitLang(context: EmitHookContext): Promise<string | null> {
 		if (context.ddoMode !== 'list') return null;
-		const originalLang = await getOriginalLang(
+		return resolveRecordTextLang(
 			context.ddo.tipo,
 			context.row.section_tipo,
 			context.row.section_id,
 			context.record,
+			readComponentItems(context.record, context.ddo.tipo, context.model),
+			context.model,
 		);
-		if (originalLang === null) return null;
-
-		const items = readComponentItems(context.record, context.ddo.tipo, context.model);
-		if (items === null || sliceHasText(items, originalLang, context.model)) return originalLang;
-		for (const sibling of equivalentLangsOf(originalLang)) {
-			if (sliceHasText(items, sibling, context.model)) return sibling;
-		}
-		return originalLang;
 	},
 
 	/**
