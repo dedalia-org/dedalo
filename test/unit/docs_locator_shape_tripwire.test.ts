@@ -195,17 +195,8 @@ const STRING_ADDRESS_ALLOWLIST: Record<string, Entry> = {
  */
 const DATOS_AS_COLUMN = /"datos"|\bjsonb\s+datos\b|\bdatos\s+jsonb\b|\bdatos\s*(?:->>?|::)/;
 
-const DATOS_ALLOWLIST: Record<string, Entry> = {
-	// FROZEN DEBT, not a justified exception. The page keeps a single-payload mental model
-	// and labels it "the legacy / matrix_hierarchy shape", with the v7 typed-column split
-	// stated in an adjacent admonition — so it misleads no careful reader, but the erDiagram
-	// and the example record still SAY `datos`. Rewriting the diagram is the fix; until
-	// then the count may only fall.
-	'docs/core/architecture_overview.md': {
-		max: 3,
-		reason: 'frozen debt: the conceptual erDiagram + example record still name the v6 column',
-	},
-};
+// Rule 2 has NO exceptions: the last page (architecture_overview.md) was rewritten to v7 typed columns.
+const DATOS_ALLOWLIST: Record<string, Entry> = {};
 
 // ---------------------------------------------------------------------------
 // RULE 3 — `relation` (singular, keyed by tipo), never a flat `relations` array
@@ -505,7 +496,7 @@ describe('docs locator/storage/envelope shape tripwire', () => {
 			'docs/install/upgrading.md',
 			'docs/using/importing_data.md',
 		]);
-		expect(Object.keys(DATOS_ALLOWLIST).sort()).toEqual(['docs/core/architecture_overview.md']);
+		expect(Object.keys(DATOS_ALLOWLIST)).toEqual([]);
 		// Rule 3 has NO exceptions: the carve-out is in the MEASURE (node arrays reference
 		// definitions by tipo and are never flagged), not in a list of pardoned pages.
 		expect(Object.keys(RELATIONS_ALLOWLIST)).toEqual([]);
