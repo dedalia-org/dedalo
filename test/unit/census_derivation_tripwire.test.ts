@@ -401,7 +401,8 @@ const PRIVATE_ROOT_WALKERS: Readonly<Record<string, string>> = {
 		'ROOTS: `client/dedalo/core/area_maintenance`; `client/dedalo/core/area_maintenance/widgets` — the area JS, and the widget LESS one level down.',
 	'test/unit/docs_current_engine_tripwire.test.ts': 'ROOTS: `docs`.',
 	'test/unit/docs_locator_shape_tripwire.test.ts': 'ROOTS: `docs`.',
-	'test/unit/engine_install_tld_tripwire.test.ts': 'ROOTS: `src`.',
+	'test/unit/engine_install_tld_tripwire.test.ts':
+		'ROOTS: `src` `src/tld` `tools`; `src/tld`; `tools` — the generic engine minus the packages (leg 1) and the import edges over src/ + tools/ (leg 3); the package directories under src/tld (legs 2, 5); the tool trees, .ts + .js (leg 6).',
 	'test/unit/engineering_currency_tripwire.test.ts': 'ROOTS: `engineering`.',
 	'test/unit/error_taxonomy_tripwire.test.ts': 'ROOTS: `client/dedalo` `tools`; `src` `tools`.',
 	'test/unit/external_client_render_tripwire.test.ts':
