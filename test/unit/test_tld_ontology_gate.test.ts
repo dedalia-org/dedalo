@@ -324,6 +324,9 @@ describe('test TLD ontology — the inverse parser (hermetic)', () => {
 	});
 
 	test('the import rewrite converges the fixture in ONE pass: L everywhere it applies, never C (T1-P05)', () => {
+		// KERNEL precondition only — pure, no door, no DB: green whether or not the materializer
+		// runs the rewrite. The door is guarded by the round-trip / dd_ontology compares, the
+		// `zzmnd` scratch leg and G6's census leg (WC-2026-11-04 addendum 2026-11-13).
 		const classes: Record<string, number> = { none: 0, L: 0, S: 0, C: 0 };
 		const notFixed: string[] = [];
 		for (const node of SOURCE_NODES) {
