@@ -263,13 +263,21 @@ async function stackReviewBlocks(
  * scripts/install.ts (campaign 3c D2: an untrusted chain, Apache beside nginx,
  * a held port were refused only after `yes`, every answer lost). The SAME
  * function the run asks (host_executor.ts hostPlanRefusals), over the plan
- * with no secret; none for a plan that runs no host step. `options`: a gate's
+ * with no secret; on the developer route the engine's existing-install
+ * refusals (installed_here.ts); none for the delegated engine child. `options`: a gate's
  * scratch machine (default: this one, or the scratch seam's when armed).
  */
 export async function reviewPreflightRefusals(
 	plan: InstallPlan,
 	options: HostExecutorOptions = {},
 ): Promise<string[]> {
+	if (plan.answers.route === 'developer' && !plan.answers.engine_only) {
+		// The developer run's own "already installed here" refusals (T1-P08 —
+		// installed_here.ts, the executor's words); the database's are the
+		// Database screen's gate and the run's locked check.
+		const { engineInstalledHere } = await import('../installed_here.ts');
+		return engineInstalledHere();
+	}
 	if (runsNoHostStep(plan)) return [];
 	const { hostPlanRefusals } = await import('./host_executor.ts');
 	return (await hostPlanRefusals(buildPlanFile(plan, {}), options)).errors;

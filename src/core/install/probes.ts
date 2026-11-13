@@ -19,6 +19,7 @@
 
 import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import type { TargetDatabaseState } from './db_restore.ts';
 import type { CatalogProbeResult } from './front_end.ts';
 import { type FirewallFacts, firewallVerdict } from './host/firewall.ts';
 import { osRowOf, parseOsRelease, unsupportedOsSentence } from './host/os_support.ts';
@@ -343,10 +344,38 @@ export interface HostMeasures {
 	instance?: { name: string; taken: string | null };
 }
 
+/**
+ * An installation already HERE (T1-P08, TODO-050): what the run would refuse as
+ * "already installed", measured on screen 2 instead of after the Review and
+ * `yes` — the developer's engine record / sealed state file
+ * (installed_here.ts), docker/trial's instance volume, stack files and host
+ * record. Production says it on its Instance row (measureTaken).
+ */
+export interface InstallationMeasure {
+	/** Where it was looked for (the ok row names it). */
+	where: string;
+	/** The run's own refusal sentences; none: nothing installed there. */
+	problems: string[];
+}
+
 /** What the System check measured besides init_test: the host (production), the stack (docker/trial). */
 export interface SystemMeasures {
 	host?: HostMeasures | null;
 	stack?: StackFacts | null;
+	installed?: InstallationMeasure | null;
+}
+
+/** The Installation rows: one FAIL per refusal (fixable — retry/back/quit), else one ok row. */
+export function installationRows(measure: InstallationMeasure | null): SystemCheckRow[] {
+	if (measure === null) return [];
+	if (measure.problems.length === 0) {
+		return [{ state: 'ok', label: 'Installation', detail: `none in ${measure.where}` }];
+	}
+	return measure.problems.map((detail) => ({
+		state: 'fail' as const,
+		label: 'Installation',
+		detail,
+	}));
 }
 
 /**
@@ -365,6 +394,7 @@ export function systemCheckRows(
 	const rows = [
 		...initRows(init, route),
 		...measuredRows(init, info, route, measures.stack ?? null),
+		...installationRows(measures.installed ?? null),
 	];
 	return route === 'production' ? productionRows(rows, measures.host ?? null) : rows;
 }
@@ -416,6 +446,11 @@ export interface SystemCheckSeams {
 	firewall?: (osRelease: string) => Promise<FirewallFacts | null>;
 	/** An installed instance holding the name: its refusal, or null (default: measured — measureTaken). */
 	taken?: (instance: string) => Promise<string | null>;
+	/** An installation already here (developer/docker/trial; default: measured — measureInstalled). */
+	installed?: (
+		route: InstallRoute,
+		stack: StackFacts | null,
+	) => Promise<InstallationMeasure | null>;
 }
 
 /**
@@ -483,12 +518,58 @@ async function measureTaken(instance: string): Promise<string | null> {
 	const { sameNameRecords } = await import('./host/production/instances.ts');
 	const { instanceTakenSentence } = await import('./host/production/identity_rules.ts');
 	const records = sameNameRecords(reviewMachine().fs, instance);
-	return records.length === 0
-		? null
-		: instanceTakenSentence(
-				instance,
-				records.map((record) => record.source),
-			);
+	if (records.length > 0) {
+		return instanceTakenSentence(
+			instance,
+			records.map((record) => record.source),
+		);
+	}
+	// No registry entry, but a host run record under /var/lib/dedalo-install/<instance>
+	// (an unfinished or finished run): the run's assertNoRecord would refuse it after `yes`.
+	const { hostRecordRefusal } = await import('./host/host_executor.ts');
+	return hostRecordRefusal({ route: 'production', instance });
+}
+
+/** The engine's own record / sealed state file (developer): installed_here.ts. */
+async function developerInstalled(): Promise<InstallationMeasure> {
+	const { engineInstalledHere } = await import('./installed_here.ts');
+	const { installRunDir } = await import('./run_files.ts');
+	return { where: installRunDir(), problems: engineInstalledHere() };
+}
+
+/** Docker/trial: the instance volume, the checkout's stack files, the stack's host record. */
+async function stackInstalled(
+	route: InstallRoute,
+	stack: StackFacts,
+): Promise<InstallationMeasure> {
+	const { reviewMachine } = await import('./host/review.ts');
+	const { sourceTreeRoot } = await import('./host/source.ts');
+	const { stackFileOf } = await import('./host/stack/layout.ts');
+	const { existingStackProblems } = await import('./host/stack/preflight.ts');
+	const { hostRecordRefusal } = await import('./host/host_executor.ts');
+	const source = sourceTreeRoot();
+	const answers = normalizeInstallAnswers({ route }).answers;
+	const record = hostRecordRefusal({ route }, source);
+	return {
+		where: source,
+		problems: [
+			...existingStackProblems(
+				{ source, fs: reviewMachine().fs, stackFile: stackFileOf(answers) },
+				stack,
+			),
+			...(record === null ? [] : [record]),
+		],
+	};
+}
+
+/** An installation already here, per route (production: its Instance row says it). */
+async function measureInstalled(
+	route: InstallRoute,
+	stack: StackFacts | null,
+): Promise<InstallationMeasure | null> {
+	if (route === 'developer') return developerInstalled();
+	if (route === 'production' || stack === null) return null;
+	return stackInstalled(route, stack);
 }
 
 /** The production instance name's measure (no name, or an invalid one: not measured). */
@@ -509,6 +590,7 @@ async function systemMeasures(
 ): Promise<SystemMeasures> {
 	const osRelease = osReleaseText();
 	const named = await routeInstance(route, instance, seams);
+	const stack = onHost(route) ? null : await (seams.stack ?? measureStack)();
 	return {
 		host: {
 			osRelease,
@@ -516,7 +598,8 @@ async function systemMeasures(
 			firewall: await routeFirewall(route, osRelease, seams),
 			...(named === undefined ? {} : { instance: named }),
 		},
-		stack: onHost(route) ? null : await (seams.stack ?? measureStack)(),
+		stack,
+		installed: await (seams.installed ?? measureInstalled)(route, stack),
 	};
 }
 
@@ -593,6 +676,8 @@ export interface DatabaseProbeSeams {
 	serverVersion?: (posted: Record<string, unknown>) => Promise<string | null>;
 	/** This machine's psql `--version` line, or null (default: pg_bin.ts probePsql). */
 	psqlVersion?: () => Promise<string | null>;
+	/** The target's fresh-install state, read-only (default: db_restore.ts inspectTargetDatabase). */
+	inspect?: (posted: Record<string, unknown>) => Promise<TargetDatabaseState>;
 }
 
 /** The server's `server_version_num` over the posted connection, or null. */
@@ -656,10 +741,30 @@ async function connectionProbe(
 ): Promise<ProbeOutcome> {
 	const connect = seams.connect ?? (await import('./db_probe.ts')).testDbConnection;
 	const result = await connect(postedAnswers);
-	const ok = result.can_connect && result.db_exists;
-	const suffix =
-		ok && route === 'developer' ? await developerClientSuffix(postedAnswers, seams) : '';
-	return { ok, detail: `${result.msg}${suffix}` };
+	if (!(result.can_connect && result.db_exists)) return { ok: false, detail: result.msg };
+	// Reached and present: would the run take it? (T1-P08 — the run's own refusals,
+	// said here where the database is named, not after the Review and `yes`.)
+	const problems = await freshProblemsOf(postedAnswers, seams);
+	if (problems.length > 0) return { ok: false, detail: `${result.msg} — ${problems.join('; ')}` };
+	const suffix = route === 'developer' ? await developerClientSuffix(postedAnswers, seams) : '';
+	return { ok: true, detail: `${result.msg}${suffix}` };
+}
+
+/** The run's fresh-target refusals of the posted database (fresh_target.ts), measured read-only. */
+async function freshProblemsOf(
+	postedAnswers: Record<string, unknown>,
+	seams: DatabaseProbeSeams,
+): Promise<string[]> {
+	const { freshTargetProblems } = await import('./fresh_target.ts');
+	const target = await (seams.inspect ?? inspectPosted)(postedAnswers);
+	return freshTargetProblems(String(postedAnswers.db_database ?? ''), target);
+}
+
+/** db_restore.ts inspectTargetDatabase over the posted connection (catalog reads only). */
+async function inspectPosted(postedAnswers: Record<string, unknown>): Promise<TargetDatabaseState> {
+	const { inspectTargetDatabase } = await import('./db_restore.ts');
+	const { pgConnFromOptions } = await import('./db_probe_plan.ts');
+	return inspectTargetDatabase(pgConnFromOptions(postedAnswers));
 }
 
 export async function diffusionProbe(

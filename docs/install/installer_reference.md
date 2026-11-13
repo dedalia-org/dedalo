@@ -724,8 +724,14 @@ What the screens do for you:
   private directory, Docker, Compose and the disk — the full list is in
   [Troubleshooting › The System check screen](troubleshooting.md#the-system-check-screen).
   A failure no fix on this machine can change (an unsupported system) offers only
-  quit, or back to another route. The database must exist, be
-  reachable and be empty: retry, or go back and edit. The media directory
+  quit, or back to another route. An installation already here fails the System
+  check, with the sentence the run would refuse it with: on developer a finished
+  install record or a sealed state file in the private directory; on docker and
+  trial the instance's volume, an earlier `.dedalo.env` or
+  `compose.override.yaml`, or the stack's install record; on production an
+  install record of the instance name (its **Instance** row). The database must
+  exist, be reachable, be empty and be owned by the install role (the run's own
+  check, its words): retry, or go back and edit. The media directory
   (production) must be creatable by you. The MariaDB and SMTP connections must
   pass, or you type `yes` to keep them untested — the Review says which. The
   mail check can also send a real test message to an address you give (it is
@@ -1442,8 +1448,9 @@ sh install.sh [--release <file|https-url> --release-sha256 <sha256>] \
 aarch64) for every route, or a Mac (Apple silicon or Intel) for the docker and
 trial routes with Docker Desktop — its Bun checked against the release's
 `.bun-sha256-darwin`, the same signed payload's macOS rows; the release — the checkout it sits in, or `--release`, an archive whose
-sha256 must equal `--release-sha256` (there is no "confirm on the terminal"
-instead); Bun at the release's pin, its zip checked against the release's
+sha256 must equal `--release-sha256` — the 64 hexadecimal digits, never the
+address of the `.sha256` file (see [Get Dédalo](index.md#get-dedalo); there is
+no "confirm on the terminal" instead); Bun at the release's pin, its zip checked against the release's
 committed `.bun-sha256` and Bun's own `SHASUMS256.txt` (both must agree), cached
 and re-hashed on every reuse; the installer's dependencies; then
 `exec bun scripts/install.ts <your arguments>` — your arguments and your

@@ -99,8 +99,8 @@ export function isStateWritable(): boolean {
  * there).
  */
 export function statePath(): string {
-	const override = readEnv('DEDALO_TS_STATE_PATH');
-	if (override !== undefined) return override;
+	const path = statePathOf();
+	if (readEnv('DEDALO_TS_STATE_PATH') !== undefined) return path;
 	// The ONE private-dir resolution (src/config/env.ts), which honors
 	// DEDALO_PRIVATE_DIR. This used to fall back to `process.cwd()` when the
 	// private dir did not exist — under systemd cwd IS the code tree, so the
@@ -119,7 +119,17 @@ export function statePath(): string {
 			});
 		}
 	}
-	return join(privateDir, 'ts_state.json');
+	return path;
+}
+
+/**
+ * The state file's path WITHOUT creating anything — the ONE resolution
+ * statePath() also answers (DEDALO_TS_STATE_PATH, else <private>/ts_state.json).
+ * For a read-only reader (the installer's System check, install/installed_here.ts)
+ * that must never mkdir the private dir it is only looking at.
+ */
+export function statePathOf(): string {
+	return readEnv('DEDALO_TS_STATE_PATH') ?? join(privateDir, 'ts_state.json');
 }
 
 export function getServerState(): ServerState {

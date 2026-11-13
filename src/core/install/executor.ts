@@ -66,6 +66,7 @@ import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import type { InstallLockHandle, TargetDatabaseState } from './db_restore.ts';
 import type { DevCertificatePlan } from './dev_certificate.ts';
 import type { DevListenerPlan } from './dev_listener.ts';
+import { freshTargetProblems } from './fresh_target.ts';
 import {
 	type InstallAnswers,
 	type InstallPlan,
@@ -73,6 +74,7 @@ import {
 	isInstallStepId,
 	type StepId,
 } from './install_plan.ts';
+import { engineRecordSentence, recordDatabase, SEALED_PRIVATE_DIR } from './installed_here.ts';
 import type { OntologyCatalog } from './ontology_choice.ts';
 import { devTlsDir, installPrivateDir } from './paths.ts';
 import { trackPsqlChildren } from './pg_exec.ts';
@@ -550,27 +552,10 @@ function missingWithAncestors(paths: readonly string[]): string[] {
 
 /** The database must exist, be EMPTY for an install, and have no seed restore on it. */
 function assertFreshTarget(db: string, target: TargetDatabaseState): void {
-	refuseIf(!target.exists, 'install.state_conflict', () => `database '${db}' must exist first`);
-	refuseIf(
-		target.seedRestoreRunning !== null,
-		'install.state_conflict',
-		() => `a seed restore into '${db}' is still running (backend pid ${target.seedRestoreRunning})`,
-	);
-	refuseIf(
-		!target.emptyForInstall,
-		'install.state_conflict',
-		() =>
-			`database '${db}' is not empty (${target.userObjectCount} objects, e.g. ${target.userObjects.slice(0, 5).join(', ')}) — the installer only installs into an empty database`,
-	);
-	// The seed stamps the database (COMMENT ON DATABASE — owner only): what lets a
-	// resume and --abort prove the database is this install's. Refused HERE,
-	// before any write, not by a rolled-back restore later.
-	refuseIf(
-		!target.canStamp,
-		'install.state_conflict',
-		() =>
-			`the install role does not own database '${db}' — create it with OWNER set to the install user (CREATE DATABASE ${db} OWNER <db user>)`,
-	);
+	// The first problem, in the rule's order (fresh_target.ts —
+	// the Database screen shows the same sentences before the Review).
+	const [first] = freshTargetProblems(db, target);
+	refuseIf(first !== undefined, 'install.state_conflict', () => first as string);
 }
 
 /** Take the server-side lock on the target database, or refuse. */
@@ -602,10 +587,9 @@ function lockRunDir(ctx: RunContext): void {
 function assertNoRecord(): void {
 	const existing = readStateFile();
 	if (existing === null) return;
-	const db = String(readPlanFile()?.answers.db_database ?? '<db>');
 	refuseInstall(
 		'install.state_conflict',
-		`an install record exists at ${join(installRunDir(), STATE_FILE)} (outcome: ${existing.outcome}) — resume it with --resume, undo it with --abort --confirm-database ${db}, or remove the install directory if this private directory is being reused deliberately`,
+		engineRecordSentence(installRunDir(), existing, recordDatabase()),
 	);
 }
 
@@ -616,8 +600,7 @@ async function assertMachineReady(ctx: RunContext): Promise<void> {
 	refuseIf(
 		ctx.host.installStatus() === 'sealed',
 		'install.state_conflict',
-		() =>
-			'this private directory belongs to a SEALED installation — a fresh install never overwrites a live one',
+		() => SEALED_PRIVATE_DIR,
 	);
 	say(ctx, '→ pre-flight checks');
 	const init = await ctx.host.initTest();

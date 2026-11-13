@@ -90,14 +90,15 @@
 - [ ] TODO-047: Seed database profile records (dd234) are not configured at all (see v6 profiles from installation DB)
 - [ ] TODO-048: Database 'role' is the same as database 'user' ? Clarify (In MariaDB config 'user' is used)
 - [ ] TODO-049: Ontologies selector: The labels are in spanish (e.g. España | es). It is intentional? Because the rest of the interface is in english.
-- [ ] TODO-050: Installing into an already installed code fails. This is OK, but the failure message is at end of all the installation process, not at the beginning. Check at beginning of installation process.
-- [ ] TODO-051: Add a sample to https://dedalo.dev/docs/v7/install/#what-you-are-installing where refer 'https://master7.dedalo.dev/dedalo/install/code/<version>/<version>.zip'
+- [x] TODO-050: Installing into an already installed code fails. This is OK, but the failure message is at end of all the installation process, not at the beginning. Check at beginning of installation process. (2026-11-13: the System check — screen 2 — fails an installed tree with the run's own sentence on every route: developer `Installation` row (finished record / sealed state file, src/core/install/installed_here.ts), docker/trial (instance volume, stack files, host record), production `Instance` row (host run record); the Database screen says a non-empty / not-owned database (fresh_target.ts); the developer Review preflight carries it too. Gate test/unit/install_existing_install_native.test.ts.)
+- [x] TODO-051: Add a sample to https://dedalo.dev/docs/v7/install/#what-you-are-installing where refer 'https://master7.dedalo.dev/dedalo/install/code/<version>/<version>.zip'
 See this error:
 ```
 sudo sh install.sh --release https://master7.dedalo.dev/dedalo/install/code/7/7.0/7.0.0-dev.zip \
   --release-sha256 https://master7.dedalo.dev/dedalo/install/code/7/7.0/7.0.0-dev.zip.sha256
 install.sh: --release needs --release-sha256 <the sha256 the release was published with> (64 hex digits)
 ```
+(2026-11-13: the URL grammar is `/dedalo/install/code/<X.Y.Z>/<archive>` — the `/7/7.0/` form above is not served; docs/install/index.md "Get Dédalo" has the archive kinds, the `.sha256` format and a worked 7.0.0-dev example; install.sh says "--release-sha256 takes the 64 hex digits …, not '<value>'" when given a URL. Gate test/unit/install_bootstrap_sh.test.ts.)
 - [x] TODO-052: Check this error on dev install finish (the installer doesn't install all dependencies): (2026-10-17: the developer route's install_dev_dependencies step; `bun run dev` stops when its CSS watcher dies, and the serve check names the missing package. Gates test/unit/install_dev_dependencies_native.test.ts, test/unit/install_dev_serve_native.test.ts C.)
 ```
 bun run dev

@@ -64,6 +64,7 @@ import {
 	type SystemCheckRow,
 } from '../../src/core/install/screen_model.ts';
 import { processorText } from '../../src/core/install/server_info.ts';
+import { emptyTarget } from '../helpers/install_fake_executor.ts';
 import {
 	DOCKER,
 	SCRATCH_DIR,
@@ -458,11 +459,14 @@ describe('System check — the processor on aarch64 (C3-49)', () => {
 
 describe('Developer: a psql older than the server it installs into is a WARNING (C3-49)', () => {
 	const connect = async () => ({ can_connect: true, db_exists: true, msg: 'connected' });
+	// The target is fresh (T1-P08: the probe also asks the run's fresh-target rule).
+	const inspect = async () => emptyTarget();
 	const answers = { route: 'developer', db_database: 'dedalo_dev', db_username: 'dedalo' };
 
 	test('psql 16 against PostgreSQL 18: warned with the fix; 18 against 18 (or newer): nothing', async () => {
 		const older = await databaseProbe(answers, 'pw', {
 			connect,
+			inspect,
 			serverVersion: async () => '180001',
 			psqlVersion: async () => 'psql (PostgreSQL) 16.4',
 		});
@@ -470,6 +474,7 @@ describe('Developer: a psql older than the server it installs into is a WARNING 
 		expect(older.detail).toContain('warning: psql 16 is older than the server (PostgreSQL 18)');
 		const same = await databaseProbe(answers, 'pw', {
 			connect,
+			inspect,
 			serverVersion: async () => '180001',
 			psqlVersion: async () => 'psql (PostgreSQL) 18.1',
 		});

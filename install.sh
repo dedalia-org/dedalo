@@ -276,8 +276,10 @@ tree_root() {
 
 # stage_release <file|https-url> <sha256> <cache>: the verified, extracted tree's path.
 stage_release() {
-	printf '%s\n' "$2" | grep -Eq "$SHA256_RE" \
+	[ -n "$2" ] \
 		|| die '--release needs --release-sha256 <the sha256 the release was published with> (64 hex digits)'
+	printf '%s\n' "$2" | grep -Eq "$SHA256_RE" \
+		|| die "--release-sha256 takes the 64 hex digits of the release's sha256, not '$2' — the first field of <archive>.sha256 (curl -fsSL <archive url>.sha256 | cut -c1-64)"
 	_kind=$(archive_kind "$1") || exit 3
 	_stage=$3/release/$2
 	private_dir "$_stage"

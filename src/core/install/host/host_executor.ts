@@ -480,21 +480,38 @@ function startRun(ctx: HostRunContext, mode: RunMode): void {
 	(ctx.state as InstallState).runs.push(ctx.run);
 }
 
+/**
+ * THE wording of a host record a fresh run refuses (the run, and the System
+ * check before any other question — T1-P08). A complete production instance is
+ * never "resumed" or "undone" by a fresh run of its name (C3d-F1).
+ */
+export function hostRecordSentence(answers: Partial<InstallAnswers>, dir: string): string {
+	const state = readStateFile(dir);
+	if (answers.route === 'production' && state?.outcome === 'complete') {
+		return instanceTakenSentence(String(answers.instance ?? ''), [join(dir, STATE_FILE)]);
+	}
+	return `an install record exists at ${join(dir, STATE_FILE)} — resume it (--resume) or undo it (--abort --confirm-database <db>)`;
+}
+
+/**
+ * The host record these answers' fresh run would refuse, read where the run
+ * reads it (the scratch seam's root included) — or null. Read-only.
+ */
+export function hostRecordRefusal(
+	answers: Partial<InstallAnswers>,
+	source: string = sourceTreeRoot(),
+): string | null {
+	const scratch = readHostRootSeam();
+	const dir = hostFs(scratch?.root ?? '').real(hostRunDirOf(answers, source));
+	return readStateFile(dir) === null ? null : hostRecordSentence(answers, dir);
+}
+
 /** A fresh run never starts over an existing record. */
 function assertNoRecord(ctx: HostRunContext): void {
-	const state = readStateFile(ctx.runDir);
-	if (state === null) return;
-	const answers = (ctx.plan as PlanFile).answers;
-	if (answers.route === 'production' && state.outcome === 'complete') {
-		// A complete instance is never "resumed" or "undone" by a fresh run of its name (C3d-F1).
-		hostRefuse(
-			'install.state_conflict',
-			instanceTakenSentence(String(answers.instance ?? ''), [join(ctx.runDir, STATE_FILE)]),
-		);
-	}
+	if (readStateFile(ctx.runDir) === null) return;
 	hostRefuse(
 		'install.state_conflict',
-		`an install record exists at ${join(ctx.runDir, STATE_FILE)} — resume it (--resume) or undo it (--abort --confirm-database <db>)`,
+		hostRecordSentence((ctx.plan as PlanFile).answers, ctx.runDir),
 	);
 }
 

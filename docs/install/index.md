@@ -44,6 +44,16 @@ sudo sh install.sh --release https://master7.dedalo.dev/dedalo/install/code/<ver
 
 `<sha256>` is the digest published in `<version>.zip.sha256`. The bootstrap hashes the archive before anything reads it and refuses it when the hash differs.
 
+Every archive lives in the folder of its `X.Y.Z` version, `https://master7.dedalo.dev/dedalo/install/code/<X.Y.Z>/`, under one of three names: `<X.Y.Z>.zip` (a stable release), `<X.Y.Z>-beta.<N>.zip` (a prerelease; likewise `-alpha.<N>` and `-rc.<N>`), or `<X.Y.Z>-dev.zip` (the developer channel). The `.sha256` file beside it reads like `sha256sum` output: the 64 hexadecimal digits, two spaces, the archive's name. `--release-sha256` takes the digits only — never the address of the `.sha256` file. For the 7.0.0 developer archive:
+
+```shell
+URL=https://master7.dedalo.dev/dedalo/install/code/7.0.0/7.0.0-dev.zip
+SHA=$(curl -fsSL --proto =https "$URL.sha256" | cut -c1-64)
+sudo sh install.sh --release "$URL" --release-sha256 "$SHA"
+```
+
+A digest read from the same server proves the download is intact, not that the server is the right one: compare `$SHA` with the digest listed for that release on GitHub before you run the last line.
+
 The bootstrap itself needs `curl`, `unzip` and `sha256sum` on the machine before the installer can install anything, and a checkout needs `git`. A minimal server may lack them:
 
 ```shell
