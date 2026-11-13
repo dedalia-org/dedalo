@@ -31,6 +31,52 @@ export function isPinnedImage(image: string): boolean {
 	return PINNED_IMAGE.test(image);
 }
 
+/**
+ * The images whose MAJOR version is an ON-DISK DATA FORMAT (owner ruling C24,
+ * 2026-11-13): PostgreSQL refuses a data directory of another major, so does
+ * MariaDB; pgvector's format is its PostgreSQL's (`…-pgNN`). A major never
+ * moves by a pin bump — Dependabot ignores it (`.github/dependabot.yml`) and
+ * the image updater refuses to reconcile it (deploy/dedalo-image-update.sh,
+ * `service_major_mismatch`); it moves by the documented migration procedure
+ * (docs/install/docker.md). Gate: operator_image_pin_tripwire.
+ */
+export const DATA_FORMAT_IMAGES: readonly string[] = Object.freeze([
+	'postgres',
+	'pgvector/pgvector',
+	'mariadb',
+]);
+
+/** The image NAME of a reference: `pgvector/pgvector:0.8.7-pg18@sha256:…` → `pgvector/pgvector`. */
+export function imageNameOf(ref: string): string {
+	const named = ref.split('@')[0] as string;
+	const slash = named.lastIndexOf('/');
+	const colon = named.lastIndexOf(':');
+	return colon > slash ? named.slice(0, colon) : named;
+}
+
+/** The TAG of a reference (`18.6`, `0.8.7-pg18`), or null when it carries none. */
+export function imageTagOf(ref: string): string | null {
+	const named = ref.split('@')[0] as string;
+	const slash = named.lastIndexOf('/');
+	const colon = named.lastIndexOf(':');
+	return colon > slash ? named.slice(colon + 1) : null;
+}
+
+/**
+ * The DATA-FORMAT MAJOR a reference names — `18` for `postgres:18.6`, `11` for
+ * `mariadb:11.8.9`, `pg18` for `pgvector/pgvector:0.8.7-pg18` — or null for an
+ * image whose major is not a data format, or a tag that spells none. The bash
+ * twin is `service_major_of` in deploy/dedalo-image-update.sh (held equal by
+ * image_update_script_native).
+ */
+export function dataFormatMajorOf(ref: string): string | null {
+	const name = imageNameOf(ref);
+	const tag = imageTagOf(ref);
+	if (tag === null || !DATA_FORMAT_IMAGES.includes(name)) return null;
+	if (name === 'pgvector/pgvector') return /(?:^|-)(pg\d+)(?:-|$)/.exec(tag)?.[1] ?? null;
+	return /^(\d+)(?:[.-]|$)/.exec(tag)?.[1] ?? null;
+}
+
 interface StackService {
 	readonly image?: unknown;
 	readonly profiles?: unknown;

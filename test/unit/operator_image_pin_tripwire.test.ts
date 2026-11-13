@@ -24,7 +24,10 @@
  *      Encrypt issuance runs the stack file's certbot pin, the generated
  *      override spells no image;
  *   4. every directory holding a pinned compose image / Dockerfile has its
- *      Dependabot entry, and the file name is one Dependabot discovers;
+ *      Dependabot entry, and the file name is one Dependabot discovers; a
+ *      DATA-FORMAT image (postgres, pgvector, mariadb — owner C24, 2026-11-13)
+ *      has its semver-major updates IGNORED in that entry: a major is a
+ *      migration, never a pin bump;
  *   5. every Dockerfile FROM that names no earlier stage is pinned;
  *   6. an override written BEFORE the pin (its own unpinned certbot, no profile
  *      switch) is refused by the host library with its repair — merged over the
@@ -40,6 +43,9 @@ import { dirname, join } from 'node:path';
 import { stackImages } from '../../src/core/install/host/stack/database.ts';
 import { renderEnvFile, renderOverride } from '../../src/core/install/host/stack/files.ts';
 import {
+	DATA_FORMAT_IMAGES,
+	dataFormatMajorOf,
+	imageNameOf,
 	isPinnedImage,
 	stackFileServiceImages,
 	stackServiceImage,
@@ -264,9 +270,14 @@ describe('3. the installer runs the stack files’ pins, never its own spelling'
 const DEPENDABOT_COMPOSE_FILENAME = /(docker-)?compose(-[\w]+)?(?:\.[\w-]+)?\.ya?ml/i;
 
 describe('4. every pinned image has its updater', () => {
+	interface Ignore {
+		readonly 'dependency-name': string;
+		readonly 'update-types'?: readonly string[];
+	}
 	interface Update {
 		readonly 'package-ecosystem': string;
 		readonly directory: string;
+		readonly ignore?: readonly Ignore[];
 	}
 	const updates = (
 		Bun.YAML.parse(readFileSync(join(REPO_ROOT, '.github/dependabot.yml'), 'utf8')) as {
@@ -279,6 +290,69 @@ describe('4. every pinned image has its updater', () => {
 		const dir = dirname(file);
 		return dir === '.' ? '/' : `/${dir}`;
 	};
+	/** Does the docker-compose entry of `dir` ignore `name`'s semver-major updates? */
+	const ignoresMajor = (entries: readonly Update[], dir: string, name: string): boolean =>
+		entries.some(
+			(u) =>
+				u['package-ecosystem'] === 'docker-compose' &&
+				u.directory === dir &&
+				(u.ignore ?? []).some(
+					(rule) =>
+						rule['dependency-name'] === name &&
+						(rule['update-types'] ?? []).includes('version-update:semver-major'),
+				),
+		);
+
+	/**
+	 * C24 (owner ruling 2026-11-13): a postgres / pgvector / mariadb MAJOR is an
+	 * on-disk data format — a merged bump would make the container refuse the
+	 * existing volume on the next `up -d`. Every compose entry whose directory pins
+	 * one ignores its semver-major updates; the major moves by the documented
+	 * migration procedure, never by a pin PR.
+	 */
+	test("every data-format image pinned in a compose file has its MAJOR ignored in that directory's docker-compose entry (C24)", () => {
+		const dataFormat = composeImages().pinnable.filter((ref) =>
+			DATA_FORMAT_IMAGES.includes(imageNameOf(ref.image)),
+		);
+		// postgres ×2 (the operator stacks), mariadb, pgvector ×2 (docker-compose.yml, ci/compose.yml)
+		expect(dataFormat.length).toBeGreaterThanOrEqual(4);
+		for (const ref of dataFormat) expect(dataFormatMajorOf(ref.image), ref.image).not.toBeNull();
+		const unguarded = dataFormat
+			.filter((ref) => !ignoresMajor(updates, dirOf(ref.file), imageNameOf(ref.image)))
+			.map((ref) => `${ref.file}#${ref.service} (${imageNameOf(ref.image)})`);
+		expect(
+			unguarded,
+			'a data-format image whose major Dependabot may bump: add `ignore: [{dependency-name, update-types: ["version-update:semver-major"]}]` to its docker-compose entry',
+		).toEqual([]);
+	});
+
+	test('positive control: no ignore list, another dependency, or only a minor ignored — each caught; the data-format major grammar', () => {
+		const bare: Update = { 'package-ecosystem': 'docker-compose', directory: '/' };
+		const minor: Update = {
+			...bare,
+			ignore: [{ 'dependency-name': 'postgres', 'update-types': ['version-update:semver-minor'] }],
+		};
+		const other: Update = {
+			...bare,
+			ignore: [{ 'dependency-name': 'nginx', 'update-types': ['version-update:semver-major'] }],
+		};
+		const right: Update = {
+			...bare,
+			ignore: [{ 'dependency-name': 'postgres', 'update-types': ['version-update:semver-major'] }],
+		};
+		expect(ignoresMajor([bare], '/', 'postgres')).toBe(false);
+		expect(ignoresMajor([minor], '/', 'postgres')).toBe(false);
+		expect(ignoresMajor([other], '/', 'postgres')).toBe(false);
+		expect(ignoresMajor([right], '/ci', 'postgres')).toBe(false);
+		expect(ignoresMajor([right], '/', 'postgres')).toBe(true);
+		expect(dataFormatMajorOf(`postgres:18.6@sha256:${DIGEST}`)).toBe('18');
+		expect(dataFormatMajorOf(`mariadb:11.8.9@sha256:${DIGEST}`)).toBe('11');
+		expect(dataFormatMajorOf(`pgvector/pgvector:0.8.7-pg18@sha256:${DIGEST}`)).toBe('pg18');
+		expect(dataFormatMajorOf(`pgvector/pgvector:pg18@sha256:${DIGEST}`)).toBe('pg18');
+		expect(dataFormatMajorOf(`nginx:1.31.8-alpine@sha256:${DIGEST}`)).toBeNull();
+		expect(dataFormatMajorOf('postgres')).toBeNull();
+		expect(imageNameOf('localhost:5000/dedalo:7.0.1')).toBe('localhost:5000/dedalo');
+	});
 
 	test('a docker-compose entry for every directory holding a pinned compose image, under a discovered name', () => {
 		const files = [...new Set(composeImages().pinnable.map((ref) => ref.file))];

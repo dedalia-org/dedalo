@@ -878,6 +878,13 @@ held in THREE places — `db.yml`'s two services and `ci/compose.yml` — bump t
 change (Dependabot does not see workflow services, so its `/ci` PR moves only the compose
 copy). Gate: `ci_workflow_tripwire` "every pgvector image in the workflows equals
 ci/compose.yml's digest" turns that PR red until the workflow pins follow.
+**Data-format majors are never a Dependabot PR** (owner ruling C24, 2026-11-13): every
+`docker-compose` entry whose directory pins `postgres`, `pgvector/pgvector` or `mariadb`
+carries `ignore: … version-update:semver-major` for it — a merged `postgres:18 → 19`
+would make the container refuse the existing volume on the next `up -d`. A major moves by
+the documented migration (`docs/install/docker.md`, *A new PostgreSQL, pgvector or
+MariaDB major*), and the image updater refuses to reconcile a pin whose major differs
+from the running service. Gate: `operator_image_pin_tripwire` (4).
 
 **The pin** (`ci/image.json` + the literal digest in `ci.yml`, `db.yml`,
 `.gitlab-ci.yml`). `bun run ci:image:pin` is its updater: it resolves the digest
