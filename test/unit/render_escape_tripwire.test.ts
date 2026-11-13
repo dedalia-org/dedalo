@@ -1197,7 +1197,7 @@ const REMAINDER_RATCHET: Readonly<Record<string, number>> = {
 	'tools/tool_import_rdf/js/render_tool_import_rdf.js': 1,
 	'tools/tool_indexation/js/render_tool_indexation.js': 5,
 	'tools/tool_indexation/js/tag_note.js': 1,
-	'tools/tool_lang/js/browser_translation.js': 4,
+	'tools/tool_lang/js/browser_translation.js': 3,
 	'tools/tool_lang/js/render_tool_lang.js': 7,
 	'tools/tool_lang_multi/js/render_tool_lang_multi.js': 2,
 	'tools/tool_media_versions/js/render_tool_media_versions.js': 8,

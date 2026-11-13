@@ -371,7 +371,28 @@ else {
 				contents:
 					'export const clone = (value) => (value === undefined || value === null ? value : structuredClone(value));\n' +
 					'export const get_json_langs = async () => [];\n' +
+					// is_equal is the client's deep equality (utils/util.js); Bun's is the same
+					// structural comparison for the plain JSON values a save carries.
+					'export const is_equal = (a, b) => Bun.deepEquals(a, b);\n' +
 					'export const tr = { get_mark_pattern: () => /(?!)/g };\n',
+				loader: 'js',
+			}));
+			// The save-outcome reader (T1-P01). api_error.js is a PURE, import-free client
+			// module, so the REAL one is loaded: the driver must judge a save's answer by
+			// the same request_failed every other client door uses. render_api_error.js
+			// pulls ui.js (DOM), so error_text is stubbed to the code it would translate.
+			build.onResolve({ filter: /core\/common\/js\/api_error\.js$/ }, (args) =>
+				importerIsToolLang(args.importer)
+					? { path: join(ROOT, 'client', 'dedalo', 'core', 'common', 'js', 'api_error.js') }
+					: undefined,
+			);
+			build.onResolve({ filter: /core\/common\/js\/render_api_error\.js$/ }, (args) =>
+				importerIsToolLang(args.importer)
+					? { path: 'render-api-error-stub', namespace: 'tool-lang-error-stub' }
+					: undefined,
+			);
+			build.onLoad({ filter: /.*/, namespace: 'tool-lang-error-stub' }, () => ({
+				contents: "export const error_text = (api_error) => (api_error && api_error.code) || '';\n",
 				loader: 'js',
 			}));
 			// SUFFIX-matched, not `^\.\/…` (2026-08-31). A plugin `filter` is tested against
@@ -444,7 +465,27 @@ else {
 		/** The stored, human-made Spanish text the run must not overwrite. */
 		const STORED = '<p>El texto humano existente, revisado por la archivera.</p>';
 
-		async function runTranslation(messages: { status: string; data: Record<string, unknown> }[]) {
+		/**
+		 * How the target component ANSWERS (T1-P01). `component_common.prototype.save` never
+		 * rejects: a failed save RESOLVES its failure envelope and every pre-wire refusal
+		 * resolves `false`, so the driver must read the answer, not wait for a rejection.
+		 * - `save`: the save's answer (default: a v2 success envelope);
+		 * - `dbData`: the component's stored baseline (`db_data`) the no-change exit compares;
+		 * - `refreshFails`: the post-save re-render rejects;
+		 * - `beforeSettle`: runs after the worker messages, BEFORE the run is awaited — a
+		 *   pending `save` lets it look at what the operator sees while the save is in flight.
+		 */
+		interface TargetBehaviour {
+			save?: () => Promise<unknown>;
+			dbData?: Record<string, unknown>;
+			refreshFails?: boolean;
+			beforeSettle?: (status: ReturnType<typeof fakeNode>) => void;
+		}
+
+		async function runTranslation(
+			messages: { status: string; data: Record<string, unknown> }[],
+			behaviour: TargetBehaviour = {},
+		) {
 			const globals = globalThis as Record<string, any>;
 			const savedDocument = globals.document;
 			const savedWorker = globals.Worker;
@@ -473,11 +514,15 @@ else {
 				const saves: unknown[] = [];
 				const target: Record<string, any> = {
 					data: { value: [STORED], entries: [{ id: 7, value: STORED }] },
+					db_data: behaviour.dbData ?? { entries: [{ id: 7, value: STORED }] },
 					save: (items: unknown) => {
 						saves.push(items);
-						return Promise.resolve({ result: true });
+						return behaviour.save ? behaviour.save() : Promise.resolve({ ok: true, data: {} });
 					},
-					refresh: () => Promise.resolve(true),
+					refresh: () =>
+						behaviour.refreshFails
+							? Promise.reject(new Error('re-render failed'))
+							: Promise.resolve(true),
 				};
 				const status = fakeNode();
 				const promise = translate_component_browser({
@@ -499,6 +544,7 @@ else {
 				for (const message of messages) {
 					(worker as Record<string, any>).onmessage({ data: message });
 				}
+				behaviour.beforeSettle?.(status);
 				let rejected = false;
 				let resolved: unknown = null;
 				await promise.then(
@@ -551,6 +597,80 @@ else {
 			expect(rejected).toBe(false);
 			expect(saves.length, 'a complete run must still save').toBe(1);
 			expect((resolved as { result?: boolean } | null)?.result).toBe(true);
+		});
+
+		// -- T1-P01: the SAVE'S ANSWER decides the outcome, not the save call returning ----
+		/** A complete run: every block translated, the result is this text. */
+		const TRANSLATED = '<p>Uno.</p><p>Dos.</p>';
+		const COMPLETE_RUN = [
+			{ status: 'on_chunk', data: { remaining: 1, accumulated_text: '<p>Uno.</p>' } },
+			{ status: 'end', data: { remaining: 0, accumulated_text: TRANSLATED } },
+		];
+
+		test('a save that FAILED on the server is a failed run — never "completed", never resolved', async () => {
+			const { saves, status, rejected } = await runTranslation(COMPLETE_RUN, {
+				save: () =>
+					Promise.resolve({
+						ok: false,
+						error: { is_api_error: true, code: 'record.save_failed' },
+					}),
+			});
+			expect(saves.length, 'the complete run must reach the save').toBe(1);
+			expect(rejected, 'a failed save resolved — tool_lang_multi counts it ok').toBe(true);
+			const lines = statusLines(status).join('\n');
+			expect(lines, 'the operator was told it completed').not.toContain('completed');
+			expect(lines).toContain('not saved');
+			expect(lines, 'the reason the server gave is not named').toContain('record.save_failed');
+		});
+
+		test('a save REFUSED before the wire (false, value not stored) is a failed run', async () => {
+			// identity revoked / already saving / superseded: save() answers `false` and the
+			// stored baseline still holds the old text — nothing was written
+			const { rejected, status } = await runTranslation(COMPLETE_RUN, {
+				save: () => Promise.resolve(false),
+				dbData: { entries: [{ id: 7, value: STORED }] },
+			});
+			expect(rejected, 'a refused save resolved as success').toBe(true);
+			expect(statusLines(status).join('\n')).not.toContain('completed');
+		});
+
+		test('a save answering false because the value IS ALREADY STORED is a success (no-change exit)', async () => {
+			// the counterfactual of the case above: an identical re-translation takes save()'s
+			// no-change exit, which also answers `false` — the value is in the database
+			const { rejected, resolved } = await runTranslation(COMPLETE_RUN, {
+				save: () => Promise.resolve(false),
+				dbData: { entries: [{ id: 7, value: TRANSLATED }] },
+			});
+			expect(rejected).toBe(false);
+			expect((resolved as { result?: boolean } | null)?.result).toBe(true);
+		});
+
+		test('a re-render failing AFTER a landed save does not report the stored translation as failed', async () => {
+			const { rejected, resolved } = await runTranslation(COMPLETE_RUN, { refreshFails: true });
+			expect(rejected, 'the value is stored; a failed repaint is not a failed translation').toBe(
+				false,
+			);
+			expect((resolved as { result?: boolean } | null)?.result).toBe(true);
+		});
+
+		test('"completed" is not painted while the save is still on the wire', async () => {
+			let answer: (value: unknown) => void = () => {};
+			const pending = new Promise((done) => {
+				answer = done;
+			});
+			let inFlight = '';
+			const { status, rejected } = await runTranslation(COMPLETE_RUN, {
+				save: () => pending,
+				beforeSettle: (container) => {
+					inFlight = statusLines(container).join('\n');
+					answer({ ok: true, data: {} });
+				},
+			});
+			expect(inFlight, 'success was claimed before the save answered').not.toContain('completed');
+			expect(rejected).toBe(false);
+			expect(statusLines(status).join('\n'), 'a landed save must still say so').toContain(
+				'completed',
+			);
 		});
 
 		test('an empty result is refused too — it would BLANK the target language', async () => {
@@ -690,7 +810,7 @@ else {
 					verdict: 'refuses',
 					must_contain: 'refuse_run(',
 					reason:
-						'CLI-14. The worker skips a failed block and posts an `end` indistinguishable from a complete run, so the main thread counts the on_block_error messages itself and REFUSES: nothing is saved, the streamed partial is put back, the lost blocks are named and the promise rejects (a resolve would be counted as ok by both callers). Proved by LEG 2 above.',
+						'CLI-14. The worker skips a failed block and posts an `end` indistinguishable from a complete run, so the main thread counts the on_block_error messages itself and REFUSES: nothing is saved, the streamed partial is put back, the lost blocks are named and the promise rejects (a resolve would be counted as ok by both callers). T1-P01: a complete run is only reported done when the save ANSWERED that the value is stored (save_landed — component_common save() never rejects, it resolves a failure envelope or false); a save that did not land is named and rejects too. Proved by LEG 2 above.',
 				},
 			},
 		},

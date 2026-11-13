@@ -289,6 +289,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Local AI translation no longer reports success when the translation could not be saved**
+
+    With the **Local AI translator** engine (in *Translation* and *Translate all languages*), a translation whose save failed — an expired session, a concurrent edit, a server error — still showed *Translation completed* and was counted as done in the *Translate all* summary, although the text never reached the database.
+
+    Now the result is reported only once the save confirms it: a failed save names the reason, the unsaved text stays marked as unsaved on the component, and *Translate all* lists that language as failed. A cancelled run is no longer counted as translated either.
+
 - **A CSV too large to import is refused when it is uploaded, and the import panel shows why a staged file cannot be read**
 
     The CSV import tool's 64 MB limit was checked only when the file list was shown. Checking or

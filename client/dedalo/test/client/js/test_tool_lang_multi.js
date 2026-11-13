@@ -68,4 +68,75 @@ describe('TOOL_LANG_MULTI CLIENT TEST', function() {
 
 })
 
+
+
+/**
+* TRANSLATE ALL — the per-language outcome (T1-P01)
+* automatic_translation_all counts a language as translated only when its run
+* says the value is stored. Driven on a bare prototype instance (no section, no
+* worker, no modal: event.altKey selects 'overwrite'), with the engine call
+* stubbed, so what is measured is exactly the counting.
+*/
+describe('TOOL_LANG_MULTI TRANSLATE ALL OUTCOME', function() {
+
+	const make_instance = (engine_name, stubs) => Object.assign(Object.create(tool_lang_multi.prototype), {
+		context						: {config: {translator_engine: {value: [
+			{name: 'browser_transformer', type: 'browser'},
+			{name: 'babel', type: 'server'}
+		]}}},
+		translator_engine_select	: {value: engine_name},
+		translator_device_checkbox	: null,
+		langs						: [{value: 'lg-eng', label: 'English'}, {value: 'lg-spa', label: 'Spanish'}],
+		lang						: 'lg-eng',
+		source_lang					: 'lg-eng',
+		lang_components				: {
+			'lg-eng' : {data: {entries: [{id: 1, value: '<p>Hi</p>'}]}},
+			'lg-spa' : {data: {entries: []}}
+		},
+		lang_containers				: {},
+		status_container			: null,
+		get_tool_label				: () => null
+	}, stubs)
+
+	const run_all = async (instance) => {
+		const results = await instance.automatic_translation_all({event: {altKey: true}})
+		assert.isArray(results, 'expected the run to reach the targets')
+		assert.equal(results.length, 1, 'expected exactly the one non-source target')
+		assert.equal(results[0].lang, 'lg-spa')
+		return results[0]
+	}
+
+	it('browser engine: a run resolving result:false (cancelled, nothing saved) is NOT counted ok', async function() {
+		const result = await run_all(make_instance('browser_transformer', {
+			run_browser_translation : () => Promise.resolve({result: false, msg: 'Translation cancelled'})
+		}))
+		assert.equal(result.ok, false, 'a run that saved nothing was counted as translated')
+	})
+
+	it('browser engine: a run resolving result:true (stored) is counted ok', async function() {
+		const result = await run_all(make_instance('browser_transformer', {
+			run_browser_translation : () => Promise.resolve({result: true, msg: 'OK. Translation completed'})
+		}))
+		assert.equal(result.ok, true, 'a stored translation was not counted')
+	})
+
+	it('browser engine: a rejected run (refused, or its save did not land) is NOT counted ok', async function() {
+		const result = await run_all(make_instance('browser_transformer', {
+			run_browser_translation : () => Promise.reject(new Error('Translation not saved: the save failed'))
+		}))
+		assert.equal(result.ok, false)
+	})
+
+	it('server engine: a refusal envelope is NOT counted ok', async function() {
+		const result = await run_all(make_instance('babel', {
+			automatic_translation : () => Promise.resolve({
+				ok		: false,
+				error	: {is_api_error: true, code: 'translation.empty_result'}
+			})
+		}))
+		assert.equal(result.ok, false)
+	})
+
+})
+
 // @license-end
