@@ -37,9 +37,11 @@
 - **Missing, not degraded**: no `source_status`, no counter — an empty remote
   value is the same statement as an absent remote field. Empties never consume a
   `maxEntries` slot (dropped before the count cut).
-- **`zenon_authors` refuses** a non-object `authors` (string, number, boolean,
-  array) whole, and a role holding a scalar (other roles still render); both
-  reach the wire as `dropped_unrenderable`. All roles empty → no entry.
+- **`zenon_authors` refuses** a NON-EMPTY non-object `authors` (string, number, boolean,
+  populated array) whole, and a role holding a scalar (other roles still render); both
+  reach the wire as `dropped_unrenderable`. An empty `authors` (`[]` — VuFind's
+  json_encode of an empty assoc array —, `""`, `false`, `0`, `{}`) or all roles
+  empty → no entry, undegraded (review fix, same day).
 - Export: an empty remote value is a `null` cell (as an absent field already was),
   not `""`. Published MariaDB rows holding `""` become NULL on the next republish.
 

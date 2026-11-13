@@ -139,6 +139,9 @@ function formatArrayValues(raw: unknown): FormattedValue {
  * `primary: 0 - 1 - 2`.
  */
 function formatZenonAuthors(raw: unknown): FormattedValue {
+	// Empty first: VuFind's json_encode writes an empty assoc array as `[]`, so a
+	// record with no authors arrives as `authors: []` — missing, never refused.
+	if (isPhpEmpty(raw)) return { text: '', kind: 'text' };
 	if (!isPlainObject(raw)) return { text: '', kind: 'text', refused: 1 };
 	const roles: string[] = [];
 	let refused = 0;

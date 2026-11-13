@@ -289,6 +289,24 @@ describe('zenon payload → rows → values', () => {
 		expect(result.source_status?.dropped_unrenderable).toBe(1);
 	});
 
+	test('zenon_authors: an EMPTY authors value is missing, never refused (T1-P06 review)', () => {
+		// VuFind (PHP) json_encode writes an empty assoc array as `[]`: a record
+		// with no authors arrives as `authors: []`. Empty = missing, not lost.
+		const format = zenon.formats?.zenon_authors as NonNullable<
+			typeof zenon.formats
+		>['zenon_authors'];
+		const fieldsMap = parseFieldsMap(
+			[{ local: 'dato', remote: 'authors', format: 'zenon_authors' }],
+			{ tipo: 'test7346' },
+		);
+		for (const raw of [[], '', false, 0, {}]) {
+			expect(format(raw)).toEqual({ text: '', kind: 'text' });
+			const result = mapRowToEntries(zenon, rowView({ id: SAMPLE_ID, authors: raw }), fieldsMap);
+			expect(result.entries).toEqual([]);
+			expect(result.source_status).toBeUndefined();
+		}
+	});
+
 	test('zenon_authors REFUSES a scalar role, the other roles still render (T1-P06)', () => {
 		// HEAD rendered Object.keys('Doe') → "primary: 0 - 1 - 2": a wrong value
 		// wearing a correct value's clothes.
