@@ -353,15 +353,15 @@ TM_COUNT_CACHE_TTL_MS=30000
 
 DEDALO_SLOW_QUERY_MS `int`
 
-This parameter defines the time limit for query calls: if a statement takes longer than this value, Dédalo logs a warning line naming it. Set to `0` (the default) to disable slow-query logging.
+This parameter defines the time limit for query calls: if a statement takes longer than this value (in milliseconds), Dédalo logs a warning line naming it. The default is `5000` (5 seconds); set `0` to disable slow-query logging, the behaviour of earlier versions.
 
-Every statement is measured, whichever connection it runs on: the ordinary pooled ones, the ones inside a transaction (that is, the whole write path — saving a record, importing, publishing) and the ones on a connection reserved for a single caller (maintenance, background locks). The warning line names the lane it came from, so an unexpectedly slow save is as visible as an unexpectedly slow search.
+Every statement is measured, whichever connection it runs on: the ordinary pooled ones, the ones inside a transaction (that is, the whole write path — saving a record, importing, publishing) and the ones on a connection reserved for a single caller (maintenance, background locks). The warning line names the lane it came from, so an unexpectedly slow save is as visible as an unexpectedly slow search. It is a log line only: the statement itself is never interrupted (that is the request statement ceiling, `DB_STATEMENT_TIMEOUT_MS`).
 
 ```bash
-DEDALO_SLOW_QUERY_MS=1200
+DEDALO_SLOW_QUERY_MS=5000
 ```
 
-*Default: 0*
+*Default: 5000*
 
 ---
 

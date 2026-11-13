@@ -33,6 +33,10 @@
 - `DB_POOL_ACQUIRE_TIMEOUT_MS` defaults to `30000` (flipped in its own commit): a
   caller that queues past 30 s for a connection of either pool answers 503
   `db.pool_exhausted` (retryable) instead of hanging. PHP v6 had no such bound.
+- `DEDALO_SLOW_QUERY_MS` defaults to `5000` (flipped in its own commit, 2026-11-13,
+  owner ruling A3): a statement slower than 5 s on ANY lane logs one `[db] slow
+  query` warn line naming the lane. Log only — nothing on the wire changes and no
+  statement is interrupted. PHP v6 sample default was `6000`.
 - `0` restores the previous behaviour for each key.
 
 ## Reason

@@ -163,6 +163,15 @@ describe('PERF-11: the maintenance pool is configured, the config docs are curre
 		expect(value as number).toBeGreaterThan(0);
 	});
 
+	test('the slow-query log is ON by default (DEDALO_SLOW_QUERY_MS > 0)', () => {
+		// 0 = off: a statement crawling under the ceiling on any lane (the write
+		// path included) would leave no trace; the log is the operator's only
+		// measure before sizing DB_STATEMENT_TIMEOUT_MS (owner ruling 2026-11-13 A3).
+		const value = CONFIG_CATALOG.DEDALO_SLOW_QUERY_MS?.default;
+		expect(typeof value).toBe('number');
+		expect(value as number).toBeGreaterThan(0);
+	});
+
 	test('the generated config docs render clean (bun run config:check)', async () => {
 		const child = Bun.spawn([process.execPath, 'run', 'scripts/gen_config_docs.ts', '--check'], {
 			cwd: join(import.meta.dir, '..', '..'),

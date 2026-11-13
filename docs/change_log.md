@@ -1078,6 +1078,19 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-calculation-tld-packages`.
 
+- **Database statements slower than five seconds are now logged by default.**
+
+    `DEDALO_SLOW_QUERY_MS` now defaults to `5000` (it was `0`, off). A statement taking longer
+    than 5 seconds — on any connection, the write path included — writes one warning line to
+    the server log naming the statement and the lane it ran on. Nothing is interrupted and
+    nothing changes for users: it is the measure to read before sizing the request statement
+    ceiling (`DB_STATEMENT_TIMEOUT_MS`).
+
+    **Action needed:** none. If the lines are noise on a slow machine, raise the value in
+    `../private/.env`; `DEDALO_SLOW_QUERY_MS=0` restores the previous silence.
+
+    Wire contract: `WC-2026-11-12-db-bounds-on-by-default`.
+
 - **A request now waits at most 30 seconds for a free database connection by default.**
 
     `DB_POOL_ACQUIRE_TIMEOUT_MS` now defaults to `30000` (it was `0`, wait forever). When every

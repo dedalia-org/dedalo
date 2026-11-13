@@ -620,7 +620,8 @@ export interface OpsConfig {
 	/** Requests slower than this log a warn line, 0 = off (DEDALO_SLOW_REQUEST_MS). */
 	readonly slowRequestMs: number;
 	/** DB statements slower than this log a warn line, 0 = off (DEDALO_SLOW_QUERY_MS,
-	 * default 0). Applied by core/db/query_tap.ts on every lane. */
+	 * default 5000 — on by default since T1-24, owner ruling 2026-11-13 A3, flipped
+	 * separately from the two bounds). Applied by core/db/query_tap.ts on every lane. */
 	readonly slowQueryMs: number;
 	/** Postgres pool max per process (DB_POOL_MAX; cross-process budget in PRODUCTION.md). */
 	readonly dbPoolMax: number;
