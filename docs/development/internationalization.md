@@ -31,7 +31,7 @@ A cataloguer can perfectly well edit the *Spanish* title of a record (`DEDALO_DA
 
 ## The `lg` TLD: how a language is a record
 
-A Dédalo language is not a hard-coded enum — it is a thesaurus record. The languages live in the **languages section** `lg1` (`DEDALO_LANGS_SECTION_TIPO`), under the `lg` [top-level domain](../understanding/glossary.md#tld). Each language record carries:
+A Dédalo language is not a hard-coded enum — it is a thesaurus record. The languages live in the **languages section** `lg1`, under the `lg` [top-level domain](../understanding/glossary.md#tld). Each language record carries:
 
 - an **ISO 639-2/T alpha-3 code** in the `hierarchy41` component (e.g. `spa`, `eng`, `cat`), and
 - a set of **multilingual name strings** in the `hierarchy25` term component (e.g. `{"lg-eng":"Spanish","lg-spa":"Castellano"}`).

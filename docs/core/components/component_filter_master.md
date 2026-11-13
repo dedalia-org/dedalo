@@ -77,7 +77,7 @@ The same membership rule governs saving both components: a non-admin may only **
 
 - To assign an ordinary *record* to projects -> use [component_filter](component_filter.md), not the master.
 - To relate a record to any other section in general -> use [component_portal](component_portal.md), [component_select](component_select.md) or a `component_relation_*`.
-- It is not a generic many-to-many picker; the target section is fixed to the Projects section (`DEDALO_SECTION_PROJECTS_TIPO`, `dd153`).
+- It is not a generic many-to-many picker; the target section is fixed to the Projects section (`dd153`).
 
 ## Data model
 
@@ -85,7 +85,7 @@ The same membership rule governs saving both components: a non-admin may only **
 
 **Value:** `array` of `strings` (resolved project names), or `null`.
 
-**Storage shape.** Like every relation component, `component_filter_master` does not write to the database directly; its section (the User section) persists the locators. The locator carries the relation `type` (`dd675` = `DEDALO_RELATION_TYPE_FILTER`), the target record (`section_tipo` / `section_id`) and `from_component_tipo` (the owning component, `dd170`). `from_component_tipo` is what lets the section's global relations bag be sliced back into this specific component.
+**Storage shape.** Like every relation component, `component_filter_master` does not write to the database directly; its section (the User section) persists the locators. The locator carries the relation `type` (`dd675`, the filter relation type), the target record (`section_tipo` / `section_id`) and `from_component_tipo` (the owning component, `dd170`). `from_component_tipo` is what lets the section's global relations bag be sliced back into this specific component.
 
 ```json
 [
@@ -105,7 +105,7 @@ The same membership rule governs saving both components: a non-admin may only **
 ]
 ```
 
-The relation type defaults to `DEDALO_RELATION_TYPE_FILTER` (`dd675`), the descriptor's `defaultRelationType`. The shared relation write engine (`src/core/relations/save.ts`) normalizes each incoming locator, injecting `type` and forcing `from_component_tipo` to the component's own `tipo`, so an entry that arrives without an explicit `type` (see the second item above) is conformed to `dd675` on save. De-duplication is by equality on `section_tipo`, `section_id`, `type` and `from_component_tipo`.
+The relation type defaults to `dd675`, the descriptor's `defaultRelationType`. The shared relation write engine (`src/core/relations/save.ts`) normalizes each incoming locator, injecting `type` and forcing `from_component_tipo` to the component's own `tipo`, so an entry that arrives without an explicit `type` (see the second item above) is conformed to `dd675` on save. De-duplication is by equality on `section_tipo`, `section_id`, `type` and `from_component_tipo`.
 
 !!! note "Datum vs. API `entries`"
     The transmitted unit is a `{context, data}` datum. For this component the locators are surfaced under `data.entries`, and the edit/search renders also receive a `data.datalist` — the list of *selectable* projects, already filtered to the projects the logged user is authorized for (see [Datalist](#datalist)). `context` carries `tipo`, `model`, `mode`, `lang`, `label`, `properties`, `permissions`, `tools`, `view` and the `target_sections` array (the Projects section, used to render the "open target section" button). See the *dedalo-context-data-layers* skill for the full layering rules.
@@ -159,12 +159,11 @@ Realistic `properties` block (the live instance ships an empty `properties` plus
 }
 ```
 
-`section_tipo` / `parent` wire the component into the User section; on save the section is the single writer. Because the component's language is always forced to `lg-nolan`, it is never instantiated per language. The set of *target* projects is not read from `properties` but from configuration constants:
+`section_tipo` / `parent` wire the component into the User section; on save the section is the single writer. Because the component's language is always forced to `lg-nolan`, it is never instantiated per language. The set of *target* projects is not read from `properties` but from fixed tipos in the engine:
 
-- `DEDALO_SECTION_PROJECTS_TIPO` = `dd153` — the Projects section (the locator target).
-- `DEDALO_PROJECTS_NAME_TIPO` = `dd156` — the `component_input_text` that holds the project name (used to resolve `label`).
-- `DEDALO_COMPONENT_PROJECT_LANGS_TIPO` = `dd267` — the expected `section_map` of the Projects section (validated before building the authorized list).
-- `DEDALO_FILTER_MASTER_TIPO` = `dd170`, `DEDALO_SECTION_USERS_TIPO` = `dd128`, `DEDALO_RELATION_TYPE_FILTER` = `dd675`.
+- `dd153` — the Projects section (the locator target); `PROJECTS_SECTION_TIPO` in `src/core/relations/filter_projects.ts`.
+- `dd156` — the `component_input_text` that holds the project name (used to resolve `label`); `PROJECTS_NAME_TIPO`, same file.
+- `dd170` — this component in the Users section (`FILTER_MASTER_COMPONENT` in `src/core/security/permissions.ts`); `dd128` — the Users section; `dd675` — the filter relation type (the descriptor's `defaultRelationType`).
 
 ## Properties & options
 

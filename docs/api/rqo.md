@@ -462,7 +462,7 @@ Returns only the structure context (no data) for one element — used to lazily 
 }
 ```
 
-`source->action:'get_data'` + `data_source:'tm'` addresses a specific historical matrix row (`matrix_id`) through the time-machine service (section `dd15`, `DEDALO_TIME_MACHINE_SECTION_TIPO`). Service models are exempt from the normal section permission gate.
+`source->action:'get_data'` + `data_source:'tm'` addresses a specific historical matrix row (`matrix_id`) through the time-machine service (section `dd15`). Service models are exempt from the normal section permission gate.
 
 ### Paginated next page (session SQO continuity)
 

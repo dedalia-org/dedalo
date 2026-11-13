@@ -121,25 +121,25 @@ columns are always the same; the record itself is stored as JSON:
 | `id` | the unique row id of the physical table |
 | `section_id` | the record id *within its section* (unique per `section_tipo`, not per table) |
 | `section_tipo` | which section (which abstract "table") this row belongs to |
-| *JSON payload* | the whole record, stored as JSONB — one `datos` column in the legacy / `matrix_hierarchy` shape; split into typed JSONB columns in the v7 `matrix` (see note) |
+| *typed JSONB columns* | the record's values, split by data shape — `data`, `relation`, `string`, `date`, `iri`, `geo`, `number`, `media`, `misc`, `relation_search`, `meta` (see note) |
 
 A People record and an Interview record can both have `section_id = 1` because
 they live under different `section_tipo` values (`rsc197` vs `oh1`). The payload
 JSON keys are component tipos, not human field names — the human names live in
 the ontology and are resolved at runtime per language.
 
-> **Physical storage of the payload.** Conceptually the record is one JSON
-> object, and the legacy and `matrix_hierarchy` tables do keep it in a single
-> JSONB column named `datos`. The v7 `matrix` table instead splits that same
-> payload across several **typed** JSONB columns — `data`, `string`, `number`,
+> **Physical storage of the payload.** Every record table (`MATRIX_TABLE_ALLOWLIST`
+> in `src/core/db/matrix.ts`) splits a record's
+> values across several **typed** JSONB columns — `data`, `string`, `number`,
 > `relation`, `date`, `iri`, `geo`, `media`, `misc`, `relation_search`, `meta` —
-> assigning each component to one column by its model. The model→column
+> assigning each component to one column by its model. Inside each column the
+> values are keyed by component tipo — except `data`, which holds the section's
+> own metadata (label, created/modified date and user). The model→column
 > mapping is `getColumnNameByModel()` in `src/core/ontology/resolver.ts`, and
 > the JSONB column set is `MATRIX_JSONB_COLUMNS` in `src/core/db/matrix.ts`, so
 > PostgreSQL can index every data shape.
 > [Sections](sections/index.md#storage-detail-the-data-column-is-split-into-typed-jsonb-columns)
-> documents the full column map. The rest of this page keeps the single-payload
-> mental model for clarity.
+> documents the full column map.
 
 ```mermaid
 erDiagram
@@ -156,17 +156,22 @@ erDiagram
         int id PK
         int section_id
         string section_tipo
-        jsonb datos
+        jsonb data
+        jsonb string
+        jsonb relation
+        jsonb date
+        jsonb meta
     }
 ```
 
 **Prose description of the diagram above:** The first two entities,
 `PEOPLE_SQL` and `INTERVIEW_SQL`, show the classic approach: each concept gets
 its own table with its own typed columns (`name`, `surname`; `title`). The third
-entity, `matrix`, shows the Dédalo approach: a single table with only `id`,
-`section_id`, `section_tipo` and a `jsonb datos` column. Where classic SQL needs
-N tables for N concepts, Dédalo needs one — the concept is encoded in
-`section_tipo` and the columns are encoded as keys inside `datos`.
+entity, `matrix`, shows the Dédalo approach: a single table with `id`,
+`section_id`, `section_tipo` and a fixed set of typed JSONB columns (`string`,
+`relation`, …). Where classic SQL needs N tables for N concepts, Dédalo needs
+one — the concept is encoded in `section_tipo` and the fields are encoded as
+component-tipo keys inside the typed columns.
 
 The same People record in both worlds:
 
@@ -176,23 +181,27 @@ The same People record in both worlds:
 | 1 | Alicia | Gutierrez |
 
 ```json
-// one row in the Dédalo `matrix` table
-// (payload shown as a single conceptual `datos` object; v7 splits it across typed columns)
+// one row in the Dédalo `matrix` table (only `data` and `string` shown;
+// `relation`, `date`, `meta` … omitted)
 {
     "id"           : 1,
     "section_id"   : 1,
     "section_tipo" : "rsc197",
-    "datos" : {
-        "section"    : "rsc197",
-        "section_id" : 1,
-        "rsc85"      : "Alicia",
-        "rsc86"      : "Gutierrez"
+    "data" : {
+        "label"        : "People",
+        "section_id"   : 1,
+        "section_tipo" : "rsc197",
+        "created_date" : "2017-11-15 22:51:42"
+    },
+    "string" : {
+        "rsc85" : [{ "id": 1, "lang": "lg-nolan", "value": "Alicia" }],
+        "rsc86" : [{ "id": 1, "lang": "lg-nolan", "value": "Gutierrez" }]
     }
 }
 ```
 
-A full Dédalo installation has roughly 28 physical tables — 24 of which are this
-same four-column shape — yet expresses around 1,100 logical sections with some
+A full Dédalo installation has roughly 28 physical tables — most of which share
+this same column set — yet expresses around 1,100 logical sections with some
 16,000 logical fields. The schema explosion that would cripple classic SQL is
 folded into JSON and the ontology. The price is paid in resolution: reading a
 field is never a column read; it is an ontology lookup followed by JSON
@@ -452,7 +461,7 @@ sequenceDiagram
     API->>API: sanitize (zod, §7.5) + dispatch (ACTION_REGISTRY lookup)
     API->>SRV: readSection / saveComponentData(tipo, section_tipo, section_id, mode, lang)
     SRV->>ONT: read node (model, properties, relations)
-    SRV->>ONT: read record datos (and resolve locators if related)
+    SRV->>ONT: read record typed columns (and resolve locators if related)
     SRV->>SRV: build context (description) + data (values) = ddo
     SRV-->>API: ddo { context, data }
     API-->>C: JSON response (result = ddo)

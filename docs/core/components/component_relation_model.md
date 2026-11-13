@@ -47,7 +47,7 @@
 
 ## Definition
 
-`component_relation_model` creates a **model-type relation** between the current record and another record, where the link is constrained to a *target section derived from the caller's own section* rather than named in the node. Its default relation type is `DEDALO_RELATION_TYPE_MODEL_TIPO = 'dd98'`, distinct from the generic link type `dd151` used by [component_portal](component_portal.md).
+`component_relation_model` creates a **model-type relation** between the current record and another record, where the link is constrained to a *target section derived from the caller's own section* rather than named in the node. Its default relation type is `dd98`, distinct from the generic link type `dd151` used by [component_portal](component_portal.md).
 
 The defining trait is **target resolution**: the component does not hardcode which section it points at. The target section tipo(s) are resolved at runtime from the element's request config (`src/core/relations/request_config/build.ts`), and — uniquely in the relation family — the model supplies a **default target that depends on the caller**, so one ontology node serves many sections and points somewhere different in each of them. The rule is spelled out in [Target resolution](#target-resolution) below.
 

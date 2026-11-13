@@ -1,6 +1,6 @@
 # component_dataframe
 
-> **Canonical contract (id_key cutover, 2026-06).** A frame pairs to **exactly one data item** of a "main" component via that item's stable server-minted `id`, stored on the frame locator as **`id_key`**, with the positive marker **`type = 'dd490'`** (`DEDALO_RELATION_TYPE_DATAFRAME` / JS `DATAFRAME_TYPE`). Frames live in the **same section record** as the main component, in the `relation` JSONB column under the dataframe component's tipo.
+> **Canonical contract (id_key cutover, 2026-06).** A frame pairs to **exactly one data item** of a "main" component via that item's stable server-minted `id`, stored on the frame locator as **`id_key`**, with the positive marker **`type = 'dd490'`** (`DATAFRAME_RELATION_TYPE` / JS `DATAFRAME_TYPE`). Frames live in the **same section record** as the main component, in the `relation` JSONB column under the dataframe component's tipo.
 >
 > **`id_key` is the single pairing key.** The legacy pair `section_id_key` / `section_tipo_key` has been removed from all live dataframe code. It survives ONLY at two edges: the **old-CSV import** (which accepts a pre-v7 `section_id_key` as the `id_key` source, then strips it) and the historical **v6→v7 data migration** (which converted all stored frames to the `id_key` shape, and the physical `matrix_time_machine.section_id_key` column it left behind). **Even the relation sibling-order is now an id_key dataframe** (see *Relation ordering*).
 
@@ -150,7 +150,7 @@ A frame locator matches a main item when these four properties agree (the *match
 
 | property | meaning |
 |---|---|
-| `type` | always `dd490` (`DEDALO_RELATION_TYPE_DATAFRAME`) — the positive marker that an entry is a frame pairing |
+| `type` | always `dd490` (`DATAFRAME_RELATION_TYPE`) — the positive marker that an entry is a frame pairing |
 | `from_component_tipo` | the dataframe slot (which `component_dataframe` owns this frame) |
 | `main_component_tipo` | the main component the frame extends |
 | `id_key` | the main data item's `id` — **never** a target section_id, **never** an array index |

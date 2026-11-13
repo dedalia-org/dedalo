@@ -99,7 +99,7 @@ Unlike a generic [`component_select`](component_select.md), its option list does
 ```
 
 - `type` is the relation-type tipo, defaulting to `dd151` (the generic link) from the descriptor's `defaultRelationType`.
-- `section_tipo` is always the languages section `lg1` (`DEDALO_LANGS_SECTION_TIPO`); `section_id` points at the chosen language record (here `17344` = Spanish).
+- `section_tipo` is always the languages section `lg1`; `section_id` points at the chosen language record (here `17344` = Spanish).
 - `from_component_tipo` is forced by the relations engine to the owning component's own `tipo` on save; it is what lets one section-wide relations bag serve many distinct relation components.
 
 Because it is non-translatable, the component is always instantiated with `lang = lg-nolan` and the locator carries no `lang`.

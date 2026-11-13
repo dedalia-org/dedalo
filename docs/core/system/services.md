@@ -422,7 +422,7 @@ self.service_upload = await get_instance({
     model               : 'service_upload', // resolves to core/services/service_upload/js/service_upload.js
     caller              : self,             // MANDATORY — the service acts on the caller
     allowed_extensions  : ['jpg','jpeg','png','tiff'],
-    key_dir             : { type:'dedalo_config', value:'DEDALO_TOOL_UPLOAD_FOLDER_PATH' }
+    key_dir             : 'image',            // upload sub-directory key ('image', 'csv', …)
 })
 self.ar_instances.push(self.service_upload) // tear down with the tool
 await self.service_upload.build()           // fetch server limits (get_system_info)

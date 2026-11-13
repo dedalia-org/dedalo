@@ -266,7 +266,7 @@ The map disables scroll-wheel zoom by default and recenters through a single non
 
 The component is non‑translatable, so the import value is the bare data array (no lang keys). Four import shapes are defined:
 
-1. Full v7 dato — JSON array of items:
+1. Full v7 data — JSON array of items:
 
     ```json
     [{"lat":39.4625,"lon":-0.3762,"zoom":16,"alt":0}]

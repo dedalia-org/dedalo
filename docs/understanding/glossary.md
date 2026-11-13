@@ -76,7 +76,7 @@ See: [component_dataframe](../core/components/component_dataframe.md); skill *de
 ### dd151
 *SQL equivalent: a foreign-key relation flavor.*
 
-The ontology tipo for the **link** relation type (`DEDALO_RELATION_TYPE_LINK`), the default kind of pointer a [locator](#locator) carries in its `type`. It is one of the relation tipos stamped on the `relation` JSONB column. Siblings: `dd48` children (`DEDALO_RELATION_TYPE_CHILDREN_TIPO`), `dd47` parent (`..._PARENT_TIPO`), `dd96` index (`..._INDEX_TIPO`), `dd98` model (`..._MODEL_TIPO`), `dd675` filter, `dd490` dataframe, `dd89`/`dd620`/`dd467`/`dd621` related (uni-/bi-/multi-directional). These are declared where needed, split across `src/core/ontology/ontology_tipos.ts` (`RELATION_TYPE_LINK`/`_PARENT`/`_CHILDREN`/`_INDEX`), `src/core/relations/related.ts` (`RELATED_UNIDIRECTIONAL`/`_BIDIRECTIONAL`/`_MULTIDIRECTIONAL`) and `src/core/concepts/subdatum.ts` (`DATAFRAME_RELATION_TYPE`) — there is no single central constants file.
+The ontology tipo for the **link** relation type (`DEDALO_RELATION_TYPE_LINK`), the default kind of pointer a [locator](#locator) carries in its `type`. It is one of the relation tipos stamped on the `relation` JSONB column. Siblings: `dd48` children, `dd47` parent, `dd96` index (`DEDALO_RELATION_TYPE_INDEX_TIPO`), `dd98` model, `dd675` filter, `dd490` dataframe, `dd89`/`dd620`/`dd467`/`dd621` related (uni-/bi-/multi-directional). These are declared where needed, split across `src/core/ontology/ontology_tipos.ts` (`RELATION_TYPE_LINK`/`_PARENT`/`_CHILDREN`/`_INDEX`), `src/core/relations/related.ts` (`RELATED_UNIDIRECTIONAL`/`_BIDIRECTIONAL`/`_MULTIDIRECTIONAL`) and `src/core/concepts/subdatum.ts` (`DATAFRAME_RELATION_TYPE`) — there is no single central constants file.
 See: [locator](../core/locator.md#properties). Related: [locator](#locator), [relation](#relation-bidirectional--unidirectional), [relations array](#relations-array), [dataframe](#dataframe).
 
 ### dd_date
@@ -123,7 +123,7 @@ See: [Locator → Properties](../core/locator.md#properties). Related: [locator]
 ### hierarchy / thesaurus
 *SQL equivalent: a self-referencing parent/child taxonomy table.*
 
-A controlled vocabulary modeled as a hierarchical tree of terms (toponymy, onomastic, thematic thesauri, material/technique taxonomies, typology catalogues). A **hierarchy** is a record of section `hierarchy1` (`DEDALO_HIERARCHY_SECTION_TIPO`) describing one tree; a **term** is an ordinary section record inside a thesaurus section (e.g. `es1_42`). Hierarchy is stored bottom-up: each term keeps one parent [locator](#locator) (`type` = `dd47`), and children are *always computed* by searching for that pointer.
+A controlled vocabulary modeled as a hierarchical tree of terms (toponymy, onomastic, thematic thesauri, material/technique taxonomies, typology catalogues). A **hierarchy** is a record of section `hierarchy1` describing one tree; a **term** is an ordinary section record inside a thesaurus section (e.g. `es1_42`). Hierarchy is stored bottom-up: each term keeps one parent [locator](#locator) (`type` = `dd47`), and children are *always computed* by searching for that pointer.
 See: [Thesaurus and Ontology tree](../core/thesaurus/index.md). Related: [area_thesaurus](#area_thesaurus), [ts_object](#ts_object), [node](#node), [TLD](#tld), [properties / descriptor](#properties--descriptor).
 
 ---
@@ -159,7 +159,7 @@ See: [Locator](../core/locator.md), [data model — relations](../core/data_mode
 ### matrix (table)
 *SQL equivalent: a single physical table standing in for ~1100 logical tables.*
 
-The PostgreSQL table where Dédalo stores most data, with only four columns: `id`, `section_id`, `section_tipo` and `datos` (a JSONB column holding the whole record). There are a few sibling matrix tables sharing this schema (`matrix_hierarchy`, `matrix_users`, `matrix_dataframe`, `matrix_activities`…), plus per-type JSONB typed columns (`data`, `string`, `relation`, `iri`, `number`, `date`, `geo`, `media`, `misc`, `relation_search`, `meta`) that hold each data shape. The **`meta`** column keeps the per-component id counters that mint stable [value item](#value-item) ids. A full schema can hold ~1100 sections / ~16,000 components in these few tables.
+The PostgreSQL table where Dédalo stores most data, with the columns `id`, `section_id`, `section_tipo` plus per-type JSONB columns (`data`, `string`, `relation`, `iri`, `number`, `date`, `geo`, `media`, `misc`, `relation_search`, `meta`) that hold each data shape, keyed by component tipo (`data` holds the section's own metadata). There are a few sibling matrix tables sharing this schema (`matrix_hierarchy`, `matrix_users`, `matrix_dataframe`, `matrix_activities`…). The **`meta`** column keeps the per-component id counters that mint stable [value item](#value-item) ids. A full schema can hold ~1100 sections / ~16,000 components in these few tables.
 See: [Introduction](../core/index.md#definitions-of-dédalos-nomenclature), [data model](../core/data_model/index.md), [Locator → Function and structure](../core/locator.md#function-and-structure). Related: [section](#section), [section_tipo](#section_tipo), [id](#id), [section_id](#section_id), [data](#data), [value item](#value-item).
 
 ### mode (edit / list / search / tm)

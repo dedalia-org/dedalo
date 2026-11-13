@@ -52,10 +52,10 @@ levels from a component's point of view.
 | concept | section | tipo | notes |
 | --- | --- | --- | --- |
 | User | **Users** | `dd128` (`DEDALO_SECTION_USERS_TIPO`) | login name, password, active flag, profile, projects |
-| Profile | **Profiles** | `dd234` (`DEDALO_SECTION_PROFILES_TIPO`) | carries the `component_security_access` matrix (`dd774`) |
+| Profile | **Profiles** | `dd234` | carries the `component_security_access` matrix (`dd774`) |
 
-A user record links to a profile through its `DEDALO_USER_PROFILE_TIPO`
-(`dd1725`) component, and to one or more projects through its
+A user record links to a profile through its profile
+component (`dd1725`), and to one or more projects through its
 `component_filter_master` (`dd170`). The profile, in turn, owns the **permissions
 matrix** (`component_security_access`, tipo `dd774`). When the user logs in, that
 matrix is flattened into the fast lookup table that gates the rest of the
@@ -65,7 +65,7 @@ session — on the TS server this is `getPermissionsTable()` in
 
 ```mermaid
 flowchart LR
-    U["User record<br/>(Users section dd128)"] -->|"DEDALO_USER_PROFILE_TIPO (dd1725)"| P["Profile record<br/>(Profiles section dd234)"]
+    U["User record<br/>(Users section dd128)"] -->|"profile (dd1725)"| P["Profile record<br/>(Profiles section dd234)"]
     P -->|"component_security_access (dd774)"| M["permission matrix<br/>per-element 0–3"]
     U -->|"component_filter_master"| PR["projects<br/>(per-record scope, layer 2)"]
 ```
@@ -80,7 +80,7 @@ the web interface (see [root user](index.md#root-user) and
 Two flags promote a user beyond their profile's grants. They are stored on the
 user record and read back from the session for the current user:
 
-- **Global admin** (`DEDALO_SECURITY_ADMINISTRATOR_TIPO`, `dd244`) — bypasses
+- **Global admin** (`dd244`) — bypasses
   the per-record project scope and unlocks the admin-only surfaces (the
   Maintenance area, Time Machine reads, structural operations). It does **not**
   bypass the per-element permission matrix: an admin-flagged user still resolves
@@ -90,7 +90,7 @@ user record and read back from the session for the current user:
   in the [management index](index.md#general-admin). It is the `isGlobalAdmin`
   flag on the request's `Principal`, resolved by `resolvePrincipal()` in
   `src/core/security/permissions.ts`.
-- **Developer** (`DEDALO_USER_DEVELOPER_TIPO`, `dd515`) — grants access to
+- **Developer** (`dd515`) — grants access to
   development/structure surfaces; the `isDeveloper` flag on the same
   `Principal`.
 
@@ -128,7 +128,7 @@ steps 3–4 above — lives in `client/dedalo/core/component_security_access/`.
    min length 8 — see the gap noted below).
 3. Set **Active account** (`dd131`) to *Yes* — an inactive account is refused at
    login.
-4. Assign a **profile** (`DEDALO_USER_PROFILE_TIPO`). A user with no profile is
+4. Assign a **profile**. A user with no profile is
    refused at login (*User without profile*).
 5. Assign at least one **project** (`component_filter_master`). A user with no
    project is refused at login (*User without projects*) and, at runtime, sees

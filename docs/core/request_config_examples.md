@@ -1015,7 +1015,7 @@ Response (`result` is the new `section_id` as a string, or `false` on failure):
 - `mode: "tm"` + `source->data_source: "tm"` — route the read through the time-machine instead of the live matrix table.
 - `matrix_id` addresses the specific historical matrix row to resolve.
 - `source->action: "get_data"` — data-only for one component (honors `matrix_id`/`data_source`, pagination and `ar_target_section_tipo`).
-- The time-machine section tipo is `dd15` (`DEDALO_TIME_MACHINE_SECTION_TIPO`); a `count` over it goes through `service_time_machine`, which is exempt from the usual section permission checks.
+- The time-machine section tipo is `dd15`; a `count` over it goes through `service_time_machine`, which is exempt from the usual section permission checks.
 
 *See:* [rqo.md → source fields (`matrix_id`, `data_source`)](../api/rqo.md#source-object-mandatory), [`read · get_data` modifier](../api/rqo.md#read-one-record-in-edit-mode).
 

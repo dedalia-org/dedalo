@@ -173,11 +173,11 @@ All properties are optional and live in the ontology node `properties` JSON. Ver
 
 - **Values:** an object `{relation_type, relation_type_rel}`.
 - **Effect:** overrides the relation-type tipos written into each locator.
-  - `relation_type` — defaults to `dd89` (`DEDALO_RELATION_TYPE_RELATED_TIPO`). Stored as the locator `type`.
+  - `relation_type` — defaults to `dd89`. Stored as the locator `type`.
   - `relation_type_rel` — directionality, defaults to `dd620`. Accepted values:
-    - `dd620` — **unidirectional** (`DEDALO_RELATION_TYPE_RELATED_UNIDIRECTIONAL_TIPO`). The locator is stored only on the originating record; no back-reference is computed.
-    - `dd467` — **bidirectional** (`DEDALO_RELATION_TYPE_RELATED_BIDIRECTIONAL_TIPO`). Direct references to the current term are resolved and surfaced.
-    - `dd621` — **multidirectional** (`DEDALO_RELATION_TYPE_RELATED_MULTIDIRECTIONAL_TIPO`). References are resolved **recursively** to build the full graph of associated terms (references-to-references and references-to-data), de-duplicated through a static resolved cache.
+    - `dd620` — **unidirectional** (`RELATED_UNIDIRECTIONAL` in `src/core/relations/related.ts`). The locator is stored only on the originating record; no back-reference is computed.
+    - `dd467` — **bidirectional** (`RELATED_BIDIRECTIONAL` in `src/core/relations/related.ts`). Direct references to the current term are resolved and surfaced.
+    - `dd621` — **multidirectional** (`RELATED_MULTIDIRECTIONAL`). References are resolved **recursively** to build the full graph of associated terms (references-to-references and references-to-data), de-duplicated through a static resolved cache.
 
 ### source
 

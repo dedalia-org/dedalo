@@ -15,7 +15,7 @@ The server API could be on a separate server and therefore you will have to edit
 1. Locate the file into the directory: ../dedalo/publication/server_api/v1/config_api/
 
     ```shell
-    cd ../dedalo/lib/dedalo/publication/server_api/v1/config_api/
+    cd ../dedalo/publication/server_api/v1/config_api/
     ```
 
 2. Edit the server_config_api.php.

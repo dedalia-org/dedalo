@@ -115,7 +115,7 @@ Dédalo publication API use a REST model to access to public data and we follow 
 
 The calls to API are sended via GET or POST queries, using variables as code to identify the authorized calls:
 
-`https://mydomain/dedalo/lib/dedalo/publication/server_api/v1/json/tables_info?code=XXXX`
+`https://mydomain/dedalo/publication/server_api/v1/json/tables_info?code=XXXX`
 
 The documentation API user interface is accessible in the path:
 
@@ -162,7 +162,7 @@ Before begin to do calls you need to know:
   This two request are the same:
 
   ```api_request
-  https:///my_domain.org/dedalo/lib/dedalo/publication/server_api/v1/json/publication_schema?code=XXXX
+  https:///my_domain.org/dedalo/publication/server_api/v1/json/publication_schema?code=XXXX
   ```
 
   ```curl
@@ -1129,7 +1129,7 @@ Response:
     "video_url": "/dedalo/media/av/404/rsc35_rsc167_1.mp4?vbegin=732&vend=869",
     "posterframe_url": "/dedalo/media/av/posterframe/rsc35_rsc167_1.jpg",
     "posterframe_tag_url": "/dedalo/media/av/posterframe/rsc35_rsc167_1/rsc35_rsc167_1_71.jpg",
-    "subtitles_url": "/dedalo/lib/dedalo/publication/server_api/v1/subtitles/?section_id=1&lang=lg-spa&tc_in=732.047&tc_out=869",
+    "subtitles_url": "/dedalo/publication/server_api/v1/subtitles/?section_id=1&lang=lg-spa&tc_in=732.047&tc_out=869",
     "tcin_secs": 732.047,
     "tcout_secs": 869,
     "fragment_terms_inside": {
@@ -1173,7 +1173,7 @@ Response:
     "video_url": "/dedalo/media/av/404/rsc35_rsc167_1.mp4?vbegin=732&vend=869",
     "posterframe_url": "/dedalo/media/av/posterframe/rsc35_rsc167_1.jpg",
     "posterframe_tag_url": "/dedalo/media/av/posterframe/rsc35_rsc167_1/rsc35_rsc167_1_71.jpg",
-    "subtitles_url": "/dedalo/lib/dedalo/publication/server_api/v1/subtitles/?section_id=1&lang=lg-spa&tc_in=732.047&tc_out=869",
+    "subtitles_url": "/dedalo/publication/server_api/v1/subtitles/?section_id=1&lang=lg-spa&tc_in=732.047&tc_out=869",
     "tcin_secs": 732.047,
     "tcout_secs": 869,
     "index_locator": {

@@ -55,7 +55,7 @@
 section, the explicit list of record ids (`section_id`s) a given user is allowed to access.
 It is a configuration component used **exclusively inside the Users section** (`dd128`),
 where each user record carries one instance of it (the standard tipo is `dd478`,
-`DEDALO_USER_COMPONENT_FILTER_RECORDS_TIPO`).
+`FILTER_RECORDS_COMPONENT` in `src/core/security/filter_records.ts`).
 
 Dédalo already restricts access through **areas/projects** (see `component_filter` and
 `component_filter_master`). Those grant or deny a user a *whole section/area*.

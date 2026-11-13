@@ -83,7 +83,7 @@ the legacy-hash upgrade path is a one-time migration (see [Notes](#notes)).
 
 **When to use it.** Only for actual secret credentials that must be verified but
 never displayed — most prominently the user account password field
-[dd133](https://dedalo.dev/ontology/dd133) (`DEDALO_USER_PASSWORD_TIPO`) inside the
+[dd133](https://dedalo.dev/ontology/dd133) inside the
 users section. In a cultural-heritage install this is the back-office account
 password for catalogers, archivists or external contributors logging into the
 repository.

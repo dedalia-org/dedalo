@@ -43,7 +43,7 @@
 
 `component_security_access` is the access-control component of Dédalo. It stores, for a single security profile, the **permission level the profile holds over every reachable ontology element** (areas, sections, section groups, components, buttons, relation lists, etc.). It is the data backbone of role/profile-based security: when a user logs in, their profile's `component_security_access` data is read to build the permission table that gates every read, write and admin operation across the application.
 
-It lives in the **Profiles** section (`dd234`) as component tipo `dd774` (`DEDALO_COMPONENT_SECURITY_ACCESS_PROFILES_TIPO`). Each profile record carries one instance whose data answers the question *"what may this profile do with each part of the ontology?"*.
+It lives in the **Profiles** section (`dd234`) as component tipo `dd774` (`SECURITY_ACCESS_COMPONENT` in `src/core/security/permissions.ts`). Each profile record carries one instance whose data answers the question *"what may this profile do with each part of the ontology?"*.
 
 The editing UI renders the whole ontology as an expandable tree. Each node exposes a set of radio buttons for the four permission levels:
 

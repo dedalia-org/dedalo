@@ -61,7 +61,7 @@
 
 ## Definition
 
-`component_publication` is the **publication switch** of a record: a simple binary yes/no toggle that marks whether a record should be published to external systems. Instead of storing a literal boolean, it stores a [locator](../locator.md) pointing at the shared **yes/no section** (`DEDALO_SECTION_SI_NO_TIPO = 'dd64'`), where `section_id = 1` is *yes* (`NUMERICAL_MATRIX_VALUE_YES`) and `section_id = 2` is *no* (`NUMERICAL_MATRIX_VALUE_NO`). An empty value (no locator) is the undecided / default state.
+`component_publication` is the **publication switch** of a record: a simple binary yes/no toggle that marks whether a record should be published to external systems. Instead of storing a literal boolean, it stores a [locator](../locator.md) pointing at the shared **yes/no section** (`dd64`), where `section_id = 1` is *yes* (`NUMERICAL_MATRIX_VALUE_YES`) and `section_id = 2` is *no* (`NUMERICAL_MATRIX_VALUE_NO`). An empty value (no locator) is the undecided / default state.
 
 **Why it exists.** A cultural-heritage catalogue almost always distinguishes the *internal* working dataset from what is exposed to the public — a museum portal, an open-data endpoint, an RDF / SQL diffusion target. `component_publication` is the per-record gate for that distinction. The diffusion engine's publication gate reads it directly: it locates the section's `component_publication`, resolves its locator, and only treats the record as publishable when the locator points at *yes* in section `dd64`. A section with **no** `component_publication` is considered publishable (the switch is opt-out, not opt-in).
 
@@ -121,7 +121,7 @@ Undecided / default — no locator stored at all:
 Locator fields:
 
 - `type` — the relation-type tipo. Defaults to the descriptor's `defaultRelationType` (`dd151`, the generic link type), injected by the relations engine when a locator is normalised on save.
-- `section_tipo` — always the yes/no section `dd64` (`DEDALO_SECTION_SI_NO_TIPO`).
+- `section_tipo` — always the yes/no section `dd64`.
 - `section_id` — `"1"` for *yes*, `"2"` for *no*.
 - `from_component_tipo` — forced to the owning component's own `tipo` when the relations engine normalises the locator on save (it clones the locator first, so observers still see the value they were handed). This is the property the section and the relation-list resolution use to slice this component's locators out of the global `relations` bag.
 - `id` — the per-item counter id (paired with the changed-data entry on save).

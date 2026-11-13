@@ -41,7 +41,7 @@
     [locators](../locator.md), not literal values. It is **non-translatable**
     (`lg-nolan`); the displayed value is resolved from the *target* child sections,
     not held locally. The default relation type is
-    `DEDALO_RELATION_TYPE_CHILDREN_TIPO = 'dd48'`.
+    `dd48`.
 
 !!! warning "Calculated component — a save writes through to the children"
     Unlike most related components, `component_relation_children` **does not store any
@@ -110,7 +110,7 @@ component's matrix column.
 **Storage shape.** This component has no storage of its own. The link lives on each
 **child** record's `component_relation_parent`, stored in that record's matrix
 `relation` column as `{parent_tipo: [locator]}` with `type = dd47`
-(`DEDALO_RELATION_TYPE_PARENT_TIPO`). At read time the resolver runs a search for
+(`PARENT_RELATION_TYPE` in `src/core/relations/children.ts`). At read time the resolver runs a search for
 every record whose parent locator points back at the current record, and builds one
 children locator per result:
 
@@ -127,7 +127,7 @@ children locator per result:
 
 Each locator field:
 
-- `type` — the children relation type, always `dd48` (`DEDALO_RELATION_TYPE_CHILDREN_TIPO`).
+- `type` — the children relation type, always `dd48`.
 - `section_tipo` / `section_id` — the **target child** record.
 - `from_component_tipo` — the owning `component_relation_children` tipo (e.g. `test201`),
   which lets `relation_list` and grid resolution slice the right subset out of the
