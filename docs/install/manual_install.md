@@ -427,7 +427,7 @@ If it fails, fix the cause and run the same command with `--resume`. A database 
 
 Installer: [Production › `host_units`](production.md#host_units-the-systemd-units).
 
-**The templates.** The units are shared by every instance on the host, and `%i` is the instance. Their only placeholder is the PostgreSQL unit. A template that already exists (another instance's) must be byte-equal to yours. If it differs, stop: the installer refuses to overwrite it, and so should you.
+**The templates.** The units are shared by every instance on the host, and `%i` is the instance. Their only placeholder is the PostgreSQL unit. A template that already exists (another instance's) must be byte-equal to yours. If it differs, stop and look: when its sha256 is listed under that unit in `$SRC/deploy/systemd/shipped_digests.json`, it is an earlier release's copy and you may replace it with yours (the installer does the same — every instance on the host runs the new unit at its next restart); otherwise it is someone else's and the installer refuses to overwrite it, and so should you.
 
 ```shell
 for unit in dedalo-ts@.service dedalo-ts-restart@.service dedalo-ts-rollback@.service dedalo-ts-watchdog@.service dedalo-ts-watchdog@.timer dedalo-backup@.service dedalo-backup@.timer dedalo-backup-alert@.service dedalo-backup-site-builder@.service dedalo-tls-renew@.service dedalo-tls-renew@.timer; do
@@ -443,7 +443,7 @@ done
 
 Nothing is written when `render` is missing or renders nothing: an empty template would otherwise stay behind, and a second run of the loop would report it as *differs*. The templates name no user and no path of an instance. Each instance-run template runs `/bin/false` until its drop-in gives it a command, so a template without its drop-in never runs anything as root.
 
-**The drop-ins** are this instance's own. Each one goes to `/etc/systemd/system/<unit>@<i>.<type>.d/10-dedalo-install.conf`. The server: the account, the folder, the pinned runtime, the client publish directory.
+**The drop-ins** are this instance's own. Each one goes to `/etc/systemd/system/<unit>@<i>.<type>.d/10-dedalo-install.conf`. The server: the account, the folder, the pinned runtime, the client publish directory — and the **writable roots**. The template runs the engine under `ProtectSystem=strict`, so the whole file system is read-only to it except the paths listed here in `ReadWritePaths=` (each quoted): the install folder, the backup directory, the web root under `/srv/dedalo/<i>` (the media and the published client), the socket directory, the PostgreSQL socket directory and the temp directories. A `DB_SOCKET` elsewhere than `/var/run/postgresql` needs its directory here instead.
 
 ```shell
 install -d -m 0755 "/etc/systemd/system/dedalo-ts@$I.service.d"
@@ -457,6 +457,36 @@ Environment="HOME=@@DIR@@"
 ExecStart=
 ExecStart=/opt/dedalo/bun/@@PIN@@/bun run src/server.ts
 Environment="DEDALO_CLIENT_PUBLISH_DIR=/srv/dedalo/@@INSTANCE@@/client"
+ReadWritePaths="@@DIR@@"
+ReadWritePaths="@@BACKUP_DIR@@"
+ReadWritePaths="/srv/dedalo/@@INSTANCE@@"
+ReadWritePaths="/run/dedalo-@@INSTANCE@@"
+ReadWritePaths="/var/run/postgresql"
+ReadWritePaths="/tmp"
+ReadWritePaths="/var/tmp"
+Environment="DEDALO_WRITABLE_ROOTS_MANIFEST=/etc/systemd/system/dedalo-ts@@@INSTANCE@@.service.d/dedalo-writable-roots.json"
+EOF
+```
+
+The same roots go into a small JSON file beside the drop-in, the **writable-roots manifest** the drop-in's last line names: at every boot the engine checks each path it is configured to write (`MEDIA_PATH`, `DEDALO_BACKUP_DIR`, the private directory, the export artifacts…) against this list and refuses to start, naming the path, when one lies outside it — a path moved in `.env` to a place the unit does not allow would otherwise fail at its first write. systemd ignores the file (it reads only `.conf` there). The `refresh` line names the installer's re-render command; on a hand install, edit the drop-in and this file together, then `systemctl daemon-reload`.
+
+```shell
+render > "/etc/systemd/system/dedalo-ts@$I.service.d/dedalo-writable-roots.json" <<'EOF'
+{
+	"format": 1,
+	"instance": "@@INSTANCE@@",
+	"stamp": "manual",
+	"read_write_paths": [
+		"@@DIR@@",
+		"@@BACKUP_DIR@@",
+		"/srv/dedalo/@@INSTANCE@@",
+		"/run/dedalo-@@INSTANCE@@",
+		"/var/run/postgresql",
+		"/tmp",
+		"/var/tmp"
+	],
+	"refresh": "sudo /opt/dedalo/bun/@@PIN@@/bun run @@DIR@@/dedalo/scripts/ops/host_units_refresh.ts --instance @@INSTANCE@@"
+}
 EOF
 ```
 

@@ -417,6 +417,14 @@ async function verifyAndConfirm(journal: RunJournal, effects: RunEffects): Promi
 	if (journal.state === 'VERIFIED') return confirmRun(journal, effects);
 	const result = await effects.verify(journal);
 	const verdicts = { ...journal, verify: result.verdicts };
+	// An ok verdict with an OFFER (C33: the host's templates are not this
+	// release's render) is said in the log too — the run names the root command,
+	// never runs it; the journal and `bun run update status` carry it as well.
+	for (const verdict of result.verdicts) {
+		if (verdict.ok && verdict.offer !== undefined) {
+			console.warn(`[update run] ${journal.run_id}: ${verdict.id} — ${verdict.detail}`);
+		}
+	}
 	if (!result.verified) {
 		const red = result.verdicts
 			.filter((verdict) => !verdict.ok)

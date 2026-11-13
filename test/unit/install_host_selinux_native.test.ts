@@ -294,8 +294,8 @@ function moduleProblems(cil: string): string[] {
 	}
 	const pattern = new RegExp(`^${(filecons[0] as string[])[1]}$`);
 	for (const variant of HOST_VARIANTS) {
-		const { paths } = productionPlanCtx(variant);
-		const execStart = serverDropin(paths, '#')
+		const { paths, answers } = productionPlanCtx(variant);
+		const execStart = serverDropin(paths, answers, '#')
 			.split('\n')
 			.filter((line) => line.startsWith('ExecStart='))
 			.at(-1);

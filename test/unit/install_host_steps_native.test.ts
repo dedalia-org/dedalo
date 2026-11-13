@@ -55,7 +55,7 @@
  */
 
 import { afterAll, describe, expect, spyOn, test } from 'bun:test';
-import { X509Certificate } from 'node:crypto';
+import { createHash, X509Certificate } from 'node:crypto';
 import {
 	chmodSync,
 	existsSync,
@@ -94,6 +94,7 @@ import {
 	unitEverRan,
 } from '../../src/core/install/host/production/first_boot.ts';
 import { host_packages } from '../../src/core/install/host/production/packages.ts';
+import { refreshInstanceUnits } from '../../src/core/install/host/production/units_refresh.ts';
 import { certificatePaths, siteText } from '../../src/core/install/host/production/web.ts';
 import {
 	EXISTS_NOT_CREATED,
@@ -107,7 +108,17 @@ import {
 	scratchRunner,
 } from '../../src/core/install/host/runner.ts';
 import { stackFileOf } from '../../src/core/install/host/stack/layout.ts';
-import { renderTemplate, UNIT_TEMPLATES } from '../../src/core/install/host/systemd/render.ts';
+import {
+	dropinPath,
+	renderTemplate,
+	UNIT_TEMPLATES,
+	writableRootsManifestPath,
+} from '../../src/core/install/host/systemd/render.ts';
+import {
+	parseShippedDigests,
+	SHIPPED_DIGESTS_FILE,
+	type ShippedDigests,
+} from '../../src/core/install/host/systemd/shipped_digests.ts';
 import { chainTrustVerdict } from '../../src/core/install/host/tls_trust.ts';
 import {
 	ANSWERS_FILE_SCHEMA,
@@ -1775,6 +1786,124 @@ describe('an abort undoes only what it measured as created (review)', () => {
 		expect(abort.outcome.result).toBe('aborted');
 		for (const path of templates.keys())
 			expect(() => statSync(join(host.root, path)), path).toThrow();
+	});
+
+	/** An older render of a template, and the scratch SOURCE's ledger extended to say a release shipped it (C33). */
+	function plantEarlierShipped(host: ScratchHost, name: (typeof UNIT_TEMPLATES)[number]) {
+		const older = `# an earlier release's render of ${name}\n[Unit]\nDescription=older ${name}\n[Service]\nExecStart=/bin/false\n`;
+		const ledgerPath = join(host.source, SHIPPED_DIGESTS_FILE);
+		const ledger = parseShippedDigests(readFileSync(ledgerPath, 'utf8')) as ShippedDigests;
+		ledger.templates[name] = [
+			createHash('sha256').update(older).digest('hex'),
+			...(ledger.templates[name] ?? []),
+		];
+		writeFileSync(ledgerPath, `${JSON.stringify(ledger, null, '\t')}\n`);
+		writeFileSync(join(host.root, `/etc/systemd/system/${name}`), older);
+		return older;
+	}
+
+	test("an EARLIER RELEASE's template (its digest in the shipped ledger, owner C33): UPGRADED in place, never refused; the hand-edited copy beside it is still refused", async () => {
+		const row = osRowById(UBUNTU_NGINX_LE.os);
+		// the host already holds every template of an earlier release's render...
+		const host = scratchHost(UBUNTU_NGINX_LE, {
+			files: new Map(
+				UNIT_TEMPLATES.map((name) => [
+					`/etc/systemd/system/${name}`,
+					renderTemplate(name, row, REPO_ROOT),
+				]),
+			),
+		});
+		// ...and dedalo-ts@.service is an OLDER shipped render
+		const older = plantEarlierShipped(host, 'dedalo-ts@.service');
+		const { plan, planFile } = productionPlan(UBUNTU_NGINX_LE);
+		const run = await runHost(host, freshRequest(planFile));
+		expect(run.outcome.result).toBe('complete');
+		// upgraded: the current render is on disk, said in the step's line, not counted as created
+		expect(readFileSync(join(host.root, '/etc/systemd/system/dedalo-ts@.service'), 'utf8')).toBe(
+			renderTemplate('dedalo-ts@.service', row, host.source),
+		);
+		expect(run.transcript.lines.join('\n')).toContain(
+			'1 template(s) of an earlier release upgraded to this one (dedalo-ts@.service',
+		);
+		expect(readStateFile(join(host.root, RUN_DIR))?.created.host?.units).toEqual([]);
+		// the abort removes the templates by the registry's refcount (an upgraded one is a shipped one)
+		const abort = await runHost(host, laterRequest('abort', plan));
+		expect(abort.outcome.result).toBe('aborted');
+		expect(() => statSync(join(host.root, '/etc/systemd/system/dedalo-ts@.service'))).toThrow();
+		// CONTROL: the same older bytes WITHOUT the ledger line are foreign — refused, kept
+		const foreignHost = scratchHost(UBUNTU_NGINX_LE, {
+			files: new Map([['/etc/systemd/system/dedalo-ts@.service', older]]),
+		});
+		const refused = await runHost(
+			foreignHost,
+			freshRequest(productionPlan(UBUNTU_NGINX_LE).planFile),
+		);
+		expect(refused.outcome.failedStep).toBe('host_units');
+		expect(refused.outcome.message).toContain('other content than any release shipped');
+		expect(
+			readFileSync(join(foreignHost.root, '/etc/systemd/system/dedalo-ts@.service'), 'utf8'),
+		).toBe(older);
+	});
+
+	test('the root re-render command (units_refresh, owner C32/C33): renders from the recorded plan — a shipped template upgraded, the current ones kept, the drop-ins and the manifest rewritten, daemon-reload; a foreign template refuses the whole refresh with nothing written', async () => {
+		const row = osRowById(UBUNTU_NGINX_LE.os);
+		const host = scratchHost(UBUNTU_NGINX_LE);
+		const { planFile } = productionPlan(UBUNTU_NGINX_LE);
+		expect((await runHost(host, freshRequest(planFile))).outcome.result).toBe('complete');
+		const dir = join(host.root, RUN_DIR);
+		const fs = hostFs(host.root, join(host.root, SCRATCH_DIR, 'owners.json'));
+		const systemctlCalls: string[][] = [];
+		const deps = {
+			fs,
+			readRecord: (name: string) => {
+				const plan = name === INSTANCE ? readPlanFile(dir) : null;
+				return plan === null ? null : { plan, state: readStateFile(dir) };
+			},
+			systemctl: (args: readonly string[]) => void systemctlCalls.push([...args]),
+			source: host.source,
+		};
+		// the host drifted: an earlier release's server template, a hand-trimmed server drop-in
+		plantEarlierShipped(host, 'dedalo-ts@.service');
+		const serverDropin = join(host.root, dropinPath('dedalo-ts@.service', INSTANCE));
+		const rendered = readFileSync(serverDropin, 'utf8');
+		writeFileSync(serverDropin, rendered.replace(/^ReadWritePaths=.*\n/gm, ''));
+		const manifestPath = join(host.root, writableRootsManifestPath(INSTANCE));
+		const manifest = readFileSync(manifestPath, 'utf8');
+		writeFileSync(manifestPath, '{}');
+		const report = refreshInstanceUnits(INSTANCE, deps);
+		expect(report.upgraded).toEqual(['/etc/systemd/system/dedalo-ts@.service']);
+		expect(report.written).toEqual([]);
+		expect(report.kept.length).toBe(UNIT_TEMPLATES.length - 1);
+		expect(readFileSync(join(host.root, '/etc/systemd/system/dedalo-ts@.service'), 'utf8')).toBe(
+			renderTemplate('dedalo-ts@.service', row, host.source),
+		);
+		// the instance files are the plan's render again
+		expect(readFileSync(serverDropin, 'utf8')).toBe(rendered);
+		expect(readFileSync(manifestPath, 'utf8')).toBe(manifest);
+		expect(report.dropins).toContain(dropinPath('dedalo-ts@.service', INSTANCE));
+		expect(report.dropins).toContain(writableRootsManifestPath(INSTANCE));
+		expect(systemctlCalls).toEqual([['daemon-reload']]);
+		expect(report.next).toContain(`systemctl restart dedalo-ts@${INSTANCE}.service`);
+		// a second refresh changes nothing: everything current
+		const again = refreshInstanceUnits(INSTANCE, deps);
+		expect(again.upgraded).toEqual([]);
+		expect(again.kept.length).toBe(UNIT_TEMPLATES.length);
+		// a FOREIGN template refuses the whole refresh: nothing written, no reload
+		const foreign = '[Service]\nExecStart=/usr/local/bin/someone-else\n';
+		writeFileSync(join(host.root, '/etc/systemd/system/dedalo-backup@.timer'), foreign);
+		writeFileSync(manifestPath, '{}');
+		systemctlCalls.length = 0;
+		expect(() => refreshInstanceUnits(INSTANCE, deps)).toThrow(
+			/dedalo-backup@\.timer already exist\(s\) with other content than any release shipped.*nothing re-rendered/,
+		);
+		expect(readFileSync(join(host.root, '/etc/systemd/system/dedalo-backup@.timer'), 'utf8')).toBe(
+			foreign,
+		);
+		expect(readFileSync(manifestPath, 'utf8')).toBe('{}');
+		expect(systemctlCalls).toEqual([]);
+		// an unknown instance / a name that is not one: refused before any read
+		expect(() => refreshInstanceUnits('no_such', deps)).toThrow(/no production install record/);
+		expect(() => refreshInstanceUnits('Bad Name', deps)).toThrow(/is not an instance name/);
 	});
 });
 

@@ -99,7 +99,22 @@ Each instance is one long-lived process supervised by systemd, running as **its 
 
 ## Upgrading one instance at a time
 
-Each instance updates its own code from its own **Maintenance** panel, so you can update them one at a time and verify each before the next. Two limits apply: on nginx, instances on one host must end up on the same release (the shared media map), and a release that changes the runtime pin or the root-run scripts needs manual work today — see [Upgrading](upgrading.md).
+Each instance updates its own code from its own **Maintenance** panel, so you can update them one at a time and verify each before the next. Two limits apply: on nginx, instances on one host must end up on the same release (the shared media map), and a release that changes the runtime pin or the root-run scripts needs manual work today — see [Upgrading](upgrading.md). A release that changes the unit templates needs one root command per instance after the update, which the update names — see [Re-rendering the units](#re-rendering-the-units).
+
+## Re-rendering the units
+
+The server unit runs the engine with a **read-only file system** (`ProtectSystem=strict`). What the engine may write is opened by the instance's server drop-in, one quoted `ReadWritePaths=` line per root derived from the install answers: the install folder, the backup directory, the web root under `/srv/dedalo/<i>` (the media and the published client), the socket directory, the PostgreSQL socket directory and the temp directories. The installer writes the same list as a small JSON file beside the drop-in, `dedalo-writable-roots.json`, and names it in the drop-in (`DEDALO_WRITABLE_ROOTS_MANIFEST`). At every start the engine checks each path it is configured to write — `MEDIA_PATH`, `DEDALO_BACKUP_DIR`, the private directory, the export and ontology directories, the socket directory… — against that list and **refuses to start** (exit `78`, which the unit does not restart) when one lies outside it, naming the path and the command below. A path moved in `.env` to a place the unit does not allow therefore fails at the next start, with the fix in the message, instead of at its first write.
+
+A code update runs as the service user and never touches `/etc/systemd`. Two situations call for a re-render, and one command does both, as root:
+
+```shell
+sudo /opt/dedalo/bun/<pin>/bun run <dir>/dedalo/scripts/ops/host_units_refresh.ts --instance <i>
+```
+
+- **You moved a path in `.env`** outside the writable roots (the engine refuses to start and prints this command).
+- **The release you updated to changed a unit template.** The update's post-verification check `host_units` compares the host's templates with the release's render and, when they differ, records this command in the run's journal, in `bun run update status` (the *to do (as root)* line) and in the server log. It never runs it.
+
+The command reads the install's record (`/var/lib/dedalo-install/<i>/`) and renders the templates, the drop-ins and the manifest exactly as the installer's `host_units` step does: a template that is missing is written, one that an earlier release shipped (its digest in `deploy/systemd/shipped_digests.json`) is upgraded, one that no release shipped — another installer's, an edited copy — refuses the whole command with nothing written; the drop-ins and the manifest are rewritten from the plan; then `systemctl daemon-reload`. The instance is **not** restarted: run `sudo systemctl restart dedalo-ts@<i>` when you choose. Other instances on the host share the templates, so they run an upgraded template at their own next restart. On a host installed by hand the same applies to the files you wrote — [Install by hand › `host_units`](manual_install.md#manual-host_units) prints the drop-in and the manifest.
 
 ## Removing an instance
 
@@ -109,7 +124,7 @@ Once the instance has served, `--abort` undoes only the host steps after the eng
 
 1. **Take a backup and keep it somewhere else, BEFORE any `--abort`:** `sudo systemctl start --wait dedalo-backup@<i>.service`. It writes into the instance's backup directory, `<dir>/backups/` unless you chose another: the database dumps under `db/`, the media under `media/`, the private directory (`.env`, which holds the salt) under `private/`. Step 7 deletes that directory, so copy it off this host first. The unit runs only while the instance's drop-ins exist, and `--abort` removes them: afterwards the bare template runs `/bin/false`, and the unit is left failed. After an abort, dump the database directly, `sudo -u postgres <pgbin>/pg_dump -Fc dedalo_<i> > dedalo_<i>.dump`, and copy `/srv/dedalo/<i>/dedalo/media/` and `<dir>/private/.env`. Copy with `sudo cp -r`, not `cp -a`, or `chown` the copy to yourself: a copy that keeps the service user as its owner becomes a file of a removed uid after step 9.
 2. Stop and disable its units, then clear their failed state: `sudo systemctl disable --now dedalo-ts@<i>.service dedalo-ts-watchdog@<i>.timer dedalo-backup@<i>.timer` (with a local CA, also `dedalo-tls-renew@<i>.timer`), then `sudo systemctl reset-failed 'dedalo-*@<i>.*'`.
-3. Remove its drop-ins, one directory per unit of the instance (`dedalo-ts`, `dedalo-ts-watchdog`, `dedalo-ts-rollback`, `dedalo-backup`, `dedalo-backup-alert`, and with a local CA `dedalo-tls-renew`): `sudo rm -rf /etc/systemd/system/dedalo-*@<i>.service.d`, then `sudo systemctl daemon-reload`. After an `--abort` they are already gone, and `rm -rf` says nothing.
+3. Remove its drop-ins, one directory per unit of the instance (`dedalo-ts`, `dedalo-ts-watchdog`, `dedalo-ts-rollback`, `dedalo-backup`, `dedalo-backup-alert`, and with a local CA `dedalo-tls-renew`; the server's directory also holds the writable-roots manifest `dedalo-writable-roots.json`): `sudo rm -rf /etc/systemd/system/dedalo-*@<i>.service.d`, then `sudo systemctl daemon-reload`. After an `--abort` they are already gone, and `rm -rf` says nothing.
 4. Remove its site file and reload the web server. On nginx this is `/etc/nginx/conf.d/dedalo-<i>.conf` and the rule copies under `/etc/nginx/dedalo/<i>/`. After an `--abort` the site file is already gone.
 5. Remove its certificate, if Let's Encrypt issued one: `sudo certbot delete --cert-name dedalo-<i>`. A local CA lives in `/opt/dedalo/instances/<i>/tls/`, removed with that tree in step 7; delete its authority from the staff computers' trust stores too.
 6. Drop its database and role: `sudo -u postgres dropdb dedalo_<i>`, then `sudo -u postgres dropuser <user>`.

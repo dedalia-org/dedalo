@@ -69,6 +69,14 @@ function phaseLines(journal: RunJournal): string[] {
 	return [...ran, ...pending];
 }
 
+/** The post-verify verdicts, once reached; an `offer` (C33) is its own line — the command to run as root. */
+function verifyLines(journal: RunJournal): string[] {
+	return (journal.verify ?? []).flatMap((verdict) => [
+		`  verify ${verdict.id} — ${verdict.ok ? 'ok' : 'RED'}: ${verdict.detail}`,
+		...(verdict.offer === undefined ? [] : [`    to do (as root): ${verdict.offer}`]),
+	]);
+}
+
 async function status(root: string): Promise<CliResult> {
 	const reads = await readRunJournals(root);
 	const blocking = await blockingRun(root);
@@ -85,6 +93,7 @@ async function status(root: string): Promise<CliResult> {
 		`run ${journal.run_id}: ${journal.state}${isTerminal(journal.state) ? '' : ' (IN FLIGHT)'}`,
 		`  ${journal.from.release} (data ${journal.from.data}) → ${journal.to.release} (data ${journal.to.data})`,
 		...phaseLines(journal),
+		...verifyLines(journal),
 		...(journal.note === null ? [] : [`  note: ${journal.note}`]),
 	]);
 }

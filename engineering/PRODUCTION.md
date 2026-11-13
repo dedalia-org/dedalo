@@ -109,10 +109,49 @@ path-independent systemd sandbox: `NoNewPrivileges`, an empty
 `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`. Deliberately absent
 (the unit's comment says why): `MemoryDenyWriteExecute` (JSC JIT), `ProcSubset`
 (`/proc/cpuinfo`), `PrivateTmp` (runners outlive a restart in the temp dir),
-`ProtectHome` (an instance may live under `/home`), `ProtectSystem`/path lists
-(an open owner decision), `SystemCallFilter` (needs a measured syscall set). A code
-update never rewrites `/etc/systemd`: a host installed earlier keeps its old unit
-until the operator replaces it. Gate: `install_host_render_tripwire` (h).
+`ProtectHome` (an instance may live under `/home`), `SystemCallFilter` (needs a
+measured syscall set). Gate: `install_host_render_tripwire` (h).
+
+**The file system is read-only — `ProtectSystem=strict` (owner ruling C32,
+2026-11-13).** Both engine units carry it; what stays writable is OPENED by
+`ReadWritePaths=`: the instance drop-in lists the roots DERIVED from the install
+answers (`host/systemd/render.ts writableRoots` — the install folder, the backup
+dir, the web root under `/srv/dedalo/<i>` with the media and the published client,
+the socket dir, the PostgreSQL socket dir, `/tmp`, `/var/tmp`; a root under another
+is dropped), one quoted assignment per root (L8); the single-instance
+`deploy/dedalo-ts.service` carries the same list with its placeholders. The installer
+writes the SAME list as a JSON manifest beside the drop-in
+(`dedalo-writable-roots.json`: instance, stamp, `read_write_paths`, `refresh` = the
+root re-render command) and names it in the drop-in's
+`DEDALO_WRITABLE_ROOTS_MANIFEST`; at boot, before any listener, the engine
+(`src/config/writable_roots.ts`, `startServer`) checks every path it is configured
+to write — the private dir, `MEDIA_PATH`, `DEDALO_BACKUP_DIR`, the export / ontology
+IO / transform / geoip dirs, the client publish dir, the socket dir, the instance
+dir the swap renames in, the temp dir — against the roots and REFUSES (exit 78,
+never restarted) naming the path and the command when one lies outside; a named
+manifest that is missing or malformed refuses too (fail closed). Unset manifest
+(docker, trial, developer): no check. So a `.env` path moved outside the roots is a
+refusal at boot with the fix in the line, never an `EROFS` in the middle of an upload.
+**The re-render command** —
+`sudo /opt/dedalo/bun/<pin>/bun run <tree>/scripts/ops/host_units_refresh.ts --instance <i>`
+(`host/production/units_refresh.ts`) — renders this release's templates and the
+instance's drop-ins + manifest from the frozen plan (`/var/lib/dedalo-install/<i>/`)
+exactly as `host_units` does, writes absent templates, UPGRADES one an earlier release
+shipped, refuses a foreign one, rewrites the instance files, `daemon-reload`s and leaves
+the restart to the operator. **The shipped-digest ledger (owner ruling C33, 2026-11-13)**
+— `deploy/systemd/shipped_digests.json` (`host/systemd/shipped_digests.ts`): for every
+template, the sha256 of every render a release ever shipped (one per OS row), append-only.
+`host_units` and the refresh judge an existing template by it: byte-equal → current, a
+shipped digest → the installer's own, upgraded in place (every instance on the host runs
+it at its next restart), anything else → foreign, refused, nothing written. **The update
+run OFFERS, never runs**: it runs as the service user and gains no privilege; its
+post-verify `host_units` predicate (`update/run/host_units.ts`) compares the host's
+templates with this release's render (any OS row) and, when they differ, carries the
+manifest's `refresh` command as the verdict's `offer` — always `ok` — into the journal,
+`bun run update status` (the *to do (as root)* line) and the server log. Gates:
+`install_host_render_tripwire` (i, j), `install_state_boot` (writable roots),
+`install_host_steps_native` (shipped upgrade, refresh), `update_run_state_machine_native`
+(host_units), `update_cli_native` (status).
 
 **Supervision is DECLARED, never inferred (2026-10-08).** A code update exits the
 process after the swap and needs something to start it again, so it refuses
@@ -1541,7 +1580,7 @@ NEEDS_DB_RESTORE) → the run's
 backup (newest PROVEN dump inside `DEDALO_BACKUP_TIME_RANGE`, or a journaled
 waiver) → the release's `steps` from `install/update/catalog.json` (default
 `code → ontology → schema → ancillary`; ontology preconditions before the
-swap) → post-verify (`schema_clean`, `data_version`, `data_model`) →
+swap) → post-verify (`schema_clean`, `data_version`, `data_model`, `host_units`) →
 VERIFIED → confirm → CONFIRMED. After the swap the new tree's boot RESUMES the
 run (`run/boot.ts`): a run whose code phase started owns the boot, so the boot
 runner does not apply migrations — the run's `schema` phase does. Failure

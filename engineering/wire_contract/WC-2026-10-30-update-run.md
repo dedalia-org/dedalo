@@ -153,3 +153,23 @@ COUNTED as a crossing by the ruling, and its automatic rollback can put back a b
 fit the database. No gate refuses an `incompatible` migration added to a triple after its first
 build (open, owner decision). Gate on every statement of these rules: `update_docs_claims_tripwire`
 C11 (measured against `install/db/migrations.lock.json` and the catalog).
+
+## Addendum 2026-11-13 (owner ruling C33) — `verify[]` entries may carry `offer`; the `host_units` predicate
+
+- The journal's post-verify entries (`journal.verify[]`, the file under `<private>/update/runs/`
+  and `bun run update status --json`) gain an OPTIONAL `offer: string` — a ROOT command the run
+  names but never runs. It rides only an `ok` verdict: an offer is something to do after a verified
+  run, never a failure.
+- `RUN_VERIFY_PREDICATES` gains `host_units` (after `data_model`): on a production systemd
+  instance (the server drop-in names `DEDALO_WRITABLE_ROOTS_MANIFEST`, C32) it compares the host's
+  `/etc/systemd/system/<template>` files with this release's render of `deploy/systemd/` (any OS
+  row). ALWAYS `ok` — the run is the service user and never writes `/etc/systemd`; when a template
+  differs or is absent, `offer` = the manifest's `refresh` (`sudo <bun> run
+  <tree>/scripts/ops/host_units_refresh.ts --instance <i>`). Not a systemd instance: `ok`, "no unit
+  templates to compare". The `/health` wire view is UNCHANGED (`update_run: {state}` only — a host
+  path never rides the anonymous probe).
+- `bun run update status` prints one `  verify <id> — ok|RED: <detail>` line per verdict and a
+  `    to do (as root): <offer>` line under a verdict that carries one (`scripts/update.ts`).
+- Gates: `update_run_state_machine_native` (host_units predicate + `readHostUnitsState`),
+  `update_cli_native` (status), `update_docs_claims_tripwire` C9 (the documented predicate lists).
+

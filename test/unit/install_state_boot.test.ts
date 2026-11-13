@@ -17,6 +17,13 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import {
+	type ConfiguredWritablePath,
+	parseWritableRootsManifest,
+	pathUnderRoot,
+	writableRootsRefusal,
+	writableRootsViolations,
+} from '../../src/config/writable_roots.ts';
 
 const STATE_MODULE = resolve(import.meta.dir, '../../src/config/install_state.ts');
 const CONFIG_MODULE = resolve(import.meta.dir, '../../src/config/config.ts');
@@ -152,5 +159,96 @@ describe('the config import on a box that is not installed', () => {
 		expect(result.ok).toBe(false);
 		// Which key is named first depends on the config build order; the shape is the law.
 		expect(result.stderr).toMatch(/Missing required config key '[A-Z_]+'/);
+	});
+});
+
+/**
+ * THE WRITABLE ROOTS (owner ruling C32, 2026-11-13 — src/config/writable_roots.ts):
+ * under ProtectSystem=strict the engine may write only the roots its drop-in
+ * opened; the installer's manifest names them, and a configured path outside
+ * them is a boot REFUSAL (exit 78) naming the root re-render command — never
+ * an EROFS at the first write.
+ */
+describe("the writable roots: a configured path outside the unit's roots refuses the boot (C32)", () => {
+	const manifest = (over: Record<string, unknown> = {}) =>
+		JSON.stringify({
+			format: 1,
+			instance: 'zzisb',
+			stamp: 'abcdef0123456789',
+			read_write_paths: ['/home/ded_zzisb', '/srv/dedalo/zzisb', '/run/dedalo-zzisb', '/tmp'],
+			refresh:
+				'sudo /opt/dedalo/bun/1.4.4/bun run /home/ded_zzisb/dedalo/scripts/ops/host_units_refresh.ts --instance zzisb',
+			...over,
+		});
+	const file = (name: string, text: string): string => {
+		const path = join(SCRATCH, name);
+		writeFileSync(path, text);
+		return path;
+	};
+	const inside: ConfiguredWritablePath[] = [
+		{ label: 'the private directory', path: '/home/ded_zzisb/private' },
+		{ label: 'MEDIA_PATH', path: '/srv/dedalo/zzisb/dedalo/media' },
+		{ label: 'SERVER_UNIX_SOCKET (its directory)', path: '/run/dedalo-zzisb' },
+		{ label: 'the temp directory', path: '/tmp' },
+	];
+
+	test('every configured path under a listed root → null (the boot proceeds)', () => {
+		expect(writableRootsRefusal(file('ok.json', manifest()), inside)).toBeNull();
+	});
+
+	test('no manifest named (docker, trial, developer) → null: no check', () => {
+		expect(writableRootsRefusal(undefined, inside)).toBeNull();
+		expect(writableRootsRefusal('', inside)).toBeNull();
+	});
+
+	test('a path outside every root → the refusal names the path, the roots and the re-render command', () => {
+		const moved = [...inside, { label: 'MEDIA_PATH', path: '/data/museum/dedalo/media' }];
+		const refusal = writableRootsRefusal(file('moved.json', manifest()), moved);
+		expect(refusal).not.toBeNull();
+		expect(refusal).toContain('MEDIA_PATH /data/museum/dedalo/media');
+		expect(refusal).toContain('ProtectSystem=strict');
+		expect(refusal).toContain('/home/ded_zzisb /srv/dedalo/zzisb /run/dedalo-zzisb /tmp');
+		expect(refusal).toContain('host_units_refresh.ts --instance zzisb');
+		// the paths that ARE under a root are not named
+		expect(refusal).not.toContain('/srv/dedalo/zzisb/dedalo/media');
+	});
+
+	test('a sibling prefix is not "under" (/home/ded_zzisb2 vs /home/ded_zzisb); the root itself is', () => {
+		expect(pathUnderRoot('/home/ded_zzisb2/private', '/home/ded_zzisb')).toBe(false);
+		expect(pathUnderRoot('/home/ded_zzisb', '/home/ded_zzisb')).toBe(true);
+		expect(pathUnderRoot('/x', '/')).toBe(true);
+		expect(
+			writableRootsViolations(['/home/ded_zzisb'], [{ label: 'HOME', path: '/home/ded_zzisb2' }]),
+		).toEqual(['HOME /home/ded_zzisb2']);
+	});
+
+	test('a manifest that is named but missing, not JSON, or malformed → refused (fail closed), naming the re-render script', () => {
+		const missing = writableRootsRefusal(join(SCRATCH, 'no_such_manifest.json'), inside);
+		expect(missing).toMatch(/cannot be read \(ENOENT\)/);
+		expect(missing).toContain('host_units_refresh.ts');
+		expect(writableRootsRefusal(file('bad.json', '{ not json'), inside)).toMatch(
+			/malformed \(not JSON\)/,
+		);
+		for (const [name, over, why] of [
+			['format', { format: 2 }, 'format 2, expected 1'],
+			['instance', { instance: '' }, 'no instance'],
+			['refresh', { refresh: '' }, 'no refresh command'],
+			[
+				'roots',
+				{ read_write_paths: [] },
+				'read_write_paths is not a non-empty list of absolute paths',
+			],
+			[
+				'relative',
+				{ read_write_paths: ['home/x'] },
+				'read_write_paths is not a non-empty list of absolute paths',
+			],
+		] as const) {
+			expect(parseWritableRootsManifest(manifest(over)), name).toBe(why);
+			expect(writableRootsRefusal(file(`${name}.json`, manifest(over)), inside)).toContain(why);
+		}
+		const parsed = parseWritableRootsManifest(manifest());
+		expect(typeof parsed).toBe('object');
+		expect((parsed as { instance: string }).instance).toBe('zzisb');
 	});
 });

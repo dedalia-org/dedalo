@@ -78,6 +78,7 @@ import { webServerClash } from '../../src/core/install/host/production/preflight
 import type { InstanceEntry } from '../../src/core/install/host/registry.ts';
 import {
 	instanceDropins,
+	instanceManifests,
 	ROOT_RUN_SCRIPTS,
 	renderTemplate,
 	tlsRenewDropin,
@@ -244,6 +245,10 @@ function renderedBlocks(): Map<string, string> {
 	for (const dropin of instanceDropins(paths, row, answers, MANUAL_STAMP)) {
 		const unit = /system\/([a-z-]+)@/.exec(dropin.path)?.[1] ?? dropin.path;
 		blocks.set(`drop-in ${unit}`, dropin.content);
+	}
+	// The writable-roots manifest beside the server drop-in (C32): the page prints it too.
+	for (const manifest of instanceManifests(paths, answers, MANUAL_STAMP)) {
+		blocks.set('writable-roots manifest', manifest.content);
 	}
 	// The local CA's renewal drop-in (host_tls writes it, local_ca only); the page fills
 	// the web server's unit from $WEBSVC.

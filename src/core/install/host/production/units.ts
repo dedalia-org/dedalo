@@ -7,11 +7,15 @@
  * first boot completed — host_watchdog) or the backup timer (enabled only
  * after a verified first backup — host_backup_verify, critique A7).
  *
- * A template that already exists with OTHER bytes (another installer's,
- * an operator's edit, a single-instance unit of the same name) is REFUSED —
- * never overwritten. Templates are removed on --abort only when no other
- * instance still uses them (the registry's refcount — whichever instance wrote
- * them).
+ * A template that already exists with OTHER bytes is judged by the SHIPPED
+ * DIGEST LEDGER (owner ruling C33, 2026-11-13; systemd/shipped_digests.ts):
+ * bytes an EARLIER RELEASE shipped are the installer's own and are UPGRADED
+ * in place (every instance on this host runs the new template at its next
+ * restart — a release's unit, not a stranger's); bytes no release ever shipped
+ * (another installer's, an operator's edit, a single-instance unit of the same
+ * name) are REFUSED — never overwritten. Templates are removed on --abort only
+ * when no other instance still uses them (the registry's refcount — whichever
+ * instance wrote them); an upgraded template that stays is a shipped one.
  */
 
 import type {
@@ -22,9 +26,22 @@ import type {
 	WriteCommand,
 } from '../contract.ts';
 import { executeCommands } from '../execute.ts';
+import { type HostFs, sha256Text } from '../fs.ts';
 import { hostRefuse } from '../refuse.ts';
 import { otherEntries, updateEntry } from '../registry.ts';
-import { instanceDropins, renderTemplate, SYSTEMD_DIR, UNIT_TEMPLATES } from '../systemd/render.ts';
+import {
+	instanceDropins,
+	instanceManifests,
+	renderTemplate,
+	SYSTEMD_DIR,
+	UNIT_TEMPLATES,
+	type UnitTemplate,
+} from '../systemd/render.ts';
+import {
+	isShippedDigest,
+	readShippedDigests,
+	type ShippedDigests,
+} from '../systemd/shipped_digests.ts';
 import { exec, probe, probeOk, ran, remember, stampOf, systemctl, verdictOf } from './common.ts';
 
 /** The template writes (0644 root). */
@@ -40,17 +57,33 @@ export function templateWrites(ctx: HostPlanCtx): WriteCommand[] {
 	}));
 }
 
-/** The drop-in writes (0644 root). */
+/** The drop-in writes (0644 root) — and the writable-roots manifest beside the server's (C32). */
 export function dropinWrites(ctx: HostPlanCtx): WriteCommand[] {
-	return instanceDropins(ctx.paths, ctx.row, ctx.answers, stampOf(ctx)).map((dropin) => ({
-		kind: 'write',
-		path: dropin.path,
-		mode: 0o644,
-		owner: 'root',
-		group: 'root',
-		content: dropin.content,
-		label: `drop-in ${dropin.path.slice(SYSTEMD_DIR.length + 1)}`,
-	}));
+	const stamp = stampOf(ctx);
+	return [
+		...instanceDropins(ctx.paths, ctx.row, ctx.answers, stamp).map(
+			(dropin): WriteCommand => ({
+				kind: 'write',
+				path: dropin.path,
+				mode: 0o644,
+				owner: 'root',
+				group: 'root',
+				content: dropin.content,
+				label: `drop-in ${dropin.path.slice(SYSTEMD_DIR.length + 1)}`,
+			}),
+		),
+		...instanceManifests(ctx.paths, ctx.answers, stamp).map(
+			(manifest): WriteCommand => ({
+				kind: 'write',
+				path: manifest.path,
+				mode: 0o644,
+				owner: 'root',
+				group: 'root',
+				content: manifest.content,
+				label: `writable-roots manifest ${manifest.path.slice(SYSTEMD_DIR.length + 1)}`,
+			}),
+		),
+	];
 }
 
 /** The server unit of the instance. */
@@ -72,18 +105,54 @@ export function unitCommands(ctx: HostPlanCtx): HostCommand[] {
 	];
 }
 
-/** A template present with other bytes is someone else's: refused, never overwritten. */
-function assertNoForeignTemplate(ctx: HostCtx): void {
-	const foreign = templateWrites(ctx).filter((write) => {
-		const text = ctx.fs.readText(write.path);
-		return text !== null && text !== write.content;
+/** What the host holds at a template's path, judged against this release's render and the shipped ledger. */
+export interface TemplateVerdict {
+	readonly name: UnitTemplate;
+	readonly path: string;
+	/**
+	 * absent: nothing there; current: byte-equal to this release's render; shipped:
+	 * an EARLIER release's render (its digest in deploy/systemd/shipped_digests.json —
+	 * the installer's own, upgraded in place); foreign: bytes no release shipped
+	 * (another installer's, a hand edit — refused, never overwritten).
+	 */
+	readonly verdict: 'absent' | 'current' | 'shipped' | 'foreign';
+}
+
+/**
+ * Every template's verdict on this host (the `fs` seam: a gate's scratch root,
+ * the refresh CLI's real one; the ledger is the SOURCE tree's — the release
+ * being installed remembers what the earlier ones wrote).
+ */
+export function templateVerdicts(
+	ctx: HostPlanCtx,
+	fs: HostFs,
+	ledger: ShippedDigests = readShippedDigests(ctx.source),
+): TemplateVerdict[] {
+	return templateWrites(ctx).map((write, index) => {
+		const name = UNIT_TEMPLATES[index] as UnitTemplate;
+		const text = fs.readText(write.path);
+		if (text === null) return { name, path: write.path, verdict: 'absent' };
+		if (text === write.content) return { name, path: write.path, verdict: 'current' };
+		if (isShippedDigest(ledger, name, sha256Text(text))) {
+			return { name, path: write.path, verdict: 'shipped' };
+		}
+		return { name, path: write.path, verdict: 'foreign' };
 	});
+}
+
+/** The refusal sentence for templates no release shipped (host_units and the refresh share it). */
+export function foreignTemplateSentence(paths: readonly string[]): string {
+	return `${paths.join(', ')} already exist(s) with other content than any release shipped — another installer's or an edited copy; the installer never overwrites it (compare it with deploy/systemd/, then remove it or keep this host's instances on it)`;
+}
+
+/** A template present with bytes no release shipped is someone else's: refused, never overwritten. */
+function assertNoForeignTemplate(ctx: HostCtx): TemplateVerdict[] {
+	const verdicts = templateVerdicts(ctx, ctx.fs);
+	const foreign = verdicts.filter((v) => v.verdict === 'foreign');
 	if (foreign.length > 0) {
-		hostRefuse(
-			'install.state_conflict',
-			`${foreign.map((write) => write.path).join(', ')} already exist(s) with other content — another installer's or an edited copy; the installer never overwrites it (compare it with deploy/systemd/, then remove it or keep this host's instances on it)`,
-		);
+		hostRefuse('install.state_conflict', foreignTemplateSentence(foreign.map((v) => v.path)));
 	}
+	return verdicts;
 }
 
 /**
@@ -126,10 +195,16 @@ export const host_units: HostStepDefinition = {
 			`${UNIT_TEMPLATES.length} templates, the drop-ins, ${serverUnit(ctx)} enabled`,
 		),
 	run: async (ctx) => {
-		assertNoForeignTemplate(ctx);
+		// An earlier release's template is upgraded by the same write (C33): the
+		// commands write every template; a foreign one refused the step above.
+		const upgraded = assertNoForeignTemplate(ctx).filter((v) => v.verdict === 'shipped');
 		await executeCommands(unitCommands(ctx), ctx);
 		updateEntry(ctx.fs, ctx.paths, { templates: true });
-		return ran(`${serverUnit(ctx)} enabled (not started yet)`);
+		const note =
+			upgraded.length === 0
+				? ''
+				: `; ${upgraded.length} template(s) of an earlier release upgraded to this one (${upgraded.map((v) => v.name).join(', ')} — the other instances on this host run it at their next restart)`;
+		return ran(`${serverUnit(ctx)} enabled (not started yet)${note}`);
 	},
 	intent: (ctx) => {
 		for (const write of templateWrites(ctx))

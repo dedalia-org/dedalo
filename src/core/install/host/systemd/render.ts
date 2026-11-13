@@ -30,10 +30,12 @@
  * PURE: (paths, row, answers, source text) → file texts.
  */
 
+import { dirname } from 'node:path';
 import type { InstallAnswers } from '../../install_plan.ts';
+import { LOCAL_PG_SOCKET_DIR } from '../../install_plan.ts';
 import type { InstancePaths } from '../layout.ts';
 import type { OsRow } from '../os_support.ts';
-import { systemdEnvironment } from '../quote.ts';
+import { systemdEnvironment, systemdQuoted } from '../quote.ts';
 import { sourceText } from '../source.ts';
 
 /** The template files, as deploy/systemd/ ships them and /etc/systemd/system/ receives them. */
@@ -103,8 +105,97 @@ function accountLines(paths: InstancePaths): string[] {
 	return [`User=${paths.user}`, `Group=${paths.group}`];
 }
 
-/** The server's drop-in: the service account, the install folder, the pinned runtime, the client publish dir. */
-export function serverDropin(paths: InstancePaths, stamp: string): string {
+/** Is `path` equal to `root` or below it? (`/` covers everything.) */
+export function pathUnderRoot(path: string, root: string): boolean {
+	if (root === '/') return true;
+	return path === root || path.startsWith(`${root}/`);
+}
+
+/**
+ * THE WRITABLE ROOTS of an instance (owner ruling C32, 2026-11-13 — the
+ * template runs `ProtectSystem=strict`, so every other path is read-only to the
+ * engine): the install folder (the tree, ../private — sessions, the state file,
+ * export artifacts, the ontology IO dir —, backups/code), the backup units'
+ * dir, the web root (MEDIA_PATH lives under it — THE ROOT RULE) and the client
+ * publish dir, the socket dir (systemd's RuntimeDirectory is writable by its own
+ * rule; listed so a socket answered elsewhere is covered), the PostgreSQL socket
+ * dir (a unix connect works on a read-only mount; listed so a DB_SOCKET under a
+ * protected path is covered — and visible), and the temp dirs (uploads staging,
+ * PDF extraction, RAG scratch). Derived ONCE here: the drop-in's ReadWritePaths=
+ * lines, the JSON manifest beside it and the engine's boot check all read this
+ * list. A root under another listed root is dropped; order = this order.
+ */
+export function writableRoots(paths: InstancePaths, answers: InstallAnswers): string[] {
+	const pgSocketDir =
+		typeof answers.db_socket === 'string' && answers.db_socket !== ''
+			? answers.db_socket
+			: LOCAL_PG_SOCKET_DIR;
+	const candidates = [
+		paths.instanceDir,
+		paths.backupDir,
+		paths.webRoot,
+		paths.clientPublish,
+		paths.socketDir,
+		pgSocketDir,
+		'/tmp',
+		'/var/tmp',
+	].map((root) => (root.length > 1 ? root.replace(/\/+$/, '') : root));
+	const roots: string[] = [];
+	for (const root of candidates) {
+		if (root === '' || roots.some((kept) => pathUnderRoot(root, kept))) continue;
+		roots.push(root);
+	}
+	// a later, broader root swallows the earlier narrower ones (dedupe both ways)
+	return roots.filter(
+		(root, i) => !roots.some((other, j) => j !== i && other !== root && pathUnderRoot(root, other)),
+	);
+}
+
+/** The manifest the installer writes beside the server drop-in (the engine's boot check reads it). */
+export const WRITABLE_ROOTS_MANIFEST = 'dedalo-writable-roots.json';
+
+/** The manifest's path for an instance (in the server unit's drop-in dir; systemd reads only `.conf` there). */
+export function writableRootsManifestPath(instance: string): string {
+	return `${dirname(dropinPath('dedalo-ts@.service', instance))}/${WRITABLE_ROOTS_MANIFEST}`;
+}
+
+/**
+ * The ROOT command that re-renders this instance's units from its frozen plan
+ * (scripts/ops/host_units_refresh.ts → host/production/units_refresh.ts): the
+ * pinned root-owned runtime, the instance's own tree. Named by the manifest,
+ * by the engine's boot refusal and by the update run's post-verify offer.
+ */
+export function unitsRefreshCommand(
+	paths: Pick<InstancePaths, 'bun' | 'tree' | 'instance'>,
+): string {
+	return `sudo ${paths.bun} run ${paths.tree}/scripts/ops/host_units_refresh.ts --instance ${paths.instance}`;
+}
+
+/** The manifest's JSON (format 1): the instance, the stamp, the roots, the re-render command. */
+export function writableRootsManifest(
+	paths: InstancePaths,
+	answers: InstallAnswers,
+	stamp: string,
+): string {
+	return `${JSON.stringify(
+		{
+			format: 1,
+			instance: paths.instance,
+			stamp: stamp.replace(/^# dedalo-install \S+ /, ''),
+			read_write_paths: writableRoots(paths, answers),
+			refresh: unitsRefreshCommand(paths),
+		},
+		null,
+		'\t',
+	)}\n`;
+}
+
+/**
+ * The server's drop-in: the service account, the install folder, the pinned
+ * runtime, the client publish dir, the WRITABLE ROOTS (one quoted
+ * ReadWritePaths= line each — L8) and the manifest the engine checks them from.
+ */
+export function serverDropin(paths: InstancePaths, answers: InstallAnswers, stamp: string): string {
 	return [
 		stamp,
 		'[Service]',
@@ -114,6 +205,11 @@ export function serverDropin(paths: InstancePaths, stamp: string): string {
 		'ExecStart=',
 		`ExecStart=${paths.bun} run src/server.ts`,
 		systemdEnvironment({ key: 'DEDALO_CLIENT_PUBLISH_DIR', value: paths.clientPublish }),
+		...writableRoots(paths, answers).map((root) => `ReadWritePaths=${systemdQuoted(root)}`),
+		systemdEnvironment({
+			key: 'DEDALO_WRITABLE_ROOTS_MANIFEST',
+			value: writableRootsManifestPath(paths.instance),
+		}),
 		'',
 	].join('\n');
 }
@@ -289,6 +385,20 @@ export function tlsRenewDropin(
 	].join('\n');
 }
 
+/** The files written BESIDE the drop-ins (not units: systemd reads only `.conf` there) — the writable-roots manifest. */
+export function instanceManifests(
+	paths: InstancePaths,
+	answers: InstallAnswers,
+	stamp: string,
+): { path: string; content: string }[] {
+	return [
+		{
+			path: writableRootsManifestPath(paths.instance),
+			content: writableRootsManifest(paths, answers, stamp),
+		},
+	];
+}
+
 /** Every drop-in of the instance: path → text. */
 export function instanceDropins(
 	paths: InstancePaths,
@@ -297,7 +407,10 @@ export function instanceDropins(
 	stamp: string,
 ): { path: string; content: string }[] {
 	return [
-		{ path: dropinPath('dedalo-ts@.service', paths.instance), content: serverDropin(paths, stamp) },
+		{
+			path: dropinPath('dedalo-ts@.service', paths.instance),
+			content: serverDropin(paths, answers, stamp),
+		},
 		{
 			path: dropinPath('dedalo-backup@.service', paths.instance),
 			content: backupDropin(paths, row, answers, stamp),

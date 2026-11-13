@@ -73,7 +73,8 @@ A run moves through the states of its own phases, in order. The terminal states 
 
 - `schema_clean` — no boot migration pending, and every applied migration matches its recorded hash;
 - `data_version` — the database is on the target release's data version;
-- `data_model` — that data version is on the target's data model.
+- `data_model` — that data version is on the target's data model;
+- `host_units` — on a production systemd instance, whether the host's unit templates are this release's render. This check never fails the run: the update runs as the service user and does not write `/etc/systemd`. When the templates are an earlier release's, the run records the one command that re-renders them from the install's plan, to run as root — `sudo <bun> run <tree>/scripts/ops/host_units_refresh.ts --instance <i>`, then `systemctl restart dedalo-ts@<i>` — in its journal, in `bun run update status` (the *to do (as root)* line) and in the server log. See [Re-rendering the units](../../install/multi_instance.md#re-rendering-the-units).
 
 ### When a phase fails
 

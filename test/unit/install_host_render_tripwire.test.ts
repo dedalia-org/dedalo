@@ -69,7 +69,13 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { CONFIG_CATALOG } from '../../src/config/catalog/index.ts';
+import {
+	parseWritableRootsManifest,
+	type WritableRootsManifest,
+	writableRootsViolations,
+} from '../../src/config/writable_roots.ts';
 import type { HostCommand, HostPlanCtx } from '../../src/core/install/host/contract.ts';
+import { sha256Text } from '../../src/core/install/host/fs.ts';
 import { OS_ROWS } from '../../src/core/install/host/os_support.ts';
 import { stampOf } from '../../src/core/install/host/production/common.ts';
 import { instanceDirs } from '../../src/core/install/host/production/identity.ts';
@@ -84,12 +90,24 @@ import { stackServiceImage } from '../../src/core/install/host/stack/images.ts';
 import {
 	backupStores,
 	instanceDropins,
+	instanceManifests,
+	pathUnderRoot,
 	ROOT_RUN_SCRIPTS,
 	renderTemplate,
+	SYSTEMD_DIR,
 	siteBuilderBackupUnit,
 	UNIT_TEMPLATES,
 	type UnitTemplate,
+	unitsRefreshCommand,
+	writableRoots,
+	writableRootsManifestPath,
 } from '../../src/core/install/host/systemd/render.ts';
+import {
+	isShippedDigest,
+	parseShippedDigests,
+	readShippedDigests,
+	SHIPPED_DIGESTS_FILE,
+} from '../../src/core/install/host/systemd/shipped_digests.ts';
 import { CATCH_ALL_STAMP, catchAllPath } from '../../src/core/install/host/web/catch_all.ts';
 import { nginxSites } from '../../src/core/install/host/web/clash.ts';
 import { SECURITY_HEADERS } from '../../src/core/install/host/web/site.ts';
@@ -634,21 +652,22 @@ const SANDBOX_BASELINE: Readonly<Record<string, string>> = Object.freeze({
 	ProtectProc: 'invisible',
 	SystemCallArchitectures: 'native',
 	RestrictAddressFamilies: 'AF_UNIX AF_INET AF_INET6 AF_NETLINK',
+	// the file system is read-only except the drop-in's ReadWritePaths (owner C32, 2026-11-13)
+	ProtectSystem: 'strict',
 });
 
 /**
  * Deliberately ABSENT, each for a measured engine need (the unit's comment says which):
  * JSC's JIT (MemoryDenyWriteExecute), /proc/cpuinfo (ProcSubset), runners surviving a
  * restart in the temp dir (PrivateTmp), an instance under /home (ProtectHome); the
- * writable-path policy (ProtectSystem/ReadWritePaths) is an owner decision.
+ * read-only / inaccessible path lists (the engine's roots are OPENED, never narrowed
+ * further — a narrowing list would be a second policy the manifest does not know).
  */
 const SANDBOX_EXCLUDED: readonly string[] = Object.freeze([
 	'MemoryDenyWriteExecute',
 	'ProcSubset',
 	'PrivateTmp',
 	'ProtectHome',
-	'ProtectSystem',
-	'ReadWritePaths',
 	'ReadOnlyPaths',
 	'InaccessiblePaths',
 ]);
@@ -686,6 +705,9 @@ describe("the engine unit's sandbox baseline (h)", () => {
 		expect(sandboxFaults(mergedUnit(single.replace(/^NoNewPrivileges=yes\n/m, ''), []))).toEqual([
 			'NoNewPrivileges=yes (found null)',
 		]);
+		expect(sandboxFaults(mergedUnit(single, ['[Service]\nProtectSystem=full\n']))).toEqual([
+			'ProtectSystem=strict (found ["full"])',
+		]);
 		expect(
 			sandboxFaults(
 				mergedUnit(single, ['[Service]\nCapabilityBoundingSet=CAP_NET_BIND_SERVICE\n']),
@@ -694,6 +716,205 @@ describe("the engine unit's sandbox baseline (h)", () => {
 		expect(sandboxFaults(mergedUnit(single, ['[Service]\nMemoryDenyWriteExecute=yes\n']))).toEqual([
 			'MemoryDenyWriteExecute must not be set',
 		]);
+	});
+});
+
+// ── (i) the writable roots under ProtectSystem=strict (owner C32, 2026-11-13) ──
+
+/**
+ * The EFFECTIVE server unit's ReadWritePaths= (systemd's word split applied — each
+ * root is QUOTED, L8) must cover every path the install answers make the engine
+ * write: the install folder (tree, private, backups/code), the backup dir, MEDIA_PATH,
+ * the client publish dir, the socket dir, the PostgreSQL socket dir, the temp dirs;
+ * the manifest beside the drop-in carries the SAME list and names the re-render
+ * command with the instance; the engine's own judge (config/writable_roots.ts) agrees.
+ */
+describe('the writable roots: ReadWritePaths= covers every answered path; the manifest is the same list (i)', () => {
+	for (const layout of LAYOUTS) {
+		for (const row of OS_ROWS) {
+			test(`${layout.name}, ${row.id}: every answered path lies under a listed, quoted root; manifest = the list; the engine agrees`, () => {
+				const ctx = productionPlanCtx(
+					{ os: row.id, web: 'nginx', tls: 'letsencrypt' },
+					REPO_ROOT,
+					layout.extra,
+				);
+				const unit = effective(ctx, 'dedalo-ts@.service');
+				const lines = unit.get('Service.ReadWritePaths') ?? [];
+				expect(lines.length).toBeGreaterThanOrEqual(5);
+				// each assignment is ONE quoted root (L8: a space in a folder name survives)
+				for (const line of lines) expect(line, line).toMatch(/^"[^"]+"$/);
+				const roots = lines.flatMap((line) => systemdWords(line));
+				expect(roots).toEqual(writableRoots(ctx.paths, ctx.answers));
+				const { paths, answers } = ctx;
+				const pgSocket = answers.db_socket === '' ? '/var/run/postgresql' : answers.db_socket;
+				const written = [
+					paths.tree,
+					paths.privateDir,
+					paths.codeBackupRoot,
+					paths.backupDir,
+					paths.media,
+					paths.clientPublish,
+					paths.socketDir,
+					pgSocket,
+					'/tmp',
+					'/var/tmp',
+				];
+				const uncovered = written.filter(
+					(path) => !roots.some((root) => pathUnderRoot(path, root)),
+				);
+				expect(uncovered).toEqual([]);
+				// no root under another (the list is minimal), none relative, none the whole tree
+				for (const root of roots) {
+					expect(root.startsWith('/')).toBe(true);
+					expect(root).not.toBe('/');
+					expect(roots.filter((other) => other !== root && pathUnderRoot(root, other))).toEqual([]);
+				}
+				// the manifest beside the drop-in: the same list, the instance, the re-render command
+				const manifests = instanceManifests(paths, answers, stampOf(ctx));
+				expect(manifests.map((m) => m.path)).toEqual([writableRootsManifestPath(paths.instance)]);
+				expect(
+					manifests[0]?.path.startsWith(`${SYSTEMD_DIR}/dedalo-ts@${paths.instance}.service.d/`),
+				).toBe(true);
+				expect(manifests[0]?.path.endsWith('.conf')).toBe(false);
+				const parsed = parseWritableRootsManifest(manifests[0]?.content ?? '');
+				expect(typeof parsed).toBe('object');
+				const manifest = parsed as WritableRootsManifest;
+				expect(manifest.read_write_paths).toEqual(roots);
+				expect(manifest.instance).toBe(paths.instance);
+				expect(manifest.refresh).toBe(unitsRefreshCommand(paths));
+				expect(manifest.refresh).toContain(`--instance ${paths.instance}`);
+				expect(
+					manifest.refresh.startsWith(
+						`sudo ${paths.bun} run ${paths.tree}/scripts/ops/host_units_refresh.ts`,
+					),
+				).toBe(true);
+				// the drop-in names the manifest for the engine
+				expect(unitEnvironment(unit).get('DEDALO_WRITABLE_ROOTS_MANIFEST')).toBe(
+					manifests[0]?.path,
+				);
+				// the engine's judge: every written path passes; a path outside is named
+				expect(
+					writableRootsViolations(
+						manifest.read_write_paths,
+						written.map((path) => ({ label: 'x', path })),
+					),
+				).toEqual([]);
+				expect(
+					writableRootsViolations(manifest.read_write_paths, [
+						{ label: 'MEDIA_PATH', path: '/data/elsewhere/dedalo/media' },
+					]),
+				).toEqual(['MEDIA_PATH /data/elsewhere/dedalo/media']);
+			});
+		}
+	}
+
+	test('positive controls: an unquoted root is caught by the quoting rule; a DB_SOCKET elsewhere is listed; a sibling prefix is not "under"', () => {
+		expect(/^"[^"]+"$/.test('/home/ded_x')).toBe(false);
+		const ctx = productionPlanCtx(NGINX_LE, REPO_ROOT, { db_socket: '/data/pg/sock' });
+		expect(writableRoots(ctx.paths, ctx.answers)).toContain('/data/pg/sock');
+		expect(writableRoots(ctx.paths, ctx.answers)).not.toContain('/var/run/postgresql');
+		expect(pathUnderRoot('/home/ded_x2', '/home/ded_x')).toBe(false);
+		expect(pathUnderRoot('/home/ded_x/dedalo', '/home/ded_x')).toBe(true);
+		expect(pathUnderRoot('/anything', '/')).toBe(true);
+		// a root under another listed root is dropped (the backup dir under the install folder)
+		const nested = productionPlanCtx(NGINX_LE, REPO_ROOT, {
+			backup_dir: `${ctx.answers.install_dir}/backups`,
+		});
+		const roots = writableRoots(nested.paths, nested.answers);
+		expect(roots.filter((root) => root.startsWith(nested.paths.instanceDir))).toEqual([
+			nested.paths.instanceDir,
+		]);
+	});
+});
+
+// ── (j) the shipped-template digest ledger (owner C33, 2026-11-13) ───────────
+
+/**
+ * deploy/systemd/shipped_digests.json remembers every render a release shipped,
+ * so the installer upgrades its own earlier templates and still refuses a
+ * stranger's. The law it must keep: EVERY TEMPLATE EDIT ADDS A DIGEST AND
+ * REMOVES NONE — this tree's render (every OS row) and the committed HEAD's
+ * render of every template are in it, and every digest HEAD's ledger holds is
+ * still there.
+ */
+describe('the shipped-template digest ledger: append-only, current render and HEAD render present (j)', () => {
+	const git = (...args: string[]): string => {
+		const run = Bun.spawnSync(['git', '-C', REPO_ROOT, ...args]);
+		if (run.exitCode !== 0) throw new Error(`git ${args.join(' ')}: ${run.stderr.toString()}`);
+		return run.stdout.toString();
+	};
+	const digestOf = (text: string) => sha256Text(text);
+
+	test('the ledger parses, names exactly the templates, and holds the sha256 of EVERY current render (template × OS row)', () => {
+		const ledger = readShippedDigests(REPO_ROOT);
+		expect(Object.keys(ledger.templates).sort()).toEqual([...UNIT_TEMPLATES].sort());
+		const missing: string[] = [];
+		for (const name of UNIT_TEMPLATES) {
+			for (const row of OS_ROWS) {
+				const digest = digestOf(renderTemplate(name, row, REPO_ROOT));
+				if (!isShippedDigest(ledger, name, digest)) missing.push(`${name} (${row.id}) ${digest}`);
+			}
+		}
+		// RED when a template is edited and the ledger not: the edit must add its new digest
+		// (bun run scripts/shipped_digests_update.ts appends exactly these)
+		expect(missing, 'run: bun run scripts/shipped_digests_update.ts').toEqual([]);
+		// no digest twice, every list non-empty
+		for (const [name, digests] of Object.entries(ledger.templates)) {
+			expect(digests.length, name).toBeGreaterThan(0);
+			expect(new Set(digests).size, name).toBe(digests.length);
+		}
+	});
+
+	test("the committed HEAD's render of every template is in the ledger (the OLD digest survives the edit), and HEAD's ledger is a subset of this one (append-only)", () => {
+		const ledger = readShippedDigests(REPO_ROOT);
+		const missing: string[] = [];
+		for (const name of UNIT_TEMPLATES) {
+			const committed = git('show', `HEAD:deploy/systemd/${name}`);
+			for (const row of OS_ROWS) {
+				const digest = digestOf(committed.replace(/@@PG_SERVICE@@/g, row.pgService));
+				if (!isShippedDigest(ledger, name, digest)) missing.push(`${name} (${row.id}) ${digest}`);
+			}
+		}
+		expect(missing).toEqual([]);
+		// HEAD's ledger (the first commit of the ledger has none to compare with: empty)
+		const inHead = Bun.spawnSync([
+			'git',
+			'-C',
+			REPO_ROOT,
+			'cat-file',
+			'-e',
+			`HEAD:${SHIPPED_DIGESTS_FILE}`,
+		]);
+		const head =
+			inHead.exitCode === 0
+				? parseShippedDigests(git('show', `HEAD:${SHIPPED_DIGESTS_FILE}`))
+				: { format: 1, templates: {} };
+		if (typeof head === 'string') throw new Error(`HEAD's ledger: ${head}`);
+		const dropped: string[] = [];
+		for (const [name, digests] of Object.entries(head.templates)) {
+			for (const digest of digests) {
+				if (!(ledger.templates[name] ?? []).includes(digest)) dropped.push(`${name} ${digest}`);
+			}
+		}
+		expect(dropped).toEqual([]);
+	});
+
+	test('positive controls: a digest no release shipped is not shipped; a malformed ledger is refused by its reason', () => {
+		const ledger = readShippedDigests(REPO_ROOT);
+		expect(isShippedDigest(ledger, 'dedalo-ts@.service', 'f'.repeat(64))).toBe(false);
+		expect(
+			isShippedDigest(ledger, 'dedalo-ts@.service', digestOf('[Service]\nExecStart=/x\n')),
+		).toBe(false);
+		expect(parseShippedDigests('{ not json')).toBe('not JSON');
+		expect(parseShippedDigests('[]')).toBe('format undefined, expected 1');
+		expect(parseShippedDigests('{"format":2,"templates":{}}')).toBe('format 2, expected 1');
+		expect(parseShippedDigests('{"format":1}')).toBe('no templates map');
+		expect(parseShippedDigests('{"format":1,"templates":{"a@.service":["xyz"]}}')).toBe(
+			'a@.service: not a list of sha256 hex digests',
+		);
+		expect(
+			typeof parseShippedDigests(readFileSync(join(REPO_ROOT, SHIPPED_DIGESTS_FILE), 'utf8')),
+		).toBe('object');
 	});
 });
 

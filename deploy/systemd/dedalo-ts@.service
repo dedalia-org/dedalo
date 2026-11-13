@@ -68,6 +68,16 @@ PrivateDevices=yes
 ProtectProc=invisible
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+# THE FILE SYSTEM IS READ-ONLY (owner ruling C32, 2026-11-13) except the roots the
+# drop-in lists in ReadWritePaths= (the install folder, the backup dir, the media
+# root and the published client, the socket and Postgres socket dirs, the temp
+# dirs — src/core/install/host/systemd/render.ts writableRoots) and the ones
+# systemd adds itself (RuntimeDirectory). The installer writes the same list as a
+# JSON manifest beside the drop-in and names it in DEDALO_WRITABLE_ROOTS_MANIFEST;
+# the engine refuses to boot (exit 78) when a configured path lies outside the
+# list, naming the root re-render command — a later .env path change outside the
+# roots is therefore a refusal at boot, never an EROFS in the middle of an upload.
+ProtectSystem=strict
 
 [Install]
 WantedBy=multi-user.target

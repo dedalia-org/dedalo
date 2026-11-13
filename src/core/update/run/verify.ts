@@ -10,7 +10,12 @@
  *   - schema_clean      no boot migration pending (ONLINE ones run post-confirm),
  *                       and every recorded hash equals the frozen ledger's (U-23);
  *   - data_version      the database's data version equals the target's (U-04);
- *   - data_model        that data version's model equals the target's (D-2).
+ *   - data_model        that data version's model equals the target's (D-2);
+ *   - host_units        on a production systemd instance, whether the host's unit
+ *                       templates are this release's render — ALWAYS ok (the run
+ *                       runs as the service user and never writes /etc/systemd):
+ *                       when they differ it OFFERS the root re-render command in
+ *                       its verdict (`offer`, owner ruling C33, 2026-11-13).
  * Later phases append theirs (ontology census, tool registry, observers,
  * search derivation, media rules — design §3.5) to `RUN_VERIFY_PREDICATES`.
  *
@@ -34,12 +39,15 @@ import { readInstalledDataVersionStrict } from '../../area_maintenance/backup.ts
 import { sql } from '../../db/postgres.ts';
 import { formatVersion } from '../version.ts';
 import { dataModelOf } from '../version_contract.ts';
+import { type HostUnitsState, readHostUnitsState } from './host_units.ts';
 import { failureSentence, type RunJournal } from './journal.ts';
 
 export interface PredicateVerdict {
 	id: string;
 	ok: boolean;
 	detail: string;
+	/** A ROOT command the operator may run — named, never run (an ok verdict with something to do). */
+	offer?: string;
 }
 
 /** The install facts the predicates read. */
@@ -48,6 +56,7 @@ export interface VerifyReads {
 	recordedHashes: () => Promise<{ version: string; sha256: string | null }[]>;
 	ledger: () => Promise<MigrationLedger>;
 	installedDataVersion: () => Promise<number[]>;
+	hostUnits: () => Promise<HostUnitsState>;
 }
 
 /** The pending files the BOOT runner owns (ONLINE files are post-confirm). */
@@ -69,6 +78,7 @@ export const PRODUCTION_VERIFY_READS: VerifyReads = {
 		}[],
 	ledger: () => readMigrationLedger(),
 	installedDataVersion: readInstalledDataVersionStrict,
+	hostUnits: () => readHostUnitsState(),
 };
 
 /** One named check: its verdict's `ok` and `detail` (the id is the predicate's). */
@@ -111,11 +121,43 @@ const dataModel: Predicate['check'] = async (journal, reads) => {
 	};
 };
 
+/**
+ * The host's systemd templates vs this release's render (C33). ALWAYS ok: the
+ * run has no privilege to rewrite /etc/systemd and gains none; a difference is
+ * an OFFER — the instance's own root re-render command, read from the writable-
+ * roots manifest the drop-in names (host_units.ts). Not a systemd instance:
+ * nothing to judge, said so.
+ */
+const hostUnits: Predicate['check'] = async (_journal, reads) => {
+	const state = await reads.hostUnits();
+	switch (state.kind) {
+		case 'not_systemd':
+			return {
+				ok: true,
+				detail: 'not a production systemd instance: no unit templates to compare',
+			};
+		case 'manifest_unreadable':
+			return {
+				ok: true,
+				detail: `the writable-roots manifest ${state.path} ${state.reason}: the templates could not be judged (the next boot refuses on it — re-render the units as root: scripts/ops/host_units_refresh.ts --instance <i>)`,
+			};
+		case 'current':
+			return { ok: true, detail: "the host's systemd unit templates are this release's render" };
+		case 'differs':
+			return {
+				ok: true,
+				detail: `the host's systemd unit templates are not this release's render (${state.templates.join(', ')}): the update ran as the service user and never writes /etc/systemd — re-render them as root, then restart the instance: ${state.refresh}`,
+				offer: state.refresh,
+			};
+	}
+};
+
 /** The predicates VERIFIED requires, in report order. */
 export const RUN_VERIFY_PREDICATES: readonly Predicate[] = [
 	{ id: 'schema_clean', check: schemaClean },
 	{ id: 'data_version', check: dataVersion },
 	{ id: 'data_model', check: dataModel },
+	{ id: 'host_units', check: hostUnits },
 ];
 
 /** A predicate whose read threw is RED, its sentence pointing at the log. */

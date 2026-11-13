@@ -166,6 +166,23 @@ ProtectProc=invisible
 # masters, harvest, mail, MariaDB over TCP), netlink (interface enumeration).
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+# The file system is READ-ONLY (owner ruling C32, 2026-11-13) except the roots
+# below — the paths the engine writes: INSTANCE_DIR (the tree, ../private with
+# the sessions and the state file, backups/), the media root and the published
+# client (edit /srv/dedalo to your MEDIA_PATH's and DEDALO_CLIENT_PUBLISH_DIR's
+# root when they live elsewhere), the Postgres socket dir (a unix connect works
+# on a read-only mount, the dir is listed so a DB_SOCKET under another path is a
+# visible edit here), and the temp dirs (uploads, PDF extraction, RAG scratch).
+# RuntimeDirectory (the engine's socket) is writable by systemd's own rule. Each
+# path quoted (campaign 2 L8). The installer's per-instance units derive this list
+# from the answers (host/systemd/render.ts writableRoots) and the engine checks
+# its configured paths against it at boot; here it is yours to keep true.
+ProtectSystem=strict
+ReadWritePaths="INSTANCE_DIR"
+ReadWritePaths="/srv/dedalo"
+ReadWritePaths="/var/run/postgresql"
+ReadWritePaths="/tmp"
+ReadWritePaths="/var/tmp"
 # Deliberately NOT in the baseline:
 #   MemoryDenyWriteExecute  Bun's JavaScriptCore JIT writes executable memory.
 #   ProcSubset=pid          the maintenance system-info widget reads /proc/cpuinfo.
@@ -173,7 +190,6 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 #                           and work in the temp dir; systemd removes a private
 #                           /tmp at stop, under them. Pending a host measurement.
 #   ProtectHome             the instance directory may sit under /home.
-#   ProtectSystem           an owner decision (which paths stay writable).
 #   SystemCallFilter        pending a measured syscall set per supported OS.
 #   network restrictions    the engine is a network client (see above).
 

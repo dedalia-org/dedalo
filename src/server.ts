@@ -42,6 +42,7 @@ import { refuseBootWhenNotInstalled } from './boot_refusal.ts';
 import { isOntologyIoFileName, recordOntologyDataIoDefault } from './config/catalog/maintenance.ts';
 import { config } from './config/config.ts';
 import { projectRoot, readEnv } from './config/env.ts';
+import { refuseBootOutsideWritableRoots } from './config/writable_roots.ts';
 import { AI_MODEL_URL_PREFIX, serveModelRequest } from './core/ai/model_store.ts';
 import { handleCountersRequest } from './core/api/counters.ts';
 import { type ApiRequestContext, dispatchRqo } from './core/api/dispatch.ts';
@@ -1809,6 +1810,15 @@ export async function startServer() {
 	// (As the process entry, the boot_refusal.ts import already did this before any
 	// module-level writer ran; this repeats it for a programmatic caller.)
 	refuseBootWhenNotInstalled();
+
+	// THE WRITABLE ROOTS (owner ruling C32, 2026-11-13 — src/config/writable_roots.ts):
+	// a production instance's unit runs ProtectSystem=strict, and its drop-in names
+	// the manifest of the roots it opened (DEDALO_WRITABLE_ROOTS_MANIFEST). Every
+	// path this engine is configured to write must lie under one of them, or the
+	// boot is REFUSED here (exit 78, never restarted) naming the root re-render
+	// command — a path moved in .env outside the roots fails at boot, not at its
+	// first write. Unset manifest (docker, trial, developer): no check.
+	refuseBootOutsideWritableRoots();
 
 	// The dev listener's configuration is checked here, before this function's boot writers
 	// and any listener: a refused TLS pair leaves nothing half-started.
