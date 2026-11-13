@@ -174,6 +174,35 @@
 				gap: @space;
 				// overflow: auto; // Removed becuse breaks component_date icon calendar
 
+				// portal/autocomplete chosen value: plain text (no frame) with the
+				// remove button inline at its end. Loose, the trash dropped to a
+				// line of its own. A long value wraps inside the chip at its '_'
+				// joints (<wbr>, render_search_component_portal.js)
+				>.section_record.view_text {
+					display: flex;
+					align-items: center;
+					flex: 1 1 auto;
+					min-width: 0;
+					max-width: 100%;
+					min-height: 2rem;
+
+					>.wrapper_component {
+						flex: 1 1 auto;
+						min-width: 0;
+						padding: 0.25rem 0;
+						line-height: 1.25;
+						// last resort: a token with no '_' joint wider than the chip
+						overflow-wrap: anywhere;
+					}
+
+					>.button_remove {
+						flex: none;
+						align-self: stretch;
+						margin: 0;
+						padding: 0 0.5rem;
+					}
+				}
+
 				// value inputs: one field look (checkbox/radio keep their own)
 				input:not([type="checkbox"]):not([type="radio"]):not(.lang_behavior_check) {
 					height: 2rem;
@@ -399,10 +428,11 @@
 					position: absolute;
 					top: calc(2rem + @space_s);
 					left: var(--ac_inset_left, @card_inset);
-					right: @card_inset;
-					width: auto;
-					min-width: 0;
-					max-width: none;
+					// at least the card's inner width, wider for a long space-less
+					// row (component_relation_children) so it never wraps mid-word
+					width: max-content;
+					min-width: calc(100% - var(--ac_inset_left, @card_inset) - @card_inset);
+					max-width: min(30rem, calc(100vw - 2rem));
 				}
 
 				// options open: the user types in the panel's own inputs, so the

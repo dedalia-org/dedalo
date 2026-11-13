@@ -258,6 +258,10 @@ Merged since the last release; these ship with the next one.
 
     One failed search — a server refusal, a network timeout, an error drawing the result tree — left the ontology / thesaurus tree unable to search again, and "Show all" pressed while a search was still running was silently ignored. The tree now recovers on its own and runs the requests in order. In Safari, the browser's local store can drop its connection while the tab is in the background; the application now reconnects instead of failing until a reload.
 
+- **Long values in search-form autocomplete fields are readable again.**
+
+    In the search form, a long value without spaces (e.g. the ontology model "component_relation_children") ran past the right edge of the autocomplete result list, and once chosen it broke mid-word with its remove button pushed onto a line of its own. The result list now widens to fit its rows, and the chosen value wraps only after an underscore, with the remove button beside it.
+
 - **Exports now include the records that point at each record (the Relations field), instead of an empty column.**
 
     A field that lists the records pointing at the current one (the **Relations** field of the
