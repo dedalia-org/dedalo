@@ -294,7 +294,7 @@ const render_content_data = function(self) {
 					dataset			: {
 						section_id	: typology_item.section_id
 					},
-					inner_html		: typology_item.label,
+					text_content		: typology_item.label,
 					parent			: li
 				})
 
@@ -481,7 +481,7 @@ const get_buttons = function(self) {
 				const button_node	= ui.create_dom_element({
 					element_type	: 'button',
 					class_name		: class_name,
-					inner_html		: current_button.label,
+					text_content		: current_button.label,
 					parent			: buttons_container
 				})
 				button_node.addEventListener('click', (e) => {

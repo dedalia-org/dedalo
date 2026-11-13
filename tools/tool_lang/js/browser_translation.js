@@ -48,6 +48,7 @@
 	import {clone, get_json_langs, is_equal} from '../../../core/common/js/utils/index.js'
 	import {request_failed} from '../../../core/common/js/api_error.js'
 	import {error_text} from '../../../core/common/js/render_api_error.js'
+	import {render_value} from '../../../core/common/js/utils/render_escape.js'
 	import {tr} from '../../../core/common/js/tr.js'
 	import {html_to_markdown, markdown_to_html, group_markdown_into_chunks} from './markdown_utils.js'
 
@@ -708,7 +709,10 @@ export const translate_component_browser = async function(options) {
 					if (streaming_overlay_content) {
 						// Mirror the partial result into the streaming overlay so the
 						// user sees live output even before the component re-renders.
-						streaming_overlay_content.innerHTML = html_accumulated
+						// Machine translation of record text: rendered by the TARGET
+						// component's server class (text_area 'html' passes, anything
+						// else is escaped) — the ONE escaper, render_escape_tripwire.
+						streaming_overlay_content.innerHTML = render_value(html_accumulated, target_component.context?.render_class)
 					}
 					break;
 				}
@@ -907,7 +911,7 @@ export const translate_component_browser = async function(options) {
 						]))
 					}
 					if (data.accumulated_text && streaming_overlay_content) {
-						streaming_overlay_content.innerHTML = markdown_to_html(data.accumulated_text)
+						streaming_overlay_content.innerHTML = render_value(markdown_to_html(data.accumulated_text), target_component.context?.render_class)
 					}
 					break;
 				}
@@ -923,7 +927,7 @@ export const translate_component_browser = async function(options) {
 					restore_target_data()
 					if (status_container) {
 						status_container.classList.remove('loading_status')
-						status_container.innerHTML = get_label('translation_cancelled') || 'Translation cancelled'
+						status_container.textContent = get_label('translation_cancelled') || 'Translation cancelled'
 					}
 					resolve({result: false, msg: 'Translation cancelled'})
 					break;

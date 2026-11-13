@@ -420,7 +420,7 @@ const get_value_tooltip = (output_item, data, self) => {
 			// label_list_situation
 			ui.create_dom_element({
 				element_type	: 'label',
-				inner_html		: datalist_item ? datalist_item.label : '',
+				text_content		: datalist_item ? datalist_item.label : '',
 				parent			: situation_detail
 			})
 		} // end for (let j = 0; j < situation_length; j++)
@@ -496,7 +496,7 @@ const get_value_tooltip = (output_item, data, self) => {
 			// label_list_state
 			ui.create_dom_element({
 				element_type	: 'label',
-				inner_html		: datalist_item_status ? datalist_item_status.label : '',
+				text_content		: datalist_item_status ? datalist_item_status.label : '',
 				parent			: detail
 			})
 		}// end for (let k = 0; k < item_length; k++)

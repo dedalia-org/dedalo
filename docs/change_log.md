@@ -29,6 +29,12 @@ Merged since the last release; these ship with the next one.
 
 #### Security
 
+- **Record text shown by widgets and tools is always displayed as text; markup stored in a record no longer runs there.**
+
+    Every place outside the record editor that shows a value typed into a record now shows it as text: the state, archive-states, archive-weights, sum-dates, media-icons, tags and user-activity widgets; the typology names in the thesaurus, graph and search panels; and the tools that print or edit record text — transcription print, subtitles, print layouts (including the free text of a layout, which is now kept as plain text), propagate component data, indexation, translation (the live preview of the Local AI translator) and the CSV import mapper.
+
+    Before, a value containing `<…>` or `&` could be interpreted as markup in those places. Rich text (transcriptions, text areas) keeps its formatting: it is displayed exactly as the record editor does, by the kind of field it belongs to. A free-text box in a print layout saved before this change is read back as the text it showed.
+
 - **Selects, radio buttons and check boxes offer only the options you may see, and the ones that fit the record.**
 
     The option list of a select, radio button or check box used to hold every record of its target section, whoever asked. Now it is the same search a list of that section runs for you: a user who is not a global administrator is offered only records of their own projects, and a per-user record allow-list narrows it for everyone. A stored value outside your scope shows no label.
@@ -201,6 +207,12 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-section-id-open-between`.
 
+- **Translate all languages no longer offers the Local AI translator; Translation keeps it.**
+
+    In **Translate all languages**, the engine list no longer includes **Local AI translator** (the in-browser model): one run there writes every language of a field at once, and the browser model's revision is not yet pinned. The engines configured for the **Translation** tool are still shared with **Translate all languages**, as before; **Translation** itself still offers the Local AI translator, one language at a time.
+
+    The Local AI translator returns to **Translate all languages** once its model revision is pinned.
+
 - **Search-as-you-type keeps the previous results on screen while it looks for the new ones, and answers sooner.**
 
     Before, every key you pressed in a field's search emptied the list of results and showed
@@ -342,6 +354,14 @@ Merged since the last release; these ship with the next one.
     list.
 
     Wire contract: `WC-2026-11-13-csv-ingest-size-ceiling`.
+
+- **A CSV the import tool cannot read now shows as a card you can delete.**
+
+    In **Import CSV**, a staged file the server cannot read — larger than the 64 MB limit, not a text file, damaged — was reported only as a red line above the file list: you could see why it was refused, but there was no card for it and no way to remove it from the panel.
+
+    Now the file is listed with its name, the reason it cannot be read and a **delete** button. It has no checkbox, no section and no column mapper, because there is nothing to import from it; deleting it works as for any other staged file.
+
+    Wire contract: `WC-2026-11-13-csv-staged-file-read-error-card`.
 
 - **Escape now leaves a text area or JSON field, as it does every other field.**
 
@@ -1682,7 +1702,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 82 entries"
+??? note "Wire contract — 83 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1748,6 +1768,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-calculation-tld-packages`
     - `WC-2026-11-13-calculation-total-records-no-frontier`
     - `WC-2026-11-13-csv-ingest-size-ceiling`
+    - `WC-2026-11-13-csv-staged-file-read-error-card`
     - `WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter`
     - `WC-2026-11-13-export-acl-components-exportable`
     - `WC-2026-11-13-export-media-cell-type`

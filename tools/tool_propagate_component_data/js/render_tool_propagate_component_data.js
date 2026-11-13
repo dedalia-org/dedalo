@@ -248,7 +248,7 @@ const get_content_data = async function(self) {
 			content_data.appendChild(ui.create_dom_element({
 				element_type	: 'div',
 				class_name		: 'msg',
-				inner_html		: resolution.reason
+				text_content		: resolution.reason
 			}))
 			return content_data
 		}
@@ -268,13 +268,13 @@ const get_content_data = async function(self) {
 			ui.create_dom_element({
 				element_type	: 'h3',
 				class_name		: 'section_name',
-				inner_html		: section.label,
+				text_content		: section.label,
 				parent			: section_info
 			})
 			ui.create_dom_element({
 				element_type	: 'h3',
 				class_name		: 'section_tipo',
-				inner_html		: section.tipo,
+				text_content		: section.tipo,
 				parent			: section_info
 			})
 
@@ -314,21 +314,36 @@ const get_content_data = async function(self) {
 		// committing the bulk write (security check in class.tool_propagate_component_data.php).
 		const total				= await section.get_total()
 		self.total				= total // fix total to check before propagate changes in server
-		const tipo_label		= '<strong>'+self.caller.label+'</strong>'
 		const all_records_label	= self.get_tool_label('all_records') || 'All'
 		// When no filter is active, prefix the count with "All" to make clear the
 		// operation will touch every record in the section, not just the visible subset.
 		const total_label		= (filter_empty === false)
-			? '<strong>'+total+'</strong>'
-			: '<strong>'+all_records_label+' - '+total+'</strong>'
-		const text_string = self.get_tool_label('content_will_be_added_removed', tipo_label, total_label)
+			? String(total)
+			: all_records_label+' - '+total
+		// The sentence is built as NODES: the label template keeps its two
+		// placeholders ({0} the field, {1} the count) and each is emitted as a
+		// <strong> TEXT node — the field label is ontology text, never markup
+		// (ZERO MARKUP CONCATENATION, render_escape_tripwire).
+		const text_template = self.get_tool_label('content_will_be_added_removed', '{0}', '{1}')
 			|| 'The content will be added or removed from the field: {0} s in the {1} current records'
-		ui.create_dom_element({
+		const info_text = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'info_text',
-			inner_html		: text_string,
 			parent			: buttons_container
 		})
+		const slots = { '{0}': self.caller.label, '{1}': total_label }
+		for (const piece of text_template.split(/(\{0\}|\{1\})/)) {
+			if (piece === '') continue
+			if (Object.hasOwn(slots, piece)) {
+				ui.create_dom_element({
+					element_type	: 'strong',
+					text_content	: slots[piece],
+					parent			: info_text
+				})
+			}else{
+				info_text.appendChild(document.createTextNode(piece))
+			}
+		}
 
 	// click_handler
 		// Shared handler for all three action buttons (replace / add / delete).
@@ -414,7 +429,7 @@ const get_content_data = async function(self) {
 		const button_replace = ui.create_dom_element({
 			element_type	: 'button',
 			class_name		: 'warning add button_replace',
-			inner_html		: replace_label,
+			text_content		: replace_label,
 			parent			: buttons_container
 		})
 		button_replace.action = 'replace'
@@ -433,7 +448,7 @@ const get_content_data = async function(self) {
 			const button_add = ui.create_dom_element({
 				element_type	: 'button',
 				class_name		: 'warning add button_add',
-				inner_html		: add_label,
+				text_content		: add_label,
 				parent			: buttons_container
 			})
 			button_add.action = 'add'
@@ -445,7 +460,7 @@ const get_content_data = async function(self) {
 		const button_delete = ui.create_dom_element({
 			element_type	: 'button',
 			class_name		: 'warning remove button_delete',
-			inner_html		: delete_action_label,
+			text_content		: delete_action_label,
 			parent			: buttons_container
 		})
 		button_delete.action = 'delete'

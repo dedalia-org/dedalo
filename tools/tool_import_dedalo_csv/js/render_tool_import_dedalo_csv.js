@@ -315,7 +315,7 @@ const get_content_data = async function(self) {
 		const import_button = ui.create_dom_element({
 			element_type	: 'button',
 			class_name		: 'warning import_button csv',
-			inner_html		: self.get_tool_label('import') || 'Import',
+			text_content		: self.get_tool_label('import') || 'Import',
 			parent			: submit_container
 		})
 		import_button.addEventListener('click', fn_import)
@@ -663,7 +663,7 @@ export const render_file_info = function(self, item) {
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'bulk_process_name_label',
-			inner_html		: self.get_tool_label('bulk_process_title') || 'Process title: ',
+			text_content		: self.get_tool_label('bulk_process_title') || 'Process title: ',
 			parent			: info_container
 		})
 		item.bulk_process_label = `${self.context.label} | ${item.section_tipo} | ${item.section_label}`
@@ -682,7 +682,7 @@ export const render_file_info = function(self, item) {
 		const button_preview = ui.create_dom_element({
 			element_type	: 'button',
 			class_name		: 'button_preview info',
-			inner_html		: self.get_tool_label('preview') || 'Preview',
+			text_content		: self.get_tool_label('preview') || 'Preview',
 			parent			: fragment
 		})
 		button_preview.addEventListener('click', function(e){
@@ -1224,7 +1224,7 @@ export const render_columns_mapper = async function(self, item) {
 			const decimal_label = ui.create_dom_element({
 				element_type	: 'span',
 				class_name		: 'decimal_label',
-				inner_html 		: column_name,
+				text_content 		: column_name,
 				parent			: container
 			})
 
@@ -1525,7 +1525,7 @@ const render_progress_node = (self, container) => {
 		const headline = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'import_progress_headline',
-			inner_html		: self.get_tool_label('preparing') || 'Preparing…',
+			text_content		: self.get_tool_label('preparing') || 'Preparing…',
 			parent			: panel
 		})
 
@@ -1632,7 +1632,7 @@ const copy_button = (self, parent, label_key, fallback_label, get_text) => {
 	const button = ui.create_dom_element({
 		element_type	: 'button',
 		class_name		: 'warning copy_button copy',
-		inner_html		: self.get_tool_label(label_key) || fallback_label,
+		text_content		: self.get_tool_label(label_key) || fallback_label,
 		parent			: parent
 	})
 	button.addEventListener('click', (e) => {
@@ -1808,7 +1808,7 @@ const render_final_report = function(options){
 			ui.create_dom_element({
 				element_type	: 'div',
 				class_name		: 'response_msg alert ' + message_class,
-				inner_html		: message_label,
+				text_content		: message_label,
 				parent			: result_container
 			})
 

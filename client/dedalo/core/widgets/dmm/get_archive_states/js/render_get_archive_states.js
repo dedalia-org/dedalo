@@ -253,7 +253,7 @@ const get_value_element = (i, data, values_container, self) => {
 				const closed_text_node = ui.create_dom_element({
 					element_type: 'span',
 					class_name	: 'text',
-					inner_html 	: closed_text.join(' | ') ,
+					text_content 	: closed_text.join(' | ') ,
 					parent 		: closed_node
 				})
 
@@ -298,7 +298,7 @@ const get_value_element = (i, data, values_container, self) => {
 				const answer_text_node = ui.create_dom_element({
 					element_type: 'span',
 					class_name	: 'text',
-					inner_html 	: answer_text.join(' | ') ,
+					text_content 	: answer_text.join(' | ') ,
 					parent 		: answer_node
 				})
 

@@ -246,7 +246,7 @@ const get_value_element = (i, data, values_container, self) => {
 					const media_weight_value = ui.create_dom_element({
 						element_type: 'span',
 						class_name	: 'value',
-						inner_html 	: data.find(item => item.widget_id === 'media_weight')?.value ?? '',
+						text_content 	: data.find(item => item.widget_id === 'media_weight')?.value ?? '',
 						parent 		: sum_weights
 					})
 
@@ -270,7 +270,7 @@ const get_value_element = (i, data, values_container, self) => {
 				const max_weight_value = ui.create_dom_element({
 					element_type: 'span',
 					class_name	: 'value',
-					inner_html 	: data.find(item => item.widget_id === 'max_weight')?.value ?? '',
+					text_content 	: data.find(item => item.widget_id === 'max_weight')?.value ?? '',
 					parent 		: weights_values
 				})
 
@@ -288,7 +288,7 @@ const get_value_element = (i, data, values_container, self) => {
 				const min_weight_value = ui.create_dom_element({
 					element_type: 'span',
 					class_name	: 'value',
-					inner_html 	: data.find(item => item.widget_id === 'min_weight')?.value ?? '',
+					text_content 	: data.find(item => item.widget_id === 'min_weight')?.value ?? '',
 					parent 		: weights_values
 				})
 
@@ -306,7 +306,7 @@ const get_value_element = (i, data, values_container, self) => {
 				const total_weight_value = ui.create_dom_element({
 					element_type: 'span',
 					class_name	: 'value',
-					inner_html 	: data.find(item => item.widget_id === 'total_elements_weights')?.value ?? '',
+					text_content 	: data.find(item => item.widget_id === 'total_elements_weights')?.value ?? '',
 					parent 		: weights_values
 				})
 
@@ -337,7 +337,7 @@ const get_value_element = (i, data, values_container, self) => {
 				const media_diameter_value = ui.create_dom_element({
 					element_type: 'span',
 					class_name	: 'value',
-					inner_html 	: data.find(item => item.widget_id === 'media_diameter')?.value ?? '',
+					text_content 	: data.find(item => item.widget_id === 'media_diameter')?.value ?? '',
 					parent 		: sum_diameter
 				})
 		// detail range row: max | min | n for diameter
@@ -360,7 +360,7 @@ const get_value_element = (i, data, values_container, self) => {
 				const max_diameter_value = ui.create_dom_element({
 					element_type: 'span',
 					class_name	: 'value',
-					inner_html 	: data.find(item => item.widget_id === 'max_diameter')?.value ?? '',
+					text_content 	: data.find(item => item.widget_id === 'max_diameter')?.value ?? '',
 					parent 		: diameter_values
 				})
 
@@ -378,7 +378,7 @@ const get_value_element = (i, data, values_container, self) => {
 				const min_diameter_value = ui.create_dom_element({
 					element_type	: 'span',
 					class_name		: 'value',
-					inner_html		: data.find(item => item.widget_id === 'min_diameter')?.value ?? '',
+					text_content		: data.find(item => item.widget_id === 'min_diameter')?.value ?? '',
 					parent			: diameter_values
 				})
 
@@ -397,7 +397,7 @@ const get_value_element = (i, data, values_container, self) => {
 				const total_diameter_value = ui.create_dom_element({
 					element_type	: 'span',
 					class_name		: 'value',
-					inner_html		: data.find(item => item.widget_id === 'total_elements_diameter')?.value ?? '',
+					text_content		: data.find(item => item.widget_id === 'total_elements_diameter')?.value ?? '',
 					parent			: diameter_values
 				})
 

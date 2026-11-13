@@ -314,7 +314,7 @@ const get_value_element = (i, data, self, current_ipo) => {
 		const column_id_value = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'value id link',
-			inner_html		: data_id.value,
+			text_content		: data_id.value,
 			parent			: li
 		})
 		column_id_value.addEventListener('click', (e) => {
@@ -442,7 +442,7 @@ const get_value_element = (i, data, self, current_ipo) => {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'value tc',
-			inner_html		: data_tc.value || '',
+			text_content		: data_tc.value || '',
 			parent			: li
 		})
 
