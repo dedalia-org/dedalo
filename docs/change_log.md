@@ -191,6 +191,16 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter`.
 
+- **An open-ended Id range means what it says — `5...` is every id from 5 up, `...5` every id up to 5, and `...` alone is an empty input.**
+
+    The meaning of the missing side of an Id range is settled. `100...` finds every
+    record with id 100 or more and `...200` every record with id 200 or less (negative
+    ids included); `...` with no number adds no condition, like an empty field. Earlier
+    versions read `5...` as "exactly 5" — a saved search using that form now returns the
+    whole open range.
+
+    Wire contract: `WC-2026-11-12-section-id-open-between`.
+
 - **Search-as-you-type keeps the previous results on screen while it looks for the new ones, and answers sooner.**
 
     Before, every key you pressed in a field's search emptied the list of results and showed
@@ -355,6 +365,15 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-media-provenance-repair-one-kernel`.
 
+- **Sorting a list by a number column orders the values numerically (2, 9, 10), not as text (10, 2, 9).**
+
+    Before, a list sorted by a number field (a diameter, a weight, a year) compared the
+    values as text, so 10 came before 2 and 100 before 20. Now the column sorts by the
+    number itself, ascending or descending. A value stored as text by an older version
+    sorts last instead of breaking the page.
+
+    Wire contract: `WC-2026-11-13-number-sort-numeric`.
+
 - **Changing or clearing the person of a biographical milestone clears the milestone again.**
 
     In a person's biography the *Biographical milestone* field offers only the milestones of
@@ -403,6 +422,25 @@ Merged since the last release; these ship with the next one.
     and save. Nothing changes in the stored text until you save it.
 
     Wire contract: `WC-2026-11-13-text-area-broken-tag-repair`.
+
+- **A text area whose translation was emptied shows the other-language text in lists too.**
+
+    Before, a transcript or description emptied in one language showed its
+    other-language text (marked) in the edit form but stayed blank in list views. Now
+    the list cell shows the same marked fallback text as the form.
+
+    Wire contract: `WC-2026-11-12-lang-fallback-judges-emptiness`.
+
+- **The thesaurus and ontology search panels list each field once, and offer every field any of your hierarchies lets you read.**
+
+    Before, the fields panel of the thesaurus and ontology search repeated the whole
+    field list once per active hierarchy, with a section bar for each. Now the panel
+    shows one block per real section. When your hierarchies grant you different fields,
+    the block offers every field at least one of them grants, at the highest level you
+    hold on it — whatever order the hierarchies are listed in. The panel is a picker:
+    what you can read in a record is still decided record by record.
+
+    Wire contract: `WC-2026-11-13-use-real-sections-highest-grant`.
 
 - **Calculated fields (totals, periods, amounts, date sums) compute again**
 
@@ -1194,6 +1232,18 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-db-bounds-on-by-default`.
 
+- **A section whose term names a component the engine cannot render as text now fails loudly instead of showing blank labels.**
+
+    A section's `section_map` names the components that build its label (the "term").
+    Before, naming a component whose type has no text value (a password field, for
+    instance) made every label drawn from that section blank or truncated, in the tree,
+    in autocomplete chips and in exports, with nothing in any log. Now reading such a
+    label fails with `engine.uncovered_scope` naming the section, the component and its
+    type, so the configuration can be fixed. No shipped ontology is affected; only a
+    local configuration can name such a component.
+
+    Wire contract: `WC-2026-11-13-section-map-term-uncovered-throws`.
+
 - **A request now waits at most 30 seconds for a free database connection by default.**
 
     `DB_POOL_ACQUIRE_TIMEOUT_MS` now defaults to `30000` (it was `0`, wait forever). When every
@@ -1361,6 +1411,19 @@ Merged since the last release; these ship with the next one.
     message naming the field, so nothing is published partially.
 
     Wire contract: `WC-2026-11-13-rdf-relation-list-config`.
+
+- **A Tools configuration record that points a picker tool at another section lets that section's records be linked.**
+
+    A Tools configuration record (or a register default) can redefine a tool's components
+    for one field. When it points the indexation or cataloguing tool at a section the
+    ontology does not name, the picker offered that section's records but saving the
+    link was refused ("off target"). Now the saved link is accepted exactly where the
+    picker offers it; a section named by neither the ontology nor a configuration record
+    is still refused. Editing the configuration record takes effect on the next save. The
+    per-entry precedence (configuration record, then register default, then ontology) is
+    confirmed.
+
+    Wire contract: `WC-2026-11-12-tool-configuration-override`.
 
 - **Publishing hierarchies and text-area geolocation fields no longer reports errors and leaves empty columns.**
 
@@ -1604,7 +1667,22 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 78 entries"
+### For developers
+
+#### Changed
+
+- **A field with no sortable value (links, IRIs, media, access rules, passwords) can no longer be used to sort a list.**
+
+    Before, a search request ordering the results by such a field was accepted and the
+    order silently fell back to the record id — and ordering by a password field exposed
+    the relative order of the stored hashes. Now the request is refused with
+    `search.invalid_sqo` naming the field, and the list header no longer offers a sort
+    arrow on an IRI column (clicking it never sorted anything). Every field that could be
+    sorted before still can.
+
+    Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
+
+??? note "Wire contract — 82 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1679,11 +1757,15 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-geolocation-representative-point`
     - `WC-2026-11-13-info-derived-async-published`
     - `WC-2026-11-13-info-parsed-face-published`
+    - `WC-2026-11-13-number-sort-numeric`
     - `WC-2026-11-13-observer-refresh-data`
     - `WC-2026-11-13-rdf-canonical-xsd-lexical`
     - `WC-2026-11-13-rdf-relation-list-config`
+    - `WC-2026-11-13-section-map-term-uncovered-throws`
+    - `WC-2026-11-13-sort-non-scalar-refused`
     - `WC-2026-11-13-tags-widget-original-lang`
     - `WC-2026-11-13-text-area-broken-tag-repair`
+    - `WC-2026-11-13-use-real-sections-highest-grant`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

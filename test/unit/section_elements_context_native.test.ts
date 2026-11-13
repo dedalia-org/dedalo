@@ -77,6 +77,14 @@
  *  - zzsec33 REAL section (T1-27): zzsec34 group → zzsec35 input_text (live
  *      control) + zzsec36 security_areas, zzsec37 score, zzsec38 semantic_node
  *      (child zzsec39 input_text), zzsec40 stats — all unimplemented, never emitted.
+ *  - zzsec31 a SECOND VIRTUAL section over zzsec3 (exclude_elements zzsec32 →
+ *      zzsec9) and zzsec41 a REAL section of its own (zzsec42 group → zzsec43
+ *      input_text): the `use_real_sections` families (owner C34 2026-11-13,
+ *      WC-2026-11-13-use-real-sections-highest-grant) — one block per REAL
+ *      section, built on the real tipo (no virtual exclusion), element grants =
+ *      the HIGHEST any readable member holds (order-independent; PHP read the
+ *      first readable member's). The scoped identity for that leg is
+ *      exportFrontierIdentity at its own explicit ids (935500+), swept.
  * Reused generic structure: test3 (DFS grouper nesting, the default component
  * exclusions, filter → ['dd153'], portal → ['test3'], dataframe → []). NOTHING
  * here reads a record or a registry row the situation did not create: the only
@@ -102,13 +110,18 @@ import {
 import { buildImplicitSectionEditConfig } from '../../src/core/relations/request_config/implicit.ts';
 import { currentApplicationLang } from '../../src/core/resolve/request_lang.ts';
 import { buildSectionElementsContext } from '../../src/core/resolve/section_elements_context.ts';
-import { resolvePrincipal } from '../../src/core/security/permissions.ts';
+import { type Principal, resolvePrincipal } from '../../src/core/security/permissions.ts';
 import {
 	dropSituation,
 	ensureSituation,
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
+import {
+	clearFrontierIdentityCaches,
+	exportFrontierIdentity,
+	type FrontierGrant,
+} from '../helpers/export_frontier_identity.ts';
 
 interface ElementEntry {
 	tipo?: string;
@@ -165,6 +178,33 @@ const S = situation({
 			// Second child — PHP/TS read only [0], so zzsec7 must SURVIVE.
 			relations: [{ tipo: 'zzsec7' }],
 		},
+		// --- a SECOND virtual sibling over zzsec3 (use_real_sections families) ----
+		{
+			tipo: 'zzsec31',
+			parent: 'test1',
+			model: 'section',
+			order_number: 94,
+			term: { 'lg-eng': 'Virtual twin' },
+			relations: [{ tipo: 'zzsec3' }],
+		},
+		{
+			tipo: 'zzsec32',
+			parent: 'zzsec31',
+			model: 'exclude_elements',
+			order_number: 1,
+			relations: [{ tipo: 'zzsec9' }],
+		},
+		// --- a REAL section of its own (a second family) ---------------------------
+		{
+			tipo: 'zzsec41',
+			parent: 'test1',
+			model: 'section',
+			order_number: 95,
+			term: { 'lg-eng': 'Other real section' },
+			relations: [{ tipo: 'test24' }],
+		},
+		{ tipo: 'zzsec42', parent: 'zzsec41', model: 'section_group', order_number: 1 },
+		{ tipo: 'zzsec43', parent: 'zzsec42', model: 'component_input_text', order_number: 1 },
 		// --- the REAL section -----------------------------------------------------
 		{
 			tipo: 'zzsec3',
@@ -499,9 +539,28 @@ function byTipo(entries: ElementEntry[]): Map<string | undefined, ElementEntry> 
  */
 const INACTIVE_TLD_NODE = 'zzsecq1';
 
+/**
+ * The scoped (non-admin) identity of the use_real_sections grant leg: grants on
+ * the two VIRTUAL twins differ on purpose — zzsec7 read in zzsec1, EDIT in
+ * zzsec31; zzsec8/zzsec9 only in zzsec31 — so "highest among the members" and
+ * "first readable member's" give different lists in one of the two orders.
+ */
+const identity = exportFrontierIdentity('section_elements_real', 935500);
+const SCOPED_GRANTS: FrontierGrant[] = [
+	{ sectionTipo: 'zzsec1', tipo: 'zzsec1', level: 1 },
+	{ sectionTipo: 'zzsec1', tipo: 'zzsec4', level: 1 },
+	{ sectionTipo: 'zzsec1', tipo: 'zzsec7', level: 1 },
+	{ sectionTipo: 'zzsec31', tipo: 'zzsec31', level: 1 },
+	{ sectionTipo: 'zzsec31', tipo: 'zzsec4', level: 1 },
+	{ sectionTipo: 'zzsec31', tipo: 'zzsec7', level: 2 },
+	{ sectionTipo: 'zzsec31', tipo: 'zzsec8', level: 1 },
+	{ sectionTipo: 'zzsec31', tipo: 'zzsec9', level: 1 },
+];
+
 beforeAll(async () => {
 	await ensureSituation(S);
 	await assertTestDatabase('section_elements_context_native');
+	await identity.install(SCOPED_GRANTS, []);
 	await upsertDdOntologyNode({
 		tipo: INACTIVE_TLD_NODE,
 		parent: 'test1',
@@ -523,6 +582,7 @@ afterAll(async () => {
 	expect(deadAbsencesChecked).toBeGreaterThan(0);
 	await deleteDdOntologyNode(INACTIVE_TLD_NODE);
 	expect(await readDdOntologyRow(INACTIVE_TLD_NODE)).toBeNull();
+	await identity.remove(true);
 	expect(await dropSituation(S)).toBe(0);
 });
 
@@ -729,6 +789,104 @@ describe('unimplemented component models — never emitted (T1-27)', () => {
 		// a registry ALIAS is live (getModelByTipo resolves it to its target)
 		expect(isUnimplementedComponentModel('component_input_text_large')).toBe(false);
 		expect(isUnimplementedComponentModel('section_group')).toBe(false);
+	});
+});
+
+describe('use_real_sections — one block per REAL section, grants at the family HIGHEST (C34)', () => {
+	/** `flag`: the sent `use_real_sections` — 'absent' sends no key at all. */
+	async function realElementsOf(
+		principal: Principal,
+		sections: string[],
+		flag: boolean | 'absent' = true,
+	): Promise<ElementEntry[]> {
+		return (await buildSectionElementsContext(principal, {
+			ar_section_tipo: sections,
+			...(flag === 'absent' ? {} : { use_real_sections: flag }),
+		})) as ElementEntry[];
+	}
+	const sectionEntries = (entries: ElementEntry[]) =>
+		entries.filter((entry) => entry.model === 'section').map((entry) => entry.tipo);
+
+	test('1. two virtual siblings → ONE block on the real section, virtual excludes NOT applied', async () => {
+		const entries = await realElementsOf(await resolvePrincipal(-1), ['zzsec1', 'zzsec31']);
+		// zzsec6 / zzsec8 / zzsec9 are excluded by zzsec1 or zzsec31 — present here.
+		expect(tiposOf(entries)).toEqual([...REAL_SEQUENCE, ...INFO_SEQUENCE]);
+	});
+
+	test('2. every non-info entry is built on the real tipo: section_tipo and parent = zzsec3', async () => {
+		const entries = await realElementsOf(await resolvePrincipal(-1), ['zzsec1', 'zzsec31']);
+		const own = entries.filter(
+			(entry) => entry.tipo !== 'zzsec3' && !INFO_SEQUENCE.includes(String(entry.tipo)),
+		);
+		expect(own.length).toBeGreaterThan(0);
+		for (const entry of own) {
+			expect([entry.tipo, entry.section_tipo, entry.parent]).toEqual([
+				entry.tipo,
+				'zzsec3',
+				'zzsec3',
+			]);
+		}
+	});
+
+	test('3. the real section requested beside its virtuals → still exactly one section entry', async () => {
+		const entries = await realElementsOf(await resolvePrincipal(-1), [
+			'zzsec1',
+			'zzsec3',
+			'zzsec31',
+		]);
+		expect(sectionEntries(entries)).toEqual(['zzsec3']);
+	});
+
+	test('4. two families → two blocks, first-seen order of the REAL sections', async () => {
+		const root = await resolvePrincipal(-1);
+		expect(sectionEntries(await realElementsOf(root, ['zzsec1', 'zzsec41', 'zzsec31']))).toEqual([
+			'zzsec3',
+			'zzsec41',
+		]);
+		expect(sectionEntries(await realElementsOf(root, ['zzsec41', 'zzsec31', 'zzsec1']))).toEqual([
+			'zzsec41',
+			'zzsec3',
+		]);
+	});
+
+	test('controls: flag absent / false → one block per requested virtual, unchanged lists', async () => {
+		const root = await resolvePrincipal(-1);
+		for (const flag of ['absent', false] as const) {
+			const entries = await realElementsOf(root, ['zzsec1', 'zzsec31'], flag);
+			expect(sectionEntries(entries)).toEqual(['zzsec1', 'zzsec31']);
+			const second = entries.findIndex((entry) => entry.tipo === 'zzsec31');
+			expect(tiposOf(entries.slice(0, second))).toEqual([...VIRTUAL_SEQUENCE, ...INFO_SEQUENCE]);
+			// zzsec31 excludes only zzsec9: zzsec6 and zzsec8 are back, zzsec9 gone
+			const twin = tiposOf(entries.slice(second));
+			expect(twin).toContain('zzsec6');
+			expect(twin).toContain('zzsec8');
+			expect(twin).not.toContain('zzsec9');
+		}
+	});
+
+	test('10. HIGHEST grant among the readable members, ORDER-INDEPENDENT (owner C34)', async () => {
+		// zzsec1 grants zzsec7 = 1 only; zzsec31 grants zzsec7 = 2 and zzsec8/zzsec9.
+		// PHP (first readable member) gave [zzsec4, zzsec7] at level 1 when zzsec1
+		// came first and [zzsec4, zzsec7, zzsec8, zzsec9] with zzsec7 at 2 the
+		// other way round. Ruled: the union at the highest level, both orders.
+		clearFrontierIdentityCaches();
+		const expected = ['zzsec3', 'zzsec4', 'zzsec7', 'zzsec8', 'zzsec9'];
+		for (const order of [
+			['zzsec1', 'zzsec31'],
+			['zzsec31', 'zzsec1'],
+		]) {
+			const entries = await realElementsOf(identity.scoped, order);
+			expect(tiposOf(entries)).toEqual(expected); // no dd196 tail: not a global admin
+			const field = byTipo(entries).get('zzsec7') as { permissions?: unknown } | undefined;
+			expect(field?.permissions).toBe(2);
+			expect((byTipo(entries).get('zzsec3') as { permissions?: unknown })?.permissions).toBe(1);
+		}
+	});
+
+	test('an unreadable member never claims its family: nothing on zzsec41 for the scoped user', async () => {
+		clearFrontierIdentityCaches();
+		const entries = await realElementsOf(identity.scoped, ['zzsec41', 'zzsec31']);
+		expect(sectionEntries(entries)).toEqual(['zzsec3']);
 	});
 });
 

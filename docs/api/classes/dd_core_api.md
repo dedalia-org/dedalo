@@ -564,6 +564,7 @@ Retrieve context for all components in a section.
 - `options`: object — forwarded to `buildSectionElementsContext` (`src/core/resolve/section_elements_context.ts`). Permissions are **always** enforced server-side (the client's `skip_permissions` flag is ignored).
   - `ar_section_tipo`: string or array of section tipos — one block (section entry, then its elements) per readable section.
   - `ar_components_exclude`: array of component models to leave out. When sent it REPLACES the default list (media, password, info, inverse, security access, geolocation); `[]` lists every component. `component_password` is always left out.
+  - `use_real_sections`: boolean — `true` groups the requested sections by their real section and returns ONE block per family, built on the real section (a thesaurus panel lists each field once, not once per hierarchy); an element is offered at the highest level any readable member of the family grants it, whatever the order sent.
 - A component model the engine does not implement (an obsolete type surviving in an older ontology) is never listed, nor anything nested under it.
 
 ### Returns
