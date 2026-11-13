@@ -6809,6 +6809,7 @@ dd-modal.dd_presets::part(content) {
 .column div.wrapper_component {
   display: inline-block;
   flex: 1 1;
+  min-width: 0;
   padding: 0px;
   margin: 0px;
   height: 100%;
@@ -6822,6 +6823,7 @@ dd-modal.dd_presets::part(content) {
 .column div.wrapper_component span {
   padding: 0.12rem;
   display: inline-block;
+  max-width: 100%;
   overflow-wrap: break-word;
 }
 @media screen and (max-width: 1024px) {

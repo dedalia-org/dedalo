@@ -250,6 +250,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Long words in narrow list columns no longer spill over the next column.**
+
+    In list views, a word longer than its column was wide (e.g. "Recuperar componente" in the Activity list's narrow "What" column) was painted over the neighbouring column. It now wraps inside its own cell; column widths are unchanged.
+
 - **Searching the ontology or a thesaurus no longer stops working until the page is reloaded.**
 
     One failed search — a server refusal, a network timeout, an error drawing the result tree — left the ontology / thesaurus tree unable to search again, and "Show all" pressed while a search was still running was silently ignored. The tree now recovers on its own and runs the requests in order. In Safari, the browser's local store can drop its connection while the tab is in the background; the application now reconnects instead of failing until a reload.
