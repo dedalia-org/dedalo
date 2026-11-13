@@ -1857,18 +1857,17 @@ const local_db_transaction = async function(table, mode, reject) {
 */
 data_manager.set_local_db_data = async function(data, table) {
 
-	return new Promise(async function(resolve, reject){
-		try {
-			const transaction = await local_db_transaction(table, 'readwrite', reject)
+	return new Promise(function(resolve, reject){
+		local_db_transaction(table, 'readwrite', reject)
+		.then(function(transaction){
 			if (!transaction) {
 				return resolve(false) // IndexedDB unavailable
 			}
 			const request = transaction.objectStore(table).put(data)
 			request.onsuccess = (event) => resolve(event.target.result)
 			request.onerror = (event) => reject(event.target.error)
-		} catch (error) {
-			reject(error)
-		}
+		})
+		.catch(reject)
 	})
 }//end set_local_db_data
 
@@ -1914,9 +1913,9 @@ data_manager.get_local_db_data = async function(id, table, use_cache=false) {
 		// (!) READONLY: overlapping readwrite transactions on a store are serialised,
 		// readonly ones run concurrently — a pure get must not queue behind every
 		// other lookup and write-through on the busiest stores.
-		const result = await new Promise(async function(resolve, reject){
-			try {
-				const transaction = await local_db_transaction(table, 'readonly', reject)
+		const result = await new Promise(function(resolve, reject){
+			local_db_transaction(table, 'readonly', reject)
+			.then(function(transaction){
 				if (!transaction) {
 					console.warn('[get_local_db_data] IndexedDB not available, running without cache');
 					return resolve(false)
@@ -1924,9 +1923,8 @@ data_manager.get_local_db_data = async function(id, table, use_cache=false) {
 				const request = transaction.objectStore(table).get(id)
 				request.onsuccess = (event) => resolve(event.target.result)
 				request.onerror = (event) => reject(event.target.error)
-			} catch (error) {
-				reject(error)
-			}
+			})
+			.catch(reject)
 		})
 
 		return result;
@@ -1950,18 +1948,17 @@ data_manager.get_local_db_data = async function(id, table, use_cache=false) {
 */
 data_manager.delete_local_db_data = async function(id, table) {
 
-	return new Promise(async function(resolve, reject){
-		try {
-			const transaction = await local_db_transaction(table, 'readwrite', reject)
+	return new Promise(function(resolve, reject){
+		local_db_transaction(table, 'readwrite', reject)
+		.then(function(transaction){
 			if (!transaction) {
 				return resolve(false) // IndexedDB unavailable
 			}
 			const request = transaction.objectStore(table).delete(id)
 			request.onsuccess = (event) => resolve(event.target.result)
 			request.onerror = (event) => reject(event.target.error)
-		} catch (error) {
-			reject(error)
-		}
+		})
+		.catch(reject)
 	})
 }//end delete_local_db_data
 
