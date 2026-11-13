@@ -35,6 +35,7 @@
 
 import { copyFileSync, existsSync, rmSync, statSync } from 'node:fs';
 import { basename, resolve, sep } from 'node:path';
+import { config } from '../../../src/config/config.ts';
 import { getComponentModel } from '../../../src/core/components/registry.ts';
 import {
 	DedaloError,
@@ -214,7 +215,12 @@ async function readExport(
 ): Promise<void> {
 	let text: string;
 	try {
-		const decoded = await readIngestTextFile(staged, name);
+		// The door's bound is REQUIRED (T1-S18). Zotero has no ceiling of its own
+		// yet: it is held at the advertised upload cap, i.e. exactly what the upload
+		// door already lets a staged export be — no behaviour change for uploads,
+		// and an out-of-band file can no longer be read unbounded. A Zotero-specific
+		// value (CSL JSON parse cost) is an open WS-10 item, not decided here.
+		const decoded = await readIngestTextFile(staged, name, config.media.upload.maxSizeBytes);
 		text = decoded.text;
 		if (decoded.notice !== null) batch.notices.push(decoded.notice);
 	} catch (error) {

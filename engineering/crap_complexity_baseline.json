@@ -5,7 +5,7 @@
 	"root": "src/core",
 	"summary": {
 		"files": 936,
-		"functions": 16495,
+		"functions": 16498,
 		"functionsOverCap": 644,
 		"filesOverCap": 255
 	},
@@ -463,7 +463,7 @@
 		"src/core/tools/config.ts": 11,
 		"src/core/tools/dispatch.ts": 17,
 		"src/core/tools/import_conform.ts": 35,
-		"src/core/tools/import_csv.ts": 12,
+		"src/core/tools/import_csv.ts": 11,
 		"src/core/tools/import_csv_execute.ts": 15,
 		"src/core/tools/import_data.ts": 16,
 		"src/core/tools/import_execute.ts": 13,

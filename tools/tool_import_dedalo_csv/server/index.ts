@@ -40,6 +40,7 @@ import type { Principal } from '../../../src/core/security/permissions.ts';
 import { withLiveBulkRun } from '../../../src/core/tools/bulk_run_registry.ts';
 import {
 	assertCsvStructure,
+	CSV_INGEST_MAX_BYTES,
 	type CsvAnalysis,
 	type CsvColumn,
 	type CsvParseResult,
@@ -52,7 +53,10 @@ import type {
 	ImportProgressFrame,
 	ImportRowIssue,
 } from '../../../src/core/tools/import_wire.ts';
-import { readIngestTextFile } from '../../../src/core/tools/ingest_encoding.ts';
+import {
+	oversizedIngestSentence,
+	readIngestTextFile,
+} from '../../../src/core/tools/ingest_encoding.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -352,7 +356,9 @@ async function getCsvFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 			// DATA-09: decode DELIBERATELY (convert or refuse), never `Bun.file().text()`
 			// — that is a fatal:false UTF-8 decode, and every byte it cannot read becomes
 			// an irreversible U+FFFD in the preview the operator maps their columns from.
-			const decoded = await readIngestTextFile(resolve(dir, name), name);
+			// T1-S18: bounded in BYTES before a byte is buffered — the same ceiling as
+			// validate_import / import_files, so what previews here will import.
+			const decoded = await readIngestTextFile(resolve(dir, name), name, CSV_INGEST_MAX_BYTES);
 			if (decoded.notice !== null) notices.push(decoded.notice);
 			const analysis = await analyzeCsvOffLoop(decoded.text);
 			if (analysis === null) {
@@ -397,6 +403,19 @@ async function deleteCsvFile(ctx: ToolActionContext): Promise<ToolResponse> {
 	return ok({ deleted: fileName }, { requestId: toolRequestId(ctx) });
 }
 
+/**
+ * T1-S18: refuse a staged CSV over the ingest ceiling BEFORE it enters the import
+ * dir — early feedback in the upload panel. NOT the guard: files can reach the
+ * import dir other ways, so the read door (readIngestTextFile) enforces the same
+ * bound. The refused file stays staged (the staging sweep collects it).
+ */
+function assertStagedCsvSize(staged: string, fileName: string): void {
+	const size = statSync(staged).size;
+	if (size <= CSV_INGEST_MAX_BYTES) return;
+	const sentence = oversizedIngestSentence(fileName, size, CSV_INGEST_MAX_BYTES);
+	throw new DedaloError('media.too_large', { message: sentence, publicMessage: sentence });
+}
+
 async function processUploadedFile(ctx: ToolActionContext): Promise<ToolResponse> {
 	const fileData = (ctx.options.file_data ?? {}) as {
 		key_dir?: string;
@@ -431,6 +450,7 @@ async function processUploadedFile(ctx: ToolActionContext): Promise<ToolResponse
 			message: 'staged file not found',
 		});
 	}
+	assertStagedCsvSize(staged, fileName);
 	const dir = importDir(ctx.userId);
 	renameSync(staged, safeImportFile(dir, fileName));
 	return ok({ file_name: fileName }, { requestId: toolRequestId(ctx) });
@@ -683,7 +703,9 @@ async function readCsvRows(
 			message: `File not found: ${fileName}`,
 		});
 	}
-	const decoded = await readIngestTextFile(target, fileName);
+	// T1-S18: the ceiling holds HERE, before the read — this door parses the
+	// whole file and clones every row back to this thread.
+	const decoded = await readIngestTextFile(target, fileName, CSV_INGEST_MAX_BYTES);
 	const parsed = await parseCsvOffLoop(decoded.text);
 	assertCsvStructure(parsed, fileName);
 	const rows = parsed.rows;

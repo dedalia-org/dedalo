@@ -481,34 +481,57 @@ describe('the report contract carries the notice channel', () => {
 describe('the mapper preview shows what was done to the file it previews', () => {
 	const CONTROLLER = 'tools/tool_import_dedalo_csv/js/tool_import_dedalo_csv.js';
 
-	test('the controller keeps the notices get_csv_files answers with', () => {
+	test('the controller keeps BOTH channels get_csv_files answers with, and logs neither', () => {
 		const source = stripComments(read(CONTROLLER));
 		// Positive control: BOTH channels are read, so a rename reddens this gate
 		// rather than blinding it.
 		expect(source).toContain('files_data?.errors');
 		expect(source).toContain('files_data?.notices');
 		expect(source).toContain('self.csv_files_notices');
+		// T1-S18: the read errors are KEPT for the panel. A console line was their
+		// only trace, and the unreadable file vanished from the list unexplained.
+		expect(source).toContain('self.csv_files_errors');
+		const start = source.indexOf('tool_import_dedalo_csv.prototype.load_csv_files_list');
+		expect(start).toBeGreaterThan(-1);
+		const end = source.indexOf('tool_import_dedalo_csv.prototype.', start + 1);
+		const body = source.slice(start, end);
+		expect(body).toContain('self.csv_files_errors');
+		expect(body).not.toContain('console.error');
 	});
 
-	test('render() paints them into the panel, and never into the error container', () => {
+	test('render() paints both channels — notices as notices, read errors as errors', () => {
 		const source = stripComments(read(CONTROLLER));
-		// The slice is ONE method: from render's own assignment to the next
-		// prototype assignment (the `//end render` marker is a comment, and this
-		// source is read stripped of them).
-		const start = source.indexOf('tool_import_dedalo_csv.prototype.render');
+		// render delegates to the exported painter (testable in the client tier).
+		const renderAt = source.indexOf('tool_import_dedalo_csv.prototype.render');
+		expect(renderAt).toBeGreaterThan(-1);
+		const renderEnd = source.indexOf('tool_import_dedalo_csv.prototype.', renderAt + 1);
+		expect(source.slice(renderAt, renderEnd)).toContain('render_csv_files_messages(self');
+
+		// The painter: ONE function, from its export to the next top-level form.
+		const start = source.indexOf('export const render_csv_files_messages');
 		expect(start).toBeGreaterThan(-1);
 		const end = source.indexOf('tool_import_dedalo_csv.prototype.', start + 1);
 		expect(end).toBeGreaterThan(start);
 		const body = source.slice(start, end);
-		// It reaches the DOM: the kept notices are read and inserted.
-		expect(body).toContain('self.csv_files_notices');
+		// It reaches the DOM.
 		expect(body).toContain('create_dom_element');
 		expect(body).toContain('insertBefore');
-		// As ordinary report text — the same shape the report panel gives a notice.
-		expect(body).toContain('notice_msg');
-		// And NOT as a refusal: the red container and the console error channel are
-		// the error channel's, and a conversion is not an error.
-		expect(body).not.toContain('dedalo_last_error_container');
+
+		const errorAt = body.indexOf('const errors = self.csv_files_errors');
+		const noticeAt = body.indexOf('const notices = self.csv_files_notices');
+		expect(errorAt).toBeGreaterThan(-1);
+		expect(noticeAt).toBeGreaterThan(errorAt);
+		// The read errors: the error channel's own shape (the report panel's).
+		const errorBlock = body.slice(errorAt, noticeAt);
+		expect(errorBlock).toContain('dedalo_last_error_container');
+		expect(errorBlock).toContain('error_pre');
+		expect(errorBlock).not.toContain('notice');
+		// The notices: ordinary report text, and nothing error-shaped — a
+		// conversion is not an error (mirrors §3b).
+		const noticeBlock = body.slice(noticeAt);
+		expect(noticeBlock).toContain('notice_msg');
+		expect(noticeBlock).not.toContain('error');
+		expect(noticeBlock).not.toContain('danger');
 		expect(body).not.toContain('console.error');
 	});
 });

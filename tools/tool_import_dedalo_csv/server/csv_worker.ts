@@ -7,8 +7,11 @@
  * Two modes:
  *  - analyze: return only the get_csv_files summary (header + counts + bounded
  *    preview + malformed-JSON rows). The full row set never crosses the thread
- *    boundary, so the structured clone stays tiny even for a 200MB file.
+ *    boundary, so the structured clone stays tiny.
  *  - default (parse): return the full parsed rows — import_files needs them.
+ *
+ * The text is bounded before it gets here: the read door refuses a file over
+ * CSV_INGEST_MAX_BYTES (bytes on disk) before buffering it (T1-S18).
  */
 
 import { analyzeCsv, parseCsvDetailed } from '../../../src/core/tools/import_csv.ts';

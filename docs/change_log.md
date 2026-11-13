@@ -289,6 +289,22 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **A CSV too large to import is refused when it is uploaded, and the import panel shows why a staged file cannot be read**
+
+    The CSV import tool's 64 MB limit was checked only when the file list was shown. Checking or
+    running the import read a larger file in full, which could exhaust the server's memory for
+    every user.
+
+    Now the same limit applies at every step: an oversized CSV is refused when it is uploaded, and
+    one already in the import folder is refused before it is read, with a sentence naming the
+    file, its size and the limit. Split the file and upload the parts.
+
+    A staged file the tool cannot read (too large, not a text file, or already damaged) used to
+    disappear from the list without explanation. The panel now shows why, in red, above the file
+    list.
+
+    Wire contract: `WC-2026-11-13-csv-ingest-size-ceiling`.
+
 - **Transcription tag statistics count the interview's own-language text**
 
     The transcription statistics (time codes, index tags, notes, characters) of an audiovisual
@@ -1331,7 +1347,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 62 entries"
+??? note "Wire contract — 63 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1393,6 +1409,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-update-cache-external-mirror-refresh`
     - `WC-2026-11-12-wipe-respects-virtual-exclusion`
     - `WC-2026-11-12-zotero-csl-json-import`
+    - `WC-2026-11-13-csv-ingest-size-ceiling`
     - `WC-2026-11-13-tags-widget-original-lang`
     - `WC-2026-11-13-text-area-broken-tag-repair`
 

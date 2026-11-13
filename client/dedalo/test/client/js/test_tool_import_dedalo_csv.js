@@ -28,7 +28,10 @@ import {
 	import_mode_allowed,
 	render_columns_mapper
 } from '../../../tools/tool_import_dedalo_csv/js/render_tool_import_dedalo_csv.js'
-import {tool_import_dedalo_csv} from '../../../tools/tool_import_dedalo_csv/js/tool_import_dedalo_csv.js'
+import {
+	render_csv_files_messages,
+	tool_import_dedalo_csv
+} from '../../../tools/tool_import_dedalo_csv/js/tool_import_dedalo_csv.js'
 
 
 
@@ -55,6 +58,8 @@ describe('TOOL_IMPORT_DEDALO_CSV CLIENT TEST', function() {
 		assert.equal(instance.caller, null, 'expected caller null')
 		// tool-specific null-seeded property
 		assert.equal(instance.csv_files_list, null, 'expected csv_files_list null')
+		assert.equal(instance.csv_files_notices, null, 'expected csv_files_notices null')
+		assert.equal(instance.csv_files_errors, null, 'expected csv_files_errors null')
 	})
 
 	it('prototype is wired with the lifecycle methods', function() {
@@ -351,6 +356,95 @@ describe('TOOL_IMPORT_DEDALO_CSV SAMPLE DATA (real server answer)', function() {
 		assert.equal(lines.length, 3)
 		const samples = lines.map(line => line.querySelector('.sample_data').textContent)
 		assert.deepEqual(samples, ['101', 'first_value', 'row3_value'])
+	})
+
+})
+
+describe('TOOL_IMPORT_DEDALO_CSV READ ERRORS (real server answer)', function() {
+
+	this.timeout(30000)
+
+	// T1-S18. A staged CSV the server refuses to READ (here: it already carries a
+	// U+FFFD, i.e. it was damaged before it reached us) is absent from `files`,
+	// and its sentence travels in get_csv_files' `errors`. The controller used to
+	// send that sentence to console.error, so the file vanished from the panel
+	// with no reason given. The situation is built through the real upload door,
+	// the tool's own process_uploaded_file and the controller's own
+	// load_csv_files_list — no stubbed payload.
+	const file_name	= `bad_read_${Date.now()}.csv`
+	const csv		= 'section_id;test52\n1;bad\uFFFD\n'
+	let staged		= false
+	let self		= null
+
+	const tool_api = async function(action, options) {
+		const api_response = await data_manager.request({body: {
+			dd_api			: 'dd_tools_api',
+			action			: 'tool_request',
+			prevent_lock	: true,
+			source			: {model: 'tool_import_dedalo_csv', action},
+			options
+		}})
+		if (request_failed(api_response)) {
+			const error = new Error(`${action} refused: ${api_response.error.code} ${api_response.error.message}`)
+			error.code = api_response.error.code
+			throw error
+		}
+		return response_data(api_response)
+	}
+
+	before(async function() {
+		const upload = await create_transfer({
+			file			: new File([csv], file_name, {type: 'text/csv'}),
+			name			: file_name,
+			key_dir			: 'csv',
+			chunk_size_mb	: 0
+		}).start()
+		assert.ok(upload && !request_failed(upload) && upload.file_data, `upload staged the CSV: ${JSON.stringify(upload?.error || upload)}`)
+		const processed = await tool_api('process_uploaded_file', {file_data: upload.file_data})
+		assert.equal(processed.file_name, file_name)
+		staged = true
+
+		self		= new tool_import_dedalo_csv()
+		self.model	= 'tool_import_dedalo_csv'
+		self.mode	= 'edit'
+		await tool_import_dedalo_csv.prototype.load_csv_files_list.call(self)
+	})
+
+	after(async function() {
+		// The tool's own SOFT delete — it accepts a file the list does not show.
+		if (staged) {
+			await tool_api('delete_csv_file', {file_name})
+		}
+	})
+
+	it('the controller keeps the read error for the panel', function() {
+		assert.ok(Array.isArray(self.csv_files_errors), 'csv_files_errors is kept')
+		const mine = self.csv_files_errors.filter(line => line.includes(file_name))
+		assert.equal(mine.length, 1, `one read error names the file: ${JSON.stringify(self.csv_files_errors)}`)
+	})
+
+	it('the panel paints it in the error channel, a notice outside it, once', function() {
+		const container = document.createElement('div')
+		container.appendChild(document.createElement('div')) // the tool body's own content
+		const probe = Object.assign(Object.create(self), {
+			csv_files_notices	: ['seeded.csv: the file is not UTF-8 — it was read as windows-1252 and converted.'],
+			csv_files_errors	: self.csv_files_errors
+		})
+		render_csv_files_messages(probe, container)
+		render_csv_files_messages(probe, container) // a content-level refresh re-enters
+
+		const error_containers = container.querySelectorAll(':scope > .dedalo_last_error_container')
+		assert.equal(error_containers.length, 1, 'one error block, not duplicated')
+		const pre = error_containers[0].querySelector('.error_pre')
+		assert.ok(pre && pre.textContent.includes(file_name), 'the error block names the file')
+
+		const notices = container.querySelectorAll(':scope > .notice_msg')
+		assert.equal(notices.length, 1, 'one notice block, not duplicated')
+		assert.equal(notices[0].querySelector('.dedalo_last_error_container'), null, 'the notice is not in the error channel')
+		assert.ok(notices[0].textContent.includes('seeded.csv'))
+		// notices first, then the errors, both above the body's own content
+		assert.equal(container.firstChild, notices[0])
+		assert.equal(container.children[1], error_containers[0])
 	})
 
 })
