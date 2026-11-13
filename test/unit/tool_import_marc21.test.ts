@@ -909,7 +909,7 @@ describe('import_files: server config + ported value semantics (T1-6)', () => {
 		expect(await itemsOf('g5b', RADIO)).toEqual([]);
 	});
 
-	test('G10: conditional — the guarded occurrence, else the unconditional first (PHP fallback)', async () => {
+	test('G10: conditional — the guarded occurrence, else NO value (owner C16: never another copy)', async () => {
 		const copy = (shelf: string, library: string): FieldSpec => ({
 			tag: '945',
 			subfields: [
@@ -932,7 +932,20 @@ describe('import_files: server config + ported value semantics (T1-6)', () => {
 			'g10.mrc',
 		);
 		expect(await valuesOf('g10', TITLE)).toEqual(['Shelf B']);
-		expect(await valuesOf('g10f', TITLE)).toEqual(['Shelf C']);
+		// No copy of g10f belongs to library 193: PHP wrote 'Shelf C' (another
+		// library's shelf) — the owner ruled NO value.
+		expect(await valuesOf('g10f', TITLE)).toEqual([]);
+	});
+
+	test("G3b: occurrences:'all' joins every repetition of ONE tag (owner C17 opt-in; G3 stays first-only)", async () => {
+		stage('g3b.mrc', [rec('g3b', title('First title :'), title('Second title'))]);
+		const report = await run(
+			configWith({ ...titleEntry, occurrences: 'all', row_separator: ' / ' }),
+			'g3b.mrc',
+		);
+		expect(report.failed).toEqual([]);
+		// Joined BEFORE the trailing-punctuation strip (the ':' inside stays).
+		expect(await valuesOf('g3b', TITLE)).toEqual(['First title : / Second title']);
 	});
 
 	test('G11: the Values form is applied to every imported record, per language, then consumed', async () => {
@@ -1033,6 +1046,17 @@ describe('parseMarcConfig refuses a malformed server config (T1-6)', () => {
 		expect(refused({ ...base, date_format: 'year', dd_data_map: { a: [] } }).message).toContain(
 			'cannot both',
 		);
+	});
+
+	test("occurrences accepts only 'all', and never beside a conditional (C17)", () => {
+		expect(refused({ ...base, occurrences: 'first' }).message).toContain("'occurrences'");
+		expect(refused({ ...base, occurrences: true }).message).toContain("'occurrences'");
+		expect(
+			refused({ ...base, occurrences: 'all', marc21_conditional: { subfield: 'j', value: '1' } })
+				.message,
+		).toContain("'occurrences'");
+		const parsed = parseMarcConfig({ map: [{ ...base, occurrences: 'all' }] });
+		expect(parsed.entries[0]?.occurrences).toBe('all');
 	});
 
 	/**

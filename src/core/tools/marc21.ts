@@ -188,16 +188,25 @@ function parseField(
 export interface MarcValueSpec {
 	field: string | readonly string[];
 	field_multiple?: boolean;
-	/** Joins the occurrences of a `field_multiple` spec (PHP default '. '). */
+	/** Joins the occurrences of a `field_multiple` / `occurrences:'all'` spec (PHP default '. '). */
 	row_separator?: string;
+	/**
+	 * Without `field_multiple` a tag is read at its FIRST occurrence (PHP
+	 * get_value). `'all'` (owner C17, opt-in) reads EVERY occurrence of the ONE
+	 * tag, the non-empty ones joined by `row_separator` — a repeated 700 as one
+	 * value without listing several tags. Never beside `marc21_conditional`
+	 * (which names one occurrence by definition; the parser refuses the pair).
+	 */
+	occurrences?: 'all';
 	/** Subfield code; omit to join ALL subfields with subfield_separator. */
 	subfield?: string;
 	subfield_separator?: string;
 	/**
 	 * Guard: the FIRST occurrence whose guard subfield equals `value` supplies the
-	 * spec's subfield (PHP extract_conditional_value). When no occurrence passes,
-	 * the unconditional first occurrence is read instead (PHP fallback to
-	 * get_value — T1-6 D1, ported).
+	 * spec's subfield (PHP extract_conditional_value). When no occurrence passes
+	 * the value is '' — NOTHING is written (owner C16). PHP fell back to the
+	 * unconditional first occurrence, i.e. imported ANOTHER library's copy data
+	 * (a 945 holdings line of a different `$j`) as if it were this one's.
 	 */
 	marc21_conditional?: { subfield: string; value: string };
 }
@@ -252,18 +261,14 @@ function fieldText(field: MarcField, spec: MarcValueSpec): string {
 		.trim();
 }
 
-/**
- * PHP get_value (:1069): the first occurrence of the tag, or — with
- * `field_multiple` — every occurrence of every listed tag, the non-empty ones
- * joined by `row_separator`.
- */
-function unconditionalValue(record: MarcRecord, spec: MarcValueSpec): string {
-	if (spec.field_multiple !== true) {
-		const first = record.fields.find((f) => f.tag === specTags(spec)[0]);
-		return first === undefined ? '' : fieldText(first, spec);
-	}
+/** Every occurrence of `tags` (in tag order), the non-empty texts joined by `row_separator`. */
+function joinedOccurrences(
+	record: MarcRecord,
+	spec: MarcValueSpec,
+	tags: readonly string[],
+): string {
 	const parts: string[] = [];
-	for (const tag of specTags(spec)) {
+	for (const tag of tags) {
 		for (const field of record.fields) {
 			if (field.tag !== tag) continue;
 			const text = fieldText(field, spec);
@@ -271,6 +276,20 @@ function unconditionalValue(record: MarcRecord, spec: MarcValueSpec): string {
 		}
 	}
 	return parts.join(spec.row_separator ?? '. ');
+}
+
+/**
+ * PHP get_value (:1069): the first occurrence of the tag, or — with
+ * `field_multiple` — every occurrence of every listed tag, the non-empty ones
+ * joined by `row_separator`. `occurrences:'all'` (C17) is the same join over
+ * the ONE tag of a spec without `field_multiple`.
+ */
+function unconditionalValue(record: MarcRecord, spec: MarcValueSpec): string {
+	if (spec.field_multiple === true) return joinedOccurrences(record, spec, specTags(spec));
+	const tag = specTags(spec)[0] as string;
+	if (spec.occurrences === 'all') return joinedOccurrences(record, spec, [tag]);
+	const first = record.fields.find((f) => f.tag === tag);
+	return first === undefined ? '' : fieldText(first, spec);
 }
 
 /**
@@ -293,12 +312,15 @@ function conditionalValue(
 
 /**
  * The value a spec reads from a record (PHP extract_marc21_value :505 +
- * get_value + get_field): ONE trimmed string, '' when absent.
+ * get_value + get_field): ONE trimmed string, '' when absent. A guarded spec
+ * whose guard no occurrence passes is '' (owner C16) — the PHP `?? get_value`
+ * fallback is deliberately NOT ported (WC-2026-11-12-marc21-config-map-and-transforms,
+ * addendum 2026-11-13).
  */
 export function extractMarcValue(record: MarcRecord, spec: MarcValueSpec): string {
 	const guard = spec.marc21_conditional;
-	const guarded = guard === undefined ? null : conditionalValue(record, spec, guard);
-	return guarded ?? unconditionalValue(record, spec);
+	if (guard === undefined) return unconditionalValue(record, spec);
+	return conditionalValue(record, spec, guard) ?? '';
 }
 
 /**

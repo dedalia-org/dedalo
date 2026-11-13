@@ -91,3 +91,28 @@ types at all, and threw away the Values the operator typed.
 
 No parity gate replays this tool (write path). The DEC-14b twins are the
 native gates named above. No fixture changes.
+
+## Addendum 2026-11-13 — D1 and D2 RULED (owner C16, C17)
+
+- **C16 — `marc21_conditional` with no matching occurrence → NO value.** Item 7
+  above ("fallback follows PHP") is reversed: `extractMarcValue` answers `''`
+  when the guard is present and no occurrence passes it, so nothing is written
+  for that field (no `failed` line either — an absent copy is not an error).
+  PHP's `?? get_value` fallback read the FIRST occurrence regardless of its
+  guard, i.e. imported another library's copy data (a 945 holdings line of a
+  different `$j`) as this library's. Gates: `marc21_map.test.ts` "conditional:
+  the guarded occurrence, else NO value", `tool_import_marc21.test.ts` G10
+  (`g10f` → no value; was `'Shelf C'`).
+- **C17 — `occurrences: 'all'` (opt-in).** A new map-entry key, accepted only
+  as the string `"all"`: without `field_multiple`, every occurrence of the ONE
+  tag is read, the non-empty texts joined by `row_separator` (default `'. '`),
+  before the trailing-punctuation strip. The default stays the first occurrence
+  (D2 as shipped). Refused: any other value, and the pair with
+  `marc21_conditional` (which names one occurrence). `MAP_ENTRY_KEYS` grows by
+  `occurrences`; `main.field_to_section_id` shares the spec parser and so
+  accepts it too. Gates: `marc21_map.test.ts` "occurrences:'all' joins every
+  occurrence", `tool_import_marc21.test.ts` G3b (G3 first-only unchanged) and
+  "occurrences accepts only 'all'…".
+- Docs: `docs/development/tools/reference/tool_import_marc21.md` (rule table +
+  example). Fragment `marc21-conditional-no-fallback-and-occurrences`.
+

@@ -35,8 +35,9 @@
  * PORTED VALUE SEMANTICS (marc21.ts; reference: v6 class.tool_import_marc21.php
  * — frozen v7 `prepare_import_context` reads `$config->config->main` off the
  * ARRAY `get_config` returns, so frozen v7 imported nothing): first occurrence
- * per tag, `field_multiple` + `row_separator`, `marc21_conditional` with the
- * unconditional fallback, the transforms (trailing punctuation,
+ * per tag (`occurrences:'all'` opts one tag into every occurrence — owner C17),
+ * `field_multiple` + `row_separator`, `marc21_conditional` WITHOUT the PHP
+ * fallback (no guarded occurrence → no value — owner C16), the transforms (trailing punctuation,
  * partial_left_content, date_format 'year', dd_data_map, dd_action), last-wins
  * for a tipo bound twice, and the Values form (`input_component`) applied to
  * every imported record. Divergences, each deliberate
@@ -115,6 +116,8 @@ const MAP_ENTRY_KEYS: ReadonlySet<string> = new Set([
 	'subfield_separator',
 	'field_multiple',
 	'row_separator',
+	/** `'all'`: every occurrence of the ONE tag joined by row_separator (owner C17). */
+	'occurrences',
 	'marc21_conditional',
 	/** Accepted and inert: frozen PHP could never reach it (its own `(!)` note). */
 	'skip_on_empty',
@@ -197,10 +200,17 @@ function parseSpec(raw: Record<string, unknown>, refuse: Refuse): MarcValueSpec 
 	if (raw.field_multiple !== undefined && typeof raw.field_multiple !== 'boolean') {
 		refuse(`'field_multiple' must be true or false`);
 	}
+	if (raw.occurrences !== undefined && raw.occurrences !== 'all') {
+		refuse(`'occurrences' supports only "all" (the default reads the first occurrence)`);
+	}
 	const conditional = parseConditional(raw, refuse);
+	if (raw.occurrences === 'all' && conditional !== undefined) {
+		refuse(`'occurrences' cannot combine with 'marc21_conditional', which reads ONE occurrence`);
+	}
 	return {
 		field: parseField(raw, refuse),
 		...(raw.field_multiple === true ? { field_multiple: true } : {}),
+		...(raw.occurrences === 'all' ? { occurrences: 'all' as const } : {}),
 		...(typeof raw.row_separator === 'string' ? { row_separator: raw.row_separator } : {}),
 		...(typeof raw.subfield === 'string' ? { subfield: raw.subfield } : {}),
 		...(typeof raw.subfield_separator === 'string'

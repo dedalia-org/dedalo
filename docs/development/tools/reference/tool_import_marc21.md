@@ -45,11 +45,12 @@ The behaviour of the import is driven by the tool **configuration**, not by the 
 | Key | Meaning |
 | --- | --- |
 | `tipo` | Target component tipo (**required**) |
-| `field` | MARC tag, e.g. `"245"`. Without `field_multiple` only the **first** occurrence of the tag is read |
+| `field` | MARC tag, e.g. `"245"`. Without `field_multiple` or `occurrences` only the **first** occurrence of the tag is read |
 | `subfield` | Subfield code (`"a"`): the first such subfield of the occurrence; omit to join all subfields |
 | `subfield_separator` | Separator when joining all subfields (default a space) |
 | `field_multiple` + `row_separator` | `field` may be a list of tags; every occurrence of every listed tag is read, the non-empty ones joined with `row_separator` (default `". "`) — e.g. the 6xx indexation block |
-| `marc21_conditional` | `{subfield, value}`: read the first occurrence whose `subfield` equals `value` (e.g. 945 holdings where `$j == 193`); when no occurrence matches, the first occurrence is read. Needs a single-tag `field` and a `subfield` |
+| `occurrences: "all"` | Opt-in for a **single** tag: every repetition of the tag is read, the non-empty ones joined with `row_separator` (default `". "`) — e.g. the repeated 700 added entries as one value. Cannot combine with `marc21_conditional`; any other value than `"all"` refuses the run |
+| `marc21_conditional` | `{subfield, value}`: read the first occurrence whose `subfield` equals `value` (e.g. 945 holdings where `$j == 193`). When **no** occurrence matches, **nothing is written** — the other occurrences are other libraries' copies, never this one's. Needs a single-tag `field` and a `subfield` |
 | *(always)* | The value is trimmed and trailing spaces, tabs, `,`, `:` and `.` are stripped — except on the `name: "id"` rule, whose value is only trimmed (it is the code a re-import searches for) |
 | `partial_left_content` | Positive integer: keep the first run of digits as a number (`"c1987."` → `1987`) |
 | `date_format: "year"` | Store the number as a date with that start year. A value with no year above 0 is not written and is listed in `failed` |
@@ -105,7 +106,7 @@ A single `map` rule (from the reference config) that ingests the title statement
 { "info": "Title mention", "field": "245", "tipo": "rsc140" }
 ```
 
-A conditional holdings rule (945 $a from the copy whose $j equals 193) and a year-from-imprint rule (`"c1987."` → a date with start year 1987):
+A conditional holdings rule (945 $a from the copy whose $j equals 193 — a record with no such copy gets no value), a year-from-imprint rule (`"c1987."` → a date with start year 1987) and a rule joining every repeated 700 added entry into the secondary personal-name component `rsc352`:
 
 ``` json
 { "info": "Topographic", "field": "945", "subfield": "a", "tipo": "rsc359",
@@ -113,6 +114,9 @@ A conditional holdings rule (945 $a from the copy whose $j equals 193) and a yea
 
 { "info": "Publication date", "field": "260", "subfield": "c", "tipo": "rsc224",
   "partial_left_content": 4, "date_format": "year" }
+
+{ "info": "Secondary entry - Personal name", "field": "700", "subfield": "a", "tipo": "rsc352",
+  "occurrences": "all", "row_separator": " | " }
 ```
 
 ## Related

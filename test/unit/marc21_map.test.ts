@@ -154,14 +154,29 @@ describe('MARC21 map application (pure)', () => {
 		).toBe('First, A. | Second, B. - ed.');
 	});
 
-	test('conditional: the guarded occurrence, else the unconditional first', () => {
+	test('conditional: the guarded occurrence, else NO value (owner C16 — never another copy)', () => {
 		const guard = (value: string) => ({
 			field: '945',
 			subfield: 'a',
 			marc21_conditional: { subfield: 'j', value },
 		});
 		expect(extractMarcValue(repeated, guard('193'))).toBe('Shelf Y');
-		expect(extractMarcValue(repeated, guard('555'))).toBe('Shelf X');
+		// PHP fell back to the first occurrence — another library's copy data.
+		expect(extractMarcValue(repeated, guard('555'))).toBe('');
+	});
+
+	test("occurrences:'all' joins every occurrence of the ONE tag without field_multiple (owner C17)", () => {
+		expect(extractMarcValue(repeated, { field: '700', subfield: 'a', occurrences: 'all' })).toBe(
+			'First, A.. Second, B.',
+		);
+		expect(
+			extractMarcValue(repeated, { field: '700', occurrences: 'all', row_separator: ' | ' }),
+		).toBe('First, A. | Second, B. ed.');
+		// A tag with one occurrence, and one with none, read as before.
+		expect(extractMarcValue(repeated, { field: '710', subfield: 'a', occurrences: 'all' })).toBe(
+			'An Entity',
+		);
+		expect(extractMarcValue(repeated, { field: '999', occurrences: 'all' })).toBe('');
 	});
 
 	test('transformMarcValue: punctuation, partial_left_content, year, dd_data_map, id', () => {
