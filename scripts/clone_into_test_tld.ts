@@ -138,11 +138,24 @@ interface SyntheticSpec {
 	reason: string;
 }
 
+/** One `policy.properties_rewrites` rule (see the manifest's `_properties_rewrites_doc`). */
+interface PropertyRewrite {
+	/** Regex over the properties path grammar (`widgets[].ipo[].process`). */
+	path: string;
+	/** Every listed key must hold exactly this value for the rule to apply. */
+	when: Record<string, unknown>;
+	/** Keys assigned when the rule applies. */
+	set: Record<string, unknown>;
+	/** key → { old suffix → new suffix } on string values. */
+	replace_suffix: Record<string, Record<string, string>>;
+}
+
 interface Manifest {
 	policy: {
 		properties_expand_paths: string;
 		properties_block_paths: string;
 		properties_strip_paths: string;
+		properties_rewrites: PropertyRewrite[];
 		no_expand_models: string;
 	};
 	thesaurus_tlds: Record<string, { tld: string; term: string; reason: string } | string>;
@@ -156,6 +169,10 @@ const EXPAND_PATH_RE = new RegExp(manifest.policy.properties_expand_paths);
 const BLOCK_PATH_RE = new RegExp(manifest.policy.properties_block_paths);
 const NO_EXPAND_MODEL_RE = new RegExp(manifest.policy.no_expand_models);
 const STRIP_PATH_RE = new RegExp(manifest.policy.properties_strip_paths);
+const PROPERTY_REWRITES = manifest.policy.properties_rewrites.map((rule) => ({
+	...rule,
+	pathRe: new RegExp(rule.path),
+}));
 
 /** source section tipo → the `test*` TLD its thesaurus becomes. */
 const THESAURUS_TLD = new Map<string, string>();
@@ -533,6 +550,36 @@ function stripPolicyPaths(value: unknown, path = ''): unknown {
 		const next = path === '' ? key : `${path}.${key}`;
 		if (STRIP_PATH_RE.test(next)) continue;
 		out[key] = stripPolicyPaths(item, next);
+	}
+	return out;
+}
+
+/**
+ * Apply the manifest's `policy.properties_rewrites` — VALUE rewrites at named
+ * paths, on clones AND on the legacy `test` nodes, so a regenerate is a fixed
+ * point of the fixture. Unlike `stripPolicyPaths` nothing is removed: a rule
+ * whose `when` precondition holds sets keys and replaces string suffixes.
+ * Today ONE rule exists (the calculation `process` block → the TS engine's
+ * `.ts` / `engine:'ts'` dispatch key; owner-authorised 2026-11-13).
+ */
+function rewritePolicyValues(value: unknown, path = ''): unknown {
+	if (Array.isArray(value)) return value.map((item) => rewritePolicyValues(item, `${path}[]`));
+	if (value === null || typeof value !== 'object') return value;
+	let out: Record<string, unknown> = {};
+	for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+		out[key] = rewritePolicyValues(item, path === '' ? key : `${path}.${key}`);
+	}
+	for (const rule of PROPERTY_REWRITES) {
+		if (!rule.pathRe.test(path)) continue;
+		if (!Object.entries(rule.when).every(([key, expected]) => out[key] === expected)) continue;
+		out = { ...out, ...rule.set };
+		for (const [key, suffixes] of Object.entries(rule.replace_suffix)) {
+			const current = out[key];
+			if (typeof current !== 'string') continue;
+			for (const [from, to] of Object.entries(suffixes)) {
+				if (current.endsWith(from)) out[key] = `${current.slice(0, -from.length)}${to}`;
+			}
+		}
 	}
 	return out;
 }
@@ -1138,7 +1185,7 @@ function main(): void {
 		const target = map.get(tipo) as string;
 		const targetTld = tldOf(target);
 		const rewritten = rewriteValue(node.properties, '', map, tipo, targetTld);
-		const properties = rewritten === DROP ? DROP : stripPolicyPaths(rewritten);
+		const properties = rewritten === DROP ? DROP : rewritePolicyValues(stripPolicyPaths(rewritten));
 		clonedNodes.push({
 			tipo: target,
 			parent: rewriteParent(node, map, targetTld, anchors.has(tipo)),
@@ -1182,7 +1229,8 @@ function main(): void {
 			const target = overrides.get(tipo) as string;
 			const isAnchor = tipo === spec.source_tipo;
 			const rewritten = rewriteValue(node.properties, '', map, target, spec.tld, overrides);
-			const properties = rewritten === DROP ? DROP : stripPolicyPaths(rewritten);
+			const properties =
+				rewritten === DROP ? DROP : rewritePolicyValues(stripPolicyPaths(rewritten));
 			const relations: { tipo: string }[] = [];
 			for (const item of node.relations ?? []) {
 				if (typeof item?.tipo !== 'string') continue;
@@ -1281,7 +1329,9 @@ function main(): void {
 	// --- repair the legacy nodes' references ------------------------------
 	const repairedLegacy: DdOntologyNode[] = legacyNodes.map((node) => {
 		if (node.is_main === true) return node;
-		const properties = rewriteValue(node.properties, '', map, node.tipo, TEST_TLD);
+		const properties = rewritePolicyValues(
+			rewriteValue(node.properties, '', map, node.tipo, TEST_TLD),
+		);
 		const legacy =
 			node.propiedades === null
 				? null

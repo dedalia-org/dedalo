@@ -5144,8 +5144,8 @@
 								],
 								"process": {
 									"fn": "to_euros",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php",
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts",
 									"options": {
 										"days": true,
 										"total": false,
@@ -5235,8 +5235,8 @@
 								],
 								"process": {
 									"fn": "calculate_period",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php",
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts",
 									"options": {
 										"days": true,
 										"label": true,
@@ -14982,8 +14982,8 @@
 								],
 								"process": {
 									"fn": "summarize",
-									"file": "/calculation/formulas.php",
-									"engine": "php",
+									"file": "/calculation/formulas.ts",
+									"engine": "ts",
 									"options": {
 										"type": "date",
 										"precision": 2
@@ -15179,8 +15179,8 @@
 								],
 								"process": {
 									"fn": "summarize",
-									"file": "/calculation/formulas.php",
-									"engine": "php",
+									"file": "/calculation/formulas.ts",
+									"engine": "ts",
 									"options": {
 										"type": "date",
 										"precision": 2
@@ -15281,8 +15281,8 @@
 								],
 								"process": {
 									"fn": "summarize",
-									"file": "/calculation/formulas.php",
-									"engine": "php",
+									"file": "/calculation/formulas.ts",
+									"engine": "ts",
 									"options": {
 										"type": "date",
 										"precision": 2
@@ -113414,8 +113414,8 @@
 								],
 								"process": {
 									"fn": "range_to_days",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php"
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts"
 								}
 							}
 						],
@@ -117152,8 +117152,8 @@
 								],
 								"process": {
 									"fn": "summarize",
-									"file": "/calculation/formulas.php",
-									"engine": "php",
+									"file": "/calculation/formulas.ts",
+									"engine": "ts",
 									"options": {
 										"type": "date",
 										"precision": 2
@@ -120918,8 +120918,8 @@
 								],
 								"process": {
 									"fn": "summarize",
-									"file": "/calculation/formulas.php",
-									"engine": "php",
+									"file": "/calculation/formulas.ts",
+									"engine": "ts",
 									"options": {
 										"type": "int"
 									}
@@ -120997,8 +120997,8 @@
 								],
 								"process": {
 									"fn": "summarize",
-									"file": "/calculation/formulas.php",
-									"engine": "php",
+									"file": "/calculation/formulas.ts",
+									"engine": "ts",
 									"options": {
 										"type": "int"
 									}
@@ -121936,8 +121936,8 @@
 								],
 								"process": {
 									"fn": "summarize",
-									"file": "/calculation/formulas.php",
-									"engine": "php",
+									"file": "/calculation/formulas.ts",
+									"engine": "ts",
 									"options": {
 										"type": "int"
 									}
@@ -122015,8 +122015,8 @@
 								],
 								"process": {
 									"fn": "calculate_period",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php",
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts",
 									"options": {
 										"days": true,
 										"label": true,
@@ -122082,8 +122082,8 @@
 								],
 								"process": {
 									"fn": "calculate_import_major",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php",
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts",
 									"options": {
 										"months": true
 									}
@@ -122144,8 +122144,8 @@
 								],
 								"process": {
 									"fn": "to_euros",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php"
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts"
 								}
 							}
 						],
@@ -122295,8 +122295,8 @@
 								],
 								"process": {
 									"fn": "summarize",
-									"file": "/calculation/formulas.php",
-									"engine": "php",
+									"file": "/calculation/formulas.ts",
+									"engine": "ts",
 									"options": {
 										"type": "int"
 									}
@@ -122373,8 +122373,8 @@
 								],
 								"process": {
 									"fn": "calculate_period",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php",
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts",
 									"options": {
 										"days": true,
 										"label": true,
@@ -122440,8 +122440,8 @@
 								],
 								"process": {
 									"fn": "calculate_import_major",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php",
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts",
 									"options": {
 										"months": true
 									}
@@ -122547,8 +122547,8 @@
 								],
 								"process": {
 									"fn": "to_euros",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php"
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts"
 								}
 							}
 						],
@@ -122968,8 +122968,8 @@
 								],
 								"process": {
 									"fn": "calculate_import_minor",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php",
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts",
 									"options": {
 										"months": true
 									}
@@ -123248,8 +123248,8 @@
 								],
 								"process": {
 									"fn": "final_total",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php"
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts"
 								}
 							}
 						],
@@ -123970,8 +123970,8 @@
 								],
 								"process": {
 									"fn": "summarize",
-									"file": "/calculation/formulas.php",
-									"engine": "php",
+									"file": "/calculation/formulas.ts",
+									"engine": "ts",
 									"options": {
 										"type": "int"
 									}
@@ -124052,8 +124052,8 @@
 								],
 								"process": {
 									"fn": "calculate_period",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php",
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts",
 									"options": {
 										"days": true,
 										"label": true,
@@ -124126,8 +124126,8 @@
 								],
 								"process": {
 									"fn": "subtract",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php"
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts"
 								}
 							}
 						],
@@ -124188,8 +124188,8 @@
 								],
 								"process": {
 									"fn": "to_euros",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php"
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts"
 								}
 							}
 						],
@@ -127980,8 +127980,8 @@
 								],
 								"process": {
 									"fn": "days_correction_manually",
-									"file": "/mdcat/calculation/mdcat.php",
-									"engine": "php"
+									"file": "/mdcat/calculation/mdcat.ts",
+									"engine": "ts"
 								}
 							}
 						],
@@ -184838,8 +184838,8 @@
 								],
 								"process": {
 									"fn": "summarize",
-									"file": "/calculation/formulas.php",
-									"engine": "php",
+									"file": "/calculation/formulas.ts",
+									"engine": "ts",
 									"options": {
 										"type": "float",
 										"precision": 2
