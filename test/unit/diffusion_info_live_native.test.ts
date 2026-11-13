@@ -30,6 +30,18 @@
  *
  * Scratch: matrix_test / test3, own id subrange 931300-931399, fail-loud
  * empty-before / clean-after (matrix_test + matrix_time_machine).
+ *
+ * THE PARSED FACE (owner D1 2026-11-13, WC-2026-11-13-info-parsed-face-published):
+ * the publication door reads `computeInfoWidgetsParsed` — a widget WITH a
+ * get_data_parsed face (mdcat sum_dates) publishes the humanized text v6
+ * published, never the DateInterval JSON the raw face holds; its parsed items
+ * are stamped `widget` + `key` so `parser_info::widget` can match them. Built
+ * on its OWN situation (`zzifp`, dropped with residue 0): a host with a portal
+ * to a dates section and a sum_dates info component over it; the publication
+ * gate is skipped (skipPublicationStateCheck) — the contract here is the
+ * value, not the gate. RED on the raw door: the column held `{"y":0,"m":2,…}`.
+ * The test_info cases above are the control: a widget without a parsed face
+ * publishes its raw items unchanged.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -37,6 +49,11 @@ import { getCounters } from '../../src/core/api/counters.ts';
 import { type MatrixRecord, readMatrixRecord } from '../../src/core/db/matrix.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { isDedaloError } from '../../src/core/errors/index.ts';
+import {
+	dropSituation,
+	ensureSituation,
+	situation,
+} from '../../src/core/test_data/situations/situation.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import type { FieldPlan, PublicationPlan } from '../../src/diffusion/plan/types.ts';
 import { defaultPublicationValue } from '../../src/diffusion/resolve/default_value.ts';
@@ -240,5 +257,181 @@ describe.if(DB_READY)('diffusion publishes component_info from the LIVE widget c
 		}
 		expect(isDedaloError(caught)).toBe(true);
 		expect((caught as { code?: string }).code).toBe('internal.invariant');
+	});
+});
+
+// ── D1: the PARSED face (sum_dates humanized) ───────────────────────────────────
+
+const IFP_HOST = 'zzifp1';
+const IFP_PORTAL = 'zzifp2';
+const IFP_SUM = 'zzifp3';
+const IFP_DATES = 'zzifp20';
+const IFP_DATE_IN = 'zzifp22';
+const IFP_DATE_OUT = 'zzifp23';
+const IFP_LANG = 'lg-eng';
+
+const IFP_SITUATION = situation({
+	name: 'zzifp diffusion info parsed face',
+	tld: 'zzifp',
+	nodes: [
+		{ tipo: IFP_HOST, parent: 'test1', model: 'section', term: { 'lg-spa': 'zz ifp host' } },
+		{
+			tipo: IFP_PORTAL,
+			parent: IFP_HOST,
+			model: 'component_portal',
+			term: { 'lg-spa': 'zz ifp portal' },
+			order_number: 1,
+		},
+		{
+			tipo: IFP_SUM,
+			parent: IFP_HOST,
+			model: 'component_info',
+			term: { 'lg-spa': 'zz ifp sum' },
+			order_number: 2,
+			properties: {
+				widgets: [
+					{
+						widget_name: 'sum_dates',
+						path: '/mdcat/sum_dates',
+						ipo: [
+							{
+								input: [
+									{ type: 'source', section_tipo: 'self', component_tipo: IFP_PORTAL },
+									{ type: 'date_in', section_tipo: 'current', component_tipo: IFP_DATE_IN },
+									{ type: 'date_out', section_tipo: 'current', component_tipo: IFP_DATE_OUT },
+								],
+								output: [{ id: 'sum_intervals' }],
+							},
+						],
+					},
+				],
+			},
+		},
+		{ tipo: IFP_DATES, parent: 'test1', model: 'section', term: { 'lg-spa': 'zz ifp dates' } },
+		{
+			tipo: IFP_DATE_IN,
+			parent: IFP_DATES,
+			model: 'component_date',
+			term: { 'lg-spa': 'zz ifp date in' },
+			order_number: 1,
+		},
+		{
+			tipo: IFP_DATE_OUT,
+			parent: IFP_DATES,
+			model: 'component_date',
+			term: { 'lg-spa': 'zz ifp date out' },
+			order_number: 2,
+		},
+	],
+	records: [
+		{
+			section_tipo: IFP_HOST,
+			section_id: 1,
+			columns: {
+				relation: {
+					[IFP_PORTAL]: [
+						{
+							id: 1,
+							type: 'dd151',
+							section_tipo: IFP_DATES,
+							section_id: 1,
+							from_component_tipo: IFP_PORTAL,
+						},
+					],
+				},
+			},
+		},
+		{
+			// 2020-01-01 → 2020-03-16: sum_dates humanizes it as "2 months 15 days"
+			section_tipo: IFP_DATES,
+			section_id: 1,
+			columns: {
+				date: {
+					[IFP_DATE_IN]: [{ id: 1, start: { year: 2020, month: 1, day: 1 } }],
+					[IFP_DATE_OUT]: [{ id: 1, start: { year: 2020, month: 3, day: 16 } }],
+				},
+			},
+		},
+	],
+});
+
+/** mdcat1181's shape once the owner sets candidate A: widget + select, no keys. */
+function sumField(id: string, select: string): FieldPlan {
+	return {
+		id,
+		columnName: id,
+		sourceChain: [
+			{ kind: 'component', tipo: IFP_SUM, model: 'component_info', sectionTipo: IFP_HOST },
+		],
+		transform: [
+			{ fn: 'parser_info::widget', options: { widget_name: ['sum_dates'], select: [select] } },
+		],
+		column: { fieldModel: 'field_text' },
+		policy: {},
+	} as FieldPlan;
+}
+
+const IFP_PLAN: PublicationPlan = {
+	planId: 'test-info-parsed-face',
+	elementTipo: 'test_element',
+	format: 'sql',
+	serviceName: null,
+	target: { kind: 'table', database: 'scratch_unused' },
+	sections: [
+		{
+			sectionTipo: IFP_HOST,
+			tableName: 'scratch_unused',
+			tableTipo: 'test_table_node',
+			fields: [sumField('sum', 'sum_intervals'), sumField('est', 'sum_estitmated_time_add')],
+		},
+	],
+	recursion: { maxLevels: 0 },
+	langPolicy: { langs: [IFP_LANG], mainLang: IFP_LANG },
+	warnings: [],
+};
+
+describe.if(DB_READY)('D1: the publication door publishes the PARSED widget face', () => {
+	let columns: Record<string, string | null> = {};
+
+	beforeAll(async () => {
+		await assertTestDatabase('diffusion_info_live_native (zzifp)');
+		await dropSituation(IFP_SITUATION);
+		await ensureSituation(IFP_SITUATION);
+		const batches: ResolvedBatch[] = [];
+		for await (const batch of resolvePublication(IFP_PLAN, {
+			sectionTipo: IFP_HOST,
+			runStartedAt: RUN_STARTED_AT,
+			sqo: {
+				section_tipo: IFP_HOST,
+				filter_by_locators: [{ section_tipo: IFP_HOST, section_id: '1' }],
+			},
+			maxLevels: 0,
+			skipPublicationStateCheck: true,
+		})) {
+			batches.push(batch);
+		}
+		expect(batches.flatMap((batch) => batch.errors)).toEqual([]);
+		const row = batches
+			.flatMap((batch) => batch.rows)
+			.find((candidate) => String(candidate.sectionId) === '1');
+		if (row === undefined) throw new Error('the zzifp host record published no row');
+		columns = row.columns;
+	});
+
+	afterAll(async () => {
+		expect(await dropSituation(IFP_SITUATION)).toBe(0);
+	});
+
+	test('sum_dates publishes the HUMANIZED interval text, never the DateInterval JSON', () => {
+		// 2020-01-01 → 2020-03-16 under the lg-eng labels: "2 months 15 days"
+		expect(columns.sum).toMatch(/^2 \S+ 15 \S+$/);
+		expect(columns.sum).not.toContain('"y"');
+	});
+
+	test('a parsed output with no estimate publishes its empty text (the item matched, value "")', () => {
+		// The parsed face emits `sum_estitmated_time_add: ''` — matched by the
+		// stamped widget name; the raw face's DateInterval object never appears.
+		expect(columns.est ?? '').not.toContain('"y"');
+		expect(columns.est === null || columns.est === '').toBe(true);
 	});
 });

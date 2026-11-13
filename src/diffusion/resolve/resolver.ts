@@ -1912,9 +1912,10 @@ async function walkChainLevel(
 		if (step.sectionTipo !== '' && step.sectionTipo !== record.section_tipo) continue;
 
 		if (step.kind === 'component') {
-			// component_info: the LIVE widget compute (PHP component_info::
-			// get_diffusion_data overrides the common door — no fn, no stored
-			// slice). WC-2026-11-12-info-live-publication-export.
+			// component_info: the LIVE widget compute, PARSED face, async included
+			// (PHP component_info::get_diffusion_data overrides the common door —
+			// no fn, no stored slice). WC-2026-11-12-info-live-publication-export +
+			// WC-2026-11-13-info-parsed-face-published (owner D1/C9).
 			if (getFlatValueFamily(step.model) === 'info') {
 				atoms.push(
 					...(await infoPublicationAtoms(infoEnvOf(ctx), record, step.tipo, {

@@ -1151,6 +1151,20 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-info-derived-async-published`, `WC-2026-11-13-calculation-total-records-no-frontier`.
 
+- **Published information fields carry the readable value the record page shows (a duration as text, not its internal object); on-demand widgets are published too.**
+
+    A published column mapped onto an information field's widget (`parser_info::widget`) now
+    carries the widget's **readable** value — the one the record page and the export show. The sum of
+    dates widget publishes `2 months 15 days` (in the publication's main language) where it used to
+    publish the internal interval object as JSON. Widgets whose readable face is their computed value
+    (state, calculation, media icons…) publish unchanged. The user-activity widget, loaded on demand in
+    the record page, is now computed and published as well, as it was before the engine change.
+
+    Republish the elements carrying such columns to refresh the public tables; the mapping of the
+    mdcat duration column is set on the master ontology once this release is installed.
+
+    Wire contract: `WC-2026-11-13-info-parsed-face-published`.
+
 - **Database statements slower than five seconds are now logged by default.**
 
     `DEDALO_SLOW_QUERY_MS` now defaults to `5000` (it was `0`, off). A statement taking longer
@@ -1521,7 +1535,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 73 entries"
+??? note "Wire contract — 74 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1593,6 +1607,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-export-tag-marks-plain-text`
     - `WC-2026-11-13-external-empty-entry-dropped`
     - `WC-2026-11-13-info-derived-async-published`
+    - `WC-2026-11-13-info-parsed-face-published`
     - `WC-2026-11-13-observer-refresh-data`
     - `WC-2026-11-13-tags-widget-original-lang`
     - `WC-2026-11-13-text-area-broken-tag-repair`

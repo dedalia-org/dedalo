@@ -442,8 +442,9 @@ async function compileSourceChain(
 			if (parent !== undefined) step.parent = parent;
 			if (ddo.fn !== undefined && getFlatValueFamily(model) === 'info') {
 				// PHP component_info::get_diffusion_data OVERRIDES the common one, so
-				// a ddo fn on an info component never runs: the live compute is the
-				// value (resolve/info_value.ts). Kept out of the step, never silent.
+				// a ddo fn on an info component never runs: the live compute — its
+				// PARSED face, owner D1 2026-11-13 — is the value
+				// (resolve/info_value.ts). Kept out of the step, never silent.
 				diagnostics.warnings.push(`info-fn-ignored:${ddo.fn}@${fieldTipo}`);
 			} else if (ddo.fn !== undefined) {
 				step.fn = ddo.fn;
