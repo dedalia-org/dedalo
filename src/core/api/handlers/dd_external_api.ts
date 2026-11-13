@@ -597,6 +597,26 @@ export async function resolveExternalSearchTarget(
  * arrays with ', ') which agreed with nothing else in the engine; that
  * divergence is ledgered rather than reproduced.
  */
+/**
+ * The fields_map a SEARCH cell renders with: every `format` the adapter maps in
+ * `searchFormats` is replaced by its search-only twin (owner C55: zenon
+ * `zenon_authors` → `zenon_author_names`, names without role labels); every
+ * other row is the record path's own. The rows are the node's (never the
+ * request's) — only the format NAME changes, and only to one the adapter
+ * declares (external_registry_totality_tripwire).
+ */
+function searchFieldsMap(
+	model: ExternalServiceModel,
+	fieldsMap: readonly FieldsMapEntry[],
+): readonly FieldsMapEntry[] {
+	const twins = model.searchFormats;
+	if (twins === undefined) return fieldsMap;
+	return fieldsMap.map((entry) => {
+		const twin = entry.format === undefined ? undefined : twins[entry.format];
+		return twin === undefined ? entry : { ...entry, format: twin };
+	});
+}
+
 export async function formatExternalSearchData(
 	result: ExternalSearchResult,
 	target: ResolvedSearchTarget,
@@ -660,7 +680,7 @@ export async function formatExternalSearchData(
 						status: 'ok',
 						fetchedAt,
 					},
-					ddo.fieldsMap,
+					searchFieldsMap(target.model, ddo.fieldsMap),
 				) as unknown as Record<string, unknown>),
 			});
 		}

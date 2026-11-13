@@ -189,6 +189,17 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-export-tag-marks-plain-text`, `WC-2026-11-13-export-media-cell-type`.
 
+- **Zenon search results show author names without the role labels.**
+
+    When you search a Zenon-backed field, the list of results showed the authors as the catalogue
+    API labels them — `primary: Ripollès Alegre, P. P. (Pere Pau) | corporate: DAI` — role keys
+    that are not translated and mean nothing to a reader choosing a reference.
+
+    The result list now shows the names only, in order: `Ripollès Alegre, P. P. (Pere Pau) - DAI`.
+    The record itself still shows the authors with their roles, as before.
+
+    Wire contract: `WC-2026-08-06-external-search-request`.
+
 - **An image's file name (the `image_id` field) must be unique in its section and cannot be changed while the image's files exist; a duplicate gets its own file name.**
 
     Some image fields name their files by another field of the record (the ontology's
@@ -233,6 +244,29 @@ Merged since the last release; these ship with the next one.
     In **Translate all languages**, the engine list no longer includes **Local AI translator** (the in-browser model): one run there writes every language of a field at once, and the browser model's revision is not yet pinned. The engines configured for the **Translation** tool are still shared with **Translate all languages**, as before; **Translation** itself still offers the Local AI translator, one language at a time.
 
     The Local AI translator returns to **Translate all languages** once its model revision is pinned.
+
+- **"Zotero import: the call number identifies the record instead of numbering it, and an export over 64 MB is refused."**
+
+    The Zotero **call number** (the `field_to_section_id` variable of the tool's configuration)
+    was a record number in earlier versions — a typo overwrote an unrelated record — and since the
+    import was restored it was neither stored nor applied, with a notice per reference.
+
+    Now it is an identifier: it is stored in the field the configuration binds it to, and a
+    re-import first looks for the record that already holds it. Found → that record is updated
+    (and now also carries the Zotero key); not found → the Zotero key decides, or a new record is
+    created holding both. A call number held by two records, repeated on two references of one
+    export, or pointing at a different record than the reference's key refuses **that reference
+    only**, listed under the file errors; the rest of the export is imported.
+
+    An export larger than 64 MB — the same limit as a CSV import — is refused when the import
+    runs, with a line naming the file, its size and the limit, and is left where it was staged.
+    Export the library in parts.
+
+    **Action needed:** none for the shipped configuration. A Tools configuration whose
+    `field_to_section_id` names a Zotero field the map does not bind now stops the import with a
+    message naming it — add the map entry for that field.
+
+    Wire contract: `WC-2026-11-12-zotero-csl-json-import`, `WC-2026-11-13-csv-ingest-size-ceiling`.
 
 - **Search-as-you-type keeps the previous results on screen while it looks for the new ones, and answers sooner.**
 
@@ -1271,6 +1305,24 @@ Merged since the last release; these ship with the next one.
     mdcat duration column is set on the master ontology once this release is installed.
 
     Wire contract: `WC-2026-11-13-info-parsed-face-published`.
+
+- **"MARC21 import: a conditional rule with no matching copy writes nothing, and a rule can join every repetition of one field (`occurrences: \"all\"`)."**
+
+    A conditional rule (`marc21_conditional`, e.g. the 945 holdings of the copy whose `$j` is your
+    library's code) used to fall back to the record's **first** 945 when none of its copies
+    matched — so a record held only by other libraries was imported with another library's shelf
+    mark, volume and barcode. Now such a rule writes nothing for that record.
+
+    A rule reading one repeated field (a 700 added entry, say) still takes the first repetition
+    by default. Add `"occurrences": "all"` to the rule to join every repetition into one value,
+    separated by the rule's `row_separator` (default `". "`), without listing several tags under
+    `field_multiple`. Any other value of `occurrences`, or combining it with a conditional rule,
+    stops the import with a message naming the rule.
+
+    **Action needed:** none for the shipped map. Review a Tools configuration that relied on the
+    old fallback.
+
+    Wire contract: `WC-2026-11-12-marc21-config-map-and-transforms`.
 
 - **Database statements slower than five seconds are now logged by default.**
 

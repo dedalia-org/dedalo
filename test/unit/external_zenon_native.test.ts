@@ -185,6 +185,40 @@ describe('zenon payload → rows → values', () => {
 		expect(value).toEqual({ text: 'primary: Doe, J. - Roe, R. | corporate: DAI', kind: 'text' });
 	});
 
+	test('zenon_author_names (the SEARCH rendering, owner C55): names of every non-empty role joined " - ", no role labels', () => {
+		const format = zenon.formats?.zenon_author_names;
+		expect(format).toBeDefined();
+		const names = format as NonNullable<typeof format>;
+		// v6 browser look: 'Doe, J. - Roe, R. - DAI'; the record path keeps the roles.
+		expect(
+			names({ primary: { 'Doe, J.': [], 'Roe, R.': [] }, secondary: [], corporate: { DAI: [] } }),
+		).toEqual({ text: 'Doe, J. - Roe, R. - DAI', kind: 'text' });
+		// The same empty / refusal rules as zenon_authors: nothing is guessed.
+		for (const raw of [[], '', false, 0, {}, { primary: [], secondary: [], corporate: [] }]) {
+			expect(names(raw)).toEqual({ text: '', kind: 'text' });
+		}
+		for (const raw of ['Doe', 7, true, ['Doe']]) {
+			expect(names(raw)).toEqual({ text: '', kind: 'text', refused: 1 });
+		}
+		expect(names({ primary: 'Doe', corporate: { DAI: [] } })).toEqual({
+			text: 'DAI',
+			kind: 'text',
+			refused: 1,
+		});
+		// Declared as the search twin of zenon_authors, and ONLY of it.
+		expect(zenon.searchFormats).toEqual({ zenon_authors: 'zenon_author_names' });
+	});
+
+	test('the record path keeps zenon_authors with its role labels (C55 touches the search path only)', () => {
+		const rows = defaultUnwrapRows(zenonData, RESPONSE_MAP);
+		const fieldsMap = parseFieldsMap(
+			[{ local: 'dato', remote: 'authors', format: 'zenon_authors' }],
+			{ tipo: 'test7346' },
+		);
+		const result = mapRowToEntries(zenon, rowView(rows[0] as Record<string, unknown>), fieldsMap);
+		expect(result.entries).toEqual(['primary: Ripollès Alegre, P. P. (Pere Pau)']);
+	});
+
 	test('array_values is implode(" | ")', () => {
 		const rows = defaultUnwrapRows(zenonData, RESPONSE_MAP);
 		const fieldsMap = parseFieldsMap(

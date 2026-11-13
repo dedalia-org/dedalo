@@ -127,8 +127,10 @@ Authors (`zenon5`), using a transform the adapter implements:
   (`labels.en.value`, `items[0].body.value`), which is how a service with a
   nested payload is mapped without any code.
 - `format` *(optional)* — the name of a transform the adapter provides. For
-  Zenon: `array_values` (joins a list with ` | `, dropping empty elements) and
-  `zenon_authors` (flattens the authors object). A name the adapter does
+  Zenon: `array_values` (joins a list with ` | `, dropping empty elements),
+  `zenon_authors` (flattens the authors object, role labels included) and
+  `zenon_author_names` (the names only — what a search result shows for a
+  `zenon_authors` field). A name the adapter does
   **not** implement is refused as a cataloguing error — it is never passed
   through raw. A transform refuses what it cannot render, too: point
   `array_values` at a field of objects and the items are counted as dropped,
@@ -296,7 +298,9 @@ What the engine does with your words:
   because a shortened page looks exactly like the end of the results;
 - the **values** you see obey the same `fields_map`, formats and length limits
   as a record you have already catalogued, so a search result and a saved
-  record read identically.
+  record read identically — with one deliberate exception: an authors field
+  (`zenon_authors`) shows the **names only** in the search list, without the
+  service's role labels; the record keeps them.
 
 What you see when a search cannot run: the result list says which situation you
 are in, instead of looking empty. "External source unavailable" means the

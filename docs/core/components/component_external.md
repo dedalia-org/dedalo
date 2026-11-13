@@ -300,6 +300,13 @@ objects:
     - `zenon_authors` — flattens the ZENON `authors` object into
       `role: name - name | role: …`. A value that is not an object, or a role
       holding a single text instead of a list of names, is refused and counted.
+      In a **search** result (the autocomplete list) the same field renders as
+      `zenon_author_names`: the names only, joined ` - `, without the role
+      labels — the record keeps them.
+    - `zenon_author_names` — the names of every author role joined ` - `
+      (`name - name - name`), no role labels; the same refusals as
+      `zenon_authors`. Chosen by the engine for search results; it can also be
+      declared directly.
     - *(a name the service adapter does not implement)* — REFUSED as a
       configuration error, not silently passed through: the mapping is wrong
       and the cataloguer must see it.

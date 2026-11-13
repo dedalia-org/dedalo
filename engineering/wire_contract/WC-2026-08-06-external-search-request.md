@@ -296,3 +296,26 @@ reddens a case.
 A search against a non-allowlisted host now parses and is refused
 `blocked_host` by `fetchExternalJson` before any DNS, with the real service
 named in the notice. See `WC-2026-09-27-external-allowlist-at-door-only`.
+
+## Addendum 2026-11-13 — item 4 amended: a search cell renders author NAMES (owner C55)
+
+Item 4 ("the values are emitted by the engine's ONE emission function") stands:
+`formatExternalSearchData` still calls `mapRowToEntries` with the node's
+fields_map and the same ceilings and refusal counting. What changes is WHICH
+format a search cell applies. The owner ruled (T1-P06 §7, option B) that the
+dropdown must not show the API's untranslated role keys: an adapter may declare
+`searchFormats` (`ExternalServiceModel`, descriptor_types.ts) — record format
+name → the format a SEARCH cell applies instead — and the handler substitutes
+it (`searchFieldsMap`). Zenon declares `zenon_authors → zenon_author_names`:
+the names of every non-empty role joined `' - '`, no role labels, the v6
+browser's byte form (`Ripollès Alegre, P. P. (Pere Pau)`;
+`Doe, J. - Roe, R. - DAI`), with `zenon_authors`' own empty and refusal rules.
+The RECORD path keeps `zenon_authors` (`primary: …`) — `WC-2026-08-05` and
+`WC-2026-11-13-external-empty-entry-dropped` are untouched. Both names must be
+declared formats (`external_registry_totality_tripwire`). Gates:
+`external_search_native.test.ts` ("values come from the ONE emission function…
+authors as NAMES ONLY", the PARTIAL situation's authors column),
+`external_zenon_native.test.ts` (`zenon_author_names`; the record path pinned).
+Docs: `docs/core/components/component_external.md`,
+`docs/core/system/external_services.md`. Fragment `external-search-author-names`.
+
