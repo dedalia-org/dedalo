@@ -311,6 +311,9 @@ const ZZ_UNKNOWN_PKG = 'zzcalc20';
 const ZZ_GENERIC_SHADOW = 'zzcalc21';
 const ZZ_TLD_GENERIC_NAME = 'zzcalc22';
 const ZZ_BAD_MODULE = 'zzcalc23';
+// Object.prototype names as module: a bare index would answer `constructor` / `__proto__`.
+const ZZ_PROTO_CONSTRUCTOR = 'zzcalc24';
+const ZZ_PROTO_PROTO = 'zzcalc25';
 const ZZ_ID = 1;
 
 /** A component_info node with ONE calculation ipo block. */
@@ -385,7 +388,7 @@ const S = situation({
 		}),
 		// final_total: major 2.4 > 0, but the zz host is not the major-grant section → minor (3.3).
 		calcNode(ZZ_FINAL_MINOR, finalTotal()),
-		// C8: six dispatch keys the engine must refuse, none of them an alias.
+		// C8: eight dispatch keys the engine must refuse, none of them an alias.
 		calcNode(ZZ_PHP_ERA, summarizeWith({ file: '/calculation/formulas.php', engine: 'php' })),
 		calcNode(ZZ_NO_ENGINE, summarizeWith({ file: GENERIC_CALCULATION_FILE })),
 		calcNode(ZZ_UNKNOWN_PKG, summarizeWith({ file: `/${ZZ}/calculation/x.ts`, engine: 'ts' })),
@@ -394,6 +397,16 @@ const S = situation({
 		calcNode(
 			ZZ_BAD_MODULE,
 			summarizeWith({ fn: 'subtract', file: `/${mdcat.tld}/calculation/nope.ts`, engine: 'ts' }),
+		),
+		// Inherited module names: `constructor` is the global Object (own `keys`), `__proto__` is
+		// Object.prototype (own `toString`) — both must refuse as unknown modules, never resolve.
+		calcNode(
+			ZZ_PROTO_CONSTRUCTOR,
+			summarizeWith({ fn: 'keys', file: `/${mdcat.tld}/constructor.ts`, engine: 'ts' }),
+		),
+		calcNode(
+			ZZ_PROTO_PROTO,
+			summarizeWith({ fn: 'toString', file: `/${mdcat.tld}/__proto__.ts`, engine: 'ts' }),
 		),
 	],
 	records: [
@@ -766,6 +779,16 @@ describe('C8 dispatch refusals — process.file / engine are the key, never an a
 			'a known package, unknown module',
 			ZZ_BAD_MODULE,
 			{ fn: 'subtract', file: `/${mdcat.tld}/calculation/nope.ts`, engine: 'ts' },
+		],
+		[
+			'an Object.prototype name as module (constructor → Object.keys would resolve on a bare index)',
+			ZZ_PROTO_CONSTRUCTOR,
+			{ fn: 'keys', file: `/${mdcat.tld}/constructor.ts`, engine: 'ts' },
+		],
+		[
+			'__proto__ as module (Object.prototype.toString would resolve on a bare index)',
+			ZZ_PROTO_PROTO,
+			{ fn: 'toString', file: `/${mdcat.tld}/__proto__.ts`, engine: 'ts' },
 		],
 	];
 	for (const [name, tipo, key] of refusals) {

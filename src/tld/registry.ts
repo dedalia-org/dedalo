@@ -92,11 +92,15 @@ function selectTable(
 	if (pkg === undefined) {
 		refuse(`process.file '${file}' names no TLD package '${tld}'`, at, process);
 	}
-	const table = pkg.calculationModules[module];
-	if (table === undefined) {
+	// OWN key only: `calculationModules` is a plain object, so a bare index
+	// would also answer for Object.prototype names (`constructor` → the global
+	// Object, whose own `keys`/`assign` then pass the fn check; `__proto__` →
+	// Object.prototype). An ontology string must never reach an unregistered
+	// function — the same Object.hasOwn the fn step already uses.
+	if (!Object.hasOwn(pkg.calculationModules, module)) {
 		refuse(`process.file '${file}': package '${tld}' has no module '${module}'`, at, process);
 	}
-	return table;
+	return pkg.calculationModules[module] as Readonly<Record<string, CalculationFn>>;
 }
 
 /**
