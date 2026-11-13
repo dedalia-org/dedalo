@@ -294,6 +294,20 @@ function canonicalDecimal(lexical: string): string | null {
 }
 
 /**
+ * A literal the value cannot be written as. Its sentence is AUTHORED here for
+ * the run report (resolve/rdf_graph.ts rdfReportSentence) — never a caught
+ * exception's text.
+ */
+export class RdfLiteralError extends RangeError {
+	readonly reportSentence: string;
+	constructor(sentence: string) {
+		super(sentence);
+		this.name = 'RdfLiteralError';
+		this.reportSentence = sentence;
+	}
+}
+
+/**
  * Literal::create($value, null, $datatype) — the lexical form of a TYPED
  * literal, by EasyRdf's datatype class: xsd:decimal canonicalises (`1` →
  * `1.0`, an unparseable value THROWS like Literal\Decimal::validate),
@@ -313,11 +327,13 @@ export function typedLiteral(
 	if (datatypeUri === `${XSD}decimal`) {
 		const source = typeof value === 'number' ? String(value) : String(value);
 		if (typeof value === 'number' && !Number.isFinite(value)) {
-			throw new RangeError(`xsd:decimal literal: ${value} is not a finite number`);
+			throw new RdfLiteralError(`xsd:decimal literal: ${value} is not a finite number`);
 		}
 		const canonical = canonicalDecimal(source);
 		if (canonical === null) {
-			throw new RangeError(`xsd:decimal literal: '${source}' doesn't look like a valid decimal`);
+			throw new RdfLiteralError(
+				`xsd:decimal literal: '${source}' doesn't look like a valid decimal`,
+			);
 		}
 		lexical = canonical;
 	} else if (typeof value === 'number') {

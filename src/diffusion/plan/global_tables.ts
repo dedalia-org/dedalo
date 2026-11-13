@@ -31,7 +31,7 @@ import {
 } from '../../core/diffusion_bridge/global_tables.ts';
 import { nameOrLabelOf } from '../../core/ontology/labels.ts';
 import { tableRowSizeViolation } from '../targets/mariadb/sql_generator.ts';
-import { requireSqlIdentifier } from './identifier.ts';
+import { isValidSqlIdentifier, sanitizeSqlName } from './identifier.ts';
 import type {
 	ColumnDef,
 	FieldPlan,
@@ -130,11 +130,11 @@ async function compileGlobalSchema(
 		const child = await index.nodeOf(childTipo);
 		if (child === null || !child.model.startsWith('field_')) continue;
 		const label = nameOrLabelOf(child) ?? '';
-		let columnName: string;
-		try {
-			columnName = requireSqlIdentifier(label, 'column');
-		} catch (error) {
-			diagnostics.errors.push(`${where}: field '${childTipo}': ${(error as Error).message}`);
+		const columnName = sqlIdentifierOrNull(label);
+		if (columnName === null) {
+			diagnostics.errors.push(
+				`${where}: field '${childTipo}': ${identifierProblem(label, 'column')}`,
+			);
 			failed = true;
 			continue;
 		}
@@ -197,6 +197,21 @@ function unknownColumnsOf(
 }
 
 /** Resolve + validate one map's global node; null when it is skipped or refused (recorded). */
+/**
+ * The sanitized identifier a node label yields, or null when it yields none —
+ * the same law as requireSqlIdentifier, measured instead of caught so the
+ * diagnostic is an authored sentence, never a caught exception's text (A6).
+ */
+function sqlIdentifierOrNull(label: string): string | null {
+	const sanitized = sanitizeSqlName(label);
+	return isValidSqlIdentifier(sanitized) ? sanitized : null;
+}
+
+/** The diagnostic for a label {@link sqlIdentifierOrNull} refused. */
+function identifierProblem(label: string, role: 'table' | 'column'): string {
+	return `invalid ${role} identifier ${JSON.stringify(label)} (sanitized: ${JSON.stringify(sanitizeSqlName(label))}) — diffusion target names must sanitize to ^[a-z][a-z0-9_]{0,63}$ (fix the ontology node label)`;
+}
+
 async function resolveGlobalNode(
 	source: GlobalTableSource,
 	globalTipo: string,
@@ -219,12 +234,15 @@ async function resolveGlobalNode(
 		);
 		return null;
 	}
-	try {
-		return { tableName: requireSqlIdentifier(nameOrLabelOf(node) ?? '', 'table') };
-	} catch (error) {
-		diagnostics.errors.push(`${where}: table_tipo '${globalTipo}': ${(error as Error).message}`);
+	const label = nameOrLabelOf(node) ?? '';
+	const tableName = sqlIdentifierOrNull(label);
+	if (tableName === null) {
+		diagnostics.errors.push(
+			`${where}: table_tipo '${globalTipo}': ${identifierProblem(label, 'table')}`,
+		);
 		return null;
 	}
+	return { tableName };
 }
 
 /** The DDL type of a global table's composite `section_id` key. */
@@ -361,11 +379,9 @@ export async function globalTableNamesOf(index: OntologyIndex, maps: unknown): P
 	for (const tipo of globalTableTiposOf(maps)) {
 		const node = await index.nodeOf(tipo);
 		if (node === null || node.model !== 'table') continue;
-		try {
-			names.push(requireSqlIdentifier(nameOrLabelOf(node) ?? '', 'table'));
-		} catch {
-			// a name publish refuses was never created
-		}
+		const name = sqlIdentifierOrNull(nameOrLabelOf(node) ?? '');
+		// a name publish refuses was never created
+		if (name !== null) names.push(name);
 	}
 	return names;
 }

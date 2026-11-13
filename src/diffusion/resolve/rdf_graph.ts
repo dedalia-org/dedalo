@@ -60,7 +60,7 @@ import type {
 	SectionPlan,
 } from '../plan/types.ts';
 import { defaultPublicationValue } from './default_value.ts';
-import { plainLiteral, RdfGraph, typedLiteral } from './rdf_graph_ir.ts';
+import { plainLiteral, RdfGraph, RdfLiteralError, typedLiteral } from './rdf_graph_ir.ts';
 
 /** What the resolver lends the builder (no import back into resolver.ts). */
 export interface RdfGraphEnv {
@@ -111,10 +111,45 @@ const SERVICE_TYPES_SECTION = 'dd1020';
  * what must be corrected, hence `ontology.invalid_node`.
  */
 class RdfSubjectError extends DedaloError {
+	readonly reportSentence: string;
 	constructor(message: string, coordinates: Record<string, string>) {
 		super('ontology.invalid_node', { message, coordinates });
 		this.name = 'RdfSubjectError';
+		this.reportSentence = message;
 	}
+}
+
+/**
+ * A definition the graph cannot be built from (`ontology.invalid_node`), whose
+ * sentence this module AUTHORS for the run report — tipos and the rule broken,
+ * never a caught exception's text.
+ */
+class RdfBuildError extends DedaloError {
+	readonly reportSentence: string;
+	constructor(message: string) {
+		super('ontology.invalid_node', { message });
+		this.name = 'RdfBuildError';
+		this.reportSentence = message;
+	}
+}
+
+/**
+ * The sentence a caught build failure puts in the run report (SEC-18 / A6):
+ * an authored sentence (RdfSubjectError, RdfBuildError, RdfLiteralError) as
+ * written; anything else — a database or file failure, an engine fault — is
+ * LOGGED with its coordinates and named in the report by its code only.
+ */
+export function rdfReportSentence(error: unknown, where: string): string {
+	if (
+		error instanceof RdfSubjectError ||
+		error instanceof RdfBuildError ||
+		error instanceof RdfLiteralError
+	) {
+		return error.reportSentence;
+	}
+	console.error(`[diffusion] rdf build failed at ${where}:`, error);
+	const code = error instanceof DedaloError ? error.code : 'internal.unexpected';
+	return `${where}: build failed (${code}) — details in the server log`;
 }
 
 /** The dd1010 record of (entity, service type), memoized per run. */
@@ -238,9 +273,9 @@ function textEntriesOf(atoms: MetaValueIR[], where: string): TextEntry[] {
 	const entries: TextEntry[] = [];
 	for (const atom of atoms) {
 		if (atom.kind !== 'scalar') {
-			throw new DedaloError('ontology.invalid_node', {
-				message: `${where}: a literal property resolved a '${atom.kind}' value — end its ddo chain on a text component`,
-			});
+			throw new RdfBuildError(
+				`${where}: a literal property resolved a '${atom.kind}' value — end its ddo chain on a text component`,
+			);
 		}
 		if (atom.value === null) continue;
 		const id = atom.meta?.sourceId;
@@ -282,9 +317,9 @@ function literalTriples(
 	for (const lang of used) {
 		const alpha2 = getAlpha2FromCode(lang);
 		if (alpha2 === null) {
-			throw new DedaloError('ontology.invalid_node', {
-				message: `${where}: publication lang '${lang}' has no ISO 639-1 code (xml:lang)`,
-			});
+			throw new RdfBuildError(
+				`${where}: publication lang '${lang}' has no ISO 639-1 code (xml:lang)`,
+			);
 		}
 		const join = entries.filter((entry) => entry.lang === lang || entry.lang === null);
 		for (const end of property.endDdos) {
@@ -316,9 +351,7 @@ function literalTriples(
 
 /** Atoms of a non-literal kind must be what the property reads. */
 function unexpected(where: string, atom: MetaValueIR, wanted: string): DedaloError {
-	return new DedaloError('ontology.invalid_node', {
-		message: `${where}: resolved a '${atom.kind}' value where ${wanted} is read`,
-	});
+	return new RdfBuildError(`${where}: resolved a '${atom.kind}' value where ${wanted} is read`);
 }
 
 /** get_data_uri: the first stored IRI containing the base (strripos). */
@@ -496,7 +529,7 @@ async function buildProperty(
 	} catch (error) {
 		state.errors.push({
 			fieldId: property.nodeTipo,
-			message: error instanceof Error ? error.message : String(error),
+			message: rdfReportSentence(error, `rdf property '${property.nodeTipo}'`),
 		});
 		return false;
 	}
@@ -543,7 +576,7 @@ async function buildLinks(
 			// One linked record without a subject IRI: named, the others still build.
 			state.errors.push({
 				fieldId: property.nodeTipo,
-				message: error instanceof Error ? error.message : String(error),
+				message: rdfReportSentence(error, `rdf link '${property.nodeTipo}'`),
 			});
 		}
 	}

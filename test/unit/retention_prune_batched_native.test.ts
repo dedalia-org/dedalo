@@ -33,8 +33,8 @@ import { sql } from '../../src/core/db/postgres.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { childDriver, driverResult, repoModule } from '../helpers/child_driver.ts';
 
-const TAG = `zzt124_${process.pid}`;
-const LEDGER = `dedalo_ts_test_zzt124_${process.pid}`;
+const TAG = `zzrpb124_${process.pid}`;
+const LEDGER = `dedalo_ts_test_zzrpb124_${process.pid}`;
 const SLOW_FN = `${TAG}_slow_delete`;
 const ACTIVITY_TRIGGER = `${TAG}_activity_slow`;
 const LEDGER_TRIGGER = `${TAG}_ledger_slow`;
@@ -95,12 +95,12 @@ async function plantLedger(settledAged, pendingAged, fresh) {
 	for (let i = 0; i < settledAged + pendingAged; i++) {
 		// Interleave: every 4th aged row is pending debt.
 		const pending = pendingAged > 0 && i % 4 === 3 && i / 4 < pendingAged;
-		await logDiffusionActivity({ sectionTipo: 'zzt124', sectionId: id++, elementTipo: null,
+		await logDiffusionActivity({ sectionTipo: 'zzrpb124', sectionId: id++, elementTipo: null,
 			action: pending ? DIFFUSION_ACTION.unpublishPending : DIFFUSION_ACTION.published });
 	}
 	await sql.unsafe('UPDATE "' + LEDGER + '" SET "timestamp" = now() - interval \\'400 days\\' - (id * interval \\'1 second\\')', []);
 	for (let i = 0; i < fresh; i++) {
-		await logDiffusionActivity({ sectionTipo: 'zzt124', sectionId: id++, elementTipo: null, action: DIFFUSION_ACTION.published });
+		await logDiffusionActivity({ sectionTipo: 'zzrpb124', sectionId: id++, elementTipo: null, action: DIFFUSION_ACTION.published });
 	}
 }
 async function ledgerCounts() {
@@ -136,7 +136,7 @@ try {
 	await leg('keyset_exact', async () => {
 		await freshLedger();
 		for (let i = 0; i < 7; i++) {
-			await logDiffusionActivity({ sectionTipo: 'zzt124', sectionId: 2000 + i, elementTipo: null, action: DIFFUSION_ACTION.published });
+			await logDiffusionActivity({ sectionTipo: 'zzrpb124', sectionId: 2000 + i, elementTipo: null, action: DIFFUSION_ACTION.published });
 		}
 		// ids 1..7 → three share one instant, then pairs 1 µs apart.
 		await sql.unsafe('UPDATE "' + LEDGER + '" SET "timestamp" = timestamp \\'2001-01-01 00:00:00.000001\\' + (CASE WHEN id <= 3 THEN 0 WHEN id <= 5 THEN 1 ELSE 2 END) * interval \\'1 microsecond\\'', []);

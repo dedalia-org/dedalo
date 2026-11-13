@@ -165,6 +165,8 @@ export const ZZDIF_PORTAL = 'zzdif7';
 export const ZZDIF_LINKED_PUBLICATION = 'zzdif22';
 /** The alias table node (published under the ALIAS label). */
 export const ZZDIF_TABLE_ALIAS = 'zzdif50';
+/** The element that holds the alias TARGET (the real table zzdif60 → section zzdif20). */
+export const ZZDIF_ALIAS_TARGET_ELEMENT = 'zzdif55';
 /** The markdown FILE element — the runner gate's subject (Postgres + files root only). */
 export const ZZDIF_FILE_ELEMENT = 'zzdif80';
 /** Its output format (`properties.diffusion.type`) — the `<files root>/<format>/` segment. */
@@ -501,7 +503,7 @@ function buildSituation(): Situation {
 
 			// element 2 — owns the alias TARGET table (see the header note).
 			{
-				tipo: 'zzdif55',
+				tipo: ZZDIF_ALIAS_TARGET_ELEMENT,
 				parent: 'zzdif41',
 				model: 'diffusion_element',
 				term: { 'lg-spa': 'zzdif alias source element' },
@@ -510,7 +512,7 @@ function buildSituation(): Situation {
 			},
 			{
 				tipo: 'zzdif56',
-				parent: 'zzdif55',
+				parent: ZZDIF_ALIAS_TARGET_ELEMENT,
 				model: 'database',
 				term: { 'lg-spa': 'zzdif_alias_source_db' },
 			},

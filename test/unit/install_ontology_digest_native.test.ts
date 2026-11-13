@@ -4,7 +4,7 @@
  * stager already obeyed, now held by the installer's stage_ontologies too
  * (src/core/install/ontology_install.ts, ontology_catalog.ts, ontology_choice.ts).
  *
- * THE SITUATION IS BUILT: scratch `zzk*` packages from
+ * THE SITUATION IS BUILT: scratch `zzdg*` packages from
  * src/core/test_data/ontology_package_fixture.ts (files_sha256 stamped as a current
  * master publishes it), served by a loopback Bun.serve STAND-IN or written to a
  * mkdtemp directory. DB-FREE: staging never touches the database — every write lands
@@ -61,30 +61,30 @@ afterAll(() => {
 });
 
 function scratchDir(name: string): string {
-	const dir = mkdtempSync(join(tmpdir(), `zzk_${name}_`));
+	const dir = mkdtempSync(join(tmpdir(), `zzdg_${name}_`));
 	roots.push(dir);
 	return dir;
 }
 
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 
-function zzka(): FixtureOntologyTld {
+function zzdga(): FixtureOntologyTld {
 	return {
-		tld: 'zzka',
+		tld: 'zzdga',
 		name: 'zz digest a',
 		typologyId: 8,
 		dependencies: [{ tld: 'dd', main: 'ontology35', mandatory: true }],
-		nodes: [{ id: 1, parent: 'zzka0', model: 'dd6', term: 'zz digest root' }],
+		nodes: [{ id: 1, parent: 'zzdga0', model: 'dd6', term: 'zz digest root' }],
 	};
 }
 
-function zzkb(): FixtureOntologyTld {
+function zzdgb(): FixtureOntologyTld {
 	return {
-		tld: 'zzkb',
+		tld: 'zzdgb',
 		name: 'zz digest b',
 		typologyId: 8,
 		dependencies: [{ tld: 'dd', main: 'ontology35', mandatory: true }],
-		nodes: [{ id: 1, parent: 'zzkb0', model: 'dd6', term: 'zz digest other' }],
+		nodes: [{ id: 1, parent: 'zzdgb0', model: 'dd6', term: 'zz digest other' }],
 	};
 }
 
@@ -92,8 +92,8 @@ function zzkb(): FixtureOntologyTld {
 const MATRIX_DD_LINES = [oneCopyLine()];
 function oneCopyLine(): string {
 	// one record of the fixture's own encoder: the right arity, a scratch section tipo
-	const files = buildOntologyPackage([zzka()], { digests: false });
-	const gz = files.get('zzka.copy.gz') as Uint8Array;
+	const files = buildOntologyPackage([zzdga()], { digests: false });
+	const gz = files.get('zzdga.copy.gz') as Uint8Array;
 	return gunzipSync(gz).toString('utf8').split('\n')[0] as string;
 }
 
@@ -130,7 +130,7 @@ function standIn(
 						const tld = name.slice(0, -'.copy.gz'.length);
 						return { tld, section_tipo: `${tld}0`, url: `${origin}/files/${name}` };
 					});
-				return Response.json({ ok: true, request_id: 'zzk', data: { info, files: list } });
+				return Response.json({ ok: true, request_id: 'zzdg', data: { info, files: list } });
 			}
 			const body = served.get(url.pathname.split('/').pop() ?? '');
 			return body === undefined
@@ -140,7 +140,7 @@ function standIn(
 	});
 	origin = `http://127.0.0.1:${server.port}`;
 	servers.push({ stop: () => server.stop(true) });
-	return { kind: 'server', server: { name: 'zzk stand-in', url: `${origin}/api/`, code: 'zzk' } };
+	return { kind: 'server', server: { name: 'zzdg stand-in', url: `${origin}/api/`, code: 'zzdg' } };
 }
 
 async function catalogOf(source: OntologySource): Promise<OntologyCatalog> {
@@ -182,12 +182,12 @@ async function stageRefusal(
 
 describe('the installer verifies ontology files against the source digests (T1-26)', () => {
 	test('D1/D2: a manifest’s digests reach the catalog and the install request', () => {
-		const files = buildOntologyPackage([zzka(), zzkb()], { matrixDdLines: MATRIX_DD_LINES });
+		const files = buildOntologyPackage([zzdga(), zzdgb()], { matrixDdLines: MATRIX_DD_LINES });
 		const dir = writePackage(files, 'd1');
 		const raw = JSON.parse(Buffer.from(files.get('ontology.json') as Uint8Array).toString());
 		const manifest = parseOntologyManifest({
 			info: raw,
-			files: ['zzka', 'zzkb', 'matrix_dd'].map((tld) => ({
+			files: ['zzdga', 'zzdgb', 'matrix_dd'].map((tld) => ({
 				tld,
 				section_tipo: `${tld}0`,
 				url: `file://${dir}/${tld}.copy.gz`,
@@ -199,39 +199,39 @@ describe('the installer verifies ontology files against the source digests (T1-2
 			expect(entry.sha256, entry.tld).toBe(sha256(files.get(`${entry.tld}.copy.gz`) as Uint8Array));
 		}
 		expect(catalog.matrixDd?.sha256).toBe(sha256(files.get('matrix_dd.copy.gz') as Uint8Array));
-		const request = ontologyInstallRequest(['zzka', 'zzkb'], catalog);
+		const request = ontologyInstallRequest(['zzdga', 'zzdgb'], catalog);
 		expect(request.items.map((item) => item.sha256)).toEqual(
-			['zzka', 'zzkb'].map((tld) => sha256(files.get(`${tld}.copy.gz`) as Uint8Array)),
+			['zzdga', 'zzdgb'].map((tld) => sha256(files.get(`${tld}.copy.gz`) as Uint8Array)),
 		);
 		expect(request.matrixDd?.sha256).toBe(sha256(files.get('matrix_dd.copy.gz') as Uint8Array));
 	});
 
 	test('D3: server — served bytes that are not the manifest’s are refused, nothing staged', async () => {
-		const files = buildOntologyPackage([zzka()]);
+		const files = buildOntologyPackage([zzdga()]);
 		const served = new Map(files);
-		served.set('zzka.copy.gz', forgedPackage());
+		served.set('zzdga.copy.gz', forgedPackage());
 		const catalog = await catalogOf(standIn(files, served));
-		const refusal = await stageRefusal(catalog, ['zzka'], 'd3');
+		const refusal = await stageRefusal(catalog, ['zzdga'], 'd3');
 		expect(refusal.code).toBe('install.step_failed');
-		expect(refusal.message).toContain('zzka.copy.gz: sha256 mismatch');
+		expect(refusal.message).toContain('zzdga.copy.gz: sha256 mismatch');
 		expect(refusal.message).toContain('nothing was installed');
 	});
 
 	test('D4: local directory — a replaced package is refused, nothing staged', async () => {
-		const files = buildOntologyPackage([zzka()]);
-		files.set('zzka.copy.gz', forgedPackage());
+		const files = buildOntologyPackage([zzdga()]);
+		files.set('zzdga.copy.gz', forgedPackage());
 		const catalog = await catalogOf({ kind: 'local', path: writePackage(files, 'd4') });
-		const refusal = await stageRefusal(catalog, ['zzka'], 'd4_stage');
+		const refusal = await stageRefusal(catalog, ['zzdga'], 'd4_stage');
 		expect(refusal.code).toBe('install.step_failed');
-		expect(refusal.message).toContain('zzka.copy.gz: sha256 mismatch');
+		expect(refusal.message).toContain('zzdga.copy.gz: sha256 mismatch');
 	});
 
 	test('D5: local matrix_dd replaced — refused', async () => {
-		const files = buildOntologyPackage([zzka()], { matrixDdLines: MATRIX_DD_LINES });
+		const files = buildOntologyPackage([zzdga()], { matrixDdLines: MATRIX_DD_LINES });
 		files.set('matrix_dd.copy.gz', forgedPackage());
 		const catalog = await catalogOf({ kind: 'local', path: writePackage(files, 'd5') });
 		expect(catalog.matrixDd).not.toBeNull();
-		const refusal = await stageRefusal(catalog, ['zzka'], 'd5_stage', 'matrix_dd');
+		const refusal = await stageRefusal(catalog, ['zzdga'], 'd5_stage', 'matrix_dd');
 		expect(refusal.code).toBe('install.step_failed');
 		expect(refusal.message).toContain('matrix_dd.copy.gz: sha256 mismatch');
 	});
@@ -267,20 +267,20 @@ describe('the installer verifies ontology files against the source digests (T1-2
 	});
 
 	test('D8 control: matching digests stage (server and local, matrix_dd included), no warning', async () => {
-		const files = buildOntologyPackage([zzka(), zzkb()], { matrixDdLines: MATRIX_DD_LINES });
+		const files = buildOntologyPackage([zzdga(), zzdgb()], { matrixDdLines: MATRIX_DD_LINES });
 		for (const [name, source] of [
 			['d8_server', standIn(files)],
 			['d8_local', { kind: 'local', path: writePackage(files, 'd8') }],
 		] as const) {
 			const catalog = await catalogOf(source);
 			const stagingDir = scratchDir(name);
-			const staged = await stageOntologies(ontologyInstallRequest(['zzka', 'zzkb'], catalog), {
+			const staged = await stageOntologies(ontologyInstallRequest(['zzdga', 'zzdgb'], catalog), {
 				stagingDir,
 			});
 			expect(
 				staged.staged.map((item) => item.tld),
 				name,
-			).toEqual(['zzka', 'zzkb']);
+			).toEqual(['zzdga', 'zzdgb']);
 			expect(staged.warnings, name).toEqual([]);
 			const manifest = JSON.parse(readFileSync(join(stagingDir, 'staged.json'), 'utf8'));
 			expect(manifest.matrix_dd?.sha256, name).toBe(
@@ -290,17 +290,17 @@ describe('the installer verifies ontology files against the source digests (T1-2
 	});
 
 	test('D9: a source without files_sha256 stages UNVERIFIED, one warning naming every file', async () => {
-		const files = buildOntologyPackage([zzka(), zzkb()], {
+		const files = buildOntologyPackage([zzdga(), zzdgb()], {
 			matrixDdLines: MATRIX_DD_LINES,
 			digests: false,
 		});
 		const source = standIn(files);
 		const catalog = await catalogOf(source);
-		const staged = await stageOntologies(ontologyInstallRequest(['zzka', 'zzkb'], catalog), {
+		const staged = await stageOntologies(ontologyInstallRequest(['zzdga', 'zzdgb'], catalog), {
 			stagingDir: scratchDir('d9'),
 		});
 		expect(staged.warnings).toEqual([
-			"the ontology server 'zzk stand-in' publishes no sha256 for zzka, zzkb, matrix_dd: staged UNVERIFIED (shape-checked only — re-export the source with a current Dédalo to publish digests)",
+			"the ontology server 'zzdg stand-in' publishes no sha256 for zzdga, zzdgb, matrix_dd: staged UNVERIFIED (shape-checked only — re-export the source with a current Dédalo to publish digests)",
 		]);
 	});
 });

@@ -75,6 +75,7 @@ import {
 import {
 	dropZzdifDomain,
 	ensureZzdifDomain,
+	ZZDIF_ALIAS_TARGET_ELEMENT,
 	ZZDIF_BROKEN_ELEMENT,
 	ZZDIF_DOMAIN_NAME,
 	ZZDIF_DOMAIN_TIPO,
@@ -282,7 +283,9 @@ describe('compileElementPlan over the real domain', () => {
 			zzdif1: 'zzdif_primary',
 			zzdif20: 'zzdif_linked',
 		});
-		expect(getTargetSectionTableNames(tree, 'zzdif55')).toEqual({ zzdif20: 'zzdif_linked_real' });
+		expect(getTargetSectionTableNames(tree, ZZDIF_ALIAS_TARGET_ELEMENT)).toEqual({
+			zzdif20: 'zzdif_linked_real',
+		});
 	});
 
 	test('parser split: rewriters absorbed as warnings, runtime steps kept in order', () => {

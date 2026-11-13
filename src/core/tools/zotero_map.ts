@@ -221,7 +221,7 @@ export function readZoteroConfig(raw: Record<string, unknown>): ZoteroConfig {
 	if (!Array.isArray(raw.map) || raw.map.length === 0) {
 		throw configRefusal(
 			`'map'`,
-			'declares no CSL → component bindings for tool_import_zotero — author them there',
+			'declares no CSL → component bindings for the Zotero import — author them there',
 		);
 	}
 	const entries = raw.map.map(parseMapEntry);

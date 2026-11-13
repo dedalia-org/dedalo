@@ -148,7 +148,7 @@ export function buildMediaIdentifier(identity: MediaIdentity): string {
  *   the same set for the bucket);
  * - a stem the media-protection grammar (`protection.ts MEDIA_FILENAME_GRAMMAR`)
  *   parses as ANOTHER record's file — with a TIPO-shaped section token (letters
- *   then digits); an all-digit token ('IMG_20230512_142233') names no record. The web server maps a file to its record
+ *   then digits); an all-digit token (a camera default, IMG_20230512_142233) names no record. The web server maps a file to its record
  *   through that grammar alone, so `x_rsc170_5.jpg` written for record 7 would be
  *   published whenever record 5 is — and it is, by name, record 5's file for every
  *   other door. A stem that parses to THIS record (its own identifier included)

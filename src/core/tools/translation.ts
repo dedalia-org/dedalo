@@ -310,6 +310,48 @@ export function resolveTranslationProvider(engine: string): {
 	}
 }
 
+/** translateAndWrite's internal outcome — its caller maps a refusal to a typed throw. */
+interface TranslationOutcome {
+	ok: boolean;
+	msg: string;
+	count: number;
+	providerError?: boolean;
+	emptyResult?: true;
+}
+
+/**
+ * The provider's answer, GATED, or the ONE refusal shape for both pre-lock
+ * refusals. Stored form = gated form (see gateTranslatedItems), computed
+ * OUTSIDE the row lock: pure CPU, it must not widen the lock window; only an
+ * answer the provider actually gave is gated. `providerError` is what lets
+ * the caller route the provider's sentence into the declared
+ * `provider_message` detail instead of onto the wire (WC-2026-08-09). An
+ * empty result — the service's, or one the write gates emptied — is an
+ * answer, not a failure: its own code (emptyResult).
+ */
+async function gateOrRefuse(
+	model: string,
+	sourceSlice: readonly unknown[],
+	translated: { items: TranslatedItem[]; error: string | null; emptyResult?: true },
+	direction: { sourceLang: string; targetLang: string; componentTipo: string },
+): Promise<
+	{ gated: { items: unknown[] }; refusal: null } | { gated: null; refusal: TranslationOutcome }
+> {
+	const refuse = (msg: string, empty: boolean): { gated: null; refusal: TranslationOutcome } => ({
+		gated: null,
+		refusal: {
+			ok: false,
+			msg,
+			count: 0,
+			...(empty ? { emptyResult: true as const } : { providerError: true as const }),
+		},
+	});
+	if (translated.error !== null) return refuse(translated.error, translated.emptyResult === true);
+	const gated = await gateTranslatedItems(model, sourceSlice, translated.items, direction);
+	if (gated.emptyMsg !== null) return refuse(gated.emptyMsg, true);
+	return { gated, refusal: null };
+}
+
 /**
  * Read a component's source-lang items, translate them, and write the target-lang
  * slot (PHP automatic_translation save path). Empty source → nothing saved. Uses
@@ -356,13 +398,7 @@ export async function translateAndWrite(
 		uri: string;
 		key: string;
 	},
-): Promise<{
-	ok: boolean;
-	msg: string;
-	count: number;
-	providerError?: boolean;
-	emptyResult?: true;
-}> {
+): Promise<TranslationOutcome> {
 	// THE EFFECT IS BUILT FROM THE GRANT (closure Step 3 req 10): the record, the
 	// component and the audit actor are the write door's authorized coordinates —
 	// a branded RecordGrant only security/write_door.ts mints — never raw request
@@ -405,31 +441,15 @@ export async function translateAndWrite(
 	// The external call happens OUTSIDE the transaction — a translator server can
 	// take minutes, and holding a FOR UPDATE row lock across it would block every
 	// other writer of the record.
-	const {
-		items: targetItems,
-		error,
-		emptyResult,
-	} = await translateItems(sourceSlice, input.provider, {
+	const translated = await translateItems(sourceSlice, input.provider, {
 		uri: input.uri,
 		key: input.key,
 		sourceLang: input.sourceLang,
 		targetLang: input.targetLang,
 	});
-	// `providerError` is what lets the caller route this sentence into the
-	// declared `provider_message` detail instead of onto the wire (WC-2026-08-09).
-	// An empty result is the service's answer, not its failure: its own code.
-	if (error !== null)
-		return {
-			ok: false,
-			msg: error,
-			count: 0,
-			...(emptyResult === true ? { emptyResult } : { providerError: true }),
-		};
-	// Stored form = gated form (see gateTranslatedItems), computed OUTSIDE the
-	// row lock: pure CPU, it must not widen the lock window.
-	const gated = await gateTranslatedItems(input.model, sourceSlice, targetItems, input);
-	if (gated.emptyMsg !== null)
-		return { ok: false, msg: gated.emptyMsg, count: 0, emptyResult: true as const };
+	const gate = await gateOrRefuse(input.model, sourceSlice, translated, input);
+	if (gate.refusal !== null) return gate.refusal;
+	const gated = gate.gated;
 
 	return await withTransaction(async () => {
 		// TAKE THE ROW LOCK. The merge base must be the row as it stands NOW, not

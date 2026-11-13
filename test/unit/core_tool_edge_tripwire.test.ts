@@ -101,9 +101,9 @@ const LEDGERED_NAMES: Record<string, { names: Readonly<Record<string, number>>; 
 				'Prose in media-folder `reason`/`consumer` strings and one warning: they name the tool that writes into the folder the installer provisions. Descriptive only; no branch.',
 		},
 		'src/core/media/ontology_path.ts': {
-			names: { tool_upload: 1, tool_import_files: 1 },
+			names: { tool_export: 1 },
 			reason:
-				'Prose in a migration-ledger `reason` string naming the ingest callers; no behaviour keys on it.',
+				'A migration-ledger `file` path naming a remaining caller (tools/tool_export/server/writers/media_zip.ts); data in a ledger, no behaviour keys on it.',
 		},
 		'src/core/ontology/property_census.ts': {
 			names: { tool_numisdata_order_coins: 1 },

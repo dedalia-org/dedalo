@@ -30,7 +30,7 @@
  * engineering/wire_contract/ entry the day this is wired into section reads.
  */
 
-import { htmlTags } from '../core/resolve/html_text.ts';
+import { htmlTags, stripTags } from '../core/resolve/html_text.ts';
 import type { ExternalEntriesResult, ExternalRowView } from './api/types.ts';
 import type {
 	ExternalFormat,
@@ -406,11 +406,11 @@ function coerceUnformatted(raw: unknown, into: FormattedValue[]): number {
  * reached the client as a blank span the list view framed with separators
  * (`| |`) and an export cell `""` claiming "the service holds an empty value".
  * Markup is judged on its text: the sanitiser has already reduced it to BARE
- * allowlisted tags with every literal `<` escaped, so stripping `<…>` here is
+ * allowlisted tags with every literal `<` escaped, so stripTags here is
  * exact and linear. Non-empty text is never trimmed — only measured.
  */
 function hasVisibleText(rendered: string, kind: FormattedValue['kind']): boolean {
-	const visible = kind === 'markup' ? rendered.replace(/<[^>]*>/g, '') : rendered;
+	const visible = kind === 'markup' ? stripTags(rendered) : rendered;
 	return visible.trim() !== '';
 }
 

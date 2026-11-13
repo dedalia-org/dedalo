@@ -49,6 +49,7 @@ import {
 	SEARCH_STORE_BACKFILLS,
 } from '../../src/core/db/db_assets.ts';
 import definitions from '../../src/core/db/db_pg_definitions.json';
+import { proseMarkdownFiles } from '../helpers/prose_markdown_corpus.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 import { WRITE_PATH_CORPUS_FLOOR, writePathSourceFiles } from '../helpers/write_path_corpus.ts';
 
@@ -426,12 +427,16 @@ describe('DATA-26 — the trigger, its twins and the app agree on what a record 
 		// copied by integrators. The fossil `NULLIF((…->>'section_id'), '')::bigint`
 		// 22Ps on an opaque id and joins record N on a zero-padded one (T1-36
 		// review) — docs_current_engine_tripwire does not read SQL, this does.
-		const files = [...new Bun.Glob('docs/**/*.md').scanSync({ cwd: ROOT })].sort();
+		// The shared prose corpus, its docs/ half: engineering/'s wire-contract
+		// entries QUOTE the fossil as history (what was fixed), which is no
+		// instruction to copy.
+		const docsRoot = join(ROOT, 'docs');
+		const files = proseMarkdownFiles().filter((file) => file.startsWith(`${docsRoot}/`));
 		expect(files.length).toBeGreaterThan(50);
 		const offenders: string[] = [];
-		for (const rel of files) {
-			const left = docCastsOutsideLaw(readFileSync(join(ROOT, rel), 'utf8'));
-			if (left > 0) offenders.push(`${rel} (${left})`);
+		for (const file of files) {
+			const left = docCastsOutsideLaw(readFileSync(file, 'utf8'));
+			if (left > 0) offenders.push(`${file.slice(ROOT.length + 1)} (${left})`);
 		}
 		// planted: the fossil is an offender; the law (wrapped over lines, as a
 		// manual prints it) is not; a law guarding ANOTHER expression is not cover

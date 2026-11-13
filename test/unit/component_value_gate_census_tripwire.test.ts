@@ -164,6 +164,8 @@ describe('component value gate census (T1-14)', () => {
 
 	test('anti-vacuity: the two value writers are derived and both are gated', () => {
 		const derived = deriveCallers(closure);
+		// the walk's floor: the census measured 10 chokepoint writers (2026-11-12)
+		expect(derived.length).toBeGreaterThan(8);
 		const gated = Object.entries(CENSUS)
 			.filter(([, row]) => row.verdict === 'gated')
 			.map(([key]) => key);

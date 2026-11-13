@@ -46,7 +46,11 @@ import {
 } from '../../src/core/install/host/stack/images.ts';
 import { imageRefOf } from '../../src/core/install/host/stack/layout.ts';
 import { stack_tls } from '../../src/core/install/host/stack/tls.ts';
-import { isProductImageService, parseComposeFile } from '../helpers/deploy_artifact_corpus.ts';
+import {
+	isProductImageService,
+	parseComposeFile,
+	trackedRepoFiles,
+} from '../helpers/deploy_artifact_corpus.ts';
 import { REPO_ROOT, stackPlanCtx } from '../helpers/install_host_scratch.ts';
 import { PINNED_IDENTITY, pinInstallerIdentity } from '../helpers/installer_identity.ts';
 
@@ -73,16 +77,11 @@ interface ImageRef {
 	readonly image: string;
 }
 
-function tracked(...patterns: string[]): string[] {
-	const out = spawnSync('git', ['ls-files', '--', ...patterns], {
-		cwd: REPO_ROOT,
-		encoding: 'utf8',
-	});
-	if (out.status !== 0) throw new Error(`git ls-files failed: ${out.stderr}`);
-	return out.stdout.split('\n').filter((line) => line !== '');
-}
+/** The git index, through the shared deploy-artifact lister (it owns the root). */
+const TRACKED = trackedRepoFiles();
 
-const COMPOSE_FILES = tracked('*compose*.yml', '*compose*.yaml');
+/** `git ls-files '*compose*.yml' '*compose*.yaml'`: `*` crosses `/` in a pathspec. */
+const COMPOSE_FILES = TRACKED.filter((path) => /compose.*\.ya?ml$/.test(path));
 
 /**
  * A Dockerfile by NAME, the way the builders and Dependabot's docker ecosystem
@@ -98,7 +97,7 @@ function isDockerfileName(path: string): boolean {
 	);
 }
 
-const DOCKERFILES = tracked().filter(isDockerfileName);
+const DOCKERFILES = TRACKED.filter(isDockerfileName);
 
 /** Every `image:` of every tracked compose file (product images flagged). */
 function composeImages(): { pinnable: ImageRef[]; product: ImageRef[] } {

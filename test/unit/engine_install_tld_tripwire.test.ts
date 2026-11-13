@@ -106,17 +106,34 @@ function isComment(line: string): boolean {
 	return trimmed.startsWith('*') || trimmed.startsWith('//') || trimmed.startsWith('/*');
 }
 
+/**
+ * A literal PAIRED with an IRI (`['dc11', 'http://purl.org/dc/elements/1.1/']`)
+ * is an RDF namespace PREFIX — a fixed vocabulary name that happens to share a
+ * TLD's spelling (Dublin Core elements 1.1 under the `dc` pattern), never a tipo.
+ */
+// `https?:` only: the `//` of the IRI is where lineInstallTipos cuts a trailing comment.
+const NAMESPACE_PAIR_TAIL = /^\s*,\s*['"`]https?:/;
+
+/** The install tipos one line of CODE names (comment prose and namespace prefixes excluded). */
+function lineInstallTipos(line: string): string[] {
+	if (isComment(line)) return [];
+	const code = line.split('//')[0] ?? '';
+	const tipos: string[] = [];
+	for (const match of code.matchAll(TIPO_LITERAL)) {
+		const tail = code.slice((match.index ?? 0) + match[0].length);
+		if (NAMESPACE_PAIR_TAIL.test(tail)) continue;
+		tipos.push(`${match[1]}${match[2]}`);
+	}
+	return tipos;
+}
+
 /** Every `<repo-relative file>:<tipo>` naming an install, in non-comment code. */
 function engineInstallTipos(): string[] {
 	const keys = new Set<string>();
 	for (const file of sourceFiles(SRC_DIR)) {
 		const relative = file.slice(file.indexOf('/src/') + 5);
 		for (const line of readFileSync(file, 'utf8').split('\n')) {
-			if (isComment(line)) continue;
-			const code = line.split('//')[0] ?? '';
-			for (const match of code.matchAll(TIPO_LITERAL)) {
-				keys.add(`${relative}:${match[1]}${match[2]}`);
-			}
+			for (const tipo of lineInstallTipos(line)) keys.add(`${relative}:${tipo}`);
 		}
 	}
 	return [...keys].sort();
@@ -152,6 +169,10 @@ describe('no installation tipo is an engine constant', () => {
 		expect(probe("const x = 'rsc170';")).toBe(false); // seed-shipped
 		expect(probe('const x = `${tld}1`;')).toBe(false); // derived, not literal — see the header
 		expect(probe("const x = 'test480';")).toBe(false); // the generic TLD is the destination
+		// A namespace PREFIX paired with its IRI is not a tipo; the same literal alone is.
+		const prefix = ['nu', 'misdata7'].join('');
+		expect(lineInstallTipos(`\t['${prefix}', 'http://example.org/ns#'],`)).toEqual([]);
+		expect(lineInstallTipos(`const x = '${prefix}';`)).toEqual([prefix]);
 	});
 
 	test('the file naming these literals is this one, and it is excluded', () => {

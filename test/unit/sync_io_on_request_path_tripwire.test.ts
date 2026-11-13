@@ -286,7 +286,12 @@ const CEILING_FILES = 48;
 // secrets.ts 4, backup.ts 3, atomic_json.ts 2: backup.ts's three "converted" calls
 // count again, as they always should have) and 14 in the eight new entries.
 // Converting a raw call onto durable.ts no longer lowers this ceiling.
-const CEILING_CALLS = 135;
+// 135 → 137 (2026-11-13, T1-4): writers/rdf.ts (already ledgered) — the merge now
+// declares the UNION of the parts' xmlns, known only after the last part, so the
+// body is spooled to a temp sibling and copied back behind the envelope (memory
+// bounded by one part): open/read/close/unlink on that spool inside the background
+// diffusion run, never a served request. MEASURED: 137.
+const CEILING_CALLS = 137;
 
 const EXEMPTIONS: { file: string; reason: string }[] = [
 	{
@@ -605,7 +610,7 @@ const WALK_EXEMPTIONS: { file: string; reason: string }[] = [
 	{
 		file: 'src/diffusion/writers/rdf.ts',
 		reason:
-			'merges the part files of a FINISHED diffusion run into one document; a background publication job, never a served request',
+			'merges the part files of a FINISHED diffusion run into one document (the body through a temp-sibling spool, T1-4); a background publication job, never a served request',
 	},
 ];
 

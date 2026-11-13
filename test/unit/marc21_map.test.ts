@@ -188,9 +188,9 @@ describe('MARC21 map application (pure)', () => {
 			kind: 'structured',
 			json: '[{"section_tipo":"lg1","section_id":"1"}]',
 		});
-		expect(transformMarcValue('zzz', entry({ dd_data_map: languages }))).toEqual({
+		expect(transformMarcValue('yyy', entry({ dd_data_map: languages }))).toEqual({
 			kind: 'refused',
-			reason: "no dd_data_map entry for 'zzz'",
+			reason: "no dd_data_map entry for 'yyy'",
 		});
 		// The id is the code lookup's value: trimmed, never stripped.
 		expect(transformMarcValue(' B123. ', entry({ is_id: true }))).toEqual({

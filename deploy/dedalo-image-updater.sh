@@ -185,7 +185,7 @@ env_ready() {
 	dedalo_compose_args "$ENV_FILE" plain >/dev/null || status=$?
 	case "$status" in
 		0) : ;;
-		3) say "$DEDALO_INSTALL_OVERRIDE in $STACK_DIR predates the pinned certbot — repair it (above) — nothing to do"; return 1 ;;
+		3) say "the installer's compose override in $STACK_DIR predates the pinned certbot — repair it (above) — nothing to do"; return 1 ;;
 		*) say "DEDALO_COMPOSE_FILE names no stack file in $STACK_DIR — nothing to do"; return 1 ;;
 	esac
 }

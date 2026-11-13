@@ -55,6 +55,7 @@
 // ship with every installation.
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { shippedTextFiles } from '../helpers/shipped_text_corpus.ts';
 import '../../src/core/components/registry.ts';
 import { config } from '../../src/config/config.ts';
 import { coreApiActions } from '../../src/core/api/handlers/dd_core_api.ts';
@@ -224,14 +225,15 @@ describe('the includeRootUser escape hatch has exactly the pinned callers', () =
 	test('no file outside the pin spells includeRootUser, and the pinned counts hold', async () => {
 		const repoRoot = new URL('../../', import.meta.url).pathname;
 		const found: Record<string, number> = {};
-		for (const dir of ['src', 'tools', 'scripts', 'publication']) {
-			const glob = new Bun.Glob(`${dir}/**/*.{ts,js,mjs}`);
-			for await (const file of glob.scan({ cwd: repoRoot, onlyFiles: true })) {
-				if (file.includes('/node_modules/')) continue;
-				const text = await Bun.file(`${repoRoot}${file}`).text();
-				const count = text.match(/includeRootUser/g)?.length ?? 0;
-				if (count > 0) found[file] = count;
-			}
+		// The shared shipped-text corpus (client, tools, src, scripts, publication,
+		// deploy) — a superset of every tree that can import the search builder.
+		const shipped = shippedTextFiles();
+		expect(shipped.length).toBeGreaterThan(2500);
+		for (const file of shipped) {
+			if (!/\.(?:ts|js|mjs)$/.test(file)) continue;
+			const text = await Bun.file(`${repoRoot}${file}`).text();
+			const count = text.match(/includeRootUser/g)?.length ?? 0;
+			if (count > 0) found[file] = count;
 		}
 		const expected = Object.fromEntries(
 			Object.entries(INCLUDE_ROOT_USER_CALLERS).map(([file, pin]) => [file, pin.count]),

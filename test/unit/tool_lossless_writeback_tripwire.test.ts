@@ -1009,7 +1009,7 @@ else {
 				},
 			},
 		},
-		'tools/tool_import_zotero/server/index.ts :: ingestInto': {
+		'tools/tool_import_zotero/server/index.ts :: ingestPrepared': {
 			doors: {
 				processUploadedFile: {
 					verdict: 'operator-value',
@@ -1718,7 +1718,7 @@ else {
 	 * importImagePair and bibliography importDocumentForPublication, each × processUploadedFile
 	 * and × persistUploadedMedia — the same files_info writers as tool_upload / tool_import_files,
 	 * each reasoned with BYPASS.filesInfo. New doors, not backlog.
-	 * 21 → 23 (2026-11-12, T1-7): tool_import_zotero ingestInto — the `archive` PDF and its
+	 * 21 → 23 (2026-11-12, T1-7): tool_import_zotero ingestPrepared (was ingestInto) — the `archive` PDF and its
 	 * cover — × processUploadedFile and × persistUploadedMedia, the same files_info writers,
 	 * reasoned with BYPASS.filesInfo. New doors, not backlog.
 	 * 23 → 24 (2026-11-12, T1-38): tool_update_cache refreshExternalForRow × runExternalRefresh —

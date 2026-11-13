@@ -315,6 +315,20 @@ const CENSUS: Readonly<Record<string, Readonly<Record<string, CensusRow>>>> = {
 			reason:
 				'the CSV importer’s row create (tool_import_dedalo_csv, section_list kind) in the section DERIVED from the user’s CSV: authorizeSectionTarget (section level 2) on the row’s section before the explicit-id create. NOTE: section ≥ 2 only — not the button_new half of the create predicate.',
 		},
+		'src/core/tools/import_link.ts#createNamedRecord': {
+			verdict: 'tool-gated',
+			binding: 'derived',
+			sectionArgs: ['sectionTipo'],
+			evidence: [
+				{
+					file: 'test/unit/import_create_door_native.test.ts',
+					contains:
+						'MAPPED, LINK to an absent name, name component at 0 (TEXT_ONLY): link IGNORED, no named record created, the record written',
+				},
+			],
+			reason:
+				'a mapped import’s LINK field (Zotero container-title → Series) that names no record: the section is DERIVED from the server-side tool map (link.target); createRefusal asks the importing principal authorizeSectionTarget (the section, then the name component pair, door import_execute.link_create) before the create, after the link field itself was asked of the write door; a refusal reports the field IGNORED and creates nothing. NOTE: section ≥ 2 only — not the button_new half of the create predicate.',
+		},
 		'tools/tool_import_rdf/server/rdf_import_execute.ts#bornRecord': {
 			verdict: 'tool-gated',
 			binding: 'derived',

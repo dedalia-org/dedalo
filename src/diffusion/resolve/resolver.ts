@@ -138,7 +138,7 @@ import {
 	recordKey,
 } from './frontier_ledger.ts';
 import { type InfoPublicationEnv, infoPublicationAtoms } from './info_value.ts';
-import { buildRdfRecordGraph, type RdfGraphEnv } from './rdf_graph.ts';
+import { buildRdfRecordGraph, type RdfGraphEnv, rdfReportSentence } from './rdf_graph.ts';
 import type { RdfGraph, RdfRecordDocument } from './rdf_graph_ir.ts';
 import type { FieldIR, RecordIR, ResolvedLink } from './record_ir.ts';
 import type { RewriterEnv } from './rewriters.ts';
@@ -2651,7 +2651,7 @@ async function processRdfRecord(
 			sectionId: record.section_id,
 			fieldId: RDF_SUBJECT_ERROR_FIELD,
 			columnName: RDF_SUBJECT_ERROR_FIELD,
-			message: `record NOT written (REMOVED from the public site): ${error instanceof Error ? error.message : String(error)}`,
+			message: `record NOT written (REMOVED from the public site): ${rdfReportSentence(error, `rdf subject of ${record.section_tipo}/${record.section_id}`)}`,
 		});
 		recordIr.status = 'unpublish';
 		return { record: recordIr, graph: null, errors };

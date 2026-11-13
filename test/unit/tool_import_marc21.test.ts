@@ -823,7 +823,7 @@ describe('import_files: server config + ported value semantics (T1-6)', () => {
 	test('G7: dd_data_map turns a code into its locator; a miss is reported by name', async () => {
 		stage('g7.mrc', [
 			rec('g7', { tag: '998', subfields: [['f', 'spa']] }),
-			rec('g7m', { tag: '998', subfields: [['f', 'zzz']] }),
+			rec('g7m', { tag: '998', subfields: [['f', 'yyy']] }),
 		]);
 		const report = await run(
 			configWith({
@@ -840,7 +840,7 @@ describe('import_files: server config + ported value semantics (T1-6)', () => {
 		expect(
 			report.failed.some(
 				(f) =>
-					f.component_tipo === SELECT && (f.msg ?? '').includes("no dd_data_map entry for 'zzz'"),
+					f.component_tipo === SELECT && (f.msg ?? '').includes("no dd_data_map entry for 'yyy'"),
 			),
 		).toBe(true);
 	});
