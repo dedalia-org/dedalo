@@ -121,27 +121,48 @@ function formatArrayValues(raw: unknown): FormattedValue {
 }
 
 /**
- * `zenon_authors` — PHP class.component_external.php:213-232, reproduced
- * exactly. `authors` is an object of role → { "Name": […] }:
+ * `zenon_authors` — v6 PHP class.component_external.php:213-232. `authors` is
+ * an object of role → { "Name": […] }:
  *
  *   for each NON-EMPTY role:  "<role>: " + KEYS of the role object joined ' - '
  *   the roles themselves joined ' | '
  *
  * "Empty" is PHP's `empty()`: an empty array/object/string is skipped, which is
- * why `secondary: []` and `corporate: []` contribute nothing.
+ * why `secondary: []` and `corporate: []` contribute nothing. All roles empty →
+ * `''`, which the emission drops as a missing value (T1-P06).
+ *
+ * Two deliberate divergences from v6 (which warned on a foreach over a scalar
+ * and rendered garbage), ledgered in WC-2026-11-13-external-empty-entry-dropped:
+ * a non-object `authors` (string, number, boolean, array) is REFUSED whole, and
+ * a role holding a scalar is REFUSED (the other roles still render) — a lost
+ * value is reported as `dropped_unrenderable`, never shown blank or as
+ * `primary: 0 - 1 - 2`.
  */
 function formatZenonAuthors(raw: unknown): FormattedValue {
-	if (typeof raw !== 'object' || raw === null) return { text: '', kind: 'text' };
+	if (!isPlainObject(raw)) return { text: '', kind: 'text', refused: 1 };
 	const roles: string[] = [];
-	for (const [role, value] of Object.entries(raw as Record<string, unknown>)) {
+	let refused = 0;
+	for (const [role, value] of Object.entries(raw)) {
 		if (isPhpEmpty(value)) continue;
+		if (typeof value !== 'object' || value === null) {
+			refused++;
+			continue;
+		}
 		// array_keys((array)$element): the NAMES are the keys of the role object.
 		const names = Array.isArray(value)
 			? value.map((_item, index) => String(index))
-			: Object.keys(value as Record<string, unknown>);
+			: Object.keys(value);
 		roles.push(`${role}: ${names.join(' - ')}`);
 	}
-	return { text: roles.join(VALUE_SEPARATOR), kind: 'text' };
+	return {
+		text: roles.join(VALUE_SEPARATOR),
+		kind: 'text',
+		...(refused === 0 ? {} : { refused }),
+	};
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** PHP `empty()` for the shapes a JSON payload can produce. */

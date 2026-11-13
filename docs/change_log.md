@@ -315,6 +315,18 @@ Merged since the last release; these ship with the next one.
 
     Pressing **Escape** inside a rich-text field or a JSON field did nothing, so the field stayed active and its pending changes waited for a click elsewhere. Escape now saves and leaves the field, like in any other field. In a transcription with its player open, Escape still plays and pauses the media and the text stays in edit. Inside the JSON editor, an Escape the editor uses itself (collapsing a selection, closing its search box) is still the editor's: the next press leaves the field.
 
+- **An empty Zenon field no longer shows a blank column.**
+
+    When a Zenon record has nothing in a field (for example no publication date, or no
+    authors), the search results, the record and the list columns showed an empty column
+    framed by its separators (`| |`). The empty field is now simply left out, as in v6, and
+    an export leaves the cell empty (null) instead of writing an empty text.
+
+    An authors value Zenon sends in an unexpected shape is no longer shown blank or as
+    numbers: it is left out and the field is marked as partially unavailable.
+
+    Wire contract: `WC-2026-11-13-external-empty-entry-dropped`.
+
 - **Regenerating a media file now restores its original file name the same way from both tools.**
 
     When a media record had lost its original file name, **Regenerate files** in Media versions did not restore it from the record's "Original file name" field, while **Update cache** did, but on the wrong language's file for translatable media and with the extension in upper case. Both tools now restore it the same way: on the file of the language you are working in, with the stored normalized name in lower case, and only when the name is missing — a name already recorded is never replaced.
@@ -1391,7 +1403,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 64 entries"
+??? note "Wire contract — 65 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1455,6 +1467,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-wipe-respects-virtual-exclusion`
     - `WC-2026-11-12-zotero-csl-json-import`
     - `WC-2026-11-13-csv-ingest-size-ceiling`
+    - `WC-2026-11-13-external-empty-entry-dropped`
     - `WC-2026-11-13-tags-widget-original-lang`
     - `WC-2026-11-13-text-area-broken-tag-repair`
 

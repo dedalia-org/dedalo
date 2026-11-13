@@ -298,7 +298,8 @@ objects:
       OBJECT is refused and counted exactly as an unformatted one is — a
       `format` never turns rubbish into a value.
     - `zenon_authors` — flattens the ZENON `authors` object into
-      `role: name - name | role: …`.
+      `role: name - name | role: …`. A value that is not an object, or a role
+      holding a single text instead of a list of names, is refused and counted.
     - *(a name the service adapter does not implement)* — REFUSED as a
       configuration error, not silently passed through: the mapping is wrong
       and the cataloguer must see it.
@@ -306,6 +307,10 @@ objects:
       out into several entries; an OBJECT is refused and counted, because it
       has no canonical text form and guessing one writes `[object Object]`
       into a heritage record.
+
+    A value with no visible text after formatting (an empty or blank string,
+    an empty list, an authors object with every role empty) produces **no
+    entry** — it is a missing value, like an absent field, not a degraded one.
 
     Whatever the format, an entry always reaches the wire as a **string**, and
     two ceilings apply: an over-long value is refused (never silently

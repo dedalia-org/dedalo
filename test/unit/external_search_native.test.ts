@@ -686,6 +686,57 @@ describe('the emitted shape is the one the client already speaks', () => {
 			'primary: Ripollès Alegre, P. P. (Pere Pau)',
 		]);
 	});
+
+	test('an empty remote value is NO entry in a search cell — no blank "| |" column (T1-P06)', async () => {
+		const { formatExternalSearchData } = await import(
+			'../../src/core/api/handlers/dd_external_api.ts'
+		);
+		const { parseFieldsMap } = await import('../../src/external/api/index.ts');
+		const row = {
+			id: '000848571',
+			authors: { primary: [], secondary: [], corporate: [] },
+			publicationDates: [],
+		};
+		const data = await formatExternalSearchData(
+			{
+				service: 'zenon',
+				sectionTipo: 'test7342',
+				hits: [{ sectionTipo: 'test7342', remoteId: '000848571', row }],
+				total: null,
+				limit: 20,
+				offset: 0,
+				dropped: 0,
+			},
+			{
+				targetSectionTipo: 'test7342',
+				callerTipo: 'test61',
+				model: zenon,
+				remoteFields: ['authors', 'publicationDates'],
+				context: [],
+				ddos: [
+					{
+						tipo: 'test7346',
+						fieldsMap: parseFieldsMap(
+							[{ local: 'dato', remote: 'authors', format: 'zenon_authors' }],
+							{ tipo: 'test7346' },
+						),
+					},
+					{
+						tipo: 'test7347',
+						fieldsMap: parseFieldsMap(
+							[{ local: 'dato', remote: 'publicationDates', format: 'array_values' }],
+							{ tipo: 'test7347' },
+						),
+					},
+				],
+			},
+		);
+		expect(data).toHaveLength(3);
+		for (const cell of data.slice(1) as Record<string, unknown>[]) {
+			expect(cell.entries).toEqual([]);
+			expect(cell.source_status).toBeUndefined();
+		}
+	});
 });
 
 // ---------------------------------------------------------------------------

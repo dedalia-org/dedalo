@@ -132,7 +132,8 @@ Authors (`zenon5`), using a transform the adapter implements:
   **not** implement is refused as a cataloguing error — it is never passed
   through raw. A transform refuses what it cannot render, too: point
   `array_values` at a field of objects and the items are counted as dropped,
-  never stringified.
+  never stringified. A value with no visible text after formatting produces
+  no entry: it is a missing value, not a degraded one.
 
 With no `format`, strings, numbers and booleans are used as they are and a list
 fans out into several entries. An **object** with no format is refused and
