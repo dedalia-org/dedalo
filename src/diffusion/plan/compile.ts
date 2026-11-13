@@ -221,6 +221,13 @@ interface DdoEntry {
 	labelExpansion?: boolean;
 	/** Verbatim ddo `options` bag (PHP $ddo->options — media quality/extension). */
 	options?: Record<string, unknown>;
+	/**
+	 * Verbatim ddo `config` bag — a relation_list ddo's filters in the shape
+	 * numisdata's rdf properties carry them (owner C14 2026-11-13,
+	 * WC-2026-11-13-rdf-relation-list-config): `section_filter` /
+	 * `component_filter`, judged in compileSourceChain once the model is known.
+	 */
+	config?: Record<string, unknown>;
 }
 
 /**
@@ -274,6 +281,7 @@ function buildDdoMap(
 			const declaredSection = typeof ddo.section_tipo === 'string' ? ddo.section_tipo : undefined;
 			const declaredParent = typeof ddo.parent === 'string' ? ddo.parent : '';
 			const rawOptions = ddo.options;
+			const rawConfig = ddo.config;
 			entries.push({
 				tipo,
 				sectionTipo: declaredSection === 'self' ? sectionTipo : declaredSection,
@@ -290,6 +298,12 @@ function buildDdoMap(
 					rawOptions !== null && typeof rawOptions === 'object' && !Array.isArray(rawOptions)
 						? (rawOptions as Record<string, unknown>)
 						: undefined,
+				config:
+					rawConfig !== null && typeof rawConfig === 'object' && !Array.isArray(rawConfig)
+						? (rawConfig as Record<string, unknown>)
+						: rawConfig === undefined
+							? undefined
+							: { '(not an object)': rawConfig },
 			});
 		}
 		return entries;
@@ -312,6 +326,66 @@ function buildDdoMap(
  */
 function parentOf(ddo: DdoEntry, sectionTipo: string): string | undefined {
 	return ddo.parent !== '' && ddo.parent !== sectionTipo ? ddo.parent : undefined;
+}
+
+/** The config keys a relation_list ddo may carry (PHP class.relation_list.php :1278-1302 reads both). */
+const RELATION_LIST_CONFIG_KEYS: ReadonlySet<string> = new Set([
+	'section_filter',
+	'component_filter',
+]);
+
+/**
+ * A ddo `config` → the relation_list filters it declares (owner C14 2026-11-13,
+ * WC-2026-11-13-rdf-relation-list-config). PHP's rdf builder honoured `config`
+ * for a relation_list ddo ONLY (class.diffusion_rdf.php :1066-1082) and the
+ * relation_list class read `section_filter` (the linked-section whitelist —
+ * the inverse search's `section_tipo`, default 'all') and `component_filter`
+ * (one `from_component_tipo` locator per tipo) — class.relation_list.php
+ * :1278-1302. Those two keys are what compiles; everything else is REFUSED,
+ * never ignored: a `config` on a non-relation_list ddo (PHP read none), a key
+ * outside the pair (the PHP `resolve_configuration` dd1010 lookup +
+ * `filter_locators` SQO are NOT ported), a value that is not a list of tipos.
+ * Null = refused (recorded); `{}` = no config.
+ */
+function relationListConfigFilters(
+	ddo: DdoEntry,
+	model: string,
+	fieldTipo: string,
+	fieldLabel: string,
+	diagnostics: CompileDiagnostics,
+): { sectionFilter?: string[]; componentFilter?: string[] } | null {
+	if (ddo.config === undefined) return {};
+	const where = `field '${fieldTipo}' (${fieldLabel}): ddo '${ddo.tipo}'`;
+	if (model !== 'relation_list') {
+		diagnostics.errors.push(
+			`${where} (${model}) declares a relation_list 'config' on a model that is not relation_list — PHP read it for relation_list only; remove it or publish the target through its own ddo chain`,
+		);
+		return null;
+	}
+	const unknown = Object.keys(ddo.config).filter((key) => !RELATION_LIST_CONFIG_KEYS.has(key));
+	if (unknown.length > 0) {
+		diagnostics.errors.push(
+			`${where} declares a relation_list 'config' with unsupported key(s) ${unknown.map((key) => `'${key}'`).join(', ')} — supported: section_filter, component_filter (the PHP resolve_configuration dd1010 lookup + filter_locators query is not ported)`,
+		);
+		return null;
+	}
+	const filters: { sectionFilter?: string[]; componentFilter?: string[] } = {};
+	for (const [key, slot] of [
+		['section_filter', 'sectionFilter'],
+		['component_filter', 'componentFilter'],
+	] as const) {
+		const raw = ddo.config[key];
+		if (raw === undefined) continue;
+		const list = stringArrayOf(raw);
+		if (list === undefined) {
+			diagnostics.errors.push(
+				`${where} relation_list 'config.${key}' must be a non-empty list of tipos (got ${JSON.stringify(raw)})`,
+			);
+			return null;
+		}
+		filters[slot] = list;
+	}
+	return filters;
 }
 
 /** Accumulates errors/warnings/degradations during one element compile. */
@@ -405,6 +479,10 @@ async function compileSourceChain(
 			);
 			continue;
 		}
+		// A ddo `config` is a relation_list's filters (owner C14): judged here,
+		// where the model is known, and refused loudly anywhere else.
+		const configFilters = relationListConfigFilters(ddo, model, fieldTipo, fieldLabel, diagnostics);
+		if (configFilters === null) continue;
 		const isRelationFamily = storesRelationLocators(model) || model === 'relation_list';
 		if (isRelationFamily) {
 			const hop: Extract<ResolveStep, { kind: 'relation-hop' }> = {
@@ -417,8 +495,10 @@ async function compileSourceChain(
 			};
 			if (parent !== undefined) hop.parent = parent;
 			if (ddo.id !== undefined) hop.ddoId = ddo.id;
-			if (ddo.sectionFilter !== undefined) hop.sectionFilter = ddo.sectionFilter;
-			if (ddo.componentFilter !== undefined) hop.componentFilter = ddo.componentFilter;
+			const sectionFilter = ddo.sectionFilter ?? configFilters.sectionFilter;
+			const componentFilter = ddo.componentFilter ?? configFilters.componentFilter;
+			if (sectionFilter !== undefined) hop.sectionFilter = sectionFilter;
+			if (componentFilter !== undefined) hop.componentFilter = componentFilter;
 			if (ddo.dataSlice !== undefined) hop.dataSlice = ddo.dataSlice;
 			if (ddo.dedupeSections === true) hop.dedupeSections = true;
 			if (ddo.labelExpansion === true) hop.labelExpansion = true;

@@ -1319,6 +1319,17 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-rdf-canonical-xsd-lexical`.
 
+- **An RDF property over a relation list may narrow the referencing records by section and by linking field (its `config`); such elements compile again.**
+
+    An RDF property whose source is a relation list ("who points at this record") may carry a
+    `config` with `section_filter` (the sections whose records count) and `component_filter` (the
+    fields through which they must point). Such a property made the whole RDF element fail to
+    compile ("not ported"); it now publishes one value per referencing record that passes both
+    filters. A `config` on any other kind of source, or with other keys, is still refused with a
+    message naming the field, so nothing is published partially.
+
+    Wire contract: `WC-2026-11-13-rdf-relation-list-config`.
+
 - **Publishing hierarchies and text-area geolocation fields no longer reports errors and leaves empty columns.**
 
     Two publication functions were not implemented, so every published record raised an error
@@ -1561,7 +1572,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 76 entries"
+??? note "Wire contract — 77 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1637,6 +1648,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-info-parsed-face-published`
     - `WC-2026-11-13-observer-refresh-data`
     - `WC-2026-11-13-rdf-canonical-xsd-lexical`
+    - `WC-2026-11-13-rdf-relation-list-config`
     - `WC-2026-11-13-tags-widget-original-lang`
     - `WC-2026-11-13-text-area-broken-tag-repair`
 

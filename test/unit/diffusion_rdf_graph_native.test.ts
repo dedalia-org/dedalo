@@ -69,8 +69,11 @@ import {
 	ZZDIF_RDF_CODE_COMPONENT,
 	ZZDIF_RDF_ELEMENT,
 	ZZDIF_RDF_EX_NAMESPACE,
+	ZZDIF_RDF_LINK_COMPONENT,
 	ZZDIF_RDF_OBJECT_CLASS,
 	ZZDIF_RDF_OBJECT_SECTION,
+	ZZDIF_RDF_REFERENCED_BY_PROPERTY,
+	ZZDIF_RDF_RELATION_LIST,
 	ZZDIF_RDF_SERVICE_NAME,
 	ZZDIF_RDF_SERVICE_TYPE,
 	ZZDIF_RDF_TYPE_CLASS,
@@ -101,7 +104,12 @@ const [FULL_TYPE, MINIMAL_TYPE] = ZZDIF_RDF_TYPE_IDS;
  * - void:inDataset a standalone typed resource with an empty body;
  * - the `rdf` link inlines the FIRST PUBLISHABLE linked object only (941102 is
  *   unpublishable and extends the cap), whose own link back to this type is
- *   the cycle — not rebuilt.
+ *   the cycle — not rebuilt;
+ * - ex:referencedBy (owner C14, WC-2026-11-13-rdf-relation-list-config): the
+ *   relation_list ddo with `config {section_filter:[zzdif140],
+ *   component_filter:[zzdif142]}` publishes the referrers' ids as literals —
+ *   941101 only (941103 points through zzdif145, filtered out); lang-tagged
+ *   like every lang-null literal (divergence 3 of WC-2026-11-12-rdf-graph-interpretation).
  */
 const FULL_TYPE_DOCUMENT = `<?xml version="1.0" encoding="utf-8" ?>
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
@@ -128,6 +136,7 @@ const FULL_TYPE_DOCUMENT = `<?xml version="1.0" encoding="utf-8" ?>
       </rdf:Description>
     </nmo:hasObverse>
 
+    <ex:referencedBy xml:lang="es">941101</ex:referencedBy>
   </nmo:TypeSeriesItem>
 
   <void:inDataset rdf:about="https://example.test/dataset/941001">
@@ -303,6 +312,7 @@ describe('compile: an rdf element compiles to a GRAPH plan', () => {
 			'portal',
 			'typed_resource',
 			'link',
+			'literal',
 		]);
 		const object = plan.sections.find((entry) => entry.sectionTipo === ZZDIF_RDF_OBJECT_SECTION);
 		expect(object?.rdfClass?.classTipo).toBe(ZZDIF_RDF_OBJECT_CLASS);
@@ -310,6 +320,24 @@ describe('compile: an rdf element compiles to a GRAPH plan', () => {
 			'literal',
 			'data_number',
 			'link',
+		]);
+	});
+
+	test('C14: a relation_list ddo `config` compiles into the hop filters (section_filter / component_filter)', () => {
+		// Owner C14 (WC-2026-11-13-rdf-relation-list-config): RED before — the
+		// compiler refused the element ("declares a relation_list 'config' … not ported").
+		const field = typeSectionPlan().fields.find(
+			(candidate) => candidate.id === ZZDIF_RDF_REFERENCED_BY_PROPERTY,
+		);
+		expect(field?.sourceChain).toEqual([
+			{
+				kind: 'relation-hop',
+				tipo: ZZDIF_RDF_RELATION_LIST,
+				model: 'relation_list',
+				sectionTipo: ZZDIF_RDF_TYPE_SECTION,
+				sectionFilter: [ZZDIF_RDF_OBJECT_SECTION],
+				componentFilter: [ZZDIF_RDF_LINK_COMPONENT],
+			},
 		]);
 	});
 

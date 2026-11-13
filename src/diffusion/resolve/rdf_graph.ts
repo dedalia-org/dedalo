@@ -272,6 +272,21 @@ interface TextEntry {
 function textEntriesOf(atoms: MetaValueIR[], where: string): TextEntry[] {
 	const entries: TextEntry[] = [];
 	for (const atom of atoms) {
+		if (atom.kind === 'chain') {
+			// A relation hop ending the chain (a relation_list ddo — PHP
+			// class.diffusion_rdf.php :1083-1089 `$ddo_value->value = $value->
+			// section_id`, lang null): one lang-less literal per linked record.
+			const id = atom.meta?.sourceId;
+			for (const link of atom.links) {
+				entries.push({
+					tipo: atom.meta?.tipo ?? null,
+					id: id === undefined || id === null ? null : String(id),
+					lang: null,
+					value: String(link.sectionId),
+				});
+			}
+			continue;
+		}
 		if (atom.kind !== 'scalar') {
 			throw new RdfBuildError(
 				`${where}: a literal property resolved a '${atom.kind}' value — end its ddo chain on a text component`,

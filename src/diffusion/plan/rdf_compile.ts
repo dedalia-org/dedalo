@@ -29,8 +29,10 @@
  * section_id it needs), a var_uri with more than one component (jsonb keeps
  * no key order, so the concatenation order is unrecoverable), a malformed
  * get_data_date/number format, the v6 string php_formula, an `rdf` link
- * without component or class, and the relation_list `config` ddo
- * (resolve_configuration → filter_locators), which is not ported.
+ * without component or class. A relation_list ddo's `config`
+ * (`section_filter` / `component_filter`, owner C14 2026-11-13) compiles
+ * through the shared chain compiler into the hop's filters
+ * (compile.ts relationListConfigFilters); any other `config` is refused there.
  */
 
 import { getComponentModel } from '../../core/components/registry.ts';
@@ -308,18 +310,17 @@ async function addChainField(
 	const process = isRecord(properties?.process) ? properties.process : {};
 	if (Array.isArray(process.ddo_map)) {
 		for (const ddo of process.ddo_map.filter(isRecord)) {
-			if (ddo.config !== undefined) {
-				ctx.errors.push(
-					`rdf property '${nodeTipo}' (${name}): ddo '${String(ddo.tipo)}' declares a relation_list 'config' (resolve_configuration → filter_locators) — not ported; remove it or publish the target through its own ddo chain`,
-				);
-				return false;
-			}
 			if (typeof ddo.value_fn === 'string') {
 				ctx.warnings.push(`rdf-value-fn:${ddo.value_fn}@${nodeTipo}`);
 			}
 		}
 	}
+	// A relation_list `config` compiles into the hop (compile.ts
+	// relationListConfigFilters); a config the chain compiler refused is an
+	// error already recorded, and the field it belongs to is not built.
+	const errorsBefore = ctx.errors.length;
 	const sourceChain = await ctx.compileChain(nodeTipo, properties, build.sectionTipo, name);
+	if (ctx.errors.length > errorsBefore) return false;
 	if (sourceChain.length === 0) {
 		ctx.warnings.push(`rdf-property-without-source:${nodeTipo}`);
 		return false;

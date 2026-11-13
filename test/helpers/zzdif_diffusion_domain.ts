@@ -96,7 +96,9 @@
  *         zzdif151 owl:Class 'nmo:TypeSeriesItem' → zzdif130 (base 'self' + var_uri code)
  *           literals (dc:title, ex:label text_format, ex:note php_formula), get_data_uri,
  *           get_data_date start/end, get_data_number, get_section_id, get_resource_link,
- *           get_portal (one with a value, one empty), entity_publication_uri, `rdf` link → zzdif160
+ *           get_portal (one with a value, one empty), entity_publication_uri, `rdf` link → zzdif160,
+ *           ex:referencedBy over relation_list zzdif147 with `config` (C14: section_filter
+ *           zzdif140 + component_filter zzdif142 → 941101 only; 941103 points through zzdif145)
  *         zzdif160 owl:Class 'nmo:NumismaticObject' → zzdif140 (base 'self' + section_id)
  *           dc:title, nmo:hasWeight, `rdf` link back → zzdif151 (the cycle)
  *       zzdif180 diffusion_element  ← the rdf element that must FAIL to compile, listing
@@ -129,7 +131,8 @@
  *   941001  zzdif130 PUBLISHABLE — every rdf property has a value; objects 941102
  *           (UNPUBLISHABLE), 941101, 941103 in that order (the link cap skips the first)
  *   941002  zzdif130 PUBLISHABLE — title only (the minimal subject)
- *   941101, 941103  zzdif140 PUBLISHABLE (941101 links back to 941001) | 941102 UNPUBLISHABLE
+ *   941101, 941103  zzdif140 PUBLISHABLE (941101 links back to 941001 through zzdif142,
+ *                   941103 through zzdif145) | 941102 UNPUBLISHABLE
  *
  * The ALIAS law needs the real table to live under ANOTHER element: the walk
  * suppresses a real node consumed by an alias INSIDE the same element
@@ -210,6 +213,10 @@ export const ZZDIF_RDF_CODE_COMPONENT = 'zzdif135';
 export const ZZDIF_RDF_OBJECT_CLASS = 'zzdif160';
 /** The custom namespace the element declares (properties.diffusion.xmlns). */
 export const ZZDIF_RDF_EX_NAMESPACE = 'http://example.test/ex#';
+/** C14: the type section's relation_list node, the rdf property over it with `config`, the link component its component_filter keeps. */
+export const ZZDIF_RDF_RELATION_LIST = 'zzdif147';
+export const ZZDIF_RDF_REFERENCED_BY_PROPERTY = 'zzdif171';
+export const ZZDIF_RDF_LINK_COMPONENT = 'zzdif142';
 export const ZZDIF_RDF_TYPE_IDS = [941001, 941002] as const;
 /** The full type record's objects, in stored order: unpublishable first. */
 export const ZZDIF_RDF_OBJECT_IDS = [941102, 941101, 941103] as const;
@@ -830,6 +837,15 @@ function buildSituation(): Situation {
 			rdfComponent('zzdif138', 'zzdif130', 'component_input_text', 8, true),
 			rdfComponent('zzdif139', 'zzdif130', 'component_input_text', 9, true),
 			rdfComponent('zzdif146', 'zzdif130', 'component_section_id', 10),
+			// relation_list: who points at this type (owner C14 — its rdf property
+			// carries a `config` narrowing the referrers to zzdif140 through zzdif142)
+			{
+				tipo: 'zzdif147',
+				parent: 'zzdif130',
+				model: 'relation_list',
+				term: { 'lg-spa': 'zzdif147 referenced by' },
+				order_number: 11,
+			},
 			{
 				tipo: 'zzdif140',
 				parent: 'test1',
@@ -840,6 +856,8 @@ function buildSituation(): Situation {
 			rdfComponent('zzdif142', 'zzdif140', 'component_portal', 2),
 			rdfComponent('zzdif143', 'zzdif140', 'component_publication', 3),
 			rdfComponent('zzdif144', 'zzdif140', 'component_number', 4),
+			// a SECOND component pointing at types: the C14 component_filter excludes it
+			rdfComponent('zzdif145', 'zzdif140', 'component_portal', 5),
 			{
 				tipo: ZZDIF_RDF_ELEMENT,
 				parent: 'zzdif41',
@@ -938,6 +956,18 @@ function buildSituation(): Situation {
 				relations: [{ tipo: 'zzdif136' }, { tipo: ZZDIF_RDF_OBJECT_CLASS }],
 				order_number: 13,
 			},
+			// C14: a relation_list ddo with `config` — only objects pointing through
+			// zzdif142 are published (941103 points through zzdif145: excluded)
+			rdfProperty('zzdif171', ZZDIF_RDF_TYPE_CLASS, 'ex:referencedBy', 14, [], {
+				ddo_map: [
+					{
+						tipo: 'zzdif147',
+						section_tipo: 'self',
+						parent: 'self',
+						config: { section_filter: ['zzdif140'], component_filter: ['zzdif142'] },
+					},
+				],
+			}),
 			{
 				tipo: ZZDIF_RDF_OBJECT_CLASS,
 				parent: ZZDIF_RDF_ELEMENT,
@@ -1114,8 +1144,33 @@ function buildSituation(): Situation {
 					number: { zzdif144: [{ id: 1, value: id - 941100 }] },
 					relation: {
 						zzdif143: id === ZZDIF_RDF_UNPUBLISHABLE_OBJECT ? NO : YES,
+						// Full stored locator shape (type + from_component_tipo, as the
+						// engine writes them): the inverse breakdown's component filter
+						// matches `from_component_tipo` (C14).
 						...(id === 941101
-							? { zzdif142: [{ section_tipo: 'zzdif130', section_id: 941001 }] }
+							? {
+									zzdif142: [
+										{
+											type: 'dd151',
+											section_tipo: 'zzdif130',
+											section_id: 941001,
+											from_component_tipo: 'zzdif142',
+										},
+									],
+								}
+							: {}),
+						// 941103 points at the full type through the OTHER portal (C14 control)
+						...(id === 941103
+							? {
+									zzdif145: [
+										{
+											type: 'dd151',
+											section_tipo: 'zzdif130',
+											section_id: 941001,
+											from_component_tipo: 'zzdif145',
+										},
+									],
+								}
 							: {}),
 					},
 				},
