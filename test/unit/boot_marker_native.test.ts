@@ -27,6 +27,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -117,6 +118,21 @@ describe('B1 the boot marker module', () => {
 		expect(write.outcome).toBe('written');
 		rmSync(bootMarkerPath(socket));
 		writeFileSync(bootMarkerPath(socket), '4242\n');
+		if (write.outcome === 'written') write.clear();
+		expect(readFileSync(bootMarkerPath(socket), 'utf8')).toBe('4242\n');
+	});
+
+	// The inode is no identity on its own: Linux hands a freed inode to the next
+	// file (the case above went red in the CI image). Rewriting IN PLACE keeps the
+	// inode on every filesystem, so this case is deterministic — only the content
+	// (our pid) tells our marker from a foreign one.
+	test('clear leaves a marker that kept our inode but holds another pid', async () => {
+		const socket = join(socketDir(0o700), 's.sock');
+		const write = await writeBootMarker(socket, { supervised: true });
+		expect(write.outcome).toBe('written');
+		const before = statSync(bootMarkerPath(socket)).ino;
+		writeFileSync(bootMarkerPath(socket), '4242\n');
+		expect(statSync(bootMarkerPath(socket)).ino).toBe(before);
 		if (write.outcome === 'written') write.clear();
 		expect(readFileSync(bootMarkerPath(socket), 'utf8')).toBe('4242\n');
 	});

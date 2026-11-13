@@ -19,8 +19,8 @@
  *    socket, /tmp/dedalo_ts.sock) never gets a `/tmp/booting`;
  *  - never over a marker whose pid is alive and not ours.
  * Written atomically (a private temp name, then rename). REMOVED ONLY WHEN IT IS
- * STILL THE FILE WE WROTE — the `clear` a write returns compares the inode (a
- * bounded stat, safe in a synchronous `exit` hook), so a marker another process
+ * STILL THE FILE WE WROTE — the `clear` a write returns compares the inode AND
+ * our pid as content (bounded, safe in a synchronous `exit` hook), so a marker another process
  * put there since is never removed. NEVER THROWS: a boot must not die on its grace
  * marker — a failure is one `[boot]` warning.
  *
@@ -29,7 +29,7 @@
  * install_restart_supervisor_tripwire (GRACE_CASES plants it through this producer).
  */
 
-import { statSync, unlinkSync } from 'node:fs';
+import { closeSync, openSync, readSync, statSync, unlinkSync } from 'node:fs';
 import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isSupervised } from './supervision.ts';
@@ -99,12 +99,32 @@ async function writeRefusal(
 		: null;
 }
 
-/** The door that removes `target` only while it is still the file identified by `ino`/`dev`. */
+/** Does `target` hold exactly this process's marker (`<pid>\n`)? One bounded read. */
+function holdsOurPid(target: string): boolean {
+	const expected = Buffer.from(`${process.pid}\n`);
+	const buffer = Buffer.alloc(expected.length + 1);
+	const fd = openSync(target, 'r');
+	try {
+		const read = readSync(fd, buffer, 0, buffer.length, 0);
+		return read === expected.length && buffer.subarray(0, read).equals(expected);
+	} finally {
+		closeSync(fd);
+	}
+}
+
+/**
+ * The door that removes `target` only while it is still the file we wrote: the
+ * inode (`ino`/`dev`) AND our pid as its content. The inode alone is not an
+ * identity — a filesystem may hand a freed inode to the very next file created
+ * (Linux ext4/overlayfs do), so a marker replaced since can carry our old ino.
+ */
 function clearIfStill(target: string, ino: number, dev: number): () => void {
 	return () => {
 		try {
 			const now = statSync(target);
-			if (now.ino === ino && now.dev === dev) unlinkSync(target);
+			if (now.ino !== ino || now.dev !== dev) return;
+			if (!holdsOurPid(target)) return;
+			unlinkSync(target);
 		} catch {
 			// already gone (or unreadable) — nothing of ours to clear
 		}
