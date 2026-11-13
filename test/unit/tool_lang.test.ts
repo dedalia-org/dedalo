@@ -9,8 +9,10 @@
 
 import { describe, expect, test } from 'bun:test';
 import { isDedaloError } from '../../src/core/errors/index.ts';
+import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
+import { buildToolElementContext } from '../../src/core/tools/registry.ts';
 import {
 	babelDirection,
 	resolveTranslationProvider,
@@ -226,6 +228,58 @@ describe('runAutomaticTranslation — gates and loud failures', () => {
 			expect(outcome.envelope.msg).toBe('Ignored empty result. Nothing is saved!');
 			expect(outcome.envelope.count).toBe(0);
 		}
+	});
+});
+
+/**
+ * C54 (owner 2026-11-13, T1-P01 16a/16b): tool_lang_multi is served tool_lang's
+ * client config (configFrom, RATIFIED) MINUS the `type:'browser'` translator
+ * engines (HIDDEN in translate-all until the translategemma revision is
+ * pinned); tool_lang keeps every engine. Measured on the SERVED element
+ * context — the one thing the client reads (render_tool_lang_multi.js
+ * `context.config.translator_engine.value`). The install's default config is
+ * tool_lang's register.json (babel / google_translation / browser_transformer),
+ * so the browser engine's presence in tool_lang's context is the positive
+ * control: a run where tool_lang itself served no browser engine would prove
+ * nothing, and fails here.
+ */
+describe('tool_lang_multi context hides browser engines (C54)', () => {
+	type Engine = { name: string; type: string };
+	const servedEngines = async (tool: string): Promise<Engine[]> => {
+		const context = await runWithRequestLangs(
+			{ applicationLang: 'lg-eng', dataLang: 'lg-eng' },
+			() => buildToolElementContext(tool),
+		);
+		expect(context).not.toBeNull();
+		const config = (context as { config?: Record<string, unknown> }).config;
+		expect(config).toBeDefined();
+		const engine = (config as Record<string, unknown>).translator_engine as { value: Engine[] };
+		expect(Array.isArray(engine?.value)).toBe(true);
+		return engine.value;
+	};
+
+	test('tool_lang serves every engine, browser included (positive control)', async () => {
+		const engines = await servedEngines('tool_lang');
+		expect(engines.some((e) => e.type === 'browser')).toBe(true);
+		expect(engines.some((e) => e.type === 'server')).toBe(true);
+	});
+
+	test("tool_lang_multi serves tool_lang's engines WITHOUT the browser ones; the rest is identical", async () => {
+		const lang = await servedEngines('tool_lang');
+		const multi = await servedEngines('tool_lang_multi');
+		expect(multi.some((e) => e.type === 'browser')).toBe(false);
+		expect(multi).toEqual(lang.filter((e) => e.type !== 'browser'));
+		expect(multi.length).toBeGreaterThan(0);
+		// the rest of the served config is tool_lang's, key for key
+		const configOf = async (tool: string): Promise<Record<string, unknown>> =>
+			(
+				(await runWithRequestLangs({ applicationLang: 'lg-eng', dataLang: 'lg-eng' }, () =>
+					buildToolElementContext(tool),
+				)) as { config: Record<string, unknown> }
+			).config;
+		const { translator_engine: _a, ...restLang } = await configOf('tool_lang');
+		const { translator_engine: _b, ...restMulti } = await configOf('tool_lang_multi');
+		expect(restMulti).toEqual(restLang);
 	});
 });
 

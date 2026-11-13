@@ -746,7 +746,39 @@ async function toolClientConfig(name: string): Promise<Record<string, unknown>> 
 	const { getToolClientConfigRaw } = await import('./config.ts');
 	const { getLoadedTool } = await import('./loader.ts');
 	const configName = (await getLoadedTool(name))?.module.configFrom ?? name;
-	return getToolClientConfigRaw(configName);
+	const raw = await getToolClientConfigRaw(configName);
+	return name === 'tool_lang_multi' ? withoutBrowserEngines(raw) : raw;
+}
+
+/**
+ * C54 (owner 2026-11-13, T1-P01 16b): tool_lang_multi is served tool_lang's
+ * config (configFrom, ratified 16a) MINUS the `type: 'browser'` translator
+ * engines, until the translategemma revision is pinned — the in-browser model
+ * is offered in tool_lang (one language, one component, the operator watches
+ * it) and NOT in translate-all, where one run writes every language. The
+ * filter is HERE, in the one place the client context is served, so the
+ * client offers exactly what the server serves (render_tool_lang_multi.js reads
+ * `context.config.translator_engine.value`). Every other key is untouched; a
+ * `translator_engine` that is not `{value: [...]}` is served as it is.
+ * Gate: test/unit/tool_lang.test.ts "tool_lang_multi context hides browser engines".
+ */
+function withoutBrowserEngines(raw: Record<string, unknown>): Record<string, unknown> {
+	const engine = raw.translator_engine;
+	if (
+		engine === null ||
+		typeof engine !== 'object' ||
+		!Array.isArray((engine as { value?: unknown }).value)
+	)
+		return raw;
+	const value = (engine as { value: unknown[] }).value.filter(
+		(entry) =>
+			!(
+				entry !== null &&
+				typeof entry === 'object' &&
+				(entry as { type?: unknown }).type === 'browser'
+			),
+	);
+	return { ...raw, translator_engine: { ...(engine as Record<string, unknown>), value } };
 }
 
 /** Backwards-compatible section-tools helper (model 'section', non-component). */
