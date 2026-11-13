@@ -169,6 +169,17 @@ export function assertMediaFileStem(value: string, identity: MediaIdentity): str
 	return value;
 }
 
+/**
+ * Whether a value is a FILE NAME at all (the first half of the stem law, pure):
+ * false for `.`/`..`, a path separator, a control character or the T0-10
+ * attribute set. The stem LOCK (media/stem_rules.ts) asks this of a STORED value
+ * before looking for files under it — a value that is no file name can have
+ * none, and re-asserting it there would stop a curator from REPLACING a bad one.
+ */
+export function isMediaFileStemName(value: string): boolean {
+	return !NOT_A_FILE_STEM.test(value);
+}
+
 /** Why a stem is refused (see assertMediaFileStem), or null when it is a file name of THIS record. */
 function stemRefusal(value: string, identity: MediaIdentity): string | null {
 	if (NOT_A_FILE_STEM.test(value)) {

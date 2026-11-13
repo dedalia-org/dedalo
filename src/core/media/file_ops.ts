@@ -152,14 +152,15 @@ export async function duplicateMediaFiles(
 		if (!existsSync(from)) continue;
 		const to = buildMediaLocation(spec, target, quality, extension, pathOpts.target).absolutePath;
 		if (to === from) {
-			// NEVER COPY A FILE ONTO ITSELF. Two identities resolve to ONE path when an
-			// image names its files by `properties.image_id` and the clone carries the
-			// same stem (PHP: both records then address the same files). Whether a
-			// duplicate shares them, renames the clone, or is refused is an owner
-			// decision (T1-10 OD-1) — until it is ruled the copy stops LOUDLY here,
-			// and the duplicate reports the component as incomplete ('copy').
-			throw new DedaloError('media.operation_failed', {
-				message: `the copy of ${spec.model} '${target.componentTipo}' resolves to the source's own file (${basename(from)}) — both records name their files by the same properties.image_id value, so nothing was copied`,
+			// NEVER COPY A FILE ONTO ITSELF — an INVARIANT since T1-10 OD-1 was ruled
+			// (2026-11-13): the duplicate CLEARS the clone's `properties.image_id`
+			// sibling before the insert (duplicate_record.ts, stem_rules.ts
+			// stripImageIdSiblings), so the clone's files land under its identifier,
+			// and the stem rules refuse a stem two records would share. Two identities
+			// resolving to ONE path means one of those doors was bypassed: stop loudly,
+			// write nothing (the duplicate reports the component as incomplete, 'copy').
+			throw new DedaloError('internal.invariant', {
+				message: `duplicateMediaFiles: the copy of ${spec.model} '${target.componentTipo}' resolves to the source's own file (${basename(from)}) — the clone's image_id sibling was not cleared, or two records share a stem the stem rules refuse; nothing was copied`,
 				coordinates: {
 					section_tipo: target.sectionTipo,
 					component_tipo: target.componentTipo,
@@ -560,8 +561,12 @@ export interface ComponentMediaCopy {
  * record-scoped walk as the delete/restore pair — so `properties.additional_path`'s
  * NAMED bucket is resolved from the SOURCE record's own sibling value (the
  * snapshot `sourceColumns`), the per-lang identity fan-out is the one the other
- * two directions use, and every path passes the media-root chokepoint. The clone
- * carries the same sibling value, so the target lands in the same bucket.
+ * two directions use, and every path passes the media-root chokepoint. The
+ * TARGET's options are the CLONE's own, record-scoped (resolveMediaPathOptions
+ * on the inserted row): the clone carries the same bucket sibling (same bucket)
+ * but NOT the source's `properties.image_id` sibling — the duplicate clears it
+ * (stem_rules.ts stripImageIdSiblings, T1-10 OD-1 ruled b) — so the clone's
+ * files are named by its identifier, never by the source's stem.
  *
  * NEVER THROWS for a component and never swallows: each component answers what
  * it found and copied, and why it stopped (`error`) — the duplicate turns that
@@ -599,9 +604,15 @@ export async function duplicateSectionMediaFiles(
 					).absolutePath;
 					if (existsSync(from)) copy.sourceFiles++;
 				}
+				// The clone's own record-scoped options (see the header): its row is
+				// inserted by now, its image_id sibling cleared.
+				const targetOpts = {
+					...(await resolveMediaPathOptions(identity.componentTipo, sectionTipo, targetSectionId)),
+					mediaRoot: pathOpts.mediaRoot,
+				};
 				const created = await duplicateMediaFiles(spec, identity, target, {
 					source: pathOpts,
-					target: pathOpts,
+					target: targetOpts,
 				});
 				copy.copiedFiles += created.length;
 				return created;

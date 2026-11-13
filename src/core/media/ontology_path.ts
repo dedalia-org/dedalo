@@ -79,6 +79,11 @@ export const SECTION_SCOPED_PATH_OPTION_CALLERS: ReadonlyArray<{
 		reason:
 			'caches options per (section, component) and reads only relativeDir, so the image_id stem never matters to it — but a record-scoped additional_path bucket does: a record with a named bucket is exported from the numeric one (neighbour of T1-10, not fixed by it)',
 	},
+	{
+		file: 'src/core/media/stem_rules.ts',
+		reason:
+			'NOT migration debt: the stem LOCK (T1-10 OD-3 ruled c, filesUnderStem) builds the locations of the STORED image_id stem — the value a save is about to replace — so it must not go through the record form, whose resolveFileIdOverride re-asserts that very value (a bad stored stem must stay replaceable). It takes the section-scoped options and completes the bucket itself through resolveAdditionalPathOverride (record-scoped) and the stored stem as fileIdOverride',
+	},
 ];
 
 /**

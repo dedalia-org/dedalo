@@ -11,6 +11,12 @@
  * edit, its index on the first rescan, and its derivatives on the first upload —
  * and a delete left its files live.
  *
+ * T1-10 OD-1/OD-3 (owner rulings 2026-11-13, WC addendum): a stem another record
+ * of the section holds is REFUSED on the sibling's save and at the upload door
+ * (L12, `media.stem_in_use`); the sibling is LOCKED while managed files exist
+ * under its stem (L13, `media.stem_locked`); the duplicate CLEARS the clone's
+ * sibling so its files land under its own identifier (L8).
+ *
  * Scratch discipline: the situation is built HERE (scratch TLD `zzmiid`, swept
  * after), every record is created at runtime and deleted, every media byte lands
  * under a marked per-run scratch root — except the one `base_svg_url` case,
@@ -23,6 +29,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname } from 'node:path';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { type MatrixRecord, readMatrixRecord } from '../../src/core/db/matrix.ts';
+import { updateMatrixKeyData } from '../../src/core/db/matrix_write.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { mediaEmitHook } from '../../src/core/media/component_emit.ts';
 import { resolveMagick } from '../../src/core/media/engine/binaries.ts';
@@ -53,6 +60,7 @@ import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { EmissionContext } from '../../src/core/resolve/component_data.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { deleteSectionRecord } from '../../src/core/section/record/delete_record.ts';
+import { duplicateSectionRecordWithVerdict } from '../../src/core/section/record/duplicate_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import {
 	dropSituation,
@@ -407,8 +415,8 @@ describe('L7 record delete/restore sweeps the stem files (post-commit snapshot p
 	}, 60_000);
 });
 
-describe('L8 duplicate: a shared stem never copies a file onto itself', () => {
-	test('the source file stays intact and the component reports why nothing was copied', async () => {
+describe('L8 duplicate: the clone names its files by ITS identifier, never by the source stem (OD-1 ruled b)', () => {
+	test('the file walk copies <stem>.jpg to <IMAGE>_<SECTION>_<clone>.jpg; the source stays intact', async () => {
 		const { sectionId, stem } = await stemRecord();
 		const target = await scratchRecord();
 		const bucket = bucketOf(sectionId);
@@ -428,9 +436,175 @@ describe('L8 duplicate: a shared stem never copies a file onto itself', () => {
 		);
 		const copy = perComponent.find((entry) => entry.tipo === IMAGE);
 		expect(copy?.sourceFiles).toBe(1);
-		expect(copy?.copiedFiles).toBe(0);
-		expect(copy?.error).toContain('image_id');
+		expect(copy?.copiedFiles).toBe(1);
+		expect(copy?.error).toBeUndefined();
+		const cloneFile = `${ROOT}/image/original/${bucketOf(target)}/${IMAGE}_${SECTION}_${target}.jpg`;
+		expect(existsSync(cloneFile)).toBe(true);
+		expect(readFileSync(cloneFile).equals(before)).toBe(true);
 		expect(readFileSync(source).equals(before)).toBe(true);
+	}, 60_000);
+
+	test('the record duplicate CLEARS the clone sibling, reports it, and the clone index names its own files', async () => {
+		const { sectionId, stem } = await stemRecord();
+		const bucket = bucketOf(sectionId);
+		const source = `${ROOT}/image/original/${bucket}/${stem}.jpg`;
+		await makeJpeg(source);
+		// The source's index claims its stem file, so the duplicate has a media copy to make.
+		const table = await getMatrixTableFromTipo(SECTION);
+		await updateMatrixKeyData(table as string, SECTION, sectionId, 'media', IMAGE, [
+			{
+				lang: null,
+				files_info: [
+					{
+						quality: 'original',
+						extension: 'jpg',
+						file_exist: true,
+						file_path: `/image/original/${bucket}/${stem}.jpg`,
+					},
+				],
+			},
+		]);
+		const { sectionId: clone, media } = await duplicateSectionRecordWithVerdict(
+			SECTION,
+			sectionId,
+			USER_ID,
+			new Date(),
+			new Set(),
+			{ mediaRoot: ROOT },
+		);
+		scratch.push(clone);
+		// The clone does NOT carry the sibling: its stem resolves to null (the identifier).
+		const cloneRecord = await readRecord(clone);
+		const siblingItems = (cloneRecord.columns.string as Record<string, unknown> | null)?.[
+			STEM_SIBLING
+		];
+		expect(siblingItems).toBeUndefined();
+		expect(await resolveFileIdOverride(IMAGE, SECTION, clone)).toBeNull();
+		// Reported on the image's verdict, complete, under the clone's identifier.
+		const verdict = media.find((entry) => entry.tipo === IMAGE);
+		expect(verdict?.clearedStemSibling).toBe(STEM_SIBLING);
+		expect(verdict?.incomplete).toBe(false);
+		expect(verdict?.copiedFiles).toBe(1);
+		const cloneFile = `${ROOT}/image/original/${bucketOf(clone)}/${IMAGE}_${SECTION}_${clone}.jpg`;
+		expect(existsSync(cloneFile)).toBe(true);
+		expect(existsSync(source)).toBe(true);
+		// The source keeps its stem (nothing of the source was touched).
+		expect(await resolveFileIdOverride(IMAGE, SECTION, sectionId)).toBe(stem);
+	}, 60_000);
+});
+
+describe('L12 a stem another record of the section holds is refused on save AND upload (OD-1 ruled c)', () => {
+	test("saving record B's sibling to record A's stem is refused (media.stem_in_use, naming A); a free stem saves", async () => {
+		const { sectionId: a, stem } = await stemRecord();
+		const b = await scratchRecord();
+		const refusal = await setValue(b, STEM_SIBLING, stem).then(
+			() => null,
+			(error: unknown) => error as { code?: string; details?: Record<string, unknown> },
+		);
+		expect(refusal?.code).toBe('media.stem_in_use');
+		expect(refusal?.details?.section_id).toBe(a);
+		// Nothing written on B — the refusal rolled the save back.
+		expect(await resolveFileIdOverride(IMAGE, SECTION, b)).toBeNull();
+		// The same value with surrounding whitespace is the same stem (the resolver trims).
+		const padded = await setValue(b, STEM_SIBLING, `  ${stem} `).then(
+			() => null,
+			(error: unknown) => (error as { code?: string }).code ?? 'other',
+		);
+		expect(padded).toBe('media.stem_in_use');
+		// Control: a free stem saves, and re-saving A's OWN stem on A is not "another record".
+		await setValue(b, STEM_SIBLING, stemFor(b));
+		expect(await resolveFileIdOverride(IMAGE, SECTION, b)).toBe(stemFor(b));
+		await setValue(a, STEM_SIBLING, stem);
+		expect(await resolveFileIdOverride(IMAGE, SECTION, a)).toBe(stem);
+	}, 60_000);
+
+	test('a PHP-era pair already sharing a stem: the UPLOAD to one is refused before anything moves', async () => {
+		const { sectionId: a, stem } = await stemRecord();
+		const b = await scratchRecord();
+		// Plant the shared stem UNDER the save rule (a PHP-era row): the writer home, no chokepoint.
+		const table = await getMatrixTableFromTipo(SECTION);
+		await updateMatrixKeyData(table as string, SECTION, b, 'string', STEM_SIBLING, [
+			{ id: 1, value: stem, lang: 'lg-nolan' },
+		]);
+		expect(await resolveFileIdOverride(IMAGE, SECTION, b)).toBe(stem);
+		const keyDir = `kd_shared_${b}`;
+		const staged = `${stagingDir(USER_ID, keyDir, ROOT)}/staged.jpg`;
+		await makeJpeg(staged);
+		const sectionScoped = await resolveMediaPathOptions(IMAGE, SECTION);
+		const refusal = await processUploadedFile({
+			spec: image,
+			identity: identityOf(b),
+			pathOpts: { ...sectionScoped, mediaRoot: ROOT },
+			userId: USER_ID,
+			keyDir,
+			tmpName: 'staged.jpg',
+			extension: 'jpg',
+		}).then(
+			() => null,
+			(error: unknown) => error as { code?: string; details?: Record<string, unknown> },
+		);
+		expect(refusal?.code).toBe('media.stem_in_use');
+		expect(refusal?.details?.section_id).toBe(a);
+		// The staged file is still staged; nothing landed under the shared stem.
+		expect(existsSync(staged)).toBe(true);
+		expect(existsSync(`${ROOT}/image/original/${bucketOf(b)}/${stem}.jpg`)).toBe(false);
+	}, 60_000);
+});
+
+describe('L13 the sibling is LOCKED while managed files exist under its stem (OD-3 ruled c)', () => {
+	test('changing a stem with a file under it is refused naming the file; after the file is gone it saves', async () => {
+		// The lock reads the CONFIGURED (suite) media root — the chokepoint has no
+		// scratch root to be handed — so, as L6 does, ONE file is planted there by
+		// path and removed by path.
+		const { sectionId, stem } = await stemRecord();
+		const resolved = await resolveMediaPathOptions(IMAGE, SECTION, sectionId);
+		const file = buildMediaLocation(image, identityOf(sectionId), 'original', 'jpg', resolved);
+		expect(file.relativePath.endsWith(`/${stem}.jpg`)).toBe(true);
+		if (existsSync(file.absolutePath)) {
+			throw new Error(`refusing to adopt an existing file: ${file.absolutePath}`);
+		}
+		mkdirSync(dirname(file.absolutePath), { recursive: true });
+		writeFileSync(file.absolutePath, 'not-a-jpeg: the lock asks only whether the file exists');
+		try {
+			const renamed = `${stem}_renamed`;
+			const refusal = await setValue(sectionId, STEM_SIBLING, renamed).then(
+				() => null,
+				(error: unknown) => error as { code?: string; details?: Record<string, unknown> },
+			);
+			expect(refusal?.code).toBe('media.stem_locked');
+			expect(String(refusal?.details?.files)).toContain(file.relativePath);
+			// The stored stem is unchanged, the file untouched.
+			expect(await resolveFileIdOverride(IMAGE, SECTION, sectionId)).toBe(stem);
+			expect(existsSync(file.absolutePath)).toBe(true);
+			// Re-saving the SAME stem is no change: accepted (padding included).
+			await setValue(sectionId, STEM_SIBLING, ` ${stem}`);
+			expect(await resolveFileIdOverride(IMAGE, SECTION, sectionId)).toBe(stem);
+			// Clearing the sibling while files exist is a change too: refused.
+			const cleared = await saveComponentData({
+				componentTipo: STEM_SIBLING,
+				sectionTipo: SECTION,
+				sectionId,
+				lang: 'lg-nolan',
+				changedData: [{ action: 'set_data', id: null, value: [] }],
+				userId: USER_ID,
+			}).then(
+				() => null,
+				(error: unknown) => (error as { code?: string }).code ?? 'other',
+			);
+			expect(cleared).toBe('media.stem_locked');
+			// The remedy: delete the media first — then the rename saves.
+			rmSync(file.absolutePath);
+			await setValue(sectionId, STEM_SIBLING, renamed);
+			expect(await resolveFileIdOverride(IMAGE, SECTION, sectionId)).toBe(renamed);
+		} finally {
+			rmSync(file.absolutePath, { force: true });
+		}
+	}, 60_000);
+
+	test('a record with NO files under its stem renames freely (the lock is the files, not the value)', async () => {
+		const { sectionId, stem } = await stemRecord();
+		await setValue(sectionId, STEM_SIBLING, `${stem}_b`);
+		expect(await resolveFileIdOverride(IMAGE, SECTION, sectionId)).toBe(`${stem}_b`);
 	}, 60_000);
 });
 

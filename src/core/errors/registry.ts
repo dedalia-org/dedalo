@@ -3128,6 +3128,35 @@ export const ERROR_REGISTRY = {
 		disclosure: 'public',
 		retryable: true,
 	},
+	// A `properties.image_id` FILE STEM another record of the same section already
+	// holds (T1-10 OD-1, owner ruling 2026-11-13 c: refuse — two records naming
+	// the same files is a silent cross-record overwrite/delete). Refused on the
+	// sibling's save (record_write.ts §3i, media/stem_rules.ts) and at the upload
+	// door, before any write. `section_id` is the record that holds the stem.
+	'media.stem_in_use': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_media_stem_in_use',
+		message: 'This file name is already used by another record of the section',
+		severity: 'info',
+		disclosure: 'public',
+		retryable: false,
+		details_keys: ['section_id'],
+	},
+	// A `properties.image_id` sibling CHANGED while managed media files exist
+	// under its current value (T1-10 OD-3, owner ruling 2026-11-13 c: lock — a
+	// rename would orphan the files, PHP left them). Refused on the sibling's
+	// save; `files` names the files found. Remedy: delete the media first.
+	'media.stem_locked': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_media_stem_locked',
+		message: 'The file name cannot be changed while media files exist under it',
+		severity: 'info',
+		disclosure: 'public',
+		retryable: false,
+		details_keys: ['files'],
+	},
 	// MEDIA_PATH absent where a media path is required. Operator-actionable,
 	// never the caller's fault.
 	'media.not_configured': {

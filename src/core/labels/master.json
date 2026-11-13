@@ -263,6 +263,8 @@
 	"error_media_invalid_timecode": "Invalid media timecode range",
 	"error_media_not_configured": "Media storage is not configured on this server",
 	"error_media_operation_failed": "The media operation failed",
+	"error_media_stem_in_use": "This file name is already used by record ${section_id} of this section: choose another one",
+	"error_media_stem_locked": "The file name cannot be changed while media files exist under it (${files}): delete the media first, then rename",
 	"error_media_too_large": "The file is larger than the allowed maximum",
 	"error_media_unsupported_operation": "This media operation is not supported for this component",
 	"error_media_upload_conflict": "The upload conflicts with another staged transfer",

@@ -215,6 +215,53 @@ export async function readSectionIdsByFoldedValue(
 	return rows.map((row) => Number(row.section_id));
 }
 
+/**
+ * The OTHER records of `sectionTipo` (never `exceptSectionId`) whose component
+ * `componentTipo` stores an item whose `value` is `value` BYTE-EXACT, ascending,
+ * at most `limit`. The one read behind the `properties.image_id` stem
+ * uniqueness rule (media/stem_rules.ts): ONE containment probe on the whole
+ * column — `"<column>" @> '{"<tipo>":[{"value":"<v>"}]}'` — which is the shape
+ * the per-column `jsonb_path_ops` GIN indexes answer (an item with more keys,
+ * lang included, still contains the probe). Exact on the stored bytes: a
+ * stored value differing by surrounding whitespace resolves to the same stem
+ * (the resolver trims) but is not matched here — stated in the WC entry.
+ *
+ * NO PRINCIPAL, NO PROJECT FILTER: a uniqueness check must see every record of
+ * the section, whatever the curator may read — it answers ids only, never a
+ * stored value.
+ */
+export async function readOtherSectionIdsHoldingValue(
+	tableName: string,
+	sectionTipo: string,
+	column: MatrixJsonbColumn,
+	componentTipo: string,
+	value: string,
+	exceptSectionId: number,
+	limit = 5,
+): Promise<number[]> {
+	assertMatrixTable(tableName);
+	if (!(MATRIX_JSONB_COLUMNS as readonly string[]).includes(column)) {
+		throw new DedaloError('internal.invariant', {
+			message: `readOtherSectionIdsHoldingValue: '${column}' is not a matrix jsonb column`,
+			coordinates: { table: tableName },
+		});
+	}
+	// Table + column are allowlist-validated identifiers; the probe is bound as
+	// text and cast server-side (never a Bun-encoded object: ::text::jsonb).
+	const probe = JSON.stringify({ [componentTipo]: [{ value }] });
+	const rows = (await sql.unsafe(
+		`SELECT m.section_id
+		   FROM "${tableName}" AS m
+		  WHERE m.section_tipo = $1
+		    AND m.section_id <> $2
+		    AND m."${column}" @> $3::text::jsonb
+		  ORDER BY m.section_id
+		  LIMIT ${Math.max(1, Math.trunc(limit))}`,
+		[sectionTipo, exceptSectionId, probe],
+	)) as { section_id: number }[];
+	return rows.map((row) => Number(row.section_id));
+}
+
 export async function readMatrixRecord(
 	tableName: string,
 	sectionTipo: string,

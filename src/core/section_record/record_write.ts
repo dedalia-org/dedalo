@@ -801,6 +801,76 @@ async function machineNameRuledPath(
 	return savePath;
 }
 
+/**
+ * Whether a key write takes the TRANSACTION path (writeKeys): anything derived
+ * or judged is owed — an observed before-image, a relation index, a locator
+ * target to lock, a parent link's cycle check, an image_id stem to judge.
+ */
+function needsTransactionPath(
+	plan: { observed: readonly unknown[]; indexed: readonly unknown[]; targeted: readonly unknown[] },
+	parentLink: boolean,
+	stemRuled: boolean,
+): boolean {
+	return (
+		plan.observed.length > 0 ||
+		plan.indexed.length > 0 ||
+		plan.targeted.length > 0 ||
+		parentLink ||
+		stemRuled
+	);
+}
+
+/** §3i — the stem rules over the ruled keys, inside the write's transaction (a no-op when none). */
+async function assertStemRuledKeys(
+	target: RecordWriteTarget,
+	stemRuled: readonly import('../media/stem_rules.ts').StemRuledKey[],
+	door: string,
+): Promise<void> {
+	if (stemRuled.length === 0) return;
+	const { assertImageIdStemRules } = await import('../media/stem_rules.ts');
+	await assertImageIdStemRules(target, stemRuled, door);
+}
+
+/**
+ * §3i — the savePath items that write an image_id SIBLING of the target's
+ * section (media/stem_rules.ts stemRuledKeys), with the value as it will be
+ * stored. Dynamic import: the media subsystem reads this module's birth law.
+ */
+async function stemRuledPath(
+	target: RecordWriteTarget,
+	savePath: readonly SavePathItem[],
+): Promise<import('../media/stem_rules.ts').StemRuledKey[]> {
+	// The relation and media columns never hold a sibling (a literal component).
+	const literal = savePath.filter((item) => item.column !== 'relation' && item.column !== 'media');
+	if (literal.length === 0) return [];
+	const { stemRuledKeys } = await import('../media/stem_rules.ts');
+	return stemRuledKeys(target.sectionTipo, literal);
+}
+
+/**
+ * §3h for the two INSERT doors that bypass the chokepoint by design
+ * (create_record.ts create-with-values, duplicate_record.ts — owner ruling
+ * 2026-11-13 C28 a: births are judged under the same law as every save): every
+ * relation key the born row carries is a key that ADDS every one of its
+ * locators (nothing was stored before), so each target is locked `FOR KEY
+ * SHARE` to COMMIT and a DELETED one refuses the birth
+ * (`relation.target_deleted` — the insert rolls back with the counter, as a
+ * `tree.cycle` refusal does). MUST run inside the insert's transaction. The
+ * chokepoint's own birth entry (persistRecordBirth — an undelete, history
+ * verbatim) stays exempt as persistRestoredKeys is.
+ */
+export async function assertBirthLocatorTargetsLive(
+	target: RecordWriteTarget,
+	values: MatrixWriteValues,
+	door: string,
+): Promise<void> {
+	const bag = relationBagOf(values);
+	if (bag === null) return;
+	for (const [key, value] of Object.entries(bag)) {
+		await assertAddedLocatorTargetsLive(target, key, door, [], asItems(value));
+	}
+}
+
 /** The key write proper, after the key save rules (§3f) and the machine-name rules (§3g). */
 async function writeKeys(
 	target: RecordWriteTarget,
@@ -828,13 +898,14 @@ async function writeKeys(
 	// A parent key is never written transaction-less: its cycle check needs the
 	// row lock held to COMMIT (ONT-5), so it takes the transaction path below.
 	const parentLink = await writesParentLink(savePath);
+	// §3i — THE IMAGE_ID STEM RULES (media/stem_rules.ts): a key that is the
+	//    sibling a component_image names its FILES by takes the transaction path
+	//    too — its stored value is read under the row lock and judged (unique in
+	//    the section; locked while files exist under it) before the UPDATE. One
+	//    cached Map lookup per key for every other write.
+	const stemRuled = await stemRuledPath(target, savePath);
 
-	if (
-		plan.observed.length === 0 &&
-		plan.indexed.length === 0 &&
-		plan.targeted.length === 0 &&
-		!parentLink
-	) {
+	if (!needsTransactionPath(plan, parentLink, stemRuled.length > 0)) {
 		const affected = await updateMatrixKeysData(
 			target.table,
 			target.sectionTipo,
@@ -865,6 +936,7 @@ async function writeKeys(
 		const changes = await observedChanges(target, plan.observed, mode.door, befores);
 		await assertTargetedKeys(target, plan.targeted, mode.door, befores);
 		if (parentLink) await assertParentLinkKeys(target, savePath, 'replace');
+		await assertStemRuledKeys(target, stemRuled, mode.door);
 		const indexWrites = await relationSearchWrites(plan.indexed, mode.law);
 		const affected = await updateMatrixKeysData(
 			target.table,
@@ -1031,16 +1103,34 @@ async function assertAppendableKey(
 	column: MatrixJsonbColumn,
 	key: string,
 ): Promise<void> {
-	if (column !== 'relation') return;
-	if (!(await componentDeclaresOrder(key, target.sectionTipo))) return;
+	if (column === 'relation') {
+		if (!(await componentDeclaresOrder(key, target.sectionTipo))) return;
+		throw new DedaloError('internal.invariant', {
+			message: `persistAppendedKeyItems: '${key}' declares an order — a declared-order key is never appended atomically (route it to persistRecordKeys)`,
+			coordinates: {
+				table: target.table,
+				section_tipo: target.sectionTipo,
+				section_id: target.sectionId,
+				tipo: key,
+				reason: 'declared_order',
+			},
+		});
+	}
+	// §3i — an image_id SIBLING is judged against its stored value (the stem
+	// rules read it under the row lock and compare); an append cannot, so the
+	// save door routes it to the full-array persist (save_component.ts
+	// stemRuledInserts) and reaching here is the same programming error.
+	if (column === 'media') return;
+	const { isImageIdSibling } = await import('../media/stem_rules.ts');
+	if (!(await isImageIdSibling(target.sectionTipo, key))) return;
 	throw new DedaloError('internal.invariant', {
-		message: `persistAppendedKeyItems: '${key}' declares an order — a declared-order key is never appended atomically (route it to persistRecordKeys)`,
+		message: `persistAppendedKeyItems: '${key}' is an image_id sibling — a stem-ruled key is never appended atomically (route it to persistRecordKeys)`,
 		coordinates: {
 			table: target.table,
 			section_tipo: target.sectionTipo,
 			section_id: target.sectionId,
 			tipo: key,
-			reason: 'declared_order',
+			reason: 'image_id_sibling',
 		},
 	});
 }

@@ -1587,8 +1587,26 @@ async function declaredOrderInserts(
 	componentTipo: string,
 	sectionTipo: string,
 ): Promise<boolean> {
-	if (atomicInserts.length === 0 || column !== 'relation') return false;
-	return componentDeclaresOrder(componentTipo, sectionTipo);
+	if (atomicInserts.length === 0) return false;
+	if (column === 'relation') return componentDeclaresOrder(componentTipo, sectionTipo);
+	return stemRuledInserts(column, componentTipo, sectionTipo);
+}
+
+/**
+ * An image_id SIBLING (the component a component_image names its files by —
+ * media/stem_rules.ts) never takes the atomic append either: the stem rules
+ * (record_write.ts §3i) judge the value AGAINST THE STORED ONE under the row
+ * lock, which a concatenation cannot show, and the append entry refuses it.
+ * Its inserts persist as the full array, which the chokepoint judges.
+ */
+async function stemRuledInserts(
+	column: string,
+	componentTipo: string,
+	sectionTipo: string,
+): Promise<boolean> {
+	if (column === 'media') return false;
+	const { isImageIdSibling } = await import('../../media/stem_rules.ts');
+	return isImageIdSibling(sectionTipo, componentTipo);
 }
 
 /**

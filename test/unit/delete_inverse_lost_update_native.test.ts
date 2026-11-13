@@ -64,6 +64,7 @@ import {
 import { findInverseReferenceLocators } from '../../src/core/search/search_related.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { deleteSectionRecord } from '../../src/core/section/record/delete_record.ts';
+import { duplicateSectionRecord } from '../../src/core/section/record/duplicate_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import {
 	persistAppendedKeyItems,
@@ -95,6 +96,11 @@ const SECTION = 'zzdlu1';
 const PORTAL = 'zzdlu2';
 /** A second portal on the same section (T1-19 R3: a NEW key onto an owner that already references the target). */
 const PORTAL2 = 'zzdlu3';
+/** T1-19 B (C28): a section born LINKED to the anchor through a `dato_default` portal. */
+const DEFAULTED_SECTION = 'zzdlu4';
+const DEFAULTED_PORTAL = 'zzdlu5';
+/** The situation's anchor record — the dato_default target; deleted by the B3 case. */
+const ANCHOR_ID = 900801;
 const TABLE = 'matrix_test';
 const USER_ID = -1; // root, as every other delete gate
 
@@ -126,10 +132,25 @@ const SITUATION = situation({
 			model: 'component_portal',
 			term: { 'lg-spa': 'Otros relacionados', 'lg-eng': 'Other related' },
 		},
+		// T1-19 B (C28): a section whose portal is BORN pointing at the anchor
+		// record — the create-with-values birth (record_defaults dato_default).
+		{
+			tipo: DEFAULTED_SECTION,
+			parent: 'test1',
+			model: 'section',
+			term: { 'lg-spa': 'Nacido enlazado', 'lg-eng': 'Born linked' },
+		},
+		{
+			tipo: DEFAULTED_PORTAL,
+			parent: DEFAULTED_SECTION,
+			model: 'component_portal',
+			term: { 'lg-spa': 'Enlace por defecto', 'lg-eng': 'Default link' },
+			properties: { dato_default: { section_tipo: SECTION, section_id: ANCHOR_ID } },
+		},
 	],
 	// Anchor record: dropSituation sweeps every row of every section the
 	// situation declares, so the runtime-created records below go with it.
-	records: [{ section_tipo: SECTION, section_id: 900801 }],
+	records: [{ section_tipo: SECTION, section_id: ANCHOR_ID }],
 });
 
 /** The record the admin deletes. */
@@ -692,6 +713,110 @@ describe('T1-19 locator target vs a concurrent delete (D01)', () => {
 		);
 		expect(codeOf(refused)).toBe('internal.invariant');
 	});
+});
+
+// ===========================================================================
+// T1-19 B / C28 (owner ruling 2026-11-13: a) — BIRTHS under the same law. The
+// two INSERT doors that bypass the chokepoint (duplicate_record.ts, the
+// create-with-values of create_record.ts) used to store a born row's locators
+// UNJUDGED: a duplicate of a record carrying a locator to a record being deleted
+// (or a legacy locator to a deleted one) was born dangling. Now every relation
+// key of the born row is judged inside the insert's transaction
+// (record_write.ts assertBirthLocatorTargetsLive): the targets' KEY SHARE waits
+// on a running delete, and a deleted target REFUSES the birth — row and counter
+// rolled back, nothing inserted.
+// ===========================================================================
+
+/** Live rows of a section (the "nothing inserted" witness). */
+async function rowCount(sectionTipo: string): Promise<number> {
+	const rows = (await sql.unsafe(
+		`SELECT count(*)::int AS n FROM "${TABLE}" WHERE section_tipo = $1`,
+		[sectionTipo],
+	)) as { n: number }[];
+	return rows[0]?.n ?? 0;
+}
+
+describe('T1-19 B / C28: births are judged under the locator-target law', () => {
+	test('B1 duplicate: a source carrying a legacy locator to a DELETED record is refused — nothing inserted', async () => {
+		const gone = await newRecord();
+		const source = await newRecord();
+		expect((await deleteSectionRecord(SECTION, gone, USER_ID)).removed).toBe(true);
+		// Pre-protocol residue on the source (the exempt RESTORE entry writes it).
+		await persistRestoredKeys(
+			ownerTarget(source),
+			[{ column: 'relation', key: PORTAL, value: [{ ...locatorTo(gone), id: 1 }] }],
+			false,
+			{ actor: USER_ID },
+		);
+		expect(references(await bagOf(source), gone)).toBe(true);
+		const before = await rowCount(SECTION);
+		const duplicated = await settle(duplicateSectionRecord(SECTION, source, USER_ID));
+		expect(codeOf(duplicated)).toBe('relation.target_deleted');
+		expect(await rowCount(SECTION)).toBe(before);
+		// The source itself stays as it was (editable residue, G3).
+		expect(references(await bagOf(source), gone)).toBe(true);
+	}, 30_000);
+
+	test('B2 duplicate vs a CONCURRENT delete of a linked record: the birth WAITS on the delete, then is refused', async () => {
+		const target = await newRecord();
+		const source = await newRecord();
+		expect((await insertLink(source, target)).ok).toBe(true);
+		let deleterPid = 0;
+		let entered: () => void = () => {};
+		const inDelete = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		let release: () => void = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const deletion = settle(
+			deleteSectionRecord(SECTION, target, USER_ID, new Date(), {
+				precondition: async () => {
+					deleterPid = await currentBackendPid();
+					entered();
+					await gate;
+					return null;
+				},
+			}),
+		);
+		await inDelete;
+		const before = await rowCount(SECTION);
+		const duplicated = settle(duplicateSectionRecord(SECTION, source, USER_ID));
+		// Identity, not timing: the birth's KEY SHARE must be blocked by the deleter.
+		const blocked = await waitUntilBlockedByN(deleterPid, 1, 5_000);
+		release();
+		const deleted = await deletion;
+		const outcome = await duplicated;
+		expect(blocked).toBe(true);
+		expect(deleted.status).toBe('fulfilled'); // never the 40P01 victim
+		expect(codeOf(outcome)).toBe('relation.target_deleted');
+		// The target is gone, the source's link stripped by the delete, no clone born.
+		expect(await rowCount(SECTION)).toBe(before - 1);
+		expect(references(await bagOf(source), target)).toBe(false);
+		expect(
+			await findInverseReferenceLocators([{ section_tipo: SECTION, section_id: target }]),
+		).toEqual([]);
+	}, 30_000);
+
+	test('B3 create-with-values: a dato_default pointing at a DELETED record refuses the birth; it was born linked before', async () => {
+		expect(await getMatrixTableFromTipo(DEFAULTED_SECTION)).toBe(TABLE);
+		// Control (non-vacuity): the default DOES link a born record to the anchor.
+		const linked = await createSectionRecord(DEFAULTED_SECTION, USER_ID);
+		const bornBag = (await sql.unsafe(
+			`SELECT relation->$1 AS items FROM "${TABLE}" WHERE section_tipo = $2 AND section_id = $3`,
+			[DEFAULTED_PORTAL, DEFAULTED_SECTION, linked],
+		)) as { items: unknown }[];
+		expect(references((bornBag[0]?.items ?? []) as Record<string, unknown>[], ANCHOR_ID)).toBe(
+			true,
+		);
+		// The anchor is deleted (with its Time Machine row) — the default now names a deleted record.
+		expect((await deleteSectionRecord(SECTION, ANCHOR_ID, USER_ID)).removed).toBe(true);
+		const before = await rowCount(DEFAULTED_SECTION);
+		const birth = await settle(createSectionRecord(DEFAULTED_SECTION, USER_ID));
+		expect(codeOf(birth)).toBe('relation.target_deleted');
+		expect(await rowCount(DEFAULTED_SECTION)).toBe(before);
+	}, 30_000);
 });
 
 // ---------------------------------------------------------------------------

@@ -138,6 +138,7 @@ import { logError } from '../../errors/log.ts';
 import { type ComponentMediaCopy, duplicateSectionMediaFiles } from '../../media/file_ops.ts';
 import { resolveMediaPathOptions } from '../../media/ontology_path.ts';
 import type { MediaPathOptions } from '../../media/path.ts';
+import { type ClearedStem, stripImageIdSiblings } from '../../media/stem_rules.ts';
 import { defaultRasterUrl, duplicateSvgEnvelope, svgFileDataOf } from '../../media/svg_overlay.ts';
 import type { StoredMediaItem } from '../../media/tools/files_info_persist.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from '../../ontology/resolver.ts';
@@ -155,6 +156,7 @@ import { assertParentLinkKeysAcyclic, type ParentKeyWrite } from '../../relation
 import { currentDataLang } from '../../resolve/request_lang.ts';
 import {
 	afterRecordWrite,
+	assertBirthLocatorTargetsLive,
 	dropCoveredObserverUnits,
 	ownDataCoveredSlots,
 	prepareBirthColumns,
@@ -229,6 +231,13 @@ export interface MediaCopyVerdict {
 	 * copy > rescan|missing|locked > envelope > count.
 	 */
 	stage?: 'no_media_root' | 'copy' | 'rescan' | 'missing' | 'locked' | 'envelope' | 'count';
+	/**
+	 * The `properties.image_id` sibling the duplicate CLEARED on the clone so this
+	 * image's files are named by the clone's identifier, not the source's stem
+	 * (T1-10 OD-1 ruled b; stem_rules.ts stripImageIdSiblings). Absent when the
+	 * image declares no sibling or the source's was empty.
+	 */
+	clearedStemSibling?: string;
 }
 
 /** Why a component stopped — for the LOG line only, never a verdict field (SEC-18). */
@@ -284,6 +293,28 @@ export async function duplicateSectionRecord(
 		await dropCoveredObserverUnits(values as MatrixWriteValues, coveredMains);
 		followRelationDrop(copied, (values.relation ?? {}) as Record<string, unknown>);
 	}
+	// 1c. The clone's `properties.image_id` SIBLING(S) are CLEARED (T1-10 OD-1,
+	//     owner ruling 2026-11-13 b): a component_image names its files by that
+	//     sibling's value, so a clone carrying the source's stem would address the
+	//     SOURCE's files — step 4b then copied a file onto itself (PHP) and a
+	//     later delete of either record took the other's media away. Cleared, the
+	//     clone's files land under its own identifier and the stem rules
+	//     (media/stem_rules.ts) never see a shared stem. Reported on the image
+	//     component's verdict (`clearedStemSibling`) and logged.
+	const clearedStems = await stripImageIdSiblings(sectionTipo, values as MatrixWriteValues);
+	if (clearedStems.length > 0) {
+		const clearedTipos = new Set(clearedStems.map((entry) => entry.siblingTipo));
+		copied.splice(
+			0,
+			copied.length,
+			...copied.filter((component) => !clearedTipos.has(component.tipo)),
+		);
+		for (const entry of clearedStems) {
+			console.info(
+				`[duplicate_record] the clone of ${sectionTipo}/${sourceSectionId} does not carry the image_id sibling '${entry.siblingTipo}' (stem '${entry.stem}', images ${entry.imageTipos.join(',')}): its files are named by its own identifier`,
+			);
+		}
+	}
 
 	// 2. Fresh audit metadata: created AND modified stamps (stampDuplicateAudit).
 	await stampDuplicateAudit(values, sectionTipo, userId, now);
@@ -328,8 +359,20 @@ export async function duplicateSectionRecord(
 			...(await ownDataCoveredSlots(sectionTipo)),
 		]),
 	];
+	//    THE LOCATOR-TARGET LAW on the birth (record_write.ts §3h,
+	//    assertBirthLocatorTargetsLive — owner ruling 2026-11-13 C28 a): every
+	//    locator the clone copied is an ADDED link, its target locked FOR KEY
+	//    SHARE to COMMIT inside this same transaction; a target DELETED meanwhile
+	//    (or a legacy locator to a deleted record on the source) REFUSES the
+	//    duplicate — `relation.target_deleted`, the row and the counter rolled
+	//    back, nothing addressed by the id exists.
 	const newSectionId = await withTransaction(async () => {
 		const id = await insertMatrixRecordWithCounter(table, sectionTipo, values);
+		await assertBirthLocatorTargetsLive(
+			{ table, sectionTipo, sectionId: id },
+			values,
+			'duplicateSectionRecord',
+		);
 		await assertParentLinkKeysAcyclic(
 			{ table, sectionTipo, sectionId: id },
 			relationKeyWrites(values.relation),
@@ -352,6 +395,7 @@ export async function duplicateSectionRecord(
 		copied,
 		claimed,
 		mediaRoot: mediaOptions.mediaRoot,
+		clearedStems,
 	});
 	mediaOptions.verdicts?.push(...verdicts);
 
@@ -1121,6 +1165,8 @@ interface RecordMediaCopy {
 	claimed: ReadonlyMap<string, number>;
 	/** See DuplicateMediaOptions.mediaRoot (null = none, undefined = the configured one). */
 	mediaRoot: string | null | undefined;
+	/** The image_id siblings step 1c cleared on the clone (stem_rules.ts stripImageIdSiblings). */
+	clearedStems: readonly ClearedStem[];
 }
 
 /**
@@ -1180,6 +1226,7 @@ async function duplicateRecordMedia(input: RecordMediaCopy): Promise<MediaCopyVe
 			sourceFiles: input.claimed.get(component.tipo) ?? 0,
 			copiedFiles: copy?.copiedFiles ?? 0,
 			incomplete: false,
+			...clearedStemSiblingOf(input.clearedStems, component.tipo),
 		};
 		const detail: IncompleteDetail = {};
 		if (copy?.error !== undefined) {
@@ -1201,6 +1248,15 @@ async function duplicateRecordMedia(input: RecordMediaCopy): Promise<MediaCopyVe
 		verdicts.push(verdict.incomplete ? reportIncomplete(input, verdict, detail) : verdict);
 	}
 	return verdicts;
+}
+
+/** The verdict field naming the sibling step 1c cleared for this image (nothing when none was). */
+function clearedStemSiblingOf(
+	clearedStems: readonly ClearedStem[],
+	imageTipo: string,
+): Pick<MediaCopyVerdict, 'clearedStemSibling'> {
+	const cleared = clearedStems.find((entry) => entry.imageTipos.includes(imageTipo));
+	return cleared === undefined ? {} : { clearedStemSibling: cleared.siblingTipo };
 }
 
 /**

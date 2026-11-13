@@ -189,6 +189,27 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-export-tag-marks-plain-text`, `WC-2026-11-13-export-media-cell-type`.
 
+- **An image's file name (the `image_id` field) must be unique in its section and cannot be changed while the image's files exist; a duplicate gets its own file name.**
+
+    Some image fields name their files by another field of the record (the ontology's
+    `image_id`, e.g. **Filename** on Images). Before, two records could hold the same file name
+    and then address the SAME files: an upload to one replaced the other's image, deleting one
+    moved the other's files away, and every duplicate of such a record shared its original's files.
+    Changing the file name after an upload left the files behind under the old name.
+
+    Now saving a file name another record of the same section already uses is refused and the
+    message names that record; an upload under a file name another record holds is refused before
+    anything is written. A record whose image files exist cannot change (or clear) its file name:
+    the message lists the files and the remedy — delete the image's files first, then rename. A
+    duplicated record is created WITHOUT the original's file name, so its copied files are named by
+    its own identifier; give it a new file name of its own before uploading if you want one.
+
+    **Action needed:** none. Records that already share a file name (written before this release)
+    keep working for reading; the first upload to one of them is refused until one of the two gets
+    its own file name.
+
+    Wire contract: `WC-2026-11-12-image-id-media-file-stem`.
+
 - **A selected value you may not see, or that no longer fits the record, now shows as *(restricted)* instead of vanishing.**
 
     Since the option lists of selects, radio buttons and check boxes became the search you are allowed to run (and, where configured, the options that fit the record), a value stored on the record but outside your list simply disappeared: no label in the list view, no option in the edit form — and a save of that field would have dropped it without anyone noticing.
@@ -384,6 +405,18 @@ Merged since the last release; these ship with the next one.
     When a media record had lost its original file name, **Regenerate files** in Media versions did not restore it from the record's "Original file name" field, while **Update cache** did, but on the wrong language's file for translatable media and with the extension in upper case. Both tools now restore it the same way: on the file of the language you are working in, with the stored normalized name in lower case, and only when the name is missing — a name already recorded is never replaced.
 
     Wire contract: `WC-2026-11-12-media-provenance-repair-one-kernel`.
+
+- **Creating or duplicating a record that would link to a deleted record is refused.**
+
+    A save that links to a record someone else deletes at the same moment is already refused
+    instead of leaving a broken link. The same protection now covers the two ways a record is BORN
+    with links: duplicating a record (every link it copies) and creating one whose section gives
+    new records a default link or a project. If a linked record is deleted meanwhile — or the
+    original already carried a link to a long-deleted record — the duplicate or creation is refused
+    with "The linked record was deleted: remove the link (or restore the record from Time Machine)
+    and save again", and no record is created.
+
+    Wire contract: `WC-2026-11-12-locator-target-deleted-refused`.
 
 - **Sorting a list by a number column orders the values numerically (2, 9, 10), not as text (10, 2, 9).**
 

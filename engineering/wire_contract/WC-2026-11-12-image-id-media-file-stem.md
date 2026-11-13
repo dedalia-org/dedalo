@@ -82,3 +82,67 @@
   (now through the writer's own `resolveFileIdOverride`); no re-harvest.
 - `engineering/MEDIA_SPEC.md` (files_info sweep paragraph) amended: an `image_id` stem is
   built, only an unresolvable one is a held SHRINK.
+
+## Addendum 2026-11-13 — shared stems refused, stem locked while files exist, duplicate clears (T1-10 OD-1 ruled c+b, OD-3 ruled c)
+
+Owner rulings 2026-11-13 (T1 owner decisions C20, C22) close divergence 2 and
+the OD-3 half of divergence 4. Code: `src/core/media/stem_rules.ts` (the rules),
+`src/core/section_record/record_write.ts` §3i (every key write of an image_id SIBLING takes the
+transaction path and is judged under the owner's row lock before its UPDATE; the atomic append
+refuses such a key and `save_component.ts stemRuledInserts` routes it to the full-array
+persist), `src/core/media/ingest/process_uploaded_file.ts` (the upload door),
+`src/core/db/matrix.ts readOtherSectionIdsHoldingValue` (the ONE probe),
+`src/core/section/record/duplicate_record.ts` step 1c + `file_ops.ts duplicateSectionMediaFiles`
+(the clone's own options). Registry: `media.stem_in_use`, `media.stem_locked` (both `conflict`
+409, public). Gate: `media_image_id_native` L8 (flipped), L12, L13.
+
+**C20 (c) — a stem is UNIQUE in its section.** Saving an image_id sibling to a value whose
+trimmed stem another record of the same section stores on that sibling is refused inside the
+save's transaction, nothing written:
+
+```
+{ok:false, error:{code:'media.stem_in_use', status:409,
+  message:"The file name 'photo_2' is already used by record rsc29/7 of this section: choose another one",
+  details:{section_id:7}}}
+```
+
+The upload door asserts the same before the staged file is moved (a PHP-era pair that already
+shares a stem — stored before this rule — is refused there; the staged file stays staged).
+The probe is ONE containment `"<column>" @> '{"<sibling>":[{"value":"<stem>"}]}'` (the
+per-column `jsonb_path_ops` GIN shape), BYTE-EXACT on the stored item value: a stored value that
+differs only by surrounding whitespace resolves to the same stem (the resolver trims) but is NOT
+matched — a PHP-era residue the D01-class repair step owns, not this rule. Re-saving a record's
+own stem (padding included) is no "other record". Project scope is not consulted: uniqueness is
+a section fact.
+
+**C22 (c) — a non-empty stem is LOCKED while managed files exist under it.** Changing (or
+clearing) an image_id sibling whose stored stem has any `managedFileSlots` file on disk — every
+quality × managed extension of every component_image naming that sibling, under the record's
+bucket — is refused inside the save's transaction:
+
+```
+{ok:false, error:{code:'media.stem_locked', status:409,
+  message:"The file name 'photo_2' cannot be changed while media files exist under it (/image/original/0/photo_2.jpg, /image/1.5MB/0/photo_2.jpg): delete the media first, then rename",
+  details:{files:'/image/original/0/photo_2.jpg, /image/1.5MB/0/photo_2.jpg'}}}
+```
+
+The stored stem is NOT re-asserted against the stem law here (a bad stored value has no files
+and must stay replaceable). The remedy is the sentence: delete the media (the record's media
+tools), then rename. PHP orphaned the files. Every chokepoint key entry is judged — a Time
+Machine restore of the sibling to an older value while files exist under the current one is
+refused too (the restore is a change of the stem like any other).
+
+**C20 (b) — the DUPLICATE clears the clone's sibling.** The clone is inserted WITHOUT its
+image_id sibling value(s) (its column key absent), so its files are copied under
+`{component}_{section}_{clone}.{ext}` — the identifier — never onto the source's stem file;
+the per-component `error`/verdict stage `copy` of divergence 2 is gone, and the clone's verdict
+carries `clearedStemSibling: '<sibling tipo>'`. The interim copy-onto-itself refusal in
+`file_ops.ts duplicateMediaFiles` is now an `internal.invariant` assertion (unreachable through
+the engine's doors). A curator who wants the clone stem-named sets a NEW stem on it (unique by
+C20 c) and uploads.
+
+**Still PHP / unchanged:** delete keeps moving the record's OWN stem files to `deleted/` (no
+other record can share them any more); divergence 4's OD-2 (`external_source` precedence) stays
+deferred (C21).
+
+No frozen fixture is affected; no re-harvest.

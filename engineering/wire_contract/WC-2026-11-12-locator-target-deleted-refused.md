@@ -107,3 +107,35 @@ chokepoint key write + atomic append, G1 mutual links never wait, G3 kept residu
 G4 forward/remote ids accepted, K7 the KEY SHARE door refuses outside a transaction, G5 the
 lock-mode census, the per-entry `targets` declaration, and every gate the lock-law headers
 name exists.
+
+## Addendum 2026-11-13 — births judged under the same law (T1-19 owner decision B ruled a, C28)
+
+Owner ruling 2026-11-13 (T1 owner decisions, C28 ruled a): the two INSERT doors
+that bypass the chokepoint — `create_record.ts` (create-with-values: the projects filter, a
+`dato_default` locator, the creator link) and `duplicate_record.ts` (every relation key the
+clone copies) — now run `record_write.ts assertBirthLocatorTargetsLive` INSIDE the insert's
+transaction, right after the row INSERT: every locator of the born row is an ADDED link (nothing
+was stored before), so each target is locked `FOR KEY SHARE` to COMMIT, a running delete of a
+target makes the birth WAIT, and a DELETED target (absent with Time Machine history) REFUSES the
+birth with the same `relation.target_deleted` (409) — the row AND the counter roll back, nothing
+addressed by the id exists (media and history follow the commit). The "NOT covered: births"
+sentence of the shape-after section is withdrawn.
+
+Consequences a reader sees:
+
+- a duplicate of a record carrying a LEGACY locator to a deleted record is refused until the
+  source is repaired (remove the link, or restore the record from Time Machine) — ruling (a),
+  not (b): the clone is judged on what it will store, not on what the door read;
+- a create whose section declares a `dato_default` pointing at a deleted record refuses every
+  birth in that section until the default (or the record) is fixed — an ontology error made
+  loud instead of a dangling locator on every new record;
+- every birth takes a KEY SHARE on the creator's user record; two KEY SHAREs never conflict, and
+  a user edit (`FOR NO KEY UPDATE`) does not conflict with one — only a delete of that user does.
+
+Still exempt: the chokepoint's own birth entry `persistRecordBirth` (an undelete writes history
+verbatim, as `persistRestoredKeys` does) and the raw migration writers named above.
+
+Gate: `delete_inverse_lost_update_native` B1 (duplicate, legacy locator → refused, no row),
+B2 (duplicate vs a concurrent delete: waits on the deleter's pid, then refused, no row, the
+delete never the 40P01 victim), B3 (create-with-values: born linked before, refused after the
+default's target is deleted, no row). No frozen fixture is affected; no re-harvest.
