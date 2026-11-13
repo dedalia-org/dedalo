@@ -1279,7 +1279,16 @@ is an operator's decision, with the dry report in view.
   changed or a file disagrees with the ledger; rows recorded before the hash
   column are backfilled once. A `compatible` class must be lexer-proven additive;
   an `incompatible` migration ships only in an `incompatible` (minor) release
-  (`migration_content_hash_tripwire`). A boot file never builds an index on a
+  (`migration_content_hash_tripwire`). **The seal** (owner ruling C31,
+  2026-11-13): the release cut (`bun run changelog release <v>`) freezes, at a
+  triple's FIRST build (its first prerelease, or the release), the set of
+  `incompatible` migrations the ledger assigns to `X.Y.Z` into
+  `install/db/migrations.sealed.json` (`install/db/migration_seal.ts`); from
+  then on an `incompatible` file added to that triple is red and must move to
+  the next minor — so the same-triple ruling of §12 (a run inside one triple
+  crosses no migration) is a checked property, not a convention. 7.0.0 was
+  sealed retroactively at beta.8, with `0015` (which had crossed beta.7 → beta.8
+  before the seal existed). A boot file never builds an index on a
   shared table — that is the ONLINE lane (`migration_shared_row_tripwire`).
   Subsystem lazy `CREATE TABLE IF NOT EXISTS` bootstraps remain as fallback.
   Every file's lock WAIT is bounded (`SET LOCAL lock_timeout`, default 5s) and
@@ -1542,8 +1551,11 @@ FAILED_PRE_SWAP; after it ROLLED_BACK_CODE unless a database phase
 release with no plan) started, then NEEDS_DB_RESTORE (sentinel `needs_restore`,
 a human restores the run's backup with the previous code — D-2). A code-only
 release and a same-triple run are not counted as crossings (owner ruling
-2026-11-11, T1-25) — for a same-triple run a ruling, not a checked property:
-builds of one triple may differ by an `incompatible` migration (VERSIONING_SPEC
+2026-11-11, T1-25). Since 2026-11-13 (C31) the same-triple half is a CHECKED
+property: the release cut SEALS a triple's `incompatible` set at its first build
+(`install/db/migrations.sealed.json`, §7), so two builds of one sealed triple
+cannot differ by an `incompatible` migration; the one historical exception,
+`0015` between 7.0.0-beta.7 and -beta.8, predates the seal (VERSIONING_SPEC
 §4 rule 8). CLI: `bun run update
 status|check|plan <release>|abort [note]` (`scripts/update.ts`). Door
 precondition classes: `src/core/update/door_class.ts` (WC-2026-10-30-maintenance-door-classes).

@@ -30,14 +30,24 @@ import {
 	migrationSha256,
 	readMigrationLedger,
 } from '../../install/db/migration_ledger.ts';
+import {
+	incompatibleFilesOf,
+	type MigrationSeal,
+	readMigrationSeal,
+	releaseTripleOf,
+	sealed,
+	sealViolations,
+} from '../../install/db/migration_seal.ts';
 import { RELEASE_PLANS } from '../../src/core/update/catalog.ts';
 import {
 	compareVersionArrays,
 	DATA_LINE_START,
 	parseVersionString,
 } from '../../src/core/update/version.ts';
+import { trackedRepoFiles } from '../helpers/deploy_artifact_corpus.ts';
 
 const ledger: MigrationLedger = await readMigrationLedger();
+const seal: MigrationSeal = readMigrationSeal();
 // the runner's own enumeration (migrate.ts) — the ledger is checked against what boot applies
 const files = shippedMigrationFiles();
 const contentOf = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
@@ -151,6 +161,77 @@ describe('migration content-hash tripwire — install/db/migrations.lock.json', 
 		]) {
 			expect(isProvablyCompatible(incompatible), incompatible).toBe(false);
 		}
+	});
+
+	/**
+	 * 4. THE SEAL (owner ruling C31, 2026-11-13 — install/db/migration_seal.ts): a
+	 * triple whose first build was cut (`changes/<X.Y.Z>/` or `changes/<X.Y.Z>-<pre>/`
+	 * exists) is SEALED, and no `incompatible` migration outside its seal set names
+	 * it as release — the data model cannot move inside one triple (the 2026-11-11
+	 * same-triple ruling, now a checked property instead of a convention).
+	 */
+	describe('the seal: no incompatible migration inside a built triple (C31)', () => {
+		/** The triples with a release directory under changes/ (a cut happened). */
+		const builtTriples = [
+			...new Set(
+				trackedRepoFiles()
+					.map((path) => /^changes\/([^/]+)\/release\.json$/.exec(path)?.[1])
+					.filter((version): version is string => version !== undefined)
+					.map((version) => releaseTripleOf(version))
+					.filter((triple): triple is string => triple !== null),
+			),
+		].sort();
+
+		test('anti-vacuity: at least one triple has been built, and it is sealed with its incompatible set', () => {
+			expect(builtTriples.length).toBeGreaterThanOrEqual(1);
+			expect(builtTriples).toContain('7.0.0');
+			expect(seal.triples['7.0.0']).toEqual(incompatibleFilesOf(ledger, '7.0.0'));
+			expect((seal.triples['7.0.0'] ?? []).length).toBeGreaterThanOrEqual(7);
+		});
+
+		test('every triple that has been built is sealed (the release cut wrote it)', () => {
+			expect(builtTriples.filter((triple) => seal.triples[triple] === undefined)).toEqual([]);
+		});
+
+		test('every sealed triple holds exactly its incompatible set — none added after the seal', () => {
+			expect(sealViolations(ledger, seal)).toEqual([]);
+		});
+
+		test('anti-vacuity: an incompatible file added to a sealed triple is red; a compatible one, or an unsealed triple, is not; a sealed file the ledger drops is red', () => {
+			const planted = (klass: 'compatible' | 'incompatible', release: string): MigrationLedger => ({
+				format: ledger.format,
+				migrations: {
+					...ledger.migrations,
+					'0099_probe.sql': { sha256: '0'.repeat(64), class: klass, release },
+				},
+			});
+			expect(sealViolations(planted('incompatible', '7.0.0'), seal)).toEqual([
+				expect.stringMatching(/^0099_probe\.sql: release 7\.0\.0 is SEALED .*next minor/),
+			]);
+			expect(sealViolations(planted('compatible', '7.0.0'), seal)).toEqual([]);
+			expect(sealViolations(planted('incompatible', '7.1.0'), seal)).toEqual([]);
+			const dropped: MigrationLedger = {
+				format: ledger.format,
+				migrations: Object.fromEntries(
+					Object.entries(ledger.migrations).filter(
+						([file]) => file !== '0015_dd_ontology_machine_names.sql',
+					),
+				),
+			};
+			expect(sealViolations(dropped, seal)).toEqual([
+				expect.stringMatching(
+					/^0015_dd_ontology_machine_names\.sql: sealed under 7\.0\.0 but the ledger does not carry it/,
+				),
+			]);
+			// The cut's hook: sealing a new triple freezes its current incompatible set; a sealed one is unchanged.
+			const next = sealed(seal, planted('incompatible', '7.1.0'), '7.1.0');
+			expect(next.triples['7.1.0']).toEqual(['0099_probe.sql']);
+			expect(Object.keys(next.triples)).toEqual(['7.0.0', '7.1.0']);
+			expect(sealed(seal, planted('incompatible', '7.0.0'), '7.0.0')).toBe(seal);
+			expect(releaseTripleOf('7.0.1-beta.2')).toBe('7.0.1');
+			expect(releaseTripleOf('7.0.1')).toBe('7.0.1');
+			expect(releaseTripleOf('x.y')).toBeNull();
+		});
 	});
 
 	test('anti-vacuity: an edited or unledgered file is caught, and the hash is of the exact bytes', () => {

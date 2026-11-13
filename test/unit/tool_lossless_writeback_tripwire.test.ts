@@ -1833,6 +1833,12 @@ else {
 				'the PURE grammar of an online migration (its header: no DB import, nothing that writes a row); the install seed compiler reads only isOnlineMigration() to choose whether a migration file runs in one transaction.',
 		},
 		{
+			id: 'migration-seal',
+			matches: (target) => target === 'install/db/migration_seal.ts',
+			reason:
+				'the MIGRATION SEAL (owner ruling C31): the release cut (scripts/changelog.ts) freezes a triple’s incompatible-migration set into migrations.sealed.json — a repo file written at the cut, no DB handle, never a row; the tripwire half reads it.',
+		},
+		{
 			id: 'migration-ledger',
 			matches: (target) => target === 'install/db/migration_ledger.ts',
 			reason:
@@ -4155,6 +4161,7 @@ else {
 				'suite',
 				'migration-runner',
 				'online-migration-grammar',
+				'migration-seal',
 				'migration-ledger',
 				'json-data',
 				'tool-client-js',

@@ -15,6 +15,7 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { sealReleaseTriple } from '../install/db/migration_seal.ts';
 import {
 	AUDIENCES,
 	CHANGE_LOG_PAGE,
@@ -100,7 +101,7 @@ function scaffold(args: string[]): void {
 	console.log(`audience (${AUDIENCES.join('|')}) and the body, then run \`bun run changelog\`.`);
 }
 
-function release(args: string[]): void {
+async function release(args: string[]): Promise<void> {
 	const version = args[0];
 	if (version === undefined || version.startsWith('--')) {
 		die('usage: changelog release <version> [--from <tag>] [--date yyyy-mm-dd] [--allow-empty]');
@@ -148,10 +149,23 @@ function release(args: string[]): void {
 	for (const f of set.unreleased) renameSync(join(ROOT, f.file), join(dir, `${f.slug}.md`));
 	writeFileSync(join(dir, 'release.json'), json);
 	render(false);
+	// THE MIGRATION SEAL (owner ruling C31, 2026-11-13): the FIRST build of a triple
+	// X.Y.Z (its first prerelease, or the release itself) freezes the set of
+	// `incompatible` migrations the ledger assigns to it — install/db/migration_seal.ts.
+	// From then on an incompatible migration added to that triple is red
+	// (migration_content_hash_tripwire): it must move to the next minor.
+	const seal = await sealReleaseTriple(version);
 	console.log(
 		`Release ${version}: ${set.unreleased.length} notes, ${record.wire_contract.length} wire-contract ids, ${commits} commits since ${from}.`,
 	);
-	console.log(`Next: commit changes/ and ${CHANGE_LOG_PAGE}, then tag ${to} on that commit.`);
+	console.log(
+		seal.wrote
+			? `Sealed the migration set of ${seal.triple} (install/db/migrations.sealed.json: ${seal.files.length} incompatible file(s)${seal.files.length > 0 ? ` — ${seal.files.join(', ')}` : ''}).`
+			: `Triple ${seal.triple} was sealed by its first build (${seal.files.length} incompatible file(s)) — unchanged.`,
+	);
+	console.log(
+		`Next: commit changes/, ${CHANGE_LOG_PAGE}${seal.wrote ? ' and install/db/migrations.sealed.json' : ''}, then tag ${to} on that commit.`,
+	);
 }
 
 const [command, ...rest] = process.argv.slice(2);
@@ -159,7 +173,7 @@ try {
 	if (command === undefined) render(false);
 	else if (command === '--check') render(true);
 	else if (command === 'new') scaffold(rest);
-	else if (command === 'release') release(rest);
+	else if (command === 'release') await release(rest);
 	else die(`unknown command '${command}' (render | --check | new | release)`);
 } catch (error) {
 	// A refused fragment or release.json names its file; the stack adds nothing for an author.

@@ -1,0 +1,14 @@
+{
+	"format": 1,
+	"triples": {
+		"7.0.0": [
+			"0001_baseline.sql",
+			"0004_dd560_drop_view_tree.sql",
+			"0008_diffusion_element_type.sql",
+			"0009_search_literal_escape.sql",
+			"0010_tm_role.sql",
+			"0013_dd_ontology_identifier_grammar.sql",
+			"0015_dd_ontology_machine_names.sql"
+		]
+	}
+}
