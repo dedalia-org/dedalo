@@ -68,6 +68,7 @@ import { runWithRequestContext } from '../../src/core/security/request_context.t
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
 import { registerSessionCleanup } from '../helpers/session_cleanup.ts';
+import { installScratchToolConfig } from '../helpers/tool_config_fixture.ts';
 
 registerSessionCleanup();
 
@@ -618,6 +619,59 @@ describe.if(DB_READY)('the insert door — the TARGET constraint', () => {
 			),
 		);
 		expect(codes(result)).toEqual([['refused', 'off_target']]);
+	});
+
+	test('C36: a tool-configuration OVERRIDE (dd996 properties.tool_config) declares a picker target the write gate honours', async () => {
+		// Owner C36 2026-11-13 (WC-2026-11-12-tool-configuration-override
+		// addendum): the override ddo_map is what the element's tool stamp hands
+		// the client, so a people_section it pairs into indexing_component is
+		// OFFERED in the UI — the write door must accept the same pair (UI offer
+		// = write gate). RED before: the index read the ontology only, so the
+		// pick was offered and refused `off_target`.
+		const pick = () =>
+			asPrincipal(superuser, () =>
+				validateRelationInserts(
+					[{ section_tipo: OFF_TARGET_SECTION, section_id: 1 }],
+					context(PLAIN),
+				),
+			);
+		// precondition (the ontology alone): refused
+		expect(codes(await pick())).toEqual([['refused', 'off_target']]);
+		const teardown = await installScratchToolConfig('tool_indexation', {
+			properties: {
+				tool_config: [
+					{
+						tipo: PLAIN,
+						section_tipo: HOST,
+						ddo_map: [
+							{ role: 'indexing_component', tipo: PLAIN, section_tipo: HOST },
+							{
+								role: 'people_section',
+								tipo: OFF_TARGET_SECTION,
+								section_tipo: OFF_TARGET_SECTION,
+								mode: 'list_thesaurus',
+								view: 'thesaurus_list',
+							},
+						],
+					},
+				],
+			},
+		});
+		try {
+			// the override widens the TARGET gate to the section it pairs…
+			expect(codes(await pick())).toEqual([['accepted', null]]);
+			// …and to THAT section only: one in neither the ontology nor the
+			// override is still refused.
+			const neither = await asPrincipal(superuser, () =>
+				validateRelationInserts([{ section_tipo: TERMS, section_id: 1 }], context(PLAIN)),
+			);
+			expect(codes(neither)).toEqual([['refused', 'off_target']]);
+		} finally {
+			await teardown();
+		}
+		// the override gone (invalidateAllToolCaches / resetConfigCache bumps the
+		// tool-config generation): the index rebuilds and the pick is refused again
+		expect(codes(await pick())).toEqual([['refused', 'off_target']]);
 	});
 
 	test('a PORTAL in an unwired role of the same map gains NOTHING (no cross-product)', async () => {

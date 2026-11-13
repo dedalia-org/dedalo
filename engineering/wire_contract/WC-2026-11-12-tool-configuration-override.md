@@ -46,7 +46,7 @@ tools carried no `tool_config` at all, not even the ontology's.
 
 ## Divergences from PHP
 
-- **Granularity (OWNER CONFIRMATION PENDING — T1-43 D1).** Implemented PER
+- **Granularity (T1-43 D1 — RATIFIED per entry, owner C35 2026-11-13; see the addendum).** Implemented PER
   ENTRY: install match → register match → ontology, following
   `config.ts`'s per-key law. PHP `tool_common::get_config` picked the layer
   WHOLESALE: any dd996 record for the tool masked the register default, even
@@ -59,7 +59,7 @@ tools carried no `tool_config` at all, not even the ontology's.
 
 ## Not covered (stated, not silent)
 
-- **Picker write gate (OWNER DECISION PENDING — T1-43 D2).**
+- **Picker write gate (T1-43 D2 — RULED 2026-11-13, owner C36: the index folds the overrides; see the addendum. The paragraph below is the interim state it replaced).**
   `src/core/relations/picker_constraint.ts` `toolDeclaredTargetIndex` (the
   write-door mirror of tool ddo_maps, WC-2026-08-14) still reads the ontology
   only. An override that points a picker tool (tool_indexation /
@@ -68,3 +68,31 @@ tools carried no `tool_config` at all, not even the ontology's.
   whether overrides widen that index.
 - The menu and `start` section_tool flows do not consult the override (PHP did
   not either).
+
+## Addendum 2026-11-13 — D1 RATIFIED (owner C35), D2 RULED (owner C36)
+
+- **D1 granularity — RATIFIED per entry** (owner C35 2026-11-13: "keep per
+  entry"). The "OWNER CONFIRMATION PENDING" above is history: install match →
+  register match → ontology, per (tool, tipo, section_tipo) entry, is the
+  contract. PHP's wholesale `get_config` masking is the recorded divergence.
+- **D2 picker write gate — RULED (a)** (owner C36 2026-11-13: "yes — UI offer =
+  write gate"). `src/core/relations/picker_constraint.ts toolDeclaredTargetIndex`
+  now folds the EFFECTIVE override entries (`tools/config.ts
+  listEffectiveToolConfigurationOverrides`: each key once, the Tools
+  configuration entry shadowing the register default's — the same per-entry
+  precedence the stamp applies) through the same role-paired `indexToolConfig`
+  as the ontology bags. An override that pairs a `people_section` into a
+  linker role (`tools/picker_wiring.ts`) makes that section a TARGET of the
+  linker at the write door — exactly what the UI offers from the stamped
+  ddo_map. Gates 2-4 (read grant on the linked section, selectability, the cap)
+  are unchanged; a section in neither the ontology nor an override is still
+  refused `off_target`.
+- **Invalidation.** The index is memoized per ontology generation AND per
+  tool-config generation (`tools/config.ts toolConfigGeneration`, bumped by
+  `resetConfigCache` ← `invalidateAllToolCaches` on every dd996 / dd1324 /
+  dd234 write): an edited override takes effect on the next resolve. The "Not
+  covered" interim above (`off_target` for overridden picker pairs) is closed.
+- Gate: `test/unit/relation_insert_target_native.test.ts` — "C36: a
+  tool-configuration OVERRIDE … declares a picker target the write gate
+  honours" (refused before the override, accepted with it, a third section
+  still refused, refused again after the override is removed). RED before.

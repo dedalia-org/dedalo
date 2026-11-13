@@ -210,11 +210,28 @@ export async function getToolClientConfig(toolName: string): Promise<Record<stri
  * the ontology) — the callers stamp it onto tools that already apply.
  */
 
-/** key `${toolName}\u0000${tipo}\u0000${sectionTipo}` → the entry's ddo_map. */
-type OverrideIndex = Map<string, unknown[]>;
+/** One matched override entry: the tool it configures and its ddo_map. */
+interface OverrideHit {
+	readonly toolName: string;
+	readonly ddoMap: unknown[];
+}
+/** key `${toolName}\u0000${tipo}\u0000${sectionTipo}` → the entry's hit. */
+type OverrideIndex = Map<string, OverrideHit>;
 interface OverrideIndexes {
 	install: OverrideIndex;
 	register: OverrideIndex;
+}
+
+/**
+ * The tool-config cache GENERATION — bumps on every resetConfigCache(), i.e. on
+ * every dd996 / dd1324 write (invalidateAllToolCaches). A reader that DERIVES
+ * from the override index (relations/picker_constraint.ts, the write gate's
+ * tool-declared target index) stamps the generation it was built with and
+ * rebuilds when it moved — the one invalidation signal, no second cache entry
+ * point to keep in step.
+ */
+export function toolConfigGeneration(): number {
+	return configGeneration;
 }
 
 function overrideKey(toolName: string, tipo: string, sectionTipo: string): string {
@@ -277,7 +294,7 @@ function indexToolOverrides(
 			return;
 		}
 		const key = overrideKey(toolName, entry.tipo, entry.section_tipo);
-		if (!index.has(key)) index.set(key, entry.ddo_map);
+		if (!index.has(key)) index.set(key, { toolName, ddoMap: entry.ddo_map });
 	});
 }
 
@@ -313,6 +330,25 @@ export async function getToolConfigurationOverride(
 ): Promise<unknown[] | null> {
 	const { install, register } = await getOverrideIndexes();
 	const key = overrideKey(toolName, tipo, sectionTipo);
-	const ddoMap = install.get(key) ?? register.get(key);
-	return ddoMap !== undefined ? structuredClone(ddoMap) : null;
+	const hit = install.get(key) ?? register.get(key);
+	return hit !== undefined ? structuredClone(hit.ddoMap) : null;
+}
+
+/**
+ * Every EFFECTIVE override entry — the ddo_maps the stamp can hand to the
+ * client: each (tool, tipo, section_tipo) key once, the Tools-configuration
+ * entry shadowing the register default's (the same per-entry precedence as
+ * getToolConfigurationOverride). For the write gate's tool-declared target
+ * index (owner C36 2026-11-13: the UI offer IS the write gate, so a picker
+ * target an override declares is accepted at the door). Deep clones.
+ */
+export async function listEffectiveToolConfigurationOverrides(): Promise<
+	readonly { toolName: string; ddoMap: unknown[] }[]
+> {
+	const { install, register } = await getOverrideIndexes();
+	const effective = new Map<string, OverrideHit>([...register, ...install]);
+	return [...effective.values()].map((hit) => ({
+		toolName: hit.toolName,
+		ddoMap: structuredClone(hit.ddoMap),
+	}));
 }
