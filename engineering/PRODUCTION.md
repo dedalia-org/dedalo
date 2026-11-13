@@ -1806,7 +1806,14 @@ target REFUSED in every mode (`version_refused`: Docker has no nightly images �
 VERSIONING_SPEC S3) → release-order downgrade floor (`dedalo_version_cmp`: a
 prerelease before its release) → the RUNNING engine's walk verdict
 (`scripts/ops/image_update_channel.ts check-target`: exit 0 ok, 3 refused + reason
-id, anything else = unavailable, refused unless `--skip-version-check`) → a
+id, anything else = unavailable, refused unless `--skip-version-check`) → the
+stack file's THIRD-PARTY SERVICE PINS read (C25, owner 2026-11-13: every pinned
+`image:` but the product's; each running service compared with its pin, a
+not-running one left alone; a DATA-FORMAT service — postgres, mariadb, pgvector
+(C24) — whose pinned MAJOR differs from the running one, or whose running tag
+spells no major, REFUSES the run, `service_major_mismatch`, before anything
+changes: a major is the documented dump/restore or pg_upgrade migration, never an
+image update) → a
 verified `pg_dump` through the `backup` service (`--label pre-image-update`;
 `--no-backup` is the operator's typed waiver) → the running image anchored as
 `<DEDALO_IMAGE>:rollback-<UTC stamp>` → pull (+ when `DEDALO_IMAGE_VERIFY=cosign`:
@@ -1819,8 +1826,13 @@ or build (not a git checkout → refused; checkout `v<tag>` — `v7.0.0-beta.7` 
 `--ref` for a prerelease built under another name, build mode only; the checked-out commit's RELEASE
 IDENTITY (`dedalo_release_identity`) must build the target — a release or prerelease only from its exact
 annotated tag; then `dedalo_image_build` of that HEAD — the installer's builder, sourced before
-the checkout, which itself refuses a `-dev` tag, status 3) → re-pin → `up -d
-dedalo backup` (never postgres or nginx) → the compose healthcheck: green on the
+the checkout, which itself refuses a `-dev` tag, status 3) → the queued SERVICE
+PINS RECONCILED (`docker pull <pin>` + `up -d --no-build --no-deps <svc>`, that
+service alone, after the dump and before anything of the engine moves — a failed
+pull or recreation is `failed`/`service_pin_failed`, nothing re-pinned, the
+engine untouched; a service already recreated keeps the checkout's pin, the
+rollback below moves the ENGINE only) → re-pin → `up -d
+dedalo backup` (the third-party services are touched only by the reconcile) → the compose healthcheck: green on the
 first `healthy`; `starting` AND `unhealthy` wait up to `--health-timeout`, default
 900 s (boot migrations run BEFORE the socket binds, so `/health` is red through
 them and Docker reports `unhealthy` ≈2 min in — start_period 30 s + 3 × 30 s —

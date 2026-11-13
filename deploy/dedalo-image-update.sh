@@ -20,7 +20,7 @@
 #       [--check]
 #   ./deploy/dedalo-image-update.sh --recover [--env-file .dedalo.env] [--outcome-file FILE]
 #
-# --check is a DRY RUN: it runs only the read-only steps below (2-4 and the image
+# --check is a DRY RUN: it runs only the read-only steps below (2-4, 4b and the image
 # check of 7), so it reports whether a real run would be accepted. It takes no lock
 # (step 1), no backup, no rollback tag and changes no file (.dedalo.env included). No container
 # is started, stopped, recreated or written: the one container contact is step 4's
@@ -64,6 +64,15 @@
 #       that predates that program needs); an engine blind to prereleases (it
 #       cannot read the tag, or sees rc.1 → X.Y.Z as X.Y.Z → X.Y.Z) is asked about
 #       the DATA walk instead, X.Y.Z-dev (engine_blind_to_identity);
+#   4b. the stack file's THIRD-PARTY SERVICE PINS (owner ruling C25, 2026-11-13):
+#       every service whose `image:` is pinned `name:tag@sha256:…` (postgres, nginx,
+#       certbot, mariadb, pgvector — never the product image) and whose RUNNING
+#       container carries another image is queued for step 7b; a DATA-FORMAT image
+#       (postgres, mariadb, pgvector: owner C24) whose pinned MAJOR differs from the
+#       running one — or whose running major cannot be read — REFUSES the whole run
+#       (service_major_mismatch): a major is a migration (docs/install/docker.md,
+#       "A new PostgreSQL, pgvector or MariaDB major"), never an image update. A
+#       service that is not running (an opt-in profile) is left alone;
 #    5. a verified database dump through the stack's `backup` service, unless
 #       --no-backup (a waiver the operator types, never the default);
 #    6. the running image is tagged <DEDALO_IMAGE>:rollback-<UTC stamp>;
@@ -76,10 +85,17 @@
 #       is its exact annotated tag v<version>, a -dev build any commit of that
 #       data version), or it is refused before anything is built; a tree without
 #       git is refused (nothing to check out or snapshot);
+#   7b. the queued service pins are RECONCILED, after the dump and before anything
+#       of the engine moves: `docker pull <pin>` then `up -d --no-build --no-deps <svc>`
+#       per service, so the engine of step 9 comes up against the stack the checkout
+#       describes and the health check covers both. A pull or recreation that fails
+#       is `failed / service_pin_failed`: nothing re-pinned, the engine untouched (a
+#       service already recreated keeps the checkout's pin — the stack file is the
+#       operator's to put back, the rollback of step 11 moves the ENGINE only);
 #    8. DEDALO_VERSION is re-pinned (the ONE key this script writes) — first the
 #       PIN MARKER is written (.dedalo-image-update.pin: from, to, the rollback
 #       tag, the request id, the checkout to restore) and TERM/INT/HUP are trapped;
-#    9. `up -d dedalo backup` — postgres and nginx are never touched;
+#    9. `up -d dedalo backup` — the third-party services are touched only by 7b;
 #   10. the compose healthcheck: `healthy` is green; `starting` AND `unhealthy` keep
 #       waiting until --health-timeout (boot migrations run BEFORE the socket binds,
 #       so /health is red through them and Docker flips the state to `unhealthy`
@@ -109,7 +125,8 @@
 #    "image":"<repository>","status":"green"|"rolled_back"|"rollback_failed"|"refused"|"failed",
 #    "detail":"healthy"|"health_timeout"|"unhealthy"|"pull_failed"|"verify_failed"|
 #             "build_failed"|"backup_failed"|"version_refused"|"same_version"|
-#             "downgrade_refused"|"not_running"|"env_incomplete"|"locked"|"interrupted",
+#             "downgrade_refused"|"not_running"|"env_incomplete"|"locked"|"interrupted"|
+#             "service_major_mismatch"|"service_pin_failed",
 #    "backup":"/backups/db/…"|null,"digest":"sha256:…"|null,"started_at":ISO,"finished_at":ISO}
 # `refused` changed nothing; `failed` tried and left the running stack as it was.
 # A usage error (exit 2) writes no outcome.
@@ -544,6 +561,121 @@ check_with_engine() {
 	finish refused version_refused 'the running engine could not check this version (an image older than its update channel?). If it predates it, re-run with --skip-version-check'
 }
 
+# --- 4b. the stack file's third-party service pins (C25) --------------------------
+
+# The services queued for 7b: one "<service> <running image> <pinned image>" line each.
+SERVICE_RECONCILE=''
+
+# stack_service_pins — one "<service> <image>" line per service of the stack file
+# whose `image:` is a PINNED third-party reference (name:tag@sha256:<64 hex>, the
+# tag never `latest`): plain awk over the stack files' own shape (two-space service
+# keys under `services:`, four-space `image:`), the grammar judged by bash (an awk
+# without interval expressions would misread `{64}`). The product image
+# (`${DEDALO_IMAGE…}`) and an unpinned image are not pins and are skipped — the
+# installer's twin is src/core/install/host/stack/images.ts stackFileServiceImages.
+stack_service_pins() {
+	local svc='' img=''
+	awk '
+		/^services:/ { in_services = 1; next }
+		/^[^ \t#]/ { in_services = 0 }
+		in_services && /^  [A-Za-z0-9_.-]+:[ \t]*$/ { svc = $1; sub(/:$/, "", svc); next }
+		in_services && svc != "" && /^    image:[ \t]*[^ \t]/ { print svc, $2 }
+	' "$(dedalo_env_get "$ENV_FILE" DEDALO_COMPOSE_FILE)" |
+		while read -r svc img; do
+			if [[ "$img" =~ ^[^@[:space:]:]+:[^@[:space:]:/]+@sha256:[0-9a-f]{64}$ ]] && [[ "$img" != *:latest@* ]]; then
+				printf '%s %s\n' "$svc" "$img"
+			fi
+		done
+}
+
+# service_running_image SERVICE — the image reference the RUNNING container of a
+# service was created from (as compose passed it: `postgres:18.6@sha256:…`, or a
+# pre-pin `postgres:18`); empty when the service is not running.
+service_running_image() {
+	local container=''
+	container="$(running_container "$1")"
+	[ -n "$container" ] || return 0
+	docker inspect --format '{{.Config.Image}}' "$container" 2>/dev/null || true
+}
+
+# service_major_of IMAGE — the DATA-FORMAT MAJOR an image reference names: `18` for
+# postgres:18.6, `11` for mariadb:11.8.9, `pg18` for pgvector/pgvector:0.8.7-pg18;
+# empty for an image whose major is no data format (nginx, certbot) or a tag that
+# spells none. The bash twin of src/core/install/host/stack/images.ts
+# dataFormatMajorOf (owner C24) — image_update_script_native holds them equal.
+service_major_of() {
+	local named="${1%%@*}" name='' tag='' rest=''
+	rest="${named##*/}"
+	case "$rest" in
+		*:*) tag="${rest##*:}"; name="${named%:*}" ;;
+		*) return 0 ;;
+	esac
+	case "$name" in
+		postgres | mariadb) printf '%s' "$tag" | sed -nE 's/^([0-9]+)([.-].*)?$/\1/p' ;;
+		pgvector/pgvector) printf '%s' "$tag" | tr '-' '\n' | grep -m1 -E '^pg[0-9]+$' | tr -d '\n' || true ;;
+	esac
+}
+
+# data_format_image IMAGE — status 0 when the image's major is an on-disk data format.
+data_format_image() {
+	case "$(printf '%s' "${1%%@*}" | sed 's/:[^/:]*$//')" in
+		postgres | mariadb | pgvector/pgvector) return 0 ;;
+	esac
+	return 1
+}
+
+# check_service_pins — read-only: queue every pinned third-party service whose
+# running image differs from the stack file's pin; REFUSE when a data-format
+# service's pinned major is not the running one (or the running one cannot be
+# read — fail closed: a volume of an unknown format is never recreated under
+# another server).
+check_service_pins() {
+	local svc='' pinned='' running='' want='' have=''
+	SERVICE_RECONCILE=''
+	while read -r svc pinned; do
+		[ -n "$svc" ] || continue
+		running="$(service_running_image "$svc")"
+		[ -n "$running" ] || continue
+		[ "$running" != "$pinned" ] || continue
+		if data_format_image "$pinned"; then
+			want="$(service_major_of "$pinned")"
+			have="$(service_major_of "$running")"
+			if [ -z "$have" ]; then
+				finish refused service_major_mismatch "the running $svc image '$running' spells no readable major, so this run cannot tell whether the stack file's pin ($pinned) is the same on-disk data format — check the service by hand, then run this again"
+			fi
+			if [ "$want" != "$have" ]; then
+				finish refused service_major_mismatch "the stack file pins $svc at $pinned (major $want) but the running service is $running (major $have): a $(printf '%s' "${pinned%%@*}" | sed 's/:[^/:]*$//') MAJOR is an on-disk data format and never moves with an image update — follow docs/install/docker.md (A new PostgreSQL, pgvector or MariaDB major), then run this again"
+			fi
+		fi
+		SERVICE_RECONCILE="${SERVICE_RECONCILE}${svc} ${running} ${pinned}"$'\n'
+	done <<<"$(stack_service_pins)"
+}
+
+# say_service_pins VERB — one line per queued service ("would also reconcile" in a dry run).
+say_service_pins() {
+	local svc='' running='' pinned=''
+	[ -n "$SERVICE_RECONCILE" ] || return 0
+	while read -r svc running pinned; do
+		[ -n "$svc" ] || continue
+		say "$1 $svc: $running -> $pinned"
+	done <<<"$SERVICE_RECONCILE"
+}
+
+# --- 7b. the service pins, reconciled -----------------------------------------------
+
+# reconcile_service_pins — pull each queued pin and recreate ONLY that service
+# (`--no-deps`: the engine is recreated by step 9, against the reconciled stack).
+reconcile_service_pins() {
+	local svc='' running='' pinned=''
+	[ -n "$SERVICE_RECONCILE" ] || return 0
+	while read -r svc running pinned; do
+		[ -n "$svc" ] || continue
+		say "reconciling the $svc pin: $running -> $pinned"
+		docker pull "$pinned" || finish failed service_pin_failed "could not pull $pinned for the $svc service — nothing re-pinned, the engine untouched"
+		dc up -d --no-build --no-deps "$svc" || finish failed service_pin_failed "could not recreate the $svc service at $pinned — nothing re-pinned, the engine untouched; the stack file's pin is the checkout's to put back (git checkout -- $(dedalo_env_get "$ENV_FILE" DEDALO_COMPOSE_FILE))"
+	done <<<"$SERVICE_RECONCILE"
+}
+
 # --- 7 (dry run). the new image, read and not pulled ----------------------------
 
 # remote_digest REF — the registry digest REF names, read from its manifest (no
@@ -804,14 +936,17 @@ main() {
 	refuse_if_interrupted
 	check_version
 	check_with_engine
+	check_service_pins
 	if [ "$CHECK_ONLY" = 'true' ]; then
 		check_image
+		say_service_pins 'check: would also reconcile'
 		printf 'check: would update %s -> %s\n' "$FROM" "$TARGET"
 		exit 0
 	fi
 	take_backup
 	anchor_rollback
 	if [ "$MODE" = 'pull' ]; then pull_image; else build_image; fi
+	reconcile_service_pins
 	trap_interrupts
 	write_pin_marker || finish failed pull_failed "could not write the pin marker $(pwd)/$PIN_MARKER — nothing re-pinned"
 	dedalo_env_set "$ENV_FILE" DEDALO_VERSION "$TARGET" || finish failed pull_failed "could not re-pin DEDALO_VERSION in $ENV_FILE"
