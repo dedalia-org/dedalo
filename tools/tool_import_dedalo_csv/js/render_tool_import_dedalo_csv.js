@@ -33,6 +33,7 @@
 * - render_service_upload    – (re-)renders the drag-and-drop upload zone
 * - get_content_data         – builds the main tool body (file list + submit controls)
 * - render_file_info         – renders one CSV file card with column mapper
+* - render_unreadable_file_card – the delete-only card of a file the server could not read (read_error)
 * - render_columns_mapper    – async; fetches component list and renders column-mapping UI
 * - follow_import_job        – subscribes to the job's PUSH event stream (get_job_events)
 * - render_progress_node     – the live panel: progress bar + record/component + counters
@@ -412,11 +413,23 @@ let datalist_counter = 0
 * rebuilds the columns_mapper, and updates section_label. On invalid input it
 * shows a warning and focuses the input after a short delay.
 *
+* A file the server could not READ (`item.read_error`, C51) gets the
+* delete-only card instead — see render_unreadable_file_card.
+*
 * @param {Object} self - tool_import_dedalo_csv instance
 * @param {Object} item - one entry from self.csv_files_list (shape documented in module header)
 * @returns {HTMLElement} item_wrapper – the assembled card node
 */
-const render_file_info = function(self, item) {
+export const render_file_info = function(self, item) {
+
+	// read_error. The server lists a staged file it could not read (too large,
+	// not text, damaged) WITHOUT a column analysis and WITH the refusal
+	// sentence (WC-2026-11-13-csv-staged-file-read-error-card). Nothing below
+	// applies to it — no selection, no section, no mapper, no preview — only
+	// the name, the reason and the delete button, so the operator can remove it.
+	if (item.read_error) {
+		return render_unreadable_file_card(self, item)
+	}
 
 	const fragment = new DocumentFragment()
 
@@ -733,6 +746,81 @@ const render_file_info = function(self, item) {
 
 	return item_wrapper
 }//end render_file_info
+
+
+
+/**
+* RENDER_UNREADABLE_FILE_CARD
+* The delete-only card of a staged CSV the server could not read (C51, owner
+* 2026-11-13). Before it, such a file lived only in get_csv_files' `errors`:
+* a red line with no card and no delete button, so it could not be removed
+* from the panel at all. The card shows the file name, the server's refusal
+* sentence (a TEXT node — the sentence names the file the operator uploaded)
+* and the same delete button the readable card has. It offers NO checkbox,
+* NO section_tipo input, NO mapper and NO preview: there is nothing to map and
+* the import button's selection (`item.checked`) can never include it.
+* @param {Object} self - tool_import_dedalo_csv instance
+* @param {Object} item - `{dir, name, read_error}` entry of self.csv_files_list
+* @returns {HTMLElement} item_wrapper – the card node
+*/
+export const render_unreadable_file_card = function(self, item) {
+
+	const item_wrapper = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'file_item unreadable'
+	})
+
+	// file_line
+		const file_line = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'file_line',
+			parent			: item_wrapper
+		})
+
+		// icon file
+			ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'button csv',
+				parent			: file_line
+			})
+
+		// file name
+			ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'file_name',
+				text_content	: item.name,
+				parent			: file_line
+			})
+
+		// icon delete. The tool's own soft delete (delete_csv_file): the file is
+		// moved to the user's `deleted/` dir, never unlinked.
+			const icon_delete = ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'button delete',
+				parent			: file_line
+			})
+			icon_delete.addEventListener('click', function(e){
+				e.stopPropagation()
+
+				if(confirm(self.get_tool_label('sure') || 'Sure?')) {
+					self.remove_file(item)
+					.then(function(){
+						self.refresh()
+					})
+				}
+			})
+
+	// read_error. The server's sentence, as text.
+		ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'read_error',
+			text_content	: item.read_error,
+			parent			: item_wrapper
+		})
+
+
+	return item_wrapper
+}//end render_unreadable_file_card
 
 
 

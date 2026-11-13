@@ -363,6 +363,7 @@ async function getCsvFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 			const analysis = await analyzeCsvOffLoop(decoded.text);
 			if (analysis === null) {
 				errors.push(`error reading file: ${name}`);
+				filesInfo.push({ dir, name, read_error: `error reading file: ${name}` });
 				continue;
 			}
 			const arColumnsMap = await Promise.all(analysis.header.map((cell) => resolveColumnMap(cell)));
@@ -377,12 +378,27 @@ async function getCsvFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 				sample_data_errors: analysis.sample_data_errors,
 			});
 		} catch (error) {
-			errors.push(`Error on read file ${name}: ${(error as Error).message}`);
+			// The read refusals (readIngestTextFile) are DedaloErrors carrying a vetted
+			// public sentence (oversized, not text, damaged); anything else is a raw
+			// filesystem message, named as such.
+			const sentence =
+				error instanceof DedaloError && error.publicMessage !== undefined
+					? error.publicMessage
+					: (error as Error).message;
+			errors.push(`Error on read file ${name}: ${sentence}`);
+			// C51 (owner 2026-11-13): the file the panel cannot read is STILL LISTED, so
+			// the operator can delete it from the panel — before, it was only in
+			// `errors` and had no card, so no delete button: the staged file could not
+			// be removed from the UI at all. The entry carries no column analysis;
+			// `read_error` is the sentence and the client renders a delete-only card.
+			// WC-2026-11-13-csv-staged-file-read-error-card.
+			filesInfo.push({ dir, name, read_error: sentence });
 		}
 	}
 	// `errors` is the per-file read problem list — payload, not a failed request
 	// (one unreadable CSV must not hide the files that DID parse). `notices` is
-	// the same shape for what we DID to a file we could read.
+	// the same shape for what we DID to a file we could read. A file in `errors`
+	// is ALSO in `files`, as a `read_error` entry (C51).
 	return ok({ files: filesInfo, errors, notices }, { requestId: toolRequestId(ctx) });
 }
 

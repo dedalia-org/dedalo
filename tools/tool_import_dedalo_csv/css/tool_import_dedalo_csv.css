@@ -148,6 +148,15 @@
     display: none;
   }
 }
+.wrapper_tool.tool_import_dedalo_csv > .content_data > .files_list > .file_item.unreadable > .file_line > .file_name {
+  margin-right: 2rem;
+}
+.wrapper_tool.tool_import_dedalo_csv > .content_data > .files_list > .file_item.unreadable > .read_error {
+  color: var(--color_danger);
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .wrapper_tool.tool_import_dedalo_csv > .content_data > .files_list > .file_item .warning {
   background-color: var(--color_orange_dedalo);
   color: var(--fg_on_brand);

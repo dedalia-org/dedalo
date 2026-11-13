@@ -26,7 +26,8 @@ import {create_transfer} from '../../../core/services/service_upload/js/upload_t
 import * as render_module from '../../../tools/tool_import_dedalo_csv/js/render_tool_import_dedalo_csv.js'
 import {
 	import_mode_allowed,
-	render_columns_mapper
+	render_columns_mapper,
+	render_file_info
 } from '../../../tools/tool_import_dedalo_csv/js/render_tool_import_dedalo_csv.js'
 import {
 	render_csv_files_messages,
@@ -407,7 +408,7 @@ describe('TOOL_IMPORT_DEDALO_CSV READ ERRORS (real server answer)', function() {
 		self		= new tool_import_dedalo_csv()
 		self.model	= 'tool_import_dedalo_csv'
 		self.mode	= 'edit'
-		await tool_import_dedalo_csv.prototype.load_csv_files_list.call(self)
+		self.csv_files_list = await tool_import_dedalo_csv.prototype.load_csv_files_list.call(self)
 	})
 
 	after(async function() {
@@ -445,6 +446,51 @@ describe('TOOL_IMPORT_DEDALO_CSV READ ERRORS (real server answer)', function() {
 		// notices first, then the errors, both above the body's own content
 		assert.equal(container.firstChild, notices[0])
 		assert.equal(container.children[1], error_containers[0])
+	})
+
+	// C51 (owner 2026-11-13), WC-2026-11-13-csv-staged-file-read-error-card:
+	// the unreadable file is ALSO listed in `files`, as a `read_error` entry
+	// with no column analysis, and the panel renders it as a card the operator
+	// can delete from. Before: absent from `files`, so no card and no delete
+	// button — the staged file could not be removed from the panel.
+	it('the server lists the unreadable file as a read_error entry, without a column analysis', function() {
+		const mine = self.csv_files_list.filter(item => item.name === file_name)
+		assert.equal(mine.length, 1, `one files entry names the file: ${JSON.stringify(self.csv_files_list.map(i => i.name))}`)
+		assert.equal(typeof mine[0].read_error, 'string')
+		assert.ok(mine[0].read_error.length > 0, 'the entry carries the refusal sentence')
+		assert.equal(mine[0].ar_columns_map, undefined, 'no column analysis')
+		assert.equal(mine[0].file_info, undefined, 'no header')
+	})
+
+	it('the panel renders it as a delete-only card: name, sentence, delete — no checkbox, no mapper, no preview', function() {
+		const item = self.csv_files_list.find(item => item.name === file_name)
+		const card = render_file_info(self, item)
+		assert.ok(card.classList.contains('file_item') && card.classList.contains('unreadable'), 'an unreadable file_item card')
+		assert.ok(card.querySelector('.file_line .file_name').textContent === file_name, 'the card names the file')
+		assert.equal(card.querySelector('.read_error').textContent, item.read_error, 'the sentence is shown as text')
+		assert.ok(card.querySelector('.file_line .button.delete'), 'the delete button is offered')
+		assert.equal(card.querySelector('input[type="checkbox"]'), null, 'no selection: it can never be imported')
+		assert.equal(card.querySelector('.columns_mapper'), null, 'no mapper')
+		assert.equal(card.querySelector('.preview'), null, 'no preview')
+		assert.equal(card.querySelector('.section_tipo'), null, 'no section input')
+	})
+
+	it('the sentence is a text node: markup in a read_error renders literally', function() {
+		const card = render_file_info(self, {dir: 'x', name: 'x.csv', read_error: '<b class="injected">boom</b> &amp; more'})
+		assert.equal(card.querySelector('.injected'), null, 'no element was parsed out of the sentence')
+		assert.equal(card.querySelector('.read_error').textContent, '<b class="injected">boom</b> &amp; more')
+	})
+
+	it('a readable entry still renders the full card (control)', function() {
+		const readable = self.csv_files_list.find(item => !item.read_error)
+		if (!readable) {
+			this.skip() // the suite user has no other staged CSV in this run
+			return
+		}
+		const card = render_file_info(self, readable)
+		assert.ok(!card.classList.contains('unreadable'))
+		assert.ok(card.querySelector('input[type="checkbox"]'), 'selection offered')
+		assert.ok(card.querySelector('.columns_mapper'), 'mapper offered')
 	})
 
 })

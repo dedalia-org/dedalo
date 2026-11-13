@@ -117,13 +117,23 @@ afterAll(async () => {
 });
 
 describe('the CSV size ceiling holds at every door, before the read', () => {
-	test('A get_csv_files: the oversized file is reported in errors, not silently missing', async () => {
+	test('A get_csv_files: the oversized file is reported in errors AND listed as a read_error entry (C51: a delete-only card)', async () => {
 		const res = await run('get_csv_files', {});
-		const data = res.data as { files: { name: string }[]; errors: string[] };
-		expect(data.files.map((file) => file.name)).not.toContain(BIG);
+		const data = res.data as {
+			files: { name: string; read_error?: string; ar_columns_map?: unknown }[];
+			errors: string[];
+		};
 		const mine = data.errors.filter((line) => line.includes(BIG));
 		expect(mine.length).toBe(1);
 		expectSizeSentence(mine[0]);
+		// WC-2026-11-13-csv-staged-file-read-error-card: the unreadable file IS in
+		// `files`, with the sentence and NO column analysis — the panel renders a
+		// card the operator can delete from (before: absent, no card, no delete).
+		const listed = data.files.filter((file) => file.name === BIG);
+		expect(listed.length).toBe(1);
+		expectSizeSentence(listed[0]?.read_error);
+		expect(listed[0]?.ar_columns_map).toBeUndefined();
+		expect(Object.keys(listed[0] ?? {}).sort()).toEqual(['dir', 'name', 'read_error']);
 	});
 
 	test('B validate_import: refused with the size sentence, not ready', async () => {
