@@ -4,7 +4,9 @@
  * test/parity/calculation_widget_differential.test.ts; since T1-1 (2026-11-12)
  * it is the gate of the PORTED widget: the per-model calculation data
  * (descriptor facet `calculationData`, components/calculation_data.ts), the
- * nine registered formulas and the loud refusals.
+ * nine registered formulas (generic `summarize` + the mdcat package, dispatched
+ * by `process.file` / `engine` through src/tld/registry.ts) and the loud
+ * refusals.
  *
  * DIVERGES FROM PHP by owner ruling 2026-11-11 +
  * WC-2026-11-12-calculation-widget-port: a NON-EMPTY input is SUMMED (PHP crashed in array_sum on the
@@ -26,14 +28,22 @@
  *    test4591 → test4587, v6 dato parity).
  *  - C6 the grant chain on one host: calculate_period, calculate_import_major/
  *    minor, to_euros, subtract (a non-zero difference), final_total (minor +
- *    manual branches). A NEW grant (no day rows) opens through the wire: the
- *    summarized 0 runs the import formula, as PHP's float 0.0 did.
- *  - OD-2 / OD-1 boundaries: an import with no day value at all, and the
- *    contested major-grant callers (options.major_section_tipos, the PHP
- *    hard-coded section), refuse until ruled; an uncontested caller is minor.
+ *    manual branches).
+ *  - A2 (ruling 2026-11-13): a grant import over ZERO days — no day value at
+ *    all, or a day list summing to 0, int or float — computes NO output: the
+ *    `total` item is absent on the wire (a NEW grant with no day rows), the
+ *    pure fn answers `[]`; nothing throws, no minimum is served.
+ *  - A1 (ruling 2026-11-13): final_total's MAJOR branch is taken by exactly
+ *    the mdcat package's exported MAJOR_GRANT_SECTION caller (pure fn, the
+ *    constant read — never spelled); every other caller is minor;
+ *    options.major_section_tipos is not read (it exists in no ontology).
  *  - C7 refusals on a scratch zz situation: unknown fn, no process, info
  *    cycle, aggregate scope, filter:true, relation input without ddo_map, a
  *    model without the facet — plus the int summarize over two numbers.
+ *  - C8 DISPATCH refusals (ontology.invalid_node, coordinates naming the
+ *    block): a PHP-era block (`.php` / engine 'php'), a block without engine,
+ *    an unknown package, an unknown module, a generic file naming a TLD fn,
+ *    a TLD file naming a generic fn. No alias, never a silent [].
  *  - C9 the dd_date ↔ unix seconds math (years 0–99 are real years).
  *
  * Scratch hygiene: every record this gate creates (rows, TM rows and its
@@ -50,10 +60,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { dispatchRqo } from '../../src/core/api/dispatch.ts';
-import {
-	CALCULATION_FUNCTIONS,
-	PHP_MAJOR_GRANT_SECTION,
-} from '../../src/core/components/component_info/widgets/calculation/functions.ts';
 import { computeInfoWidgets } from '../../src/core/components/component_info/widgets/registry.ts';
 import {
 	ddDateFromUnixSeconds,
@@ -71,6 +77,9 @@ import {
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
+import { MAJOR_GRANT_SECTION, MDCAT_CALCULATION_FILE } from '../../src/tld/mdcat/calculation.ts';
+import { mdcat } from '../../src/tld/mdcat/index.ts';
+import { GENERIC_CALCULATION_FILE } from '../../src/tld/registry.ts';
 import { sweepActivityRows } from '../helpers/activity_rows.ts';
 import { registerSessionCleanup } from '../helpers/session_cleanup.ts';
 
@@ -251,12 +260,16 @@ function compute(tipo: string, sectionTipo: string, sectionId: number) {
 	return computeInfoWidgets(tipo, { sectionTipo, sectionId, mode: 'list', lang: 'lg-nolan' });
 }
 
-/** One registered process fn (a pure call, no record). */
+/** One registered mdcat process fn (a pure call, no record), through the package. */
 function formula(name: string) {
-	const fn = CALCULATION_FUNCTIONS[name];
-	if (fn === undefined) throw new Error(`calculation fn '${name}' is not registered`);
+	const fn = mdcat.calculationModules['calculation/mdcat']?.[name];
+	if (fn === undefined) throw new Error(`mdcat calculation fn '${name}' is not registered`);
 	return fn;
 }
+
+/** The TS dispatch key of a generic / mdcat block. */
+const GENERIC = { file: GENERIC_CALCULATION_FILE, engine: 'ts' };
+const MDCAT = { file: MDCAT_CALCULATION_FILE, engine: 'ts' };
 
 /** The DedaloError code a compute rejects with (fails loud when it resolves). */
 async function refusalOf(
@@ -291,7 +304,13 @@ const ZZ_NO_FACET = 'zzcalc14';
 const ZZ_SUM_A = 'zzcalc15';
 const ZZ_SUBTRACT = 'zzcalc16';
 const ZZ_FINAL_MINOR = 'zzcalc17';
-const ZZ_FINAL_MAJOR_OPTION = 'zzcalc18';
+// C8 dispatch refusals
+const ZZ_PHP_ERA = 'zzcalc18';
+const ZZ_NO_ENGINE = 'zzcalc19';
+const ZZ_UNKNOWN_PKG = 'zzcalc20';
+const ZZ_GENERIC_SHADOW = 'zzcalc21';
+const ZZ_TLD_GENERIC_NAME = 'zzcalc22';
+const ZZ_BAD_MODULE = 'zzcalc23';
 const ZZ_ID = 1;
 
 /** A component_info node with ONE calculation ipo block. */
@@ -314,15 +333,21 @@ function calcNode(tipo: string, block: Record<string, unknown>) {
 
 const summarize = (components: unknown[], extra: Record<string, unknown> = {}) => ({
 	input: { section_tipo: 'current', section_id: 'current', filter: false, components, ...extra },
-	process: { fn: 'summarize', options: { type: 'int' } },
+	process: { fn: 'summarize', ...GENERIC, options: { type: 'int' } },
 });
 
-const finalTotal = (options?: Record<string, unknown>) => ({
+const finalTotal = () => ({
 	input: summarize([
 		{ tipo: ZZ_NUM_A, var_name: 'total_major' },
 		{ tipo: ZZ_NUM_B, var_name: 'total_minor' },
 	]).input,
-	process: options === undefined ? { fn: 'final_total' } : { fn: 'final_total', options },
+	process: { fn: 'final_total', ...MDCAT },
+});
+
+/** A summarize block whose dispatch key is replaced (the C8 nodes). */
+const summarizeWith = (process: Record<string, unknown>) => ({
+	...summarize([{ tipo: ZZ_NUM_A, var_name: 'a' }]),
+	process: { fn: 'summarize', ...process },
 });
 
 const S = situation({
@@ -341,10 +366,7 @@ const S = situation({
 				{ tipo: ZZ_NUM_B, var_name: 'b' },
 			]),
 		),
-		calcNode(ZZ_UNKNOWN_FN, {
-			...summarize([{ tipo: ZZ_NUM_A, var_name: 'a' }]),
-			process: { fn: 'nope' },
-		}),
+		calcNode(ZZ_UNKNOWN_FN, summarizeWith({ fn: 'nope', ...GENERIC })),
 		calcNode(ZZ_NO_PROCESS, { input: summarize([{ tipo: ZZ_NUM_A, var_name: 'a' }]).input }),
 		calcNode(ZZ_CYCLE_A, summarize([{ tipo: ZZ_CYCLE_B, var_name: 'b' }])),
 		calcNode(ZZ_CYCLE_B, summarize([{ tipo: ZZ_CYCLE_A, var_name: 'a' }])),
@@ -359,11 +381,20 @@ const S = situation({
 				{ tipo: ZZ_INT_SUM, var_name: 'total' },
 				{ tipo: ZZ_SUM_A, var_name: 'total_period' },
 			]).input,
-			process: { fn: 'subtract' },
+			process: { fn: 'subtract', ...MDCAT },
 		}),
-		// final_total: major 2.4 > 0 — the minor branch (3.3) unless OD-1 contests the caller.
+		// final_total: major 2.4 > 0, but the zz host is not the major-grant section → minor (3.3).
 		calcNode(ZZ_FINAL_MINOR, finalTotal()),
-		calcNode(ZZ_FINAL_MAJOR_OPTION, finalTotal({ major_section_tipos: [ZZ_HOST] })),
+		// C8: six dispatch keys the engine must refuse, none of them an alias.
+		calcNode(ZZ_PHP_ERA, summarizeWith({ file: '/calculation/formulas.php', engine: 'php' })),
+		calcNode(ZZ_NO_ENGINE, summarizeWith({ file: GENERIC_CALCULATION_FILE })),
+		calcNode(ZZ_UNKNOWN_PKG, summarizeWith({ file: `/${ZZ}/calculation/x.ts`, engine: 'ts' })),
+		calcNode(ZZ_GENERIC_SHADOW, summarizeWith({ fn: 'final_total', ...GENERIC })),
+		calcNode(ZZ_TLD_GENERIC_NAME, summarizeWith({ fn: 'summarize', ...MDCAT })),
+		calcNode(
+			ZZ_BAD_MODULE,
+			summarizeWith({ fn: 'subtract', file: `/${mdcat.tld}/calculation/nope.ts`, engine: 'ts' }),
+		),
 	],
 	records: [
 		{
@@ -604,62 +635,71 @@ describe('C6 the grant chain', () => {
 		]);
 	});
 
-	test('a NEW grant (no day rows) opens: the summarized 0 runs the formula (PHP 0.0)', async () => {
-		// PHP summarize ends in round() → float; array_sum([0.0]) === 0 is false, so
-		// the import formula served its minimum — the record read never failed.
+	test('A2: a NEW grant (no day rows) computes NO import — the total item is absent', async () => {
+		// Positive control: the SAME components on the grant WITH days serve exactly one item
+		// each — the item below is absent because the days are zero, not because nothing read.
+		expect(((await entriesOf(GRANT, ids.grant, 'test4629')) as unknown[]).length).toBe(1);
+		expect(((await entriesOf(GRANT, ids.grant, 'test4655')) as unknown[]).length).toBe(1);
 		expect(await totalOf(GRANT, ids.grantNoDays, 'test4627')).toBe(0);
-		expect(await totalOf(GRANT, ids.grantNoDays, 'test4629')).toBe(150000);
-		expect(await totalOf(GRANT, ids.grantNoDays, 'test4655')).toBe(900);
-		expect(await totalOf(GRANT, ids.grantNoDays, 'test4664')).toBe(900);
+		expect(await entriesOf(GRANT, ids.grantNoDays, 'test4629')).toEqual([]);
+		expect(await entriesOf(GRANT, ids.grantNoDays, 'test4655')).toEqual([]);
+		// final_total over two absent imports: nothing to pay, nothing paid.
+		expect(await totalOf(GRANT, ids.grantNoDays, 'test4664')).toBe(0);
 	});
 
-	test('OD-2: an import with NO day value at all (PHP int 0 → crash) refuses', async () => {
+	test('A2 (pure): zero days — absent / null / [] / summed 0, int or float — is `[]`, no throw', () => {
 		const args = { options: {}, callerSectionTipo: ZZ_HOST };
-		for (const totalDays of [undefined, null, []]) {
-			let refusal: unknown = null;
-			try {
-				formula('calculate_import_minor')({ ...args, dataMap: { total_days: totalDays } });
-			} catch (error) {
-				refusal = error instanceof DedaloError ? [error.code, error.coordinates] : error;
+		for (const fn of ['calculate_import_major', 'calculate_import_minor']) {
+			for (const totalDays of [undefined, null, [], [0], [0, 0], [0.0], ['0']]) {
+				expect(
+					formula(fn)({ ...args, dataMap: { total_days: totalDays } }),
+					`${fn} ${totalDays}`,
+				).toEqual([]);
 			}
-			expect(refusal).toEqual(['engine.uncovered_scope', { fn: 'calculate_import_minor' }]);
 		}
-		expect(formula('calculate_import_major')({ ...args, dataMap: { total_days: [0] } })).toEqual([
+		// 200 days = 7 grant months (30.42 / 30.4): base + one month over six.
+		expect(formula('calculate_import_major')({ ...args, dataMap: { total_days: [200] } })).toEqual([
+			{ id: 'total', value: 178000 },
+		]);
+		expect(formula('calculate_import_minor')({ ...args, dataMap: { total_days: [200] } })).toEqual([
+			{ id: 'total', value: 1070 },
+		]);
+		expect(formula('calculate_import_major')({ ...args, dataMap: { total_days: [30] } })).toEqual([
 			{ id: 'total', value: 150000 },
 		]);
 	});
 
-	test('OD-1: a caller nobody contests takes the minor branch', async () => {
+	test('A1: a caller that is not the major-grant section takes the minor branch', async () => {
 		expect(await compute(ZZ_FINAL_MINOR, ZZ_HOST, ZZ_ID)).toEqual([
 			{ widget: 'calculation', key: 0, id: 'total', value: 3.3 },
 		]);
 	});
 
-	test('OD-1: options.major_section_tipos and the PHP-hard-coded section refuse', async () => {
-		expect(await refusalOf(compute(ZZ_FINAL_MAJOR_OPTION, ZZ_HOST, ZZ_ID))).toEqual({
-			code: 'engine.uncovered_scope',
-			coordinates: { fn: 'final_total', section_tipo: ZZ_HOST },
-		});
-		const dataMap = { total_major: [2.4], total_minor: [3.3] };
-		let refusal: unknown = null;
-		try {
-			formula('final_total')({
-				dataMap,
-				options: {},
-				callerSectionTipo: PHP_MAJOR_GRANT_SECTION,
-			});
-		} catch (error) {
-			refusal = error instanceof DedaloError ? error.code : error;
-		}
-		expect(refusal).toBe('engine.uncovered_scope');
-		// No major amount → no contest: the minor branch, even for that section.
+	test("A1 (pure): the package's MAJOR_GRANT_SECTION caller takes the major branch; options are inert", () => {
+		const dataMap = { total_major: [2.4], total_minor: [3.3], paid: [1] };
+		const major = formula('final_total');
+		expect(major({ dataMap, options: {}, callerSectionTipo: MAJOR_GRANT_SECTION })).toEqual([
+			{ id: 'total', value: 1.4 },
+		]);
+		expect(major({ dataMap, options: {}, callerSectionTipo: ZZ_HOST })).toEqual([
+			{ id: 'total', value: 2.3 },
+		]);
+		// No major amount → minor, even for the major section.
 		expect(
-			formula('final_total')({
+			major({
 				dataMap: { total_major: [0], total_minor: [3.3] },
 				options: {},
-				callerSectionTipo: PHP_MAJOR_GRANT_SECTION,
+				callerSectionTipo: MAJOR_GRANT_SECTION,
 			}),
 		).toEqual([{ id: 'total', value: 3.3 }]);
+		// major_section_tipos exists in no ontology: an unknown option changes nothing.
+		expect(
+			major({
+				dataMap,
+				options: { major_section_tipos: [ZZ_HOST] },
+				callerSectionTipo: ZZ_HOST,
+			}),
+		).toEqual([{ id: 'total', value: 2.3 }]);
 	});
 });
 
@@ -668,7 +708,7 @@ describe('C7 loud refusals (never a silently blank value)', () => {
 		const refusal = await refusalOf(compute(ZZ_UNKNOWN_FN, ZZ_HOST, ZZ_ID));
 		expect(refusal).toEqual({
 			code: 'ontology.invalid_node',
-			coordinates: { ipo_key: 0, fn: 'nope' },
+			coordinates: { ipo_key: 0, fn: 'nope', file: GENERIC_CALCULATION_FILE, engine: 'ts' },
 		});
 	});
 
@@ -704,6 +744,42 @@ describe('C7 loud refusals (never a silently blank value)', () => {
 			code: 'engine.uncovered_scope',
 			coordinates: { tipo: ZZ_TEXT, model: 'component_input_text' },
 		});
+	});
+});
+
+describe('C8 dispatch refusals — process.file / engine are the key, never an alias', () => {
+	const refusals: [string, string, Record<string, unknown>][] = [
+		[
+			'a PHP-era block (.php file, engine php)',
+			ZZ_PHP_ERA,
+			{ fn: 'summarize', file: '/calculation/formulas.php', engine: 'php' },
+		],
+		['a block without engine', ZZ_NO_ENGINE, { fn: 'summarize', file: GENERIC_CALCULATION_FILE }],
+		[
+			'an unknown TLD package',
+			ZZ_UNKNOWN_PKG,
+			{ fn: 'summarize', file: `/${ZZ}/calculation/x.ts`, engine: 'ts' },
+		],
+		['a generic file naming a TLD fn', ZZ_GENERIC_SHADOW, { fn: 'final_total', ...GENERIC }],
+		['a TLD file naming a generic fn', ZZ_TLD_GENERIC_NAME, { fn: 'summarize', ...MDCAT }],
+		[
+			'a known package, unknown module',
+			ZZ_BAD_MODULE,
+			{ fn: 'subtract', file: `/${mdcat.tld}/calculation/nope.ts`, engine: 'ts' },
+		],
+	];
+	for (const [name, tipo, key] of refusals) {
+		test(name, async () => {
+			expect(await refusalOf(compute(tipo, ZZ_HOST, ZZ_ID))).toEqual({
+				code: 'ontology.invalid_node',
+				coordinates: { ipo_key: 0, ...key },
+			});
+		});
+	}
+
+	test('the suite twins travel the package path: to_euros / final_total resolve through mdcat', async () => {
+		// test4630 is `/mdcat/calculation/mdcat.ts` to_euros over test4629 (the import).
+		expect(await totalOf(GRANT, ids.grant, 'test4630')).toBe(901.52);
 	});
 });
 

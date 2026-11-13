@@ -24,7 +24,8 @@ unported stub · single dispatch home · DB census over declared widget_names.
 | `widget_common.ts` | `InfoWidgetDescriptor` contract, `WidgetContext`, shared IPO helpers (`readWidgetComponentData`, `resolveCurrent`, `findTyped`, `phpRound`), the two loud errors |
 | `grid.ts` | dd_grid_cell_object builders (`buildPortalGridValue`, `resolveGridColumns`) |
 | `registry.ts` | `INFO_WIDGETS` map + `computeInfoWidgets` (read aggregate) + `computeInfoDataList` (edit datalist) + `getInfoWidget` (fail-loud lookup) |
-| `calculation/functions.ts` | STATIC calculation process-fn registry (SEC-052 twin) |
+| `calculation/fn_kit.ts` | the `CalculationFn` contract (`[]` = a registered fn's deliberate "no value") + the shared PHP-arithmetic primitives both registries use |
+| `calculation/functions.ts` | the GENERIC process-fn table (`/calculation/formulas.ts`: `summarize`) — a TLD's fns live in `src/tld/<tld>/calculation.ts`, dispatched by `process.file` through `src/tld/registry.ts` `resolveCalculationFn` (SEC-052 twin: the file is a lookup KEY, never a path) |
 | `<tld>/<name>.ts` | one widget = one module exporting one `InfoWidgetDescriptor` |
 
 ## Add a widget (the honest checklist)
@@ -45,8 +46,14 @@ unported stub · single dispatch home · DB census over declared widget_names.
    (`test/parity/info_widget_differential.test.ts` pattern: scratch-twin
    fixtures, byte-compare vs the live PHP oracle — read the ORACLE TRAP note
    in AGENTS.md first).
-5. Calculation process fns: add to `calculation/functions.ts`
-   `CALCULATION_FUNCTIONS` — never load ontology-named files.
+5. Calculation process fns: a GENERIC one (ontology `file:
+   "/calculation/formulas.ts"`) goes in `calculation/functions.ts`
+   `CALCULATION_FUNCTIONS`; one an ontology files under a TLD (`file:
+   "/<tld>/calculation/<module>.ts"`) goes in `src/tld/<tld>/calculation.ts`
+   (own-TLD-only law, `engine_install_tld_tripwire`). Both are STATIC tables;
+   the block must declare `engine: "ts"` and a `.ts` file — a PHP-era block
+   is refused (ontology.invalid_node), never aliased. A TLD fn may not reuse
+   a generic name. Never load ontology-named files.
 6. Not portable yet? Register an `unported` stub (`{name, path, unported:
    {reason}}`) AND add the rewrite/LEDGER.md known-open row — the tripwire
    fails on either half missing. Compute then throws `WidgetUnportedError`
