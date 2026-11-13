@@ -685,7 +685,13 @@ install (a large export) exceeds it; measure first with `DEDALO_SLOW_QUERY_MS`.
   target — isolated per target, so the hop, the other targets and the save's
   later subscriptions still run; the log line names the observer and the
   record, and the order left stale is drift the `portal_declared_order`
-  reconcile lists. It should stay at zero. `observers_index_repaired` ticks when the
+  reconcile lists. It should stay at zero. `observers_refresh_data_refused` counts a
+  `refresh_data` observer edge whose `perform.params` are outside the closed grammar
+  (`on_empty → empty_data` only — `WC-2026-11-13-observer-refresh-data`): the edge is
+  skipped loudly and nothing is written; it is configuration, should stay at zero, the log
+  line names the edge and the reason. `observers_refresh_data_unchanged` is informational:
+  a `refresh_data` edge reached by an UNCHANGED re-save of the observed value, which
+  clears nothing. `observers_index_repaired` ticks when the
   observer RECONCILE finds an `_hi` mirror whose value is already right but
   whose ancestor index (`relation_search`) disagreed, and rewrites it
   unstamped — legacy rows written before the recompute indexed its mirror;

@@ -46,6 +46,13 @@ the ONE table, shared by the live dispatch and the reconciler
   `rsc1156`) is a NAMED exemption (`SERVER_SHAPE_EXEMPTIONS`, reason inline), any other
   function `perform_not_covered`; both counted `observers_server_shape_not_covered`
   (was: an uncounted log line).
+  **Addendum 2026-11-13 (WC-2026-11-13-observer-refresh-data):** `refresh_data` is now the
+  SECOND perform of a closed set — the classifier answers `{resolver, perform}`, with
+  `perform ∈ {set_dato_external, refresh_data}`; the exemption table is EMPTY (the mechanism
+  stays). The exemption's former reason ("component_relation_index externals … computed at
+  read time") was wrong: `rsc1214` is a `component_select` storing a user value. A
+  `refresh_data` edge takes its targets from this same table with NO law (unfiltered
+  inverse, no equivalence expansion).
 - An SQO `filter` next to `self` / `self_and_observable` is refused
   (`filter_not_covered`): those resolvers would ADD the filter's search result, which
   TS does not run; a silent drop would narrow the targets. No live edge has that shape.

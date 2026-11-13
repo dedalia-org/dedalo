@@ -334,6 +334,21 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-media-provenance-repair-one-kernel`.
 
+- **Changing or clearing the person of a biographical milestone clears the milestone again.**
+
+    In a person's biography the *Biographical milestone* field offers only the milestones of
+    the person chosen next to it. Since the move to this engine, picking a different person — or
+    removing the person — left the previously chosen milestone in place: a value the field would
+    no longer offer, still stored, published and searchable. Now, as before the move, changing
+    the person clears the milestone (one Time Machine entry, by the user who saved); saving the
+    same person again leaves it alone, and an already-empty milestone is not touched. Values left
+    stale during the beta are not repaired: re-save the person once to clear them. For
+    administrators: the observer rule behind this (`refresh_data`, condition `on_empty`) accepts
+    exactly that one action; anything else is refused, counted and logged — see
+    [observers](./core/system/observers.md#clearing-a-dependent-value-refresh_data).
+
+    Wire contract: `WC-2026-11-13-observer-refresh-data`.
+
 - **Transcription tag statistics count the interview's own-language text**
 
     The transcription statistics (time codes, index tags, notes, characters) of an audiovisual
@@ -1438,7 +1453,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 66 entries"
+??? note "Wire contract — 67 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1504,6 +1519,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-calculation-tld-packages`
     - `WC-2026-11-13-csv-ingest-size-ceiling`
     - `WC-2026-11-13-external-empty-entry-dropped`
+    - `WC-2026-11-13-observer-refresh-data`
     - `WC-2026-11-13-tags-widget-original-lang`
     - `WC-2026-11-13-text-area-broken-tag-repair`
 

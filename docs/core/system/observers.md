@@ -331,6 +331,7 @@ the engine refuses rather than silently retargeting.
 | --- | --- | --- |
 | Info recompute | observer is a `component_info` (or a `component_state` / `component_calculation` alias) with **no** `perform` | Recomputes the widgets on each target and writes **one** `matrix_time_machine` row per target (lang `lg-nolan`). It deliberately never touches the live stored value — live reads compute. Targets equal to the saved record additionally ride the save response, so the open editing panel refreshes. |
 | `set_dato_external` | `perform: {function: "set_dato_external"}`; the targets come from `config` (the table above) | Recomputes the observer's **external mirror** on each target — by the value law its `source` declares (below). |
+| `refresh_data` | `perform: {function: "refresh_data", params: {actions: [{condition: "on_empty", action: "empty_data"}]}}`; the targets come from `config` (the same table) | **Clears the observer's stored value** on each target that hosts it whenever the observed value **changed** — see [clearing a dependent value](#clearing-a-dependent-value-refresh_data). |
 | Relay | no `perform`, no `filter`, `config.use_observable_dato: true` or `config.use_inverse_relations: true`, observer is not an info model | A **trigger** that re-enters propagation so a dependency chain can continue. Per target it first re-saves the observer through its own save rules and writes only when they change the stored value — today only a portal declaring an `order` is re-sorted (one write and one Time Machine row). For every other observer it writes nothing at all: no value change, no Time Machine row, no modified stamps, and it does not even read the target. |
 | Terminal no-op | `filter: false`, no `perform`, observer is not an info model | Nothing runs server-side; the client half is the whole point of the entry. |
 
@@ -344,7 +345,7 @@ Measured coverage of the 73 dispatchable edges on this install (re-measured
 | 7 | info recompute through an SQO filter |
 | 3 | terminal no-op (`filter: false` on a non-info observer) |
 | 2 | relay |
-| 1 | declared but **not covered** — `refresh_data`, see below |
+| 1 | `refresh_data` — a dependent value cleared when the observed one changes |
 
 On top of those, the engine derives **one** edge from a law rather than from a
 declaration — see [edges derived from a copy law](#edges-derived-from-a-copy-law).
@@ -363,14 +364,50 @@ engine only understood the `use_observable_dato` rows of the target table:
   `use_inverse_relations`, which now resolves the records that point at the
   saved one.
 
-!!! warning "One declared edge is skipped loudly, not run"
-    `rsc1214` (`component_select`) observing `rsc1156` declares a well-formed
-    target config **and** `perform: {"function": "refresh_data"}`. That
-    perform is **not implemented** — a real, dated gap, stated rather than
-    approximated. The engine names it as a known exemption in the log and
-    counts it (`observers_server_shape_not_covered`); any other unknown
-    `perform` is refused and counted the same way. The engine never calls a
-    function just because the ontology names it.
+### Clearing a dependent value (`refresh_data`)
+
+Some stored values only make sense **relative to another field**. The one shipped
+case: `rsc1214` (`component_select`, *Biographical milestone*) lets the curator
+pick a milestone **of the person** chosen in `rsc1156` (`component_autocomplete`,
+one person at most) — its own option filter reads the person's milestones. Once
+the person changes, the milestone that was picked belongs to someone else: a
+value the field's own filter would no longer offer, yet still stored, published
+and searchable.
+
+`rsc1214` observes `rsc1156` with:
+
+```json
+"server": {
+  "config":  { "use_self_section": true, "use_observable_dato": true },
+  "perform": { "function": "refresh_data",
+               "params": { "actions": [{ "condition": "on_empty", "action": "empty_data" }] } }
+}
+```
+
+What it does: whenever the observed value **changes** — a different person, or
+no person — the observer's stored value on the **host** record is cleared (it
+becomes an empty value, written like any save: one Time Machine entry by the
+user who saved, the modified stamps updated) and the cleared field fires its own
+observers in turn. An unchanged save of the person changes nothing; a field that
+is already empty is not written again.
+
+!!! note "`on_empty` means *on change*"
+    The condition is named `on_empty`, and that name is kept because it is the
+    ontology's. Its behaviour has always been *clear whenever the observed value
+    changes*, not *clear when the observed value becomes empty* — which, for a
+    field that depends on exactly one person, is the right rule: a milestone of
+    the previous person is never a valid value for the next one. Read the name
+    as the trigger's historical label.
+
+The accepted parameters are a **closed grammar**: exactly `condition: "on_empty"`
+with `action: "empty_data"` (and no arguments). Any other condition or action is
+refused with a log line naming the edge and the reason, counted
+(`observers_refresh_data_refused`), and nothing is written — the engine never
+runs a function because an ontology names it. The value is cleared only on
+records of a section that **declares** the observer; a target in another section
+(the person's own record, which the `use_observable_dato` row also selects) is
+the counted no-op described in
+[a mirror lives only where it is declared](#a-mirror-lives-only-where-it-is-declared).
 
 ## The value laws of `set_dato_external`
 
@@ -921,11 +958,13 @@ Work the list top-down.
    one `observer subscription contract violation: …` line per problem —
    forward-only dead specs, dead wildcards, unresolved host sections, malformed
    `server` values — each naming the exact edge and the fix.
-3. **Is the shape covered?** A `server` block whose `perform` the engine does
-   not implement is skipped with a `server shape not covered` log and counted
-   (`observers_server_shape_not_covered`); the one live case is `refresh_data`,
-   above. So is an SQO filter next to a target row that includes the saved
-   record.
+3. **Is the shape covered?** A `server` block whose `perform` is neither
+   `set_dato_external` nor `refresh_data` is skipped with a `server shape not
+   covered` log and counted (`observers_server_shape_not_covered`). So is an
+   SQO filter next to a target row that includes the saved record. A
+   `refresh_data` edge whose `params` are outside the closed grammar is
+   refused and counted (`observers_refresh_data_refused`) — see
+   [clearing a dependent value](#clearing-a-dependent-value-refresh_data).
 4. **Is the node's law clear?** An external mirror whose `source` names no
    law, or two, is refused before any write — see
    [ambiguous nodes are refused](#ambiguous-nodes-are-refused). The log line
@@ -938,7 +977,8 @@ Work the list top-down.
    `observers_registry_contract_violations`,
    `observers_host_section_unresolved`, `observers_component_to_search_missing`,
    `observers_law_refused`, `observers_server_shape_not_covered`,
-   `observers_target_not_host`. Runtime refusals:
+   `observers_refresh_data_refused`, `observers_target_not_host`. Runtime
+   refusals:
    `observers_shrink_refused_degraded_seed`, `observers_big_result_refused`,
    `observers_references_limit_refused`,
    `observers_observed_data_unanswerable`, the `observers_source_overwrite_*`
