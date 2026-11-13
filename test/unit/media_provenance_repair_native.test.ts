@@ -24,6 +24,13 @@
  *         bucket, never wipes it from the numeric one (record-scoped path).
  *   P7    ORDER: the rescan reads the REPAIRED cue — a raw original whose
  *         extension the scanner does not manage is indexed only through it.
+ *   P8    the sibling is read in lg-nolan: a multi-lang sibling yields its
+ *         lg-nolan value, not the first value in any lang (WC sibling slice).
+ *   P9    a recovered name whose extension is no plain alnum one (curator free
+ *         text, e.g. a path) never becomes part of `original_normalized_name`
+ *         (WC divergence 3).
+ *   P10   `''` counts as absent: an empty stored name is repaired (WC
+ *         divergence 1; PHP `isset` would keep it).
  *
  * SITUATION: a `zzpv` scratch section (→ matrix_test); records created at
  * runtime; files seeded under the lane's marked suite media root and swept by
@@ -133,15 +140,21 @@ async function seedFile(
 	return path;
 }
 
-/** A record with `items` on `componentTipo` and `siblings` (input_text tipo → value) in the string column. */
+/**
+ * A record with `items` on `componentTipo` and `siblings` in the string column:
+ * input_text tipo → a value (stored as one lg-nolan item) or the raw items.
+ */
 async function record(
 	componentTipo: string,
 	items: Item[],
-	siblings: Record<string, string> = {},
+	siblings: Record<string, string | Item[]> = {},
 ): Promise<number> {
 	const id = await createSectionRecord(SECTION, USER_ID);
 	const strings = Object.fromEntries(
-		Object.entries(siblings).map(([tipo, value]) => [tipo, [{ id: 1, lang: 'lg-nolan', value }]]),
+		Object.entries(siblings).map(([tipo, value]) => [
+			tipo,
+			typeof value === 'string' ? [{ id: 1, lang: 'lg-nolan', value }] : value,
+		]),
 	);
 	await sql.unsafe(
 		`UPDATE "${TABLE}" SET media = jsonb_build_object($3::text, $4::text::jsonb),
@@ -346,6 +359,46 @@ describe('T1-P04 one provenance kernel behind both regenerate doors', () => {
 				(entry) => entry.extension === RAW_EXTENSION && entry.file_exist === true,
 			);
 			expect(raw, `${door} rescanned BEFORE the cue was repaired`).toHaveLength(1);
+		}, 90_000);
+
+		test(`P8 ${door}: a multi-lang sibling yields its lg-nolan value, not the first value in any lang`, async () => {
+			const id = await record(IMAGE, [{ id: 1, files_info: [] }], {
+				[NAME]: [
+					{ id: 1, lang: DATA_LANG, value: 'Lang Value.TIF' },
+					{ id: 2, lang: 'lg-nolan', value: 'Nolan Value.PNG' },
+				],
+			});
+			await seedFile(IMAGE, id, PLAIN_QUALITY, image.defaultExtension);
+			await run(IMAGE, id);
+			expect(provenance((await storedItems(IMAGE, id))[0])).toEqual({
+				original_file_name: 'Nolan Value.PNG',
+				original_normalized_name: `${IMAGE}_${SECTION}_${id}.png`,
+			});
+		}, 90_000);
+
+		test(`P9 ${door}: a name whose extension is no plain alnum one never reaches original_normalized_name`, async () => {
+			const unsafe = 'x.tif/../../evil';
+			const id = await record(IMAGE, [{ id: 1, files_info: [] }], { [NAME]: unsafe });
+			await seedFile(IMAGE, id, PLAIN_QUALITY, image.defaultExtension);
+			await run(IMAGE, id);
+			// The name is the curator's provenance (recovered verbatim); no file name is built from it.
+			expect(provenance((await storedItems(IMAGE, id))[0])).toEqual({
+				original_file_name: unsafe,
+			});
+		}, 90_000);
+
+		test(`P10 ${door}: an empty stored name counts as absent and is repaired`, async () => {
+			const id = await record(
+				IMAGE,
+				[{ id: 1, files_info: [], original_file_name: '', original_normalized_name: '' }],
+				{ [NAME]: 'Empty Case.PNG' },
+			);
+			await seedFile(IMAGE, id, PLAIN_QUALITY, image.defaultExtension);
+			await run(IMAGE, id);
+			expect(provenance((await storedItems(IMAGE, id))[0])).toEqual({
+				original_file_name: 'Empty Case.PNG',
+				original_normalized_name: `${IMAGE}_${SECTION}_${id}.png`,
+			});
 		}, 90_000);
 	}
 

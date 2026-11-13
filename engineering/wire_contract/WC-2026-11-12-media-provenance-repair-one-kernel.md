@@ -3,7 +3,7 @@
 - **Date:** 2026-11-12 (landed 2026-11-13).
 - **Decision:** RC-closure T1-P04 (audit P04: the update_cache vs sync_files
   provenance repair drifts). DEC-12 gate:
-  `test/unit/media_provenance_repair_native.test.ts` (P1-P7, both doors, on
+  `test/unit/media_provenance_repair_native.test.ts` (P1-P10, both doors; P8-P10 measure the lg-nolan sibling slice and divergences 1 and 3, on
   the `zzpv` scratch situation and the suite media root).
 - Code: `src/core/media/provenance_repair.ts` (`resolveProvenanceRepair`,
   `applyProvenanceRepair`, `mediaItemTargetIndex`); doors
