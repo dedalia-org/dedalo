@@ -38,6 +38,15 @@ export interface WidgetContext {
 	/** Global-admin flag of that user (admins resolve the superuser tool set, PHP parity). */
 	isAdmin?: boolean;
 	/**
+	 * Compute the ASYNC widgets too (isAsync — PHP is_async(): user_activity).
+	 * The read/edit path never sets it: there the client fetches an async
+	 * widget through its own get_widget_data call, exactly as PHP skipped it.
+	 * Publication and export set it (owner C9 2026-11-13 — v6 published the
+	 * column; PHP v7 and this engine until then published NULL):
+	 * WC-2026-11-13-info-derived-async-published.
+	 */
+	includeAsync?: true;
+	/**
 	 * The calculation inputs being computed above this one (`tipo@section/id`
 	 * keys, outermost first) — threaded BY ARGUMENT through chained calculation
 	 * inputs (components/calculation_data.ts) so a cycle refuses instead of

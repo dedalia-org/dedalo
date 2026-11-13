@@ -449,7 +449,17 @@ export interface GridAtom {
 	media?: MediaReadAddress[];
 }
 
-/** PHP export atom cell_type by leaf model (export_atom defaults). */
+/**
+ * The export atom `cell_type` by leaf model — the TS mapping, NOT PHP's
+ * (WC-2026-11-13-export-media-cell-type, owner C45 2026-11-13). PHP gave EVERY
+ * media model `'img'` (component_media_common :369, component_av :279,
+ * component_3d :226 — so its HTML download drew `<img>` for a video, a PDF and
+ * a 3D model alike); here only an image is `'img'`, av / 3d are `'av'` (the
+ * writers' media branch: a URL cell, cells.ts isMediaCell) and pdf / svg are
+ * plain `'text'` (a URL the reader opens, never an `<img>` src). `iri` and
+ * `section_id` are the two typed scalars the client renders specially
+ * (flat_table.js cell_type switch); everything else is text.
+ */
 export function cellTypeOfModel(model: string | null): string {
 	switch (model) {
 		case 'component_image':
@@ -1239,6 +1249,9 @@ async function emitInfoAtoms(
 		lang: ctx.lang,
 		userId: principal?.userId,
 		isAdmin: principal?.isGlobalAdmin,
+		// the export computes the async widgets too (owner C9 2026-11-13 —
+		// WC-2026-11-13-info-derived-async-published); the read path skips them
+		includeAsync: true,
 	});
 	for (const output of outputs ?? []) {
 		const outputSegments: ExportSegment[] = [

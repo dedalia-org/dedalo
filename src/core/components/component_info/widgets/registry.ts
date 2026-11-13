@@ -17,8 +17,22 @@
  * instead of `widget_id`; the live fallback emits `widget_id`, verified
  * against live PHP 2026-07-02).
  *
- * Async widgets (isAsync — PHP is_async() true) are SKIPPED here exactly as
- * PHP skips them: they deliver via their own client API call (get_widget_data).
+ * Async widgets (isAsync — PHP is_async() true) are SKIPPED on the read/edit
+ * path exactly as PHP skips them: they deliver via their own client API call
+ * (get_widget_data). A door that sets `WidgetContext.includeAsync` — the
+ * publication and export doors (owner C9 2026-11-13,
+ * WC-2026-11-13-info-derived-async-published) — computes them too: v6
+ * published the user_activity column, PHP v7 published NULL.
+ *
+ * Two faces of one component (PHP get_data vs get_data_parsed):
+ *   computeInfoWidgets        the RAW items (the section read, observers,
+ *                             calculation inputs, the export dedalo_raw cell);
+ *   computeInfoWidgetsParsed  the PARSED face (grid / export / publication —
+ *                             sum_dates humanizes its intervals there), every
+ *                             item stamped with its `widget` name (+ `key`)
+ *                             when the widget's parsed face omits them, so a
+ *                             `parser_info::widget` match on `widget` +
+ *                             `id|widget_id` finds it (owner D1 2026-11-13).
  *
  * The 'calculation' widget (calculation/calculation.ts) computes every
  * formula the shipped ontology declares over typed inputs
@@ -121,7 +135,8 @@ export interface InfoWidgetOutput {
  * The output id is carried as `id` (stored / calculation) or `widget_id`
  * (live weights / state — WC-026 dualises both); `key` names the ipo block
  * when the widget emits it (the parsed faces of some widgets — sum_dates —
- * carry neither `key` nor `widget`, and are attributed by the per-widget loop).
+ * carry neither `key` nor `widget`, and are attributed by the per-widget loop;
+ * computeInfoWidgetsParsed stamps them for the publication door).
  */
 export function infoItemMatchesOutput(item: unknown, ipoKey: number, outputId: string): boolean {
 	if (!isPlainItem(item)) return false;
@@ -140,13 +155,23 @@ async function declaredWidgets(componentTipo: string): Promise<WidgetDef[] | nul
 	return Array.isArray(widgets) && widgets.length > 0 ? widgets : null;
 }
 
-/** One widget's parsed items; an async widget yields none (computeInfoWidgets' skip). */
+/**
+ * Is this widget computed by the door `context` describes? An async widget
+ * only when the door asked for it (includeAsync — publication / export); the
+ * read/edit path skips it BEFORE the unported check, as PHP skipped it before
+ * instancing its compute.
+ */
+function computesWidget(descriptor: InfoWidgetDescriptor, context: WidgetContext): boolean {
+	return descriptor.isAsync !== true || context.includeAsync === true;
+}
+
+/** One widget's parsed items; an async widget yields none unless the door includes them. */
 function widgetParsedItems(
 	descriptor: InfoWidgetDescriptor,
 	ipo: unknown[],
 	context: WidgetContext,
 ): Promise<WidgetItem[]> {
-	if (descriptor.isAsync === true) return Promise.resolve([]);
+	if (!computesWidget(descriptor, context)) return Promise.resolve([]);
 	return widgetComputeDataParsed(descriptor)(ipo, context);
 }
 
@@ -155,9 +180,10 @@ function widgetParsedItems(
  * (PHP component_info::get_export_value :778-823 — get_data_parsed, then one
  * atom per `widgets[].ipo[].output[]`, in declaration order). Each widget is
  * computed on its own, so an output only ever matches its own widget's items
- * (PHP matched on id alone across every widget). Async widgets are skipped
- * exactly as computeInfoWidgets skips them — their outputs stay declared, with
- * no value. Null when the component declares no widgets.
+ * (PHP matched on id alone across every widget). An async widget is computed
+ * only for a door that includes them (the export sets includeAsync; the
+ * request-path flat readers do not — its outputs stay declared, with no
+ * value). Null when the component declares no widgets.
  */
 export async function computeInfoOutputs(
 	componentTipo: string,
@@ -213,27 +239,69 @@ export function infoOutputValueString(value: unknown): string {
  * The read-time widget aggregate of one component_info (PHP get_db_data's
  * live-compute branch). Returns null when the component declares no widgets
  * (PHP get_widgets → null → get_data → null → entries null); otherwise the
- * concatenation of every non-async widget's items (possibly []).
+ * concatenation of every computed widget's RAW items (possibly []) — async
+ * widgets only for a door that includes them (computesWidget).
  */
 export async function computeInfoWidgets(
 	componentTipo: string,
 	context: WidgetContext,
 ): Promise<WidgetItem[] | null> {
-	const node = await getNode(componentTipo);
-	const widgets = (node?.properties as { widgets?: WidgetDef[] } | null)?.widgets;
-	if (!Array.isArray(widgets) || widgets.length === 0) return null;
+	const widgets = await declaredWidgets(componentTipo);
+	if (widgets === null) return null;
 
 	const data: WidgetItem[] = [];
 	for (const widget of widgets) {
 		const descriptor = getInfoWidget(widget.widget_name ?? '');
-		// async widgets deliver via get_widget_data — skipped BEFORE the
-		// unported check (PHP skips them before instancing their compute).
-		if (descriptor.isAsync === true) continue;
+		if (!computesWidget(descriptor, context)) continue;
 		const ipo = Array.isArray(widget.ipo) ? widget.ipo : [];
 		const items = await widgetComputeData(descriptor)(ipo, context);
 		if (items.length > 0) data.push(...items);
 	}
 	return data;
+}
+
+/**
+ * The PARSED face of one component_info (PHP get_data_parsed — what the grid,
+ * the export and the publication read): per widget its `computeDataParsed`,
+ * else its `computeData` (widgetComputeDataParsed), concatenated in widget
+ * order; async widgets per the door (computesWidget). Null when the component
+ * declares no widgets, as computeInfoWidgets.
+ *
+ * Every item is STAMPED with the widget it came from when the parsed face
+ * omits it (owner D1 2026-11-13; WC-2026-11-13-info-derived-async-published):
+ * `widget` = the widget_name always; `key` = the ipo block index only when the
+ * widget declares ONE block (a parsed face computed over several blocks that
+ * names no block cannot be attributed to one — stamping a guess would be
+ * fabrication, so `key` stays absent there). sum_dates' parsed items carry
+ * only `widget_id`, so without the stamp `parser_info::widget` (which matches
+ * on `widget` + `id|widget_id`) matched nothing and mdcat1181 published NULL.
+ * The raw face is never stamped: a stamp there would hide a widget emitting a
+ * malformed item.
+ */
+export async function computeInfoWidgetsParsed(
+	componentTipo: string,
+	context: WidgetContext,
+): Promise<WidgetItem[] | null> {
+	const widgets = await declaredWidgets(componentTipo);
+	if (widgets === null) return null;
+
+	const data: WidgetItem[] = [];
+	for (const widget of widgets) {
+		const widgetName = widget.widget_name ?? '';
+		const ipo = Array.isArray(widget.ipo) ? widget.ipo : [];
+		const items = await widgetParsedItems(getInfoWidget(widgetName), ipo, context);
+		data.push(...items.map((item) => stampWidgetItem(item, widgetName, ipo.length)));
+	}
+	return data;
+}
+
+/** One parsed item with `widget` (+ `key`, single-block widgets) filled in when missing. */
+function stampWidgetItem(item: WidgetItem, widgetName: string, blocks: number): WidgetItem {
+	if (!isPlainItem(item)) return item;
+	const stamped: Record<string, unknown> = { ...item };
+	if (typeof stamped.widget !== 'string') stamped.widget = widgetName;
+	if (stamped.key === undefined && blocks === 1) stamped.key = 0;
+	return stamped as WidgetItem;
 }
 
 /**

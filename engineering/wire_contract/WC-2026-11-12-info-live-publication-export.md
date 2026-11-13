@@ -94,3 +94,21 @@ the screen with no notice. The value of a component_info is what its widgets com
 - Perf (suite DB, test_info widget): 200 records × 2 fields published in 25 ms (one compute per
   record). Real-widget cost (numisdata `get_archive_weights`) not measured on the suite DB (no
   numisdata corpus).
+
+## Addendum 2026-11-13 — the four open decisions are ruled
+
+Owner rulings 2026-11-13 (`T1_owner_decisions.md` C8 / C9 / C10, D1):
+
+- **D1 (two outputs, one id): as PHP** — one `sub_id = <id>` column, values
+  joined; pinned by `tool_export_info_native` G2.7. Not a divergence.
+- **D2 (async widgets): COMPUTED** by the export (value / grid_value /
+  dedalo_raw, `WidgetContext.includeAsync`) and by the publication door (the
+  diffusion batch); the read path still skips them. Replaces "Async widgets are
+  skipped (D2 default) → numisdata1097 stays NULL" above.
+- **D3 (`derived` facet): YES** — `component_info` carries `derived: true`.
+- **D4 (mdcat1181 mapping):** the engine publishes the PARSED face
+  (`computeInfoWidgetsParsed`, items stamped `widget` + `key`), THEN the owner
+  sets `parser_info::widget {widget_name:['sum_dates'], select:['sum_intervals']}`
+  on the master ontology.
+
+Contract: `WC-2026-11-13-info-derived-async-published`.

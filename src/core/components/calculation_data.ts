@@ -201,7 +201,23 @@ function asWalkData(value: unknown): unknown[] {
 	return EMPTY_SCALARS.has(value) ? [] : [value];
 }
 
-/** The calculation read policy for the shared walker (see the module header). */
+/**
+ * The calculation read policy for the shared walker (see the module header).
+ *
+ * CALCULATION READS TOTAL RECORDS — owner C7 2026-11-13
+ * (WC-2026-11-13-calculation-total-records-no-frontier): there is NO per-target
+ * frontier check here. A calculation is a statement about the WHOLE set its
+ * ddo_map reaches — the mean diameter of a coin type is the mean over ALL its
+ * coins, the total paid to the heirs is the sum over EVERY heir — whatever the
+ * reader's project scope admits one by one. Filtering the targets by the
+ * reader's grants would publish a different number per reader and call each
+ * one "the total". The reader's access is decided ONCE, at the component_info
+ * that displays the result (the widget-data read door / the section read);
+ * the inputs are read as stored (readStoredComponentData,
+ * memoizedReadMatrixRecord), as PHP's get_calculation_data read them.
+ * Pinned (positive) by calculation_widget_native C7: a project-scoped
+ * principal totals targets outside its projects.
+ */
 function calculationReader(context: WidgetContext): WalkReader {
 	return async (ddo, address) => {
 		const fn = ddoFunctionName(ddo);

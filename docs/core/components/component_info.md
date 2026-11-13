@@ -72,7 +72,11 @@ On a section read the info **emit hook**
 `component_info` instance. The value is **always** the **live compute** through
 `computeInfoWidgets()` (`widgets/registry.ts`), which reads the node's
 `properties.widgets` and, for each non-async widget, looks its `widget_name` up
-in the registry and runs the descriptor's `computeData()`. A stored `misc`
+in the registry and runs the descriptor's `computeData()`. An async widget is
+skipped on the section read (the client fetches it on demand) but **is**
+computed by the export and the publication, which set `includeAsync` on the
+widget context — a published or exported information column carries what the
+record shows. A stored `misc`
 value is never served (see [The derived-value rule](#the-derived-value-rule)).
 The entries pass through `normalizeWidgetEntryKeys` (the WC-026 dual-key fix — see
 [The wire contract](#the-wire-contract)). The client (`component_info.js`) then

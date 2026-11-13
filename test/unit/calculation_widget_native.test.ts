@@ -37,6 +37,10 @@
  *    the mdcat package's exported MAJOR_GRANT_SECTION caller (pure fn, the
  *    constant read — never spelled); every other caller is minor;
  *    options.major_section_tipos is not read (it exists in no ontology).
+ *  - C7 (ruling 2026-11-13, WC-2026-11-13-calculation-total-records-no-frontier):
+ *    a calculation totals EVERY record its ddo_map reaches — a project-scoped
+ *    principal whose section read cannot see the targets (another project)
+ *    still gets the full total; the reader's grants never filter the inputs.
  *  - C7 refusals on a scratch zz situation: unknown fn, no process, info
  *    cycle, aggregate scope, filter:true, relation input without ddo_map, a
  *    model without the facet — plus the int summarize over two numbers.
@@ -70,6 +74,7 @@ import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
+import { runWithRequestContext } from '../../src/core/security/request_context.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 import {
 	dropSituation,
@@ -81,6 +86,12 @@ import { MAJOR_GRANT_SECTION, MDCAT_CALCULATION_FILE } from '../../src/tld/mdcat
 import { mdcat } from '../../src/tld/mdcat/index.ts';
 import { GENERIC_CALCULATION_FILE } from '../../src/tld/registry.ts';
 import { sweepActivityRows } from '../helpers/activity_rows.ts';
+import {
+	clearFrontierIdentityCaches,
+	exportFrontierIdentity,
+	type FrontierGrant,
+} from '../helpers/export_frontier_identity.ts';
+import { hostSectionRead } from '../helpers/host_section_read.ts';
 import { registerSessionCleanup } from '../helpers/session_cleanup.ts';
 
 registerSessionCleanup();
@@ -314,7 +325,23 @@ const ZZ_BAD_MODULE = 'zzcalc23';
 // Object.prototype names as module: a bare index would answer `constructor` / `__proto__`.
 const ZZ_PROTO_CONSTRUCTOR = 'zzcalc24';
 const ZZ_PROTO_PROTO = 'zzcalc25';
+// C7 (no per-target frontier): a target section with its own project filter
+const ZZ_TGT = 'zzcalc26';
+const ZZ_TGT_FILTER = 'zzcalc27';
+const ZZ_TGT_NUM = 'zzcalc28';
+const ZZ_C7_PORTAL = 'zzcalc29'; // ZZ_HOST → ZZ_TGT
+const ZZ_C7_TOTAL = 'zzcalc30'; // summarize over the portal → ZZ_TGT_NUM
 const ZZ_ID = 1;
+
+/** The C7 reader: a project-scoped user (MY project) and a global admin. */
+const identity = exportFrontierIdentity('calculation_c7', 935300);
+const C7_GRANTS: FrontierGrant[] = [
+	{ sectionTipo: ZZ_HOST, tipo: ZZ_HOST, level: 2 },
+	{ sectionTipo: ZZ_HOST, tipo: ZZ_C7_TOTAL, level: 1 },
+	{ sectionTipo: ZZ_HOST, tipo: ZZ_C7_PORTAL, level: 1 },
+	{ sectionTipo: ZZ_TGT, tipo: ZZ_TGT, level: 2 },
+	{ sectionTipo: ZZ_TGT, tipo: ZZ_TGT_NUM, level: 1 },
+];
 
 /** A component_info node with ONE calculation ipo block. */
 function calcNode(tipo: string, block: Record<string, unknown>) {
@@ -408,6 +435,35 @@ const S = situation({
 			ZZ_PROTO_PROTO,
 			summarizeWith({ fn: 'toString', file: `/${mdcat.tld}/__proto__.ts`, engine: 'ts' }),
 		),
+		// C7: targets in ANOTHER project than the reader's, reached through a portal
+		{ tipo: ZZ_TGT, parent: 'test1', model: 'section', relations: [{ tipo: 'test24' }] },
+		{ tipo: ZZ_TGT_FILTER, parent: ZZ_TGT, model: 'component_filter' },
+		{ tipo: ZZ_TGT_NUM, parent: ZZ_TGT, model: 'component_number' },
+		{
+			tipo: ZZ_C7_PORTAL,
+			parent: ZZ_HOST,
+			model: 'component_portal',
+			properties: {
+				source: {
+					request_config: [
+						{
+							sqo: { section_tipo: [{ value: [ZZ_TGT], source: 'section' }] },
+							show: { ddo_map: [{ tipo: ZZ_TGT_NUM, parent: 'self', section_tipo: ZZ_TGT }] },
+						},
+					],
+				},
+			},
+		},
+		calcNode(
+			ZZ_C7_TOTAL,
+			summarize([
+				{
+					tipo: ZZ_C7_PORTAL,
+					var_name: 'p',
+					options: { ddo_map: [{ tipo: ZZ_TGT_NUM, parent: 'self', section_tipo: ZZ_TGT }] },
+				},
+			]),
+		),
 	],
 	records: [
 		{
@@ -442,6 +498,9 @@ const ids = {
 	grantNoDays: 0,
 	grantPeriod: 0,
 	daysExtra: 0,
+	c7host: 0,
+	c7a: 0,
+	c7b: 0,
 };
 
 beforeAll(async () => {
@@ -525,6 +584,23 @@ beforeAll(async () => {
 			[GRANT_EXTRA_DAYS_PORTAL]: [locator(GRANT_EXTRA_DAYS_PORTAL, DAYS, ids.daysExtra)],
 		},
 	});
+
+	// C7: two targets in the OTHER project (2 + 5), the host reaches both
+	await identity.install(C7_GRANTS, C7_GRANTS);
+	const otherProject = (value: number) => ({
+		relation: { [ZZ_TGT_FILTER]: [identity.filterLocator(ZZ_TGT_FILTER, identity.otherProject)] },
+		number: { [ZZ_TGT_NUM]: number(value) },
+	});
+	ids.c7a = await record(ZZ_TGT, otherProject(2));
+	ids.c7b = await record(ZZ_TGT, otherProject(5));
+	ids.c7host = await record(ZZ_HOST, {
+		relation: {
+			[ZZ_C7_PORTAL]: [
+				locator(ZZ_C7_PORTAL, ZZ_TGT, ids.c7a),
+				locator(ZZ_C7_PORTAL, ZZ_TGT, ids.c7b),
+			],
+		},
+	});
 }, 120000);
 
 afterAll(async () => {
@@ -544,6 +620,7 @@ afterAll(async () => {
 		bySection.set(section, [...(bySection.get(section) ?? []), id]);
 	}
 	for (const [section, sectionIds] of bySection) await sweepActivityRows(section, sectionIds);
+	await identity.remove(true);
 	const residue = await dropSituation(S);
 	if (leaked.length > 0) throw new Error(`cleanup leaked scratch rows: ${leaked.join(', ')}`);
 	expect(residue).toBe(0);
@@ -713,6 +790,56 @@ describe('C6 the grant chain', () => {
 				callerSectionTipo: ZZ_HOST,
 			}),
 		).toEqual([{ id: 'total', value: 2.3 }]);
+	});
+});
+
+describe('C7 a calculation totals ALL reached records — no per-target frontier (owner 2026-11-13)', () => {
+	const scopedRequest = {
+		principal: identity.scoped,
+		session: null,
+		requestId: 'zzcalc-c7',
+		clientIp: '127.0.0.1',
+	};
+	const computeAsScoped = () =>
+		runWithRequestContext(scopedRequest, () =>
+			computeInfoWidgets(ZZ_C7_TOTAL, {
+				sectionTipo: ZZ_HOST,
+				sectionId: ids.c7host,
+				mode: 'list',
+				lang: 'lg-nolan',
+				userId: identity.scoped.userId,
+				isAdmin: false,
+			}),
+		);
+
+	test('control: the scoped principal CANNOT read the targets (another project)', async () => {
+		clearFrontierIdentityCaches();
+		const target = await hostSectionRead(
+			identity.scoped,
+			ZZ_TGT,
+			ids.c7a,
+			'lg-nolan',
+			'zzcalc-c7-ctl',
+		);
+		// the record is outside the reader's projects: no number item reaches the read
+		expect(target.data.filter((item) => item.tipo === ZZ_TGT_NUM)).toEqual([]);
+		// non-vacuity: the admin's read of the same record DOES carry it
+		const admin = await hostSectionRead(
+			identity.admin,
+			ZZ_TGT,
+			ids.c7a,
+			'lg-nolan',
+			'zzcalc-c7-adm',
+		);
+		expect(admin.data.filter((item) => item.tipo === ZZ_TGT_NUM)).toHaveLength(1);
+	});
+
+	test('the scoped principal totals BOTH targets: 2 + 5 = 7, the same as the admin', async () => {
+		clearFrontierIdentityCaches();
+		// the engine compute (raw items: the WC-026 dual keys are added at the emit boundary)
+		const rawTotal = { widget: 'calculation', key: 0, id: 'total', value: 7 };
+		expect(await computeAsScoped()).toEqual([rawTotal]);
+		expect(await compute(ZZ_C7_TOTAL, ZZ_HOST, ids.c7host)).toEqual([rawTotal]);
 	});
 });
 

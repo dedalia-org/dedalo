@@ -523,11 +523,13 @@ export interface ComponentModel {
 	 *   - the CSV import REFUSES a column mapped to it in any mode (its
 	 *     `importAppend` refusal names what to import instead).
 	 * A derived model must refuse append. Declared `true` only; omitted = the
-	 * component stores what it serves. component_info is NOT declared derived
-	 * (owner decision T1-2 D3 open) although its `misc` slot is never served
-	 * (WC-2026-09-03): the consumers that must not trust that slot (export
-	 * dedalo_raw, the D4 holdsNoData probe, diffusion) key on its `info`
-	 * flatValue family instead. Pinned by
+	 * component stores what it serves. component_info IS derived (owner C10
+	 * 2026-11-13, WC-2026-11-13-info-derived-async-published): its `misc` slot
+	 * is never served (WC-2026-09-03), tool_update_cache skips it and the CSV
+	 * import refuses a column mapped to it; the consumers whose computed value
+	 * is the WIDGET aggregate (export dedalo_raw, the D4 holdsNoData probe,
+	 * diffusion) still key on its `info` flatValue family, because that names
+	 * WHAT is computed, not merely that something is. Pinned by
 	 * descriptor_completeness_tripwire (the set of record, the append law).
 	 */
 	readonly derived?: true;

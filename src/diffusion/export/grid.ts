@@ -1745,8 +1745,9 @@ async function computedRawSlice(
 ): Promise<unknown[] | undefined> {
 	// component_info: the LIVE computed items (PHP get_raw_export_value wraps
 	// get_data — the live compute), never its stored `misc` slot
-	// (WC-2026-09-03). Checked before the derived gate: the model's derived
-	// facet is an open owner decision (T1-2 D3); its family is not.
+	// (WC-2026-09-03). Derived since owner C10 2026-11-13 (its `derived` facet);
+	// keyed on its `info` family because the computed value is the WIDGET
+	// aggregate, not a locator set like the derived relation models below.
 	if (getFlatValueFamily(model) === 'info') return liveInfoRawItems(run, record, componentTipo);
 	if (!isDerivedModel(model)) return undefined;
 	if (getFlatValueFamily(model) === 'inverse') {
@@ -1784,6 +1785,9 @@ async function liveInfoRawItems(
 		lang: currentDataLang(),
 		userId: principal?.userId,
 		isAdmin: principal?.isGlobalAdmin,
+		// an export door: the async widgets are computed too (owner C9
+		// 2026-11-13 — WC-2026-11-13-info-derived-async-published)
+		includeAsync: true,
 	});
 	return computed === null ? [] : normalizeWidgetEntryKeys(computed);
 }

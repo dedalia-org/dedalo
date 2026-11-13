@@ -27,6 +27,19 @@
  *   parsed      the export ships the widget's get_data_parsed face (sum_dates:
  *               humanized text, never the raw DateInterval objects);
  *               widgetComputeDataParsed falls back to computeData.
+ *   async (C9)  an ASYNC widget (user_activity) IS computed by the export
+ *               (owner 2026-11-13, v6 parity; PHP v7 / TS before: NULL) —
+ *               value, grid_value and dedalo_raw; the section read and the
+ *               request-path flat reader keep skipping it (the client fetches
+ *               it through get_widget_data). WC-2026-11-13-info-derived-async-published.
+ *   collision   two widgets declaring the SAME output id share ONE grid_value
+ *   (C8, G2.7)  column under `#<id>`, their values joined (owner 2026-11-13:
+ *               as PHP — oh87's media_icons + descriptors both output
+ *               `indexation`).
+ *   parsed face computeInfoWidgetsParsed (the publication door's compute, D1):
+ *   (D1)        per widget the get_data_parsed face, every item STAMPED with
+ *               `widget` (+ `key` for a single-block widget) when the face
+ *               omits them (sum_dates), async per the door, null without widgets.
  *
  * THE SITUATION IS BUILT (`zzxw`, dropped in afterAll, residue 0):
  *   zzxw1  W (host)   zzxw2 filter · zzxw3 W_LABEL input_text
@@ -34,17 +47,26 @@
  *                     outputs [zz_value, parents, references]
  *                     zzxw5 W_PORTAL portal → DATES · zzxw6 SUM component_info:
  *                     sum_dates over W_PORTAL (DATE_IN/DATE_OUT)
+ *                     zzxw8 ACT component_info: user_activity (ASYNC), output totals
+ *                     zzxw9 DUP component_info: TWO test_info widgets, both
+ *                     declaring output `zz_dup` (the collision)
  *   zzxw20 DATES      zzxw21 filter · zzxw22 DATE_IN · zzxw23 DATE_OUT (date)
  *   zzxw10 J host     zzxw11 filter · zzxw12 REL_J autocomplete → W, own
  *                     config [W_LABEL, INFO]; J's map injects [REL_J ⟶ W_LABEL]
  * Records (matrix_test): W#1 (mine) label 'zz xw one' + a PLANTED stale misc
  *   + W_PORTAL → DATES#1 (2020-01-01 → 2020-03-16);
  *   W#2 (mine) no label; W#5 (OTHER project) label 'zz xw five';
- *   J#1 (mine) REL_J → W#5 (the D4 probe).
+ *   J#1 (mine) REL_J → W#5 (the D4 probe);
+ *   W#934777 (mine) — the user_activity "user" (its id is read as a dd128
+ *   user id): ONE matrix_activity row written through the engine's own door
+ *   (logActivity, who = 934777) and swept with the situation's activity rows.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { logActivity } from '../../src/core/api/handlers/activity_log.ts';
 import {
+	computeInfoWidgets,
+	computeInfoWidgetsParsed,
 	getInfoWidget,
 	widgetComputeDataParsed,
 } from '../../src/core/components/component_info/widgets/registry.ts';
@@ -99,12 +121,18 @@ const DATES_FILTER = 'zzxw21';
 const DATE_IN = 'zzxw22';
 const DATE_OUT = 'zzxw23';
 const BIDI = 'zzxw7';
+const ACT = 'zzxw8'; // user_activity (ASYNC) — C9
+const DUP = 'zzxw9'; // two widgets, one output id — C8 G2.7
+/** The W record whose id the user_activity widget reads as a dd128 user id. */
+const ACT_USER = 934777;
 
 const TERM = {
 	W: 'zz xw host',
 	INFO: 'zz xw info',
 	SUM: 'zz xw sum dates',
 	REL_J: 'zz xw injected',
+	ACT: 'zz xw activity',
+	DUP: 'zz xw duplicate output',
 };
 
 const term = (value: string) => ({ [LANG]: value });
@@ -132,6 +160,25 @@ const requestConfig = (target: string, children: string[]) => ({
 			},
 		],
 	},
+});
+
+/** A test_info widget block over `source` (none → the placeholder value), output `outputId`. */
+const testInfoWidget = (source: string | null, outputId: string) => ({
+	widget_name: 'test_info',
+	path: '/test/test_info',
+	ipo: [
+		{
+			input: {
+				type: 'component_data',
+				source:
+					source === null
+						? []
+						: [{ section_id: 'current', section_tipo: 'current', component_tipo: source }],
+			},
+			output: [{ id: outputId }],
+			process: {},
+		},
+	],
 });
 
 const S = situation({
@@ -179,6 +226,32 @@ const S = situation({
 			model: 'component_portal',
 			term: term('zz xw spans'),
 			properties: requestConfig(DATES, [DATE_IN]),
+		},
+		{
+			// C9: an ASYNC widget — skipped by the read path, computed by the export
+			tipo: ACT,
+			parent: W,
+			model: 'component_info',
+			term: term(TERM.ACT),
+			properties: {
+				widgets: [
+					{
+						widget_name: 'user_activity',
+						path: '/dd/user_activity',
+						ipo: [{ input: {}, output: [{ id: 'totals' }] }],
+					},
+				],
+			},
+		},
+		{
+			// C8 G2.7: two widgets declaring the SAME output id (oh87's shape)
+			tipo: DUP,
+			parent: W,
+			model: 'component_info',
+			term: term(TERM.DUP),
+			properties: {
+				widgets: [testInfoWidget(W_LABEL, 'zz_dup'), testInfoWidget(null, 'zz_dup')],
+			},
 		},
 		{
 			// a widget WITH a get_data_parsed face: its raw items are
@@ -350,6 +423,17 @@ async function writeRecords(): Promise<void> {
 	await writeRecord(W, 5, W_FILTER, identity.otherProject, {}, label('zz xw five'));
 	await writeRecord(J, 1, J_FILTER, identity.myProject, {
 		[REL_J]: [{ id: 1, type: 'dd151', section_tipo: W, section_id: 5, from_component_tipo: REL_J }],
+	});
+	// C9: the activity "user" W#ACT_USER and ONE activity row of its own, written
+	// through the engine's door (who = ACT_USER; where = W_LABEL, a situation
+	// node, so the afterAll activity sweep + residue count cover it)
+	await writeRecord(W, ACT_USER, W_FILTER, identity.myProject);
+	await logActivity({
+		what: 'SAVE',
+		tipo: W_LABEL,
+		userId: ACT_USER,
+		host: '127.0.0.1',
+		data: { msg: 'zz xw activity row', section_tipo: W, section_id: ACT_USER },
 	});
 }
 
@@ -575,6 +659,111 @@ describe.if(DB_READY)('tool_export exports component_info (live widget outputs)'
 			// the raw face would ship the JSON-encoded DateInterval ({"y":0,…})
 			expect(cells['1#0']?.[key]).toMatch(/^2 \S+ 15 \S+$/);
 		}
+	});
+
+	test('C9: an ASYNC widget (user_activity) IS computed by the export — value, grid_value, dedalo_raw', async () => {
+		const top = `${W}_${ACT}`;
+		const path = [{ section_tipo: W, component_tipo: ACT }];
+		const row = `${ACT_USER}#0`;
+		// value: the totals object as JSON (the row written above counts ONE action)
+		const value = cellsByKey(
+			await gridOf(identity.admin, exportOptions('value', [ACT_USER], path)),
+		);
+		const cell = value[row]?.[top];
+		expect(cell, 'the async widget exported no value').toBeDefined();
+		const totals = JSON.parse(cell as string) as { what?: { value?: unknown }[] };
+		expect(totals.what?.map((entry) => entry.value)).toEqual([1]);
+		expect(cell).toContain(W_LABEL);
+		// grid_value: the output's own column
+		const grid = cellsByKey(
+			await gridOf(identity.admin, exportOptions('grid_value', [ACT_USER], path)),
+		);
+		expect(Object.keys(grid[row] ?? {})).toEqual([`${top}.${top}#totals`]);
+		expect(grid[row]?.[`${top}.${top}#totals`]).toBe(cell as string);
+		// dedalo_raw: the live item, WC-026 dual keys
+		const raw = cellsByKey(
+			await gridOf(identity.admin, exportOptions('dedalo_raw', [ACT_USER], path)),
+		);
+		const rawCell = Object.values(raw[row] ?? {}).find((c) => c.includes('dedalo_data'));
+		expect(rawCell).toBeDefined();
+		const items = (JSON.parse(rawCell as string) as { dedalo_data: Record<string, unknown>[] })
+			.dedalo_data;
+		expect(items.map((item) => [item.widget, item.key, item.id, item.widget_id])).toEqual([
+			['user_activity', 0, 'totals', 'totals'],
+		]);
+		expect(JSON.stringify(items[0]?.value)).toBe(cell as string);
+	});
+
+	test('C9 control: the section read and the request-path flat reader still SKIP the async widget', async () => {
+		const read = await hostSectionReadItems(identity.admin, W, ACT_USER, LANG, 'zzxw-act');
+		const act = read.find((item) => item.tipo === ACT);
+		expect(act, 'the read served no ACT item').toBeDefined();
+		expect(JSON.stringify(act?.entries ?? null)).not.toContain('user_activity');
+		const unresolved: string[] = [];
+		const items = await runWithRequestContext(
+			{
+				principal: identity.admin,
+				session: null,
+				requestId: 'zzxw-act-panel',
+				clientIp: '127.0.0.1',
+			},
+			() =>
+				runWithRequestLangs({ applicationLang: LANG, dataLang: LANG }, () =>
+					resolveCellItems(W, ACT_USER, ACT, LANG, unresolved),
+				),
+		);
+		expect(JSON.stringify(items ?? [])).not.toContain('"what"');
+		expect(unresolved).toEqual([]);
+	});
+
+	test('G2.7 (owner C8: as PHP) two widgets declaring ONE output id share ONE column, values joined', async () => {
+		const top = `${W}_${DUP}`;
+		const path = [{ section_tipo: W, component_tipo: DUP }];
+		const placeholder = `test_info widget value for section ${W} - 1`;
+		const value = cellsByKey(await gridOf(identity.admin, exportOptions('value', [1], path)));
+		expect(value['1#0']).toEqual({ [top]: `zz xw one, ${placeholder}` });
+		const grid = cellsByKey(await gridOf(identity.admin, exportOptions('grid_value', [1], path)));
+		// ONE column (sub_id = the id), never `<widget>:<id>` twins
+		expect(grid['1#0']).toEqual({ [`${top}.${top}#zz_dup`]: `zz xw one, ${placeholder}` });
+	});
+
+	test('D1: computeInfoWidgetsParsed — the parsed face, items stamped widget + key, async per the door', async () => {
+		const context = {
+			sectionTipo: W,
+			sectionId: 1,
+			mode: 'diffusion',
+			lang: LANG,
+			userId: identity.admin.userId,
+			isAdmin: true,
+		};
+		const langs = { applicationLang: LANG, dataLang: LANG };
+		// sum_dates: its parsed items carry only widget_id → stamped widget + key 0
+		const parsed = await runWithRequestLangs(langs, () => computeInfoWidgetsParsed(SUM, context));
+		expect(parsed).toEqual([
+			{ widget: 'sum_dates', key: 0, widget_id: 'sum_intervals', value: expect.any(String) },
+			{ widget: 'sum_dates', key: 0, widget_id: 'sum_estitmated_time_add', value: '' },
+			{ widget: 'sum_dates', key: 0, widget_id: 'estitmated_time_undefined', value: null },
+		]);
+		// the humanized text (localized labels), never the DateInterval JSON
+		expect((parsed?.[0] as { value?: string })?.value).toMatch(/^2 \S+ 15 \S+$/);
+		// the raw face is NOT stamped and keeps the DateInterval objects
+		const raw = await runWithRequestLangs(langs, () => computeInfoWidgets(SUM, context));
+		expect(typeof (raw?.[0] as { value?: unknown })?.value).toBe('object');
+		expect((raw?.[0] as { widget_id?: unknown })?.widget_id).toBe('sum_intervals');
+		// a widget without a parsed face: identical to its raw items (already stamped by the widget)
+		expect(await computeInfoWidgetsParsed(INFO, context)).toEqual(
+			await computeInfoWidgets(INFO, context),
+		);
+		// async: skipped by default, computed when the door includes it
+		expect(await computeInfoWidgetsParsed(ACT, context)).toEqual([]);
+		const withAsync = await runWithRequestLangs(langs, () =>
+			computeInfoWidgetsParsed(ACT, { ...context, sectionId: ACT_USER, includeAsync: true }),
+		);
+		expect(withAsync?.map((item) => [item.widget, item.key, item.widget_id])).toEqual([
+			['user_activity', 0, 'totals'],
+		]);
+		// no widgets → null (as computeInfoWidgets)
+		expect(await computeInfoWidgetsParsed(W_LABEL, context)).toBeNull();
 	});
 
 	test('widgetComputeDataParsed: the get_data_parsed face, else computeData', () => {

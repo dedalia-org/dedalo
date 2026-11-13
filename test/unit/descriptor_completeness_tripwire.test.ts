@@ -282,12 +282,12 @@ function appendKind(
  * Computed-value models that do NOT carry the `derived` facet, each with the
  * reason it was audited out. The facet means "the stored key is never the
  * value" (types.ts) — consumers SKIP or REFUSE the key — so a model whose
- * stored bytes ARE read must stay out of it. SHRINK-ONLY.
+ * stored bytes ARE read must stay out of it. SHRINK-ONLY. EMPTY since owner
+ * C10 2026-11-13 ruled component_info derived (its last entry;
+ * WC-2026-11-13-info-derived-async-published): every computed-value model
+ * carries the facet.
  */
-const NOT_DERIVED_BY_FACET: Readonly<Record<string, string>> = {
-	component_info:
-		'owner decision T1-2 D3 open: its stored misc is never served (WC-2026-09-03 — no observer writes it, the read and export compute live) but the facet also flips update_cache / CSV-import refusal; the export/D4/diffusion consumers key on its `info` flatValue family meanwhile',
-};
+const NOT_DERIVED_BY_FACET: Readonly<Record<string, string>> = {};
 
 /** The derived-value models, read from the descriptor FACTS (+ the extra hand list). */
 function computedDerivedModels(descriptors: readonly ComponentModel[]): Set<string> {
@@ -412,14 +412,9 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 			'component_password',
 			'a secret: never exported as a value (the tool_export client excludes it from the pickable elements)',
 		],
-		[
-			'component_security_access',
-			'an ACL matrix blob (misc column): no flat text value; ledgered unresolved',
-		],
-		[
-			'component_filter_records',
-			'a saved record-filter blob (misc column): no flat text value; ledgered unresolved',
-		],
+		// component_security_access / component_filter_records left this list on
+		// 2026-11-13 (owner C44: EXPORTABLE as `json` cells, like any component —
+		// WC-2026-11-13-export-acl-components-exportable).
 	]);
 
 	/** The canonical models with no flat-value family, minus the named exemptions. */
@@ -1037,8 +1032,14 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 			if (!isCanonical(descriptor)) expect(descriptor.derived, descriptor.model).toBeUndefined();
 		}
 		expect(isDerivedModel('component_relation_children')).toBe(true);
-		expect(isDerivedModel('component_info')).toBe(false);
+		// owner C10 2026-11-13: component_info is derived (its aliases through the hop)
+		expect(isDerivedModel('component_info')).toBe(true);
+		expect(isDerivedModel('component_calculation')).toBe(true);
+		expect(isDerivedModel('component_state')).toBe(true);
 		expect(isDerivedModel('component_portal')).toBe(false);
+		// owner C44 2026-11-13: the two ACL models export as JSON cells
+		expect(getFlatValueFamily('component_security_access')).toBe('json');
+		expect(getFlatValueFamily('component_filter_records')).toBe('json');
 	});
 
 	test('a canonical descriptor without the facet makes the accessor THROW, never default', () => {

@@ -22,6 +22,16 @@
  *                   `a & b\nc &lt; d` (one-pass entity map); dedalo_raw keeps
  *                   the stored markup (control).
  *   C5 input_text   a plain value passes through unchanged (short-circuit).
+ *   C6 ACL models   component_security_access / component_filter_records are
+ *                   EXPORTABLE like any component (owner C44 2026-11-13,
+ *                   WC-2026-11-13-export-acl-components-exportable; before:
+ *                   exempt, no cell, "ACL matrix is not heritage data"): value
+ *                   AND grid_value cell = each stored item as JSON (the `json`
+ *                   family), under the ORDINARY export column gate — a persona
+ *                   without a grant on the column is refused (perm.denied, the
+ *                   component ACL every column crosses), granted it exports.
+ *                   Own situation (`zzsax`, dropped to zero residue) + the
+ *                   export-frontier identity (scoped / admin).
  *
  * THE SITUATION IS BUILT: test3 records created through createSectionRecord
  * (allocated ids) and written through saveComponentData; swept above the run's
@@ -33,6 +43,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
+import { sql } from '../../src/core/db/postgres.ts';
 import { resolveCellValue } from '../../src/core/resolve/relation_list.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
@@ -41,8 +53,14 @@ import {
 	runCounterMark,
 	sweepRecordsCreatedSince,
 } from '../../src/core/test_data/run_created_records.ts';
+import {
+	dropSituation,
+	ensureSituation,
+	situation,
+} from '../../src/core/test_data/situations/situation.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import type { ToolActionContext, ToolResponse } from '../../src/core/tools/module.ts';
+import { clearTermCache } from '../../src/core/ts_object/term_resolver.ts';
 import {
 	type ArtifactStore,
 	openArtifactStore,
@@ -54,6 +72,11 @@ import {
 import { readExportPreview } from '../../tools/tool_export/server/preview.ts';
 import { toolExportGetExportGrid } from '../../tools/tool_export/server/tool_export.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
+import {
+	clearFrontierIdentityCaches,
+	exportFrontierIdentity,
+	type FrontierGrant,
+} from '../helpers/export_frontier_identity.ts';
 import { markExportArtifactsRoot } from '../helpers/media_scratch_root.ts';
 
 const SECTION = 'test3';
@@ -332,3 +355,181 @@ describe.if(DB_READY)('tool_export coverage residue (T1-39)', () => {
 		expect(csv).not.toContain('<p>a &');
 	});
 });
+
+// --- C6: the ACL models export as JSON cells under the ordinary gate (C44) ------
+
+const ACL_SECTION = 'zzsax1';
+const ACL_FILTER = 'zzsax2';
+const SECURITY_ACCESS = 'zzsax3';
+const FILTER_RECORDS = 'zzsax4';
+const ACL_LANG = 'lg-eng';
+const ACL_TERM = { SA: 'zz sax permissions', FR: 'zz sax record filter' };
+const ACL_RECORD = 1;
+/** The stored items, as the two editors write them (dd774 / dd478 shapes). */
+const SA_VALUE = { id: 1, tipo: 'test3', section_tipo: 'test3', value: 2 };
+const FR_VALUE = { id: 1, tipo: 'test3', value: [10, 27] };
+
+/** The stored item AS jsonb hands it back (its key order) — the cell's oracle. */
+async function aclStoredItem(componentTipo: string): Promise<unknown> {
+	const rows = (await sql.unsafe(
+		'SELECT misc->$3->0 AS item FROM matrix_test WHERE section_tipo = $1 AND section_id = $2',
+		[ACL_SECTION, ACL_RECORD, componentTipo],
+	)) as { item: unknown }[];
+	expect(rows[0]?.item, `no stored ${componentTipo} item`).toBeDefined();
+	return rows[0]?.item;
+}
+
+const ACL = situation({
+	name: 'tool_export ACL components (C44)',
+	tld: 'zzsax',
+	nodes: [
+		{
+			tipo: ACL_SECTION,
+			parent: 'test1',
+			model: 'section',
+			term: { [ACL_LANG]: 'zz sax host' },
+			relations: [{ tipo: 'test24' }],
+		},
+		{
+			tipo: ACL_FILTER,
+			parent: ACL_SECTION,
+			model: 'component_filter',
+			term: { [ACL_LANG]: 'zz sax projects' },
+		},
+		{
+			tipo: SECURITY_ACCESS,
+			parent: ACL_SECTION,
+			model: 'component_security_access',
+			term: { [ACL_LANG]: ACL_TERM.SA },
+		},
+		{
+			tipo: FILTER_RECORDS,
+			parent: ACL_SECTION,
+			model: 'component_filter_records',
+			term: { [ACL_LANG]: ACL_TERM.FR },
+		},
+	],
+});
+
+const aclIdentity = exportFrontierIdentity('tool_export_coverage_acl', 935400);
+/** The scoped persona may export the SECTION but holds NO grant on either ACL column. */
+const ACL_SCOPED_GRANTS: FrontierGrant[] = [
+	{ sectionTipo: ACL_SECTION, tipo: ACL_SECTION, level: 2 },
+];
+const ACL_ADMIN_GRANTS: FrontierGrant[] = ACL.nodes.map((node) => ({
+	sectionTipo: node.model === 'section' ? node.tipo : (node.parent as string),
+	tipo: node.tipo,
+	level: 3,
+}));
+
+const aclOptions = (
+	dataFormat: 'value' | 'grid_value',
+	componentTipo: string,
+): Record<string, unknown> => ({
+	section_tipo: ACL_SECTION,
+	model: 'section',
+	lang: ACL_LANG,
+	data_format: dataFormat,
+	breakdown: 'default',
+	fill_the_gaps: false,
+	ar_ddo_to_export: [{ path: [{ section_tipo: ACL_SECTION, component_tipo: componentTipo }] }],
+	sqo: {
+		section_tipo: [ACL_SECTION],
+		limit: 10,
+		offset: 0,
+		filter_by_locators: [{ section_tipo: ACL_SECTION, section_id: String(ACL_RECORD) }],
+	},
+});
+
+async function aclAnswer(who: Principal, options: Record<string, unknown>): Promise<string> {
+	clearFrontierIdentityCaches();
+	try {
+		const response: ToolResponse = await toolExportGetExportGrid({
+			principal: who,
+			userId: who.userId,
+			options,
+			background: false,
+		} as unknown as ToolActionContext);
+		return `OK:${JSON.stringify(response.data)}`;
+	} catch (error) {
+		const code = (error as { code?: string }).code ?? 'unknown';
+		const details = (error as { details?: unknown }).details;
+		return `REFUSED:${code}:${JSON.stringify(details ?? null)}`;
+	}
+}
+
+/** The one cell of the one record of an OK answer (floor: a row was walked). */
+async function aclCell(who: Principal, options: Record<string, unknown>): Promise<unknown> {
+	const answer = await aclAnswer(who, options);
+	expect(answer.startsWith('OK:'), answer).toBe(true);
+	const grid = JSON.parse(answer.slice(3)) as Grid;
+	expect((grid.rows ?? []).length).toBe(1);
+	expect((grid.columns ?? []).length).toBe(1);
+	expect(JSON.stringify(unresolvedOf(grid))).not.toContain('component_security_access');
+	expect(JSON.stringify(unresolvedOf(grid))).not.toContain('component_filter_records');
+	return grid.rows?.[0]?.c?.[String(grid.columns?.[0]?.i)];
+}
+
+describe.if(DB_READY)(
+	'tool_export exports the ACL components as JSON cells (C44, 2026-11-13)',
+	() => {
+		beforeAll(async () => {
+			await assertTestDatabase('tool_export_coverage_native C6');
+			await ensureSituation(ACL);
+			await aclIdentity.install(ACL_SCOPED_GRANTS, ACL_ADMIN_GRANTS);
+			await sql.unsafe('DELETE FROM matrix_test WHERE section_tipo = $1', [ACL_SECTION]);
+			await sql.unsafe(
+				`INSERT INTO matrix_test (section_tipo, section_id, relation, misc, data)
+			 VALUES ($1, $2, $3::text::jsonb, $4::text::jsonb, $5::text::jsonb)`,
+				[
+					ACL_SECTION,
+					ACL_RECORD,
+					encodeForJsonb({
+						[ACL_FILTER]: [aclIdentity.filterLocator(ACL_FILTER, aclIdentity.myProject)],
+					}),
+					encodeForJsonb({ [SECURITY_ACCESS]: [SA_VALUE], [FILTER_RECORDS]: [FR_VALUE] }),
+					encodeForJsonb({ section_tipo: ACL_SECTION, section_id: ACL_RECORD }),
+				],
+			);
+			clearTermCache();
+		}, 60000);
+
+		afterAll(async () => {
+			await sql.unsafe('DELETE FROM matrix_test WHERE section_tipo = $1', [ACL_SECTION]);
+			await aclIdentity.remove(true);
+			expect(await dropSituation(ACL)).toBe(0);
+		});
+
+		for (const [name, tipo, item] of [
+			['component_security_access', SECURITY_ACCESS, SA_VALUE],
+			['component_filter_records', FILTER_RECORDS, FR_VALUE],
+		] as const) {
+			test(`${name}: value AND grid_value cell = the stored item as JSON (admin)`, async () => {
+				const stored = await aclStoredItem(tipo);
+				expect(stored).toEqual(item); // non-vacuity: the oracle IS the planted item
+				for (const format of ['value', 'grid_value'] as const) {
+					expectJsonCell(await aclCell(aclIdentity.admin, aclOptions(format, tipo)), stored);
+				}
+			});
+
+			test(`${name}: no grant on the column → the ORDINARY export gate refuses; granted → exported`, async () => {
+				await aclIdentity.setScopedGrants(ACL_SCOPED_GRANTS);
+				// no grant on the component: the tool's per-column ACL (perm.denied) —
+				// the SAME gate every other column crosses, nothing ACL-model-specific
+				for (const format of ['value', 'grid_value'] as const) {
+					expect(await aclAnswer(aclIdentity.scoped, aclOptions(format, tipo))).toBe(
+						'REFUSED:perm.denied:null',
+					);
+				}
+				await aclIdentity.setScopedGrants([
+					...ACL_SCOPED_GRANTS,
+					{ sectionTipo: ACL_SECTION, tipo, level: 1 },
+				]);
+				expectJsonCell(
+					await aclCell(aclIdentity.scoped, aclOptions('value', tipo)),
+					await aclStoredItem(tipo),
+				);
+			});
+		}
+	},
+);
