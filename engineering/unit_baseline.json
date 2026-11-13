@@ -3879,6 +3879,11 @@
 			"skipped": 0,
 			"assertions": 178
 		},
+		"test/unit/observer_refresh_data_native.test.ts": {
+			"tests": 17,
+			"skipped": 0,
+			"assertions": 133
+		},
 		"test/unit/observer_seed_native.test.ts": {
 			"tests": 21,
 			"skipped": 0,
