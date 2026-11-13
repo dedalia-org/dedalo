@@ -362,7 +362,18 @@ async function siblingFlatValue(componentTipo: string, source: RecordSource): Pr
  * copy to drift (the snapshot twin in file_ops.ts retired with T1-10).
  */
 export function flatItemsValue(stored: unknown): string {
-	if (!Array.isArray(stored)) return '';
+	return siblingStringValues(stored).join(' | ');
+}
+
+/**
+ * The non-empty string values of a sibling's stored items, read the way PHP
+ * reads a sibling in lg-nolan: the lg-nolan (or lang-less) items, else every
+ * item. ONE slice rule for the path readers ({@link flatItemsValue}, which joins
+ * them) and the provenance repair (provenance_repair.ts, which takes the first —
+ * PHP `$filename_data[0]`).
+ */
+export function siblingStringValues(stored: unknown): string[] {
+	if (!Array.isArray(stored)) return [];
 	const items = stored as ({ lang?: unknown; value?: unknown } | null)[];
 	const nolan = items.filter((item) => {
 		const lang = item?.lang ?? null;
@@ -371,6 +382,5 @@ export function flatItemsValue(stored: unknown): string {
 	const slice = nolan.length > 0 ? nolan : items;
 	return slice
 		.map((item) => (typeof item?.value === 'string' ? item.value : ''))
-		.filter((value) => value !== '')
-		.join(' | ');
+		.filter((value) => value !== '');
 }

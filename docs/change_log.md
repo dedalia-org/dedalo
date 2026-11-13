@@ -305,6 +305,12 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-csv-ingest-size-ceiling`.
 
+- **Regenerating a media file now restores its original file name the same way from both tools.**
+
+    When a media record had lost its original file name, **Regenerate files** in Media versions did not restore it from the record's "Original file name" field, while **Update cache** did, but on the wrong language's file for translatable media and with the extension in upper case. Both tools now restore it the same way: on the file of the language you are working in, with the stored normalized name in lower case, and only when the name is missing — a name already recorded is never replaced.
+
+    Wire contract: `WC-2026-11-12-media-provenance-repair-one-kernel`.
+
 - **Transcription tag statistics count the interview's own-language text**
 
     The transcription statistics (time codes, index tags, notes, characters) of an audiovisual
@@ -1347,7 +1353,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 63 entries"
+??? note "Wire contract — 64 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1395,6 +1401,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-lang-fallback-judges-emptiness`
     - `WC-2026-11-12-locator-target-deleted-refused`
     - `WC-2026-11-12-marc21-config-map-and-transforms`
+    - `WC-2026-11-12-media-provenance-repair-one-kernel`
     - `WC-2026-11-12-number-type-precision-on-save`
     - `WC-2026-11-12-numisdata-widgets-locator-law`
     - `WC-2026-11-12-posterframe-identifying-image-scope`

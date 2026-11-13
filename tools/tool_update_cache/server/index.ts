@@ -135,6 +135,11 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 		'../../../src/core/media/tools/files_info_persist.ts'
 	);
 	const { resolveMediaPathOptions } = await import('../../../src/core/media/ontology_path.ts');
+	const { applyProvenanceRepair, resolveProvenanceRepair } = await import(
+		'../../../src/core/media/provenance_repair.ts'
+	);
+	const { getTranslatableByTipo } = await import('../../../src/core/ontology/resolver.ts');
+	const { currentDataLang } = await import('../../../src/core/resolve/request_lang.ts');
 	const { transcribeStoredPdf } = await import(
 		'../../../src/core/media/ingest/pdf_transcription.ts'
 	);
@@ -374,15 +379,23 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 						pathOpts,
 					});
 					mediaErrors.push(...errors.map((message) => `${tipo}#${row.section_id}: ${message}`));
-					// v6 media_common regenerate (:2670-2705): a missing original_file_name
-					// is recovered from the section's target_filename component — resolved
-					// HERE (it reads the ontology and the record), applied under the lock.
-					const nameRepair = await resolveOriginalNameRepair(
-						tipo,
-						record,
-						row.section_tipo,
-						row.section_id,
-					);
+					// THE PROVENANCE REPAIR (T1-P04) — the one kernel sync_files runs too
+					// (provenance_repair.ts; v6 media_common regenerate :2670-2705): a
+					// missing original_file_name is recovered from the section's
+					// target_filename component — resolved HERE (ontology + this record),
+					// applied under the lock to the DATA-LANG item, BEFORE the rescan (PHP's
+					// Save re-scan reads the repaired cue).
+					const identityBase = {
+						componentTipo: tipo,
+						sectionTipo: row.section_tipo,
+						sectionId: row.section_id,
+					};
+					const provenanceTarget = {
+						lang: (await getTranslatableByTipo(tipo)) ? currentDataLang() : null,
+						identityBase,
+						pathOpts,
+					};
+					const nameRepair = await resolveProvenanceRepair({ ...identityBase, record });
 					let heldShrinks = 0;
 					const outcome = await transformStoredMediaItems(
 						{
@@ -393,13 +406,10 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 						(locked) => {
 							// Removed since the snapshot: nothing left to refresh.
 							if (locked.length === 0) return { skip: 'noop' };
-							const rescan = rescanMediaItems(locked, {
+							const repaired = applyProvenanceRepair(locked, nameRepair, provenanceTarget).items;
+							const rescan = rescanMediaItems(repaired, {
 								spec,
-								identityBase: {
-									componentTipo: tipo,
-									sectionTipo: row.section_tipo,
-									sectionId: row.section_id,
-								},
+								identityBase,
 								pathOpts,
 								// NEVER shrink from a tool sweep: on a partial-media box the rescan
 								// would wipe the valid index of every record whose files are not
@@ -408,9 +418,7 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 								holdShrink: true,
 							});
 							heldShrinks = rescan.heldShrinks;
-							return {
-								write: applyOriginalNameRepair(rescan.items, nameRepair) as StoredMediaItem[],
-							};
+							return { write: rescan.items as StoredMediaItem[] };
 						},
 						// A run over many records: one held row is THAT record's `locked`,
 						// never a wait that stalls (or, under a statement ceiling, aborts)
@@ -853,83 +861,6 @@ async function authorizeRowComponent(
 		}
 		throw error;
 	}
-}
-
-/** A recovered original name (see resolveOriginalNameRepair). */
-interface OriginalNameRepair {
-	fileName: string;
-	/** `<identifier>.<ext of the recovered name>`, when the name has an extension. */
-	normalizedName: string | null;
-}
-
-/**
- * v6 component_media_common::regenerate_component (:2670-2705): a media item
- * that lost its `original_file_name` recovers it from the section's
- * target-filename component (the component tipo named by the media component's
- * `properties.target_filename`, e.g. rsc398 'Original file name'), and derives
- * `original_normalized_name` (`<identifier>.<ext of the recovered name>`) when
- * that is missing too. The RESOLUTION half — async (the ontology, the record's
- * sibling value), run BEFORE the lock; `null` = nothing to recover.
- */
-async function resolveOriginalNameRepair(
-	componentTipo: string,
-	record: { columns: Record<string, unknown> },
-	sectionTipo: string,
-	sectionId: number,
-): Promise<OriginalNameRepair | null> {
-	const { getPropertiesByTipo, getModelByTipo: modelByTipo } = await import(
-		'../../../src/core/ontology/resolver.ts'
-	);
-	const { readComponentItems: readItems } = await import(
-		'../../../src/core/resolve/component_data.ts'
-	);
-	const properties = (await getPropertiesByTipo(componentTipo)) as {
-		target_filename?: unknown;
-	} | null;
-	const targetTipo =
-		typeof properties?.target_filename === 'string' ? properties.target_filename : null;
-	if (targetTipo === null) return null;
-	const targetModel = await modelByTipo(targetTipo);
-	if (targetModel === null) return null;
-	const targetItems = (readItems(record as never, targetTipo, targetModel) ?? []) as {
-		value?: unknown;
-	}[];
-	const fileName = targetItems.find((item) => typeof item?.value === 'string' && item.value !== '')
-		?.value as string | undefined;
-	if (fileName === undefined) return null;
-	const extension = fileName.includes('.') ? (fileName.split('.').pop() ?? '') : '';
-	return {
-		fileName,
-		normalizedName:
-			extension !== '' ? `${componentTipo}_${sectionTipo}_${sectionId}.${extension}` : null,
-	};
-}
-
-/**
- * The APPLICATION half — pure, run on the items read under the row lock: the
- * FIRST item gets the recovered name only when it has none (a curator's upload
- * committed since the snapshot wins). Never mutates the items it is handed.
- */
-function applyOriginalNameRepair(
-	items: readonly unknown[],
-	repair: OriginalNameRepair | null,
-): unknown[] {
-	const result = [...items];
-	const first = result[0] as Record<string, unknown> | undefined;
-	if (repair === null || first === undefined || first === null || typeof first !== 'object') {
-		return result;
-	}
-	if (typeof first.original_file_name === 'string' && first.original_file_name !== '')
-		return result;
-	const named: Record<string, unknown> = { ...first, original_file_name: repair.fileName };
-	if (
-		(typeof first.original_normalized_name !== 'string' || first.original_normalized_name === '') &&
-		repair.normalizedName !== null
-	) {
-		named.original_normalized_name = repair.normalizedName;
-	}
-	result[0] = named;
-	return result;
 }
 
 /** The section targets of a component-list request — the 'section_list' gate reads

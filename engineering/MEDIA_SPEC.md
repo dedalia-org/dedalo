@@ -506,6 +506,19 @@ Two entry points for the rescan transform, deliberately named apart:
   `update_component_data_files_info :3748` did this unconditionally on save; here
   it is reachable ONLY from the operator's explicit `sync_files`.
 
+The PROVENANCE repair is a separate step, shared by both regenerate doors
+(`update_cache`, `sync_files`): `src/core/media/provenance_repair.ts` (T1-P04,
+PHP `regenerate_component` step 1). `resolveProvenanceRepair` reads the
+component's `properties.target_filename` sibling (lg-nolan slice, first
+non-empty value) before the lock; `applyProvenanceRepair` runs under it, on the
+item of the request data lang (first item when non-translatable), BEFORE the
+rescan, and fills only ABSENT keys: `original_file_name` and
+`original_normalized_name` = `mediaFileId(...)` + `.` + lowercase extension. The
+mint itself still writes files_info alone; `sync_files` passes the repair to
+`repairStoredFilesInfo`, which applies it after the mint or merge. Not ported
+(owner decisions): normalized names guessed from files on disk, and
+`*_upload_date`. Wire: WC-2026-11-12-media-provenance-repair-one-kernel.
+
 The result carries `action` (`refreshed` / `created` / `noop` / `missing`) and
 the affected row count. `missing` — no matrix table, or the record was deleted
 mid-flight — is distinct from `noop` on purpose: a guard on the row count alone

@@ -4,8 +4,8 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 936,
-		"functions": 16498,
+		"files": 937,
+		"functions": 16509,
 		"functionsOverCap": 644,
 		"filesOverCap": 255
 	},
@@ -362,7 +362,7 @@
 		"src/core/media/svg_overlay.ts": 9,
 		"src/core/media/thumb.ts": 8,
 		"src/core/media/tool_support.ts": 13,
-		"src/core/media/tools/files_info_persist.ts": 10,
+		"src/core/media/tools/files_info_persist.ts": 9,
 		"src/core/media/tools/fragment.ts": 11,
 		"src/core/media/tools/posterframe.ts": 10,
 		"src/core/media/tools/rotation.ts": 26,
