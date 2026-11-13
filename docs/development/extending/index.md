@@ -229,11 +229,48 @@ code.
   [decision guide](../../core/components/base_classes.md#decision-guide-which-base-should-a-new-component-extend)
   top-down and stop at the first match; a relation stores in `relation` and is
   emitted by a resolver, media in `media`, a literal in its typed column.
+- **Hard-coding one institution's tipos in the generic engine.** Code that
+  genuinely serves ONE ontology (a formula that names that ontology's section)
+  is not engine code: it lives in that ontology's **TLD package**,
+  `src/tld/<tld>/` — see [TLD packages](#tld-packages) below. A tipo literal
+  elsewhere in `src/` is refused by `engine_install_tld_tripwire`.
 - **Treating a widget like a top-level model.** A `core/widgets/` widget has no
   ontology node of its own and no top-level model; its client module is hosted
   by a `component_info` field and its server-side compute lives in
   the `component_info` widget framework (`src/core/components/component_info/widgets/`, `computeInfoWidgets`), not a class of its
   own.
+
+## TLD packages
+
+Almost everything in the engine is generic: it reads the ontology and never
+names an installation's tipo. The exception is code that exists FOR one
+ontology — today the mdcat grant chain, whose `final_total` applies the
+major-grant branch to one mdcat section. Such code lives in a **TLD package**,
+`src/tld/<tld>/` (a peer of `src/core/`, depending on core and never the other
+way round), and is reached by the engine only through the one registry
+`src/tld/registry.ts`:
+
+```text
+src/tld/
+├── registry.ts          TLD_PACKAGES (one import line per package) + resolveCalculationFn
+├── types.ts             TldPackage — what a package exports
+└── <tld>/
+    ├── index.ts         export const <tld>: TldPackage
+    ├── README.md        the institution / process the code serves, every literal and why
+    └── calculation.ts   the formulas the ontology names under /<tld>/calculation/<module>.ts
+```
+
+The ontology selects a package by name, never by path: a `calculation`
+block's `process: { "fn", "file": "/<tld>/calculation/<module>.ts", "engine": "ts" }`
+is matched against the registered tables (`/calculation/formulas.ts` is the
+generic table), and anything the tables do not hold is refused with
+`ontology.invalid_node`. The laws — a package names only its own TLD's tipos,
+the generic engine names none, only the registry imports a package, no package
+formula reuses a generic name, every package directory is registered, and a
+`tools/tool_<tld>_*` tool names only its own TLD — are gated by
+`test/unit/engine_install_tld_tripwire.test.ts`. Adding a package is one
+directory plus one import line; the ontology that names its formulas is the
+owner's (master ontology) — never create nodes for it.
 
 ## Related
 

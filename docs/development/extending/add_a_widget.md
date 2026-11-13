@@ -157,12 +157,17 @@ The key rules, verified against `test_info.ts` / `registry.ts`:
 
 !!! warning "Confined `process` logic (SEC-052)"
     Only the generic `calculation` widget runs an ontology-specified `process`
-    formula, and the TS registry (`widgets/calculation/functions.ts`
-    `CALCULATION_FUNCTIONS`) hard-codes the allowed formulas (`summarize`,
-    `to_euros`, `calculate_period`) — it does **not** dynamically load
-    ontology-supplied code (`process.file` / `engine` are ignored). If your
-    widget needs a configurable formula, add a STATIC entry there; do **not**
-    re-introduce a dynamic include of ontology-supplied functions.
+    formula, and it resolves it from STATIC tables keyed by the block's
+    `process.file` (`src/tld/registry.ts` `resolveCalculationFn`): the generic
+    table `widgets/calculation/functions.ts` (`"file": "/calculation/formulas.ts"`,
+    `summarize`) or a TLD package's module `src/tld/<tld>/calculation.ts`
+    (`"file": "/<tld>/calculation/<module>.ts"` — the mdcat grant chain). It
+    does **not** dynamically load ontology-supplied code: the file is a lookup
+    key, `engine` must be `"ts"`, and a definition the tables do not hold is
+    refused. If your widget needs a configurable formula, add a STATIC entry to
+    the right table — a generic one in `functions.ts`, one that names an
+    ontology's tipos in that ontology's package; do **not** re-introduce a
+    dynamic include of ontology-supplied functions.
 
 ### 3. Implement the client class
 

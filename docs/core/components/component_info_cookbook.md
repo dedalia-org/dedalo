@@ -215,17 +215,19 @@ bun test test/unit/info_widget_registry_tripwire.test.ts
 ## R3 — Add a `calculation` process function
 
 The generic `calculation` widget runs an ontology-named formula. TS resolves it
-from a **static registry** (`widgets/calculation/functions.ts`) — never a
-dynamic include (the SEC-052 threat class does not exist here). To add a formula,
-add an entry to `CALCULATION_FUNCTIONS`:
+from **static tables** — never a dynamic include (the SEC-052 threat class does
+not exist here). The block's `process.file` chooses the table: a GENERIC
+formula (`"file": "/calculation/formulas.ts"`) is an entry of
+`CALCULATION_FUNCTIONS` in `widgets/calculation/functions.ts`; a formula that
+belongs to one ontology (`"file": "/<tld>/calculation/<module>.ts"`) is an
+entry of that TLD's package, `src/tld/<tld>/calculation.ts`, registered once in
+`src/tld/registry.ts` — a package may name its own ontology's tipos and no
+other's, and may not reuse a generic formula name. To add a generic formula:
 
 ```ts
 // src/core/components/component_info/widgets/calculation/functions.ts
 export const CALCULATION_FUNCTIONS: Readonly<Record<string, CalculationFn>> = {
   summarize({ dataMap, options }) { /* … */ },
-  to_euros({ dataMap }) { /* … */ },
-  calculate_period({ dataMap, options }) { /* … */ },
-  // … the other shipped formulas …
   // add yours:
   multiply({ dataMap }) {
     const numbers = Object.values(dataMap)
@@ -237,8 +239,12 @@ export const CALCULATION_FUNCTIONS: Readonly<Record<string, CalculationFn>> = {
 };
 ```
 
-A `CalculationFn` receives `{dataMap, options, callerSectionTipo}` and returns
-`{id, value}[]`. `dataMap` maps each input `var_name` to what that input's
+A `CalculationFn` (`widgets/calculation/fn_kit.ts`) receives
+`{dataMap, options, callerSectionTipo}` and returns `{id, value}[]`. An empty
+result is the formula's deliberate "no value computed" — the field renders
+empty, nothing is faked; a definition or input problem THROWS instead (the
+grant amount over zero days is the shipped example). `dataMap` maps each input
+`var_name` to what that input's
 model feeds a calculation (the descriptor facet `calculationData`,
 `src/core/components/calculation_data.ts`):
 
@@ -262,19 +268,28 @@ model feeds a calculation (the descriptor facet `calculationData`,
         "section_id": "current",
         "components": [ { "tipo": "numisdata133", "var_name": "numero" }, { "tipo": "numisdata135", "var_name": "numero2" } ]
       },
-      "process": { "fn": "multiply", "options": { "type": "float", "precision": 2 } },
+      "process": {
+        "fn": "multiply",
+        "file": "/calculation/formulas.ts",
+        "engine": "ts",
+        "options": { "type": "float", "precision": 2 }
+      },
       "output": [ { "id": "total", "value": "float" } ]
     }
   ]
 }
 ```
 
-!!! note "`process.file` / `engine` are legacy — ignored"
-    TS dispatches only on `process.fn` through the static registry. Older
-    ontology records may still carry `file` / `engine` keys from before the
-    cutover; they are read but never used to load code. An unknown `fn` is
-    refused with `ontology.invalid_node` — the read reports the broken
-    definition instead of showing an empty field.
+!!! note "`process.file` / `engine` are the dispatch key — not a path, not optional"
+    The engine matches `{fn, file, engine}` against its frozen tables and never
+    loads code from `file`. `engine` must be `"ts"` and `file` a `.ts` name:
+    `/calculation/formulas.ts` (generic) or `/<tld>/calculation/<module>.ts`
+    (a TLD package). A definition in the earlier engine's shape (a file that is
+    not a `.ts` name, an engine other than `"ts"`, or no engine), an unknown
+    package, module or `fn`, or a
+    generic file naming a package formula (and the reverse) is refused with
+    `ontology.invalid_node` — the read reports the broken definition instead of
+    showing an empty field, and no alias is applied. Update the ontology.
 
 !!! warning "What a calculation refuses"
     `ontology.invalid_node`: a block without `process.fn`, an input without

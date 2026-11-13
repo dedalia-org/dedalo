@@ -84,8 +84,10 @@ render module.
     `src/core/components/component_info/widgets/` — `widget_common.ts` (the
     `InfoWidgetDescriptor` contract + shared IPO helpers), `registry.ts` (the
     ONE dispatch home: `INFO_WIDGETS` map + `computeInfoWidgets`), one module
-    per widget under `<tld>/<name>.ts`, `calculation/functions.ts` (the static
-    process-fn registry) and `grid.ts` (dd_grid builders). The TS server
+    per widget under `<tld>/<name>.ts`, `calculation/functions.ts` (the generic
+    process-fn table; an ontology's own formulas live in its TLD package
+    `src/tld/<tld>/calculation.ts`, selected by the block's `process.file`
+    through `src/tld/registry.ts`) and `grid.ts` (dd_grid builders). The TS server
     dispatches by **name** through a static registry and never loads code from
     an ontology-authored path — the dynamic-include threat class does not exist
     here by construction. The developer checklist lives in
@@ -277,7 +279,7 @@ byte-identical client (`client/dedalo/core/widgets/<tld>/<name>/js/`).
 
 | widget | TLD | descriptor `path` | purpose | facets |
 |---|---|---|---|---|
-| `calculation` | — | `/calculation` | Generic IPO calculator: read `current`-scope components, run a static process fn (`summarize`, `calculate_period`, `to_euros`, `range_to_days`, `days_correction_manually`, `calculate_import_major` / `_minor`, `subtract`, `final_total`), emit `output` items. | emits `id` (not `widget_id`) |
+| `calculation` | — | `/calculation` | Generic IPO calculator: read `current`-scope components, run the static process fn the block's `process` names (`file` + `fn`, `engine: "ts"`): generic `/calculation/formulas.ts` → `summarize`; the mdcat package `/mdcat/calculation/mdcat.ts` → `calculate_period`, `to_euros`, `range_to_days`, `days_correction_manually`, `calculate_import_major` / `_minor`, `subtract`, `final_total`. Emit `output` items; a formula may emit none (a grant amount over zero days). | emits `id` (not `widget_id`) |
 | `state` | — | `/state` | Per-record completion **state** %: follow each IPO path to a select/check_box pointing at the `dd174`/`dd501` vocabulary, emit per-column `detail` + `total` items. | **`computeDataList`** (edit datalist) |
 | `user_activity` | `dd` | `/dd/user_activity` | The user's WHOLE activity history: their saved stats span, plus the raw log for the tail after the last saved day. | **`isAsync`** — delivered only via `get_widget_data` |
 | `get_archive_states` | `dmm` | `/dmm/get_archive_states` | Aggregate radio_button state values (`answer`/`closed`, affirmative/negative counts + %) over linked records; 14 keyed outputs. | shape-gated (no instance declares it) |

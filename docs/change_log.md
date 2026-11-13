@@ -17,6 +17,7 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused
     - Publication fills the global search and map tables again
     - RDF publication produces real Linked Data (Nomisma).
     - SVG glyphs in text tags now resolve in lists and publications for vector components stored in sub-folders.
@@ -361,7 +362,7 @@ Merged since the last release; these ship with the next one.
 
 - **Calculated fields (totals, periods, amounts, date sums) compute again**
 
-    Fields computed by a `calculation` widget showed nothing as soon as the fields they add up held a value: totals of numbers, periods in years, months and days, grant amounts, euro conversions and dates plus a period. They now compute every formula the ontology declares, including sums over the records of a portal and chains of calculated fields. A calculation whose definition the engine cannot run (an unknown formula, a field that cannot be summed, a calculation that depends on itself) now reports an error instead of showing an empty field. A new grant with no days yet shows the minimum amount, as the earlier engine did. Two grant-amount cases still report an error until a pending decision is made: an amount whose day field holds no value at all, and the major-grant amount of the section that the earlier engine treated specially.
+    Fields computed by a `calculation` widget showed nothing as soon as the fields they add up held a value: totals of numbers, periods in years, months and days, grant amounts, euro conversions and dates plus a period. They now compute every formula the ontology declares, including sums over the records of a portal and chains of calculated fields. A calculation whose definition the engine cannot run (an unknown formula, a field that cannot be summed, a calculation that depends on itself) now reports an error instead of showing an empty field. (The two grant-amount cases that reported an error pending a decision — an amount whose day field holds no value, and the major-grant amount of the section the earlier engine treated specially — are decided in the 2026-11-13 entry on calculation formula files.)
 
     Wire contract: `WC-2026-11-12-calculation-widget-port`.
 
@@ -1056,6 +1057,27 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused** *(action needed)*
+
+    A `calculation` widget's `process` block now selects its formula by **file and
+    name**: `{ "fn": "…", "file": "/calculation/formulas.ts", "engine": "ts" }` for
+    the generic formulas, `"file": "/<tld>/calculation/<module>.ts"` for the
+    formulas that belong to one ontology (the mdcat grant chain: periods, grant
+    amounts, euro conversion, final totals). The file is a lookup key — the engine
+    never loads code from it. A definition in the earlier engine's shape (a formula
+    file that is not a `.ts` name, an engine other than `"ts"`, or no engine) is
+    **refused**: the field reports an
+    error naming the block instead of computing, and nothing is substituted. The
+    vendored ontology packages still carry the earlier shape, so an installation
+    that uses calculated fields needs the updated master ontology (an ontology
+    update, no data change). The two grant-amount cases that reported an error
+    pending a decision are decided: a grant amount with **no days** (no day value,
+    or days adding up to zero) shows **no value**, not a minimum; the **major-grant
+    amount** applies to the grant section the earlier engine treated specially,
+    and to no other.
+
+    Wire contract: `WC-2026-11-13-calculation-tld-packages`.
+
 - **A request now waits at most 30 seconds for a free database connection by default.**
 
     `DB_POOL_ACQUIRE_TIMEOUT_MS` now defaults to `30000` (it was `0`, wait forever). When every
@@ -1403,7 +1425,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 65 entries"
+??? note "Wire contract — 66 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1466,6 +1488,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-update-cache-external-mirror-refresh`
     - `WC-2026-11-12-wipe-respects-virtual-exclusion`
     - `WC-2026-11-12-zotero-csl-json-import`
+    - `WC-2026-11-13-calculation-tld-packages`
     - `WC-2026-11-13-csv-ingest-size-ceiling`
     - `WC-2026-11-13-external-empty-entry-dropped`
     - `WC-2026-11-13-tags-widget-original-lang`
