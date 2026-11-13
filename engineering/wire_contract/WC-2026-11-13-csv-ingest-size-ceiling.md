@@ -40,7 +40,10 @@
     line is the size sentence (`Error on read file <name>: <sentence>`);
   - `validate_import` / `import_files`: the file's report is `ok:false` with the
     size sentence in `errors`; `import_files` refuses before the dd800 run record
-    exists.
+    exists (gate C COUNTS the user's dd800 rows before/after, with a mint positive
+    control). `import_files`' per-file failure report carries the run's
+    `bulk_process_id` when the dd800 was already minted (was: always `null`), so
+    a failure after the mint names the run record it left.
 - `readIngestTextFile` takes a REQUIRED `maxBytes`. A file that grows between the
   fstat and the read is refused (`media.too_large` if it crossed the bound, else
   `request.invalid_data` "changed while it was being read").

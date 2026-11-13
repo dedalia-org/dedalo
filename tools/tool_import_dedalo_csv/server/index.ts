@@ -893,6 +893,11 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 	for (const [index, current] of files.entries()) {
 		const fileName = String(current.file ?? '');
 		const sectionTipo = String(current.section_tipo ?? '');
+		// The run's dd800 id once minted. The catch reports IT, never a blanket
+		// null: a failure after the mint must name the run record it left behind
+		// (revertable, in the Processes list), and a refusal before the mint
+		// honestly answers null (gate C of csv_ingest_ceiling_native counts it).
+		let bulkProcessId: number | null = null;
 		try {
 			if (fileName === '' || sectionTipo === '')
 				throw invalidRequest('Missing file or section_tipo');
@@ -932,7 +937,7 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 				throw invalidRequest('No column is mapped for import');
 			}
 
-			const bulkProcessId = await createBulkProcessRecord(
+			bulkProcessId = await createBulkProcessRecord(
 				fileName,
 				String(current.bulk_process_label ?? fileName),
 				ctx.userId,
@@ -941,12 +946,13 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 			const labels = await resolveColumnLabels(columns);
 			// The run is held in the active-run registry while it writes: a revert
 			// of it is refused until it ends (decision D5).
-			const fileReport = await withLiveBulkRun(bulkProcessId, () =>
+			const runId = bulkProcessId;
+			const fileReport = await withLiveBulkRun(runId, () =>
 				executeCsvImport({
 					plan,
 					sectionTipo,
 					principal: ctx.principal,
-					bulkProcessId,
+					bulkProcessId: runId,
 					errors,
 					notices,
 					progress: {
@@ -964,7 +970,7 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 				ok: false,
 				file: fileName,
 				section_tipo: sectionTipo,
-				bulk_process_id: null,
+				bulk_process_id: bulkProcessId,
 				created: [],
 				updated: [],
 				failed: [],
