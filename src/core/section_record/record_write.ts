@@ -1112,7 +1112,12 @@ export async function afterRecordWrite(
 			sectionId: target.sectionId,
 		});
 	}
-	await enqueueObservedChange(target, obligations.observed, obligations.receipt);
+	await enqueueObservedChange(
+		target,
+		obligations.observed,
+		obligations.receipt,
+		obligations.touchedKeys,
+	);
 }
 
 /**

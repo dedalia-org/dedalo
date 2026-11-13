@@ -33,6 +33,24 @@
  *     is the ontology's — and its real meaning is documented here, in the WC
  *     entry and in docs/core/system/observers.md. An unchanged re-save does
  *     not clear (gate case g).
+ *   - THE DOOR IT FIRES FROM (2026-11-13, review finding): a COMPONENT SAVE
+ *     (the ledger's `keys` declaration — PHP's component_common::Save(), the
+ *     only place PHP ever ran it) and the cascade hop that re-enters from a
+ *     written observer. A WHOLE-RECORD write never triggers it: a birth (a
+ *     create with values, a duplicate, an undelete), a `replace` (the Time
+ *     Machine's whole-record restore) and a death declare every key of the
+ *     record to the ledger, and a destructive clear riding those declarations
+ *     wiped the very milestone the same write had just copied or restored —
+ *     PHP's section_record never called propagate_to_observers from them.
+ *     Counted `observers_refresh_data_skipped` (refreshDataTrigger).
+ *   - A SLOT THE SAME OPERATION WROTE is never cleared (observers.ts
+ *     applyRefreshDataClear, the guard's `written` set the ledger fills at
+ *     enqueue): a CSV import row saving the person AND the milestone in one
+ *     transaction drains the person's entry after both writes landed, and the
+ *     clear would undo the row's own milestone. PHP propagated synchronously
+ *     inside each component save, so there the outcome depended on the column
+ *     ORDER (person first: milestone kept; milestone first: cleared); TS keeps
+ *     the row's milestone whatever the order. Counted the same way.
  *   - The grammar is CLOSED: `on_empty` / `empty_data` and nothing else.
  *     PHP accepted any `condition` (an unknown one was a SILENT no-op) and any
  *     `action` (`Class::method` — a static call of whatever the ontology
@@ -81,6 +99,17 @@ export interface RefreshDataRefusal {
 
 export type ParsedRefreshData = RefreshDataParams | RefreshDataRefusal;
 
+/**
+ * WHERE a propagated change comes from — the ledger's declaration kind
+ * (section_record/obligation_ledger.ts ObservedDeclaration) or the cascade hop.
+ * Read by ONE consumer, the `refresh_data` trigger: a mirror recompute reads
+ * truth and is indifferent to the door.
+ */
+export type ObservedChangeOrigin = 'keys' | 'replace' | 'birth' | 'death' | 'recompute' | 'hop';
+
+/** The origins the destructive clear fires from — a component save and the hop (see the header). */
+const FIRING_ORIGINS: ReadonlySet<ObservedChangeOrigin> = new Set(['keys', 'hop']);
+
 const ACTION_KEYS: ReadonlySet<string> = new Set(['condition', 'action', 'arguments']);
 
 function refusal(reason: RefreshDataRefusal['reason'], detail: string): RefreshDataRefusal {
@@ -98,6 +127,13 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * unwrapped); both spellings are accepted here, nothing else is.
  */
 export function parseRefreshDataParams(params: unknown): ParsedRefreshData {
+	const body = paramsBody(params);
+	if ('refused' in body) return body;
+	return parseActions(body.actions);
+}
+
+/** The params object (PHP's one-item array unwrapped), its keys checked against the grammar. */
+function paramsBody(params: unknown): { actions: unknown } | RefreshDataRefusal {
 	let body = params;
 	if (Array.isArray(body) && body.length === 1) body = body[0];
 	if (!isPlainObject(body)) {
@@ -113,7 +149,11 @@ export function parseRefreshDataParams(params: unknown): ParsedRefreshData {
 			`perform.params carries keys outside the closed grammar: ${unknownKeys.join(', ')}`,
 		);
 	}
-	const actions = body.actions;
+	return { actions: body.actions };
+}
+
+/** The `actions` list: a non-empty array of well-formed actions, or the first refusal. */
+function parseActions(actions: unknown): ParsedRefreshData {
 	if (!Array.isArray(actions)) {
 		return refusal(
 			'actions_malformed',
@@ -162,10 +202,7 @@ function parseAction(entry: unknown, index: number): RefreshDataAction | Refresh
 			`${at}.action '${String(entry.action)}' is not in the closed grammar (empty_data) — the engine never calls a function because the ontology names it`,
 		);
 	}
-	if (
-		entry.arguments !== undefined &&
-		!(Array.isArray(entry.arguments) && entry.arguments.length === 0)
-	) {
+	if (!hasNoArguments(entry.arguments)) {
 		return refusal(
 			'arguments_not_empty',
 			`${at}.arguments must be absent or []; empty_data takes no arguments`,
@@ -174,14 +211,54 @@ function parseAction(entry: unknown, index: number): RefreshDataAction | Refresh
 	return { condition: 'on_empty', action: 'empty_data' };
 }
 
+/** `arguments` absent or `[]` — empty_data takes none. */
+function hasNoArguments(args: unknown): boolean {
+	return args === undefined || (Array.isArray(args) && args.length === 0);
+}
+
 function describe(value: unknown): string {
 	if (value === null) return 'null';
 	if (Array.isArray(value)) return `an array of ${value.length}`;
 	return typeof value;
 }
 
+/** What the trigger decided — the dispatch counts the two declines by name. */
+export type RefreshDataTrigger =
+	/** A component save (or a hop) whose observed value changed: clear. */
+	| 'changed'
+	/** An unchanged re-save of the observed: nothing to clear (`observers_refresh_data_unchanged`). */
+	| 'unchanged'
+	/** A whole-record write (birth / replace / death / recompute): not a door this perform fires from (`observers_refresh_data_skipped`). */
+	| 'skipped_origin';
+
 /**
- * THE TRIGGER — did the observed value CHANGE? Decided from the change the
+ * THE TRIGGER, whole: the door first (see the header — a whole-record write
+ * never fires the clear), then the change. Pure; the dispatch counts the
+ * declines.
+ */
+export function refreshDataTrigger(change: {
+	saved: readonly unknown[];
+	removed: readonly unknown[];
+	before?: readonly unknown[];
+	origin?: ObservedChangeOrigin;
+}): RefreshDataTrigger {
+	if (!refreshDataFiresOn(change.origin)) return 'skipped_origin';
+	return observedValueChanged(change) ? 'changed' : 'unchanged';
+}
+
+/**
+ * Does the perform fire for a change of this origin? A component save (`keys`)
+ * and the cascade hop do; a whole-record declaration never. An ABSENT origin
+ * is a hand-built dispatch (a gate, a script calling propagateToObservers
+ * directly) and is read as a component save — the ledger and the hop, the two
+ * production producers, always name theirs.
+ */
+export function refreshDataFiresOn(origin: ObservedChangeOrigin | undefined): boolean {
+	return origin === undefined || FIRING_ORIGINS.has(origin);
+}
+
+/**
+ * THE CHANGE — did the observed value CHANGE? Decided from the change the
  * ledger declared: `removed` (the before-image's locators the save dropped,
  * the ONE removed-set rule) and, when the ledger carries the before-image,
  * the locators the save ADDED (the same rule, the other way round). A value
@@ -199,23 +276,30 @@ export function observedValueChanged(change: {
 	if (change.before === undefined) return true;
 	const beforeKeys = edgeTargetKeys(change.before);
 	const savedKeys = edgeTargetKeys(change.saved);
-	if (beforeKeys.size > 0 || savedKeys.size > 0) {
-		for (const key of savedKeys) if (!beforeKeys.has(key)) return true;
-		for (const key of beforeKeys) if (!savedKeys.has(key)) return true;
-		return false;
-	}
+	if (beforeKeys.size > 0 || savedKeys.size > 0) return edgeSetsDiffer(beforeKeys, savedKeys);
 	return !canonicalEquals([...change.before], [...change.saved]);
+}
+
+/** Two edge-target sets differ when one holds a key the other lacks. */
+function edgeSetsDiffer(before: ReadonlySet<string>, saved: ReadonlySet<string>): boolean {
+	return before.size !== saved.size || [...saved].some((key) => !before.has(key));
 }
 
 /** `section_tipo|section_id` of every edge locator in a value (a dd490 frame is not an edge). */
 function edgeTargetKeys(value: readonly unknown[]): Set<string> {
 	const keys = new Set<string>();
 	for (const entry of value) {
-		if (entry === null || typeof entry !== 'object') continue;
-		const locator = entry as { section_tipo?: unknown; section_id?: unknown; type?: unknown };
-		if (typeof locator.section_tipo !== 'string' || locator.section_id === undefined) continue;
-		if (locator.type === DATAFRAME_RELATION_TYPE) continue;
-		keys.add(`${locator.section_tipo}|${String(locator.section_id)}`);
+		const key = edgeTargetKey(entry);
+		if (key !== null) keys.add(key);
 	}
 	return keys;
+}
+
+/** The record an edge locator points at; null for a non-locator or a dd490 frame. */
+function edgeTargetKey(entry: unknown): string | null {
+	if (entry === null || typeof entry !== 'object') return null;
+	const locator = entry as { section_tipo?: unknown; section_id?: unknown; type?: unknown };
+	if (typeof locator.section_tipo !== 'string' || locator.section_id === undefined) return null;
+	if (locator.type === DATAFRAME_RELATION_TYPE) return null;
+	return `${locator.section_tipo}|${String(locator.section_id)}`;
 }

@@ -30,13 +30,22 @@
  * `observers_server_shape_not_covered` does not tick; g an UNCHANGED re-save of
  * the person keeps the select; h the clear HOPS — a second-order refresh_data
  * observer of the select is cleared by the same save.
+ *
+ * THE DOOR (review 2026-11-13 — the clear is destructive, so WHERE it fires
+ * from matters): i a DUPLICATE keeps the copied select (the birth declares the
+ * person, but a whole-record write never fires the clear — counted
+ * `observers_refresh_data_skipped`); j ONE transaction saving the person AND
+ * the select (a CSV import row) keeps the select in either column order (the
+ * guard's `written` set); k the Time Machine's whole-record replace that
+ * changes the person keeps the select it restores.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { getCounters } from '../../src/core/api/counters.ts';
-import { sql } from '../../src/core/db/postgres.ts';
+import { sql, withTransaction } from '../../src/core/db/postgres.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
+import { duplicateSectionRecord } from '../../src/core/section/record/duplicate_record.ts';
 import { getObserverSubscriptions } from '../../src/core/section/record/observer_subscriptions.ts';
 import {
 	applyRefreshDataClear,
@@ -46,8 +55,10 @@ import {
 	observedValueChanged,
 	type ParsedRefreshData,
 	parseRefreshDataParams,
+	refreshDataTrigger,
 } from '../../src/core/section/record/refresh_data.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
+import { persistRecordColumns } from '../../src/core/section_record/record_write.ts';
 import {
 	dropSituation,
 	ensureSituation,
@@ -221,6 +232,7 @@ const WATCHED = [
 	'observers_server_shape_not_covered',
 	'observers_refresh_data_refused',
 	'observers_refresh_data_unchanged',
+	'observers_refresh_data_skipped',
 	'observers_target_not_host',
 	'observers_propagation_failed',
 	'observers_cascade_hop_failed',
@@ -289,6 +301,7 @@ describe('the closed grammar (pure)', () => {
 				'arguments_not_empty',
 			],
 			[
+				// biome-ignore lint/suspicious/noThenProperty: the malformed-params case ON PURPOSE — a `then` key is exactly the kind of foreign key the closed grammar must refuse
 				{ actions: [{ condition: 'on_empty', action: 'empty_data', then: 'save' }] },
 				'action_key_unknown',
 			],
@@ -327,6 +340,21 @@ describe('the closed grammar (pure)', () => {
 		expect(observedValueChanged({ saved: ['y'], removed: [], before: ['x'] })).toBe(true);
 		// no before-image = a cascade hop: the hop is the change
 		expect(observedValueChanged({ saved: [a], removed: [] })).toBe(true);
+	});
+
+	test('the door: a component save (keys), a hop and a hand-built dispatch fire; a birth, a replace, a death and a recompute never do', () => {
+		const a = locator(PERSON_FIELD, PERSON, 1);
+		const b = locator(PERSON_FIELD, PERSON, 2);
+		const changed = { saved: [b], removed: [a], before: [a] };
+		expect(refreshDataTrigger({ ...changed, origin: 'keys' })).toBe('changed');
+		expect(refreshDataTrigger(changed)).toBe('changed');
+		expect(refreshDataTrigger({ saved: [b], removed: [], origin: 'hop' })).toBe('changed');
+		expect(refreshDataTrigger({ saved: [a], removed: [], before: [a], origin: 'keys' })).toBe(
+			'unchanged',
+		);
+		for (const origin of ['birth', 'replace', 'death', 'recompute'] as const) {
+			expect(refreshDataTrigger({ ...changed, origin }), origin).toBe('skipped_origin');
+		}
 	});
 });
 
@@ -432,7 +460,116 @@ describe('the clear, end to end through the save door', () => {
 		expect(d.observers_propagation_failed).toBe(0);
 	}, 60_000);
 
+	test('i) a DUPLICATE keeps the copied milestone: the birth declares the person, but a whole-record write never fires the clear', async () => {
+		// host: person A (case h); set the milestone, then clone the record
+		await setMilestone(milestone1);
+		expect(await milestoneOnHost()).toEqual([expect.objectContaining({ section_id: milestone1 })]);
+		const before = snapshot();
+
+		const copy = await duplicateSectionRecord(HOST, host, USER_ID);
+
+		expect(await relationKey(HOST, copy, PERSON_FIELD)).toEqual([
+			expect.objectContaining({ section_tipo: PERSON, section_id: personA }),
+		]);
+		expect(await relationKey(HOST, copy, MILESTONE_FIELD)).toEqual([
+			expect.objectContaining({ section_tipo: MILESTONE, section_id: milestone1 }),
+		]);
+		// no clear row on the copy: nothing in its history holds an emptied milestone
+		const emptied = (await tmRows(HOST, copy, MILESTONE_FIELD)).filter(
+			(row) => row.data === null || (Array.isArray(row.data) && row.data.length === 0),
+		);
+		expect(emptied).toEqual([]);
+		// the source is untouched too
+		expect(await milestoneOnHost()).toEqual([expect.objectContaining({ section_id: milestone1 })]);
+		const d = delta(before);
+		expect(d.observers_refresh_data_skipped).toBeGreaterThanOrEqual(1);
+		expect(d.observers_propagation_failed).toBe(0);
+		expect(d.observers_cascade_hop_failed).toBe(0);
+	}, 60_000);
+
+	test('j) ONE transaction saving the person and the milestone (a CSV import row) keeps the milestone — in either column order', async () => {
+		// host: person A, milestone 1 (case i). Person first, milestone second:
+		const before = snapshot();
+		await withTransaction(async () => {
+			await savePerson([locator(PERSON_FIELD, PERSON, personB)]);
+			await setMilestone(milestone2);
+		});
+		expect(await milestoneOnHost()).toEqual([expect.objectContaining({ section_id: milestone2 })]);
+		// Milestone first, person second (PHP cleared it in this order):
+		await withTransaction(async () => {
+			await setMilestone(milestone1);
+			await savePerson([locator(PERSON_FIELD, PERSON, personA)]);
+		});
+		expect(await milestoneOnHost()).toEqual([expect.objectContaining({ section_id: milestone1 })]);
+		const d = delta(before);
+		expect(d.observers_refresh_data_skipped).toBeGreaterThanOrEqual(2);
+		expect(d.observers_propagation_failed).toBe(0);
+		// The SAME person change in its own transaction clears: the shield is the
+		// operation's own write, never the column order.
+		await savePerson([locator(PERSON_FIELD, PERSON, personB)]);
+		expect(await milestoneOnHost()).toEqual([]);
+	}, 60_000);
+
+	test('k) a WHOLE-RECORD replace (the Time Machine’s restore door) that changes the person keeps the milestone it restores', async () => {
+		// host: person B, milestone [] (case j); "restore" the version (A, milestone 1)
+		const stored = (from: string, sectionTipo: string, sectionId: number) => ({
+			type: 'dd151',
+			section_tipo: sectionTipo,
+			section_id: sectionId,
+			from_component_tipo: from,
+		});
+		const before = snapshot();
+		expect(
+			await persistRecordColumns(
+				{ table: await tableOf(HOST), sectionTipo: HOST, sectionId: host },
+				{
+					relation: {
+						[PERSON_FIELD]: [stored(PERSON_FIELD, PERSON, personA)],
+						[MILESTONE_FIELD]: [stored(MILESTONE_FIELD, MILESTONE, milestone1)],
+					},
+				},
+				{ userId: USER_ID },
+				{ actor: USER_ID },
+			),
+		).toBe('updated');
+		expect(await relationKey(HOST, host, PERSON_FIELD)).toEqual([
+			expect.objectContaining({ section_id: personA }),
+		]);
+		expect(await milestoneOnHost()).toEqual([expect.objectContaining({ section_id: milestone1 })]);
+		const d = delta(before);
+		expect(d.observers_refresh_data_skipped).toBeGreaterThanOrEqual(1);
+		expect(d.observers_propagation_failed).toBe(0);
+	}, 60_000);
+
+	test('the clear unit: a slot the operation wrote itself is skipped before any read (the guard’s written set), counted', async () => {
+		const guard = {
+			depth: 0,
+			maxDepth: MAX_CASCADE_DEPTH,
+			visited: new Set<string>(),
+			recomputed: new Set<string>(),
+			resaved: new Set<string>(),
+			written: new Set<string>([`${MILESTONE_FIELD}|${HOST}|${String(host)}`]),
+			chain: ['gate'],
+		};
+		const skippedBefore = counter('observers_refresh_data_skipped');
+		expect(
+			await applyRefreshDataClear(
+				MILESTONE_FIELD,
+				{ section_tipo: HOST, section_id: host },
+				USER_ID,
+				new Date(),
+				guard,
+			),
+		).toEqual({ kind: 'self_written' });
+		expect(counter('observers_refresh_data_skipped') - skippedBefore).toBe(1);
+		// the milestone (case k) stands
+		expect(await milestoneOnHost()).toEqual([expect.objectContaining({ section_id: milestone1 })]);
+	});
+
 	test('the clear unit: not-host is a counted no-op, an absent slot and an empty slot write nothing, a dedup is a dedup', async () => {
+		// clear the milestone first (case k left it set) so the empty-slot leg holds
+		await savePerson([locator(PERSON_FIELD, PERSON, personB)]);
+		expect(await milestoneOnHost()).toEqual([]);
 		const guard = {
 			depth: 0,
 			maxDepth: MAX_CASCADE_DEPTH,

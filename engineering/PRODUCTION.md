@@ -691,7 +691,11 @@ install (a large export) exceeds it; measure first with `DEDALO_SLOW_QUERY_MS`.
   skipped loudly and nothing is written; it is configuration, should stay at zero, the log
   line names the edge and the reason. `observers_refresh_data_unchanged` is informational:
   a `refresh_data` edge reached by an UNCHANGED re-save of the observed value, which
-  clears nothing. `observers_index_repaired` ticks when the
+  clears nothing. `observers_refresh_data_skipped` is informational too: the edge reached
+  by a WHOLE-RECORD write (a duplicate, an undelete, a Time Machine whole-record restore —
+  not a door the clear fires from) or aimed at a slot the SAME operation wrote (a CSV
+  import row saving the person and the milestone in one transaction); nothing cleared,
+  the written value stands. `observers_index_repaired` ticks when the
   observer RECONCILE finds an `_hi` mirror whose value is already right but
   whose ancestor index (`relation_search`) disagreed, and rewrites it
   unstamped — legacy rows written before the recompute indexed its mirror;

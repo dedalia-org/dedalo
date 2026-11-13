@@ -130,6 +130,8 @@ import {
 	isSqoFilter,
 	type ObserveEntry,
 } from './observer_subscriptions.ts';
+// type-only: the refresh_data pure half is reached by DYNAMIC import on the dispatch path.
+import type { ObservedChangeOrigin } from './refresh_data.ts';
 
 /**
  * MOVED to external_laws/ (2026-10-30) — law (c)'s seed and the mirror item-id
@@ -210,6 +212,16 @@ export interface CascadeGuard {
 	 * compares those stamps). SHARED like `visited`; absent = none.
 	 */
 	verbatim?: Set<string>;
+	/**
+	 * Observer SLOTS this logical operation WROTE itself
+	 * (`tipo|section_tipo|section_id`, obligation_ledger.ts writtenSlotKey —
+	 * every key a declared write touched, filled AT ENQUEUE like `verbatim`): the
+	 * `refresh_data` clear (applyRefreshDataClear) never clears one — a CSV
+	 * import row saving the person and the milestone in one transaction drains
+	 * the person's entry after BOTH landed, and the clear would undo the row's
+	 * own milestone. SHARED like `visited`; absent = none.
+	 */
+	written?: Set<string>;
 	/** Per-branch human-readable path (`tipo@section/id`) for loud failures. */
 	chain: string[];
 }
@@ -294,6 +306,7 @@ export async function emitCascadeHop(
 		// planted on the parent first, so siblings and descendants share ONE set
 		resaved: resavedSetOf(guard),
 		verbatim: guard.verbatim,
+		written: guard.written,
 		depth: nextDepth,
 		chain: [...guard.chain, chainLabel],
 	};
@@ -376,7 +389,7 @@ export async function runObserverCascadeHop(
 			// scheduled it dropped (an external recompute's droppedLocators): without
 			// it, an observer of this observer never re-derives a record that left —
 			// that record is in no current value, so no saved target reaches it.
-			{ saved: payload, removed: [...removed] },
+			{ saved: payload, removed: [...removed], origin: 'hop' },
 			userId,
 			now,
 			guard,
@@ -438,6 +451,17 @@ export interface ObservedChange {
 	 * recompute reads truth and needs no before-image.
 	 */
 	before?: unknown[];
+	/**
+	 * WHERE the change comes from: the ledger's declaration kind (a component
+	 * save is `keys`; a whole-record write `birth` / `replace` / `death`) or the
+	 * cascade `hop`. Read by the same ONE consumer: the `refresh_data` clear
+	 * fires from a component save and a hop only — a whole-record write
+	 * declares every key of the record, and a destructive clear riding it wiped
+	 * the milestone the write itself had just copied or restored
+	 * (refresh_data.ts refreshDataFiresOn). Absent = a hand-built dispatch,
+	 * read as a component save.
+	 */
+	origin?: ObservedChangeOrigin;
 }
 export async function propagateToObservers(
 	observedTipo: string,
@@ -518,14 +542,7 @@ export async function propagateToObservers(
 			// component_info observers (incl. the state/calculation aliases):
 			// recompute the widgets per target + TM row; same-record targets
 			// ride the save response (see header — oracle-verified 2026-07-10).
-			const { getModelByTipo } = await import('../../ontology/resolver.ts');
-			const { getComponentModel } = await import('../../components/registry.ts');
-			const observerModel = await getModelByTipo(observerTipo);
-			const isInfoObserver =
-				observerModel !== null &&
-				(observerModel === 'component_info' ||
-					getComponentModel(observerModel)?.alias === 'component_info');
-			if (isInfoObserver && performFunction === undefined) {
+			if ((await isInfoObserverModel(observerTipo)) && performFunction === undefined) {
 				// R5 host-section law: an SQO-filter recompute searches the section
 				// the registry's 4-step resolution produced (observe-entry scope →
 				// forward spec → the observer's own section, virtual↔real-aware —
@@ -869,6 +886,23 @@ async function hostsObserver(observerTipo: string, sectionTipo: string): Promise
 	return isObserverHostSection(observerTipo, sectionTipo);
 }
 
+/**
+ * Is the observer a component_info (or one of its state/calculation aliases)?
+ * The dispatch loop's info branch recomputes widgets; every other model is a
+ * stored value. The registry import is dynamic for the alias lookup's
+ * registration (see collectExternalSeed).
+ */
+async function isInfoObserverModel(observerTipo: string): Promise<boolean> {
+	const { getModelByTipo } = await import('../../ontology/resolver.ts');
+	const { getComponentModel } = await import('../../components/registry.ts');
+	const observerModel = await getModelByTipo(observerTipo);
+	if (observerModel === null) return false;
+	return (
+		observerModel === 'component_info' ||
+		getComponentModel(observerModel)?.alias === 'component_info'
+	);
+}
+
 /** The guard's re-save set — planted on first use (CascadeGuard.resaved). */
 function resavedSetOf(guard: CascadeGuard): Set<string> {
 	guard.resaved ??= new Set();
@@ -1031,13 +1065,19 @@ async function observerJsonbStorage(
  * half is ./refresh_data.ts). Order: the CLOSED grammar first (a refused params
  * block is logged + counted `observers_refresh_data_refused`, and nothing is
  * resolved or written — PHP ran an unknown condition as a silent no-op and
- * called any named action); then the trigger (did the observed value CHANGE? —
- * an unchanged re-save is counted `observers_refresh_data_unchanged` and
- * clears nothing); then the targets from the resolver table WITHOUT a law
+ * called any named action); then the trigger (refreshDataTrigger: the DOOR —
+ * a whole-record birth/replace/death never fires the clear, counted
+ * `observers_refresh_data_skipped` — then did the observed value CHANGE? an
+ * unchanged re-save is counted `observers_refresh_data_unchanged` and clears
+ * nothing); then the targets from the resolver table WITHOUT a law
  * (refresh_data is not a mirror); then per target the clear and, when it
  * wrote, the hop (kind 'refresh', the cleared locators as its removed set —
  * an observer of the cleared slot re-derives what left it).
  */
+const REFRESH_DATA_DECLINE_COUNTER = {
+	unchanged: 'observers_refresh_data_unchanged',
+	skipped_origin: 'observers_refresh_data_skipped',
+} as const;
 async function dispatchRefreshData(
 	observerTipo: string,
 	observedTipo: string,
@@ -1050,7 +1090,7 @@ async function dispatchRefreshData(
 	now: Date,
 	guard: CascadeGuard,
 ): Promise<void> {
-	const { observedValueChanged, parseRefreshDataParams } = await import('./refresh_data.ts');
+	const { parseRefreshDataParams, refreshDataTrigger } = await import('./refresh_data.ts');
 	const params = parseRefreshDataParams(server.perform?.params);
 	if ('refused' in params) {
 		console.error(
@@ -1059,8 +1099,9 @@ async function dispatchRefreshData(
 		incrementCounter('observers_refresh_data_refused');
 		return;
 	}
-	if (!observedValueChanged(change)) {
-		incrementCounter('observers_refresh_data_unchanged');
+	const trigger = refreshDataTrigger(change);
+	if (trigger !== 'changed') {
+		incrementCounter(REFRESH_DATA_DECLINE_COUNTER[trigger]);
 		return;
 	}
 	const { reportServerShapeRefusal, resolveObserverTargets } = await import(
@@ -1106,7 +1147,9 @@ async function dispatchRefreshData(
 export type RefreshDataClearOutcome =
 	/** This operation already cleared the slot (the guard's `resaved` set, own namespace). */
 	| { readonly kind: 'deduped' }
-	/** The target's section does not declare the observer — not its value (counted observers_target_not_host). */
+	/** This operation WROTE the slot itself (the guard's `written` set): its own value stands (counted observers_refresh_data_skipped). */
+	| { readonly kind: 'self_written' }
+	/** The target's section does not declare the observer — not its value (counted observers_target_not_host, no log line). */
 	| { readonly kind: 'not_host' }
 	/** No record, no table, or a model with no matrix column: nothing stored. */
 	| { readonly kind: 'absent' }
@@ -1126,11 +1169,16 @@ export type RefreshDataClearOutcome =
  *
  * Order of checks, cheapest first: the guard's dedup (`refresh|…` on the
  * `resaved` set — its own prefix, never the re-save's or the mirror's key: a
- * slot that is a cleared select is neither), the HOST precondition
+ * slot that is a cleared select is neither), the guard's `written` set (a slot
+ * THIS operation wrote itself is never cleared — a CSV import row saving the
+ * person and the milestone in one transaction; counted
+ * `observers_refresh_data_skipped`), the HOST precondition
  * (WC-2026-10-30-observer-target-not-host — PHP wrote an empty slot onto the
- * observable's own record, a foreign section; TS counts and skips), the
- * storage, then ONE transaction with the target row FOR UPDATE: read, and
- * write only when the slot holds something.
+ * observable's own record, a foreign section; TS counts and skips, NO log
+ * line: the `use_observable_dato` row selects the person records on every
+ * save, so the skip is the expected shape, not an anomaly), the storage, then
+ * ONE transaction with the target row FOR UPDATE: read, and write only when
+ * the slot holds something.
  *
  * Never inside an ambient transaction: reached from the dispatch loop, which
  * refuses one (B6), and opens its own. Exported for the gate.
@@ -1148,10 +1196,11 @@ export async function applyRefreshDataClear(
 	const key = `refresh|${observerTipo}|${sectionTipo}|${sectionId}`;
 	if (resaved.has(key)) return { kind: 'deduped' };
 	resaved.add(key);
+	if (guard.written?.has(`${observerTipo}|${sectionTipo}|${String(sectionId)}`) === true) {
+		incrementCounter('observers_refresh_data_skipped');
+		return { kind: 'self_written' };
+	}
 	if (!(await hostsObserver(observerTipo, sectionTipo))) {
-		console.warn(
-			`observer '${observerTipo}': refresh_data target ${sectionTipo}/${sectionId} is not a host section (the observer is not declared there) — nothing written (counted: observers_target_not_host)`,
-		);
 		incrementCounter('observers_target_not_host');
 		return { kind: 'not_host' };
 	}

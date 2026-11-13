@@ -151,6 +151,20 @@ interface LedgerEntry {
 	selfRecompute: string[];
 	/** A verbatim birth: its record's covered-slot recomputes leave its stamps alone. */
 	verbatim: boolean;
+	/**
+	 * The declaration's kind, handed to propagation as the change's ORIGIN
+	 * (observers.ts ObservedChange.origin): the `refresh_data` clear fires from a
+	 * component save (`keys`) and never from a whole-record write.
+	 */
+	origin: LedgerObserved['kind'];
+	/**
+	 * Every component tipo this write TOUCHED on its record — the declared
+	 * changes' tipos plus the door's touched keys (an unobserved key the save
+	 * wrote too). Marked on the guard's `written` set AT ENQUEUE
+	 * (writtenSlotKey): a slot the operation wrote itself is never cleared by a
+	 * `refresh_data` edge drained later in the same transaction.
+	 */
+	written: string[];
 	actor: number;
 	now: Date;
 	receipt: WriteReceipt | undefined;
@@ -159,6 +173,11 @@ interface LedgerEntry {
 /** The address a guard's `verbatim` set is keyed by (observers.ts reads the same shape). */
 export function verbatimAddress(sectionTipo: string, sectionId: number): string {
 	return `${sectionTipo}|${String(sectionId)}`;
+}
+
+/** The key a guard's `written` set holds per slot (observers.ts applyRefreshDataClear reads the same shape). */
+export function writtenSlotKey(tipo: string, sectionTipo: string, sectionId: number): string {
+	return `${tipo}|${sectionTipo}|${String(sectionId)}`;
 }
 
 /** Transaction-memo key of the one CascadeGuard a transaction's entries share. */
@@ -278,16 +297,46 @@ async function buildEntry(
 	target: RecordWriteTarget,
 	observed: LedgerObserved,
 	receipt: WriteReceipt | undefined,
+	touched: readonly string[],
 ): Promise<LedgerEntry> {
 	return {
 		target,
 		changes: await observedKeyChanges(observed),
 		selfRecompute: selfRecomputeSlots(observed),
 		verbatim: isVerbatimDeclaration(observed),
+		origin: observed.kind,
+		written: [...new Set([...touched, ...declaredTipos(observed)])],
 		actor: observed.actor,
 		now: observed.now ?? new Date(),
 		receipt,
 	};
+}
+
+/**
+ * Every component tipo the declaration says the write touched — the changes'
+ * tipos (a per-key save, a replace), or every key of every column bag a birth
+ * carries. A death and a recompute write no slot of their own.
+ */
+function declaredTipos(observed: LedgerObserved): string[] {
+	switch (observed.kind) {
+		case 'keys':
+		case 'replace':
+			return observed.changes.map((change) => change.tipo);
+		case 'birth':
+			return columnBagTipos(observed.columns);
+		default:
+			return [];
+	}
+}
+
+/** The keys of every column that is a bag (`relation`, `string`, …) of a whole-record payload. */
+function columnBagTipos(columns: Readonly<Record<string, unknown>>): string[] {
+	const tipos: string[] = [];
+	for (const bag of Object.values(columns)) {
+		if (bag === null || typeof bag !== 'object' || Array.isArray(bag)) continue;
+		tipos.push(...Object.keys(bag as Record<string, unknown>));
+	}
+	return tipos;
 }
 
 /** The declared changes on OBSERVED tipos, one per tipo (a key is observed by tipo, whatever column holds it). */
@@ -335,6 +384,7 @@ async function rootGuard(label: string): Promise<CascadeGuard> {
 		visited: new Set(),
 		recomputed: new Set(),
 		verbatim: new Set(),
+		written: new Set(),
 		chain: [label],
 	};
 }
@@ -412,23 +462,42 @@ export async function enqueueObservedChange(
 	target: RecordWriteTarget,
 	observed: ObservedDeclaration,
 	receipt?: WriteReceipt,
+	/** The door's touched keys (record_write.ts RecordWriteObligations.touchedKeys) — see LedgerEntry.written. */
+	touched: readonly string[] = [],
 ): Promise<void> {
 	assertObservedDeclared(target, observed, 'enqueueObservedChange');
 	if (observed.kind === 'none' || observed.kind === 'cascade-owned') return;
-	const entry = await buildEntry(target, observed, receipt);
-	if (entry.changes.length === 0 && entry.selfRecompute.length === 0) return;
-	if (!isInTransaction()) {
-		const guard = await rootGuard(`ledger:${target.sectionTipo}/${target.sectionId}`);
-		await drainEntry(entry, markVerbatim(entry, guard));
-		return;
-	}
-	queueOnCommit(entry, markVerbatim(entry, await transactionGuard()));
+	const entry = await buildEntry(target, observed, receipt, touched);
+	// The guard is marked for EVERY declared write, propagating or not: a save of
+	// an unobserved slot (the milestone alone) must still shield that slot from
+	// a refresh_data clear drained later in the same transaction.
+	const inTransaction = isInTransaction();
+	const guard = markEntry(
+		entry,
+		inTransaction
+			? await transactionGuard()
+			: await rootGuard(`ledger:${target.sectionTipo}/${target.sectionId}`),
+	);
+	if (!owesPropagation(entry)) return;
+	if (inTransaction) queueOnCommit(entry, guard);
+	else await drainEntry(entry, guard);
 }
 
-/** A verbatim entry marks its record on the guard it drains under (see {@link transactionGuard}). */
-function markVerbatim(entry: LedgerEntry, guard: CascadeGuard): CascadeGuard {
+/** An entry with no observed change and no covered slot to recompute drains nothing. */
+function owesPropagation(entry: LedgerEntry): boolean {
+	return entry.changes.length > 0 || entry.selfRecompute.length > 0;
+}
+
+/**
+ * An entry marks the guard it drains under AT ENQUEUE (see {@link transactionGuard}):
+ * a verbatim entry its record on `verbatim`, every entry the slots it wrote on
+ * `written` (CascadeGuard.written — the refresh_data clear's self-write shield).
+ */
+function markEntry(entry: LedgerEntry, guard: CascadeGuard): CascadeGuard {
 	const { sectionTipo, sectionId } = entry.target;
 	if (entry.verbatim) guard.verbatim?.add(verbatimAddress(sectionTipo, sectionId));
+	guard.written ??= new Set();
+	for (const tipo of entry.written) guard.written.add(writtenSlotKey(tipo, sectionTipo, sectionId));
 	return guard;
 }
 
@@ -468,7 +537,12 @@ async function drainEntry(entry: LedgerEntry, guard: CascadeGuard): Promise<void
 				change.tipo,
 				sectionTipo,
 				sectionId,
-				{ saved: change.saved, removed: change.removed, before: change.before },
+				{
+					saved: change.saved,
+					removed: change.removed,
+					before: change.before,
+					origin: entry.origin,
+				},
 				entry.actor,
 				entry.now,
 				guard,

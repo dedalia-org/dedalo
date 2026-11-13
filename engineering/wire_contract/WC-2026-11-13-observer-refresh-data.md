@@ -73,11 +73,36 @@ is a `component_select` storing a user value.
   keys outside the grammar, an empty `actions`) is REFUSED loudly, counted
   (`observers_refresh_data_refused`), and nothing is resolved or written. The engine never
   calls a function because the ontology names it.
+- **The door it fires from (same-day amendment, review finding).** A COMPONENT SAVE —
+  the ledger's `keys` declaration (save_component / persistRecordKeys / the appended-items
+  door), PHP's `component_common::Save()`, the only place PHP ever ran it — and the cascade
+  hop that re-enters from a written observer. A WHOLE-RECORD write never fires it: a birth
+  (a create with values, `duplicateSectionRecord`, the Time Machine's undelete), a `replace`
+  (the Time Machine's whole-record restore, `persistRecordColumns`) and a death declare
+  every key of the record to the ledger, and the clear riding those declarations wiped the
+  milestone the SAME write had just copied or restored (a duplicate born with person P and
+  milestone M had M cleared by its own birth entry; a restore to (A, m(A)) over a live
+  (B, m(B)) had m(A) cleared by the B→A change it declared). PHP's `section_record` never
+  called `propagate_to_observers` from any of them. Counted
+  `observers_refresh_data_skipped` (`refresh_data.ts` refreshDataTrigger /
+  `ObservedChange.origin`, filled by the ledger's drain and the hop).
+- **A slot the same operation wrote is never cleared.** The ledger marks every key a
+  declared write touched on the per-transaction guard AT ENQUEUE (`CascadeGuard.written`,
+  `touchedKeys` ∪ the declared changes), and `applyRefreshDataClear` skips a slot found
+  there (outcome `self_written`, the same counter). The case: a CSV import row saving the
+  person AND the milestone in ONE transaction (`import_csv_execute` wraps the row) drains
+  the person's entry after BOTH writes landed. PHP propagated synchronously inside each
+  component save, so its outcome depended on the COLUMN ORDER (person first: the clear hit
+  the old slot and the milestone column then wrote M — kept; milestone first — cleared); TS
+  keeps the row's milestone whatever the order. The shield is the operation's own write,
+  never the order: the same person change in its own transaction clears.
 - **Targets** come from the same resolver table (`self_and_observable` for rsc1214) with
   NO law: an unfiltered inverse lookup, no equivalence expansion. The HOST precondition
   applies per target: a record whose section does not declare the observer is the counted
-  no-op (`observers_target_not_host`). **PHP's empty write onto the observable's foreign
-  section (`rsc197`) is NOT ported.**
+  no-op (`observers_target_not_host`) — counted, NO log line (WC-2026-10-30-observer-target-not-host:
+  the `use_observable_dato` row selects the person records on every save, so the skip is
+  the edge's expected shape; the warn line the first cut wrote per person target is gone).
+  **PHP's empty write onto the observable's foreign section (`rsc197`) is NOT ported.**
 - **The write** replaces the slot by `[]` — the shape the save door stores when a curator
   empties the field — through the cascade-owned door `persistObserverResaveKeys` (an
   observer re-written by its OWN edge, no ledger entry), inside the audited tail (the TM
@@ -97,13 +122,16 @@ is a `component_select` storing a user value.
 | wrote an empty observer onto the observable's record (foreign section) | counted not-host no-op | WC-2026-10-30-observer-target-not-host: a slot lives only where it is declared |
 | saved even when already empty (TM row) | no write, no TM row | a write that changes nothing is noise |
 | unknown `condition` = silent no-op; `action` = any `Class::method` | loud refusal, counted, nothing written | the dispatch-security rule of every closed table |
+| never ran from a whole-record write (duplicate, undelete, whole-record restore: `section_record` did not propagate) | the same — a `birth` / `replace` / `death` declaration never fires the clear (counted skipped) | the first TS cut fired it from the ledger's every declaration and wiped the value the write itself carried |
+| a multi-column write of one record (CSV import row) cleared or kept the milestone BY COLUMN ORDER | kept whatever the order (the operation's own write shields the slot) | PHP's order-dependence was an accident of synchronous propagation, not a rule; the row's value is the curator's |
 
 ### Counters
 
 `observers_refresh_data_refused` (grammar refusals — configuration, should be 0),
 `observers_refresh_data_unchanged` (trigger declined: an unchanged re-save — informational),
-`observers_target_not_host` (shared), `observers_server_shape_not_covered` no longer ticks
-for `refresh_data`.
+`observers_refresh_data_skipped` (trigger declined: a whole-record write, or a slot the same
+operation wrote — informational), `observers_target_not_host` (shared; no log line),
+`observers_server_shape_not_covered` no longer ticks for `refresh_data`.
 
 ### Gate reconciliation
 
@@ -112,3 +140,8 @@ S10 pins the empty exemption table and rsc1214's shape → `self_and_observable`
 `refresh_data`; `external_law_registry_tripwire`'s fixture `server_shape_exemptions` is
 `{}`; `write_obligations_tripwire` B4 pins `persistObserverResaveKeys` to its two callers
 and the new unit `applyRefreshDataClear` → `dispatchRefreshData` → `propagateToObservers`.
+The door and the self-write shield are gated in the same native file (cases i–k: a
+`duplicateSectionRecord` copy keeps its milestone; one `withTransaction` saving person then
+milestone, and milestone then person, keeps it; a `persistRecordColumns` replace that changes
+the person keeps the milestone it writes; the pure trigger per origin; the clear unit's
+`self_written`).

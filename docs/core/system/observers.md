@@ -407,7 +407,20 @@ runs a function because an ontology names it. The value is cleared only on
 records of a section that **declares** the observer; a target in another section
 (the person's own record, which the `use_observable_dato` row also selects) is
 the counted no-op described in
-[a mirror lives only where it is declared](#a-mirror-lives-only-where-it-is-declared).
+[a mirror lives only where it is declared](#a-mirror-lives-only-where-it-is-declared)
+— counted, never logged: that row selects the person on every save, so the skip
+is the expected shape of the edge.
+
+**Where the clear fires from.** Only a save of the observed field — the curator
+changing the person, a tool or an import saving that one field — and the cascade
+that follows a cleared field. A write of the **whole record** never clears
+anything: duplicating a record, undeleting one, or restoring a past version from
+the Time Machine puts the person **and** the milestone back together, and the
+milestone that write carries stands (counted `observers_refresh_data_skipped`).
+Likewise a value the **same operation** wrote is never cleared: a CSV import row
+that sets the person and the milestone in one transaction keeps its milestone,
+whatever order the columns come in. Saving a different person *afterwards*, in
+its own save, clears it as described above.
 
 ## The value laws of `set_dato_external`
 
@@ -977,7 +990,11 @@ Work the list top-down.
    `observers_registry_contract_violations`,
    `observers_host_section_unresolved`, `observers_component_to_search_missing`,
    `observers_law_refused`, `observers_server_shape_not_covered`,
-   `observers_refresh_data_refused`, `observers_target_not_host`. Runtime
+   `observers_refresh_data_refused`, `observers_target_not_host`. Informational:
+   `observers_refresh_data_unchanged` (an unchanged re-save of the observed) and
+   `observers_refresh_data_skipped` (a whole-record write, or a value the same
+   operation wrote — see
+   [clearing a dependent value](#clearing-a-dependent-value-refresh_data)). Runtime
    refusals:
    `observers_shrink_refused_degraded_seed`, `observers_big_result_refused`,
    `observers_references_limit_refused`,

@@ -4,8 +4,8 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 937,
-		"functions": 16509,
+		"files": 941,
+		"functions": 16539,
 		"functionsOverCap": 644,
 		"filesOverCap": 255
 	},
@@ -441,7 +441,7 @@
 		"src/core/section/record/duplicate_record.ts": 19,
 		"src/core/section/record/observer_reconcile.ts": 15,
 		"src/core/section/record/observer_subscriptions.ts": 44,
-		"src/core/section/record/observers.ts": 28,
+		"src/core/section/record/observers.ts": 27,
 		"src/core/section/record/record_defaults.ts": 23,
 		"src/core/section/record/record_metadata.ts": 10,
 		"src/core/section/record/save_component.ts": 84,
