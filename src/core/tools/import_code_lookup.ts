@@ -465,6 +465,15 @@ export interface CodedRecord {
 	 * name two different records name neither.
 	 */
 	altCodes?: readonly string[];
+	/**
+	 * The record the DOOR already resolved this item to through ANOTHER
+	 * identifier's code lookup — Zotero's `field_to_section_id` value
+	 * (`call-number`, owner C18), searched by `findSectionIdByCode` in the
+	 * component the map binds it to. NEVER a value read from the file: the only
+	 * producers are this module's lookups. The code is still checked for batch
+	 * duplicates, and must name this record or none (two records → refusal).
+	 */
+	resolvedSectionId?: number;
 	fields: MappedField[];
 	links?: LinkField[];
 }
@@ -474,8 +483,13 @@ function batchRefusal(sentence: string): DedaloError {
 	return new DedaloError('request.invalid_data', { message: sentence, publicMessage: sentence });
 }
 
-/** The ONE record `codes` name (exact lookups), null for none; two different records refuse. */
-async function addressOf(
+/**
+ * The ONE record `codes` (one identifier's spellings) name — each matched
+ * EXACTLY in `target` — or null for none. Two spellings held by two different
+ * records refuse (`request.invalid_data`): they name none of them. Two holders
+ * of one spelling refuse from the lookup itself (`resource.conflict`).
+ */
+export async function findSectionIdByCodes(
 	codes: readonly string[],
 	target: ImportCodeTarget,
 	principal: Principal,
@@ -549,7 +563,7 @@ async function addressForRecord(
 	principal: Principal,
 	label: string,
 ): Promise<number | null> {
-	if (record.code === null) return null;
+	if (record.code === null) return record.resolvedSectionId ?? null;
 	if (seen.has(record.code)) {
 		throw batchRefusal(
 			`The ${label} '${record.code}' is carried by more than one record of this import, ` +
@@ -557,5 +571,18 @@ async function addressForRecord(
 		);
 	}
 	seen.add(record.code);
-	return addressOf([record.code, ...(record.altCodes ?? [])], target, principal);
+	const byCode = await findSectionIdByCodes(
+		[record.code, ...(record.altCodes ?? [])],
+		target,
+		principal,
+	);
+	if (record.resolvedSectionId === undefined) return byCode;
+	if (byCode !== null && byCode !== record.resolvedSectionId) {
+		throw batchRefusal(
+			`The ${label} '${record.code}' is held by record ${byCode} of section ${target.sectionTipo}, ` +
+				`while the record's other identifier names record ${record.resolvedSectionId}, so the import cannot tell which one it means. ` +
+				`Nothing was imported — resolve the two records first.`,
+		);
+	}
+	return record.resolvedSectionId;
 }

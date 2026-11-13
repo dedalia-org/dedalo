@@ -129,6 +129,7 @@ const RAW_CONFIG = {
 		{ name: 'ISSN', ddo_map: [{ tipo: 'test17', section_tipo: 'test3' }] },
 		{ name: 'DOI', ddo_map: [{ tipo: 'test140', section_tipo: 'test3' }] },
 		{ name: 'archive', ddo_map: [{ tipo: 'test85', section_tipo: 'test3' }] },
+		{ name: 'call-number', ddo_map: [{ tipo: 'test162', section_tipo: 'test3' }] },
 		{
 			name: 'container-title',
 			ddo_map: [
@@ -174,6 +175,8 @@ describe('readZoteroConfig', () => {
 		expect(cfg.idTarget).toEqual({ sectionTipo: 'test3', componentTipo: 'test162' });
 		expect(cfg.standardNumberTipo).toBe('test88');
 		expect(cfg.fieldToSectionId).toBe('call-number');
+		// C18: the identifier is looked up in the component the map binds it to.
+		expect(cfg.identifierTarget).toEqual({ sectionTipo: 'test3', componentTipo: 'test162' });
 		expect(cfg.entries.find((e) => e.name === 'container-title')?.link).toEqual({
 			sectionTipo: 'test3',
 			componentTipo: 'test52',
@@ -193,6 +196,32 @@ describe('readZoteroConfig', () => {
 				}),
 			).message,
 		).toContain("no 'id' entry");
+	});
+
+	test('field_to_section_id must be a mapped, non-link variable (C18)', () => {
+		const unbound = {
+			...RAW_CONFIG,
+			map: RAW_CONFIG.map.filter((entry) => entry.name !== 'call-number'),
+		};
+		const refusal = refusalOfSync(() => readZoteroConfig(unbound));
+		expect(refusal.code).toBe('request.invalid_options');
+		expect(refusal.publicMessage).toContain("'call-number'");
+		expect(refusal.publicMessage).toContain('no entry');
+		const asLink = {
+			...RAW_CONFIG,
+			main: RAW_CONFIG.main.map((entry) =>
+				entry.name === 'field_to_section_id' ? { ...entry, value: 'container-title' } : entry,
+			),
+		};
+		expect(refusalOfSync(() => readZoteroConfig(asLink)).publicMessage).toContain('LINK');
+		// `id` as the variable is the key's own law: no identifier target.
+		const asId = {
+			...RAW_CONFIG,
+			main: RAW_CONFIG.main.map((entry) =>
+				entry.name === 'field_to_section_id' ? { ...entry, value: 'id' } : entry,
+			),
+		};
+		expect(readZoteroConfig(asId).identifierTarget).toBeUndefined();
 	});
 
 	test('an entry or main.section of another section is refused before any read', () => {
@@ -266,13 +295,18 @@ describe('mapCslItem', () => {
 		expect(record.fields.some((f) => f.component_tipo === 'test85')).toBe(false);
 	});
 
-	test('call-number (D1 pending) is neither written nor an address — and says so', () => {
-		const record = map({ id: 'K6', 'call-number': '42' });
+	test('call-number (C18) is the item IDENTIFIER: written trimmed into its component, carried as a string, never an address', () => {
+		const record = map({ id: 'K6', 'call-number': ' 42 ' });
 		expect(record.code).toBe('K6');
-		expect(record.fields.map((f) => f.component_tipo)).toEqual(['test162']);
-		expect(
-			record.notices.some((n) => n.includes('call-number') && n.includes('owner decision')),
-		).toBe(true);
+		expect(record.identifier).toBe('42');
+		expect(valuesOf(record, 'test162')).toEqual([[{ value: 'K6' }], [{ value: '42' }]]);
+		expect('sectionId' in record).toBe(false);
+		expect(record.notices).toEqual([]);
+		// Blank → no identifier, nothing written; a non-text → a refused field.
+		expect(map({ id: 'K6', 'call-number': '  ' }).identifier).toBeNull();
+		const refused = map({ id: 'K6', 'call-number': { shelf: 1 } });
+		expect(refused.identifier).toBeNull();
+		expect(refused.fields.find((f) => f.refusal !== undefined)?.refusal).toContain('call-number');
 	});
 
 	test('unmapped variables are listed; a non-scalar in a scalar slot is refused', () => {

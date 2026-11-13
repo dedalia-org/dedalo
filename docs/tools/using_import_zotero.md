@@ -45,7 +45,7 @@ The tool attaches to **sections** and surfaces on Publications-style sections on
 The import never stops at the first problem: a reference it can read is written, and everything it could not do is listed.
 
 - **Refused fields** — a value the record could not take, named with the record and field. The record keeps its stored value for that field. Examples: a date written as text ("circa 1900"), a Zotero item type the configuration's typology list does not know, a journal name held by two Series records.
-- **File errors** — an export that is not CSL JSON, or not valid JSON.
+- **File errors** — an export that is not CSL JSON, or not valid JSON, or larger than 64 MB (split the library and import the parts); and a reference whose call number could not identify one record (see below).
 - **Attachments** — a PDF that was not uploaded with the export, or whose cover could not be rendered.
 - **Notices** — what was not imported and why: Zotero fields the map does not name (listed once), the end of a date range when the target date is not a range, a Zotero "season" that is not a time of day.
 
@@ -53,8 +53,10 @@ The import never stops at the first problem: a reference it can read is written,
 
 A reference is matched by its **Zotero key** (the last part of its Zotero URI, stored in the code field): found → that record is updated; not found → a new record is created. If two references of one import carry the same key, or two records already hold it, nothing is imported and the report says so — fix the file or the duplicate codes first.
 
-!!! warning "The call number is not used as a record number"
-    Earlier versions used a numeric Zotero **call number** as the Dédalo record number. That rule is under review: today the call number is neither applied nor stored, and each reference that carries one says so in the report.
+The Zotero **call number** is a second way to name the record. It is stored in the field the configuration binds it to, and before the import looks at the key it looks for the record that already holds that call number: found → that record is updated (and now also holds the Zotero key); not found → the key decides, or a new record is created holding both. A call number held by two records, repeated on two references of one export, or pointing at a different record than the reference's key, refuses **that reference only** — it is listed under file errors and the rest of the export is imported.
+
+!!! warning "The call number is not a record number"
+    Earlier versions used a numeric Zotero **call number** as the Dédalo record number, so a typo overwrote an unrelated record. It is now an identifier that is looked up, never a number that chooses a record.
 
 ## Undoing an import
 

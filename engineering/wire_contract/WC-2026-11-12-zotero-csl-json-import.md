@@ -95,3 +95,40 @@ cleared stored dates and duplicated Series under concurrency.
 
 No parity gate replays this tool (write path). The DEC-14b twins are the
 native gates named above. No fixture changes.
+
+## Addendum 2026-11-13 — D1 RULED (owner C18): `field_to_section_id` is an IDENTIFIER
+
+Item 8 above is closed. The `main.field_to_section_id` variable (default
+`call-number`) follows the DATA-08 law the MARC21 `id` entry follows
+(`import_code_lookup.ts`): an external string never chooses a `section_id`.
+
+- **Config** (`readZoteroConfig`): the variable MUST have a `map` entry — the
+  component the identifier is looked up in (`ZoteroConfig.identifierTarget`) —
+  and that entry may not be a link; otherwise the run is refused
+  (`request.invalid_options`, naming the variable). The shipped dd1633 binds
+  `call-number` → `dd176`, so an install without an override is unaffected.
+  `id` itself as the variable is inert (the key's own law).
+- **Map** (`mapCslItem`): the value is written, TRIMMED ONLY (as the MARC `id`),
+  into that component, and carried as `ZoteroMappedRecord.identifier`. The
+  pending notice is gone. A non-text value is a refused field.
+- **Door** (`resolveIdentifiers`, before `resolveMappedCodes`): per item,
+  `findSectionIdByCode` on the identifier in the imported section, scoped to
+  the importer. Found → `CodedRecord.resolvedSectionId` (the key, written in
+  the same record, is checked to name no OTHER record); absent → `null` (the key
+  decides, else the record is created holding both). **The ITEM is refused** —
+  an `errors` line `<key>: <sentence>` naming the variable, the value and the
+  records, the item dropped from the batch before any write — when the
+  identifier is held by two records (`resource.conflict` from the lookup),
+  carried by an earlier item of the same export, or names a record other than
+  the one the key is held by. The rest of the export proceeds. (The KEY keeps
+  the batch posture of item 6: a key twice, or held by two records, still
+  refuses the run.)
+- `resolveMappedCodes` honours `resolvedSectionId` and asserts the key agrees
+  with it (a batch refusal, unreachable from this door, kept as the invariant).
+- Gates: `tool_import_zotero_native.test.ts` ("the call-number is a VALUE of
+  its component", "C18 found/two/disagreement/batch"),
+  `marc_identity_native.test.ts` (the mapper carries the identifier as a
+  string, never an address). Docs: `docs/tools/using_import_zotero.md`,
+  `docs/development/tools/reference/tool_import_zotero.md`. Fragment
+  `zotero-call-number-identifier-and-size-limit`.
+

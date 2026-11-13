@@ -18,12 +18,23 @@
  *   test17 text_area (ISBN/ISSN) · test140 iri (DOI) · test80 portal→test3 (Series link)
  *   test85 pdf · test99 image.
  *
- * D1 (call-number as an address) is unruled: only its NOTICE is gated here.
- * WC-2026-11-12-zotero-csl-json-import.
+ * The `field_to_section_id` variable (`call-number`) is an IDENTIFIER looked up
+ * through the component the map binds it to (owner C18, 2026-11-13): found →
+ * that record, absent → created, held by two records → the ITEM is refused.
+ * WC-2026-11-12-zotero-csl-json-import (+ addendum 2026-11-13).
  */
 
 import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
-import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	closeSync,
+	copyFileSync,
+	existsSync,
+	ftruncateSync,
+	mkdirSync,
+	openSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
@@ -35,6 +46,7 @@ import { createSectionRecord } from '../../src/core/section/record/create_record
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
+import { CSV_INGEST_MAX_BYTES } from '../../src/core/tools/import_csv.ts';
 import { lockLinkNames } from '../../src/core/tools/import_link.ts';
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
@@ -184,6 +196,8 @@ async function recordsNamed(name: string): Promise<number[]> {
 
 const key = (k: string) => `${RUN}${k}`;
 const uri = (k: string) => `http://zotero.org/users/1/items/${key(k)}`;
+/** A call-number (the `field_to_section_id` identifier) of this run. */
+const cn = (k: string) => `${RUN}-cn-${k}`;
 
 beforeAll(async () => {
 	await assertTestDatabase('tool_import_zotero_native');
@@ -229,7 +243,7 @@ describe('tool_import_zotero: a CSL-JSON export through the server map', () => {
 			author: [{ given: 'Jane', family: 'Smith' }, { literal: `${RUN} Museum` }],
 			issued: { 'date-parts': [[2014, 12, 30]] },
 			DOI: '10.1000/xyz',
-			'call-number': '42',
+			'call-number': cn('A'),
 			publisher: 'Unmapped House',
 		},
 		{
@@ -281,16 +295,126 @@ describe('tool_import_zotero: a CSL-JSON export through the server map', () => {
 		expect(existsSync(resolve(stagedDir, 'library.json'))).toBe(false);
 	});
 
-	test('notices: call-number pending D1, unmapped variables once, a range end on a single date', async () => {
+	test('notices: unmapped variables once, a range end on a single date; the call-number is a VALUE of its component', async () => {
 		const report = await run({ files_data: stage('library.json', exportItems) });
-		expect(
-			report.notices.some((n) => n.includes('call-number') && n.includes('owner decision')),
-		).toBe(true);
+		expect(report.notices.filter((n) => n.includes('call-number'))).toEqual([]);
 		expect(report.notices.filter((n) => n.includes('Not in the Zotero map'))).toHaveLength(1);
 		expect(report.notices.some((n) => n.includes('publisher'))).toBe(true);
 		expect(report.notices.some((n) => n.startsWith(`${key('B')}: accessed:`))).toBe(true);
-		// call-number never became an address nor a value: the code stays the key.
+		// C18: the call-number is written into the component the map binds it to
+		// (the same record the key names) — never cast to a record number.
+		const byKey = await recordsWithCode(key('A'));
+		expect(byKey).toHaveLength(1);
+		expect(await recordsWithCode(cn('A'))).toEqual(byKey);
 		expect(await recordsWithCode('42')).toEqual([]);
+	});
+
+	test('C18 found: a call-number held by ONE record resolves the item to it; the key is written there too', async () => {
+		// A record known only by its call-number (an item without a Zotero id).
+		const seeded = await run({
+			files_data: stage('cn-f0.json', [{ 'call-number': cn('F'), title: `${RUN} F0` }]),
+		});
+		expect(seeded.created).toBe(1);
+		const [found] = await recordsWithCode(cn('F'));
+		expect(found).toBeDefined();
+		const report = await run({
+			files_data: stage('cn-f1.json', [
+				{ id: uri('IF'), 'call-number': cn('F'), title: `${RUN} F1` },
+			]),
+		});
+		expect(report.errors).toEqual([]);
+		expect(report.created).toBe(0);
+		expect(report.updated).toBe(1);
+		expect(await recordsWithCode(key('IF'))).toEqual([found as number]);
+		expect(await recordsWithCode(cn('F'))).toEqual([found as number]);
+		expect((await itemsOf(found as number, 'string', 'test52')).map((i) => i.value)).toEqual([
+			`${RUN} F1`,
+		]);
+	});
+
+	test('C18 two: a call-number held by TWO records refuses THAT item; the other items are written', async () => {
+		// Two records, then both made to hold the same call-number (a duplicate in
+		// the data: an import cannot produce it — the second item resolves to the first).
+		await run({
+			files_data: stage('cn-t1.json', [{ 'call-number': cn('T1'), title: `${RUN} T1` }]),
+		});
+		await run({
+			files_data: stage('cn-t2.json', [{ 'call-number': cn('T2'), title: `${RUN} T2` }]),
+		});
+		const twins = [...(await recordsWithCode(cn('T1'))), ...(await recordsWithCode(cn('T2')))];
+		expect(twins).toHaveLength(2);
+		await sql.unsafe(
+			`UPDATE ${TABLE} SET string = jsonb_set(string, '{test162}', $1::text::jsonb) WHERE section_tipo = 'test3' AND section_id = ANY($2::int[])`,
+			[JSON.stringify([{ id: 1, lang: 'lg-nolan', value: cn('T') }]), twins],
+		);
+		expect(await recordsWithCode(cn('T'))).toHaveLength(2);
+		const report = await run({
+			files_data: stage('cn-t3.json', [
+				{ id: uri('IT'), 'call-number': cn('T'), title: `${RUN} T3` },
+				{ id: uri('IT4'), title: `${RUN} T4` },
+			]),
+		});
+		expect(report.created).toBe(1);
+		expect(report.updated).toBe(0);
+		expect(report.errors).toHaveLength(1);
+		expect(report.errors[0]).toContain(key('IT'));
+		expect(report.errors[0]).toContain(cn('T'));
+		expect(report.errors[0]).toContain('more than one record');
+		expect(await recordsWithCode(key('IT'))).toEqual([]);
+		expect(await recordsNamed(`${RUN} T3`)).toEqual([]);
+		expect(await recordsWithCode(key('IT4'))).toHaveLength(1);
+	});
+
+	test('C18 disagreement: the key names one record and the call-number another — the item is refused', async () => {
+		await run({
+			files_data: stage('cn-g0.json', [{ 'call-number': cn('G'), title: `${RUN} G0` }]),
+		});
+		const [a] = await recordsWithCode(key('A'));
+		const titleBefore = await itemsOf(a as number, 'string', 'test52');
+		const report = await run({
+			files_data: stage('cn-g1.json', [
+				{ id: uri('A'), 'call-number': cn('G'), title: `${RUN} G1` },
+			]),
+		});
+		expect(report.created + report.updated).toBe(0);
+		expect(report.errors).toHaveLength(1);
+		expect(report.errors[0]).toContain(cn('G'));
+		expect(report.errors[0]).toContain(key('A'));
+		expect(await itemsOf(a as number, 'string', 'test52')).toEqual(titleBefore);
+		expect(await recordsNamed(`${RUN} G1`)).toEqual([]);
+	});
+
+	test('C18 batch: the same call-number on two items of one export — the second item is refused', async () => {
+		const report = await run({
+			files_data: stage('cn-h.json', [
+				{ id: uri('IH1'), 'call-number': cn('H'), title: `${RUN} H1` },
+				{ id: uri('IH2'), 'call-number': cn('H'), title: `${RUN} H2` },
+			]),
+		});
+		expect(report.created).toBe(1);
+		expect(report.errors).toHaveLength(1);
+		expect(report.errors[0]).toContain(key('IH2'));
+		expect(await recordsWithCode(key('IH1'))).toHaveLength(1);
+		expect(await recordsWithCode(key('IH2'))).toEqual([]);
+	});
+
+	test('C51: an export over the 64 MB ingest ceiling is refused at the door — nothing read, the file stays staged', async () => {
+		const [entry] = stage('huge.json', '[]');
+		const path = resolve(stagedDir, 'huge.json');
+		const fd = openSync(path, 'r+');
+		ftruncateSync(fd, CSV_INGEST_MAX_BYTES + 1);
+		closeSync(fd);
+		try {
+			const report = await run({ files_data: [entry] });
+			expect(report.created + report.updated).toBe(0);
+			expect(report.errors).toHaveLength(1);
+			expect(report.errors[0]).toContain('huge.json');
+			expect(report.errors[0]).toContain('too large');
+			expect(report.errors[0]).toContain('64 MB');
+			expect(existsSync(path)).toBe(true);
+		} finally {
+			rmSync(path, { force: true });
+		}
 	});
 
 	test('re-importing the same export UPDATES the same records (matched by the Zotero key)', async () => {
@@ -615,6 +739,46 @@ describe('the door: server config, sections, form values, files', () => {
 		}
 		expect(await recordsWithCode(key('F'))).toEqual([]);
 		expect(existsSync(resolve(stagedDir, 'foreign.json'))).toBe(true);
+	});
+
+	test('C18: field_to_section_id bound to a component that holds no text — the item is refused naming it; unbound → the run is refused', async () => {
+		// Bound to a number component (test22): no code can be looked up there.
+		const numberBound = {
+			...SERVER_CONFIG,
+			map: SERVER_CONFIG.map.map((entry) =>
+				entry.name === 'call-number'
+					? { name: 'call-number', ddo_map: [{ tipo: 'test22', section_tipo: 'test3' }] }
+					: entry,
+			),
+		};
+		await installScratchToolConfig('tool_import_zotero', numberBound);
+		try {
+			const report = await run({
+				files_data: stage('cn-bound.json', [
+					{ id: uri('IN1'), 'call-number': cn('N'), title: `${RUN} N1` },
+					{ id: uri('IN2'), title: `${RUN} N2` },
+				]),
+			});
+			expect(report.created).toBe(1);
+			expect(report.errors).toHaveLength(1);
+			expect(report.errors[0]).toContain(key('IN1'));
+			expect(report.errors[0]).toContain('test22');
+			expect(report.errors[0]).toContain('not a text component');
+			expect(await recordsWithCode(key('IN1'))).toEqual([]);
+			expect(await recordsWithCode(key('IN2'))).toHaveLength(1);
+			// Not bound at all: there is no component to look the identifier up in.
+			await installScratchToolConfig('tool_import_zotero', {
+				...SERVER_CONFIG,
+				map: SERVER_CONFIG.map.filter((entry) => entry.name !== 'call-number'),
+			});
+			const files = stage('cn-unbound.json', [{ id: uri('IN3'), title: `${RUN} N3` }]);
+			const refusal = await refusalOf(runRaw({ files_data: files }));
+			expect(refusal.code).toBe('request.invalid_options');
+			expect(refusal.publicMessage).toContain("'call-number'");
+			expect(await recordsWithCode(key('IN3'))).toEqual([]);
+		} finally {
+			teardownConfig = await installScratchToolConfig('tool_import_zotero', SERVER_CONFIG);
+		}
 	});
 
 	test('the Values form lands on every record; a form field of another section is refused', async () => {

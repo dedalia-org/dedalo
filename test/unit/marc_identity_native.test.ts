@@ -439,12 +439,13 @@ describe('the mapped-import doors (census, derived from the tool tree)', () => {
 	});
 
 	/**
-	 * The Zotero door (T1-7) carries its identifier the same way: the item's
+	 * The Zotero door (T1-7) carries its identifiers the same way: the item's
 	 * Zotero KEY is a CODE, resolved through the code component by the shared
-	 * `resolveMappedCodes` — and the mapper yields no address at all. PHP's
-	 * second address, `field_to_section_id` (default `call-number`, cast to a
-	 * section_id), is pending an owner decision (D1): it is neither an address
-	 * nor a value. This pins the half that matters to DATA-08: no
+	 * `resolveMappedCodes`, and PHP's second address — `field_to_section_id`
+	 * (default `call-number`), which it CAST to a section_id — is a second
+	 * IDENTIFIER (owner C18): written into the component the map binds it to and
+	 * carried as `identifier` for the door's code lookup. The mapper yields no
+	 * address at all. This pins the half that matters to DATA-08: no
 	 * identifier-shaped value, however numeric, comes back from that mapper as an
 	 * address.
 	 */
@@ -457,18 +458,24 @@ describe('the mapped-import doors (census, derived from the tool tree)', () => {
 			],
 			main: [{ name: 'field_to_section_id', value: 'call-number' }],
 		});
+		expect(cfg.identifierTarget).toEqual({ sectionTipo: 'test3', componentTipo: CODE_COMPONENT });
 		const kindOf = new Map([[CODE_COMPONENT, 'text' as const]]);
 		const mapped = idish.map((value) =>
-			mapCslItem({ id: `http://zotero.org/users/1/items/${value}`, 'call-number': value }, cfg, {
-				kindOf,
-			}),
+			mapCslItem(
+				{ id: `http://zotero.org/users/1/items/${value}`, 'call-number': ` ${value}x ` },
+				cfg,
+				{ kindOf },
+			),
 		);
 		expect(mapped.map((record) => record.code)).toEqual(idish);
 		for (const record of mapped) {
 			expect('sectionId' in record).toBe(false);
-			// The call-number wrote nothing: only the code itself is a field.
+			expect('resolvedSectionId' in record).toBe(false);
+			// The call-number is a VALUE of its component (trimmed only) and the
+			// identifier the door looks up — a string, never a number.
+			expect(record.identifier).toBe(`${record.code}x`);
 			expect(record.fields.map((field) => field.values)).toEqual([
-				[JSON.stringify([{ value: record.code }])],
+				[JSON.stringify([{ value: record.code }]), JSON.stringify([{ value: `${record.code}x` }])],
 			]);
 		}
 	});

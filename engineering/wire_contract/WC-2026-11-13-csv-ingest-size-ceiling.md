@@ -68,3 +68,19 @@
 
 DOS-04 left two of four doors unbounded for the one Bun process serving every
 user; a refusal the operator cannot see is a silent loss of their upload.
+
+## Addendum 2026-11-13 — the Zotero door holds the SAME ceiling (owner C51)
+
+Open decision 3 of the T1-S18 plan (a Zotero-specific limit) is ruled: a
+CSL-JSON export is bounded at `CSV_INGEST_MAX_BYTES` (64 MB), not at the upload
+cap. `tools/tool_import_zotero/server/index.ts` `readExport` pre-checks the
+staged file's size on disk and lists an oversized one in the report's `errors`
+(`oversizedIngestSentence` — the file, its size, the limit) WITHOUT opening it,
+leaves it staged (not consumed), and reads the rest through
+`readIngestTextFile(staged, name, CSV_INGEST_MAX_BYTES)`. The file-level error
+shape is unchanged. Gate: `tool_import_zotero_native.test.ts` "C51: an export
+over the 64 MB ingest ceiling is refused at the door" (a sparse file one byte
+over). Decision 1 (keep 64 MB) and 2 (the delete card) were ruled the same day
+(`WC-2026-11-13-csv-staged-file-read-error-card`); the streaming CSV parse
+stays a follow-up. Fragment `zotero-call-number-identifier-and-size-limit`.
+

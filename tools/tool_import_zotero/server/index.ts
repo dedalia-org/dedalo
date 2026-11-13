@@ -26,16 +26,23 @@
  * IDENTITY: an item is matched by its Zotero KEY (the `id` URI's last segment)
  * in the code component the map's `id` entry names, or by the full URI stored
  * there (PHP's `*\/<key>` suffix leg, made exact); none ⇒ the record is created.
- * The `field_to_section_id` variable (default `call-number`), which PHP used as
- * the record's section_id, is NOT applied pending an owner decision (D1) — each
- * item carrying it reports so.
+ * The `field_to_section_id` variable (default `call-number`), which PHP cast to
+ * the record's section_id, is a SECOND IDENTIFIER (owner C18, 2026-11-13):
+ * looked up — `findSectionIdByCode`, the same law as the MARC21 `id` — in the
+ * component the map binds it to, written there trimmed; found ⇒ that record
+ * (the key is written onto it too), absent ⇒ created, held by two records or
+ * disagreeing with the key's record ⇒ THAT ITEM is refused (an `errors` line),
+ * the rest of the batch proceeds (`resolveIdentifiers`). Never an address.
+ *
+ * SIZE: an export is read through the ONE ingest door bounded at
+ * CSV_INGEST_MAX_BYTES (64 MB — owner C51: the same ceiling as a CSV), after a
+ * size pre-check that refuses an oversized file without opening it.
  *
  * Divergences from PHP, each deliberate: WC-2026-11-12-zotero-csl-json-import.
  */
 
 import { copyFileSync, existsSync, rmSync, statSync } from 'node:fs';
 import { basename, resolve, sep } from 'node:path';
-import { config } from '../../../src/config/config.ts';
 import { getComponentModel } from '../../../src/core/components/registry.ts';
 import {
 	DedaloError,
@@ -55,10 +62,18 @@ import {
 } from '../../../src/core/media/tools/files_info_persist.ts';
 import { getEffectivePropertiesByTipo } from '../../../src/core/ontology/alias.ts';
 import { getModelByTipo } from '../../../src/core/ontology/resolver.ts';
+import type { Principal } from '../../../src/core/security/permissions.ts';
 import { authorizeRecordAccess } from '../../../src/core/security/write_door.ts';
 import { getToolConfig } from '../../../src/core/tools/config.ts';
 import { parseCslJson } from '../../../src/core/tools/csl_json.ts';
-import { resolveMappedCodes } from '../../../src/core/tools/import_code_lookup.ts';
+import {
+	type CodedRecord,
+	findSectionIdByCode,
+	findSectionIdByCodes,
+	type ImportCodeTarget,
+	resolveMappedCodes,
+} from '../../../src/core/tools/import_code_lookup.ts';
+import { CSV_INGEST_MAX_BYTES } from '../../../src/core/tools/import_csv.ts';
 import { VALUE_PROPERTY_MODELS } from '../../../src/core/tools/import_data.ts';
 import {
 	type ImportReport,
@@ -72,7 +87,10 @@ import {
 	formValueFields,
 	type TempDataEntry,
 } from '../../../src/core/tools/import_form_values.ts';
-import { readIngestTextFile } from '../../../src/core/tools/ingest_encoding.ts';
+import {
+	oversizedIngestSentence,
+	readIngestTextFile,
+} from '../../../src/core/tools/ingest_encoding.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -94,6 +112,9 @@ const TOOL_NAME = 'tool_import_zotero';
 
 /** The door name the write door and the refusals carry. */
 const DOOR = `${TOOL_NAME}.import_files`;
+
+/** Where an admin fixes the config — named by the identifier-binding refusal. */
+const CONFIG_HOME = 'the Tools configuration (dd996) / register default (dd1633)';
 
 /**
  * A caller fault. `message` AND `publicMessage`: import_files is
@@ -182,6 +203,23 @@ function descriptorKind(model: string): TargetKind {
 	return VALUE_PROPERTY_MODELS.has(model) ? 'text' : 'other';
 }
 
+/**
+ * Can a code be LOOKED UP in the identifier's component (C18)? The lookup
+ * compares stored text in the string family ('=' equality) or the iri column
+ * ('==' exact) — `codeQueryFor` in import_code_lookup.ts. A `component_number`
+ * is a `text` TargetKind for the mapper (it takes a `{value}` item) but holds no
+ * code: a search there is a number search, and the identifier would silently
+ * resolve to "none" and create a duplicate on every import.
+ */
+async function identifierLookupable(cfg: ZoteroConfig): Promise<boolean> {
+	const tipo = cfg.identifierTarget?.componentTipo;
+	if (tipo === undefined) return false;
+	const model = await getModelByTipo(tipo);
+	if (model === null) return false;
+	if (model === 'component_iri') return true;
+	return getComponentModel(model)?.column === 'string';
+}
+
 /** Every config target's kind (map entries + main.field_standard_number). */
 async function targetKinds(cfg: ZoteroConfig): Promise<Map<string, TargetKind>> {
 	const tipos = new Set(cfg.entries.map((entry) => entry.tipo));
@@ -213,14 +251,19 @@ async function readExport(
 	kindOf: ReadonlyMap<string, TargetKind>,
 	batch: ReadBatch,
 ): Promise<void> {
+	// The CSV ceiling (owner C51: the same 64 MB for a CSL-JSON export — the whole
+	// text is buffered and parsed in this process). The pre-check refuses an
+	// oversized file by its size on disk without opening it; the door below
+	// enforces the same bound on what it actually reads (T1-S18: the door, not
+	// the pre-check, is the guard).
+	const size = statSync(staged).size;
+	if (size > CSV_INGEST_MAX_BYTES) {
+		batch.errors.push(oversizedIngestSentence(name, size, CSV_INGEST_MAX_BYTES));
+		return;
+	}
 	let text: string;
 	try {
-		// The door's bound is REQUIRED (T1-S18). Zotero has no ceiling of its own
-		// yet: it is held at the advertised upload cap, i.e. exactly what the upload
-		// door already lets a staged export be — no behaviour change for uploads,
-		// and an out-of-band file can no longer be read unbounded. A Zotero-specific
-		// value (CSL JSON parse cost) is an open WS-10 item, not decided here.
-		const decoded = await readIngestTextFile(staged, name, config.media.upload.maxSizeBytes);
+		const decoded = await readIngestTextFile(staged, name, CSV_INGEST_MAX_BYTES);
 		text = decoded.text;
 		if (decoded.notice !== null) batch.notices.push(decoded.notice);
 	} catch (error) {
@@ -238,6 +281,113 @@ async function readExport(
 	batch.mapped.push(...parsed.items.map((item) => mapCslItem(item, cfg, { kindOf })));
 	batch.consumed.push(staged);
 	batch.names.push(name);
+}
+
+/** The item's name in a report line: its key, else its position. */
+function itemName(record: ZoteroMappedRecord, index: number): string {
+	return record.code ?? `item #${index + 1}`;
+}
+
+/**
+ * C18: resolve each item's `field_to_section_id` identifier (`call-number`) to
+ * the ONE record holding it in `cfg.identifierTarget`, through the engine's code
+ * lookup — never a cast. Per item: no identifier ⇒ the key decides (below);
+ * absent ⇒ null (the key decides, else the record is created, holding it);
+ * found ⇒ that record, provided the item's KEY names no OTHER record. Held by
+ * two records, disagreeing with the key's record, or carried by an earlier item
+ * of this batch ⇒ the ITEM is refused: an `errors` line naming it, and the item
+ * leaves `batch.mapped` (so the attachments phase never sees it). So is an item
+ * whose identifier the config binds to a component that cannot hold a text (no
+ * code can be looked up there — the shipped dd1633 binds `call-number` to a
+ * node that is not a text component): the fix is named, the identity is never
+ * narrowed to the key in silence. Answers the batch's coded records for
+ * `resolveMappedCodes`.
+ */
+async function resolveIdentifiers(
+	batch: ReadBatch,
+	scope: IdentifierScope,
+	principal: Principal,
+): Promise<CodedRecord[]> {
+	const coded: CodedRecord[] = [];
+	const kept: ZoteroMappedRecord[] = [];
+	const seen = new Set<string>();
+	for (const [index, record] of batch.mapped.entries()) {
+		const who = itemName(record, index);
+		let resolved: number | null = null;
+		if (record.identifier !== null && scope.cfg.identifierTarget !== undefined) {
+			try {
+				resolved = await identifierAddress(record, who, seen, scope, principal);
+			} catch (error) {
+				if (!isDedaloError(error)) throw error;
+				batch.errors.push(`${who}: ${error.publicMessage ?? error.code}`);
+				continue;
+			}
+		}
+		kept.push(record);
+		coded.push({
+			code: record.code,
+			altCodes: record.url === null ? [] : [record.url],
+			...(resolved === null ? {} : { resolvedSectionId: resolved }),
+			fields: record.fields,
+			links: record.links,
+		});
+	}
+	batch.mapped = kept;
+	return coded;
+}
+
+/** What resolving the batch's identifiers needs of the run. */
+interface IdentifierScope {
+	cfg: ZoteroConfig;
+	/** `identifierLookupable(cfg)` — the identifier's component holds codes. */
+	lookupable: boolean;
+	sectionTipo: string;
+}
+
+/** One item's identifier → its record (null = none), or the item's refusal. */
+async function identifierAddress(
+	record: ZoteroMappedRecord,
+	who: string,
+	seen: Set<string>,
+	{ cfg, lookupable, sectionTipo }: IdentifierScope,
+	principal: Principal,
+): Promise<number | null> {
+	const identifier = record.identifier as string;
+	const variable = cfg.fieldToSectionId as string;
+	const componentTipo = (cfg.identifierTarget as ImportCodeTarget).componentTipo;
+	if (!lookupable) {
+		throw itemRefusal(
+			`${variable} '${identifier}' cannot be looked up: the map binds '${variable}' to ${componentTipo}, which is not a text component — the item was not imported; bind '${variable}' to the code component that holds it (${CONFIG_HOME})`,
+		);
+	}
+	if (seen.has(identifier)) {
+		throw itemRefusal(
+			`${variable} '${identifier}' is carried by an earlier item of this import, so it does not identify one record — the item was not imported; fix the file`,
+		);
+	}
+	seen.add(identifier);
+	// The component the map binds the variable to, in the section being WRITTEN.
+	const target: ImportCodeTarget = { sectionTipo, componentTipo };
+	const byIdentifier = await findSectionIdByCode(target, identifier, principal);
+	if (byIdentifier === null || record.code === null || cfg.idTarget === undefined) {
+		return byIdentifier;
+	}
+	const byKey = await findSectionIdByCodes(
+		[record.code, ...(record.url === null ? [] : [record.url])],
+		{ sectionTipo, componentTipo: cfg.idTarget.componentTipo },
+		principal,
+	);
+	if (byKey !== null && byKey !== byIdentifier) {
+		throw itemRefusal(
+			`${variable} '${identifier}' names record ${byIdentifier} while the Zotero key '${who}' is held by record ${byKey}, so the import cannot tell which one the item means — the item was not imported; resolve the two records first`,
+		);
+	}
+	return byIdentifier;
+}
+
+/** An item the batch drops (public sentence: the operator's own file and identifiers). */
+function itemRefusal(sentence: string): DedaloError {
+	return new DedaloError('request.invalid_data', { message: sentence, publicMessage: sentence });
 }
 
 /** Every `.json` entry of the batch, read and mapped (PHP: the batch filtered to .json). */
@@ -551,25 +701,32 @@ async function prepareRun(ctx: ToolActionContext, sectionTipo: string) {
 		sectionTipo,
 		DOOR,
 	);
-	return { cfg, formFields, kindOf: await targetKinds(cfg) };
+	return {
+		cfg,
+		formFields,
+		kindOf: await targetKinds(cfg),
+		identifierLookupable: await identifierLookupable(cfg),
+	};
 }
 
 async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 	const { sectionTipo, filesData, keyDir } = requestOf(ctx.options);
-	const { cfg, formFields, kindOf } = await prepareRun(ctx, sectionTipo);
+	const { cfg, formFields, kindOf, identifierLookupable } = await prepareRun(ctx, sectionTipo);
 	// key_dir is TOP-LEVEL and server-sanitized; the dir is rebuilt from the
 	// CURRENT user id, so no payload can reach another user's staged uploads.
 	const dir = stagingDir(ctx.userId, keyDir);
 
 	const batch = await readBatch(filesData, dir, cfg, kindOf);
-	// The identifiers become addresses HERE, once, before anything is written.
+	// The identifiers become addresses HERE, once, before anything is written:
+	// the field_to_section_id identifier per item (a refusal drops THAT item),
+	// then the key for the whole batch (a refusal stops the run).
+	const coded = await resolveIdentifiers(
+		batch,
+		{ cfg, lookupable: identifierLookupable, sectionTipo },
+		ctx.principal,
+	);
 	const resolved = await resolveMappedCodes(
-		batch.mapped.map((record) => ({
-			code: record.code,
-			altCodes: record.url === null ? [] : [record.url],
-			fields: record.fields,
-			links: record.links,
-		})),
+		coded,
 		sectionTipo,
 		cfg.idTarget,
 		ctx.principal,
