@@ -188,3 +188,8 @@ key 17581758); a runner that does not win it simply does not retry that pass.
   needs no licence. Owner question T1-5 §7 (non-Point geometries publish `lon` = the
   coordinates' first member, `lat` = the second, as PHP did) is OPEN; parity is what ships.
 - The "unported fn throws on an empty slice" gate now uses a synthetic fn name.
+
+## Addendum 2026-11-13 — T1-5 §7 ruled (owner C15)
+
+The open question of the 2026-11-12 addendum is ruled: a non-Point geometry publishes a
+REPRESENTATIVE POINT, never the ring — `WC-2026-11-13-geolocation-representative-point`.

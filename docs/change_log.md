@@ -1265,6 +1265,19 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-diffusion-external-chain`.
 
+- **A published geolocation column places an area or a route at one representative point instead of publishing the whole outline under the longitude.**
+
+    The flat geolocation column of a text field's geo tag (`get_geolocation_data`) publishes one
+    `{type, lon, lat}` per drawn feature. For a point that was right; for a polygon or a line the
+    engine copied the outline's first ring under `lon` and nothing under `lat`, so the public map
+    could not place the record. A polygon now publishes the centre of its outer ring (a multipolygon
+    its largest ring), a line the midpoint along its path, and anything else the centre of its
+    bounding box; the geometry type is kept. Points are unchanged.
+
+    Republish the elements carrying such a column to refresh the public tables.
+
+    Wire contract: `WC-2026-11-13-geolocation-representative-point`.
+
 - **The release-archive install has a worked example, and `install.sh` says what `--release-sha256` takes.**
 
     *Get Dédalo* in the installation guide now names the three archive kinds (stable, prerelease,
@@ -1548,7 +1561,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 75 entries"
+??? note "Wire contract — 76 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1619,6 +1632,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-export-media-cell-type`
     - `WC-2026-11-13-export-tag-marks-plain-text`
     - `WC-2026-11-13-external-empty-entry-dropped`
+    - `WC-2026-11-13-geolocation-representative-point`
     - `WC-2026-11-13-info-derived-async-published`
     - `WC-2026-11-13-info-parsed-face-published`
     - `WC-2026-11-13-observer-refresh-data`

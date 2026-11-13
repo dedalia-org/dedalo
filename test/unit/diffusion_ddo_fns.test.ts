@@ -19,6 +19,10 @@
  *   GEO LAW (supersedes the PHP oracle): absence is structural —
  *   null/undefined/'' = no coordinate, publish nothing; 0 is a legal
  *   coordinate; there is NO sentinel pair anywhere.
+ * - get_geolocation_data: build_geolocation_data(false) flattens each feature to
+ *   {type, lon, lat}. A non-Point geometry publishes a REPRESENTATIVE POINT
+ *   (owner C15, WC-2026-11-13-geolocation-representative-point) — PHP copied
+ *   coordinates[0]/[1] verbatim, a ring under `lon`.
  * - get_diffusion_iconography: PHP class.component_portal.php :477-529 join
  *   semantics (term | field | scene separators, null term → EMPTY slot —
  *   PHP `!empty([null])` is true and implode of [null] is '').
@@ -365,23 +369,128 @@ describe('get_geolocation_data — build_geolocation_data(false): features flatt
 		]);
 	});
 
-	test('a Polygon publishes lon = the outer ring, lat = null (PHP parity, verbatim)', () => {
-		const ring = [
+	// Owner C15 (2026-11-13, WC-2026-11-13-geolocation-representative-point): a
+	// non-Point geometry publishes ONE representative point — PHP copied
+	// `coordinates[0]` / `[1]` verbatim, so a Polygon published its outer ring
+	// under `lon` and null under `lat` (wrong data, not a contract).
+	const geometryLayer = (geometry: unknown) =>
+		buildGeolocationLayers([
+			itemWith([{ layer_id: 1, layer_data: { features: [{ geometry }] } }]),
+		])[0]?.layer_data;
+
+	test('C15: a Polygon publishes the centroid of its OUTER ring (shoelace), type kept', () => {
+		// a unit square offset to (10, 20): centroid (10.5, 20.5); the hole is ignored
+		const outer = [
+			[10, 20],
+			[11, 20],
+			[11, 21],
+			[10, 21],
+			[10, 20],
+		];
+		const hole = [
+			[10.1, 20.1],
+			[10.2, 20.1],
+			[10.2, 20.2],
+			[10.1, 20.1],
+		];
+		expect(geometryLayer({ type: 'Polygon', coordinates: [outer, hole] })).toEqual([
+			{ type: 'Polygon', lon: 10.5, lat: 20.5 },
+		]);
+		// an L-shape whose vertex mean is NOT its area centroid: shoelace, not a vertex average
+		const lShape = [
+			[0, 0],
+			[2, 0],
+			[2, 1],
+			[1, 1],
+			[1, 2],
+			[0, 2],
+			[0, 0],
+		];
+		const [point] = geometryLayer({ type: 'Polygon', coordinates: [lShape] }) ?? [];
+		expect(point?.lon).toBeCloseTo(5 / 6, 10);
+		expect(point?.lat).toBeCloseTo(5 / 6, 10);
+	});
+
+	test('C15: a MultiPolygon takes the centroid of its LARGEST ring', () => {
+		const small = [
 			[0, 0],
 			[1, 0],
 			[1, 1],
+			[0, 1],
 			[0, 0],
 		];
-		const layers = buildGeolocationLayers([
-			itemWith([
-				{
-					layer_id: 1,
-					layer_data: { features: [{ geometry: { type: 'Polygon', coordinates: [ring] } }] },
-				},
-			]),
+		const large = [
+			[100, 100],
+			[104, 100],
+			[104, 104],
+			[100, 104],
+			[100, 100],
+		];
+		expect(geometryLayer({ type: 'MultiPolygon', coordinates: [[small], [large]] })).toEqual([
+			{ type: 'MultiPolygon', lon: 102, lat: 102 },
 		]);
-		expect(layers).toEqual([
-			{ layer_id: 1, text: '', layer_data: [{ type: 'Polygon', lon: ring, lat: null }] },
+	});
+
+	test('C15: a LineString publishes the midpoint OF THE PATH (half its length along it)', () => {
+		// 3 + 1 = 4 units long: the midpoint is 2 units along the first segment
+		expect(
+			geometryLayer({
+				type: 'LineString',
+				coordinates: [
+					[0, 0],
+					[3, 0],
+					[3, 1],
+				],
+			}),
+		).toEqual([{ type: 'LineString', lon: 2, lat: 0 }]);
+		// a two-point line: its middle
+		expect(
+			geometryLayer({
+				type: 'LineString',
+				coordinates: [
+					[-1, -1],
+					[1, 1],
+				],
+			}),
+		).toEqual([{ type: 'LineString', lon: 0, lat: 0 }]);
+	});
+
+	test('C15: degenerate geometries fall back to the bounding-box centre; nothing numeric → null', () => {
+		// a zero-area "polygon" (all points on a line): bbox centre
+		const line = [
+			[0, 0],
+			[2, 0],
+			[4, 0],
+			[0, 0],
+		];
+		expect(geometryLayer({ type: 'Polygon', coordinates: [line] })).toEqual([
+			{ type: 'Polygon', lon: 2, lat: 0 },
+		]);
+		// a geometry type without its own rule: bbox centre over every pair
+		expect(
+			geometryLayer({
+				type: 'MultiPoint',
+				coordinates: [
+					[0, 10],
+					[4, 30],
+				],
+			}),
+		).toEqual([{ type: 'MultiPoint', lon: 2, lat: 20 }]);
+		// no numeric pair at all: type kept, lon/lat null (never a fabricated 0)
+		expect(geometryLayer({ type: 'Polygon', coordinates: 'junk' })).toEqual([
+			{ type: 'Polygon', lon: null, lat: null },
+		]);
+		expect(geometryLayer({ type: 'LineString', coordinates: [[1, 2]] })).toEqual([
+			{ type: 'LineString', lon: 1, lat: 2 },
+		]);
+	});
+
+	test('C15 control: a Point stays VERBATIM (no formatting, strings kept as stored)', () => {
+		expect(geometryLayer({ type: 'Point', coordinates: ['3.12', '42.13'] })).toEqual([
+			{ type: 'Point', lon: '3.12', lat: '42.13' },
+		]);
+		expect(geometryLayer({ type: 'Point', coordinates: [5] })).toEqual([
+			{ type: 'Point', lon: 5, lat: null },
 		]);
 	});
 

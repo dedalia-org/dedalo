@@ -401,8 +401,10 @@ a paired `component_text_area`'s `get_geojson_data` step
 single-point `FeatureCollection` built from `lat`/`lon` when `lib_data` is
 empty (`buildGeojsonLayers()`, `src/diffusion/resolve/ddo_fns.ts`). Its
 sibling `get_geolocation_data` reads the same pairing but publishes each layer's
-features flattened to `{type, lon, lat}` (the first and second members of the
-geometry's `coordinates`), with **no** single-point fallback
+features flattened to `{type, lon, lat}`: a `Point`'s own coordinates, and for any
+other geometry one **representative point** — the centroid of a polygon's outer
+ring (a multipolygon's largest ring), the midpoint along a line's path, the
+bounding-box centre otherwise — with **no** single-point fallback
 (`buildGeolocationLayers()`).
 
 !!! warning "Standalone diffusion reshaping and search: not yet implemented"
