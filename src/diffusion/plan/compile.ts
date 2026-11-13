@@ -80,7 +80,11 @@ import { RdfNamespaceTable } from '../resolve/rdf_graph_ir.ts';
 import { tableRowSizeViolation } from '../targets/mariadb/sql_generator.ts';
 import { currentOntologyRevision } from './cache.ts';
 import { KNOWN_FORMATS, TABLE_FORMATS } from './formats.ts';
-import { compileGlobalTables, globalTableElementErrors } from './global_tables.ts';
+import {
+	type GlobalTableCarrier,
+	compileGlobalTables,
+	globalTableElementErrors,
+} from './global_tables.ts';
 import { requireSqlIdentifier } from './identifier.ts';
 import {
 	compileRdfElement,
@@ -816,6 +820,61 @@ async function compileFieldPlan(
 	return fieldPlan;
 }
 
+/**
+ * The CARRIERS of a table node's `global_table_maps` (owner C11, 2026-11-13;
+ * plan/global_tables.ts header): the node itself first, with the columns it
+ * just compiled, then — through the domain tree, whatever element they sit
+ * under — the real table it aliases (or that it is) and every OTHER
+ * `table_alias` of that real table that SHARES the maps (an alias declaring
+ * its own `global_table_maps` has its own, key-level fallback law of
+ * globalTableMapsOfNode), each with the columns ITS direct children emit. The
+ * owner's D2 note: numisdata701's `coins`/`types` sources are columns of its
+ * alias numisdata845 — legal, filled by the alias's rows.
+ */
+async function globalTableCarriersOf(
+	tree: VirtualDiffusionTree,
+	tableNode: VirtualTreeNode,
+	ownColumns: readonly string[],
+): Promise<GlobalTableCarrier[]> {
+	const carriers: GlobalTableCarrier[] = [{ tipo: tableNode.tipo, columns: ownColumns }];
+	const realTipo = tableNode.isAlias ? tableNode.realTipo : tableNode.tipo;
+	if (realTipo === null) return carriers;
+	for (const node of tree.nodes) {
+		if (node.tipo === tableNode.tipo || carriers.some((carrier) => carrier.tipo === node.tipo)) {
+			continue;
+		}
+		const isReal = !node.isAlias && node.model === 'table' && node.tipo === realTipo;
+		const isSiblingAlias =
+			node.isAlias && node.model === 'table_alias' && node.realTipo === realTipo;
+		if (!isReal && !isSiblingAlias) continue;
+		if (node.isAlias) {
+			// An alias with its OWN maps does not share the real's (key-level law).
+			const own = (await tree.index.nodeOf(node.tipo))?.properties ?? null;
+			if (own?.global_table_maps !== undefined) continue;
+		}
+		carriers.push({ tipo: node.tipo, columns: await carrierColumnsOf(tree, node) });
+	}
+	return carriers;
+}
+
+/** The emitted column names of a carrier's direct children (excluded fields and unusable labels aside). */
+async function carrierColumnsOf(
+	tree: VirtualDiffusionTree,
+	node: VirtualTreeNode,
+): Promise<string[]> {
+	const columns: string[] = [];
+	for (const childTipo of node.directChildrenTipos) {
+		const child = await tree.index.nodeOf(childTipo);
+		if (child === null || Boolean(child.properties?.exclude_column)) continue;
+		try {
+			columns.push(requireSqlIdentifier(nameOrLabelOf(child) ?? '', 'column'));
+		} catch {
+			// an unusable label fails that carrier's own compile, loudly, there
+		}
+	}
+	return columns;
+}
+
 /** Compile one publishable section (a table / owl:Class virtual node). */
 async function compileSectionPlan(
 	tree: VirtualDiffusionTree,
@@ -871,14 +930,15 @@ async function compileSectionPlan(
 	};
 	// v6 global_table_maps: the section's rows ALSO land in aggregate tables
 	// (plan/global_tables.ts — compiled here, written by the sql writer).
+	const ownColumns = fields
+		.filter((field) => field.excludeColumn !== true)
+		.map((field) => field.columnName);
 	const globalTables = await compileGlobalTables(
 		{
 			index: tree.index,
 			tableNode,
 			sectionTipo,
-			sourceColumns: fields
-				.filter((field) => field.excludeColumn !== true)
-				.map((field) => field.columnName),
+			carriers: await globalTableCarriersOf(tree, tableNode, ownColumns),
 			sqlTarget,
 			uninstalledTldOf,
 		},

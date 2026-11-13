@@ -5,7 +5,7 @@
  * Compiled ONCE per element like everything else: the global table node is
  * resolved, its name goes through the SQL identifier chokepoint, its own field
  * children become its DDL anatomy, and every `columns_map` item is checked
- * against BOTH tables. The writer (writers/mariadb_sql.ts) and the row
+ * against the global table AND every carrier of the map. The writer (writers/mariadb_sql.ts) and the row
  * derivation (project/global_table.ts) never read the ontology.
  *
  * FAILURE POLICY (compile.ts header): structural defects refuse the element —
@@ -15,14 +15,18 @@
  * package this install does not carry is the usual `uninstalled-tld:` warning
  * (the map is skipped).
  *
- * UNRULED (owner decision T1-3 D1, open): a map naming a column that does not
- * exist — a target the global node does not declare, or a source that is not
- * a column of the source table nor `section_id`/`lang` (v6 skipped such
- * columns silently; the vendored mdcat/numisdata maps carry real cases). Until
- * it is ruled, such a map keeps the behaviour it had before this port: it is
- * NOT written, and a `global_table_maps_unruled:` warning names every unknown
- * column — neither the degrade-and-publish nor the refuse-the-element answer
- * is presupposed.
+ * UNKNOWN COLUMNS (owner C11, 2026-11-13 — WC-2026-11-12-global-table-maps
+ * addendum): a map naming a target the global node does not declare, or a
+ * source that is a column of NO carrier (nor `section_id`/`lang`), REFUSES the
+ * element — an ontology defect is fixed, never published partial (v6 skipped
+ * such columns silently; a single source "not found" wrote `0`). The CARRIERS
+ * of a map are the real table node AND every `table_alias` sharing its maps
+ * (compile.ts globalTableCarriersOf), each with ITS columns (an alias carries
+ * the real's direct children plus its own): a source present on an alias but
+ * not on the real table is legal — the item is recorded with `sourceCarriers`
+ * and a carrier lacking it writes NULL for its rows (project/global_table.ts),
+ * the alias fills them (numisdata701 `coins`/`types` are columns of its alias
+ * numisdata845, owner D2 note).
  */
 
 import {
@@ -62,13 +66,24 @@ export interface GlobalTableDiagnostics {
 	warnings: string[];
 }
 
+/** One carrier of a global_table_maps value: a table node (real or alias) and its emitted columns. */
+export interface GlobalTableCarrier {
+	/** The node's VIRTUAL tipo (SectionPlan.tableTipo of the plan it compiles into). */
+	tipo: string;
+	/** Its emitted column names (non-excluded fields). */
+	columns: readonly string[];
+}
+
 /** What compileGlobalTables needs from the section it decorates. */
 export interface GlobalTableSource {
 	index: OntologyIndex;
 	tableNode: VirtualTreeNode;
 	sectionTipo: string;
-	/** The section's emitted column names (non-excluded fields). */
-	sourceColumns: readonly string[];
+	/**
+	 * The map's carriers: THIS table node first (its own emitted columns), then
+	 * the real table / every alias sharing the maps, with THEIR columns (owner C11).
+	 */
+	carriers: readonly GlobalTableCarrier[];
 	sqlTarget: boolean;
 	/** compile.ts uninstalledTldOf (injected: the package split stays one function). */
 	uninstalledTldOf: (tipo: string) => Promise<string | null>;
@@ -179,19 +194,33 @@ function columnMapOf(raw: unknown): GlobalColumnMap | string {
 	return map;
 }
 
-/** Every column a map names that does not exist (the UNRULED D1 case). */
-function unknownColumnsOf(
-	columnsMap: readonly GlobalColumnMap[],
+/** Which carriers hold `source` (`section_id` / `lang` are on every row). */
+function carriersHaving(carriers: readonly GlobalTableCarrier[], source: string): string[] {
+	if (AUTOMATIC_SOURCES.has(source)) return carriers.map((carrier) => carrier.tipo);
+	return carriers.filter((carrier) => carrier.columns.includes(source)).map((c) => c.tipo);
+}
+
+/**
+ * Judge every column a map names (owner C11): a target the global node does
+ * not declare, or a source on NO carrier, is `unknown` (the caller refuses);
+ * an item whose sources exist on a strict subset of the carriers gets that
+ * subset stamped as `sourceCarriers` (the others write NULL for it).
+ */
+function judgeColumns(
+	columnsMap: GlobalColumnMap[],
 	targetColumns: ReadonlySet<string>,
-	sourceColumns: ReadonlySet<string>,
+	carriers: readonly GlobalTableCarrier[],
 ): string[] {
 	const unknown: string[] = [];
 	for (const item of columnsMap) {
 		if (!targetColumns.has(item.targetColumn)) unknown.push(`target '${item.targetColumn}'`);
+		let having = carriers.map((carrier) => carrier.tipo);
 		for (const source of item.sourceColumns) {
-			if (!sourceColumns.has(source) && !AUTOMATIC_SOURCES.has(source))
-				unknown.push(`source '${source}' (→ ${item.targetColumn})`);
+			const onCarriers = carriersHaving(carriers, source);
+			if (onCarriers.length === 0) unknown.push(`source '${source}' (→ ${item.targetColumn})`);
+			having = having.filter((tipo) => onCarriers.includes(tipo));
 		}
+		if (having.length < carriers.length && having.length > 0) item.sourceCarriers = having;
 	}
 	return unknown;
 }
@@ -292,11 +321,15 @@ async function compileOneMap(
 	);
 	if (anatomy === null) return null;
 	const declared = new Set(anatomy.schema.fields.map((field) => field.columnName));
-	const unknown = unknownColumnsOf(columnsMap, declared, new Set(source.sourceColumns));
+	const unknown = judgeColumns(columnsMap, declared, source.carriers);
 	if (unknown.length > 0) {
-		// UNRULED (header): not written — the pre-port behaviour — and named.
-		diagnostics.warnings.push(
-			`global_table_maps_unruled:${tableTipo}>${globalTipo}: ${unknown.join(', ')}`,
+		// Owner C11: a column that exists nowhere is an ontology defect — the
+		// element is refused, every unknown column and every carrier named.
+		const carriers = source.carriers
+			.map((carrier) => `${carrier.tipo} (${carrier.columns.join(', ') || 'no columns'})`)
+			.join('; ');
+		diagnostics.errors.push(
+			`${where}: columns_map names column(s) that exist on no carrier: ${unknown.join(', ')} — global columns: ${[...declared].join(', ') || 'none'}; carriers: ${carriers}; fix the map or the field labels`,
 		);
 		return null;
 	}

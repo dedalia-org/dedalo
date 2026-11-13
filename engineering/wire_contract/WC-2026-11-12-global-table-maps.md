@@ -87,3 +87,40 @@ meanwhile.
   `listDeclaredPublicationTables` declares a global node outside the domain subtree (hermetic
   tree; RED with the maps loop removed).
 - Fixtures: no frozen parity fixture covers a global table — no fixture edit, no re-harvest.
+
+## Addendum 2026-11-13 — D1 RULED (owner C11 + the D2 owner note): refuse at compile, carriers judge the sources
+
+Owner ruling C11 (`T1_owner_decisions.md`, 2026-11-13): a map naming a column that does not exist
+is REFUSED at compile, loud — an ontology defect is fixed, never published partial. The owner's
+D2 note (same day): numisdata701's `coins` / `types` sources are NOT a defect — they are columns
+of its `table_alias` numisdata845, which shares the maps.
+
+- **Carriers.** A map's columns are judged against the global node (targets) AND every CARRIER
+  of the map (sources): the real table node and every `table_alias` of it that shares the maps
+  (an alias declaring its own `global_table_maps` has its own — the key-level fallback law), each
+  with ITS emitted columns (an alias carries the real's direct children plus its own), wherever
+  in the domain they sit (`compile.ts globalTableCarriersOf`).
+- **Refusal.** A target the global node does not declare, or a source that is a column of NO
+  carrier (nor `section_id` / `lang`) → compile ERROR naming every unknown column, the global
+  node's columns and every carrier with its columns; the element does not compile. The
+  `global_table_maps_unruled:` warning is GONE (nothing is "not written" any more: a map either
+  compiles or refuses its element).
+- **Alias-only source.** A source present on SOME carriers only compiles with
+  `GlobalColumnMap.sourceCarriers` = those carriers (by virtual tipo). A carrier absent from the
+  list writes NULL under the target column for its rows (`project/global_table.ts`); the carrier
+  that has the column writes the value — the alias fills the real table's rows (the same
+  composite key, in the alias's element's database). DIVERGENCE from v6 (5): v6 wrote `0` for a
+  source it did not find on the row.
+- **Withdraw set / reconcile** unchanged: the target's `global_tables` still names every table a
+  map names; the MISSING side follows the compiled plan (a table the plan writes — the alias-only
+  one included — is owed; an element that does not compile reports as before).
+- Vendored-ontology consequences: mdcat260 / mdcat1133 / mdcat1332 → mdcat4500 `filter_date` and
+  numisdata701 are the owner's D2 (done on the master ontology 2026-11-13): an install whose
+  ontology still lacks `filter_date` on mdcat4500 refuses those elements at compile until the
+  ontology update lands — loudly, in the validate report, never a partial public table.
+- Gates: `diffusion_global_table_native` — the hermetic refusal names the columns and carriers;
+  an alias-only source compiles with its carrier and derives NULL / value per carrier; the zzdif
+  fixture's second map is now an alias-only source (`zzdif120` ← `extra` of alias `zzdif192`,
+  element `zzdif190`, its own database): the real run writes NULL, the alias run fills, both
+  tables are owed and withdrawn. RED before: the hermetic case warned instead of refusing, the
+  zzdif map was not compiled.

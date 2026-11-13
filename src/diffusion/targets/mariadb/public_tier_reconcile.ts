@@ -497,10 +497,10 @@ function elementPlanLookup(): ElementPlanLookup {
  * target carries. The two differ by design: the target's `global_tables` is
  * the WITHDRAW set (diffusion_graph.ts globalTablesOfNode — every table a map
  * names, so a row an earlier engine wrote is still withdrawn and still a
- * ghost), while a map the compiler does not write (the UNRULED T1-3 D1 case:
- * a map naming an unknown column) can never hold a row publish owes — a
- * `missing` there is drift no republish clears. When the ruling flips the
- * compiler, this follows it. A plan that cannot be judged (the element does
+ * ghost), while a table only a map the compiler does not write names (since
+ * owner C11, 2026-11-13, such a map refuses its ELEMENT — the plan cannot be
+ * judged, see below) can never hold a row publish owes — a `missing` there
+ * is drift no republish clears. A plan that cannot be judged (the element does
  * not compile, or its plan holds no such section table) reports as before.
  */
 function globalWrittenProbe(

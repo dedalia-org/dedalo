@@ -20,6 +20,12 @@
  * WC-2026-11-12-global-table-maps.md): a non-scalar inside `format: 'string'`
  * renders as COMPACT JSON (v6 pretty-printed it) and an empty array as ''
  * (v6 'Array(empty)').
+ *
+ * CARRIERS (owner C11, 2026-11-13 — WC addendum): a map item whose
+ * `sourceCarriers` does not name THIS section's table node (its sources are
+ * an alias's own columns, absent from this carrier's rows) writes NULL under
+ * its target column — the carrier that has the column fills the same
+ * composite-keyed row. Never a `0` for a source "not found" (v6).
  */
 
 import { globalRowKey } from '../../core/diffusion_bridge/global_tables.ts';
@@ -112,7 +118,12 @@ export function deriveGlobalRows(
 ): ProjectedRow[] {
 	return rows.map((row) => {
 		const columns = provenanceValues(section, global, row);
-		for (const map of global.columnsMap) columns[map.targetColumn] = mappedValue(row, map);
+		for (const map of global.columnsMap) {
+			columns[map.targetColumn] =
+				map.sourceCarriers !== undefined && !map.sourceCarriers.includes(section.tableTipo)
+					? null
+					: mappedValue(row, map);
+		}
 		return {
 			sectionId: globalRowKey(section.sectionTipo, row.sectionId),
 			lang: row.lang,

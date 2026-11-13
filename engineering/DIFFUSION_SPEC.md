@@ -241,9 +241,11 @@ Study these in the reference trees, then re-express their *semantics*:
   `core/diffusion_bridge/global_tables.ts`), written by the sql writer
   delete-then-insert in the source rows' transaction, withdrawn by
   `removeRecords`, the record-delete door (a target confirms only when its
-  global rows are gone) and the `public_tier` reconcile. A map naming an
-  unknown column is reported (`global_table_maps_unruled:`) and not written
-  pending owner decision T1-3 D1.
+  global rows are gone) and the `public_tier` reconcile. A map's columns are
+  judged against the global node AND every CARRIER (the real table + each
+  `table_alias` sharing the maps): a column on no carrier REFUSES the element
+  (owner C11, 2026-11-13); a source only an alias carries is written by the
+  alias's rows and NULL for the real table's (`GlobalColumnMap.sourceCarriers`).
   WC: `engineering/wire_contract/WC-2026-11-12-global-table-maps.md`.
   Gate: `test/unit/diffusion_global_table_native.test.ts`.
 - **component_external in a chain** (T1-42, 2026-11-12) — a TERMINAL, never a hop

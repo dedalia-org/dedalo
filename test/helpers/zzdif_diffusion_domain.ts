@@ -66,10 +66,14 @@
  *             zzdif111 'section_id' varchar 64 | zzdif112 'ref_section_id' | zzdif113 'ref_section_tipo'
  *             zzdif114 'ref_table' | zzdif115 'link' | zzdif116 'title' | zzdif117 'title_code'
  *             zzdif118 'both' | zzdif119 'sort_id'
- *           zzdif120 table 'zzdif_global_unruled' (aggregate) ← zzdif102's SECOND map,
- *             zzdif121 'section_id' | zzdif122 'title'       naming an UNDECLARED target
- *                                                          column (UNRULED T1-3 D1: never
- *                                                          written, still withdrawn)
+ *           zzdif120 table 'zzdif_global_alias_only' (aggregate) ← zzdif102's SECOND map,
+ *             zzdif121 'section_id' | zzdif122 'title'       title ← `extra`, a column only the
+ *                                                          alias zzdif192 carries (C11: real
+ *                                                          rows NULL, alias rows fill)
+ *       zzdif190 diffusion_element 'zzdif global alias element'  ← C11 carrier (its own element:
+ *         zzdif191 database 'zzdif_global_alias_db'              the real table stays unsuppressed)
+ *           zzdif192 table_alias 'zzdif_gt_alias' → zzdif102     shares zzdif102's maps
+ *             zzdif193 field_varchar 'extra' → zzdif4
  *
  *   The GLOBAL-TABLE element (2026-11-12, T1-3) is v6 `global_table_maps`: every
  *   published row of zzdif1 / zzdif20 also lands in `zzdif_global` under
@@ -195,11 +199,21 @@ export const ZZDIF_GLOBAL_TABLE_TIPO = 'zzdif110';
 export const ZZDIF_GLOBAL_TABLE = 'zzdif_global';
 /** The `format: 'string'` separator of its `title_code` map. */
 export const ZZDIF_GLOBAL_SEPARATOR = ' · ';
-/** The aggregate table only an UNRULED map (T1-3 D1: unknown target column) names. */
-export const ZZDIF_GLOBAL_UNRULED_TABLE_TIPO = 'zzdif120';
-export const ZZDIF_GLOBAL_UNRULED_TABLE = 'zzdif_global_unruled';
-/** The column zzdif102's unruled map targets — zzdif120 does NOT declare it. */
-export const ZZDIF_GLOBAL_UNRULED_COLUMN = 'filter_date';
+/**
+ * The aggregate table zzdif102's SECOND map names with an ALIAS-ONLY source
+ * (owner C11): its one mapped column `extra` is a column of the alias zzdif192
+ * (element zzdif190), not of the real table zzdif102 — the real table's rows
+ * write NULL there, the alias's rows fill it.
+ */
+export const ZZDIF_GLOBAL_ALIAS_ONLY_TABLE_TIPO = 'zzdif120';
+export const ZZDIF_GLOBAL_ALIAS_ONLY_TABLE = 'zzdif_global_alias_only';
+export const ZZDIF_GLOBAL_ALIAS_ONLY_COLUMN = 'extra';
+/** The element holding the table_alias of zzdif102 that shares its maps (C11 carrier). */
+export const ZZDIF_GLOBAL_ALIAS_ELEMENT = 'zzdif190';
+export const ZZDIF_GLOBAL_ALIAS_DATABASE = 'zzdif_global_alias_db';
+export const ZZDIF_GLOBAL_ALIAS_TABLE_TIPO = 'zzdif192';
+export const ZZDIF_GLOBAL_ALIAS_TABLE = 'zzdif_gt_alias';
+
 /** The RDF element (T1-4) and its names. */
 export const ZZDIF_RDF_ELEMENT = 'zzdif150';
 export const ZZDIF_RDF_SERVICE_NAME = 'zzdif_rdf';
@@ -721,9 +735,10 @@ function buildSituation(): Situation {
 							],
 						},
 						{
-							table_tipo: ZZDIF_GLOBAL_UNRULED_TABLE_TIPO,
+							// C11: `extra` is a column of the alias zzdif192 only
+							table_tipo: ZZDIF_GLOBAL_ALIAS_ONLY_TABLE_TIPO,
 							columns_map: [
-								{ target_column: ZZDIF_GLOBAL_UNRULED_COLUMN, source_columns: ['title'] },
+								{ target_column: 'title', source_columns: [ZZDIF_GLOBAL_ALIAS_ONLY_COLUMN] },
 							],
 						},
 					],
@@ -803,15 +818,15 @@ function buildSituation(): Situation {
 				order_number: position + 1,
 			})),
 			{
-				tipo: ZZDIF_GLOBAL_UNRULED_TABLE_TIPO,
+				tipo: ZZDIF_GLOBAL_ALIAS_ONLY_TABLE_TIPO,
 				parent: 'zzdif101',
 				model: 'table',
-				term: { 'lg-spa': ZZDIF_GLOBAL_UNRULED_TABLE },
+				term: { 'lg-spa': ZZDIF_GLOBAL_ALIAS_ONLY_TABLE },
 				order_number: 4,
 			},
 			{
 				tipo: 'zzdif121',
-				parent: ZZDIF_GLOBAL_UNRULED_TABLE_TIPO,
+				parent: ZZDIF_GLOBAL_ALIAS_ONLY_TABLE_TIPO,
 				model: 'field_varchar',
 				term: { 'lg-spa': 'section_id' },
 				properties: { varchar: 64 },
@@ -819,10 +834,45 @@ function buildSituation(): Situation {
 			},
 			{
 				tipo: 'zzdif122',
-				parent: ZZDIF_GLOBAL_UNRULED_TABLE_TIPO,
+				parent: ZZDIF_GLOBAL_ALIAS_ONLY_TABLE_TIPO,
 				model: 'field_text',
 				term: { 'lg-spa': 'title' },
 				order_number: 2,
+			},
+
+			// ---- the GLOBAL-ALIAS element (C11): a table_alias of zzdif102 sharing
+			// its maps, with an OWN column `extra` (→ zzdif4). Its own element so
+			// the real table is not element-suppressed (the ALIAS law above).
+			{
+				tipo: ZZDIF_GLOBAL_ALIAS_ELEMENT,
+				parent: 'zzdif41',
+				model: 'diffusion_element',
+				term: { 'lg-spa': 'zzdif global alias element' },
+				properties: { diffusion: { type: 'sql' } },
+				order_number: 9,
+			},
+			{
+				tipo: 'zzdif191',
+				parent: ZZDIF_GLOBAL_ALIAS_ELEMENT,
+				model: 'database',
+				term: { 'lg-spa': ZZDIF_GLOBAL_ALIAS_DATABASE },
+			},
+			{
+				tipo: ZZDIF_GLOBAL_ALIAS_TABLE_TIPO,
+				parent: 'zzdif191',
+				model: 'table_alias',
+				term: { 'lg-spa': ZZDIF_GLOBAL_ALIAS_TABLE },
+				relations: [{ tipo: 'zzdif102' }],
+				order_number: 1,
+			},
+			{
+				tipo: 'zzdif193',
+				parent: ZZDIF_GLOBAL_ALIAS_TABLE_TIPO,
+				model: 'field_varchar',
+				term: { 'lg-spa': ZZDIF_GLOBAL_ALIAS_ONLY_COLUMN },
+				relations: [{ tipo: 'zzdif4' }],
+				properties: { varchar: 500 },
+				order_number: 1,
 			},
 
 			// ---- the RDF element (T1-4, see the header note) -------------------

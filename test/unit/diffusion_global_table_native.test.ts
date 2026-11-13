@@ -14,20 +14,24 @@
  * WHAT IS ASSERTED (outcomes), each built here:
  *   A. compile, on the zzdif GLOBAL element (zzdif100, real dd_ontology rows):
  *      both source sections carry their compiled global table (name, VARCHAR
- *      key length, provenance, maps) and the old warning is gone.
+ *      key length, provenance, maps) and the old warning is gone; zzdif102's
+ *      second map (an ALIAS-ONLY source, owner C11) compiles with its
+ *      `sourceCarriers` naming the alias zzdif192 of element zzdif190.
  *   B. compile laws, hermetic (synthetic tree): a missing table_tipo in an
  *      INSTALLED package, a non-`table` target, a global name equal to a source
  *      table, two nodes under one global name, maps on a non-sql element — each
  *      refuses the element; an uninstalled package is the usual warning; an
  *      alias carrying OTHER own properties inherits the real node's maps
- *      (key-level, v6 :278-287); a map naming an unknown column is the UNRULED
- *      owner decision (T1-3 D1) — pinned to its pre-port behaviour (not written,
- *      named in a `global_table_maps_unruled:` warning) until it is ruled.
+ *      (key-level, v6 :278-287); a map naming a column that exists on NO
+ *      carrier REFUSES the element naming the column (owner C11 2026-11-13,
+ *      WC-2026-11-12-global-table-maps addendum); a source only an ALIAS
+ *      sharing the map carries compiles with `sourceCarriers` = that alias.
  *   C. the row derivation (pure, table-driven): composite key, provenance,
  *      lang kept, single passthrough with JSON decode, '[]' → NULL, multi-source
  *      JSON array, `format:'string'` with custom/default separator, automatic
- *      `section_id`/`lang` sources; the key grammar round-trips and rejects a
- *      foreign prefix.
+ *      `section_id`/`lang` sources; a carrier absent from an item's
+ *      `sourceCarriers` writes NULL (C11); the key grammar round-trips and
+ *      rejects a foreign prefix.
  *   D. a REAL run (runJob → the sql writer → the suite MariaDB): `zzdif_global`
  *      holds one row per (published record, lang) of both sections with a
  *      VARCHAR key; a planted row of the unpublishable record and a planted
@@ -37,6 +41,11 @@
  *      an executor failing ONLY the global row leaves the target pending.
  *   F. the public-tier reconcile reports a planted global ghost and its apply
  *      removes it.
+ *   G. the ALIAS-ONLY source (C11, real run): the real table's rows land in
+ *      `zzdif_global_alias_only` with `title` NULL; the alias element's run
+ *      (its own database) fills `title` from `extra`; the target's withdraw set
+ *      names both global tables; a removed row of the alias-only table IS
+ *      missing (publish writes it); an earlier engine's row is a ghost.
  *
  * MUTATIONS (each turns a leg red, measured 2026-11-12): drop the global DELETE
  * in `removeRecords` (D: the 940002 plant survives); key without the section
@@ -95,6 +104,13 @@ import {
 	ensureZzdifDomain,
 	ZZDIF_DOMAIN_NAME,
 	ZZDIF_EXTRA_PUBLISHABLE_IDS,
+	ZZDIF_GLOBAL_ALIAS_DATABASE,
+	ZZDIF_GLOBAL_ALIAS_ELEMENT,
+	ZZDIF_GLOBAL_ALIAS_ONLY_COLUMN,
+	ZZDIF_GLOBAL_ALIAS_ONLY_TABLE,
+	ZZDIF_GLOBAL_ALIAS_ONLY_TABLE_TIPO,
+	ZZDIF_GLOBAL_ALIAS_TABLE,
+	ZZDIF_GLOBAL_ALIAS_TABLE_TIPO,
 	ZZDIF_GLOBAL_DATABASE,
 	ZZDIF_GLOBAL_ELEMENT,
 	ZZDIF_GLOBAL_LINKED_TABLE,
@@ -102,9 +118,6 @@ import {
 	ZZDIF_GLOBAL_SEPARATOR,
 	ZZDIF_GLOBAL_TABLE,
 	ZZDIF_GLOBAL_TABLE_TIPO,
-	ZZDIF_GLOBAL_UNRULED_COLUMN,
-	ZZDIF_GLOBAL_UNRULED_TABLE,
-	ZZDIF_GLOBAL_UNRULED_TABLE_TIPO,
 	ZZDIF_LINKED_IDS,
 	ZZDIF_LINKED_SECTION,
 	ZZDIF_PUBLISHABLE_ID,
@@ -150,6 +163,7 @@ const BASE_RAW: Record<string, Raw> = {
 	ddgtm40: { model: 'table', label: 'gt_source_a', children: ['ddgtm23'] },
 	ddgtm50: { model: 'table', label: 'gt_global', children: ['ddgtm23'] },
 	ddgtm9: { model: 'field_varchar', label: 'title' },
+	ddgtm8: { model: 'field_varchar', label: 'extra' },
 };
 
 const titleMap = (tableTipo: string, target = 'title', source = 'title') => [
@@ -165,6 +179,8 @@ interface TableCase {
 	/** Alias case: the real table node the alias points at. */
 	realTipo?: string;
 	realProperties?: Record<string, unknown>;
+	/** The node's DIRECT children (default: the one 'title' field ddgtm9). */
+	children?: string[];
 }
 
 const ELEMENT_PATH = (format: string) => ({
@@ -188,7 +204,8 @@ function makeTree(tables: TableCase[], format: 'sql' | 'xml' = 'sql'): VirtualDi
 			label: table.label,
 			properties: table.own,
 		});
-		if (table.realTipo !== undefined) {
+		// A real node already in the tree (another TableCase) keeps its own row.
+		if (table.realTipo !== undefined && raw[table.realTipo] === undefined) {
 			raw[table.realTipo] = rawNode(table.realTipo, {
 				model: 'table',
 				label: `${table.label}_real`,
@@ -242,8 +259,8 @@ function makeTree(tables: TableCase[], format: 'sql' | 'xml' = 'sql'): VirtualDi
 				{ tipo: 'ddgtm2', model: 'database', label: 'gt_db', realTipo: null },
 				ELEMENT_PATH(format),
 			],
-			childrenTipos: ['ddgtm9'],
-			directChildrenTipos: ['ddgtm9'],
+			childrenTipos: table.children ?? ['ddgtm9'],
+			directChildrenTipos: table.children ?? ['ddgtm9'],
 			relatedSections: [table.section],
 		}),
 	);
@@ -365,7 +382,8 @@ describe('B — compile laws (hermetic)', () => {
 		expect(report.result?.sections[0]?.globalTables?.[0]?.schema.tableName).toBe('gt_global');
 	});
 
-	test('UNRULED (T1-3 D1): a map naming an unknown column keeps its pre-port behaviour — not written, named', async () => {
+	test('C11: a map naming a column that exists on NO carrier REFUSES the element, naming the column', async () => {
+		// RED before: the map was silently not written, a `global_table_maps_unruled:` warning.
 		const report = await validate(
 			makeTree([
 				sourceTable({
@@ -381,11 +399,60 @@ describe('B — compile laws (hermetic)', () => {
 				}),
 			]),
 		);
-		expect(report.errors).toEqual([]);
-		expect(report.result?.sections[0]?.globalTables).toBeUndefined();
-		expect(report.warnings).toContain(
-			"global_table_maps_unruled:ddgtm3>ddgtm20: target 'filter_date', source 'coins' (→ title)",
-		);
+		expect(report.result).toBeNull();
+		const line = report.errors.find((candidate) => candidate.includes('exist on no carrier'));
+		expect(line).toBeDefined();
+		expect(line).toContain("target 'filter_date'");
+		expect(line).toContain("source 'coins' (→ title)");
+		expect(line).toContain('carriers: ddgtm3 (title)');
+		expect(report.warnings.filter((warning) => warning.includes('global_table_maps'))).toEqual([]);
+	});
+
+	test('C11: a source only an ALIAS sharing the map carries compiles — stamped with that carrier', async () => {
+		const plan = await compileElementPlan('ddgtm1', {
+			tree: makeTree([
+				sourceTable({
+					global_table_maps: [
+						{
+							table_tipo: 'ddgtm20',
+							columns_map: [
+								{ target_column: 'title', source_columns: ['title'] },
+								{ target_column: 'ref_section_id', source_columns: ['extra'] },
+							],
+						},
+					],
+				}),
+				// the alias: real ddgtm3's children + its own `extra`; no own maps → shares
+				{
+					tipo: 'ddgtm7',
+					label: 'gt_source_alias',
+					section: 'ddgtm11',
+					own: null,
+					realTipo: 'ddgtm3',
+					children: ['ddgtm9', 'ddgtm8'],
+				},
+			]),
+			classifyParserFn: runtimeClassifier,
+		});
+		const real = plan.sections.find((section) => section.tableTipo === 'ddgtm3');
+		const alias = plan.sections.find((section) => section.tableTipo === 'ddgtm7');
+		expect(real?.globalTables?.[0]?.columnsMap).toEqual([
+			{ targetColumn: 'title', sourceColumns: ['title'] },
+			{ targetColumn: 'ref_section_id', sourceColumns: ['extra'], sourceCarriers: ['ddgtm7'] },
+		]);
+		// the alias compiles the SAME map (inherited): every carrier has `title`, only it has `extra`
+		expect(alias?.globalTables?.[0]?.columnsMap).toEqual(real?.globalTables?.[0]?.columnsMap);
+		// the pure derivation: the real's rows write NULL there, the alias's rows the value
+		const map = real?.globalTables?.[0] as GlobalTablePlan;
+		const row: ProjectedRow = { sectionId: 1, lang: 'lg-eng', columns: { title: 'T', extra: 'E' } };
+		expect(deriveGlobalRows(real as SectionPlan, map, [row])[0]?.columns).toEqual({
+			title: 'T',
+			ref_section_id: null,
+		});
+		expect(deriveGlobalRows(alias as SectionPlan, map, [row])[0]?.columns).toEqual({
+			title: 'T',
+			ref_section_id: 'E',
+		});
 	});
 
 	test('the lang sweep declares the global tables a maps value names', async () => {
@@ -506,6 +573,12 @@ describe('C — global row derivation (pure)', () => {
 		});
 	}
 
+	test('C11: a carrier absent from the item sourceCarriers writes NULL; a named one the value', () => {
+		const map = { targetColumn: 't', sourceColumns: ['title'], sourceCarriers: ['other_alias'] };
+		expect(one(map)).toBeNull();
+		expect(one({ ...map, sourceCarriers: ['other_alias', section.tableTipo] })).toBe('Title');
+	});
+
 	test('the key grammar round-trips and rejects a foreign or malformed key', () => {
 		expect(globalRowKey('test3', 940001)).toBe('test3_940001');
 		expect(parseGlobalRowKey('test3_940001', 'test3')).toBe(940001);
@@ -527,6 +600,11 @@ function setEnv(key: string, value: string): void {
 
 function pool() {
 	return getTargetPool(ZZDIF_GLOBAL_DATABASE);
+}
+
+/** The alias element's own database (C11: the alias's rows land there). */
+function aliasPool() {
+	return getTargetPool(ZZDIF_GLOBAL_ALIAS_DATABASE);
 }
 
 interface GlobalRow {
@@ -566,9 +644,12 @@ async function sourceTitles(table: string, column: string): Promise<Map<string, 
 	return new Map(rows.map((row) => [`${row.section_id}|${row.lang}`, row.value]));
 }
 
-async function runElement(sectionTipo: string): Promise<void> {
+async function runElement(
+	sectionTipo: string,
+	elementTipo: string = ZZDIF_GLOBAL_ELEMENT,
+): Promise<void> {
 	const job = await enqueueClaimSeeded(
-		{ elementTipo: ZZDIF_GLOBAL_ELEMENT, sectionTipo, type: 'sql', ownerUserId: OWNER },
+		{ elementTipo, sectionTipo, type: 'sql', ownerUserId: OWNER },
 		createdJobIds,
 	);
 	await runJob(job.job_id, job.attempt);
@@ -589,9 +670,11 @@ async function dropTables(): Promise<void> {
 		ZZDIF_GLOBAL_PRIMARY_TABLE,
 		ZZDIF_GLOBAL_LINKED_TABLE,
 		ZZDIF_GLOBAL_TABLE,
-		ZZDIF_GLOBAL_UNRULED_TABLE,
+		ZZDIF_GLOBAL_ALIAS_ONLY_TABLE,
 	])
 		await pool().unsafe(`DROP TABLE IF EXISTS \`${table}\``, []);
+	for (const table of [ZZDIF_GLOBAL_ALIAS_TABLE, ZZDIF_GLOBAL_TABLE, ZZDIF_GLOBAL_ALIAS_ONLY_TABLE])
+		await aliasPool().unsafe(`DROP TABLE IF EXISTS \`${table}\``, []);
 }
 
 beforeAll(async () => {
@@ -638,6 +721,15 @@ afterAll(async () => {
 			[...ZZDIF_LINKED_IDS],
 		),
 	);
+	await step(() =>
+		applyTableState(
+			ZZDIF_GLOBAL_ALIAS_DATABASE,
+			ZZDIF_GLOBAL_ALIAS_TABLE,
+			ZZDIF_SECTION,
+			[],
+			[...PUBLISHABLE_IDS, ZZDIF_UNPUBLISHABLE_ID],
+		),
+	);
 	await step(() => dropTables());
 	await step(() => closeAllTargetPools());
 	await step(() => clearActivity());
@@ -658,16 +750,14 @@ afterAll(async () => {
 }, 120_000);
 
 describe('A — compile on the zzdif global element (real dd_ontology rows)', () => {
-	test('both source sections carry the compiled global table; only the UNRULED map warns', async () => {
+	test('both source sections carry the compiled global table; the alias-only map compiles with its carrier (C11)', async () => {
 		const tree = await buildVirtualDiffusionTree(ZZDIF_DOMAIN_NAME);
 		if (tree === null) throw new Error('zzdif domain not found');
 		const plan = await compileElementPlan(ZZDIF_GLOBAL_ELEMENT, { tree });
-		expect(plan.warnings.filter((warning) => warning.startsWith('global_table_maps'))).toEqual([
-			`global_table_maps_unruled:zzdif102>${ZZDIF_GLOBAL_UNRULED_TABLE_TIPO}: target '${ZZDIF_GLOBAL_UNRULED_COLUMN}'`,
-		]);
+		expect(plan.warnings.filter((warning) => warning.startsWith('global_table_maps'))).toEqual([]);
 		const primary = plan.sections.find((section) => section.sectionTipo === ZZDIF_SECTION);
-		// The unruled map is NOT compiled: one global table, the ruled one.
-		expect(primary?.globalTables?.length).toBe(1);
+		// Both maps compile: the ruled one and (C11) the alias-only one.
+		expect(primary?.globalTables?.length).toBe(2);
 		const global = primary?.globalTables?.[0];
 		expect(global?.tableTipo).toBe(ZZDIF_GLOBAL_TABLE_TIPO);
 		expect(global?.schema.tableName).toBe(ZZDIF_GLOBAL_TABLE);
@@ -679,10 +769,33 @@ describe('A — compile on the zzdif global element (real dd_ontology rows)', ()
 			'both',
 			'sort_id',
 		]);
+		expect(global?.columnsMap.every((map) => map.sourceCarriers === undefined)).toBe(true);
+		const aliasOnly = primary?.globalTables?.[1];
+		expect(aliasOnly?.tableTipo).toBe(ZZDIF_GLOBAL_ALIAS_ONLY_TABLE_TIPO);
+		expect(aliasOnly?.schema.tableName).toBe(ZZDIF_GLOBAL_ALIAS_ONLY_TABLE);
+		expect(aliasOnly?.columnsMap).toEqual([
+			{
+				targetColumn: 'title',
+				sourceColumns: [ZZDIF_GLOBAL_ALIAS_ONLY_COLUMN],
+				sourceCarriers: [ZZDIF_GLOBAL_ALIAS_TABLE_TIPO],
+			},
+		]);
 		const linked = plan.sections.find((section) => section.sectionTipo === ZZDIF_LINKED_SECTION);
 		expect(linked?.globalTables?.[0]?.columnsMap).toEqual([
 			{ targetColumn: 'title', sourceColumns: ['name'] },
 		]);
+		// The alias element compiles the SAME shared maps for its alias table.
+		const aliasPlan = await compileElementPlan(ZZDIF_GLOBAL_ALIAS_ELEMENT, { tree });
+		const alias = aliasPlan.sections.find((section) => section.sectionTipo === ZZDIF_SECTION);
+		expect(alias?.tableTipo).toBe(ZZDIF_GLOBAL_ALIAS_TABLE_TIPO);
+		expect(alias?.fields.map((field) => field.columnName)).toContain(
+			ZZDIF_GLOBAL_ALIAS_ONLY_COLUMN,
+		);
+		expect(alias?.globalTables?.map((table) => table.schema.tableName)).toEqual([
+			ZZDIF_GLOBAL_TABLE,
+			ZZDIF_GLOBAL_ALIAS_ONLY_TABLE,
+		]);
+		expect(alias?.globalTables?.[1]?.columnsMap).toEqual(aliasOnly?.columnsMap);
 	});
 });
 
@@ -831,46 +944,80 @@ describe('F — the public-tier reconcile finds and removes a global ghost', () 
 	});
 });
 
-describe('G — an UNRULED map (T1-3 D1): withdrawn, never owed', () => {
-	const unruledKey = `${ZZDIF_GLOBAL_DATABASE}|${ZZDIF_GLOBAL_UNRULED_TABLE}`;
+describe('G — the ALIAS-ONLY source (C11): real rows NULL, alias rows fill; withdrawn; owed', () => {
+	const aliasOnlyKey = `${ZZDIF_GLOBAL_DATABASE}|${ZZDIF_GLOBAL_ALIAS_ONLY_TABLE}`;
 	const globalKey = `${ZZDIF_GLOBAL_DATABASE}|${ZZDIF_GLOBAL_TABLE}`;
 
-	test('the target still names its table (the WITHDRAW set is a superset)', async () => {
+	async function aliasOnlyTitles(db: ReturnType<typeof pool>): Promise<Map<string, string | null>> {
+		const rows = (await db.unsafe(
+			`SELECT section_id, lang, title FROM \`${ZZDIF_GLOBAL_ALIAS_ONLY_TABLE}\``,
+			[],
+		)) as { section_id: string; lang: string | null; title: string | null }[];
+		return new Map(rows.map((row) => [`${row.section_id}|${row.lang}`, row.title]));
+	}
+
+	test("the target names both global tables (the WITHDRAW set is the maps' tables)", async () => {
 		clearDiffusionTargetsCache();
 		const targets = (await getAllSectionDiffusionTargets()).get(ZZDIF_SECTION) ?? [];
 		const primary = targets.find((target) => target.table_name === ZZDIF_GLOBAL_PRIMARY_TABLE);
-		expect(primary?.global_tables).toEqual([ZZDIF_GLOBAL_TABLE, ZZDIF_GLOBAL_UNRULED_TABLE]);
+		expect(primary?.global_tables).toEqual([ZZDIF_GLOBAL_TABLE, ZZDIF_GLOBAL_ALIAS_ONLY_TABLE]);
+		const alias = targets.find((target) => target.table_name === ZZDIF_GLOBAL_ALIAS_TABLE);
+		expect(alias?.database_name).toBe(ZZDIF_GLOBAL_ALIAS_DATABASE);
+		expect(alias?.global_tables).toEqual([ZZDIF_GLOBAL_TABLE, ZZDIF_GLOBAL_ALIAS_ONLY_TABLE]);
 	});
 
-	test('the reconcile reports no MISSING for it after a full publish; the ruled table still does', async () => {
+	test("the real table's run writes the alias-only table with NULL; the alias's run fills it from `extra`", async () => {
 		await runElement(ZZDIF_SECTION);
-		// Non-vacuity: a ruled global row removed behind publish's back IS missing.
+		const realTitles = await aliasOnlyTitles(pool());
+		// floor: one row per (published record, lang)
+		expect(realTitles.size).toBe(PUBLISHABLE_IDS.length * config.diffusion.langs.length);
+		for (const [key, title] of realTitles) {
+			expect(title, `real run wrote a value for ${key}`).toBeNull();
+		}
+		await runElement(ZZDIF_SECTION, ZZDIF_GLOBAL_ALIAS_ELEMENT);
+		const aliasTitles = await aliasOnlyTitles(aliasPool());
+		expect(aliasTitles.size).toBe(realTitles.size);
+		// 940001 carries zzdif4 (the alias's `extra` source); the fillers do not
+		const filled = [...aliasTitles].filter(([, title]) => title !== null);
+		expect(filled.map(([key]) => key.split('|')[0])).toEqual(
+			config.diffusion.langs.map(() => globalRowKey(ZZDIF_SECTION, ZZDIF_PUBLISHABLE_ID)),
+		);
+		expect(filled.every(([, title]) => (title ?? '').includes('summary'))).toBe(true);
+		// the alias's SOURCE row carries the column too
+		const [source] = (await aliasPool().unsafe(
+			`SELECT \`${ZZDIF_GLOBAL_ALIAS_ONLY_COLUMN}\` AS extra FROM \`${ZZDIF_GLOBAL_ALIAS_TABLE}\` WHERE section_id = ? LIMIT 1`,
+			[ZZDIF_PUBLISHABLE_ID],
+		)) as { extra: string | null }[];
+		expect(source?.extra ?? '').toContain('summary');
+	}, 120_000);
+
+	test('a row of the alias-only table removed behind publish IS missing (publish writes it); the ruled table too', async () => {
 		const removedId = ZZDIF_PUBLISHABLE_ID;
-		await pool().unsafe(`DELETE FROM \`${ZZDIF_GLOBAL_TABLE}\` WHERE section_id = ?`, [
-			globalRowKey(ZZDIF_SECTION, removedId),
-		]);
+		for (const table of [ZZDIF_GLOBAL_TABLE, ZZDIF_GLOBAL_ALIAS_ONLY_TABLE]) {
+			await pool().unsafe(`DELETE FROM \`${table}\` WHERE section_id = ?`, [
+				globalRowKey(ZZDIF_SECTION, removedId),
+			]);
+		}
 		clearDiffusionTargetsCache();
 		const scan = await scanPublicTier([ZZDIF_SECTION]);
-		expect(scan.missing.filter((entry) => entry.target === unruledKey)).toEqual([]);
-		expect(
-			scan.missing.filter((entry) => entry.target === globalKey).map((entry) => entry.section_id),
-		).toEqual([removedId]);
+		for (const key of [globalKey, aliasOnlyKey]) {
+			expect(
+				scan.missing.filter((entry) => entry.target === key).map((entry) => entry.section_id),
+				key,
+			).toEqual([removedId]);
+		}
 		await runElement(ZZDIF_SECTION);
 	}, 120_000);
 
-	test('a row an earlier engine left in it is still a ghost the apply withdraws', async () => {
-		await pool().unsafe(
-			`CREATE TABLE IF NOT EXISTS \`${ZZDIF_GLOBAL_UNRULED_TABLE}\` (section_id VARCHAR(64), lang VARCHAR(16), title TEXT)`,
-			[],
-		);
+	test('a row an earlier engine left in the alias-only table is a ghost the apply withdraws', async () => {
 		const ghostKey = globalRowKey(ZZDIF_SECTION, ZZDIF_UNPUBLISHABLE_ID);
 		await pool().unsafe(
-			`INSERT INTO \`${ZZDIF_GLOBAL_UNRULED_TABLE}\` (section_id, lang, title) VALUES (?, ?, 'v6 row')`,
+			`INSERT INTO \`${ZZDIF_GLOBAL_ALIAS_ONLY_TABLE}\` (section_id, lang, title) VALUES (?, ?, 'v6 row')`,
 			[ghostKey, config.diffusion.langs[0] ?? null],
 		);
 		clearDiffusionTargetsCache();
 		const ghosts = (await scanPublicTier([ZZDIF_SECTION])).ghosts.filter(
-			(ghost) => ghost.target === unruledKey,
+			(ghost) => ghost.target === aliasOnlyKey,
 		);
 		expect(ghosts.map((ghost) => [ghost.section_id, ghost.reason])).toEqual([
 			[ZZDIF_UNPUBLISHABLE_ID, 'unpublishable'],
@@ -878,10 +1025,8 @@ describe('G — an UNRULED map (T1-3 D1): withdrawn, never owed', () => {
 		const applied = await unpublishGhosts(ghosts);
 		expect(applied.failed).toEqual([]);
 		expect(applied.removed).toBe(1);
-		const left = (await pool().unsafe(
-			`SELECT section_id FROM \`${ZZDIF_GLOBAL_UNRULED_TABLE}\``,
-			[],
-		)) as unknown[];
-		expect(left).toEqual([]);
+		expect((await aliasOnlyTitles(pool())).has(`${ghostKey}|${config.diffusion.langs[0]}`)).toBe(
+			false,
+		);
 	});
 });

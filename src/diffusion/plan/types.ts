@@ -350,6 +350,15 @@ export interface GlobalColumnMap {
 	/** `'string'`: join the source values with `separator` (v6 default ' | '). */
 	format?: 'string';
 	separator?: string;
+	/**
+	 * Owner C11 (2026-11-13): the CARRIERS (the real table node and every
+	 * `table_alias` sharing its maps) on which EVERY source of this item
+	 * exists, by virtual tipo — set only when some carrier lacks one (a source
+	 * that is an alias's own column). A carrier absent from the list writes
+	 * NULL under `targetColumn` for its rows (project/global_table.ts); the
+	 * carrier that has the column fills it. Absent = every carrier has them.
+	 */
+	sourceCarriers?: string[];
 }
 
 /** Provenance columns v6 writes on every global row (each only when the node declares it). */
