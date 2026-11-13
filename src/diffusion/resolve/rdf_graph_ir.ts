@@ -315,7 +315,7 @@ export class RdfLiteralError extends RangeError {
  * the rest to their PHP string (`-25`, `1`/'' for booleans) — forms an XSD
  * validator rejects. Datatypes outside this set keep the PHP cast.
  */
-const CANONICAL_XSD = new Set([
+const CANONICAL_XSD: ReadonlySet<string> = new Set([
 	'decimal',
 	'integer',
 	'boolean',
