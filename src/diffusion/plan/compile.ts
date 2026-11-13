@@ -70,7 +70,7 @@
 
 import { config } from '../../config/config.ts';
 import { readEnv } from '../../config/env.ts';
-import { getComponentModel, getFlatValueFamily } from '../../core/components/registry.ts';
+import { getFlatValueFamily, storesRelationLocators } from '../../core/components/registry.ts';
 import { getPopulatedTlds } from '../../core/db/dd_ontology.ts';
 import { DedaloError } from '../../core/errors/dedalo_error.ts';
 import { nameOrLabelOf } from '../../core/ontology/labels.ts';
@@ -353,9 +353,12 @@ async function uninstalledTldOf(tipo: string): Promise<string | null> {
  * Compile one ddo chain into ResolveStep[]. Each entry becomes a 'component'
  * step (plain value read), a 'relation-hop' step (the chain continues
  * through the component's locators) — depending on whether the component model
- * stores relation locators (descriptor column === 'relation' — the TS twin of
- * the PHP relation family — plus the pseudo-model relation_list, which PHP
- * special-cases into the relation branch: chain_processor :161-162) — or a
+ * stores relation locators (storesRelationLocators: descriptor column ===
+ * 'relation' MINUS component_external — the TS twin of the PHP relation
+ * family get_components_with_relations, which does not list it: a Zenon value
+ * is DERIVED, so it is a terminal (T1-42) — plus the pseudo-model
+ * relation_list, which PHP special-cases into the relation branch:
+ * chain_processor :161-162) — or a
  * 'degraded' step when the tipo is not in the ontology at all. EVERY entry
  * produces exactly one step: the chain is 1:1 with the ddo_map, which is what
  * keeps the field's leaf/column topology identical to the oracle's.
@@ -402,8 +405,7 @@ async function compileSourceChain(
 			);
 			continue;
 		}
-		const isRelationFamily =
-			getComponentModel(model)?.column === 'relation' || model === 'relation_list';
+		const isRelationFamily = storesRelationLocators(model) || model === 'relation_list';
 		if (isRelationFamily) {
 			const hop: Extract<ResolveStep, { kind: 'relation-hop' }> = {
 				kind: 'relation-hop',
@@ -713,7 +715,9 @@ async function compileFieldPlan(
 			firstStep.tipo === firstDdoTipo
 				? firstStep.model
 				: null;
-		if (firstModel !== null && getComponentModel(firstModel)?.column === 'relation') {
+		// storesRelationLocators: PHP component_external extends component_common
+		// (string), not component_relation_common (json) — T1-42.
+		if (firstModel !== null && storesRelationLocators(firstModel)) {
 			outputFormat = 'json';
 		}
 	}

@@ -73,7 +73,12 @@ import {
 	relationIndexQuestion,
 } from '../../core/relations/locator_source.ts';
 import { getParents, getParentsRecursive } from '../../core/relations/parent.ts';
-import { readComponentItems, readStoredComponentItems } from '../../core/resolve/component_data.ts';
+import { externalTargetRecord } from '../../core/relations/relation_core.ts';
+import {
+	EmissionContext,
+	readComponentItems,
+	readStoredComponentItems,
+} from '../../core/resolve/component_data.ts';
 import {
 	findInverseReferenceLocators,
 	findInverseReferences,
@@ -118,6 +123,14 @@ import {
 	parseTagValueToHtml,
 } from './ddo_fns.ts';
 import { defaultPublicationValue, PHP_NUMBER_TYPES_OPTION } from './default_value.ts';
+import {
+	type ExternalPublicationDegradation,
+	type ExternalPublicationEnv,
+	externalPlaceholderApplies,
+	externalPublicationAtoms,
+	isExternalTerminal,
+	prefetchHopExternalRows,
+} from './external_value.ts';
 import {
 	frontierKey,
 	type ResumeState,
@@ -321,6 +334,16 @@ export interface RunContext {
 	infoItemsCache: Map<string, unknown[] | null>;
 	/** rdf: dd1010 entity record + base IRIs resolved this run (rdf_graph.ts). */
 	rdfBaseMemo: Map<string, string | null>;
+	/** component_external terminal (external_value.ts): the run's emission —
+	 * the remote rows each hop prefetches are parked here (one hop at a time). */
+	externalEmission: EmissionContext;
+	/** Missing component_external values of the record being processed, with
+	 * the field they belong to — drained into its run error lines
+	 * (drainExternalDegradations). Records are processed one at a time. */
+	externalDegradations: (ExternalPublicationDegradation & {
+		fieldId: string;
+		columnName: string;
+	})[];
 	/** PHP is_used bitmask twin: records already emitted top-level this run. */
 	usedRecords: Set<string>;
 	/** PHP $datum_unresolved: `${level}:${section_tipo}` → queued ids (FIFO). */
@@ -391,6 +414,47 @@ function infoEnvOf(ctx: RunContext): InfoPublicationEnv {
 		writeMemo: (key, items) =>
 			setBoundedRunMemo(ctx.infoItemsCache, key, items, RECORD_CACHE_LIMIT),
 	};
+}
+
+/**
+ * The run's component_external env (external_value.ts) for one field: the
+ * fetch lang is the plan's main lang (the info law above — never the trigger's
+ * ambient lang), a missing value is recorded against the field.
+ */
+function externalEnvOf(ctx: RunContext, prepared: PreparedField): ExternalPublicationEnv {
+	return {
+		lang: ctx.plan.langPolicy.mainLang ?? config.lang.dataLangDefault,
+		emission: ctx.externalEmission,
+		report: (degradation) => {
+			ctx.externalDegradations.push({
+				...degradation,
+				fieldId: prepared.field.id,
+				columnName: prepared.field.columnName,
+			});
+		},
+	};
+}
+
+/**
+ * Move the missing component_external values recorded while processing
+ * `record` into its run error lines — the loud per-field channel the runner
+ * reports (T1-42). The value itself is published empty for that locator; the
+ * field's other atoms are kept.
+ */
+function drainExternalDegradations(
+	ctx: RunContext,
+	record: MatrixRecord,
+	errors: FieldResolutionError[],
+): void {
+	for (const degradation of ctx.externalDegradations.splice(0)) {
+		errors.push({
+			sectionTipo: record.section_tipo,
+			sectionId: record.section_id,
+			fieldId: degradation.fieldId,
+			columnName: degradation.columnName,
+			message: `external_source:${degradation.state} ${degradation.tipo} ${degradation.sectionTipo}/${degradation.remoteId}`,
+		});
+	}
 }
 
 /**
@@ -1860,6 +1924,18 @@ async function walkChainLevel(
 				);
 				continue;
 			}
+			// component_external: the value is DERIVED from the remote record
+			// (PHP component_external::get_data → load_data_from_remote), never a
+			// stored slot — external_value.ts (T1-42).
+			if (isExternalTerminal(step)) {
+				atoms.push(
+					...(await externalPublicationAtoms(externalEnvOf(ctx, prepared), record, step.tipo, {
+						sourceId: step.ddoId,
+						tipo: step.tipo,
+					})),
+				);
+				continue;
+			}
 			// Custom ddo fn dispatch (component_common :3274-3326). ONE door, and
 			// it either resolves or throws — see resolveComponentFnAtoms.
 			if (step.fn !== undefined) {
@@ -2018,6 +2094,9 @@ async function resolveHop(
 	}
 
 	const children = prepared.childrenByParent.get(hop.tipo) ?? [];
+	// External children: the hop's remote rows in ONE bounded fan-out (no-op
+	// without a component_external child; never throws).
+	await prefetchHopExternalRows(externalEnvOf(ctx, prepared), children, rawLocators);
 	// Child section whitelist (chain_processor :237-243).
 	const whitelist = new Set<string>();
 	for (const child of children) {
@@ -2130,13 +2209,24 @@ async function resolveHop(
 			);
 			if (applicable) {
 				recursed = true;
+				// No matrix row: an EXTERNAL record (a Zenon id has none by
+				// construction) is walked on an identity-only placeholder when an
+				// owned component_external child derives its value remotely (the
+				// read path's law, relation_core resolvePortalTarget — T1-42);
+				// otherwise the record is gone: PHP reads empty components (no
+				// fallback).
+				const walked =
+					target ??
+					((await externalPlaceholderApplies(children, sectionTipo))
+						? externalTargetRecord(sectionTipo, sectionId)
+						: null);
 				childAtoms =
-					target === null
-						? [] // record gone: PHP reads empty components (no fallback)
+					walked === null
+						? []
 						: await walkChainLevel(
 								ctx,
 								prepared,
-								target,
+								walked,
 								level - 1,
 								currentPublishable,
 								hop.tipo,
@@ -2420,6 +2510,7 @@ async function processRecord(
 		if (field.excludeColumn !== true) columnValues.set(field.columnName, langValues);
 	}
 
+	drainExternalDegradations(ctx, record, errors);
 	const rows = projectRecordRows(
 		record.section_id,
 		columnValues,
@@ -2535,6 +2626,7 @@ async function processRdfRecord(
 		sectionPlan.fields.find((field) => field.id === fieldId)?.columnName ?? fieldId;
 	try {
 		const built = await buildRdfRecordGraph(rdfGraphEnvOf(ctx), sectionPlan, record);
+		drainExternalDegradations(ctx, record, errors);
 		for (const failure of built.errors) {
 			errors.push({
 				sectionTipo: record.section_tipo,
@@ -2553,6 +2645,7 @@ async function processRdfRecord(
 		// and writes no dd1758 'published' row for a record it did not publish.
 		// Keeping the old file would serve content the record may no longer
 		// carry, at a deterministic URL, outside the run's own manifest.
+		drainExternalDegradations(ctx, record, errors);
 		errors.push({
 			sectionTipo: record.section_tipo,
 			sectionId: record.section_id,
@@ -2810,6 +2903,8 @@ export async function* resolvePublication(
 		svgTagPathMemo: createSvgTagPathMemo(),
 		infoItemsCache: new Map(),
 		rdfBaseMemo: new Map(),
+		externalEmission: new EmissionContext(),
+		externalDegradations: [],
 		// A resumed run starts from the replayed ledger state (copies — the
 		// caller's ResumeState is never mutated).
 		usedRecords: new Set(options.resume?.used ?? []),

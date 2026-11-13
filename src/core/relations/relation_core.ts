@@ -73,7 +73,10 @@ export const PORTAL_LIST_LIMIT = 1;
  * this empty record, because "no stored columns" would render as a blank field
  * indistinguishable from a genuinely empty one.
  */
-function externalTargetRecord(sectionTipo: string, sectionId: number | string): MatrixRecord {
+export function externalTargetRecord(
+	sectionTipo: string,
+	sectionId: number | string,
+): MatrixRecord {
 	return {
 		id: 0,
 		// The locator's RAW id type survives (a zero-padded '001338683' stays a

@@ -1059,6 +1059,23 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Published bibliography columns that read from Zenon now carry their values.**
+
+    A publication column whose source reaches a Zenon field (for example the bibliography
+    columns of a publication: authors, title, date) was published **empty** on every record —
+    the values shown on screen never reached the public database or files. They are now
+    published, in the language set for the publication (its main language, else the
+    installation's default data language), whoever starts the run.
+
+    When Zenon cannot be read during a run (the service is down, blocked or not configured),
+    the record is still published with its other values, and the run report lists one line
+    per missing value naming the field and the Zenon record.
+
+    **Action needed:** republish the sections whose publication includes Zenon fields, so the
+    public tables receive the values. Nothing in the catalogue itself needs repairing.
+
+    Wire contract: `WC-2026-11-12-diffusion-external-chain`.
+
 - **Publishing hierarchies and text-area geolocation fields no longer reports errors and leaves empty columns.**
 
     Two publication functions were not implemented, so every published record raised an error
@@ -1301,7 +1318,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 60 entries"
+??? note "Wire contract — 61 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1338,6 +1355,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-calculation-widget-port`
     - `WC-2026-11-12-datalist-principal-record-scope`
     - `WC-2026-11-12-db-bounds-on-by-default`
+    - `WC-2026-11-12-diffusion-external-chain`
     - `WC-2026-11-12-diffusion-map-target-section-tipo`
     - `WC-2026-11-12-duplicate-image-svg-envelope`
     - `WC-2026-11-12-export-json-geolocation-cells`

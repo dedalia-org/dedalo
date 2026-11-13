@@ -73,7 +73,7 @@ import {
 	infoOutputValueString,
 } from '../../core/components/component_info/widgets/registry.ts';
 import { resolveInverseEntries } from '../../core/components/component_inverse/emit.ts';
-import { getFlatValueFamily } from '../../core/components/registry.ts';
+import { getFlatValueFamily, storesRelationLocators } from '../../core/components/registry.ts';
 import { isMediaModel } from '../../core/concepts/media.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../../core/concepts/section_id.ts';
 import { dataframeEntryMatches } from '../../core/concepts/subdatum.ts';
@@ -381,14 +381,14 @@ export async function fieldHasValueReferences(field: FieldPlan): Promise<boolean
 /**
  * Does this export field grow a WC-049 parents column in the VALUE format?
  * The per-ddo flag is set AND the declared leaf is a stored relation (the only
- * leaves whose targets carry an ancestor chain — the same `isStoredRelationModel`
+ * leaves whose targets carry an ancestor chain — the same `storesRelationLocators`
  * test the grid_value walk applies before it emits a '#parents' atom). A
  * declared dataframe step yields no cell at all (resolveValueCell refuses it).
  */
 export function fieldHasValueParents(field: FieldPlan, leafModel: string): boolean {
 	return (
 		field.exportColumn?.valueWithParents === true &&
-		isStoredRelationModel(leafModel) &&
+		storesRelationLocators(leafModel) &&
 		!hasDeclaredDataframeStep(field)
 	);
 }
@@ -913,7 +913,7 @@ async function walkFieldAtoms(
 			});
 		}
 
-		if (event.locators !== undefined && isStoredRelationModel(event.step.model)) {
+		if (event.locators !== undefined && storesRelationLocators(event.step.model)) {
 			const locators: FanOutLocator[] = event.locators;
 			if (compact) {
 				await emitCompactCells(
@@ -1481,18 +1481,6 @@ async function emitCompactCells(
 	}
 }
 
-/**
- * Whether a model's value is a STORED locator bag the walk can fan out through.
- * component_external sits on the relation column for column-map parity only
- * (its descriptor calls the column INERT): its value is DERIVED from the remote
- * record, so it is a plain leaf — fanning it out read a bag no record holds and
- * emitted nothing, which blanked every grid_value Zenon column (rsc368 → zenon*).
- */
-function isStoredRelationModel(model: string | null | undefined): boolean {
-	if (typeof model !== 'string' || model === '') return false;
-	return getColumnNameByModel(model) === 'relation' && getFlatValueFamily(model) !== 'external';
-}
-
 /** One fan-out locator: target identity + raw slot position + (for dataframe
  * pairing) the STORED locator id and its main_component_tipo. */
 interface FanOutLocator {
@@ -1702,7 +1690,7 @@ async function fanOutRelation(
 			// Relation-model child: recurse into ITS locators. The bag is RAW
 			// jsonb, so section_id stays union-typed (unswept string form /
 			// external remote id) — WC-2026-08-10-section-id-int-canonical.
-			if (isStoredRelationModel(childModel)) {
+			if (storesRelationLocators(childModel)) {
 				const childTrail = trailKey(locator.sectionTipo, locator.sectionId, child.tipo);
 				if (ctx.trail.has(childTrail)) {
 					noteUnresolved(ctx.unresolved, `relation_cycle:${child.tipo}`);
@@ -1912,7 +1900,7 @@ export async function exportPathMayReachMedia(
 	if (typeof leaf !== 'string' || leaf === '') return false;
 	const model = await getModelByTipo(leaf);
 	if (model === null) return false;
-	if (isStoredRelationModel(model))
+	if (storesRelationLocators(model))
 		return relationReachesMedia(leaf, undefined, undefined, new Set());
 	// a non-fan-out datalist leaf resolves its flat value through its config
 	return getFlatValueFamily(model) === 'datalist'
@@ -1948,7 +1936,7 @@ async function relationReachesMedia(
 		const childModel = (await getModelByTipo(child.tipo)) ?? String(child.model ?? '');
 		if (childModel === '') continue;
 		if (isMediaModel(childModel)) return true;
-		if (childModel === 'component_dataframe' || isStoredRelationModel(childModel)) {
+		if (childModel === 'component_dataframe' || storesRelationLocators(childModel)) {
 			if (await relationReachesMedia(child.tipo, map, mapOwner, seen)) return true;
 		}
 	}

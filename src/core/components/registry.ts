@@ -220,6 +220,23 @@ export function getFlatValueFamily(model: string): ComponentModel['flatValue'] {
 }
 
 /**
+ * Whether a model's value is a STORED locator bag a chain walk can fan out
+ * through — the TS twin of PHP component_relation_common::
+ * get_components_with_relations(). component_external sits on the relation
+ * column for column-map parity only (its descriptor calls the column INERT):
+ * its value is DERIVED from the remote record, so it is a plain leaf / terminal.
+ * Fanning it out read a bag no record holds and blanked every Zenon column —
+ * in the export walk (export/atoms.ts) and in the publication compile
+ * (diffusion/plan/compile.ts, T1-42) alike. ONE predicate for both.
+ */
+export function storesRelationLocators(model: string | null | undefined): boolean {
+	if (typeof model !== 'string' || model === '') return false;
+	return (
+		getComponentModel(model)?.column === 'relation' && getFlatValueFamily(model) !== 'external'
+	);
+}
+
+/**
  * PHP component_common::$components_monovalue membership — THE value law
  * (`monovalue` facet, alias-following): only element 0 of the data array is
  * ever read. Consulted by save_component.ts (insert REPLACES, id-less update

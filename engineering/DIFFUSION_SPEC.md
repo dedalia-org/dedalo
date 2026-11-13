@@ -246,6 +246,12 @@ Study these in the reference trees, then re-express their *semantics*:
   pending owner decision T1-3 D1.
   WC: `engineering/wire_contract/WC-2026-11-12-global-table-maps.md`.
   Gate: `test/unit/diffusion_global_table_native.test.ts`.
+- **component_external in a chain** (T1-42, 2026-11-12) — a TERMINAL, never a hop
+  (`registry.ts storesRelationLocators`, PHP get_components_with_relations): the remote values
+  are derived per record (`resolve/external_value.ts`), a remote-only target is walked on the
+  identity-only placeholder, a missing value is a run error line. Law:
+  `engineering/EXTERNAL_SPEC.md` §3 addendum 2026-11-12;
+  WC: `engineering/wire_contract/WC-2026-11-12-diffusion-external-chain.md`.
 
 Key oracle files: PHP `diffusion/class.diffusion_utils.php`,
 `class.diffusion_chain_processor.php`,
