@@ -14,7 +14,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { cleanupInertJson } from '../../src/core/resolve/relation_list.ts';
-import { cleanTextValue } from '../../src/diffusion/export/clean_text.ts';
+import { cleanTextValue, stripTagMarks } from '../../src/diffusion/export/clean_text.ts';
 
 describe('cleanTextValue — PHP export_tabulator_Test::test_clean_text_value', () => {
 	test('paragraphs become line breaks, the outer <p> pair is stripped', () => {
@@ -60,6 +60,75 @@ describe('cleanTextValue — the edges of the port', () => {
 	test('short-circuit: nothing to clean ⇒ the same string', () => {
 		expect(cleanTextValue('')).toBe('');
 		expect(cleanTextValue('a > b')).toBe('a > b');
+	});
+});
+
+/**
+ * C43 (owner 2026-11-13, WC-2026-11-13-export-tag-marks-plain-text): the
+ * text_area tag MARKS are stripped to plain text — PHP's atom rendered each as
+ * an `<img>` badge, the engine before this kept the raw mark. One case per
+ * grammar shape (tag_grammar.ts), the full in-text form with label and
+ * `-data:…:data` payload included; bracketed text that is NOT a mark stays.
+ */
+describe('cleanTextValue — text_area tag marks are stripped to plain text (C43)', () => {
+	const MARKS: [string, string][] = [
+		['index open, state + id + label', 'a [index-n-58-Label] b'],
+		['index close', 'a [/index-n-58] b'],
+		[
+			'index with a data payload',
+			"a [index-d-7--data:{'section_tipo':'test3','section_id':'1'}:data] b",
+		],
+		['timecode', 'a [TC_00:01:02.500_TC] b'],
+		['timecode without millis', 'a [TC_0:1:2_TC] b'],
+		['person with label', 'a [person-a-12-JD] b'],
+		['person with empty id (the grammar allows it)', 'a [person-b--JD] b'],
+		['geo', 'a [geo-n-3] b'],
+		['page with label and data', 'a [page-n-4-p4-data:{"x":1}:data] b'],
+		['note', 'a [note-n-9-nota] b'],
+		['lang with label (no `-` in a label: the grammar)', 'a [lang-n-2-English] b'],
+		['draw', 'a [draw-n-5-Draw] b'],
+		['svg locator mark', "a [svg-n-1--data:{'section_tipo':'test65','section_id':'3'}:data] b"],
+		[
+			'a payload spanning lines (lazy to the FIRST :data])',
+			'a [draw-n-5-D-data:{\n"paper":[1,\n2]}:data] b',
+		],
+	];
+	for (const [name, text] of MARKS) {
+		test(`stripped: ${name}`, () => {
+			// the mark goes, its neighbours stay exactly (no re-flow: two spaces)
+			expect(stripTagMarks(text)).toBe('a  b');
+			expect(cleanTextValue(text)).toBe('a  b');
+		});
+	}
+
+	test('several marks in one cell, with the paragraph cleanup around them', () => {
+		expect(
+			cleanTextValue('<p>[index-n-1-A]one[/index-n-1] &amp; [TC_00:00:01_TC]two</p><p>three</p>'),
+		).toBe('one & two\nthree');
+	});
+
+	test('a mark alone cleans to the empty string (no `<` / `&` needed)', () => {
+		expect(cleanTextValue('[index-n-1]')).toBe('');
+	});
+
+	test('bracketed text that is NOT a mark is text and stays', () => {
+		for (const text of [
+			'[1]',
+			'[sic]',
+			'a [index] b',
+			'[index-n] x',
+			'[TC_1_TC]',
+			'["index-n-1"]',
+			'[note-N-1]',
+		]) {
+			expect(stripTagMarks(text)).toBe(text);
+			expect(cleanTextValue(text)).toBe(text);
+		}
+	});
+
+	test('short-circuit: a text without `[` is the same string instance', () => {
+		const text = 'plain text';
+		expect(stripTagMarks(text)).toBe(text);
 	});
 });
 

@@ -51,3 +51,11 @@ was rejected: the preview and the NDJSON download would disagree with the files.
 the PCRE `$`, single-pass, exact-spelling edges); `test/unit/tool_export_coverage_native.test.ts`
 C4 (value, grid_value, preview row, CSV file; `dedalo_raw` control) and C5 (plain value passes
 through). Frozen parity gates: banked reds unchanged (measured before/after).
+
+## Addendum 2026-11-13 — the tag marks are no longer "untouched"
+
+Owner C43 (T1-39 D1) ruled "plain text": `cleanTextValue` now strips every
+text_area tag mark BEFORE the cleanup above, so the "Not a sanitizer" clause's
+example of an untouched `[index-…]` no longer holds — the marks go, other
+markup (`<b>`) still stays. The contract, the grammar matched and the gate:
+`WC-2026-11-13-export-tag-marks-plain-text`.

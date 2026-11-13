@@ -171,6 +171,18 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Exported text cells no longer carry the editor's tag marks.**
+
+    A text with indexation, time-code, person or note tags exported its raw tag marks inside the
+    cell (`[index-n-58-…]`, `[TC_00:01:02_TC]`, …). Those marks are now removed: the cell holds the
+    plain text, and the tagged items themselves are exported through their own components as before.
+    Previous exports that need the clean text should be run again.
+
+    Media columns keep the engine's cell types: an image cell is drawn as an image in the HTML
+    download, an audiovisual or 3D cell and a PDF or SVG cell hold the file's URL as text.
+
+    Wire contract: `WC-2026-11-13-export-tag-marks-plain-text`, `WC-2026-11-13-export-media-cell-type`.
+
 - **A selected value you may not see, or that no longer fits the record, now shows as *(restricted)* instead of vanishing.**
 
     Since the option lists of selects, radio buttons and check boxes became the search you are allowed to run (and, where configured, the options that fit the record), a value stored on the record but outside your list simply disappeared: no label in the list view, no option in the edit form — and a save of that field would have dropped it without anyone noticing.
@@ -1480,7 +1492,7 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 68 entries"
+??? note "Wire contract — 73 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1544,9 +1556,14 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-wipe-respects-virtual-exclusion`
     - `WC-2026-11-12-zotero-csl-json-import`
     - `WC-2026-11-13-calculation-tld-packages`
+    - `WC-2026-11-13-calculation-total-records-no-frontier`
     - `WC-2026-11-13-csv-ingest-size-ceiling`
     - `WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter`
+    - `WC-2026-11-13-export-acl-components-exportable`
+    - `WC-2026-11-13-export-media-cell-type`
+    - `WC-2026-11-13-export-tag-marks-plain-text`
     - `WC-2026-11-13-external-empty-entry-dropped`
+    - `WC-2026-11-13-info-derived-async-published`
     - `WC-2026-11-13-observer-refresh-data`
     - `WC-2026-11-13-tags-widget-original-lang`
     - `WC-2026-11-13-text-area-broken-tag-repair`
