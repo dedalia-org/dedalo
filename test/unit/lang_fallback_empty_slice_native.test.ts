@@ -368,13 +368,20 @@ describe('doors: a cleared translation shows the fallback', () => {
 		expect(item.fallback_value).toEqual([MAIN_AREA]);
 	}, 30_000);
 
-	test('OPEN owner decision D1 (T1-34): text_area LIST keeps the PHP count trigger — no fallback while the slice holds items', async () => {
-		// PHP component_text_area_json list: empty(get_list_value) — a slice of
-		// cleared items maps to [''] and is "present". Pinned as the status quo
-		// until the owner rules; flipping it is this assertion + the emit hook.
+	test('C40 (owner 2026-11-13): text_area LIST judges emptiness too — a <p></p> slice carries the fallback', async () => {
+		// PHP component_text_area_json list triggered by item COUNT
+		// (empty(get_list_value): a cleared item maps to '' → [''] is "present"),
+		// so a cleared transcript stayed blank in lists while edit showed the
+		// fallback. Ruled (a): uniform emptiness — the list face carries the
+		// fallback, rendered like a list value (addendum 2026-11-13 of
+		// WC-2026-11-12-lang-fallback-judges-emptiness). RED before: fallback_value null.
 		const cell = await listItem(TEXT_AREA);
 		expect(cell).toBeDefined();
-		expect(cell?.fallback_value ?? null).toBeNull();
+		const fallback = cell?.fallback_value as { lang?: string; value?: string }[] | null;
+		expect(Array.isArray(fallback)).toBe(true);
+		expect(fallback).toHaveLength(1);
+		expect(fallback?.[0]?.lang).toBe(DEFAULT);
+		expect(fallback?.[0]?.value).toContain('Main text');
 	}, 30_000);
 
 	test('R11 relation_list cell: the cleared slice shows the fallback text', async () => {

@@ -88,3 +88,15 @@ No re-harvest. The edit/list wire moves only for records holding a cleared
 translation; the frozen fixture store's cases were harvested from filled
 slices, so no parity case moves (the parity run is compared against
 `engineering/parity_baseline.json` in the same change).
+
+## Addendum 2026-11-13 — D1 RULED (owner C40): the text_area LIST judges emptiness too
+
+- Ruled (a): uniform emptiness. `listFallbackByCount` is deleted from
+  `src/core/components/component_text_area/emit.ts`; the list face carries the
+  resolver's `fallback_value` exactly as edit does, rendered like a list value
+  (tags → `<img>`, then truncated). A cleared transcript (`<p></p>`, whitespace,
+  `''`) shows its other-language text in lists; PHP's count trigger kept it
+  blank there. The "Open owner decision D1" section above is history.
+- Gate: `test/unit/lang_fallback_empty_slice_native.test.ts` — the former
+  "OPEN owner decision D1" pin is now the C40 case: the list cell of a
+  `<p></p>` slice carries the default-lang fallback (RED before: `null`).

@@ -7,7 +7,8 @@
  * - the item ALWAYS carries the fallback_value key (PHP
  *   component_text_area_json attaches it unconditionally — explicit null when
  *   the value is present or no cross-lang fallback exists; other literals
- *   attach it only when a fallback resolved);
+ *   attach it only when a fallback resolved). In LIST mode too the trigger is
+ *   the slice's EMPTINESS (owner C40 2026-11-13; PHP's list counted items);
  * - LIST values follow the record's ORIGINAL language (the related
  *   component_select_lang, e.g. rsc263), equivalence-aware.
  */
@@ -98,22 +99,6 @@ async function serveTextItem(item: unknown, context: EmitHookContext): Promise<u
 	const next = context.ddoMode === 'list' ? await renderListString(rebased, context) : rebased;
 	if (next === text) return item;
 	return { ...(item as object), value: next };
-}
-
-/**
- * The item's fallback_value, ALWAYS keyed (explicit null when absent).
- *
- * OPEN OWNER DECISION D1 (T1-34 / O14, unruled): PHP's text_area LIST triggers
- * its fallback by COUNT (component_text_area_json: empty() of get_list_value,
- * where a cleared item maps to '' → [''] is "present"), while edit and every
- * chain rung judge emptiness. The resolver judges emptiness everywhere; the
- * list face keeps the PHP count trigger here — the status quo — until the
- * owner rules. Gate: lang_fallback_empty_slice_native "OPEN owner decision D1".
- */
-function listFallbackByCount(item: DataItem, context: EmitHookContext): unknown[] | null {
-	const fallback = (item.fallback_value as unknown[] | null | undefined) ?? null;
-	if (context.ddoMode === 'list' && (item.entries?.length ?? 0) > 0) return null;
-	return fallback;
 }
 
 /** The text_area `properties` the EDIT decoration reads. */
@@ -292,7 +277,11 @@ export const textAreaEmitHook: ComponentEmitHook = {
 	},
 
 	async decorateItem(item: DataItem, context: EmitHookContext): Promise<void> {
-		item.fallback_value = listFallbackByCount(item, context);
+		// ALWAYS keyed (explicit null when absent). The LIST face judges EMPTINESS
+		// like edit and every chain rung (owner C40, 2026-11-13 — PHP's list
+		// triggered by item COUNT, so a cleared transcript stayed blank in lists;
+		// WC-2026-11-12-lang-fallback-judges-emptiness addendum).
+		item.fallback_value = (item.fallback_value as unknown[] | null | undefined) ?? null;
 		// LIST fallbacks get the SAME rendering as list values (tags → <img>,
 		// then truncate). transformValue only sees `value`, so a transcript that
 		// surfaces through the cross-lang fallback used to reach the client with
