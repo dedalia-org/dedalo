@@ -323,6 +323,24 @@ else {
 		});
 	});
 
+	describe('local db — a handle that died WITHOUT a close event is replaced (H)', () => {
+		// Safari drops the IndexedDB server connection of a backgrounded tab: no
+		// `close` event reaches the memo, and db.transaction() throws from then on.
+		test('read, write and delete reopen once instead of failing for the page life', async () => {
+			await data_manager.get_local_db();
+			(live_dbs[0] as FakeDb).closed = true; // dead, memo still holds it
+
+			expect(await data_manager.get_local_db_data('k1', 'status')).toBeDefined();
+			expect(journal.opens).toBe(2);
+
+			(live_dbs[live_dbs.length - 1] as FakeDb).closed = true;
+			await data_manager.set_local_db_data({ id: 'k1', value: 1 }, 'status');
+			(live_dbs[live_dbs.length - 1] as FakeDb).closed = true;
+			await data_manager.delete_local_db_data('k1', 'status');
+			expect(journal.opens).toBe(4);
+		});
+	});
+
 	describe('local db — delete closes this page connection first (E)', () => {
 		test('delete_whole_local_db closes before deleteDatabase, not after', async () => {
 			await data_manager.get_local_db();

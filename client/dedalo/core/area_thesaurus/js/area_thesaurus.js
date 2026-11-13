@@ -954,28 +954,46 @@ area_thesaurus.prototype.get_sections_selector_data = function() {
 *   @param {boolean}  [options.navigation_history=false] - Reserved; currently unused by this implementation.
 * @returns {Promise<boolean>} Always true after the refresh completes.
 */
-area_thesaurus.prototype.navigate = async function(options) {
+area_thesaurus.prototype.navigate = function(options) {
 
 	const self = this
 
+	// serial. One navigation at a time, in call order: refresh() refuses an instance
+	// that is not 'rendered', so a navigation overlapping another one (Show all during
+	// a search) was silently dropped. The queued one reads the sqo at ITS turn, so the
+	// last request wins.
+		const run = () => navigate_run(self, options)
+		self.navigate_chain = (self.navigate_chain ?? Promise.resolve()).then(run, run)
+
+	return self.navigate_chain
+}//end navigate
+
+
+
+/**
+* NAVIGATE_RUN
+* The body of navigate, run serially (see navigate).
+* @param {Object} self - area instance
+* @param {Object} options - navigate options
+* @returns {Promise<boolean>}
+*/
+const navigate_run = async function(self, options) {
+
 	// options
-		const callback				= options.callback
-		const navigation_history	= options.navigation_history!==undefined
-			? options.navigation_history
-			: false
+		const callback = options.callback
 
 	// loading
 		self.node.content_data.classList.add('loading')
+
+	// page error. A new read supersedes the failure of the previous one: left set,
+	// a successful rebuild would still be swapped for the old error panel.
+		window.page_globals.page_error = null
 
 	try {
 
 		// callback execute
 		if (callback) {
 			await callback()
-
-			if(SHOW_DEBUG===true) {
-				// console.log("-> Executed section navigate received callback:", callback);
-			}
 		}
 
 		// refresh
@@ -987,7 +1005,21 @@ area_thesaurus.prototype.navigate = async function(options) {
 
 	} catch (error) {
 		console.error("Error in area_thesaurus navigate:", error);
+		event_manager.publish('notification', {
+			msg			: (window.get_label?.error || 'Error') + ': ' + (error?.message || error),
+			type		: 'error',
+			remove_time	: 7000
+		})
 	} finally {
+		// recover. A refused read leaves status 'initialized', a throw in build
+		// 'building', a throw in the tree render 'rendering' — and refresh() refuses
+		// all three, so ONE failed search killed every later one until a page reload.
+		// The wrapper is still painted (destroy:false) and navigations are serial, so
+		// nothing else is mid-flight: the area is 'rendered' again and can retry.
+		if (self.status!=='rendered' && self.status!=='destroyed') {
+			self.status = 'rendered'
+			self._rendering_params = null
+		}
 		// always remove loading class
 		self.node.content_data.classList.remove('loading')
 	}

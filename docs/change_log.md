@@ -250,6 +250,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Searching the ontology or a thesaurus no longer stops working until the page is reloaded.**
+
+    One failed search — a server refusal, a network timeout, an error drawing the result tree — left the ontology / thesaurus tree unable to search again, and "Show all" pressed while a search was still running was silently ignored. The tree now recovers on its own and runs the requests in order. In Safari, the browser's local store can drop its connection while the tab is in the background; the application now reconnects instead of failing until a reload.
+
 - **Exports now include the records that point at each record (the Relations field), instead of an empty column.**
 
     A field that lists the records pointing at the current one (the **Relations** field of the
