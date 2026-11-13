@@ -338,3 +338,24 @@ TLD JSON is unconverted: its loader fills the pair through the same legacy deriv
 - **Gate:** `ts_tree_db_semantics` ("a map that already declares the machine name only drops
   the label", red before).
 - **Gate reconciliation:** no fixture in `test/parity/fixtures/oracle_harvest/` is touched.
+
+## Addendum 2026-11-13 — the suite fixture is a fixed point of the boot reconcile (T1-P05)
+
+- **Trigger.** G6 flapped with suite order: a fresh `test:db:setup` left the `test*` fixture in
+  the legacy shape (8406 class-L records), and any scheduler-enabled server booting on the suite
+  DB (the `ontology_machine_names` boot reconcile, `autoApply`) converted it — with Time Machine
+  rows — so G6 and `test_tld_ontology_gate` were each red in one of the two states.
+- **Shape (suite only — no installation, no wire change).** `materializeTestTldOntology` runs the
+  package import rewrite (`convertImportedMachineNames`, class L, no TM row) per tld after the
+  records + registry row and BEFORE `rebuildOntology`, like every import door. Loud: a throw
+  propagates, an unarmed release refuses; `isOntologyServer` is passed `false` (the door already
+  refused any database without the test marker). `MaterializeResult.machineNames` carries the
+  operator lines; `test:db:setup` prints them.
+- **Gates.** `machine_name_rung_ratchet_native` (G6): `derived_flag` re-banked to {dd, test}
+  (the class-S strays: 4 dd release nodes, 9 `test` clone twins — root's call, D3); new leg —
+  the dry census finds L 0, C 0, S = the banked stray list. `test_tld_ontology_gate`: the round
+  trip and dd_ontology compare the node AFTER the kernel's class-L verdict (computed
+  hermetically); a hermetic one-pass-convergence leg; a `zzmnd` scratch leg (legacy node lands
+  converted). All red on 0238ca7bd3 against a fresh build.
+- **Gate reconciliation:** no fixture in `test/parity/fixtures/oracle_harvest/` is touched.
+  Re-harvest: impossible, not needed.

@@ -23,6 +23,11 @@
  *  5. THE READER BRIDGES ARE IDLE: no dd_ontology row is un-derived
  *     (`use_machine_name` NULL — what `underived_row` and `legacy_model_term`
  *     bridge), and no installed source carries a machine-name defect.
+ *  6. THE SUITE ONTOLOGY IS A FIXED POINT OF THE BOOT RECONCILE (T1-P05): the dry
+ *     census of `ontology_machine_names` finds no class-L or class-C record, and its
+ *     class-S records are exactly STRAY_SOURCES — so no scheduler-enabled server booting
+ *     on the suite DB can rewrite the fixture under the gates (it did, 2026-11-08: the
+ *     banks flapped with suite order).
  *
  * Scratch `zz*` tlds are excluded. Read-only; needs the suite DB.
  */
@@ -30,6 +35,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { sql } from '../../src/core/db/postgres.ts';
+import { censusMachineNames } from '../../src/core/ontology/machine_name_reconcile.ts';
 import { inspectOntology, type OntologyState } from '../../src/core/ontology/ontology_state.ts';
 import { getModelByTipo } from '../../src/core/ontology/resolver.ts';
 import { engineSourceFiles } from '../helpers/engine_source_corpus.ts';
@@ -41,45 +47,35 @@ import { engineSourceFiles } from '../helpers/engine_source_corpus.ts';
 const LEGACY_LANG_TLDS: readonly string[] = ['dd', 'test'];
 
 /**
- * tlds where some node still DERIVES its flag (no ontology44 stated) — banked on the
- * 7.0 release's arrival (2026-11-07): 4 dd nodes, and the suite's own repo-owned `test*`
- * fixtures, none converted yet. Shrink-only; a banked tld that no longer derives is red.
+ * tlds where some node still DERIVES its flag (no ontology44 stated). Banked on the 7.0
+ * release (2026-11-07) as dd + every repo-owned `test*` fixture tld; RE-BANKED 2026-11-13
+ * (T1-P05): the suite's test-TLD materializer now runs the package import rewrite (class
+ * L) like every import door, so the fixture states its flags. What stays derived is the
+ * class-S strays no door auto-applies (STRAY_SOURCES below): 4 dd release nodes and 9
+ * `test` clone twins. Shrink-only; a banked tld that no longer derives is red.
  */
-const DERIVED_FLAG_TLDS: readonly string[] = [
-	'dd',
-	'test',
-	'testaa',
-	'testactivity',
-	'testcatalogs',
-	'testcoincatalog',
-	'testcont',
-	'testcult',
-	'testculture',
-	'testeventype',
-	'testgraves',
-	'testgrup',
-	'testheritagecatalog',
-	'testicon',
-	'testimmovable',
-	'testmint',
-	'testperi',
-	'testplace',
-	'testrespathology',
-	'testsccmk',
-	'testscell',
-	'testsclat',
-	'testscsym',
-	'testsctxr',
-	'testscxibm',
-	'testscxibo',
-	'testscxpu',
-	'testseri',
-	'testtema',
-	'testterr',
-	'testtypology',
-	'testuncertainty',
-	'testunit',
-	'testweb',
+const DERIVED_FLAG_TLDS: readonly string[] = ['dd', 'test'];
+
+/**
+ * The class-S records (strays: the name moves, but another lang holds a DIFFERENT label)
+ * the census finds on the suite ontology — root's adjudication (D3), never auto-applied,
+ * so they are the whole residue a boot reconcile could still be offered. Measured
+ * 2026-11-13 (T1-P05). Shrink-only, like the banks: a new stray is red, a fixed one too.
+ */
+const STRAY_SOURCES: readonly string[] = [
+	'dd1200',
+	'dd558',
+	'dd772',
+	'dd955',
+	'test6537',
+	'test6548',
+	'test6569',
+	'test6571',
+	'test6575',
+	'test6579',
+	'test6580',
+	'test6584',
+	'test6585',
 ];
 
 /** The parser rungs (OntologyState.machineNameLegacyRungs keys). */
@@ -167,5 +163,21 @@ describe('legacy machine-name rungs ratchet (G6)', () => {
 			state.machineNameDefects.map((defect) => `${defect.source}:${defect.kind}`),
 		);
 		expect(defects).toEqual([]);
+	});
+
+	test('the suite ontology is a FIXED POINT of the boot reconcile: no L, no C, S = the banked strays', async () => {
+		const census = await censusMachineNames(tlds);
+		// Floor: the walk read the whole release + fixture (well over ten thousand records).
+		expect(census.scanned).toBeGreaterThan(10_000);
+		const lossless = census.units
+			.filter((unit) => unit.conversion.class === 'L')
+			.map((unit) => `${unit.tipo}:${unit.conversion.kind}`);
+		expect(lossless.slice(0, 20), `${lossless.length} class-L record(s) left`).toEqual([]);
+		expect(census.classes.C).toBe(0);
+		const strays = census.units
+			.filter((unit) => unit.conversion.class === 'S')
+			.map((unit) => unit.tipo)
+			.sort();
+		expect(strays).toEqual([...STRAY_SOURCES]);
 	});
 });

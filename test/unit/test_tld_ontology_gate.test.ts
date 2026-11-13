@@ -35,6 +35,17 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 import type { DdOntologyNode, DdOntologyRow } from '../../src/core/db/dd_ontology.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { isNameClassNode } from '../../src/core/ontology/machine_name.ts';
+import {
+	convertCanonicalRecord,
+	type MachineNameConversion,
+} from '../../src/core/ontology/machine_name_convert.ts';
+import { censusMachineNames } from '../../src/core/ontology/machine_name_reconcile.ts';
+import {
+	flagFromItems,
+	literalStrings,
+	type StoredLiteralItem,
+} from '../../src/core/ontology/machine_name_rules.ts';
 import type { OntologyState } from '../../src/core/ontology/ontology_state.ts';
 import { inspectOntology, nodeDiffColumns } from '../../src/core/ontology/ontology_state.ts';
 import {
@@ -65,6 +76,7 @@ import {
 	materializeTestTldOntology,
 	ontologyRecordFromNode,
 } from '../../src/core/test_data/test_tld_materialize.ts';
+import { sweepMachineNameScratch } from '../helpers/machine_name_scratch.ts';
 
 const DOC = await loadTestTldOntologyDoc();
 const NODES = DOC.nodes;
@@ -89,6 +101,47 @@ const currentDatabaseName = async (): Promise<string> =>
 	((await sql`SELECT current_database() AS db`) as { db: string }[])[0]?.db ?? '';
 
 const tldOf = (tipo: string): string => /^[a-z]{2,}/.exec(tipo)?.[0] ?? '';
+
+/**
+ * THE MATERIALIZED SHAPE (T1-P05). The door runs the package import rewrite (class L,
+ * machine_name_reconcile.ts convertImportedMachineNames) between the record write and
+ * the rebuild, like every import door — so the database holds each JSON node AFTER the
+ * kernel's verdict on its record, not the node itself. Computed here HERMETICALLY, from
+ * the pure kernel over the inverse's record (the door reads the same keys back from the
+ * database): an independent expectation, not the door's own output.
+ */
+type RecordColumns = Record<string, Record<string, unknown[] | undefined> | undefined>;
+
+/** The kernel's verdict on one JSON node's source record (the door's judgeRecord, pure). */
+function kernelVerdict(node: DdOntologyNode): MachineNameConversion {
+	const columns = ontologyRecordFromNode(node) as RecordColumns;
+	return convertCanonicalRecord({
+		termItems: (columns.string?.[ONTOLOGY_TERM] ?? []) as StoredLiteralItem[],
+		nameValues: literalStrings(columns.string?.[ONTOLOGY_MACHINE_NAME] ?? null),
+		flag: flagFromItems(columns.relation?.[ONTOLOGY_USE_MACHINE_NAME] ?? null),
+		nameClass: isNameClassNode(node),
+	});
+}
+
+/** A JSON node as the database must hold it: after the class-L rewrite (S / C / none: unchanged). */
+function materializedNode(node: DdOntologyNode): DdOntologyNode {
+	if (node.is_main === true) return node; // no source record: minted by the rebuild
+	const verdict = kernelVerdict(node);
+	if (verdict.class !== 'L') return node;
+	const items = verdict.termItems;
+	const term =
+		items === undefined
+			? node.term
+			: items.length === 0
+				? null
+				: Object.fromEntries(items.map((item) => [String(item.lang), String(item.value ?? '')]));
+	return {
+		...node,
+		term,
+		machine_name: verdict.machineName ?? node.machine_name,
+		use_machine_name: verdict.flag ?? node.use_machine_name,
+	};
+}
 
 /**
  * The still-foreign references the shipped ontology carries — FROZEN, with a
@@ -270,6 +323,33 @@ describe('test TLD ontology — the inverse parser (hermetic)', () => {
 		expect(wrong).toEqual([]);
 	});
 
+	test('the import rewrite converges the fixture in ONE pass: L everywhere it applies, never C (T1-P05)', () => {
+		const classes: Record<string, number> = { none: 0, L: 0, S: 0, C: 0 };
+		const notFixed: string[] = [];
+		for (const node of SOURCE_NODES) {
+			const verdict = kernelVerdict(node);
+			classes[verdict.class] = (classes[verdict.class] ?? 0) + 1;
+			if (verdict.class !== 'L') continue;
+			// The kernel over what the door stores answers `none`: a boot reconcile finds nothing.
+			const columns = ontologyRecordFromNode(node) as RecordColumns;
+			const again = convertCanonicalRecord({
+				termItems:
+					verdict.termItems ?? ((columns.string?.[ONTOLOGY_TERM] ?? []) as StoredLiteralItem[]),
+				nameValues:
+					verdict.machineName !== undefined
+						? [verdict.machineName]
+						: literalStrings(columns.string?.[ONTOLOGY_MACHINE_NAME] ?? null),
+				flag: verdict.flag ?? flagFromItems(columns.relation?.[ONTOLOGY_USE_MACHINE_NAME] ?? null),
+				nameClass: isNameClassNode(node),
+			});
+			if (again.class !== 'none') notFixed.push(`${node.tipo}: ${again.class}/${again.kind}`);
+		}
+		expect(notFixed).toEqual([]);
+		// Measured 2026-11-13: L 8406 (8155 flag_no + 251 move), S 9, C 0. Floor, not pin.
+		expect(classes.L).toBeGreaterThan(8000);
+		expect(classes.C).toBe(0);
+	});
+
 	test('anti-vacuity: a node WITHOUT properties writes no properties component', () => {
 		const bare = NODES.find((node) => node.properties === null) as DdOntologyNode;
 		const columns = ontologyRecordFromNode(bare) as Record<string, Record<string, unknown>>;
@@ -306,6 +386,25 @@ describe('test TLD ontology — the inverse parser (hermetic)', () => {
  * the phase does a fixed amount of work that never waits on another process.
  */
 const FETCH_BUDGET_MS = 120_000;
+
+/** The scratch tld of the import-rewrite leg (suite DB only, swept before and after). */
+const SCRATCH_TLD = 'zzmnd';
+/** Its name node's machine name. */
+const SCRATCH_NAME = 'zzmnd_t';
+
+/** Rows the scratch leg may leave: source records, projection, registry row, counter, TM. */
+async function scratchResidue(): Promise<number> {
+	const rows = (await sql.unsafe(
+		`SELECT (SELECT count(*) FROM matrix_ontology WHERE section_tipo = $1)
+		      + (SELECT count(*) FROM dd_ontology WHERE tld = $2)
+		      + (SELECT count(*) FROM matrix_ontology_main
+		          WHERE section_tipo = 'ontology35' AND string @> $3::text::jsonb)
+		      + (SELECT count(*) FROM matrix_counter WHERE tipo = $1)
+		      + (SELECT count(*) FROM matrix_time_machine WHERE section_tipo = $1) AS n`,
+		[`${SCRATCH_TLD}0`, SCRATCH_TLD, JSON.stringify({ hierarchy6: [{ value: SCRATCH_TLD }] })],
+	)) as { n: number | string }[];
+	return Number(rows[0]?.n ?? -1);
+}
 /** How many record parses may be in flight (pool-friendly; the pool queues the rest). */
 const PARSE_CONCURRENCY = 16;
 
@@ -431,7 +530,7 @@ describe('test TLD ontology — the database is derived from the JSON', () => {
 			}
 			parsed++;
 			if (back.tipo !== node.tipo) diffs.push(`${node.tipo}: parsed as ${back.tipo}`);
-			const columns = nodeDiffColumns(back, node);
+			const columns = nodeDiffColumns(back, materializedNode(node));
 			if (columns.length > 0) diffs.push(`${node.tipo}: ${columns.join(',')}`);
 		}
 		expect(diffs).toEqual([]);
@@ -459,10 +558,87 @@ describe('test TLD ontology — the database is derived from the JSON', () => {
 				diffs.push(`${node.tipo}: absent`);
 				continue;
 			}
-			const columns = nodeDiffColumns(node, row);
+			const columns = nodeDiffColumns(materializedNode(node), row);
 			if (columns.length > 0) diffs.push(`${node.tipo}: ${columns.join(',')}`);
 		}
 		expect(diffs).toEqual([]);
+	});
+
+	test('the door runs the import rewrite: a legacy-shaped node lands converted (zz scratch, T1-P05)', async () => {
+		const live = await currentDatabaseName();
+		const base = {
+			order_number: null,
+			relations: null,
+			tld: SCRATCH_TLD,
+			properties: null,
+			is_model: false,
+			is_translatable: true,
+			is_main: false,
+			propiedades: null,
+		};
+		// Legacy shape: the stated columns equal the legacy derivation, so the inverse
+		// writes no ontology43/44 — the record a pre-7.0 package carries.
+		const doc = {
+			tld: SCRATCH_TLD,
+			nodes: [
+				{
+					...base,
+					tipo: `${SCRATCH_TLD}2`,
+					parent: `${SCRATCH_TLD}0`,
+					term: { 'lg-spa': 'Zzmnd etiqueta', 'lg-eng': 'Zzmnd label' },
+					model: 'section',
+					model_tipo: 'dd6',
+					machine_name: null,
+					use_machine_name: false,
+				},
+				{
+					...base,
+					tipo: `${SCRATCH_TLD}1`,
+					parent: `${SCRATCH_TLD}2`,
+					term: { 'lg-spa': SCRATCH_NAME },
+					model: 'table',
+					model_tipo: 'dd1229',
+					machine_name: SCRATCH_NAME,
+					use_machine_name: true,
+				},
+			] as DdOntologyNode[],
+		};
+		await sweepMachineNameScratch(SCRATCH_TLD);
+		try {
+			const result = await materializeTestTldOntology({ expectDatabase: live, doc });
+			expect(result.nodes).toBe(2);
+			const census = await censusMachineNames([SCRATCH_TLD]);
+			expect(census.scanned).toBe(2); // floor: both records judged
+			expect(census.classes).toEqual({ none: 2, L: 0, S: 0, C: 0 });
+			const state = await inspectOntology(SCRATCH_TLD);
+			expect(state.machineNameLegacyRungs).toEqual({
+				derived_flag: 0,
+				legacy_lang: 0,
+				single_value: 0,
+			});
+			const rows = (await sql.unsafe(
+				`SELECT tipo, term, machine_name, use_machine_name FROM dd_ontology
+				  WHERE tld = $1 AND tipo <> $2 ORDER BY tipo`,
+				[SCRATCH_TLD, `${SCRATCH_TLD}0`],
+			)) as {
+				tipo: string;
+				term: Record<string, string> | null;
+				machine_name: string | null;
+				use_machine_name: boolean;
+			}[];
+			expect(rows).toEqual([
+				{ tipo: `${SCRATCH_TLD}1`, term: null, machine_name: SCRATCH_NAME, use_machine_name: true },
+				{
+					tipo: `${SCRATCH_TLD}2`,
+					term: { 'lg-spa': 'Zzmnd etiqueta', 'lg-eng': 'Zzmnd label' },
+					machine_name: null,
+					use_machine_name: false,
+				},
+			]);
+		} finally {
+			await sweepMachineNameScratch(SCRATCH_TLD);
+		}
+		expect(await scratchResidue()).toBe(0);
 	});
 
 	test('the door is FAIL-CLOSED about which database it writes to', async () => {
@@ -479,7 +655,7 @@ describe('test TLD ontology — the database is derived from the JSON', () => {
 		expect(live).not.toBe('');
 		await expect(
 			materializeTestTldOntology({ expectDatabase: live, doc: { tld: 'zzq', nodes: [] } }),
-		).resolves.toEqual({ tlds: [], nodes: 0, rebuilt: [], strays: [] });
+		).resolves.toEqual({ tlds: [], nodes: 0, rebuilt: [], strays: [], machineNames: [] });
 	});
 
 	test('every test SECTION stores in matrix_test (no test record in an install table)', () => {

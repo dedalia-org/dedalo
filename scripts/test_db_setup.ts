@@ -585,6 +585,8 @@ const testTld = await materializeTestTldOntology({ expectDatabase: testDb });
 console.log(
 	`[test-db] test TLD ontology materialized from JSON: ${testTld.nodes} records in ${testTld.tlds.length} TLDs — ${testTld.rebuilt.length} rebuilt${testTld.strays.length > 0 ? ` (STRAY records not in the JSON: ${testTld.strays.join(', ')})` : ''}`,
 );
+// The package import rewrite the door ran per TLD (machine names, class L — T1-P05).
+for (const line of testTld.machineNames) console.log(`[test-db]   ${line}`);
 
 // 3c. The canonical test3 PLAYGROUND records (src/core/test_data/seed.ts — the
 // single verified source, WC-021). The seed ships none; the preload restores
