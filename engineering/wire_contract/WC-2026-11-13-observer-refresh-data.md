@@ -155,9 +155,22 @@ script calling `propagateToObservers` directly — fired the clear). That defaul
   `'keys' | 'replace' | 'birth' | 'death' | 'recompute' | 'hop'` (`refresh_data.ts`
   `OBSERVED_CHANGE_ORIGINS`).
 - **Runtime**: `propagateToObservers` REFUSES (`internal.invariant`, the caller's bug — thrown
-  before any edge is read, never swallowed, never counted as a propagation failure) a change
-  whose origin is missing or outside the set. `refreshDataFiresOn` takes the origin alone; no
-  branch reads `undefined`.
+  before any edge is read, outside the kernel's own try) a change whose origin is missing or
+  outside the set. `refreshDataFiresOn` takes the origin alone; no branch reads `undefined`.
+  *Corrected 2026-11-14 (review)*: the first wording said "never swallowed, never counted". A
+  DIRECT caller (a gate, a script) does see the throw; the two production callers run after
+  COMMIT under their own catch — the ledger drain (`obligation_ledger.ts drainEntry`, counted
+  `observers_propagation_failed`) and the cascade hop (`observers_cascade_hop_failed`) — so there
+  a refusal is logged and counted like any failure. That is why the set is PINNED TO THE TYPE
+  rather than left to a runtime refusal nobody awaits: `ObservedChangeOrigin` is derived from the
+  ledger's declaration union (`Exclude<ObservedDeclaration['kind'], 'none' | 'cascade-owned'> |
+  'hop'`), `OBSERVED_CHANGE_ORIGINS` is derived from an `ORIGIN_KINDS` object that `satisfies
+  Record<ObservedChangeOrigin, true>` (a kind added to the ledger and not listed does not
+  compile), and the gate compares the set with the ledger's exported `DECLARATION_KINDS` instead
+  of iterating the set itself (the first gate was tautological). `observers.ts` imports the
+  refresh_data pure half STATICALLY (the dispatch's `await import('./refresh_data.ts')` is gone:
+  the module was already on the static graph through the refusal, so the dynamic edge deferred
+  nothing — CONVENTIONS §2).
 - **Producers**: the ledger drain (`entry.origin` = the declaration kind) and the cascade hop
   (`'hop'`) already named theirs; every direct dispatch in the gates now states `origin`.
 - Gates: `observer_failsafe_native` ("origin is REQUIRED": the type has no `?` + every

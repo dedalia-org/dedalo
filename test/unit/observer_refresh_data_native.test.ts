@@ -60,6 +60,7 @@ import {
 	refreshDataTrigger,
 } from '../../src/core/section/record/refresh_data.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
+import { DECLARATION_KINDS } from '../../src/core/section_record/obligation_ledger.ts';
 import { persistRecordColumns } from '../../src/core/section_record/record_write.ts';
 import {
 	dropSituation,
@@ -352,7 +353,22 @@ describe('the closed grammar (pure)', () => {
 		// Every origin is adjudicated; nothing outside the closed set is read as a save.
 		expect(isObservedChangeOrigin(undefined)).toBe(false);
 		expect(isObservedChangeOrigin('save')).toBe(false);
-		for (const origin of OBSERVED_CHANGE_ORIGINS) expect(isObservedChangeOrigin(origin)).toBe(true);
+		// THE SET IS COMPLETE — judged against the ledger's OWN exhaustive kind table
+		// (obligation_ledger.ts DECLARATION_KINDS, a Record over the declaration
+		// union), never against itself: every kind that reaches propagation (all but
+		// `none` and `cascade-owned`, which never enqueue) plus the cascade 'hop'. A
+		// kind added to the ledger and left out of the kernel's set would make the
+		// kernel refuse every drain of it (counted observers_propagation_failed,
+		// every observer of it stale) with tsc and every gate green — RED here.
+		const ledgerOrigins = Object.keys(DECLARATION_KINDS).filter(
+			(kind) => kind !== 'none' && kind !== 'cascade-owned',
+		);
+		expect(ledgerOrigins.length).toBeGreaterThanOrEqual(5);
+		const kernelOrigins: string[] = [...OBSERVED_CHANGE_ORIGINS];
+		expect(kernelOrigins.sort()).toEqual([...ledgerOrigins, 'hop'].sort());
+		for (const origin of ledgerOrigins) expect(isObservedChangeOrigin(origin)).toBe(true);
+		expect(isObservedChangeOrigin('none')).toBe(false);
+		expect(isObservedChangeOrigin('cascade-owned')).toBe(false);
 		expect(refreshDataTrigger({ saved: [b], removed: [], origin: 'hop' })).toBe('changed');
 		expect(refreshDataTrigger({ saved: [a], removed: [], before: [a], origin: 'keys' })).toBe(
 			'unchanged',

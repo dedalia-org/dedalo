@@ -71,6 +71,8 @@
 
 import { canonicalEquals } from '../../concepts/canonical_json.ts';
 import { DATAFRAME_RELATION_TYPE } from '../../concepts/subdatum.ts';
+// type-only (erased): the ledger's declaration kinds ARE the origins but 'hop'.
+import type { ObservedDeclaration } from '../../section_record/obligation_ledger.ts';
 
 /** The one action the closed grammar admits. */
 export interface RefreshDataAction {
@@ -105,7 +107,9 @@ export type ParsedRefreshData = RefreshDataParams | RefreshDataRefusal;
  * Read by ONE consumer, the `refresh_data` trigger: a mirror recompute reads
  * truth and is indifferent to the door.
  */
-export type ObservedChangeOrigin = 'keys' | 'replace' | 'birth' | 'death' | 'recompute' | 'hop';
+export type ObservedChangeOrigin =
+	| Exclude<ObservedDeclaration['kind'], 'none' | 'cascade-owned'>
+	| 'hop';
 
 /** The origins the destructive clear fires from — a component save and the hop (see the header). */
 const FIRING_ORIGINS: ReadonlySet<ObservedChangeOrigin> = new Set(['keys', 'hop']);
@@ -246,15 +250,30 @@ export function refreshDataTrigger(change: {
 	return observedValueChanged(change) ? 'changed' : 'unchanged';
 }
 
+/**
+ * Every origin, as a Record over the union — EXHAUSTIVE by construction
+ * (`satisfies`: a ledger kind added to ObservedDeclaration and not listed here,
+ * or a key the union does not carry, does not compile). The runtime set below
+ * is DERIVED from it, never hand-maintained beside the type: a member left out
+ * of a `new Set([...])` is no type error, and the kernel would refuse every
+ * drain of that kind — caught by the ledger drain's post-COMMIT catch, counted
+ * `observers_propagation_failed`, every observer of it stale until the
+ * reconciler. Twin of obligation_ledger.ts DECLARATION_KINDS; the gate
+ * (observer_refresh_data_native) compares the two.
+ */
+const ORIGIN_KINDS = {
+	keys: true,
+	replace: true,
+	birth: true,
+	death: true,
+	recompute: true,
+	hop: true,
+} as const satisfies Record<ObservedChangeOrigin, true>;
+
 /** The closed set of origins (observers.ts ObservedChange.origin) — what the kernel refuses a dispatch outside of. */
-export const OBSERVED_CHANGE_ORIGINS: ReadonlySet<ObservedChangeOrigin> = new Set([
-	'keys',
-	'replace',
-	'birth',
-	'death',
-	'recompute',
-	'hop',
-]);
+export const OBSERVED_CHANGE_ORIGINS: ReadonlySet<ObservedChangeOrigin> = new Set(
+	Object.keys(ORIGIN_KINDS) as ObservedChangeOrigin[],
+);
 
 /** Is `value` one of the closed origins? (The kernel's runtime half of the REQUIRED `origin`.) */
 export function isObservedChangeOrigin(value: unknown): value is ObservedChangeOrigin {

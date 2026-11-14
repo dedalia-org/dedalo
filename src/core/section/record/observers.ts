@@ -130,11 +130,16 @@ import {
 	isSqoFilter,
 	type ObserveEntry,
 } from './observer_subscriptions.ts';
-// type-only: the refresh_data pure half is reached by DYNAMIC import on the dispatch path.
+// The refresh_data PURE half (a leaf: concepts/ only) — STATIC since the origin
+// refusal (A4 Q3, 2026-11-14) reads its set on every dispatch; the dispatch
+// below reaches the grammar and the trigger through the same static edge (no
+// cycle: refresh_data.ts imports nothing of section/record/).
 import {
 	isObservedChangeOrigin,
 	OBSERVED_CHANGE_ORIGINS,
 	type ObservedChangeOrigin,
+	parseRefreshDataParams,
+	refreshDataTrigger,
 } from './refresh_data.ts';
 
 /**
@@ -511,7 +516,13 @@ export async function propagateToObservers(
 	now: Date = new Date(),
 	cascade?: CascadeGuard,
 ): Promise<unknown[]> {
-	// The caller's bugs, thrown before anything runs (never swallowed below).
+	// The caller's bugs, thrown before anything runs — outside the try below, so
+	// a DIRECT caller (a gate, a script) sees the throw. The two production
+	// callers run after COMMIT under their own catch (the ledger drain counts
+	// `observers_propagation_failed`, the hop `observers_cascade_hop_failed`):
+	// there a refusal is logged + counted like any failure, which is why the
+	// origin set is pinned to the type (refresh_data.ts ORIGIN_KINDS) and not
+	// left to a runtime refusal nobody awaits.
 	refuseMisusedDispatch(observedTipo, sectionTipo, sectionId, observed);
 	const observersData: unknown[] = [];
 	try {
@@ -1123,7 +1134,6 @@ async function dispatchRefreshData(
 	now: Date,
 	guard: CascadeGuard,
 ): Promise<void> {
-	const { parseRefreshDataParams, refreshDataTrigger } = await import('./refresh_data.ts');
 	const params = parseRefreshDataParams(server.perform?.params);
 	if ('refused' in params) {
 		console.error(

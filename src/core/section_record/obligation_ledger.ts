@@ -414,9 +414,11 @@ async function transactionGuard(): Promise<CascadeGuard> {
 /**
  * Every kind an ObservedDeclaration may carry — the runtime twin of the type,
  * EXHAUSTIVE by construction (a Record over the union: a new kind that is not
- * listed here does not compile).
+ * listed here does not compile). Exported for ONE reader: the gate that holds
+ * the kernel's origin set (section/record/refresh_data.ts OBSERVED_CHANGE_ORIGINS)
+ * equal to these kinds minus the two that never reach propagation, plus 'hop'.
  */
-const DECLARATION_KINDS: Readonly<Record<ObservedDeclaration['kind'], true>> = {
+export const DECLARATION_KINDS: Readonly<Record<ObservedDeclaration['kind'], true>> = {
 	keys: true,
 	replace: true,
 	birth: true,
