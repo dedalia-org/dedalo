@@ -518,6 +518,28 @@ describe('L12 a stem another record of the section holds is refused on save AND 
 		expect(await resolveFileIdOverride(IMAGE, SECTION, a)).toBe(stem);
 	}, 60_000);
 
+	test('a PADDED holder is matched too: the sibling is STORED TRIMMED, so " photo_N" on A and "photo_N" on B cannot coexist (2026-11-14)', async () => {
+		const a = await scratchRecord();
+		const b = await scratchRecord();
+		const stem = stemFor(a);
+		await setValue(a, STEM_SIBLING, `  ${stem} `);
+		// The stored byte IS the stem (the probe reads the stored value byte-exact).
+		const stored = (await readRecord(a)).columns.string as Record<
+			string,
+			{ value?: unknown }[]
+		> | null;
+		expect(stored?.[STEM_SIBLING]?.map((item) => item.value)).toEqual([stem]);
+		expect(await resolveFileIdOverride(IMAGE, SECTION, a)).toBe(stem);
+		// Before: A's padded value missed B's exact probe and both resolved photo_N.
+		const refusal = await setValue(b, STEM_SIBLING, stem).then(
+			() => null,
+			(error: unknown) => error as { code?: string; details?: Record<string, unknown> },
+		);
+		expect(refusal?.code).toBe('media.stem_in_use');
+		expect(refusal?.details?.section_id).toBe(a);
+		expect(await resolveFileIdOverride(IMAGE, SECTION, b)).toBeNull();
+	}, 60_000);
+
 	test('a PHP-era pair already sharing a stem: the UPLOAD to one is refused before anything moves', async () => {
 		const { sectionId: a, stem } = await stemRecord();
 		const b = await scratchRecord();
@@ -596,6 +618,39 @@ describe('L13 the sibling is LOCKED while managed files exist under its stem (OD
 			rmSync(file.absolutePath);
 			await setValue(sectionId, STEM_SIBLING, renamed);
 			expect(await resolveFileIdOverride(IMAGE, SECTION, sectionId)).toBe(renamed);
+		} finally {
+			rmSync(file.absolutePath, { force: true });
+		}
+	}, 60_000);
+
+	test('files uploaded while the sibling was EMPTY sit under the IDENTIFIER: setting a first stem is refused naming them; after they are gone it saves (2026-11-14)', async () => {
+		const sectionId = await scratchRecord();
+		// An empty sibling resolves no stem: the upload lands under {component}_{section}_{id}.
+		const resolved = await resolveMediaPathOptions(IMAGE, SECTION, sectionId);
+		expect(resolved.fileIdOverride).toBeNull();
+		const file = buildMediaLocation(image, identityOf(sectionId), 'original', 'jpg', resolved);
+		expect(file.relativePath.endsWith(`/${IMAGE}_${SECTION}_${sectionId}.jpg`)).toBe(true);
+		if (existsSync(file.absolutePath)) {
+			throw new Error(`refusing to adopt an existing file: ${file.absolutePath}`);
+		}
+		mkdirSync(dirname(file.absolutePath), { recursive: true });
+		writeFileSync(file.absolutePath, 'not-a-jpeg: the lock asks only whether the file exists');
+		try {
+			const stem = stemFor(sectionId);
+			// Before: the lock ran only for a NON-EMPTY stored stem, so this saved and
+			// the uploaded files were orphaned under the identifier (the PHP behaviour).
+			const refusal = await setValue(sectionId, STEM_SIBLING, stem).then(
+				() => null,
+				(error: unknown) => error as { code?: string; details?: Record<string, unknown> },
+			);
+			expect(refusal?.code).toBe('media.stem_locked');
+			expect(String(refusal?.details?.files)).toContain(file.relativePath);
+			expect(await resolveFileIdOverride(IMAGE, SECTION, sectionId)).toBeNull();
+			expect(existsSync(file.absolutePath)).toBe(true);
+			// The remedy: delete the media first — then the first stem saves.
+			rmSync(file.absolutePath);
+			await setValue(sectionId, STEM_SIBLING, stem);
+			expect(await resolveFileIdOverride(IMAGE, SECTION, sectionId)).toBe(stem);
 		} finally {
 			rmSync(file.absolutePath, { force: true });
 		}

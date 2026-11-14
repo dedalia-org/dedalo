@@ -206,13 +206,16 @@ Merged since the last release; these ship with the next one.
     `image_id`, e.g. **Filename** on Images). Before, two records could hold the same file name
     and then address the SAME files: an upload to one replaced the other's image, deleting one
     moved the other's files away, and every duplicate of such a record shared its original's files.
-    Changing the file name after an upload left the files behind under the old name.
+    Changing the file name after an upload left the files behind under the old name — and so did
+    setting a file name for the first time on a record whose image had been uploaded without one.
 
     Now saving a file name another record of the same section already uses is refused and the
     message names that record; an upload under a file name another record holds is refused before
-    anything is written. A record whose image files exist cannot change (or clear) its file name:
-    the message lists the files and the remedy — delete the image's files first, then rename. A
-    duplicated record is created WITHOUT the original's file name, so its copied files are named by
+    anything is written. A record whose image files exist cannot change (or clear) its file name,
+    nor set a first one while files uploaded under the record's identifier exist: the message lists
+    the files and the remedy — delete the image's files first, then rename (or set the name and upload
+    again). A file name is saved without surrounding spaces, so two spellings that differ only by a
+    space cannot name the same files. A duplicated record is created WITHOUT the original's file name, so its copied files are named by
     its own identifier; give it a new file name of its own before uploading if you want one.
 
     **Action needed:** none. Records that already share a file name (written before this release)

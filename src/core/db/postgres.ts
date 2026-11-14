@@ -1952,6 +1952,34 @@ export async function acquireNodeLock(
 }
 
 /**
+ * Acquire the transaction-scoped advisory lock of ONE CLAIMED VALUE — "no other
+ * record of `sectionTipo` holds `value` on `componentTipo`" (media/stem_rules.ts
+ * C20 c, the image_id stem). The uniqueness probe is a READ COMMITTED SELECT over
+ * the OTHER rows: two transactions claiming the same new value on two records lock
+ * disjoint owner rows, neither sees the other's uncommitted UPDATE, and both
+ * commit (the TOCTOU). Serialising the probe-and-write on the claimed value — one
+ * key per (section, component, value) — closes it: the second claimant waits for
+ * the first's COMMIT and then sees the holder. Releases at COMMIT/ROLLBACK;
+ * callable only inside a transaction.
+ */
+export async function acquireValueClaimLock(
+	sectionTipo: string,
+	componentTipo: string,
+	value: string,
+): Promise<void> {
+	if (!isInTransaction()) {
+		throw new DedaloError('internal.invariant', {
+			message:
+				'acquireValueClaimLock: called outside a transaction; the lock would be ineffective (call inside withTransaction)',
+			coordinates: { section_tipo: sectionTipo, tipo: componentTipo },
+		});
+	}
+	await sql.unsafe('SELECT pg_advisory_xact_lock(hashtext($1))', [
+		`claim:${sectionTipo}:${componentTipo}:${value}`,
+	]);
+}
+
+/**
  * Close both pools (tests and graceful shutdown), MAINTENANCE FIRST and BOUNDED.
  * A maintenance statement is unbounded by design (a data update, a REINDEX), so
  * an unconditional `end()` would wait for it — hours — and the orphaned

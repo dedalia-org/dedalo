@@ -833,18 +833,26 @@ async function assertStemRuledKeys(
 
 /**
  * §3i — the savePath items that write an image_id SIBLING of the target's
- * section (media/stem_rules.ts stemRuledKeys), with the value as it will be
- * stored. Dynamic import: the media subsystem reads this module's birth law.
+ * section (media/stem_rules.ts normalizeStemRuledItems), with the value as it
+ * will be stored — a sibling's string items TRIMMED (the stem IS the stored
+ * value, so the uniqueness probe reads what the resolver reads) — and the
+ * savePath with those items in their stored form (every other item as given).
+ * Dynamic import: the media subsystem reads this module's birth law.
  */
 async function stemRuledPath(
 	target: RecordWriteTarget,
 	savePath: readonly SavePathItem[],
-): Promise<import('../media/stem_rules.ts').StemRuledKey[]> {
+): Promise<{
+	ruled: import('../media/stem_rules.ts').StemRuledKey[];
+	savePath: readonly SavePathItem[];
+}> {
 	// The relation and media columns never hold a sibling (a literal component).
-	const literal = savePath.filter((item) => item.column !== 'relation' && item.column !== 'media');
-	if (literal.length === 0) return [];
-	const { stemRuledKeys } = await import('../media/stem_rules.ts');
-	return stemRuledKeys(target.sectionTipo, literal);
+	if (!savePath.some((item) => item.column !== 'relation' && item.column !== 'media')) {
+		return { ruled: [], savePath };
+	}
+	const { normalizeStemRuledItems } = await import('../media/stem_rules.ts');
+	const { items, ruled } = await normalizeStemRuledItems(target.sectionTipo, savePath);
+	return { ruled, savePath: ruled.length === 0 ? savePath : items };
 }
 
 /**
@@ -903,14 +911,14 @@ async function writeKeys(
 	//    too — its stored value is read under the row lock and judged (unique in
 	//    the section; locked while files exist under it) before the UPDATE. One
 	//    cached Map lookup per key for every other write.
-	const stemRuled = await stemRuledPath(target, savePath);
+	const { ruled: stemRuled, savePath: storedPath } = await stemRuledPath(target, savePath);
 
 	if (!needsTransactionPath(plan, parentLink, stemRuled.length > 0)) {
 		const affected = await updateMatrixKeysData(
 			target.table,
 			target.sectionTipo,
 			target.sectionId,
-			[...savePath, ...auditWrites],
+			[...storedPath, ...auditWrites],
 		);
 		assertRecordStillExists(affected, target, mode.door);
 		await afterRecordWrite(target, {
@@ -923,7 +931,7 @@ async function writeKeys(
 			receipt: derived.receipt,
 		});
 		await requestRestoredSlotRecompute(target, plan.recomputed, audit, derived);
-		derived.onWritten?.(savePath);
+		derived.onWritten?.(storedPath);
 		return;
 	}
 
@@ -942,7 +950,7 @@ async function writeKeys(
 			target.table,
 			target.sectionTipo,
 			target.sectionId,
-			[...savePath, ...indexWrites, ...auditWrites],
+			[...storedPath, ...indexWrites, ...auditWrites],
 		);
 		assertRecordStillExists(affected, target, mode.door);
 		await afterRecordWrite(target, {
@@ -956,7 +964,7 @@ async function writeKeys(
 		});
 		await requestRestoredSlotRecompute(target, plan.recomputed, audit, derived);
 	});
-	derived.onWritten?.(savePath);
+	derived.onWritten?.(storedPath);
 }
 
 /**

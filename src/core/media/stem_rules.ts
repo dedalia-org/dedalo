@@ -41,6 +41,7 @@ import { config } from '../../config/config.ts';
 import { mediaTypeOf } from '../concepts/media.ts';
 import { type MatrixJsonbColumn, readOtherSectionIdsHoldingValue } from '../db/matrix.ts';
 import { type MatrixWriteValues, readMatrixKeyForUpdate } from '../db/matrix_write.ts';
+import { acquireValueClaimLock, isInTransaction, withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { createOntologyCache } from '../ontology/cache_factory.ts';
 import {
@@ -163,6 +164,50 @@ export async function stemRuledKeys(
 	return ruled;
 }
 
+/**
+ * THE STORED FORM of an image_id sibling (C20 c, 2026-11-14): its string items
+ * are stored TRIMMED. The stem is the trimmed value (stemOf — the resolver's
+ * rule), and the uniqueness probe is a byte-exact containment on the STORED
+ * value: a padded value stored verbatim (' photo_2') would resolve to the same
+ * stem as another record's 'photo_2' and never be matched by either record's
+ * probe — the shared-files state the rule exists to refuse, created by the
+ * engine itself. Storing the stem makes the stored value WHAT THE PROBE READS.
+ * Returns the items with every ruled key's string item values trimmed (other
+ * items and non-string values untouched), and the ruled keys as they will be
+ * stored. A section with no sibling returns the items as given.
+ */
+export async function normalizeStemRuledItems<T extends { key: string; value: unknown }>(
+	sectionTipo: string,
+	items: readonly T[],
+): Promise<{ items: T[]; ruled: StemRuledKey[] }> {
+	if (items.length === 0) return { items: [...items], ruled: [] };
+	const siblings = await imageIdSiblingsOf(sectionTipo);
+	if (siblings.size === 0) return { items: [...items], ruled: [] };
+	const normalized: T[] = [];
+	const ruled: StemRuledKey[] = [];
+	for (const item of items) {
+		const sibling = siblings.get(item.key);
+		if (sibling === undefined) {
+			normalized.push(item);
+			continue;
+		}
+		const value = trimmedStringItems(item.value);
+		normalized.push({ ...item, value });
+		ruled.push({ sibling, value });
+	}
+	return { items: normalized, ruled };
+}
+
+/** The items array with every string `value` trimmed; anything that is not an item array is returned as is. */
+function trimmedStringItems(value: unknown): unknown {
+	if (!Array.isArray(value)) return value;
+	return value.map((item) => {
+		if (item === null || typeof item !== 'object' || Array.isArray(item)) return item;
+		const entry = item as { value?: unknown };
+		return typeof entry.value === 'string' ? { ...entry, value: entry.value.trim() } : item;
+	});
+}
+
 /** The stem a stored (or to-be-stored) sibling value names: the resolver's flat rule, trimmed. */
 function stemOf(value: unknown): string {
 	return flatItemsValue(value).trim();
@@ -171,8 +216,13 @@ function stemOf(value: unknown): string {
 /**
  * §3i — THE STEM RULES over one write's ruled keys, inside the write's
  * transaction (the row lock is the writer's; a refusal rolls the write back):
- * C22 (a non-empty stored stem is not changed while files exist under it), then
- * C20 (the new stem is held by no other record of the section).
+ * C22 (the name the image's files are addressed by is not changed while files
+ * exist under it — a stored stem, or the record's IDENTIFIER when the sibling
+ * was empty at upload time: setting the first stem re-addresses those files as
+ * surely as a rename does, and PHP orphaned them the same way), then C20 (the
+ * new stem is held by no other record of the section — judged under the claim
+ * lock of that value, so two concurrent claims serialise instead of both
+ * committing).
  */
 export async function assertImageIdStemRules(
 	owner: StemRuleOwner,
@@ -189,31 +239,37 @@ export async function assertImageIdStemRules(
 			sibling.tipo,
 		);
 		const before = stemOf(stored);
-		if (before !== '' && before !== after) {
-			await assertNoFilesUnderStem(owner, sibling, before, door);
-		}
-		if (after !== '' && after !== before) {
+		if (before === after) continue;
+		// C22: files under the CURRENT address — the stored stem, or the identifier.
+		await assertNoFilesUnderStem(owner, sibling, before === '' ? null : before, door);
+		if (after !== '') {
+			await acquireValueClaimLock(owner.sectionTipo, sibling.tipo, after);
 			await assertStemNotHeldElsewhere(owner, sibling, after, door);
 		}
 	}
 }
 
 /**
- * C22 — every managed file of every image the sibling names, under the STORED
- * stem, must be gone before the stem changes. The remedy is in the sentence.
+ * C22 — every managed file of every image the sibling names, under the address
+ * the files have NOW (`storedStem`, or null: the record's identifier, the name
+ * an upload lands under while the sibling is empty), must be gone before that
+ * address changes. The remedy is in the sentence.
  */
 async function assertNoFilesUnderStem(
 	owner: StemRuleOwner,
 	sibling: ImageIdSibling,
-	storedStem: string,
+	storedStem: string | null,
 	door: string,
 ): Promise<void> {
 	const found = await filesUnderStem(owner, sibling, storedStem);
 	if (found.length === 0) return;
 	const files = found.join(', ');
 	const sentence =
-		`The file name '${storedStem}' cannot be changed while media files exist under it ` +
-		`(${files}): delete the media first, then rename`;
+		storedStem === null
+			? `The file name cannot be set while media files exist under the record's identifier ` +
+				`(${files}): delete the media first, then set the file name and upload again`
+			: `The file name '${storedStem}' cannot be changed while media files exist under it ` +
+				`(${files}): delete the media first, then rename`;
 	throw new DedaloError('media.stem_locked', {
 		message: `${door}: ${owner.sectionTipo}/${owner.sectionId} ${sibling.tipo} → ${sentence}`,
 		publicMessage: sentence,
@@ -222,7 +278,7 @@ async function assertNoFilesUnderStem(
 			section_tipo: owner.sectionTipo,
 			section_id: owner.sectionId,
 			tipo: sibling.tipo,
-			stem: storedStem,
+			stem: storedStem ?? '',
 			door,
 		},
 	});
@@ -241,10 +297,11 @@ async function assertNoFilesUnderStem(
 async function filesUnderStem(
 	owner: StemRuleOwner,
 	sibling: ImageIdSibling,
-	stem: string,
+	stem: string | null,
 ): Promise<string[]> {
 	const spec = mediaTypeOf('component_image');
-	if (config.media.rootPath === null || !isMediaFileStemName(stem) || spec === null) return [];
+	if (config.media.rootPath === null || spec === null) return [];
+	if (stem !== null && !isMediaFileStemName(stem)) return [];
 	const found: string[] = [];
 	for (const imageTipo of sibling.imageTipos) {
 		const pathOpts = {
@@ -337,12 +394,15 @@ export async function assertUploadStemFree(identity: MediaIdentity, stem: string
 	if (sibling === undefined) return;
 	const table = await getMatrixTableFromTipo(identity.sectionTipo);
 	if (table === null) return;
-	await assertStemNotHeldElsewhere(
-		{ table, sectionTipo: identity.sectionTipo, sectionId: identity.sectionId },
-		sibling,
-		stem,
-		'processUploadedFile',
-	);
+	const owner = { table, sectionTipo: identity.sectionTipo, sectionId: identity.sectionId };
+	// Under the value's claim lock (a save claiming this stem on another record
+	// at the same moment waits, or is waited for — never both admitted).
+	const judge = async (): Promise<void> => {
+		await acquireValueClaimLock(identity.sectionTipo, sibling.tipo, stem);
+		await assertStemNotHeldElsewhere(owner, sibling, stem, 'processUploadedFile');
+	};
+	if (isInTransaction()) await judge();
+	else await withTransaction(judge);
 }
 
 /** What the duplicate cleared on its clone (C20 b): one entry per stripped sibling. */

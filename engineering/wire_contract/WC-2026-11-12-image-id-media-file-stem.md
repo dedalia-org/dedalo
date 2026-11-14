@@ -146,3 +146,33 @@ other record can share them any more); divergence 4's OD-2 (`external_source` pr
 deferred (C21).
 
 No frozen fixture is affected; no re-harvest.
+
+## Addendum 2026-11-14 — the stored sibling IS the stem; the identifier address is locked too; claims serialise (review of b294611060)
+
+Three gaps of the 2026-11-13 addendum, found by review and closed the same day. No owner
+ruling is touched — each is the ruled rule applied where it was not:
+
+1. **The sibling is STORED TRIMMED (C20 c).** The probe is byte-exact on the stored item value
+   while the stem is the TRIMMED value, so the engine itself could store `' photo_2'` on record 5
+   (no holder of `'photo_2'`), then accept `'photo_2'` on record 7 (no holder of the exact byte):
+   two records, one stem — the shared-files state C20 refuses. The write chokepoint now stores an
+   image_id sibling's string items trimmed (`normalizeStemRuledItems`, record_write.ts §3i), so a
+   stored value and the stem it names are the same bytes and the probe is exact for every value
+   this engine writes. The save echo carries the stored (trimmed) value. A PHP-era padded residue
+   stays what the addendum above says it is; the engine no longer adds to it.
+2. **The IDENTIFIER address is locked (C22 c).** The lock ran only when the STORED stem was
+   non-empty. Files uploaded while the sibling was empty are named `{component}_{section}_{id}`;
+   setting a first stem re-addresses them exactly as a rename does, and left them orphaned under
+   the identifier (the PHP behaviour the ruling closes). Now every change of the address the files
+   have — stored stem OR identifier — is judged: `media.stem_locked`, the sentence for the
+   identifier case reading `The file name cannot be set while media files exist under the record's
+   identifier (<files>): delete the media first, then set the file name and upload again`.
+3. **Claims serialise (C20 c).** The holder probe is a READ COMMITTED read over the other rows;
+   two transactions claiming the same new stem on two records locked disjoint owner rows and both
+   committed. Save and upload now take `pg_advisory_xact_lock(hashtext('claim:<section>:<sibling>:<stem>'))`
+   (db/postgres.ts `acquireValueClaimLock`) before the probe, inside the write's transaction (the
+   upload door opens one for the probe), so the second claimant waits for the first's COMMIT and
+   sees the holder.
+
+Gates: media_image_id_native L12 (padded holder refused — RED before), L13 (identifier files lock
+the first stem — RED before). No frozen fixture is affected; no re-harvest.
