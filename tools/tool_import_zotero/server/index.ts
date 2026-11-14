@@ -26,8 +26,10 @@
  * IDENTITY: an item is matched by its Zotero KEY (the `id` URI's last segment)
  * in the code component the map's `id` entry names, or by the full URI stored
  * there (PHP's `*\/<key>` suffix leg, made exact); none ⇒ the record is created.
- * The `field_to_section_id` variable (default `call-number`), which PHP cast to
- * the record's section_id, is a SECOND IDENTIFIER (owner C18, 2026-11-13):
+ * The `field_to_section_id` variable (PHP's default `call-number`; the shipped
+ * dd1633 names NONE since 2026-11-14 — Publications ships no call-number
+ * component, and the old default bound it to dd176, a LABEL node), which PHP
+ * cast to the record's section_id, is a SECOND IDENTIFIER (owner C18, 2026-11-13):
  * looked up — `findSectionIdByCode`, the same law as the MARC21 `id` — in the
  * component the map binds it to, written there trimmed; found ⇒ that record
  * (the key is written onto it too), absent ⇒ created, held by two records or
@@ -298,10 +300,11 @@ function itemName(record: ZoteroMappedRecord, index: number): string {
  * of this batch ⇒ the ITEM is refused: an `errors` line naming it, and the item
  * leaves `batch.mapped` (so the attachments phase never sees it). So is an item
  * whose identifier the config binds to a component that cannot hold a text (no
- * code can be looked up there — the shipped dd1633 binds `call-number` to a
- * node that is not a text component): the fix is named, the identity is never
- * narrowed to the key in silence. Answers the batch's coded records for
- * `resolveMappedCodes`.
+ * code can be looked up there — the pre-2026-11-14 dd1633 bound `call-number`
+ * to dd176, a label node; the shipped default now names no identifier, gated by
+ * tool_import_zotero_native "the SHIPPED default"): the fix is named, the
+ * identity is never narrowed to the key in silence. Answers the batch's coded
+ * records for `resolveMappedCodes`.
  */
 async function resolveIdentifiers(
 	batch: ReadBatch,

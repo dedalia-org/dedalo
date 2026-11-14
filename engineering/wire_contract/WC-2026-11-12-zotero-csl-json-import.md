@@ -132,3 +132,22 @@ Item 8 above is closed. The `main.field_to_section_id` variable (default
   `docs/development/tools/reference/tool_import_zotero.md`. Fragment
   `zotero-call-number-identifier-and-size-limit`.
 
+
+## Addendum 2026-11-14 — the SHIPPED default names no second identifier (C18 review gap)
+
+The addendum above said the shipped dd1633 "binds `call-number` → `dd176`, so an install
+without an override is unaffected". `dd176` is a LABEL node (`model: label`, "File name"),
+not a component: under C18 every item carrying a `call-number` was refused as not lookupable
+(`identifierLookupable`), and the Publications section (`rsc205`, real `rsc3`) ships no
+call-number component to bind it to. Corrected (owner question open — a `component_input_text`
+"Call number" on Publications would let the default bind one):
+
+- The register default (dd1633) and `sample_config.json` drop the `call-number` map entry and
+  the `main.field_to_section_id` entry: the shipped identity is the Zotero key alone; a
+  `call-number` in an export is an unmapped variable (one notice). The tool's descriptions
+  (dd612 ×6 langs, dd1362) say so. A Tools configuration override may still name a second
+  identifier bound to a code component.
+- Gate: `tool_import_zotero_native` "the SHIPPED default" — register ≡ sample; every tipo the
+  shipped map writes is a `component_*` node of the suite ontology (RED before: `dd176` =
+  `label`); an identifier, when named, binds to a string-column or IRI component other than
+  the key's. Docs: `docs/tools/using_import_zotero.md`, the reference. Fragment amended.

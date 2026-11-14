@@ -26,7 +26,7 @@ Use it for bulk ingest and re-ingest of references curated in Zotero. For Dédal
     - CSL **date** variables (issued, accessed, original-date…) → `{start, end?}`: the end kept only for a `date_mode: range` component, a clock-time `season` as the time; a text date (`raw`/`literal`, no `date-parts`) is refused, never stored empty.
     - `DOI` → `https://www.doi.org/<doi>` unless already a URL; any other variable → its text in the component's shape (an IRI component gets `{iri}`, an HTML one a paragraph).
     - `archive` → the attachment request (never a field).
-    - the `main.field_to_section_id` variable (default `call-number`) → its text, trimmed only, into the component the map binds it to — and the item's second **identifier** (below). It is never a record number.
+    - the `main.field_to_section_id` variable (e.g. `call-number`; the shipped default names none) → its text, trimmed only, into the component the map binds it to — and the item's second **identifier** (below). It is never a record number.
 5. **Identity.** First the identifier, per item (`resolveIdentifiers`): the `field_to_section_id` value is looked up EXACTLY (`findSectionIdByCode`, `src/core/tools/import_code_lookup.ts`) in the component the map binds its variable to, in the imported section, scoped to the importer. Found → that record (the key is written onto it too); absent → the key decides, else the record is created holding it; held by two records, or carried by an earlier item of the same export, or naming a record other than the one the item's key is held by → **that item** is refused (an `errors` line) and the rest of the export proceeds. Then the key, for the whole batch (`resolveMappedCodes`, shared with MARC21), before any write: the key — or the full URI — matched EXACTLY in the code component; none → create. A key twice in one batch, or held by two records, refuses the run. The read itself is bounded: an export over 64 MB (the CSV ceiling) is refused by its size on disk, listed in `errors`, and never opened.
 6. **Execute.** `importMappedRecords` (`src/core/tools/import_execute.ts`): one dd800 run, one transaction per record, the write door per field, the Values form appended to every record. A link (`MappedRecord.links`, `src/core/tools/import_link.ts`) is resolved inside the record's transaction: its name advisory-locked before the record's first write, found by exact name, else created with the run's birth marker and named; a name held by two records refuses the link only.
 7. **Attachments.** For each committed record with an `archive`: the file must be an entry of the same upload, staged and confined; `processUploadedFile` + `persistUploadedMedia` into `main.pdf`, then the PDF ingest's rendered cover into `main.identifying_image`. A failure is a report line; the record stays.
@@ -63,8 +63,7 @@ The shipped default (register dd1633, mirrored in `sample_config.json`) maps CSL
     { "name": "section", "tipo": "rsc205" },
     { "name": "pdf", "tipo": "rsc209" },
     { "name": "identifying_image", "tipo": "rsc228" },
-    { "name": "field_standard_number", "tipo": "rsc249" },
-    { "name": "field_to_section_id", "value": "call-number" }
+    { "name": "field_standard_number", "tipo": "rsc249" }
   ],
   "typology": [{ "name": "book", "value": [{ "section_id": 1, "section_tipo": "dd810" }] }],
   "standard_type": [{ "name": "ISBN", "value": [{ "section_id": 1, "section_tipo": "dd292" }] }]
@@ -75,7 +74,7 @@ The shipped default (register dd1633, mirrored in `sample_config.json`) maps CSL
 | --- | --- |
 | `map[].name` | The CSL variable. `id` is required: it names the code component a re-import matches on. |
 | `map[].ddo_map` | `[0]` the component written (must be in the imported section). A `[1]` whose `parent` is `[0].tipo` makes a link: the text names a record of `[1].section_tipo` by its `[1].tipo` component. |
-| `main` | `section`, `pdf`, `identifying_image`, `field_standard_number`, `field_to_section_id` — the CSL variable whose value is the item's second identifier; it must have a `map` entry (the component it is looked up in), and that entry may not be a link. |
+| `main` | `section`, `pdf`, `identifying_image`, `field_standard_number`, `field_to_section_id` — the CSL variable whose value is the item's second identifier; it must have a `map` entry (the component it is looked up in: a text or IRI component — one that holds a code), and that entry may not be a link. The shipped default names none: Publications (`rsc205`) has no call-number component (the earlier default bound `call-number` to `dd176`, a label node, which refused every item carrying one). Gate: `tool_import_zotero_native` "the SHIPPED default". |
 | `typology` / `standard_type` | CSL type / number kind → the list locators stored. |
 
 Do not edit dd1633: copy the full configuration into the Tools configuration (dd996) and edit it there — every key you set there replaces the register's key of the same name.

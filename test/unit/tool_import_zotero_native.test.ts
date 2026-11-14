@@ -32,16 +32,18 @@ import {
 	ftruncateSync,
 	mkdirSync,
 	openSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { config } from '../../src/config/config.ts';
+import { getComponentModel } from '../../src/core/components/registry.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
 import { ghostscriptAvailable } from '../../src/core/media/engine/ghostscript.ts';
 import { buildMediaLocation } from '../../src/core/media/path.ts';
 import { resolveMediaToolContext } from '../../src/core/media/tool_support.ts';
-import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
+import { getMatrixTableFromTipo, getModelByTipo } from '../../src/core/ontology/resolver.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
@@ -50,6 +52,7 @@ import { CSV_INGEST_MAX_BYTES } from '../../src/core/tools/import_csv.ts';
 import { lockLinkNames } from '../../src/core/tools/import_link.ts';
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
+import { readZoteroConfig } from '../../src/core/tools/zotero_map.ts';
 import { toolTimeMachineBulkRevert } from '../../tools/tool_time_machine/server/bulk_revert.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { refusalOf } from '../helpers/refusal.ts';
@@ -830,6 +833,72 @@ describe('the door: server config, sections, form values, files', () => {
 		expect((await itemsOf(bomId as number, 'string', 'test52')).map((i) => i.value)).toEqual([
 			`${RUN} Ñandú`,
 		]);
+	});
+});
+
+describe('the SHIPPED default (register dd1633 ≡ sample_config.json) — C18 review gap', () => {
+	/** The register's dd1633 default and the sample mirror, without the sample's `info` note. */
+	function shippedConfigs(): {
+		register: Record<string, unknown>;
+		sample: Record<string, unknown>;
+	} {
+		const root = resolve(import.meta.dir, '..', '..', 'tools', 'tool_import_zotero');
+		const register = JSON.parse(readFileSync(resolve(root, 'register.json'), 'utf8')) as {
+			misc: { dd1633: { value: Record<string, unknown> }[] };
+		};
+		const sample = JSON.parse(readFileSync(resolve(root, 'sample_config.json'), 'utf8')) as Record<
+			string,
+			unknown
+		>[];
+		const { info: _info, ...mirror } = mustGet(sample[0], 'sample_config.json[0]');
+		return { register: mustGet(register.misc.dd1633[0], 'dd1633[0]').value, sample: mirror };
+	}
+
+	test('the register default and sample_config.json are the SAME configuration', () => {
+		const { register, sample } = shippedConfigs();
+		// The register carries the tool's own `client` flag beside the config keys.
+		const CONFIG_KEYS = ['map', 'main', 'typology', 'standard_type'];
+		expect(Object.keys(sample).sort()).toEqual([...CONFIG_KEYS].sort());
+		for (const key of CONFIG_KEYS) expect(register[key], key).toEqual(sample[key]);
+	});
+
+	test('every component the shipped map names IS a component of the suite ontology, and an identifier (if any) binds to a component that holds a code — RED before: call-number → dd176, a label', async () => {
+		const { register } = shippedConfigs();
+		const cfg = readZoteroConfig(register);
+		expect(cfg.idTarget).toEqual({ sectionTipo: 'rsc205', componentTipo: 'rsc137' });
+		// Every tipo the map writes (and every link target) resolves to a component model.
+		const tipos = new Set<string>();
+		for (const entry of cfg.entries) {
+			tipos.add(entry.tipo);
+			if (entry.link !== undefined) tipos.add(entry.link.componentTipo);
+		}
+		for (const tipo of [cfg.pdfTipo, cfg.imageTipo, cfg.standardNumberTipo]) {
+			if (tipo !== undefined) tipos.add(tipo);
+		}
+		expect(tipos.size).toBeGreaterThan(10);
+		const models = new Map<string, string | null>();
+		for (const tipo of tipos) models.set(tipo, await getModelByTipo(tipo));
+		const notComponents = [...models].filter(([, model]) => !model?.startsWith('component_'));
+		expect(notComponents, 'nodes the shipped map writes that are not components').toEqual([]);
+		// The second identifier, when the default names one, must be LOOKUPABLE
+		// (a string-column component or an IRI): a label or a number component
+		// would refuse every item carrying the value (identifierLookupable).
+		if (cfg.identifierTarget !== undefined) {
+			const model = await getModelByTipo(cfg.identifierTarget.componentTipo);
+			const lookupable =
+				model === 'component_iri' ||
+				(model !== null && getComponentModel(model)?.column === 'string');
+			expect(
+				lookupable,
+				`identifier bound to ${cfg.identifierTarget.componentTipo} (${model})`,
+			).toBe(true);
+			expect(cfg.identifierTarget.componentTipo).not.toBe(cfg.idTarget.componentTipo);
+		} else {
+			// The shipped default names NO second identifier (owner question open:
+			// Publications has no call-number component to bind one to).
+			expect(cfg.fieldToSectionId).toBeUndefined();
+			expect(cfg.entries.find((entry) => entry.name === 'call-number')).toBeUndefined();
+		}
 	});
 });
 
