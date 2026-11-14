@@ -62,7 +62,10 @@ process.env.DEDALO_MEDIA_EXPORT_BASE ??= SUITE_MEDIA_EXPORT_BASE;
 // The suite's languages (C3-40, test/helpers/suite_posture.ts): the declared
 // data-language set the save chokepoint enforces is the suite's, never the one a
 // developer's .env declares. A shell export still wins, like the line above.
-for (const [key, value] of suiteLangPins((name) => processEnvValue(name) !== undefined)) {
+for (const [key, value] of suiteLangPins(
+	(name) => processEnvValue(name) !== undefined,
+	(name) => processEnvValue(name),
+)) {
 	process.env[key] = value;
 }
 // NOT PINNED HERE: DEDALO_DIFFUSION_SCHEDULER_ENABLED. Turning dispatch off for

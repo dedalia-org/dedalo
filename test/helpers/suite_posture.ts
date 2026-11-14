@@ -54,6 +54,29 @@ export const SUITE_LANGS: Readonly<Record<string, string>> = Object.freeze({
  * process environment outranks ../private/.env, so the developer's file never
  * reaches the suite.
  */
-export function suiteLangPins(shellSets: (key: string) => boolean): [string, string][] {
-	return Object.entries(SUITE_LANGS).filter(([key]) => !shellSets(key));
+export function suiteLangPins(
+	shellSets: (key: string) => boolean,
+	shellValue: (key: string) => string | undefined = () => undefined,
+): [string, string][] {
+	// DEDALO_DIFFUSION_LANGS is DERIVED from PROJECTS_DEFAULT_LANGS (the pin is
+	// "exactly what the derivation yields from the project languages above").
+	// A shell that sets its own project languages but not the publication ones
+	// (the hermetic tier: lg-eng only) gets the publication set derived from ITS
+	// project value — pinning the suite's 12 would name languages outside the
+	// shell's project set (every plan compile refuses, config.ts
+	// langsOutsideProject), and leaving it unpinned would let a developer's
+	// ../private/.env value through.
+	const shellProject = shellSets('PROJECTS_DEFAULT_LANGS')
+		? shellValue('PROJECTS_DEFAULT_LANGS')
+		: undefined;
+	const pins: [string, string][] = [];
+	for (const [key, value] of Object.entries(SUITE_LANGS)) {
+		if (shellSets(key)) continue;
+		if (key === 'DEDALO_DIFFUSION_LANGS' && shellSets('PROJECTS_DEFAULT_LANGS')) {
+			if (shellProject !== undefined) pins.push([key, shellProject]);
+			continue;
+		}
+		pins.push([key, value]);
+	}
+	return pins;
 }

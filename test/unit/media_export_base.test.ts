@@ -33,7 +33,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SUITE_LANGS, SUITE_MEDIA_EXPORT_BASE } from '../helpers/suite_posture.ts';
+import { SUITE_LANGS, SUITE_MEDIA_EXPORT_BASE, suiteLangPins } from '../helpers/suite_posture.ts';
 
 const ROOT = `${import.meta.dir}/../..`;
 const READ_EXPORT_BASE =
@@ -166,6 +166,32 @@ describe('the suite posture — languages (C3-40)', () => {
 		]);
 		const pinned = declaredLangsOverTwoLangEnv(true);
 		for (const lang of SUITE_PROJECT_LANGS) expect(pinned).toContain(lang);
+	});
+
+	test('a shell that sets its own project languages keeps the derived publication languages', () => {
+		const pinsFor = (shell: Record<string, string>): Record<string, string> =>
+			Object.fromEntries(
+				suiteLangPins(
+					(key) => key in shell,
+					(key) => shell[key],
+				),
+			);
+		// nothing from the shell: every suite key is pinned, the publication set included
+		expect(pinsFor({}).DEDALO_DIFFUSION_LANGS).toBe(SUITE_LANGS.DEDALO_DIFFUSION_LANGS);
+		// the hermetic tier's shape: project languages from the shell, publication unset —
+		// the suite's 12 would name languages outside the shell's project set and every
+		// plan compile refuses (diffusion_publication_gate_native went red on it); the
+		// pin follows the shell's project value instead, so a developer .env cannot leak in
+		const hermetic = pinsFor({
+			PROJECTS_DEFAULT_LANGS: '["lg-eng"]',
+			DEDALO_APPLICATION_LANGS: '{"lg-eng":"English"}',
+		});
+		expect(hermetic.DEDALO_DIFFUSION_LANGS).toBe('["lg-eng"]');
+		expect(hermetic.PROJECTS_DEFAULT_LANGS).toBeUndefined();
+		// the shell's own publication value always wins, as for every key
+		expect(
+			pinsFor({ DEDALO_DIFFUSION_LANGS: '["lg-fra"]' }).DEDALO_DIFFUSION_LANGS,
+		).toBeUndefined();
 	});
 
 	test('this run actually carries them (the preload pinned them, or the shell chose)', async () => {
