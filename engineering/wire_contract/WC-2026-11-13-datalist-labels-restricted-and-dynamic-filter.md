@@ -102,6 +102,20 @@ checked like any other and round-trips its `value` on save.
 
 Why (owner C6): a silent disappearance invites an accidental removal on save.
 
+**Addendum 2026-11-14 — the TEMPORAL echo carries no marker (review of 8102f81ceb).** The
+marker rides "the doors that know the stored value". The temporal save door (temporal.ts,
+`source.is_temporal`) is not one: its locators are the CLIENT's payload (`entries`/`value` plus
+the `changed_data` inserts), it runs no insert law (no target-section, read-grant or scope
+check — the door asks read ≥ 1 on the component only), and nothing is stored, so nothing can be
+dropped unnoticed. Completing those locators read the named row to say whether it EXISTS — a
+record-existence oracle over any section and id a caller wrote into `changed_data` (iterating N
+on `dd128` enumerates live user ids). The temporal echo's `datalist` is now the built list
+exactly as the edit read emits it (`getEchoDatalist(…, 'picked')`, datalist.ts
+`DatalistCompletion`); the edit read and the PERSISTED save's echo keep the marker unchanged.
+select_lang's "<name> *" entry is not affected (its completion reads the language table). Gate:
+select_family_echo_datalist_native (an out-of-list pick naming an existing row → no `restricted`
+entry — RED before).
+
 ## Gate reconciliation
 
 - Frozen store: no fixture edited. `component_datalist_lifecycle_differential`

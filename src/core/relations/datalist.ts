@@ -775,6 +775,7 @@ export async function getEchoDatalist(
 	componentProperties: unknown,
 	owner: DatalistOwner,
 	value: readonly unknown[],
+	completion: DatalistCompletion = 'stored',
 ): Promise<ComponentDatalistItem[] | FilterDatalistItem[] | FilterRecordsDatalistItem[]> {
 	// The SET is the routing knowledge — the guard that decides whether an echo
 	// attaches a datalist ({@link echoesDatalist}) and the branch that builds it
@@ -806,8 +807,28 @@ export async function getEchoDatalist(
 		owner,
 		await datalistLabelLang(),
 		value,
+		completion,
 	);
 }
+
+/**
+ * What the locators handed to an edit datalist ARE, which decides whether the
+ * C6 `restricted` completion runs:
+ *
+ * - `stored` — the record's STORED value (the edit read, the persisted save's
+ *   echo): a stored pick the built list lacks whose row exists is marked, so it
+ *   is not dropped unnoticed on the next save (owner C6).
+ * - `picked` — the CLIENT's own picks on a TEMPORAL instance (temporal.ts):
+ *   nothing is stored, so nothing can be dropped unnoticed, and the locators are
+ *   the caller's payload — any section, any id, never through the insert law.
+ *   Completing them would answer "this row exists" for whatever address the
+ *   caller names (a record-existence oracle over every section, outside the
+ *   caller's grants); so the temporal echo carries the built list and nothing
+ *   else. A model-declared `editGuard` (select_lang's "<name> *") still runs:
+ *   its completion reads the language table, not a record of the caller's
+ *   choosing.
+ */
+export type DatalistCompletion = 'stored' | 'picked';
 
 /**
  * THE LABEL LANG of a select-family option list and list value: the request
@@ -849,11 +870,16 @@ export async function getEditDatalist(
 	owner: DatalistOwner,
 	lang: string,
 	storedLocators: readonly unknown[],
+	completion: DatalistCompletion = 'stored',
 ): Promise<ComponentDatalistItem[]> {
 	const datalist = await getDatalist(componentTipo, componentProperties, owner, lang);
 	const modelSource = await modelDatalistSource(componentTipo);
-	if (modelSource === null)
-		return appendRestrictedEntries(datalist as DatalistItem[], storedLocators);
+	if (modelSource === null) {
+		// The generic completion marks STORED picks only ({@link DatalistCompletion}).
+		return completion === 'stored'
+			? appendRestrictedEntries(datalist as DatalistItem[], storedLocators)
+			: datalist;
+	}
 	if (modelSource.editGuard === undefined) return datalist;
 	return modelSource.editGuard(datalist, storedLocators);
 }
