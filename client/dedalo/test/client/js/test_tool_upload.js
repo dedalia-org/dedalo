@@ -82,7 +82,9 @@ describe('SERVICE_UPLOAD OCR OPTIONS', function() {
 
 	const fake_self = function(overrides) {
 		return Object.assign({
-			caller						: {model : 'component_pdf'},
+			// a real caller (component or tool) always carries its context; features
+			// may be absent (render_info tolerates that, not a context-less caller)
+			caller						: {model : 'component_pdf', context : {}},
 			allowed_extensions			: ['pdf'],
 			max_size_bytes				: 1024*1024*1024,
 			upload_service_chunk_files	: false,
