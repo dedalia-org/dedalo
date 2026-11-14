@@ -5,9 +5,12 @@
  *
  *   sudo /opt/dedalo/bun/<pin>/bun run <tree>/scripts/ops/host_units_refresh.ts --instance <i>
  *
- * Templates absent or of an earlier shipped release are written / upgraded, a
- * foreign template refuses the whole refresh, the drop-ins and the manifest are
- * rewritten from the plan, then `systemctl daemon-reload`. The instance is NOT
+ * Templates absent or of an earlier shipped release are written / upgraded —
+ * a shipped one only once every other instance on the host runs this release's
+ * drop-ins (units.ts THE SIBLING LAW; otherwise kept, the blockers named with
+ * their own command) —, a foreign template refuses the whole refresh, the
+ * drop-ins and the manifest are rewritten from the plan, then `systemctl
+ * daemon-reload`. The instance is NOT
  * restarted — the operator chooses when (`systemctl restart dedalo-ts@<i>`).
  * The logic: src/core/install/host/production/units_refresh.ts (gated by
  * install_host_steps_native); this file is the argv and the exit code.
@@ -43,6 +46,8 @@ try {
 	for (const path of report.written) console.log(`written   ${path}`);
 	for (const path of report.upgraded) console.log(`upgraded  ${path}`);
 	for (const path of report.kept) console.log(`current   ${path}`);
+	for (const path of report.deferred)
+		console.log(`kept      ${path} (an earlier release's — see below)`);
 	for (const path of report.dropins) console.log(`rendered  ${path}`);
 	console.log(report.next);
 	process.exit(0);

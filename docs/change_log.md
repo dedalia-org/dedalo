@@ -1187,7 +1187,11 @@ Merged since the last release; these ship with the next one.
     `sudo <bun> run <tree>/scripts/ops/host_units_refresh.ts --instance <i>`. Hosts installed before
     this release keep their units until that command runs once (as root): the installer and the
     command now recognise every template an earlier release shipped (`deploy/systemd/shipped_digests.json`)
-    and upgrade it in place, while a template no release shipped is still refused. A code update
+    and upgrade it in place, while a template no release shipped is still refused. On a host with
+    several instances the shared template is upgraded only once every instance runs this release's
+    drop-ins: until then it is kept, and the installer and the command name each instance still to
+    re-render, with its command — the last one upgrades the template, so no instance is ever left
+    running a read-only unit it did not ask for. A code update
     never rewrites `/etc/systemd`; after a verified update its `host_units` check records that command
     in the run's journal, in `bun run update status` and in the server log when the host's templates
     are not this release's. See [Re-rendering the units](./install/multi_instance.md#re-rendering-the-units).

@@ -173,3 +173,24 @@ C11 (measured against `install/db/migrations.lock.json` and the catalog).
 - Gates: `update_run_state_machine_native` (host_units predicate + `readHostUnitsState`),
   `update_cli_native` (status), `update_docs_claims_tripwire` C9 (the documented predicate lists).
 
+
+## Addendum 2026-11-14 (C32/C33 review gap) — the shared template upgrade DEFERS to the siblings
+
+- `scripts/ops/host_units_refresh.ts` / `refreshInstanceUnits`: a template of an earlier shipped
+  release is upgraded ONLY when every other registered instance on the host already runs this
+  release's drop-ins and manifest (rendered from its own install record, byte-equal on disk).
+  Otherwise it is KEPT: `UnitsRefreshReport` gains `deferred: string[]` (the kept template paths)
+  and `blockers: {instance, reason, refresh?}[]` (each sibling not there yet, with its own
+  re-render command; no command when its record cannot be read), the CLI prints one
+  `kept      <path>` line per deferred template and `next` carries the sentence naming the
+  blockers. The same decision drives the installer's `host_units` step (its line says `KEPT (...)`
+  and names the blockers; its verify accepts the kept render; the Review's command list is
+  unchanged). The update run's `host_units` predicate and its `offer` are UNCHANGED — the operator
+  runs the offered command, which now tells them which sibling to re-render first.
+- Why: `dedalo-ts@.service` runs `ProtectSystem=strict` and reads its writable roots from the
+  drop-in; upgrading the one shared template under an instance whose drop-in has no
+  `ReadWritePaths=` would run that instance read-only at its next restart.
+- Gate: `install_host_steps_native` "THE SIBLING LAW" (two instances, one legacy: refresh deferred
+  then upgraded by the legacy instance's own refresh; the step keeps the template and completes;
+  an unreadable sibling record blocks). Docs: `docs/install/multi_instance.md` (Re-rendering the
+  units), `docs/install/production.md` (`host_units`), `engineering/PRODUCTION.md`.

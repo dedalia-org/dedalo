@@ -9,11 +9,15 @@
  * the plan's answers, the preflight's frozen facts) and the host registry's bun
  * pin: renders this release's templates and the instance's drop-ins + the
  * writable-roots manifest EXACTLY as host_units would (one derivation —
- * units.ts templateWrites / dropinWrites), then
+ * units.ts templateWrites / dropinWrites, instance_record.ts), then
  *
  *   - a template ABSENT or byte-equal                    → written / kept;
  *   - a template of an EARLIER SHIPPED RELEASE (its digest in
- *     deploy/systemd/shipped_digests.json — units.ts templateVerdicts)  → upgraded;
+ *     deploy/systemd/shipped_digests.json — units.ts templateVerdicts)  → upgraded,
+ *     UNLESS another instance on the host does not yet run this release's
+ *     drop-ins (units.ts THE SIBLING LAW): then it is KEPT (`deferred`) and the
+ *     report names each blocking instance with its own re-render command — the
+ *     last instance re-rendered upgrades the template;
  *   - a FOREIGN template (another installer's, a hand edit) → the whole refresh
  *     REFUSED, nothing written (units.ts: the installer never overwrites it);
  *   - the drop-ins and the manifest                        → rewritten (they are
@@ -30,30 +34,26 @@
  * templates are rendered).
  */
 
-import { normalizeInstallAnswers } from '../../install_plan.ts';
-import type { PlanFile } from '../../run_files_core.ts';
 import type { HostPlanCtx } from '../contract.ts';
 import type { HostFs } from '../fs.ts';
-import { pathsFor } from '../layout.ts';
-import { OS_ROWS, type OsRowId, osRowById } from '../os_support.ts';
 import { hostRefuse } from '../refuse.ts';
-import { ownEntry } from '../registry.ts';
-import { bunPinOf, sourceTreeRoot } from '../source.ts';
 import { UNIT_TEMPLATES } from '../systemd/render.ts';
+import { type RecordReader, recordedPlanContext } from './instance_record.ts';
 import {
+	deferredTemplateSentence,
 	dropinWrites,
 	foreignTemplateSentence,
-	templateVerdicts,
+	type SiblingBlocker,
+	type TemplateUpgradeDecision,
+	templateUpgradeDecision,
 	templateWrites,
 } from './units.ts';
 
 /** What the refresh reads of the host: the record (readHostRecord — the scratch seam applies) and systemctl. */
 export interface UnitsRefreshDeps {
 	readonly fs: HostFs;
-	readonly readRecord: (instance: string) => {
-		plan: PlanFile;
-		state: { preflight: { host?: { facts: HostPlanCtx['facts'] } } } | null;
-	} | null;
+	/** The record of ANY instance on the host (the siblings are judged through it too). */
+	readonly readRecord: RecordReader;
 	/** Run `systemctl <args>`; throws on a non-zero exit. */
 	readonly systemctl: (args: readonly string[]) => void;
 	readonly source?: string;
@@ -67,80 +67,45 @@ export interface UnitsRefreshReport {
 	readonly upgraded: string[];
 	/** Templates already this release's render. */
 	readonly kept: string[];
+	/** Shipped templates KEPT at an earlier render — the sibling law: `blockers` are not ready. */
+	readonly deferred: string[];
+	/** The other instances that are not on this release's drop-ins yet, each with its re-render command. */
+	readonly blockers: SiblingBlocker[];
 	/** Drop-ins and the manifest rewritten (always — they are re-rendered from the plan). */
 	readonly dropins: string[];
 	/** The one-line hint for the operator. */
 	readonly next: string;
 }
 
-/** The recorded plan and its measured host facts, or the refusal that names what is missing. */
-function recordedPlanAndFacts(
-	instance: string,
-	readRecord: UnitsRefreshDeps['readRecord'],
-): { plan: PlanFile; facts: HostPlanCtx['facts']; os: OsRowId } {
-	const record = readRecord(instance);
-	if (record === null) {
-		hostRefuse(
-			'install.state_conflict',
-			`no production install record for instance '${instance}' (/var/lib/dedalo-install/${instance}/) — the units can be rendered only from the plan the installer wrote`,
-		);
-	}
-	const facts = record.state?.preflight.host?.facts;
-	if (facts === undefined || facts.os === null) {
-		hostRefuse(
-			'install.state_conflict',
-			`the install record of '${instance}' holds no measured host facts (the System check never ran to completion) — finish or abort the install first`,
-		);
-	}
-	return { plan: record.plan, facts, os: facts.os };
-}
-
-/** The plan context of a recorded instance — the executor's own derivation (host_executor.ts planContext). */
-export function recordedPlanContext(
-	instance: string,
-	deps: Pick<UnitsRefreshDeps, 'fs' | 'readRecord' | 'source'>,
-): HostPlanCtx {
-	const source = deps.source ?? sourceTreeRoot();
-	const { plan, facts, os } = recordedPlanAndFacts(instance, deps.readRecord);
-	const answers = normalizeInstallAnswers(plan.answers as Record<string, unknown>).answers;
-	// The runtime pin the instance RUNS (the registry) — not necessarily this tree's.
-	const treePin = bunPinOf(source);
-	const pin = ownEntry(deps.fs, pathsFor(answers, treePin, facts))?.bun_pin ?? treePin;
-	return {
-		plan,
-		answers,
-		facts,
-		row: osRowById(os) ?? (OS_ROWS[0] as (typeof OS_ROWS)[number]),
-		paths: pathsFor(answers, pin, facts),
-		source,
-	};
-}
-
-/** Write every template that is not this release's render; a foreign one refuses first (nothing written). */
+/** Write every template the decision writes; a foreign one refuses first (nothing written); a deferred one is kept. */
 function applyTemplates(
 	ctx: HostPlanCtx,
 	deps: UnitsRefreshDeps,
-): Pick<UnitsRefreshReport, 'written' | 'upgraded' | 'kept'> {
-	const verdicts = templateVerdicts(ctx, deps.fs);
-	const foreign = verdicts.filter((v) => v.verdict === 'foreign');
-	if (foreign.length > 0) {
+): Pick<UnitsRefreshReport, 'written' | 'upgraded' | 'kept' | 'deferred' | 'blockers'> & {
+	decision: TemplateUpgradeDecision;
+} {
+	const decision = templateUpgradeDecision(ctx, deps.fs, deps.readRecord);
+	if (decision.foreign.length > 0) {
 		hostRefuse(
 			'install.state_conflict',
-			`${foreignTemplateSentence(foreign.map((v) => v.path))}; nothing re-rendered`,
+			`${foreignTemplateSentence(decision.foreign.map((v) => v.path))}; nothing re-rendered`,
 		);
 	}
-	const report = { written: [] as string[], upgraded: [] as string[], kept: [] as string[] };
+	const report = {
+		written: [] as string[],
+		upgraded: [] as string[],
+		kept: decision.verdicts.filter((v) => v.verdict === 'current').map((v) => v.path),
+		deferred: decision.deferred.map((v) => v.path),
+		blockers: decision.blockers,
+	};
 	const writes = templateWrites(ctx);
-	for (const verdict of verdicts) {
+	for (const verdict of decision.write) {
 		const write = writes.find((w) => w.path === verdict.path);
-		if (write === undefined || verdict.verdict === 'current') {
-			report.kept.push(verdict.path);
-			continue;
-		}
+		if (write === undefined) continue;
 		deps.fs.write(write.path, write.content, write.mode, write.owner, write.group);
 		(verdict.verdict === 'absent' ? report.written : report.upgraded).push(verdict.path);
 	}
-	return report;
+	return { ...report, decision };
 }
 
 /** Rewrite the instance's own files (the drop-ins and the writable-roots manifest) from the plan. */
@@ -160,15 +125,18 @@ export function refreshInstanceUnits(instance: string, deps: UnitsRefreshDeps): 
 		hostRefuse('install.state_conflict', `'${instance}' is not an instance name`);
 	}
 	const ctx = recordedPlanContext(instance, deps);
-	const { written, upgraded, kept } = applyTemplates(ctx, deps);
+	const { written, upgraded, kept, deferred, blockers, decision } = applyTemplates(ctx, deps);
 	const dropins = rewriteInstanceFiles(ctx, deps);
 	deps.systemctl(['daemon-reload']);
+	const deferredNote = deferred.length === 0 ? '' : `; ${deferredTemplateSentence(decision, ctx)}`;
 	return {
 		instance,
 		written,
 		upgraded,
 		kept,
+		deferred,
+		blockers,
 		dropins,
-		next: `the rendered units apply at the next start: systemctl restart dedalo-ts@${instance}.service (${UNIT_TEMPLATES.length} templates: ${written.length} written, ${upgraded.length} upgraded, ${kept.length} current; ${dropins.length} instance files re-rendered)`,
+		next: `the rendered units apply at the next start: systemctl restart dedalo-ts@${instance}.service (${UNIT_TEMPLATES.length} templates: ${written.length} written, ${upgraded.length} upgraded, ${kept.length} current, ${deferred.length} kept at an earlier release; ${dropins.length} instance files re-rendered)${deferredNote}`,
 	};
 }

@@ -142,15 +142,27 @@ the restart to the operator. **The shipped-digest ledger (owner ruling C33, 2026
 — `deploy/systemd/shipped_digests.json` (`host/systemd/shipped_digests.ts`): for every
 template, the sha256 of every render a release ever shipped (one per OS row), append-only.
 `host_units` and the refresh judge an existing template by it: byte-equal → current, a
-shipped digest → the installer's own, upgraded in place (every instance on the host runs
-it at its next restart), anything else → foreign, refused, nothing written. **The update
+shipped digest → the installer's own, upgraded in place, anything else → foreign, refused,
+nothing written. **THE SIBLING LAW (C32/C33 review gap, 2026-11-14;
+`host/production/units.ts siblingUnitsBlockers` / `templateUpgradeDecision`)**: a
+template's render is PAIRED with each instance's drop-ins (`ProtectSystem=strict` relies on
+the drop-in's `ReadWritePaths=`), so a shipped template is upgraded ONLY once every OTHER
+registered instance that uses the templates runs this release's drop-ins and manifest —
+rendered from its own frozen record (`host/production/instance_record.ts`, the one
+derivation the refresh uses too) and byte-equal on disk. Otherwise the upgrade is DEFERRED:
+the earlier template is kept, the step's line / the refresh's report name each blocking
+instance with its own re-render command (`UnitsRefreshReport.deferred` + `blockers`), and
+the LAST instance re-rendered upgrades the template; a sibling whose record cannot be read
+blocks too (fail closed). `host_units`' verify accepts a deferred template as what the run
+meant; the Review still lists every template write (the deferral is the run's). Gate:
+`install_host_steps_native` "THE SIBLING LAW" (two instances, one legacy — refresh and step). **The update
 run OFFERS, never runs**: it runs as the service user and gains no privilege; its
 post-verify `host_units` predicate (`update/run/host_units.ts`) compares the host's
 templates with this release's render (any OS row) and, when they differ, carries the
 manifest's `refresh` command as the verdict's `offer` — always `ok` — into the journal,
 `bun run update status` (the *to do (as root)* line) and the server log. Gates:
 `install_host_render_tripwire` (i, j), `install_state_boot` (writable roots),
-`install_host_steps_native` (shipped upgrade, refresh), `update_run_state_machine_native`
+`install_host_steps_native` (shipped upgrade, refresh, the sibling law), `update_run_state_machine_native`
 (host_units), `update_cli_native` (status).
 
 **Supervision is DECLARED, never inferred (2026-10-08).** A code update exits the
