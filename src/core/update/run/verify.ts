@@ -127,8 +127,19 @@ function legacyHostUnitsDetail(state: Extract<HostUnitsState, { kind: 'legacy' }
 		state.templates.length === 0
 			? ''
 			: `; templates not this release's render: ${state.templates.join(', ')}`;
-	return `this instance was installed before the writable-roots release: its drop-in names no manifest and opens no ReadWritePaths= (ProtectSystem=strict would run it read-only at its next restart${templates}) — re-render the units as root, then restart the instance: ${state.refresh}`;
+	return `this instance was installed before the writable-roots release: its drop-in names no manifest and opens no ReadWritePaths= (ProtectSystem=strict would run it read-only at its next restart${templates}) — re-render the units as root, then restart the instance: ${state.refresh}${SIBLING_LAW_CLAUSE}`;
 }
+
+/**
+ * THE SIBLING LAW, said where the offer is made (host/production/units.ts): on
+ * a host with several instances the offered command upgrades a SHARED template
+ * only once every instance runs this release's drop-ins — until then it keeps
+ * the template and names each instance to bring there first (an update of that
+ * instance when its tree is an earlier release, then its own re-render), so the
+ * offer stands after every update until the last instance is re-rendered.
+ */
+const SIBLING_LAW_CLAUSE =
+	". On a host with several instances the command upgrades a shared template only once every instance runs this release's drop-ins: until then it keeps the earlier template and names each instance to bring to this release first (update it, then its own re-render) — this offer stands until the last one is re-rendered";
 
 /** One sentence per host-units state (the verdict's `detail`). */
 function hostUnitsDetail(state: HostUnitsState): string {
@@ -142,7 +153,7 @@ function hostUnitsDetail(state: HostUnitsState): string {
 		case 'current':
 			return "the host's systemd unit templates are this release's render";
 		case 'differs':
-			return `the host's systemd unit templates are not this release's render (${state.templates.join(', ')}): the update ran as the service user and never writes /etc/systemd — re-render them as root, then restart the instance: ${state.refresh}`;
+			return `the host's systemd unit templates are not this release's render (${state.templates.join(', ')}): the update ran as the service user and never writes /etc/systemd — re-render them as root, then restart the instance: ${state.refresh}${SIBLING_LAW_CLAUSE}`;
 	}
 }
 

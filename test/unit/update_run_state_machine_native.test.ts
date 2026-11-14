@@ -482,6 +482,12 @@ describe('post-verify', () => {
 		expect(legacy.ok).toBe(true);
 		expect(legacy.offer).toBe(refresh);
 		expect(legacy.detail).toContain('before the writable-roots release');
+		// the sibling law, said where the offer is made: on a multi-instance host the
+		// command keeps a shared template until every instance runs this release, and
+		// names the ones to bring there first — so the offer standing after an update
+		// is the law at work, not a failed re-render
+		expect(legacy.detail).toContain('several instances');
+		expect(legacy.detail).toContain('this offer stands until the last one is re-rendered');
 		// differs: STILL ok (the run never writes /etc/systemd), the offer IS the manifest's command
 		const differs = await of({
 			kind: 'differs',
@@ -493,6 +499,8 @@ describe('post-verify', () => {
 		expect(differs.detail).toContain('dedalo-ts@.service, dedalo-backup@.timer');
 		expect(differs.detail).toContain('ran as the service user');
 		expect(differs.detail).toContain(refresh);
+		expect(differs.detail).toContain('several instances');
+		expect(differs.detail).toContain('update it, then its own re-render');
 		// the manifest named but unreadable: ok, no command to offer (the engine names the script)
 		const unreadable = await of({
 			kind: 'manifest_unreadable',

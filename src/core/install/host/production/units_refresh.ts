@@ -16,8 +16,11 @@
  *     deploy/systemd/shipped_digests.json — units.ts templateVerdicts)  → upgraded,
  *     UNLESS another instance on the host does not yet run this release's
  *     drop-ins (units.ts THE SIBLING LAW): then it is KEPT (`deferred`) and the
- *     report names each blocking instance with its own re-render command — the
- *     last instance re-rendered upgrades the template;
+ *     report names each blocking instance with its REMEDY — its own re-render
+ *     command when its tree is this release, an update of that instance first
+ *     when it is an earlier one; a sibling record that cannot be read (the
+ *     CLI's reader throws on a corrupt file) is a named blocker, never a throw
+ *     out of this refresh — the last instance brought here upgrades the template;
  *   - a FOREIGN template (another installer's, a hand edit) → the whole refresh
  *     REFUSED, nothing written (units.ts: the installer never overwrites it);
  *   - the drop-ins and the manifest                        → rewritten (they are

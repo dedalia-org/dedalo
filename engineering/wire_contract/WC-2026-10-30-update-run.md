@@ -194,3 +194,25 @@ C11 (measured against `install/db/migrations.lock.json` and the catalog).
   then upgraded by the legacy instance's own refresh; the step keeps the template and completes;
   an unreadable sibling record blocks). Docs: `docs/install/multi_instance.md` (Re-rendering the
   units), `docs/install/production.md` (`host_units`), `engineering/PRODUCTION.md`.
+- **Same day, review of the above — the blocker's REMEDY is judged on the sibling's TREE.** The
+  first cut named the sibling's own command alone (`<its tree>/scripts/ops/host_units_refresh.ts`),
+  which on a sibling still on an earlier release is a MISSING FILE (the script shipped with this
+  release), and whose own refresh would render ITS release's drop-ins — never byte-equal to this
+  render, so the blocker could never clear by running it. Each `blockers[]` entry now carries
+  `remedy` (`units.ts siblingTreeVerdict` → `siblingRemedy`): the command alone when the sibling's
+  tree holds the script AND its `build_info.txt` sha equals this source tree's (`same_release`);
+  "update that instance to this release first (its Maintenance panel), then re-render it as root:
+  …" when the script is absent (`no_command`) or the stamps differ (`other_release`); "make sure
+  its tree runs this release … then …" when a stamp is a checkout's placeholder (`unknown`). The
+  sentence (`deferredTemplateSentence`, the step's line, the CLI's `next`) composes `reason — remedy`.
+  The update run's `host_units` detail (`legacy` / `differs`) now ends with the law: on a
+  multi-instance host the offered command keeps a shared template until every instance runs this
+  release, names each one to bring there first, and the offer stands until the last is re-rendered.
+  **A corrupt or other-schema sibling record** is a blocker too: `siblingBlocker` catches a
+  throwing reader (the CLI's `readHostRecord` refuses `install.state_conflict` on it) and names the
+  sibling with this module's own sentence — the refreshing instance's own drop-ins and manifest
+  are still rewritten (before: the throw escaped `refreshInstanceUnits`, nothing written, the
+  refusing instance unbootable until an unrelated record was repaired). Gate cases added to "THE
+  SIBLING LAW" (remedy per verdict, through the refresh and `siblingTreeVerdict`; corrupt JSON and
+  other-schema plan → blocker, own files rendered); `update_run_state_machine_native` host_units
+  (the clause).

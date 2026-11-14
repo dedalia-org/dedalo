@@ -254,6 +254,14 @@ export interface BuildInfo {
 	legacy: boolean;
 }
 
+/**
+ * build_info.txt's path inside any Dédalo tree, relative to the tree root —
+ * declared here (pure) so a reader of ANOTHER tree's stamp (build_stamp.ts
+ * readBuildInfoOf; the host installer judging a sibling instance's tree) needs
+ * no module with a boot-time identity read.
+ */
+export const BUILD_INFO_PATH = 'src/core/update/build_info.txt';
+
 const NO_BUILD_INFO: BuildInfo = Object.freeze({
 	sha: null,
 	build: null,

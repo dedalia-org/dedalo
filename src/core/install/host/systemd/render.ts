@@ -168,8 +168,15 @@ export function writableRootsManifestPath(instance: string): string {
 export function unitsRefreshCommand(
 	paths: Pick<InstancePaths, 'bun' | 'tree' | 'instance'>,
 ): string {
-	return `sudo ${paths.bun} run ${paths.tree}/scripts/ops/host_units_refresh.ts --instance ${paths.instance}`;
+	return `sudo ${paths.bun} run ${paths.tree}/${UNITS_REFRESH_SCRIPT} --instance ${paths.instance}`;
 }
+
+/**
+ * The re-render command's script, relative to a tree root. A tree of a release
+ * before 2026-11-13 has no such file — the sibling law judges another
+ * instance's tree by it (production/units.ts siblingTreeVerdict).
+ */
+export const UNITS_REFRESH_SCRIPT = 'scripts/ops/host_units_refresh.ts';
 
 /** The manifest's JSON (format 1): the instance, the stamp, the roots, the re-render command. */
 export function writableRootsManifest(

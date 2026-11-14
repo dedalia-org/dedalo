@@ -18,8 +18,11 @@ command now recognise every template an earlier release shipped (`deploy/systemd
 and upgrade it in place, while a template no release shipped is still refused. On a host with
 several instances the shared template is upgraded only once every instance runs this release's
 drop-ins: until then it is kept, and the installer and the command name each instance still to
-re-render, with its command — the last one upgrades the template, so no instance is ever left
-running a read-only unit it did not ask for. A code update
+re-render, with what brings it there — its own command when its code is this release, an update
+of that instance first when it still runs an earlier release (whose code has no re-render command)
+— the last one upgrades the template, so no instance is ever left running a read-only unit it did
+not ask for. An instance whose install record cannot be read, a corrupt file included, blocks the
+upgrade by name and never stops the re-render of the instance you ran it for. A code update
 never rewrites `/etc/systemd`; after a verified update its `host_units` check records that command
 in the run's journal, in `bun run update status` and in the server log when the host's templates
 are not this release's. See [Re-rendering the units](./install/multi_instance.md#re-rendering-the-units).

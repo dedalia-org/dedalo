@@ -151,9 +151,15 @@ registered instance that uses the templates runs this release's drop-ins and man
 rendered from its own frozen record (`host/production/instance_record.ts`, the one
 derivation the refresh uses too) and byte-equal on disk. Otherwise the upgrade is DEFERRED:
 the earlier template is kept, the step's line / the refresh's report name each blocking
-instance with its own re-render command (`UnitsRefreshReport.deferred` + `blockers`), and
-the LAST instance re-rendered upgrades the template; a sibling whose record cannot be read
-blocks too (fail closed). `host_units`' verify accepts a deferred template as what the run
+instance with its REMEDY (`UnitsRefreshReport.deferred` + `blockers[].remedy`, judged on the
+sibling's TREE by `siblingTreeVerdict`: its own re-render command when the tree holds the
+script and the same `build_info.txt` sha as this source; "update that instance to this release
+first, then …" when the script is absent or the stamps differ — a sibling on an earlier release
+has no re-render command in its tree and its own refresh renders its release's drop-ins), and
+the LAST instance brought to this release upgrades the template; a sibling whose record cannot
+be read — absent, corrupt or of another schema; a throwing reader is caught in `siblingBlocker`
+— blocks too (fail closed), and never stops the refreshing instance's own files being
+rewritten. `host_units`' verify accepts a deferred template as what the run
 meant; the Review still lists every template write (the deferral is the run's). Gate:
 `install_host_steps_native` "THE SIBLING LAW" (two instances, one legacy — refresh and step). **The update
 run OFFERS, never runs**: it runs as the service user and gains no privilege; its

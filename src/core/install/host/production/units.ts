@@ -23,9 +23,16 @@
  * every OTHER instance on the host runs this release's drop-ins; otherwise the
  * upgrade is DEFERRED and the earlier template kept — `siblingUnitsBlockers`,
  * `templateUpgradeDecision`. A shared-template upgrade can never make a sibling
- * read-only at its next restart.
+ * read-only at its next restart. Each blocker's REMEDY is judged on that
+ * sibling's TREE (`siblingTreeVerdict`): its own re-render command when the
+ * tree is this release; "update that instance first" when it is an earlier one
+ * — a sibling on an earlier release has no re-render command in its tree, and
+ * its own refresh would render its release's drop-ins, never this one's.
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { BUILD_INFO_PATH, parseBuildInfo } from '../../../update/release_identity.ts';
 import type {
 	HostCommand,
 	HostCtx,
@@ -43,6 +50,7 @@ import {
 	renderTemplate,
 	SYSTEMD_DIR,
 	UNIT_TEMPLATES,
+	UNITS_REFRESH_SCRIPT,
 	type UnitTemplate,
 	unitsRefreshCommand,
 } from '../systemd/render.ts';
@@ -178,6 +186,62 @@ export interface SiblingBlocker {
 	readonly reason: string;
 	/** That instance's own root re-render command (absent when its record cannot be read). */
 	readonly refresh?: string;
+	/**
+	 * What brings it to this release's render, as a sentence: the command alone
+	 * when its tree IS this release; `update … first, then …` when its tree is an
+	 * earlier release (the command is a missing file there, and an earlier
+	 * release renders ITS OWN drop-ins, which never byte-equal this render).
+	 */
+	readonly remedy?: string;
+}
+
+/** What a sibling's TREE is, judged for the remedy (siblingTreeVerdict). */
+export type SiblingTreeVerdict =
+	/** No re-render command in it: a release before 2026-11-13 (or no tree at all). */
+	| 'no_command'
+	/** Both build stamps read and equal: the same source, the same render. */
+	| 'same_release'
+	/** Both build stamps read and differ: another release. */
+	| 'other_release'
+	/** A stamp missing or unexpanded (a checkout): the trees cannot be compared. */
+	| 'unknown';
+
+/** This tree's build sha (build_info.txt), or null on a checkout / a tree without the stamp. */
+function sourceBuildSha(source: string): string | null {
+	try {
+		return parseBuildInfo(readFileSync(join(source, BUILD_INFO_PATH), 'utf8')).sha;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Judge another instance's tree (through the host fs — a scratch root in a
+ * gate) against this source tree: does the re-render command exist there, and
+ * is it the SAME SOURCE (the archive's commit sha in build_info.txt — the one
+ * per-source identity both a release and a dev-channel build carry; a checkout
+ * holds the placeholder and compares with nothing).
+ */
+export function siblingTreeVerdict(fs: HostFs, tree: string, source: string): SiblingTreeVerdict {
+	if (!fs.exists(`${tree}/${UNITS_REFRESH_SCRIPT}`)) return 'no_command';
+	const sibling = parseBuildInfo(fs.readText(`${tree}/${BUILD_INFO_PATH}`) ?? '').sha;
+	const ours = sourceBuildSha(source);
+	if (sibling === null || ours === null) return 'unknown';
+	return sibling === ours ? 'same_release' : 'other_release';
+}
+
+/** The remedy sentence for a stale sibling, by its tree's verdict. */
+function siblingRemedy(verdict: SiblingTreeVerdict, tree: string, refresh: string): string {
+	switch (verdict) {
+		case 'same_release':
+			return `re-render it as root: ${refresh}`;
+		case 'unknown':
+			return `make sure ${tree} runs this release (its build cannot be compared with this tree's: no build stamp), then re-render it as root: ${refresh}`;
+		case 'no_command':
+			return `its tree ${tree} is an earlier release (no ${UNITS_REFRESH_SCRIPT} in it) — update that instance to this release first (its Maintenance panel), then re-render it as root: ${refresh}`;
+		case 'other_release':
+			return `its tree ${tree} is another release's build (an earlier release renders its own drop-ins, never this release's) — update that instance to this release first (its Maintenance panel), then re-render it as root: ${refresh}`;
+	}
 }
 
 /**
@@ -187,9 +251,15 @@ export interface SiblingBlocker {
  * each of its drop-ins and its manifest is byte-equal on disk. Not ready: a
  * stale or absent instance file (an earlier release's drop-in, a pre-C32 one
  * without `ReadWritePaths=`), or a record that cannot be read (fail closed —
- * nothing is known about its drop-ins). Each blocker carries that instance's
- * own re-render command; running it judges the others in turn, so the LAST
- * instance brought to this release upgrades the template.
+ * nothing is known about its drop-ins; a reader that THROWS on a corrupt file
+ * is caught HERE, so the refreshing instance's own files are still rewritten
+ * and the sibling is named, never the exception's text). Each blocker carries
+ * that instance's own re-render command AND the remedy that makes it apply:
+ * the command alone when its tree is this release; an update of that instance
+ * first when its tree is an earlier one (the command is a missing file there,
+ * and its own refresh renders ITS release's drop-ins). Running the remedies
+ * judges the others in turn, so the LAST instance brought to this release
+ * upgrades the template.
  */
 export function siblingUnitsBlockers(
 	ctx: HostPlanCtx,
@@ -214,7 +284,7 @@ function siblingBlocker(
 ): SiblingBlocker | null {
 	// Classified BEFORE the render, so the blocker's reason is this module's own
 	// sentence (never an exception's text): no record, or no measured facts.
-	const record = readRecord(instance);
+	const record = readRecordOrNull(readRecord, instance);
 	const facts = record?.state?.preflight.host?.facts;
 	if (record === null || facts === undefined || facts.os === null) {
 		return {
@@ -230,11 +300,32 @@ function siblingBlocker(
 		.filter((write) => fs.readText(write.path) !== write.content)
 		.map((write) => write.path.slice(SYSTEMD_DIR.length + 1));
 	if (stale.length === 0) return null;
+	const refresh = unitsRefreshCommand(sibling.paths);
 	return {
 		instance,
 		reason: `its units are not this release's render (${stale.join(', ')})`,
-		refresh: unitsRefreshCommand(sibling.paths),
+		refresh,
+		remedy: siblingRemedy(
+			siblingTreeVerdict(fs, sibling.paths.tree, ctx.source),
+			sibling.paths.tree,
+			refresh,
+		),
 	};
+}
+
+/**
+ * A sibling's record through ANY reader: the CLI's (host_executor.ts
+ * readHostRecord — THROWS `install.state_conflict` on a corrupt or other-schema
+ * file) and the gate's alike. Unreadable is "no record" here: a sibling check
+ * fails closed on that sibling, never out of the refreshing instance's own
+ * refresh (its drop-ins would stay un-rendered and the engine unbootable).
+ */
+function readRecordOrNull(readRecord: RecordReader, instance: string): ReturnType<RecordReader> {
+	try {
+		return readRecord(instance);
+	} catch {
+		return null;
+	}
 }
 
 /** What host_units / the refresh do with each template: write it, keep it (deferred), or refuse (foreign). */
@@ -279,12 +370,9 @@ export function deferredTemplateSentence(
 ): string {
 	const names = decision.deferred.map((v) => v.name).join(', ');
 	const who = decision.blockers
-		.map(
-			(b) =>
-				`${b.instance}: ${b.reason}${b.refresh === undefined ? '' : ` — re-render it as root: ${b.refresh}`}`,
-		)
+		.map((b) => `${b.instance}: ${b.reason}${b.remedy === undefined ? '' : ` — ${b.remedy}`}`)
 		.join('; ');
-	return `${decision.deferred.length} template(s) of an earlier release KEPT (${names}): a shared template is upgraded only once every instance on this host runs this release's drop-ins, and these do not — ${who}. The last instance re-rendered upgrades the template; then re-render this one: ${unitsRefreshCommand(ctx.paths)}`;
+	return `${decision.deferred.length} template(s) of an earlier release KEPT (${names}): a shared template is upgraded only once every instance on this host runs this release's drop-ins, and these do not — ${who}. The last instance brought to this release upgrades the template; then re-render this one: ${unitsRefreshCommand(ctx.paths)}`;
 }
 
 /** The step's decision; a template present with bytes no release shipped is someone else's: refused, never overwritten. */

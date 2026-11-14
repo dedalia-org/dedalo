@@ -95,7 +95,7 @@ import {
 } from '../../src/core/install/host/production/first_boot.ts';
 import { recordedPlanContext } from '../../src/core/install/host/production/instance_record.ts';
 import { host_packages } from '../../src/core/install/host/production/packages.ts';
-import { dropinWrites } from '../../src/core/install/host/production/units.ts';
+import { dropinWrites, siblingTreeVerdict } from '../../src/core/install/host/production/units.ts';
 import { refreshInstanceUnits } from '../../src/core/install/host/production/units_refresh.ts';
 import { certificatePaths, siteText } from '../../src/core/install/host/production/web.ts';
 import {
@@ -114,6 +114,7 @@ import {
 	dropinPath,
 	renderTemplate,
 	UNIT_TEMPLATES,
+	UNITS_REFRESH_SCRIPT,
 	WRITABLE_ROOTS_MANIFEST,
 	writableRootsManifestPath,
 } from '../../src/core/install/host/systemd/render.ts';
@@ -143,6 +144,7 @@ import {
 } from '../../src/core/install/run_files_core.ts';
 import { ALREADY_COMPLETE_LINE } from '../../src/core/install/step_loop.ts';
 import { doneSummary } from '../../src/core/install/ui/screens/done.ts';
+import { BUILD_INFO_PATH } from '../../src/core/update/release_identity.ts';
 import {
 	asService,
 	asServiceHomeDying,
@@ -2019,6 +2021,62 @@ describe('an abort undoes only what it measured as created (review)', () => {
 			expect(readFileSync(join(host.root, path), 'utf8')).not.toContain('ReadWritePaths=');
 		}
 		expect(existsSync(join(host.root, writableRootsManifestPath('other')))).toBe(false);
+		// THE REMEDY is judged on the sibling's TREE. `other` has no tree here (as
+		// every instance installed from a release before the re-render command
+		// existed: the named script is a MISSING FILE there, and an earlier release's
+		// own refresh renders ITS drop-ins, never this release's) — so the remedy
+		// says to update that instance first, THEN run its command. RED before: the
+		// sentence named the command alone.
+		const otherTree = recordedPlanContext('other', {
+			fs: hostFs(host.root, join(host.root, SCRATCH_DIR, 'owners.json')),
+			readRecord: readRecordOver(host),
+			source: host.source,
+		}).paths.tree;
+		expect(deferred.blockers[0]?.remedy).toContain('update that instance to this release first');
+		expect(deferred.blockers[0]?.remedy).toContain(`no ${UNITS_REFRESH_SCRIPT} in it`);
+		expect(deferred.blockers[0]?.remedy).toContain(deferred.blockers[0]?.refresh ?? 'absent');
+		expect(deferred.next).toContain('update that instance to this release first');
+		// Its tree IS this release (the re-render command there, the same build
+		// stamp as this source tree): the remedy is its command alone.
+		const stamp = (sha: string) => `${sha} 2026-11-14T00:00:00+00:00 v7.0.0-beta.9\n`;
+		const plantTree = (buildInfo: string) => {
+			for (const [relative, content] of [
+				[UNITS_REFRESH_SCRIPT, '// the re-render command\n'],
+				[BUILD_INFO_PATH, buildInfo],
+			]) {
+				const real = join(host.root, otherTree, relative as string);
+				mkdirSync(dirname(real), { recursive: true });
+				writeFileSync(real, content as string);
+			}
+		};
+		mkdirSync(dirname(join(host.source, BUILD_INFO_PATH)), { recursive: true });
+		writeFileSync(join(host.source, BUILD_INFO_PATH), stamp('a'.repeat(40)));
+		plantTree(stamp('a'.repeat(40)));
+		expect(siblingTreeVerdict(deps.fs, otherTree, host.source)).toBe('same_release');
+		const sameRelease = refreshInstanceUnits(INSTANCE, deps);
+		expect(sameRelease.blockers[0]?.remedy).toBe(
+			`re-render it as root: ${sameRelease.blockers[0]?.refresh}`,
+		);
+		expect(sameRelease.next).not.toContain('update that instance');
+		// Another release's build: update first. A checkout's placeholder (or no
+		// stamp) on either side: the trees cannot be compared — said, the command named.
+		plantTree(stamp('b'.repeat(40)));
+		expect(siblingTreeVerdict(deps.fs, otherTree, host.source)).toBe('other_release');
+		expect(refreshInstanceUnits(INSTANCE, deps).blockers[0]?.remedy).toContain(
+			"another release's build (an earlier release renders its own drop-ins, never this release's) — update that instance to this release first",
+		);
+		plantTree('$Format:%H %cI %(describe:match=v[0-9]*,abbrev=40)$\n');
+		expect(siblingTreeVerdict(deps.fs, otherTree, host.source)).toBe('unknown');
+		expect(refreshInstanceUnits(INSTANCE, deps).blockers[0]?.remedy).toContain(
+			'cannot be compared',
+		);
+		rmSync(join(host.root, otherTree), { recursive: true, force: true });
+		expect(siblingTreeVerdict(deps.fs, otherTree, host.source)).toBe('no_command');
+		// every refresh above reloaded once and wrote nothing of the sibling's
+		expect(calls.every((argv) => argv.join(' ') === 'daemon-reload')).toBe(true);
+		for (const path of legacyDropins) {
+			expect(readFileSync(join(host.root, path), 'utf8')).not.toContain('ReadWritePaths=');
+		}
 		// Re-render the LEGACY instance: demo already runs this release's drop-ins, so
 		// nothing blocks — the template is upgraded by the LAST instance brought up.
 		const upgraded = refreshInstanceUnits('other', deps);
@@ -2045,6 +2103,31 @@ describe('an abort undoes only what it measured as created (review)', () => {
 		expect(unreadable.blockers.map((b) => b.instance)).toEqual(['other']);
 		expect(unreadable.blockers[0]?.reason).toContain('cannot be read');
 		expect(unreadable.blockers[0]?.refresh).toBeUndefined();
+		// A sibling whose record file is CORRUPT (truncated by a full disk) or of
+		// another schema: the CLI's reader THROWS install.state_conflict on it
+		// (host_executor readHostRecord → run_files_core readJson), and so does the
+		// gate's readRecordOver. The law says: a blocker, fail closed, this module's
+		// own sentence — and the refreshing instance's OWN files are still rendered.
+		// RED before: the throw escaped refreshInstanceUnits; demo's drop-ins were
+		// never re-rendered (an instance refusing boot stayed unbootable until an
+		// unrelated instance's record was repaired).
+		const otherPlan = join(host.root, `/var/lib/dedalo-install/other/${PLAN_FILE}`);
+		const demoDropin = join(host.root, dropinPath('dedalo-ts@.service', INSTANCE));
+		for (const [corrupt, thrown] of [
+			['{"schema":', /not readable JSON/],
+			[JSON.stringify({ schema: 'dedalo-install-plan/0', answers: {} }), /schema is not/],
+		] as const) {
+			writeFileSync(otherPlan, corrupt);
+			expect(() => readRecordOver(host)('other')).toThrow(thrown);
+			rmSync(demoDropin);
+			const blocked = refreshInstanceUnits(INSTANCE, deps);
+			expect(blocked.blockers.map((b) => b.instance)).toEqual(['other']);
+			expect(blocked.blockers[0]?.reason).toContain('cannot be read');
+			expect(blocked.blockers[0]?.reason).not.toContain('JSON');
+			expect(blocked.blockers[0]?.refresh).toBeUndefined();
+			expect(blocked.deferred).toEqual(['/etc/systemd/system/dedalo-backup@.timer']);
+			expect(existsSync(demoDropin)).toBe(true);
+		}
 
 		// ── B. the host_units STEP: a fresh install beside a legacy instance, the
 		//       server template an earlier shipped render — the step completes, keeps

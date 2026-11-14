@@ -33,6 +33,7 @@ import { join } from 'node:path';
 import { liveProcessEnv } from '../../config/env.ts';
 import { readInstallStampOf } from './install_stamp.ts';
 import {
+	BUILD_INFO_PATH,
 	type BuildInfo,
 	parseBuildInfo,
 	type ReleaseIdentity,
@@ -42,10 +43,7 @@ import { DEDALO_DATA_VERSION, DEDALO_NEXT_RELEASE } from './version.ts';
 
 // The stamp grammar is pure and lives with the resolver; re-exported here, where
 // the file is read.
-export { type BuildInfo, parseBuildInfo };
-
-/** build_info.txt's path inside any Dédalo tree, relative to the tree root. */
-export const BUILD_INFO_PATH = 'src/core/update/build_info.txt';
+export { BUILD_INFO_PATH, type BuildInfo, parseBuildInfo };
 
 /** The stamp of the tree at `treeRoot` (DEV when absent or unreadable). */
 export function readBuildInfoOf(treeRoot: string): BuildInfo {
