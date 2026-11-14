@@ -121,41 +121,46 @@ const dataModel: Predicate['check'] = async (journal, reads) => {
 	};
 };
 
+/** The `legacy` sentence: a pre-C32 instance, its templates named when they are not this release's. */
+function legacyHostUnitsDetail(state: Extract<HostUnitsState, { kind: 'legacy' }>): string {
+	const templates =
+		state.templates.length === 0
+			? ''
+			: `; templates not this release's render: ${state.templates.join(', ')}`;
+	return `this instance was installed before the writable-roots release: its drop-in names no manifest and opens no ReadWritePaths= (ProtectSystem=strict would run it read-only at its next restart${templates}) — re-render the units as root, then restart the instance: ${state.refresh}`;
+}
+
+/** One sentence per host-units state (the verdict's `detail`). */
+function hostUnitsDetail(state: HostUnitsState): string {
+	switch (state.kind) {
+		case 'not_systemd':
+			return 'not a production systemd instance: no unit templates to compare';
+		case 'manifest_unreadable':
+			return `the writable-roots manifest ${state.path} ${state.reason}: the templates could not be judged (the next boot refuses on it — re-render the units as root: scripts/ops/host_units_refresh.ts --instance <i>)`;
+		case 'legacy':
+			return legacyHostUnitsDetail(state);
+		case 'current':
+			return "the host's systemd unit templates are this release's render";
+		case 'differs':
+			return `the host's systemd unit templates are not this release's render (${state.templates.join(', ')}): the update ran as the service user and never writes /etc/systemd — re-render them as root, then restart the instance: ${state.refresh}`;
+	}
+}
+
 /**
  * The host's systemd templates vs this release's render (C33). ALWAYS ok: the
  * run has no privilege to rewrite /etc/systemd and gains none; a difference is
  * an OFFER — the instance's own root re-render command, read from the writable-
- * roots manifest the drop-in names (host_units.ts). Not a systemd instance:
- * nothing to judge, said so.
+ * roots manifest the drop-in names (host_units.ts), or derived from the tree on
+ * a pre-C32 instance (`legacy`). Not a systemd instance: nothing to judge, said so.
  */
 const hostUnits: Predicate['check'] = async (_journal, reads) => {
 	const state = await reads.hostUnits();
-	switch (state.kind) {
-		case 'not_systemd':
-			return {
-				ok: true,
-				detail: 'not a production systemd instance: no unit templates to compare',
-			};
-		case 'manifest_unreadable':
-			return {
-				ok: true,
-				detail: `the writable-roots manifest ${state.path} ${state.reason}: the templates could not be judged (the next boot refuses on it — re-render the units as root: scripts/ops/host_units_refresh.ts --instance <i>)`,
-			};
-		case 'legacy':
-			return {
-				ok: true,
-				detail: `this instance was installed before the writable-roots release: its drop-in names no manifest and opens no ReadWritePaths= (ProtectSystem=strict would run it read-only at its next restart${state.templates.length === 0 ? '' : `; templates not this release's render: ${state.templates.join(', ')}`}) — re-render the units as root, then restart the instance: ${state.refresh}`,
-				offer: state.refresh,
-			};
-		case 'current':
-			return { ok: true, detail: "the host's systemd unit templates are this release's render" };
-		case 'differs':
-			return {
-				ok: true,
-				detail: `the host's systemd unit templates are not this release's render (${state.templates.join(', ')}): the update ran as the service user and never writes /etc/systemd — re-render them as root, then restart the instance: ${state.refresh}`,
-				offer: state.refresh,
-			};
-	}
+	const offered = state.kind === 'legacy' || state.kind === 'differs';
+	return {
+		ok: true,
+		detail: hostUnitsDetail(state),
+		...(offered ? { offer: state.refresh } : {}),
+	};
 };
 
 /** The predicates VERIFIED requires, in report order. */
