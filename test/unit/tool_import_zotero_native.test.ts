@@ -865,7 +865,10 @@ describe('the SHIPPED default (register dd1633 ≡ sample_config.json) — C18 r
 	test('every component the shipped map names IS a component of the suite ontology, and an identifier (if any) binds to a component that holds a code — RED before: call-number → dd176, a label', async () => {
 		const { register } = shippedConfigs();
 		const cfg = readZoteroConfig(register);
-		expect(cfg.idTarget).toEqual({ sectionTipo: 'rsc205', componentTipo: 'rsc137' });
+		// The key's component is in the imported section (named by the config, not by this gate —
+		// the generic-TLD law: the shipped default's install tipos are read, never spelled here).
+		expect(cfg.idTarget).toBeDefined();
+		expect(cfg.idTarget?.sectionTipo).toBe(cfg.mainSectionTipo);
 		// Every tipo the map writes (and every link target) resolves to a component model.
 		const tipos = new Set<string>();
 		for (const entry of cfg.entries) {

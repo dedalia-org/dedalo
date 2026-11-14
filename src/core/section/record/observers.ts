@@ -471,6 +471,37 @@ export interface ObservedChange {
 	 */
 	origin: ObservedChangeOrigin;
 }
+/**
+ * The two CALLER bugs `propagateToObservers` refuses before any edge is read —
+ * outside its try, because neither is a recompute failure to swallow:
+ *  - B6: an ambient transaction (propagation reads committed state and opens
+ *    its own transactions; a write declares its change to the obligation
+ *    ledger, which drains after COMMIT);
+ *  - A4 Q3: a change naming no origin, or one outside the closed set — the
+ *    `refresh_data` trigger would otherwise read it as a component save, the
+ *    destructive door. A hand-built dispatch is never defaulted to a save.
+ */
+function refuseMisusedDispatch(
+	observedTipo: string,
+	sectionTipo: string,
+	sectionId: number,
+	observed: ObservedChange,
+): void {
+	const coordinates = { tipo: observedTipo, section_tipo: sectionTipo, section_id: sectionId };
+	if (isInTransaction()) {
+		throw new DedaloError('internal.invariant', {
+			message: `propagateToObservers: refusing to run inside a transaction — '${observedTipo}' @ ${sectionTipo}/${sectionId}. Propagation reads committed state and opens its own transactions (B6); a write declares its change to the obligation ledger (section_record/obligation_ledger.ts), which drains after COMMIT.`,
+			coordinates,
+		});
+	}
+	if (!isObservedChangeOrigin(observed.origin)) {
+		throw new DedaloError('internal.invariant', {
+			message: `propagateToObservers: the change names no origin (got ${JSON.stringify(observed.origin)}) — '${observedTipo}' @ ${sectionTipo}/${sectionId}. Every dispatch states where the change comes from: one of ${[...OBSERVED_CHANGE_ORIGINS].join(' | ')} (the ledger's declaration kind, or 'hop'); a hand-built dispatch is never defaulted to a component save.`,
+			coordinates,
+		});
+	}
+}
+
 export async function propagateToObservers(
 	observedTipo: string,
 	sectionTipo: string,
@@ -480,23 +511,8 @@ export async function propagateToObservers(
 	now: Date = new Date(),
 	cascade?: CascadeGuard,
 ): Promise<unknown[]> {
-	// B6 — see the docstring. Outside the try: this is the caller's bug, not a
-	// recompute failure to swallow.
-	if (isInTransaction()) {
-		throw new DedaloError('internal.invariant', {
-			message: `propagateToObservers: refusing to run inside a transaction — '${observedTipo}' @ ${sectionTipo}/${sectionId}. Propagation reads committed state and opens its own transactions (B6); a write declares its change to the obligation ledger (section_record/obligation_ledger.ts), which drains after COMMIT.`,
-			coordinates: { tipo: observedTipo, section_tipo: sectionTipo, section_id: sectionId },
-		});
-	}
-	// The origin is REQUIRED at runtime too (A4 Q3): a dispatch that names none
-	// would otherwise be read by the `refresh_data` trigger as a component save —
-	// the destructive door. Also the caller's bug, thrown before any edge is read.
-	if (!isObservedChangeOrigin(observed.origin)) {
-		throw new DedaloError('internal.invariant', {
-			message: `propagateToObservers: the change names no origin (got ${JSON.stringify(observed.origin)}) — '${observedTipo}' @ ${sectionTipo}/${sectionId}. Every dispatch states where the change comes from: one of ${[...OBSERVED_CHANGE_ORIGINS].join(' | ')} (the ledger's declaration kind, or 'hop'); a hand-built dispatch is never defaulted to a component save.`,
-			coordinates: { tipo: observedTipo, section_tipo: sectionTipo, section_id: sectionId },
-		});
-	}
+	// The caller's bugs, thrown before anything runs (never swallowed below).
+	refuseMisusedDispatch(observedTipo, sectionTipo, sectionId, observed);
 	const observersData: unknown[] = [];
 	try {
 		// Act 2 discovery: the ontology-wide subscription registry (forward
