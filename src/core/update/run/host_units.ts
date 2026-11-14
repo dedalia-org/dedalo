@@ -13,8 +13,12 @@
  * How the run knows it is a production systemd instance and which command to
  * name: the server drop-in sets DEDALO_WRITABLE_ROOTS_MANIFEST (C32), and the
  * manifest beside the drop-in carries `refresh`, the instance's own re-render
- * command. Unset (docker, trial, developer): nothing to judge. The templates
- * are root's, world-readable (0644), so the service user reads them.
+ * command. Unset AND no installer template on the host (docker, trial,
+ * developer): nothing to judge. Unset WITH the templates on the host: an
+ * instance installed before C32 (its drop-in names no manifest and opens no
+ * ReadWritePaths=) — the re-render is offered unconditionally, the command
+ * derived from the running tree (`legacy`). The templates are root's,
+ * world-readable (0644), so the service user reads them.
  *
  * WHY THIS MODULE RENDERS NOTHING THROUGH src/core/install/host/: that tree is
  * the ROOT installer's and is kept OFF the server's import closure
@@ -27,7 +31,7 @@
  */
 
 import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { projectRoot, readEnv } from '../../../config/env.ts';
 import { parseWritableRootsManifest } from '../../../config/writable_roots.ts';
 
@@ -40,8 +44,18 @@ const PG_SERVICE_NAME = String.raw`postgresql(?:-\d+)?\.service`;
 
 /** What the run learnt of the host's templates. */
 export type HostUnitsState =
-	/** Not a production systemd instance (no manifest named): nothing to judge. */
+	/** Not a production systemd instance (no manifest named, no template on the host): nothing to judge. */
 	| { kind: 'not_systemd' }
+	/**
+	 * A systemd instance installed BEFORE the writable-roots release (C32): the
+	 * installer's templates are on the host but no manifest is named — its drop-in
+	 * predates `ProtectSystem=strict` and carries no `ReadWritePaths=`. The
+	 * re-render is owed whatever the templates say: a template already upgraded by
+	 * another instance's install would run THIS instance read-only at its next
+	 * restart. `refresh` is derived from the running tree (the instance is the
+	 * directory the tree lives in); `templates` are the ones not this release's.
+	 */
+	| { kind: 'legacy'; refresh: string; templates: string[] }
 	/** The manifest is named but unreadable or malformed: the engine would not even boot (C32) — said, not hidden. */
 	| { kind: 'manifest_unreadable'; path: string; reason: string }
 	/** Every template is this release's. */
@@ -126,10 +140,40 @@ function resolvedReads(reads: HostUnitsReads): {
 	};
 }
 
+/** Which of this release's templates are present on the host at all (a pre-C32 instance is known by them). */
+async function presentTemplates(
+	source: string,
+	readText: (path: string) => Promise<string | null>,
+): Promise<string[]> {
+	const present: string[] = [];
+	for (const name of await shippedTemplateNames(source)) {
+		if ((await readText(join(SYSTEMD_DIR, name))) !== null) present.push(name);
+	}
+	return present;
+}
+
+/**
+ * The re-render command of an instance whose drop-in names no manifest: the
+ * instance is the directory the tree lives in (layout `<instance dir>/<tree>`,
+ * writable_roots.ts reads the same), the runtime the one running this engine.
+ */
+function legacyRefreshCommand(source: string): string {
+	return `sudo ${process.execPath} run ${join(source, 'scripts/ops/host_units_refresh.ts')} --instance ${basename(dirname(source))}`;
+}
+
 /** Judge the host's templates (see the header). Never throws on a host fact: every outcome is a state. */
 export async function readHostUnitsState(reads: HostUnitsReads = {}): Promise<HostUnitsState> {
 	const { manifestPath, readText, source } = resolvedReads(reads);
-	if (manifestPath === null) return { kind: 'not_systemd' };
+	if (manifestPath === null) {
+		// No manifest: a pre-C32 production instance (templates on the host) or not
+		// a systemd instance at all (none) — told apart by the host, not assumed.
+		if ((await presentTemplates(source, readText)).length === 0) return { kind: 'not_systemd' };
+		return {
+			kind: 'legacy',
+			refresh: legacyRefreshCommand(source),
+			templates: await differingTemplates(source, readText),
+		};
+	}
 	const refresh = await readRefreshCommand(manifestPath, readText);
 	if (typeof refresh !== 'string') return refresh;
 	const templates = await differingTemplates(source, readText);

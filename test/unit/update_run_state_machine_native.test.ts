@@ -18,7 +18,7 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { migrationSha256 } from '../../install/db/migration_ledger.ts';
 import { OS_ROWS } from '../../src/core/install/host/os_support.ts';
 import {
@@ -477,6 +477,11 @@ describe('post-verify', () => {
 		const current = await of({ kind: 'current', refresh });
 		expect(current.ok).toBe(true);
 		expect(current.offer).toBeUndefined();
+		// legacy (pre-C32 instance, templates current or not): ok, the offer IS the derived command
+		const legacy = await of({ kind: 'legacy', refresh, templates: [] });
+		expect(legacy.ok).toBe(true);
+		expect(legacy.offer).toBe(refresh);
+		expect(legacy.detail).toContain('before the writable-roots release');
 		// differs: STILL ok (the run never writes /etc/systemd), the offer IS the manifest's command
 		const differs = await of({
 			kind: 'differs',
@@ -535,6 +540,16 @@ describe('post-verify', () => {
 		expect(await readHostUnitsState({ manifestPath: '', readText, source })).toEqual({
 			kind: 'not_systemd',
 		});
+		// NO manifest but the installer's templates ON the host: an instance installed
+		// before C32 — `legacy`, the offer derived from the tree (the instance = the
+		// directory the tree lives in), whatever the templates' state (RED before: not_systemd)
+		files.set(join(SYSTEMD_DIR, 'dedalo-ts@.service'), 'an earlier release render');
+		const legacy = await readHostUnitsState({ manifestPath: undefined, readText, source });
+		expect(legacy).toMatchObject({ kind: 'legacy', templates: [...UNIT_TEMPLATES].sort() });
+		expect((legacy as { refresh: string }).refresh).toContain(
+			`${join(source, 'scripts/ops/host_units_refresh.ts')} --instance ${basename(dirname(source))}`,
+		);
+		files.delete(join(SYSTEMD_DIR, 'dedalo-ts@.service'));
 		// the manifest itself is read through the seam: absent → unreadable, said
 		expect(await readHostUnitsState({ manifestPath: manifest, readText, source })).toEqual({
 			kind: 'manifest_unreadable',

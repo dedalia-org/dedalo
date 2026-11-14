@@ -141,6 +141,12 @@ const hostUnits: Predicate['check'] = async (_journal, reads) => {
 				ok: true,
 				detail: `the writable-roots manifest ${state.path} ${state.reason}: the templates could not be judged (the next boot refuses on it — re-render the units as root: scripts/ops/host_units_refresh.ts --instance <i>)`,
 			};
+		case 'legacy':
+			return {
+				ok: true,
+				detail: `this instance was installed before the writable-roots release: its drop-in names no manifest and opens no ReadWritePaths= (ProtectSystem=strict would run it read-only at its next restart${state.templates.length === 0 ? '' : `; templates not this release's render: ${state.templates.join(', ')}`}) — re-render the units as root, then restart the instance: ${state.refresh}`,
+				offer: state.refresh,
+			};
 		case 'current':
 			return { ok: true, detail: "the host's systemd unit templates are this release's render" };
 		case 'differs':
