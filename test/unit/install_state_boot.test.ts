@@ -14,7 +14,7 @@
  */
 
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -250,5 +250,41 @@ describe("the writable roots: a configured path outside the unit's roots refuses
 		const parsed = parseWritableRootsManifest(manifest());
 		expect(typeof parsed).toBe('object');
 		expect((parsed as { instance: string }).instance).toBe('zzisb');
+	});
+});
+
+/**
+ * THE WIRING (review 2026-11-14): the pure predicate above proves what a refusal
+ * SAYS; nothing proved the engine ASKS it. A refactor that drops
+ * `refuseBootOutsideWritableRoots()` from startServer, or moves it after the
+ * listener and the boot writers, left every gate green — and the C32 promise
+ * (a path outside the roots fails at BOOT, never at its first write under
+ * ProtectSystem=strict) would be false. Source-pinned: the call sits in
+ * startServer after the install-state refusal and BEFORE the dev-listener
+ * resolution, the smoke-boot branch and the first `Bun.serve(`.
+ */
+describe('the writable-roots refusal is WIRED into startServer, before any listener or boot writer', () => {
+	const source = readFileSync(resolve(import.meta.dir, '../../src/server.ts'), 'utf8');
+	const body = source.slice(source.indexOf('export async function startServer()'));
+
+	test('startServer calls refuseBootOutsideWritableRoots() exactly once, imported from config/writable_roots.ts', () => {
+		expect(source).toContain(
+			"import { refuseBootOutsideWritableRoots } from './config/writable_roots.ts';",
+		);
+		expect(body.indexOf('export async function startServer()')).toBe(0);
+		expect(body.split('refuseBootOutsideWritableRoots();').length - 1).toBe(1);
+	});
+
+	test('the call follows the install-state refusal and precedes the dev listener, the smoke-boot branch and the first Bun.serve(', () => {
+		const at = (needle: string): number => {
+			const index = body.indexOf(needle);
+			expect(index, `startServer no longer contains ${needle}`).toBeGreaterThan(-1);
+			return index;
+		};
+		const refusal = at('refuseBootOutsideWritableRoots();');
+		expect(refusal).toBeGreaterThan(at('refuseBootWhenNotInstalled();'));
+		expect(refusal).toBeLessThan(at('resolveDevListenerOrRefuse('));
+		expect(refusal).toBeLessThan(at("readEnv('DEDALO_SMOKE_BOOT')"));
+		expect(refusal).toBeLessThan(at('Bun.serve('));
 	});
 });

@@ -21,7 +21,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { MIGRATIONS_DIR, shippedMigrationFiles } from '../../install/db/migrate.ts';
 import {
 	isProvablyCompatible,
@@ -32,6 +32,7 @@ import {
 } from '../../install/db/migration_ledger.ts';
 import {
 	incompatibleFilesOf,
+	MIGRATION_SEAL_PATH,
 	type MigrationSeal,
 	readMigrationSeal,
 	releaseTripleOf,
@@ -46,6 +47,7 @@ import {
 } from '../../src/core/update/version.ts';
 import { trackedRepoFiles } from '../helpers/deploy_artifact_corpus.ts';
 
+const REPO_ROOT = join(import.meta.dir, '../..');
 const ledger: MigrationLedger = await readMigrationLedger();
 const seal: MigrationSeal = readMigrationSeal();
 // the runner's own enumeration (migrate.ts) — the ledger is checked against what boot applies
@@ -195,6 +197,49 @@ describe('migration content-hash tripwire — install/db/migrations.lock.json', 
 
 		test('every sealed triple holds exactly its incompatible set — none added after the seal', () => {
 			expect(sealViolations(ledger, seal)).toEqual([]);
+		});
+
+		/**
+		 * The seal is not self-attested (review 2026-11-14): `sealViolations` compares
+		 * the ledger with the seal FILE, so adding a file to BOTH silenced the gate — the
+		 * 0015 incident wearing the seal. A triple's set is frozen at its first build,
+		 * and git history is where that first build lives: every COMMITTED version of
+		 * migrations.sealed.json must agree with the working tree on every triple it
+		 * seals — no file added, none removed (full clones everywhere: CI checks out
+		 * with fetch-depth 0, so the history is visible wherever this gate runs).
+		 */
+		test('a sealed set is FROZEN against every committed version of the seal (no addition, no removal — the law lives in history, not in the file)', () => {
+			const sealFile = relative(REPO_ROOT, MIGRATION_SEAL_PATH);
+			const shas = Bun.spawnSync(['git', 'log', '--format=%H', '--', sealFile], {
+				cwd: REPO_ROOT,
+			})
+				.stdout.toString()
+				.split('\n')
+				.filter((sha) => sha !== '');
+			expect(shas.length, 'no committed seal visible (shallow clone?)').toBeGreaterThan(0);
+			const drift: string[] = [];
+			let judged = 0;
+			for (const sha of shas) {
+				const run = Bun.spawnSync(['git', 'show', `${sha}:${sealFile}`], {
+					cwd: REPO_ROOT,
+				});
+				if (run.exitCode !== 0) continue;
+				const past = JSON.parse(run.stdout.toString()) as { triples?: Record<string, string[]> };
+				for (const [triple, files] of Object.entries(past.triples ?? {})) {
+					judged += 1;
+					const now = seal.triples[triple];
+					if (now === undefined)
+						drift.push(`${triple}: sealed at ${sha.slice(0, 10)}, unsealed now`);
+					else if (JSON.stringify([...now].sort()) !== JSON.stringify([...files].sort()))
+						drift.push(
+							`${triple}: sealed at ${sha.slice(0, 10)} as [${files.join(', ')}], now [${now.join(', ')}]`,
+						);
+				}
+			}
+			expect(judged).toBeGreaterThan(0);
+			expect(drift).toEqual([]);
+			// 7.0.0 was sealed retroactively at beta.8 with exactly 7 files: that number is history now
+			expect(seal.triples['7.0.0']).toHaveLength(7);
 		});
 
 		test('anti-vacuity: an incompatible file added to a sealed triple is red; a compatible one, or an unsealed triple, is not; a sealed file the ledger drops is red', () => {

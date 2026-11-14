@@ -865,38 +865,88 @@ describe('the shipped-template digest ledger: append-only, current render and HE
 		}
 	});
 
-	test("the committed HEAD's render of every template is in the ledger (the OLD digest survives the edit), and HEAD's ledger is a subset of this one (append-only)", () => {
+	/**
+	 * Judged against GIT HISTORY, not HEAD: CI and the pre-push gate run on a clean
+	 * checkout where HEAD IS the working tree, so a HEAD-only comparison compared
+	 * every file with itself and could not fail (review 2026-11-14). Every COMMITTED
+	 * render of every template (each commit that touched it, every OS row) must be in
+	 * the ledger, and every committed version of the ledger must be a subset of this
+	 * one — a regenerated or hand-pruned ledger reds here on the commit that ships
+	 * it. Anti-vacuity: the history must be visible (full clones everywhere: CI
+	 * checks out with fetch-depth 0), so a shallow run cannot pass by seeing nothing.
+	 */
+	const commitsTouching = (path: string): string[] =>
+		git('log', '--format=%H', '--', path)
+			.split('\n')
+			.filter((sha) => sha !== '');
+	const committedText = (sha: string, path: string): string | null => {
+		const run = Bun.spawnSync(['git', '-C', REPO_ROOT, 'show', `${sha}:${path}`]);
+		return run.exitCode === 0 ? run.stdout.toString() : null;
+	};
+
+	test('every COMMITTED render of every template (each commit that touched it × OS row) is in the ledger — the old digests survive every edit', () => {
 		const ledger = readShippedDigests(REPO_ROOT);
 		const missing: string[] = [];
+		let judged = 0;
 		for (const name of UNIT_TEMPLATES) {
-			const committed = git('show', `HEAD:deploy/systemd/${name}`);
-			for (const row of OS_ROWS) {
-				const digest = digestOf(committed.replace(/@@PG_SERVICE@@/g, row.pgService));
-				if (!isShippedDigest(ledger, name, digest)) missing.push(`${name} (${row.id}) ${digest}`);
+			const shas = commitsTouching(`deploy/systemd/${name}`);
+			expect(shas.length, `${name}: no committed version visible (shallow clone?)`).toBeGreaterThan(
+				0,
+			);
+			for (const sha of shas) {
+				const committed = committedText(sha, `deploy/systemd/${name}`);
+				if (committed === null) continue; // the commit deleted it (a rename's old path)
+				judged += 1;
+				for (const row of OS_ROWS) {
+					const digest = digestOf(committed.replace(/@@PG_SERVICE@@/g, row.pgService));
+					if (!isShippedDigest(ledger, name, digest))
+						missing.push(`${name} @${sha.slice(0, 10)} (${row.id}) ${digest}`);
+				}
 			}
 		}
+		// the server template has shipped more than once: the history leg judges real past renders
+		expect(commitsTouching('deploy/systemd/dedalo-ts@.service').length).toBeGreaterThan(1);
+		expect(judged).toBeGreaterThan(UNIT_TEMPLATES.length);
 		expect(missing).toEqual([]);
-		// HEAD's ledger (the first commit of the ledger has none to compare with: empty)
-		const inHead = Bun.spawnSync([
-			'git',
-			'-C',
-			REPO_ROOT,
-			'cat-file',
-			'-e',
-			`HEAD:${SHIPPED_DIGESTS_FILE}`,
-		]);
-		const head =
-			inHead.exitCode === 0
-				? parseShippedDigests(git('show', `HEAD:${SHIPPED_DIGESTS_FILE}`))
-				: { format: 1, templates: {} };
-		if (typeof head === 'string') throw new Error(`HEAD's ledger: ${head}`);
+	});
+
+	test('every COMMITTED version of the ledger is a subset of this one (append-only: a digest once shipped is never dropped)', () => {
+		const ledger = readShippedDigests(REPO_ROOT);
+		const shas = commitsTouching(SHIPPED_DIGESTS_FILE);
+		expect(shas.length, 'no committed ledger visible (shallow clone?)').toBeGreaterThan(0);
 		const dropped: string[] = [];
-		for (const [name, digests] of Object.entries(head.templates)) {
-			for (const digest of digests) {
-				if (!(ledger.templates[name] ?? []).includes(digest)) dropped.push(`${name} ${digest}`);
+		for (const sha of shas) {
+			const text = committedText(sha, SHIPPED_DIGESTS_FILE);
+			if (text === null) continue;
+			const past = parseShippedDigests(text);
+			if (typeof past === 'string') throw new Error(`${sha.slice(0, 10)}'s ledger: ${past}`);
+			for (const [name, digests] of Object.entries(past.templates)) {
+				for (const digest of digests) {
+					if (!(ledger.templates[name] ?? []).includes(digest))
+						dropped.push(`${name} ${digest} (shipped at ${sha.slice(0, 10)})`);
+				}
 			}
 		}
 		expect(dropped).toEqual([]);
+		// anti-vacuity: a ledger missing one committed digest is caught
+		const first = shas[shas.length - 1] as string;
+		const oldest = parseShippedDigests(committedText(first, SHIPPED_DIGESTS_FILE) ?? '');
+		if (typeof oldest === 'string') throw new Error(oldest);
+		const [someName, someDigests] = Object.entries(oldest.templates)[0] as [string, string[]];
+		const pruned = {
+			...ledger,
+			templates: {
+				...ledger.templates,
+				[someName]: (ledger.templates[someName] ?? []).filter((d) => d !== someDigests[0]),
+			},
+		};
+		expect(
+			isShippedDigest(
+				pruned,
+				someName as (typeof UNIT_TEMPLATES)[number],
+				someDigests[0] as string,
+			),
+		).toBe(false);
 	});
 
 	test('positive controls: a digest no release shipped is not shipped; a malformed ledger is refused by its reason', () => {
