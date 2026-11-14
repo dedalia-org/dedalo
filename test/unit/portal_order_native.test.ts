@@ -1413,7 +1413,7 @@ describe('observer re-sort — editing a target re-sorts its hosts, no host save
 			TERM_TEXT,
 			TERM_SECTION,
 			termEcho,
-			{ saved: [], removed: [] },
+			{ saved: [], removed: [], origin: 'keys' },
 			USER_ID,
 			new Date(),
 			freshGuard(MAX_CASCADE_DEPTH),
@@ -1425,7 +1425,7 @@ describe('observer re-sort — editing a target re-sorts its hosts, no host save
 			TERM_TEXT,
 			TERM_SECTION,
 			termEcho,
-			{ saved: [], removed: [] },
+			{ saved: [], removed: [], origin: 'keys' },
 			USER_ID,
 		);
 		expect(idsOf(await storedAt(HOST_SECTION, host, HOSTED_REL))).toEqual([midDelta, midEcho]);
@@ -1521,7 +1521,7 @@ describe('observer re-sort — editing a target re-sorts its hosts, no host save
 				ORDER_COLUMN,
 				SECTION,
 				target,
-				{ saved: [], removed: [] },
+				{ saved: [], removed: [], origin: 'keys' },
 				USER_ID,
 			);
 		} finally {

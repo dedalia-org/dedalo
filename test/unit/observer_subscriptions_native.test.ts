@@ -1290,7 +1290,7 @@ describe('live-ontology gates (suite DB)', () => {
 			install.observed,
 			install.host_section,
 			SCRATCH_OH1_ID,
-			{ saved: [], removed: [] },
+			{ saved: [], removed: [], origin: 'keys' },
 			-1,
 		);
 		expect(result).toHaveLength(1);
@@ -1320,7 +1320,7 @@ describe('live-ontology gates (suite DB)', () => {
 			seed('rsc', 36),
 			seed('rsc', 1),
 			999_999_991,
-			{ saved: [], removed: [] },
+			{ saved: [], removed: [], origin: 'keys' },
 			-1,
 		);
 		expect(result).toEqual([]);

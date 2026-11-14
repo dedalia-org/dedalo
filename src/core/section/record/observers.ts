@@ -131,7 +131,11 @@ import {
 	type ObserveEntry,
 } from './observer_subscriptions.ts';
 // type-only: the refresh_data pure half is reached by DYNAMIC import on the dispatch path.
-import type { ObservedChangeOrigin } from './refresh_data.ts';
+import {
+	isObservedChangeOrigin,
+	OBSERVED_CHANGE_ORIGINS,
+	type ObservedChangeOrigin,
+} from './refresh_data.ts';
 
 /**
  * MOVED to external_laws/ (2026-10-30) — law (c)'s seed and the mirror item-id
@@ -453,15 +457,19 @@ export interface ObservedChange {
 	before?: unknown[];
 	/**
 	 * WHERE the change comes from: the ledger's declaration kind (a component
-	 * save is `keys`; a whole-record write `birth` / `replace` / `death`) or the
-	 * cascade `hop`. Read by the same ONE consumer: the `refresh_data` clear
-	 * fires from a component save and a hop only — a whole-record write
-	 * declares every key of the record, and a destructive clear riding it wiped
-	 * the milestone the write itself had just copied or restored
-	 * (refresh_data.ts refreshDataFiresOn). Absent = a hand-built dispatch,
-	 * read as a component save.
+	 * save is `keys`; a whole-record write `birth` / `replace` / `death` /
+	 * `recompute`) or the cascade `hop`. REQUIRED — type AND runtime (owner
+	 * ruling A4 Q3, 2026-11-13): a dispatch that names no origin, or one outside
+	 * the closed set, is refused by `propagateToObservers` before any edge is
+	 * looked up, never read as a component save. Read by ONE consumer: the
+	 * `refresh_data` clear fires from a component save and a hop only — a
+	 * whole-record write declares every key of the record, and a destructive
+	 * clear riding it wiped the milestone the write itself had just copied or
+	 * restored (refresh_data.ts refreshDataFiresOn). The same shape as
+	 * `removed`: an optional origin would have defaulted a hand-built dispatch
+	 * to the destructive door.
 	 */
-	origin?: ObservedChangeOrigin;
+	origin: ObservedChangeOrigin;
 }
 export async function propagateToObservers(
 	observedTipo: string,
@@ -477,6 +485,15 @@ export async function propagateToObservers(
 	if (isInTransaction()) {
 		throw new DedaloError('internal.invariant', {
 			message: `propagateToObservers: refusing to run inside a transaction — '${observedTipo}' @ ${sectionTipo}/${sectionId}. Propagation reads committed state and opens its own transactions (B6); a write declares its change to the obligation ledger (section_record/obligation_ledger.ts), which drains after COMMIT.`,
+			coordinates: { tipo: observedTipo, section_tipo: sectionTipo, section_id: sectionId },
+		});
+	}
+	// The origin is REQUIRED at runtime too (A4 Q3): a dispatch that names none
+	// would otherwise be read by the `refresh_data` trigger as a component save —
+	// the destructive door. Also the caller's bug, thrown before any edge is read.
+	if (!isObservedChangeOrigin(observed.origin)) {
+		throw new DedaloError('internal.invariant', {
+			message: `propagateToObservers: the change names no origin (got ${JSON.stringify(observed.origin)}) — '${observedTipo}' @ ${sectionTipo}/${sectionId}. Every dispatch states where the change comes from: one of ${[...OBSERVED_CHANGE_ORIGINS].join(' | ')} (the ledger's declaration kind, or 'hop'); a hand-built dispatch is never defaulted to a component save.`,
 			coordinates: { tipo: observedTipo, section_tipo: sectionTipo, section_id: sectionId },
 		});
 	}

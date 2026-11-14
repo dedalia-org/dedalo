@@ -240,21 +240,37 @@ export function refreshDataTrigger(change: {
 	saved: readonly unknown[];
 	removed: readonly unknown[];
 	before?: readonly unknown[];
-	origin?: ObservedChangeOrigin;
+	origin: ObservedChangeOrigin;
 }): RefreshDataTrigger {
 	if (!refreshDataFiresOn(change.origin)) return 'skipped_origin';
 	return observedValueChanged(change) ? 'changed' : 'unchanged';
 }
 
+/** The closed set of origins (observers.ts ObservedChange.origin) — what the kernel refuses a dispatch outside of. */
+export const OBSERVED_CHANGE_ORIGINS: ReadonlySet<ObservedChangeOrigin> = new Set([
+	'keys',
+	'replace',
+	'birth',
+	'death',
+	'recompute',
+	'hop',
+]);
+
+/** Is `value` one of the closed origins? (The kernel's runtime half of the REQUIRED `origin`.) */
+export function isObservedChangeOrigin(value: unknown): value is ObservedChangeOrigin {
+	return typeof value === 'string' && OBSERVED_CHANGE_ORIGINS.has(value as ObservedChangeOrigin);
+}
+
 /**
  * Does the perform fire for a change of this origin? A component save (`keys`)
- * and the cascade hop do; a whole-record declaration never. An ABSENT origin
- * is a hand-built dispatch (a gate, a script calling propagateToObservers
- * directly) and is read as a component save — the ledger and the hop, the two
- * production producers, always name theirs.
+ * and the cascade hop do; a whole-record declaration never. The origin is
+ * REQUIRED (owner ruling A4 Q3, 2026-11-13): there is no absent case to read as
+ * a component save — a dispatch that names none is refused by the kernel before
+ * any edge is looked up (observers.ts propagateToObservers), so a hand-built
+ * dispatch (a gate, a script) must say what door it stands for.
  */
-export function refreshDataFiresOn(origin: ObservedChangeOrigin | undefined): boolean {
-	return origin === undefined || FIRING_ORIGINS.has(origin);
+export function refreshDataFiresOn(origin: ObservedChangeOrigin): boolean {
+	return FIRING_ORIGINS.has(origin);
 }
 
 /**

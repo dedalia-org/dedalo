@@ -145,3 +145,22 @@ The door and the self-write shield are gated in the same native file (cases i–
 milestone, and milestone then person, keeps it; a `persistRecordColumns` replace that changes
 the person keeps the milestone it writes; the pure trigger per origin; the clear unit's
 `self_written`).
+
+## Addendum 2026-11-14 — `ObservedChange.origin` is REQUIRED (owner ruling A4 Q3, 2026-11-13)
+
+The first cut read an ABSENT origin as a component save (a hand-built dispatch — a gate, a
+script calling `propagateToObservers` directly — fired the clear). That default is gone:
+
+- **Type**: `ObservedChange.origin: ObservedChangeOrigin` (no `?`), the closed set
+  `'keys' | 'replace' | 'birth' | 'death' | 'recompute' | 'hop'` (`refresh_data.ts`
+  `OBSERVED_CHANGE_ORIGINS`).
+- **Runtime**: `propagateToObservers` REFUSES (`internal.invariant`, the caller's bug — thrown
+  before any edge is read, never swallowed, never counted as a propagation failure) a change
+  whose origin is missing or outside the set. `refreshDataFiresOn` takes the origin alone; no
+  branch reads `undefined`.
+- **Producers**: the ledger drain (`entry.origin` = the declaration kind) and the cascade hop
+  (`'hop'`) already named theirs; every direct dispatch in the gates now states `origin`.
+- Gates: `observer_failsafe_native` ("origin is REQUIRED": the type has no `?` + every
+  `src/`/`scripts/` call site states it; "the kernel REFUSES a dispatch without an origin" —
+  RED before: it returned `[]`), `observer_refresh_data_native` (trigger per origin;
+  `isObservedChangeOrigin`). No wire shape changes.

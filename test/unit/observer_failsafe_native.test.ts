@@ -76,8 +76,13 @@ import { Glob } from 'bun';
 import { getCounters } from '../../src/core/api/counters.ts';
 import { DATAFRAME_RELATION_TYPE } from '../../src/core/concepts/subdatum.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { DedaloError } from '../../src/core/errors/index.ts';
 import { getExternalLaw } from '../../src/core/section/record/external_laws/classify.ts';
-import { recomputeExternalRelation } from '../../src/core/section/record/observers.ts';
+import {
+	type ObservedChange,
+	propagateToObservers,
+	recomputeExternalRelation,
+} from '../../src/core/section/record/observers.ts';
 import { removedLocators } from '../../src/core/section_record/index.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 
@@ -279,10 +284,14 @@ describe('observer shrink fail-safe (static)', () => {
 
 /**
  * Find propagateToObservers CALLS and return those whose 4th argument does not
- * state a `removed:` key. Reuses the bracket-depth walk above rather than a
- * regex: the argument spans multiple lines and contains nested object literals.
+ * state the `key` (`removed:`, `origin:`). Reuses the bracket-depth walk above
+ * rather than a regex: the argument spans multiple lines and contains nested
+ * object literals.
  */
-function scanCallsMissingRemoved(text: string): { at: number; snippet: string }[] {
+function scanCallsMissingKey(
+	text: string,
+	key: 'removed:' | 'origin:',
+): { at: number; snippet: string }[] {
 	const offenders: { at: number; snippet: string }[] = [];
 	let from = 0;
 	for (;;) {
@@ -308,7 +317,25 @@ function scanCallsMissingRemoved(text: string): { at: number; snippet: string }[
 		}
 		if (end === -1) continue;
 		const args = text.slice(open, end + 1);
-		if (!args.includes('removed:')) offenders.push({ at, snippet: args.slice(0, 120) });
+		if (!args.includes(key)) offenders.push({ at, snippet: args.slice(0, 120) });
+	}
+	return offenders;
+}
+
+/** Every propagateToObservers call site of src/ + scripts/ missing `key` (comments stripped). */
+function callSitesMissing(key: 'removed:' | 'origin:'): string[] {
+	const offenders: string[] = [];
+	for (const dir of ['src', 'scripts']) {
+		const glob = new Glob('**/*.ts');
+		for (const match of glob.scanSync({ cwd: join(REPO_ROOT, dir) })) {
+			const file = relative(REPO_ROOT, join(REPO_ROOT, dir, match));
+			// Comments stripped: a docblock that NAMES the door (as scripts/lib/
+			// authz_substring_census.ts does) is prose, not a call site.
+			const text = stripComments(readFileSync(join(REPO_ROOT, file), 'utf-8'));
+			for (const short of scanCallsMissingKey(text, key)) {
+				offenders.push(`${file}@${short.at}: ${short.snippet}`);
+			}
+		}
 	}
 	return offenders;
 }
@@ -325,22 +352,52 @@ describe('removal plumbing (static)', () => {
 	});
 
 	test('every propagateToObservers call site in src/ states its removed set', () => {
-		const offenders: string[] = [];
-		for (const dir of ['src', 'scripts']) {
-			const glob = new Glob('**/*.ts');
-			for (const match of glob.scanSync({ cwd: join(REPO_ROOT, dir) })) {
-				const file = relative(REPO_ROOT, join(REPO_ROOT, dir, match));
-				// Comments stripped: a docblock that NAMES the door (as scripts/lib/
-				// authz_substring_census.ts does) is prose, not a call site.
-				const text = stripComments(readFileSync(join(REPO_ROOT, file), 'utf-8'));
-				for (const short of scanCallsMissingRemoved(text)) {
-					offenders.push(`${file}@${short.at}: ${short.snippet}`);
-				}
-			}
-		}
+		const offenders = callSitesMissing('removed:');
 		expect(
 			offenders,
 			`A propagation door does not state what it REMOVED. Propagation used to see the post-save value alone, so a dropped locator's mirror was never revisited and kept a dead reference forever. Pass { saved, removed } — '[]' is a fine answer, silence is not:\n${offenders.join('\n')}`,
+		).toEqual([]);
+	});
+
+	test('origin is REQUIRED (owner A4 Q3): the type has no `?`, and every call site in src/ states it', () => {
+		// The mirror of the `removed` gate: an optional origin would have defaulted a
+		// hand-built dispatch to the `refresh_data` trigger's firing door.
+		expect(kernelSource).toContain('origin: ObservedChangeOrigin;');
+		expect(kernelSource).not.toContain('origin?: ObservedChangeOrigin;');
+		const offenders = callSitesMissing('origin:');
+		expect(
+			offenders,
+			`A propagation door does not state its ORIGIN (the ledger's declaration kind or 'hop'). The refresh_data clear fires from a component save and a hop only; a dispatch that names no origin is refused by the kernel, never read as a save:\n${offenders.join('\n')}`,
+		).toEqual([]);
+	});
+
+	test('the kernel REFUSES a dispatch without an origin, or with one outside the closed set — before any edge is read (A4 Q3)', async () => {
+		// A tipo no ontology declares: the refusal must come BEFORE the registry
+		// lookup (nothing read, nothing counted) — if it did not, this would resolve
+		// to "no subscriptions" and return [] instead of throwing.
+		const failedBefore = getCounters().observers_propagation_failed ?? 0;
+		for (const bogus of [{}, { origin: undefined }, { origin: 'save' }, { origin: null }]) {
+			const change = { saved: [], removed: [], ...bogus } as unknown as ObservedChange;
+			const thrown = await propagateToObservers('test999zzno_such', 'test3', 1, change, -1).then(
+				() => null,
+				(error: unknown) => error,
+			);
+			expect(thrown, JSON.stringify(bogus)).toBeInstanceOf(DedaloError);
+			expect((thrown as DedaloError).code).toBe('internal.invariant');
+			expect((thrown as DedaloError).message).toContain('names no origin');
+			expect((thrown as DedaloError).message).toContain("'hop'");
+		}
+		expect(getCounters().observers_propagation_failed ?? 0).toBe(failedBefore);
+		// CONTROL: the same bogus tipo WITH an origin is not refused here — it
+		// resolves to no subscriptions (the refusal above is the origin's, not the tipo's).
+		expect(
+			await propagateToObservers(
+				'test999zzno_such',
+				'test3',
+				1,
+				{ saved: [], removed: [], origin: 'keys' },
+				-1,
+			),
 		).toEqual([]);
 	});
 

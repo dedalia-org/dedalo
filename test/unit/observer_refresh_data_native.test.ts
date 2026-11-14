@@ -52,6 +52,8 @@ import {
 	MAX_CASCADE_DEPTH,
 } from '../../src/core/section/record/observers.ts';
 import {
+	isObservedChangeOrigin,
+	OBSERVED_CHANGE_ORIGINS,
 	observedValueChanged,
 	type ParsedRefreshData,
 	parseRefreshDataParams,
@@ -342,12 +344,15 @@ describe('the closed grammar (pure)', () => {
 		expect(observedValueChanged({ saved: [a], removed: [] })).toBe(true);
 	});
 
-	test('the door: a component save (keys), a hop and a hand-built dispatch fire; a birth, a replace, a death and a recompute never do', () => {
+	test('the door: a component save (keys) and a hop fire; a birth, a replace, a death and a recompute never do (origin REQUIRED — no absent case, A4 Q3)', () => {
 		const a = locator(PERSON_FIELD, PERSON, 1);
 		const b = locator(PERSON_FIELD, PERSON, 2);
 		const changed = { saved: [b], removed: [a], before: [a] };
 		expect(refreshDataTrigger({ ...changed, origin: 'keys' })).toBe('changed');
-		expect(refreshDataTrigger(changed)).toBe('changed');
+		// Every origin is adjudicated; nothing outside the closed set is read as a save.
+		expect(isObservedChangeOrigin(undefined)).toBe(false);
+		expect(isObservedChangeOrigin('save')).toBe(false);
+		for (const origin of OBSERVED_CHANGE_ORIGINS) expect(isObservedChangeOrigin(origin)).toBe(true);
 		expect(refreshDataTrigger({ saved: [b], removed: [], origin: 'hop' })).toBe('changed');
 		expect(refreshDataTrigger({ saved: [a], removed: [], before: [a], origin: 'keys' })).toBe(
 			'unchanged',

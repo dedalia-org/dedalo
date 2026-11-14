@@ -524,6 +524,7 @@ describe.if(DB_READY)(
 						},
 					],
 					removed: [],
+					origin: 'keys',
 				},
 				ROOT,
 			);
@@ -556,6 +557,7 @@ describe.if(DB_READY)(
 								},
 							],
 							removed: [],
+							origin: 'keys',
 						},
 						ROOT,
 					),
