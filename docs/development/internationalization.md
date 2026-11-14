@@ -1,6 +1,6 @@
 # Internationalization (i18n)
 
-> See also: [Components introduction](../core/components/index.md#translatable-property) · [Glossary → translatable / lg-nolan / transliterate](../core/glossary.md#translatable--lg-nolan--transliterate) · [Glossary → TLD](../core/glossary.md#tld) · [Importing data → Multiple languages](../core/importing_data.md#multiple-languages)
+> See also: [Components introduction](../core/components/index.md#translatable-property) · [Glossary → translatable / lg-nolan / transliterate](../understanding/glossary.md#translatable--lg-nolan--transliterate) · [Glossary → TLD](../understanding/glossary.md#tld) · [Importing data → Multiple languages](../using/importing_data.md#multiple-languages)
 
 Dédalo is multilingual to the core: the same record can hold a Spanish, English and Catalan version of every field, the application interface can be shown in any configured language, and content can be tagged with the language it is *in*. This page ties together how those mechanisms fit so a developer can reason about "what language is this string in, and where does it come from".
 
@@ -31,7 +31,7 @@ A cataloguer can perfectly well edit the *Spanish* title of a record (`DEDALO_DA
 
 ## The `lg` TLD: how a language is a record
 
-A Dédalo language is not a hard-coded enum — it is a thesaurus record. The languages live in the **languages section** `lg1` (`DEDALO_LANGS_SECTION_TIPO`), under the `lg` [top-level domain](../core/glossary.md#tld). Each language record carries:
+A Dédalo language is not a hard-coded enum — it is a thesaurus record. The languages live in the **languages section** `lg1`, under the `lg` [top-level domain](../understanding/glossary.md#tld). Each language record carries:
 
 - an **ISO 639-2/T alpha-3 code** in the `hierarchy41` component (e.g. `spa`, `eng`, `cat`), and
 - a set of **multilingual name strings** in the `hierarchy25` term component (e.g. `{"lg-eng":"Spanish","lg-spa":"Castellano"}`).
@@ -49,7 +49,7 @@ The server resolves between codes, records and names by reading the `matrix_lang
 All of these read the `matrix_langs` table, resolving names through the `hierarchy25` term tipo and codes through the `hierarchy41` code tipo.
 
 !!! note "The `lg-nolan` sentinel"
-    `lg-nolan` (`DEDALO_DATA_NOLAN`) is **not** a real `lg1` record — it is the reserved *no language* code for data that is not language-tagged (codes, technical literals, `root`, relations). The resolver returns `null` for it rather than attempting a lookup. See the [glossary](../core/glossary.md#lg-nolan).
+    `lg-nolan` (`DEDALO_DATA_NOLAN`) is **not** a real `lg1` record — it is the reserved *no language* code for data that is not language-tagged (codes, technical literals, `root`, relations). The resolver returns `null` for it rather than attempting a lookup. See the [glossary](../understanding/glossary.md#lg-nolan).
 
 ## The language config constants
 
@@ -156,7 +156,7 @@ The label of a **field or a section** is the `lg-*` term carried on that ontolog
 }
 ```
 
-At build time the node label is resolved to the **current interface language** by `labelByTipo(tipo)` (`src/core/ontology/labels.ts`), which defaults its lang to `currentApplicationLang()` — the request-scoped `DEDALO_APPLICATION_LANG`. The resolved string is stamped into the component [context](../core/glossary.md#context) as `label`. Resolution (`resolveLabel`) takes the requested language first, and when the node carries no term in it falls back to the **first non-empty** term. Because the ontology is *authored* in `DEDALO_STRUCTURE_LANG` (`lg-spa`, the master authoring language) every node is guaranteed a Spanish term, so that fallback always resolves and a label never comes back empty. Being ontology data, these terms **change with an [ontology update](ts_install_internals.md), not a code deploy**.
+At build time the node label is resolved to the **current interface language** by `labelByTipo(tipo)` (`src/core/ontology/labels.ts`), which defaults its lang to `currentApplicationLang()` — the request-scoped `DEDALO_APPLICATION_LANG`. The resolved string is stamped into the component [context](../understanding/glossary.md#context) as `label`. Resolution (`resolveLabel`) takes the requested language first, and when the node carries no term in it falls back to the **first non-empty** term. Because the ontology is *authored* in `DEDALO_STRUCTURE_LANG` (`lg-spa`, the master authoring language) every node is guaranteed a Spanish term, so that fallback always resolves and a label never comes back empty. Being ontology data, these terms **change with an [ontology update](ts_install_internals.md), not a code deploy**.
 
 !!! info "Why `DEDALO_STRUCTURE_LANG` is fixed at `lg-spa`"
     The ontology is *authored* in one language so that every term has a guaranteed canonical key. That language is `lg-spa` and must not be changed. It is the fallback floor for interface-label resolution and the language the ontology editor writes terms in — it is unrelated to what data or interface language any given installation uses day-to-day.
@@ -184,7 +184,7 @@ Program strings are coupled to **code**, not to the data model: a key exists bec
 
 ### 2c — Tool-local labels
 
-A **single tool's** own interface strings — its button captions and progress messages — do *not* live in the global catalogs. They ride a `dd1372` label payload (a multi-language `component_json`) inside that tool's `register.json` `misc`, resolved at runtime via `get_tool_label` (the client calls `self.get_tool_label('key')`). The [`tool_dd_label`](../tools/using_dd_label.md) helper authors these payloads. WC-034 moved **21** formerly-global keys that were used by exactly one tool (and tool-specific in meaning) into their tools' own labels, while genuinely generic vocabulary (`error`, `print`, `upload`, …) stays global. See the tools [register.json reference](tools/register_json.md) for the payload shape.
+A **single tool's** own interface strings — its button captions and progress messages — do *not* live in the global catalogs. They ride a `dd1372` label payload (a multi-language `component_json`) inside that tool's `register.json` `misc`, resolved at runtime via `get_tool_label` (the client calls `self.get_tool_label('key')`). The [`tool_dd_label`](../using/tools/using_dd_label.md) helper authors these payloads. WC-034 moved **21** formerly-global keys that were used by exactly one tool (and tool-specific in meaning) into their tools' own labels, while genuinely generic vocabulary (`error`, `print`, `upload`, …) stays global. See the tools [register.json reference](tools/register_json.md) for the payload shape.
 
 ## Plane 3 — the translation workflow: `tool_lang` / `tool_lang_multi`
 
@@ -235,7 +235,7 @@ Switching the target to **Catalan** and repeating fills the third slot. (To do a
 
 **4 — Tag the language of a media track.** The object has an audio guide *in Italian*. A `component_select_lang` field on the media record stores a locator into `lg1` for Italian. Because Italian is not in the project's three languages, the picker still shows it (marked `Italian *`) — the out-of-project guard in `src/core/relations/select_lang.ts` keeps a stored value visible instead of silently dropping it. See [`component_select_lang` → Missing / out-of-project languages](../core/components/component_select_lang.md#data-model). The diffusion layer reads the resolved alpha-3 code (`lg-ita`) to set the published track's language.
 
-**5 — Import/export round-trips preserve all slots.** A CSV re-import of the Description can carry all languages at once, either as a flat v7 array or a lang-keyed object — see [Importing data → Multiple languages](../core/importing_data.md#multiple-languages). Each present language replaces its slot; absent languages are preserved. Export emits one atom per value item in the current language (or the fallback items when empty); transliterables emit every language version — see [Exporting data](../core/exporting_data.md).
+**5 — Import/export round-trips preserve all slots.** A CSV re-import of the Description can carry all languages at once, either as a flat v7 array or a lang-keyed object — see [Importing data → Multiple languages](../using/importing_data.md#multiple-languages). Each present language replaces its slot; absent languages are preserved. Export emits one atom per value item in the current language (or the fallback items when empty); transliterables emit every language version — see [Exporting data](../using/exporting_data.md).
 
 ## How to add a new language
 
@@ -256,6 +256,6 @@ Adding a language is configuration plus (sometimes) one data step — never a sc
 - [`component_select_lang`](../core/components/component_select_lang.md) — tagging the language *of content* as data.
 - [`tool_lang`](tools/reference/tool_lang.md) · [Tools catalog → Language / i18n](tools/reference/index.md#language--i18n) — the translation workflow tools (`tool_lang`, `tool_lang_multi`, `tool_dd_label`).
 - [Menu](../core/ui/menu.md) — the two language selectors (interface and data) in the top bar.
-- [Importing data → Multiple languages](../core/importing_data.md#multiple-languages) · [Exporting data](../core/exporting_data.md) — multi-language round-trips.
-- [Glossary](../core/glossary.md#translatable--lg-nolan--transliterate) — `translatable` / `lg-nolan` / `transliterate` and the [`lg` TLD](../core/glossary.md#tld).
+- [Importing data → Multiple languages](../using/importing_data.md#multiple-languages) · [Exporting data](../using/exporting_data.md) — multi-language round-trips.
+- [Glossary](../understanding/glossary.md#translatable--lg-nolan--transliterate) — `translatable` / `lg-nolan` / `transliterate` and the [`lg` TLD](../understanding/glossary.md#tld).
 - Source: `src/config/config.ts` (the `lang` config domain), `src/core/resolve/request_lang.ts` (the request-scoped langs), `src/core/resolve/lang_names.ts` + `src/core/relations/select_lang.ts` (the `matrix_langs` resolvers), `src/core/resolve/component_data.ts` (the per-value language filter and the empty-slot fallback chain).

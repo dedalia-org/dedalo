@@ -33,7 +33,7 @@ the distinction crisp:
 
 In short: `section` is the type, `section_record` is one row, and `sections` is
 "the set of rows". `sections` never touches a column directly — it delegates
-reads to the [search / SQO](../sqo.md) machinery and per-record deletes to the
+reads to the [search / SQO](../../api/sqo.md) machinery and per-record deletes to the
 `section_record` write path.
 
 ## The SQO-normalization contract
@@ -193,5 +193,5 @@ const rqo = {
 - [section](section.md) — the singular section type (table abstraction & orchestrator).
 - [section_record](section_record.md) — physical per-record database I/O.
 - [Components](../components/index.md) — the fields that live inside a section.
-- [SQO](../sqo.md) — the Search Query Object machinery `sections` delegates every query to.
+- [SQO](../../api/sqo.md) — the Search Query Object machinery `sections` delegates every query to.
 - [Locator](../locator.md) — the pointer type accepted in filters and returned in `entries`.

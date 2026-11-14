@@ -786,7 +786,7 @@ curl --fail https://dedalo.example.org/health
 
 ### `Error. No supervisor declared; the server would not restart onto the new tree.`
 
-The [code update panel](../management/updates/updating_code.md) refuses, and its
+The [code update panel](../administration/updates/updating_code.md) refuses, and its
 readiness check shows the supervisor check as blocked on `DEDALO_SUPERVISED`.
 
 **Cause.** A code update replaces the code tree and then exits, so it runs only

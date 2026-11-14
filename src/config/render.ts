@@ -2,7 +2,7 @@
  * CATALOG → the generated artifacts. Pure: catalog in, string out, no file I/O.
  *
  *   renderSampleEnv()          → install/sample.env      (the copy-paste census)
- *   renderReferencePage(page)  → the GENERATED region of docs/config/<page>.md
+ *   renderReferencePage(page)  → the GENERATED region of docs/administration/configuration/<page>.md
  *
  * Kept pure so `config_docs_tripwire` can import these and compare against disk in-process
  * instead of shelling out to the CLI. The CLI (`scripts/gen_config_docs.ts`) is a thin
@@ -179,7 +179,7 @@ export function renderSampleEnv(): string {
 	out.push('#');
 	out.push(
 		...comment(
-			'EACH ENTRY. A short description, then [scope · type] default: …, then an "example:" showing a real value for that exact key — copy the example line, uncomment it and edit the value. The full prose, tables and rationale for every setting live in docs/config/config.md and docs/config/config_db.md.',
+			'EACH ENTRY. A short description, then [scope · type] default: …, then an "example:" showing a real value for that exact key — copy the example line, uncomment it and edit the value. The full prose, tables and rationale for every setting live in docs/administration/configuration/config.md and docs/administration/configuration/config_db.md.',
 		),
 	);
 	out.push('#');
@@ -254,7 +254,7 @@ export function renderSampleEnv(): string {
 }
 
 // ---------------------------------------------------------------------------
-// docs/config/<page>.md
+// docs/administration/configuration/<page>.md
 // ---------------------------------------------------------------------------
 
 export function renderReferencePage(page: 'config' | 'config_db'): string {

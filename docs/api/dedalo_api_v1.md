@@ -190,7 +190,7 @@ Every JSON body is one of exactly two shapes, discriminated by the boolean `ok`:
   the access log line for the same request, which also carries `error_code` and
   `error_category` when the outcome was a failure.
 - **`data`** is the payload — for a read, the `{context, data}` unit described in
-  [dd_object](../core/dd_object.md). A handler never puts payload anywhere else.
+  [dd_object](dd_object.md). A handler never puts payload anywhere else.
 - **`error.code`** is a member of a CLOSED set. Codes are written
   `<domain>.<condition>` (`auth.not_logged`, `perm.denied`,
   `request.invalid_rqo`, `external.timeout`, `internal.unexpected`) and every

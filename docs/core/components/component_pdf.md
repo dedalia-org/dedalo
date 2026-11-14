@@ -247,7 +247,7 @@ The suite's `test3` playground wires `test85` → `test97` the same way. A PDF w
 <p>[page-n-2-2-data:[2]:data]</p><p>First line of page 2</p>
 ```
 
-The tag is the same one [`tool_pdf_extractor`](../../tools/using_pdf_extractor.md) writes (`pdfPageTag()`, `src/core/media/pdf_page_tag.ts`). Its second number is the logical page: physical page N minus 1, plus the PDF's stored page offset (`lib_data.offset`, 1 when unset). The text is saved through the ordinary save path, so Time Machine records it, as the user who triggered it, in the user's **current data language** (`lg-nolan` when the text area is not translatable).
+The tag is the same one [`tool_pdf_extractor`](../../using/tools/using_pdf_extractor.md) writes (`pdfPageTag()`, `src/core/media/pdf_page_tag.ts`). Its second number is the logical page: physical page N minus 1, plus the PDF's stored page offset (`lib_data.offset`, 1 when unset). The text is saved through the ordinary save path, so Time Machine records it, as the user who triggered it, in the user's **current data language** (`lg-nolan` when the text area is not translatable).
 
 **When it is written.** Three paths, two rules:
 
@@ -255,7 +255,7 @@ The tag is the same one [`tool_pdf_extractor`](../../tools/using_pdf_extractor.m
 | --- | --- | --- |
 | Upload of a new PDF to the `original` quality | overwrite | It is **replaced**. The upload shows a notice naming how many characters were replaced; Time Machine keeps the previous version. |
 | The OCR job, after an upload with **OCR** ticked | overwrite | Same as above. |
-| [`tool_update_cache`](../../tools/using_update_cache.md), and **Regenerate files** in [`tool_media_versions`](../../tools/using_media_versions.md) | fill only if empty | It is **kept**, never overwritten. Neither runs OCR. |
+| [`tool_update_cache`](../../using/tools/using_update_cache.md), and **Regenerate files** in [`tool_media_versions`](../../using/tools/using_media_versions.md) | fill only if empty | It is **kept**, never overwritten. Neither runs OCR. |
 
 An upload into any other quality, and a non-PDF document (`doc`, `odt`, …), writes no transcription. A PDF with no text layer (two characters of text or fewer) writes nothing and says so. Transcription failures never fail the upload: they are reported beside it, and the text area is left untouched. The emptiness check and the write happen under the record's row lock, in one transaction, so text a curator saves while `pdftotext` runs is never taken for an empty field.
 
@@ -269,7 +269,7 @@ With OCR ticked, the upload does not transcribe at once. It starts a background 
 
 A job whose OCR finished but whose transcription was not written ends as an error in the tray, not as done. The Tesseract model for a Dédalo language is the code without `lg-` (`lg-spa` → `spa`), except Valencian (`lg-vlca` → `cat`) and Chinese (`chi_sim`); the map is `src/core/media/engine/ocr_langs.ts`, and the installer reads the same map to install the language packs ([Production › `host_packages`](../../install/production.md#host_packages-packages-and-repositories)).
 
-**PDFs uploaded before transcription existed.** Records whose transcription is empty can be filled by running [`tool_update_cache`](../../tools/using_update_cache.md) over their section. Running it is an operator's decision; nothing backfills on its own. A revert of that run removes the fills.
+**PDFs uploaded before transcription existed.** Records whose transcription is empty can be filled by running [`tool_update_cache`](../../using/tools/using_update_cache.md) over their section. Running it is an operator's decision; nothing backfills on its own. A revert of that run removes the fills.
 
 ## Render views & modes
 
@@ -302,9 +302,9 @@ DOM (edit / default): `wrapper_component component_pdf <tipo> <mode>` -> `label`
 4. `processUploadedFile()` -> `regeneratePdf()` (`src/core/media/processing.ts`) — builds the `web` copy, the jpg cover and the thumb. Non-PDF documents (`doc`, `odt`, `pages`, …) are stored under the `original` tier by the same flow but `regeneratePdf()` skips PDF-specific derivative building for them. **Not yet ported**: writing `target_filename` back to a sibling component (see *Properties & options*).
 5. For a PDF uploaded to `original`, the transcription is written into the related `component_text_area`, or, with OCR ticked, the OCR job is started once the record's media data is saved (see [Transcription and OCR](#transcription-and-ocr)).
 
-See [importing data](../importing_data.md#related-data) for the broader import model.
+See [importing data](../../using/importing_data.md#related-data) for the broader import model.
 
-**Export.** A single export atom carrying the media URL, `cell_type` `img`. In `edit` it resolves the default quality, otherwise the thumb quality; URL absoluteness is taken from the `export_context`. See [exporting data](../exporting_data.md).
+**Export.** A single export atom carrying the media URL, `cell_type` `img`. In `edit` it resolves the default quality, otherwise the thumb quality; URL absoluteness is taken from the `export_context`. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

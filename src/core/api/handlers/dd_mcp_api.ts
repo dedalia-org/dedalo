@@ -63,7 +63,7 @@
  * the switch below AND the caller's `tool_assistant` grant (their profile's
  * tool ACL; global admins included, only the superuser -1 holds every tool).
  *
- * Config (all fail-closed; see docs/config/config.md#ai — the section anchor is a NAME,
+ * Config (all fail-closed; see docs/administration/configuration/config.md#ai — the section anchor is a NAME,
  * never a number: the old "§12" pointed at a numbering the file never had):
  *   DEDALO_AGENT_HTTP_ENABLED=true   enables this API class's actions at all
  *                                    (and a granted profile is still required);

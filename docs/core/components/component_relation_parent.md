@@ -226,9 +226,9 @@ The server CSS for the parent itself is minimal (`client/dedalo/core/component_r
 
 - A bare `section_id` sequence when the component has a single resolvable target section (the parent section), e.g. `2,5,8`. The CSV column header carries the target when needed, in the form `from_component_tipo` + delimiter + `target_section_tipo` (e.g. `test71_test3`); when only the component tipo is given the target is resolved from the RQO. An empty cell clears the existing data (result `null`).
 
-The import engine always rewrites `from_component_tipo` to this component's own `tipo` and stamps the locator `type` from the resolved relation type. Multiple candidate target sections with no explicit target are rejected and logged as `IGNORED`. See [importing data](../importing_data.md#related-data).
+The import engine always rewrites `from_component_tipo` to this component's own `tipo` and stamps the locator `type` from the resolved relation type. Multiple candidate target sections with no explicit target are rejected and logged as `IGNORED`. See [importing data](../../using/importing_data.md#related-data).
 
-**Export.** The shared relation export path iterates the locators and, per the `ddo_map`, resolves each requested column component against the parent's `section_id` / `section_tipo` to produce the sub-columns; the indexation grid resolves the same way. In SQL diffusion targets the locators are emitted as JSON. See [exporting data](../exporting_data.md).
+**Export.** The shared relation export path iterates the locators and, per the `ddo_map`, resolves each requested column component against the parent's `section_id` / `section_tipo` to produce the sub-columns; the indexation grid resolves the same way. In SQL diffusion targets the locators are emitted as JSON. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

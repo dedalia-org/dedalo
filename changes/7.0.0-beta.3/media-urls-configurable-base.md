@@ -18,4 +18,4 @@ spelling is retired and refuses the boot until the line is renamed. Its value
 is normalized like `webBase` (trailing slash stripped), and it takes the media
 directory too (`https://host/dedalo/media`), because both bases are prefixed
 to the same media-root relative path. See
-[config reference](./config/config.md).
+[config reference](./administration/configuration/config.md).

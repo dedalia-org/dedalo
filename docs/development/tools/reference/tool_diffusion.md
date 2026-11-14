@@ -119,5 +119,5 @@ await self.retry_pending_deletions({ count_only: true })  // → { result, count
 - [Creating new tools](../creating_tools.md) — the end-to-end tool tutorial.
 - [Server contract](../server_contract.md) — the `ToolServerModule` contract; note the lifecycle-hook rule (`isAvailable` is never listed in `apiActions`).
 - [Tools catalog](index.md) — index of all per-tool reference pages.
-- [`tool_export`](tool_export.md) — the *other* way data leaves Dédalo: a user-shaped flat-table export (CSV/spreadsheet/raw round-trip) rather than publishing to a live target. See also the core guide [Exporting data](../../../core/exporting_data.md).
+- [`tool_export`](tool_export.md) — the *other* way data leaves Dédalo: a user-shaped flat-table export (CSV/spreadsheet/raw round-trip) rather than publishing to a live target. See also the core guide [Exporting data](../../../using/exporting_data.md).
 - Diffusion subsystem core docs: [Diffusion (system overview)](../../../core/system/diffusion.md), [The diffusion engine](../../../diffusion/native_engine.md), [Diffusion data flow](../../../diffusion/diffusion_data_flow.md), [Markdown diffusion](../../../diffusion/diffusion_markdown.md).

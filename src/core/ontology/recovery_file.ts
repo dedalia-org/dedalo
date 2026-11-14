@@ -51,6 +51,8 @@ import { envSnapshot } from '../../config/env.ts';
 import {
 	createRecoverySlice,
 	dropRecoverySlice,
+	type RecoverySliceSwap,
+	swapRecoverySliceIntoDdOntology,
 	withRecoverySliceLock,
 } from '../db/dd_ontology.ts';
 import { fsyncDirectory, fsyncFile } from '../files/durable.ts';
@@ -115,6 +117,8 @@ export interface RecoveryFileResponse {
 	msg: string;
 	errors: string[];
 	file_size?: string;
+	/** restoreAndSwapRecoverySlice only: what the swap replaced. */
+	swap?: RecoverySliceSwap;
 }
 
 /**
@@ -371,4 +375,29 @@ async function restoreUnderLock(
 	} finally {
 		rmSync(plainPath, { force: true });
 	}
+}
+
+/**
+ * Restore the recovery file AND swap it into dd_ontology (ontology/ontology_recover.ts)
+ * under ONE hold of the single-flight lock: no build or restore of another process can
+ * re-create the slice from the live (damaged) dd_ontology between the two. A leftover
+ * slice (a crashed or rolled-back earlier run — the plain dump's CREATE TABLE would
+ * fail on it) is dropped first; a failed swap drops it again, so a rerun is never stuck.
+ */
+export async function restoreAndSwapRecoverySlice(
+	conn: DbConnDescriptor = connFromConfig(),
+	inFile: string = resolveRecoveryFilePath(),
+	options: RecoveryFileOptions = {},
+): Promise<RecoveryFileResponse> {
+	const deadlineMs = deadlineOf(options);
+	return withRecoveryLock(async () => {
+		await dropRecoverySlice();
+		const restored = await restoreUnderLock(conn, inFile, deadlineMs);
+		try {
+			if (restored.ok) restored.swap = await swapRecoverySliceIntoDdOntology();
+			return restored;
+		} finally {
+			await dropRecoverySlice();
+		}
+	});
 }

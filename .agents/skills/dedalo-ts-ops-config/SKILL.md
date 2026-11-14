@@ -28,7 +28,7 @@ A raw `process.env.KEY` drops the private-file half of that chain, so a value se
 - Key census: **`src/config/catalog/`** is the single source of truth (type, default, scope,
   prose — one entry per key). It GENERATES `install/sample.env` (the copy-paste template the
   installer drops at `../private/sample.env`) and the generated regions of
-  `docs/config/{config,config_db}.md`. `config_docs_tripwire` re-renders and demands byte
+  `docs/administration/configuration/{config,config_db}.md`. `config_docs_tripwire` re-renders and demands byte
   identity, so hand-editing any of the three is a red gate — change the catalog and run
   `bun run config:gen` (`bun run config:check` verifies).
 - `../private/.env` is **append-only, documented keys only** (AGENTS.md).
@@ -44,7 +44,7 @@ boot-stable); (3) classify it in `src/config/migration_map.ts`; (4) `bun run con
 `config_docs_tripwire` fails on (1) and (4), `config_census_tripwire` on (3), and
 `config_declaration_tripwire` if the printed type, the documented example and the parse
 disagree (a collection-typed key may not be read through a bare `readEnv`). The catalog
-prose must be **PHP-free** — it renders into `docs/config/config.md`, where
+prose must be **PHP-free** — it renders into `docs/administration/configuration/config.md`, where
 `docs_current_engine_tripwire` bans the substring.
 
 ## Flags that are easy to get wrong

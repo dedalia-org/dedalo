@@ -56,9 +56,9 @@ const PHP_ALLOWLIST: Record<string, string> = {
 	// at a directory of v6 config.php / config_db.php files full of define()s, and deploys a
 	// widget into the old engine's tree. A migration page that cannot name the file you point
 	// the tool at is a broken tool. (2026-08-07: one process ⇒ one page — the former
-	// docs/config/migrating_from_v6.md is now Phase C of the install manual, and redirected.)
+	// docs/administration/configuration/migrating_from_v6.md is now Phase C of the install manual, and redirected.)
 	'docs/install/migrating_from_v6.md': 'PHP is the input artifact of the v6→v7 migration',
-	'docs/config/whats_changed_v7.md': "the v6→v7 table's left column IS the v6 PHP setting",
+	'docs/whats_changed_v7.md': "the v6→v7 table's left column IS the v6 PHP setting",
 
 	// The v1 Publication API is a SUPPORTED retro-compatible surface for public websites
 	// built against v6 — not dead code. Quarantined behind an explicit "Legacy" heading
@@ -198,13 +198,13 @@ describe('docs current-engine tripwire', () => {
 		// must exist, and the set must match the constant above exactly.
 		const expected = [
 			'docs/additional_javascript.js',
-			'docs/config/whats_changed_v7.md',
 			'docs/diffusion/publication_api/public_api_configuration.md',
 			'docs/diffusion/publication_api/publication_api.md',
 			'docs/diffusion/publication_api/server_config_api.md',
 			'docs/install/migrating_from_v6.md',
 			'docs/install/publication_host.md',
 			'docs/rewrite.md',
+			'docs/whats_changed_v7.md',
 		];
 		expect(Object.keys(PHP_ALLOWLIST).sort()).toEqual(expected);
 		for (const file of expected) {

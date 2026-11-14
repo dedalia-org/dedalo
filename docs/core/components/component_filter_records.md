@@ -55,7 +55,7 @@
 section, the explicit list of record ids (`section_id`s) a given user is allowed to access.
 It is a configuration component used **exclusively inside the Users section** (`dd128`),
 where each user record carries one instance of it (the standard tipo is `dd478`,
-`DEDALO_USER_COMPONENT_FILTER_RECORDS_TIPO`).
+`FILTER_RECORDS_COMPONENT` in `src/core/security/filter_records.ts`).
 
 Dédalo already restricts access through **areas/projects** (see `component_filter` and
 `component_filter_master`). Those grant or deny a user a *whole section/area*.
@@ -321,7 +321,7 @@ array of entries, so import/export use that array directly:
 
 Because this is a configuration component living in the Users section, it is rarely part of
 ordinary catalogue import/export flows. See the general
-[importing data](../importing_data.md) and [exporting data](../exporting_data.md) docs for the
+[importing data](../../using/importing_data.md) and [exporting data](../../using/exporting_data.md) docs for the
 shared component contract (the `dedalo_data` wrapper, atoms, NDJSON flat-table protocol).
 
 ## Notes

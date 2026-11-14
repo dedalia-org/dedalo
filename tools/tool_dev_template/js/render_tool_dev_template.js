@@ -413,7 +413,7 @@ const get_content_data = async function(self) {
 										// (!) Note that if this install's config defines
 										// DEDALO_IMAGE_ALTERNATIVE_EXTENSIONS, other formats
 										// than default JPG will be available to use (like PNG, AVIF ...)
-										// @see DOCU https://dedalo.dev/docs/v7/config/config/#image
+										// @see DOCU https://dedalo.dev/docs/v7/administration/configuration/config/#image
 										ui.create_dom_element({
 											element_type	: 'pre',
 											class_name		: '',

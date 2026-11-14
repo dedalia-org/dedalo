@@ -74,22 +74,22 @@ is a **flat** table whose columns map 1:1 to ontology tipos under the `dd15`
 virtual section. `src/core/db/time_machine.ts`'s `TimeMachineRow` interface is the
 column allowlist:
 
-| Column | TM tipo constant | tipo | temporal model | meaning |
+| Column | TM tipo constant (`src/core/tm_record/tm_record.ts`) | tipo | temporal model | meaning |
 | --- | --- | --- | --- | --- |
-| `id` | `DEDALO_TIME_MACHINE_COLUMN_ID` | `dd1573` | `component_number` | row primary key (auto-increment) |
-| `section_id` | `DEDALO_TIME_MACHINE_COLUMN_SECTION_ID` | `dd1212` | `component_number` | the **source** record's `section_id` |
-| `section_tipo` | `DEDALO_TIME_MACHINE_COLUMN_SECTION_TIPO` | `dd1772` | `component_input_text` | the **source** record's `section_tipo` (e.g. `oh1`) |
-| `tipo` | `DEDALO_TIME_MACHINE_COLUMN_TIPO` | `dd577` | `component_input_text` | the component tipo that changed (or the section tipo, on delete) |
+| `id` | `TM_COLUMN_MATRIX_ID` | `dd1573` | `component_number` | row primary key (auto-increment) |
+| `section_id` | `TM_COLUMN_SECTION_ID` | `dd1212` | `component_number` | the **source** record's `section_id` |
+| `section_tipo` | `TM_COLUMN_SECTION_TIPO` | `dd1772` | `component_input_text` | the **source** record's `section_tipo` (e.g. `oh1`) |
+| `tipo` | `TM_COLUMN_TIPO` | `dd577` | `component_input_text` | the component tipo that changed (or the section tipo, on delete) |
 | `lang` | — | — | — | language of the changed data |
-| `timestamp` | `DEDALO_TIME_MACHINE_COLUMN_TIMESTAMP` | `dd559` | `component_date` | when the change happened |
-| `user_id` | `DEDALO_TIME_MACHINE_COLUMN_USER_ID` | `dd578` | `component_portal` | user who made the change |
-| `bulk_process_id` | `DEDALO_TIME_MACHINE_COLUMN_BULK_PROCESS_ID` | `dd1371` | `component_number` | bulk-operation id (or `null`) |
-| `data` | `DEDALO_TIME_MACHINE_COLUMN_DATA` | `dd1574` | `component_json` | the actual changed data (JSONB) |
+| `timestamp` | `TM_COLUMN_TIMESTAMP` | `dd559` | `component_date` | when the change happened |
+| `user_id` | `TM_COLUMN_USER_ID` | `dd578` | `component_portal` | user who made the change |
+| `bulk_process_id` | `TM_COLUMN_BULK_PROCESS_ID` | `dd1371` | `component_number` | bulk-operation id (or `null`) |
+| `data` | `TM_COLUMN_DATA` | `dd1574` | `dd_grid` | the actual changed data (JSONB) |
 | `tm_role` | — | — | — | `NULL` for an ordinary, visible row; `1`, `3` or `4` for a hidden [undo-log](#the-bulk-undo-log) row |
 
 The `data` column is read and written through the shared `json_codec.ts` — a
 `$n::text::jsonb` binding on write, and a `data::text` twin selected alongside
-`data` on read. One codec, no per-column classification lists. The tipo constants
+`data` on read. One codec, no per-column classification lists. The tipos
 above resolve through the ontology (`src/core/ontology/resolver.ts`).
 
 !!! warning "The `section_tipo` column does NOT hold `dd15`"

@@ -74,7 +74,7 @@ updates:
         patterns: ["github/codeql-action*"]
 
   # The documentation toolchain (docs/requirements.txt — mkdocs, mkdocs-material,
-  # pymdown-extensions, mkdocs-redirects). Exactly the case this file's header
+  # pymdown-extensions, mkdocs-redirects, mkdocs-awesome-pages-plugin). Exactly the case this file's header
   # describes: the pins are exact so a local build and CI cannot drift, which
   # makes them a lockfile nobody updates unless something proposes the bumps.
   # It is also the toolchain that BUILDS what dedalo.dev serves, so leaving it

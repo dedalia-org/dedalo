@@ -1,6 +1,6 @@
 # media_engine
 
-> See also: [component_image](../components/component_image.md) · [component_av](../components/component_av.md) · [component_pdf](../components/component_pdf.md) · [Media protection](../../config/media_protection.md)
+> See also: [component_image](../components/component_image.md) · [component_av](../components/component_av.md) · [component_pdf](../components/component_pdf.md) · [Media protection](../../administration/configuration/media_protection.md)
 
 The server-side **media processing layer**: a set of stateless TypeScript
 adapter modules that shell out to the installed `ffmpeg`/`ffprobe`,
@@ -112,7 +112,7 @@ The engine deliberately owns **none** of: file naming, where files live in the
 media tree, which qualities a record should have, save/delete of records, or
 access control. Those belong to the media components (`src/core/media/path.ts`,
 `processing.ts`, `files_info.ts`) and to
-[media protection](../../config/media_protection.md).
+[media protection](../../administration/configuration/media_protection.md).
 
 ## Key concepts
 
@@ -403,13 +403,13 @@ Other call sites:
 
 **Relationship to media protection.** The engine *produces* the per-quality
 files (e.g. `…/404/0/rsc35_rsc167_1.mp4`) whose **filenames** are later parsed by
-[media protection](../../config/media_protection.md) to derive the
+[media protection](../../administration/configuration/media_protection.md) to derive the
 `{section_tipo}_{section_id}` access key. The engine and the protection layer
 never call each other, but the file-naming grammar is a shared contract:
 the protection gate keys off the last two underscore tokens of the basename,
 and the qualities the engine emits map to the public-quality folders the gate
 allows. Media protection itself is **not ported** in the TS server — see
-[Media protection](../../config/media_protection.md) for the honest gap.
+[Media protection](../../administration/configuration/media_protection.md) for the honest gap.
 
 ## Examples
 
@@ -489,5 +489,5 @@ const format  = await probeFormat(source);   // {format:{duration,…}} | null
   — thumbnail / raster derivation via `imagemagick.ts`.
 - [Components index](../components/index.md) · [Base classes](../components/base_classes.md)
   — where the media components and their shared media core sit.
-- [Media protection](../../config/media_protection.md) — web-server access
+- [Media protection](../../administration/configuration/media_protection.md) — web-server access
   control that keys off the filenames the engine produces (not yet ported).

@@ -1,12 +1,12 @@
 # data_manager
 
 > The Dédalo v7 **client transport**: the single chokepoint every browser→server
-> call passes through — it builds the HTTP request around an [RQO](../rqo.md),
+> call passes through — it builds the HTTP request around an [RQO](../../api/rqo.md),
 > attaches the CSRF token, retries/times-out the fetch, and short-circuits reads
 > against the browser's IndexedDB cache.
 
 > File: `./core/common/js/data_manager.js` ·
-> See also: [RQO](../rqo.md) · [request_config](../request_config.md) ·
+> See also: [RQO](../../api/rqo.md) · [request_config](../request_config.md) ·
 > [UI building blocks](../ui/index.md)
 
 ## Role
@@ -32,14 +32,14 @@ It owns four concerns that would otherwise be re-implemented per caller:
 4. **Streaming** — SSE / NDJSON readers for long row-by-row payloads
    (`tool_export`, transcription, etc.).
 
-The *message* it sends is the [RQO](../rqo.md), built by the caller from the
+The *message* it sends is the [RQO](../../api/rqo.md), built by the caller from the
 [request_config](../request_config.md) the server injected into its context.
 `data_manager` is transport only: it does not build the RQO and does not know
 the ontology — it moves bytes and manages the connection.
 
 !!! note "Server describes, client draws"
     `data_manager` is the client end of the
-    [request lifecycle](../rqo.md#request-lifecycle). The caller builds an RQO
+    [request lifecycle](../../api/rqo.md#request-lifecycle). The caller builds an RQO
     with `create_source()` / `build_rqo_show()` / `build_rqo_search()`
     (`core/common/js/common.js`); `data_manager.request` POSTs it; the API gate
     (`src/server.ts` routes `/api/v1/json` and `/dedalo/core/api/v1/json[/]`
@@ -53,7 +53,7 @@ flowchart TD
     A["caller instance<br/>(section / component / tool)"] -- "build_rqo_show() / build_rqo_search()" --> B["data_manager.request({body: rqo})"]
     B --> C{cache_handler<br/>localdb?}
     C -->|hit| H["return cached response<br/>(no network)"]
-    C -->|miss / none| D["attach X-Dedalo-Csrf-Token<br/>inject recovery_mode<br/>JSON.stringify(body)"]
+    C -->|miss / none| D["attach X-Dedalo-Csrf-Token<br/>JSON.stringify(body)"]
     D --> E["fetch_api (api_transport.js)<br/>POST api/v1/json/<br/>read body once → JSON → normalize_api_error"]
     E -->|"api_error.retryable or Retry-After"| E
     E --> F["refresh page_globals.csrf_token<br/>publish session_activity"]
@@ -72,31 +72,28 @@ A `request` call runs this sequence:
 3. **Cache short-circuit** — when `options.cache_handler.handler === 'localdb'`,
    read the response from the IndexedDB `data` store and return it without a
    network call on a hit.
-4. **Recovery mode** — if `page_globals.recovery_mode` is set, inject
-   `recovery_mode: true` into the body so the server skips non-essential side
-   effects.
-5. **Validate** — an empty URL or an unserialisable body resolves a client
+4. **Validate** — an empty URL or an unserialisable body resolves a client
    failure envelope (`client.network`) without touching the network.
-6. **Dispatch** through `fetch_api` (`core/common/js/api_transport.js`): fetch
+5. **Dispatch** through `fetch_api` (`core/common/js/api_transport.js`): fetch
    never throws on status; the body is read **once**, parsed when it is JSON,
    and passed to `normalize_api_error`. A failure is retried **only** when
    `api_error.retryable` is true or the server sent `Retry-After` (honoured
    over the backoff) — there is no status list and no 401/403 carve-out: an
    auth or permission answer is an envelope like any other, dispatched on its
    code.
-7. **Refresh** — copy any `csrf_token` (present on success **and** failure
+6. **Refresh** — copy any `csrf_token` (present on success **and** failure
    envelopes) back into `page_globals.csrf_token` and publish
    `session_activity`.
-8. **CSRF retry** — if `error.code === 'auth.csrf_failed'` and the call has not
+7. **CSRF retry** — if `error.code === 'auth.csrf_failed'` and the call has not
    already retried, resend it once with the fresh token (the `_csrf_retried`
    flag guards against an infinite loop).
-9. **Failure** — attach the `ApiError` under `envelope.error` (or synthesise
+8. **Failure** — attach the `ApiError` under `envelope.error` (or synthesise
    `{ok:false, error}` when no JSON arrived), stamp `ApiError.tool` with the tool
    a `tool_request` addressed (so `error_text` can find that tool's refusal
    labels; see [errors](../system/errors.md#a-tools-refusal-reason)), publish the `api_error` event on
    the [event bus](../ui/index.md), toast transport failures (network,
    timeout, foreign status page), and return the envelope.
-10. **Success / cache write** — return the envelope; when cached, write it back
+9. **Success / cache write** — return the envelope; when cached, write it back
     to IndexedDB on idle (`dd_request_idle_callback`).
 
 The return is **always an object**: the envelope v2. On success it is
@@ -133,7 +130,7 @@ bootstrap `start` action. `data_manager`:
 
 The set of actions exempt from the token check (and the separate no-login
 allowlist) is enforced server-side — see the
-[RQO security model](../rqo.md#security-model-summary).
+[RQO security model](../../api/rqo.md#security-model-summary).
 
 ### The error model: `ApiError`
 
@@ -259,7 +256,7 @@ There is no request queue: each `data_manager.request` is an independent
 `async` call. Batching several operations is done with several concurrent
 `fetch` calls (the callers await them in parallel), **not** by sending an array
 of RQOs — the API endpoint decodes exactly one RQO per HTTP request (see
-[RQO](../rqo.md)). The page-level error slot (`page_globals.page_error`, set by
+[RQO](../../api/rqo.md)). The page-level error slot (`page_globals.page_error`, set by
 `error_dispatch`) reflects the most recent handled failure.
 
 The **browser**, however, does queue: six connections per origin over HTTP/1.1.
@@ -412,7 +409,7 @@ All in `core/common/js/data_manager.js` unless noted.
 | symbol | kind | role |
 | --- | --- | --- |
 | `data_manager` | exported namespace object | owns all client→server communication |
-| `data_manager.request(options)` | method | the central dispatcher (CSRF, recovery_mode, cache short-circuit, parse, CSRF retry, error surfacing) |
+| `data_manager.request(options)` | method | the central dispatcher (CSRF, cache short-circuit, parse, CSRF retry, error surfacing) |
 | `data_manager.url` / `data_manager.health_url` | getters | API endpoint (`DEDALO_API_URL` → fallback `../api/v1/json/`) and `/health` (origin root) |
 | `fetch_api(url, init, options)` | `api_transport.js` | the only native `fetch` for regular requests (page, cache Worker, Service Worker); read-once body, normalise, retry on `retryable`/`Retry-After`, timeout + health probe |
 | `check_server_health()` | exported | cache-busted probe of `/health`; distinguishes "busy" from "down" |
@@ -434,7 +431,7 @@ All in `core/common/js/data_manager.js` unless noted.
 
 The RQO body these methods carry is assembled by the caller in
 `core/common/js/common.js` (`create_source`, `build_rqo_show`,
-`build_rqo_search`) — documented in [RQO](../rqo.md).
+`build_rqo_search`) — documented in [RQO](../../api/rqo.md).
 
 ## Worked example
 
@@ -509,11 +506,11 @@ const reader = stream.getReader()
 
 ## Related
 
-- [Request Query Object (RQO)](../rqo.md) — the message `data_manager.request`
+- [Request Query Object (RQO)](../../api/rqo.md) — the message `data_manager.request`
   sends, and the API gate / dispatch / security model on the receiving end.
 - [Request Config Architecture](../request_config.md) — the server-side config
   the caller turns into an RQO before handing it to the transport.
-- [SQO](../sqo.md) — the `filter`/`limit`/`order` query carried inside the RQO.
+- [SQO](../../api/sqo.md) — the `filter`/`limit`/`order` query carried inside the RQO.
 - [UI building blocks](../ui/index.md) — the consumers that render the
   `{context, data}` datum a `request` returns, and the `event_manager` bus the
   transport publishes `notification` / `api_error` to.

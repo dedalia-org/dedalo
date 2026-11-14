@@ -286,7 +286,6 @@ export async function buildPageGlobals(
 			typeof serverState.notification === 'string' && serverState.notification !== ''
 				? serverState.notification
 				: false,
-		recovery_mode: serverState.recovery_mode,
 		data_version: DEDALO_DATA_VERSION,
 		...(await engineFacts(isLogged)),
 		dedalo_root_path: null,

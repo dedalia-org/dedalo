@@ -137,6 +137,6 @@ await component.change_value({
 - [tool_hierarchy](tool_hierarchy.md) — complementary thesaurus/ontology tool: it *generates* the virtual sections and hierarchy/general-term scaffolding that `tool_cataloging` then fills with real records by drag-and-drop.
 - [tool_indexation](tool_indexation.md) — another UI-only, thesaurus-driven workspace (links text fragments to terms); same `ddo_map` + `area_thesaurus` + linker pattern.
 - `tool_numisdata_order_coins`, `tool_numisdata_epigraphy` — sibling UI-only numismatic cataloguing tools (reference pages pending).
-- [tool_export](tool_export.md) — contrast: a section tool with a real dispatchable action; see [Exporting data](../../../core/exporting_data.md).
+- [tool_export](tool_export.md) — contrast: a section tool with a real dispatchable action; see [Exporting data](../../../using/exporting_data.md).
 - Subsystems the client drives: the thesaurus/ontology tree (`src/core/ts_object/`, `dd_ts_api` registered in `src/core/api/dispatch.ts`, the `ts_add_child_tool_cataloging` event), `component_portal` (locator storage; `src/core/relations/models/portal.ts`), and the `section` mosaic view.
 - Source: `tools/tool_cataloging/register.json` (no `server/` package), `tools/tool_cataloging/js/{index,tool_cataloging,render_tool_cataloging,view_tool_cataloging_mosaic}.js`, `tools/tool_cataloging/css/tool_cataloging.less`.

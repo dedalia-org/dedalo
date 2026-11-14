@@ -124,7 +124,7 @@ To undo the whole run, find the matching bulk process in the Time Machine and re
 
 ## Related
 
-- [tool_export](tool_export.md) — the read-side bulk operation over a section selection; see [Exporting data](../../../core/exporting_data.md). `tool_propagate_component_data` is the write-side bulk counterpart over the same SQO model.
+- [tool_export](tool_export.md) — the read-side bulk operation over a section selection; see [Exporting data](../../../using/exporting_data.md). `tool_propagate_component_data` is the write-side bulk counterpart over the same SQO model.
 - `tool_update_cache` — another background, SQO-driven bulk operation over a component's records (cache regeneration; `update_cache` is in `backgroundRunnable` too), sharing the same background-execution shape.
 - [tool_time_machine](tool_time_machine.md) — where a bulk run is reverted as a unit (every write in the batch shares one `bulk_process_id`); source `core/services/service_time_machine/`, `core/tm_record/`.
 - Search subsystem (SQO): the selection contract this tool consumes — `src/core/search/` (`dedalo-search` skill).

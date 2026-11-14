@@ -202,7 +202,7 @@ DOM (edit / default): `wrapper_component component_inverse <tipo> <mode>` → `l
 
 ## Import / export model
 
-**Import.** `component_inverse` has nothing to import: the inverse list is derived from the *outgoing* relations on the other section, so an import value routed at an inverse column is meaningless (and see the write-path caveat under [Notes](#notes)). To populate backlinks, import the relation on the **owning** side (the [component_portal](component_portal.md) / relation component), not here. See [importing data](../importing_data.md).
+**Import.** `component_inverse` has nothing to import: the inverse list is derived from the *outgoing* relations on the other section, so an import value routed at an inverse column is meaningless (and see the write-path caveat under [Notes](#notes)). To populate backlinks, import the relation on the **owning** side (the [component_portal](component_portal.md) / relation component), not here. See [importing data](../../using/importing_data.md).
 
 **Export.** The export tool exports the computed backlinks (the `inverse` flatValue family): one atom per caller, its value the caller `from_section_id`. The `(from_section_tipo, from_component_tipo)` pair travels as a **sub-segment**, so in the breakdown each distinct calling pair becomes its own column. Taking the Relations field `dd1596` of a People (`rsc197`) record pointed at by two interviews (`oh1`) through their Informants portal (`oh24`) — corpus nodes of an oral-history install:
 
@@ -210,7 +210,7 @@ DOM (edit / default): `wrapper_component component_inverse <tipo> <mode>` → `l
 - **Breakdown** (`grid_value`): one column per calling field (*Relations | Informants*), and each caller is its own item — each column lists its callers one per row in the `default` and `rows` modes (as many rows as the busiest calling field), one `|n` column per caller in `columns`.
 - **Dédalo (Raw)** (`dedalo_raw`): the computed inverse locators wrapped as `{"dedalo_data": [...]}`; the import skips the column.
 
-Callers from records the requesting user may not read are omitted, as in the edit view. See [exporting data](../exporting_data.md#what-a-backlinks-column-contains).
+Callers from records the requesting user may not read are omitted, as in the edit view. See [exporting data](../../using/exporting_data.md#what-a-backlinks-column-contains).
 
 ## Notes
 

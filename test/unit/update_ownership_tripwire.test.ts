@@ -50,7 +50,6 @@ const ENGINE_NATIVE: Record<string, string> = {
 	'make_backup.get_dedalo_backup_files': 'read-only backup listing',
 	'check_config.set_maintenance_mode':
 		'TS-native runtime state (ts_state.json), not the PHP config_core.php',
-	'check_config.set_recovery_mode': 'TS-native runtime state (ts_state.json)',
 	'check_config.set_notification': 'TS-native runtime state (ts_state.json)',
 	'config_areas.save_config_areas': 'TS-native runtime state (ts_state.json areas deny/allow)',
 	'menu_skip_tipos.save_menu_skip_tipos': 'TS-native runtime state (ts_state.json menu skip list)',

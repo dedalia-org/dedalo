@@ -29,4 +29,4 @@ language value and the frames of that moment, and a dataframe such an entry is s
 was empty then; a v6 language entry with no frames at all takes the frames recorded before it.
 Removing an item of any such field — a text, a number, a date, a web address, not only a
 list of linked records — now removes its frames too. See
-[Time machine](./tools/using_time_machine.md).
+[Time machine](./using/tools/using_time_machine.md).

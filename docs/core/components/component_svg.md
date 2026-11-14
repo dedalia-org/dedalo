@@ -215,9 +215,9 @@ DOM (edit / default): `wrapper_component component_svg <tipo> <mode> view_defaul
 }]
 ```
 
-Importing the descriptor records the metadata; the actual `.svg` bytes must already exist on disk under the deterministic path (importing the descriptor does not move bytes). For interactive ingestion the normal path is the **upload flow** (see Notes), which both stores the bytes and writes the descriptor. See [importing data](../importing_data.md).
+Importing the descriptor records the metadata; the actual `.svg` bytes must already exist on disk under the deterministic path (importing the descriptor does not move bytes). For interactive ingestion the normal path is the **upload flow** (see Notes), which both stores the bytes and writes the descriptor. See [importing data](../../using/importing_data.md).
 
-**Export.** A single export atom with `cell_type: "img"` whose scalar value is the resolved URL: the **default quality** URL in `edit` mode, the **thumb** quality URL in list/export contexts, or the `external_source` URL when the SVG links outside Dédalo. See [exporting data](../exporting_data.md).
+**Export.** A single export atom with `cell_type: "img"` whose scalar value is the resolved URL: the **default quality** URL in `edit` mode, the **thumb** quality URL in list/export contexts, or the `external_source` URL when the SVG links outside Dédalo. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

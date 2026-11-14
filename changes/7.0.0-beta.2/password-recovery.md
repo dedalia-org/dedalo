@@ -13,4 +13,4 @@ pending codes in the session store. `request` always returns
 user's existing sessions. TLS peer verification is never disableable (pin a
 private CA via `NODE_EXTRA_CA_CERTS`). Config: catalog domain `mailer`
 (`DEDALO_SMTP_*`, `DEDALO_PWRESET_*`). User guide:
-[Password recovery](./management/password_recovery.md).
+[Password recovery](./administration/password_recovery.md).

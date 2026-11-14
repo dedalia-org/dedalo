@@ -1,6 +1,6 @@
 # Events
 
-> See also: [Browser client](client/index.md) · [Server-side observers](system/observers.md) · [Glossary](glossary.md)
+> See also: [Browser client](client/index.md) · [Server-side observers](system/observers.md) · [Glossary](../understanding/glossary.md)
 
 Dédalo implements an event manager used across all ontology definitions (areas, sections, components, tools, services, etc). The event manager is an observer/observable pattern, but the connection between instances is made with tokens. The event manager centralizes all events fired by observables and runs some functions or methods of the observers.
 

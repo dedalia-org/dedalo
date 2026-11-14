@@ -277,6 +277,10 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-zotero-csl-json-import`, `WC-2026-11-13-csv-ingest-size-ceiling`.
 
+- **Media versions: the thumb opens in the tool's preview, like the other qualities.**
+
+    In the Media versions tool, viewing the `thumb` quality used to open the file in a new browser window. It now shows in the tool's own preview, in the same place and at the same height as the other qualities, for every media type (audiovisual, image, PDF, SVG, 3D). A thumb smaller than the preview is shown at its real size, centred, never enlarged.
+
 - **Search-as-you-type keeps the previous results on screen while it looks for the new ones, and answers sooner.**
 
     Before, every key you pressed in a field's search emptied the list of results and showed
@@ -375,7 +379,7 @@ Merged since the last release; these ship with the next one.
     column, headed with the column name followed by *references*, with those calculated relations only, never repeating the stored
     ones. It works in the **Standard** and **Breakdown** formats; the **Dédalo (Raw)** format exports
     stored data only, so the checkbox is disabled there. Presets keep the choice. See
-    [Export](./tools/using_export.md).
+    [Export](./using/tools/using_export.md).
 
     Wire contract: `WC-2026-11-11-export-related-references-column`.
 
@@ -443,6 +447,10 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-external-empty-entry-dropped`.
 
+- **Long words in narrow list columns no longer spill over the next column.**
+
+    In list views, a word longer than its column was wide (e.g. "Recuperar componente" in the Activity list's narrow "What" column) was painted over the neighbouring column. It now wraps inside its own cell; column widths are unchanged.
+
 - **Regenerating a media file now restores its original file name the same way from both tools.**
 
     When a media record had lost its original file name, **Regenerate files** in Media versions did not restore it from the record's "Original file name" field, while **Update cache** did, but on the wrong language's file for translatable media and with the extension in upper case. Both tools now restore it the same way: on the file of the language you are working in, with the stored normalized name in lower case, and only when the name is missing — a name already recorded is never replaced.
@@ -486,6 +494,10 @@ Merged since the last release; these ship with the next one.
     [observers](./core/system/observers.md#clearing-a-dependent-value-refresh_data).
 
     Wire contract: `WC-2026-11-13-observer-refresh-data`.
+
+- **Searching the ontology or a thesaurus no longer stops working until the page is reloaded.**
+
+    One failed search — a server refusal, a network timeout, an error drawing the result tree — left the ontology / thesaurus tree unable to search again, and "Show all" pressed while a search was still running was silently ignored. The tree now recovers on its own and runs the requests in order. In Safari, the browser's local store can drop its connection while the tab is in the background; the application now reconnects instead of failing until a reload.
 
 - **Select options with a dataframe no longer end in a stray separator.**
 
@@ -817,7 +829,7 @@ Merged since the last release; these ship with the next one.
     row (or its own `|n` column in the **Columns** mode), like any related item. Callers
     you are not allowed to read are left out, exactly as in the record's edit view. The **Dédalo
     (Raw)** format exports these calculated values too; the import tool skips them, since there is
-    nothing stored to write back. See [Exporting data](./core/exporting_data.md).
+    nothing stored to write back. See [Exporting data](./using/exporting_data.md).
 
     3D model fields also exported an empty column; they now export the file's address, like audiovisual
     fields.
@@ -859,7 +871,7 @@ Merged since the last release; these ship with the next one.
     field's own separator (for example `, ` between numbers).
 
     Past exports were incomplete, not wrong: run the export again to get the full values. See
-    [Exporting data](./core/exporting_data.md).
+    [Exporting data](./using/exporting_data.md).
 
     Wire contract: `WC-2026-11-11-export-value-single-walker`.
 
@@ -878,7 +890,7 @@ Merged since the last release; these ship with the next one.
     Some cells are now refused and reported instead of imported: a label id that does not exist, a
     label without a URI, and a label you have no permission to create. Saving a URI value that carries
     `label_id` directly (for example through the API) is refused too: the label belongs to the URI's
-    label field. See [Importing data](./core/importing_data.md#uri).
+    label field. See [Importing data](./using/importing_data.md#uri).
 
     Wire contract: `WC-2026-11-11-iri-import-label-frame`.
 
@@ -1269,6 +1281,22 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter`.
 
+- **The "recovery mode" switch is gone; a damaged ontology is now repaired from the command line.**
+
+    The **Recovery mode** button in *Maintenance → Check config* promised to run Dédalo on a
+    backup copy of the ontology. It only showed a red banner: the main ontology was still the one
+    in use. And when the ontology is really broken, the maintenance area cannot open to reach the
+    button anyway. The button, the banner and the *Recovery mode* line of the runtime status are
+    removed.
+
+    To repair a damaged ontology, stop Dédalo and run `bun scripts/ontology_recover.ts` from the
+    installation directory. It rebuilds the ontology from its source records and, if needed,
+    first puts back the core ontology saved in the recovery file
+    (*Maintenance → Build database version*). Without `--apply` it only reports what it would do.
+    See [Recovery mode](./administration/recovery_mode.md).
+
+    Wire contract: `WC-2026-11-12-recovery-mode-retired`.
+
 #### Changed
 
 - **Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused** *(action needed)*
@@ -1442,7 +1470,7 @@ Merged since the last release; these ship with the next one.
 
 - **The ontology status panel names URL components that are wrongly marked as translatable**
 
-    A URL component (`component_iri`) is never translatable: a URL has no language, and its versions in other languages are stored as language versions of one value. A URL node marked as translatable in the ontology — or with the *translatable* field left empty, which counts as translatable — made imports save plain cells in the importer's language, with no warning. The status panel of the ontology parser tool, and the message of every rebuild and ontology update, now name each such node as "node(s) break a model rule". It is an error in the master ontology: Dédalo reports it and does not ignore the setting, so it must be corrected there and reach the installation through an ontology update. The ontology shipped with this release has no such node. See [Ontology parser](./tools/using_ontology_parser.md).
+    A URL component (`component_iri`) is never translatable: a URL has no language, and its versions in other languages are stored as language versions of one value. A URL node marked as translatable in the ontology — or with the *translatable* field left empty, which counts as translatable — made imports save plain cells in the importer's language, with no warning. The status panel of the ontology parser tool, and the message of every rebuild and ontology update, now name each such node as "node(s) break a model rule". It is an error in the master ontology: Dédalo reports it and does not ignore the setting, so it must be corrected there and reach the installation through an ontology update. The ontology shipped with this release has no such node. See [Ontology parser](./using/tools/using_ontology_parser.md).
 
     Wire contract: `WC-2026-11-11-ontology-model-rules`.
 
@@ -1743,7 +1771,7 @@ Merged since the last release; these ship with the next one.
     the data model; another build of the same release can (`7.0.0-beta.8` added an `incompatible`
     migration over `7.0.0-beta.7`), so keep the run's backup at hand after updating a prerelease. A
     run that already ended in `NEEDS_DB_RESTORE` is not changed by this update. See
-    [When a phase fails](./management/updates/index.md#when-a-phase-fails).
+    [When a phase fails](./administration/updates/index.md#when-a-phase-fails).
 
     Wire contract: `WC-2026-10-30-update-run`.
 
@@ -1834,7 +1862,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 83 entries"
+??? note "Wire contract — 84 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1887,6 +1915,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-12-numisdata-widgets-locator-law`
     - `WC-2026-11-12-posterframe-identifying-image-scope`
     - `WC-2026-11-12-rdf-graph-interpretation`
+    - `WC-2026-11-12-recovery-mode-retired`
     - `WC-2026-11-12-search-hop-join-record-address`
     - `WC-2026-11-12-section-id-open-between`
     - `WC-2026-11-12-select-dataframe-subdatum`
@@ -2458,7 +2487,7 @@ Merged since the last release; these ship with the next one.
 
     Before, **Open relationships** (the inspector button, and a portal's *List from component data*) used only the first 1000 found records, without saying so, and sent the list of related ids back and forth on every page of the opened window. Now the dialog lists every related section with its exact number of records — the number the opened window shows, with your permissions applied — and says so when nothing is related. The opened window is an ordinary filtered list: it counts and paginates normally however many records are related, and opening relationships again from it follows the chain further. The related records are read from what the found records themselves store, so the answer no longer depends on the relation index being up to date, and the activity log can be a starting point too. Counting has a 30-second limit, and so does each page and count of the opened window; past it a timeout error is shown instead of the server working on indefinitely. One count runs per session: opening the dialog in another tab or window replaces the count still running in the first, which then offers **Reload**. A found set that includes recursive children (the search's *Children* option) is refused with a message instead of being counted without its children. See [inspector — Open relationships](./core/ui/inspector.md#open-relationships).
 
-    For developers: the window's search carries a new `referenced_by` filter leaf, and the counts come from a new read-only `relation_targets` action (one deadline for the whole census, `db.statement_timeout` past it). Every search statement carrying the leaf has the 30-second limit wherever it runs (`read_raw`, the MCP search, tools acting on a search selection, diffusion and export selections), not only the opened window's — see [SQO — relationship filter leaves](./core/sqo.md#relationship-filter-leaves-referenced_by) and [rqo — relation_targets](./core/rqo.md#relation-targets-of-a-search-relation_targets).
+    For developers: the window's search carries a new `referenced_by` filter leaf, and the counts come from a new read-only `relation_targets` action (one deadline for the whole census, `db.statement_timeout` past it). Every search statement carrying the leaf has the 30-second limit wherever it runs (`read_raw`, the MCP search, tools acting on a search selection, diffusion and export selections), not only the opened window's — see [SQO — relationship filter leaves](./api/sqo.md#relationship-filter-leaves-referenced_by) and [rqo — relation_targets](./api/rqo.md#relation-targets-of-a-search-relation_targets).
 
     Wire contract: `WC-2026-10-30-search-referenced-by-leaf`.
 
@@ -2623,7 +2652,7 @@ Merged since the last release; these ship with the next one.
 
 - **Ontology updates now check every downloaded file against the master's digest before importing it.**
 
-    An ontology master now records the sha256 of every file it exports in its `ontology.json`, and an installation updating from it refuses any file whose bytes do not match, before anything is decompressed or imported. A master that has not re-exported since this release publishes no digests: its files are still accepted, and the server log says once per update that they were not verified. Re-export the ontologies on the master to publish digests. See [Updating the ontology](./management/updates/updating_ontology.md).
+    An ontology master now records the sha256 of every file it exports in its `ontology.json`, and an installation updating from it refuses any file whose bytes do not match, before anything is decompressed or imported. A master that has not re-exported since this release publishes no digests: its files are still accepted, and the server log says once per update that they were not verified. Re-export the ontologies on the master to publish digests. See [Updating the ontology](./administration/updates/updating_ontology.md).
 
     Wire contract: `WC-2026-10-30-ontology-file-digests`.
 
@@ -2643,7 +2672,7 @@ Merged since the last release; these ship with the next one.
 
 - **An ontology server accepts the access codes listed in ONTOLOGY_SERVERS; ONTOLOGY_SERVER_CODE is retired.** *(action needed)*
 
-    `ONTOLOGY_SERVER_CODE` no longer authorises anything (it was already deprecated in v6). An installation with `IS_AN_ONTOLOGY_SERVER=true` now accepts the `code` of every entry in its `ONTOLOGY_SERVERS`. **If clients pull from your ontology server with the code you set in `ONTOLOGY_SERVER_CODE`, add one `ONTOLOGY_SERVERS` entry per client carrying that code** (no `tlds`: such an entry is code-only and nothing is pulled from it) and restart. The old line still parses, so a v6 `.env` boots; remove it. The *Serve Ontology* panel now reports the codes of `ONTOLOGY_SERVERS`. See [ONTOLOGY_SERVERS](./config/config.md#ontology-servers).
+    `ONTOLOGY_SERVER_CODE` no longer authorises anything (it was already deprecated in v6). An installation with `IS_AN_ONTOLOGY_SERVER=true` now accepts the `code` of every entry in its `ONTOLOGY_SERVERS`. **If clients pull from your ontology server with the code you set in `ONTOLOGY_SERVER_CODE`, add one `ONTOLOGY_SERVERS` entry per client carrying that code** (no `tlds`: such an entry is code-only and nothing is pulled from it) and restart. The old line still parses, so a v6 `.env` boots; remove it. The *Serve Ontology* panel now reports the codes of `ONTOLOGY_SERVERS`. See [ONTOLOGY_SERVERS](./administration/configuration/config.md#ontology-servers).
 
 #### Changed
 
@@ -2689,7 +2718,7 @@ Merged since the last release; these ship with the next one.
 
     **Installations that already have a `.env` (beta testers included) must edit it:** in `../private/.env`, change the URL in `CODE_SERVERS` and `ONTOLOGY_SERVERS` to `https://master7.dedalo.dev/dedalo/core/api/v1/json/` and **restart** the server (the browser's `connect-src` is built at boot). The access code stays the same. An entry still naming the old address is kept, and logs one line at every boot until it is changed.
 
-    A second official server, `https://beta7.dedalo.dev`, publishes prereleases and developer builds, and is where ontology changes are tested before they reach `master7`. It is opt-in: the installer never writes it, and it has its own access code. To use it, list it by hand as a provider (`CODE_SERVERS`, and in `ONTOLOGY_SERVERS` with the `tlds` it should supply; every TLD comes from exactly one entry), as in the commented examples in [CODE_SERVERS](./config/config.md#defining-server-code-provider) and [ONTOLOGY_SERVERS](./config/config.md#ontology-servers). Prereleases are then offered only to a code-update panel set to **Prereleases** or **Developer builds**.
+    A second official server, `https://beta7.dedalo.dev`, publishes prereleases and developer builds, and is where ontology changes are tested before they reach `master7`. It is opt-in: the installer never writes it, and it has its own access code. To use it, list it by hand as a provider (`CODE_SERVERS`, and in `ONTOLOGY_SERVERS` with the `tlds` it should supply; every TLD comes from exactly one entry), as in the commented examples in [CODE_SERVERS](./administration/configuration/config.md#defining-server-code-provider) and [ONTOLOGY_SERVERS](./administration/configuration/config.md#ontology-servers). Prereleases are then offered only to a code-update panel set to **Prereleases** or **Developer builds**.
 
 - **An ontology master can promote chosen tlds from another provider.**
 
@@ -2803,7 +2832,7 @@ Merged since the last release; these ship with the next one.
 
 - **The ontology update lists the nodes it will remove or re-model, and a failed update says exactly what it restored.**
 
-    **Update ontology** now reports, for each ontology it imports, the nodes the new version removes and the nodes whose model changes. When an affected node is a section, it counts the records stored under it. The report does not stop the update. If an update fails and its automatic restore runs, an ontology that was empty before the update is emptied again; before, the imported rows stayed. The message now says whether the restore was complete, partial or incomplete. See [Updating the ontology](./management/updates/updating_ontology.md).
+    **Update ontology** now reports, for each ontology it imports, the nodes the new version removes and the nodes whose model changes. When an affected node is a section, it counts the records stored under it. The report does not stop the update. If an update fails and its automatic restore runs, an ontology that was empty before the update is emptied again; before, the imported rows stayed. The message now says whether the restore was complete, partial or incomplete. See [Updating the ontology](./administration/updates/updating_ontology.md).
 
     Wire contract: `WC-2026-10-30-ontology-import-census-restore`.
 
@@ -2836,7 +2865,7 @@ Merged since the last release; these ship with the next one.
 
 - **A code update is now one journaled update run that also applies the ontology, schema, data and tool steps, and confirms only after verifying them.**
 
-    **Update code** in the maintenance panel now starts an update run. The server reads the code server's release list itself, plans every step of every release between the installed version and the chosen one, and records the run in a journal under the private directory. Maintenance mode stays on from the start of the run until it is confirmed. After the new code starts, the run applies the ontology, the database migrations, the data update and the tools in release order. It then verifies the result, and only then confirms the update. A run that is interrupted resumes from its journal on the next start. If a step fails within one data model, the previous code is restored automatically. If the run has already moved the database to a new data model, it stops and names the backup to restore. `bun run update status`, `check`, `plan <release>` and `abort` show and manage runs from the command line. See [Updating code](./management/updates/updating_code.md).
+    **Update code** in the maintenance panel now starts an update run. The server reads the code server's release list itself, plans every step of every release between the installed version and the chosen one, and records the run in a journal under the private directory. Maintenance mode stays on from the start of the run until it is confirmed. After the new code starts, the run applies the ontology, the database migrations, the data update and the tools in release order. It then verifies the result, and only then confirms the update. A run that is interrupted resumes from its journal on the next start. If a step fails within one data model, the previous code is restored automatically. If the run has already moved the database to a new data model, it stops and names the backup to restore. `bun run update status`, `check`, `plan <release>` and `abort` show and manage runs from the command line. See [Updating code](./administration/updates/updating_code.md).
 
     Wire contract: `WC-2026-10-30-update-run`.
 
@@ -4547,7 +4576,7 @@ Merged since the last release; these ship with the next one.
     Now the address is read through every prefix that holds it, the most specific first, and it
     is refused if any of those readings is not a public address. Nothing to configure; the
     prefixes are declared as before (see
-    [Declaring the NAT64 prefixes](./config/config.md)).
+    [Declaring the NAT64 prefixes](./administration/configuration/config.md)).
 
 - **Bun no longer fetches packages by name outside the lockfile.**
 
@@ -4626,7 +4655,7 @@ Merged since the last release; these ship with the next one.
       [a stack installed from a beta before 7.0.0-beta.7](./install/docker.md#a-stack-installed-from-a-beta-before-700-beta7);
     - an installation **updated from the panel** chooses **Developer builds** and installs
       the developer build of 7.0.0 the code server offers (see
-      [testing development work on a real installation](./management/updates/updating_code.md#testing-development-work-on-a-real-installation)).
+      [testing development work on a real installation](./administration/updates/updating_code.md#testing-development-work-on-a-real-installation)).
       With **Developer builds** still chosen, it is then
       offered every published build of 7.0.0 — 7.0.0-beta.7 and the later prereleases (from
       a code server that publishes prereleases), and 7.0.0 once it is released — because a
@@ -4925,7 +4954,7 @@ Merged since the last release; these ship with the next one.
 
 - **An archive restore no longer plants ontology definitions that the next ontology rebuild would delete**
 
-    An archive carries the ontology definitions of its sections, but not the ontology records they are built from. Restoring it into an installation whose ontology already has records for the same TLD used to add those definitions anyway: the next ontology update (or a rebuild from the ontology parser tool) removed them again, and the restored records were left without their definitions. The restore now refuses this case before writing anything, and names the TLD and the definitions involved. Install or update that ontology so that it defines them, then run the restore again: the definitions are then found unchanged, or the conflict is named. A TLD for which this installation has no ontology records restores as before. The restore also waits for any ontology rebuild of the same TLD that is in progress, instead of writing at the same time. See [The archive door](./core/exporting_data.md#the-archive-door).
+    An archive carries the ontology definitions of its sections, but not the ontology records they are built from. Restoring it into an installation whose ontology already has records for the same TLD used to add those definitions anyway: the next ontology update (or a rebuild from the ontology parser tool) removed them again, and the restored records were left without their definitions. The restore now refuses this case before writing anything, and names the TLD and the definitions involved. Install or update that ontology so that it defines them, then run the restore again: the definitions are then found unchanged, or the conflict is named. A TLD for which this installation has no ontology records restores as before. The restore also waits for any ontology rebuild of the same TLD that is in progress, instead of writing at the same time. See [The archive door](./using/exporting_data.md#the-archive-door).
 
 - **A backup's verification proof now survives a power cut, and a backup is reported done only once its name is safely on disk.**
 
@@ -5665,7 +5694,7 @@ Merged since the last release; these ship with the next one.
 
     A field that links records — a portal, a select, a check box, a list of informants — holds
     links, and links have no language, even when the field's definition is marked translatable.
-    Its [time machine](./tools/using_time_machine.md) history is now always one timeline: every
+    Its [time machine](./using/tools/using_time_machine.md) history is now always one timeline: every
     change is one entry holding the whole field and its dataframe frames, shown in the history of
     every language, and restoring it or reverting a batch run puts back exactly that field,
     whichever language you work in. Before, such a field marked translatable filed each change
@@ -5764,7 +5793,7 @@ Merged since the last release; these ship with the next one.
 
 - **The RDF import fills the record again, and links or creates its related records.**
 
-    The RDF import only fetched and showed a resource's RDF; nothing reached the record. It now imports as it did in Dédalo 6: the resource is mapped through the External Ontology an administrator described, and its labels (in every language the source gives), descriptions, dates and places are written into the record. Related authorities (a mint, a material, a person) are linked: an authority some record already carries is linked without being fetched; a new one is fetched from its own site, created and linked. The import only fills: a field that already has a value is never overwritten, and running it twice changes nothing. Each run that changes something is one bulk process, so it can be reverted; a run that changes nothing leaves no bulk process behind. One refused value never costs the rest: a link or a field the engine refuses is listed as skipped, with the reason, and everything else of the resource is still written. A link the External Ontology maps to a section the field does not accept is skipped before anything is fetched or created, and the reason names the ontology node to fix. The result now lists what was created, what was written and what was skipped, and why. An authority that does not fit in the 15-second budget is reported *not fetched — run again*: the next run completes it. Only web (`http`/`https`) addresses from the source are written or linked. An authority is looked for in every project, so one another project already holds is linked, never duplicated. A new authority is also looked for by its equivalent addresses (the same concept on Getty, Wikidata…): when exactly one record already has one, that record is linked and given the authority's address, instead of a duplicate; when several do, nothing is linked and the result names them. The same address under `http://` and `https://` counts as one. A creator (or any record between this one and an authority) is only created together with its link to that authority, and a source text carrying Dédalo tag syntax is never written. A record is never created without the identifier that finds it again: when that value cannot be written, nothing of the record is created and the line says why — nor of a chain of records leading to it (a creator and the person under it): when one of them cannot be created, none is. An authority the import created stays when its link is refused for another reason than the External Ontology (the field is full, the term is not selectable): it is a complete record, linked by the next run that may. See [RDF import](./tools/using_import_rdf.md).
+    The RDF import only fetched and showed a resource's RDF; nothing reached the record. It now imports as it did in Dédalo 6: the resource is mapped through the External Ontology an administrator described, and its labels (in every language the source gives), descriptions, dates and places are written into the record. Related authorities (a mint, a material, a person) are linked: an authority some record already carries is linked without being fetched; a new one is fetched from its own site, created and linked. The import only fills: a field that already has a value is never overwritten, and running it twice changes nothing. Each run that changes something is one bulk process, so it can be reverted; a run that changes nothing leaves no bulk process behind. One refused value never costs the rest: a link or a field the engine refuses is listed as skipped, with the reason, and everything else of the resource is still written. A link the External Ontology maps to a section the field does not accept is skipped before anything is fetched or created, and the reason names the ontology node to fix. The result now lists what was created, what was written and what was skipped, and why. An authority that does not fit in the 15-second budget is reported *not fetched — run again*: the next run completes it. Only web (`http`/`https`) addresses from the source are written or linked. An authority is looked for in every project, so one another project already holds is linked, never duplicated. A new authority is also looked for by its equivalent addresses (the same concept on Getty, Wikidata…): when exactly one record already has one, that record is linked and given the authority's address, instead of a duplicate; when several do, nothing is linked and the result names them. The same address under `http://` and `https://` counts as one. A creator (or any record between this one and an authority) is only created together with its link to that authority, and a source text carrying Dédalo tag syntax is never written. A record is never created without the identifier that finds it again: when that value cannot be written, nothing of the record is created and the line says why — nor of a chain of records leading to it (a creator and the person under it): when one of them cannot be created, none is. An authority the import created stays when its link is refused for another reason than the External Ontology (the field is full, the term is not selectable): it is a complete record, linked by the next run that may. See [RDF import](./using/tools/using_import_rdf.md).
 
     Wire contract: `WC-2026-10-01-rdf-ontology-import`.
 
@@ -5781,7 +5810,7 @@ Merged since the last release; these ship with the next one.
     meaning — media, single-choice lists, computed values — refuse append before
     anything is written. An append records the same Time Machine entry per language
     as a replace import. See
-    [Adding instead of replacing](./tools/using_import_dedalo_csv.md#adding-instead-of-replacing).
+    [Adding instead of replacing](./using/tools/using_import_dedalo_csv.md#adding-instead-of-replacing).
 
     Wire contract: `WC-2026-09-27-csv-import-append-mode`.
 
@@ -5946,7 +5975,7 @@ Merged since the last release; these ship with the next one.
 
 - **RDF import now works with linked-data servers that redirect, and respects their robots.txt.**
 
-    Linked-data servers usually answer an IRI by redirecting to the document that describes it (or from `http` to `https`). The RDF import refused every redirect, so on those servers each import failed. It now asks the IRI itself for RDF/XML and follows the redirects, checking every step. Servers that only answer at the IRI with `.rdf` appended still work: the tool tries that form when the first answer is not RDF/XML. The tool now also reads each site's `robots.txt` and spaces its requests to the same site a few seconds apart. A site that does not allow automated access gets a per-IRI message saying so, and nothing is fetched from it. The tool's IRI list was empty, so nothing could be imported at all; it now lists the record's IRIs again. The tool now always shows why an IRI could not be imported; before, a failed IRI only showed *Empty results*. When a remote server does not answer within 15 seconds (or drops the connection, or reports an error of its own), the result says that server is out of service and to contact its maintainer, instead of waiting until the request times out. One run fetches at most three IRIs. See [RDF import](./tools/using_import_rdf.md).
+    Linked-data servers usually answer an IRI by redirecting to the document that describes it (or from `http` to `https`). The RDF import refused every redirect, so on those servers each import failed. It now asks the IRI itself for RDF/XML and follows the redirects, checking every step. Servers that only answer at the IRI with `.rdf` appended still work: the tool tries that form when the first answer is not RDF/XML. The tool now also reads each site's `robots.txt` and spaces its requests to the same site a few seconds apart. A site that does not allow automated access gets a per-IRI message saying so, and nothing is fetched from it. The tool's IRI list was empty, so nothing could be imported at all; it now lists the record's IRIs again. The tool now always shows why an IRI could not be imported; before, a failed IRI only showed *Empty results*. When a remote server does not answer within 15 seconds (or drops the connection, or reports an error of its own), the result says that server is out of service and to contact its maintainer, instead of waiting until the request times out. One run fetches at most three IRIs. See [RDF import](./using/tools/using_import_rdf.md).
 
     Wire contract: `WC-2026-10-01-rdf-harvest-door`.
 
@@ -6119,7 +6148,7 @@ Merged since the last release; these ship with the next one.
 
 - **The time machine shows a field's frames and their values as they were at the chosen change.**
 
-    In the [time machine](./tools/using_time_machine.md), the preview of a field with a
+    In the [time machine](./using/tools/using_time_machine.md), the preview of a field with a
     [dataframe](./core/components/component_dataframe.md) could show today's frames instead of
     the ones of the chosen entry, and a frame's own values — a role, a rating and its colour —
     were always shown as they are now. The preview and the history list now show the frames and
@@ -6164,7 +6193,7 @@ Merged since the last release; these ship with the next one.
     that was not itself a field of the section (an IRI's labels, a dataframe named only in a
     field's configuration) kept its frames after the wipe, attached to nothing and impossible to
     remove from the edit view. Restoring an older entry from the
-    [Time machine](./tools/using_time_machine.md) likewise removes the frames of the values it
+    [Time machine](./using/tools/using_time_machine.md) likewise removes the frames of the values it
     takes out, in every dataframe of the field. The history entries **Delete data** writes are
     filed in each language's own history (and the frames in the `lg-nolan` entry), so every
     language's time machine lists the wipe.
@@ -6195,13 +6224,13 @@ Merged since the last release; these ship with the next one.
     was empty then; a v6 language entry with no frames at all takes the frames recorded before it.
     Removing an item of any such field — a text, a number, a date, a web address, not only a
     list of linked records — now removes its frames too. See
-    [Time machine](./tools/using_time_machine.md).
+    [Time machine](./using/tools/using_time_machine.md).
 
     Wire contract: `WC-2026-09-27-bulk-revert-undo-log`.
 
 - **A field's history now shows the dataframe it had at that moment.**
 
-    In the [Time machine](./tools/using_time_machine.md) preview, an entry of a field with a
+    In the [Time machine](./using/tools/using_time_machine.md) preview, an entry of a field with a
     [dataframe](./core/components/component_dataframe.md) now shows the frames the field had at
     that moment — the role of each informant, the certainty of each value — instead of
     today's, together with the field's value as it stood then, and the field's own values no
@@ -6220,7 +6249,7 @@ Merged since the last release; these ship with the next one.
     form. Before, editing the field in Greek, importing a CSV cell with both forms, or running
     *Propagate component data* or *Update cache* on it replaced the base form with the
     version, and *Update cache* could even create a base form that never existed. Each form
-    now also has its own entry in the [Time machine](./tools/using_time_machine.md) history, listed
+    now also has its own entry in the [Time machine](./using/tools/using_time_machine.md) history, listed
     while you work in that form's language; its preview shows the base form, and restoring it puts
     the form back.
 
@@ -6249,7 +6278,7 @@ Merged since the last release; these ship with the next one.
     a single-field restore or a record recovery of a hierarchical term field now also updates
     its broader-term search index, so a search for a broader term finds the restored value (and
     no longer the value it replaced) without waiting for a later save. See
-    [Time machine](./tools/using_time_machine.md).
+    [Time machine](./using/tools/using_time_machine.md).
 
     Wire contract: `WC-2026-09-27-bulk-revert-undo-log`.
 
@@ -6286,7 +6315,7 @@ Merged since the last release; these ship with the next one.
 
     Until now any logged-in user could run the assistant, ask for generated answers and run semantic searches without any limit, so one session could exhaust an installation's model budget (or its local GPU). Every request that calls a model is now checked against the user's daily limits before the model is called: assistant runs, model tokens, semantic-search queries, and vision calls of the identification tool. When a limit is used up the request is refused with a message saying when it resets (midnight UTC). Nobody is exempt, administrators and root included.
 
-    The limits are set in the **AI usage** group of each profile (Administration → Profiles) and, to override the profile for one person, of each user (Administration → Users). Each of the four limits is resolved on its own: the user's value when it is filled in, otherwise the profile's, otherwise 0. A limit of 0 refuses every request of that kind; there is no "unlimited" value. A user cannot raise their own limit: on their own user record the AI limits are read-only, whatever their profile allows (administrators with full access excepted). The day's usage of every user is listed in the **AI usage** section under Administration. See [AI spend limits](./core/ai/assistant/configuration.md#ai-spend-limits).
+    The limits are set in the **AI usage** group of each profile (Administration → Profiles) and, to override the profile for one person, of each user (Administration → Users). Each of the four limits is resolved on its own: the user's value when it is filled in, otherwise the profile's, otherwise 0. A limit of 0 refuses every request of that kind; there is no "unlimited" value. A user cannot raise their own limit: on their own user record the AI limits are read-only, whatever their profile allows (administrators with full access excepted). The day's usage of every user is listed in the **AI usage** section under Administration. See [AI spend limits](./administration/ai/assistant/configuration.md#ai-spend-limits).
 
     **Action needed:** a fresh database is required for this beta: databases created by an earlier beta hold engine-written ontology rows that this version no longer uses, and they are not migrated. On the new installation, set the AI limits on the profiles (or users) that should use AI features, since all limits start empty and every AI request is refused until then. Generated answers over the collection also require the **Generated answers** tool permission (`tool_rag`): run *Register tools* after the update, then grant it in the profile editor to the profiles that should use generated answers. Semantic search does not need it.
 
@@ -6716,7 +6745,7 @@ Merged since the last release; these ship with the next one.
     - Thesaurus names in the installers appear in your interface language.
     - The install seed now carries only the Languages registry record. Every other thesaurus's record is written from its `hierarchy.json` entry the first time it is activated.
 
-    **Action needed** if you added your own hierarchies to `install/import/hierarchy/` and listed them in the old `hierarchies.json`: add their entries to `hierarchy.json`, copied from the source installation's exported `hierarchy.json`. See [Install new hierarchies](./management/install_new_hierarchies.md).
+    **Action needed** if you added your own hierarchies to `install/import/hierarchy/` and listed them in the old `hierarchies.json`: add their entries to `hierarchy.json`, copied from the source installation's exported `hierarchy.json`. See [Install new hierarchies](./administration/install_new_hierarchies.md).
 
     Wire contract: `WC-2026-10-10-hierarchy-json-manifest`.
 
@@ -6745,7 +6774,7 @@ Merged since the last release; these ship with the next one.
     domain ontology you switched off stays off, and its project filter is kept. Each
     ontology is filed under the installation's own structure language, not a fixed one.
 
-    See [Declaring what an ontology requires](./management/updates/updating_ontology.md#declaring-what-an-ontology-requires).
+    See [Declaring what an ontology requires](./administration/updates/updating_ontology.md#declaring-what-an-ontology-requires).
 
     Wire contract: `WC-2026-10-10-ontology-dependencies-hierarchy60`.
 
@@ -6755,7 +6784,7 @@ Merged since the last release; these ship with the next one.
 
     - **The install database is core-only.** It carries the core ontologies (`dd`, `rsc`, `ontology`, `ontologytype`, `hierarchy`, `lg`) and nothing else. The developers' `test` ontology and the *test3* playground records are no longer installed; they exist only in the developers' test database.
     - **At least one domain ontology is installed.** The default is Oral history (`oh`). It is built into the release, so it installs without a network. Any other ontology the update server offers can be chosen by its code. For example, `tch` (Tangible cultural heritage) is the general inventory model for objects and collections. The interactive installer has an *Ontologies* screen. The command line takes `--ontologies oh,tch` and lists the server's catalog with `--list-ontologies`. `install.sh` asks one more question.
-    - **Dependencies come with the choice.** An ontology server now publishes, for each ontology, the ontologies it needs. The installer installs them too, before the ontology that needs them, and says so ("tch also installs: …"). An older server that does not publish them gets a clear warning: the chosen ontology is installed alone, and nothing is guessed. After the import, the installer checks that every node of the installed ontologies can find the nodes it refers to. Anything missing is reported as a warning that names the ontology to add. On an ontology master, an editor declares the dependencies in the *Dependencies* field of each ontology's record (Ontology › Ontologies main), and they are published with the next export ([updating the ontology](./management/updates/updating_ontology.md#declaring-what-an-ontology-requires)); see the separate note on that field for mandatory and optional dependencies and required thesauri. Importing an ontology (at install time or with the update panel) keeps its declaration in that field, so a master that imports its ontologies from another master publishes them too.
+    - **Dependencies come with the choice.** An ontology server now publishes, for each ontology, the ontologies it needs. The installer installs them too, before the ontology that needs them, and says so ("tch also installs: …"). An older server that does not publish them gets a clear warning: the chosen ontology is installed alone, and nothing is guessed. After the import, the installer checks that every node of the installed ontologies can find the nodes it refers to. Anything missing is reported as a warning that names the ontology to add. On an ontology master, an editor declares the dependencies in the *Dependencies* field of each ontology's record (Ontology › Ontologies main), and they are published with the next export ([updating the ontology](./administration/updates/updating_ontology.md#declaring-what-an-ontology-requires)); see the separate note on that field for mandatory and optional dependencies and required thesauri. Importing an ontology (at install time or with the update panel) keeps its declaration in that field, so a master that imports its ontologies from another master publishes them too.
     - **Fully offline installs.** `--ontology-source <dir|archive>` installs from a directory (or a `.tar`/`.tar.gz`/`.tgz`) laid out like an ontology server's export. An air-gapped install (`--no-update-servers`) is offered only the built-in `oh`.
     - **Nothing is half-installed.** The ontology files are downloaded and checked *before* the database is touched. If an import fails, the install stops and is not sealed. Recreate the database and run the installer again.
     - **`ACTIVE_ONTOLOGY_TLDS` is written by the installer** (the core, the chosen ontologies and their dependencies), so the ontology update panel refreshes exactly what the installation carries. When the key is unset, the engine's fallback is now the core list alone: `utoponymy` and `nexus` are no longer in it. **Action needed: if your `/private/.env` has no `ACTIVE_ONTOLOGY_TLDS` and your installation uses `utoponymy` or `nexus`, add the key with them** (for example `ACTIVE_ONTOLOGY_TLDS=["dd","rsc","ontology","ontologytype","hierarchy","lg","oh","utoponymy","nexus"]`), or the update panel stops refreshing them.
@@ -6822,7 +6851,7 @@ Merged since the last release; these ship with the next one.
     - **Languages is always active.** The Languages thesaurus (`lg`) is switched on together with the database on every install. It is no longer a choice and is never imported, because its terms already ship with the installation database.
     - **Default working languages: English and Spanish.** The installer defaults to `lg-eng` and `lg-spa`; the other languages are still offered, but they are optional and you tick them yourself.
     - **One default set of optional thesauri.** Every way of answering starts from the same default: today that is Spain (`es`). The command-line installer used to install no thesaurus by default and now installs this set; use `--hierarchies none` to skip it. A thesaurus that fails to install now stops the install before anything is sealed. Unknown command-line flags (including the old `--yes`) are refused, and the database host defaults to `localhost` instead of `/tmp`.
-    - **Supervision must be declared (action needed).** The code update panel only replaces the code tree when something will restart the server afterwards. It used to guess this from systemd's own variables. Those variables are also inherited by terminal shells in desktop sessions, so an unsupervised `bun run start` could look supervised: the update would install the new code, stop the server and leave it stopped. The guess is gone. Now the code update runs only when the process manager declares `DEDALO_SUPERVISED=true`, and the shipped systemd units, compose stacks and the `dev` / `dev:server` / `start:supervised` scripts all do. **If your systemd unit or compose file was written before this release, add `Environment=DEDALO_SUPERVISED=true` to the unit's `[Service]` section, or `DEDALO_SUPERVISED: "true"` to the `dedalo` service's `environment:`.** Setting it in `/private/.env` has no effect, because every launch method reads that file, including the unsupervised `bun run start` ([updating the code](./management/updates/updating_code.md)).
+    - **Supervision must be declared (action needed).** The code update panel only replaces the code tree when something will restart the server afterwards. It used to guess this from systemd's own variables. Those variables are also inherited by terminal shells in desktop sessions, so an unsupervised `bun run start` could look supervised: the update would install the new code, stop the server and leave it stopped. The guess is gone. Now the code update runs only when the process manager declares `DEDALO_SUPERVISED=true`, and the shipped systemd units, compose stacks and the `dev` / `dev:server` / `start:supervised` scripts all do. **If your systemd unit or compose file was written before this release, add `Environment=DEDALO_SUPERVISED=true` to the unit's `[Service]` section, or `DEDALO_SUPERVISED: "true"` to the `dedalo` service's `environment:`.** Setting it in `/private/.env` has no effect, because every launch method reads that file, including the unsupervised `bun run start` ([updating the code](./administration/updates/updating_code.md)).
 
     Wire contract: `WC-2026-10-08-install-plan-update-servers-core-lg`.
 
@@ -6890,7 +6919,7 @@ Merged since the last release; these ship with the next one.
 
 - **Hitting a database limit now shows a clear "try again" error, and maintenance runs on its own database connections.**
 
-    When a database statement runs past `DB_STATEMENT_TIMEOUT_MS`, or a request waits past `DB_POOL_ACQUIRE_TIMEOUT_MS` for a free database connection, the user now sees a "took longer than the server allows" or "the server is busy, try again" message instead of a generic server error. Maintenance no longer runs under the statement limit: the long maintenance-area actions (rebuilds, VACUUM and REINDEX, bulk transforms, imports) and data updates use a separate set of database connections without it, sized by the new `DB_MAINTENANCE_POOL_MAX` (default 2 per process). Count it TWICE in your connection budget, plus 2: each engine process may hold `DB_POOL_MAX + 2 × DB_MAINTENANCE_POOL_MAX + 2` connections (16 with the defaults), because the index-rebuild lane keeps its own idle connections and a stop or an update verdict opens up to 2 short-lived ones of their own (see [the database settings](./config/config_db.md)). The other maintenance-area actions keep the limit and never wait behind a long one, and the dataframe integrity scan now stops a batch that runs past its time budget instead of running on. When the server stops, it cancels only its own running maintenance statements: another installation sharing the same PostgreSQL server is never touched. The defaults of the three limits are unchanged (`0`, off); `60000`, `30000` and `5000` are the recommended production values, and the database settings page lists the long operations to measure on a large installation before you set the statement limit. A concurrent index rebuild, plain VACUUM or ANALYZE that is still running when the server stops is left to finish on the database instead of being cancelled, because a cancelled concurrent rebuild leaves a broken index behind (the blocking forms — the `REINDEX TABLE` and `VACUUM FULL` of "Re-create db assets" — wait at most 5 seconds for their table like any other maintenance step, are retried a few times, and are cancelled at shutdown, which undoes them cleanly; before, such a statement queued behind a long backup kept every later reader of the table waiting for the whole backup); and "Optimize tables" now first removes any such broken index an earlier interrupted rebuild left on the tables it optimizes. A long maintenance action still gives up after 5 seconds of waiting for a table another operation is using, so it never holds up the users reading that table: the step it was on is undone, steps it had already finished are kept, and the action reports "try again in a moment" (or, for the search-store rebuild, an error line for that store). The bulk transforms (move TLD, move locator, move to portal, move to table, move language) now apply each definition file all-or-nothing: a file that waits too long is retried a few times and, if it still cannot finish, is left completely unapplied and named in the report. Before, a file could stop part-way with some tables already changed, leaving a section's records split between the old and the new tipo. Rebuilding the database constraints, triggers or indexes is now all-or-nothing for each table: if the new constraint, trigger or index cannot be created (including after that 5-second wait), the old one is kept instead of being left removed, and the action lists the failure by constraint, trigger or index, table and database error code (the full database message is in the server log). An index is now built next to the old one, which keeps serving searches until the new one takes its place, so the table stays readable during the rebuild.
+    When a database statement runs past `DB_STATEMENT_TIMEOUT_MS`, or a request waits past `DB_POOL_ACQUIRE_TIMEOUT_MS` for a free database connection, the user now sees a "took longer than the server allows" or "the server is busy, try again" message instead of a generic server error. Maintenance no longer runs under the statement limit: the long maintenance-area actions (rebuilds, VACUUM and REINDEX, bulk transforms, imports) and data updates use a separate set of database connections without it, sized by the new `DB_MAINTENANCE_POOL_MAX` (default 2 per process). Count it TWICE in your connection budget, plus 2: each engine process may hold `DB_POOL_MAX + 2 × DB_MAINTENANCE_POOL_MAX + 2` connections (16 with the defaults), because the index-rebuild lane keeps its own idle connections and a stop or an update verdict opens up to 2 short-lived ones of their own (see [the database settings](./administration/configuration/config_db.md)). The other maintenance-area actions keep the limit and never wait behind a long one, and the dataframe integrity scan now stops a batch that runs past its time budget instead of running on. When the server stops, it cancels only its own running maintenance statements: another installation sharing the same PostgreSQL server is never touched. The defaults of the three limits are unchanged (`0`, off); `60000`, `30000` and `5000` are the recommended production values, and the database settings page lists the long operations to measure on a large installation before you set the statement limit. A concurrent index rebuild, plain VACUUM or ANALYZE that is still running when the server stops is left to finish on the database instead of being cancelled, because a cancelled concurrent rebuild leaves a broken index behind (the blocking forms — the `REINDEX TABLE` and `VACUUM FULL` of "Re-create db assets" — wait at most 5 seconds for their table like any other maintenance step, are retried a few times, and are cancelled at shutdown, which undoes them cleanly; before, such a statement queued behind a long backup kept every later reader of the table waiting for the whole backup); and "Optimize tables" now first removes any such broken index an earlier interrupted rebuild left on the tables it optimizes. A long maintenance action still gives up after 5 seconds of waiting for a table another operation is using, so it never holds up the users reading that table: the step it was on is undone, steps it had already finished are kept, and the action reports "try again in a moment" (or, for the search-store rebuild, an error line for that store). The bulk transforms (move TLD, move locator, move to portal, move to table, move language) now apply each definition file all-or-nothing: a file that waits too long is retried a few times and, if it still cannot finish, is left completely unapplied and named in the report. Before, a file could stop part-way with some tables already changed, leaving a section's records split between the old and the new tipo. Rebuilding the database constraints, triggers or indexes is now all-or-nothing for each table: if the new constraint, trigger or index cannot be created (including after that 5-second wait), the old one is kept instead of being left removed, and the action lists the failure by constraint, trigger or index, table and database error code (the full database message is in the server log). An index is now built next to the old one, which keeps serving searches until the new one takes its place, so the table stays readable during the rebuild.
 
     Wire contract: `WC-2026-09-30-db-typed-503`.
 
@@ -6904,7 +6933,7 @@ Merged since the last release; these ship with the next one.
 
     On a code server, **Serve Code**'s *Build release* button used to archive the tip of the `master` branch, and *Build developer release* whatever other branch the server had checked out. Now a published release is always a tagged version: *Build release* archives the newest `vX.Y.Z` tag of this engine in the build checkout (prerelease tags such as betas are not releases, earlier-engine `v6` tags are never candidates, and a tag whose version file disagrees with its name is refused), and *Build developer release* archives the tip of `master` — the latest integrated code, before its release. The branch the server has checked out no longer matters.
 
-    What to do on a code server: tag each release commit (`git tag v7.0.1`, pushed to the remote) and fetch tags into the build checkout (`git fetch --tags`) before building; until a tag exists the panel reports that nothing can be published. While v7 is in beta this is the expected state: installations receive v7 code only as developer builds. See [Updating code](./management/updates/updating_code.md).
+    What to do on a code server: tag each release commit (`git tag v7.0.1`, pushed to the remote) and fetch tags into the build checkout (`git fetch --tags`) before building; until a tag exists the panel reports that nothing can be published. While v7 is in beta this is the expected state: installations receive v7 code only as developer builds. See [Updating code](./administration/updates/updating_code.md).
 
     Wire contract: `WC-2026-09-29-code-release-channel-refs`.
 
@@ -7108,13 +7137,13 @@ Merged since the last release; these ship with the next one.
 
 - **The Update code panel shows each release's notes before you install it.**
 
-    When you check for available updates, each published release now lists what it changes: its *Action needed* items and one line per change, the same ones this change log publishes for that release. You can read what an update will do before you choose it, on every installation. Developer builds and releases cut before this change have no notes. See [updating the code](./management/updates/updating_code.md).
+    When you check for available updates, each published release now lists what it changes: its *Action needed* items and one line per change, the same ones this change log publishes for that release. You can read what an update will do before you choose it, on every installation. Developer builds and releases cut before this change have no notes. See [updating the code](./administration/updates/updating_code.md).
 
     Wire contract: `WC-2026-10-09-code-manifest-release-notes`.
 
 - **The backup panel now says when backups are manual.**
 
-    Dédalo never makes database backups on its own: a nightly job installed with the operating system does (see [Backups](./management/backup.md)). When no scheduled backup of the database has ever reached the backup directory, the *Make backup* panel in Maintenance now shows *No scheduler, backups are manual.*, with a link to the backup documentation. Before, it showed only the age of the newest backup, which looked like automatic backups that had stopped.
+    Dédalo never makes database backups on its own: a nightly job installed with the operating system does (see [Backups](./administration/backup.md)). When no scheduled backup of the database has ever reached the backup directory, the *Make backup* panel in Maintenance now shows *No scheduler, backups are manual.*, with a link to the backup documentation. Before, it showed only the age of the newest backup, which looked like automatic backups that had stopped.
 
     Wire contract: `WC-2026-10-08-make-backup-scheduled-evidence`.
 
@@ -7454,7 +7483,7 @@ Merged since the last release; these ship with the next one.
 
 - **The PostgreSQL socket you give the installer is now the one the server connects through (`DB_SOCKET`).** *(action needed)*
 
-    The installer's socket answer (`--db-socket`) was used by the installer's own connection test and then written as `DEDALO_SOCKET_CONN`, a key the server never read: an installation reachable only through the socket passed the install and then connected to `DB_HOST` instead. The answer is now written as the new key [`DB_SOCKET`](./config/config_db.md), and one rule decides the route for everything that connects to the database: the server, the installer's test, the nightly backup and the maintenance tools. When `DB_SOCKET` is set it wins over `DB_HOST`, and a socket that does not exist fails loudly instead of quietly falling back to `localhost`. An existing `.env` that holds `DEDALO_SOCKET_CONN` keeps working: it is now read as the old spelling of `DB_SOCKET`, so check that the directory it names is where your PostgreSQL socket really is before updating. A re-run of the installer writes the value once, under the new name. If you use the nightly backup unit, update `deploy/dedalo-backup.service` from the release so its database backup connects the same way.
+    The installer's socket answer (`--db-socket`) was used by the installer's own connection test and then written as `DEDALO_SOCKET_CONN`, a key the server never read: an installation reachable only through the socket passed the install and then connected to `DB_HOST` instead. The answer is now written as the new key [`DB_SOCKET`](./administration/configuration/config_db.md), and one rule decides the route for everything that connects to the database: the server, the installer's test, the nightly backup and the maintenance tools. When `DB_SOCKET` is set it wins over `DB_HOST`, and a socket that does not exist fails loudly instead of quietly falling back to `localhost`. An existing `.env` that holds `DEDALO_SOCKET_CONN` keeps working: it is now read as the old spelling of `DB_SOCKET`, so check that the directory it names is where your PostgreSQL socket really is before updating. A re-run of the installer writes the value once, under the new name. If you use the nightly backup unit, update `deploy/dedalo-backup.service` from the release so its database backup connects the same way.
 
 - **On Docker, the browser client now always matches the engine that is running.**
 
@@ -7468,8 +7497,8 @@ Merged since the last release; these ship with the next one.
     - **Existing servers and supervision.** [Upgrading](./install/upgrading.md#3-check-that-the-unit-declares-supervision) has a new step that checks the installed unit for `Environment=DEDALO_SUPERVISED=true`, `SuccessExitStatus=75` and `Restart=always`, and adds what is missing with a drop-in. [Troubleshooting](./install/troubleshooting.md#updating) explains the *No supervisor declared* refusal. The installer's last line now names the supervised ways to start the server instead of `bun run start`, which cannot take code updates.
     - **RHEL.** The RHEL-based systems page (since folded into [Production install](./install/production.md)) gives a complete `dedalo-ts.service` ordered after `postgresql-18.service`. The shipped unit names `postgresql.service`, which does not exist there. The page also runs the installer the same way as the production guide, and keeps `DEDALO_PG_BIN_PATH` in `.env`.
     - **Several instances.** The [multi-instance](./install/multi_instance.md) template unit now carries `KillMode=process`, the wider start limit, the rollback hook and the watchdog. The watchdog script takes `--restart-unit` / `--rollback-unit`, so a templated instance can point it at its own units. Each site is installed with `--socket`, `--media-path` and `--media-access-mode` instead of appending keys by hand.
-    - **Corrections.** The backup set is five stores (site-builder instances included). Without `--media-path` the media root defaults to `../private/media`. The installer keeps every `.env` key it does not own, including keys added before the install. An air-gapped installation can update its ontology from local files ([updating the ontology](./management/updates/updating_ontology.md#updating-without-a-network-air-gapped-installs)). `STRUCTURE_FROM_SERVER` and `DEDALO_SOURCE_VERSION_LOCAL_DIR` are documented as having no effect. The four language keys are documented as required, with no default. The configuration pages point at `install/sample.env` in the code tree for the current list of keys: `../private/sample.env` is the installer's copy and a code update does not refresh it. The [developer quickstart](./install/dev_quickstart.md) lists the supervised start scripts and the second-instance script.
-    - **Key names in `.env`.** The installer now writes every key under the name the [configuration reference](./config/config.md) uses (`DB_NAME`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_PORT`, `ENTITY`, `PROJECTS_DEFAULT_LANGS`, `APPLICATION_LANG`, `DATA_LANG`) instead of the older fallback spellings (`DEDALO_DATABASE_CONN`, `DEDALO_ENTITY`, …). Before, a `DB_HOST` you added by hand silently won over the answer you had just given the installer. A re-run over an existing `.env` replaces the old spelling with the new one, so no value is left under two names. The engine and the backup scripts still accept the old spellings, so an existing `.env` keeps working unchanged.
+    - **Corrections.** The backup set is five stores (site-builder instances included). Without `--media-path` the media root defaults to `../private/media`. The installer keeps every `.env` key it does not own, including keys added before the install. An air-gapped installation can update its ontology from local files ([updating the ontology](./administration/updates/updating_ontology.md#updating-without-a-network-air-gapped-installs)). `STRUCTURE_FROM_SERVER` and `DEDALO_SOURCE_VERSION_LOCAL_DIR` are documented as having no effect. The four language keys are documented as required, with no default. The configuration pages point at `install/sample.env` in the code tree for the current list of keys: `../private/sample.env` is the installer's copy and a code update does not refresh it. The [developer quickstart](./install/dev_quickstart.md) lists the supervised start scripts and the second-instance script.
+    - **Key names in `.env`.** The installer now writes every key under the name the [configuration reference](./administration/configuration/config.md) uses (`DB_NAME`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_PORT`, `ENTITY`, `PROJECTS_DEFAULT_LANGS`, `APPLICATION_LANG`, `DATA_LANG`) instead of the older fallback spellings (`DEDALO_DATABASE_CONN`, `DEDALO_ENTITY`, …). Before, a `DB_HOST` you added by hand silently won over the answer you had just given the installer. A re-run over an existing `.env` replaces the old spelling with the new one, so no value is left under two names. The engine and the backup scripts still accept the old spellings, so an existing `.env` keeps working unchanged.
 
 - **The install database is compiled from the repository and proven by a fresh install before it ships.**
 
@@ -7665,7 +7694,7 @@ Merged since the last release; these ship with the next one.
 
 - **Code updates no longer refuse over a file an older release shipped and a newer one removed.**
 
-    An update from the *Update code* panel refused with "Unknown entries at the code-tree root … `.vscode`" on installs that had taken an older release: the file was shipped by Dédalo itself, then removed from later releases, and the updater could not tell it from a file the administrator had added — nor could it be cleared without shell access. Each update now records the top-level entries of the release it installs, so the next update moves a retired release file into the backup instead of refusing, and the panel's *Code-tree root entries* check reports only files nobody shipped. An install updated before this release still refuses once over such a file: remove it by hand that one time ([what makes an update refuse](./management/updates/updating_code_options.md#what-else-makes-the-update-refuse)).
+    An update from the *Update code* panel refused with "Unknown entries at the code-tree root … `.vscode`" on installs that had taken an older release: the file was shipped by Dédalo itself, then removed from later releases, and the updater could not tell it from a file the administrator had added — nor could it be cleared without shell access. Each update now records the top-level entries of the release it installs, so the next update moves a retired release file into the backup instead of refusing, and the panel's *Code-tree root entries* check reports only files nobody shipped. An install updated before this release still refuses once over such a file: remove it by hand that one time ([what makes an update refuse](./administration/updates/updating_code_options.md#what-else-makes-the-update-refuse)).
 
     Wire contract: `WC-2026-10-07-update-code-root-entries-stamp`.
 
@@ -7709,7 +7738,7 @@ Merged since the last release; these ship with the next one.
 
     Every video quality was meant to be deinterlaced, but the encoder was given the deinterlace filter and the colour-correction filter as two separate options, and ffmpeg keeps only the last one. The deinterlace step was silently skipped, so video recorded interlaced (most analogue and DV tape transfers) got web versions with visible combing on movement. Both encoding passes now receive one combined filter, and interlaced video is deinterlaced. Progressive video is left untouched: only frames marked as interlaced are processed.
 
-    Existing versions are **not** rebuilt automatically. To fix a video already in the archive, rebuild its qualities with the [media versions tool](./tools/using_media_versions.md); the original file is never changed.
+    Existing versions are **not** rebuilt automatically. To fix a video already in the archive, rebuild its qualities with the [media versions tool](./using/tools/using_media_versions.md); the original file is never changed.
 
 - **The audio encoder for video and audio derivatives is chosen from what the configured ffmpeg can actually encode, and a failed encode names its error.**
 
@@ -7781,7 +7810,7 @@ Merged since the last release; these ship with the next one.
 
 - **The Publication server API maintenance panel shows its "Open Swagger UI" buttons again.**
 
-    The panel (Maintenance → Publication → Publication server API) never showed the buttons that open the interactive documentation of the publication server API v1, because `API_WEB_USER_CODE_MULTIPLE` was not read. It is a configuration key again: list each publication database and its API code, e.g. `API_WEB_USER_CODE_MULTIPLE=[{"db_name":"web_my_entity","code":"my_api_code"}]`, optionally with `api_ui` when the API runs on another server — see [the configuration reference](./config/config.md). A v6 configuration migrated with the config migrator now carries the value across; the empty placeholder entry of a stock v6 configuration is left out, so a migrated install does not report a dropped entry on every start.
+    The panel (Maintenance → Publication → Publication server API) never showed the buttons that open the interactive documentation of the publication server API v1, because `API_WEB_USER_CODE_MULTIPLE` was not read. It is a configuration key again: list each publication database and its API code, e.g. `API_WEB_USER_CODE_MULTIPLE=[{"db_name":"web_my_entity","code":"my_api_code"}]`, optionally with `api_ui` when the API runs on another server — see [the configuration reference](./administration/configuration/config.md). A v6 configuration migrated with the config migrator now carries the value across; the empty placeholder entry of a stock v6 configuration is left out, so a migrated install does not report a dropped entry on every start.
 
 - **Creating a site twice at the same moment can no longer overwrite or delete the first site.**
 
@@ -7825,7 +7854,7 @@ Merged since the last release; these ship with the next one.
 
 - **A database backup counts only once it has been read back completely.**
 
-    The code updater requires a recent database backup, and the update panel shows whether there is one. Both used a quick check that reads only the start of a dump, so a dump that had stopped part way through still counted as a backup, and a code update could go ahead with no usable way back. Now a backup counts only after PostgreSQL has read it back from beginning to end; a dump that is cut short is named in the refusal ("did not verify (truncated)"), and the next older complete backup is used if there is one. The read happens once per backup file and never makes the server unresponsive: while it is running the panel shows the backup as "verifying" instead of guessing. A read that does not finish in time proves nothing, so that backup does not count either; on slow backup storage raise the new setting [`DEDALO_BACKUP_VERIFY_SECONDS_PER_GB`](./config/config.md) (default 60 seconds per gigabyte), which the refusal names. A file named like a Dédalo backup (`.custom.backup`) that does not even start like a PostgreSQL dump — for example one left full of zeros by a crash — no longer counts as a backup either. Only a problem in the file itself marks a backup as broken: if the read is interrupted, the backup disk reports an error, or the server's PostgreSQL tools are older than the dump, the backup does not count for now but is read again next time instead of being written off — and a backup that an earlier version wrote off for one of those reasons is read again once. This holds whatever language the server's system runs in: PostgreSQL's messages were misread when they came out translated (for example on a server set to Spanish), which could write off a good backup. Stopping a code update while its backup is being checked, or before it replaces the code, now really stops it: nothing is installed and the server is not restarted. The backup line of the update panel is checked only for the superuser, the only account that can run an update. If the backup cannot be checked at all (for example the server's PostgreSQL tools cannot be started), a data update now warns that the backup could not be checked instead of refusing to run.
+    The code updater requires a recent database backup, and the update panel shows whether there is one. Both used a quick check that reads only the start of a dump, so a dump that had stopped part way through still counted as a backup, and a code update could go ahead with no usable way back. Now a backup counts only after PostgreSQL has read it back from beginning to end; a dump that is cut short is named in the refusal ("did not verify (truncated)"), and the next older complete backup is used if there is one. The read happens once per backup file and never makes the server unresponsive: while it is running the panel shows the backup as "verifying" instead of guessing. A read that does not finish in time proves nothing, so that backup does not count either; on slow backup storage raise the new setting [`DEDALO_BACKUP_VERIFY_SECONDS_PER_GB`](./administration/configuration/config.md) (default 60 seconds per gigabyte), which the refusal names. A file named like a Dédalo backup (`.custom.backup`) that does not even start like a PostgreSQL dump — for example one left full of zeros by a crash — no longer counts as a backup either. Only a problem in the file itself marks a backup as broken: if the read is interrupted, the backup disk reports an error, or the server's PostgreSQL tools are older than the dump, the backup does not count for now but is read again next time instead of being written off — and a backup that an earlier version wrote off for one of those reasons is read again once. This holds whatever language the server's system runs in: PostgreSQL's messages were misread when they came out translated (for example on a server set to Spanish), which could write off a good backup. Stopping a code update while its backup is being checked, or before it replaces the code, now really stops it: nothing is installed and the server is not restarted. The backup line of the update panel is checked only for the superuser, the only account that can run an update. If the backup cannot be checked at all (for example the server's PostgreSQL tools cannot be started), a data update now warns that the backup could not be checked instead of refusing to run.
 
     Wire contract: `WC-2026-09-30-backup-freshness-deep-async`.
 
@@ -7955,7 +7984,7 @@ Merged since the last release; these ship with the next one.
 
 - **Time machine restore no longer fails on installs whose outbound host allowlist is empty.**
 
-    Before, restoring any value from the [time machine](./tools/using_time_machine.md) was
+    Before, restoring any value from the [time machine](./using/tools/using_time_machine.md) was
     refused when `DEDALO_EXTERNAL_ALLOWED_HOSTS` was empty — which is the default. The error
     named a section you had not touched (on a standard install, `test3`) and its external
     catalogue host (Zenon), because the engine checked the allowlist while merely reading an
@@ -8797,7 +8826,7 @@ Merged since the last release; these ship with the next one.
     is normalized like `webBase` (trailing slash stripped), and it takes the media
     directory too (`https://host/dedalo/media`), because both bases are prefixed
     to the same media-root relative path. See
-    [config reference](./config/config.md).
+    [config reference](./administration/configuration/config.md).
 
     Wire contract: `WC-042`.
 
@@ -8844,7 +8873,7 @@ Merged since the last release; these ship with the next one.
     publication API), the proxy tool `tool_sitebuilder` (a three-pane workspace),
     and a `site_builder_status` maintenance widget that probes the daemon and
     hosts the launcher. No counterpart existed in the previous engine. Docs:
-    [Site builder](./management/site_builder.md) ·
+    [Site builder](./administration/site_builder.md) ·
     [internals](./development/site_builder_internals.md).
 
     Wire contract: `WC-035`.
@@ -8862,8 +8891,8 @@ Merged since the last release; these ship with the next one.
     select their own maps (the section_map read is virtual-aware) — the earlier
     per-component boolean opt-in, which could not differentiate virtual siblings
     and indexed no text at all for virtual sections, is retired. Documentation:
-    [RAG & semantic search](./core/ai/rag.md) ·
-    [cookbook R1](./core/ai/rag_cookbook.md).
+    [RAG & semantic search](./administration/ai/rag.md) ·
+    [cookbook R1](./administration/ai/rag_cookbook.md).
 
 - **RAG ops**
 
@@ -8994,7 +9023,7 @@ Merged since the last release; these ship with the next one.
     user's existing sessions. TLS peer verification is never disableable (pin a
     private CA via `NODE_EXTRA_CA_CERTS`). Config: catalog domain `mailer`
     (`DEDALO_SMTP_*`, `DEDALO_PWRESET_*`). User guide:
-    [Password recovery](./management/password_recovery.md).
+    [Password recovery](./administration/password_recovery.md).
 
     Wire contract: `WC-039`.
 
@@ -9075,7 +9104,7 @@ Merged since the last release; these ship with the next one.
     The master key census went 686 → 413:
     28 renames to English keys, 240 proven-unused removals, and 21 single-tool
     keys migrated into their tools' own `register.json` labels (edited with
-    [`tool_dd_label`](./tools/using_dd_label.md)). The `get_label` wire shape is
+    [`tool_dd_label`](./using/tools/using_dd_label.md)). The `get_label` wire shape is
     unchanged; only the key set.
 
     Wire contract: `WC-034`.

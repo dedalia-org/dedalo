@@ -1,4 +1,4 @@
-# Dédalo v7 CSS / LESS architecture
+# CSS / LESS architecture
 
 This document summarizes how styles flow from `core/page/css/main.less` through layout, components and widgets, and defines conventions to keep behavior predictable without changing the current visual design.
 

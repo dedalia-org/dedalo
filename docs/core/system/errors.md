@@ -1,6 +1,6 @@
 # errors
 
-> See also: [Error system cookbook](../../development/errors_cookbook.md) · [api](api.md) · [Dédalo API v1](../../api/dedalo_api_v1.md) · [data_manager](../client/data_manager.md) · [RQO](../rqo.md) · [Tool server contract](../../development/tools/server_contract.md)
+> See also: [Error system cookbook](../../development/errors_cookbook.md) · [api](api.md) · [Dédalo API v1](../../api/dedalo_api_v1.md) · [data_manager](../client/data_manager.md) · [RQO](../../api/rqo.md) · [Tool server contract](../../development/tools/server_contract.md)
 
 The error subsystem is Dédalo's **closed vocabulary of failure**. Every refusal the engine
 reports — over the JSON API, a tool response, a stream frame or the assistant bridge —
@@ -114,7 +114,7 @@ A failure:
 - `data` is the whole payload. A handler never puts payload anywhere else.
 - The schema (`apiEnvelopeSchema`) is a discriminated union on `ok` with
   `error.code` typed as the enum of registered codes, so registry totality reaches every
-  consumer that parses a body. [RQO](../rqo.md) re-exports it as the live response schema.
+  consumer that parses a body. [RQO](../../api/rqo.md) re-exports it as the live response schema.
 
 The full wire-level description of the two shapes, including the status table, is in the
 [API reference](../../api/dedalo_api_v1.md#response-envelope).

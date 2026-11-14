@@ -43,7 +43,7 @@
 
 `component_security_access` is the access-control component of Dédalo. It stores, for a single security profile, the **permission level the profile holds over every reachable ontology element** (areas, sections, section groups, components, buttons, relation lists, etc.). It is the data backbone of role/profile-based security: when a user logs in, their profile's `component_security_access` data is read to build the permission table that gates every read, write and admin operation across the application.
 
-It lives in the **Profiles** section (`dd234`) as component tipo `dd774` (`DEDALO_COMPONENT_SECURITY_ACCESS_PROFILES_TIPO`). Each profile record carries one instance whose data answers the question *"what may this profile do with each part of the ontology?"*.
+It lives in the **Profiles** section (`dd234`) as component tipo `dd774` (`SECURITY_ACCESS_COMPONENT` in `src/core/security/permissions.ts`). Each profile record carries one instance whose data answers the question *"what may this profile do with each part of the ontology?"*.
 
 The editing UI renders the whole ontology as an expandable tree. Each node exposes a set of radio buttons for the four permission levels:
 
@@ -210,7 +210,7 @@ The client (`component_security_access.js`) maps modes to renderers as follows:
 
 Because the meaning of each row depends on live ontology tipos, importing a permission matrix is only sound between installations that share the same ontology tipos. The canonical JSON-array-of-objects shape imports through the generic engine (`conformImportData()`, `src/core/tools/import_data.ts`) without any component-specific handling needed. Permission data is not expected to be published to diffusion targets; no `component_security_access` handling was found under the diffusion engine's source tree, and this has not been independently verified for this pass.
 
-See the full import model in [importing data](../importing_data.md) and the export model in [exporting data](../exporting_data.md).
+See the full import model in [importing data](../../using/importing_data.md) and the export model in [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

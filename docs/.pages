@@ -1,0 +1,17 @@
+# Sidebar order: one section per reader (docs reorg 2026-11). See development/documentation_style_guide.md.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+nav:
+  - index.md
+  - understanding
+  - using
+  - install
+  - administration
+  - diffusion
+  - api
+  - core
+  - development
+  - Project:
+    - whats_changed_v7.md
+    - change_log.md
+    - rewrite.md
+  - ...

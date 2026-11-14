@@ -143,7 +143,7 @@ A section restore is the same `apply_value` call with `tipo === section_tipo` (t
 ## Related
 
 - [tool_propagate_component_data](tool_propagate_component_data.md) — the batch tool whose runs `bulk_revert_process` undoes (it stamps the `bulk_process_id` that links the change set).
-- [tool_export](tool_export.md) — the only tool allowed on the dd15 time-machine section, enabling time-machine exports; see [Exporting data](../../../core/exporting_data.md).
+- [tool_export](tool_export.md) — the only tool allowed on the dd15 time-machine section, enabling time-machine exports; see [Exporting data](../../../using/exporting_data.md).
 - [section_record](../../../core/sections/section_record.md) — the save/restore path `apply_value` uses for the section branch (including deleted-media recovery).
 - [Creating new tools](../creating_tools.md) · [Server contract](../server_contract.md) — the tool model, `apiActions`, gates and lifecycle this page builds on.
 - Source: `tools/tool_time_machine/server/{index,tool_time_machine,bulk_revert}.ts`, `tools/tool_time_machine/js/{tool_time_machine,render_tool_time_machine}.js`; TM core: `src/core/db/time_machine.ts`, `src/core/resolve/read_tm.ts`, `src/core/tm_record/{lane_state,frame_as_of}.ts` (see [tm_record](../../../core/system/tm_record.md)); client list view: `core/section/js/view_tm_list_section.js`.

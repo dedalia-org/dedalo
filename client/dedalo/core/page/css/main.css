@@ -1139,15 +1139,6 @@ pre {
   text-align: center;
   box-shadow: inset 0px -1px 0 var(--color_grey_13);
 }
-.recovery_container {
-  padding: 1.5rem;
-  background-color: var(--color_danger);
-  color: var(--color_white);
-  font-size: 1.5rem;
-  text-align: center;
-  box-shadow: inset 0px -1px 0 var(--color_grey_13);
-  text-transform: uppercase;
-}
 .notification_container {
   padding: 1rem;
   background-color: var(--color_danger_dark);
@@ -6818,6 +6809,7 @@ dd-modal.dd_presets::part(content) {
 .column div.wrapper_component {
   display: inline-block;
   flex: 1 1;
+  min-width: 0;
   padding: 0px;
   margin: 0px;
   height: 100%;
@@ -6831,6 +6823,7 @@ dd-modal.dd_presets::part(content) {
 .column div.wrapper_component span {
   padding: 0.12rem;
   display: inline-block;
+  max-width: 100%;
   overflow-wrap: break-word;
 }
 @media screen and (max-width: 1024px) {
@@ -11629,6 +11622,8 @@ dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_
 }
 .wrapper_service_autocomplete > .autocomplete_data.loading {
   opacity: 1;
+}
+.wrapper_service_autocomplete > .autocomplete_data.loading > .autocomplete_data_li {
   animation: autocomplete_loading_dim 0.2s ease-out 0.35s forwards;
 }
 .wrapper_service_autocomplete > .autocomplete_data .loading_label {
@@ -11678,6 +11673,27 @@ dd-modal .wrapper_component.edit.active:not(.hilite_element) > .wrapper_service_
 }
 .wrapper_service_autocomplete > .autocomplete_data > .autocomplete_data_li > .section_record .column {
   outline: none;
+}
+.wrapper_service_autocomplete > .autocomplete_data > .autocomplete_data_li > .section_record .wrapper_component.component_dataframe {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 0.25em;
+}
+.wrapper_service_autocomplete > .autocomplete_data > .autocomplete_data_li > .section_record .wrapper_component.component_dataframe > .content_data {
+  display: inline-flex;
+}
+.wrapper_service_autocomplete > .autocomplete_data > .autocomplete_data_li > .section_record .wrapper_component.component_dataframe > .content_data > .content_value {
+  height: auto;
+  width: auto;
+}
+.wrapper_service_autocomplete > .autocomplete_data > .autocomplete_data_li > .section_record > .column_separator:has(+ .component_section_id:last-child) {
+  display: none;
+}
+.wrapper_service_autocomplete > .autocomplete_data > .autocomplete_data_li > .section_record > .component_section_id:last-child {
+  margin-left: auto;
+  padding-left: 1.5em;
+  color: var(--fg_muted);
+  font-variant-numeric: tabular-nums;
 }
 .wrapper_service_autocomplete > .autocomplete_data > .autocomplete_data_li > .section_record .ddinfo_value {
   color: var(--fg_muted);

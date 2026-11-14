@@ -237,6 +237,13 @@ describe.if(hasPhpCredentials())('environment payload differential (Phase 7 gate
 		expect('ip_api' in tsGlobals).toBe(false);
 		// biome-ignore lint/performance/noDelete: same as the WC-031 strip above — undefined would keep 'ip_api' in Object.keys()
 		delete phpGlobals.ip_api;
+		// engineering/wire_contract/WC-2026-11-12-recovery-mode-retired.md: `recovery_mode`
+		// REMOVED — the flag never swapped the served ontology in TS (only painted a
+		// banner). Same PHP-side strip as WC-038.
+		expect('recovery_mode' in phpGlobals).toBe(true);
+		expect('recovery_mode' in tsGlobals).toBe(false);
+		// biome-ignore lint/performance/noDelete: same as the WC-031 strip above
+		delete phpGlobals.recovery_mode;
 		// engineering/wire_contract/ WC-051: three TS-ONLY page_globals keys carrying the
 		// session-expiry warning contract. PHP has no twin because it had nothing to
 		// warn about — its client learned the session was gone only by being refused.

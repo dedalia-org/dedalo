@@ -1,6 +1,6 @@
 # db
 
-> See also: [Architecture overview](../architecture_overview.md) · [Sections](../sections/index.md) · [section_record](../sections/section_record.md) · [SQO](../sqo.md)
+> See also: [Architecture overview](../architecture_overview.md) · [Sections](../sections/index.md) · [section_record](../sections/section_record.md) · [SQO](../../api/sqo.md)
 
 The PostgreSQL access layer (`src/core/db/`) holds the connection/transaction primitives, the matrix table read/write functions, the single JSONB codec, the ontology and Time Machine table modules and the schema-asset rebuilders. It is the **only** code in the TS work server that opens a PostgreSQL connection or issues SQL.
 
@@ -328,7 +328,7 @@ every schema extra is declared in exactly one place.
   reads via the section-read engines and writes via
   `section_record/record_write.ts`, which resolve to `readMatrixRecord()` /
   `updateMatrixKeysData()`. Resolution code never issues SQL directly.
-- **Search compiles down to `sql`.** The [SQO](../sqo.md) search engine in
+- **Search compiles down to `sql`.** The [SQO](../../api/sqo.md) search engine in
   `src/core/search/` builds a prepared statement over the JSONB matrix columns and
   runs it through the shared `sql` handle (Bun's client caches/prepares
   statements itself; there is no hand-rolled prepared-statement registry to
@@ -393,7 +393,7 @@ if (record !== null) {
 !!! note "Prefer the high-level path"
     The examples above touch the db functions directly to document the surface. In
     application code you almost always go through the section-read engines /
-    `section_record/record_write.ts` and the [SQO](../sqo.md) engine — those add
+    `section_record/record_write.ts` and the [SQO](../../api/sqo.md) engine — those add
     the metadata, Time Machine, permission and relation handling that the raw
     functions deliberately do not.
 
@@ -403,5 +403,5 @@ if (record !== null) {
 - [section](../sections/section.md) — the section type/orchestrator; resolves records through the read engines.
 - [Sections concept](../sections/index.md) — the matrix table model and the typed-JSONB column split.
 - [Architecture overview](../architecture_overview.md) — the work-vs-diffusion split, the matrix data model, the request lifecycle.
-- [SQO](../sqo.md) — the search query object compiled into prepared SQL over the matrix columns via the `sql` handle.
+- [SQO](../../api/sqo.md) — the search query object compiled into prepared SQL over the matrix columns via the `sql` handle.
 - [Locator](../locator.md) — the pointer type stored in the `relation` column.

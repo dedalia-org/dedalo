@@ -1,6 +1,6 @@
 # dd_rag_api
 
-> See also: [JSON API v1](../dedalo_api_v1.md) · [Semantic search / RAG](../../core/ai/rag.md) · [dispatch](dispatch.md)
+> See also: [JSON API v1](../dedalo_api_v1.md) · [Semantic search / RAG](../../administration/ai/rag.md) · [dispatch](dispatch.md)
 
 Semantic retrieval over the repository: meaning-based record search, passage retrieval for an LLM, "records like this seed", grounded cited answers, the section's embed-group facets, and — behind a second switch — the image-similarity layer.
 

@@ -1,0 +1,25 @@
+# Sidebar order = the link order of this directory's index.md hub; groups = its headings.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+title: Install & upgrade
+nav:
+  - index.md
+  - Choose a route:
+    - production.md
+    - docker.md
+    - quickstart.md
+    - dev_quickstart.md
+  - By hand:
+    - manual_install.md
+    - reverse_proxy.md
+    - multi_instance.md
+  - Optional services:
+    - publication_host.md
+    - install_h264_module.md
+  - Keeping current:
+    - upgrading.md
+    - bun_runtime.md
+    - migrating_from_v6.md
+  - Reference:
+    - installer_reference.md
+    - troubleshooting.md
+  - ...

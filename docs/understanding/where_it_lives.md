@@ -70,4 +70,4 @@ the program — which is why a 32 GB video is not a problem. See the
 - **[Installation](../install/index.md)** — sizing, prerequisites and the
   three installation paths.
 - **[Diffusion](../diffusion/index.md)** — how the published copy is produced.
-- **[Backup](../management/backup.md)** — protecting the original.
+- **[Backup](../administration/backup.md)** — protecting the original.

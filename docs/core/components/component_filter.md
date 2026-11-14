@@ -50,11 +50,11 @@
     The descriptor `src/core/components/component_filter/descriptor.ts` registers `resolveData: 'filter'` (`src/core/relations/models/portal.ts`) — the portal engine WITHOUT own-config child expansion (filter cells never run subdatum over the project targets, `allowOwnConfigChildren: false`). In `list`/`edit`/`search` modes it resolves the authorized-projects datalist and label strings via `src/core/relations/filter_projects.ts` (`getFilterDatalist` / `getFilterListValue`, over `getUserAuthorizedProjects()`). The datalist is **caller-scoped**: a global admin gets every `dd153` project, a non-admin exactly the projects of its own `dd170` membership (the same set the per-record projects ACL filters by), and an unauthenticated call none. The cache behind it is keyed by that membership *set* plus the data language, so a membership change shows on the next read, with no eviction needed. See the *dedalo-relations-ts* skill.
 
 !!! info "Specialised purpose"
-    Unlike a generic relation component, `component_filter` is not a free-form linker. It is Dédalo's **project-based access-control** field. The locators it stores are *project* assignments, the relation type is fixed to `DEDALO_RELATION_TYPE_FILTER` (`dd675`), and saving is gated so that a non-admin user can only assign projects they belong to (see [Security model](#security-model)). Its sibling model [component_filter_master](#relationship-with-component_filter_master) reuses the same machinery to record *which projects a user is allowed to work in*.
+    Unlike a generic relation component, `component_filter` is not a free-form linker. It is Dédalo's **project-based access-control** field. The locators it stores are *project* assignments, the relation type is fixed to `dd675`, and saving is gated so that a non-admin user can only assign projects they belong to (see [Security model](#security-model)). Its sibling model [component_filter_master](#relationship-with-component_filter_master) reuses the same machinery to record *which projects a user is allowed to work in*.
 
 ## Definition
 
-`component_filter` assigns a section record to one or more **projects** and, through that assignment, controls which users can see and edit the record. Projects live in the Projects section (`DEDALO_SECTION_PROJECTS_TIPO = dd153`); each is a node the cataloguer can attach to a record by ticking a checkbox. A user only sees a record if at least one of the record's project locators is also among the projects that user is authorised for.
+`component_filter` assigns a section record to one or more **projects** and, through that assignment, controls which users can see and edit the record. Projects live in the Projects section (`dd153`); each is a node the cataloguer can attach to a record by ticking a checkbox. A user only sees a record if at least one of the record's project locators is also among the projects that user is authorised for.
 
 **Why it exists.** A cultural-heritage installation is rarely a single flat catalogue. The same Dédalo instance often hosts several independent collections, fieldwork campaigns, or institutional partners that must not see each other's working data. `component_filter` is the mechanism that partitions records into those projects. Every new section record is automatically tagged with at least one project (derived from the creating user's permissions or from the configured default), so no record is ever orphaned and invisible.
 
@@ -162,7 +162,7 @@ A `component_filter` rarely needs custom `properties` at all: its target section
 ### config_relation.relation_type
 
 - **Values:** a relation-type tipo (object `{"config_relation": {"relation_type": "..."}}`), the generic ontology key every relation component understands.
-- **Effect:** for `component_filter` the effective relation type is fixed to `DEDALO_RELATION_TYPE_FILTER` (`dd675`) by the descriptor's `defaultRelationType`. Overriding it is **not** part of this component's contract — leave it unset. Documented here only because the key is generic; verify in the ontology before changing.
+- **Effect:** for `component_filter` the effective relation type is fixed to `dd675` by the descriptor's `defaultRelationType`. Overriding it is **not** part of this component's contract — leave it unset. Documented here only because the key is generic; verify in the ontology before changing.
 
 ### css
 
@@ -203,12 +203,12 @@ DOM (edit / default): `wrapper_component component_filter <tipo> <mode>` -> `but
 [{"type":"dd675","section_tipo":"dd153","section_id":1,"from_component_tipo":"test101"}]
 ```
 
-On import the relations engine normalises every incoming locator: it injects `type` (the filter type), forces `from_component_tipo` to this component's own `tipo`, and de-dupes against the locators already stored. Two filter locators are the same when their `section_tipo`, `section_id`, `type` and `from_component_tipo` all match — the one locator-equality rule, `compareLocators()` (`src/core/concepts/locator.ts`). See [importing data — Related data](../importing_data.md#related-data).
+On import the relations engine normalises every incoming locator: it injects `type` (the filter type), forces `from_component_tipo` to this component's own `tipo`, and de-dupes against the locators already stored. Two filter locators are the same when their `section_tipo`, `section_id`, `type` and `from_component_tipo` all match — the one locator-equality rule, `compareLocators()` (`src/core/concepts/locator.ts`). See [importing data — Related data](../../using/importing_data.md#related-data).
 
 !!! warning "Access-control still applies on import"
     Importing does not bypass the write path: a save is gated by the per-record projects scope (`isRecordInScope`, `src/core/security/record_scope.ts`), so an importing user cannot mutate a record outside their own projects. Plan imports with the importing user's project permissions in mind.
 
-**Export.** Like other relation components, the export value is resolved from the target project record — the project label(s), joined for flat output. See [exporting data](../exporting_data.md).
+**Export.** Like other relation components, the export value is resolved from the target project record — the project label(s), joined for flat output. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 
@@ -249,11 +249,11 @@ A project the record **already** holds is never re-checked: a colleague's projec
 
 ### Relationship with component_filter_master
 
-[`component_filter_master`](#relationship-with-component_filter_master) (tipo `DEDALO_FILTER_MASTER_TIPO = dd170`) reuses the same machinery as `component_filter`. It is used exclusively in the User section (`DEDALO_SECTION_USERS_TIPO`) to record *which projects a user may access* — the very data that `component_filter` then enforces on content records. Key differences: its target section is the Users section, saving it clears the per-user authorised-project caches immediately (so permission changes take effect right away), and it disables filter propagation. The authorised-projects resolution (`getUserAuthorizedProjects()`, `src/core/relations/filter_projects.ts`, cached) is the source of truth that ordinary `component_filter` instances consult to build their datalist and to enforce access.
+[`component_filter_master`](#relationship-with-component_filter_master) (tipo `dd170`) reuses the same machinery as `component_filter`. It is used exclusively in the User section (`DEDALO_SECTION_USERS_TIPO`) to record *which projects a user may access* — the very data that `component_filter` then enforces on content records. Key differences: its target section is the Users section, saving it clears the per-user authorised-project caches immediately (so permission changes take effect right away), and it disables filter propagation. The authorised-projects resolution (`getUserAuthorizedProjects()`, `src/core/relations/filter_projects.ts`, cached) is the source of truth that ordinary `component_filter` instances consult to build their datalist and to enforce access.
 
 ### Other notes
 
-- **Sortable.** The component is sortable: its descriptor declares no `sortable: false` opt-out, and sortability defaults to true (`resolveSortable()`, `src/core/resolve/structure_context.ts`). Its order path (`buildOrderPath()`, `src/core/search/order_path.ts`) is a two-step path, so a list can be ordered by the project **name** field (`DEDALO_PROJECTS_NAME_TIPO = dd156`, a `component_input_text` in `dd153`).
+- **Sortable.** The component is sortable: its descriptor declares no `sortable: false` opt-out, and sortability defaults to true (`resolveSortable()`, `src/core/resolve/structure_context.ts`). Its order path (`buildOrderPath()`, `src/core/search/order_path.ts`) is a two-step path, so a list can be ordered by the project **name** field (`dd156`, a `component_input_text` in `dd153`).
 - **Default tools.** A typical instance exposes `tool_propagate_component_data` and `tool_time_machine` in `context.tools` (verified from the context sample). Tools are read-only context, assembled from the model + ontology; the model does not hardcode them.
 - **Observers / observables.** None are wired for this component; observer/observable behaviour, when needed, is configured in the ontology `properties` like any other component (see the index page *Observers and observables* section).
 - **Related components:** [component_check_box](component_check_box.md) (same checkbox UI, no security), [component_portal](component_portal.md), [component_dataframe](component_dataframe.md). See also the typology index in [components](index.md).

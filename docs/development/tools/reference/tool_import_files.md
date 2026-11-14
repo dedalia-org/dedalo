@@ -154,7 +154,7 @@ The server replies (CLI-backed; final response after the batch):
 - [tool_media_versions](tool_media_versions.md) — manage the qualities/versions this tool creates (build, rotate, delete, conform headers).
 - [tool_posterframe](tool_posterframe.md) — posterframe from AV; `tool_image_rotation` — rotation/crop of image files (see the [tools catalog](index.md)).
 - [tool_import_dedalo_csv](tool_import_dedalo_csv.md), [tool_import_marc21](tool_import_marc21.md), [tool_import_rdf](tool_import_rdf.md), [tool_import_zotero](tool_import_zotero.md) — the other importers (record data / bibliographic / RDF; `tool_import_zotero` also uploads associated PDFs).
-- [Importing data](../../../core/importing_data.md) — the per-component import-data contract (this page covers *files*; that one covers *record data*).
-- [Exporting data](../../../core/exporting_data.md) — the export side ([tool_export](tool_export.md)).
+- [Importing data](../../../using/importing_data.md) — the per-component import-data contract (this page covers *files*; that one covers *record data*).
+- [Exporting data](../../../using/exporting_data.md) — the export side ([tool_export](tool_export.md)).
 - [Creating tools](../creating_tools.md), [Server contract](../server_contract.md), [Security](../security.md) — the tool model, the `ToolServerModule` contract, and the confinement/allowlist rules this tool exemplifies.
 - Source: `tools/tool_import_files/server/index.ts`; shared match core: `src/core/tools/import_files_match.ts`; media ingest: `src/core/media/ingest/process_uploaded_file.ts`.

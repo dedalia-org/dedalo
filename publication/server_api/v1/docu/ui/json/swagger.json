@@ -15,7 +15,7 @@
   },
   "host" : "dedalo.render.es",
   "schemes" : [ "http", "https" ],
-  "basePath" : "/dedalo/lib/dedalo/publication/server_api/v1/json",
+  "basePath" : "/dedalo/publication/server_api/v1/json",
   "produces" : [ "application/json" ],
   "tags" : [ {
     "name" : "Info",
@@ -316,7 +316,7 @@
         }, {
           "name" : "process_result",
           "in" : "query",
-          "description" : "Used to manage very specific scenarios where get_records call its not enough <br>Call using a json object like <br>{\"fn\":\"process_result::add_parents_and_children_recursive\",\"columns\": [{\"name\":\"parents\"}]} <br>Used in numisdata catalog tree to create the records hierarchy in server side <br>{\"fn\":\"process_result::break_down_totals\",\"base_column\":\"term_id\",\"total_column\":\"total\"} <br>Used for example to split interview informants place of birth when more than one informant or place exists <br>{\"fn\":\"process_result::resolve_indexation_fragments\",\"column\":\"indexation\",\"fragment_terms\":false} <br>Used to autoresolve indexation column values of \"exhibitions\" table in qdp <br>Already defined functions <br>(@see ../dedalo/lib/dedalo/publication/server_api/v1/common/class.process_result.php): <br>add_parents_and_children_recursive <br>add_parents_or_children <br>break_down_totals <br>sum_totals <br>resolve_indexation_fragments ",
+          "description" : "Used to manage very specific scenarios where get_records call its not enough <br>Call using a json object like <br>{\"fn\":\"process_result::add_parents_and_children_recursive\",\"columns\": [{\"name\":\"parents\"}]} <br>Used in numisdata catalog tree to create the records hierarchy in server side <br>{\"fn\":\"process_result::break_down_totals\",\"base_column\":\"term_id\",\"total_column\":\"total\"} <br>Used for example to split interview informants place of birth when more than one informant or place exists <br>{\"fn\":\"process_result::resolve_indexation_fragments\",\"column\":\"indexation\",\"fragment_terms\":false} <br>Used to autoresolve indexation column values of \"exhibitions\" table in qdp <br>Already defined functions <br>(@see ../dedalo/publication/server_api/v1/common/class.process_result.php): <br>add_parents_and_children_recursive <br>add_parents_or_children <br>break_down_totals <br>sum_totals <br>resolve_indexation_fragments ",
           "required" : false,
           "default" : "",
           "type" : "string",

@@ -342,8 +342,8 @@ export const RETIRED_UPDATE_HOST = 'v7.master.dedalo.dev';
 
 /** Docs anchors a stale-host line points at, by list key. */
 const STALE_HOST_DOCS: Readonly<Record<string, string>> = Object.freeze({
-	CODE_SERVERS: 'docs/config/config.md#defining-server-code-provider',
-	ONTOLOGY_SERVERS: 'docs/config/config.md#ontology-servers',
+	CODE_SERVERS: 'docs/administration/configuration/config.md#defining-server-code-provider',
+	ONTOLOGY_SERVERS: 'docs/administration/configuration/config.md#ontology-servers',
 });
 
 /**
@@ -363,7 +363,7 @@ export function warnRetiredUpdateHost(
 	});
 	if (!stale) return;
 	console.error(
-		`[config] ${key}: an entry still points at ${RETIRED_UPDATE_HOST}, which is retired — edit ${key} in ../private/.env to https://master7.dedalo.dev/dedalo/core/api/v1/json/ (release) or https://beta7.dedalo.dev/dedalo/core/api/v1/json/ (opt-in beta, own access code) and restart. See ${STALE_HOST_DOCS[key] ?? 'docs/config/config.md'}.`,
+		`[config] ${key}: an entry still points at ${RETIRED_UPDATE_HOST}, which is retired — edit ${key} in ../private/.env to https://master7.dedalo.dev/dedalo/core/api/v1/json/ (release) or https://beta7.dedalo.dev/dedalo/core/api/v1/json/ (opt-in beta, own access code) and restart. See ${STALE_HOST_DOCS[key] ?? 'docs/administration/configuration/config.md'}.`,
 	);
 }
 
@@ -395,7 +395,7 @@ export function warnRetiredOntologyServerCode(
 ): void {
 	if (!isOntologyServer || retiredCode === undefined || retiredCode.trim() === '') return;
 	console.error(
-		'[config] ONTOLOGY_SERVER_CODE is retired and NOT honoured — clients presenting that code get "Invalid code". Move its value into an ONTOLOGY_SERVERS entry (code-only entry: {"name","url","code"}, https url) in ../private/.env, remove the ONTOLOGY_SERVER_CODE line and restart. See docs/config/config.md#ontology-servers.',
+		'[config] ONTOLOGY_SERVER_CODE is retired and NOT honoured — clients presenting that code get "Invalid code". Move its value into an ONTOLOGY_SERVERS entry (code-only entry: {"name","url","code"}, https url) in ../private/.env, remove the ONTOLOGY_SERVER_CODE line and restart. See docs/administration/configuration/config.md#ontology-servers.',
 	);
 }
 

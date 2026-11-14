@@ -6,7 +6,7 @@
 > import/tool triggers, …).
 
 > See also: [common contract](../system/common.md) · [Sections](../sections/index.md) ·
-> [section class reference](../sections/section.md) · [dd_object (ddo)](../dd_object.md) ·
+> [section class reference](../sections/section.md) · [dd_object (ddo)](../../api/dd_object.md) ·
 > [Tools](../../development/tools/creating_tools.md) · [Ontology](../ontology/index.md)
 
 ## Role
@@ -299,7 +299,7 @@ never needs one.
   `button_trigger` are meant to bridge from a section header into the tools
   subsystem, carrying built tool contexts. **Not yet implemented** — see the
   gap noted above.
-- **[dd_object (ddo)](../dd_object.md)** — each button is emitted as a
+- **[dd_object (ddo)](../../api/dd_object.md)** — each button is emitted as a
   `dd_object`-shaped object of `type:'button'`.
 - **[Ontology](../ontology/index.md)** — buttons are plain ontology nodes; their
   `model` (`button_*`) and `properties` are the whole declaration.
@@ -310,6 +310,6 @@ never needs one.
 
 - [Sections concept](../sections/index.md) · [section class reference](../sections/section.md)
 - [Components](../components/index.md) — the data-bearing siblings of buttons under a section.
-- [dd_object (ddo)](../dd_object.md) — the wire object every button becomes.
+- [dd_object (ddo)](../../api/dd_object.md) — the wire object every button becomes.
 - [Architecture overview](../architecture_overview.md) — where the context/data
   envelope and the ontology-as-schema model come from.

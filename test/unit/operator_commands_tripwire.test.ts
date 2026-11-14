@@ -1,11 +1,11 @@
 /**
  * OPERATOR-PROCEDURE tripwire (DEC-12: every documented invariant has one).
  *
- * A page in `docs/management/` is not prose about the system — it is the thing an operator
+ * A page in `docs/administration/` is not prose about the system — it is the thing an operator
  * types into a root shell on a museum's machine. So it has exactly one failure mode worth
  * gating: IT NAMES SOMETHING THAT DOES NOT EXIST.
  *
- * WHY IT EXISTS. Until 2026-08-30 `docs/management/site_builder.md` told an operator to
+ * WHY IT EXISTS. Until 2026-08-30 `docs/administration/site_builder.md` told an operator to
  * install the site-builder daemon by copying files (`install.sh`, a shipped systemd unit, a
  * hand-written vhost) that had been DELETED when the provisioner replaced them, and the
  * cookbook beside it configured the daemon through four environment keys the daemon does
@@ -22,7 +22,7 @@
  * SIX LEGS, each in both directions where a direction exists:
  *
  *   A. Every `provision <verb>` an operator page names is a verb the CLI HAS — and every
- *      verb the CLI has appears in `docs/management/site_builder.md`, so a new one cannot
+ *      verb the CLI has appears in `docs/administration/site_builder.md`, so a new one cannot
  *      ship undocumented.
  *   B. Every flag written next to a `provision` command is a real option, AND is one that
  *      that verb accepts. `provision apply --purge-published` used to be accepted and
@@ -98,12 +98,12 @@ const read = (relative: string): string => readFileSync(join(REPO_ROOT, relative
  * one whose commands must be complete; the others are scanned because they carry commands
  * and keys too, and a stale command is a stale command wherever it sits.
  */
-const OPERATOR_PAGE = 'docs/management/site_builder.md';
+const OPERATOR_PAGE = 'docs/administration/site_builder.md';
 const SCANNED_PAGES: readonly string[] = [
 	OPERATOR_PAGE,
-	'docs/management/site_builder_cookbook.md',
+	'docs/administration/site_builder_cookbook.md',
 	'docs/development/site_builder_internals.md',
-	'docs/tools/using_sitebuilder.md',
+	'docs/using/tools/using_sitebuilder.md',
 	'engineering/SITE_BUILDER_INSTANCES.md',
 ];
 
@@ -548,8 +548,8 @@ describe('every daemon environment key an operator page names is one the daemon 
 		// directory. The unit's OLD NAME is deliberately not banned — `provision adopt`
 		// defaults `--unit` to it, so a correct page has to be able to say it.
 		const MANAGEMENT_PAGES = [
-			'docs/management/site_builder.md',
-			'docs/management/site_builder_cookbook.md',
+			'docs/administration/site_builder.md',
+			'docs/administration/site_builder_cookbook.md',
 		];
 		const RETIRED_ACTS: readonly { readonly pattern: RegExp; readonly why: string }[] = [
 			{
@@ -850,7 +850,10 @@ describe('the backup set PRODUCTION.md §6 names is the one the nightly unit cop
  * ───────────────────────────────────────────────────────────────────────────── */
 
 describe('every declaration an operator page shows actually parses', () => {
-	const PAGES = ['docs/management/site_builder.md', 'docs/management/site_builder_cookbook.md'];
+	const PAGES = [
+		'docs/administration/site_builder.md',
+		'docs/administration/site_builder_cookbook.md',
+	];
 
 	interface Block {
 		readonly index: number;
@@ -991,12 +994,12 @@ describe('every declaration an operator page shows actually parses', () => {
 		// The adopt fragment is the one excerpt whose base is NOT the page's own declaration
 		// but an inference from a live host, so it gets its own case. It is identified by the
 		// field only it supplies.
-		const fragments = jsonBlocks('docs/management/site_builder.md').filter(
+		const fragments = jsonBlocks('docs/administration/site_builder.md').filter(
 			(block) => !declaresAnInstance(block) && 'engine' in block.value,
 		);
 		expect(
 			fragments.length,
-			'docs/management/site_builder.md no longer shows an adopt --declare fragment. Adoption ' +
+			'docs/administration/site_builder.md no longer shows an adopt --declare fragment. Adoption ' +
 				'REFUSES without one, so a page documenting adopt without it documents a refusal.',
 		).toBe(1);
 
@@ -1224,7 +1227,7 @@ const LEGACY_LAYOUT: RoleLayout = {
 	userWritable: /^\/opt\/dedalo\/(master_dedalo|private|backups)(\/|$)/,
 	rootScriptDir: '/opt/dedalo/bin/',
 };
-/** The worked layouts docs/install/manual_host.md renders the units for (+ the installer's shape). */
+/** The worked layouts docs/install/manual_install.md renders the units for (+ the installer's shape). */
 const MANUAL_LAYOUTS = [
 	{ user: 'dedalo', instanceDir: '/opt/dedalo/app', rootBinDir: '/opt/dedalo/bin' },
 	{

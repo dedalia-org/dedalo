@@ -2,13 +2,13 @@
 
 ## Scope
 
-How the [site builder](../management/site_builder.md) works under the hood, for developers
+How the [site builder](../administration/site_builder.md) works under the hood, for developers
 extending, debugging, or reviewing it. It covers the two processes, the request and trust
 model, and the internals of each subsystem with the file paths and symbols to start from.
 
 For the operator's view (enabling it, who can do what) see the
-[overview](../management/site_builder.md); for configuration and prompt examples see the
-[cookbook](../management/site_builder_cookbook.md).
+[overview](../administration/site_builder.md); for configuration and prompt examples see the
+[cookbook](../administration/site_builder_cookbook.md).
 
 ## Architecture at a glance
 
@@ -439,7 +439,7 @@ password file, but the one place a credential value exists in the adoption path 
 answerable by reading a type, and leaving it exactly once — into a `0600` file.
 
 Operator-facing procedure (declaring, provisioning, adopting, decommissioning, backups) is in
-the [site builder management page](../management/site_builder.md).
+the [site builder management page](../administration/site_builder.md).
 
 ## The engine tool
 
@@ -591,7 +591,7 @@ placed in the `publication` category (list view) and the `pub` node (System Map 
 `src/config/catalog/sitebuilder.ts`): `DEDALO_SITE_BUILDER_INSTANCE`,
 `DEDALO_SITE_BUILDER_SOCKET`, `DEDALO_SITE_BUILDER_URL`, `DEDALO_SITE_BUILDER_TOKEN`,
 `DEDALO_SITE_BUILDER_TIMEOUT_MS`. See the
-[settings reference](../config/config.md#sitebuilder). You do not type them: the provisioner
+[settings reference](../administration/configuration/config.md#sitebuilder). You do not type them: the provisioner
 renders them into the instance's pairing fragment and `scripts/site_builder_pair.ts` appends
 them.
 
@@ -755,8 +755,8 @@ without the confinement's token, so a new call site cannot quietly reopen the do
 
 ## Related
 
-- [Site builder](../management/site_builder.md) — operator overview and enabling steps.
-- [Site builder cookbook](../management/site_builder_cookbook.md) — configuration and prompts.
+- [Site builder](../administration/site_builder.md) — operator overview and enabling steps.
+- [Site builder cookbook](../administration/site_builder_cookbook.md) — configuration and prompts.
 - [Publication API v2](../diffusion/publication_api/v2/index.md) — the read-only data source,
   including its [MCP endpoint](../diffusion/publication_api/v2/mcp.md).
-- [Settings reference — Site builder](../config/config.md#sitebuilder) — every config key.
+- [Settings reference — Site builder](../administration/configuration/config.md#sitebuilder) — every config key.

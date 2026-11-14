@@ -196,27 +196,26 @@ const client_failure = (api_error) => ({
 *     5 000 ms timeout) — every default is overridable per call.
 *  2. CSRF header from `page_globals.csrf_token` unless the caller set one.
 *  3. `cache_handler.handler==='localdb'` → IndexedDB short-circuit on a hit.
-*  4. `page_globals.recovery_mode` → `recovery_mode:true` in the body.
-*  5. URL / body validation → a `client.*` failure envelope, no network.
-*  6. `fetch_api`: fetch never throws on status → body read ONCE → JSON →
+*  4. URL / body validation → a `client.*` failure envelope, no network.
+*  5. `fetch_api`: fetch never throws on status → body read ONCE → JSON →
 *     `normalize_api_error` → retry ONLY when `api_error.retryable` or the
 *     server sent `Retry-After` (no status list, no 401/403 carve-outs — an
 *     auth/permission answer is an envelope like any other and is dispatched
 *     on its CODE). The mid-attempt health probe only extends the deadline;
 *     what the user sees of a wait is the `request_activity` state (elapsed
 *     time, one page-level cue — see request_activity.js).
-*  7. Refresh `page_globals.csrf_token` from every envelope (success or
+*  6. Refresh `page_globals.csrf_token` from every envelope (success or
 *     failure) and publish `session_activity` (WC-051) — when the session is
 *     the page user's (settle_session_identity 'adopt'). Otherwise the token is
 *     not taken; a non-login-door call answers `client.aborted`
 *     (`details.reason:'page_identity_revoked'`) and the page reloads.
-*  8. `auth.csrf_failed` → resend exactly once
-*     (`_csrf_retried`) — reached only after step 7 adopted the token.
-*  9. Failure: attach `error` = the ApiError to the envelope (or synthesise
+*  7. `auth.csrf_failed` → resend exactly once
+*     (`_csrf_retried`) — reached only after step 6 adopted the token.
+*  8. Failure: attach `error` = the ApiError to the envelope (or synthesise
 *     `{ok:false, error}` when no JSON), publish `'api_error'`, toast TRANSPORT
 *     failures (the user must learn the network is down even when no caller
 *     handles the failure), resolve the envelope.
-* 10. Success: publish `'api_notices'` when the envelope carries any, write
+*  9. Success: publish `'api_notices'` when the envelope carries any, write
 *     through to IndexedDB on idle when cached; resolve the envelope.
 *
 * @param {Object} options - Request configuration
@@ -541,7 +540,7 @@ const normalize_retries = (value, fallback) => {
 
 /**
 * EXECUTE_REQUEST
-* The single-request execution body behind `data_manager.request` (steps 1-10 of
+* The single-request execution body behind `data_manager.request` (steps 1-9 of
 * the algorithm documented there). Module-private: every caller goes through
 * `request`, which decides whether to coalesce; the internal CSRF resend
 * re-enters `request` with `_csrf_retried` set, which routes straight back here.
@@ -645,14 +644,6 @@ const execute_request = async function(options) {
 		const action		= body?.action || 'load';
 		const source_model	= body?.source?.model || ''
 		console.warn(`> data_manager request ${method}:`, action.toUpperCase(), source_model, debug_redacted(merged_options));
-	}
-
-	// recovery mode. Auto add if environment recovery_mode is true
-	// On set to true, it is passed across all API request calls preserving the mode
-	if (window.page_globals.recovery_mode && body) {
-		if (typeof body === 'object') {
-			body.recovery_mode = true;
-		}
 	}
 
 	window.page_globals.request_message = null;
@@ -1791,6 +1782,55 @@ data_manager.get_local_db = async function() {
 
 
 /**
+* LOCAL_DB_TRANSACTION
+* Open a transaction on the shared connection, reopening it ONCE when the handle
+* is dead.
+*
+* (!) A memoized handle can die without the `close` event that drops the memo:
+* Safari tears down the IndexedDB server connection of a backgrounded tab, and
+* `db.transaction()` then throws InvalidStateError on every call for the rest of
+* the page's life — which killed whatever awaited it (an area build, so every
+* later search) until a reload. A second failure is the caller's to handle.
+*
+* `abort` rejects too: a transaction aborted by the browser (connection lost
+* mid-flight) fires neither request handler, and the awaiting caller would hang.
+*
+* @param {string} table - object store name
+* @param {string} mode - 'readonly' | 'readwrite'
+* @param {Function} reject - the caller Promise's reject
+* @returns {Promise<IDBTransaction|false>} false when IndexedDB is unavailable
+*/
+const local_db_transaction = async function(table, mode, reject) {
+
+	let db = await data_manager.get_local_db()
+	if (!db) {
+		return false
+	}
+
+	let transaction
+	try {
+		transaction = db.transaction(table, mode)
+	} catch (error) {
+		console.warn('[local_db_transaction] dead connection, reopening:', error?.message);
+		await close_local_db()
+		db = await data_manager.get_local_db()
+		if (!db) {
+			return false
+		}
+		transaction = db.transaction(table, mode)
+	}
+
+	transaction.onerror = transaction.onabort = function(event) {
+		console.error(`[local_db_transaction] ${event.type} on '${table}':`, event.target?.error);
+		reject(event.target?.error || false)
+	}
+
+	return transaction
+}//end local_db_transaction
+
+
+
+/**
 * SET_LOCAL_DB_DATA
 * Writes (upserts) a record into the specified IndexedDB object store using
 * `IDBObjectStore.put()`. The record must have an `id` property matching the
@@ -1817,49 +1857,17 @@ data_manager.get_local_db = async function() {
 */
 data_manager.set_local_db_data = async function(data, table) {
 
-	const self = this
-
-	// get local db
-		const db = await self.get_local_db()
-
-	// check if is possible create and use IndexDB, if not, the promise will return undefined and we use false
-		if(!db){
-			return false
-		}
-
 	return new Promise(function(resolve, reject){
-
-		// transaction
-			const transaction = db.transaction(table, "readwrite");
-
-			// complete. Do something when all the data is added to the database.
-				// transaction.oncomplete = function(event) {
-				// 	console.log("All done!");
-				// };
-
-			// error
-				transaction.onerror = function(event) {
-					if(SHOW_DEBUG){
-						console.error("[set_local_db_data] error:", event.target);
-					}else{
-						console.error("[set_local_db_data] It's not possible get_local_db, IndexedDB is blocked, Dédalo will run slowly without cache.");
-					}
-					reject(false)
-				};
-
-		// request
-			const objectStore = transaction.objectStore(table);
-
-			// Put this updated object back into the database.
-			const request = objectStore.put(data);
-
-			request.onsuccess = function(event) {
-				resolve(event.target.result)
-			};
-			request.onerror = function(event) {
-				console.error("[set_local_db_data] error:", event.target);
-				reject(event.target.error);
-			};
+		local_db_transaction(table, 'readwrite', reject)
+		.then(function(transaction){
+			if (!transaction) {
+				return resolve(false) // IndexedDB unavailable
+			}
+			const request = transaction.objectStore(table).put(data)
+			request.onsuccess = (event) => resolve(event.target.result)
+			request.onerror = (event) => reject(event.target.error)
+		})
+		.catch(reject)
 	})
 }//end set_local_db_data
 
@@ -1901,60 +1909,22 @@ data_manager.get_local_db_data = async function(id, table, use_cache=false) {
 			throw new Error('Missing required parameters: id and table');
 		}
 
-		// Get the shared database connection (memoized in get_local_db)
-		const db = await self.get_local_db();
-
-		// check if is possible create and use IndexDB, if not, the promise will return undefined and we use false
-		if(!db){
-			console.warn('[get_local_db_data] IndexedDB not available, running without cache');
-			return false
-		}
-
 		// Get data from IndexedDB
+		// (!) READONLY: overlapping readwrite transactions on a store are serialised,
+		// readonly ones run concurrently — a pure get must not queue behind every
+		// other lookup and write-through on the busiest stores.
 		const result = await new Promise(function(resolve, reject){
-
-			// transaction
-			// (!) READONLY. This is a pure `objectStore.get(id)` — it was opening a
-			// `readwrite` transaction, and IndexedDB serialises overlapping readwrite
-			// transactions on a store while letting readonly ones run concurrently.
-			// So every cache lookup queued behind every other lookup AND behind the
-			// idle write-throughs from data_manager.request, on 'data' — the busiest
-			// store there is. Ordering between reads and writes is unaffected, in BOTH
-			// directions: overlapping transactions of conflicting modes cannot run
-			// concurrently, so a read created after a write waits for that write to
-			// FINISH (commit or abort — an aborted write leaves the pre-write value,
-			// as it always did), and a write created after a read cannot overtake it
-			// either. Only read-vs-read becomes concurrent, which is unobservable:
-			// `get` has no effect on the store.
-				const transaction = db.transaction(table, 'readonly');
-
-				// complete. Do something when all the data is added to the database.
-					// transaction.oncomplete = function(event) {
-					// 	console.log("All done!");
-					// };
-
-				// error
-					transaction.onerror = function(event) {
-						if(SHOW_DEBUG){
-							console.error("[get_local_db_data] error:", event.target);
-							console.error('[get_local_db_data] table:', table, 'db:',db);
-						}else{
-							console.error("[get_local_db_data] It's not possible get_local_db, IndexedDB is blocked, Dédalo will run slowly without cache.");
-						}
-						reject(false)
-					};
-
-			// request
-				const objectStore	= transaction.objectStore(table);
-				const request		= objectStore.get(id);
-
-				request.onsuccess = function(event) {
-					resolve(event.target.result)
-				};
-				request.onerror = function(event) {
-					console.error("[get_local_db_data] error:", event.target);
-					reject(event.target.error);
-				};
+			local_db_transaction(table, 'readonly', reject)
+			.then(function(transaction){
+				if (!transaction) {
+					console.warn('[get_local_db_data] IndexedDB not available, running without cache');
+					return resolve(false)
+				}
+				const request = transaction.objectStore(table).get(id)
+				request.onsuccess = (event) => resolve(event.target.result)
+				request.onerror = (event) => reject(event.target.error)
+			})
+			.catch(reject)
 		})
 
 		return result;
@@ -1978,48 +1948,17 @@ data_manager.get_local_db_data = async function(id, table, use_cache=false) {
 */
 data_manager.delete_local_db_data = async function(id, table) {
 
-	const self = this
-
-	// get local db
-		const db = await self.get_local_db()
-
-	// check if is possible create and use IndexDB, if not, the promise will return undefined and we use false
-		if(!db){
-			return false
-		}
-
 	return new Promise(function(resolve, reject){
-
-		// transaction
-			const transaction = db.transaction(table, "readwrite");
-
-			// complete. Do something when all the data is added to the database.
-				// transaction.oncomplete = function(event) {
-				// 	console.log("All done!");
-				// };
-
-			// error
-				transaction.onerror = function(event) {
-					if(SHOW_DEBUG){
-						console.error("[delete_local_db_data] error:", event.target);
-					}else{
-						console.error("[delete_local_db_data] It's not possible get_local_db, IndexedDB is blocked ");
-					}
-					reject(false)
-				};
-
-		// request
-			const objectStore	= transaction.objectStore(table);
-			const request		= objectStore.delete(id);
-
-			request.onsuccess = function(event) {
-				// success
-				resolve(event.target.result)
-			};
-			request.onerror = function(event) {
-				console.error("[delete_local_db_data] delete_local_db_data error:", event.target);
-				reject(event.target.error);
-			};
+		local_db_transaction(table, 'readwrite', reject)
+		.then(function(transaction){
+			if (!transaction) {
+				return resolve(false) // IndexedDB unavailable
+			}
+			const request = transaction.objectStore(table).delete(id)
+			request.onsuccess = (event) => resolve(event.target.result)
+			request.onerror = (event) => reject(event.target.error)
+		})
+		.catch(reject)
 	})
 }//end delete_local_db_data
 

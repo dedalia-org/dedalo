@@ -6,13 +6,13 @@
 > API, versioning, the operational services (backup, logging, runtime helpers)
 > and the publication pipeline.
 
-> See also: [Architecture overview](../architecture_overview.md) · [RQO](../rqo.md) (request format) · [SQO](../sqo.md) (search query) · [dd_object (ddo)](../dd_object.md)
+> See also: [Architecture overview](../architecture_overview.md) · [RQO](../../api/rqo.md) (request format) · [SQO](../../api/sqo.md) (search query) · [dd_object (ddo)](../../api/dd_object.md)
 
 These pages are the subsystem references for the infrastructure layers under
 `src/core/`. Unlike sections and components, most of what is documented here is
 **not** ontology-driven — these are stateless engines, the bootstrap and the
 runtime plumbing. For the request/response contract that ties the work system
-together, start with [RQO](../rqo.md); for the conceptual split between the work
+together, start with [RQO](../../api/rqo.md); for the conceptual split between the work
 system and the publication system, read the
 [Architecture overview](../architecture_overview.md).
 
@@ -28,8 +28,8 @@ system and the publication system, read the
 | [security](security.md) | Auth &amp; security | Authorization core — turns a user profile into an integer permission (0–3) over any ontology element and enforces it server-side on every read, write and per-record access. |
 | [media_protection](media_protection.md) | Auth &amp; security | Web-server-enforced media access control — generates the `.htaccess` gate, the fixed-name auth cookie and the zero-byte marker allowlist that authorize media with a single `stat()`. |
 | [media_engine](media_engine.md) | Media | Media processing layer — stateless `Ffmpeg`/`ImageMagick` wrappers that shell out to transcode, resize, rasterize, probe and derive files for the media components. |
-| [search](search.md) | Search &amp; API | Query engine — compiles a Search Query Object ([SQO](../sqo.md)) into a single prepared PostgreSQL statement over the JSONB `matrix_*` tables and returns an iterable result. |
-| [api](api.md) | Search &amp; API | Single HTTP entry point of the work system — decodes a Request Query Object ([RQO](../rqo.md)), runs the security gates, dispatches to a `dd_*_api` handler and returns the standard JSON envelope. |
+| [search](search.md) | Search &amp; API | Query engine — compiles a Search Query Object ([SQO](../../api/sqo.md)) into a single prepared PostgreSQL statement over the JSONB `matrix_*` tables and returns an iterable result. |
+| [api](api.md) | Search &amp; API | Single HTTP entry point of the work system — decodes a Request Query Object ([RQO](../../api/rqo.md)), runs the security gates, dispatches to a `dd_*_api` handler and returns the standard JSON envelope. |
 | [map_tile_proxy](map_tile_proxy.md) | Search &amp; API | The same-origin, authenticated relay of map tiles — a request names a stored source, an ontology default or a built-in id and never an address; the server checks the permission, builds the provider's address, fetches through the harvesting door's interactive profile and relays only verified images. |
 | [geo_services](geo_services.md) | Search &amp; API | The closed table of public geographic lookups a tool can ask for — Nominatim, DARE, Catastro, IGN, open-elevation — each with its own grammar, byte ceiling, deadline and pacing; the request names a service id and never an address. |
 | [errors](errors.md) | Search &amp; API | The closed failure vocabulary — one registered code per refusal, the single converter that builds every wire body, envelope v2 with its notices and extension keys, the disclosure ladder and the client error policy. |

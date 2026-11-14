@@ -1,4 +1,4 @@
-# Dédalo code documentation standard
+# Code documentation standard
 
 This document defines how to write doc-comments and inline comments in Dédalo's **own**
 TypeScript server code (`src/`, `tools/*/server/`, `diffusion/api/v1/`) and the

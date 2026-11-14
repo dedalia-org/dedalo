@@ -1667,7 +1667,7 @@ beforeAll(async () => {
 	);
 
 	const globals = globalThis as unknown as Record<string, unknown>;
-	globals.window = { page_globals: { csrf_token: null, recovery_mode: false } };
+	globals.window = { page_globals: { csrf_token: null } };
 	globals.page_globals = (globals.window as { page_globals: unknown }).page_globals;
 	globals.SHOW_DEBUG = false;
 	globals.DEDALO_API_URL = 'https://gate.invalid/api/v1/json/';

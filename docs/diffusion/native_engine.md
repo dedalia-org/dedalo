@@ -1,6 +1,6 @@
 # The diffusion engine
 
-> See also: [Diffusion (system overview)](../core/system/diffusion.md) · [Diffusion data flow](diffusion_data_flow.md) · [Parser cookbook & reference](parsers.md) · [Publication API](publication_api/index.md) · [Exporting data](../core/exporting_data.md)
+> See also: [Diffusion (system overview)](../core/system/diffusion.md) · [Diffusion data flow](diffusion_data_flow.md) · [Parser cookbook & reference](parsers.md) · [Publication API](publication_api/index.md) · [Exporting data](../using/exporting_data.md)
 
 The **diffusion engine** is Dédalo's publication pipeline, built directly into
 the work server (`src/diffusion/`): **one engine in one codebase**, driven by
@@ -285,7 +285,7 @@ set it calls is served natively:
 
 ## Configuration
 
-All keys live in `../private/.env` (see [config](../config/index.md)):
+All keys live in `../private/.env` (see [config](../administration/configuration/index.md)):
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -416,8 +416,6 @@ security line); the registries are the single place to touch.
       (`src/diffusion/export/`: the ar_ddo_to_export plan front-end + the
       resolver's atom-level entry point `resolveRecordAtoms`); the NDJSON
       grid protocol and projection stay export-specific and byte-identical
-      (A/B keystone `test/unit/diffusion_export_unified.test.ts` + the live
-      live differential run through the unified route).
-      `DEDALO_EXPORT_UNIFIED=false` is the kill-switch back to the legacy
-      in-tool walker, whose DELETION is ledgered until the tools refactor
-      settles.
+      (keystone `test/unit/diffusion_export_unified.test.ts`).
+      The unified engine is the only implementation: the legacy in-tool
+      walker and its kill-switch were removed.

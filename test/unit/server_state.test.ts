@@ -9,7 +9,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { privateDir, readEnv } from '../../src/config/env.ts';
 import {
@@ -71,7 +71,6 @@ afterAll(() => {
 	// never leave runtime overrides behind
 	setServerState({
 		maintenance_mode: false,
-		recovery_mode: false,
 		notification: false,
 		areas_deny: null,
 		areas_allow: null,
@@ -107,6 +106,19 @@ describe('TS-native server state (check_config) + runtime panel (runtime_info)',
 		// PHP contract: non-bool maintenance value refuses
 		const bad = await refusedCall('check_config', 'set_maintenance_mode', { value: 'yes' });
 		expect(bad.code).toBe('maintenance.action_refused');
+	});
+
+	test('recovery_mode is retired: a legacy state file sheds it, the toggle is gone', async () => {
+		// WC-2026-11-12-recovery-mode-retired — a ts_state.json written before keeps the key.
+		writeFileSync(
+			STATE_PATH as string,
+			JSON.stringify({ maintenance_mode: false, recovery_mode: true }),
+		);
+		expect('recovery_mode' in getServerState()).toBe(false);
+		setServerState({ notification: false });
+		expect(readFileSync(STATE_PATH as string, 'utf8')).not.toContain('recovery_mode');
+		const gone = await refusedCall('check_config', 'set_recovery_mode', { value: true });
+		expect(gone.code).toBeDefined();
 	});
 
 	// BUILDS its credential: the old shape logged in with config.phpReference.*
@@ -212,14 +224,8 @@ describe('TS-native server state (check_config) + runtime panel (runtime_info)',
 		expect(typeof value?.db_info?.server).toBe('string');
 		expect(typeof value?.db_info?.schema_ok).toBe('boolean');
 		expect(typeof value?.db_info?.migration_level).toBe('number');
-		// WC-027 runtime_mode: the "what mode am I in" strip — five booleans.
-		for (const key of [
-			'maintenance',
-			'recovery',
-			'notification',
-			'diffusion_native',
-			'dev_mode',
-		] as const) {
+		// WC-027 runtime_mode: the "what mode am I in" strip — four booleans.
+		for (const key of ['maintenance', 'notification', 'diffusion_native', 'dev_mode'] as const) {
 			expect(typeof value?.runtime_mode[key]).toBe('boolean');
 		}
 	});

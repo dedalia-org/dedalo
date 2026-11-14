@@ -13,4 +13,4 @@ stable, a nightly reinstall), that failed after the code swap used to stop in
 the data model; another build of the same release can (`7.0.0-beta.8` added an `incompatible`
 migration over `7.0.0-beta.7`), so keep the run's backup at hand after updating a prerelease. A
 run that already ended in `NEEDS_DB_RESTORE` is not changed by this update. See
-[When a phase fails](./management/updates/index.md#when-a-phase-fails).
+[When a phase fails](./administration/updates/index.md#when-a-phase-fails).

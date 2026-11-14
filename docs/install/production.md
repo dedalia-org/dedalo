@@ -35,7 +35,7 @@ Several instances can share one host; each runs the installer with its own name.
 
 ### Mandatory: a supervisor that declares itself
 
-Dédalo must run under a process manager that **restarts it** and **declares `DEDALO_SUPERVISED=true` in the process environment**. A code update replaces the tree and then exits the server with code `75`, so that the supervisor boots the new code; without a declared supervisor the [code update panel](../management/updates/updating_code.md) refuses every update (*No supervisor declared*) rather than leave the server dead.
+Dédalo must run under a process manager that **restarts it** and **declares `DEDALO_SUPERVISED=true` in the process environment**. A code update replaces the tree and then exits the server with code `75`, so that the supervisor boots the new code; without a declared supervisor the [code update panel](../administration/updates/updating_code.md) refuses every update (*No supervisor declared*) rather than leave the server dead.
 
 | Launch method | Where the declaration is |
 | --- | --- |
@@ -432,7 +432,7 @@ journalctl -u dedalo-ts@<i> -f
 The installer wrote `<dir>/private/.env` (the keys are [listed in the reference](installer_reference.md#what-privateenv-does-and-does-not-get)). The instance is fully configured to boot; the operational tuning is yours. Edit the file as the instance user, then `systemctl restart dedalo-ts@<i>` — configuration is read once, at boot.
 
 !!! danger "`.env` is append-only, documented keys only"
-    Add a line for a new key, or change a value on its existing line — never a second line for a key that is already there, and never delete one. Every key is documented in the [configuration reference](../config/index.md).
+    Add a line for a new key, or change a value on its existing line — never a second line for a key that is already there, and never delete one. Every key is documented in the [configuration reference](../administration/configuration/index.md).
 
 ```dotenv
 # --- Serving ---
@@ -469,7 +469,7 @@ The installation carries the core ontologies and the domain ontologies you chose
 2. Add the same codes to `ACTIVE_ONTOLOGY_TLDS` in `.env` — inside the JSON list on its existing line — so every later update refreshes them.
 3. Restart the server.
 
-See [Updating ontology](../management/updates/updating_ontology.md#which-tlds-are-updated).
+See [Updating ontology](../administration/updates/updating_ontology.md#which-tlds-are-updated).
 
 ### Optional subsystems
 
@@ -484,9 +484,9 @@ GRANT ALL ON web_prado.* TO 'dedalo_pub'@'localhost';
 
 A missing or ungranted target database is a loud configuration error, not something the engine papers over. Details: [the diffusion engine](../diffusion/native_engine.md).
 
-**RAG (semantic search)** needs a pgvector database whose base schema you apply by hand from the [RAG cookbook](../core/ai/rag_cookbook.md); once it exists, the per-model partitions and the index queue are created automatically. Then set `DEDALO_RAG_ENABLED=true` and `DEDALO_RAG_DB_NAME`.
+**RAG (semantic search)** needs a pgvector database whose base schema you apply by hand from the [RAG cookbook](../administration/ai/rag_cookbook.md); once it exists, the per-model partitions and the index queue are created automatically. Then set `DEDALO_RAG_ENABLED=true` and `DEDALO_RAG_DB_NAME`.
 
-**The AI assistant** is disabled unless a model is configured — see [assistant install](../core/ai/assistant/install.md).
+**The AI assistant** is disabled unless a model is configured — see [assistant install](../administration/ai/assistant/install.md).
 
 **H.264 real-time clipping** needs a web-server module — see [H.264 streaming module](install_h264_module.md).
 

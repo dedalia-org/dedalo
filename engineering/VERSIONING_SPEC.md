@@ -185,5 +185,5 @@ The text below records each decision and the options considered.
 ## 10. Out of scope
 
 - The internal layout of the update engine, which is covered by its own specs.
-- Ontology versioning, which follows `docs/management/updates/updating_ontology.md`.
+- Ontology versioning, which follows `docs/administration/updates/updating_ontology.md`.
 - Backup and restore.

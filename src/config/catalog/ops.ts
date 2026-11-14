@@ -105,7 +105,7 @@ decides when an existing backup is judged too old. It schedules NOTHING — no e
 user login included, ever starts a backup.
 
 Making the backups is the operating system's job — a nightly timer, described under
-[Backups](../management/backup.md). What this value decides, verified against the code on
+[Backups](../backup.md). What this value decides, verified against the code on
 2026-08-30, is:
 
 - **Whether a code update may proceed.** Applying a code release is REFUSED when the newest

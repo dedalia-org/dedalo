@@ -1,6 +1,6 @@
 # The web server site
 
-> See also: [Production install](production.md) · [Media protection](../config/media_protection.md) · [Troubleshooting](troubleshooting.md) · [H.264 streaming module](install_h264_module.md)
+> See also: [Production install](production.md) · [Media protection](../administration/configuration/media_protection.md) · [Troubleshooting](troubleshooting.md) · [H.264 streaming module](install_h264_module.md)
 
 Dédalo's engine listens on a **unix socket and nothing else**. The web server in front of it is not an optional performance layer: it owns TCP and TLS, it serves the client files, and — most importantly — **it is what enforces media access control**. On the Production route the installer writes the site for you; this page explains what it writes and why, as reference for system administrators, and how to write a site by hand on a host [installed by hand](manual_install.md).
 
@@ -112,7 +112,7 @@ IPv6 addresses are refused, because the authority can be constrained to IPv4 add
 
 **Rule B — the publication markers** (`publication` mode only). An anonymous visitor may read a file only when it sits in a **public quality folder** and its record is **published**. The record identity is parsed from the *file name* (`…{component_tipo}_{section_tipo}_{section_id}[_lg-xxx].{ext}`), and the web server checks for a marker at `<media>/.publication/pub/{section_tipo}_{section_id}`, maintained by the diffusion engine.
 
-The gate fails closed as `404`, never `403`, and the marker store itself is never served. The whole subsystem is defined in `engineering/MEDIA_PROTECTION.md`; the administrator view is [media protection](../config/media_protection.md).
+The gate fails closed as `404`, never `403`, and the marker store itself is never served. The whole subsystem is defined in `engineering/MEDIA_PROTECTION.md`; the administrator view is [media protection](../administration/configuration/media_protection.md).
 
 ### The generated rule files
 

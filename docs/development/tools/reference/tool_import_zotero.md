@@ -84,6 +84,6 @@ Do not edit dd1633: copy the full configuration into the Tools configuration (dd
 - [tool_import_marc21](tool_import_marc21.md) — the same executor and code resolution.
 - [tool_import_files](tool_import_files.md) — media ingest without bibliographic data.
 - [tool_import_dedalo_csv](tool_import_dedalo_csv.md) · [tool_import_rdf](tool_import_rdf.md) — the other importers.
-- [Importing data](../../../core/importing_data.md) — the per-component import-data contract.
+- [Importing data](../../../using/importing_data.md) — the per-component import-data contract.
 - Source: `tools/tool_import_zotero/server/index.ts`; reader `src/core/tools/csl_json.ts`; mapper `src/core/tools/zotero_map.ts`; links `src/core/tools/import_link.ts`; executor `src/core/tools/import_execute.ts`.
 - [Creating new tools](../creating_tools.md), [Server contract](../server_contract.md), [register.json reference](../register_json.md), [Security](../security.md)

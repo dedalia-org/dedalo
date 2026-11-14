@@ -1,6 +1,6 @@
 # External record services
 
-> See also: [component_external](../components/component_external.md) · [services](services.md) (the *other* meaning of the word) · [Sections](../sections/index.md) · [request_config](../request_config.md) · [Configuration](../../config/config.md)
+> See also: [component_external](../components/component_external.md) · [services](services.md) (the *other* meaning of the word) · [Sections](../sections/index.md) · [request_config](../request_config.md) · [Configuration](../../administration/configuration/config.md)
 
 An **external record service** is a third party whose records Dédalo shows
 inside a section without copying them — a bibliographic catalogue, an authority
@@ -97,7 +97,7 @@ definition, and `zenon8` is the column set a list view uses.
     `authorization`, …) is **stripped and reported** rather than used — and
     stripped again before anything reaches a browser. A service credential
     belongs in the install's private environment file, under the key the
-    adapter declares. See [Configuration](../../config/config.md).
+    adapter declares. See [Configuration](../../administration/configuration/config.md).
 
 ### 3. The field mapping — `fields_map` on each component node
 
@@ -165,7 +165,7 @@ DEDALO_EXTERNAL_ALLOWED_HOSTS=zenon.dainst.org
 
     Every other knob — timeout, response size, concurrency, cache age, retries,
     the circuit-breaker cooldown and the two value ceilings — is documented in
-    [Configuration](../../config/config.md) under *external*.
+    [Configuration](../../administration/configuration/config.md) under *external*.
 
 ## Pointing a record at a remote record
 

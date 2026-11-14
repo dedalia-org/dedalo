@@ -28,4 +28,4 @@ The ontology registry also keeps local decisions through imports and rebuilds. A
 domain ontology you switched off stays off, and its project filter is kept. Each
 ontology is filed under the installation's own structure language, not a fixed one.
 
-See [Declaring what an ontology requires](./management/updates/updating_ontology.md#declaring-what-an-ontology-requires).
+See [Declaring what an ontology requires](./administration/updates/updating_ontology.md#declaring-what-an-ontology-requires).

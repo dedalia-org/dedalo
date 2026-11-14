@@ -623,7 +623,9 @@ login.prototype.action_dispatch = async function(api_response) {
 			// Preload the avatar so the CSS transition starts only when the image is ready.
 			// Falls back to the bundled grey icon if no user image is available.
 				const fallback_image = DEDALO_ROOT_WEB + '/core/themes/default/icons/dedalo_icon_grey.svg'
-				const bg_image = api_response.user_image || fallback_image
+				// root (-1) has no stored image: v6 showed the raspa_screen theme thumbnail
+				const root_image = DEDALO_ROOT_WEB + '/core/themes/default/raspas/raspa_screen.jpg'
+				const bg_image = api_response.user_image || (user_id===-1 ? root_image : fallback_image)
 				if (bg_image) {
 					// force preload background image
 					const image_loaded = await new Promise(function(resolve){

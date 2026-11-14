@@ -181,4 +181,4 @@ const response = await handleRequest(new Request('http://x/health'), context);
   descriptors.
 - [Sections](../sections/index.md) · [section](../sections/section.md) — the table
   abstraction resolved above the config/registry bootstrap.
-- [Glossary](../glossary.md) — nomenclature (tipo, entity, section_tipo, …).
+- [Glossary](../../understanding/glossary.md) — nomenclature (tipo, entity, section_tipo, …).

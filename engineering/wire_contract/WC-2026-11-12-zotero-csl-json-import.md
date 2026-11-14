@@ -128,7 +128,7 @@ Item 8 above is closed. The `main.field_to_section_id` variable (default
 - Gates: `tool_import_zotero_native.test.ts` ("the call-number is a VALUE of
   its component", "C18 found/two/disagreement/batch"),
   `marc_identity_native.test.ts` (the mapper carries the identifier as a
-  string, never an address). Docs: `docs/tools/using_import_zotero.md`,
+  string, never an address). Docs: `docs/using/tools/using_import_zotero.md`,
   `docs/development/tools/reference/tool_import_zotero.md`. Fragment
   `zotero-call-number-identifier-and-size-limit`.
 
@@ -150,4 +150,4 @@ call-number component to bind it to. Corrected (owner question open — a `compo
 - Gate: `tool_import_zotero_native` "the SHIPPED default" — register ≡ sample; every tipo the
   shipped map writes is a `component_*` node of the suite ontology (RED before: `dd176` =
   `label`); an identifier, when named, binds to a string-column or IRI component other than
-  the key's. Docs: `docs/tools/using_import_zotero.md`, the reference. Fragment amended.
+  the key's. Docs: `docs/using/tools/using_import_zotero.md`, the reference. Fragment amended.

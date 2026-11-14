@@ -897,5 +897,5 @@ harvested from the application DB, because the gates must be credless and the
 test DB holds a smaller ontology that would quietly assert less.
 
 Operator knobs: `src/config/catalog/external.ts` (twelve `DEDALO_EXTERNAL_*`
-keys; the rendered operator prose is `docs/config/config.md`). Cataloguer's
+keys; the rendered operator prose is `docs/administration/configuration/config.md`). Cataloguer's
 guide: `docs/core/system/external_services.md`.

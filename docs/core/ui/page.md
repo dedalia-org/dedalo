@@ -111,7 +111,7 @@ The two systemic pieces around the context:
 
 - **`page_globals`** — the global object created in `index.js` (api_errors,
   request_message, `csrf_token`), then enriched by `set_environment()` with the
-  server environment (version, data_version, langs, `is_logged`, `recovery_mode`,
+  server environment (version, data_version, langs, `is_logged`,
   `maintenance_mode`, `dedalo_notification`, `user_id`, …). Many `page` behaviours
   branch on these flags. It does NOT carry the label dictionary: its
   `labels_version` drives a separate `load_labels()` fetch of `get_label`.
@@ -421,7 +421,7 @@ prompt.
   returns the page context (login context, or `menu` + the resolved
   section/area/tool) and the `environment` payload. See the
   [Architecture overview › request lifecycle](../architecture_overview.md#the-request-lifecycle)
-  and [RQO](../rqo.md).
+  and [RQO](../../api/rqo.md).
 - **Sections & areas** — the main page element is usually a
   [section](../sections/index.md) (or an `area_*`); `page` builds it through
   `instantiate_page_element()` and rebuilds it on every navigation, while the
@@ -502,6 +502,6 @@ get_theme()           // 'light' | 'dark'
   layering, tokens, mixins and the per-component LESS contract.
 - [Sections](../sections/index.md) · [Components](../components/index.md) —
   the elements `page` builds inside itself.
-- [RQO](../rqo.md) — the request format used by the `start` build call.
+- [RQO](../../api/rqo.md) — the request format used by the `start` build call.
 - [request_config](../request_config.md) — how restored SQOs/filters reach a
   navigated element.

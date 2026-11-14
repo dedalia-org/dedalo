@@ -1,4 +1,4 @@
-# Relation data (the `relation` column)
+# Relation values
 
 > The data **type** produced by every related component: an array of
 > [locators](../locator.md), each one a value item whose *value* is a pointer to

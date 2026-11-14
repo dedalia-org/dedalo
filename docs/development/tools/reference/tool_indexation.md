@@ -100,7 +100,7 @@ const api_response = await data_manager.request({ body: rqo })
 ## Related
 
 - [Creating new tools](../creating_tools.md) · [Server contract](../server_contract.md) — the tool model, `apiActions` (incl. the no-server-module UI-only case), gates and lifecycle this page builds on.
-- [tool_export](tool_export.md) — contrast: a section tool with a real dispatchable action; see [Exporting data](../../../core/exporting_data.md).
+- [tool_export](tool_export.md) — contrast: a section tool with a real dispatchable action; see [Exporting data](../../../using/exporting_data.md).
 - `tool_subtitles`, `tool_transcription`, `tool_tc`, `tool_tr_print` — sibling tools working over the same transcription / AV text components and their timecode/indexation tags (reference pages pending).
 - Server endpoints used by the client: `dd_component_text_area_api` (`delete_tag`, `get_tags_info` — ✅ implemented, WC-077, `src/core/api/dispatch.ts`), `dd_component_portal_api::delete_locator` (✅ implemented, `src/core/api/dispatch.ts`).
 - Source: `tools/tool_indexation/register.json` (no `server/` package), `tools/tool_indexation/js/{tool_indexation,render_tool_indexation,tag_note,index}.js`, `tools/tool_indexation/css/tool_indexation.less`.

@@ -196,10 +196,10 @@ read-only panel: it reports state through `getValue` or an eager catalog value.
 | `make_backup` | data | `make_psql_backup`, `get_dedalo_backup_files` |
 | `build_database_version` | data | `build_install_version` — compile the install seed (`install/db/dedalo_install.pgsql.gz` + its manifest) from the repository's own sources and verify it with a fresh install; reads no database (same as `bun run seed:build`, see [the seed](../../development/ts_install_internals.md#seed)) · `build_recovery_version_file`, `restore_dd_ontology_recovery_from_file` |
 | `update_data_version` | data | `update_data_version` |
-| `export_hierarchy` | data | `sync_hierarchy_active_status`, `export_hierarchy` (an explicit list of section tipos of ACTIVE hierarchies; the core `lg` is refused), `export_hierarchy_json` (writes the `hierarchy.json` manifest: active hierarchies + the sha256 of the data files present) — everything lands in the engine's own `install/import/hierarchy`, the directory `add_hierarchy` imports from; see [moving a hierarchy between installations](../../management/install_new_hierarchies.md#moving-a-hierarchy-between-installations) |
+| `export_hierarchy` | data | `sync_hierarchy_active_status`, `export_hierarchy` (an explicit list of section tipos of ACTIVE hierarchies; the core `lg` is refused), `export_hierarchy_json` (writes the `hierarchy.json` manifest: active hierarchies + the sha256 of the data files present) — everything lands in the engine's own `install/import/hierarchy`, the directory `add_hierarchy` imports from; see [moving a hierarchy between installations](../../administration/install_new_hierarchies.md#moving-a-hierarchy-between-installations) |
 | `add_hierarchy` | data | `install_hierarchies`, `reset_hierarchies` — import + activate the selected TLDs; `reset` is the destructive re-import |
 | `move_tld`, `move_locator`, `move_to_portal`, `move_to_table`, `move_lang` | migration | one transform action each, named after the widget; the panel value carries the explanation body and the JSON definition files to pick from, so both halves of the `getValue` pair are wired |
-| `check_config` | config | `set_maintenance_mode`, `set_recovery_mode`, `set_notification` |
+| `check_config` | config | `set_maintenance_mode`, `set_notification` |
 | `config_areas` | config | `save_config_areas` |
 | `menu_skip_tipos` | config | `save_menu_skip_tipos` |
 | `update_ontology` | config | `update_ontology` — PULL: replace the selected (common/shared) ontologies from a master; the local ontology is kept |
@@ -296,7 +296,7 @@ over a panel showing drift.
 their changes to the **server-state store** (`../private/ts_state.json`, via
 `src/core/resolve/server_state.ts`) rather than to `../private/.env`, which is
 append-only and therefore cannot hold a UI-settable value. The store holds
-maintenance mode, recovery mode, the login notification, the area deny/allow
+maintenance mode, the login notification, the area deny/allow
 lists, the menu skip tipos and the media-access override. A `null` entry means
 "no override" — the static configuration wins.
 
@@ -307,14 +307,14 @@ lists, the menu skip tipos and the media-access override. A `null` entry means
   the `areas.deny` list: the `config_areas` widget is anti-lockout guarded.
 - **[Ontology](../ontology/index.md)** — `update_ontology` rewrites `dd_ontology`,
   the active schema; `register_tools` imports the tool nodes.
-- **[Media protection](../../config/media_protection.md)** — the `media_control`
+- **[Media protection](../../administration/configuration/media_protection.md)** — the `media_control`
   widget sets the media-access mode and rebuilds the media publication index.
 - **[The diffusion engine](../../diffusion/native_engine.md)** — what
   `publication_api` and `diffusion_server_control` inspect and drive.
 - **[Creating tools](../../development/tools/creating_tools.md)** — the tools
   subsystem `register_tools` imports into. Widgets are a *different* extension
   surface: no register file, no tool paths — one module and one import line.
-- **[SQO](../sqo.md)** — the query format the SQO test console exercises.
+- **[SQO](../../api/sqo.md)** — the query format the SQO test console exercises.
 
 ## Related
 
@@ -323,7 +323,7 @@ lists, the menu skip tipos and the media-access override. A `null` entry means
 - [dd_area_maintenance_api](../../api/classes/dd_area_maintenance_api.md) — the
   API-class reference.
 - [Ontology](../ontology/index.md) — the active schema `update_ontology` rewrites.
-- [Media protection](../../config/media_protection.md) — configured by the
+- [Media protection](../../administration/configuration/media_protection.md) — configured by the
   `media_control` widget.
 - [The diffusion engine](../../diffusion/native_engine.md) — driven by the
   diffusion widgets.

@@ -1,6 +1,6 @@
 # Ontology
 
-> See also: [Ontology authoring](authoring.md) · [ontology (build layer)](ontology_write.md) · [Ontology engine](ontology_engine.md) · [Architecture overview](../architecture_overview.md) · [Glossary](../glossary.md)
+> See also: [Ontology authoring](authoring.md) · [ontology (build layer)](ontology_write.md) · [Ontology engine](ontology_engine.md) · [Architecture overview](../architecture_overview.md) · [Glossary](../../understanding/glossary.md)
 
 The ontology is the live, dynamic definition of Dédalo's structure and behaviour:
 it defines the sections, components, relations, tools, data formats and outputs of
@@ -186,7 +186,7 @@ place where you want it to act.
     the multi-language features — are defined by these TLDs. A new TLD builds on
     them, so on an ontology master, declare in its *Dependencies* field
     (`hierarchy60`) the core and domain ontologies, and the thesauri, it uses (see
-    [Declaring what an ontology requires](../../management/updates/updating_ontology.md#declaring-what-an-ontology-requires)).
+    [Declaring what an ontology requires](../../administration/updates/updating_ontology.md#declaring-what-an-ontology-requires)).
 
 #### Creating the first node
 
@@ -217,7 +217,7 @@ is the name you gave in `Ontology main`. Then create the new node.
     back to its section's. Records that carry nothing but a TLD are left alone —
     stamping those would only add unnamed nodes to the tree — so those are listed
     for you to fill in or delete. See
-    [Using the ontology parser](../../tools/using_ontology_parser.md).
+    [Using the ontology parser](../../using/tools/using_ontology_parser.md).
 
 #### Renaming a TLD
 
@@ -231,7 +231,7 @@ and the two halves of the job are separate:
    consistent rather than duplicated under the old name. If that stamping cannot
    be completed the import ABORTS and restores the previous state — a
    half-renamed ontology is never left behind. See
-   [Updating the ontology](../../management/updates/updating_ontology.md).
+   [Updating the ontology](../../administration/updates/updating_ontology.md).
 2. **The stored records.** The `move_tld` maintenance transform rewrites the
    *data* — section and component identifiers inside existing records — for the
    sections whose identifiers changed. See

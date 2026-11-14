@@ -261,7 +261,7 @@ is out of scope for the TS rebuild (external network service + credentials; see
 
 One media tree serves two audiences at the same URLs.
 [`media_protection`](../core/system/media_protection.md) (and its
-[configuration](../config/media_protection.md)) makes authorization a single
+[configuration](../administration/configuration/media_protection.md)) makes authorization a single
 `stat()` on a zero-byte marker, **performed by the web server itself** — Apache or
 Nginx, never a Bun process. That is the whole point of the design: no application
 code sits in the file-serving path, so multi-GB media keeps native `sendfile`,
@@ -349,7 +349,7 @@ upload "memoria_oral.mov" on component_av oh18 (section oh1, id 5)
 - [media_engine](../core/system/media_engine.md) — Stage 3: the `Ffmpeg` /
   `ImageMagick` wrappers, quality settings, thumbnails and poster frames.
 - [media_protection](../core/system/media_protection.md) ·
-  [configuration](../config/media_protection.md) — Stage 6: the `.htaccess` gate,
+  [configuration](../administration/configuration/media_protection.md) — Stage 6: the `.htaccess` gate,
   the auth cookie + markers, the three enforcement surfaces.
 - [tool_media_versions](./tools/reference/tool_media_versions.md) — Stage 3:
   inspect/rebuild/rotate/conform the derived qualities of an existing master.
@@ -365,7 +365,7 @@ upload "memoria_oral.mov" on component_av oh18 (section oh1, id 5)
   [base classes](../core/components/base_classes.md).
 - [The diffusion engine](../diffusion/native_engine.md) — Stage 7: where
   the engine writes the `pub/` / `dbs/` publication markers.
-- [Importing data](../core/importing_data.md) · [Exporting data](../core/exporting_data.md)
+- [Importing data](../using/importing_data.md) · [Exporting data](../using/exporting_data.md)
   — how media pointers behave on import/export (binaries ride the upload flow, not
   the row importer).
 - [Tools catalog](./tools/reference/index.md) — every per-tool reference page,

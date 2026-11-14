@@ -303,3 +303,32 @@ describe('fetch_api upload floor', () => {
 		expect(call!.ms).toBeLessThan(2 * floor + 200);
 	});
 });
+
+describe('abort while the body is arriving', () => {
+	test('G1. a caller abort mid-body is client.aborted, not client.bad_response', async () => {
+		const caller = new AbortController();
+		const previous = globals.fetch;
+		// headers arrived; the body read rejects because the caller aborted
+		globals.fetch = () => {
+			caller.abort();
+			const error = new Error('aborted');
+			error.name = 'AbortError';
+			return Promise.resolve({
+				ok: true,
+				status: 200,
+				headers: new Headers({ 'Content-Type': 'application/json' }),
+				text: () => Promise.reject(error),
+			});
+		};
+		try {
+			const result = await fetch_api(
+				'https://stub.invalid/api/v1/json/',
+				{ method: 'POST', signal: caller.signal },
+				{ timeout_ms: 1000, retries: 3, base_delay: 10 },
+			);
+			expect(result.api_error?.code).toBe('client.aborted');
+		} finally {
+			globals.fetch = previous;
+		}
+	});
+});

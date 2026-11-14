@@ -1,4 +1,4 @@
-# IRI value (`iri` column)
+# IRI values
 
 > Part of the [data model](index.md) family — the typed JSONB storage shapes
 > Dédalo writes into the `matrix` table. See
@@ -218,7 +218,7 @@ object.
 
 For export, export atoms (`src/diffusion/export/atoms.ts`) tag a
 `component_iri` cell as `cell_type: 'iri'`; the flat value joins `iri` and
-the resolved label with `, ` (see [Exporting data](../exporting_data.md)).
+the resolved label with `, ` (see [Exporting data](../../using/exporting_data.md)).
 
 ## v7 consolidation / evolution
 
@@ -241,5 +241,5 @@ the resolved label with `, ` (see [Exporting data](../exporting_data.md)).
   structured title is stored and how the `id_key` pairing works.
 - [Sections — typed-column storage](../sections/index.md#storage-detail-the-data-column-is-split-into-typed-jsonb-columns)
   — how the `iri` column sits inside the `matrix` row.
-- [Importing data → URI](../importing_data.md#uri) ·
-  [Exporting data](../exporting_data.md).
+- [Importing data → URI](../../using/importing_data.md#uri) ·
+  [Exporting data](../../using/exporting_data.md).

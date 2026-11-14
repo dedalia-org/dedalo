@@ -18,6 +18,9 @@
 ## each directory's index.md, which is the rule docs/development/documentation_style_guide.md
 ## states. It means a deleted page disappears from the nav for free; a hand-written nav
 ## would need its own gate to stop it rotting, and would contradict the style guide.
+## ORDER inside a directory comes from an optional `.pages` file (awesome-pages plugin):
+## it lists the hub's pages in the hub's order and ends with `...` (the rest, A–Z), so a
+## new page still appears unaided; a `.pages` entry naming a missing file fails ANY build.
 ##
 site_name: Dédalo Documentation
 site_dir: docs_site      # gitignored build output
@@ -120,6 +123,7 @@ extra:
 
 plugins:
   - search
+  - awesome-pages     # per-directory `.pages` order; see the NO `nav:` note above
   ## VENDOR EVERY EXTERNAL ASSET AT BUILD TIME, into assets/external/.
   ##
   ## Material lazy-loads Mermaid from unpkg.com at RUNTIME. dedalo.dev sends a
@@ -167,10 +171,96 @@ plugins:
         config/migrating_from_v6.md: install/migrating_from_v6.md
         # Pages renamed away from a retired engine's class names.
         api/classes/dd_manager.md: api/classes/dispatch.md
+        # Docs reorg phase 3 (2026-11-13): pages moved into the reader-facing sections.
+        config/administration.md: administration/configuration/administration.md
+        config/config.md: administration/configuration/config.md
+        config/config_db.md: administration/configuration/config_db.md
+        config/index.md: administration/configuration/index.md
+        config/media_protection.md: administration/configuration/media_protection.md
+        config/search.md: administration/configuration/search.md
+        config/thesaurus_dependencies.md: administration/configuration/thesaurus_dependencies.md
+        config/whats_changed_v7.md: whats_changed_v7.md
+        core/ai/assistant/configuration.md: administration/ai/assistant/configuration.md
+        core/ai/assistant/connecting_models.md: administration/ai/assistant/connecting_models.md
+        core/ai/assistant/cookbook.md: administration/ai/assistant/cookbook.md
+        core/ai/assistant/index.md: administration/ai/assistant/index.md
+        core/ai/assistant/install.md: administration/ai/assistant/install.md
+        core/ai/assistant/privacy_and_security.md: administration/ai/assistant/privacy_and_security.md
+        core/ai/assistant/use_cases.md: administration/ai/assistant/use_cases.md
+        core/ai/index.md: administration/ai/index.md
+        core/ai/rag.md: administration/ai/rag.md
+        core/ai/rag_cookbook.md: administration/ai/rag_cookbook.md
+        core/dd_object.md: api/dd_object.md
+        core/error_reports.md: administration/error_reports.md
+        core/exporting_data.md: using/exporting_data.md
+        core/glossary.md: understanding/glossary.md
+        core/importing_data.md: using/importing_data.md
+        core/raspa_score.md: understanding/raspa_score.md
+        core/rqo.md: api/rqo.md
+        core/sqo.md: api/sqo.md
+        management/backup.md: administration/backup.md
+        management/index.md: administration/index.md
+        management/install_new_hierarchies.md: administration/install_new_hierarchies.md
+        management/maintenance_status.md: administration/maintenance_status.md
+        management/password_recovery.md: administration/password_recovery.md
+        management/recovery_mode.md: administration/recovery_mode.md
+        management/site_builder.md: administration/site_builder.md
+        management/site_builder_cookbook.md: administration/site_builder_cookbook.md
+        management/updates/index.md: administration/updates/index.md
+        management/updates/updating_code.md: administration/updates/updating_code.md
+        management/updates/updating_code_options.md: administration/updates/updating_code_options.md
+        management/updates/updating_data.md: administration/updates/updating_data.md
+        management/updates/updating_ontology.md: administration/updates/updating_ontology.md
+        management/users_and_permissions.md: administration/users_and_permissions.md
+        tools/index.md: using/tools/index.md
+        tools/using_assistant.md: using/tools/using_assistant.md
+        tools/using_bibliography_acquisition.md: using/tools/using_bibliography_acquisition.md
+        tools/using_cataloging.md: using/tools/using_cataloging.md
+        tools/using_dd_label.md: using/tools/using_dd_label.md
+        tools/using_dev_template.md: using/tools/using_dev_template.md
+        tools/using_diffusion.md: using/tools/using_diffusion.md
+        tools/using_error_report.md: using/tools/using_error_report.md
+        tools/using_export.md: using/tools/using_export.md
+        tools/using_hierarchy.md: using/tools/using_hierarchy.md
+        tools/using_identify.md: using/tools/using_identify.md
+        tools/using_image_rotation.md: using/tools/using_image_rotation.md
+        tools/using_import_dedalo_csv.md: using/tools/using_import_dedalo_csv.md
+        tools/using_import_files.md: using/tools/using_import_files.md
+        tools/using_import_marc21.md: using/tools/using_import_marc21.md
+        tools/using_import_rdf.md: using/tools/using_import_rdf.md
+        tools/using_import_zotero.md: using/tools/using_import_zotero.md
+        tools/using_indexation.md: using/tools/using_indexation.md
+        tools/using_lang.md: using/tools/using_lang.md
+        tools/using_lang_multi.md: using/tools/using_lang_multi.md
+        tools/using_media_versions.md: using/tools/using_media_versions.md
+        tools/using_numisdata_acquisition.md: using/tools/using_numisdata_acquisition.md
+        tools/using_numisdata_epigraphy.md: using/tools/using_numisdata_epigraphy.md
+        tools/using_numisdata_order_coins.md: using/tools/using_numisdata_order_coins.md
+        tools/using_ontology.md: using/tools/using_ontology.md
+        tools/using_ontology_parser.md: using/tools/using_ontology_parser.md
+        tools/using_pdf_extractor.md: using/tools/using_pdf_extractor.md
+        tools/using_posterframe.md: using/tools/using_posterframe.md
+        tools/using_print.md: using/tools/using_print.md
+        tools/using_propagate_component_data.md: using/tools/using_propagate_component_data.md
+        tools/using_qr.md: using/tools/using_qr.md
+        tools/using_sitebuilder.md: using/tools/using_sitebuilder.md
+        tools/using_subtitles.md: using/tools/using_subtitles.md
+        tools/using_tc.md: using/tools/using_tc.md
+        tools/using_time_machine.md: using/tools/using_time_machine.md
+        tools/using_tr_print.md: using/tools/using_tr_print.md
+        tools/using_transcription.md: using/tools/using_transcription.md
+        tools/using_update_cache.md: using/tools/using_update_cache.md
+        tools/using_upload.md: using/tools/using_upload.md
+        tools/using_user_admin.md: using/tools/using_user_admin.md
+        # Small pages folded into their neighbours (docs reorg phase 2, 2026-11-12).
+        install/manual_host.md: install/manual_install.md
+        management/backup_best_practises.md: administration/backup.md#best-practices
+        config/config_areas.md: administration/configuration/administration.md#11-denying-and-hiding-areas
+        management/changing_root_password.md: administration/users_and_permissions.md#changing-the-root-password
         core/ontology/ontology_class.md: core/ontology/ontology_write.md
         # Fossil misspellings, corrected 2026-08-24. The pages themselves stayed.
-        management/maintenace_status.md: management/maintenance_status.md
-        config/thesaurus_dependeces.md: config/thesaurus_dependencies.md
+        management/maintenace_status.md: administration/maintenance_status.md
+        config/thesaurus_dependeces.md: administration/configuration/thesaurus_dependencies.md
         # Pages deleted because they documented something the engine does not have.
         core/areas/area_common.md: core/areas/area.md
         core/areas/area_graph.md: core/areas/index.md

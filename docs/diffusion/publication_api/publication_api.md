@@ -1,4 +1,4 @@
-# Publication API
+# Publication API v1 reference
 
 !!! warning "Legacy (v1) API"
     This page documents the **v1 PHP Publication API**, kept in Dédalo v7 for backward compatibility
@@ -115,7 +115,7 @@ Dédalo publication API use a REST model to access to public data and we follow 
 
 The calls to API are sended via GET or POST queries, using variables as code to identify the authorized calls:
 
-`https://mydomain/dedalo/lib/dedalo/publication/server_api/v1/json/tables_info?code=XXXX`
+`https://mydomain/dedalo/publication/server_api/v1/json/tables_info?code=XXXX`
 
 The documentation API user interface is accessible in the path:
 
@@ -127,7 +127,7 @@ You can view your specific configuration and open publication API user interface
 
 You will see the Swagger interface ready to be used.
 
-The panel shows one button per entry of `API_WEB_USER_CODE_MULTIPLE` in Dédalo's own configuration — each publication database with the same `code` set in `server_config_api.php` — and none while it is empty. The buttons open `/dedalo/publication/server_api/v1/docu/ui/` on the Dédalo site, which only answers when the web server routes `/dedalo/publication/` to the v1 API; when v1 runs on another server, give the entry an `api_ui` with that server's documentation address. See [the configuration reference](../../config/config.md).
+The panel shows one button per entry of `API_WEB_USER_CODE_MULTIPLE` in Dédalo's own configuration — each publication database with the same `code` set in `server_config_api.php` — and none while it is empty. The buttons open `/dedalo/publication/server_api/v1/docu/ui/` on the Dédalo site, which only answers when the web server routes `/dedalo/publication/` to the v1 API; when v1 runs on another server, give the entry an `api_ui` with that server's documentation address. See [the configuration reference](../../administration/configuration/config.md).
 
 ```bash
 API_WEB_USER_CODE_MULTIPLE=[{"db_name":"web_my_entity","code":"My_API_code","api_ui":"https://my_domain.org/dedalo/publication/server_api/v1/docu/ui/"}]
@@ -162,7 +162,7 @@ Before begin to do calls you need to know:
   This two request are the same:
 
   ```api_request
-  https:///my_domain.org/dedalo/lib/dedalo/publication/server_api/v1/json/publication_schema?code=XXXX
+  https:///my_domain.org/dedalo/publication/server_api/v1/json/publication_schema?code=XXXX
   ```
 
   ```curl
@@ -1129,7 +1129,7 @@ Response:
     "video_url": "/dedalo/media/av/404/rsc35_rsc167_1.mp4?vbegin=732&vend=869",
     "posterframe_url": "/dedalo/media/av/posterframe/rsc35_rsc167_1.jpg",
     "posterframe_tag_url": "/dedalo/media/av/posterframe/rsc35_rsc167_1/rsc35_rsc167_1_71.jpg",
-    "subtitles_url": "/dedalo/lib/dedalo/publication/server_api/v1/subtitles/?section_id=1&lang=lg-spa&tc_in=732.047&tc_out=869",
+    "subtitles_url": "/dedalo/publication/server_api/v1/subtitles/?section_id=1&lang=lg-spa&tc_in=732.047&tc_out=869",
     "tcin_secs": 732.047,
     "tcout_secs": 869,
     "fragment_terms_inside": {
@@ -1173,7 +1173,7 @@ Response:
     "video_url": "/dedalo/media/av/404/rsc35_rsc167_1.mp4?vbegin=732&vend=869",
     "posterframe_url": "/dedalo/media/av/posterframe/rsc35_rsc167_1.jpg",
     "posterframe_tag_url": "/dedalo/media/av/posterframe/rsc35_rsc167_1/rsc35_rsc167_1_71.jpg",
-    "subtitles_url": "/dedalo/lib/dedalo/publication/server_api/v1/subtitles/?section_id=1&lang=lg-spa&tc_in=732.047&tc_out=869",
+    "subtitles_url": "/dedalo/publication/server_api/v1/subtitles/?section_id=1&lang=lg-spa&tc_in=732.047&tc_out=869",
     "tcin_secs": 732.047,
     "tcout_secs": 869,
     "index_locator": {

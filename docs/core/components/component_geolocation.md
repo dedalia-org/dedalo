@@ -197,7 +197,7 @@ Selects the base tile layer(s) of the Leaflet map. The server stamps the resolve
 
 options: `{"lat": <number>, "lon": <number>, "zoom": <number>}`
 
-default: the `DEDALO_GEO_DEFAULT_LAT` / `DEDALO_GEO_DEFAULT_LON` / `DEDALO_GEO_DEFAULT_ZOOM` env vars, read into the TS config catalog as `config.geoDefaultView` (see [Configuration](../../config/config.md)); shipped default is the world view `{lat: 20, lon: 0, zoom: 2}`.
+default: the `DEDALO_GEO_DEFAULT_LAT` / `DEDALO_GEO_DEFAULT_LON` / `DEDALO_GEO_DEFAULT_ZOOM` env vars, read into the TS config catalog as `config.geoDefaultView` (see [Configuration](../../administration/configuration/config.md)); shipped default is the world view `{lat: 20, lon: 0, zoom: 2}`.
 
 The position the map **opens** on when the record has no coordinate. It is a camera, not a value: it is never written into the record and never published, so a record the cataloguer never touched stays empty. The server resolves it per instance and stamps it into `context.features.default_view` (`src/core/resolve/structure_context.ts`, FULL context only — the `simple` list/portal context emits no `features`).
 
@@ -266,7 +266,7 @@ The map disables scroll-wheel zoom by default and recenters through a single non
 
 The component is non‑translatable, so the import value is the bare data array (no lang keys). Four import shapes are defined:
 
-1. Full v7 dato — JSON array of items:
+1. Full v7 data — JSON array of items:
 
     ```json
     [{"lat":39.4625,"lon":-0.3762,"zoom":16,"alt":0}]
@@ -299,7 +299,7 @@ An item with **no coordinate but with drawn `lib_data` features** is a value in 
 !!! warning "A refusal is not a clear"
     An empty cell — and only a source that **states** there is no location: both coordinate keys present and blank, or an item carrying a `lib_data` key — clears the component data. Everything else with no usable coordinate (a typo'd header, `{}`, `{latitude,longitude}`, `{"zoom":12}`, an out-of-range value) is **refused**: it is reported in the run's failed rows and the record's stored value is left untouched. A field with any refused value is not written at all, including the values of that field which did conform, and the report says so. This is the one door that enforces the coordinate ranges — by refusing loudly, never by silently dropping a stored value.
 
-See the full geolocation import definition in [Importing data](../importing_data.md#geolocation) and the round-trip raw format in [Exporting data](../exporting_data.md#raw-export-and-round-trip).
+See the full geolocation import definition in [Importing data](../../using/importing_data.md#geolocation) and the round-trip raw format in [Exporting data](../../using/exporting_data.md#raw-export-and-round-trip).
 
 ## Notes
 
@@ -307,7 +307,7 @@ See the full geolocation import definition in [Importing data](../importing_data
 - **Coordinate accessors.** The center is resolved as floats from `lat`/`lon` when both parse to a finite number (`0` included); `null`, `""` and unparseable text resolve to no coordinate, and a missing axis is never completed with a zero. A cache-rebuild reload-then-resave path (used by cache-update tooling) has not been verified for this pass.
 - **Diffusion.** The stored item can convert to a GeoJSON `Point` object `{type, coordinates:[lon, lat]}` (Socrata-style) or to an encoded `FeatureCollection` (layer wrapper, 16‑decimal `[lon, lat]` coordinates). Precedence is the same on every path: drawn geometry publishes as the location (and on the standalone path the stored center is dropped from the published value), otherwise a usable coordinate publishes as the point, otherwise nothing is published at all. See [Diffusion parsers](../../diffusion/parsers.md).
 - **Observers / observables (client).** Configured via the `observe` property. The flagship pattern is `map_update_coordinates`: a related component (e.g. a toponymy portal) is the *observable*; on its `update_value` it fires the observer geolocation, which copies the coordinates of the referenced record (the geolocation identified by `role: "target_geolocation_tipo"` in the observable's `request_config` `hide`) and re-centers the map, recording the change like any save. Only the coordinate travels: the borrowed item's own id is dropped, so the copy replaces **this** record's item instead of appending a second one beside it, and the other record's map `sources` and `legend` are not copied — this record keeps its own, because saving replaces the whole item.
-- **Text-area integration.** `lib_data` layers pair with `geo` tags in a [component_text_area](component_text_area.md) transcription; inserting/removing a tag loads/unloads the matching layer (`layer_data_change`, `load_tag_into_geo_editor`, `get_data_tag`). See the `geo` tag in [Importing data](../importing_data.md#geo).
+- **Text-area integration.** `lib_data` layers pair with `geo` tags in a [component_text_area](component_text_area.md) transcription; inserting/removing a tag loads/unloads the matching layer (`layer_data_change`, `load_tag_into_geo_editor`, `get_data_tag`). See the `geo` tag in [Importing data](../../using/importing_data.md#geo).
 - **Default tools.** `tool_leaflet_special_tools`, `tool_propagate_component_data`, `tool_time_machine`, `tool_dev_template` (per the ontology node; exact set is ontology-driven).
 - **Client libraries.** Leaflet, Leaflet-Geoman, Turf (measurements) and iro (color picker) are lazy-loaded on first map build (`load_libs`). The map never auto-saves on pan/zoom — saving is always explicit via the save button, and navigating a record that holds no value writes nothing at all.
 - **Related docs:** [component_input_text](component_input_text.md), [component_portal](component_portal.md), [component_text_area](component_text_area.md), [component_json](component_json.md), [Introduction to components](index.md).

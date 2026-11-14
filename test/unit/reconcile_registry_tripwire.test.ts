@@ -440,7 +440,7 @@ describe('reconcile registry doors (S-10)', () => {
 	test('the scheduler flag is a catalogued config key (readEnv law) with its rendered doc', () => {
 		const catalog = readFileSync(join(ROOT, 'src/config/catalog/ops.ts'), 'utf8');
 		expect(catalog).toContain('DEDALO_RECONCILE_SCHEDULER_ENABLED: {');
-		const doc = readFileSync(join(ROOT, 'docs/config/config.md'), 'utf8');
+		const doc = readFileSync(join(ROOT, 'docs/administration/configuration/config.md'), 'utf8');
 		expect(doc).toContain('DEDALO_RECONCILE_SCHEDULER_ENABLED');
 	});
 });

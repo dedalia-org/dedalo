@@ -2,7 +2,7 @@
 
 > The client-side **side panel** of the section edit view — a context-aware dashboard that shows record/component metadata, tools, projects, relations, time-machine history and save activity for the section currently being edited.
 
-> See also: [Sections](../sections/index.md) · [Components](../components/index.md) · [dd_object](../dd_object.md) · [Events](../events.md)
+> See also: [Sections](../sections/index.md) · [Components](../components/index.md) · [dd_object](../../api/dd_object.md) · [Events](../events.md)
 
 This page is the **subsystem reference** for the inspector. The inspector is a
 pure **client (JavaScript + LESS) subsystem** — it has no server-side
@@ -144,7 +144,7 @@ dropped. User names are written as text, never as markup.
 !!! note "Publication history retention"
     With `DEDALO_DIFFUSION_LEDGER_RETENTION_DAYS` above `0`, settled ledger rows
     are pruned, and *first* becomes the oldest publication still kept, not the
-    first ever. See [the configuration reference](../../config/config.md).
+    first ever. See [the configuration reference](../../administration/configuration/config.md).
 
 ### Section view vs component view
 
@@ -461,8 +461,8 @@ target section.
 Under the hood the dialog calls the `relation_targets` action and the window's
 search carries a `referenced_by` filter leaf built from the same source set,
 so the counts and the windows cannot disagree. See
-[SQO — relationship filter leaves](../sqo.md#relationship-filter-leaves-referenced_by)
-and [rqo — relation_targets](../rqo.md#relation-targets-of-a-search-relation_targets).
+[SQO — relationship filter leaves](../../api/sqo.md#relationship-filter-leaves-referenced_by)
+and [rqo — relation_targets](../../api/rqo.md#relation-targets-of-a-search-relation_targets).
 The related records are read from what the found records store, not from the
 relation index, so the answer does not depend on that index being up to date.
 Locators with a non-integer id (an external record's remote id) are not
@@ -477,7 +477,7 @@ sufficient permissions, feeds it `context`/`data`/`tools`, and the section
 view moves the paginator into `inspector.paginator_container`. There is no
 separate server-side flag gating it — the mode + permission check is the
 whole gate. See [section](../sections/section.md) for the section instance
-the inspector treats as its source of truth, and [dd_object](../dd_object.md)
+the inspector treats as its source of truth, and [dd_object](../../api/dd_object.md)
 for the `context`/`tools`/`show_in_inspector` shape it consumes.
 
 ## Examples
@@ -554,7 +554,7 @@ toggle_inspector_rail(self)   // persists { id:'inspector_rail_state', value:tru
 - [Sections concept](../sections/index.md) — the record model the panel reflects.
 - [Components](../components/index.md) — components, the `context.tools` toolbar,
   and the `show_in_inspector` / `show_in_component` flags.
-- [dd_object (ddo)](../dd_object.md) — the context object carrying
+- [dd_object (ddo)](../../api/dd_object.md) — the context object carrying
   `show_in_inspector`, `tools`, `config.relation_list_tipo`.
 - [component_filter](../components/component_filter.md) — the node shown in the
   Project card.

@@ -338,7 +338,7 @@ installer render places things by them:
    (the rollback's `ExecCondition` too) — fail-closed, never as root. The
    hand-installed units
    under `deploy/*.service` carry `INSTANCE_DIR`, `ROOT_BIN_DIR` and
-   `DEDALO_USER`, rendered per host by `docs/install/manual_host.md`.
+   `DEDALO_USER`, rendered per host by `docs/install/manual_install.md`.
 
 Gates: `test/unit/code_update.test.ts` (*the instance-dir rule* — the full
 update chain, the restore and the rollback script EXECUTED against a scratch
@@ -1323,6 +1323,32 @@ hashing rides the sha cache) and `publication_probe` (apply only records the
 observation in `runtime.probe`; the set is pinned by `reconcile_registry_tripwire`); a walk of the whole media tree or a destructive re-projection
 is an operator's decision, with the dry report in view.
 
+### 6.6 A damaged ontology: the offline repair
+
+There is no "recovery mode" (retired, WC-2026-11-12-recovery-mode-retired): a broken
+`dd_ontology` is repaired with the ENGINE STOPPED by `scripts/ontology_recover.ts`
+(`src/core/ontology/ontology_recover.ts`). Dry run unless `--apply`; an apply refuses
+while any client holds the database (`recovery.writers_active`, the §6.1 quiesce rule).
+
+1. `--snapshot` — restore the recovery file (`DEDALO_ONTOLOGY_RECOVERY_PATH`, the
+   core-tld slice built from Maintenance → Build database version) and replace those
+   tlds' `dd_ontology` rows with it, one transaction. Needed when the core itself is
+   broken: the parser resolves component models THROUGH `dd_ontology`, so the rebuild
+   alone refuses (`ontology.invalid_node: … re-derive the 'ontology' tld first`).
+   A missing file: the dry run reports it, the apply refuses before writing.
+2. `--rebuild` — the `ontology` reconcile (§6.5) applied: every tld re-derived from its
+   `<tld>0` source records.
+
+Neither flag = both, snapshot first, and the restore → swap runs under ONE hold of the
+recovery-slice lock (a build cannot re-dump the damaged projection between them; a
+leftover slice is dropped first, a failed swap drops it again). Exit 0 = repaired /
+nothing to repair, 2 = something left (drift, no recovery file, an uninspectable
+projection on a dry run, a tld not repaired), 1 = refused or failed. Damaged SOURCE records are re-derived as they are —
+that is an ontology update or a §6.1 restore. Rehearse on the suite database
+(`DB_NAME=<suite db> bun scripts/ontology_recover.ts …`), never on a production copy
+you cannot afford to lose; do not `source` `.env` into that shell (it strips the JSON
+quoting of list keys and the mangled value then outranks the file).
+
 ## 7. Schema: migrations + provisioning (S2-39, DEC-17/DEC-19)
 
 - **TS-owned tables** (`dedalo_ts_*`): ordered migrations in
@@ -1542,7 +1568,7 @@ real published DB; skips loudly without `DEDALO_DIFFUSION_DB_*`).
 
 RAG (`src/ai/rag/` — opt-in, `DEDALO_RAG_ENABLED`) adds exactly TWO ops
 surfaces to a deployment; everything else rides the normal engine deploy.
-Hands-on guide: `docs/core/ai/rag_cookbook.md` (Install / Enable / R3).
+Hands-on guide: `docs/administration/ai/rag_cookbook.md` (Install / Enable / R3).
 
 **1. The drain cron (REQUIRED — without it, nothing ever indexes).** Saves
 only enqueue a dirty marker (`rag_index_queue`, matrix DB, best-effort — a
@@ -1616,7 +1642,7 @@ cannot differ by an `incompatible` migration; the one historical exception,
 §4 rule 8). CLI: `bun run update
 status|check|plan <release>|abort [note]` (`scripts/update.ts`). Door
 precondition classes: `src/core/update/door_class.ts` (WC-2026-10-30-maintenance-door-classes).
-Operator manual: `docs/management/updates/index.md`, held to the code by
+Operator manual: `docs/administration/updates/index.md`, held to the code by
 `test/unit/update_docs_claims_tripwire.test.ts`.
 
 **Release channels (what an install is offered; 2026-10-18).** The update ask
@@ -1809,7 +1835,7 @@ it finds runtime data in the tree, naming the key to set). Per-key recipe:
 - `MEDIA_PATH` — move the `media/` tree out (e.g. `/srv/dedalo/media`), set
   the key, restart, verify a thumbnail loads. The refusal names this key when
   a `media/` dir sits inside the code tree.
-- `DEDALO_ONTOLOGY_RECOVERY_PATH` — point the ontology-update recovery dumps
+- `DEDALO_ONTOLOGY_RECOVERY_PATH` — point the ontology recovery dumps (§6.6)
   at a directory outside the tree.
 - `DEDALO_BACKUP_DIR` (database dumps) and `DEDALO_BACKUP_PATH` (code
   backups) — both default outside the tree already; never point them into it.

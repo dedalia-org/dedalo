@@ -11,10 +11,10 @@ know that a *section* is the abstraction of an SQL table, a *component* is the
 abstraction of a column, and that a *tipo* is the alphanumeric code that
 identifies any node in the ontology.
 
-> Quick nomenclature pointers: [Glossary](glossary.md) ·
+> Quick nomenclature pointers: [Glossary](../understanding/glossary.md) ·
 > [Sections](sections/index.md) · [Components](components/index.md) ·
 > [Ontology](ontology/index.md) · [Locator](locator.md) ·
-> [dd_object](dd_object.md) · [RQO](rqo.md) · [SQO](sqo.md) ·
+> [dd_object](../api/dd_object.md) · [RQO](../api/rqo.md) · [SQO](../api/sqo.md) ·
 > [request_config](request_config.md)
 
 ## The two systems
@@ -26,7 +26,7 @@ Dédalo is not one application but two, sharing one body of data.
    runtime** (`src/server.ts`, a single long-lived process — see below); its
    client is HTML, CSS and JavaScript. It talks to PostgreSQL, where all data
    lives as JSON in the `matrix` tables. The work API is the **Dédalo API**
-   (see [RQO](rqo.md)).
+   (see [RQO](../api/rqo.md)).
 2. **The publication / diffusion system** — the read side that publishes the
    subset of work data marked for publication into a classical SQL database
    (MariaDB/MySQL by default) with one table-and-columns schema per section, so
@@ -106,8 +106,8 @@ files) — each boundary is crossed once, in one direction, through a database.
 | **[The Work API](../assets/images/diagrams/work_api.svg)** — one RQO in, five gates, handler classes, the read and write paths, envelope v2 | [API](../api/index.md) |
 | **[The Diffusion API](../assets/images/diagrams/diffusion_api.svg)** — control plane, durable job row, runner pipeline, writers and targets | [The diffusion engine](../diffusion/native_engine.md) |
 | **[Publication API v2](../assets/images/diagrams/publication_api_v2.svg)** — the routing choke point, the route table, the services, and the isolation law | [Publication API v2](../diffusion/publication_api/v2/index.md) |
-| **[The RAG subsystem](../assets/images/diagrams/rag_system.svg)** — indexing, the two stores, hybrid retrieval and its ACL gate, the `ask` pipeline | [RAG & semantic search](ai/rag.md) |
-| **[MCP and the agent loop](../assets/images/diagrams/mcp_system.svg)** — the surfaces, the one tool registry, `runTool`, and the propose-confirm-apply protocol | [The AI Assistant](ai/assistant/index.md) |
+| **[The RAG subsystem](../assets/images/diagrams/rag_system.svg)** — indexing, the two stores, hybrid retrieval and its ACL gate, the `ask` pipeline | [RAG & semantic search](../administration/ai/rag.md) |
+| **[MCP and the agent loop](../assets/images/diagrams/mcp_system.svg)** — the surfaces, the one tool registry, `runTool`, and the propose-confirm-apply protocol | [The AI Assistant](../administration/ai/assistant/index.md) |
 
 ## The matrix data model
 
@@ -121,25 +121,25 @@ columns are always the same; the record itself is stored as JSON:
 | `id` | the unique row id of the physical table |
 | `section_id` | the record id *within its section* (unique per `section_tipo`, not per table) |
 | `section_tipo` | which section (which abstract "table") this row belongs to |
-| *JSON payload* | the whole record, stored as JSONB — one `datos` column in the legacy / `matrix_hierarchy` shape; split into typed JSONB columns in the v7 `matrix` (see note) |
+| *typed JSONB columns* | the record's values, split by data shape — `data`, `relation`, `string`, `date`, `iri`, `geo`, `number`, `media`, `misc`, `relation_search`, `meta` (see note) |
 
 A People record and an Interview record can both have `section_id = 1` because
 they live under different `section_tipo` values (`rsc197` vs `oh1`). The payload
 JSON keys are component tipos, not human field names — the human names live in
 the ontology and are resolved at runtime per language.
 
-> **Physical storage of the payload.** Conceptually the record is one JSON
-> object, and the legacy and `matrix_hierarchy` tables do keep it in a single
-> JSONB column named `datos`. The v7 `matrix` table instead splits that same
-> payload across several **typed** JSONB columns — `data`, `string`, `number`,
+> **Physical storage of the payload.** Every record table (`MATRIX_TABLE_ALLOWLIST`
+> in `src/core/db/matrix.ts`) splits a record's
+> values across several **typed** JSONB columns — `data`, `string`, `number`,
 > `relation`, `date`, `iri`, `geo`, `media`, `misc`, `relation_search`, `meta` —
-> assigning each component to one column by its model. The model→column
+> assigning each component to one column by its model. Inside each column the
+> values are keyed by component tipo — except `data`, which holds the section's
+> own metadata (label, created/modified date and user). The model→column
 > mapping is `getColumnNameByModel()` in `src/core/ontology/resolver.ts`, and
 > the JSONB column set is `MATRIX_JSONB_COLUMNS` in `src/core/db/matrix.ts`, so
 > PostgreSQL can index every data shape.
 > [Sections](sections/index.md#storage-detail-the-data-column-is-split-into-typed-jsonb-columns)
-> documents the full column map. The rest of this page keeps the single-payload
-> mental model for clarity.
+> documents the full column map.
 
 ```mermaid
 erDiagram
@@ -156,17 +156,22 @@ erDiagram
         int id PK
         int section_id
         string section_tipo
-        jsonb datos
+        jsonb data
+        jsonb string
+        jsonb relation
+        jsonb date
+        jsonb meta
     }
 ```
 
 **Prose description of the diagram above:** The first two entities,
 `PEOPLE_SQL` and `INTERVIEW_SQL`, show the classic approach: each concept gets
 its own table with its own typed columns (`name`, `surname`; `title`). The third
-entity, `matrix`, shows the Dédalo approach: a single table with only `id`,
-`section_id`, `section_tipo` and a `jsonb datos` column. Where classic SQL needs
-N tables for N concepts, Dédalo needs one — the concept is encoded in
-`section_tipo` and the columns are encoded as keys inside `datos`.
+entity, `matrix`, shows the Dédalo approach: a single table with `id`,
+`section_id`, `section_tipo` and a fixed set of typed JSONB columns (`string`,
+`relation`, …). Where classic SQL needs N tables for N concepts, Dédalo needs
+one — the concept is encoded in `section_tipo` and the fields are encoded as
+component-tipo keys inside the typed columns.
 
 The same People record in both worlds:
 
@@ -176,23 +181,27 @@ The same People record in both worlds:
 | 1 | Alicia | Gutierrez |
 
 ```json
-// one row in the Dédalo `matrix` table
-// (payload shown as a single conceptual `datos` object; v7 splits it across typed columns)
+// one row in the Dédalo `matrix` table (only `data` and `string` shown;
+// `relation`, `date`, `meta` … omitted)
 {
     "id"           : 1,
     "section_id"   : 1,
     "section_tipo" : "rsc197",
-    "datos" : {
-        "section"    : "rsc197",
-        "section_id" : 1,
-        "rsc85"      : "Alicia",
-        "rsc86"      : "Gutierrez"
+    "data" : {
+        "label"        : "People",
+        "section_id"   : 1,
+        "section_tipo" : "rsc197",
+        "created_date" : "2017-11-15 22:51:42"
+    },
+    "string" : {
+        "rsc85" : [{ "id": 1, "lang": "lg-nolan", "value": "Alicia" }],
+        "rsc86" : [{ "id": 1, "lang": "lg-nolan", "value": "Gutierrez" }]
     }
 }
 ```
 
-A full Dédalo installation has roughly 28 physical tables — 24 of which are this
-same four-column shape — yet expresses around 1,100 logical sections with some
+A full Dédalo installation has roughly 28 physical tables — most of which share
+this same column set — yet expresses around 1,100 logical sections with some
 16,000 logical fields. The schema explosion that would cripple classic SQL is
 folded into JSON and the ontology. The price is paid in resolution: reading a
 field is never a column read; it is an ontology lookup followed by JSON
@@ -243,7 +252,7 @@ Each node is a single JSON object. The load-bearing fields:
   references to **other definitions** — here `rsc75`, marking `rsc197` a virtual
   section that borrows the real section's children. Both flow, through the
   structure-context cache, into the **context** the client renders (see
-  [request_config](request_config.md) and [dd_object](dd_object.md)).
+  [request_config](request_config.md) and [dd_object](../api/dd_object.md)).
 
 !!! warning "Node `relations` is not record data"
     A node's `relations` array points at other **ontology nodes**. It has
@@ -302,7 +311,7 @@ traverses JSON to get the value. The layers, top to bottom:
    `component_input_text`, `component_portal`, …) chosen by each node's
    `model`; on the client, the same-named JS classes.
 3. **Instances** — runtime objects built per request, carrying a *context* and
-   *data* (see [Components](components/index.md) and [dd_object](dd_object.md)).
+   *data* (see [Components](components/index.md) and [dd_object](../api/dd_object.md)).
 4. **The datum `{context, data}`** — the transport unit; `context` is the
    description (from the ontology), `data` is just the values.
 5. **Locators** — typed pointers that turn standalone records into a relational
@@ -321,7 +330,7 @@ caching).
 ## Server build vs client render: the data flow
 
 The server no longer renders HTML. It resolves data and ships a normalized object
-(the [dd_object / ddo](dd_object.md)) carrying **context** (the ontology
+(the [dd_object / ddo](../api/dd_object.md)) carrying **context** (the ontology
 description: tipo, model, mode, label, properties, css, request_config,
 permissions, tools) and **data** (only the values). The client turns that into
 DOM.
@@ -385,7 +394,7 @@ A section node is the table; its component children point back at it with
 `parent = <section_tipo>` and are arranged for layout under `section_group`
 nodes. When a section is built, it gathers its component children, resolves
 each (in the TS server, one pass of `emitDdoData` per ddo — see
-[dd_object](dd_object.md#how-a-ddo_map-resolves-the-chain)), and assembles
+[dd_object](../api/dd_object.md#how-a-ddo_map-resolves-the-chain)), and assembles
 their contexts and data into the section's response. Most components are
 **literal** — they own their value (input_text, number, date, media). Others
 are **related** — they store [locators](locator.md) instead of literals and
@@ -452,7 +461,7 @@ sequenceDiagram
     API->>API: sanitize (zod, §7.5) + dispatch (ACTION_REGISTRY lookup)
     API->>SRV: readSection / saveComponentData(tipo, section_tipo, section_id, mode, lang)
     SRV->>ONT: read node (model, properties, relations)
-    SRV->>ONT: read record datos (and resolve locators if related)
+    SRV->>ONT: read record typed columns (and resolve locators if related)
     SRV->>SRV: build context (description) + data (values) = ddo
     SRV-->>API: ddo { context, data }
     API-->>C: JSON response (result = ddo)
@@ -474,7 +483,7 @@ is a related component. It assembles a `context` (the description) and `data`
 (the values) into a `ddo` of shape `{context, data}`, which travels back
 through the API as a JSON response. Finally the client renders the DOM using
 the shared `ui.component` builders. See
-[RQO](rqo.md) for the request format and [dd_object](dd_object.md) for the ddo.
+[RQO](../api/rqo.md) for the request format and [dd_object](../api/dd_object.md) for the ddo.
 
 ## The multilingual model
 
@@ -505,8 +514,8 @@ to `WHERE`, `order` to `ORDER BY`, plus `limit`/`offset`), inspired by Mango and
 adapted to the matrix/JSONB model. The SQO is the query; the RQO wraps it and
 adds the caller identity, the action and the layout. The server compiles the SQO
 into prepared SQL over the JSONB matrix tables through a security chokepoint that
-sanitizes and clamps client input. For the full contract, see [SQO](sqo.md) and,
-for how it rides inside a request, [RQO](rqo.md).
+sanitizes and clamps client input. For the full contract, see [SQO](../api/sqo.md) and,
+for how it rides inside a request, [RQO](../api/rqo.md).
 
 ## Where to go next
 
@@ -514,7 +523,7 @@ for how it rides inside a request, [RQO](rqo.md).
 - [Components](components/index.md) — the field abstraction, inheritance, datum.
 - [Ontology](ontology/index.md) — the active schema, TLDs, node shape.
 - [Locator](locator.md) — typed pointers and the relational graph.
-- [dd_object (ddo)](dd_object.md) — the normalized object behind every request.
-- [RQO](rqo.md) — the request format. · [SQO](sqo.md) — the query format.
+- [dd_object (ddo)](../api/dd_object.md) — the normalized object behind every request.
+- [RQO](../api/rqo.md) — the request format. · [SQO](../api/sqo.md) — the query format.
 - [request_config](request_config.md) — how context is configured and resolved.
-- [Glossary](glossary.md) — the full nomenclature table.
+- [Glossary](../understanding/glossary.md) — the full nomenclature table.

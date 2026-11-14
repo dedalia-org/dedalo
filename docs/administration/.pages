@@ -1,0 +1,18 @@
+# Sidebar order = the link order of this directory's index.md hub.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+title: Administration
+nav:
+  - index.md
+  - configuration
+  - users_and_permissions.md
+  - maintenance_status.md
+  - backup.md
+  - updates
+  - install_new_hierarchies.md
+  - password_recovery.md
+  - site_builder.md
+  - site_builder_cookbook.md
+  - ai
+  - error_reports.md
+  - recovery_mode.md
+  - ...

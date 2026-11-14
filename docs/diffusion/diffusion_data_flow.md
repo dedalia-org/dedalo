@@ -1,6 +1,6 @@
-# Dédalo diffusion data flow
+# Diffusion data flow
 
-> See also: [The diffusion engine](native_engine.md) · [Diffusion (system overview)](../core/system/diffusion.md) · [Publication API](publication_api/index.md) · [Glossary: diffusion](../core/glossary.md#diffusion)
+> See also: [The diffusion engine](native_engine.md) · [Diffusion (system overview)](../core/system/diffusion.md) · [Publication API](publication_api/index.md) · [Glossary: diffusion](../understanding/glossary.md#diffusion)
 
 Dédalo has two database systems — the work system and the diffusion system — both driven by the ontology. This page explains how data flows from one to the other when you publish.
 
@@ -44,7 +44,7 @@ In every configuration, Dédalo copies/exports data from the work system (stored
 
 The diffusion system has two configuration surfaces, each with its own parameters that you must adapt to your project environment.
 
-1. The work server needs access to a MariaDB/MySQL database to publish data: set the `DEDALO_DIFFUSION_*` keys in `../private/.env` — see [the diffusion engine → Configuration](native_engine.md#configuration) and the [database configuration guide](../config/config_db.md#diffusion-system-database-mariadb).
+1. The work server needs access to a MariaDB/MySQL database to publish data: set the `DEDALO_DIFFUSION_*` keys in `../private/.env` — see [the diffusion engine → Configuration](native_engine.md#configuration) and the [database configuration guide](../administration/configuration/config_db.md#diffusion-system-database-mariadb).
 
 2. The diffusion system has its own [Publication API](publication_api/index.md) to connect public web pages with the public database (use [v2](publication_api/v2/index.md) for new integrations): configure it via the [v2 deployment](publication_api/v2/deployment.md) (`.env`) for new servers, or the legacy v1 [configuration file](publication_api/public_api_configuration.md).
 
@@ -295,7 +295,7 @@ flowchart TB
 
 The default value of this parameter is 2 levels. Increasing it also increases the time Dédalo needs to resolve the linked data, because the branches multiply at every level in an exponential progression.
 
-You can change this default in [DEDALO_DIFFUSION_RESOLVE_LEVELS](../config/config.md#defining-resolution-levels-going-to-the-deeper-information), or set it manually in the work-system interface before dispatching the publication process.
+You can change this default in [DEDALO_DIFFUSION_RESOLVE_LEVELS](../administration/configuration/config.md#defining-resolution-levels-going-to-the-deeper-information), or set it manually in the work-system interface before dispatching the publication process.
 
 ## Publishing data
 
@@ -420,7 +420,7 @@ Each defined language creates its own row and stores the language code in the `l
 | 2 | 1 | lg-spa | Mi título |
 | 3 | 1 | lg-cat | El meu títol |
 
-If the work data has no translation, the publication process falls back through the language ladder, ending at the main data language defined in [DEDALO_DATA_LANG_DEFAULT](../config/config.md#defining-default-data-language).
+If the work data has no translation, the publication process falls back through the language ladder, ending at the main data language defined in [DEDALO_DATA_LANG_DEFAULT](../administration/configuration/config.md#defining-default-data-language).
 
 For example, if the work data has the abstract in English and Spanish but not in Catalan (Catalan is empty), you get:
 

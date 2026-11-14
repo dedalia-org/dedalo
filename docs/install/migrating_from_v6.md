@@ -1,6 +1,6 @@
 # Migrating a v6 install to v7
 
-> See also: [What changed in v7](../config/whats_changed_v7.md) · [Upgrading](upgrading.md) · [Backup](../management/backup.md) · [area_maintenance](../core/areas/area_maintenance.md) · [Server-side observers](../core/system/observers.md) · [Troubleshooting](troubleshooting.md)
+> See also: [What changed in v7](../whats_changed_v7.md) · [Upgrading](upgrading.md) · [Backup](../administration/backup.md) · [area_maintenance](../core/areas/area_maintenance.md) · [Server-side observers](../core/system/observers.md) · [Troubleshooting](troubleshooting.md)
 
 This page is the whole operator path from a running Dédalo v6 to a running Dédalo v7: what the old engine does to your data, how you move the database and the media, and what to do when the data itself turns out to be wrong.
 
@@ -26,7 +26,7 @@ The transform ships as a **self-contained maintenance package** for v6, `close_v
 
 ### Backups
 
-Four stores, with v6 paths — do not take them from the v7 backup list, whose fourth store (`../private/`) and `MEDIA_PATH` do not exist on a v6 host. [Backup](../management/backup.md) describes the equivalent set on v7 only.
+Four stores, with v6 paths — do not take them from the v7 backup list, whose fourth store (`../private/`) and `MEDIA_PATH` do not exist on a v6 host. [Backup](../administration/backup.md) describes the equivalent set on v7 only.
 
 1. The **matrix database**: `pg_dump --host localhost --username <v6 user> --format custom --file dedalo_v6.custom.backup <v6 db>`.
 2. The **media root** — the directory holding `image/ av/ pdf/ 3d/ svg/`.
@@ -45,7 +45,7 @@ dropdb dedalo_restore_test
 `pg_restore` must exit 0 and the count must be non-zero. A dump that has never been restored is not a backup.
 
 !!! warning "A database backup alone is not enough"
-    The old configuration files hold the key material that makes the stored passwords readable. Lose them and the password migration in Phase D cannot run. See [backup](../management/backup.md).
+    The old configuration files hold the key material that makes the stored passwords readable. Lose them and the password migration in Phase D cannot run. See [backup](../administration/backup.md).
 
 ### Preconditions
 
@@ -54,7 +54,7 @@ dropdb dedalo_restore_test
 | Data version | **6.9.1 or later, and below 7.0.0** | the `matrix_updates` table; the v6 preparation panel reports it |
 | v6 ontology | **updated**: the nodes `ontology43` (machine name) and `ontology44` (use machine name) are present | run the ontology update in the v6 Maintenance area; the preflight refuses without them (code 10) |
 | You are logged in as | the Dédalo **superuser** | the panel refuses anyone else |
-| Maintenance mode | **on** before anything that writes | [maintenance status](../management/maintenance_status.md) |
+| Maintenance mode | **on** before anything that writes | [maintenance status](../administration/maintenance_status.md) |
 | Dump tool on the **v6** host | `pg_dump --version` not older than the v6 server's `SELECT version();`, and not older than the v7 target's major | the preflight fails hard if the dump cannot run |
 | Server on the **v6** host | the PostgreSQL that already serves v6 — the transform runs there, in place | — |
 | Server on the **v7** host | PostgreSQL 18 plus the client tools | [Install by hand › `host_packages`](manual_install.md#manual-host_packages) |
@@ -258,7 +258,7 @@ pg_dump --host localhost --username <v6 user> --format custom --file dedalo_v6_m
 pg_restore --host localhost --username <v7 user> --dbname <v7 db> --no-owner --no-privileges --verbose dedalo_v6_migrated.custom.backup
 ```
 
-Do **not** pass `--clean`: the target is empty by requirement. The [backup page](../management/backup.md#restore-a-backup-for-the-work-system) covers the general restore, including the existing-database case, as background.
+Do **not** pass `--clean`: the target is empty by requirement. The [backup page](../administration/backup.md#restore-a-backup-for-the-work-system) covers the general restore, including the existing-database case, as background.
 
 The database user that owns the target database must be able to `CREATE EXTENSION`: `pg_trgm`, `unaccent` and `btree_gin` are required. If policy forbids that, have a superuser create the three extensions in the empty database first.
 
@@ -308,7 +308,7 @@ Every constant it found is grouped. Values are never printed, so the report is s
 | `ALIAS` | v7 has its own name for it; the value carries over | nothing |
 | `RENAMED` | the name changed **and the old one is retired** | nothing — the tool writes the new name |
 | `RESHAPED` | the name and/or the value shape changed | nothing — the tool converts it |
-| `DROPPED` | v7 has no such setting, with the reason | nothing. See [what changed in v7](../config/whats_changed_v7.md#settings-that-are-gone) |
+| `DROPPED` | v7 has no such setting, with the reason | nothing. See [what changed in v7](../whats_changed_v7.md#settings-that-are-gone) |
 | `COMMENTED OUT` | you had deliberately left it at the default | nothing |
 | **`NOT MIGRATABLE`** | **the v6 value is computed at runtime** | **set it by hand — see [5.2](#52-hand-set-keys)** |
 | **`UNKNOWN`** | the tool has never heard of this constant | **report it** — it is a gap in the map, not a fault in your config |
@@ -358,7 +358,7 @@ If the result is wrong, nothing is destroyed: the previous file is at `.env.bak.
     - **`config_areas.php`** holds no `define()`s — it is code appending to a deny list. If you denied areas, set `AREAS_DENY` yourself, or use the maintenance area.
     - **Runtime state** (maintenance mode, install status) is not config in v7 — it lives in `../private/ts_state.json` and is written by the app.
 
-    The full v6 → v7 settings map, key by key, is [what changed in v7](../config/whats_changed_v7.md).
+    The full v6 → v7 settings map, key by key, is [what changed in v7](../whats_changed_v7.md).
 
 !!! warning "Retired keys refuse the boot"
     A v6 `.env` carried over may still name a key v7 has retired. The server names the key and the file and refuses to start until you rename the line — the full list is in [upgrading](upgrading.md#retired-configuration-keys).
@@ -432,7 +432,7 @@ Once this has run and [§7](#7-verify) passes, the v6 config copy on the v7 host
 | Action | Where | Why it matters |
 | --- | --- | --- |
 | Register tools | maintenance area, `register_tools` panel | tool records are not migrated; without this the tools are not offered |
-| Activate hierarchies | maintenance area, `add_hierarchy` panel | see [install new hierarchies](../management/install_new_hierarchies.md) |
+| Activate hierarchies | maintenance area, `add_hierarchy` panel | see [install new hierarchies](../administration/install_new_hierarchies.md) |
 | Repair sequences | maintenance area, `sequences_status` panel | opening it audits every table sequence except a named skip list (`session_data`, the counter tables, `temp`, the legacy `relations` tables) and **repairs one that is behind, as a side effect of loading** |
 | Refresh statistics | `analyze_statistics` in the Database info panel | the repair for the statistics wipe boot warned about |
 | Repair the media index | `bun scripts/media_repair_files_info.ts` | see [media drift](#94-media-drift-files-on-disk-nothing-rendered-v7) |
@@ -614,7 +614,7 @@ Most trouble is found by the deep preflight, **before** the migration. The rule 
 | New records collide with existing ids | the record counter is behind the data | [counters](#97-counters-and-sequences-v7) |
 | A relation points at a record that is not there | structural leftovers | [dangling relations](#95-dangling-relations-and-wrong-tipos-v7) |
 | The interface misbehaves in one browser only, after the upgrade | that browser still runs the v6 service worker and its cached v6 scripts | reload once; see [troubleshooting](troubleshooting.md#the-interface-misbehaves-after-the-upgrade-from-v6) |
-| Stale values after an ontology or media change | stored per-record data needs regenerating | clear the caches from the runtime panel, then run [tool_update_cache](../tools/using_update_cache.md) |
+| Stale values after an ontology or media change | stored per-record data needs regenerating | clear the caches from the runtime panel, then run [tool_update_cache](../using/tools/using_update_cache.md) |
 
 ### 9.1 *Needs attention* findings (v6 host, before Phase A)
 
@@ -683,17 +683,17 @@ bun scripts/media_repair_files_info.ts --apply
 - A media list that names **another record's** files (what a failed duplicate could leave) is always rewritten from the record's own files. A file named some other way (for example by an image id) is never mistaken for another record's.
 - Each record is written under its row lock from what it holds at that moment, so an upload made while the sweep runs is kept. A record another user holds for more than a few seconds is reported as locked and skipped; re-run to pick it up.
 
-To rebuild *missing derivatives* as well, use [tool_update_cache](../tools/using_update_cache.md) instead.
+To rebuild *missing derivatives* as well, use [tool_update_cache](../using/tools/using_update_cache.md) instead.
 
 ### 9.5 Dangling relations and wrong tipos (v7)
 
 Run **relation integrity report** in the Database info panel to see what points nowhere.
 
-Repairing it by restructuring — moving a section to another tipo, moving values into a portal, changing a component's language — is done with the five bulk transforms in the maintenance area's *migration* category ([area_maintenance](../core/areas/area_maintenance.md#the-widgets)), driven by JSON definition files under [`DEDALO_TRANSFORM_DEFINITIONS_DIR`](../config/config.md#defining-the-transform-definitions-directory). That is a **planned project, not a migration-night task**: the panel buttons report only, execution is a separate explicit call, a section move is not idempotent, and none of it writes a time machine snapshot. Plan it after the migration is verified.
+Repairing it by restructuring — moving a section to another tipo, moving values into a portal, changing a component's language — is done with the five bulk transforms in the maintenance area's *migration* category ([area_maintenance](../core/areas/area_maintenance.md#the-widgets)), driven by JSON definition files under [`DEDALO_TRANSFORM_DEFINITIONS_DIR`](../administration/configuration/config.md#defining-the-transform-definitions-directory). That is a **planned project, not a migration-night task**: the panel buttons report only, execution is a separate explicit call, a section move is not idempotent, and none of it writes a time machine snapshot. Plan it after the migration is verified.
 
 ### 9.6 Hierarchy not activated (v7)
 
-Importing a hierarchy lands its terms but does not make them reachable: until it is activated, its ontology does not exist, the tree shows nothing and portals resolve an empty target. Activate it from the `add_hierarchy` panel — see [install new hierarchies](../management/install_new_hierarchies.md). Re-activating an already-installed hierarchy is skipped, and never overwrites identity metadata you have edited.
+Importing a hierarchy lands its terms but does not make them reachable: until it is activated, its ontology does not exist, the tree shows nothing and portals resolve an empty target. Activate it from the `add_hierarchy` panel — see [install new hierarchies](../administration/install_new_hierarchies.md). Re-activating an already-installed hierarchy is skipped, and never overwrites identity metadata you have edited.
 
 If activation refuses with *not registered (no valid typology)*, the registry record for that hierarchy is incomplete — fix it in the ontology, then activate.
 

@@ -1,8 +1,8 @@
 # Services
 
-> See also: [Add a service](../extending/add_a_service.md) · [services subsystem reference](../../core/system/services.md) · [Glossary → service](../../core/glossary.md#service)
+> See also: [Add a service](../extending/add_a_service.md) · [services subsystem reference](../../core/system/services.md) · [Glossary → service](../../understanding/glossary.md#service)
 
-A [service](../../core/glossary.md#service) is a specialized, mostly client-side code element that provides a shared function — file upload, autocomplete, access to Time Machine versions, a text editor, and so on — in a unified way, reused by components, sections and tools. A service is instanced *by* a caller and acts on the caller's behalf; it has no ontology node and no data of its own.
+A [service](../../understanding/glossary.md#service) is a specialized, mostly client-side code element that provides a shared function — file upload, autocomplete, access to Time Machine versions, a text editor, and so on — in a unified way, reused by components, sections and tools. A service is instanced *by* a caller and acts on the caller's behalf; it has no ontology node and no data of its own.
 
 This page shows the instancing pattern shared by every service. To build a new one, follow [Add a service](../extending/add_a_service.md); for the full subsystem reference (every shipped service and its public API), see the [services reference](../../core/system/services.md).
 

@@ -17,7 +17,7 @@ Grant `tool_rag` to the profiles whose users should be able to ask for generated
 
 ## Actions & options
 
-None: a grant-only tool has no `apiActions`. The action it guards is `dd_rag_api` `ask` — see [the RAG API](../../../core/ai/rag.md#the-api-dd_rag_api).
+None: a grant-only tool has no `apiActions`. The action it guards is `dd_rag_api` `ask` — see [the RAG API](../../../administration/ai/rag.md#the-api-dd_rag_api).
 
 ## Gotchas
 
@@ -26,6 +26,6 @@ None: a grant-only tool has no `apiActions`. The action it guards is `dd_rag_api
 
 ## Related
 
-- [The RAG API and its budget](../../../core/ai/rag.md#the-api-dd_rag_api)
-- [The AI spend limits (per profile and per user)](../../../core/ai/assistant/configuration.md#ai-spend-limits)
+- [The RAG API and its budget](../../../administration/ai/rag.md#the-api-dd_rag_api)
+- [The AI spend limits (per profile and per user)](../../../administration/ai/assistant/configuration.md#ai-spend-limits)
 - Wire contracts `WC-2026-10-01-ai-spend-budget`, `WC-2026-10-12-ddengine-removed`.

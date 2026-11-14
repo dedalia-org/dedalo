@@ -145,7 +145,7 @@ import row), `pooled` an ordinary statement on the pool, `reserved` a connection
 one caller holds for itself (the boot migrations, a long-running job). Raise
 the threshold in `../private/.env` to log less, lower it to catch more;
 `DEDALO_SLOW_QUERY_MS=0` turns the log off. The key is documented in
-[config_db](../config/config_db.md). The log names the statement, not its plan:
+[config_db](../administration/configuration/config_db.md). The log names the statement, not its plan:
 for the *why*, use Postgres itself — `EXPLAIN ANALYZE` on the logged statement,
 and `pg_stat_statements` for the ranking of what costs the install its time
 overall, including statements that stay under the threshold.

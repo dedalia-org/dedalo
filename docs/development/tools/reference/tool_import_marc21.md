@@ -125,7 +125,7 @@ A conditional holdings rule (945 $a from the copy whose $j equals 193 — a reco
 - [tool_import_rdf](tool_import_rdf.md) — RDF/OWL graph import
 - [tool_import_zotero](tool_import_zotero.md) — Zotero JSON bibliographic import
 - [tool_import_files](tool_import_files.md) — media file ingest (shares the multi-file upload-queue pattern)
-- [tool_export](tool_export.md) and [Exporting data](../../../core/exporting_data.md) — the export side
-- [Importing data](../../../core/importing_data.md) — the per-component import-data contract
+- [tool_export](tool_export.md) and [Exporting data](../../../using/exporting_data.md) — the export side
+- [Importing data](../../../using/importing_data.md) — the per-component import-data contract
 - [Creating new tools](../creating_tools.md), [Server contract](../server_contract.md), [register.json reference](../register_json.md), [Security](../security.md)
 - Source: `tools/tool_import_marc21/server/index.ts`; MARC parser + mapper: `src/core/tools/marc21.ts`; shared executor: `src/core/tools/import_execute.ts`.

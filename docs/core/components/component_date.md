@@ -332,9 +332,9 @@ Negative (BCE) years are supported at either edge of the string (`-200/05/01` or
     suffix parsing exists in TS yet. Only the canonical JSON array of `dd_date`
     objects imports correctly today.
 
-See the full date import definition [here](../importing_data.md#dates).
+See the full date import definition [here](../../using/importing_data.md#dates).
 
-**Export.** Flat display values run through the generic cell resolver `resolveCellValue()` (`src/core/resolve/relation_list.ts`) via `tools/tool_export/server/tool_export.ts`. Per-`date_mode` formatting (rendering each shape and joining multiple records with `records_separator`) has not been independently verified for parity in this export path. See [exporting data](../exporting_data.md).
+**Export.** Flat display values run through the generic cell resolver `resolveCellValue()` (`src/core/resolve/relation_list.ts`) via `tools/tool_export/server/tool_export.ts`. Per-`date_mode` formatting (rendering each shape and joining multiple records with `records_separator`) has not been independently verified for parity in this export path. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

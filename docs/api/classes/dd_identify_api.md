@@ -1,6 +1,6 @@
 # dd_identify_api
 
-> See also: [JSON API v1](../dedalo_api_v1.md) · [tool_identify](../../development/tools/reference/tool_identify.md) · [Semantic search / RAG](../../core/ai/rag.md) · [dispatch](dispatch.md)
+> See also: [JSON API v1](../dedalo_api_v1.md) · [tool_identify](../../development/tools/reference/tool_identify.md) · [Semantic search / RAG](../../administration/ai/rag.md) · [dispatch](dispatch.md)
 
 Object identification: which records share this one's identifying features, what a photograph most resembles, what a record's empty criteria probably should say, and where a cluster could be promoted into a canonical Type.
 
@@ -15,7 +15,7 @@ Registered actions (`src/core/api/handlers/dd_identify_api.ts`): `find_matches`,
 
 - Every action requires a **session** and is **CSRF-gated** by the dispatcher.
 - **All four are READS.** Nothing here writes. Confirming a proposal, or attaching a member to a Type, is the ordinary component save the record form already issues — there is deliberately no confirm/attach endpoint, because a second write path into a portal would have to re-implement the audit, the observers and the permission re-check the first one does.
-- Identification is driven by the section's **identification profile** (`properties.identify`). A criterion is an [SQO](../../core/sqo.md) path, not a thesaurus. A section without a profile is a normal state of the collection, so it is a **clean decline**, never a 500.
+- Identification is driven by the section's **identification profile** (`properties.identify`). A criterion is an [SQO](../sqo.md) path, not a thesaurus. A section without a profile is a normal state of the collection, so it is a **clean decline**, never a 500.
 - **Order is load-bearing.** The section read grant is checked *before* the profile is loaded, so the decline codes can never be used to learn whether a section the caller cannot open has an identification descriptor.
 - Results are **ACL-gated inside the engine** — the pool query carries the principal, and every quoted label of a linked record is re-gated per component and per record scope. Denials are silent: a "3 hidden" count would be an existence oracle.
 - `limit` is clamped to `[1, 50]`; anything unusable falls back to **20**.

@@ -1,0 +1,46 @@
+# Sidebar order = the link order of this directory's index.md hub; groups = its headings.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+title: Components
+nav:
+  - index.md
+  - base_classes.md
+  - Literal:
+    - component_date.md
+    - component_email.md
+    - component_external.md
+    - component_filter_records.md
+    - component_geolocation.md
+    - component_input_text.md
+    - component_iri.md
+    - component_json.md
+    - component_number.md
+    - component_password.md
+    - component_security_access.md
+    - component_section_id.md
+    - component_text_area.md
+  - Media:
+    - component_3d.md
+    - component_av.md
+    - component_image.md
+    - component_pdf.md
+    - component_svg.md
+  - Info:
+    - component_info.md
+    - component_info_cookbook.md
+    - component_inverse.md
+  - Related:
+    - component_check_box.md
+    - component_dataframe.md
+    - component_filter.md
+    - component_filter_master.md
+    - component_portal.md
+    - component_publication.md
+    - component_radio_button.md
+    - component_relation_children.md
+    - component_relation_index.md
+    - component_relation_model.md
+    - component_relation_parent.md
+    - component_relation_related.md
+    - component_select.md
+    - component_select_lang.md
+  - ...

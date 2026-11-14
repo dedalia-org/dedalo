@@ -47,7 +47,7 @@
 
 ## Definition
 
-`component_relation_model` creates a **model-type relation** between the current record and another record, where the link is constrained to a *target section derived from the caller's own section* rather than named in the node. Its default relation type is `DEDALO_RELATION_TYPE_MODEL_TIPO = 'dd98'`, distinct from the generic link type `dd151` used by [component_portal](component_portal.md).
+`component_relation_model` creates a **model-type relation** between the current record and another record, where the link is constrained to a *target section derived from the caller's own section* rather than named in the node. Its default relation type is `dd98`, distinct from the generic link type `dd151` used by [component_portal](component_portal.md).
 
 The defining trait is **target resolution**: the component does not hardcode which section it points at. The target section tipo(s) are resolved at runtime from the element's request config (`src/core/relations/request_config/build.ts`), and — uniquely in the relation family — the model supplies a **default target that depends on the caller**, so one ontology node serves many sections and points somewhere different in each of them. The rule is spelled out in [Target resolution](#target-resolution) below.
 
@@ -292,9 +292,9 @@ A number sequence of `section_id` when there is a single resolved target section
 1,5,8
 ```
 
-With multiple resolved targets, define the target section in the column header as `<component_tipo>_<section_tipo>` (e.g. `test169_dd922`). See the full related-data definition in [importing data](../importing_data.md#related-data).
+With multiple resolved targets, define the target section in the column header as `<component_tipo>_<section_tipo>` (e.g. `test169_dd922`). See the full related-data definition in [importing data](../../using/importing_data.md#related-data).
 
-**Export.** Related components resolve each locator against its target section/component. The shared export path iterates the locators and, per the `ddo_map`, resolves each child component against the locator's `section_id` / `section_tipo` to produce the displayed sub-columns; the indexation grid resolves the same way. See [exporting data](../exporting_data.md).
+**Export.** Related components resolve each locator against its target section/component. The shared export path iterates the locators and, per the `ddo_map`, resolves each child component against the locator's `section_id` / `section_tipo` to produce the displayed sub-columns; the indexation grid resolves the same way. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

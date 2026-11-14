@@ -821,7 +821,7 @@ describe('rule 3 — one spelling of the marker, imported everywhere', () => {
 		// The corpus is DERIVED — every `.sql` under install/db/, not just
 		// migrations/. `install/db/rag_embeddings.sql` is the vector-store schema
 		// applied to EVERY vector database there is: an operator's real semantic
-		// index (docs/core/ai/rag_cookbook.md) and the suite's alike
+		// index (docs/administration/ai/rag_cookbook.md) and the suite's alike
 		// (test/helpers/test_rag_database.ts). Planting the marker DDL there would
 		// declare every installation's index disposable and authorize every write
 		// this gate exists to refuse — with a migrations-only scan still green.

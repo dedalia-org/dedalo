@@ -254,7 +254,7 @@ DOM (edit / default): `wrapper_component component_image <tipo> <mode>` -> `labe
 
 ## Import / export model
 
-**Import.** A JSON value is decoded and stored as the item array (the pointer shape above: `original_normalized_name`, `files_info`, etc.); a value that fails JSON decoding is rejected rather than stored. Note that importing the pointer JSON does **not** by itself create the binary files on disk — the files must exist (or be re-derived) in the media tree for the qualities listed in `files_info`. The normal way to populate an image is the upload flow, not CSV import. See [importing data](../importing_data.md).
+**Import.** A JSON value is decoded and stored as the item array (the pointer shape above: `original_normalized_name`, `files_info`, etc.); a value that fails JSON decoding is rejected rather than stored. Note that importing the pointer JSON does **not** by itself create the binary files on disk — the files must exist (or be re-derived) in the media tree for the qualities listed in `files_info`. The normal way to populate an image is the upload flow, not CSV import. See [importing data](../../using/importing_data.md).
 
 Typical import structure (advanced — the persisted item):
 
@@ -269,7 +269,7 @@ Typical import structure (advanced — the persisted item):
 }]
 ```
 
-**Export.** The export atoms path (`src/diffusion/export/atoms.ts`) emits **one export atom** carrying the media URL with `cell_type: img`. The exported quality is the default quality in `edit` context and the thumb quality otherwise; URL absoluteness is taken from the `export_context` (relative vs absolute). For an external image the atom resolves to the `external_source` URL. See [exporting data](../exporting_data.md).
+**Export.** The export atoms path (`src/diffusion/export/atoms.ts`) emits **one export atom** carrying the media URL with `cell_type: img`. The exported quality is the default quality in `edit` context and the thumb quality otherwise; URL absoluteness is taken from the `export_context` (relative vs absolute). For an external image the atom resolves to the `external_source` URL. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

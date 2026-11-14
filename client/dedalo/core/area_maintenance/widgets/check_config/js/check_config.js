@@ -10,8 +10,8 @@
 * database connection/credential status and the presence of the ../private config
 * sources (.env, state.php, config.local.php).
 *
-* The widget also provides root-only controls for toggling maintenance mode,
-* recovery mode, and broadcasting a site-wide user notification — each backed by
+* The widget also provides root-only controls for toggling maintenance mode
+* and broadcasting a site-wide user notification — each backed by
 * dedicated `dd_area_maintenance_api` actions on the server side.
 *
 * Architecture:
@@ -23,7 +23,7 @@
 *     `dd_area_maintenance_api::get_widget_value` and returns the parsed payload.
 *   - The server-side peer (`class.check_config.php::get_value`) reports the v7
 *     config status: DB connection/credentials and ../private config-source presence.
-*   - DOM rendering and the maintenance/recovery/notification forms are handled
+*   - DOM rendering and the maintenance/notification forms are handled
 *     entirely by `render_check_config.js`.
 *
 * Value shape (object returned by check_config::get_value):

@@ -1197,7 +1197,7 @@ There is no CI deploy. The parked `deploy/deploy.sh` (a git-checkout deploy over
 its `deploy.yml` dispatch were retired on 2026-10-30 (update audit 2026-10-29, U-34): a
 second code-delivery channel with its own rollback, outside the update run, is exactly
 what the audit found unsafe. An installation receives code through the update run
-(maintenance panel → Update code, `bun run update`; `docs/management/updates/updating_code.md`),
+(maintenance panel → Update code, `bun run update`; `docs/administration/updates/updating_code.md`),
 installs through the terminal installer, and the image deployment through its host
 updater. The real-scenario proofs are `bun run test:update` / `test:update:dev`.
 

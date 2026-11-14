@@ -2,7 +2,7 @@
 
 > The end-to-end browser-client journey of a Dédalo UI element — page bootstrap → build instance → request data → render DOM → wire events → user edits → save → refresh/destroy — and how the four client cornerstones (`instances.js`, `data_manager.js`, the render layer, `event_manager.js`) compose to deliver it.
 
-> See also: [RQO](../rqo.md) · [section_list](../sections/section_list.md) · [Components](../components/index.md) · [Events](../events.md) · [UI building blocks](../ui/index.md) · [api](../system/api.md)
+> See also: [RQO](../../api/rqo.md) · [section_list](../sections/section_list.md) · [Components](../components/index.md) · [Events](../events.md) · [UI building blocks](../ui/index.md) · [api](../system/api.md)
 
 This page is the **integration reference** for the client. The four cornerstone
 modules each have their own behavior (factory/registry, transport, render,
@@ -33,7 +33,7 @@ The shared object machinery (`init` / `build` / `render` / `refresh` /
 specialised per model (`component_common.js`, `section.js`, `area_*`, …).
 
 !!! note "Reading order"
-    If you only read one other page first, read [RQO](../rqo.md) — it defines
+    If you only read one other page first, read [RQO](../../api/rqo.md) — it defines
     the request envelope (`{action, source, sqo|data}`) that the *request* and
     *save* steps below assemble. For how a section composes its children into a
     list, read [section_list](../sections/section_list.md).
@@ -162,14 +162,13 @@ descriptor; `build_rqo_show` clones the request_config, attaches the source,
 resolves the `sqo` (pagination + an auto `filter_by_locators` from
 section_tipo/section_id) into `{action:'read', source, sqo}`; `build_rqo_search`
 walks the `ddo_map` (`get_ar_inverted_paths`) into a `filter_free`. See
-[RQO](../rqo.md) for the full envelope.
+[RQO](../../api/rqo.md) for the full envelope.
 
 `data_manager.request(options)`:
 
 - serializes `options.body` to JSON and attaches `X-Dedalo-Csrf-Token` from
   `page_globals.csrf_token` (without overwriting a caller-set header);
-- injects `recovery_mode` from page_globals and resets
-  `page_globals.api_errors` / `request_message`;
+- resets `page_globals.api_errors` / `request_message`;
 - dispatches through `_fetch_with_retry_and_timeout` (default **5 retries,
   500 ms base delay, 5 s timeout**) with exponential backoff and a per-attempt
   `AbortController`; a mid-attempt `check_server_health` probe cancels the abort
@@ -222,7 +221,7 @@ A field created by a section (`section_record`) may receive, before
 `set_context_vars` runs, a `properties.show_interface` declared by the page on
 the section's own `request_config` ddo: the section record merges it into the
 field's context copy, keeping every key the field already defines. The server
-never sees it — see [`properties.show_interface` on a client-sent ddo](../dd_object.md#propertiesshow_interface-on-a-client-sent-ddo).
+never sees it — see [`properties.show_interface` on a client-sent ddo](../../api/dd_object.md#propertiesshow_interface-on-a-client-sent-ddo).
 
 ### 4. Render — ddo to standard DOM
 
@@ -335,7 +334,7 @@ unchanged (`is_equal` against `db_data.entries`), toggles `saving` / `loading`
 / `error` / `save_success` classes on `self.node` for UI feedback, and on the
 `not_logged` error waits for the re-login and retries the save **once**, only
 when the re-login authenticated the page's own user. The save RQO is the same `{action, source, data}` envelope described in
-[RQO](../rqo.md).
+[RQO](../../api/rqo.md).
 
 !!! note "This is what makes an expired session non-destructive"
     A save that lands after the session died is not lost. The server answers
@@ -491,7 +490,7 @@ field `rsc110` from `"old"` to `"new"`.
 
 ## Related
 
-- [RQO](../rqo.md) — the request envelope (`{action, source, sqo|data}`)
+- [RQO](../../api/rqo.md) — the request envelope (`{action, source, sqo|data}`)
   assembled by the *request* and *save* steps.
 - [section_list](../sections/section_list.md) — how a section composes its
   child components into a list on the client.

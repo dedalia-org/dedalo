@@ -1,0 +1,45 @@
+# Sidebar order = the link order of this directory's index.md hub.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+title: Tool reference
+nav:
+  - index.md
+  - tool_bibliography_acquisition.md
+  - tool_import_dedalo_csv.md
+  - tool_import_files.md
+  - tool_import_marc21.md
+  - tool_import_rdf.md
+  - tool_import_zotero.md
+  - tool_numisdata_acquisition.md
+  - tool_export.md
+  - tool_print.md
+  - tool_diffusion.md
+  - tool_pdf_extractor.md
+  - tool_sitebuilder.md
+  - tool_media_versions.md
+  - tool_posterframe.md
+  - tool_image_rotation.md
+  - tool_upload.md
+  - tool_hierarchy.md
+  - tool_cataloging.md
+  - tool_ontology.md
+  - tool_ontology_parser.md
+  - tool_transcription.md
+  - tool_subtitles.md
+  - tool_indexation.md
+  - tool_tc.md
+  - tool_tr_print.md
+  - tool_numisdata_epigraphy.md
+  - tool_identify.md
+  - tool_propagate_component_data.md
+  - tool_time_machine.md
+  - tool_update_cache.md
+  - tool_numisdata_order_coins.md
+  - tool_lang.md
+  - tool_lang_multi.md
+  - tool_dd_label.md
+  - tool_user_admin.md
+  - tool_error_report.md
+  - tool_rag.md
+  - tool_dev_template.md
+  - tool_qr.md
+  - ...

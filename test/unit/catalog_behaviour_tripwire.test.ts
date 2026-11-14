@@ -2,7 +2,7 @@
  * CATALOG-BEHAVIOUR TRIPWIRE — the catalog's PROSE against the ENGINE (DEC-12).
  *
  * WHAT WAS MISSING. `config_docs_tripwire` proves the three generated artifacts
- * (install/sample.env, docs/config/config.md, docs/config/config_db.md) are
+ * (install/sample.env, docs/administration/configuration/config.md, docs/administration/configuration/config_db.md) are
  * byte-for-byte what `src/config/catalog/` renders — the catalog and the manual
  * cannot drift. NOTHING proved the catalog matches the CODE. So a sentence could
  * describe an engine behaviour that no function performs, and every gate stayed

@@ -37,7 +37,7 @@ is a pointer to another record, not a piece of text.
 
 > More: [Sections](../core/sections/index.md) ·
 > [Components](../core/components/index.md) ·
-> [Glossary](../core/glossary.md)
+> [Glossary](glossary.md)
 
 ---
 
@@ -87,7 +87,7 @@ description, its own variants and its own history, that nine hundred records
 point at.
 
 > More: [Thesaurus and hierarchies](../core/thesaurus/index.md) ·
-> [Hierarchy tools](../tools/using_hierarchy.md)
+> [Hierarchy tools](../using/tools/using_hierarchy.md)
 
 ---
 
@@ -127,7 +127,7 @@ served in another, and a translation workflow can run over the data plane
 without ever touching the program.
 
 > More: [Internationalization](../development/internationalization.md) ·
-> [Language tools](../tools/using_lang.md)
+> [Language tools](../using/tools/using_lang.md)
 
 ---
 
@@ -141,7 +141,7 @@ attribution defensible, a correction traceable and a disputed record
 reconstructible — and what lets you hand a collection to a colleague without
 losing the reasoning that produced it.
 
-> More: [Time machine](../tools/using_time_machine.md)
+> More: [Time machine](../using/tools/using_time_machine.md)
 
 ---
 
@@ -157,7 +157,7 @@ The same permissions govern every route into the data — the staff application,
 the public service and any AI assistant. See
 [Three doors into the same collection](the_three_doors.md).
 
-> More: [Users, profiles and permissions](../management/users_and_permissions.md)
+> More: [Users, profiles and permissions](../administration/users_and_permissions.md)
 
 ---
 
@@ -172,7 +172,7 @@ Large files are served directly by the web server rather than carried through
 the program, which is why a multi-gigabyte video is an ordinary case.
 
 > More: [Media pipeline](../development/media_pipeline.md) ·
-> [Transcription](../tools/using_transcription.md)
+> [Transcription](../using/tools/using_transcription.md)
 
 ---
 
@@ -200,7 +200,7 @@ traceable, translatable, openly processable. It is a way to argue about
 quality with evidence rather than impressions — useful in a funding
 application, and useful internally when deciding what to improve next.
 
-> More: [The Raspa Data Quality Score](../core/raspa_score.md)
+> More: [The Raspa Data Quality Score](raspa_score.md)
 
 ---
 
@@ -228,7 +228,7 @@ yours.
 | **MCP** | the agreed way an AI assistant may use Dédalo |
 
 > The full definitions, with their technical detail, are in the
-> [Glossary](../core/glossary.md).
+> [Glossary](glossary.md).
 
 ---
 
@@ -237,7 +237,7 @@ yours.
 - **[Dédalo in plain language](index.md)** — back to the four pictures.
 - **[Introduction and core hub](../core/index.md)** — the technical manual's
   starting point, if you want to keep reading.
-- **[Tools user guide](../tools/index.md)** — what your team will actually
+- **[Tools user guide](../using/tools/index.md)** — what your team will actually
   click on, tool by tool.
 - **[The v7 rewrite](../rewrite.md)** — why the engine was rebuilt, written for
   developers and humanities readers alike.

@@ -52,7 +52,7 @@
  *    fire on CORRECT documentation. `from_section_id` is out for the same reason — the
  *    intify transform's own `ADDRESS_KEYS` (`src/core/update/transform/section_id_intify.ts:57`)
  *    does not carry it.
- *  - Rule 1 matches the `key: "123"` form only, never `key = '123'`: `docs/core/sqo.md`
+ *  - Rule 1 matches the `key: "123"` form only, never `key = '123'`: `docs/api/sqo.md`
  *    correctly writes `locator_data->>'section_id' = '7'`, where `->>` RETURNS TEXT and the
  *    string comparison is right. A gate that reddened that would be teaching the wrong law.
  *  - Rule 2 is deliberately narrow: `"datos"` as a JSON key, `jsonb datos` / `datos jsonb`
@@ -129,7 +129,7 @@ const STRING_ADDRESS_ALLOWLIST: Record<string, Entry> = {
 	// The MARKER BYTE-FORM is pinned as a string ON PURPOSE, so the canonical int can never
 	// reach the marker bytes by accident: PersonMarkerLocator.section_id is `string`
 	// (src/core/components/component_text_area/tags_persons.ts:68-75).
-	'docs/core/importing_data.md': {
+	'docs/using/importing_data.md': {
 		reason:
 			'in-text mark literals — the person/reference marker byte-form pins a string section_id',
 	},
@@ -195,17 +195,8 @@ const STRING_ADDRESS_ALLOWLIST: Record<string, Entry> = {
  */
 const DATOS_AS_COLUMN = /"datos"|\bjsonb\s+datos\b|\bdatos\s+jsonb\b|\bdatos\s*(?:->>?|::)/;
 
-const DATOS_ALLOWLIST: Record<string, Entry> = {
-	// FROZEN DEBT, not a justified exception. The page keeps a single-payload mental model
-	// and labels it "the legacy / matrix_hierarchy shape", with the v7 typed-column split
-	// stated in an adjacent admonition — so it misleads no careful reader, but the erDiagram
-	// and the example record still SAY `datos`. Rewriting the diagram is the fix; until
-	// then the count may only fall.
-	'docs/core/architecture_overview.md': {
-		max: 3,
-		reason: 'frozen debt: the conceptual erDiagram + example record still name the v6 column',
-	},
-};
+// Rule 2 has NO exceptions: the last page (architecture_overview.md) was rewritten to v7 typed columns.
+const DATOS_ALLOWLIST: Record<string, Entry> = {};
 
 // ---------------------------------------------------------------------------
 // RULE 3 — `relation` (singular, keyed by tipo), never a flat `relations` array
@@ -270,7 +261,7 @@ const RESULT_ALLOWLIST: Record<string, Entry> = {
 		max: 1,
 		reason: 'frozen debt: the create-record example still prints the v1 {result,msg,errors}',
 	},
-	'docs/core/sqo.md': {
+	'docs/api/sqo.md': {
 		max: 1,
 		reason: 'frozen debt: the mixed-section search example wraps in v1 result',
 	},
@@ -286,16 +277,16 @@ const RESULT_ALLOWLIST: Record<string, Entry> = {
 		max: 3,
 		reason: 'frozen debt: the widget response + two failure examples are v1 envelopes',
 	},
-	'docs/core/ai/assistant/install.md': {
+	'docs/administration/ai/assistant/install.md': {
 		max: 2,
 		reason: 'frozen debt: the agent_models health-check + its failure line are v1 envelopes',
 	},
-	'docs/core/ai/assistant/cookbook.md': {
+	'docs/administration/ai/assistant/cookbook.md': {
 		max: 2,
 		reason:
 			'frozen debt: one v1 envelope, plus a NESTED per-op `result` the depth-blind rule counts',
 	},
-	'docs/core/rqo.md': {
+	'docs/api/rqo.md': {
 		max: 1,
 		reason: 'frozen debt: the create example prints {"result":"128"} — v1 AND a string address',
 	},
@@ -495,7 +486,6 @@ describe('docs locator/storage/envelope shape tripwire', () => {
 		expect(Object.keys(STRING_ADDRESS_ALLOWLIST).sort()).toEqual([
 			'docs/core/components/component_external.md',
 			'docs/core/components/component_text_area.md',
-			'docs/core/importing_data.md',
 			'docs/core/locator.md',
 			'docs/core/system/external_services.md',
 			'docs/core/system/observers.md',
@@ -504,21 +494,22 @@ describe('docs locator/storage/envelope shape tripwire', () => {
 			'docs/diffusion/parsers.md',
 			'docs/diffusion/publication_api/publication_api.md',
 			'docs/install/upgrading.md',
+			'docs/using/importing_data.md',
 		]);
-		expect(Object.keys(DATOS_ALLOWLIST).sort()).toEqual(['docs/core/architecture_overview.md']);
+		expect(Object.keys(DATOS_ALLOWLIST)).toEqual([]);
 		// Rule 3 has NO exceptions: the carve-out is in the MEASURE (node arrays reference
 		// definitions by tipo and are never flagged), not in a list of pardoned pages.
 		expect(Object.keys(RELATIONS_ALLOWLIST)).toEqual([]);
 		expect(Object.keys(RESULT_ALLOWLIST).sort()).toEqual([
-			'docs/core/ai/assistant/cookbook.md',
-			'docs/core/ai/assistant/install.md',
+			'docs/administration/ai/assistant/cookbook.md',
+			'docs/administration/ai/assistant/install.md',
+			'docs/api/rqo.md',
+			'docs/api/sqo.md',
 			'docs/core/areas/area_thesaurus.md',
 			'docs/core/components/component_info.md',
 			'docs/core/components/component_info_cookbook.md',
 			'docs/core/request_config_examples.md',
-			'docs/core/rqo.md',
 			'docs/core/sections/section_list.md',
-			'docs/core/sqo.md',
 			'docs/development/tools/reference/tool_hierarchy.md',
 			'docs/development/tools/reference/tool_import_dedalo_csv.md',
 			'docs/development/tools/reference/tool_import_files.md',

@@ -30,7 +30,7 @@ For the wider picture of how Dédalo abstracts the database, read the
 [introduction](../index.md) and the [ontology documentation](../ontology/index.md).
 For the fields that live inside a section, see
 [components](../components/index.md). Terms used here (tipo, model, locator,
-subdata…) are collected in the [glossary](../glossary.md) and the overall design
+subdata…) are collected in the [glossary](../../understanding/glossary.md) and the overall design
 is described in the [architecture overview](../architecture_overview.md).
 
 ---
@@ -591,6 +591,6 @@ abstraction.
 - [Request config](../request_config.md) — how a section's context/subcontext is
   built and delivered to the client.
 - [Locator](../locator.md) — the pointer type stored in the `relation` column.
-- [Glossary](../glossary.md) — definitions of tipo, model, subdata, ddo, etc.
+- [Glossary](../../understanding/glossary.md) — definitions of tipo, model, subdata, ddo, etc.
 - [Architecture overview](../architecture_overview.md) — where sections sit in
   the wider system.

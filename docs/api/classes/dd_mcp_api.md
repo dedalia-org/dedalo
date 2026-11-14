@@ -1,6 +1,6 @@
 # dd_mcp_api
 
-> See also: [JSON API v1](../dedalo_api_v1.md) · [The assistant](../../core/ai/assistant/index.md) · [dispatch](dispatch.md)
+> See also: [JSON API v1](../dedalo_api_v1.md) · [The assistant](../../administration/ai/assistant/index.md) · [dispatch](dispatch.md)
 
 The in-process bridge between the web client's assistant (`tool_assistant`) and the shared MCP tool registry + agent loop. Unlike the previous engine's proxy to a separate MCP server process, this handler serves the JSON-RPC envelope in-process from the same tool registry the stdio server registers — no child process, no cookie forwarding.
 
@@ -16,7 +16,7 @@ Registered actions (`src/core/api/dispatch.ts`): `mcp_proxy`, `agent_models`, `a
 - With the switch on, every action also requires the caller's **profile to grant the `tool_assistant` tool**; otherwise it answers `403` with the error code `tool.not_authorized`, before the action runs (so `agent_chat_stream` answers JSON and never opens a stream). Global administrators are not exempt; only the root account holds every tool. The check wraps every action of this class by construction, so a new action cannot be added without it.
 - Every call runs under a **session** and passes the **CSRF** gate (none of these actions is login- or CSRF-exempt), as the logged-in user's principal — never a service principal.
 - **Write capability** requires `DEDALO_AGENT_ALLOW_WRITE=true` and is **denied to global-admin principals** per request (the confused-deputy wall); `DEDALO_AGENT_WRITE_SECTIONS` narrows the writable sections. Write mode returns a change plan for confirmation — the loop never writes on its own.
-- Egress: when the chosen catalog model's egress class is `external`, the loop gates every record-content tool call through the default-deny egress policy, so restricted repository content never reaches a third-party provider. Full config: [the assistant docs](../../core/ai/assistant/configuration.md).
+- Egress: when the chosen catalog model's egress class is `external`, the loop gates every record-content tool call through the default-deny egress policy, so restricted repository content never reaches a third-party provider. Full config: [the assistant docs](../../administration/ai/assistant/configuration.md).
 
 ## mcp_proxy
 

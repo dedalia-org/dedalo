@@ -1,4 +1,4 @@
-# Dédalo API: RQO field mapping
+# RQO field mapping
 
 > See also: [JSON API v1](dedalo_api_v1.md) · [Class reference](classes/dd_core_api.md) · [The diffusion engine](../diffusion/native_engine.md)
 

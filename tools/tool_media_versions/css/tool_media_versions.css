@@ -71,6 +71,14 @@
 }
 .wrapper_tool.tool_media_versions > .content_data > .main_element_container {
   width: 100%;
+  position: relative;
+}
+.wrapper_tool.tool_media_versions > .content_data > .main_element_container.showing_thumb > .wrapper_component > .content_data > .content_value {
+  visibility: hidden;
+}
+.wrapper_tool.tool_media_versions > .content_data > .main_element_container > .thumb_preview {
+  position: absolute;
+  object-fit: scale-down;
 }
 .wrapper_tool.tool_media_versions > .content_data > .main_element_container .wrapper_component > .content_data > .content_value {
   height: var(--media_min_height);

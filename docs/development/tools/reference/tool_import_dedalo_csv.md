@@ -1,12 +1,12 @@
 # tool_import_dedalo_csv
 
-Imports CSV files into Dédalo sections — notably `tool_export` `dedalo_raw` exports loaded back after a spreadsheet edit — conforming each cell per-component (typed input, not a verbatim restore; the lossless copy is the [archive door](../../../core/exporting_data.md#the-archive-door)), with multi-language support and time-machine tracking.
+Imports CSV files into Dédalo sections — notably `tool_export` `dedalo_raw` exports loaded back after a spreadsheet edit — conforming each cell per-component (typed input, not a verbatim restore; the lossless copy is the [archive door](../../../using/exporting_data.md#the-archive-door)), with multi-language support and time-machine tracking.
 
 ## What it does / why & when to use it
 
 `tool_import_dedalo_csv` ingests a CSV file where the first row is a header of component ontology tipos (plus a mandatory `section_id` column) and every following row is a record. For each cell it asks the target component to *conform* the raw text into stored v7 data, then creates or updates the matching record.
 
-It is the import counterpart of [`tool_export`](tool_export.md): a section exported in the `dedalo_raw` format (cells wrapped as `{"dedalo_data": <stored value>}`) re-imports unchanged, so the tool is the backbone of export → edit → re-import workflows. It also accepts hand-authored CSVs using canonical v7 dato, legacy v6 arrays, lang-keyed objects, or simple flat strings — see [Importing data](../../../core/importing_data.md) for the full per-component format catalogue.
+It is the import counterpart of [`tool_export`](tool_export.md): a section exported in the `dedalo_raw` format (cells wrapped as `{"dedalo_data": <stored value>}`) re-imports unchanged, so the tool is the backbone of export → edit → re-import workflows. It also accepts hand-authored CSVs using canonical v7 dato, legacy v6 arrays, lang-keyed objects, or simple flat strings — see [Importing data](../../../using/importing_data.md) for the full per-component format catalogue.
 
 Concrete heritage scenario: a numismatics team exports the *Types* section (`numisdata3`) to CSV with `tool_export` in `dedalo_raw` format, cleans the legend transcriptions and date ranges in a spreadsheet, then re-imports the file here. Because each row carries its `section_id`, existing Type records are updated in place (not duplicated); empty cells clear the corresponding component for that record (replace mode, the default); and the whole batch is reversible, exactly, from the bulk-process record it creates.
 
@@ -15,10 +15,10 @@ Key behaviours to know before importing:
 - The first column must resolve to `section_id` — it is the record key. A row with an empty/invalid `section_id` is skipped and reported.
 - Every column has a **mode** (`ar_columns_map[i].import_mode`): `replace` (the default) or `append` — see [Append mode](#append-mode-import_mode).
 - In replace mode an **empty cell clears** the existing component data for that record (and that data language, when translatable). Omit a column entirely, or set it to append, to leave a component untouched.
-- A **multi-language cell** (lang-keyed object or flat items carrying `lang` — both v6 and v7 raw exports) imports **every language it carries**; each language is saved as its own slice, and languages not present in the cell are preserved. See [Multiple languages](../../../core/importing_data.md#multiple-languages).
+- A **multi-language cell** (lang-keyed object or flat items carrying `lang` — both v6 and v7 raw exports) imports **every language it carries**; each language is saved as its own slice, and languages not present in the cell are preserved. See [Multiple languages](../../../using/importing_data.md#multiple-languages).
 - A CSV header must match its mapped column name **exactly** (including suffixes like `tch56_dmy` or `tch191_rsc723`); mismatched columns are silently skipped.
 - Three report channels: **`failed`** (the cell was rejected and NOT written — the record keeps its previous value), **`warnings`** (the cell WAS written but needs attention, e.g. a `select_lang` code that resolves but is not one of the project languages) and **`notices`** (what the engine DID to the file in order to read it — today, an encoding conversion). A notice is not a defect in the file and is never rendered as one: the panel paints `errors` red, and a successful conversion is not a failure.
-- A file that cannot be trusted is refused whole, before anything is written: a row whose width disagrees with the header (every value after the mismatch would land in the wrong component), a quoted value that is never closed, and an upload that cannot be honestly converted to text. Nothing is imported, and the refusal names the file — and the row, when a row is what is wrong. See [Importing data](../../../core/importing_data.md#format).
+- A file that cannot be trusted is refused whole, before anything is written: a row whose width disagrees with the header (every value after the mismatch would land in the wrong component), a quoted value that is never closed, and an upload that cannot be honestly converted to text. Nothing is imported, and the refusal names the file — and the row, when a row is what is wrong. See [Importing data](../../../using/importing_data.md#format).
 - A component with no flat-value form (media, for instance) **refuses** a flat cell rather than writing it: a refused cell leaves the existing value intact, where a "conform to nothing and save" would silently clear it.
 - The report's `created` / `updated` are **arrays of `section_id`s**, not counts — the panel lists them and offers "copy as column" so you can paste them straight into a search.
 
@@ -142,7 +142,7 @@ const rqo = {
 
 ### The CSV being imported
 
-A `dedalo_raw` export wraps each cell with `dedalo_data` (one column per component, [dataframes](../../../core/importing_data.md#dataframe-columns) included); the `section_id` column stays a plain int (the record key) and empty cells clear data:
+A `dedalo_raw` export wraps each cell with `dedalo_data` (one column per component, [dataframes](../../../using/importing_data.md#dataframe-columns) included); the `section_id` column stays a plain int (the record key) and empty cells clear data:
 
 ```text
 section_id;numisdata81;numisdata27
@@ -150,7 +150,7 @@ section_id;numisdata81;numisdata27
 2;"{""dedalo_data"":[{""value"":""key2""}]}";"{""dedalo_data"":[{""value"":""685a""}]}"
 ```
 
-Hand-authored CSVs can skip the wrapper and use flat strings instead (`062`, a date as `2023/10/26`, a relation id list `1,4,6`, …) — see [Importing data](../../../core/importing_data.md).
+Hand-authored CSVs can skip the wrapper and use flat strings instead (`062`, a date as `2023/10/26`, a relation id list `1,4,6`, …) — see [Importing data](../../../using/importing_data.md).
 
 ### The report
 
@@ -204,7 +204,7 @@ While the job runs, each frame instead carries an `ImportProgressFrame`:
 - [tool_import_files](tool_import_files.md) — ingest media files (not CSV record data).
 - [tool_import_marc21](tool_import_marc21.md), [tool_import_rdf](tool_import_rdf.md), [tool_import_zotero](tool_import_zotero.md) — format-specific importers.
 - [tool_propagate_component_data](tool_propagate_component_data.md) — SQO-driven bulk component edits with the same bulk-process / time-machine reversion model.
-- [Importing data](../../../core/importing_data.md) — the per-component CSV format catalogue, the `dedalo_data` wrapper, dataframe columns, empty-cell semantics.
-- [Exporting data](../../../core/exporting_data.md) — the export side of the round-trip.
+- [Importing data](../../../using/importing_data.md) — the per-component CSV format catalogue, the `dedalo_data` wrapper, dataframe columns, empty-cell semantics.
+- [Exporting data](../../../using/exporting_data.md) — the export side of the round-trip.
 - [Creating tools](../creating_tools.md), [Server contract](../server_contract.md) — the tool model and the `ToolServerModule` contract.
 - Source: `tools/tool_import_dedalo_csv/server/index.ts`; import engine: `src/core/tools/{import_csv,import_conform,import_data,import_csv_execute,import_wire}.ts`; the write path: `src/core/section/record/{create_record,save_component}.ts`.

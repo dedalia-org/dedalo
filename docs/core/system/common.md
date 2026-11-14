@@ -4,7 +4,7 @@
 > [Sections / `section`](../sections/section.md) ·
 > [Components](../components/index.md) ·
 > [Base classes](../components/base_classes.md) ·
-> [request_config](../request_config.md) · [dd_object](../dd_object.md)
+> [request_config](../request_config.md) · [dd_object](../../api/dd_object.md)
 
 Dédalo has **no base class and no per-element object hierarchy**. Everything the
 server knows about an element — its identity, its model, its context, its
@@ -19,7 +19,7 @@ it, read [`section`](../sections/section.md) and
 ## Role
 
 Identity is **data**, not object state: `tipo`, `section_tipo`, `section_id`,
-`mode`, `lang`, `model` and `view` travel on the [RQO](../rqo.md) and on the
+`mode`, `lang`, `model` and `view` travel on the [RQO](../../api/rqo.md) and on the
 resolved record. There is nothing to instantiate. Each responsibility is owned by
 one module:
 
@@ -96,7 +96,7 @@ answer. Adding a model means adding a descriptor — never subclassing an engine
 The engine layer is the *describe* side of "the server describes, the client
 draws". `buildStructureContext()` assembles the ontology-derived description —
 label, model, mode, properties, css, permissions, tools, buttons, request_config
-— into a [`dd_object`](../dd_object.md) (`typo: 'ddo'`). The values come from the
+— into a [`dd_object`](../../api/dd_object.md) (`typo: 'ddo'`). The values come from the
 section-read and relations engines. The two are packed into one `{context, data}`
 datum at emit time.
 
@@ -241,7 +241,7 @@ The engine layer is the seam between the ontology and every emitted datum:
   (`src/core/area/`, `ontology/resolver.ts`) — the shared
   identity/context/permission surface is a function call.
 - **Structure context** and **request_config** feed the
-  [dd_object](../dd_object.md) and the [request_config](../request_config.md)
+  [dd_object](../../api/dd_object.md) and the [request_config](../request_config.md)
   pipeline that produces the JSON the client renders.
 - **Permissions** are enforced at the API dispatch gates.
 
@@ -311,6 +311,6 @@ clearPermissionsCache(userId);  // after a user's permissions change
   — the per-model descriptors the horizontal engines read.
 - [request_config](../request_config.md) — the full contract behind the v5/v6
   builders.
-- [dd_object (ddo)](../dd_object.md) — the object `buildStructureContext()`
+- [dd_object (ddo)](../../api/dd_object.md) — the object `buildStructureContext()`
   returns.
 - [Locator](../locator.md) — the pointer type the relation engines resolve.

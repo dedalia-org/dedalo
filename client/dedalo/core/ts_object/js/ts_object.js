@@ -2686,6 +2686,9 @@ const hilite_search_results = function(node_info, hilite_set, total_found) {
 	return new Promise((resolve) => {
 
 		dd_request_idle_callback(async () => {
+			// (!) try/finally: a throw in here left the Promise pending forever, and the
+			// awaiting navigate() with it ('loading' stuck, every later search refused)
+			try {
 
 			// Set node to scroll. Used to scroll page when is needed.
 			let node_to_scroll = null
@@ -2733,7 +2736,11 @@ const hilite_search_results = function(node_info, hilite_set, total_found) {
 				remove_time	: total_found == 1 ? 1000 : 6000
 			})
 
-			resolve(true)
+			} catch (error) {
+				console.error('[hilite_search_results]', error);
+			} finally {
+				resolve(true)
+			}
 		})
 	})
 }//end hilite_search_results

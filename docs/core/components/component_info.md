@@ -415,7 +415,7 @@ widget → the widget's own `wrapper_widget` node. `content_data` uses
 
 **Import.** `component_info` owns no user-entered data and defines no import
 handling — there is nothing to import; the value is recomputed each load. See
-[importing data](../importing_data.md).
+[importing data](../../using/importing_data.md).
 
 **Export.** `component_info` declares the `info` flat-value family: every
 export format computes the widgets **live** (the same rule as the read — a
@@ -436,7 +436,7 @@ collects the widget's own items whose `id` or `widget_id` equals the output
 - the relation_list panel shows every output's values.
 
 Async widgets (`user_activity`) are skipped exactly as in the read, so their
-outputs export empty. See [exporting data](../exporting_data.md).
+outputs export empty. See [exporting data](../../using/exporting_data.md).
 
 **Publication.** A diffusion field that reads a `component_info` publishes the
 live compute too: one language-neutral item per computed entry, the whole

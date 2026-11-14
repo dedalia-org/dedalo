@@ -8,8 +8,8 @@
  *
  *   install/sample.env            the copy-paste census (installer drops a copy at
  *                                 ../private/sample.env)
- *   docs/config/config.md         the settings reference
- *   docs/config/config_db.md      the database settings reference
+ *   docs/administration/configuration/config.md         the settings reference
+ *   docs/administration/configuration/config_db.md      the database settings reference
  *
  * WHY THIS EXISTS. Before it, defaults were inline literals at ~160 call sites, the key
  * list lived in migration_map.ts, and the prose lived in config.md — three copies, one

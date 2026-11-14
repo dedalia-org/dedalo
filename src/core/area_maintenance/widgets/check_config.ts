@@ -2,7 +2,7 @@
  * check_config widget — TS-NATIVE: reports THIS server's config sources
  * (.env, ts_state.json, the session store) and DB status in the PHP panel's
  * shape; the PHP widget reports the PHP install's files, which this server
- * must not misreport as its own. State flags (maintenance/recovery/
+ * must not misreport as its own. State flags (maintenance/
  * notification) persist in the TS server-state store.
  *
  * It also carries the ONE cross-subsystem coherence row the dashboard needs:
@@ -288,7 +288,6 @@ async function computeCheckConfig(): Promise<{
 		} | null;
 		runtime_mode: {
 			maintenance: boolean;
-			recovery: boolean;
 			notification: boolean;
 			diffusion_native: boolean;
 			dev_mode: boolean;
@@ -451,11 +450,10 @@ async function computeCheckConfig(): Promise<{
 	}
 
 	// --- runtime mode strip: a read-only "what mode am I in" snapshot for EVERY
-	// admin (the root-only forms only TOGGLE maintenance/recovery/notification). ---
+	// admin (the root-only forms only TOGGLE maintenance/notification). ---
 	const state = getServerState();
 	const runtimeMode = {
 		maintenance: state.maintenance_mode === true,
-		recovery: state.recovery_mode === true,
 		notification:
 			state.notification !== false && state.notification !== '' && state.notification != null,
 		// readBool, not readEnv==='true': see diffusion_server_control — the
@@ -515,8 +513,8 @@ async function checkConfigEagerValue(): Promise<Record<string, unknown> | null> 
 	}
 }
 
-/** set_maintenance_mode / set_recovery_mode — boolean state flags (PHP contract). */
-function checkConfigSetState(flag: 'maintenance_mode' | 'recovery_mode'): WidgetHandler {
+/** set_maintenance_mode — boolean state flag (PHP contract). */
+function checkConfigSetState(flag: 'maintenance_mode'): WidgetHandler {
 	return async (options) => {
 		const value = options.value;
 		if (typeof value !== 'boolean') {
@@ -550,7 +548,6 @@ export const widget: WidgetModule = {
 	},
 	apiActions: {
 		set_maintenance_mode: checkConfigSetState('maintenance_mode'),
-		set_recovery_mode: checkConfigSetState('recovery_mode'),
 		set_notification: checkConfigSetNotification,
 	},
 	getValue: checkConfigGetValue,

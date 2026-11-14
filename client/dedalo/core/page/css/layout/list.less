@@ -524,6 +524,7 @@
 	div.wrapper_component {
 		display: inline-block;
 		flex: 1 1;
+		min-width: 0; // flex item: auto min = longest word, which overflowed a fixed ontology width (dd542 'Qué' 5rem) onto the next column
 		padding: 0px;
 		margin: 0px;
 		height: 100%;
@@ -536,6 +537,7 @@
 		span {
 			padding: @common_padding;
 			display: inline-block;
+			max-width: 100%; // lets break-word act in a fixed track; % is ignored for min-content, so 1fr tracks keep their size
 			overflow-wrap: break-word; // not word-break (see view_line_portal.less .column)
 
 			@media screen and (max-width: @width_break_point_0) {

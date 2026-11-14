@@ -356,7 +356,7 @@ shape the client reads (`ok:false`, `error.code`).
 - **[Sections](../sections/index.md)** and **[Components](../components/index.md#permissions)**
   are read at the levels `getPermissions()` returns; the dispatch read gate drops
   any element resolving to `< 1`.
-- **[SQO / search](../sqo.md)** is the per-record gate's twin: the search
+- **[SQO / search](../../api/sqo.md)** is the per-record gate's twin: the search
   assembler's `buildProjectsFilter` applies the same `component_filter` ∩
   user-projects logic over a *query*, while the write handlers apply it to a
   *single record*.
@@ -416,7 +416,7 @@ clearPermissionsCache(userId);
 - [Components — Permissions](../components/index.md#permissions) — the 0–3 levels
   from the component's point of view.
 - [Sections](../sections/index.md) — the section read and create/save gates.
-- [SQO](../sqo.md) — the projects filter, the query-time twin of the per-record
+- [SQO](../../api/sqo.md) — the projects filter, the query-time twin of the per-record
   scope check.
 - [Architecture overview](../architecture_overview.md) — where authorization sits
   in the request lifecycle.

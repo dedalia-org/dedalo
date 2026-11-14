@@ -743,7 +743,7 @@ describe('import_files: an identifier reaches the right record or none', () => {
 	/**
 	 * The round trip the manual promises ("the identifier field is what lets a
 	 * re-import update the same records instead of duplicating them",
-	 * docs/tools/using_import_marc21.md): the created record carries the control
+	 * docs/using/tools/using_import_marc21.md): the created record carries the control
 	 * number, so the SECOND run finds it. Without this the fix would be honest and
 	 * useless — every import a fresh duplicate.
 	 */

@@ -424,8 +424,8 @@ the source is unreachable the cell exports empty AND the model is reported in
 the export's unresolved list, rather than shipping a silent blank column.
 
 For the generic literal import/export contract and CSV formats, see
-[../importing_data.md](../importing_data.md) and
-[../exporting_data.md](../exporting_data.md).
+[../importing_data.md](../../using/importing_data.md) and
+[../exporting_data.md](../../using/exporting_data.md).
 
 ## Notes
 

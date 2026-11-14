@@ -1,6 +1,6 @@
 # Introduction
 
-> See also: [Architecture overview](architecture_overview.md) · [Glossary](glossary.md) · [Ontology](ontology/index.md)
+> See also: [Architecture overview](architecture_overview.md) · [Glossary](../understanding/glossary.md) · [Ontology](ontology/index.md)
 
 Dédalo is an open-source Cultural Heritage Management System. This page introduces what it is, why it exists, and the nomenclature you need before reading any other core document.
 
@@ -30,7 +30,7 @@ However, not all data are equally valid, the data must meet stringent quality st
 
 The overarching objective is to construct robust, computationally viable data models that comprehensively encapsulate the multidimensional facets of cultural heritage: its physical artifacts, intangible attributes, dynamic processes, and the socio-historical narratives embedded within.
 
-To assess data quality across projects (including Dédalo itself), Dédalo proposes the [Raspa Data Quality Score](raspa_score.md) as an evaluation metric. ![raspa](assets/20250715_175300_paw.svg){width="20"}
+To assess data quality across projects (including Dédalo itself), Dédalo proposes the [Raspa Data Quality Score](../understanding/raspa_score.md) as an evaluation metric. ![raspa](assets/20250715_175300_paw.svg){width="20"}
 
 ## Dédalo ecosystem
 
@@ -249,7 +249,7 @@ You can find specific documentation on the [Dédalo ontology here](ontology/inde
 - **[Sections](sections/index.md)** — the table abstraction (a group of records of the same kind) in depth.
 - **[Components](components/index.md)** — the field abstraction: typologies, inheritance, datum, and the full per-component reference.
 - **[Browser client](client/index.md)** — the thin DOM builder over the server: bootstrap, instance registry, render layer, event bus and RQO transport. Per-page references: [lifecycle](client/lifecycle.md), [instances](client/instances.md), [render & views](client/render_and_views.md), [data_manager](client/data_manager.md), [event_manager](client/event_manager.md).
-- **[Glossary](glossary.md)** — the full Dédalo nomenclature (section, component, tipo, locator, sqo, rqo, ddo, dd_date, …).
+- **[Glossary](../understanding/glossary.md)** — the full Dédalo nomenclature (section, component, tipo, locator, sqo, rqo, ddo, dd_date, …).
 
 ### Domains
 
@@ -269,19 +269,19 @@ The `request_config` system defines how sections and components retrieve and dis
 
 ### Query objects
 
-- **[Request Query Object (RQO)](rqo.md)** — the API request structure.
-- **[Search Query Object (SQO)](sqo.md)** — the database query abstraction.
+- **[Request Query Object (RQO)](../api/rqo.md)** — the API request structure.
+- **[Search Query Object (SQO)](../api/sqo.md)** — the database query abstraction.
 
 ### Semantic search, RAG & the AI Assistant
 
-- **[RAG & semantic search](ai/rag.md)** — the meaning layer over the structured archive: why vectorizing cultural heritage and memory matters, how semantic search and Retrieval-Augmented Generation change humanities research, and how the subsystem (a separate pgvector store, structure-aware semantic chunking, hybrid retrieval, per-record ACL, grounded Q&A with citations) plugs into the Dédalo data model. Written for both researchers and developers.
-- **[AI Assistant](ai/assistant/index.md)** — the in-app chat agent built on top of that layer: a thin client over a server-side tool-use loop that searches, reads, explains and (with confirmation) edits records in natural language — under the same permissions as the human, with an **egress gate** that keeps restricted records off external providers. Covers [install](ai/assistant/install.md), [connecting a cloud or local model](ai/assistant/connecting_models.md), [configuration](ai/assistant/configuration.md), [privacy & security](ai/assistant/privacy_and_security.md), [use cases](ai/assistant/use_cases.md) and an HTTP/SSE [cookbook](ai/assistant/cookbook.md).
+- **[RAG & semantic search](../administration/ai/rag.md)** — the meaning layer over the structured archive: why vectorizing cultural heritage and memory matters, how semantic search and Retrieval-Augmented Generation change humanities research, and how the subsystem (a separate pgvector store, structure-aware semantic chunking, hybrid retrieval, per-record ACL, grounded Q&A with citations) plugs into the Dédalo data model. Written for both researchers and developers.
+- **[AI Assistant](../administration/ai/assistant/index.md)** — the in-app chat agent built on top of that layer: a thin client over a server-side tool-use loop that searches, reads, explains and (with confirmation) edits records in natural language — under the same permissions as the human, with an **egress gate** that keeps restricted records off external providers. Covers [install](../administration/ai/assistant/install.md), [connecting a cloud or local model](../administration/ai/assistant/connecting_models.md), [configuration](../administration/ai/assistant/configuration.md), [privacy & security](../administration/ai/assistant/privacy_and_security.md), [use cases](../administration/ai/assistant/use_cases.md) and an HTTP/SSE [cookbook](../administration/ai/assistant/cookbook.md).
 
 ### Data objects
 
 - **[Data model](data_model/index.md)** — how a value lives in Dédalo: the JSONB foundation, the typed `matrix` columns and the consolidated v7 value item, plus the per-type pages.
 - **[Value item](data_model/value_item.md)** — the consolidated `{id, lang?, value}` envelope every component reads and writes.
-- **[dd_object (ddo)](dd_object.md)** — the normalized object behind every request.
+- **[dd_object (ddo)](../api/dd_object.md)** — the normalized object behind every request.
 - **[Locator](locator.md)** — the pointer between data (the value item of every relation component).
 - **[dd_date](data_model/dd_date.md)** — date representation.
 

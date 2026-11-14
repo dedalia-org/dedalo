@@ -6,8 +6,8 @@
  *
  *   install/sample.env         the copy-paste census (the installer drops a copy at
  *                              ../private/sample.env — see core/install/config_persist.ts)
- *   docs/config/config.md      the settings reference
- *   docs/config/config_db.md   the database settings reference
+ *   docs/administration/configuration/config.md      the settings reference
+ *   docs/administration/configuration/config_db.md   the database settings reference
  *
  * WHY THIS EXISTS. `../private/sample.env` was PHP machinery (a config catalog, a renderer
  * class, a CLI, and an installer hook) that was NOT ported at the cutover. The TS engine
@@ -103,7 +103,7 @@ describe('config docs: the catalog is the single source of truth', () => {
 	});
 
 	test('catalog prose is PHP-FREE (docs_current_engine_tripwire would fail on it)', () => {
-		// The `doc` of an operator-facing key is rendered STRAIGHT into docs/config/config.md,
+		// The `doc` of an operator-facing key is rendered STRAIGHT into docs/administration/configuration/config.md,
 		// where docs_current_engine_tripwire bans /php/i outside a set-equality allowlist that
 		// config.md is NOT on. Catching it here names the catalog entry; catching it there
 		// reports a mysterious failure about the product manual. Legacy spellings go in
@@ -150,8 +150,8 @@ describe('config docs: the catalog is the single source of truth', () => {
 	});
 
 	for (const page of ['config', 'config_db'] as const) {
-		test(`docs/config/${page}.md is exactly what the catalog renders`, () => {
-			const path = join(REPO_ROOT, 'docs/config', `${page}.md`);
+		test(`docs/administration/configuration/${page}.md is exactly what the catalog renders`, () => {
+			const path = join(REPO_ROOT, 'docs/administration/configuration', `${page}.md`);
 			const onDisk = readFileSync(path, 'utf8');
 			// Hand-edit the generated region and this fails: the only way to change these
 			// pages is to change the catalog and run `bun run config:gen`.

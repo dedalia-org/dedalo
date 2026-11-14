@@ -244,9 +244,9 @@ The DRACO geometry and KTX2 texture decoders are fetched from the same registry 
 }]
 ```
 
-See [importing data](../importing_data.md).
+See [importing data](../../using/importing_data.md).
 
-**Export.** The export path (`src/diffusion/export/atoms.ts`) emits a **single export atom** carrying the 3D model URL with `cell_type` `img`. In `edit` mode it is the default-quality (`web`) model URL; otherwise it is the **posterframe** URL. URL absoluteness comes from the `export_context` (`absolute_urls`). When the media is external (`external_source`), diffusion/export surface the external URI instead. See [exporting data](../exporting_data.md).
+**Export.** The export path (`src/diffusion/export/atoms.ts`) emits a **single export atom** carrying the 3D model URL with `cell_type` `img`. In `edit` mode it is the default-quality (`web`) model URL; otherwise it is the **posterframe** URL. URL absoluteness comes from the `export_context` (`absolute_urls`). When the media is external (`external_source`), diffusion/export surface the external URI instead. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

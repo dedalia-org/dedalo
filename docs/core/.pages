@@ -1,0 +1,19 @@
+# Sidebar order = the link order of this directory's index.md hub.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+title: Engine reference
+nav:
+  - index.md
+  - architecture_overview.md
+  - data_model
+  - locator.md
+  - sections
+  - components
+  - client
+  - areas
+  - ontology
+  - ui
+  - system
+  - request_config.md
+  - request_config_examples.md
+  - thesaurus
+  - ...

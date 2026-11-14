@@ -77,7 +77,7 @@ const EXEMPT: ReadonlyArray<{ file: string; count: number; reason: string }> = [
 		file: 'tools/tool_print/js/tool_print.js',
 		count: 2,
 		reason:
-			"ddo_map `limit: 0` is the DDO pagination field (docs/core/dd_object.md): all locators of ONE record's stored relation, bounded by the record — not a search limit",
+			"ddo_map `limit: 0` is the DDO pagination field (docs/api/dd_object.md): all locators of ONE record's stored relation, bounded by the record — not a search limit",
 	},
 	{
 		file: 'client/dedalo/core/paginator/js/paginator.js',

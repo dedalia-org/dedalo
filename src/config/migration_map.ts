@@ -1,7 +1,7 @@
 /**
  * v6 → v7 CONFIG MIGRATION MAP — the single source of truth for both
  * `scripts/migrate_v6_config.ts` and the change-reference table in
- * `docs/config/whats_changed_v7.md`.
+ * `docs/whats_changed_v7.md`.
  *
  * A v6 install declares ~200 `define()` constants in `<dedalo>/config/`. The TS
  * engine reads env keys from `../private/.env`. Every legacy constant lands in
@@ -385,10 +385,9 @@ const DROPPED: Readonly<Record<string, MigrationRule>> = {
 			'DEDALO_MAINTENANCE_MODE',
 			'DEDALO_NOTIFICATION',
 			'DEDALO_TEST_INSTALL',
-			// The KEY is gone, the FEATURE is live: recovery mode is a
-			// ServerState field (core/resolve/server_state.ts), flipped by the
-			// check_config widget's set_recovery_mode and emitted to the client
-			// by resolve/environment.ts. Never read "dropped" as "unported".
+			// The KEY and the FEATURE are gone: PHP's table-swap recovery mode
+			// was RETIRED (WC-2026-11-12-recovery-mode-retired). A damaged
+			// ontology is repaired offline by scripts/ontology_recover.ts.
 			'DEDALO_RECOVERY_MODE',
 			// the *_CUSTOM twins a real install's config_core.php carries
 			'DEDALO_MAINTENANCE_MODE_CUSTOM',

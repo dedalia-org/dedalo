@@ -1,6 +1,6 @@
 # Server-side observers
 
-> See also: [Events](../events.md) (the client-side `event_manager`) · [SQO](../sqo.md) · [search](search.md) · [tm_record](tm_record.md) · [component_info](../components/component_info.md) · [component_info cookbook R6](../components/component_info_cookbook.md#r6--wire-observers-so-the-widget-recomputes-on-saves) · [component_portal](../components/component_portal.md) · [System hub](index.md)
+> See also: [Events](../events.md) (the client-side `event_manager`) · [SQO](../../api/sqo.md) · [search](search.md) · [tm_record](tm_record.md) · [component_info](../components/component_info.md) · [component_info cookbook R6](../components/component_info_cookbook.md#r6--wire-observers-so-the-widget-recomputes-on-saves) · [component_portal](../components/component_portal.md) · [System hub](index.md)
 
 Some component values are not typed by anyone — they are **derived**. A type
 record's *Coins* portal lists every coin that points at it. A thesaurus term's
@@ -229,7 +229,7 @@ For an info observer (and the relay and no-op shapes) the targets come from
 | --- | --- |
 | The saved record | `server.filter: false`, no `perform` (only an info-model observer recomputes on it; anything else is a no-op — see the perform table) |
 | Everything the just-saved data points at | `server.config.use_observable_dato: true` |
-| Every record referencing the saved one | `server.filter` is an [SQO](../sqo.md) object: a search over the **host section** in which every clause's `q` becomes the saved record's locator, with `from_component_tipo` taken from the first clause's last path step |
+| Every record referencing the saved one | `server.filter` is an [SQO](../../api/sqo.md) object: a search over the **host section** in which every clause's `q` becomes the saved record's locator, with `from_component_tipo` taken from the first clause's last path step |
 
 For a `set_dato_external` edge one closed table decides, checked top to bottom:
 
@@ -901,7 +901,7 @@ changed before the copy's edge existed.
   later works. While a refresh is running, the button is disabled.
 
 **In bulk: Update cache.** Ticking an external portal in
-[Update cache](../../tools/using_update_cache.md) runs the same recompute on
+[Update cache](../../using/tools/using_update_cache.md) runs the same recompute on
 every matched record. It needs write permission on the section and the portal,
 waits for a held record only as long as the run's per-record bound (then counts
 it *locked*), and lists the same withheld reasons per record in the run's

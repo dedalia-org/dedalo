@@ -2,7 +2,7 @@
 
 What the engine guarantees about turning recorded speech into text, and the two
 contracts a consumer needs: the **local AI model store** and the **on-premise ASR
-sidecar**. Companion of the tool's own docs (`docs/tools/using_transcription.md`
+sidecar**. Companion of the tool's own docs (`docs/using/tools/using_transcription.md`
 for archivists, `docs/development/tools/reference/tool_transcription.md` for the
 tool surface); this file is the permanent definition of the parts that live
 outside the tool.

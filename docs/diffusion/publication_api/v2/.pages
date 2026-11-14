@@ -1,0 +1,16 @@
+# Sidebar order = the link order of this directory's index.md hub.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+title: v2
+nav:
+  - index.md
+  - endpoints.md
+  - querying.md
+  - records_and_languages.md
+  - search_and_fragments.md
+  - batch.md
+  - mcp.md
+  - http_semantics.md
+  - security.md
+  - deployment.md
+  - migration_from_v1.md
+  - ...

@@ -15,4 +15,4 @@ network actually routes by, it reached the cloud metadata endpoint.
 Now the address is read through every prefix that holds it, the most specific first, and it
 is refused if any of those readings is not a public address. Nothing to configure; the
 prefixes are declared as before (see
-[Declaring the NAT64 prefixes](./config/config.md)).
+[Declaring the NAT64 prefixes](./administration/configuration/config.md)).

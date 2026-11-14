@@ -30,7 +30,7 @@ reads null; one that died long ago still reads found (its age is the status
 line's job). Another database's dumps never count.
 
 The client renders a `.dd_note.state_warning` above the button on `null`,
-linking https://dedalo.dev/docs/v7/management/backup/#automatic-backup.
+linking https://dedalo.dev/docs/v7/administration/backup/#automatic-backup.
 Additive: a client that ignores the key behaves as before.
 
 ## Gate reconciliation

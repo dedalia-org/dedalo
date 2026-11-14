@@ -1,25 +1,25 @@
 # Upgrading
 
-> See also: [Updating code](../management/updates/updating_code.md) · [Production install](production.md) · [Docker](docker.md) · [Troubleshooting](troubleshooting.md) · [Backup](../management/backup.md) · [Migrating a v6 install to v7](migrating_from_v6.md)
+> See also: [Updating code](../administration/updates/updating_code.md) · [Production install](production.md) · [Docker](docker.md) · [Troubleshooting](troubleshooting.md) · [Backup](../administration/backup.md) · [Migrating a v6 install to v7](migrating_from_v6.md)
 
 How a Dédalo installation moves to a newer release depends on how it was installed. Everything that has to happen to the database happens **inside the server at boot**, whichever way the code arrives. This page covers the code update per route, what is not automatic, boot migrations, retired configuration keys and rollback.
 
 ## Before you start
 
-Take the [backups of every store](../management/backup.md). All of them: the matrix database alone is not a backup, and an upgrade is precisely when you find that out. Update the ontology first when the release notes say the code depends on it ([updating ontology](../management/updates/updating_ontology.md)).
+Take the [backups of every store](../administration/backup.md). All of them: the matrix database alone is not a backup, and an upgrade is precisely when you find that out. Update the ontology first when the release notes say the code depends on it ([updating ontology](../administration/updates/updating_ontology.md)).
 
 ## Per route
 
 | Route | How the code is updated |
 | --- | --- |
-| **Production** | the [code update panel](../management/updates/updating_code.md) in Maintenance, run against the instance's own tree |
+| **Production** | the [code update panel](../administration/updates/updating_code.md) in Maintenance, run against the instance's own tree |
 | **Docker**, **Trial** | a new image: `./deploy/dedalo-image-update.sh --version <X.Y.Z>` — [Docker › Upgrading](docker.md#upgrading) |
 | **Developer** | `git pull`, `bun install`, restart |
 | **A host set up by hand** | the code update panel, or by hand — [below](#a-host-set-up-by-hand) |
 
 ### Production
 
-The code update panel downloads the release, verifies its checksum, installs its dependencies and boot-tests it in quarantine, then swaps it onto `/home/ded_<i>/dedalo` and exits with code `75` so that systemd starts the new code. The previous tree is kept under `/home/ded_<i>/backups/code`, and the instance's watchdog and rollback units restore it automatically if the new tree never comes up. [How a code update works](../management/updates/updating_code_options.md) has the phases and the rollback contract.
+The code update panel downloads the release, verifies its checksum, installs its dependencies and boot-tests it in quarantine, then swaps it onto `/home/ded_<i>/dedalo` and exits with code `75` so that systemd starts the new code. The previous tree is kept under `/home/ded_<i>/backups/code`, and the instance's watchdog and rollback units restore it automatically if the new tree never comes up. [How a code update works](../administration/updates/updating_code_options.md) has the phases and the rollback contract.
 
 Two things the panel does not do, because it runs as the instance and they belong to root:
 
@@ -140,9 +140,9 @@ narrows your active ontologies is a bug report six months later.
 !!! note "`../private/.env` is append-only"
     Add a line for a new key, change a value on its existing line, rename a
     retired key — and nothing else: never a second line for a key already there,
-    never a deleted line (the [configuration reference](../config/index.md) lists
+    never a deleted line (the [configuration reference](../administration/configuration/index.md) lists
     the legitimate edits). Every documented key is listed in `install/sample.env` of
-    the code you now run, and in the [configuration reference](../config/config.md).
+    the code you now run, and in the [configuration reference](../administration/configuration/config.md).
     `../private/sample.env` is the copy taken at install time, so it lacks every key
     added since.
 
@@ -237,7 +237,7 @@ Then, in the browser: log in, open a record, upload an image, run a search. A gr
 
 ## Rollback
 
-**A failed update** is rolled back automatically on a production instance and on a hand-built host with the shipped units: the rollback unit restores the previous tree from the code backup directory. **A successful update you want to undo** is a restore of a restore point, from the code update panel — [Updating code](../management/updates/updating_code.md#restoring-a-previous-code-version). On a Docker or Trial stack, see [rolling back by hand](docker.md#rolling-back-by-hand). On a host set up by hand you can also check the previous ref out again, reinstall its dependencies and restart.
+**A failed update** is rolled back automatically on a production instance and on a hand-built host with the shipped units: the rollback unit restores the previous tree from the code backup directory. **A successful update you want to undo** is a restore of a restore point, from the code update panel — [Updating code](../administration/updates/updating_code.md#restoring-a-previous-code-version). On a Docker or Trial stack, see [rolling back by hand](docker.md#rolling-back-by-hand). On a host set up by hand you can also check the previous ref out again, reinstall its dependencies and restart.
 
 !!! danger "Migrations are forward-only"
     There are no down-migrations. Rolling the **code** back across a release that added a migration leaves the new schema in place. That is usually harmless (the old code ignores what it does not know about) — but if the migration *changed* something the old code reads, the only correct rollback is **restoring the database backup** you took before the update.
@@ -246,4 +246,4 @@ Then, in the browser: log in, open a record, upload an image, run a search. A gr
 
 ## What this page is *not* about
 
-Updating the **ontology** and the **data** are in-app operations run from the Maintenance area, not deploy-time steps. They have their own documentation under [Updates](../management/updates/index.md).
+Updating the **ontology** and the **data** are in-app operations run from the Maintenance area, not deploy-time steps. They have their own documentation under [Updates](../administration/updates/index.md).

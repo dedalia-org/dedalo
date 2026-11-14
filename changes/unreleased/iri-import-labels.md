@@ -19,4 +19,4 @@ no second label.
 Some cells are now refused and reported instead of imported: a label id that does not exist, a
 label without a URI, and a label you have no permission to create. Saving a URI value that carries
 `label_id` directly (for example through the API) is refused too: the label belongs to the URI's
-label field. See [Importing data](./core/importing_data.md#uri).
+label field. See [Importing data](./using/importing_data.md#uri).

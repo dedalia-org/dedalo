@@ -12,4 +12,4 @@ those fields, adds a sibling
 column, headed with the column name followed by *references*, with those calculated relations only, never repeating the stored
 ones. It works in the **Standard** and **Breakdown** formats; the **Dédalo (Raw)** format exports
 stored data only, so the checkbox is disabled there. Presets keep the choice. See
-[Export](./tools/using_export.md).
+[Export](./using/tools/using_export.md).

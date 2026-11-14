@@ -205,7 +205,7 @@ describe('docs versioning: the published layout stays coherent', () => {
 
 	test('no shipped file links a flat dedalo.dev/docs/<path> URL', () => {
 		// docs/ itself is exempt: a page may quote the published URL as example
-		// data (docs/core/importing_data.md uses it as a sample IRI), and internal
+		// data (docs/using/importing_data.md uses it as a sample IRI), and internal
 		// navigation is relative anyway.
 		const shipped = shippedTextFiles();
 		const offenders: string[] = [];

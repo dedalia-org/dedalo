@@ -5,7 +5,7 @@ audience: admin
 date: 2026-09-27
 wc: WC-2026-09-27-external-allowlist-at-door-only
 ---
-Before, restoring any value from the [time machine](./tools/using_time_machine.md) was
+Before, restoring any value from the [time machine](./using/tools/using_time_machine.md) was
 refused when `DEDALO_EXTERNAL_ALLOWED_HOSTS` was empty — which is the default. The error
 named a section you had not touched (on a standard install, `test3`) and its external
 catalogue host (Zenon), because the engine checked the allowlist while merely reading an

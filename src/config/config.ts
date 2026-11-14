@@ -19,7 +19,7 @@
  *     incrementally.
  *   - The KEY CENSUS is `src/config/catalog/` — one declaration per key (type,
  *     default, scope, operator prose), which GENERATES install/sample.env and
- *     docs/config/config.md and is gated byte-for-byte by config_docs_tripwire.
+ *     docs/administration/configuration/config.md and is gated byte-for-byte by config_docs_tripwire.
  *     (This header used to say the census "lives in ../private/sample.env,
  *     regenerated from source". Both halves were false: nothing regenerated it,
  *     and the file did not exist — the renderer was PHP machinery that was never

@@ -93,4 +93,4 @@ immediately and both have explicit answers: configure
 mutation-verified: restoring the `false` default turns it red) plus two new rows
 in `test/unit/media_fallback_listener.test.ts` (the source distinction, both
 directions). Catalog default and its doc regenerate `install/sample.env` and
-`docs/config/config.md` — `config_docs_tripwire` requires byte identity.
+`docs/administration/configuration/config.md` — `config_docs_tripwire` requires byte identity.

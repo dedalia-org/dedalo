@@ -15,5 +15,5 @@ embed its mint's *name*, resolved through the relation. Virtual sections
 select their own maps (the section_map read is virtual-aware) — the earlier
 per-component boolean opt-in, which could not differentiate virtual siblings
 and indexed no text at all for virtual sections, is retired. Documentation:
-[RAG & semantic search](./core/ai/rag.md) ·
-[cookbook R1](./core/ai/rag_cookbook.md).
+[RAG & semantic search](./administration/ai/rag.md) ·
+[cookbook R1](./administration/ai/rag_cookbook.md).

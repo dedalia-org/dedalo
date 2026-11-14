@@ -323,7 +323,7 @@ describe('ddoSchema accepts the value shapes the ontology stores', () => {
 	/**
 	 * PHP shape-checks exactly these two and DROPS the key on a bad shape
 	 * (class.request_config_object.php:723-729) — it never discards the ddo. The
-	 * rule is documented in docs/core/dd_object.md ("accepted only as
+	 * rule is documented in docs/api/dd_object.md ("accepted only as
 	 * non-negative integers (any other shape is dropped)"); before this gate the
 	 * schema neither dropped nor bounded them.
 	 */

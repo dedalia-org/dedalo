@@ -1,4 +1,4 @@
-# Request Config Architecture
+# Request config
 
 `src/core/relations/request_config/{build,explicit,implicit,filters,external,presets}.ts`
 implements the system; the pure contract (schemas + the strategy-selection rule)
@@ -6,7 +6,7 @@ lives in `src/core/concepts/request_config.ts`.
 
 ## Overview
 
-The `request_config` system is Dédalo's **server-side** mechanism for defining how a section or component retrieves and displays its data. It is the configuration half of the work API: the server resolves a `request_config` per element and injects it into the element's context; the client then turns it into one or more [RQO](rqo.md)s for the actual calls. The request_config declares:
+The `request_config` system is Dédalo's **server-side** mechanism for defining how a section or component retrieves and displays its data. It is the configuration half of the work API: the server resolves a `request_config` per element and injects it into the element's context; the client then turns it into one or more [RQO](../api/rqo.md)s for the actual calls. The request_config declares:
 
 - **What** data to display (the `ddo_map` columns/fields)
 - **How** to search and pick records (`search` / `choose` layouts)
@@ -14,7 +14,7 @@ The `request_config` system is Dédalo's **server-side** mechanism for defining 
 - **Which** elements to resolve but never render (`hide`)
 - **How much** to fetch (sqo limits, pagination) and **with what UI** (interface controls)
 
-For the wire-level message the client builds from this config, see [rqo.md](rqo.md). For copy-paste ontology JSON by scenario, see the cookbook [request_config_examples.md](request_config_examples.md).
+For the wire-level message the client builds from this config, see [rqo.md](../api/rqo.md). For copy-paste ontology JSON by scenario, see the cookbook [request_config_examples.md](request_config_examples.md).
 
 ## Architecture
 
@@ -180,7 +180,7 @@ interface request_config_object {
 }
 ```
 
-`show` is the mandatory display context. `search`/`choose`/`hide` are optional and share the `show` sub-shape. The `interface` switches are documented **once, canonically, in [rqo.md → `show.interface`](rqo.md#show-interface)** — do not duplicate that table here.
+`show` is the mandatory display context. `search`/`choose`/`hide` are optional and share the `show` sub-shape. The `interface` switches are documented **once, canonically, in [rqo.md → `show.interface`](../api/rqo.md#show-interface)** — do not duplicate that table here.
 
 ## dd_object (DDO) shape
 
@@ -217,7 +217,7 @@ interface dd_object {
 }
 ```
 
-See [dd_object.md](dd_object.md) for the per-field contract. Note `parent_grouper` (used to nest a ddo under a grouper in the layout) and `css` (per-ddo style overrides, sourced from the node's `properties.css`) — both appear in cookbook examples and are real, settable fields.
+See [dd_object.md](../api/dd_object.md) for the per-field contract. Note `parent_grouper` (used to nest a ddo under a grouper in the layout) and `css` (per-ddo style overrides, sourced from the node's `properties.css`) — both appear in cookbook examples and are real, settable fields.
 
 ### Nesting — a `ddo_map` is a flat list, made a tree by `parent`
 
@@ -295,7 +295,7 @@ Three distinct filtering concepts that are easy to confuse:
 
 | Key | Lives on | Meaning | TS resolver |
 |-----|----------|---------|---------|
-| `filter` | the **SQO** (RQO side) | the live query `WHERE` the client sends per call (search box, panel) | n/a — part of the request, not the config; see [sqo.md](sqo.md) |
+| `filter` | the **SQO** (RQO side) | the live query `WHERE` the client sends per call (search box, panel) | n/a — part of the request, not the config; see [sqo.md](../api/sqo.md) |
 | `filter_by_list` | `sqo.filter_by_list` | a pre-filter dropdown whose option values are read **live from the DB** | `expandFilterByList()` (`relations/request_config/filters.ts`) |
 | `fixed_filter` | `sqo.fixed_filter` | a context/record-derived filter that varies by `section_id`, over three sources: `fixed_dato` (embedded SQO filter objects), `component_data` (multi-hop live read of the calling record's own data), `hierarchy_terms` (thesaurus-subtree section_id IN-filter, capped at 50,000 expanded ids) | `expandFixedFilter()` (`relations/request_config/filters.ts`) |
 
@@ -412,9 +412,9 @@ export function selectRequestConfigStrategy(properties: unknown): 'explicit' | '
 
 ## Related documentation
 
-- [Request Query Object (RQO)](rqo.md) — the wire message the client builds from this config; canonical [`show.interface` controls table](rqo.md#show-interface)
+- [Request Query Object (RQO)](../api/rqo.md) — the wire message the client builds from this config; canonical [`show.interface` controls table](../api/rqo.md#show-interface)
 - [Request Config Examples](request_config_examples.md) — cookbook of annotated ontology JSON by scenario
-- [Search Query Object (SQO)](sqo.md) — the `filter`/`limit`/`order` carried inside the RQO
-- [DD Object](dd_object.md) — per-field DDO contract
+- [Search Query Object (SQO)](../api/sqo.md) — the `filter`/`limit`/`order` carried inside the RQO
+- [DD Object](../api/dd_object.md) — per-field DDO contract
 - [Ontology index](ontology/index.md) — ontology nodes, sections and the relation graph the config draws from
 - [Request Config Presets](ontology/request_config_presets.md) — per-installation layout overrides (`dd1244`)

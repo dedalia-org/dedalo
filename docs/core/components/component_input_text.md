@@ -228,9 +228,9 @@ DOM (edit / default): `wrapper_component component_input_text <tipo> <mode>` -> 
 }
 ```
 
-It also accepts a v7 item array (`[{"value":"x"}]`), a single object item (`{"value":"x"}` — wrapped automatically, `component_input_text` is a `VALUE_PROPERTY_MODELS` member), and a plain string (auto-wrapped). A cell that looks like JSON but fails to parse is rejected and reported as `IGNORED: JSON decode failed` rather than stored. Bracketed literals such as `[Ac]` (not valid JSON) are accepted as plain text. See [importing data](../importing_data.md#plain-text).
+It also accepts a v7 item array (`[{"value":"x"}]`), a single object item (`{"value":"x"}` — wrapped automatically, `component_input_text` is a `VALUE_PROPERTY_MODELS` member), and a plain string (auto-wrapped). A cell that looks like JSON but fails to parse is rejected and reported as `IGNORED: JSON decode failed` rather than stored. Bracketed literals such as `[Ac]` (not valid JSON) are accepted as plain text. See [importing data](../../using/importing_data.md#plain-text).
 
-**Export.** Flat display values (grid/export atoms) are produced by the generic cell resolver `resolveCellValue()` (`src/core/resolve/relation_list.ts`), consumed by `tools/tool_export/server/tool_export.ts`; it emits one leaf value per data item in the current language, falling back to `fallback_value` when the current language is empty. The exact atom-per-item / `cell_type` contract — one export atom per value item, `records_separator` as the leaf join — has not been independently verified for full parity in the TS export path; verify against `tool_export.ts` before relying on column-level details. See [exporting data](../exporting_data.md).
+**Export.** Flat display values (grid/export atoms) are produced by the generic cell resolver `resolveCellValue()` (`src/core/resolve/relation_list.ts`), consumed by `tools/tool_export/server/tool_export.ts`; it emits one leaf value per data item in the current language, falling back to `fallback_value` when the current language is empty. The exact atom-per-item / `cell_type` contract — one export atom per value item, `records_separator` as the leaf join — has not been independently verified for full parity in the TS export path; verify against `tool_export.ts` before relying on column-level details. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 

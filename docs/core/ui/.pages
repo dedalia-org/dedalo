@@ -1,0 +1,15 @@
+# Sidebar order = the link order of this directory's index.md hub.
+# `...` = any page not named here, A–Z, so a new page is never dropped.
+title: UI building blocks
+nav:
+  - index.md
+  - page.md
+  - menu.md
+  - command_palette.md
+  - inspector.md
+  - paginator.md
+  - buttons.md
+  - widgets.md
+  - themes.md
+  - css_architecture.md
+  - ...

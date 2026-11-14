@@ -6,7 +6,7 @@ The engine-side proxy to the standalone Site Builder daemon: every action forwar
 
 `tool_sitebuilder` is a thin, authorizing proxy. The real work — owning site workspaces, running a coding agent, building each site to static files, serving the pre-production preview, promoting an approved build to production — lives in a **separate daemon** (`publication/site_builder`), which reads data only from the read-only publication API. The tool is where **authorization** happens: the engine forwards each request to the daemon with the shared bearer token and a stamped `actor`, and the daemon trusts those decisions and records who did what.
 
-Use the tool from inside Dédalo to drive that daemon; a user builds a site and previews it, and a developer or administrator publishes it live. For the operator/end-user narrative — declaring and provisioning the instance, the workflow, example prompts — see [Site builder](../../../management/site_builder.md) and the [site builder cookbook](../../../management/site_builder_cookbook.md); this page documents the **tool** (its actions, gates and wire).
+Use the tool from inside Dédalo to drive that daemon; a user builds a site and previews it, and a developer or administrator publishes it live. For the operator/end-user narrative — declaring and provisioning the instance, the workflow, example prompts — see [Site builder](../../../administration/site_builder.md) and the [site builder cookbook](../../../administration/site_builder_cookbook.md); this page documents the **tool** (its actions, gates and wire).
 
 !!! info "Optional, hidden until configured"
     The tool exists only when this engine is PAIRED with a site-builder instance. `isConfigured()` is the transport resolver (`src/core/site_builder/pairing.ts`): a transport — `DEDALO_SITE_BUILDER_SOCKET`, or `DEDALO_SITE_BUILDER_URL` for a daemon reached over the network — plus `DEDALO_SITE_BUILDER_INSTANCE` and `DEDALO_SITE_BUILDER_TOKEN`. A HALF configuration resolves to no transport at all. `isAvailable` returns false otherwise, and every action fails closed with `site_builder.unconfigured` if somehow reached anyway.
@@ -106,7 +106,7 @@ The event stream (`session_stream`) is consumed as an SSE response relayed from 
 
 ## Related
 
-- [Site builder](../../../management/site_builder.md) · [site builder cookbook](../../../management/site_builder_cookbook.md) — declaring and provisioning a museum's instance, the day-to-day workflow, and example prompts.
+- [Site builder](../../../administration/site_builder.md) · [site builder cookbook](../../../administration/site_builder_cookbook.md) — declaring and provisioning a museum's instance, the day-to-day workflow, and example prompts.
 - [Creating new tools](../creating_tools.md) · [Server contract](../server_contract.md) — the tool model, `apiActions`, the `permission: null` + imperative-gate pattern, and the streaming `ToolResponse` fields this page builds on.
 - [Security](../security.md) — the framework gates and the identity-injection trust model an engine-side proxy relies on.
 - Source: `tools/tool_sitebuilder/server/{index,daemon_client,wire}.ts`, `tools/tool_sitebuilder/js/{tool_sitebuilder,sitebuilder_controller,builder_stream,render_tool_sitebuilder}.js`, `tools/tool_sitebuilder/register.json`.

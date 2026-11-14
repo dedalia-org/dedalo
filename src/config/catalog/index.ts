@@ -87,7 +87,7 @@ export const DOMAINS: readonly ConfigDomain[] = [
 		intro: [
 			'The diffusion system database is the external, flat (publication) copy of the data, stored in MariaDB/MySQL: only public data is exported, relationships are pre-resolved, and the result is standard SQL tables/rows/columns.',
 			'',
-			'Every MariaDB operation — publish, delete, backup — is performed by the [diffusion engine](../diffusion/native_engine.md) built into the work server.',
+			'Every MariaDB operation — publish, delete, backup — is performed by the [diffusion engine](../../diffusion/native_engine.md) built into the work server.',
 		].join('\n'),
 		outro: [
 			'The target database names come from the diffusion ontology (`database` node labels), and the databases must be **pre-created** — a missing database is a loud configuration error, never an auto-create. Create the database and its user with full privileges, e.g.:',
@@ -97,9 +97,9 @@ export const DOMAINS: readonly ConfigDomain[] = [
 			'GRANT ALL PRIVILEGES ON `web_dedalo`.* TO ' + "'username'@'localhost';",
 			'```',
 			'',
-			'See [the diffusion engine → Configuration](../diffusion/native_engine.md#configuration) for the full key set (resolve levels, output languages, runner concurrency).',
+			'See [the diffusion engine → Configuration](../../diffusion/native_engine.md#configuration) for the full key set (resolve levels, output languages, runner concurrency).',
 			'',
-			'> The standalone **publication server** (`publication/server_api/`) is a separate, legacy deployable with its **own** read-only database config — see [server_config_api](../diffusion/publication_api/server_config_api.md). That is independent of this work install’s database settings.',
+			'> The standalone **publication server** (`publication/server_api/`) is a separate, legacy deployable with its **own** read-only database config — see [server_config_api](../../diffusion/publication_api/server_config_api.md). That is independent of this work install’s database settings.',
 		].join('\n'),
 	},
 ];

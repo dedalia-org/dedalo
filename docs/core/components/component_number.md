@@ -233,7 +233,7 @@ Alternative accepted formats:
 
 The import engine (`conformImportData()`, `src/core/tools/import_data.ts`) parses all three: a plain cell with the column's decimal separator (currency symbols and units stripped), a JSON cell's numeric strings cast to numbers. The result is formatted with the node's `type` / `precision` (see above), so the import preview shows the value that will be stored.
 
-See the full import definition in [importing_data.md → Numbers](../importing_data.md#numbers) and the export model in [exporting_data.md](../exporting_data.md).
+See the full import definition in [importing_data.md → Numbers](../../using/importing_data.md#numbers) and the export model in [exporting_data.md](../../using/exporting_data.md).
 
 ## Notes
 

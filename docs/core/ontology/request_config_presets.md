@@ -1,6 +1,6 @@
 # Request config presets (section layout maps)
 
-> See also: [Ontology](index.md) · [RQO](../rqo.md) · [dd_object](../dd_object.md) · [request_config](../request_config.md)
+> See also: [Ontology](index.md) · [RQO](../../api/rqo.md) · [dd_object](../../api/dd_object.md) · [request_config](../request_config.md)
 
 !!! note "Applied by the TS engine (since 2026-07-10)"
     Request config presets are **ordinary ontology data** — a `dd1244` record
@@ -35,7 +35,7 @@ new set.
 
 #### Request config
 
-A request config is a basic definition for creating a [RQO](../rqo.md) (Request
+A request config is a basic definition for creating a [RQO](../../api/rqo.md) (Request
 Query Object) used in Dédalo's working API calls. It is defined in the ontology
 node properties for standard use, but can be overridden with the local
 (per-installation) request config presets.
@@ -116,32 +116,32 @@ map).
 ---
 
 - #### JSON data [dd625](https://dedalo.dev/ontology/dd625) JSON
-  Definition of the current preset. It contains an array with one or more [Request Config](../rqo.md) objects.  
+  Definition of the current preset. It contains an array with one or more [Request Config](../../api/rqo.md) objects.  
   This JSON value will replace the current Ontology Request Config definition for the tipo + section_tipo + user id matches.  
-  Users can define full [Request Config](../rqo.md) items, but for simplicity, only main properties used for the layout will be enumerated here.  
+  Users can define full [Request Config](../../api/rqo.md) items, but for simplicity, only main properties used for the layout will be enumerated here.  
 
 --- 
 
-## Creating a [ddo_map](../rqo.md#parameters)
+## Creating a [ddo_map](../../api/rqo.md#parameters)
 
-The **ddo_map** contains the list of all [ddo](../dd_object.md) items to display.  
-There are various **ddo_map** wrappers for different uses, but for display we use [show](../rqo.md#parameters), as follows:  
+The **ddo_map** contains the list of all [ddo](../../api/dd_object.md) items to display.  
+There are various **ddo_map** wrappers for different uses, but for display we use [show](../../api/rqo.md#parameters), as follows:  
 *{show > ddo_map > [ddo 1, ddo 2, …]}*.
 
-All [ddo](../dd_object.md) items to render must sit inside the **show > ddo_map** array property and follow this pattern:
+All [ddo](../../api/dd_object.md) items to render must sit inside the **show > ddo_map** array property and follow this pattern:
 
 
 
 * **info** : String with descriptive info about the **ddo**. Sample: *Type (component_portal)*
-* **mode** : String with the preset target **[mode](../dd_object.md#properties)**. Sample: *list*
-* **tipo** : String with the preset target **[tipo](../dd_object.md#properties)**. Sample: *numisdata158*
-* **view** : String, optional. Overrides the default **[view](../dd_object.md#properties)** of the component. Sample: *line*
-* **parent** : String with the **[tipo](../dd_object.md#properties)** of the section (the parent of the current component). The value 'self' resolves to the current section type automatically. Sample: *self*
-* **section_tipo**: String with the **[tipo](../dd_object.md#properties)** of the section. The value 'self' resolves to the current section type automatically. Sample: *self*
+* **mode** : String with the preset target **[mode](../../api/dd_object.md#properties)**. Sample: *list*
+* **tipo** : String with the preset target **[tipo](../../api/dd_object.md#properties)**. Sample: *numisdata158*
+* **view** : String, optional. Overrides the default **[view](../../api/dd_object.md#properties)** of the component. Sample: *line*
+* **parent** : String with the **[tipo](../../api/dd_object.md#properties)** of the section (the parent of the current component). The value 'self' resolves to the current section type automatically. Sample: *self*
+* **section_tipo**: String with the **[tipo](../../api/dd_object.md#properties)** of the section. The value 'self' resolves to the current section type automatically. Sample: *self*
 
 List-mode specifics:
 
-* **width** : String, optional, list mode only. Overrides the default column **[width](../dd_object.md#properties)** in the list. Sample: *5rem*
+* **width** : String, optional, list mode only. Overrides the default column **[width](../../api/dd_object.md#properties)** in the list. Sample: *5rem*
 
 #### Sample of JSON data [dd625](https://dedalo.dev/ontology/dd625) value for **LIST** mode:
 
@@ -196,7 +196,7 @@ List-mode specifics:
 
 Edit-mode specifics:
 
-* **properties** : Object, optional, edit mode only. Overrides the default properties of the ontology node **[properties](../dd_object.md#properties)**.
+* **properties** : Object, optional, edit mode only. Overrides the default properties of the ontology node **[properties](../../api/dd_object.md#properties)**.
 This is usually used to change a component's CSS or to give it a custom label.  
 
 
@@ -232,7 +232,7 @@ Sample:
     }
 ```
 
-* **parent_grouper** : String, optional, edit mode only. Overrides the ddo's default **[parent_grouper](../dd_object.md#properties)** property
+* **parent_grouper** : String, optional, edit mode only. Overrides the ddo's default **[parent_grouper](../../api/dd_object.md#properties)** property
 (sets the DOM parent of the current component node, usually a ***section_group*** defined previously).  
 Sample: *numisdata129*
 

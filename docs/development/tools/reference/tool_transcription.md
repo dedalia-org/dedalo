@@ -303,5 +303,5 @@ chain that tests the stubs.
 - [tool_posterframe](tool_posterframe.md) and [tool_media_versions](tool_media_versions.md) — other AV media tooling
 - [tool_lang](tool_lang.md) / [tool_lang_multi](index.md) — translate the transcribed text
 - [Creating new tools](../creating_tools.md), [Server contract](../server_contract.md), [register.json reference](../register_json.md), [Security](../security.md)
-- [Exporting data](../../../core/exporting_data.md) (the [tool_export](tool_export.md) side)
+- [Exporting data](../../../using/exporting_data.md) (the [tool_export](tool_export.md) side)
 - Source: `tools/tool_transcription/server/index.ts`; local audio core: `src/core/media/tools/transcription.ts`; ASR provider seam: `src/core/tools/transcription_asr.ts`.

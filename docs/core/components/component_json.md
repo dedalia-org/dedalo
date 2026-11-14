@@ -228,7 +228,7 @@ The component implements the modes `edit`, `list`, `tm` (Time Machine, rendered 
 
 The raw export (`dedalo_raw`) produces the `dedalo_data` wrapper automatically, so **export → import round-trips work without manual edits**. The edit-view **Download** button exports the current value as a plain `.json` file (not wrapped). This wrap/unwrap contract is ported model-agnostically in `src/core/tools/import_data.ts` (`unwrapDedaloData` + `conformImportData`; `component_json` is a `VALUE_PROPERTY_MODELS` member), so the shapes above are expected to import correctly through the TS server too.
 
-See [Importing data → JSON](../importing_data.md#json) and [Exporting data](../exporting_data.md) for the full model.
+See [Importing data → JSON](../../using/importing_data.md#json) and [Exporting data](../../using/exporting_data.md) for the full model.
 
 ## Notes
 

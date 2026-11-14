@@ -16,4 +16,4 @@ same file twice adds nothing the second time. Components where adding has no
 meaning — media, single-choice lists, computed values — refuse append before
 anything is written. An append records the same Time Machine entry per language
 as a replace import. See
-[Adding instead of replacing](./tools/using_import_dedalo_csv.md#adding-instead-of-replacing).
+[Adding instead of replacing](./using/tools/using_import_dedalo_csv.md#adding-instead-of-replacing).

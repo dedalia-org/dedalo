@@ -192,7 +192,7 @@ The census behind "Open relationships": which sections the records of a source s
 Like `read_raw`, the input rides in **`options`**; there is no `sqo`, so no page limit applies.
 
 - `options`: object (required), holding exactly:
-  - `source`: object (required) — a [`referenced_by` source set](../../core/sqo.md#relationship-filter-leaves-referenced_by):
+  - `source`: object (required) — a [`referenced_by` source set](../sqo.md#relationship-filter-leaves-referenced_by):
     - `section_tipo`: string[] (required) — the source sections
     - `filter`: object (optional) — the source search filter (may nest a `referenced_by` leaf, depth ≤ 4)
     - `filter_by_locators`: object[] (optional) — explicit source records

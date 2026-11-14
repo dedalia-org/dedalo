@@ -19,4 +19,4 @@ everywhere. In the **Breakdown** format, several values in one cell are now join
 field's own separator (for example `, ` between numbers).
 
 Past exports were incomplete, not wrong: run the export again to get the full values. See
-[Exporting data](./core/exporting_data.md).
+[Exporting data](./using/exporting_data.md).

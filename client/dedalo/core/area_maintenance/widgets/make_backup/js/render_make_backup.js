@@ -249,7 +249,7 @@ const get_content_data = async function(self) {
 			})
 			const docs_link = ui.create_dom_element({
 				element_type	: 'a',
-				href			: 'https://dedalo.dev/docs/v7/management/backup/#automatic-backup',
+				href			: 'https://dedalo.dev/docs/v7/administration/backup/#automatic-backup',
 				text_content	: 'Database backup documentation',
 				parent			: detail
 			})

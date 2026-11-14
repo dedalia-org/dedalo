@@ -1,6 +1,6 @@
-# Data model: `misc`, `meta` and `relation_search`
+# Misc, meta and relation_search values
 
-> See also: [Sections — typed-column storage](../sections/index.md#storage-detail-the-data-column-is-split-into-typed-jsonb-columns) · [Components](../components/index.md) · [Locator](../locator.md) · [Glossary](../glossary.md)
+> See also: [Sections — typed-column storage](../sections/index.md#storage-detail-the-data-column-is-split-into-typed-jsonb-columns) · [Components](../components/index.md) · [Locator](../locator.md) · [Glossary](../../understanding/glossary.md)
 
 This page documents three of the typed JSONB columns that make up a `matrix`
 record. They are siblings of the value-bearing columns documented elsewhere
@@ -129,7 +129,7 @@ nested to any depth. It is language-neutral (`lg-nolan`, non-translatable).
   mistaken for the wrapper.
 
 See [component_json](../components/component_json.md) and the
-[import data model](../importing_data.md).
+[import data model](../../using/importing_data.md).
 
 ---
 
@@ -375,7 +375,7 @@ its ancestors matches:
 { $or: [ clause_relations, clause_relation_search ] }
 ```
 
-See the [search subsystem](../sqo.md) for the SQO → WHERE machinery.
+See the [search subsystem](../../api/sqo.md) for the SQO → WHERE machinery.
 
 ---
 
@@ -406,6 +406,6 @@ See the [search subsystem](../sqo.md) for the SQO → WHERE machinery.
 - [Sections — typed-column storage model](../sections/index.md#storage-detail-the-data-column-is-split-into-typed-jsonb-columns) — how `misc`/`meta`/`relation_search` fit the `matrix` row.
 - Sibling data-model pages: `media`, `geo`, `iri` (other typed columns).
 - Producing components: [component_json](../components/component_json.md) · [component_info](../components/component_info.md) · [component_security_access](../components/component_security_access.md) · [component_inverse](../components/component_inverse.md) · [component_filter_records](../components/component_filter_records.md).
-- [Search (SQO)](../sqo.md) — how `relation_search` is queried.
-- [Importing data](../importing_data.md) — the `dedalo_data` wrapper used by `component_json`.
-- [Locator](../locator.md) · [Glossary](../glossary.md).
+- [Search (SQO)](../../api/sqo.md) — how `relation_search` is queried.
+- [Importing data](../../using/importing_data.md) — the `dedalo_data` wrapper used by `component_json`.
+- [Locator](../locator.md) · [Glossary](../../understanding/glossary.md).

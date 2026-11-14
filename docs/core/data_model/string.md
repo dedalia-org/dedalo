@@ -1,4 +1,4 @@
-# String values (the `string` column)
+# String values
 
 > See also: [Sections — typed-column storage](../sections/index.md) · [`component_input_text`](../components/component_input_text.md) · [`component_text_area`](../components/component_text_area.md) · [`component_email`](../components/component_email.md) · [`component_password`](../components/component_password.md)
 
@@ -145,7 +145,7 @@ lifecycle is the passive `MatrixRecord` struct plus `readComponentItems()` /
 `resolveComponentValue()` (`src/core/resolve/component_data.ts`), reading
 the flattened display string via `resolveCellValue()`
 (`src/core/resolve/relation_list.ts`, see the
-[exporting data](../exporting_data.md) atoms contract for the tabular-export
+[exporting data](../../using/exporting_data.md) atoms contract for the tabular-export
 path). Column routing goes through `getColumnNameByModel()`
 (`src/core/ontology/resolver.ts`), reading each model's own `descriptor.column`.
 Each of the four string components has its own descriptor —
@@ -289,6 +289,6 @@ logical value (note the shared `id`):
   [`component_password`](../components/component_password.md) — the producing components.
 - [Locator](../locator.md) — the contrasting item shape used by relation
   components (no `value`).
-- [Exporting data](../exporting_data.md) — the export atoms contract behind
+- [Exporting data](../../using/exporting_data.md) — the export atoms contract behind
   the resolved value.
-- [Glossary](../glossary.md) — tipo, model, lang, datum, ddo.
+- [Glossary](../../understanding/glossary.md) — tipo, model, lang, datum, ddo.

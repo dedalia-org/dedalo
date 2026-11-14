@@ -1,4 +1,4 @@
-# Geolocation values — the `geo` column
+# Geolocation values
 
 > **Data model series.** This page documents a Dédalo v7 **data type** — the
 > JSON value shape as it is *stored*, independent of the component that produces
@@ -251,7 +251,7 @@ Both axes are required together: a point needs `lat` **and** `lon`.
     Where the map *opens* when a record has no coordinate is server
     configuration — `DEDALO_GEO_DEFAULT_LAT` / `DEDALO_GEO_DEFAULT_LON` /
     `DEDALO_GEO_DEFAULT_ZOOM`, delivered to the editor as
-    `context.features.default_view` (see [Configuration](../../config/config.md)).
+    `context.features.default_view` (see [Configuration](../../administration/configuration/config.md)).
     It is a camera position: it is never stored in the record and never
     published. Opening a record and saving it stores **no** coordinate.
 
@@ -576,8 +576,8 @@ dropping a value. A field with **any** refused value is not written at all,
 including its values that did conform; the run report says so.
 
 See the full import definition in
-[Importing data](../importing_data.md#geolocation) and the round-trip raw format
-in [Exporting data](../exporting_data.md#raw-export-and-round-trip).
+[Importing data](../../using/importing_data.md#geolocation) and the round-trip raw format
+in [Exporting data](../../using/exporting_data.md#raw-export-and-round-trip).
 
 ## v7 consolidation / evolution
 
@@ -617,6 +617,6 @@ in [Exporting data](../exporting_data.md#raw-export-and-round-trip).
   [misc values](misc.md) · [meta counters](misc.md#the-meta-column).
 - [Sections — typed-column storage](../sections/index.md#storage-detail-the-data-column-is-split-into-typed-jsonb-columns)
   — how `geo` and the other typed columns are split out of the record payload.
-- [Importing data](../importing_data.md#geolocation) ·
-  [Exporting data](../exporting_data.md#raw-export-and-round-trip) — the import
+- [Importing data](../../using/importing_data.md#geolocation) ·
+  [Exporting data](../../using/exporting_data.md#raw-export-and-round-trip) — the import
   shapes and round-trip raw format.

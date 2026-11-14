@@ -218,7 +218,7 @@ Portal order directives live **on the column ddo** — an entry of `source.reque
 
 The tipos are real `rsc` nodes of the *People* section (`rsc197`): `rsc85` *Name* and `rsc86` *Surname* (`component_input_text`), `rsc89` *Date of birth* (`component_date`), `rsc279` *Public* (`component_publication`). No node of the ontology this page was verified against declares either key, so the block shows the shape only.
 
-**`sort_by_column: true`** — the header of that column shows sort arrows (`ui.allow_column_order`, asked through the portal's `can_view_sort`; edit mode, read permission, not on a `source.mode: external` portal, and the column must be `sortable`). A click is a **temporary view**: the next read carries [`sqo.view_order`](../sqo.md#view_order) `{tipo, direction}` and the server orders the portal's full locator list by that column before paginating; nothing is written. See [The order model](#the-order-model) for the indicator and the save.
+**`sort_by_column: true`** — the header of that column shows sort arrows (`ui.allow_column_order`, asked through the portal's `can_view_sort`; edit mode, read permission, not on a `source.mode: external` portal, and the column must be `sortable`). A click is a **temporary view**: the next read carries [`sqo.view_order`](../../api/sqo.md#view_order) `{tipo, direction}` and the server orders the portal's full locator list by that column before paginating; nothing is written. See [The order model](#the-order-model) for the indicator and the save.
 
 - Client: `ui.allow_column_order` → `component_portal.set_view_order`. Server: `orderLocatorsByViewOrder` (`src/core/relations/order_locators.ts`), applied inside `expandPortal` (`src/core/relations/relation_core.ts`). The persisted save is the `sort_by_column` save action, `applySortByColumn` (`src/core/relations/save.ts`), which gates on the resolved column ddo's `sort_by_column === true` and writes the re-ordered array (a Time Machine data change).
 
@@ -241,7 +241,7 @@ Both keys share ONE ranking engine (`rankLocatorsByColumns`): a search over the 
 
 ### with_value
 
-- **Values:** an object `{mode, view}`, declared on a **ddo** of a caller's `ddo_map` (see [dd_object `with_value`](../dd_object.md#properties)).
+- **Values:** an object `{mode, view}`, declared on a **ddo** of a caller's `ddo_map` (see [dd_object `with_value`](../../api/dd_object.md#properties)).
 - **Effect:** when the portal has data, it renders in the `mode` / `view` declared here instead of the ddo's own (e.g. a compact `list` / `line` once populated). It is a render-time choice only; it no longer drives an interaction. (Until 2026-11 a double-click on a `list` line view switched the portal to this mode/view in place; a click now opens the portal in the edit window, as every list-mode component — see [Modes](#render-views--modes).)
 
 ### service_autocomplete
@@ -537,9 +537,9 @@ A comma-separated list of target `section_id`s, valid when the portal has a sing
 1,5,8
 ```
 
-With multiple possible target sections, disambiguate by naming the target in the column head as `oh24_rsc197` (`oh24` = the portal tipo, `rsc197` = the target section); then the integer-sequence form is accepted. Importing an integer sequence without a clear single target is rejected and logged (`IGNORED: Trying to import multiple section_tipo without clear target`); invalid `section_id` / `section_tipo` and malformed locators are likewise rejected per row. An empty cell clears the component data. See [Related data](../importing_data.md#related-data).
+With multiple possible target sections, disambiguate by naming the target in the column head as `oh24_rsc197` (`oh24` = the portal tipo, `rsc197` = the target section); then the integer-sequence form is accepted. Importing an integer sequence without a clear single target is rejected and logged (`IGNORED: Trying to import multiple section_tipo without clear target`); invalid `section_id` / `section_tipo` and malformed locators are likewise rejected per row. An empty cell clears the component data. See [Related data](../../using/importing_data.md#related-data).
 
-**Export.** The shared relation export path emits one export atom per locator, resolving each via the `show.ddo_map` — resolving the named target component(s) against the locator's `section_id` / `section_tipo` and collecting their value. The `ddo_map` drives the sub-columns, so a portal can export the target's term, its model, its parents (`value_with_parents`), etc., joined by the configured `fields_separator`. Relations export as JSON in SQL diffusion contexts. See [exporting data](../exporting_data.md).
+**Export.** The shared relation export path emits one export atom per locator, resolving each via the `show.ddo_map` — resolving the named target component(s) against the locator's `section_id` / `section_tipo` and collecting their value. The `ddo_map` drives the sub-columns, so a portal can export the target's term, its model, its parents (`value_with_parents`), etc., joined by the configured `fields_separator`. Relations export as JSON in SQL diffusion contexts. See [exporting data](../../using/exporting_data.md).
 
 ## Notes
 
