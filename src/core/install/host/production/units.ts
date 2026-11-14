@@ -199,27 +199,42 @@ export function siblingUnitsBlockers(
 	const blockers: SiblingBlocker[] = [];
 	for (const entry of otherEntries(fs, ctx.paths)) {
 		if (!entry.templates) continue;
-		let sibling: HostPlanCtx;
-		try {
-			sibling = recordedPlanContext(entry.instance, { fs, readRecord, source: ctx.source });
-		} catch (error) {
-			blockers.push({
-				instance: entry.instance,
-				reason: `its install record cannot be read (${(error as Error).message}) — finish, abort or re-render that instance first`,
-			});
-			continue;
-		}
-		const stale = dropinWrites(sibling)
-			.filter((write) => fs.readText(write.path) !== write.content)
-			.map((write) => write.path.slice(SYSTEMD_DIR.length + 1));
-		if (stale.length === 0) continue;
-		blockers.push({
-			instance: entry.instance,
-			reason: `its units are not this release's render (${stale.join(', ')})`,
-			refresh: unitsRefreshCommand(sibling.paths),
-		});
+		const blocker = siblingBlocker(entry.instance, ctx, fs, readRecord);
+		if (blocker !== null) blockers.push(blocker);
 	}
 	return blockers;
+}
+
+/** ONE sibling's judgment: null = ready (its instance files are this release's render). */
+function siblingBlocker(
+	instance: string,
+	ctx: HostPlanCtx,
+	fs: HostFs,
+	readRecord: RecordReader,
+): SiblingBlocker | null {
+	// Classified BEFORE the render, so the blocker's reason is this module's own
+	// sentence (never an exception's text): no record, or no measured facts.
+	const record = readRecord(instance);
+	const facts = record?.state?.preflight.host?.facts;
+	if (record === null || facts === undefined || facts.os === null) {
+		return {
+			instance,
+			reason:
+				record === null
+					? `its install record cannot be read (/var/lib/dedalo-install/${instance}/) — finish, abort or re-render that instance first`
+					: `its install record holds no measured host facts (the System check never ran to completion) — finish or abort that install first`,
+		};
+	}
+	const sibling = recordedPlanContext(instance, { fs, readRecord, source: ctx.source });
+	const stale = dropinWrites(sibling)
+		.filter((write) => fs.readText(write.path) !== write.content)
+		.map((write) => write.path.slice(SYSTEMD_DIR.length + 1));
+	if (stale.length === 0) return null;
+	return {
+		instance,
+		reason: `its units are not this release's render (${stale.join(', ')})`,
+		refresh: unitsRefreshCommand(sibling.paths),
+	};
 }
 
 /** What host_units / the refresh do with each template: write it, keep it (deferred), or refuse (foreign). */
