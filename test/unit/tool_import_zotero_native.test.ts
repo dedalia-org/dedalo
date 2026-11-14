@@ -892,7 +892,7 @@ describe('the SHIPPED default (register dd1633 ≡ sample_config.json) — C18 r
 				lookupable,
 				`identifier bound to ${cfg.identifierTarget.componentTipo} (${model})`,
 			).toBe(true);
-			expect(cfg.identifierTarget.componentTipo).not.toBe(cfg.idTarget.componentTipo);
+			expect(cfg.identifierTarget.componentTipo).not.toBe(cfg.idTarget?.componentTipo);
 		} else {
 			// The shipped default names NO second identifier (owner question open:
 			// Publications has no call-number component to bind one to).
