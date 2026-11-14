@@ -8,6 +8,7 @@
 	import {validate_tipo} from '../../../core/common/js/common.js'
 	import {append_text_lines} from '../../../core/common/js/utils/index.js'
 	import {ui} from '../../../core/common/js/ui.js'
+	import {a11y} from '../../../core/common/js/a11y.js'
 	import {data_manager} from '../../../core/common/js/data_manager.js'
 	import {request_failed, response_data} from '../../../core/common/js/api_error.js'
 	import {error_text} from '../../../core/common/js/render_api_error.js'
@@ -624,7 +625,7 @@ export const render_file_info = function(self, item) {
 				class_name		: 'button delete',
 				parent			: file_line
 			})
-			icon_delete.addEventListener('click', function(e){
+			a11y.make_activable(icon_delete, { on_activate : function(e){
 				e.stopPropagation()
 
 				if(confirm(self.get_tool_label('sure') || 'Sure?')) {
@@ -634,7 +635,7 @@ export const render_file_info = function(self, item) {
 						self.refresh()
 					})
 				}
-			})
+			}})
 
 	// section_tipo input
 		const section_warn = ui.create_dom_element({
@@ -799,7 +800,7 @@ export const render_unreadable_file_card = function(self, item) {
 				class_name		: 'button delete',
 				parent			: file_line
 			})
-			icon_delete.addEventListener('click', function(e){
+			a11y.make_activable(icon_delete, { on_activate : function(e){
 				e.stopPropagation()
 
 				if(confirm(self.get_tool_label('sure') || 'Sure?')) {
@@ -808,7 +809,7 @@ export const render_unreadable_file_card = function(self, item) {
 						self.refresh()
 					})
 				}
-			})
+			}})
 
 	// read_error. The server's sentence, as text.
 		ui.create_dom_element({

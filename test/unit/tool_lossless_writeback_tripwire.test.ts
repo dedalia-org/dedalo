@@ -395,6 +395,20 @@ else {
 				contents: "export const error_text = (api_error) => (api_error && api_error.code) || '';\n",
 				loader: 'js',
 			}));
+			// The ONE escaper (C26, render_escape_tripwire): browser_translation.js renders
+			// its streaming overlay through render_value. It pulls util.js (DOM), so the
+			// stub answers the text as given — this leg judges the SAVE, never the overlay.
+			build.onResolve({ filter: /core\/common\/js\/utils\/render_escape\.js$/ }, (args) =>
+				importerIsToolLang(args.importer)
+					? { path: 'render-escape-stub', namespace: 'tool-lang-escape-stub' }
+					: undefined,
+			);
+			build.onLoad({ filter: /.*/, namespace: 'tool-lang-escape-stub' }, () => ({
+				contents:
+					"export const render_value = (value) => String(value ?? '');\n" +
+					"export const render_join = (values, separator) => (values ?? []).map((v) => String(v ?? '')).join(separator ?? '');\n",
+				loader: 'js',
+			}));
 			// SUFFIX-matched, not `^\.\/…` (2026-08-31). A plugin `filter` is tested against
 			// the specifier as the resolver hands it over, and anchoring on the leading
 			// `./` asserted it arrives VERBATIM from the source. On the Linux CI runner it

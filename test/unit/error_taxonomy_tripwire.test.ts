@@ -407,7 +407,7 @@ const RAW_KEYED_EXEMPTIONS: Readonly<Record<string, { count: number; reason: Raw
 		count: 1,
 		reason: 'internal_outcome',
 	},
-	'tools/tool_import_dedalo_csv/server/index.ts': { count: 3, reason: 'admin_report' },
+	'tools/tool_import_dedalo_csv/server/index.ts': { count: 2, reason: 'admin_report' },
 	'tools/tool_import_files/server/index.ts': { count: 1, reason: 'admin_report' },
 	'tools/tool_import_marc21/server/index.ts': { count: 1, reason: 'admin_report' },
 	'tools/tool_import_zotero/server/index.ts': { count: 1, reason: 'admin_report' },

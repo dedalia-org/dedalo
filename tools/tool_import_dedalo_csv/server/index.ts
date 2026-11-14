@@ -380,11 +380,19 @@ async function getCsvFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 		} catch (error) {
 			// The read refusals (readIngestTextFile) are DedaloErrors carrying a vetted
 			// public sentence (oversized, not text, damaged); anything else is a raw
-			// filesystem message, named as such.
-			const sentence =
-				error instanceof DedaloError && error.publicMessage !== undefined
-					? error.publicMessage
-					: (error as Error).message;
+			// filesystem message — LOGGED (it embeds absolute paths, SEC-17), never on
+			// the wire: the operator reads a deliberate sentence.
+			let sentence: string;
+			if (error instanceof DedaloError && error.publicMessage !== undefined) {
+				sentence = error.publicMessage;
+			} else {
+				console.warn(
+					'[tool_import_dedalo_csv] get_csv_files: staged file could not be read:',
+					name,
+					(error as Error).message,
+				);
+				sentence = 'the file could not be read (the server log names the cause)';
+			}
 			errors.push(`Error on read file ${name}: ${sentence}`);
 			// C51 (owner 2026-11-13): the file the panel cannot read is STILL LISTED, so
 			// the operator can delete it from the panel — before, it was only in

@@ -33,9 +33,7 @@
 			"765b13452b0f85883b6b817ca1197694b827f0aa7d60130d41cef205c86c2fdb",
 			"957cc9306c7fc9bc9229377799a10196d7d5d0cbe051694b1097056553eaf012"
 		],
-		"dedalo-backup@.timer": [
-			"d26f267462aa3b2ca1a961b65b8400cf1ac2996facbfbea702f2703446bdc57e"
-		],
+		"dedalo-backup@.timer": ["d26f267462aa3b2ca1a961b65b8400cf1ac2996facbfbea702f2703446bdc57e"],
 		"dedalo-backup-alert@.service": [
 			"4e4fb18e44c07b8b09bd117871492f64972709ff5bb8a64d733587179ac0d9e7",
 			"46fef8960c0998e0435e5965ba372da5ec1cd5d70fe6825d334d27bd85f5a27a"
@@ -46,8 +44,6 @@
 		"dedalo-tls-renew@.service": [
 			"f275af16172469a3c1fd12268c3dfd543370f9613bf22b5bada617b8dd1f0637"
 		],
-		"dedalo-tls-renew@.timer": [
-			"82aaa6079b74b2648193d6ffeac01206799696fb0018dfd6bf683aaa586d6a81"
-		]
+		"dedalo-tls-renew@.timer": ["82aaa6079b74b2648193d6ffeac01206799696fb0018dfd6bf683aaa586d6a81"]
 	}
 }

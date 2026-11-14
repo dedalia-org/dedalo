@@ -81,8 +81,8 @@ import { tableRowSizeViolation } from '../targets/mariadb/sql_generator.ts';
 import { currentOntologyRevision } from './cache.ts';
 import { KNOWN_FORMATS, TABLE_FORMATS } from './formats.ts';
 import {
-	type GlobalTableCarrier,
 	compileGlobalTables,
+	type GlobalTableCarrier,
 	globalTableElementErrors,
 } from './global_tables.ts';
 import { requireSqlIdentifier } from './identifier.ts';
@@ -865,7 +865,7 @@ async function carrierColumnsOf(
 	const columns: string[] = [];
 	for (const childTipo of node.directChildrenTipos) {
 		const child = await tree.index.nodeOf(childTipo);
-		if (child === null || Boolean(child.properties?.exclude_column)) continue;
+		if (child === null || child.properties?.exclude_column) continue;
 		try {
 			columns.push(requireSqlIdentifier(nameOrLabelOf(child) ?? '', 'column'));
 		} catch {

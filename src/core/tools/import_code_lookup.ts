@@ -577,12 +577,26 @@ async function addressForRecord(
 		principal,
 	);
 	if (record.resolvedSectionId === undefined) return byCode;
-	if (byCode !== null && byCode !== record.resolvedSectionId) {
-		throw batchRefusal(
-			`The ${label} '${record.code}' is held by record ${byCode} of section ${target.sectionTipo}, ` +
-				`while the record's other identifier names record ${record.resolvedSectionId}, so the import cannot tell which one it means. ` +
-				`Nothing was imported — resolve the two records first.`,
-		);
-	}
+	assertKeyAgreesWithIdentifier(record.code, byCode, record.resolvedSectionId, target, label);
 	return record.resolvedSectionId;
+}
+
+/**
+ * The batch invariant when a record carries BOTH a key and an identifier
+ * (C18): the key's record, when there is one, is the identifier's record —
+ * two different records cannot be told apart, so the whole batch is refused.
+ */
+function assertKeyAgreesWithIdentifier(
+	code: string,
+	byCode: number | null,
+	resolvedSectionId: number | null,
+	target: ImportCodeTarget,
+	label: string,
+): void {
+	if (byCode === null || byCode === resolvedSectionId) return;
+	throw batchRefusal(
+		`The ${label} '${code}' is held by record ${byCode} of section ${target.sectionTipo}, ` +
+			`while the record's other identifier names record ${resolvedSectionId}, so the import cannot tell which one it means. ` +
+			`Nothing was imported — resolve the two records first.`,
+	);
 }

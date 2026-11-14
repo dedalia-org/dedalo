@@ -126,9 +126,9 @@ import { defaultPublicationValue, PHP_NUMBER_TYPES_OPTION } from './default_valu
 import {
 	type ExternalPublicationDegradation,
 	type ExternalPublicationEnv,
-	isExternalOutage,
 	externalPlaceholderApplies,
 	externalPublicationAtoms,
+	isExternalOutage,
 	isExternalTerminal,
 	prefetchHopExternalRows,
 } from './external_value.ts';

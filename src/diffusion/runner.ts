@@ -65,7 +65,6 @@ import {
 import { DedaloError, isDedaloError, logError, toErrorBody } from '../core/errors/index.ts';
 import { startRunnerMediaCopyRelay } from './api/media_copy.ts';
 import type { DiffusionJobRow, JobLease } from './jobs/queue.ts';
-import type { ResolvedBatch } from './resolve/resolver.ts';
 import {
 	checkpointJob,
 	failedJobResult,
@@ -88,6 +87,7 @@ import {
 	publicationTargetLockKey,
 	withFencedBatch,
 } from './jobs/target_fence.ts';
+import type { ResolvedBatch } from './resolve/resolver.ts';
 import type { WriterCloseContext } from './writers/types.ts';
 
 /** Parse `--<name> <value>` (also tolerates `--<name>=<value>`). */

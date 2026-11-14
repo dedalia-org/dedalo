@@ -48,6 +48,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { getComponentModel } from '../../src/core/components/registry.ts';
 import { sanitizeClientSqo } from '../../src/core/concepts/sqo.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
 import { isDedaloError } from '../../src/core/errors/index.ts';
@@ -204,7 +205,12 @@ const SINK_MARKER = 'SINKMARK';
 /** An alias whose swapped value is a BARE COLUMN name: admitted by the
  * tipo-or-column gate the caller's own tipo passes, refused by the tipo gate
  * an alias-swapped value must pass (identifier_gate.ts resolveSqlDataTipo). */
-const COLUMN_ALIAS = (FAMILIES[3] as Family).alias;
+const COLUMN_ALIAS = (FAMILIES[4] as Family).alias;
+/** C39 (owner 2026-11-13): a sortable:false model (component_iri) REFUSES an order
+ * clause before any alias is read — its order leg expects that refusal, not a
+ * built query. The sink's column_order leg rides a SORTABLE family for that reason. */
+const sortable = (f: Family): boolean => getComponentModel(f.model)?.sortable !== false;
+const NOT_SORTABLE = 'refused: search.invalid_sqo (sortable:false model, C39)';
 const CHILD_HOSTILE: Record<string, string> = {
 	[STRING.alias]: `zzsink'${SINK_MARKER}1`,
 	[PORTAL.alias]: `zzsink'${SINK_MARKER}2`,
@@ -315,7 +321,7 @@ describe.if(DB_READY)('SURF-1 read — no alias-swapped value reaches search SQL
 				['order', orderSqo([step(f.alias)]), new RegExp(`\\b${f.target}_order\\b`)],
 			] as const) {
 				const key = `${f.family} ${leg}`;
-				expected[key] = 'keys on target';
+				expected[key] = leg === 'order' && !sortable(f) ? NOT_SORTABLE : 'keys on target';
 				try {
 					const text = await build(sqo);
 					observed[key] =
@@ -323,7 +329,10 @@ describe.if(DB_READY)('SURF-1 read — no alias-swapped value reaches search SQL
 							? 'keys on target'
 							: `built without ${needle} (or naming the alias): ${text.slice(0, 400)}`;
 				} catch (error) {
-					observed[key] = `threw: ${(error as Error).message}`;
+					observed[key] =
+						isDedaloError(error) && error.code === 'search.invalid_sqo' && !sortable(f)
+							? NOT_SORTABLE
+							: `threw: ${(error as Error).message}`;
 				}
 			}
 		}

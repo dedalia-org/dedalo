@@ -28,7 +28,8 @@ const root = sourceTreeRoot();
 const ledger = readShippedDigests(root);
 let added = 0;
 for (const name of UNIT_TEMPLATES) {
-	const digests = (ledger.templates[name] ??= []);
+	const digests = ledger.templates[name] ?? [];
+	ledger.templates[name] = digests;
 	for (const row of OS_ROWS) {
 		const digest = sha256Text(renderTemplate(name, row, root));
 		if (digests.includes(digest)) continue;

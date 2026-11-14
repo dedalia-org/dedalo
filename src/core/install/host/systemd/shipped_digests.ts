@@ -22,6 +22,7 @@
  * PURE: text → ledger; no I/O but the one `sourceText` read of the source tree.
  */
 
+import { hostRefuse } from '../refuse.ts';
 import { sourceText } from '../source.ts';
 import type { UnitTemplate } from './render.ts';
 
@@ -77,7 +78,10 @@ export function readShippedDigests(source?: string): ShippedDigests {
 	const text = sourceText(SHIPPED_DIGESTS_FILE, source);
 	const ledger = parseShippedDigests(text);
 	if (typeof ledger === 'string') {
-		throw new Error(`${SHIPPED_DIGESTS_FILE} is malformed (${ledger}) — the release is incomplete`);
+		hostRefuse(
+			'install.step_failed',
+			`${SHIPPED_DIGESTS_FILE} is malformed (${ledger}) — the release is incomplete`,
+		);
 	}
 	return ledger;
 }
