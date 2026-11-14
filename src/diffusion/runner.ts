@@ -422,6 +422,17 @@ async function runPublicationJob(job: DiffusionJobRow, lease: JobLease): Promise
 					await session.writeGraphs(batch.section, documents);
 				}
 				if (unpublishIds.length > 0) await session.removeRecords(batch.section, unpublishIds);
+				// Owner C49: a record held back on an external OUTAGE keeps its previous
+				// publication — for a file writer that publication is a per-record file
+				// the close consolidates FROM THE MANIFEST, so the held records are carried
+				// into it here (kept, not rewritten); otherwise they vanished from the
+				// merged document and zip, and a run holding every record withdrew both.
+				if (batch.skipped.length > 0 && session.keepPublished !== undefined) {
+					await session.keepPublished(
+						batch.section,
+						batch.skipped.map((entry) => entry.sectionId),
+					);
+				}
 				const artifacts = session.takeArtifacts();
 				const writerCheckpoint = await session.checkpoint();
 

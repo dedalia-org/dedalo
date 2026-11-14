@@ -534,6 +534,20 @@ class RdfWriterSession implements WriterSession {
 		return { written: 0, deleted };
 	}
 
+	/** C49: the held-back records whose previous file still stands join the manifest (WriterSession.keepPublished). */
+	async keepPublished(
+		section: SectionPlan,
+		sectionIds: (number | string)[],
+	): Promise<(number | string)[]> {
+		const kept: (number | string)[] = [];
+		for (const sectionId of sectionIds) {
+			if (!existsSync(this.recordPath(section, sectionId))) continue;
+			this.log.note('wrote', section.sectionTipo, sectionId);
+			kept.push(sectionId);
+		}
+		return kept;
+	}
+
 	takeArtifacts(): ArtifactEvent[] {
 		return this.log.take();
 	}

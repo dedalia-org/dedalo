@@ -61,3 +61,25 @@ is the honest result of the operator's setting, and the line says so.
 No frozen fixture reaches a component_external in a publication (WC-2026-11-12). The chain gate's
 degraded case (`misconfigured` — the allowlist meter refuses the host) is unchanged by design: a
 configuration state still publishes the row.
+
+## Addendum 2026-11-14 — the held record stays in the CONSOLIDATED artifacts too (review of a0e4a8252f)
+
+The entry above kept the per-record publication (the MariaDB row; the rdf/xml/markdown per-record
+file) and the dd1758 ledger row. It did NOT keep the record in the consolidated document and zip
+the file writers build at close FROM THE RUN MANIFEST (`WriterCloseContext.manifest()`, a replay of
+the run's `wrote`/`removed` artifact events): a held record wrote no file, so it had no event, so
+it was absent from `diffusion_rdf_merged.rdf` / `diffusion_xml_merged.xml` and the zips — and a
+run that held EVERY record (the service down for the whole run) had an EMPTY manifest and
+WITHDREW the previous run's merged document and zip (`withdrawConsolidated`). That is an unpublish
+by outage at the artifacts consumers download.
+
+**After.** `WriterSession.keepPublished?(section, ids)` (rdf / xml / markdown): for each held
+record whose previous per-record file still exists the session notes a `wrote` artifact event —
+the file IS this run's publication of the record, bytes unchanged — and the runner calls it per
+batch with `ResolvedBatch.skipped` before taking the batch's events. The held record therefore
+rides the manifest into the merged document and the zip exactly as the records this run wrote; a
+held record that never had a file is not carried (nothing to keep; its report line already says
+it was skipped). Writers whose previous publication is not a per-record file (MariaDB, csv, json)
+have no door: their rows and run-built files were already right. Gate:
+diffusion_consolidated_withdrawn_native (hold both → artifacts kept holding both; hold only a
+never-published record → withdrawn — RED before: no door).

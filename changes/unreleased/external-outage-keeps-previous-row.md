@@ -10,7 +10,9 @@ cannot be reached during the run — down, timing out, or temporarily closed aft
 failures — the record's row is now **held back**: nothing is written for it and nothing is
 removed, so the public table keeps the row of the previous run. The run finishes as a partial
 success with one line per held record ("row SKIPPED, previous publication kept, retried by the
-next run"), and the next run of the element publishes it as usual. Before, the row was written
+next run"), and the next run of the element publishes it as usual. For the RDF, XML and Markdown
+publications the held record also stays in the merged document and the download archive the run
+rebuilds, so a service outage never removes it from what the public downloads. Before, the row was written
 with the remote values empty — the public site lost them until a later run succeeded.
 
 Unchanged: a remote record the service reports as gone publishes an empty value (that is the

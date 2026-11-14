@@ -113,6 +113,23 @@ export interface WriterSession {
 	writeGraphs?(section: SectionPlan, documents: RdfRecordDocument[]): Promise<WriteBatchResult>;
 	/** Remove published records (unpublish + delete propagation). */
 	removeRecords(section: SectionPlan, sectionIds: (number | string)[]): Promise<WriteBatchResult>;
+	/**
+	 * File writers (rdf / xml / markdown): CARRY the records this run held back on
+	 * an external OUTAGE (owner C49, ResolvedBatch.skipped) into the run's artifact
+	 * manifest — a held record writes no file, so without this it was ABSENT from
+	 * the consolidated document and zip the close builds from the manifest (and a
+	 * run holding every record WITHDREW them). For each id whose previous per-record
+	 * file still exists the session notes a `wrote` artifact event (the file IS
+	 * this run's publication of the record: unchanged bytes, kept) and answers the
+	 * ids kept; a record that never had a file is not carried (there is nothing
+	 * to keep — the report line already says it was skipped). Absent on a writer
+	 * whose previous publication is not a per-record file (MariaDB rows stand by
+	 * themselves; csv/json rebuild from the run).
+	 */
+	keepPublished?(
+		section: SectionPlan,
+		sectionIds: (number | string)[],
+	): Promise<(number | string)[]>;
 	/** The artifact events since the previous call (in order), and forget them. */
 	takeArtifacts(): ArtifactEvent[];
 	/** Durability barrier: everything written so far is durable; returns the resumable state (JSON). */
