@@ -111,8 +111,8 @@
 		"zod": "^4.6.7"
 	},
 	"devDependencies": {
-		"@babel/parser": "8.1.0",
-		"@biomejs/biome": "2.6.4",
+		"@babel/parser": "8.1.2",
+		"@biomejs/biome": "2.6.7",
 		"@types/bun": "^1.4.4",
 		"@types/less": "3.0.8",
 		"axe-core": "^4.14.0",
@@ -120,8 +120,8 @@
 		"htmlparser2": "12.0.0",
 		"less": "4.9.1",
 		"mocha": "12.0.3",
-		"parse5": "8.0.1",
-		"puppeteer": "^25.16.0"
+		"parse5": "8.1.1",
+		"puppeteer": "^25.17.0"
 	},
 	"peerDependencies": {
 		"typescript": "^7.0.2"
