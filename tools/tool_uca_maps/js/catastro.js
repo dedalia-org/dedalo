@@ -32,6 +32,7 @@ import {
 } from './basemap_swap.js'
 import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
 import {render_attribution} from './render_download_line.js'
+import {default_source} from './map_sources.js'
 
 
 
@@ -73,18 +74,14 @@ export const attach_catastro = function(self) {
 
 /**
 * CATASTRO_SOURCE
-* The component's `catastro` default (`properties.map_sources`), as core describes it
-* for drawing, or null.
+* The component's `catastro` default (`properties.map_sources`), or null.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {Object|null} {kind, id, type, params, attribution, name}
 */
 // exported for the client gate
 export const catastro_source = function(self) {
-	const entries = self.geolocation && typeof self.geolocation.get_source_entries==='function'
-		? self.geolocation.get_source_entries(0)
-		: []
-	return entries.find((entry) => entry.kind==='default' && entry.id===CATASTRO_SOURCE_ID) || null
+	return default_source(self, CATASTRO_SOURCE_ID)
 }//end catastro_source
 
 

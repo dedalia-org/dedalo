@@ -692,7 +692,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	/**
 	* Arming UA builds the core's built-in IGN layer (`builtin=ign_admin_units`)
-	* and arming Catastro its `catastro` default (`default_id=catastro`), both
+	* and Catastro and ARCGIS their component defaults (`default_id=`), all
 	* through the tile proxy: while this is in place (beforeEach) their tiles come
 	* from BLANK_TILE, so no test makes the server reach a provider. The layers stay
 	* real L.TileLayer. Returns the restore (L is global).
@@ -701,7 +701,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const original = L.tileLayer
 		const patched = function(url, options) {
 			const layer = original.call(this, url, options)
-			if (String(url).includes('builtin=ign_admin_units') || String(url).includes('default_id=catastro')) {
+			if (String(url).includes('builtin=ign_admin_units') || String(url).includes('default_id=')) {
 				layer.getTileUrl = () => BLANK_TILE
 			}
 			return layer
@@ -724,8 +724,13 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	* does not offer it as an overlay too.
 	*/
 	const offer_catastro = function() {
+		offer_defaults([CATASTRO_DEFAULT])
+	}
+
+	/** The component lists `entries` as its `properties.map_sources` (see offer_catastro). */
+	const offer_defaults = function(entries) {
 		const properties = geolocation.context.properties || {}
-		geolocation.context = {...geolocation.context, properties: {...properties, map_sources: [CATASTRO_DEFAULT]}}
+		geolocation.context = {...geolocation.context, properties: {...properties, map_sources: entries}}
 	}
 
 	let geolocation, tool, map_container, restore_ua_wms
@@ -4576,6 +4581,29 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// core takes its VARIOUS branch and builds a layer_control with arcgis and
 	// osm: the "existing control" path this module must clean up (v6 listed
 	// OSM twice).
+
+	it('ARCGIS loads straight from Esri unless the component configures an `arcgis` default, then it comes through the tile proxy', function() {
+
+		const arcgis_layer = () => Object.values(geolocation.layer_control._layers)
+			.find((entry) => entry.name==='ARCGIS').layer
+
+		tool.attach_xyz_basemaps()
+		assert.include(String(arcgis_layer()._url), 'server.arcgisonline.com', 'expected the direct Esri tiles without a configured default')
+		detach_xyz_basemaps(tool)
+
+		offer_defaults([{id: 'arcgis', label: 'ArcGIS', type: 'xyz', attribution: 'Esri test credit'}])
+		tool.attach_xyz_basemaps()
+		const layer = arcgis_layer()
+		assert.include(String(layer._url), 'default_id=arcgis', 'expected the configured default, through the tile proxy, so the map image includes it')
+		assert.notInclude(String(layer._url), 'arcgisonline', 'expected no direct Esri request')
+		assert.notEqual(layer.options.dedalo_source, true, 'expected a base layer, which the takeover and rebuilds manage, not a record overlay')
+		assert.equal(layer.getAttribution(), 'Esri test credit', 'expected the configured credit')
+		detach_xyz_basemaps(tool)
+
+		offer_defaults([{id: 'arcgis', label: 'ArcGIS', type: 'xyz', attribution: ''}])
+		tool.attach_xyz_basemaps()
+		assert.include(arcgis_layer().getAttribution(), 'Esri', 'expected Esri\'s own credit when the entry gives none')
+	})
 
 	it('attach_xyz_basemaps seeds v6\'s defaults minus Google, replaces the core\'s arcgis/osm (no duplicate), activates the first', function() {
 

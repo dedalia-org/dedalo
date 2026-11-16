@@ -15,7 +15,7 @@
 
 
 import {strip_tags, safe_url} from '../../../core/common/js/utils/util.js'
-import {add_source, delete_source, plain_attribution} from './map_sources.js'
+import {add_source, default_source, delete_source, plain_attribution} from './map_sources.js'
 import {MAX_SOURCE_ZOOM, XYZ_PLACEHOLDERS} from './core_limits.js'
 import {escape_html} from '../../../core/common/js/utils/render_escape.js'
 import {
@@ -36,7 +36,9 @@ import {render_xyz_basemaps_panel, populate_xyz_basemaps} from './render_xyz_bas
 * requesting its tiles bypasses the official Map Tiles API, which its terms forbid. OSM is
 * the core's built-in `osm` (`builtin`), whose tiles come through the tile proxy (or
 * straight from OpenStreetMap where the server says so): the page may not name an OSM
-* host of its own. Max zoom 19, the built-in's own. */
+* host of its own. Max zoom 19, the built-in's own. ARCGIS loads straight from Esri (core
+* does not relay it: its terms forbid it), so it is missing from the map image, unless the
+* component configures an `arcgis` default (`default_id`), drawn through the tile proxy. */
 // exported for the client gate
 export const DEFAULT_BASEMAPS = [
 	{
@@ -47,8 +49,9 @@ export const DEFAULT_BASEMAPS = [
 	},
 	{
 		url			: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+		default_id	: 'arcgis',
 		name		: 'ARCGIS',
-		attribution	: 'Tiles &copy; Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+		attribution	: 'Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
 		minzoom		: 0,
 		maxzoom		: 19
 	}
@@ -182,10 +185,17 @@ const rebuild_xyz_layer_control = function(self, {activate_index = 0} = {}) {
 	}
 
 	self._xyz_tile_layers = self.basemaps.map((basemap) => {
-		const zooms = {minZoom: basemap.minzoom, maxZoom: basemap.maxzoom}
+		const zooms		= {minZoom: basemap.minzoom, maxZoom: basemap.maxzoom}
+		const configured	= basemap.default_id ? default_source(self, basemap.default_id) : null
 		const tile_layer = basemap.builtin
 			? geolocation.get_builtin_layer(basemap.builtin, zooms)
-			: L.tileLayer(basemap.url, {attribution: basemap.attribution, ...zooms})
+			: configured
+				// a base layer, not one of the record's overlays (is_base_tile_layer)
+				? geolocation.get_source_layer(
+					{...configured, attribution: configured.attribution || basemap.attribution},
+					{dedalo_source: false}
+				)
+				: L.tileLayer(basemap.url, {attribution: basemap.attribution, ...zooms})
 		// the name is text (the panel list sets it as textContent), Leaflet's
 		// control writes it as innerHTML
 		layer_control.addBaseLayer(tile_layer, escape_html(basemap.name))

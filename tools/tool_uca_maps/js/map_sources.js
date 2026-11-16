@@ -62,6 +62,25 @@ export const stored_sources = function(self, type) {
 
 
 /**
+* DEFAULT_SOURCE
+* The component's ontology default named `id` (`properties.map_sources`), as core
+* describes it for drawing, or null. What an installation configures for a provider it
+* has accepted the terms of: the tool draws it through the tile proxy.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {string} id - the default's name
+* @returns {Object|null} {kind, id, type, params, attribution, name}
+*/
+export const default_source = function(self, id) {
+	const entries = self.geolocation && typeof self.geolocation.get_source_entries==='function'
+		? self.geolocation.get_source_entries(0)
+		: []
+	return entries.find((entry) => entry.kind==='default' && entry.id===id) || null
+}//end default_source
+
+
+
+/**
 * SOURCE_LAYER
 * The component's own Leaflet layer for a stored source, or null.
 *
