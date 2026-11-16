@@ -6,10 +6,13 @@
 
 /**
 * ADMINISTRATIVE_UNITS
-* "Administrative Units" (UA): the same language gate and basemap swap as Catastro.
-* v6's one toggle (`special_tools_UA_es.js` UA_on/UA_off) shows the level select, swaps
-* the basemap for the IGN administrative-units WMS and arms the click; here opening the
-* panel IS arming, and closing it, by any path, disarms.
+* "Administrative Units" (UA): the same language gate as Catastro. v6's one toggle
+* (`special_tools_UA_es.js` UA_on/UA_off) shows the level select, lays the IGN
+* administrative units out and arms the click; here opening the panel IS arming, and
+* closing it, by any path, disarms. Unlike v6 the units go OVER the active basemap: core's
+* built-in is boundaries only, transparent, so as a basemap a record's zoom (inside one
+* municipality) showed nothing. A component may configure `ign_unidades` instead
+* (`properties.map_sources`), e.g. IGN's units with their names, as v6 drew them.
 */
 
 
@@ -26,11 +29,11 @@ import {
 import {render_administrative_units_panel, show_ua_message, clear_ua_message} from './render_administrative_units.js'
 import {report_client_error} from './object_console.js'
 import {
-	disable_basemap_swap,
-	enable_basemap_swap,
+	disable_armed_layer,
+	enable_armed_layer,
 	is_spanish_official_lang,
 	wms_point_options
-} from './basemap_swap.js'
+} from './armed_layer.js'
 import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
 
 
@@ -100,19 +103,26 @@ const toggle_ua_panel = function(self) {
 
 
 
+// the `id` an administrator gives a units layer of their own in `properties.map_sources`
+const UA_SOURCE_ID = 'ign_unidades'
+
+
+
 /**
 * ENABLE_UA
-* Swaps the basemap for the IGN administrative-units WMS and arms the click.
+* Lays the administrative units over the active basemap and arms the click.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
 */
 const enable_ua = function(self) {
 
-	// the core's built-in IGN source, through the tile proxy: the page may not name
-	// www.ign.es itself (the CSP admits no tile host it can relay)
-	enable_basemap_swap(self, 'ua', {
-		tile_layer	: self.geolocation.get_builtin_layer('ign_admin_units', {opacity: 1}),
+	// both through the tile proxy: the page may not name www.ign.es itself (the CSP
+	// admits no tile host it can relay)
+	// a configured `ign_unidades` is core's own checkbox, ticked; the built-in is the tool's
+	enable_armed_layer(self, 'ua', {
+		source_key	: 'default:' + UA_SOURCE_ID,
+		build_layer	: () => self.geolocation.get_builtin_layer('ign_admin_units', {opacity: 1}),
 		label		: self.get_tool_label('ua_control_title') || 'Administrative Units',
 		on_click	: (latlng) => check_administrative_unit_at_point(self, latlng),
 		// the panel goes with the swap: an open panel over a disarmed map lies
@@ -134,7 +144,7 @@ const enable_ua = function(self) {
 * @returns {void}
 */
 const disable_ua = function(self) {
-	disable_basemap_swap(self, 'ua')
+	disable_armed_layer(self, 'ua')
 }//end disable_ua
 
 
@@ -237,7 +247,7 @@ const create_administrative_unit_object = function(self, feature) {
 
 /**
 * DETACH_ADMINISTRATIVE_UNITS
-* Disarms first, so the basemap swap and the click listener are reversed.
+* Disarms first, so the armed layer and the click listener are reversed.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -254,10 +264,12 @@ export const detach_administrative_units = function(self) {
 	self.ua_control				= null
 	self.ua_panel				= null
 	self._ua_busy				= false
-	self._ua_previous_base_layers	= null
+	self._ua_core_source			= null
+	self._ua_core_was_on			= false
+	self._ua_attribution			= null
 	self._ua_created_layer_control	= false
-	if (self._basemap_swap_armed?.key==='ua') {
-		self._basemap_swap_armed = null
+	if (self._armed_layer?.key==='ua') {
+		self._armed_layer = null
 	}
 
 }//end detach_administrative_units

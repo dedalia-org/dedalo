@@ -71,8 +71,8 @@ import { detach_file_upload } from '../../../tools/tool_uca_maps/js/vector_uploa
 import { upload_refusal_text, exception_text } from '../../../tools/tool_uca_maps/js/panel_error_text.js'
 import { error_text } from '../../../core/common/js/render_api_error.js'
 import { resolve_error_policy } from '../../../core/common/js/error_policy.js'
-import { is_catastro_enabled, check_catastro_at_point, catastro_source, catastro_attribution } from '../../../tools/tool_uca_maps/js/catastro.js'
-import { is_spanish_official_lang } from '../../../tools/tool_uca_maps/js/basemap_swap.js'
+import { is_catastro_enabled, check_catastro_at_point } from '../../../tools/tool_uca_maps/js/catastro.js'
+import { is_spanish_official_lang } from '../../../tools/tool_uca_maps/js/armed_layer.js'
 import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps/js/administrative_units.js'
 import { focus_place_result, search_places } from '../../../tools/tool_uca_maps/js/place_search.js'
 import { create_position_marker, is_geolocate_enabled, toggle_geolocate } from '../../../tools/tool_uca_maps/js/geolocate.js'
@@ -713,25 +713,30 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	/** The layer a basemap swap (Catastro, UA) puts on the map. */
 	const is_swap_layer = (layer) => layer instanceof L.TileLayer
-		&& /builtin=ign_admin_units|default_id=catastro/.test(String(layer._url))
+		&& /builtin=ign_admin_units|default_id=/.test(String(layer._url))
 
 	/** The `catastro` default an administrator lists in `properties.map_sources`, as core sends it. */
 	const CATASTRO_DEFAULT = {id: 'catastro', label: 'Catastro', type: 'wms', attribution: 'Test credit', crs: 'EPSG:3857'}
 
-	/**
-	* Catastro's button exists only for a component that lists that default. A copy of the
-	* context, so no other instance sharing it sees the entry; set after get_map, so core
-	* does not offer it as an overlay too.
-	*/
+	/** Catastro's button exists only for a component that lists that default. */
 	const offer_catastro = function() {
 		offer_defaults([CATASTRO_DEFAULT])
 	}
 
-	/** The component lists `entries` as its `properties.map_sources` (see offer_catastro). */
+	/**
+	* The component lists `entries` as its `properties.map_sources`, and core offers each as
+	* its own overlay, as get_map does on a configured install. A copy of the context, so no
+	* other instance sharing it sees the entries.
+	*/
 	const offer_defaults = function(entries) {
 		const properties = geolocation.context.properties || {}
 		geolocation.context = {...geolocation.context, properties: {...properties, map_sources: entries}}
+		geolocation.build_source_layers(0)
 	}
+
+	/** The layer-control entries whose tiles are `url_part`'s (the default or built-in it names). */
+	const control_entries_of = (url_part) => Object.values(geolocation.layer_control._layers)
+		.filter((entry) => String(entry.layer._url).includes(url_part))
 
 	let geolocation, tool, map_container, restore_ua_wms
 
@@ -5495,53 +5500,76 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(tool.catastro_control, 'expected the button once the component lists the source')
 	})
 
-	it('armed, Catastro is the configured default through the tile proxy, credited with its source and the day', function() {
+	it('armed, Catastro ticks core\'s own checkbox for the configured default, over the basemap, credited with its source and the day; disarmed, unticks it', function() {
 
 		geolocation.section_lang = 'lg-spa'
 		offer_catastro()
 		tool.attach_catastro()
-		tool.catastro_control.getContainer().click()
 
-		const layer	= tool._catastro_tile_layer
-		const url	= String(layer._url)
-		assert.include(url, 'default_id=catastro', 'expected the tile proxy to serve the configured default')
-		assert.notInclude(url, 'catastro.meh.es', 'expected no direct request to Catastro: the page CSP blocks it and the map image loses it')
+		const map			= geolocation.map
+		const core_layer	= geolocation.source_layers['default:catastro'].layer
+		const basemap		= find_active_tile_layer(map)
+		assert.isOk(basemap, 'expected a basemap on the map before arming (test fixture default)')
+		assert.lengthOf(control_entries_of('default_id=catastro'), 1, 'expected core\'s one checkbox to start with')
+
+		tool.catastro_control.getContainer().click()
+		assert.equal(is_catastro_enabled(tool), true)
+		assert.equal(tool._catastro_tile_layer, core_layer, 'expected core\'s own layer, not a second copy')
+		assert.equal(map.hasLayer(core_layer), true, 'expected its checkbox ticked')
+		assert.lengthOf(control_entries_of('default_id=catastro'), 1, 'expected still ONE Catastro entry in the layer control')
+		assert.equal(map.hasLayer(basemap), true, 'expected the basemap kept under the parcels — an overlay, not a swap')
+		assert.notInclude(String(core_layer._url), 'catastro.meh.es', 'expected no direct request to Catastro: the page CSP blocks it and the map image loses it')
 		const today = new Date().toISOString().slice(0, 10)
-		assert.equal(layer.getAttribution(), 'Test credit, ' + today, 'expected the configured credit and the date the licence asks for')
+		const credits = map.attributionControl.getContainer().textContent
+		assert.include(credits, 'Test credit', 'expected the configured source credit on the armed map')
+		assert.include(credits, 'Catastro, ' + today, 'expected the date the licence asks for, while armed')
 
-		const without_credit = catastro_attribution({...catastro_source(tool), attribution: ''})
-		assert.equal(without_credit, 'Dirección General del Catastro (Spain), ' + today, 'expected core\'s credit when the entry gives none')
+		tool.catastro_control.getContainer().click()
+		assert.equal(is_catastro_enabled(tool), false)
+		assert.equal(map.hasLayer(core_layer), false, 'expected its checkbox unticked again')
+		assert.lengthOf(control_entries_of('default_id=catastro'), 1, 'expected core\'s checkbox still offered')
+		assert.notInclude(map.attributionControl.getContainer().textContent, 'Catastro, ' + today, 'expected the date credit gone with it')
+		assert.equal(map.hasLayer(basemap), true)
 	})
 
-	// as v6, Catastro SWAPS the active basemap (marked in the map's own
-	// layer-control) rather than laying a translucent overlay on top of it
-	it('clicking "Catastro" swaps the active basemap for the cadastral map; a second click restores the previous one', function() {
+	it('a `catastro` entry with no credit of its own is credited, while armed, with core\'s credit for the provider and the date', function() {
+
+		geolocation.section_lang = 'lg-spa'
+		offer_defaults([{...CATASTRO_DEFAULT, attribution: ''}])
+		tool.attach_catastro()
+		tool.catastro_control.getContainer().click()
+
+		const today = new Date().toISOString().slice(0, 10)
+		assert.include(
+			geolocation.map.attributionControl.getContainer().textContent,
+			'Dirección General del Catastro (Spain), ' + today,
+			'expected the source named even when the entry gives no credit'
+		)
+	})
+
+	it('a Catastro checkbox the viewer had ticked stays ticked after Catastro is disarmed, also across a save rebuild', function() {
 
 		geolocation.section_lang = 'lg-spa'
 		offer_catastro()
 		tool.attach_catastro()
-
-		const previous_base_layer = find_active_tile_layer(geolocation.map)
-		assert.isOk(previous_base_layer, 'expected a basemap already on the map before arming (test fixture default)')
-
-		tool.catastro_control.getContainer().click()
-		assert.equal(is_catastro_enabled(tool), true, 'expected Catastro armed after one click')
-		assert.isOk(tool._catastro_tile_layer, 'expected the cadastral tile layer built')
-		assert.equal(geolocation.map.hasLayer(tool._catastro_tile_layer), true, 'expected the cadastral layer active on the map')
-		assert.equal(geolocation.map.hasLayer(previous_base_layer), false, 'expected the PREVIOUS basemap removed while Catastro is active — a swap, not an overlay')
-		assert.isOk(geolocation.layer_control, 'expected a layer_control to exist (created if none did)')
-		assert.isOk(Object.values(geolocation.layer_control._layers).some((entry) => entry.layer===tool._catastro_tile_layer), 'expected Catastro registered as a base layer, so the control marks it selected')
+		const map = geolocation.map
+		geolocation.source_layers['default:catastro'].layer.addTo(map) // the viewer ticked it
 
 		tool.catastro_control.getContainer().click()
-		assert.equal(is_catastro_enabled(tool), false, 'expected Catastro disarmed after a second click')
-		assert.equal(tool._catastro_tile_layer, null, 'expected the cadastral tile layer cleared')
-		assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored')
+		geolocation.build_source_layers(0) // a confirmed save rebuilds core's layers, keeping the ticked ones
+		tool.catastro_control.getContainer().click()
+		assert.equal(map.hasLayer(geolocation.source_layers['default:catastro'].layer), true, 'expected the viewer\'s own choice kept')
+
+		// not ticked before arming: off after, even when a rebuild replaced the layer meanwhile
+		map.removeLayer(geolocation.source_layers['default:catastro'].layer)
+		tool.catastro_control.getContainer().click()
+		geolocation.build_source_layers(0)
+		tool.catastro_control.getContainer().click()
+		assert.equal(map.hasLayer(geolocation.source_layers['default:catastro'].layer), false, 'expected the rebuilt layer unticked on disarm')
 	})
 
-	// both swap the basemap: one at a time, as v6's only_one_active_control.
-	// Before, UA remembered Catastro's WMS as "the previous basemap" and put it
-	// back after Catastro had let go — a cadastral layer nothing could remove
-	it('Catastro and UA take turns on the basemap: CAT → UA → CAT → UA, then closing UA, leaves only the original basemap', function() {
+	// one armed at a time, as v6's only_one_active_control: a click must ask one service
+	it('Catastro and UA take turns: CAT → UA → CAT → UA, then closing UA, leaves only the original basemap', function() {
 
 		geolocation.section_lang = 'lg-spa'
 		offer_catastro()
@@ -5580,9 +5608,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		click_ua()
 		assert.deepEqual(wms_on_map(), [], 'expected no WMS left once both are off')
 		assert.equal(map.hasLayer(original), true, 'expected the original basemap back')
-		const entries = geolocation.layer_control ? Object.values(geolocation.layer_control._layers) : []
-		assert.isFalse(entries.some((entry) => is_swap_layer(entry.layer)), 'expected no WMS left in the layer control')
-		assert.equal(tool._basemap_swap_armed, null, 'expected no swap holding the basemap')
+		assert.lengthOf(control_entries_of('builtin=ign_admin_units'), 0, 'expected the tool\'s own UA layer out of the layer control')
+		assert.lengthOf(control_entries_of('default_id=catastro'), 1, 'expected core\'s Catastro checkbox still offered, once')
+		assert.equal(tool._armed_layer, null, 'expected nothing left armed')
 	})
 
 	it('check_catastro_at_point (found) creates a polygon with a visible "url" property, not hidden uca_maps bookkeeping', async function() {
@@ -5899,15 +5927,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isOk(tool.ua_panel.querySelector('.uca-maps-ua-level-select'), 'expected the level select rendered')
 		})
 
-		// v6's UA_on swaps the basemap for the IGN administrative units, as Catastro does:
-		// laid over it, the units would be read against a second map
-		it('opening the "UA" panel swaps the active basemap; closing it restores the previous one', function() {
+		// v6's UA_on swapped the basemap; core's built-in is boundaries only, transparent,
+		// so alone it showed nothing at a record's zoom: the units go OVER the basemap
+		it('opening the "UA" panel lays the units over the active basemap, as a checkbox; closing it takes them off', function() {
 
 			geolocation.section_lang = 'lg-spa'
 			tool.attach_administrative_units()
 
 			const previous_base_layer = find_active_tile_layer(geolocation.map)
 			assert.isOk(previous_base_layer, 'expected a basemap already on the map before arming (test fixture default)')
+			const active_before = geolocation.active_layer_id
 
 			tool.ua_control.getContainer().click()
 			assert.equal(tool.ua_panel.hidden, false, 'expected the panel open')
@@ -5917,12 +5946,41 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.include(ua_url, '/api/v1/map_tile?', 'expected the core\'s built-in, through the tile proxy')
 			assert.include(ua_url, 'builtin=ign_admin_units')
 			assert.notInclude(ua_url, 'ign.es', 'expected no provider address in the page')
-			assert.equal(geolocation.map.hasLayer(previous_base_layer), false, 'expected the PREVIOUS basemap removed while UA is active — a swap, not an overlay')
+			assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the basemap kept under the units — an overlay, not a swap')
+			const ua_entry = Object.values(geolocation.layer_control._layers).find((entry) => entry.layer===tool._ua_tile_layer)
+			assert.isOk(ua_entry, 'expected the units listed in the layer control')
+			assert.equal(ua_entry.overlay, true, 'expected them a checkbox, not a basemap radio')
+			assert.equal(tool._ua_tile_layer.options.dedalo_source, true, 'expected a tile layer core never makes the active drawing layer')
+			assert.equal(geolocation.active_layer_id, active_before, 'expected the active drawing layer unchanged')
+			assert.isAbove(tool._ua_tile_layer.options.zIndex, previous_base_layer.options.zIndex || 1, 'expected the units above the basemap')
+			const ua_layer = tool._ua_tile_layer
 
 			tool.ua_control.getContainer().click()
 			assert.equal(tool.ua_panel.hidden, true, 'expected the panel closed')
 			assert.equal(tool._ua_tile_layer, null, 'expected the tile layer cleared')
-			assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored')
+			assert.equal(geolocation.map.hasLayer(ua_layer), false, 'expected the units off the map')
+			assert.isFalse(Object.values(geolocation.layer_control._layers).some((entry) => entry.layer===ua_layer), 'expected the units out of the layer control')
+			assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the basemap still there')
+		})
+
+		it('with an `ign_unidades` default in properties.map_sources, UA ticks core\'s own checkbox for it instead of adding the built-in', function() {
+
+			geolocation.section_lang = 'lg-spa'
+			offer_defaults([{id: 'ign_unidades', label: 'Unidades', type: 'wms', attribution: 'IGN test credit', crs: 'EPSG:3857'}])
+			tool.attach_administrative_units()
+			const core_layer = geolocation.source_layers['default:ign_unidades'].layer
+			const basemap = find_active_tile_layer(geolocation.map)
+
+			tool.ua_control.getContainer().click()
+			assert.equal(tool._ua_tile_layer, core_layer, 'expected core\'s own layer, not a second copy')
+			assert.equal(geolocation.map.hasLayer(core_layer), true, 'expected its checkbox ticked')
+			assert.lengthOf(control_entries_of('default_id=ign_unidades'), 1, 'expected ONE units entry in the layer control')
+			assert.lengthOf(control_entries_of('builtin=ign_admin_units'), 0, 'expected no built-in beside it')
+			assert.equal(geolocation.map.hasLayer(basemap), true, 'expected the basemap kept under the units')
+
+			tool.ua_control.getContainer().click()
+			assert.equal(geolocation.map.hasLayer(core_layer), false, 'expected its checkbox unticked again')
+			assert.lengthOf(control_entries_of('default_id=ign_unidades'), 1, 'expected core\'s checkbox still offered')
 		})
 
 		// the exclusivity close (toolbar.js) never passes through UA's own toggle:
@@ -6098,11 +6156,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		})
 	})
 
-	// basemap_swap.js, shared by Catastro and UA: a map click is the lookup, and
-	// disarming undoes all of the swap, the layer control it had to create included
+	// armed_layer.js, shared by Catastro and UA: a map click is the lookup, and disarming
+	// undoes all of it. Catastro arms core's own checkbox (`core`); UA without a configured
+	// source adds the built-in, and the layer control it had to create for it
 	for (const swap of [
-		{key: 'catastro', attach: 'attach_catastro', control: 'catastro_control', action: 'get_catastro_parcel', extra: {}},
-		{key: 'ua', attach: 'attach_administrative_units', control: 'ua_control', action: 'get_administrative_unit', extra: {level: 'Municipio'}}
+		{key: 'catastro', attach: 'attach_catastro', control: 'catastro_control', action: 'get_catastro_parcel', extra: {}, core: true},
+		{key: 'ua', attach: 'attach_administrative_units', control: 'ua_control', action: 'get_administrative_unit', extra: {level: 'Municipio'}, core: false}
 	]) {
 		it(`${swap.key}: a map click asks with the view and clicked pixel; disarming unhooks click, layer and the control it made`, async function() {
 
@@ -6154,10 +6213,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			toggle() // disarm
 			assert.isFalse(map.listens('click', armed_handler), 'expected the map click unhooked')
 			assert.strictEqual(geolocation.layer_control, fixture_control, 'expected the fixture\'s control kept')
-			assert.isFalse(
+			assert.isFalse(map.hasLayer(tile_layer), 'expected the layer off the map')
+			assert.equal(
 				Object.values(fixture_control._layers).some((entry) => entry.layer===tile_layer),
-				'expected the WMS out of the basemap list'
+				swap.core,
+				swap.core ? 'expected core\'s checkbox still offered' : 'expected the tool\'s layer out of the layer control'
 			)
+			if (swap.core) {
+				return
+			}
 
 			// without one (the core's OSM branch): the swap creates a control and removes it again.
 			// The fixture's control is removed for real, as in the XYZ takeover

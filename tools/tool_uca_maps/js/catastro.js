@@ -8,8 +8,9 @@
 * CATASTRO
 * Panel-less toggle, as v6 (`special_tools_catastro.js`), offered for es/cat/eus
 * records whose component lists a `catastro` default in `properties.map_sources`. Armed,
-* that source, drawn through core's tile proxy (so it also reaches the map image),
-* REPLACES the basemap, as v6. A map click asks the server for the parcel (the browser
+* that source, drawn through core's tile proxy (so it also reaches the map image), goes
+* OVER the basemap: core's own checkbox for it is ticked (armed_layer.js). v6 swapped the
+* basemap for it, which with a transparent WMS left only parcels on the bare container. A map click asks the server for the parcel (the browser
 * cannot read that WMS's replies) and draws it.
 */
 
@@ -25,11 +26,11 @@ import {
 } from './toolbar.js'
 import {report_client_error} from './object_console.js'
 import {
-	disable_basemap_swap,
-	enable_basemap_swap,
+	disable_armed_layer,
+	enable_armed_layer,
 	is_spanish_official_lang,
 	wms_point_options
-} from './basemap_swap.js'
+} from './armed_layer.js'
 import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
 import {render_attribution} from './render_download_line.js'
 import {default_source} from './map_sources.js'
@@ -87,18 +88,23 @@ export const catastro_source = function(self) {
 
 
 /**
-* CATASTRO_ATTRIBUTION
-* The licence asks for the source and the date on every use: the configured credit (or
-* core's, when the entry gives none) and the day the map was drawn.
+* CATASTRO_ARMED_CREDIT
+* The licence asks for the source and the date on every use. The layer drawn is core's
+* own, credited with the configured text alone: while armed the map also credits the
+* date, after the source itself when the entry gives no credit (core's, for the same
+* provider).
 *
+* @param {Object} self - tool_uca_maps instance
 * @param {Object} source - catastro_source()
 * @returns {string} plain text
 */
 // exported for the client gate
-export const catastro_attribution = function(source) {
-	const credit = source.attribution!=='' ? source.attribution : CATASTRO_CREDIT
-	return credit + ', ' + new Date().toISOString().slice(0, 10)
-}//end catastro_attribution
+export const catastro_armed_credit = function(self, source) {
+	const name = source.attribution!==''
+		? (self.get_tool_label('catastro_control_title') || 'Catastro')
+		: CATASTRO_CREDIT
+	return name + ', ' + new Date().toISOString().slice(0, 10)
+}//end catastro_armed_credit
 
 
 
@@ -128,7 +134,7 @@ const toggle_catastro = function(self) {
 
 /**
 * ENABLE_CATASTRO
-* Arms the button, then swaps the basemap for the cadastral source and arms the click.
+* Arms the button, then lays the cadastral source over the basemap and arms the click.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -139,12 +145,11 @@ const enable_catastro = function(self) {
 
 	set_toolbar_button_armed(self.catastro_control, ENABLED_CLASS, true)
 
-	enable_basemap_swap(self, 'catastro', {
-		tile_layer	: self.geolocation.get_source_layer(
-			{...source, attribution: catastro_attribution(source)},
-			{opacity: 1}
-		),
+	enable_armed_layer(self, 'catastro', {
+		source_key	: 'default:' + CATASTRO_SOURCE_ID,
+		build_layer	: () => self.geolocation.get_source_layer(source, {opacity: 1}),
 		label		: self.get_tool_label('catastro_control_title') || 'Catastro',
+		attribution	: catastro_armed_credit(self, source),
 		on_click	: (latlng) => check_catastro_at_point(self, latlng),
 		disarm		: () => disable_catastro(self)
 	})
@@ -164,7 +169,7 @@ const disable_catastro = function(self) {
 
 	set_toolbar_button_armed(self.catastro_control, ENABLED_CLASS, false)
 
-	disable_basemap_swap(self, 'catastro')
+	disable_armed_layer(self, 'catastro')
 
 	clear_catastro_message(self)
 	clear_catastro_credit(self)
@@ -340,7 +345,7 @@ const clear_catastro_credit = function(self) {
 
 /**
 * DETACH_CATASTRO
-* Disarms first, so the basemap swap and the click listener are reversed.
+* Disarms first, so the armed layer and the click listener are reversed.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -359,10 +364,12 @@ export const detach_catastro = function(self) {
 	self._catastro_tile_layer			= null
 	self._catastro_click_handler		= null
 	self._catastro_busy				= false
-	self._catastro_previous_base_layers	= null
+	self._catastro_core_source			= null
+	self._catastro_core_was_on			= false
+	self._catastro_attribution			= null
 	self._catastro_created_layer_control	= false
-	if (self._basemap_swap_armed?.key==='catastro') {
-		self._basemap_swap_armed = null
+	if (self._armed_layer?.key==='catastro') {
+		self._armed_layer = null
 	}
 
 }//end detach_catastro
