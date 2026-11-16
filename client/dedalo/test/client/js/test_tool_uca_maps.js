@@ -9573,6 +9573,39 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.roman_dropdown.hidden, false, 'expected the hits listed')
 	})
 
+	it('DARE\'s Search button searches like Enter, once, and hands the keys back to the field', async function() {
+
+		mount_roman(WITH_PLEIADES)
+		await load_roman_capabilities(tool)
+		open_roman()
+
+		const asked = []
+		stub_tool_request(async function(options) {
+			asked.push(options)
+			return { ok: true, data: { results: [roman_hit('Gades', 36.53, -6.29)] } }
+		})
+
+		for (const source of ['pleiades', 'pelagios']) {
+			assert.isNull(tool.roman_panel.querySelector('.uca-maps-roman-' + source + ' .uca-maps-roman-search-button'), 'expected no button on the as-you-type source ' + source)
+		}
+		const block		= tool.roman_panel.querySelector('.uca-maps-roman-dare')
+		const input		= block.querySelector('.uca-maps-roman-input')
+		const button	= block.querySelector('.uca-maps-roman-search-button')
+		assert.isOk(button, 'expected DARE\'s Search button')
+		assert.equal(button.textContent, 'Search')
+		assert.equal(button.type, 'button', 'expected a plain button, never a form submit')
+		assert.equal(button.parentNode, input.parentNode, 'expected the button on the field\'s own line')
+
+		input.value = 'Gades'
+		button.click()
+		await tick(SETTLE_MS)
+		assert.equal(asked.length, 1, 'expected the button to search, once')
+		assert.equal(asked[0].action, 'search_dare')
+		assert.equal(asked[0].options.query, 'Gades')
+		assert.equal(tool.roman_dropdown.hidden, false, 'expected the hits listed')
+		assert.equal(document.activeElement, input, 'expected the focus back on the field, whose arrows walk the list')
+	})
+
 	it('a burst of keystrokes is ONE request, not one per character (v6 fires per keyup)', async function() {
 
 		mount_roman(WITH_PLEIADES) // a local source: DARE searches on Enter only
@@ -10383,8 +10416,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected Tab past the last row to close the list')
 		assert.equal(
 			document.activeElement,
-			panel.querySelector('.uca-maps-roman-dare-filters select'),
-			'expected the focus on the control right after the field'
+			panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-search-button'),
+			'expected the focus on the control right after the field: DARE\'s Search button'
 		)
 
 		// Esc in a row: closed, back in the field

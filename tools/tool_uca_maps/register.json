@@ -1,7 +1,7 @@
 {
 	"$schema": "../../src/core/tools/register.schema.json",
 	"name": "tool_uca_maps",
-	"version": "1.0.9",
+	"version": "1.0.10",
 	"label": {
 		"lg-eng": "UCA Maps",
 		"lg-spa": "Mapas UCA"
@@ -582,6 +582,8 @@
 
 		{ "lang": "lg-eng", "name": "roman_placeholder_enter", "value": "Place name, then Enter" },
 		{ "lang": "lg-spa", "name": "roman_placeholder_enter", "value": "Nombre del lugar e Intro" },
+		{ "lang": "lg-eng", "name": "roman_search_button", "value": "Search" },
+		{ "lang": "lg-spa", "name": "roman_search_button", "value": "Buscar" },
 		{ "lang": "lg-eng", "name": "roman_pleiades_by_name", "value": "By place name" },
 		{ "lang": "lg-spa", "name": "roman_pleiades_by_name", "value": "Por nombre de lugar" },
 		{ "lang": "lg-eng", "name": "roman_pleiades_by_id", "value": "By Pleiades id" },

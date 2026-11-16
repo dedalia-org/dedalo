@@ -1502,6 +1502,36 @@
 .uca-maps-roman-panel .uca-maps-roman-unavailable[hidden] {
   display: none;
 }
+.uca-maps-roman-panel .uca-maps-roman-query-row {
+  display: flex;
+  gap: 0.3rem;
+}
+.uca-maps-roman-panel .uca-maps-roman-query-row .uca-maps-roman-input {
+  flex: 1 1 auto;
+}
+.uca-maps-roman-panel .uca-maps-roman-query-row .uca-maps-roman-search-button {
+  background-color: var(--tool_fill);
+  border-color: var(--tool_fill);
+  color: var(--tool_on_fill);
+  flex: 0 0 auto;
+  white-space: nowrap;
+  border: none;
+  border-radius: 0.2rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.uca-maps-roman-panel .uca-maps-roman-query-row .uca-maps-roman-search-button:not(.button_spinner)::before {
+  background-color: var(--button-bg-color, var(--tool_on_fill)) !important;
+}
+.uca-maps-roman-panel .uca-maps-roman-query-row .uca-maps-roman-search-button:hover {
+  background-color: var(--tool_fill_hover);
+  border-color: var(--tool_fill_hover);
+}
+.uca-maps-roman-panel .uca-maps-roman-query-row .uca-maps-roman-search-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .uca-maps-roman-panel .uca-maps-roman-pleiades-type {
   display: flex;
   gap: 1rem;

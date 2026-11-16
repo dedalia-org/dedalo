@@ -1528,6 +1528,19 @@
 		}
 	}
 
+	// DARE's field and its Search button share one line; the field takes the rest
+	.uca-maps-roman-query-row {
+		.uca-maps-button-row();
+
+		.uca-maps-roman-input {
+			flex: 1 1 auto;
+		}
+
+		.uca-maps-roman-search-button {
+			.uca-maps-panel-action-button();
+		}
+	}
+
 	.uca-maps-roman-pleiades-type {
 		display: flex;
 		gap: 1rem;
@@ -1573,7 +1586,7 @@
 		white-space: nowrap; // a layer name is an identifier: wrapped, it reads as two
 	}
 
-	// the two layer-selection buttons (the search has no button: the
+	// the two layer-selection buttons (the live searches have no button: the
 	// suggestion list IS the search — see .uca-maps-roman-dropdown below)
 	.uca-maps-roman-dataset-buttons button {
 		.uca-maps-panel-action-button();

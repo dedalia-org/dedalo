@@ -282,10 +282,11 @@ const clear_roman_message = function(block) {
 
 /**
 * RENDER_QUERY_INPUT
-* A source's field. No Search button and no in-flow list: hits arrive as a typeahead
-* under the field (↑/↓ walk it, Enter or a click draws the place, Esc closes it), with
-* the keyboard contract of core `service_autocomplete`. The two local gazetteers keep
-* v6's search-on-keyup; DARE, a third party, searches on Enter only (LIVE_SOURCES).
+* A source's field. No in-flow list: hits arrive as a typeahead under the field
+* (↑/↓ walk it, Enter or a click draws the place, Esc closes it), with the keyboard
+* contract of core `service_autocomplete`. The two local gazetteers keep v6's
+* search-on-keyup; DARE, a third party, searches on Enter or its Search button only
+* (LIVE_SOURCES).
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
@@ -294,12 +295,19 @@ const clear_roman_message = function(block) {
 */
 const render_query_input = function(self, panel, block) {
 
-	const source = block.dataset.source
+	const source		= block.dataset.source
+	const as_you_type	= LIVE_SOURCES.has(source)
 
-	const query_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-roman-input', parent: block})
+	// a source searched on a gesture also gets a button for it: Enter alone is
+	// invisible, and a phone keyboard may not offer it
+	const field_parent = as_you_type
+		? block
+		: ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-query-row', parent: block})
+
+	const query_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-roman-input', parent: field_parent})
 	query_input.type			= 'text'
-	query_input.placeholder		= LIVE_SOURCES.has(source)
-		? (self.get_tool_label('roman_placeholder') || 'Place name')
+	query_input.placeholder		= as_you_type
+		?(self.get_tool_label('roman_placeholder') || 'Place name')
 		: (self.get_tool_label('roman_placeholder_enter') || 'Place name, then Enter')
 	query_input.autocomplete	= 'off'
 
@@ -326,6 +334,28 @@ const render_query_input = function(self, panel, block) {
 
 		clear_roman_message(block)
 		populate_roman_results(self, panel)
+	}
+
+	/** The gesture search: Enter with nothing chosen, or the Search button. */
+	const search_now = () => {
+		self.cancel_roman_search_timer()
+		claim_roman_list(self, source)
+		run_search(false)
+	}
+
+	if (!as_you_type) {
+		const search_btn = ui.create_dom_element({
+			element_type	: 'button',
+			class_name		: 'uca-maps-roman-search-button',
+			text_content	: self.get_tool_label('roman_search_button') || 'Search',
+			parent			: field_parent
+		})
+		search_btn.type = 'button'
+		search_btn.addEventListener('click', () => {
+			// back to the field first: its keys walk the list the search opens
+			query_input.focus()
+			search_now()
+		})
 	}
 
 	// Enter with the list closed (or nothing chosen yet) searches NOW, without
@@ -367,9 +397,7 @@ const render_query_input = function(self, panel, block) {
 				choose_suggestion(self, panel, self._roman_active_index)
 				return
 			}
-			self.cancel_roman_search_timer()
-			claim_roman_list(self, source)
-			run_search(false)
+			search_now()
 		}
 	})
 
@@ -382,7 +410,7 @@ const render_query_input = function(self, panel, block) {
 
 		// a third party asks to be searched on a gesture, not per keystroke: the
 		// hits of the name before are no answer to the one being typed
-		if (!LIVE_SOURCES.has(source)) {
+		if (!as_you_type) {
 			self.close_roman_suggestions()
 			return
 		}
