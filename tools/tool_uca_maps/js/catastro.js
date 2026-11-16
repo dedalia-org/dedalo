@@ -34,14 +34,13 @@ import {
 import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
 import {render_attribution} from './render_download_line.js'
 import {default_source} from './map_sources.js'
+import {CATASTRO_CREDIT} from './core_limits.js'
 
 
 
 const ENABLED_CLASS		= 'uca-maps-catastro-enabled'
 // the `id` an administrator gives the cadastral WMS in `properties.map_sources`
 const CATASTRO_SOURCE_ID	= 'catastro'
-// core's own credit for the same provider (src/core/geo_services/table.ts)
-const CATASTRO_CREDIT		= 'Dirección General del Catastro (Spain)'
 
 
 
