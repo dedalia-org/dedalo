@@ -27,7 +27,7 @@ import {
 } from './toolbar.js'
 import {render_file_upload_panel, clear_upload_messages, reset_file_upload_panel} from './render_file_upload.js'
 import {report_client_error} from './object_console.js'
-import {CONVERSION_TIMEOUT_MS} from './request_budgets.js'
+import {UPLOAD_TIMEOUT_MS} from './request_budgets.js'
 
 
 
@@ -141,7 +141,7 @@ export const upload_vector_file = async function(self, file, projection = {}) {
 		const response = await self.tool_request({
 			action	: 'upload_vector_layer',
 			retries	: 1,
-			timeout	: CONVERSION_TIMEOUT_MS,
+			timeout	: UPLOAD_TIMEOUT_MS,
 			busy_notice	: true,
 			options	: {
 				tipo			: self.geolocation.tipo,

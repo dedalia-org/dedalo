@@ -14,12 +14,19 @@
 
 
 
-/** A third-party lookup: the server's own fetch deadline (15 s, plus the
-* harvest door's robots.txt and pacing) with room to answer. */
-export const LOOKUP_TIMEOUT_MS = 30 * 1000
+/** A third-party lookup: the slowest the server makes (Catastro's two calls
+* through core's geo services, or the harvest door's robots.txt then the fetch,
+* each after its wait for a slot) with room to answer. Not past data_manager's
+* LONG_WAIT_TIMEOUT_MS, which would turn the busy cue off. */
+export const LOOKUP_TIMEOUT_MS = 60 * 1000
 
-/** A GDAL conversion: up to two binary runs of 60 s each (server/gdal.ts). */
-export const CONVERSION_TIMEOUT_MS = 2 * 60 * 1000
+/** A GDAL conversion: up to two binary runs of 60 s each (server/gdal.ts), and
+* room for the wait for a converter slot. */
+export const CONVERSION_TIMEOUT_MS = 3 * 60 * 1000
+
+/** A vector upload: up to three binary runs (the file's CRS probe, the typed
+* projection's lookup, the conversion itself), each bounded at 60 s. */
+export const UPLOAD_TIMEOUT_MS = 5 * 60 * 1000
 
 
 

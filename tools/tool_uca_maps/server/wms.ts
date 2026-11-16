@@ -49,6 +49,9 @@ export function normalizeWmsBaseUrl(raw: string): URL {
 	return url;
 }
 
+/** The capabilities fetch's own deadline. Exported for the budget gate. */
+export const WMS_CAPABILITIES_TIMEOUT_MS = 15_000;
+
 /** `base` + the two GetCapabilities query params WMS requires. */
 export function wmsCapabilitiesUrl(base: URL): URL {
 	const url = new URL(base.toString());
@@ -71,7 +74,7 @@ async function fetchWmsCapabilities(
 			url: wmsCapabilitiesUrl(base).toString(),
 			hosts: 'public',
 			maxBytes: 10 * 1024 * 1024,
-			timeoutMs: 15_000,
+			timeoutMs: WMS_CAPABILITIES_TIMEOUT_MS,
 		},
 		deps,
 	).catch((error: unknown) => {

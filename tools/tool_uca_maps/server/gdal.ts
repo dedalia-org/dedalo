@@ -22,8 +22,8 @@ import { GDAL_MIN_VERSION, meetsGdalMinVersion, probeOnPath } from './capabiliti
 
 /** Bounded — these are single-object/single-screenshot conversions, never a
  * multi-GB media transcode; a stuck GDAL/ImageMagick process must not hold
- * the request open indefinitely. */
-const TOOL_BINARY_TIMEOUT_MS = 60_000;
+ * the request open indefinitely. Exported for the budget gate. */
+export const TOOL_BINARY_TIMEOUT_MS = 60_000;
 
 /**
  * Every spawn runs offline. GDAL fetches on its own (a GeoJSON `crs` link, a

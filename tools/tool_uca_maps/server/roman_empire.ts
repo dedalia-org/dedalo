@@ -368,6 +368,9 @@ export async function getPleiadesPlace(
 	return ok({ place: await fetchPleiadesPlace(id, deps) }, { requestId: toolRequestId(ctx) });
 }
 
+/** A Pleiades place's own deadline. Exported for the budget gate. */
+export const PLEIADES_PLACE_TIMEOUT_MS = 15_000;
+
 /**
  * One place document from Pleiades, a GeoJSON FeatureCollection. A non-2xx
  * answer is the source failing (the id comes from its own index), refused as
@@ -381,7 +384,7 @@ async function fetchPleiadesPlace(id: string, deps: HarvestDeps = {}): Promise<u
 			hosts: [PLEIADES_HOST],
 			requireHttps: true,
 			maxBytes: 8 * 1024 * 1024,
-			timeoutMs: 15_000,
+			timeoutMs: PLEIADES_PLACE_TIMEOUT_MS,
 		},
 		deps,
 	);
